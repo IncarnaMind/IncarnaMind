@@ -8,6 +8,7 @@ import {
   casesOf,
   describeFailure,
   executeIn,
+  inTheLog,
   missingMessage,
   missingSecrets,
   OUT_OF_CREDIT,
@@ -691,7 +692,7 @@ describe("the three states of a night", () => {
   });
 });
 
-describe("a provider's words stay out of the summary", () => {
+describe("a provider's words stay out of the summary and the log", () => {
   const ORG = "org-1111aaaa2222bbbb3333cccc4444dddd";
   const ACCESS = "ak-test1234test5678abcd";
   const SUSPENDED = `{"ok":false,"error":{"kind":"out-of-credit","message":"Your account ${ORG} <${ACCESS}> is suspended due to insufficient balance, please recharge"}}`;
@@ -703,6 +704,8 @@ describe("a provider's words stay out of the summary", () => {
     "TypeError: fetch failed",
     `Error: 503 upstream ${ORG} is down`,
     "Error: something we never classified, with org-0000 in it",
+    `Organize failed on Document 4d3c.2b1a: invalid-key (401). Invalid Authentication for ${ACCESS}`,
+    `AI_APICallError: This request would exceed the rate limit for your organization (${ORG}).`,
   ];
 
   // protects=a failure's words become status and words of ours (refused, failed, timed out), whatever the provider said; fails_when=any part of the text, an id in it included, comes out, or a refusal is called a failure; no_claim=how the providers word their errors.
@@ -715,6 +718,8 @@ describe("a provider's words stay out of the summary", () => {
       "failed: no answer from the provider",
       "failed: status 503",
       "failed: see the job's log",
+      "refused: status 401",
+      "failed: the provider answered with an error",
     ]);
     expect(describeFailure("Error: 402 Your credit balance is too low")).toBe(
       "refused: out of credit (status 402)",
@@ -864,5 +869,117 @@ describe("a provider's words stay out of the summary", () => {
       "every case passed: Error: 90% of the cited sentences are Supported, under the target of 95%.",
     );
     expect(failed(`Error: ${ORG} said no\n`)).not.toContain("every case passed");
+  });
+
+  // protects=a line of a step's output that quotes a provider's answer is printed as its status and words of ours, and every other line is printed as it is; fails_when=an id from a body stays in a printed line, or a test name, a count, a progress line, a timeout of ours or a Chinese line is changed; no_claim=a body that none of the classifier's signatures names.
+  test("a log line that quotes a provider is told by its status and our words", () => {
+    const quoting: [string, string][] = [
+      [`AssertionError: ${SUSPENDED}`, "refused: out of credit"],
+      [
+        `APICallError: 429 {"error":{"message":"Rate limit reached for ${ORG} in project proj_9f8e7d6c"}}`,
+        "refused: status 429",
+      ],
+      [
+        `AI_APICallError: This request would exceed the rate limit for your organization (${ORG}).`,
+        "failed: the provider answered with an error",
+      ],
+      [
+        `Organize failed on Document 4d3c.2b1a: invalid-key (401). Invalid Authentication for ${ACCESS}`,
+        "refused: status 401",
+      ],
+      [
+        `\u001b[31mError: \u001b[1m503\u001b[22m upstream ${ORG} is down\u001b[39m`,
+        "failed: status 503",
+      ],
+      [
+        `+     "message": "Your account ${ORG} <${ACCESS}> is suspended due to insufficient balance",`,
+        "refused: out of credit",
+      ],
+      [`Error: 400 账户 ${ORG} 已暂停`, "refused: status 400"],
+    ];
+    for (const [line, words] of quoting) {
+      const printed = inTheLog(line);
+      expect(printed).toBe(`(a provider's words left out) ${words}`);
+      expect(printed).not.toMatch(/org-|ak-|proj_|upstream|suspended/);
+    }
+    const ours = [
+      " ✓ tests/live/providers.live.test.ts > kimi, live > a key connects, the models list 3615ms",
+      " FAIL  tests/live/providers.live.test.ts > kimi, live > a small call answers",
+      "AssertionError: expected 3 to be 4 // Object.is equality",
+      "Error: Tagging didn't settle within 120000 ms.",
+      "Error: Request to the provider timed out after 30000 ms",
+      "TypeError: fetch failed",
+      "      Tests  1 failed | 7 skipped (8)",
+      "The first request to Kimi got status 200.",
+      '{"set":"walk","language":"zh","model":"claude-haiku-5-5","run":1,"result":"failed","error":"not-checked"}',
+      "保存了 3 份文件，共 500 字。",
+      "",
+      "ab-".repeat(300_000),
+    ];
+    expect(ours.map(inTheLog)).toEqual(ours);
+  });
+
+  /** What a call to `write` on a stream is given, with the stream left silent until `stop`. */
+  const heardOn = (stream: NodeJS.WriteStream) => {
+    const chunks: string[] = [];
+    const spy = vi.spyOn(stream, "write").mockImplementation(((chunk: string | Uint8Array) => {
+      chunks.push(String(chunk));
+      return true;
+    }) as typeof stream.write);
+    return { text: () => chunks.join(""), stop: () => spy.mockRestore() };
+  };
+
+  // protects=what a step prints reaches the job's log with a provider's body replaced by its status and our words, whatever the chunks cut (a line, an id, a Chinese character), while the log the night reads for a key out of credit stays whole; fails_when=an id from a body is printed, a line of ours changes or is lost at a cut or at the end, or the night's own log loses the body; no_claim=a body that none of the classifier's signatures names.
+  test("a step's output is printed without a provider's body, and kept whole for the night", async () => {
+    const folder = await createTempDataFolder();
+    const writer = [
+      "const wait = () => new Promise((go) => setTimeout(go, 30));",
+      `const org = ${JSON.stringify(ORG)};`,
+      "(async () => {",
+      "  process.stdout.write('step: 3 of 7 cases\\n');",
+      "  process.stderr.write('Error: 429 Rate limit reached for ' + org.slice(0, 10));",
+      "  await wait();",
+      "  process.stderr.write(org.slice(10) + ' in project\\n');",
+      "  const saved = Buffer.from('保存了笔记\\n');",
+      "  process.stdout.write(saved.subarray(0, 4));",
+      "  await wait();",
+      "  process.stdout.write(saved.subarray(4));",
+      `  process.stdout.write(${JSON.stringify(`AssertionError: ${SUSPENDED}`)} + '\\n');`,
+      "  process.stdout.write('the last line, with no newline');",
+      "})();",
+    ].join("\n");
+    const scripted: Step = {
+      id: "raw",
+      name: "A step with raw failures",
+      provider: "kimi",
+      minutes: 1,
+      results: "vitest",
+      command: () => ["node", "-e", writer],
+      env: () => ({ NODE_NO_WARNINGS: "1" }),
+    };
+    const out = heardOn(process.stdout);
+    const err = heardOn(process.stderr);
+    let result: Awaited<ReturnType<ReturnType<typeof executeIn>>>;
+    try {
+      result = await executeIn(folder, { PATH: process.env.PATH })(scripted, "NIGHTLY_KIMI_KEY");
+    } finally {
+      out.stop();
+      err.stop();
+    }
+    expect(out.text()).toBe(
+      [
+        "step: 3 of 7 cases",
+        "保存了笔记",
+        "(a provider's words left out) refused: out of credit",
+        "the last line, with no newline",
+      ].join("\n"),
+    );
+    expect(err.text()).toBe("(a provider's words left out) refused: status 429\n");
+    for (const text of [out.text(), err.text()]) {
+      expect(text).not.toContain(ORG);
+      expect(text).not.toContain(ACCESS);
+    }
+    expect(result.log).toContain(ORG);
+    expect(OUT_OF_CREDIT.test(result.log)).toBe(true);
   });
 });

@@ -31,7 +31,9 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { StringDecoder } from "node:string_decoder";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { stripVTControlCharacters } from "node:util";
 import { costOf, inCurrency } from "../src/core/cost/price";
 import type { Price } from "../src/core/providers/catalog/types";
 import type { Gap, Status } from "./nightlyIssue";
@@ -113,19 +115,36 @@ export async function probeKey(
 const STATUS =
   /(?:\bstatus(?: code)?|\bstatusCode|\bHTTP(?:\/[\d.]+)?|\b(?:Error|APICallError))["':= ]{0,4}([1-5]\d\d)\b/i;
 
+/** The status in the core's own line for a failure, `invalid-key (401)`. */
+const KIND_STATUS = /[a-z] \(([1-5]\d\d)\)/;
+
+/** The AI SDK's errors whose message is what a provider answered. */
+const PROVIDER_ERROR =
+  /\b(?:AI_)?(?:APICall|Retry|JSONParse|TypeValidation|InvalidResponseData)Error\b/;
+
 /**
- * What a failure's text says about the request, in words of ours, or null when it says nothing we
- * can name. Only fixed words and a status code leave this function, never the text: it may hold
- * what a provider answered, with an account or key id in it, and the summary is an artifact anyone
- * can download.
+ * What the text says about a provider's answer to a request, in words of ours, or null when it
+ * quotes none. The text may hold what the provider answered, with an account or key id in it.
  */
-function classify(text: string): string | null {
-  const status = Number(STATUS.exec(text)?.[1]);
+function answered(text: string): string | null {
+  const status = Number(STATUS.exec(text)?.[1] ?? KIND_STATUS.exec(text)?.[1]);
   if (OUT_OF_CREDIT.test(text)) {
     return status ? `refused: out of credit (status ${status})` : "refused: out of credit";
   }
   if (status >= 400 && status < 500) return `refused: status ${status}`;
   if (status >= 500) return `failed: status ${status}`;
+  if (PROVIDER_ERROR.test(text)) return "failed: the provider answered with an error";
+  return null;
+}
+
+/**
+ * What a failure's text says about the request, in words of ours, or null when it says nothing we
+ * can name. Only fixed words and a status code leave this function, never the text: the summary is
+ * an artifact and the job's log a page, and anyone can read either.
+ */
+function classify(text: string): string | null {
+  const answer = answered(text);
+  if (answer) return answer;
   if (/time[ds]? ?out|ETIMEDOUT|aborted/i.test(text)) return "failed: timed out";
   if (/ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|fetch failed|socket hang up/i.test(text)) {
     return "failed: no answer from the provider";
@@ -137,6 +156,31 @@ function classify(text: string): string | null {
 /** A failed case's line in the summary: `classify`'s words, or a pointer to the job's log. */
 export const describeFailure = (text: string): string =>
   classify(text) ?? "failed: see the job's log";
+
+/**
+ * A line of a step's output as the job's log shows it: a line that quotes a provider's answer
+ * becomes its status and our words, every other line stays as it is.
+ */
+export function inTheLog(line: string): string {
+  const answer = answered(stripVTControlCharacters(line));
+  return answer ? `(a provider's words left out) ${answer}` : line;
+}
+
+/** Prints text to `to` a whole line at a time, so that `inTheLog` never judges half a line. */
+function lineByLine(to: NodeJS.WritableStream) {
+  let rest = "";
+  return {
+    add(text: string) {
+      const lines = (rest + text).split("\n");
+      rest = lines.pop() ?? "";
+      for (const line of lines) to.write(`${inTheLog(line)}\n`);
+    },
+    end() {
+      if (rest) to.write(inTheLog(rest));
+      rest = "";
+    },
+  };
+}
 
 interface Case {
   name: string;
@@ -656,9 +700,18 @@ export function executeIn(
         [run.stdout, process.stdout],
         [run.stderr, process.stderr],
       ] as const) {
+        const decoder = new StringDecoder("utf8");
+        const shown = lineByLine(to);
         stream.on("data", (chunk: Buffer) => {
-          log += chunk.toString();
-          to.write(chunk);
+          const text = decoder.write(chunk);
+          log += text;
+          shown.add(text);
+        });
+        stream.on("end", () => {
+          const text = decoder.end();
+          log += text;
+          shown.add(text);
+          shown.end();
         });
       }
       const finish = (exitCode: number) => {
