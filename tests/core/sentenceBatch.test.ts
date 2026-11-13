@@ -185,18 +185,44 @@ describe("a reply that corrects itself (#3029)", () => {
     },
   );
 
-  test.each(languages)(
-    "in $language, a pass the earlier answer judged otherwise stays unjudged",
-    async ({ words }) => {
-      const reply = twice(
-        answer(entry(1, "unsupported"), { ...entry(2, "supported"), quoted: "other" }),
-        words,
-        answer(entry(1, "supported"), entry(2, "supported")),
-      );
+  test.each([
+    { field: "kind", earlier: { kind: "opinion" } },
+    { field: "verdict", earlier: { verdict: "unsupported" } },
+    { field: "roles", earlier: { roles: "differs" } },
+    { field: "time", earlier: { time: "differs" } },
+    { field: "quoted", earlier: { quoted: "other" } },
+  ])(
+    "a pass whose earlier entry differs in $field alone stays unjudged, and one alike but for what it says is read",
+    async ({ earlier }) => {
+      for (const { words } of languages) {
+        const reply = twice(
+          answer(
+            { ...entry(1, "supported"), ...earlier },
+            { ...entry(2, "supported"), says: "So." },
+          ),
+          words,
+          answer(entry(1, "supported"), entry(2, "supported")),
+        );
 
-      expect((await readBatchReply(reply, 2)).size).toBe(0);
+        const read = await readBatchReply(reply, 2);
+
+        expect(read.has(1)).toBe(false);
+        expect(read.get(2)).toMatchObject({ verdict: "supported" });
+      }
     },
   );
+
+  test("a first answer left open, then a whole one, reads nothing: what the first said can't be known", async () => {
+    const reply = `{"sentences":[{"number":1,\n\nWait, both sentences:\n\n${answer(entry(1, "supported"), entry(2, "supported"))}`;
+
+    expect((await readBatchReply(reply, 2)).size).toBe(0);
+  });
+
+  test("one answer, then words with a lone brace, reads nothing: another answer may have begun", async () => {
+    const reply = `${answer(entry(1, "supported"))}\n\nAnd one more: {`;
+
+    expect((await readBatchReply(reply, 1)).size).toBe(0);
+  });
 
   test.each(languages)(
     "in $language, a verdict the later answer lowers stands, and one both give is read",

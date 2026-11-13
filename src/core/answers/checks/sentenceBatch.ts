@@ -60,6 +60,18 @@ export interface BatchVerdict {
 }
 
 /**
+ * Whether a verdict passes its sentence as far as the reply says: the Answer check's last gate
+ * before a figure's own (`supportOf`), and what a corrected answer can't give a sentence an earlier
+ * answer judged otherwise (#3029).
+ */
+export const passesSentence = (verdict: BatchVerdict): boolean =>
+  verdict.kind === "fact" &&
+  verdict.verdict === "supported" &&
+  verdict.roles === "same" &&
+  verdict.time === "same" &&
+  verdict.quoted === "states";
+
+/**
  * The same, byte for byte, for every request in one interface language. A sentence's says is shown
  * on its Citation's card: asked for in English, a Chinese interface showed English (#2081).
  */
@@ -191,13 +203,11 @@ function jsonObjects(text: string): { objects: unknown[]; broken: boolean } {
   return { objects, broken };
 }
 
-/** Whether a verdict passes its sentence, as far as the reply alone says. */
-const passes = (verdict: BatchVerdict) =>
-  verdict.kind === "fact" &&
-  verdict.verdict === "supported" &&
-  verdict.roles === "same" &&
-  verdict.time === "same" &&
-  verdict.quoted === "states";
+/** Whether two answers judged a sentence alike: every field of an entry but what it says. */
+const alike = (one: BatchVerdict, other: BatchVerdict) =>
+  (Object.keys(ENTRY) as (keyof typeof ENTRY)[]).every(
+    (field) => field === "says" || one[field] === other[field],
+  );
 
 /**
  * A batch's reply as the Answer check reads it; null when it can't be read. A model that corrects
@@ -214,9 +224,9 @@ export function readBatchText(reply: string, count: number): Map<number, BatchVe
   for (const [number, verdict] of later) {
     const otherwise = earlier.some((answer) => {
       const before = answer.get(number);
-      return before !== undefined && !passes(before);
+      return before !== undefined && !alike(before, verdict);
     });
-    if (passes(verdict) && otherwise) later.delete(number);
+    if (passesSentence(verdict) && otherwise) later.delete(number);
   }
   return later;
 }

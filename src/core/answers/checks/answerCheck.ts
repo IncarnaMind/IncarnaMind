@@ -43,6 +43,7 @@ import {
   batchesOf,
   batchParts,
   batchPrompt,
+  passesSentence,
   readBatchText,
   sentenceBatchInstructions,
 } from "./sentenceBatch";
@@ -192,7 +193,7 @@ async function supportOf(
   }
   // A Citation shows its words beside the check: a sentence they don't state is never green,
   // whatever another part of the Passage says (#2739).
-  if (verdict.quoted === "other") return null;
+  if (!passesSentence(verdict)) return null;
   // A number no quote states is a calculation no one made (ADR-0021): the sentence isn't judged.
   const calculation = await needsCalculation({
     claim: sentence.sentence,
