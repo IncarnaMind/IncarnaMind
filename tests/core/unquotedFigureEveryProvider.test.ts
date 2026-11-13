@@ -11,10 +11,17 @@
 import { describe, expect, test } from "vitest";
 import type { Core, SaveChatProviderInput } from "../../src/core";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
-import { checkGenerate, checkingModel, checkReply, isCheckRun, type Plan } from "../helpers/checks";
-import { setUpWithDocuments } from "../helpers/citations";
+import {
+  checkGenerate,
+  checkingModel,
+  checkReply,
+  isCheckRun,
+  type Plan,
+  SAME_DETAIL,
+} from "../helpers/checks";
+import { setUpWithDocuments, shownPassages } from "../helpers/citations";
 import { readMind, writeMind } from "../helpers/minds";
-import { type ModelCall, scriptedModel } from "../helpers/models";
+import { type ModelCall, type ScriptedReply, scriptedModel } from "../helpers/models";
 
 interface Row {
   claim: string;
@@ -295,5 +302,47 @@ describe("On the model on this computer, which the check doesn't offer calculate
   ])("a range is held only with both its ends: %s", async (claim, verdict) => {
     const line = "Growth was 2–3%.";
     expect(await ended(claim, `Growth\n${line}\n`, line)).toBe(verdict);
+  });
+
+  test.each([
+    ["In 2024, revenue was $54m.", "Revenue was $54m."],
+    ["Q3 sales rose 12%.", "Sales rose 12%."],
+    ["第三季度利润率上升了6个百分点。", "利润率上升了6个百分点"],
+  ])(
+    "a number that says when, not how much, needs no quote: %s keeps its ✓",
+    async (claim, quote) => {
+      expect(await ended(claim, `Figures\n${quote}\n`, quote)).toBe("supported");
+    },
+  );
+
+  test("two figures on two quotes keep their ✓", async () => {
+    const claim = "Revenue was $54m and costs were $30m.";
+    const lines = ["Revenue was $54m.", "Costs were $30m."];
+    const model = scriptedModel(
+      (call): ScriptedReply => {
+        const searched = call.results.filter((result) => result.tool === "search_documents");
+        if (searched.length === 0)
+          return { calls: [{ tool: "search_documents", input: { query: "revenue costs" } }] };
+        if (!call.results.some((result) => result.tool === "cite")) {
+          const shown = searched.flatMap((result) => shownPassages(result.text));
+          const citations = lines.map((quote, index) => ({
+            marker: index + 1,
+            passage: shown.find((passage) => passage.text.includes(quote))?.id,
+            quote,
+          }));
+          return { calls: [{ tool: "cite", input: { citations } }] };
+        }
+        return {
+          text: `Verdict: supported\nAbsence: no\n${SAME_DETAIL}\nThe accounts give both. [^1] [^2]\nEvidence: [1, 2]`,
+        };
+      },
+      { generate: checkGenerate({ [claim]: { verdict: "supported" } }) },
+    );
+    const { core } = await setUpWithDocuments(model, [
+      { name: "Revenue.txt", contents: `Revenue\n${lines[0]}\n` },
+      { name: "Costs.txt", contents: `Costs\n${lines[1]}\n` },
+    ]);
+
+    expect((await core.checkClaim({ claim })).verdict).toBe("supported");
   });
 });
