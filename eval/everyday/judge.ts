@@ -142,6 +142,67 @@ export async function judgeDocumentAbsence(
   return verdict;
 }
 
+const STATED_INSTRUCTIONS = [
+  "You read sentences an AI assistant wrote from the User's Documents, each with the words its Citations quote from them.",
+  "For each sentence, say whether those quoted words state everything it says: each fact, figure, name, date, limit and conclusion.",
+  "It is unstated when it adds something the quotes don't say: a conclusion, a cause, a judgement, a comparison, a qualifier such as “only” or “admits”, a wider or narrower scope, or another figure. Name the words that add it.",
+  "It is stated when it says what the quotes say, in other words or another language, or says less. A sentence that names the Document a quote comes from is stated by that quote.",
+  "Judge only against the quoted words, never from what you know.",
+  'Reply with one line for each sentence, in order: its number, then "stated", or "unstated:" and the words the quotes don\'t state. For example:',
+  "1: stated",
+  "2: unstated: “only on short inputs”",
+].join("\n");
+
+/**
+ * For each sentence, the words its Citations' quotes don't state, or null when they state it all
+ * (#3019). A sentence the judge's reply doesn't read for says so in its words, so it is counted.
+ */
+export async function judgeStated(
+  model: LanguageModel,
+  sentences: readonly {
+    sentence: string;
+    cites: readonly { documentName: string | null; quote: string | null }[];
+  }[],
+): Promise<(string | null)[]> {
+  if (sentences.length === 0) return [];
+  const { text } = await generateText({
+    model,
+    instructions: STATED_INSTRUCTIONS,
+    prompt: sentences
+      .flatMap(({ sentence, cites }, index) => [
+        `<sentence number="${index + 1}">`,
+        sentence,
+        "</sentence>",
+        ...cites.map(
+          ({ documentName, quote }) =>
+            `<quote of="${index + 1}" document="${documentName ?? ""}">${quote ?? ""}</quote>`,
+        ),
+      ])
+      .join("\n"),
+    maxOutputTokens: 1_024,
+    maxRetries: 1,
+  });
+  return statedIn(text, sentences.length);
+}
+
+/** Each sentence's line in a reply to `judgeStated`: its last one, since a judge may correct itself. */
+export function statedIn(text: string, count: number): (string | null)[] {
+  const lines = new Map<number, string | null>();
+  for (const [, number, word, words] of text.matchAll(
+    /^[ \t*>-]*(\d+)\**[ \t]*[:.)][ \t]*\**[ \t]*(stated|unstated)\b\**[ \t]*:?[ \t]*(.*)$/gim,
+  )) {
+    lines.set(
+      Number(number),
+      word?.toLowerCase() === "stated" ? null : words?.trim() || "(no words named)",
+    );
+  }
+  return Array.from({ length: count }, (_, index) =>
+    lines.has(index + 1)
+      ? (lines.get(index + 1) ?? null)
+      : `(the judge's reply doesn't read for it: ${text.slice(0, 200)})`,
+  );
+}
+
 /**
  * The verdict in a judge's reply: its last JSON object, since a judge may
  * correct itself after a first one. One it can't read lists the whole reply,

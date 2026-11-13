@@ -5,13 +5,21 @@ import type {
   LanguageModelV4Usage,
 } from "@ai-sdk/provider";
 import { type LanguageModelMiddleware, wrapLanguageModel } from "ai";
-import type { ChatModelFactory } from "../../src/core";
+import type { AnswerUsage, ChatModelFactory } from "../../src/core";
 
-/** A request made inside `hear`: what the model was sent, and the text of its reply. */
+/** A request made inside `hear`: what the model was sent, the text of its reply, and its tokens. */
 export interface HeardRequest {
   prompt: LanguageModelV4Prompt;
   text: string;
+  usage: AnswerUsage;
 }
+
+const usageOf = (usage: LanguageModelV4Usage): AnswerUsage => ({
+  inputTokens: usage.inputTokens.total ?? 0,
+  outputTokens: usage.outputTokens.total ?? 0,
+  cachedInputTokens: usage.inputTokens.cacheRead ?? 0,
+  cacheWriteTokens: usage.inputTokens.cacheWrite ?? 0,
+});
 
 export type Hear = <T>(run: () => Promise<T>) => Promise<{ result: T; requests: HeardRequest[] }>;
 
@@ -70,6 +78,7 @@ export function watchTokens() {
       heard?.push({
         prompt: params.prompt,
         text: result.content.map((part) => (part.type === "text" ? part.text : "")).join(""),
+        usage: usageOf(result.usage),
       });
       return result;
     },
@@ -88,7 +97,7 @@ export function watchTokens() {
             } else if (part.type === "tool-call") reply += `${part.toolName} ${part.input}`;
             else if (part.type === "finish") {
               record(params.prompt, part.usage, reply);
-              heard?.push({ prompt: params.prompt, text });
+              heard?.push({ prompt: params.prompt, text, usage: usageOf(part.usage) });
             }
             controller.enqueue(part);
           },

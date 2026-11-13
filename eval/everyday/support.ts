@@ -3,7 +3,10 @@
  * what they cite, as the app's own claim check (Check against Documents)
  * judges them, not a model of the evaluation's own.
  */
+
+import type { LanguageModel } from "ai";
 import type {
+  AnswerUsage,
   ChatModelChoice,
   CitationAttributes,
   CitedQuote,
@@ -18,7 +21,14 @@ import type {
 } from "../../src/core";
 import { citedSentences as markedSentences } from "../../src/shared/citedSentences";
 import type { Hear } from "../lib/tokens";
-import { type HeardCheck, heardChecks } from "./checkRequests";
+import {
+  askedAnew,
+  type HeardCheck,
+  heardChecks,
+  quotesTakenFromReplies,
+  takenQuote,
+} from "./checkRequests";
+import { judgeStated } from "./judge";
 
 export interface CitedSentence {
   /** The sentence without its Citation markers. */
@@ -60,6 +70,12 @@ export interface SentenceSupport extends CheckReason {
    * isn't Supported keeps each run's replies too. Absent when the check's requests weren't heard.
    */
   checks?: HeardCheck[];
+  /** The check's requests, each by its tokens, and how many were sent word for word again. */
+  asked?: { requests: AnswerUsage[]; anew: number };
+  /** For a ✓: the quotes behind it that its check took from a record its reply wrote (#3032). */
+  fromReply?: string[];
+  /** For a ✓, as the judge read it against its own Citations' words: what they don't state, or null. */
+  unstated?: string | null;
 }
 
 function reasonOf(judgment: ClaimPartJudgment): CheckReason {
@@ -162,9 +178,47 @@ export async function checkCitedSentences(
     const checks = heardChecks(requests).map((run) =>
       result.verdict === "supported" ? { ...run, replies: [] } : run,
     );
-    results.push({ ...sentenceSupport(each, result), checks });
+    const fromReply = result.verdict === "supported" ? takenBehind(result, requests) : [];
+    results.push({
+      ...sentenceSupport(each, result),
+      checks,
+      asked: { requests: requests.map((request) => request.usage), anew: askedAnew(requests) },
+      ...(fromReply.length > 0 && { fromReply }),
+    });
   }
   return results;
+}
+
+/** Each ✓ with what the judge finds its own Citations' words don't state, in one request an Answer. */
+export async function withStatedJudged(
+  judge: LanguageModel,
+  sentences: readonly SentenceSupport[],
+): Promise<SentenceSupport[]> {
+  const ticked = sentences.filter((each) => each.verdict === "supported");
+  const read = await judgeStated(judge, ticked);
+  return sentences.map((each) => {
+    const at = ticked.indexOf(each);
+    return at < 0 ? each : { ...each, unstated: read[at] ?? null };
+  });
+}
+
+/** The quotes of a ✓'s evidence, its Supported parts' included, that its check took from its reply. */
+function takenBehind(
+  result: ClaimCheckResult,
+  requests: Parameters<typeof quotesTakenFromReplies>[0],
+): string[] {
+  const taken = quotesTakenFromReplies(requests);
+  const quotes = [
+    ...(result.verdict === "not-checked" ? [] : [result.evidence?.quote]),
+    ...(result.parts ?? [])
+      .filter((part) => part.verdict === "supported")
+      .flatMap((part) => part.evidence.map((citation) => citation.quote)),
+  ];
+  return [
+    ...new Set(
+      quotes.filter((quote): quote is string => quote != null && takenQuote(taken, quote)),
+    ),
+  ];
 }
 
 export interface SupportRate {

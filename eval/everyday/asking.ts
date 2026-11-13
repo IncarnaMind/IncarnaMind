@@ -56,8 +56,9 @@ import { DATED_TEXTS } from "./dated";
 import { citedClaims } from "./dates";
 import { type Decision, decisionInput, type Forcing, type Route } from "./decisions";
 import { FILLED, judgeClaims, judgeDocumentAbsence, judgeToolClaims } from "./judge";
+import { type NotFoundSentence, notFoundSentences } from "./notFound";
 import type { Asks, ReaskWatch } from "./reasks";
-import { checkCitedSentences, type SentenceSupport } from "./support";
+import { checkCitedSentences, type SentenceSupport, withStatedJudged } from "./support";
 
 const ROOT = resolve(__dirname, "../..");
 
@@ -183,6 +184,10 @@ export interface CaseResult {
   asks: Asks;
   /** A research request: each cited sentence of the reply, as the app's own check judged it; null for the others. */
   support: SentenceSupport[] | null;
+  /** A research request: how long its cited sentences' checks took, in all. */
+  checkSeconds?: number;
+  /** A research request: the reply's sentences that say what wasn't found. */
+  notFound?: NotFoundSentence[];
   /** A summary: its sentences outside headings that make a claim, and how many carry a Citation; null for the others. */
   claims: { claims: number; cited: number } | null;
   /** Asked about every Document in scope: what it did with each (`documentsCovered`). */
@@ -564,7 +569,10 @@ export async function runCase(
     const found = minds.find((each) => each.id === id);
     return found ? mindName(found) || null : null;
   };
-  const support = each.research ? await checkCitedSentences(core, answer, checkModel, hear) : null;
+  const checkStarted = Date.now();
+  const checked = each.research ? await checkCitedSentences(core, answer, checkModel, hear) : null;
+  const checkSeconds = (Date.now() - checkStarted) / 1000;
+  const support = checked && (await withStatedJudged(judge, checked));
   const changed = new Set(
     answer.toolCalls.flatMap((call) => (call.mindChange ? [call.mindChange.mindId] : [])),
   );
@@ -701,6 +709,7 @@ export async function runCase(
     droppedMarkers,
     asks,
     support,
+    ...(support && { checkSeconds, notFound: notFoundSentences(answer.text) }),
     claims: each.summary ? citedClaims(answer.text) : null,
     ...(each.expected.coverAll && { covered: documentsCovered(outcome) }),
     ...(decision && {

@@ -4,6 +4,11 @@
  * run's replies. A sentence the check splits into parts has a run for each part.
  */
 import type { LanguageModelV4Prompt } from "@ai-sdk/provider";
+import {
+  COVERED_EVIDENCE_INSTRUCTIONS,
+  EVIDENCE_INSTRUCTIONS,
+} from "../../src/core/answers/checks/prompt";
+import { writtenRecords } from "../../src/core/answers/checks/writtenRecords";
 import { DOCUMENT_TOOLS } from "../../src/core/tools";
 import type { HeardRequest } from "../lib/tokens";
 
@@ -96,14 +101,68 @@ function quotesIn(prompts: readonly LanguageModelV4Prompt[]): TypedQuote[] {
   });
 }
 
-/** The check's runs in the order each was first asked, from the requests a check made. */
-export function heardChecks(requests: readonly HeardRequest[]): HeardCheck[] {
+function byClaim(requests: readonly HeardRequest[]): Map<string | null, HeardRequest[]> {
   const runs = new Map<string | null, HeardRequest[]>();
   for (const request of requests) {
     const claim = claimOf(request.prompt);
     runs.set(claim, [...(runs.get(claim) ?? []), request]);
   }
-  return [...runs].map(([claim, asked]) => ({
+  return runs;
+}
+
+/** How many of the requests were sent word for word as an earlier one: a look asked anew. */
+export function askedAnew(requests: readonly HeardRequest[]): number {
+  const seen = new Set<string>();
+  let again = 0;
+  for (const { prompt } of requests) {
+    const key = JSON.stringify(prompt);
+    if (seen.has(key)) again++;
+    seen.add(key);
+  }
+  return again;
+}
+
+const loose = (text: string) =>
+  text
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
+
+const asksForEvidence = ({ prompt }: HeardRequest) => {
+  const system = prompt
+    .flatMap((message) => (message.role === "system" ? [message.content] : []))
+    .join("\n");
+  return [EVIDENCE_INSTRUCTIONS, COVERED_EVIDENCE_INSTRUCTIONS].some((instructions) =>
+    system.includes(instructions),
+  );
+};
+
+/**
+ * The quotes a check took from the records its replies wrote into their text (#3032): a run's
+ * record that no cite call of it typed. A run that asked for evidence is left out, since that
+ * ask's reply may give the same quote.
+ */
+export function quotesTakenFromReplies(requests: readonly HeardRequest[]): Set<string> {
+  const taken = new Set<string>();
+  for (const asked of byClaim(requests).values()) {
+    if (asked.some(asksForEvidence)) continue;
+    const typed = new Set(
+      quotesIn(asked.map((request) => request.prompt)).map(({ quote }) => loose(quote)),
+    );
+    for (const { text } of asked)
+      for (const { quote } of writtenRecords(text))
+        if (!typed.has(loose(quote))) taken.add(loose(quote));
+  }
+  return taken;
+}
+
+/** Whether `quote` is one of `taken` (`quotesTakenFromReplies`). */
+export const takenQuote = (taken: ReadonlySet<string>, quote: string) => taken.has(loose(quote));
+
+/** The check's runs in the order each was first asked, from the requests a check made. */
+export function heardChecks(requests: readonly HeardRequest[]): HeardCheck[] {
+  return [...byClaim(requests)].map(([claim, asked]) => ({
     claim,
     quotes: quotesIn(asked.map((request) => request.prompt)),
     replies: asked.flatMap(({ text }) => (text.trim() === "" ? [] : [text.slice(0, MOST_REPLY)])),

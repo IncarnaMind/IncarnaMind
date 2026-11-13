@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "vitest";
 import type { AnswerUsage } from "../../src/core";
+import { costOf, inCurrency } from "../../src/core/cost/price";
 import { catalogFacts, modelsProviderOfKind } from "../../src/core/providers/catalog";
 import { createAiSdkChatModel } from "../../src/core/providers/models";
 import { markersIn } from "../../src/shared/answerBlocks";
@@ -23,10 +24,12 @@ import { tokenLine, watchTokens } from "../lib/tokens";
 import { type CaseResult, fetchPapers, fetchReserves, judgeOf, reports, runCase } from "./asking";
 import { CASES, type EverydayCase, floorOf, type LibraryName } from "./cases";
 import { writeCedarDocuments } from "./cedar";
+import { type CostOf, checkCostLines, fromReplyLines, unstatedLines } from "./checkReport";
 import { failureLine, pointsBack, type RequestFailure } from "./checks";
 import { writeDatedDocuments } from "./dated";
 import { type DecisionProvider, decide, forcing } from "./decisions";
 import { writeFilingDocuments } from "./filings";
+import { notFoundLines } from "./notFound";
 import { languageRates, type RequestRun, rowRates } from "./rates";
 import { watchReasks } from "./reasks";
 import {
@@ -192,6 +195,19 @@ async function runModel(
 
 const passedRun = (result: CaseResult) => !result.error && result.failures.length === 0;
 
+/** What one of the asked model's requests costs in dollars, at the catalog's price for it now. */
+function requestCost(chat: ChatSettings): CostOf {
+  const price = catalogFacts(modelsProviderOfKind(chat.kind, chat.endpoint), chat.modelId)?.price;
+  return (usage) =>
+    price
+      ? inCurrency(
+          costOf(usage, price, new Date(), { cacheWrites: chat.kind === "anthropic" }),
+          price.currency,
+          "USD",
+        )
+      : null;
+}
+
 function asksByGroup(results: readonly CaseResult[]) {
   const groups = new Map<
     string,
@@ -231,6 +247,7 @@ function report(
   rows: ReturnType<typeof rowRates>,
   judge: string,
   tokens: { answers: string; judge: string },
+  priced: CostOf,
 ): string {
   const runs: RequestRun[] = results.map((each) => ({
     id: each.id,
@@ -300,6 +317,17 @@ function report(
           "",
           ...backedByFoundLines(checked),
           ...withoutSupportLines(checked),
+          "## The research Answers' checks",
+          "",
+          ...checkCostLines(
+            researched.map((each) => ({ ...each, support: each.support ?? [] })),
+            priced,
+          ),
+          ...unstatedLines(checked),
+          ...fromReplyLines(checked),
+          "## What wasn't found",
+          "",
+          ...notFoundLines(researched),
         ]
       : []),
     ...(dated.length > 0
@@ -480,10 +508,16 @@ test("everyday requests", async () => {
   await mkdir(folder, { recursive: true });
   await writeFile(
     join(folder, "report.md"),
-    report(results, rows, `${judging.kind}/${judging.modelId}`, {
-      answers: tokenLine(answerTokens.take()),
-      judge: tokenLine(judgeTokens.take()),
-    }),
+    report(
+      results,
+      rows,
+      `${judging.kind}/${judging.modelId}`,
+      {
+        answers: tokenLine(answerTokens.take()),
+        judge: tokenLine(judgeTokens.take()),
+      },
+      requestCost(config.chat),
+    ),
   );
   await writeFile(join(folder, "report.json"), JSON.stringify({ rows, results }, null, 2));
   const under = rows.filter((row) => row.under);
