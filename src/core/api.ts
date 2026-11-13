@@ -6150,6 +6150,11 @@ export const PROVIDER_ERROR_KINDS: Record<ProviderErrorKind, true> = {
   unknown: true,
 };
 
+/** The part of an Answer's request too long for the model's window, when it isn't the Question: text selected in a Note (#3045). */
+export type TooLongPart = "selection";
+
+export const TOO_LONG_PARTS: readonly TooLongPart[] = ["selection"];
+
 export interface ProviderError {
   kind: ProviderErrorKind;
   /** The provider's own message, for details. */
@@ -6165,8 +6170,8 @@ export interface ProviderError {
   resetsAt?: string;
   /** A sign-in route's request (a Claude account, Copilot): which of its problems it is, for its own line. */
   signInRoute?: SignInRouteProblem;
-  /** "too-long": the part too long for the window, when it isn't the Question: the selection (#3045). */
-  tooLong?: "selection";
+  /** "too-long": the part too long for the window, when it isn't the Question (#3045). */
+  tooLong?: TooLongPart;
   /**
    * "cost-cap" from a Run's own budget rather than the monthly cap (#1554): that budget, and what
    * the Run had spent when it stopped.
@@ -8836,6 +8841,8 @@ export interface ConversationAnswer {
   errorKind: ProviderErrorKind | null;
   errorMessage: string | null;
   errorSignInRoute: SignInRouteProblem | null;
+  /** A "too-long" failure's part, when it wasn't the Question (`ProviderError.tooLong`). */
+  errorTooLong: TooLongPart | null;
   citationSupport: CitationSupport | null;
   /** The Tools it called, in order: its searches, Skills and Connectors' Tools. */
   toolCalls: AnswerToolCall[];

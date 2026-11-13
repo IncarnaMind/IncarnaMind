@@ -116,6 +116,8 @@ export interface FitRequest {
   reserve?: number;
   /** It reads Passages: an Answer that couldn't read one doesn't start (#3045). */
   reads?: true;
+  /** The line naming the Documents on screen, which goes with the Question where it reads (#3045). */
+  onScreen?: string;
   /** The Mind read with the Question, cut by its own rules if it doesn't fit whole. */
   mind?: RequestMind;
 }
@@ -271,7 +273,16 @@ export function createWindowBudget(
         if (error) return { ok: false, error };
         return { ok: true, messages: [...request.messages], estimated: fixed + held };
       }
-      const question = tokens(request.question) + MESSAGE_TOKENS;
+      const onScreen = request.reads ? request.onScreen : undefined;
+      const held = keptWhole(request.messages, request.question, request.mind, onScreen);
+      // Where it reads, the Question goes with the Documents on screen and the Search scope after
+      // them or the selection, as no Tool gives them back (#3045).
+      const question =
+        tokens(request.question) +
+        MESSAGE_TOKENS +
+        (request.reads
+          ? Math.ceil((held.asked - estimateTokens(request.question) + held.onScreen) * current)
+          : 0);
       // The first search's room: its Passages and the step that asks for it.
       const error = request.reads
         ? size(
@@ -285,11 +296,8 @@ export function createWindowBudget(
       // At a small window the selection goes with the Question, whole, then the turn just before is
       // kept, whole or not at all: the room to write gives way for them, then Passages beyond three.
       // Where they are sent anyway, nothing moves.
-      const held = keptWhole(request.messages, request.question, request.mind);
       const selection =
-        request.reads && held.selection > 0
-          ? Math.ceil((held.selection + held.asked - estimateTokens(request.question)) * current)
-          : 0;
+        request.reads && held.selection > 0 ? Math.ceil(held.selection * current) : 0;
       const turn =
         request.reads && held.turn > 0 ? Math.ceil(held.turn * current) + 2 * MESSAGE_TOKENS : 0;
       const today = limit() - fixed - (request.reserve ?? 0);
@@ -322,13 +330,16 @@ export function createWindowBudget(
         // earlier ones it drops must not leave too little for the Question itself (#3045).
         Math.max(
           Math.floor((forContext - overhead) / current),
-          held.asked + (keepsSelection ? held.selection : 0) + (keepsTurn ? held.turn : 0),
+          held.asked +
+            held.onScreen +
+            (keepsSelection ? held.selection : 0) +
+            (keepsTurn ? held.turn : 0),
         ),
         request.mind,
         (kept) => {
           mindCut = kept.text ? kept.share : 0;
         },
-        { selection: keepsSelection, turn: keepsTurn },
+        { ...(onScreen && { onScreen }), selection: keepsSelection, turn: keepsTurn },
       );
       if (!messages) return { ok: false, error: tooLong(fixed + question + output) };
       return {

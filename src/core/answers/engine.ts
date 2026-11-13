@@ -432,6 +432,11 @@ export interface AnswerRequest {
    * read the Minds, and the search rewrite's notebook.
    */
   mindsLine?: { line: string; asked: string };
+  /**
+   * The line naming the Documents open on screen, before the selection and the Question (#1334): a
+   * small window keeps it with the Question, as no Tool gives it back (#3045).
+   */
+  onScreenLine?: string;
   /** The scope lines the Answer added just before the Question, kept out of the search rewrite's context (#2529). */
   scopeLine?: string;
   /** The model to answer with, from `Core.prepareChatModel`. */
@@ -2055,6 +2060,7 @@ async function* toolLoop(
       reserve: SEARCH_RESERVE_TOKENS,
       mind: request.mind,
       ...(search && { reads: true }),
+      ...(search && request.onScreenLine && { onScreen: request.onScreenLine }),
       ...(request.meetingFacts && { requiredContext: true }),
     });
     if (!fit.ok) {

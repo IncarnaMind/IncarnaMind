@@ -13,6 +13,7 @@ import {
   SKILL_SCRIPT_LIMITS,
   type SkillScriptApprovalRequest,
   SOURCE_KIND_PROVIDERS,
+  type TooLongPart,
   type ToolApprovalRequest,
 } from "../../../core/api";
 import { isSignInRoute, isSignInRouteProblem } from "../../../core/providers/signInRoutes";
@@ -351,6 +352,7 @@ export function AnswerError({
   chooseHere = false,
   question = null,
   asked = "none",
+  tooLong = null,
   onOpenSettings,
 }: {
   kind: ProviderErrorKind;
@@ -381,6 +383,8 @@ export function AnswerError({
   } | null;
   /** Where the Answer was asked: its line for a window too small says so. */
   asked?: AskedWhere;
+  /** A "too-long" failure's part, when it wasn't the Question: its line says so. */
+  tooLong?: TooLongPart | null;
   onOpenSettings(page: SettingsPage, at?: SettingsTarget): void;
 }) {
   const t = useT();
@@ -456,6 +460,7 @@ export function AnswerError({
     ...(billingUrl && { billingUrl }),
     ...(providerInUse && { local: providerInUse.service === null }),
     asked,
+    ...(tooLong && { tooLong }),
   });
   if (shown.kind === "route") {
     return (

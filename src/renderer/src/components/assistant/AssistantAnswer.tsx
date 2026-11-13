@@ -230,6 +230,7 @@ function AnswerArticle({
           modelNow={modelNow}
           chooseHere
           asked="assistant"
+          tooLong={answer.errorTooLong}
           question={
             question
               ? {

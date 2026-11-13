@@ -940,14 +940,15 @@ export function fitQuestionContext(
   budget: number,
   mind?: RequestMind,
   onCut?: (kept: MindCut) => void,
-  keep: { selection?: boolean; turn?: boolean } = {},
+  keep: { onScreen?: string; selection?: boolean; turn?: boolean } = {},
 ): AnswerMessage[] | null {
-  const parts = questionParts(messages, question, mind);
-  const { above, withText, pictures } = parts;
+  const parts = questionParts(messages, question, mind, keep.onScreen);
+  const { above, withText, pictures, onScreen } = parts;
   let { asked } = parts;
   const withQuestion = keep.selection === true && parts.selected && mind !== undefined;
   if (withQuestion) asked = `${mind.selection}\n\n${asked}`;
-  let remaining = budget - estimateTokens(asked);
+  const lead = onScreen ? `${onScreen}\n\n` : "";
+  let remaining = budget - estimateTokens(lead) - estimateTokens(asked);
   if (remaining < 0) return null;
   const range = keep.turn ? turnRange(above) : null;
   const turn = range ? above.slice(range[0], range[1]) : [];
@@ -973,25 +974,32 @@ export function fitQuestionContext(
     if (kept.selection) asked = `${kept.selection}\n\n${asked}`;
     remaining -= estimateTokens(kept.text) + estimateTokens(kept.selection) + 2;
   }
-  if (!range)
-    return withMind(mindText, keptWithinBudget(above.reverse(), remaining), asked, pictures);
+  if (!range) {
+    const kept = keptWithinBudget(above.reverse(), remaining);
+    return withMind(mindText, kept, `${lead}${asked}`, pictures);
+  }
   // What comes after the turn (Notes in front of the Question) and before it share what is left.
   const after = keptWithinBudget(above.slice(range[1]).reverse(), remaining);
   remaining -= after.reduce((sum, piece) => sum + pieceCost(piece), 0);
   const before = keptWithinBudget(above.slice(0, range[0]).reverse(), remaining);
-  return withMind(mindText, [...before, ...turn, ...after], asked, pictures);
+  return withMind(mindText, [...before, ...turn, ...after], `${lead}${asked}`, pictures);
 }
 
-/** The pieces above the Question, and the Question, as `fitQuestionContext` cuts them. */
+/**
+ * The pieces above the Question, and the Question, as `fitQuestionContext` cuts them; with
+ * `onScreen`, the line naming the Documents on screen apart, where the message holds it.
+ */
 function questionParts(
   messages: readonly AnswerMessage[],
   question: string,
   mind?: RequestMind,
+  onScreen?: string,
 ): {
   above: Piece[];
   asked: string;
   withText: boolean;
   selected: boolean;
+  onScreen: string;
   pictures: AnswerMessage["pictures"];
 } {
   const above = piecesOf(messages);
@@ -1008,25 +1016,29 @@ function questionParts(
   // it; if it doesn't, it is kept whole as the Question.
   let asked = question;
   let selected = false;
+  let shown = "";
   const last = above.pop();
   if (last?.role === "user" && last.text.endsWith(question)) {
     let before = last.text.slice(0, last.text.length - question.length).trim();
-    const at = mind?.selection ? before.lastIndexOf(mind.selection) : -1;
-    if (mind && at >= 0) {
-      selected = true;
-      // What `askedText` puts between the selection and the Question (the Search scope) stays with
-      // the Question, in its place (#3045).
-      const between = before.slice(at + mind.selection.length).trim();
-      if (between) asked = `${between}\n\n${question}`;
+    // What `askedText` puts between the selection, or the on-screen line, and the Question (the
+    // Search scope) stays with the Question, in its place (#3045).
+    const apart = (part: string) => {
+      const at = part ? before.lastIndexOf(part) : -1;
+      if (at < 0) return false;
+      const between = before.slice(at + part.length).trim();
+      if (between) asked = `${between}\n\n${asked}`;
       before = before.slice(0, at).trim();
-    }
+      return true;
+    };
+    selected = !!mind && apart(mind.selection);
+    if (onScreen && apart(onScreen)) shown = onScreen;
     if (before) above.push({ role: "user", text: before });
   } else if (last?.role === "user") {
     asked = last.text;
   } else if (last) {
     above.push(last);
   }
-  return { above, asked, withText, selected, pictures };
+  return { above, asked, withText, selected, onScreen: shown, pictures };
 }
 
 /**
@@ -1050,19 +1062,23 @@ function turnRange(above: readonly Piece[]): [number, number] | null {
 
 /**
  * What `fitQuestionContext` always keeps, and what a small window keeps whole ahead of the Mind
- * (#3045), in estimated tokens: the Question as asked (with the Search scope after a selection);
- * what the selection adds to it; and the turn just before the Question (the newest earlier
- * Question, its Answer and that Answer's records). 0 for either of the last two with none.
+ * (#3045), in estimated tokens: the Question as asked (with the Search scope after a selection or
+ * the on-screen line); the `onScreen` line before it, where the message holds it; what the
+ * selection adds; and the turn just before the Question (the newest earlier Question, its Answer
+ * and that Answer's records). 0 for any but the first with none.
  */
 export function keptWhole(
   messages: readonly AnswerMessage[],
   question: string,
   mind?: RequestMind,
-): { asked: number; selection: number; turn: number } {
-  const { above, asked, selected } = questionParts(messages, question, mind);
+  onScreen?: string,
+): { asked: number; onScreen: number; selection: number; turn: number } {
+  const parts = questionParts(messages, question, mind, onScreen);
+  const { above, asked, selected } = parts;
   const range = turnRange(above);
   return {
     asked: estimateTokens(asked),
+    onScreen: parts.onScreen ? estimateTokens(`${parts.onScreen}\n\n`) : 0,
     selection:
       selected && mind
         ? estimateTokens(`${mind.selection}\n\n${asked}`) - estimateTokens(asked)

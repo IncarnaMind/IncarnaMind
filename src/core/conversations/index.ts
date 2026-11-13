@@ -67,6 +67,7 @@ import {
   CLAIMED_TOOLS,
   MOST_ASKED_QUOTES,
   PROVIDER_ERROR_KINDS,
+  TOO_LONG_PARTS,
 } from "../api";
 import { InvalidInputError, isRecord, NotFoundError } from "../errors";
 import { isSignInRouteProblem } from "../providers/signInRoutes";
@@ -173,6 +174,7 @@ interface MessageRow {
   error_kind: string | null;
   error_message: string | null;
   error_sign_in_route: string | null;
+  error_too_long: string | null;
   citation_support: string | null;
   citations: string;
   figures: string;
@@ -624,6 +626,9 @@ function toAnswer(row: MessageRow): ConversationAnswer {
       status === "failed" && isSignInRouteProblem(row.error_sign_in_route)
         ? row.error_sign_in_route
         : null,
+    // A part a later build stored, which this one doesn't know, reads as none: today's line.
+    errorTooLong:
+      (status === "failed" && TOO_LONG_PARTS.find((each) => each === row.error_too_long)) || null,
     citationSupport: SUPPORTS.find((each) => each === row.citation_support) ?? null,
     toolCalls: storedList<AnswerToolCall>(row.tool_calls),
     textOrigin: parseThirdPartySource(row.text_origin),
@@ -1363,7 +1368,7 @@ export function createConversations(db: Database, now: () => string) {
         db.run(
           `UPDATE conversation_messages SET text = '', citations = '[]', figures = '[]', analyses = '[]', tool_calls = '[]',
              status = 'streaming', error_kind = NULL, error_message = NULL,
-             error_sign_in_route = NULL, citation_support = NULL, text_origin = NULL, steps = ?, provider_id = ?,
+             error_sign_in_route = NULL, error_too_long = NULL, citation_support = NULL, text_origin = NULL, steps = ?, provider_id = ?,
              model_id = ?, read_mind_id = ?, read_mind_version = ?, read_partial = ?,
              updated_at = ?
            WHERE id = ?`,
@@ -1394,7 +1399,7 @@ export function createConversations(db: Database, now: () => string) {
           `UPDATE conversation_messages SET text = ?, citations = ?, figures = ?, analyses = ?,
              tool_calls = ?, citation_support = ?, text_origin = ?, read_mind_id = ?, read_mind_version = ?,
              read_partial = ?, steps = ?, status = ?, error_kind = ?, error_message = ?,
-             error_sign_in_route = ?, provider_id = COALESCE(?, provider_id),
+             error_sign_in_route = ?, error_too_long = ?, provider_id = COALESCE(?, provider_id),
              model_id = COALESCE(?, model_id), updated_at = ?
            WHERE id = ?`,
           [
@@ -1411,6 +1416,7 @@ export function createConversations(db: Database, now: () => string) {
             outcome?.error?.kind ?? null,
             outcome?.error?.message ?? null,
             outcome?.error?.signInRoute ?? null,
+            outcome?.error?.tooLong ?? null,
             write.model?.providerId ?? null,
             write.model?.modelId ?? null,
             now(),
