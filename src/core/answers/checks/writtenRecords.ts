@@ -6,7 +6,9 @@
  *
  * Only a record line is read, in the forms such replies take: "[^1]: Tides, p. 4 — “…”",
  * "Cite 1: Tides, p. 4, quote "…"", "[^1] Passage P2, p. 4: "…"", "- marker 1: passage P2, location
- * "p. 4", quote "…"", or a cite call written out as JSON. A quote in running prose is none. A
+ * "p. 4", quote "…"", "Cite: [1] passage P1, p. 4, quote: "…" and "…"" when the reply's Evidence
+ * line names as many markers as the line has quotes, the line's own first (one record each, in
+ * that order), or a cite call written out as JSON or as code. A quote in running prose is none. A
  * record is taken only as a `cite` call's would be: its quote found by the Citation check in the
  * Passage it names, or in a Passage of the Document it names, on the page it names; never one
  * whose quote only repeats the sentence. Every record asked for is taken, or none, and then the
@@ -37,7 +39,19 @@ const QUOTED = /“([^”]+)”|"([^"]+)"/gu;
 const PASSAGE = /\b(?:passage\s+)?(P\d{1,4})\b/iu;
 const PAGE = /\bpp?\.\s*(\d{1,4})(?:\s*[–-]\s*(\d{1,4}))?/iu;
 const JSON_RECORDS =
-  /"citations"\s*:\s*(\[[\s\S]*?\])\s*[}<]|<parameter name="citations">\s*(\[[\s\S]*?\])\s*<\/parameter>/gu;
+  /"citations"\s*:\s*(\[[\s\S]*?\])\s*[}<]|<parameter name="citations">\s*(\[[\s\S]*?\])\s*<\/parameter>|\bcite\s*\(\s*citations\s*=\s*(\[[\s\S]*?\])\s*\)/gu;
+const EVIDENCE = /^[\s>*_#`•-]*evidence\s*[:：]\s*\[([\d\s,，]+)\]/imu;
+/** What may stand between two quotes of one record line, or after its last: a joining word or mark. */
+const JOINED = /^\s*(?:,|;|，|；|、|and|&|和|与|及)?\s*[.。]?\s*$/iu;
+
+/** The markers the reply's Evidence line names, in order; none when it names none. */
+function evidenceMarkers(text: string): number[] {
+  return (EVIDENCE.exec(text)?.[1] ?? "")
+    .split(/[,，]/u)
+    .map((each) => each.trim())
+    .filter((each) => each !== "")
+    .map(Number);
+}
 
 const loose = (text: string) =>
   text
@@ -49,7 +63,7 @@ const loose = (text: string) =>
 const pages = (from: string | undefined, to: string | undefined) =>
   to ? `pp. ${from}–${to}` : `p. ${from}`;
 
-function fromLine(line: string): WrittenRecord[] {
+function fromLine(line: string, evidence: readonly number[]): WrittenRecord[] {
   let text = line.replace(LINE_START, "");
   for (let heading = HEADING.exec(text); heading; heading = HEADING.exec(text))
     text = text.slice(heading[0].length).replace(LINE_START, "");
@@ -66,28 +80,37 @@ function fromLine(line: string): WrittenRecord[] {
         (_: string, curly: string | undefined, straight: string | undefined) =>
           `location ${curly ?? straight ?? ""}`,
       );
-    const quotes = [...body.matchAll(QUOTED)];
+    const quotes = [...body.matchAll(QUOTED)].map((each) => ({
+      at: each.index,
+      end: each.index + each[0].length,
+      quote: (each[1] ?? each[2] ?? "").trim(),
+    }));
     const [quoted] = quotes;
-    if (quotes.length !== 1 || quoted === undefined) return [];
-    const quote = (quoted[1] ?? quoted[2] ?? "").trim();
-    const before = body.slice(0, quoted.index).replace(/\bquote\b\s*$/iu, "");
+    // One label for the quotes of every marker the Evidence line names, the label's the first,
+    // joined by "and" or a comma alone and ending the line: a Document's name, a page or a
+    // Passage's text in quotation marks beside a quote is never one of them.
+    const listed =
+      labels.length === 1 &&
+      evidence.length === quotes.length &&
+      evidence[0] === marker &&
+      quotes.every((each, at) => JOINED.test(body.slice(each.end, quotes[at + 1]?.at)));
+    const markers = quotes.length === 1 ? [marker] : listed ? evidence : [];
+    if (quoted === undefined || markers.length !== quotes.length) return [];
+    if (quotes.some((each) => each.quote === "")) return [];
+    const before = body.slice(0, quoted.at).replace(/\bquote\b\s*$/iu, "");
     const page = PAGE.exec(before);
     const passage = PASSAGE.exec(before)?.[1]?.toUpperCase() ?? null;
     const named = before
       .replace(/^[\s(（]+/u, "")
       .split(/[,，(（:：·—–]|\bp{1,2}\.|\bpage\b/iu)[0]
       ?.trim();
-    return quote === ""
-      ? []
-      : [
-          {
-            marker,
-            passage,
-            document: passage === null && named ? named : null,
-            location: page ? pages(page[1], page[2]) : null,
-            quote,
-          },
-        ];
+    return quotes.map((each, at) => ({
+      marker: markers[at] ?? marker,
+      passage,
+      document: passage === null && named ? named : null,
+      location: page ? pages(page[1], page[2]) : null,
+      quote: each.quote,
+    }));
   });
 }
 
@@ -95,7 +118,7 @@ function fromJson(reply: string): WrittenRecord[] {
   return [...reply.matchAll(JSON_RECORDS)].flatMap((match) => {
     let given: unknown;
     try {
-      given = JSON.parse(match[1] ?? match[2] ?? "");
+      given = JSON.parse(match[1] ?? match[2] ?? match[3] ?? "");
     } catch {
       return [];
     }
@@ -125,7 +148,11 @@ function fromJson(reply: string): WrittenRecord[] {
 /** The records a reply writes into its text, each once, in order. */
 export function writtenRecords(reply: string): WrittenRecord[] {
   const text = withoutThinking(reply);
-  const records = [...text.split("\n").flatMap(fromLine), ...fromJson(text)];
+  const evidence = evidenceMarkers(text);
+  const records = [
+    ...text.split("\n").flatMap((line) => fromLine(line, evidence)),
+    ...fromJson(text),
+  ];
   const seen = new Set<string>();
   return records.filter((record) => {
     const key = JSON.stringify(record);
