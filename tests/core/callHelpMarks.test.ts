@@ -129,6 +129,7 @@ async function setUp(
   quoteOnly?: () => boolean,
   cloud?: string,
   form?: CallHelpForm,
+  sheet = SHEET,
 ) {
   const calls: ModelCall[] = [];
   const batches: GenerateCall[] = [];
@@ -149,7 +150,7 @@ async function setUp(
     await core.allowDataFlow("chat", saved.service.id);
   }
   const sources = await createSourceFolder();
-  const added = await core.addDocuments([await writeSourceFile(sources, "Price sheet.txt", SHEET)]);
+  const added = await core.addDocuments([await writeSourceFile(sources, "Price sheet.txt", sheet)]);
   await waitForProcessing(
     core,
     added.documents.map((document) => document.id),
@@ -1471,6 +1472,115 @@ describe("the evaluation's switch for the form whose facts stand apart (#2847)",
       const paragraphs = paragraphsOf(after);
       expect(paragraphs).toHaveLength(3);
       expect(paragraphs[0]).toBe(fact);
+    },
+  );
+
+  /**
+   * The words of the options' fact lines, each with whether its chip shows ✓: in these replies,
+   * whose options write none of their own, the turned lines alone.
+   */
+  const turnedOf = (answer: ConversationAnswer) =>
+    helpParts(answer, "answer", "fact lines").options.flatMap((item) =>
+      item.notes.map((line) => ({
+        words: words(line),
+        passed: line.some(
+          (piece) =>
+            piece.kind === "citation" &&
+            answer.citations.some(
+              (citation) => citation.marker === piece.marker && sentencePassed(citation, piece.at),
+            ),
+        ),
+      })),
+    );
+  const TURNED = PRICE.replace(/\.$/, "");
+
+  // protects=a Document's Citation the model left on an option's line to say is kept as a fact line of the Document's words, after the option's facts and above its "→" line, judged by the check as its own sentence and given its ✓ on its own chip, the line to say keeping no chip, and it stays in the option's paragraph of the Note, in English and Chinese; fails_when=the Citation stays on the line to say, the turned line isn't judged or shows no ✓, or the Note loses it; no_claim=how often a model leaves a Citation there.
+  test.each([
+    {
+      language: "English",
+      say: "★ Yes, Enterprise is $45 a seat [^1]",
+      effect: "→ answers at once",
+    },
+    { language: "Chinese", say: "★ 是的，企业版每个席位 45 美元 [^1]", effect: "→ 直接回答" },
+  ])(
+    "in $language, a Document's Citation on a line to say is kept as a fact line, judged and ✓",
+    async ({ say, effect }) => {
+      const { core, meeting, batches } = await setUp(
+        { reply: `${say}\n${effect}` },
+        undefined,
+        undefined,
+        "fact lines",
+      );
+
+      const after = await (await pressed(core, meeting, "answer")).judged();
+
+      expect(after.text).toBe(`${say.replace(" [^1]", "")}\n${TURNED} [^1]\n${effect}`);
+      expect(turnedOf(after)).toEqual([{ words: TURNED, passed: true }]);
+      expect(
+        helpParts(after, "answer", "fact lines").options[0]?.lead.some(
+          (piece) => piece.kind === "citation",
+        ),
+      ).toBe(false);
+      expect(batches[0]?.prompt).toContain(TURNED);
+      expect(paragraphsOf(after)[0]).toContain(TURNED);
+    },
+  );
+
+  // protects=the same Document Citation left on two options' lines to say gives each option its turned line, each judged at its own place and given ✓ there, in English and Chinese; fails_when=one option loses its line, or the check passes only one place for the Citation; no_claim=none beyond protects.
+  test.each([
+    {
+      language: "English",
+      reply:
+        "★ Yes, Enterprise is $45 a seat [^1]\n→ answers at once\n\nIt's $45 a seat, single sign-on included [^1]\n→ confirms it",
+    },
+    {
+      language: "Chinese",
+      reply:
+        "★ 是的，企业版每个席位 45 美元 [^1]\n→ 直接回答\n\n每个席位 45 美元，含单点登录 [^1]\n→ 再确认一次",
+    },
+  ])(
+    "in $language, the same Citation on two options is judged at each place",
+    async ({ reply }) => {
+      const { core, meeting } = await setUp({ reply }, undefined, undefined, "fact lines");
+
+      const after = await (await pressed(core, meeting, "answer")).judged();
+
+      expect(turnedOf(after)).toEqual([
+        { words: TURNED, passed: true },
+        { words: TURNED, passed: true },
+      ]);
+      expect(after.citations[0]?.passedAt).toEqual([0, 1]);
+    },
+  );
+
+  // protects=a line to say that states a Document's sentence with no marker and no fact line gets its Citation from the citing step, and that Citation is kept as a turned fact line, in English and Chinese; fails_when=the line to say keeps the Citation or it is lost; no_claim=how often a model writes so.
+  test.each([
+    {
+      language: "English",
+      sheet: SHEET,
+      line: TURNED,
+    },
+    {
+      language: "Chinese",
+      // The sheet's English last line is what the call is about, so it is found ahead.
+      sheet: `Price sheet 2026\n\n企业版：每个席位每月 45 美元，含单点登录。\nThe launch moves to the eighteenth of November for every plan.`,
+      line: "企业版：每个席位每月 45 美元，含单点登录",
+    },
+  ])(
+    "in $language, a line to say the citing step cites is turned into a fact line",
+    async ({ sheet, line }) => {
+      const { core, meeting } = await setUp(
+        { reply: `★ ${line}\n→ answers at once`, records: [] },
+        undefined,
+        undefined,
+        "fact lines",
+        sheet,
+      );
+
+      const after = await (await pressed(core, meeting, "answer")).judged();
+
+      expect(turnedOf(after).map((each) => each.words)).toEqual([line]);
+      expect(after.text.split("\n")[0]).toBe(`★ ${line}`);
     },
   );
 });

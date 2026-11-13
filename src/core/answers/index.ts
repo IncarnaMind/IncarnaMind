@@ -73,6 +73,7 @@ import {
   citationLocation,
   englishLocation,
   englishPlace,
+  isTranscriptLocation,
   parseLocation,
 } from "../../shared/locations";
 import { holdsNothing, madeByAnswer } from "../../shared/madeMind";
@@ -2010,7 +2011,11 @@ export function createAnswers(options: AnswersOptions) {
           textBehind,
           ...(helpForm && { form: helpForm }),
         });
-        markdown = helpReplyRead(markdown, layout).text;
+        const quoteOf = (marker: number) => {
+          const citation = session.streamingCitation(marker);
+          return citation && !isTranscriptLocation(citation.location) ? citation.quote : null;
+        };
+        markdown = helpReplyRead(markdown, { ...layout, quoteOf }).text;
       }
       // The check runs once, now; its results are stored with each Citation, and each figure's input.
       try {

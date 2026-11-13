@@ -39,7 +39,12 @@ export function quoted(lead: readonly ReplyPiece[]): ReplyPiece[] {
   });
 }
 
-type HelpAnswer = { text: string; status: AnswerStatus; steps?: { textBehind?: true } | null };
+type HelpAnswer = {
+  text: string;
+  status: AnswerStatus;
+  steps?: { textBehind?: true } | null;
+  citations?: readonly Pick<MarkedCitation, "marker" | "quote" | "location">[];
+};
 
 /**
  * What the panel shows of a button's Answer: the line it puts first, then the options, readings
@@ -51,14 +56,18 @@ export function helpParts(
   kind: MeetingHelpKind,
   form?: CallHelpForm,
 ): { lead: ReplyItem[]; options: ReplyItem[]; opening: ReplyPiece[][]; closing: ReplyPiece[][] } {
-  const { lead, options, opening, closing } = helpReplyRead(
-    answer.text,
-    helpLayout(kind, {
+  const quoteOf = (marker: number) => {
+    const citation = answer.citations?.find((each) => each.marker === marker);
+    return citation && !isTranscriptLocation(citation.location) ? citation.quote : null;
+  };
+  const { lead, options, opening, closing } = helpReplyRead(answer.text, {
+    ...helpLayout(kind, {
       status: answer.status,
       textBehind: answer.steps?.textBehind === true,
       ...(form && { form }),
     }),
-  );
+    quoteOf,
+  });
   return { lead, options, opening, closing };
 }
 

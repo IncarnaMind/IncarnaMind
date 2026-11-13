@@ -19,6 +19,7 @@
 import { MARKER, withoutMarkerRuns } from "./answerSentences";
 import { EFFECT_MARK, LINE_MARK, plainLine, RECOMMENDED_MARK } from "./meetingHelp";
 import { holdsQuote } from "./quotedSpans";
+import { quoteAsFact, sameWordsOf } from "./turnedFacts";
 
 export const FACT_MARK = /^(?:>|＞)\s*/;
 export const OWN_MARK = /^(?:=|＝)\s*/;
@@ -39,9 +40,10 @@ const withoutCitations = (line: string) => (holdsQuote(line) ? line : withoutMar
 
 /**
  * What a line of an options reply in the form is: an option's line to say (or a remark), a fact or
- * own line of an option before its "→" line (`inner`) or after it (`after`), a "→" line, a fact line
- * before the first option (`opening`), the reply's closing line, the line put first, or a blank
- * line, a heading or a footnote's definition (`other`).
+ * own line of an option before its "→" line (`inner`, a fact line a Document's Citation on its line
+ * to say turned into among them) or after it (`after`), a "→" line, a fact line before the first
+ * option (`opening`), the reply's closing line, the line put first, or a blank line, a heading or a
+ * footnote's definition (`other`).
  */
 export type FactLineRole =
   | "say"
@@ -60,6 +62,11 @@ export interface FactLinesText {
   origin: number[];
   /** For each line read of an options reply, what it is; none for short lines. */
   roles: FactLineRole[];
+  /**
+   * For each line read, the place of its first marker among the markers of the line it was as
+   * written: a line turned from a Citation on a line to say starts where that marker stood.
+   */
+  offset: number[];
 }
 
 interface FactLinesLayout {
@@ -68,6 +75,8 @@ interface FactLinesLayout {
   streaming: boolean;
   /** Whether the reply has ended: done, stopped or failed. */
   ended: boolean;
+  /** A recorded Document Citation's quote, by marker; nothing for a line of a call (#2847). */
+  quoteOf?: (marker: number) => string | null;
 }
 
 /**
@@ -92,7 +101,12 @@ export function factLinesText(
     else if (own || mark.test(plain)) line = marked(raw, mark, "- ");
     out.push({ line: own ? withoutCitations(line) : line, origin: index });
   }
-  return { lines: out.map(({ line }) => line), origin: out.map(({ origin }) => origin), roles: [] };
+  return {
+    lines: out.map(({ line }) => line),
+    origin: out.map(({ origin }) => origin),
+    roles: [],
+    offset: out.map(() => 0),
+  };
 }
 
 function optionsText(
@@ -199,7 +213,10 @@ function optionsText(
     }
   }
 
-  const out: { line: string; origin: number; role: FactLineRole }[] = [];
+  const turned = layout.quoteOf
+    ? turnedLines(written, roles, read, layout.quoteOf, layout.streaming)
+    : new Map();
+  const out: { line: string; origin: number; role: FactLineRole; offset?: number }[] = [];
   const blankBefore = (origin: number) => {
     const previous = out.at(-1);
     if (previous && previous.line.trim() !== "") out.push({ line: "", origin, role: "other" });
@@ -219,10 +236,95 @@ function optionsText(
     if (role === "opening" ? previous !== "opening" : previous === "opening") blankBefore(at);
     else if (role === "closing" && previous !== "closing") blankBefore(at);
     out.push({ line: read[at] ?? "", origin: at, role });
+    for (const each of turned.get(at) ?? []) out.push({ ...each, role: "inner" });
   }
   return {
     lines: out.map(({ line }) => line),
     origin: out.map(({ origin }) => origin),
     roles: out.map(({ role }) => role),
+    offset: out.map(({ offset }) => offset ?? 0),
   };
+}
+
+const markersIn = (line: string) =>
+  [...line.matchAll(new RegExp(MARKER.source, "g"))].map((found) => Number(found[1]));
+
+/**
+ * The fact lines a Document's Citation left on an option's line to say or "→" line turns into
+ * (#2847), by the line of the option they go after: its last fact or own line, else its line to
+ * say, so they stand above its "→" line. None where the line quotes words the quote check reads
+ * (it keeps its marker), or where a line of the option already holds that Citation or its words;
+ * a line with those words whose markers back nothing takes the Citation instead (`read` changes).
+ * `quoteOf` gives a recorded Document Citation's quote, and nothing for a line of a call. While the
+ * reply is written, an option still open turns nothing yet: its next fact line would go above the
+ * turned line and move it, so the turned line waits for the option's "→" line.
+ */
+function turnedLines(
+  written: readonly string[],
+  roles: readonly (FactLineRole | null)[],
+  read: string[],
+  quoteOf: (marker: number) => string | null,
+  streaming: boolean,
+): Map<number, { line: string; origin: number; offset: number }[]> {
+  const turned = new Map<number, { line: string; origin: number; offset: number }[]>();
+  for (const [at, role] of roles.entries()) {
+    if (role !== "say") continue;
+    const inner: number[] = [];
+    let arrowAt: number | null = null;
+    let open = true;
+    for (let next = at + 1; next < roles.length; next++) {
+      const each = roles[next];
+      if (each === "inner") inner.push(next);
+      else if (each === "effect") {
+        arrowAt = next;
+        open = false;
+        break;
+      } else if (each !== "other" && each !== null) {
+        open = false;
+        break;
+      }
+    }
+    if (streaming && open) continue;
+    const said = read[at] ?? "";
+    const lines: { line: string; origin: number; offset: number; marker: number }[] = [];
+    for (const source of arrowAt === null ? [at] : [at, arrowAt]) {
+      const raw = written[source] ?? "";
+      if (holdsQuote(raw)) continue;
+      const all = markersIn(raw);
+      for (const marker of new Set(all)) {
+        const quote = quoteOf(marker);
+        if (quote === null || lines.some((each) => each.marker === marker)) continue;
+        const words = quoteAsFact(quote, said);
+        const holds = inner.some((line) =>
+          markersIn(read[line] ?? "").some((each) => {
+            const theirs = each === marker ? quote : quoteOf(each);
+            return theirs !== null && sameWordsOf(theirs) === sameWordsOf(quote);
+          }),
+        );
+        if (holds) continue;
+        const same = inner.find((line) =>
+          [sameWordsOf(words), sameWordsOf(quote)].includes(sameWordsOf(read[line] ?? "")),
+        );
+        if (same !== undefined) {
+          if (markersIn(read[same] ?? "").every((each) => quoteOf(each) === null)) {
+            read[same] = `${withoutMarkerRuns(read[same] ?? "").trimEnd()} [^${marker}]`;
+          }
+          continue;
+        }
+        lines.push({
+          line: `${words} [^${marker}]`,
+          origin: source,
+          offset: all.indexOf(marker),
+          marker,
+        });
+      }
+    }
+    if (lines.length > 0) {
+      turned.set(
+        inner.at(-1) ?? at,
+        lines.map(({ marker: _marker, ...each }) => each),
+      );
+    }
+  }
+  return turned;
 }

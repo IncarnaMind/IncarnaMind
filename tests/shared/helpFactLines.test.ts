@@ -74,7 +74,7 @@ describe("an option whose facts stand apart", () => {
     expect(reading.options[0]?.said).toBe(true);
   });
 
-  // protects=an option shows no more than two fact lines, its third left out of the panel but kept in the text with its marker for the check, and one with none shows no source; fails_when=the panel shows three facts, or the third's marker is lost; no_claim=how often a model writes three.
+  // protects=an option shows every fact line it holds, each kept in the text with its marker for the check, so a turned line is never hidden behind the model's own two, and one with none shows no source; fails_when=a fact line is left out of the panel, or a marker is lost; no_claim=how often a model writes three.
   test.each([0, 1, 2, 3])("with %i fact lines", (count) => {
     const facts = [
       "Panels carry a 25-year warranty [^1]",
@@ -90,7 +90,7 @@ describe("an option whose facts stand apart", () => {
     expect(reading.text).toBe(
       ["★ Yes, it's all covered", ...facts, "→ answers the worry"].join("\n"),
     );
-    expect(reading.options[0]?.notes).toHaveLength(Math.min(count, 2));
+    expect(reading.options[0]?.notes).toHaveLength(count);
     expect(citedSentences(reading.text).flatMap((each) => each.markers)).toEqual(
       [1, 2, 3].slice(0, count),
     );
@@ -463,5 +463,217 @@ describe('"Am I leading them?" keeps main\'s reading in the form', () => {
     );
     expect(reading.text).toBe(reply);
     expect(reading.kinds).toEqual(["lead-in", "say", "effect"]);
+  });
+});
+
+describe("a Document's Citation on a line to say becomes a fact line of its own (#2847)", () => {
+  /** A reply read with these recorded Document Citations' quotes, by marker. */
+  const readWith = (
+    kind: MeetingHelpKind,
+    reply: string,
+    quotes: Record<number, string>,
+    status: AnswerStatus = "done",
+  ) =>
+    helpReplyRead(reply, {
+      ...layoutOf(kind, status),
+      quoteOf: (marker) => quotes[marker] ?? null,
+    });
+  /** An option's lines as the panel shows them: to say, facts (a turned line the last), own, "→". */
+  const optionOf = (item: ReplyItem | undefined) =>
+    item
+      ? [
+          textOf(item.lead),
+          ...item.notes.map((line) => `  fact: ${textOf(line)}`),
+          ...item.own.map((line) => `  own: ${textOf(line)}`),
+          ...(item.effect ? [`→ ${textOf(item.effect)}`] : []),
+        ]
+      : [];
+  /** Reads `reply`, then its text kept again with the same quotes: the same words, kinds and lines. */
+  function turnedTwice(kind: MeetingHelpKind, reply: string, quotes: Record<number, string>) {
+    const reading = readWith(kind, reply, quotes);
+    const again = readWith(kind, reading.text, quotes);
+    expect(again.text).toBe(reading.text);
+    expect(again.kinds).toEqual(reading.kinds);
+    const words = (each: typeof reading) =>
+      each.options.map((item) => optionOf(item).map((line) => line.replace(/ \[\d+@\d+\]/g, "")));
+    expect(words(again)).toEqual(words(reading));
+    return { reading, again };
+  }
+
+  // protects=a Document's Citation left on an option's line to say is a fact line of its quoted words, its closing full stop off, after the option's own fact line and above its "→" line, with its chip, while the line to say shows none; read again from the text kept, it is the same turned line, always shown, in English and Chinese; fails_when=the Citation stays on the line to say, is dropped, the line goes elsewhere, or a second reading reads it otherwise; no_claim=how often a model leaves a Citation on a line to say.
+  test.each([
+    {
+      language: "English",
+      reply:
+        "★ Yes, it's all covered [^1]\n> Inverters are covered for 10 years [^2]\n→ answers the worry",
+      quotes: { 1: "Panels carry a 25-year warranty.", 2: "Inverters are covered for 10 years." },
+      text: "★ Yes, it's all covered\nInverters are covered for 10 years [^2]\nPanels carry a 25-year warranty [^1]\n→ answers the worry",
+      option: [
+        "Yes, it's all covered",
+        "  fact: Inverters are covered for 10 years [2@0]",
+        "  fact: Panels carry a 25-year warranty [1@1]",
+        "→ answers the worry",
+      ],
+    },
+    {
+      language: "Chinese",
+      reply: "★ 是的，都在保修范围内 [^1]\n＞ 逆变器保修 10 年 [^2]\n→ 回应顾虑",
+      quotes: { 1: "组件提供 25 年质保。", 2: "逆变器保修 10 年。" },
+      text: "★ 是的，都在保修范围内\n逆变器保修 10 年 [^2]\n组件提供 25 年质保 [^1]\n→ 回应顾虑",
+      option: [
+        "是的，都在保修范围内",
+        "  fact: 逆变器保修 10 年 [2@0]",
+        "  fact: 组件提供 25 年质保 [1@1]",
+        "→ 回应顾虑",
+      ],
+    },
+  ])(
+    "in $language, after the option's own fact and above its → line",
+    ({ reply, quotes, text, option }) => {
+      const { reading, again } = turnedTwice("answer", reply, quotes);
+      expect(reading.text).toBe(text);
+      expect(optionOf(again.options[0])).toEqual(option);
+      expect(reading.kinds).toEqual(["say", "fact", "fact", "effect"]);
+    },
+  );
+
+  // protects=a turned line is shown beside the option's own two facts, so such an option shows three, the model's two first in their order; fails_when=a fact the model chose is hidden for the turned line, or the turned line is; no_claim=how often an option has three.
+  test("an option with two facts of its own shows the turned line as a third", () => {
+    const reply =
+      "★ Yes, it's covered [^1]\n> Inverters are covered for 10 years [^2]\n> Workmanship is guaranteed for 5 years [^3]\n→ answers the worry";
+    const quotes = {
+      1: "Panels carry a 25-year warranty.",
+      2: "Inverters are covered for 10 years.",
+      3: "Workmanship is guaranteed for 5 years.",
+    };
+    const { again } = turnedTwice("answer", reply, quotes);
+    const [option] = again.options;
+    expect(option?.notes.map(textOf)).toEqual([
+      "Inverters are covered for 10 years [2@0]",
+      "Workmanship is guaranteed for 5 years [3@1]",
+      "Panels carry a 25-year warranty [1@2]",
+    ]);
+  });
+
+  // protects=no turned line where a fact line of the option already holds that Citation (the development trial's lost-marker reply, its [^1] kept on its fact line) or a Citation of the same words, nor where it states those words with a marker that backs nothing, which then takes the Citation where it is written; fails_when=an option shows the same fact twice, or a fact loses its Citation; no_claim=how often a model repeats a marker.
+  test.each<{ name: string; reply: string; quotes: Record<number, string>; facts: string[] }>([
+    {
+      name: "the same marker on a fact line (the trial's lost-marker reply)",
+      reply:
+        "★ The full cost can be deducted from taxable profits in the first year, so we can point to that as the relief[^3]\n> The full cost can be deducted from taxable profits in the first year [^1]\n> We send the paperwork your accountant needs [^2]\n→ answers their question directly",
+      quotes: {
+        1: "The full cost can be deducted from taxable profits in the first year.",
+        2: "We send the paperwork your accountant needs.",
+        3: "The full cost can be deducted from taxable profits in the first year.",
+      },
+      facts: [
+        "The full cost can be deducted from taxable profits in the first year [1@1]",
+        "We send the paperwork your accountant needs [2@2]",
+      ],
+    },
+    {
+      name: "the trial's lost-marker reply, its line to say's marker backing nothing",
+      reply:
+        "★ The full cost can be deducted from taxable profits in the first year, so we can point to that as the relief[^3]\n> The full cost can be deducted from taxable profits in the first year [^1]\n> We send the paperwork your accountant needs [^2]\n→ answers their question directly",
+      quotes: {
+        1: "The full cost can be deducted from taxable profits in the first year.",
+        2: "We send the paperwork your accountant needs.",
+      },
+      facts: [
+        "The full cost can be deducted from taxable profits in the first year [1@1]",
+        "We send the paperwork your accountant needs [2@2]",
+      ],
+    },
+    {
+      name: "a fact line of the same words whose marker backs nothing takes the Citation",
+      reply:
+        "★ Yes, it's covered [^1]\n> Panels carry a 25-year warranty [^7]\n→ answers the worry",
+      quotes: { 1: "Panels carry a 25-year warranty." },
+      facts: ["Panels carry a 25-year warranty [1@1]"],
+    },
+  ])("$name", ({ reply, quotes, facts }) => {
+    const reading = readWith("answer", reply, quotes);
+    const [option] = reading.options;
+    expect(option?.notes.map(textOf)).toEqual(facts);
+  });
+
+  // protects=a Citation of a line of the call on a line to say isn't turned and its marker comes off, as before; a line to say that quotes words the quote check reads keeps its marker and isn't turned; a "→" line's Document Citation is turned above it; fails_when=a call's words show as a fact line, a quoted line loses its marker, or a "→" line's Citation is lost; no_claim=none beyond protects.
+  test("a call's Citation, a quoted line, and a → line's Citation", () => {
+    const call = readWith("answer", "★ You told them it's €45 [^1]\n→ confirms it", {});
+    expect(call.text).toBe("★ You told them it's €45\n→ confirms it");
+    expect(call.options[0]?.notes).toEqual([]);
+    const quoted = readWith(
+      "answer",
+      '★ The sheet says "every plan includes the test sandbox" [^1]\n→ settles it',
+      { 1: "Every plan includes the test sandbox." },
+    );
+    expect(quoted.text).toBe(
+      '★ The sheet says "every plan includes the test sandbox" [^1]\n→ settles it',
+    );
+    expect(quoted.options[0]?.notes).toEqual([]);
+    const arrow = readWith("answer", "★ Yes, it's covered\n→ answers the worry [^1]", {
+      1: "Panels carry a 25-year warranty.",
+    });
+    expect(arrow.text).toBe(
+      "★ Yes, it's covered\nPanels carry a 25-year warranty [^1]\n→ answers the worry",
+    );
+  });
+
+  // protects=the same Document Citation left on two options' lines to say gives each option its turned line, each at its own place, so each is judged there, in English and Chinese; fails_when=one option loses its line or both share one place; no_claim=what the check finds.
+  test.each([
+    {
+      language: "English",
+      reply:
+        "★ Yes, it's covered [^1]\n→ answers the worry\n\nThe panels themselves are covered [^1]\n→ reassures",
+      quote: "Panels carry a 25-year warranty.",
+    },
+    {
+      language: "Chinese",
+      reply: "★ 是的，在保修范围内 [^1]\n→ 回应顾虑\n\n组件本身也在保修内 [^1]\n→ 让对方放心",
+      quote: "组件提供 25 年质保。",
+    },
+  ])("in $language, the same Citation on two options", ({ reply, quote }) => {
+    const { again } = turnedTwice("answer", reply, { 1: quote });
+    const places = again.options.flatMap((item) =>
+      item.notes.flat().flatMap((piece) => (piece.kind === "citation" ? [piece.at] : [])),
+    );
+    expect(places).toEqual([0, 1]);
+    expect(citedSentences(again.text).flatMap((each) => each.markers)).toEqual([1, 1]);
+  });
+
+  // protects=while the reply is written, a turned line shows once its marker is whole and its Citation recorded and the option's facts are written, so it shows in its place after them as the "→" line begins; from then on neither it nor any line above it moves, and only the "→" line goes below it; with no record nothing turns, in English and Chinese; fails_when=a turned line shows before the option's last fact and is pushed down by it, a line above it moves, or a line shows and then goes; no_claim=how soon a model records.
+  test.each([
+    {
+      language: "English",
+      reply:
+        "★ Yes, it's covered [^1]\n> Inverters are covered for 10 years [^2]\n→ answers the worry",
+      quotes: { 1: "Panels carry a 25-year warranty.", 2: "Inverters are covered for 10 years." },
+      words: "Panels carry a 25-year warranty",
+    },
+    {
+      language: "Chinese",
+      reply: "★ 是的，都在保修范围内 [^1]\n＞ 逆变器保修 10 年 [^2]\n→ 回应顾虑",
+      quotes: { 1: "组件提供 25 年质保。", 2: "逆变器保修 10 年。" },
+      words: "组件提供 25 年质保",
+    },
+  ])("in $language, while it is written", ({ reply, quotes, words }) => {
+    const panel = (end: number, recorded: Record<number, string>) =>
+      optionOf(readWith("answer", reply.slice(0, end), recorded, "streaming").options[0]).map(
+        (line) => line.replace(/@\d+\]/g, "]"),
+      );
+    const final = panel(reply.length, quotes);
+    const at = final.findIndex((line) => line.includes(words));
+    expect(at).toBe(final.length - 2);
+    const arrowBegun = reply.indexOf("→") + 1;
+    for (let end = 1; end <= reply.length; end++) {
+      const shown = panel(end, quotes);
+      expect(panel(end, {}).some((line) => line.includes(words))).toBe(false);
+      if (end < arrowBegun) {
+        expect(shown.some((line) => line.includes(words))).toBe(false);
+        continue;
+      }
+      expect(shown.findIndex((line) => line.includes(words))).toBe(at);
+      expect(shown.slice(0, at + 1)).toEqual(final.slice(0, at + 1));
+    }
   });
 });

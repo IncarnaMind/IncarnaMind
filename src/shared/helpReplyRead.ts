@@ -84,6 +84,11 @@ export interface HelpLayout {
   /** Whether the reply has ended, stopped included; unset, once it is no longer `streaming`. */
   ended?: boolean;
   form?: CallHelpForm;
+  /**
+   * In the form whose facts stand apart, a recorded Document Citation's quote by marker, so one
+   * left on a line to say or a "→" line shows as a fact line of its own (#2847).
+   */
+  quoteOf?: (marker: number) => string | null;
 }
 
 /**
@@ -166,6 +171,15 @@ const itemOf = (
 ): ReplyItem => ({ recommended, bullet, said: false, lead, notes: [], own: [], effect, after: [] });
 const UNMARKED = { recommended: false, bullet: false };
 
+const placedOf = (item: ReplyItem, line: number | null, effect: number | null = null): Placed => ({
+  item,
+  line,
+  notes: [],
+  own: [],
+  effect,
+  after: [],
+});
+
 const cites = (line: readonly ReplyPiece[]) => line.some((piece) => piece.kind === "citation");
 
 /**
@@ -192,8 +206,7 @@ function itemsOf(
         current.item.effect = effect;
         current.effect = index;
       } else {
-        const item = itemOf([], UNMARKED, effect);
-        found.push({ item, line: null, notes: [], own: [], effect: index, after: [] });
+        found.push(placedOf(itemOf([], UNMARKED, effect), null, index));
       }
       continue;
     }
@@ -206,14 +219,7 @@ function itemsOf(
       (own ? current.own : current.notes).push(index);
       continue;
     }
-    found.push({
-      item: itemOf(pieces(text, first), { recommended, bullet }),
-      line: index,
-      notes: [],
-      own: [],
-      effect: null,
-      after: [],
-    });
+    found.push(placedOf(itemOf(pieces(text, first), { recommended, bullet }), index));
   }
   return oneStar(found);
 }
@@ -247,22 +253,14 @@ function itemsOfRoles(
     else if (role === "closing") closing.push(index);
     else if (role === "say" || role === "lead-in") {
       const { recommended, bullet, text: words } = marksOf(text);
-      placed.push({
-        item: itemOf(pieces(words, firstOf(index)), { recommended, bullet }),
-        line: index,
-        notes: [],
-        own: [],
-        effect: null,
-        after: [],
-      });
+      placed.push(placedOf(itemOf(pieces(words, firstOf(index)), { recommended, bullet }), index));
     } else if (role === "effect") {
       const effect = pieces(text.replace(EFFECT_MARK, ""), firstOf(index));
       if (current && current.item.effect === null && current.item.lead.length > 0) {
         current.item.effect = effect;
         current.effect = index;
       } else {
-        const item = itemOf([], UNMARKED, effect);
-        placed.push({ item, line: null, notes: [], own: [], effect: index, after: [] });
+        placed.push(placedOf(itemOf([], UNMARKED, effect), null, index));
       }
     } else if (current) {
       const line = pieces(text, firstOf(index));
@@ -319,24 +317,14 @@ function laidOut(
 
 /**
  * What the panel shows of `items`: the line put first, then the options, readings or short lines.
- * Where an option's facts stand apart, it shows two of them, as it shows two options (#2847): those
- * before its "→" line first.
+ * Where an option's facts stand apart, it shows every fact line it has (#2847): the model writes at
+ * most two, and a Document's Citation on its line to say adds one, never hidden.
  */
 function shown(items: readonly ReplyItem[], layout: HelpLayout) {
   const { lead, options, said } = laidOut(items, layout);
-  const facts = layout.form === "fact lines" && layout.shape === "options";
-  const twoFacts = (item: ReplyItem) => {
-    const notes = item.notes.slice(0, 2);
-    let room = 2 - notes.length;
-    return { notes, after: item.after.filter((line) => !cites(line) || room-- > 0) };
-  };
   return {
     lead,
-    options: options.map((item) => ({
-      ...item,
-      said: said.includes(item),
-      ...(facts && twoFacts(item)),
-    })),
+    options: options.map((item) => ({ ...item, said: said.includes(item) })),
   };
 }
 
@@ -491,6 +479,7 @@ export function helpReplyRead(markdown: string, layout: HelpLayout): HelpReplyRe
           }),
           origin: lines.map((_, index) => index),
           roles: [],
+          offset: lines.map(() => 0),
         };
   const firstPlaces: number[] = [];
   let seen = 0;
@@ -498,7 +487,8 @@ export function helpReplyRead(markdown: string, layout: HelpLayout): HelpReplyRe
     firstPlaces.push(seen);
     seen += line.match(MARKER)?.length ?? 0;
   }
-  const firstOf = (index: number) => firstPlaces[read.origin[index] ?? 0] ?? 0;
+  const firstOf = (index: number) =>
+    (firstPlaces[read.origin[index] ?? 0] ?? 0) + (read.offset[index] ?? 0);
   const { placed, opening, closing } =
     read.roles.length > 0
       ? itemsOfRoles(read.lines, read.roles, firstOf)
