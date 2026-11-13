@@ -60,3 +60,42 @@ A failed bar means nothing ships from this run. The numbers and the list of fail
 
 - **Added to what the run reads, with no bar:** how often a check reply puts two quotes under one marker on one record line. It is given by arm and language, read from every run's replies in the record.
 - **Why it is counted.** The reader can't take such a line. In the saved records the reply gives the next marker a line of its own, so both quotes are the first marker's (#3063). The ask is the only place that can be fixed.
+
+### 2026-11-13, before any request this plan gates: the second reader's six changes, and the cases
+
+1. **The run starts from a `main` that holds #3063.** That pull request adds one form, the cite call written as code. The reader then takes that form on both arms, so an ask counted here is one that would still go out. "What changes" named "#3063's two forms"; it is one form.
+2. **Bars 1 and 2 can come out "not settled".**
+   - Bar 1 is not settled if `main` has fewer than 4 asks answered with a Document's own reference numbers.
+   - Bar 2 is not settled if `main` has fewer than 4 checks with no evidence on the fixed right sentences.
+   - Not settled means nothing ships and the numbers go to #3019. A second run is new money and needs a new yes.
+3. **Bar 2 is read on the fixed sentences only.** Of the 18 checks of the six right sentences on each arm, it counts how many end with no evidence. The branch must have at most half of `main`'s count. The research Answers' table-row sentences with no evidence are given by language beside it, with no bar: their sentences differ from run to run.
+4. **Bar 3, which wrong ✓ counts.** Each ✓ on a wrong twin is listed with whether an evidence ask was sent for it.
+   - **Reached through an ask:** it counts, and the bar holds as written: none that `main` didn't give, and no more in all. It counts even when the verdict was the model's own from the start. On `main` that verdict is lost by accident.
+   - **Reached with no ask:** that is the same request on both arms. It is listed and read, and not counted against this change.
+5. **The six pairs come from two Documents' tables**, listed below.
+6. **The script that reads the bars:**
+   - It prints what each cell counted, by arm, language and case set, before any bar. An empty cell is an error, never "holds".
+   - It uses the language keys as the record writes them ("en", "zh-CN").
+   - A run struck as void is left out of the score by the same list that strikes it.
+   - The dry run builds every file a reader gets and fails on an empty field.
+
+**Model.** Only Claude Haiku 5.5 is measured; the ask's lines are told to every model. The reading of the conclusion inside a fact part gates nothing and stays as planned above.
+
+**The cases, fixed here.** Each right sentence is one Claude Haiku 5.5 wrote in the saved research records. Each wrong twin changes one figure or swaps two rows. Each sentence of a pair cites the same quotes, the table rows its Answer cited.
+
+| # | Language | Document | Right sentence | Wrong twin | Cites |
+|---|---|---|---|---|---|
+| 1 | en | Weighted Keys Shorter Paths | Per-layer work: a weighted-key layer costs O(n²d) against O(nd²) for a recurrent layer, where n is sequence length and d is width. | Per-layer work: a weighted-key layer costs O(nd²) against O(n²d) for a recurrent layer, where n is sequence length and d is width. | "Weighted keys O(n2 d) O(1) O(1)"; "Recurrent O(n d2) O(n) O(n)" |
+| 2 | en | Weighted Keys Shorter Paths | Its Table 1 lists weighted-key layers at O(1) path length and recurrent layers at O(n). | Its Table 1 lists weighted-key layers at O(n) path length and recurrent layers at O(1). | the same two rows |
+| 3 | en | Demonstrations Not Weights | Compute: Table 4 lists the 220B model at 210B tokens and 2,740 accelerator days. | Compute: Table 4 lists the 220B model at 210B tokens and 274 accelerator days. | "220 B 210 B 2,740" |
+| 4 | zh-CN | Weighted Keys Shorter Paths | 表 1 中，循环层的运算量是 O(n d²)，加权键层是 O(n² d)。 | 表 1 中，循环层的运算量是 O(n² d)，加权键层是 O(n d²)。 | the same two rows as 1 |
+| 5 | zh-CN | Weighted Keys Shorter Paths | 表 1 显示，循环层的顺序步数是 O(n)，而加权键层是 O(1)。 | 表 1 显示，循环层的顺序步数是 O(1)，而加权键层是 O(n)。 | the same two rows as 1 |
+| 6 | zh-CN | Demonstrations Not Weights | 文档《Demonstrations Not Weights》给出的是训练算力：220B 模型的训练用了 2,740 个加速器天（accelerator days），训练数据为 210B tokens。 | the same with 274 个加速器天 | "220 B 210 B 2,740" |
+
+**The Passages that hold a number in square brackets:**
+- **Weighted Keys Shorter Paths:**
+  - p. 3: "A residual connection [1] wraps each sub-layer, and layer normalisation [2] follows it.", the one the saved asks were answered with;
+  - p. 8: "Label smoothing of ε = 0.04 [3] was applied throughout.";
+  - p. 12: the references [1]–[5].
+- **Demonstrations Not Weights:** p. 75, the references [1]–[5].
+- Table 1 is on p. 4 and Table 4 on p. 38. Neither table holds a bracketed number.
