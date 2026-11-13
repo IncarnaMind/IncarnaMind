@@ -15,7 +15,7 @@ const TIDES: SourceFile = {
   name: "Tides.md",
   // A line in each language, so that either sentence's search finds the Passage.
   contents:
-    "The tide turns twice a day.\n\n港口的潮水一天涨落两次。\n\nThe harbour closes at dusk.\n",
+    "The tide turns twice a day.\n\n港口的潮水每天都会涨落。\n\nThe harbour closes at dusk.\n",
 };
 const BOATS: SourceFile = { name: "Boats.md", contents: "Boats leave the harbour at dawn.\n" };
 const LINE = "The tide turns twice a day.";
@@ -141,7 +141,7 @@ describe("A record the reply wrote is taken before the check asks for it again",
   // protects=a record line whose quote the Citation check finds in the Document it names is taken, so the model's own Supported stands with that Passage, in English and Chinese; fails_when=the record is ignored and the ask's empty answer leaves it Not checked; no_claim=a record in any other form.
   test.each([
     ["Tides turn twice in a day here.", `[^1]: Tides, “${LINE}”`],
-    ["这里的潮水一天涨落两次。", `[^1]: Tides, "${LINE}"`],
+    ["这里的潮水每天都会涨落。", `[^1]: Tides, "${LINE}"`],
   ])("%s", async (claim, record) => {
     const result = await checked(claim, record, LINE);
     expect(result.verdict).toBe("supported");
@@ -178,7 +178,7 @@ describe("A record the reply wrote is taken before the check asks for it again",
 
 describe("A cited sentence's Supported rests on its own Citations' words", () => {
   // protects=a part the check backed with a Passage its Citation doesn't quote reads Not checked, "found-elsewhere", keeping that Passage for its card's Add as Citation, in English and Chinese, never Supported beside the old Citation alone and never Unsupported; fails_when=it reads Supported, Unsupported, or loses the Passage; no_claim=how its card shows it.
-  test.each([["Tides turn twice in a day here."], ["这里的潮水一天涨落两次。"]])(
+  test.each([["Tides turn twice in a day here."], ["这里的潮水每天都会涨落。"]])(
     "%s, citing another line",
     async (claim) => {
       const result = await checked(claim, `[^1]: Tides, “${LINE}”`, "The harbour closes at dusk.");
