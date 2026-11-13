@@ -132,6 +132,7 @@ async function runModel(
           result = await runCase(library, scoped, judge, model, each, {
             watch,
             calculates,
+            hear: answerTokens.hear,
             ...(deciding && { deciding }),
           });
         } catch (error) {

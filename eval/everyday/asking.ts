@@ -39,6 +39,7 @@ import type { ChatSettings, readConfig } from "../lib/config";
 import type { EvalDocument } from "../lib/evaluationSet";
 import type { Library } from "../lib/library";
 import type { Log } from "../lib/log";
+import type { Hear } from "../lib/tokens";
 import type { EverydayCase } from "./cases";
 import {
   documentsCovered,
@@ -367,6 +368,7 @@ export async function runCase(
     deciding,
     asking,
     calculates = false,
+    hear,
   }: {
     /** Watches the app's own asks inside the Answer; none watched without it. */
     watch?: ReaskWatch;
@@ -378,6 +380,8 @@ export async function runCase(
     deciding?: { decide(text: string): Promise<Decision>; forcing: Forcing };
     /** The model is offered `calculate` (`ModelFacts.calculates`). */
     calculates?: boolean;
+    /** Hears the cited sentences' checks' requests, for the record. */
+    hear?: Hear;
   } = {},
 ): Promise<CaseResult> {
   const { core } = library;
@@ -560,7 +564,7 @@ export async function runCase(
     const found = minds.find((each) => each.id === id);
     return found ? mindName(found) || null : null;
   };
-  const support = each.research ? await checkCitedSentences(core, answer, checkModel) : null;
+  const support = each.research ? await checkCitedSentences(core, answer, checkModel, hear) : null;
   const changed = new Set(
     answer.toolCalls.flatMap((call) => (call.mindChange ? [call.mindChange.mindId] : [])),
   );
