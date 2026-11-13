@@ -379,12 +379,7 @@ body {
 }
 
 .help-earlier-start {
-  display: flex;
   flex: 1;
-  min-width: 0;
-}
-
-.help-earlier-text {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;

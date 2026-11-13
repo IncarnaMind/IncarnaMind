@@ -241,9 +241,7 @@ function EarlierLine({
           <>
             <span aria-hidden="true">·</span>
             <span data-testid="help-earlier-start" className="help-earlier-start">
-              {said && "“"}
-              <span className="help-earlier-text">{start}</span>
-              {said && "”"}
+              {said ? `“${start}”` : start}
             </span>
           </>
         )}
