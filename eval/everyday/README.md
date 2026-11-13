@@ -69,6 +69,24 @@ npm run eval:everyday
 
 **Cost and time, roughly:** on Claude Haiku 5.5, half a minute to a minute and $0.02 to $0.05 a request, so about an hour and a half and $3 to $6 for three runs of all of them. A request that takes over five minutes is stopped and fails.
 
+### The records ask's gate
+
+`recordsAsk.everyday.ts` runs the gate for the ask for a check's missing records (#3019, `gates/records-ask.md`): `main` and the branch, each from its own source, item by item in turn. Its models are fixed, Claude Haiku 5.5 with Claude Sonnet 5.5 as judge; it refuses to start while an `INCARNAMIND_EVAL_CHAT_*` or `_JUDGE_*` variable is set. Each step is `npx vitest run --config eval/everyday/vitest.config.ts eval/everyday/recordsAsk.everyday.ts` with `INCARNAMIND_EVAL_RECORDS_ASK_RUN` set to the run's folder, an absolute path:
+
+1. **The main arm's folder:** this branch's files with `main`'s `src` in place of the branch's, and the branch's `node_modules` linked in. The branch must hold the `main` commit the run starts from.
+
+   ```sh
+   git archive HEAD | tar -x -C "$MAIN_ARM"
+   rm -rf "$MAIN_ARM/src" && git archive "$MAIN" src | tar -x -C "$MAIN_ARM"
+   ln -s "$PWD/node_modules" "$MAIN_ARM/node_modules"
+   ```
+
+2. **Both arms at once:** `INCARNAMIND_EVAL_EVERYDAY=records-ask` with `INCARNAMIND_EVAL_RECORDS_ASK_ARM=main` and `INCARNAMIND_EVAL_RECORDS_ASK_SOURCE=$MAIN` in the main arm's folder, and with `INCARNAMIND_EVAL_RECORDS_ASK_ARM=branch` in this one, each with the key in `INCARNAMIND_EVAL_RECORDS_ASK_KEY`. They take turns: each item is asked of `main`, then of the branch. Each writes a record of every try (`<run>/<arm>/<item>.<try>.json`): the check's result, whether an evidence ask went out, the ask and its reply, the requests answered and every try that failed. A try with a request refused, failed or timed out is void, struck with the reason and run again once; an item void twice is left out on both arms. `INCARNAMIND_EVAL_RECORDS_ASK_ITEMS=pilot` runs the plan's pilot only.
+3. **The judge:** `INCARNAMIND_EVAL_EVERYDAY=records-ask-judge` reads every research ✓ of both arms against its Citations' words, told no arm, into `judged.json`.
+4. **The bars:** `INCARNAMIND_EVAL_EVERYDAY=records-ask-bars` sends no request. It writes `bars.md`, which gives the spend, the tries struck as void and what each cell counted (arm, language, case set) before any bar; `report.md`, every try with its asks; and the sheet for the conclusion inside a fact part, `kind-b-sheet.md`, with its key apart in `kind-b-key.json`. An empty cell or an empty field fails it. For the pilot it gives the spend, and what the whole run would cost at its means, and reads no bar.
+
+`INCARNAMIND_EVAL_RECORDS_ASK_DRY=1` plays every step on the scripted chat model (`recordsAskDry.ts`) with no request to any provider: it refuses to start while a key is set, its `fetch` throws, and each arm records how often `fetch` was called, which the bars require to be 0. Its numbers are fake.
+
 ## Results
 
 ### 2026-11-08: change claims held to the change log (#2769, #2770)
