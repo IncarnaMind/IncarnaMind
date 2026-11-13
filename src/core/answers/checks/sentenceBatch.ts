@@ -50,8 +50,9 @@ export interface BatchVerdict {
   /** Whether it has happened or is still to happen, as the Passages say it. */
   time: "same" | "differs";
   /**
-   * Its words, as the model copied them, that no Passage states: an inference, a negative or a
-   * promise added to a Passage's fact (#3003). Null when a Passage states every part of it.
+   * Its words, as the model copied them, that no Passage states: an inference, a negative, or a
+   * promise, advice or refusal of the sentence's own (#3003). Null when a Passage states every
+   * part of it.
    */
   unstated: string | null;
   /**
@@ -80,8 +81,8 @@ export const sentenceBatchInstructions = (language: Language): string =>
     'kind: "fact" when the sentence asserts something the Documents could support or contradict, a statement attributed to someone included; "opinion" only when all of it is the writer\'s own opinion, advice or interpretation.',
     'roles: "differs" only when the other party does it, the two parties are the other way round, or one says must where the other says may; otherwise "same".',
     'time: "differs" only when one says it has already happened and the other that it is still to happen (already installed, installation in February); otherwise "same", a date only one of them gives included.',
-    "unstated: the sentence's own words, copied as written, that claim something as so which no Passage states: a conclusion drawn from a Passage's fact, a negative or a limit the Passage doesn't give, or a promise, offer or plan added to it. Copy only words that claim something; words that claim nothing, such as who is speaking or when, a courtesy or a lead-in, are never copied. Read for meaning, not for the same words: a part whose meaning a Passage gives is stated, however it is worded and in whatever language, and so is what two Passages say together. Null when no claim in the sentence is left unstated.",
-    "uncited: the sentence's own words, copied as written, that the words it cites don't say, read in their Passage, though another part of a Passage does: the cited words stop before its figure, date or clause, or are about another claim. Copy only those words, and null when the words it cites, all its quotes together, say every part of it, in other words or another language included.",
+    "unstated: the sentence's own words, copied as written, that add what no Passage states: a conclusion drawn from a Passage's fact, a negative or a limit the Passage doesn't give, or a promise, offer, plan, advice or refusal the reply makes of its own. Copy every such part; words that only frame the sentence, such as who is speaking or when, a courtesy or a lead-in, are never copied. Read for meaning, not for the same words: a part whose meaning a Passage gives is stated, however it is worded and in whatever language, and so is what two Passages say together. Null when the sentence adds nothing no Passage states.",
+    "uncited: the sentence's own words, copied as written, that the words it cites don't say, read in their Passage, though another part of a Passage does: the cited words stop before its figure, date or clause, or are about another claim. A judgement on what someone said, that it agrees with a Document or contradicts it, rests on both what was said and what answers it: when the words it cites give only one of the two, copy the judgement's words, here when another Passage gives the other, as unstated when none does. Copy only those words, and null when the words it cites, all its quotes together, say every part of it, in other words or another language included.",
     `says: one plain sentence in ${LANGUAGE_NAMES[language]} saying what the Passages say about the sentence's own detail, whatever language the sentence and the Passages are in. Never mention the Passages, the Citations or how you read them.`,
     "",
     "Reply with JSON only, one entry for each sentence, in their order:",

@@ -351,12 +351,13 @@ describe("which Answers this batch judges", () => {
   });
 });
 
-describe("words that claim nothing are never unstated; a claim added to them is (#3003)", () => {
-  // protects=the batch's instructions copy as unstated only words that claim something, so a courtesy, who is speaking or when, a lead-in or a restatement in other words keeps its check, while the same line with a claim added loses it; fails_when=the instructions stop saying so, or the code reads a copy otherwise; no_claim=how often a model keeps to it, which the dev trial measures.
+describe("words that only frame a sentence are never unstated; a claim, advice or a refusal added to them is (#3003)", () => {
+  // protects=the batch's instructions copy as unstated a conclusion, a negative, or a promise, advice or refusal of the reply's own, and never words that only frame the sentence, so a courtesy, who is speaking or when, a lead-in or a restatement in other words keeps its check, while the same line with one of those added loses it; fails_when=the instructions stop saying so, or the code reads a copy otherwise; no_claim=how often a model keeps to it, which the dev trial measures.
   test("the instructions say which words are copied, and that they are read for meaning", () => {
     for (const language of ["en", "zh-CN"] as const) {
       const lines = sentenceBatchInstructions(language);
-      expect(lines).toContain("Copy only words that claim something; words that claim nothing");
+      expect(lines).toContain("promise, offer, plan, advice or refusal the reply makes of its own");
+      expect(lines).toContain("words that only frame the sentence");
       expect(lines).toContain("Read for meaning, not for the same words");
     }
   });
@@ -420,6 +421,109 @@ describe("words that claim nothing are never unstated; a claim added to them is 
 
       expect(checkOf(citations, 1)).toMatchObject({ quote: COST, check: "found" });
       expect(checkOf(citations, 2)).toMatchObject({ quote: COST, check: "unsupported" });
+    },
+  );
+
+  test.each([
+    {
+      kind: "advice",
+      added: "and I'd ask for a second quote before signing",
+      claimed:
+        "Two K9 kilns cost £185,000, installed, and I'd ask for a second quote before signing.",
+    },
+    {
+      kind: "a refusal",
+      added: "We can't lower that",
+      claimed: "We can't lower that: two K9 kilns cost £185,000, installed.",
+    },
+    {
+      kind: "advice, in Chinese",
+      added: "建议签约前再要一份报价",
+      claimed: "两台 K9 窑炉含安装费用为 £185,000，建议签约前再要一份报价。",
+    },
+    {
+      kind: "a refusal, in Chinese",
+      added: "这个价我们降不了",
+      claimed: "这个价我们降不了，两台 K9 窑炉含安装费用为 £185,000。",
+    },
+  ])(
+    "a backed fact keeps its check; the same fact with $kind of the reply's own doesn't",
+    async ({ added, claimed }) => {
+      const backed = "Two K9 kilns cost £185,000, installed.";
+      const marked = (sentence: string, marker: number) =>
+        `${sentence.slice(0, -1)}[^${marker}]${sentence.slice(-1)}`;
+      const answer = `${marked(backed, 1)} ${marked(claimed, 2)}`;
+      const plans: Record<string, Plan> = {
+        [backed]: { verdict: "supported", says: backed },
+        [claimed]: { verdict: "supported", unstated: added, says: backed },
+      };
+      const { core } = await setUpWithDocuments(
+        answeringModel("kilns cost", answer, [COST, COST], plans),
+        [KILN_DECK],
+      );
+
+      const citations = await citationsOfAnswer(core, "What does the kiln upgrade cost?");
+
+      expect(checkOf(citations, 1)).toMatchObject({ quote: COST, check: "found" });
+      expect(checkOf(citations, 2)).toMatchObject({ quote: COST, check: "unsupported" });
+    },
+  );
+});
+
+describe("a judgement on what someone said cites both what was said and what answers it (#3003)", () => {
+  // protects=a sentence that says a claim agrees with a Document, or contradicts it, while citing only one of the two copies the judgement as not in its cited words and loses its check, and keeps it when it cites both; fails_when=the instructions stop saying so, or the code reads the copy otherwise; no_claim=how often a model copies it, which the dev trial measures.
+  const OFFER = "Our price for two K9 kilns is £185,000, installed.";
+  const OFFER_EMAIL = {
+    name: "Hartwell Kilns offer.docx",
+    contents: docxOf([{ text: "Hartwell Kilns offer", heading: 1 }, { text: OFFER }]),
+  };
+
+  test("the instructions say a judgement needs both sides", () => {
+    for (const language of ["en", "zh-CN"] as const) {
+      expect(sentenceBatchInstructions(language)).toContain(
+        "when the words it cites give only one of the two, copy the judgement's words",
+      );
+    }
+  });
+
+  // One Answer each: a quote two sentences cite shows one check for both.
+  async function citationsOf(sentence: string, quotes: readonly string[], plan: Plan) {
+    const markers = quotes.map((_, index) => `[^${index + 1}]`).join("");
+    const answer = `${sentence.slice(0, -1)}${markers}${sentence.slice(-1)}`;
+    const { core } = await setUpWithDocuments(
+      answeringModel("kilns price", answer, quotes, { [sentence]: plan }),
+      [KILN_DECK, OFFER_EMAIL],
+    );
+    return citationsOfAnswer(core, "Does Hartwell's price match the plan?");
+  }
+
+  test.each([
+    {
+      language: "English",
+      sentence: "Hartwell's price matches the board plan.",
+      judgement: "matches the board plan",
+    },
+    {
+      language: "Chinese",
+      sentence: "Hartwell 的报价与董事会方案一致。",
+      judgement: "与董事会方案一致",
+    },
+  ])(
+    "in $language, the judgement citing the offer alone goes unchecked; citing the offer and the plan, it keeps its check",
+    async ({ sentence, judgement }) => {
+      const alone = await citationsOf(sentence, [OFFER], {
+        verdict: "supported",
+        uncited: judgement,
+        says: OFFER,
+      });
+      const both = await citationsOf(sentence, [OFFER, COST], {
+        verdict: "supported",
+        says: OFFER,
+      });
+
+      expect(checkOf(alone, 1)).toMatchObject({ quote: OFFER, check: "not-checked" });
+      expect(checkOf(both, 1)).toMatchObject({ quote: OFFER, check: "found" });
+      expect(checkOf(both, 2)).toMatchObject({ quote: COST, check: "found" });
     },
   );
 });
