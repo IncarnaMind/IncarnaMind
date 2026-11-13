@@ -19,7 +19,7 @@ import type { WindowedPassage } from "../documents/search";
 import { LANGUAGE_NAMES, type Language } from "../language";
 import { estimateTokens } from "./context";
 import type { AnswerMessage } from "./engine";
-import { languageSpoken } from "./prompt";
+import { languageSpoken, questionLanguage } from "./prompt";
 
 const TASKS: Readonly<Record<MeetingHelpKind, string>> = {
   say: "What could the User say next, given the last thing said?",
@@ -209,6 +209,34 @@ export function withHelp(
 /** The language the newest lines of a live transcript are in, without their times and speakers. */
 export const languageSaid = (heard: readonly WindowedPassage[]): string | null =>
   languageSpoken(heard.slice(-3));
+
+/** Whether a text is written in Chinese characters or Latin letters; null when it says too little. */
+function scriptOf(text: string): "han" | "latin" | null {
+  const plain = text.replace(/\[\^\d{1,4}\]/g, " ");
+  const han = plain.match(/\p{Script=Han}/gu)?.length ?? 0;
+  const words = plain.match(/\p{Script=Latin}{2,}/gu)?.length ?? 0;
+  if (han + words < 3) return null;
+  return han >= 2 * words ? "han" : "latin";
+}
+
+/**
+ * For a question typed during a call (#2925): whether its reply is asked anew, once, for its first
+ * line being in another language than the question and the call. Only when the question and the
+ * call are in one language: a line to say may rightly be in the call's when they differ, and then
+ * this is null, as it is when either language can't be told.
+ */
+export function anewInItsLanguage(
+  asked: string,
+  callLanguage: string | null,
+): ((firstLine: string) => boolean) | null {
+  const typed = questionLanguage(asked);
+  const script = scriptOf(asked);
+  if (typed === null || typed !== callLanguage || script === null) return null;
+  return (firstLine) => {
+    const written = scriptOf(firstLine);
+    return written !== null && written !== script;
+  };
+}
 
 /**
  * A button's Question while the live text is behind but has lines (#1366). The reply starts with a

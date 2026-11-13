@@ -550,6 +550,12 @@ export interface AnswerRequest {
     recorded: (marker: number) => boolean,
   ): readonly AskedLine[];
   /**
+   * Whether the reply is made anew, once, for what its first line is (a typed call-help question's
+   * reply in another language than its question and call, #2925): the same request again, nothing
+   * added for the reply to answer, its first reply's text shown until the new one's first words.
+   */
+  asksAnew?(firstLine: string): boolean;
+  /**
    * Told what the first model call wrote once its Tools have returned, before any further call:
    * a Run it stops there makes none.
    */
@@ -1542,7 +1548,67 @@ async function* endedBlank(
 
 export function createAiSdkAnswerEngine(options: AiSdkAnswerEngineOptions = {}): AnswerEngine {
   const writer = createWritingEngine(options);
-  return { generate: (request) => endedBlank(writer.generate(request), request) };
+  return { generate: (request) => endedBlank(madeAnewOnce(writer, request), request) };
+}
+
+/**
+ * A request made anew once when its first line asks for it (`AnswerRequest.asksAnew`). The first
+ * reply's text shows as it streams; once its first line is whole, or it writes no more text, that
+ * line decides, and what came after the text began waits for it. Made anew, the first reply is
+ * stopped and the same request made again, and its text stays until the new reply's first words
+ * replace it, so the reply is never empty meanwhile.
+ */
+async function* madeAnewOnce(
+  writer: AnswerEngine,
+  request: AnswerRequest,
+): AsyncGenerator<AnswerEngineEvent> {
+  const { asksAnew } = request;
+  if (!asksAnew) {
+    yield* writer.generate(request);
+    return;
+  }
+  const first = new AbortController();
+  let text = "";
+  let decided = false;
+  let anew = false;
+  for await (const event of writer.generate({
+    ...request,
+    signal: AbortSignal.any([request.signal, first.signal]),
+  })) {
+    if (decided) {
+      yield event;
+      continue;
+    }
+    if (event.type === "text-delta" || event.type === "text-retracted") {
+      text = event.type === "text-delta" ? text + event.text : text.slice(0, -event.length);
+      yield event;
+      const written = text.trimStart();
+      const end = written.indexOf("\n");
+      if (end === -1) continue;
+      decided = true;
+      anew = asksAnew(written.slice(0, end));
+    } else if (text.trim() === "" || event.type === "reasoning") {
+      yield event;
+      continue;
+    } else {
+      decided = true;
+      anew = asksAnew(text.trim());
+      if (!anew) yield event;
+    }
+    if (anew) {
+      first.abort();
+      break;
+    }
+  }
+  if (!anew) return;
+  let shown = text.length;
+  for await (const event of writer.generate(request)) {
+    if (shown > 0 && event.type === "text-delta" && event.text !== "") {
+      yield { type: "text-retracted", length: shown };
+      shown = 0;
+    }
+    yield event;
+  }
 }
 
 /** What one go of the Tool-calling loop keeps of its calls of the Documents' Tools. */

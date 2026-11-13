@@ -2,6 +2,7 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
+import { ASKED_ANEW } from "../src/main/fakeChat/meetingHelp";
 import {
   useLocalChatModel as connectLocalChatModel,
   createDataFolder,
@@ -67,11 +68,14 @@ test.afterEach(async () => {
 const core = (window: Page) =>
   window.evaluateHandle(() => (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind);
 
-/** A call recording, the price sheet in the Library first: Documents wait while a meeting records. */
-async function recording(language: keyof typeof CALLS = "en") {
+/**
+ * A call recording, the price sheet in the Library first: Documents wait while a meeting records.
+ * `lines`: what the User says in it, the transcriber's own lines when none.
+ */
+async function recording(language: keyof typeof CALLS = "en", lines?: readonly string[]) {
   const { app, window } = await launchApp(dataDir, {
     fakeChat: true,
-    transcriber: { theirLines: CALLS[language].buyer },
+    transcriber: { theirLines: CALLS[language].buyer, ...(lines && { lines }) },
   });
   await setWindowSize(app, window, 1440, 900);
   await dismissChatSetup(window);
@@ -177,6 +181,41 @@ for (const language of ["en", "zh"] as const) {
     await app.close();
   });
 }
+
+test("a Chinese question on a Chinese call answered in English is asked anew once: the English line stays until the Chinese reply's first words replace it", async () => {
+  test.skip(LINUX, NO_FIELD);
+  test.setTimeout(120_000);
+  // A call in Chinese on both sides, as the question is.
+  const { app, panel } = await recording("zh", ["我们先看一下报价。", "企业版的价格在报价单上。"]);
+  await chooseMode(panel, CALLS.zh.ask);
+  // Watches the reply's line from the first words on: it may change, never be empty.
+  await panel.evaluate(() => {
+    const seen = { written: false, emptied: false };
+    (globalThis as unknown as { anew: typeof seen }).anew = seen;
+    new MutationObserver(() => {
+      const line = [...document.querySelectorAll('[data-testid="help-suggestion"]')]
+        .at(-1)
+        ?.querySelector('[data-testid="help-option-say"]');
+      const text = line?.textContent?.trim() ?? "";
+      if (text !== "") seen.written = true;
+      else if (seen.written) seen.emptied = true;
+    }).observe(document.body, { subtree: true, childList: true, characterData: true });
+  });
+  await pointAndClick(panel, panel.getByTestId("quick-note-field"));
+  await panel.keyboard.type(ASKED_ANEW);
+  await panel.keyboard.press("Enter");
+
+  const answer = newest(panel);
+  const line = answer.getByTestId("help-option-say").first();
+  await expect(line).toContainText("The Enterprise plan is $45 a seat");
+  await expect(line).toContainText("企业版每个席位每月 45 美元", { timeout: 20_000 });
+  await expect(answer).toHaveAttribute("data-status", "done");
+  await expect(answer.getByTestId("help-option-say")).toHaveCount(1);
+  expect(
+    await panel.evaluate(() => (globalThis as unknown as { anew: { emptied: boolean } }).anew),
+  ).toEqual({ written: true, emptied: false });
+  await app.close();
+});
 
 test("typed question: the panel's conversation is the one the assistant shows, Open in assistant goes on there, and History keeps it after Stop", async () => {
   test.skip(LINUX, NO_FIELD);

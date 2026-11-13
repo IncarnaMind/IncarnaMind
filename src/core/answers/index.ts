@@ -354,6 +354,7 @@ import {
 import { markdownToBlocks } from "./markdown";
 import { withFigureCitations } from "./markerPlacement";
 import {
+  anewInItsLanguage,
   FOUND_TOKEN_LIMIT,
   foundWithin,
   HELP_DOCUMENTS,
@@ -3621,6 +3622,8 @@ export function createAnswers(options: AnswersOptions) {
       // A model cites as the write-then-cite list says, whichever way it searches, so it never
       // cites in a way that list didn't admit it to (#1633).
       const writeFirst = options.writesThenCites?.(prepared, flow) ?? false;
+      const asksAnew =
+        help === "question" ? anewInItsLanguage(context.question, callLanguage) : null;
       const events = engine.generate({
         instructions: (
           mode,
@@ -3721,6 +3724,7 @@ export function createAnswers(options: AnswersOptions) {
         ...(help &&
           !options.helpFormJudged?.() && { ownLines: (text: string) => helpOwnLines(help, text) }),
         ...(help === "question" && { askedLines: helpAskedLines }),
+        ...(asksAnew && { asksAnew }),
         ...(input.outputKind && { outputKind: input.outputKind }),
         ...(keepsQuestionsLanguage && {
           languageNote: () => (skillNamesNoLanguage ? skillLanguageNote(language) : null),

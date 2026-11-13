@@ -622,6 +622,50 @@ describe("Help during the call", { timeout: 60_000 }, () => {
     expect(latest?.helps.map(({ kind }) => kind)).toEqual(["say", "question"]);
   });
 
+  // protects=a typed question whose reply starts in another language than the question and the call, which are in one, is asked anew once with the same request, and the reply shown is the new one; a question in another language than its call is never asked anew; fails_when=the reply in the other language stands, the request changes, or a question on a call in another language is asked twice; no_claim=what a real model writes the second time.
+  test("a typed reply in another language than its question and call is asked anew once; across languages it isn't (#2925)", async () => {
+    const answering = (english: boolean) => (calls: ModelCall[]) =>
+      scriptedModel(
+        (call) => {
+          calls.push(call);
+          if (call.json) return { text: JSON.stringify({ citations: [] }) };
+          if (!call.prompt.includes("typed a question about it"))
+            return { text: "- 我们先看了报价" };
+          const typed = calls.filter(
+            (each) => !each.json && each.prompt.includes("typed a question about it"),
+          ).length;
+          return {
+            text:
+              english || typed === 1
+                ? "The Team plan is twenty-five dollars a seat."
+                : "团队版每个席位每月二十五美元。",
+          };
+        },
+        { judgesItsAnswers: true },
+      );
+    const typedCalls = (calls: ModelCall[]) =>
+      calls.filter((call) => !call.json && call.prompt.includes("typed a question about it"));
+
+    const chinese = await setUp(
+      undefined,
+      {
+        lines: ["我们先看一下报价。", "团队版每个席位每月二十五美元。"],
+        theirLines: ["企业版能便宜一点吗？", "四十个席位一共多少钱？"],
+      },
+      answering(false),
+    );
+    const anew = await ask(chinese.core, chinese.meeting, "团队版每个席位多少钱？");
+    const asked = typedCalls(chinese.calls);
+    expect(asked).toHaveLength(2);
+    expect(asked[1]?.prompt).toBe(asked[0]?.prompt);
+    expect(anew.answer.text).toBe("团队版每个席位每月二十五美元。");
+
+    const english = await setUp(undefined, {}, answering(true));
+    const across = await ask(english.core, english.meeting, "团队版每个席位多少钱？");
+    expect(typedCalls(english.calls)).toHaveLength(1);
+    expect(across.answer.text).toBe("The Team plan is twenty-five dollars a seat.");
+  });
+
   test("a blank question, or one after Stop, is refused (#2925)", async () => {
     const { core, meeting } = await setUp();
     await expect(core.askMeetingQuestion({ meetingId: meeting.id, text: "  " })).rejects.toThrow(

@@ -67,6 +67,13 @@ function callOf(asked: string) {
 
 const TYPED = /typed a question about it/;
 
+/**
+ * The question a spec types to see a reply asked anew (#2925): answered in English the first time,
+ * as Claude Haiku 5.5 sometimes answered a Chinese question on a Chinese call, then in Chinese.
+ */
+export const ASKED_ANEW = "企业版每个席位多少钱？";
+const answeredInEnglish = new Set<string>();
+
 const ANSWERS = {
   en: {
     found: (fact: string) => `${fact} [^1]`,
@@ -97,6 +104,12 @@ function questionReply(prompt: Prompt, tools: readonly string[]): Reply | null {
     return { tool: "cite", input: { citations: [taken.record] } };
   }
   if (!taken) return { text: ANSWERS[language].none };
+  if (question === ASKED_ANEW) {
+    if (answeredInEnglish.has(question))
+      return { text: "企业版每个席位每月 45 美元，含单点登录[^1]" };
+    answeredInEnglish.add(question);
+    return { text: "The Enterprise plan is $45 a seat, single sign-on included [^1]" };
+  }
   const quote = String(taken.record.quote)
     .replace(/^\[[^\]]*\]\s*/, "")
     .replace(/[.?!。？！]+$/u, "");
