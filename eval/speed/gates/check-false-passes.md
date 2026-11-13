@@ -61,11 +61,49 @@ Each phase starts only when the one before held and its numbers and spend are in
      - how long after the reply's end the ✓ settle;
      - whether any batch reply was cut.
    - The instructions may be changed on what the trial shows. They are then frozen at a commit this file names, before the held-out cases are opened.
+   - **The re-trial** (written on 2026-11-13, before it runs) is set out below. Phase 1 holds only if it holds.
 2. **The held-out check cases.**
 3. **The fresh call-help slice.**
 4. **Answers' own cases.**
 
 Each run names the commit of main its arms stand on, and whether it holds #2997, another pull request's guard on the quoted words' units, which also changes the Answer's check. Main is not merged between the arms of one phase.
+
+## Phase 1's re-trial (written on 2026-11-13, before it runs)
+
+**Why.** The first trial ran the first wording. Ruled since: no ✓ beside a sentence that adds advice, a conclusion or the reply's own "no", with one meaning in an Answer and in call help. So the instructions changed:
+
+- `unstated` names advice and a refusal the reply makes of its own, beside a conclusion, a negative or a limit, and a promise, offer or plan;
+- `uncited` says that a judgement on what someone said, citing only one of what was said and what answers it, is copied.
+
+The instructions it runs are at commit 53ffb3261, on main ea2a33511, without #2997.
+
+**The run.**
+
+- The same 180 saved presses as the first trial, under both rules again, the order turning per case, on the same models, inside phase 1's stop of $1.50.
+- Both rules run in the same hour, so the time bar pairs them on the same sentences.
+- The rule as before is sampled a second time. How many places change their mark between its two samples is reported as the run's noise.
+
+**The judge.**
+
+- Claude Sonnet 5.5 reads each place of 60 saved presses, every case's first run in gate 3: 15 English and 15 Chinese a model.
+- It reads each place on its sentence and quotes alone, in one request a press, with no grade.
+- Its agreement with the hand reading is reported on the places both read. A fault, a conclusion, advice or a "no" of the reply's own, and a call claim outside the quoted words, count as unbacked. A right sentence and one that claims nothing beyond its quotes count as backed. Borderline places are left out.
+- Under 9 in 10 agreement, the hand reading is this phase's yardstick, and the judge's question is set again before the held-out phase.
+
+**The yardstick** is the first trial's 235 places read by hand, each with its kind.
+
+**Held** means every one of these, read by place on this run's `today` arm (a place is one Citation number where it sits in one press's reply):
+
+1. None of the 16 fault places shows a ✓. A fault place is a wrong ✓ of #3003's kind or of #2739's first kind under the rule as before, as the first trial's hand reading found it.
+2. Of the 13 places whose sentence claims nothing beyond its quotes or restates them, at least 10 show a ✓. The borderline places are listed, and counted in neither 1 nor 2.
+3. None of the 6 verdict places shows a ✓. A verdict place's sentence gives a verdict on a claim while citing one side only, and it kept a ✓ in the first trial.
+4. Of the other 40 places with advice, a conclusion or a "no" of the reply's own, at most 3 show a ✓. Each one is listed with its sentence, and the counts are given by language and model.
+   - The 4 places of the known call kind are listed apart and counted in no bullet. Each says what was said on the call outside the quoted words, and each kept a ✓ in the first trial.
+5. Every place that shows a ✓ under today's rule and not under the rule as before, in this run, is listed with its sentence and read by hand.
+6. The time bar, bar 7 below, holds on this run's pairs.
+7. No request was refused, failed or timed out, the judge's included, as the run's own record shows.
+
+If any one isn't met, phase 1 isn't held. The held-out phase doesn't start, and the list goes on #3003 for a ruling. Nothing in this definition changes after the run.
 
 ## The cases
 
@@ -130,9 +168,10 @@ Each run names the commit of main its arms stand on, and whether it holds #2997,
    - 3: the reply holds;
    - 4a and 4b: the same request, and not slower;
    - 5: no press failed on the branch alone.
-7. **The check's time and room** are written here after phase 1, before any later run. The maintainer sets the figure from the dev trial's numbers. The starting point, unless those numbers argue otherwise:
-   - at the median, a ✓ settles no more than a tenth later than on main, in call help and in an Answer;
-   - no batch reply is cut at its limit.
+7. **The check's time and room,** set on 2026-11-13 from phase 1's numbers:
+   - at the median, a ✓ settles no more than a tenth later than under main's rule on the same sentences, on each model, in call help and in an Answer;
+   - no batch reply is cut at its limit;
+   - the 90th percentile is reported, with no bar.
 
 Every bar must hold on both models. A failed bar keeps the change from shipping, and the numbers go on #3003 and #2739.
 
@@ -146,7 +185,7 @@ Every bar must hold on both models. A failed bar keeps the change from shipping,
 
 ## Spend, by phase
 
-1. The dev trial, about $0.85: Haiku $0.12 and Sonnet $0.72. The judge's sample, about $0.30. **Stop $1.50.**
+1. The dev trial, about $0.85: Haiku $0.12 and Sonnet $0.72. The judge's sample, about $0.30. **Stop $1.50.** The first run spent $0.66. The re-trial is about $0.55: the check about $0.48 and the judge about $0.07.
 2. The held-out check cases, about $0.25 on Haiku and $2.90 on Sonnet: 96 sentences, each its own press, both rules, three runs, 576 check requests a model.
 3. The fresh slice, about $0.50 on Haiku and $2 on Sonnet, with the judge per place.
 4. Answers' own cases, about $1.50 on Haiku and $4 on Sonnet: each Answer generated once, checked under both rules, judged once.
