@@ -8132,6 +8132,26 @@
     overflow-wrap: break-word;
     color: var(--color-ink-meta);
   }
+  /* A line that belongs to no option (#2847): a fact before the options, or the closing line. */
+  .help-reply-fact {
+    align-self: flex-start;
+    max-width: 100%;
+    margin: 0;
+    padding: 0 6px;
+    border-radius: 4px;
+    background: var(--color-chip);
+    font-size: 12px;
+    line-height: 20px;
+    overflow-wrap: break-word;
+    color: var(--color-ink-meta);
+  }
+  .help-reply-own {
+    margin: 0;
+    font-size: 12.5px;
+    line-height: 17px;
+    overflow-wrap: break-word;
+    color: var(--color-ink-meta);
+  }
   .help-citation {
     display: inline-flex;
     align-items: center;

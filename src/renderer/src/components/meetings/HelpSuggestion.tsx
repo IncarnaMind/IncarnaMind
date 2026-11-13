@@ -8,7 +8,7 @@ import type {
 import { citationSource, citedLocation } from "../../../../shared/citations";
 import type { ReplyItem, ReplyPiece } from "../../../../shared/helpReplyRead";
 import { isTranscriptLocation } from "../../../../shared/locations";
-import { helpLabel } from "../../../../shared/meetingHelp";
+import { type CallHelpForm, helpLabel } from "../../../../shared/meetingHelp";
 import { isTheirs, SPEAKER_ME } from "../../../../shared/speakers";
 import { useAnswers } from "../../answers";
 import { useCallStarts } from "../../callStarts";
@@ -197,7 +197,45 @@ function Item({
           → <Pieces pieces={item.effect} answer={answer} numbers={numbers} starts={starts} />
         </span>
       )}
+      {item.after.map((line, index) => {
+        const fact = line.some((piece) => piece.kind === "citation");
+        return (
+          <span
+            // biome-ignore lint/suspicious/noArrayIndexKey: an option's lines after its "→" are in the order written.
+            key={index}
+            data-testid={fact ? "help-option-note" : "help-option-own"}
+            className={fact ? "help-option-note" : "help-option-effect"}
+          >
+            <Pieces pieces={line} answer={answer} numbers={numbers} starts={starts} />
+          </span>
+        );
+      })}
     </div>
+  );
+}
+
+/**
+ * A line of the reply's own that belongs to no option (#2847): a fact written before the first
+ * option, with its Citation, or the reply's closing line after the options.
+ */
+function ReplyLine({
+  line,
+  answer,
+  numbers,
+  starts,
+  testId,
+}: {
+  line: readonly ReplyPiece[];
+  answer: ConversationAnswer;
+  numbers: ReadonlyMap<number, number>;
+  starts: ReadonlyMap<string, string>;
+  testId: "help-opening" | "help-closing";
+}) {
+  const fact = line.some((piece) => piece.kind === "citation");
+  return (
+    <p data-testid={testId} className={fact ? "help-reply-fact" : "help-reply-own"}>
+      <Pieces pieces={line} answer={answer} numbers={numbers} starts={starts} />
+    </p>
   );
 }
 
@@ -327,10 +365,13 @@ export function HelpSuggestion({
   help,
   answer,
   onRetry,
+  form,
 }: {
   help: Pick<MeetingHelp, "kind" | "heard">;
   answer: ConversationAnswer;
   onRetry(): void;
+  /** The form the reply was asked in, where it isn't today's (#2847). */
+  form?: CallHelpForm;
 }) {
   const t = useT();
   const providerId = answer.model?.providerId ?? null;
@@ -356,11 +397,12 @@ export function HelpSuggestion({
       )
     : (answer.errorMessage ?? "");
   const streaming = answer.status === "streaming";
-  const { lead, options } = helpParts(answer, help.kind);
+  const { lead, options, opening, closing } = helpParts(answer, help.kind, form);
   const items = [...lead, ...options];
   const numbers = citationNumbers(
     items,
     (marker) => streaming || answer.citations.some((each) => each.marker === marker),
+    opening,
   );
   const starts = useCallStarts(citedIn(answer, numbers).map(({ citation }) => citation));
   return (
@@ -371,6 +413,17 @@ export function HelpSuggestion({
       className="help-suggestion"
     >
       <HelpHeading kind={help.kind} heard={help.heard} />
+      {opening.map((pieces, index) => (
+        <ReplyLine
+          // biome-ignore lint/suspicious/noArrayIndexKey: the reply's lines are in the order written.
+          key={index}
+          line={pieces}
+          answer={answer}
+          numbers={numbers}
+          starts={starts}
+          testId="help-opening"
+        />
+      ))}
       {items.map((item, index) => (
         <Item
           // biome-ignore lint/suspicious/noArrayIndexKey: the options are in the order written.
@@ -379,6 +432,17 @@ export function HelpSuggestion({
           answer={answer}
           numbers={numbers}
           starts={starts}
+        />
+      ))}
+      {closing.map((pieces, index) => (
+        <ReplyLine
+          // biome-ignore lint/suspicious/noArrayIndexKey: the reply's lines are in the order written.
+          key={index}
+          line={pieces}
+          answer={answer}
+          numbers={numbers}
+          starts={starts}
+          testId="help-closing"
         />
       ))}
       {streaming && items.length < 2 && <HelpOutline count={items.length === 0 ? 2 : 1} />}

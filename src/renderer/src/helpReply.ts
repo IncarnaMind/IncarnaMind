@@ -19,7 +19,7 @@ import {
   type ReplyPiece,
 } from "../../shared/helpReplyRead";
 import { isTranscriptLocation, type Translate } from "../../shared/locations";
-import type { MeetingHelpKind } from "../../shared/meetingHelp";
+import type { CallHelpForm, MeetingHelpKind } from "../../shared/meetingHelp";
 
 /**
  * An option's sentence as the User would say it, in quotation marks of the panel's own: its reader
@@ -43,17 +43,23 @@ type HelpAnswer = { text: string; status: AnswerStatus; steps?: { textBehind?: t
 
 /**
  * What the panel shows of a button's Answer: the line it puts first, then the options, readings
- * or short lines.
+ * or short lines; where its facts stand apart, the fact lines before its options and its closing
+ * line too (#2847).
  */
 export function helpParts(
   answer: HelpAnswer,
   kind: MeetingHelpKind,
-): { lead: ReplyItem[]; options: ReplyItem[] } {
-  const { lead, options } = helpReplyRead(
+  form?: CallHelpForm,
+): { lead: ReplyItem[]; options: ReplyItem[]; opening: ReplyPiece[][]; closing: ReplyPiece[][] } {
+  const { lead, options, opening, closing } = helpReplyRead(
     answer.text,
-    helpLayout(kind, { status: answer.status, textBehind: answer.steps?.textBehind === true }),
+    helpLayout(kind, {
+      status: answer.status,
+      textBehind: answer.steps?.textBehind === true,
+      ...(form && { form }),
+    }),
   );
-  return { lead, options };
+  return { lead, options, opening, closing };
 }
 
 export function helpItems(answer: HelpAnswer, kind: MeetingHelpKind): ReplyItem[] {
@@ -74,20 +80,24 @@ export function helpToKeep(answer: HelpAnswer, kind: MeetingHelpKind): boolean {
 }
 
 /**
- * The number each Citation shows with, from 1 in the order the shown items cite them, as the
- * assistant numbers an Answer's: a marker is the core's ("[^9001]" for a figure's input), never
- * the User's. A marker `cited` doesn't know isn't shown, so it takes no number.
+ * The number each Citation shows with, from 1 in the order the shown lines cite them (the fact
+ * lines before the options, `opening`, first), as the assistant numbers an Answer's: a marker is the
+ * core's ("[^9001]" for a figure's input), never the User's. A marker `cited` doesn't know isn't
+ * shown, so it takes no number.
  */
 export function citationNumbers(
   items: readonly ReplyItem[],
   cited: (marker: number) => boolean,
+  opening: readonly ReplyPiece[][] = [],
 ): Map<number, number> {
   const numbers = new Map<number, number>();
-  for (const item of items) {
-    for (const piece of [item.lead, ...item.notes, item.effect ?? []].flat()) {
-      if (piece.kind === "citation" && !numbers.has(piece.marker) && cited(piece.marker))
-        numbers.set(piece.marker, numbers.size + 1);
-    }
+  const lines = [
+    ...opening,
+    ...items.flatMap((item) => [item.lead, ...item.notes, item.effect ?? [], ...item.after]),
+  ];
+  for (const piece of lines.flat()) {
+    if (piece.kind === "citation" && !numbers.has(piece.marker) && cited(piece.marker))
+      numbers.set(piece.marker, numbers.size + 1);
   }
   return numbers;
 }

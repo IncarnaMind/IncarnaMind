@@ -866,6 +866,28 @@ describe("call help's ✓ comes only from the sentence check", { timeout: 60_000
 const textIn = (nodes: readonly NodeJSON[]): string =>
   nodes.map((node) => `${node.text ?? ""}${textIn(node.content ?? [])}`).join("");
 
+/** A Block's words, a line break as a new line, its chips left out. */
+const linesIn = (node: NodeJSON): string =>
+  node.type === "hardBreak"
+    ? "\n"
+    : `${node.text ?? ""}${(node.content ?? []).map(linesIn).join("")}`;
+
+/** The paragraphs of the Note an Answer is added to, each line without the space before a chip. */
+const paragraphsOf = (answer: ConversationAnswer) =>
+  pageBlocks(answer, "Answer their question").map((block) =>
+    linesIn(block)
+      .split("\n")
+      .map((line) => line.trim())
+      .join("\n"),
+  );
+
+/** The words of a line the panel shows, without its chips. */
+const words = (pieces: readonly { kind: string; text?: string }[] = []) =>
+  pieces
+    .flatMap((piece) => (piece.kind === "text" ? [piece.text] : []))
+    .join("")
+    .trim();
+
 describe("a reply is kept, checked and read again as the panel shows it (#2925)", {
   timeout: 60_000,
 }, () => {
@@ -1114,8 +1136,8 @@ describe("the evaluation's switch for the form whose facts stand apart (#2847)",
     expect(help).not.toContain("- Each option is two lines:");
   });
 
-  // protects=a fact line the model wrote after its option's "→" line is kept in that option, above its "→", checked there and given its ✓ on its own chip under the first option, the second option left whole, and the text kept reads the same again; fails_when=the fact starts an option of its own, the ✓ lands elsewhere, the second option loses a line, or a second reading moves it again; no_claim=how often a model writes it so.
-  test("in the form, a fact written after its → line takes its ✓ under the option it belongs to", async () => {
+  // protects=a fact line the model wrote after its option's "→" line stays where written and belongs to the option above: kept right after that "→", checked, given its ✓ on its own chip under the first option, and in the first option's paragraph of the Note it is added to, the second option left whole, and the text kept reads the same again; fails_when=the fact moves above the "→" line, starts an option of its own, joins the second option, the ✓ lands elsewhere, or a second reading moves it; no_claim=how often a model writes it so.
+  test("in the form, a fact written after its → line stays there and takes its ✓ under the option it belongs to", async () => {
     const reply = [
       "★ Yes, Enterprise is $45 a seat",
       "→ answers at once",
@@ -1129,22 +1151,22 @@ describe("the evaluation's switch for the form whose facts stand apart (#2847)",
     const after = await (await pressed(core, meeting, "answer")).judged();
 
     expect(after.text).toBe(
-      "★ Yes, Enterprise is $45 a seat\nEnterprise is $45 per seat a month, with single sign-on [^1]\n→ answers at once\n\nI'll send the price sheet today\n→ buys time",
+      "★ Yes, Enterprise is $45 a seat\n→ answers at once\nEnterprise is $45 per seat a month, with single sign-on [^1]\n\nI'll send the price sheet today\n→ buys time",
     );
     expect(batches).toHaveLength(1);
     expect(marks(after)).toEqual([{ marker: 1, check: "found", passed: true }]);
-    const [first, second] = helpParts(after, "answer").options;
-    const chip = first?.notes[0]?.find((piece) => piece.kind === "citation");
+    const [first, second] = helpParts(after, "answer", "fact lines").options;
+    const chip = first?.after[0]?.find((piece) => piece.kind === "citation");
     const citation = after.citations[0];
     expect(chip?.kind === "citation" && citation && sentencePassed(citation, chip.at)).toBe(true);
-    const words = (pieces: readonly { kind: string; text?: string }[] = []) =>
-      pieces
-        .flatMap((piece) => (piece.kind === "text" ? [piece.text] : []))
-        .join("")
-        .trim();
     expect(words(second?.lead)).toBe("I'll send the price sheet today");
     expect(words(second?.effect ?? [])).toBe("buys time");
     expect(second?.notes).toEqual([]);
+    expect(second?.after).toEqual([]);
+    expect(paragraphsOf(after)).toEqual([
+      "★ Yes, Enterprise is $45 a seat\n→ answers at once\nEnterprise is $45 per seat a month, with single sign-on",
+      "I'll send the price sheet today\n→ buys time",
+    ]);
     const layout = helpLayout("answer", { status: "done", textBehind: false, form: "fact lines" });
     expect(helpReplyRead(after.text, layout).text).toBe(after.text);
   });
@@ -1176,4 +1198,152 @@ describe("the evaluation's switch for the form whose facts stand apart (#2847)",
     expect(shown.some((line) => /^\s*[>=＞＝]/.test(line))).toBe(false);
     expect(marks(after)).toEqual([{ marker: 1, check: "found", passed: true }]);
   });
+
+  const CLOSING = {
+    English: {
+      reply: [
+        "★ Yes, Enterprise is $45 a seat",
+        "> Enterprise is $45 per seat a month, with single sign-on [^1]",
+        "→ answers at once",
+        "",
+        "I'll send the price sheet today",
+        "→ buys time",
+        "",
+        "= The Documents don't say whether the price includes customs duty",
+      ].join("\n"),
+      closing: "The Documents don't say whether the price includes customs duty",
+      begun: "The Documents",
+    },
+    Chinese: {
+      reply: [
+        "★ 是的，企业版每个席位 45 美元",
+        "＞ 企业版每个席位每月 45 美元，含单点登录 [^1]",
+        "→ 直接回答",
+        "",
+        "我今天把价目表发给你",
+        "→ 争取时间",
+        "",
+        "＝ 文档没有提到价格是否含关税",
+      ].join("\n"),
+      closing: "文档没有提到价格是否含关税",
+      begun: "文档",
+    },
+  };
+
+  /** The reply's closing line and its two options as the panel shows them, in the form. */
+  const closingOf = (answer: ConversationAnswer) => {
+    const { options, closing } = helpParts(answer, "answer", "fact lines");
+    return {
+      closing: closing.map(words),
+      inOptions: options.flatMap((item) => [...item.own, ...item.after]).map(words),
+    };
+  };
+
+  // protects=the reply's own line after its options stays its closing line, after the options and in no option, through its check, Check again and the Note it is added to, where it is a paragraph of its own, in English and Chinese; fails_when=it goes into the last option or the last option's paragraph, or Check again moves it; no_claim=how the panel lays it out.
+  test.each(["English", "Chinese"] as const)(
+    "in %s, the closing line stays after the options, through Check again and into the Note",
+    async (language) => {
+      const { reply, closing } = CLOSING[language];
+      const { core, meeting } = await setUp({ reply }, undefined, undefined, "fact lines");
+
+      const { ids, judged } = await pressed(core, meeting, "answer");
+      const after = await judged();
+      await core.checkAnswerAgain(ids);
+      const again = await answerJudged(core, ids.conversationId, ids.answerId);
+
+      for (const answer of [after, again]) {
+        expect(answer.text.endsWith(`\n\n${closing}`)).toBe(true);
+        expect(closingOf(answer)).toEqual({ closing: [closing], inOptions: [] });
+        expect(marks(answer)).toEqual([{ marker: 1, check: "found", passed: true }]);
+        const paragraphs = paragraphsOf(answer);
+        expect(paragraphs).toHaveLength(3);
+        expect(paragraphs.at(-1)).toBe(closing);
+        expect(paragraphs.slice(0, 2).some((paragraph) => paragraph.includes(closing))).toBe(false);
+      }
+    },
+  );
+
+  // protects=a reply stopped while its closing line was written keeps what it wrote of that line as its closing line, after the options, and Check the rest then judges its facts, the closing line left where it was, in English and Chinese; fails_when=the line written so far goes into the last option, or Check the rest moves it; no_claim=what Stop does to a reply in today's form.
+  test.each(["English", "Chinese"] as const)(
+    "in %s, a reply stopped in its closing line keeps it after the options, and Check the rest leaves it there",
+    async (language) => {
+      const { reply, closing, begun } = CLOSING[language];
+      const at = reply.indexOf(begun) + begun.length;
+      const { core, meeting } = await setUp(
+        { reply, pause: { after: at, until: new Promise(() => {}) } },
+        undefined,
+        undefined,
+        "fact lines",
+      );
+
+      const asked = await core.askMeetingHelp({ meetingId: meeting.id, kind: "answer" });
+      if (!asked.asked) throw new Error("Not asked.");
+      const ids = { conversationId: asked.conversation.id, answerId: asked.answerId };
+      await vi.waitFor(
+        async () =>
+          expect((await answerOf(core, ids.conversationId, ids.answerId)).text).toContain(begun),
+        { timeout: 20_000, interval: 5 },
+      );
+      await core.stopConversationAnswer(ids);
+      const stopped = await answerJudged(core, ids.conversationId, ids.answerId);
+      await core.checkAnswerAgain(ids);
+      const checked = await answerJudged(core, ids.conversationId, ids.answerId);
+
+      expect(stopped.status).toBe("stopped");
+      // As far as the reply got: its words stop wherever the model's last piece ended.
+      const written = stopped.text.split("\n").at(-1)?.trim() ?? "";
+      expect(written.startsWith(begun) && closing.startsWith(written)).toBe(true);
+      for (const answer of [stopped, checked]) {
+        expect(closingOf(answer)).toEqual({ closing: [written], inOptions: [] });
+        expect(answer.text.trimEnd().endsWith(`\n\n${written}`)).toBe(true);
+      }
+      expect(marks(checked)).toEqual([{ marker: 1, check: "found", passed: true }]);
+    },
+  );
+
+  // protects=reading A of the ruling: a fact line written before the first line to say belongs to no option; it is kept first, checked, given its ✓ on its own chip, and is a paragraph of its own in the Note, the first option's facts left as written, in English and Chinese; fails_when=it goes into the first option or its paragraph, or its ✓ is lost; no_claim=how often a model writes it so.
+  test.each([
+    {
+      language: "English",
+      fact: "Enterprise is $45 per seat a month, with single sign-on",
+      reply: [
+        "> Enterprise is $45 per seat a month, with single sign-on [^1]",
+        "★ Yes, Enterprise is $45 a seat",
+        "→ answers at once",
+        "",
+        "I'll send the price sheet today",
+        "→ buys time",
+      ].join("\n"),
+    },
+    {
+      language: "Chinese",
+      fact: "企业版每个席位每月 45 美元，含单点登录",
+      reply: [
+        "＞ 企业版每个席位每月 45 美元，含单点登录 [^1]",
+        "★ 是的，企业版每个席位 45 美元",
+        "→ 直接回答",
+        "",
+        "我今天把价目表发给你",
+        "→ 争取时间",
+      ].join("\n"),
+    },
+  ])(
+    "in $language, a fact line before the first line to say stands apart, with its ✓",
+    async ({ reply, fact }) => {
+      const { core, meeting } = await setUp({ reply }, undefined, undefined, "fact lines");
+
+      const after = await (await pressed(core, meeting, "answer")).judged();
+
+      expect(after.text.startsWith(`${fact} [^1]\n\n★`)).toBe(true);
+      const { opening, options } = helpParts(after, "answer", "fact lines");
+      expect(opening.map(words)).toEqual([fact]);
+      const chip = opening[0]?.find((piece) => piece.kind === "citation");
+      const citation = after.citations[0];
+      expect(chip?.kind === "citation" && citation && sentencePassed(citation, chip.at)).toBe(true);
+      expect(options.flatMap((item) => item.notes)).toEqual([]);
+      const paragraphs = paragraphsOf(after);
+      expect(paragraphs).toHaveLength(3);
+      expect(paragraphs[0]).toBe(fact);
+    },
+  );
 });

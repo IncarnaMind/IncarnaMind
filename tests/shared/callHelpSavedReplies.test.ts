@@ -16,7 +16,9 @@ const saved: { kind: MeetingHelpKind; text: string; main: string }[] = JSON.pars
   readFileSync(join(__dirname, "../fixtures/callHelp/savedReplies.json"), "utf8"),
 );
 
-const strip = (items: readonly ReplyItem[]) => items.map(({ own: _own, ...item }) => item);
+/** An item as main reads it: without the form's own lines and those after its "→" line, which main has none of. */
+const strip = (items: readonly ReplyItem[]) =>
+  items.map(({ own: _own, after: _after, ...item }) => item);
 
 describe("the as-before arm reads every saved reply as main does", () => {
   // protects=main's reading of 133 real replies, its text kept and every item with each chip's place, is what the evaluation's as-before arm reads, byte for byte; fails_when=the reader changes main's reading of any of them; no_claim=how the form reads them.
@@ -34,7 +36,11 @@ describe("the as-before arm reads every saved reply as main does", () => {
           JSON.stringify({ text: read.text, lead: strip(read.lead), options: strip(read.options) }),
         )
         .digest("hex");
-      return hash !== main;
+      const apart =
+        read.opening.length > 0 ||
+        read.closing.length > 0 ||
+        [...read.lead, ...read.options].some((item) => item.after.length > 0);
+      return hash !== main || apart;
     });
     expect(differ.map(({ text }) => text.slice(0, 60))).toEqual([]);
   });

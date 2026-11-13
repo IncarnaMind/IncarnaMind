@@ -124,44 +124,231 @@ describe("an option whose facts stand apart", () => {
     );
     expect(reading.kinds).toEqual(["say", "fact", "effect"]);
   });
+});
 
-  // protects=a fact line written after its option's "→" line goes into that option above its "→" in the text kept, so the text reads the same again, and its marker keeps its place as written; a fact line written before the first option goes into the first; the next option is whole; fails_when=the late fact starts an option of its own or the next option takes it, or a place moves; no_claim=how often a model writes it so.
-  test("a fact written outside its option goes into the option it belongs to", () => {
-    const reply = [
-      "> Every roof is surveyed first [^1]",
-      "★ We'll survey each roof",
-      "→ moves to a survey",
-      "> A survey takes two hours [^2]",
-      "",
-      "Shall we book the surveys this week? [^3]",
-      "> A survey costs nothing [^4]",
-      "→ books a date",
-    ].join("\n");
-    const reading = read("ask", reply);
-    expect(reading.text).toBe(
-      [
+/** The panel's lines for a whole reply: its opening fact lines, its options and its closing line. */
+const wholeOf = (reading: ReturnType<typeof read>) => [
+  ...reading.opening.map((line) => `opening: ${textOf(line)}`),
+  ...panelOf(reading.options),
+  ...reading.closing.map((line) => `closing: ${textOf(line)}`),
+];
+
+/** Reads `reply` again from the text kept, as every later reader does, and expects it read the same. */
+function readsTheSameAgain(kind: MeetingHelpKind, reply: string, status: AnswerStatus = "done") {
+  const reading = read(kind, reply, status);
+  const again = read(kind, reading.text, status);
+  expect(again.text).toBe(reading.text);
+  expect(again.kinds).toEqual(reading.kinds);
+  expect(wholeOf(again)).toEqual(wholeOf(reading));
+  return reading;
+}
+
+describe("the text kept keeps the model's order (#2847)", () => {
+  const CLOSING = {
+    English: {
+      reply: [
+        "★ We can add a free sandbox",
+        "> Every Enterprise plan includes a test sandbox at no charge [^1]",
+        "→ keeps the deal moving",
+        "",
+        "Let me check the price with the team",
+        "→ buys time",
+        "",
+        "= The Documents don't say whether the price includes customs duty",
+      ].join("\n"),
+      closing: "The Documents don't say whether the price includes customs duty",
+    },
+    Chinese: {
+      reply: [
+        "★ 可以免费开一个沙盒",
+        "＞ 每个企业版套餐都免费含一个测试沙盒 [^1]",
+        "→ 推进成交",
+        "",
+        "我跟团队确认一下价格",
+        "→ 争取时间",
+        "",
+        "＝ 文档没有提到价格是否含关税",
+      ].join("\n"),
+      closing: "文档没有提到价格是否含关税",
+    },
+  };
+
+  // protects=the reply's own line after its options is its closing line, drawn after them and in no option, a paragraph of its own in the text kept, which reads the same again, in English and Chinese, whether a blank line comes before it or not; fails_when=it goes into the last option, its words change, or a second reading reads it otherwise; no_claim=how the panel lays it out.
+  test.each(["English", "Chinese"] as const)(
+    "in %s, the closing line stays after the options",
+    (language) => {
+      const { reply, closing } = CLOSING[language];
+      for (const written of [reply, reply.replace(/\n\n(?=[=＝])/, "\n")]) {
+        const reading = readsTheSameAgain("answer", written);
+        expect(reading.closing.map(textOf)).toEqual([closing]);
+        expect(reading.options).toHaveLength(2);
+        expect(
+          reading.options.every((item) => item.own.length === 0 && item.after.length === 0),
+        ).toBe(true);
+        expect(reading.text.endsWith(`\n\n${closing}`)).toBe(true);
+        expect(reading.kinds.at(-1)).toBe("own");
+      }
+    },
+  );
+
+  // protects=while the reply is written, its closing line shows after the options as soon as its "= " is written, never inside an option, and a half-written mark shows nothing; stopped halfway it reads as it was, and once it ends nothing it showed moves, in English and Chinese; fails_when=the line shows in an option, a lone "=" shows, or the closing line moves when the reply ends or stops; no_claim=how long it takes.
+  test.each(["English", "Chinese"] as const)(
+    "in %s, the closing line while written and stopped",
+    (language) => {
+      const { reply, closing } = CLOSING[language];
+      const markAt = reply.search(/[=＝] /u);
+      for (let end = 1; end <= reply.length; end++) {
+        const part = read("answer", reply.slice(0, end), "streaming");
+        const inOptions = part.options.flatMap((item) => [...item.own, ...item.after]).map(textOf);
+        expect(inOptions.some((line) => line !== "" && closing.startsWith(line))).toBe(false);
+        expect(part.closing.length).toBe(end > markAt + 2 ? 1 : 0);
+        expect(part.text.split("\n").some((line) => /^[>＞=＝]/.test(line.trim()))).toBe(false);
+      }
+      const stopped = readsTheSameAgain("answer", reply, "stopped");
+      expect(stopped.closing.map(textOf)).toEqual([closing]);
+      expect(wholeOf(stopped)).toEqual(wholeOf(read("answer", reply)));
+    },
+  );
+
+  // protects=a fact line written after an option's "→" line stays where written, right after it, and belongs to the option above: shown under it with its chip at its place as written, kept in that option's paragraph whether or not a blank line came between, while the next option is whole, in English and Chinese; fails_when=the fact moves above the "→" line, starts an option of its own, joins the next option or the closing line, or a place moves; no_claim=how often a model writes it so.
+  test.each([
+    {
+      language: "English",
+      reply: [
         "★ We'll survey each roof",
-        "Every roof is surveyed first [^1]",
-        "A survey takes two hours [^2]",
         "→ moves to a survey",
         "",
+        "> A survey takes two hours [^1]",
+        "",
         "Shall we book the surveys this week?",
-        "A survey costs nothing [^4]",
+        "> A survey costs nothing [^2]",
         "→ books a date",
       ].join("\n"),
-    );
-    expect(panelOf(reading.options)).toEqual([
-      "We'll survey each roof",
-      "  fact: Every roof is surveyed first [1@0]",
-      "  fact: A survey takes two hours [2@1]",
+      text: [
+        "★ We'll survey each roof",
+        "→ moves to a survey",
+        "A survey takes two hours [^1]",
+        "",
+        "Shall we book the surveys this week?",
+        "A survey costs nothing [^2]",
+        "→ books a date",
+      ].join("\n"),
+      panel: [
+        "We'll survey each roof",
+        "→ moves to a survey",
+        "  after: A survey takes two hours [1@0]",
+        "Shall we book the surveys this week?",
+        "  fact: A survey costs nothing [2@1]",
+        "→ books a date",
+      ],
+    },
+    {
+      language: "Chinese",
+      reply: [
+        "★ 我们会先勘察每个屋顶",
+        "→ 推进到勘察",
+        "＞ 一次勘察需要两个小时 [^1]",
+        "",
+        "这周就约勘察吧？",
+        "＞ 勘察不收费 [^2]",
+        "→ 定下日期",
+      ].join("\n"),
+      text: [
+        "★ 我们会先勘察每个屋顶",
+        "→ 推进到勘察",
+        "一次勘察需要两个小时 [^1]",
+        "",
+        "这周就约勘察吧？",
+        "勘察不收费 [^2]",
+        "→ 定下日期",
+      ].join("\n"),
+      panel: [
+        "我们会先勘察每个屋顶",
+        "→ 推进到勘察",
+        "  after: 一次勘察需要两个小时 [1@0]",
+        "这周就约勘察吧？",
+        "  fact: 勘察不收费 [2@1]",
+        "→ 定下日期",
+      ],
+    },
+  ])(
+    "in $language, a fact line after its option's → line belongs to it",
+    ({ reply, text, panel }) => {
+      const reading = readsTheSameAgain("ask", reply);
+      expect(reading.text).toBe(text);
+      const shown = reading.options.flatMap((item) => [
+        ...panelOf([{ ...item, effect: null }]),
+        ...(item.effect ? [`→ ${textOf(item.effect)}`] : []),
+        ...item.after.map((line) => `  after: ${textOf(line)}`),
+      ]);
+      expect(shown).toEqual(panel);
+      expect(reading.kinds).toEqual(["say", "effect", "fact", "other", "say", "fact", "effect"]);
+      expect(reading.closing).toEqual([]);
+    },
+  );
+
+  // protects=an own line written between two options belongs to the option above, after its "→" line, and the next option is whole; fails_when=it becomes the closing line, joins the next option, or starts one; no_claim=how often a model writes it so.
+  test("an own line between options belongs to the option above", () => {
+    const reply = [
+      "★ We'll survey each roof",
       "→ moves to a survey",
+      "= The Documents don't say how long the survey report takes",
+      "",
       "Shall we book the surveys this week?",
-      "  fact: A survey costs nothing [4@3]",
       "→ books a date",
+    ].join("\n");
+    const reading = readsTheSameAgain("ask", reply);
+    expect(reading.options[0]?.after.map(textOf)).toEqual([
+      "The Documents don't say how long the survey report takes",
     ]);
-    const again = read("ask", reading.text);
-    expect(again.text).toBe(reading.text);
-    expect(again.kinds).toEqual(reading.kinds);
+    expect(
+      reading.options[1]?.lead.map((piece) => (piece.kind === "text" ? piece.text : "")),
+    ).toEqual(["Shall we book the surveys this week?"]);
+    expect(reading.closing).toEqual([]);
+  });
+
+  // protects=reading A of the ruling: a fact line written before the first line to say belongs to no option; it stays first, with its chip at its place, as a paragraph of its own in the text kept, and while the reply is written it shows from the moment its marker is written and doesn't move when "★" begins or the reply ends, in English and Chinese; fails_when=it goes into the first option, hides, or moves; no_claim=how often a model writes it so.
+  test.each([
+    {
+      language: "English",
+      reply:
+        "> Every roof is surveyed before a quote [^1]\n★ We'll survey each roof first\n→ moves to a survey\n\nShall we book it this week?\n→ books a date",
+      opening: "Every roof is surveyed before a quote [1@0]",
+    },
+    {
+      language: "Chinese",
+      reply:
+        "＞ 报价前每个屋顶都要先勘察 [^1]\n★ 我们会先勘察每个屋顶\n→ 推进到勘察\n\n这周就约吧？\n→ 定下日期",
+      opening: "报价前每个屋顶都要先勘察 [1@0]",
+    },
+  ])(
+    "in $language, a fact line before the first line to say stands apart",
+    ({ reply, opening }) => {
+      const reading = readsTheSameAgain("answer", reply);
+      expect(reading.opening.map(textOf)).toEqual([opening]);
+      expect(reading.options).toHaveLength(2);
+      expect(reading.options[0]?.notes).toEqual([]);
+      expect(reading.text.startsWith(`${opening.replace(" [1@0]", " [^1]")}\n\n★`)).toBe(true);
+      expect(reading.kinds.slice(0, 3)).toEqual(["fact", "other", "say"]);
+      const markerEnd = reply.indexOf("]") + 1;
+      for (let end = 1; end <= reply.length; end++) {
+        const part = read("answer", reply.slice(0, end), "streaming");
+        expect(part.opening.map(textOf)).toEqual(end >= markerEnd ? [opening] : []);
+        expect(part.options.every((item) => item.notes.length === 0)).toBe(true);
+      }
+    },
+  );
+
+  // protects=a reply whose last option never had its "→" line reads that line, once the reply has ended or stopped, as the reply's closing line, as its text kept can only read again; while written it is an option still coming; fails_when=it reads otherwise the second time; no_claim=how often a model leaves out a "→" line.
+  test("a last option with no → line is the closing line once the reply ends", () => {
+    const reply =
+      "★ We can add a free sandbox\n→ keeps the deal moving\n\nLet me check with the team";
+    expect(read("answer", reply, "streaming").options).toHaveLength(2);
+    for (const status of ["done", "stopped"] as const) {
+      const reading = readsTheSameAgain("answer", reply, status);
+      expect(reading.options).toHaveLength(1);
+      expect(reading.closing.map(textOf)).toEqual(["Let me check with the team"]);
+    }
   });
 });
 

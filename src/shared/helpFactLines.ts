@@ -1,13 +1,24 @@
 /**
  * A call-help reply asked in the form whose facts stand apart (#2847), read into the words the User
  * sees and its check reads. A fact line's mark ("> ") and the reply's own line's ("= ") come off, so
- * no surface draws them as Markdown: in an option a fact or own line is known by its place between
- * the line to say and the "→" line, and a short line takes a list's mark. A marker on a line to say
- * or an own line comes off, as one on a "→" line does. A fact or own line the model wrote outside an
- * option goes into the option it belongs to, so the text kept reads the same way again.
+ * no surface draws them as Markdown, and a short line takes a list's mark. A marker on a line to say,
+ * an own line or a "→" line comes off, unless the line quotes words the quote check reads
+ * (./quotedSpans).
+ *
+ * The text kept keeps the model's order (#2847): no line goes into an option it wasn't written in.
+ * Without its marks, a line is known again by its place:
+ * - between an option's line to say and its "→" line, a fact or own line of that option;
+ * - right after a "→" line, with no blank line between, a fact or own line of the option above;
+ * - before the first line to say, in a paragraph of its own whose every line cites, a fact line of
+ *   the reply's own, no option's;
+ * - once the reply has ended, in the last paragraph after the last option with nothing that cites,
+ *   the reply's closing line. While it is written, the closing line is known by its "= ".
+ * So the text read reads the same way again, and a reply whose last option never had its "→" line
+ * reads that line as its closing line once it ends.
  */
-import { withoutMarkerRuns as withoutCitations } from "./answerSentences";
+import { MARKER, withoutMarkerRuns } from "./answerSentences";
 import { EFFECT_MARK, LINE_MARK, plainLine, RECOMMENDED_MARK } from "./meetingHelp";
+import { holdsQuote } from "./quotedSpans";
 
 export const FACT_MARK = /^(?:>|＞)\s*/;
 export const OWN_MARK = /^(?:=|＝)\s*/;
@@ -15,6 +26,7 @@ export const OWN_MARK = /^(?:=|＝)\s*/;
 const MARK_ONLY = /^(?:[-*•>＞=＝]|\d+[.)]?)$/;
 const SKIPPED = /^(?:\[\^\d{1,4}\]:|#+\s)/;
 const BEFORE_MARK = /^\s*(?:\*\*|__)?\s*/;
+const CITES = new RegExp(MARKER.source);
 
 /** `line` with `mark` taken off its words, put in place of it, its indent and bold kept. */
 function marked(line: string, mark: RegExp, put = ""): string {
@@ -22,11 +34,40 @@ function marked(line: string, mark: RegExp, put = ""): string {
   return `${before}${put}${line.slice(before.length).replace(mark, "")}`;
 }
 
+/** `line` without its Citation markers, unless it quotes words the quote check reads by them. */
+const withoutCitations = (line: string) => (holdsQuote(line) ? line : withoutMarkerRuns(line));
+
+/**
+ * What a line of an options reply in the form is: an option's line to say (or a remark), a fact or
+ * own line of an option before its "→" line (`inner`) or after it (`after`), a "→" line, a fact line
+ * before the first option (`opening`), the reply's closing line, the line put first, or a blank
+ * line, a heading or a footnote's definition (`other`).
+ */
+export type FactLineRole =
+  | "say"
+  | "inner"
+  | "effect"
+  | "after"
+  | "opening"
+  | "closing"
+  | "lead-in"
+  | "other";
+
 export interface FactLinesText {
   /** The lines read. */
   lines: string[];
   /** For each line read, the index of the line it was as written. */
   origin: number[];
+  /** For each line read of an options reply, what it is; none for short lines. */
+  roles: FactLineRole[];
+}
+
+interface FactLinesLayout {
+  shape: "options" | "lines";
+  leadIn: boolean;
+  streaming: boolean;
+  /** Whether the reply has ended: done, stopped or failed. */
+  ended: boolean;
 }
 
 /**
@@ -35,70 +76,153 @@ export interface FactLinesText {
  */
 export function factLinesText(
   written: readonly string[],
-  layout: { shape: "options" | "lines"; leadIn: boolean; streaming: boolean },
+  layout: FactLinesLayout,
   sayRead: (line: string) => string,
 ): FactLinesText {
+  if (layout.shape === "options") return optionsText(written, layout, sayRead);
   const out: { line: string; origin: number }[] = [];
   const last = written.length - 1;
-  if (layout.shape === "lines") {
-    for (const [index, raw] of written.entries()) {
-      const plain = plainLine(raw);
-      if (layout.streaming && index === last && MARK_ONLY.test(plain)) continue;
-      const own = OWN_MARK.test(plain);
-      const mark = own ? OWN_MARK : FACT_MARK.test(plain) ? FACT_MARK : LINE_MARK;
-      let line = raw;
-      if (EFFECT_MARK.test(plain)) line = withoutCitations(raw);
-      else if (own || mark.test(plain)) line = marked(raw, mark, "- ");
-      out.push({ line: own ? withoutCitations(line) : line, origin: index });
-    }
-  } else {
-    /** An option's line to say has come, and its "→" line not yet. */
-    let open = false;
-    /** Where the "→" line of the option before is, among the lines read. */
-    let closedAt: number | null = null;
-    /** Fact and own lines before any option, for the first that comes. */
-    let held: { line: string; origin: number }[] = [];
-    let started = false;
-    for (const [index, raw] of written.entries()) {
-      const plain = plainLine(raw);
-      if (plain === "" || SKIPPED.test(plain)) {
-        out.push({ line: raw, origin: index });
-        continue;
-      }
-      if (layout.streaming && index === last && MARK_ONLY.test(plain)) continue;
-      if (EFFECT_MARK.test(plain)) {
-        out.push({ line: withoutCitations(raw), origin: index });
-        if (open) closedAt = out.length - 1;
-        open = false;
-        started = true;
-        continue;
-      }
-      const fact = FACT_MARK.test(plain);
-      const own = OWN_MARK.test(plain);
-      if (fact || own || (open && !RECOMMENDED_MARK.test(plain))) {
-        const mark = own ? OWN_MARK : fact ? FACT_MARK : LINE_MARK;
-        const words = mark.test(plain) ? marked(raw, mark) : raw;
-        const each = { line: own ? withoutCitations(words) : words, origin: index };
-        if (open) out.push(each);
-        else if (closedAt !== null) out.splice(closedAt++, 0, each);
-        else held.push(each);
-        started = true;
-        continue;
-      }
-      if (layout.leadIn && !started && !RECOMMENDED_MARK.test(plain)) {
-        out.push({ line: raw, origin: index });
-        started = true;
-        continue;
-      }
-      out.push({ line: withoutCitations(sayRead(raw)), origin: index }, ...held);
-      held = [];
-      open = true;
-      closedAt = null;
-      started = true;
-    }
-    // With no option after them, the first is read as an option's line to say, as it is read again.
-    const [first, ...rest] = held;
-    if (first) out.push({ ...first, line: withoutCitations(first.line) }, ...rest);
+  for (const [index, raw] of written.entries()) {
+    const plain = plainLine(raw);
+    if (layout.streaming && index === last && MARK_ONLY.test(plain)) continue;
+    const own = OWN_MARK.test(plain);
+    const mark = own ? OWN_MARK : FACT_MARK.test(plain) ? FACT_MARK : LINE_MARK;
+    let line = raw;
+    if (EFFECT_MARK.test(plain)) line = withoutCitations(raw);
+    else if (own || mark.test(plain)) line = marked(raw, mark, "- ");
+    out.push({ line: own ? withoutCitations(line) : line, origin: index });
   }
-  return { lines: out.map(({ line }) => line), origin: out.map(({ origin }) => origin) };
+  return { lines: out.map(({ line }) => line), origin: out.map(({ origin }) => origin), roles: [] };
+}
+
+function optionsText(
+  written: readonly string[],
+  layout: FactLinesLayout,
+  sayRead: (line: string) => string,
+): FactLinesText {
+  const last = written.length - 1;
+  const plain = written.map(plainLine);
+  const blank = (at: number) => plain[at] === "";
+  const dropped = (at: number) =>
+    layout.streaming && at === last && MARK_ONLY.test(plain[at] ?? "");
+  const words = (at: number) =>
+    at <= last && !blank(at) && !SKIPPED.test(plain[at] ?? "") && !dropped(at);
+  const arrow = (at: number) => EFFECT_MARK.test(plain[at] ?? "");
+  const star = (at: number) => RECOMMENDED_MARK.test(plain[at] ?? "");
+  const fact = (at: number) => FACT_MARK.test(plain[at] ?? "");
+  const own = (at: number) => OWN_MARK.test(plain[at] ?? "");
+  const cites = (at: number) => CITES.test(written[at] ?? "");
+  const later = (from: number) =>
+    Array.from({ length: Math.max(0, last - from + 1) }, (_, step) => from + step).filter(words);
+
+  /** A fact line before the first line to say, which stands apart from every option. */
+  const opens = (at: number): boolean => {
+    if (star(at) || own(at) || !cites(at)) return false;
+    // Something must follow it, or, ended, it is read as a line to say, as before.
+    const more = later(at + 1).some((next) => !(fact(next) && cites(next)));
+    if (fact(at)) return !layout.ended || more;
+    // Without its mark: a paragraph of its own whose every line cites, with more after it.
+    let end = at;
+    while (end < last && !blank(end + 1)) end++;
+    for (let line = at; line <= end; line++) {
+      if (words(line) && (arrow(line) || star(line) || own(line) || !cites(line))) return false;
+    }
+    return end < last && later(end + 1).length > 0;
+  };
+  /** The last paragraph, once the reply has ended: nothing in it or after it cites or is an option. */
+  const closes = (at: number) =>
+    layout.ended &&
+    later(at).every((line) => !arrow(line) && !star(line) && !fact(line) && !cites(line));
+
+  const roles: (FactLineRole | null)[] = [];
+  let phase: "before" | "open" | "closed" | "closing" = "before";
+  let leadDone = !layout.leadIn;
+  for (let at = 0; at <= last; at++) {
+    if (dropped(at)) roles.push(null);
+    else if (!words(at)) roles.push("other");
+    else if (arrow(at)) {
+      roles.push("effect");
+      phase = "closed";
+      leadDone = true;
+    } else if (phase === "before") {
+      if (!leadDone && !star(at)) {
+        roles.push("lead-in");
+        leadDone = true;
+      } else if (opens(at)) roles.push("opening");
+      else {
+        roles.push("say");
+        phase = "open";
+        leadDone = true;
+      }
+    } else if (phase === "open") roles.push(star(at) ? "say" : "inner");
+    else if (phase === "closing") roles.push("closing");
+    else if (star(at)) {
+      roles.push("say");
+      phase = "open";
+    } else if (fact(at) || own(at) || roles[at - 1] === "effect" || roles[at - 1] === "after") {
+      roles.push("after");
+    } else if (closes(at)) {
+      roles.push("closing");
+      phase = "closing";
+    } else {
+      roles.push("say");
+      phase = "open";
+    }
+  }
+
+  const read = written.map((raw, at): string => {
+    const role = roles[at];
+    if (role === "other" || role === null || role === undefined) return raw;
+    if (role === "effect") return withoutCitations(raw);
+    const p = plain[at] ?? "";
+    if (role === "say") {
+      const mark = own(at) ? OWN_MARK : fact(at) ? FACT_MARK : null;
+      return withoutCitations(sayRead(mark ? marked(raw, mark) : raw));
+    }
+    if (role === "opening" || role === "lead-in") {
+      if (own(at)) return withoutCitations(marked(raw, OWN_MARK));
+      return fact(at) ? marked(raw, FACT_MARK) : raw;
+    }
+    const mark = own(at) ? OWN_MARK : fact(at) ? FACT_MARK : LINE_MARK;
+    const line = mark.test(p) ? marked(raw, mark) : raw;
+    return own(at) ? withoutCitations(line) : line;
+  });
+
+  // The reply's own lines at its end, after its last option's "→" line, are its closing line.
+  const lastArrow = roles.lastIndexOf("effect");
+  if (lastArrow !== -1 && !roles.slice(lastArrow).some((role) => role === "say")) {
+    for (let at = last; at > lastArrow; at--) {
+      const role = roles[at];
+      if (role === "other" || role === null || role === "closing") continue;
+      if (role !== "after" || CITES.test(read[at] ?? "")) break;
+      roles[at] = "closing";
+    }
+  }
+
+  const out: { line: string; origin: number; role: FactLineRole }[] = [];
+  const blankBefore = (origin: number) => {
+    const previous = out.at(-1);
+    if (previous && previous.line.trim() !== "") out.push({ line: "", origin, role: "other" });
+  };
+  for (let at = 0; at <= last; at++) {
+    const role = roles[at];
+    if (role === null || role === undefined) continue;
+    if (role === "other" && blank(at)) {
+      // A fact or own line after a "→" line stays in that option's paragraph.
+      const next = roles.slice(at + 1).find((each, step) => !blank(at + 1 + step) && each !== null);
+      if (next === "after") continue;
+      out.push({ line: written[at] ?? "", origin: at, role });
+      continue;
+    }
+    const previous = out.findLast((each) => each.line.trim() !== "")?.role;
+    // The fact lines before the first option, and the closing line, are paragraphs of their own.
+    if (role === "opening" ? previous !== "opening" : previous === "opening") blankBefore(at);
+    else if (role === "closing" && previous !== "closing") blankBefore(at);
+    out.push({ line: read[at] ?? "", origin: at, role });
+  }
+  return {
+    lines: out.map(({ line }) => line),
+    origin: out.map(({ origin }) => origin),
+    roles: out.map(({ role }) => role),
+  };
 }
