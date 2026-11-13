@@ -3,7 +3,6 @@
  * reader (src/shared/helpReplyRead.ts), which says what each line is.
  */
 import type {
-  AnswerStatus,
   AnswerSteps,
   CitationCheckReason,
   ConversationQuestion,
@@ -13,13 +12,13 @@ import type {
 import type { Language } from "../../core/language";
 import { type DateOptions, formatDateTime } from "../../shared/dates";
 import {
-  helpLayout,
-  helpReplyRead,
+  type HelpAnswer,
+  helpAnswerRead,
   type ReplyItem,
   type ReplyPiece,
 } from "../../shared/helpReplyRead";
 import { isTranscriptLocation, type Translate } from "../../shared/locations";
-import type { CallHelpForm, MeetingHelpKind } from "../../shared/meetingHelp";
+import type { MeetingHelpKind } from "../../shared/meetingHelp";
 
 /**
  * An option's sentence as the User would say it, in quotation marks of the panel's own: its reader
@@ -39,36 +38,16 @@ export function quoted(lead: readonly ReplyPiece[]): ReplyPiece[] {
   });
 }
 
-type HelpAnswer = {
-  text: string;
-  status: AnswerStatus;
-  steps?: { textBehind?: true; closingLine?: true } | null;
-  citations?: readonly Pick<MarkedCitation, "marker" | "quote" | "location">[];
-};
-
 /**
  * What the panel shows of a button's Answer: the line it puts first, then the options, readings
  * or short lines; where its facts stand apart, the fact lines before its options and its closing
- * line too (#2847).
+ * line too (#2847). The Answer says which form it was asked in.
  */
 export function helpParts(
   answer: HelpAnswer,
   kind: MeetingHelpKind,
-  form?: CallHelpForm,
 ): { lead: ReplyItem[]; options: ReplyItem[]; opening: ReplyPiece[][]; closing: ReplyPiece[][] } {
-  const quoteOf = (marker: number) => {
-    const citation = answer.citations?.find((each) => each.marker === marker);
-    return citation && !isTranscriptLocation(citation.location) ? citation.quote : null;
-  };
-  const { lead, options, opening, closing } = helpReplyRead(answer.text, {
-    ...helpLayout(kind, {
-      status: answer.status,
-      textBehind: answer.steps?.textBehind === true,
-      ...(form && { form }),
-      closingLine: answer.steps?.closingLine === true,
-    }),
-    quoteOf,
-  });
+  const { lead, options, opening, closing } = helpAnswerRead(answer, kind);
   return { lead, options, opening, closing };
 }
 

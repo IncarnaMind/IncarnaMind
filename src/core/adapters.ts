@@ -1396,7 +1396,8 @@ export interface CoreAdapters {
    */
   helpMarksQuoteOnly?: () => boolean | undefined;
   /**
-   * The form call help is asked and read in, other than today's (`CallHelpForm`); unset, today's.
+   * The form a press is asked in, other than today's (`CallHelpForm`); unset, today's. Its Answer
+   * keeps it from its first save, and every reader reads the Answer in the form it says (#2847).
    * Only tests and the evaluation pass one.
    */
   callHelpForm?: () => CallHelpForm | undefined;

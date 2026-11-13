@@ -48,6 +48,17 @@ export const helpFormOf = (
   form: CallHelpForm | undefined,
 ): CallHelpForm | undefined => (form === "fact lines" && kind === "check" ? undefined : form);
 
+/**
+ * The form a button's Answer is read in, from what the Answer itself says (#2847): the form whose
+ * facts stand apart when it was asked in it, today's otherwise. Every reader of a help Answer asks
+ * this, so an Answer kept before the form is read as it was written.
+ */
+export const answerHelpForm = (
+  steps: { askedInForm?: true } | null | undefined,
+  kind: MeetingHelpKind,
+): CallHelpForm | undefined =>
+  steps?.askedInForm === true ? helpFormOf(kind, "fact lines") : undefined;
+
 export const HELP_SHAPE: Readonly<Record<MeetingHelpKind, HelpShape>> = {
   say: "options",
   answer: "options",

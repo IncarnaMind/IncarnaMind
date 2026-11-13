@@ -18,7 +18,9 @@ import type { AnswerStatus } from "../core/api";
 import { MARKER, withoutMarkerRuns } from "./answerSentences";
 import { FIGURE_MARKER } from "./figureMarkers";
 import { type FactLineRole, factLinesText } from "./helpFactLines";
+import { isTranscriptLocation } from "./locations";
 import {
+  answerHelpForm,
   type CallHelpForm,
   EFFECT_MARK,
   HELP_SHAPE,
@@ -517,4 +519,37 @@ export function helpReplyRead(markdown: string, layout: HelpLayout): HelpReplyRe
     opening: opening.map(piecesAt),
     closing: closing.map(piecesAt),
   };
+}
+
+/** What every reader of a button's kept or streaming Answer reads of it. */
+export interface HelpAnswer {
+  text: string;
+  status: AnswerStatus;
+  steps?: { textBehind?: true; askedInForm?: true; closingLine?: true } | null;
+  citations?: readonly {
+    marker: number;
+    quote: string;
+    location: Parameters<typeof isTranscriptLocation>[0];
+  }[];
+}
+
+/**
+ * A button's Answer as every reader reads it (#2847): in the form the Answer says it was asked in
+ * (`answerHelpForm`), its closing line as it was stored, and a Document's Citation left on a line to
+ * say read as a fact line of its own.
+ */
+export function helpAnswerRead(answer: HelpAnswer, kind: MeetingHelpKind): HelpReplyRead {
+  const form = answerHelpForm(answer.steps, kind);
+  return helpReplyRead(answer.text, {
+    ...helpLayout(kind, {
+      status: answer.status,
+      textBehind: answer.steps?.textBehind === true,
+      ...(form && { form }),
+      closingLine: answer.steps?.closingLine === true,
+    }),
+    quoteOf: (marker) => {
+      const citation = answer.citations?.find((each) => each.marker === marker);
+      return citation && !isTranscriptLocation(citation.location) ? citation.quote : null;
+    },
+  });
 }

@@ -3,15 +3,10 @@
  * app, with the help buttons and the latest suggestion. It shares the app's
  * preload, which gives its page the core and this bridge for the argument.
  */
-import type { CallHelpForm, GeneralHelpKind, HelpShortcut } from "./meetingHelp";
+import type { GeneralHelpKind, HelpShortcut } from "./meetingHelp";
 
 export const MEETING_PANEL_ARGUMENT = "--incarnamind-meeting-panel";
 export const MEETING_PANEL_BRIDGE_KEY = "incarnamindMeetingPanel";
-/**
- * Test-only: the panel reads call help in the form whose facts stand apart (#2847). Only a test
- * build's main process adds it, from the one switch it reads (src/main/index.ts).
- */
-export const CALL_HELP_FACT_LINES_ARGUMENT = "--incarnamind-call-help-fact-lines";
 
 /**
  * Whether the panel and Settings say the panel is left out of the User's screen share. Off until
@@ -72,6 +67,4 @@ export interface MeetingPanelBridge {
   state(state: Omit<PanelState, "shown">): void;
   onCommand(listener: (command: PanelCommand) => void): () => void;
   keyboard(take: boolean): void;
-  /** The form call help is read in where it isn't today's: only ever set in a test build. */
-  callHelpForm: CallHelpForm | null;
 }

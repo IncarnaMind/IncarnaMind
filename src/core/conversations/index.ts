@@ -267,6 +267,7 @@ function storedSteps(value: string | null): AnswerSteps | null {
     sent,
     textBehind,
     pressed,
+    askedInForm,
     closingLine,
   } = parsed;
   const claimed = Array.isArray(unbackedClaims)
@@ -337,15 +338,19 @@ function storedSteps(value: string | null): AnswerSteps | null {
       }),
     // Any button's name: one this version doesn't have still reads as a press.
     ...(typeof pressed === "string" && pressed !== "" && { pressed }),
+    ...(askedInForm === true && { askedInForm }),
   };
 }
 
 /**
  * The steps a press's Answer is saved with before it has any (#3005): the button, so it is a press
- * from its first save, however soon it stops. Only a button's kind: any other turn has none.
+ * from its first save, however soon it stops, and whether it is asked in the form whose facts stand
+ * apart (#2847). Only a button's kind: any other turn has none.
  */
-const pressedSteps = (pressed: MeetingHelpKind | null): string | null =>
-  pressed !== null && isMeetingHelpKind(pressed) ? JSON.stringify({ pressed }) : null;
+const pressedSteps = (pressed: MeetingHelpKind | null, askedInForm: boolean): string | null =>
+  pressed !== null && isMeetingHelpKind(pressed)
+    ? JSON.stringify({ pressed, ...(askedInForm && { askedInForm: true }) })
+    : null;
 
 const claimedTools = (value: unknown): ClaimedTool[] =>
   Array.isArray(value)
@@ -808,6 +813,8 @@ export function createConversations(db: Database, now: () => string) {
       read?: AnswerRead | null;
       /** An Answer's: the help button its Question was asked with (`AnswerSteps.pressed`). */
       pressed?: MeetingHelpKind | null;
+      /** A press's: asked in the form whose facts stand apart (`AnswerSteps.askedInForm`). */
+      askedInForm?: boolean;
     },
     at: string,
   ): MessageRow {
@@ -836,7 +843,7 @@ export function createConversations(db: Database, now: () => string) {
         fields.quotes?.length ? JSON.stringify(fields.quotes) : null,
         fields.status ?? null,
         ...readColumns(fields.read ?? null),
-        pressedSteps(fields.pressed ?? null),
+        pressedSteps(fields.pressed ?? null, fields.askedInForm === true),
         at,
         at,
       ],
@@ -1079,7 +1086,8 @@ export function createConversations(db: Database, now: () => string) {
      * conversation is named by the Question and belongs to the Folder of the Mind in
      * focus, or to none. `askedIn` gives the Folder the Question is asked in, "" for none, from
      * its conversation's Folder; left out, it isn't recorded. `pressed`: the help button the
-     * Question is asked with, kept with its Answer from this first save.
+     * Question is asked with, and `askedInForm`, whether it is asked in the form whose facts stand
+     * apart, kept with its Answer from this first save.
      */
     add(
       input: Omit<QuestionInput, "onScreen" | "commands">,
@@ -1087,6 +1095,7 @@ export function createConversations(db: Database, now: () => string) {
       read: AnswerRead | null,
       askedIn?: (conversationFolderId: string | null) => string,
       pressed: MeetingHelpKind | null = null,
+      askedInForm = false,
     ): AddedTurn {
       const previousConversationUpdatedAt =
         input.conversationId === null
@@ -1139,6 +1148,7 @@ export function createConversations(db: Database, now: () => string) {
             status: "streaming",
             read,
             pressed,
+            askedInForm,
           },
           at,
         );
@@ -1319,7 +1329,8 @@ export function createConversations(db: Database, now: () => string) {
 
     /**
      * Empties an Answer, where it is, to write it again with `answerModel` from the Mind it reads;
-     * `pressed`, the help button it is written for now, is kept from this save as `add` keeps it.
+     * `pressed`, the help button it is written for now, is kept from this save as `add` keeps it,
+     * and so is the form it was first asked in: written again, it is the same Answer (#2847).
      */
     restartAnswer(
       answerId: string,
@@ -1356,7 +1367,7 @@ export function createConversations(db: Database, now: () => string) {
              updated_at = ?
            WHERE id = ?`,
           [
-            pressedSteps(pressed),
+            pressedSteps(pressed, storedSteps(answer.steps)?.askedInForm === true),
             answerModel?.providerId ?? null,
             answerModel?.modelId ?? null,
             ...readColumns(read),

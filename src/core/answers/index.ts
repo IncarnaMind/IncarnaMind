@@ -79,7 +79,12 @@ import {
 import { holdsNothing, madeByAnswer } from "../../shared/madeMind";
 import { linkTableSources } from "../../shared/markdownTables";
 import { escapeMarkdownText } from "../../shared/markdownText";
-import type { CallHelpForm, MeetingHelpKind } from "../../shared/meetingHelp";
+import {
+  answerHelpForm,
+  type CallHelpForm,
+  helpFormOf,
+  type MeetingHelpKind,
+} from "../../shared/meetingHelp";
 import {
   MISSING_NUMBER_REFUSED,
   missingNumberWords,
@@ -514,6 +519,8 @@ export interface AnswerConversations {
     emit?: boolean,
     askedIn?: (conversationFolderId: string | null) => string,
     pressed?: MeetingHelpKind | null,
+    /** A press's: asked in the form whose facts stand apart (`AnswerSteps.askedInForm`). */
+    askedInForm?: boolean,
   ): AddedTurn;
   /** Emits a turn added with `emit: false`, once its Question can be asked. */
   publish(turn: Turn): void;
@@ -1532,8 +1539,11 @@ export function createAnswers(options: AnswersOptions) {
     let foundAhead = false;
     /** The language the call's newest lines are in, which a help Answer is written in. */
     let callLanguage: string | null = null;
-    /** The form a help Answer is asked and read in, when the evaluation chooses one. */
-    const helpForm = help ? options.callHelpForm?.() : undefined;
+    /** Whether its first save says the press is asked in the form whose facts stand apart (#2847). */
+    const askedInForm =
+      help !== undefined && options.conversations.answer(answerId)?.steps?.askedInForm === true;
+    /** The form a help Answer is asked and read in: what its first save says. */
+    const helpForm = help ? answerHelpForm(askedInForm ? { askedInForm } : null, help) : undefined;
     // A press reads no other call (#3005), so it is sent no call marks and no rule about them.
     const unmarked = (options.callsUnmarked?.() ?? false) || help !== undefined;
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -1682,6 +1692,7 @@ export function createAnswers(options: AnswersOptions) {
           },
         }),
         ...(help !== undefined && { pressed: help }),
+        ...(askedInForm && { askedInForm: true as const }),
       };
     };
     let skills: SkillSession | null = null;
@@ -4889,6 +4900,7 @@ export function createAnswers(options: AnswersOptions) {
             : "";
         },
         pressed,
+        pressed !== null && helpFormOf(pressed, options.callHelpForm?.()) === "fact lines",
       );
       const { turn } = added;
       let published = false;

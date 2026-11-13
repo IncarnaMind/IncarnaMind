@@ -8483,9 +8483,15 @@ export interface AnswerSteps {
    */
   pressed?: string;
   /**
+   * The press was asked in call help's form whose facts stand apart (#2847), from the Answer's
+   * first save, beside `pressed`, and never rewritten: every reader of the reply reads it in that
+   * form. Absent: asked in today's form, a typed Question, or a reply kept before this was.
+   */
+  askedInForm?: true;
+  /**
    * In call help's form whose facts stand apart (#2847), the reply's last paragraph is its closing
-   * line, as its "= " mark said while it was written: the text kept has no marks. Absent: no
-   * closing line, another form, or a reply kept before this was.
+   * line, as its "= " mark said while it was written: the text kept has no marks. Set once, when
+   * the reply ends or stops. Absent: no closing line, another form, or a reply kept before this was.
    */
   closingLine?: true;
 }

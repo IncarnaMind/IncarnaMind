@@ -4,7 +4,10 @@
  * sentences get runs once it ends, and only a sentence it passed shows ✓. Through the core's public
  * interface, as the floating panel asks and reads; `sentencePassed` is the panel's own rule.
  */
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, test, vi } from "vitest";
+import { keptHelpReading } from "../../eval/speed/callHelp";
 import {
   CLAIM_CHECK_MARK,
   type ConversationAnswer,
@@ -12,12 +15,12 @@ import {
   type Meeting,
   type MeetingHelpKind,
 } from "../../src/core";
-import { helpParts, sentencePassed } from "../../src/renderer/src/helpReply";
+import { helpParts, helpToKeep, sentencePassed } from "../../src/renderer/src/helpReply";
 import { answerBlocks, pageBlocks, withAnswerChecks } from "../../src/shared/answerBlocks";
 import type { NodeJSON } from "../../src/shared/blockJson";
 import { helpLayout, helpReplyRead, readHelpReply } from "../../src/shared/helpReplyRead";
 import { isTranscriptLocation } from "../../src/shared/locations";
-import type { CallHelpForm } from "../../src/shared/meetingHelp";
+import { answerHelpForm, type CallHelpForm } from "../../src/shared/meetingHelp";
 import { answerJudged, shownPassages } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { createSourceFolder, waitForProcessing, writeSourceFile } from "../helpers/documents";
@@ -1086,8 +1089,8 @@ describe("a reply is kept, checked and read again as the panel shows it (#2925)"
 describe("the evaluation's switch for the form whose facts stand apart (#2847)", {
   timeout: 60_000,
 }, () => {
-  // protects=the evaluation's as-before arm asks and keeps a reply as main did: its instructions are today's and a "→" line keeps its marker, judged as any sentence; fails_when=the arm takes a marker off or asks otherwise, so the trial would compare more than the form; no_claim=what the check decides.
-  test("as before, a press is asked as today and a → line keeps its marker, judged as any sentence", async () => {
+  // protects=the evaluation's as-before arm asks and keeps a reply as main does: its instructions are today's, its Answer says nothing of the form, and it is read by main's reader, whose "→" line loses its marker (#3056); fails_when=the arm asks otherwise, its Answer says it was asked in the form, or it is read otherwise than main reads it, so the gate would compare more than the form; no_claim=what the check decides.
+  test("as before, a press is asked and read as main does", async () => {
     const reply =
       "★ Yes, Enterprise is $45 a seat with single sign-on [^1]\n→ answers at once [^2]\n\nI'll confirm the price in writing today [^3]\n→ buys time";
     const { core, meeting, calls } = await setUp(
@@ -1110,10 +1113,10 @@ describe("the evaluation's switch for the form whose facts stand apart (#2847)",
 
     const after = await (await pressed(core, meeting, "answer")).judged();
 
-    expect(after.text).toBe(reply);
+    expect(after.steps?.askedInForm).toBeUndefined();
+    expect(after.text).toBe(reply.replace(" [^2]", ""));
     expect(marks(after)).toEqual([
       { marker: 1, check: "found", passed: true },
-      { marker: 2, check: "not-checked", passed: false },
       { marker: 3, check: "unsupported", passed: false },
     ]);
     expect(calls[0]?.prompt).toContain("- Each option is two lines:");
@@ -1156,7 +1159,7 @@ describe("the evaluation's switch for the form whose facts stand apart (#2847)",
     );
     expect(batches).toHaveLength(1);
     expect(marks(after)).toEqual([{ marker: 1, check: "found", passed: true }]);
-    const [first, second] = helpParts(after, "answer", "fact lines").options;
+    const [first, second] = helpParts(after, "answer").options;
     const chip = first?.after[0]?.find((piece) => piece.kind === "citation");
     const citation = after.citations[0];
     expect(chip?.kind === "citation" && citation && sentencePassed(citation, chip.at)).toBe(true);
@@ -1233,7 +1236,7 @@ describe("the evaluation's switch for the form whose facts stand apart (#2847)",
 
   /** The reply's closing line and its two options as the panel shows them, in the form. */
   const closingOf = (answer: ConversationAnswer) => {
-    const { options, closing } = helpParts(answer, "answer", "fact lines");
+    const { options, closing } = helpParts(answer, "answer");
     return {
       closing: closing.map(words),
       inOptions: options.flatMap((item) => [...item.own, ...item.after]).map(words),
@@ -1431,7 +1434,7 @@ describe("the evaluation's switch for the form whose facts stand apart (#2847)",
 
   /** The options' lines to say and the closing line, as the panel shows them. */
   const optionsAndClosing = (answer: ConversationAnswer) => {
-    const { options, closing } = helpParts(answer, "answer", "fact lines");
+    const { options, closing } = helpParts(answer, "answer");
     return { says: options.map((item) => words(item.lead)), closing: closing.map(words) };
   };
 
@@ -1497,7 +1500,7 @@ describe("the evaluation's switch for the form whose facts stand apart (#2847)",
 
   /** What the panel shows of a reply in the form: its opening, options' lines and closing line. */
   const panelAt = (answer: ConversationAnswer) => {
-    const { opening, options, closing } = helpParts(answer, "answer", "fact lines");
+    const { opening, options, closing } = helpParts(answer, "answer");
     return {
       opening: opening.map(words),
       options: options.map((item) => [
@@ -1613,7 +1616,7 @@ describe("the evaluation's switch for the form whose facts stand apart (#2847)",
       const after = await (await pressed(core, meeting, "answer")).judged();
 
       expect(after.text.startsWith(`${fact} [^1]\n\n★`)).toBe(true);
-      const { opening, options } = helpParts(after, "answer", "fact lines");
+      const { opening, options } = helpParts(after, "answer");
       expect(opening.map(words)).toEqual([fact]);
       const chip = opening[0]?.find((piece) => piece.kind === "citation");
       const citation = after.citations[0];
@@ -1630,7 +1633,7 @@ describe("the evaluation's switch for the form whose facts stand apart (#2847)",
    * whose options write none of their own, the turned lines alone.
    */
   const turnedOf = (answer: ConversationAnswer) =>
-    helpParts(answer, "answer", "fact lines").options.flatMap((item) =>
+    helpParts(answer, "answer").options.flatMap((item) =>
       item.notes.map((line) => ({
         words: words(line),
         passed: line.some(
@@ -1667,9 +1670,7 @@ describe("the evaluation's switch for the form whose facts stand apart (#2847)",
       expect(after.text).toBe(`${say.replace(" [^1]", "")}\n${TURNED} [^1]\n${effect}`);
       expect(turnedOf(after)).toEqual([{ words: TURNED, passed: true }]);
       expect(
-        helpParts(after, "answer", "fact lines").options[0]?.lead.some(
-          (piece) => piece.kind === "citation",
-        ),
+        helpParts(after, "answer").options[0]?.lead.some((piece) => piece.kind === "citation"),
       ).toBe(false);
       expect(batches[0]?.prompt).toContain(TURNED);
       expect(paragraphsOf(after)[0]).toContain(TURNED);
@@ -1731,6 +1732,199 @@ describe("the evaluation's switch for the form whose facts stand apart (#2847)",
 
       expect(turnedOf(after).map((each) => each.words)).toEqual([line]);
       expect(after.text.split("\n")[0]).toBe(`★ ${line}`);
+    },
+  );
+
+  /** Real replies a model wrote in today's form during a development trial (the pinned fixture). */
+  const SAVED: Record<"English" | "Chinese", string> = (() => {
+    const saved: { kind: string; text: string }[] = JSON.parse(
+      readFileSync(join(__dirname, "../fixtures/callHelp/savedReplies.json"), "utf8"),
+    );
+    const first = (chinese: boolean) =>
+      saved.find(
+        (each) =>
+          each.kind === "answer" &&
+          /\p{Script=Han}/u.test(each.text) === chinese &&
+          each.text.split("\n")[0]?.includes("[^1]") === true,
+      )?.text ?? "";
+    return { English: first(false), Chinese: first(true) };
+  })();
+
+  /** The Answer read with main's reader, or with the form's: what each place should get. */
+  const readWith = (answer: ConversationAnswer, form: boolean) =>
+    helpReplyRead(answer.text, {
+      ...helpLayout("answer", {
+        status: answer.status,
+        textBehind: false,
+        ...(form && { form: "fact lines" as const }),
+        closingLine: form && answer.steps?.closingLine === true,
+      }),
+      quoteOf: (marker) => {
+        const citation = answer.citations.find((each) => each.marker === marker);
+        return citation && !isTranscriptLocation(citation.location) ? citation.quote : null;
+      },
+    });
+  const shownOf = (
+    read: Pick<ReturnType<typeof helpReplyRead>, "lead" | "options" | "opening" | "closing">,
+  ) => ({
+    lead: read.lead,
+    options: read.options,
+    opening: read.opening,
+    closing: read.closing,
+  });
+
+  // protects=every place that reads a press's Answer reads it by what the Answer says, never by the build: an Answer saved without the value (a real reply in today's form) is kept by main's reader at the core's settle and read with main's reader by the panel, Pin, Add to note and the evaluation, and a form Answer with the form's, in English and Chinese, finished and stopped; Check again or Check the rest sends the text kept and leaves both values as the first save and the end wrote them; fails_when=any place reads an Answer in the other form, or a value is written again; no_claim=what the check decides.
+  test.each(
+    (["English", "Chinese"] as const).flatMap((language) =>
+      ([false, true] as const).flatMap((stop) =>
+        (["main", "form"] as const).map((kind) => ({ language, stop, kind })),
+      ),
+    ),
+  )(
+    "in $language, stopped $stop, a $kind Answer is read as it says",
+    async ({ language, stop, kind }) => {
+      const form = kind === "form";
+      const reply = form ? CLOSING[language].reply : SAVED[language];
+      expect(reply).not.toBe("");
+      const firstOption = reply.slice(0, reply.indexOf("\n\n"));
+      const pause = pausedAfter(firstOption.length);
+      const { core, meeting } = await setUp(
+        { reply, ...(stop && { pause: pause.pause }) },
+        undefined,
+        undefined,
+        form ? "fact lines" : undefined,
+      );
+      let answer: ConversationAnswer;
+      if (stop) {
+        const shown = (firstOption.split("\n")[0] ?? "").replace(/^★ /, "").slice(0, 12);
+        answer = (await stoppedAt(core, meeting, pause.isReached, shown)).after;
+        expect(answer.status).toBe("stopped");
+      } else {
+        answer = await (await pressed(core, meeting, "answer")).judged();
+        expect(answer.status).toBe("done");
+      }
+
+      // The value, from the first save.
+      expect(answer.steps?.askedInForm).toBe(form ? true : undefined);
+      expect(answerHelpForm(answer.steps, "answer")).toBe(form ? "fact lines" : undefined);
+      // The core's settle kept the text its reader reads: read again, it is the same.
+      expect(readWith(answer, form).text).toBe(answer.text);
+      expect(/^\s*[>=＞＝]\s/mu.test(answer.text)).toBe(false);
+      // The panel, Pin and Add to note, and the evaluation, each with that reader.
+      const expected = shownOf(readWith(answer, form));
+      expect(helpParts(answer, "answer")).toEqual(expected);
+      expect(shownOf(keptHelpReading(answer, "answer"))).toEqual(expected);
+      expect(helpToKeep(answer, "answer")).toBe(!stop);
+      if (!stop) {
+        expect(shownOf(readWith(answer, !form))).not.toEqual(expected);
+        expect(paragraphsOf(answer).length).toBeGreaterThan(0);
+      }
+      // Check again (or Check the rest) sends the text kept and writes neither value again.
+      const ids = { conversationId: answer.conversationId, answerId: answer.id };
+      await core.checkAnswerAgain(ids);
+      const again = await answerJudged(core, ids.conversationId, ids.answerId);
+      expect(again.text).toBe(answer.text);
+      expect(again.steps?.askedInForm).toBe(answer.steps?.askedInForm);
+      expect(again.steps?.closingLine).toBe(answer.steps?.closingLine);
+      expect(helpParts(again, "answer").options.length).toBe(expected.options.length);
+    },
+  );
+
+  const OPENING = {
+    English: [
+      "> Enterprise is $45 per seat a month, with single sign-on [^1]",
+      "★ Yes, Enterprise is $45 a seat",
+      "→ answers at once",
+      "",
+      "I'll send the price sheet today",
+      "→ buys time",
+    ].join("\n"),
+    Chinese: [
+      "＞ 企业版每个席位每月 45 美元，含单点登录 [^1]",
+      "★ 是的，企业版每个席位 45 美元",
+      "→ 直接回答",
+      "",
+      "我今天把价目表发给你",
+      "→ 争取时间",
+    ].join("\n"),
+  };
+
+  // protects=what the panel draws of a form Answer opened again after a version whose save dropped both values (it reads only the steps it knows): main's reader, the text kept unchanged, two options, the ★ one first; a closing line reads as a third option the panel doesn't show, its Citations all still shown at their judged places; an opening fact line reads as an option the panel doesn't show, so its Citation and ✓ go from the panel; in English and Chinese; fails_when=what is drawn changes; no_claim=whether that is acceptable, which the product side decides.
+  test.each(
+    (["English", "Chinese"] as const).flatMap((language) =>
+      (["closing", "opening"] as const).map((shape) => ({ language, shape })),
+    ),
+  )(
+    "in $language, a form Answer with its $shape line that lost both values reads as a main-form Answer",
+    async ({ language, shape }) => {
+      const reply = shape === "closing" ? CLOSING[language].reply : OPENING[language];
+      const { core, meeting } = await setUp({ reply }, undefined, undefined, "fact lines");
+      const answer = await (await pressed(core, meeting, "answer")).judged();
+      expect(answer.steps?.askedInForm).toBe(true);
+      expect(answer.steps?.closingLine).toBe(shape === "closing" ? true : undefined);
+      const { askedInForm: _form, closingLine: _closing, ...earlier } = answer.steps ?? {};
+      const opened = { ...answer, steps: earlier as ConversationAnswer["steps"] };
+
+      const asForm = helpParts(answer, "answer");
+      const asMain = helpParts(opened, "answer");
+      const chips = (parts: typeof asForm) =>
+        [
+          ...parts.opening,
+          ...parts.options.flatMap((item) => [
+            item.lead,
+            ...item.notes,
+            item.effect ?? [],
+            ...item.after,
+          ]),
+          ...parts.closing,
+        ]
+          .flat()
+          .flatMap((piece) =>
+            piece.kind === "citation"
+              ? [
+                  {
+                    marker: piece.marker,
+                    at: piece.at,
+                    passed: answer.citations.some(
+                      (one) => one.marker === piece.marker && sentencePassed(one, piece.at),
+                    ),
+                  },
+                ]
+              : [],
+          );
+      const linesOf = (parts: typeof asForm) =>
+        [
+          ...parts.opening,
+          ...parts.options.flatMap((item) => [
+            item.lead,
+            ...item.notes,
+            ...item.own,
+            item.effect ?? [],
+            ...item.after,
+          ]),
+          ...parts.closing,
+        ]
+          .map(words)
+          .filter((line) => line !== "")
+          .sort();
+      // The text kept is the same; main's reader shows two options, the ★ one first.
+      expect(readWith(opened, false).text).toBe(answer.text);
+      expect(asMain.opening).toEqual([]);
+      expect(asMain.closing).toEqual([]);
+      expect(asMain.options).toHaveLength(2);
+      const own = shape === "closing" ? CLOSING[language].closing : null;
+      const fact = linesOf(asForm).find((line) => !linesOf(asMain).includes(line));
+      if (shape === "closing") {
+        // The closing line reads as a third option, which the panel doesn't show; no Citation goes.
+        expect(fact).toBe(own);
+        expect(chips(asMain)).toEqual(chips(asForm));
+      } else {
+        // The opening fact line reads as an option before the ★ one, which the panel doesn't show:
+        // its Citation and its ✓ go from the panel (they stay in the text kept and the Note).
+        expect(fact).toBe(words(asForm.opening[0]));
+        expect(chips(asForm)).toEqual([{ marker: 1, at: 0, passed: true }]);
+        expect(chips(asMain)).toEqual([]);
+      }
     },
   );
 });

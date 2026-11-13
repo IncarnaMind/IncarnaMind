@@ -216,9 +216,10 @@ function testSandboxProblem(): { problem?: SandboxProblem } {
 }
 
 /**
- * Test-only: call help asked and read in the form whose facts stand apart (#2847), for its stills
- * and smoke tests before it ships. The one place the switch is read: in any build but a test build
- * this is undefined at build time. The commit that makes the form the default takes it out.
+ * Test-only: call help asked in the form whose facts stand apart (#2847), for its stills and smoke
+ * tests before it ships; each Answer keeps the form it was asked in, and is read by it. The one
+ * place the switch is read: in any build but a test build this is undefined at build time. The
+ * commit that makes the form the default takes it out.
  */
 const testCallHelpForm: CallHelpForm | undefined =
   import.meta.env.MODE === "test" && process.env.INCARNAMIND_TEST_CALL_HELP_FORM === "fact lines"
@@ -669,7 +670,6 @@ app.whenReady().then(async () => {
     mac: process.platform === "darwin",
     log: logger,
     testHooks,
-    ...(testCallHelpForm && { callHelpForm: testCallHelpForm }),
   });
   servePermissionGuide({ rendererUrl, appWindows, trusted: isFromOurRenderer, testHooks });
   const background = serveBackground({

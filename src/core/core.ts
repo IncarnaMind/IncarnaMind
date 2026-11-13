@@ -2605,8 +2605,8 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     // Every window hears of each message as it is added or written.
     conversations: {
-      add: (input, answerModel, read, emit = true, askedIn, pressed) => {
-        const added = conversations.add(input, answerModel, read, askedIn, pressed);
+      add: (input, answerModel, read, emit = true, askedIn, pressed, askedInForm) => {
+        const added = conversations.add(input, answerModel, read, askedIn, pressed, askedInForm);
         if (emit) publishConversation(added.turn);
         return added;
       },

@@ -11,7 +11,6 @@ import type {
 } from "../../src/core/api";
 import { helpLayout, helpReplyRead } from "../../src/shared/helpReplyRead";
 import { type MessageKey, type MessageParams, translate } from "../../src/shared/i18n";
-import type { CallHelpForm } from "../../src/shared/meetingHelp";
 import { MEETING_PANEL_BRIDGE_KEY } from "../../src/shared/meetingPanel";
 
 /**
@@ -127,7 +126,6 @@ const panelBridge = {
   close: () => undefined,
   setUp: () => undefined,
   keyboard: (take: boolean) => fake.keyboard.push(take),
-  callHelpForm: null as CallHelpForm | null,
 };
 
 const WANT =
@@ -171,7 +169,7 @@ const answerOf = (
   id: string,
   text: string,
   status: ConversationAnswer["status"],
-  steps?: { closingLine: true },
+  steps?: { askedInForm?: true; closingLine?: true },
 ): ConversationAnswer =>
   ({
     ...(steps && { steps }),
@@ -225,7 +223,6 @@ beforeEach(async () => {
   fake.keyboard.length = 0;
   fake.held = null;
   fake.language = "en";
-  panelBridge.callHelpForm = null;
   container = document.createElement("div", {});
   document.body.append(container);
   root = createRoot(container);
@@ -658,7 +655,7 @@ describe("A Citation of an earlier call in a reply (#3005)", () => {
   );
 });
 
-describe("a reply whose facts stand apart, in a test build's panel (#2847)", () => {
+describe("a reply whose facts stand apart, in the panel (#2847)", () => {
   const FORM = {
     en: {
       reply: [
@@ -701,15 +698,15 @@ describe("a reply whose facts stand apart, in a test build's panel (#2847)", () 
   // protects=in the panel, a reply in the form draws a fact written before its first option above the options with its chip, and its closing line after the options and in none of them, while it is written and once it ends, and Add to note puts the closing line in a paragraph of its own after the options, in English and Chinese; fails_when=the closing line shows inside the last option or above it, the fact goes into an option, or the Note joins the closing line to an option; no_claim=how it looks at the panel's width (the stills).
   test.each(["en", "zh-CN"] as const)("in %s", async (language) => {
     fake.language = language;
-    panelBridge.callHelpForm = "fact lines";
     const { reply, fact, closing } = FORM[language];
+    const asked = { askedInForm: true } as const;
     await changed(null);
     await press("answer");
     await replied(0, "answer-form");
     await changed(helpOf("answer", "answer-form"));
-    await loaded([answerOf("answer-form", "", "streaming")]);
+    await loaded([answerOf("answer-form", "", "streaming", asked)]);
     for (let end = 1; end <= reply.length; end++) {
-      await written(answerOf("answer-form", reply.slice(0, end), "streaming"));
+      await written(answerOf("answer-form", reply.slice(0, end), "streaming", asked));
       const lines = drawn();
       const last = lines.findLastIndex((line) => line.startsWith("help-option"));
       const closingAt = lines.findIndex((line) => line.startsWith("help-closing"));
@@ -724,7 +721,7 @@ describe("a reply whose facts stand apart, in a test build's panel (#2847)", () 
     );
     expect(settled.closing).toHaveLength(1);
     const kept = settled.text;
-    await written(answerOf("answer-form", kept, "done", { closingLine: true }));
+    await written(answerOf("answer-form", kept, "done", { ...asked, closingLine: true }));
 
     const lines = drawn();
     expect(lines[0]).toMatch(new RegExp(`^help-opening: ${fact}\\s*1$`));
@@ -734,7 +731,7 @@ describe("a reply whose facts stand apart, in a test build's panel (#2847)", () 
       container.querySelectorAll('[data-testid="help-citation"][data-passed="true"]'),
     ).toHaveLength(1);
 
-    await addToNote([answerOf("answer-form", kept, "done", { closingLine: true })]);
+    await addToNote([answerOf("answer-form", kept, "done", { ...asked, closingLine: true })]);
     const paragraphs = (
       JSON.parse(fake.added.at(-1) ?? "[]") as { content?: { text?: string }[] }[]
     ).map((block) =>

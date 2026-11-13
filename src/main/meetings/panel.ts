@@ -35,14 +35,8 @@ import type { Meeting, Settings } from "../../core/api";
 import { isRecord } from "../../core/errors";
 import { FILES_CHANNELS } from "../../shared/bridge";
 import { keysForm } from "../../shared/keyForms";
+import { type HelpShortcut, helpKeysOf, helpShortcutsOn } from "../../shared/meetingHelp";
 import {
-  type CallHelpForm,
-  type HelpShortcut,
-  helpKeysOf,
-  helpShortcutsOn,
-} from "../../shared/meetingHelp";
-import {
-  CALL_HELP_FACT_LINES_ARGUMENT,
   type HeldKeys,
   MEETING_PANEL_ARGUMENT,
   MEETING_PANEL_CHANNELS,
@@ -72,8 +66,6 @@ export interface MeetingPanelOptions {
   log: Logger;
   /** A test build lets the smoke tests press a shortcut, which no test can send the system. */
   testHooks: boolean;
-  /** Test-only: the form call help is read in, where it isn't today's (src/main/index.ts). */
-  callHelpForm?: CallHelpForm;
 }
 
 export function serveMeetingPanel(core: Core, options: MeetingPanelOptions): void {
@@ -298,10 +290,7 @@ export function serveMeetingPanel(core: Core, options: MeetingPanelOptions): voi
         contextIsolation: true,
         nodeIntegration: false,
         sandbox: true,
-        additionalArguments: [
-          MEETING_PANEL_ARGUMENT,
-          ...(options.callHelpForm === "fact lines" ? [CALL_HELP_FACT_LINES_ARGUMENT] : []),
-        ],
+        additionalArguments: [MEETING_PANEL_ARGUMENT],
       },
     });
     panelWindows.add(window);

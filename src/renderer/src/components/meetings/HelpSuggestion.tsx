@@ -8,7 +8,7 @@ import type {
 import { citationSource, citedLocation } from "../../../../shared/citations";
 import type { ReplyItem, ReplyPiece } from "../../../../shared/helpReplyRead";
 import { isTranscriptLocation } from "../../../../shared/locations";
-import { type CallHelpForm, helpLabel } from "../../../../shared/meetingHelp";
+import { helpLabel } from "../../../../shared/meetingHelp";
 import { isTheirs, SPEAKER_ME } from "../../../../shared/speakers";
 import { useAnswers } from "../../answers";
 import { useCallStarts } from "../../callStarts";
@@ -365,13 +365,10 @@ export function HelpSuggestion({
   help,
   answer,
   onRetry,
-  form,
 }: {
   help: Pick<MeetingHelp, "kind" | "heard">;
   answer: ConversationAnswer;
   onRetry(): void;
-  /** The form the reply was asked in, where it isn't today's (#2847). */
-  form?: CallHelpForm;
 }) {
   const t = useT();
   const providerId = answer.model?.providerId ?? null;
@@ -397,7 +394,7 @@ export function HelpSuggestion({
       )
     : (answer.errorMessage ?? "");
   const streaming = answer.status === "streaming";
-  const { lead, options, opening, closing } = helpParts(answer, help.kind, form);
+  const { lead, options, opening, closing } = helpParts(answer, help.kind);
   const items = [...lead, ...options];
   const numbers = citationNumbers(
     items,
