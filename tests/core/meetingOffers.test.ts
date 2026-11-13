@@ -5,6 +5,8 @@ import { offerAllowed } from "../../src/core/meetings/offers";
 import { createFakeCallWatcher } from "../../src/main/calls/fakeWatcher";
 import { createFileLoginItem } from "../../src/main/loginItem";
 import { createTempDataFolder, manualClock, nextTurn, startCore } from "../helpers/core";
+import { connectToMind } from "../helpers/mindClient";
+import { readMind } from "../helpers/minds";
 
 /*
  * Offers to take notes (#189, #208): the switches in Settings › General, an offer when a call app
@@ -211,6 +213,31 @@ describe("Take notes", () => {
     expect((await recorded(core))[0]?.status).toBe("stopped");
     expect((await core.getMeetingOffers()).ending).toBeNull();
   });
+
+  test.each([
+    { language: "English", line: "Send the contract Friday" },
+    { language: "Chinese", line: "周五发合同" },
+  ])(
+    "a call's end that stops it puts a line left unsent in the call-help panel into the Note first (#2925, $language)",
+    async ({ line }) => {
+      const { core, calls } = await offersCore();
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      calls.use(["zoom"]);
+      const offer = (await core.getMeetingOffers()).offer;
+      if (!offer) throw new Error("No offer.");
+      const meeting = await core.takeMeetingOffer(offer.id);
+      const client = await connectToMind(core, meeting.mindId);
+      await core.setQuickNoteDraft({ meetingId: meeting.id, text: line, atMs: null });
+
+      calls.use([]);
+      vi.advanceTimersByTime(30_000);
+      await nextTurn();
+
+      expect((await recorded(core))[0]?.status).toBe("stopped");
+      await client.settled();
+      expect(readMind(client).textContent).toContain(line);
+    },
+  );
 
   test("Keep recording, or the app taking the microphone back, keeps it recording", async () => {
     const { core, calls } = await offersCore();

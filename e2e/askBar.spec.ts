@@ -21,6 +21,7 @@ import {
  * The bar never moves, the list pushes nothing, and a click is all it takes: the panel never takes
  * the keyboard from the meeting app.
  */
+const LINUX = process.platform === "linux";
 const BUYER = [
   "Can you do thirty-five dollars a seat for Enterprise?",
   "How much is the Enterprise plan per seat, and does it include single sign-on?",
@@ -70,18 +71,18 @@ async function pressPrompt(panel: Page, name: string): Promise<void> {
 
 const windowHeight = (panel: Page) => panel.evaluate(() => window.innerHeight);
 
-test("ask bar: from the first frame to a panel holding three answers the prompts and More… keep their place, and the list lies over the answers without pushing them", async () => {
+test("ask bar: from the first frame to a panel holding three answers the prompts, More… and the field keep their place, and the list lies over the answers without pushing them", async () => {
   test.setTimeout(90_000);
   const { app, panel } = await openPanel();
   const bar = panel.getByTestId("ask-bar");
   const firstPrompt = bar.getByTestId("help-prompt").first();
   const more = panel.getByTestId("help-more");
-  const firstTop = await below(panel, firstPrompt);
-  const moreTop = await below(panel, more);
+  // On Linux the panel has no field (#2925).
+  const kept = [firstPrompt, more, ...(LINUX ? [] : [panel.getByTestId("quick-note-field")])];
+  const tops = await Promise.all(kept.map((each) => below(panel, each)));
   const startHeight = await windowHeight(panel);
   const stays = async () => {
-    sameAs(await below(panel, firstPrompt), firstTop);
-    sameAs(await below(panel, more), moreTop);
+    for (const [index, each] of kept.entries()) sameAs(await below(panel, each), tops[index] ?? 0);
   };
 
   for (const [name, pins] of [
@@ -231,7 +232,7 @@ test("ask bar: the shortcuts run their prompts while the list is open, and a tem
   await expect(panel.locator("[data-testid=help-prompt][title]")).toHaveCount(0);
 
   await setLanguage(window, "zh-CN");
-  await expect(more).toHaveText("更多…");
+  await expect(more).toHaveText(LINUX ? "更多…" : "更多…/");
   await expect(rows.first()).toHaveText("追问一个问题");
   for (const each of await fits())
     expect(each, each.text ?? "").toMatchObject({ cut: false, outside: false });
