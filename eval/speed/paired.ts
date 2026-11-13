@@ -32,6 +32,7 @@ import type { CitingRecord, CitingWatch } from "../lib/citingRecord";
 import { type EvalQuestion, type ExpectedPassage, loadEvaluationSet } from "../lib/evaluationSet";
 import { neededPassages } from "../lib/handed";
 import { type Library, type LibraryOptions, openLibrary } from "../lib/library";
+import type { SentOutcome } from "../lib/providerOutcomes";
 import type { RequestSize } from "../lib/requestSizes";
 import { firstKeptText, isWrittenTwice, type TimingRecorder } from "../lib/timing";
 import { SETS as CHECK_SETS, documentsOf, writeDocuments } from "../repeats/cases";
@@ -152,6 +153,12 @@ export interface ArmRun {
   droppedCitations?: { marker: number; quote: string }[];
   /** The characters of each request the press sent, the judge's included; a free record keeps them. */
   requestSizes?: RequestSize[];
+  /**
+   * What the provider answered each model request the press sent, the judge's included (#2847's
+   * gate, rule 1): a pair one of whose requests the provider failed is left out and pressed again at
+   * the end; a press the app itself failed stays in.
+   */
+  outcomes?: SentOutcome[];
   /** What a replay of the reply's citing step needs (#3059); absent where it wasn't watched. */
   citing?: CitingRecord;
   /** Each request and local step, for an item that reads them (a help reply). */

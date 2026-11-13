@@ -5,6 +5,11 @@
  * each arm's form and a scripted judge, so the tools that read a run are proven on its record before
  * money is spent. Nothing is sent anywhere: the models INCARNAMIND_EVAL_SPEED_MODELS names are the
  * rows' labels only. INCARNAMIND_EVAL_SPEED_FREE_RECORD names the folder it writes to.
+ *
+ * INCARNAMIND_EVAL_SPEED_FREE_FAULTS fails presses on purpose, to prove rule 1 of #2847's gate:
+ * "<id>:<baseline|candidate>:provider" has the provider answer that arm's press overloaded, and
+ * "<id>:<baseline|candidate>:app" has its reply cut off at its limit, which the app fails; each on
+ * the pair's first press only, so a pair pressed again at the end runs as any other.
  */
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -12,13 +17,17 @@ import { test } from "vitest";
 import type { CoreAdapters } from "../../src/core";
 import { createFakeEmbedder } from "../../src/core/embedding/fake";
 import { shownPassages } from "../../tests/helpers/citations";
-import { type ModelCall, scriptedModel } from "../../tests/helpers/models";
+import { type ModelCall, type ScriptedReply, scriptedModel } from "../../tests/helpers/models";
+import { providerOutcomes } from "../lib/providerOutcomes";
 import { requestSizes } from "../lib/requestSizes";
 import { armNamed, armSwitch, type SentRequest } from "./arms";
 import { type CallHelpSet, callHelpSet, isLoadedCallHelpSet, loadedCallHelpSet } from "./callHelp";
-import { type ArmRun, droppedOf, openForArms, runOnArm } from "./paired";
-import { armTurns, cellOf, type PairedRow, sentPair } from "./pairedReport";
+import { type ArmRun, droppedOf, openForArms, type PairedGroup, runOnArm } from "./paired";
+import { armTurns, cellOf, leftByProvider, type PairedRow, sentPair } from "./pairedReport";
 import { env, list } from "./settings";
+
+/** The press now failed on purpose, if any (INCARNAMIND_EVAL_SPEED_FREE_FAULTS). */
+let fault: "provider" | "app" | null = null;
 
 const block = (text: string, tag: string) =>
   new RegExp(`<${tag}>\\n([\\s\\S]*?)\\n</${tag}>`).exec(text)?.[1] ?? "";
@@ -101,11 +110,18 @@ function replyOf(help: string, quote: string, newest: string): string {
   ].join("\n");
 }
 
-/** A model that cites the first Passage found ahead, or else the call's newest line, then replies. */
+/**
+ * A model that cites the first Passage found ahead, or else the call's newest line, then replies; or
+ * fails as `fault` says.
+ */
 function replying(calls: ModelCall[]) {
   return scriptedModel(
-    (call) => {
+    (call): ScriptedReply => {
       calls.push(call);
+      if (fault === "provider") {
+        return { error: { status: 529, message: "Overloaded", retryable: true } };
+      }
+      if (fault === "app") return { text: "", cutOff: true };
       const [found] = shownPassages(block(call.prompt, "found-in-documents"));
       const heard = shownPassages(block(call.prompt, "live-transcript")).at(-1);
       const passage = found ?? heard;
@@ -169,13 +185,32 @@ test.skipIf(env("FREE_RECORD") === null)("a free paired call-help record", async
   const rows: PairedRow[] = [];
   const calls: ModelCall[] = [];
   const sizes = requestSizes();
+  const appOutcomes = [providerOutcomes(), providerOutcomes()] as const;
+  const judgeOutcomes = providerOutcomes();
   const model = sizes.wrap(replying(calls), "app");
+  const faults = (list("FREE_FAULTS") ?? []).map((each) => {
+    const [id, side, kind] = each.split(":");
+    if (
+      !id ||
+      (side !== "baseline" && side !== "candidate") ||
+      (kind !== "provider" && kind !== "app")
+    )
+      throw new Error(
+        `INCARNAMIND_EVAL_SPEED_FREE_FAULTS: "${each}" isn't <id>:<baseline|candidate>:<provider|app>.`,
+      );
+    return { id, which: side === "baseline" ? 0 : 1, kind } as const;
+  });
   const groups = await Promise.all(
     sets.map((set) => (isLoadedCallHelpSet(set) ? loadedCallHelpSet(set) : callHelpSet(set))),
   );
-  for (const group of groups.flat()) {
-    const items = group.items.filter((item) => !ids || ids.includes(item.id));
-    if (items.length === 0) continue;
+
+  /** Opens `group` once for each arm and presses `items` there on each model named, `run` as given. */
+  const pressIn = async (
+    group: PairedGroup,
+    items: readonly PairedGroup["items"][number][],
+    names: readonly string[],
+    again?: { run: number },
+  ) => {
     const opened = await openForArms(group, (which) => ({
       embedder: createFakeEmbedder(),
       ollamaModels,
@@ -183,7 +218,8 @@ test.skipIf(env("FREE_RECORD") === null)("a free paired call-help record", async
       log: () => undefined,
       embeddings: false,
       recordTimings: true,
-      chatModels: () => switches[which].chatModels(() => model),
+      chatModels: () => (spec) =>
+        appOutcomes[which].wrap(switches[which].chatModels(() => model)(spec), "app"),
       callHelpForm: switches[which].callHelpForm,
     }));
     try {
@@ -194,7 +230,7 @@ test.skipIf(env("FREE_RECORD") === null)("a free paired call-help record", async
           modelId: "local",
         })),
       );
-      for (const name of models) {
+      for (const name of names) {
         for (const item of items) {
           const order = turn(cellOf({ model: name, set: item.set, language: item.language }));
           const done: ArmRun[] = [];
@@ -207,17 +243,26 @@ test.skipIf(env("FREE_RECORD") === null)("a free paired call-help record", async
             switches[which].takeChecks();
             switches[which].takeCites();
             sizes.take();
-            done[which] = await runOnArm(item, {
-              library,
-              meeting,
-              ...(citing && { citing }),
-              recorder,
-              choice: choices[which] ?? { providerId: "", modelId: "local" },
-              model: name,
-              arm: arms[which].id,
-              grade: async () => "unread",
-              claimsJudge: sizes.wrap(judging(), "judge"),
-            });
+            appOutcomes[which].take();
+            judgeOutcomes.take();
+            fault = again
+              ? null
+              : (faults.find((each) => each.id === item.id && each.which === which)?.kind ?? null);
+            try {
+              done[which] = await runOnArm(item, {
+                library,
+                meeting,
+                ...(citing && { citing }),
+                recorder,
+                choice: choices[which] ?? { providerId: "", modelId: "local" },
+                model: name,
+                arm: arms[which].id,
+                grade: async () => "unread",
+                claimsJudge: judgeOutcomes.wrap(sizes.wrap(judging(), "judge"), "judge"),
+              });
+            } finally {
+              fault = null;
+            }
             firstSent[which] = switches[which].takeSent()[0] ?? null;
             const written = switches[which].takeCites();
             done[which] = {
@@ -226,6 +271,7 @@ test.skipIf(env("FREE_RECORD") === null)("a free paired call-help record", async
               writtenCitations: written,
               droppedCitations: droppedOf(written, done[which]?.help?.citations),
               requestSizes: sizes.take(),
+              outcomes: [...appOutcomes[which].take(), ...judgeOutcomes.take()],
             };
           }
           rows.push({
@@ -234,9 +280,10 @@ test.skipIf(env("FREE_RECORD") === null)("a free paired call-help record", async
             kind: item.kind,
             language: item.language,
             model: name,
-            run: 1,
+            run: again?.run ?? 1,
             first: order[0],
             ...sentPair(firstSent[0] ?? null, firstSent[1] ?? null),
+            ...(again && { again: true as const }),
             baseline: done[0] as ArmRun,
             candidate: done[1] as ArmRun,
           });
@@ -245,6 +292,18 @@ test.skipIf(env("FREE_RECORD") === null)("a free paired call-help record", async
     } finally {
       await Promise.all(opened.map((each) => each.close()));
     }
+  };
+
+  for (const group of groups.flat()) {
+    const items = group.items.filter((item) => !ids || ids.includes(item.id));
+    if (items.length > 0) await pressIn(group, items, models);
+  }
+  // Rule 1 of #2847's gate, as the paired runner does it: each pair a provider's own outcome left
+  // out is pressed once more at the end, its turn taken as every pair's is.
+  for (const left of leftByProvider(rows)) {
+    const group = groups.flat().find((each) => each.items.some((item) => item.id === left.id));
+    const item = group?.items.find((each) => each.id === left.id);
+    if (group && item) await pressIn(group, [item], [left.model], { run: left.run + 1 });
   }
   for (const name of models) {
     const folder = join(out, name.split("/").at(-1) ?? name, "speed-paired-free");

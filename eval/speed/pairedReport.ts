@@ -3,6 +3,7 @@
  * calls and tokens, the candidate against the baseline item by item, and the quality guards, each
  * held or not; then every item, both arms side by side.
  */
+import { byProvider } from "../lib/providerOutcomes";
 import type { SentRequest } from "./arms";
 import type { ArmRun, Language, RequestTiming, SetId } from "./paired";
 import { percentile } from "./report";
@@ -28,9 +29,25 @@ export interface PairedRow {
    * changes only what call help is asked to write differs there alone (#2847).
    */
   sameOutsideHelp?: boolean;
+  /** Pressed again at the end, for a pair a provider's own outcome left out (#2847's gate, rule 1). */
+  again?: true;
   baseline: ArmRun;
   candidate: ArmRun;
 }
+
+/**
+ * The pairs a provider's own outcome left out (#2847's gate, rule 1): a request of either arm the
+ * provider refused, rate limited, found overloaded, failed with a server error, timed out or lost
+ * to the network. A pair pressed again is not pressed a third time.
+ */
+export const leftByProvider = (rows: readonly PairedRow[]): PairedRow[] =>
+  rows.filter(
+    (row) =>
+      !row.again &&
+      [row.baseline, row.candidate].some((run) =>
+        run.outcomes?.some((each) => byProvider(each.outcome)),
+      ),
+  );
 
 /**
  * Which arm goes first in each pair of a run (#2791). The order turns from pair to pair within each

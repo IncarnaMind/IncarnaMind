@@ -9,11 +9,13 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { cpus, loadavg, totalmem } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "vitest";
+import type { ChatModelChoice } from "../../src/core";
 import { commitOf } from "../lib/commit";
 import { readConfig } from "../lib/config";
 import { createWorkerEmbedder } from "../lib/embedder";
 import type { Library } from "../lib/library";
 import { createLog } from "../lib/log";
+import { providerOutcomes } from "../lib/providerOutcomes";
 import { createWorkerCrossEncoder } from "../lib/rerank";
 import type { TimingRecorder } from "../lib/timing";
 import { armNamed, armSwitch, type SentRequest } from "./arms";
@@ -44,6 +46,7 @@ import {
   armTurns,
   cellOf,
   itemTable,
+  leftByProvider,
   newFalseSupported,
   outcomeOf,
   type PairedRow,
@@ -232,8 +235,20 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
     return;
   }
   const turn = armTurns();
-  run: for (const group of bySet.flat()) {
-    if (!group.items.some((item) => asked.has(item))) continue;
+  const appOutcomes = [providerOutcomes(), providerOutcomes()] as const;
+  const judgeOutcomes = providerOutcomes();
+  const judged = judgeOutcomes.wrap(judge.model, "judge");
+  /** A pair to press in a group: its model, item and run, and whether it is pressed again. */
+  type Planned = { model: (typeof models)[number]; item: PairedItem; time: number; again?: true };
+
+  /**
+   * Opens `group` once for each arm and presses the pairs `plan` names among its items; false once
+   * the run stops.
+   */
+  const pressIn = async (
+    group: PairedGroup,
+    plan: (items: PairedItem[]) => Planned[],
+  ): Promise<boolean> => {
     log(`Opening ${group.name}, once for each arm`);
     const opened = await openForArms(group, (which) => ({
       embedder: createWorkerEmbedder(),
@@ -245,7 +260,10 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
       log,
       embeddings: false,
       recordTimings: true,
-      chatModels: switches[which].chatModels,
+      chatModels: (inner) => {
+        const switched = switches[which].chatModels(inner);
+        return (spec) => appOutcomes[which].wrap(switched(spec), "app");
+      },
       answerPaths: switches[which].answerPaths,
       checkPaths: switches[which].checkPaths,
       notesBeforeSpeakers: switches[which].notesBeforeSpeakers,
@@ -262,7 +280,7 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
       // Two libraries processed differently would make every pair unequal.
       if (first !== second) {
         stopped = `Stopped at ${group.name}: the arms' libraries hold ${first} and ${second} Passages.`;
-        break;
+        return false;
       }
       const recorders = [recorderOf(opened[0].library), recorderOf(opened[1].library)] as const;
       for (const { library } of opened) {
@@ -285,85 +303,88 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
             each,
           )
         : group.items.filter((item) => asked.has(item));
-      for (const model of models) {
+      const choices = new Map<string, readonly [ChatModelChoice, ChatModelChoice]>();
+      for (const { model, item, time, again } of plan(items)) {
         const name = `${model.kind}/${model.modelId}`;
-        const choiceIn = async ({ core }: Library) => ({
+        const choiceIn = async ({ core }: Library): Promise<ChatModelChoice> => ({
           providerId: (await core.saveChatProvider(model)).id,
           modelId: model.modelId,
         });
-        const choices = [
+        const chosenNow = choices.get(name) ?? [
           await choiceIn(opened[0].library),
           await choiceIn(opened[1].library),
-        ] as const;
-        for (const item of items) {
-          for (let time = 1; time <= runs; time++) {
-            const spent = spentBefore + (await spentInCores()) + judge.spent();
-            await ledger.record(spent);
-            if (ledger.before + spent >= stopUsd) {
-              stopped = `Stopped at $${(ledger.before + spent).toFixed(2)}${ledger.before > 0 ? `, the runs before it counted` : ""}, before ${name} · ${item.id}.`;
-              break run;
-            }
-            loads.push(loadavg()[0] ?? 0);
-            const order = turn(cellOf({ model: name, set: item.set, language: item.language }));
-            const done: ArmRun[] = [];
-            const firstSent: (SentRequest | null)[] = [null, null];
-            for (const which of order) {
-              const arm = arms[which];
-              const { library } = opened[which];
-              await arm.prepare?.(library.core);
-              switches[which].takeSent();
-              switches[which].takeChecks();
-              switches[which].takeCites();
-              done[which] = await runOnArm(item, {
-                library,
-                ...(opened[which].meeting && { meeting: opened[which].meeting }),
-                ...(opened[which].citing && { citing: opened[which].citing }),
-                recorder: recorders[which],
-                choice: choices[which],
-                model: name,
-                arm: arm.id,
-                grade: (expected, answer) => gradeAnswer(judge.model, expected, answer),
-                claimsJudge: judge.model,
-              });
-              firstSent[which] = switches[which].takeSent()[0] ?? null;
-              const written = switches[which].takeCites();
-              done[which] = {
-                ...done[which],
-                checkReplies: switches[which].takeChecks(),
-                writtenCitations: written,
-                droppedCitations: droppedOf(written, done[which]?.help?.citations),
-              };
-            }
-            const row: PairedRow = {
-              set: item.set,
-              id: item.id,
-              kind: item.kind,
-              language: item.language,
-              model: name,
-              run: time,
-              first: order[0],
-              ...(sameRequest && sentPair(firstSent[0] ?? null, firstSent[1] ?? null)),
-              baseline: done[0] as ArmRun,
-              candidate: done[1] as ArmRun,
-            };
-            rows.push(row);
-            log(
-              `${name} · ${item.set} ${item.id} (${item.language}) · ${line(arms[0].id, row.baseline)} · ${line(arms[1].id, row.candidate)}`,
-            );
-            const refused = [row.baseline, row.candidate].find((each) =>
-              KEY_REFUSED.test(each.error ?? ""),
-            );
-            if (refused) {
-              stopped = `Stopped at ${name} · ${item.id}: ${refused.error}`;
-              break run;
-            }
-            if (!falseSupportedCounted && newFalseSupported(row)) {
-              stopped = `${arms[1].id} stopped at ${name} · ${item.id}: a false Supported that ${arms[0].id} didn't give.`;
-              break run;
-            }
-          }
+        ];
+        choices.set(name, chosenNow);
+        const spent = spentBefore + (await spentInCores()) + judge.spent();
+        await ledger.record(spent);
+        if (ledger.before + spent >= stopUsd) {
+          stopped = `Stopped at $${(ledger.before + spent).toFixed(2)}${ledger.before > 0 ? `, the runs before it counted` : ""}, before ${name} · ${item.id}${again ? ", pressed again" : ""}.`;
+          return false;
+        }
+        loads.push(loadavg()[0] ?? 0);
+        const order = turn(cellOf({ model: name, set: item.set, language: item.language }));
+        const done: ArmRun[] = [];
+        const firstSent: (SentRequest | null)[] = [null, null];
+        for (const which of order) {
+          const arm = arms[which];
+          const { library } = opened[which];
+          await arm.prepare?.(library.core);
+          switches[which].takeSent();
+          switches[which].takeChecks();
+          switches[which].takeCites();
+          appOutcomes[which].take();
+          judgeOutcomes.take();
+          done[which] = await runOnArm(item, {
+            library,
+            ...(opened[which].meeting && { meeting: opened[which].meeting }),
+            ...(opened[which].citing && { citing: opened[which].citing }),
+            recorder: recorders[which],
+            choice: chosenNow[which],
+            model: name,
+            arm: arm.id,
+            grade: (expected, answer) => gradeAnswer(judged, expected, answer),
+            claimsJudge: judged,
+          });
+          firstSent[which] = switches[which].takeSent()[0] ?? null;
+          const written = switches[which].takeCites();
+          done[which] = {
+            ...done[which],
+            checkReplies: switches[which].takeChecks(),
+            writtenCitations: written,
+            droppedCitations: droppedOf(written, done[which]?.help?.citations),
+            outcomes: [...appOutcomes[which].take(), ...judgeOutcomes.take()],
+          };
+        }
+        const row: PairedRow = {
+          set: item.set,
+          id: item.id,
+          kind: item.kind,
+          language: item.language,
+          model: name,
+          run: time,
+          first: order[0],
+          ...(sameRequest && sentPair(firstSent[0] ?? null, firstSent[1] ?? null)),
+          ...(again && { again }),
+          baseline: done[0] as ArmRun,
+          candidate: done[1] as ArmRun,
+        };
+        rows.push(row);
+        log(
+          `${name} · ${item.set} ${item.id} (${item.language})${again ? " again" : ""} · ${line(arms[0].id, row.baseline)} · ${line(arms[1].id, row.candidate)}`,
+        );
+        const refused = [row.baseline, row.candidate].find((each) =>
+          KEY_REFUSED.test(each.error ?? ""),
+        );
+        if (refused) {
+          stopped = `Stopped at ${name} · ${item.id}: ${refused.error}`;
+          return false;
+        }
+        if (!falseSupportedCounted && newFalseSupported(row)) {
+          stopped = `${arms[1].id} stopped at ${name} · ${item.id}: a false Supported that ${arms[0].id} didn't give.`;
+          return false;
         }
       }
+      return true;
     } finally {
       try {
         spentBefore += await spentInCores();
@@ -371,6 +392,33 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
         await Promise.all(opened.map((each) => each.close()));
       }
     }
+  };
+
+  for (const group of bySet.flat()) {
+    if (!group.items.some((item) => asked.has(item))) continue;
+    const goesOn = await pressIn(group, (items) =>
+      models.flatMap((model) =>
+        items.flatMap((item) =>
+          Array.from({ length: runs }, (_, run) => ({ model, item, time: run + 1 })),
+        ),
+      ),
+    );
+    if (!goesOn) break;
+  }
+  // Rule 1 of #2847's gate: each pair a provider's own outcome left out is pressed once more at the
+  // end, its turn taken as every pair's is, while the ledger stays inside the stop.
+  for (const left of stopped === null ? leftByProvider(rows) : []) {
+    const group = bySet
+      .flat()
+      .find((each) => each.items.some((item) => item.id === left.id && item.set === left.set));
+    const model = models.find((each) => `${each.kind}/${each.modelId}` === left.model);
+    if (!group || !model) continue;
+    const goesOn = await pressIn(group, (items) =>
+      items
+        .filter((item) => item.id === left.id)
+        .map((item) => ({ model, item, time: left.run + runs, again: true as const })),
+    );
+    if (!goesOn) break;
   }
 
   const spent = spentBefore + judge.spent();
