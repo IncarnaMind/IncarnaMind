@@ -62,6 +62,9 @@ import { checkCitedSentences, type SentenceSupport, withStatedJudged } from "./s
 
 const ROOT = resolve(__dirname, "../..");
 
+/** Words every citing Answer's instructions hold, on main and since, which mark an answering request. */
+const ANSWERING_INSTRUCTIONS = "Cite every claim you draw from a Passage";
+
 /** A request as `runCase` asks it: which Documents it is asked over is the caller's. */
 export type AskedRequest = Omit<EverydayCase, "library">;
 
@@ -188,6 +191,8 @@ export interface CaseResult {
   checkSeconds?: number;
   /** A research request: the reply's sentences that say what wasn't found. */
   notFound?: NotFoundSentence[];
+  /** A research request: each answering request's input tokens, in the order they ended. */
+  answering?: number[];
   /** A summary: its sentences outside headings that make a claim, and how many carry a Citation; null for the others. */
   claims: { claims: number; cited: number } | null;
   /** Asked about every Document in scope: what it did with each (`documentsCovered`). */
@@ -546,17 +551,27 @@ export async function runCase(
   await decideFirst(each.request);
   const stoppedAtAsk = { last: false };
   asking?.();
-  const answer = await ask(
-    core,
-    {
-      text: each.request,
-      mindId: mind?.id ?? null,
-      conversationId,
-      focus,
-      onScreen,
-      ...(quoted && { quotes: [quoted] }),
-    },
-    { choose: each.answerAsk, stopped: () => (stoppedAtAsk.last = true) },
+  const toAnswer = () =>
+    ask(
+      core,
+      {
+        text: each.request,
+        mindId: mind?.id ?? null,
+        conversationId,
+        focus,
+        onScreen,
+        ...(quoted && { quotes: [quoted] }),
+      },
+      { choose: each.answerAsk, stopped: () => (stoppedAtAsk.last = true) },
+    );
+  const heard = hear ? await hear(toAnswer) : { result: await toAnswer(), requests: [] };
+  const answer = heard.result;
+  const answering = heard.requests.flatMap(({ prompt, usage }) =>
+    prompt.some(
+      (message) => message.role === "system" && message.content.includes(ANSWERING_INSTRUCTIONS),
+    )
+      ? [usage.inputTokens]
+      : [],
   );
   const answeredSeconds = (Date.now() - started) / 1000;
   const asks = watch ? { ...watch.end() } : { again: 0, coverage: 0, citations: 0 };
@@ -709,7 +724,7 @@ export async function runCase(
     droppedMarkers,
     asks,
     support,
-    ...(support && { checkSeconds, notFound: notFoundSentences(answer.text) }),
+    ...(support && { checkSeconds, notFound: notFoundSentences(answer.text), answering }),
     claims: each.summary ? citedClaims(answer.text) : null,
     ...(each.expected.coverAll && { covered: documentsCovered(outcome) }),
     ...(decision && {

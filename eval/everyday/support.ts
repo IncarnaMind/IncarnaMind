@@ -67,7 +67,8 @@ export interface SentenceSupport extends CheckReason {
   parts: CheckedPart[];
   /**
    * What the check's model quoted, and the Citation check's answer, for each run; a sentence that
-   * isn't Supported keeps each run's replies too. Absent when the check's requests weren't heard.
+   * isn't Supported, or whose check asked a look anew, keeps each run's replies too. Absent when
+   * the check's requests weren't heard.
    */
   checks?: HeardCheck[];
   /** The check's requests, each by its tokens, and how many were sent word for word again. */
@@ -175,14 +176,15 @@ export async function checkCitedSentences(
       continue;
     }
     const { result, requests } = await hear(check);
+    const anew = askedAnew(requests);
     const checks = heardChecks(requests).map((run) =>
-      result.verdict === "supported" ? { ...run, replies: [] } : run,
+      result.verdict === "supported" && anew === 0 ? { ...run, replies: [] } : run,
     );
     const fromReply = result.verdict === "supported" ? takenBehind(result, requests) : [];
     results.push({
       ...sentenceSupport(each, result),
       checks,
-      asked: { requests: requests.map((request) => request.usage), anew: askedAnew(requests) },
+      asked: { requests: requests.map((request) => request.usage), anew },
       ...(fromReply.length > 0 && { fromReply }),
     });
   }

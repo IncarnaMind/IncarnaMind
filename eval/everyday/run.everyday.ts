@@ -9,7 +9,6 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "vitest";
 import type { AnswerUsage } from "../../src/core";
-import { costOf, inCurrency } from "../../src/core/cost/price";
 import { catalogFacts, modelsProviderOfKind } from "../../src/core/providers/catalog";
 import { createAiSdkChatModel } from "../../src/core/providers/models";
 import { markersIn } from "../../src/shared/answerBlocks";
@@ -24,7 +23,14 @@ import { tokenLine, watchTokens } from "../lib/tokens";
 import { type CaseResult, fetchPapers, fetchReserves, judgeOf, reports, runCase } from "./asking";
 import { CASES, type EverydayCase, floorOf, type LibraryName } from "./cases";
 import { writeCedarDocuments } from "./cedar";
-import { type CostOf, checkCostLines, fromReplyLines, unstatedLines } from "./checkReport";
+import {
+  type CostOf,
+  checkCostLines,
+  fromReplyLines,
+  requestCost,
+  secondLookLines,
+  unstatedLines,
+} from "./checkReport";
 import { failureLine, pointsBack, type RequestFailure } from "./checks";
 import { writeDatedDocuments } from "./dated";
 import { type DecisionProvider, decide, forcing } from "./decisions";
@@ -195,19 +201,6 @@ async function runModel(
 
 const passedRun = (result: CaseResult) => !result.error && result.failures.length === 0;
 
-/** What one of the asked model's requests costs in dollars, at the catalog's price for it now. */
-function requestCost(chat: ChatSettings): CostOf {
-  const price = catalogFacts(modelsProviderOfKind(chat.kind, chat.endpoint), chat.modelId)?.price;
-  return (usage) =>
-    price
-      ? inCurrency(
-          costOf(usage, price, new Date(), { cacheWrites: chat.kind === "anthropic" }),
-          price.currency,
-          "USD",
-        )
-      : null;
-}
-
 function asksByGroup(results: readonly CaseResult[]) {
   const groups = new Map<
     string,
@@ -323,6 +316,7 @@ function report(
             researched.map((each) => ({ ...each, support: each.support ?? [] })),
             priced,
           ),
+          ...secondLookLines(checked),
           ...unstatedLines(checked),
           ...fromReplyLines(checked),
           "## What wasn't found",
@@ -479,7 +473,7 @@ test("everyday requests", async () => {
     return;
   }
   const only = process.env.INCARNAMIND_EVAL_EVERYDAY?.trim();
-  if (only === "claim-probes" || only === "filings-in-note") return;
+  if (only === "claim-probes" || only === "filings-in-note" || only === "arms") return;
   const cases = CASES.filter((each) => {
     if (!only) return true;
     if (only === "hard") return each.hard === true;
@@ -516,7 +510,7 @@ test("everyday requests", async () => {
         answers: tokenLine(answerTokens.take()),
         judge: tokenLine(judgeTokens.take()),
       },
-      requestCost(config.chat),
+      requestCost(config.chat.kind, config.chat.endpoint, config.chat.modelId),
     ),
   );
   await writeFile(join(folder, "report.json"), JSON.stringify({ rows, results }, null, 2));

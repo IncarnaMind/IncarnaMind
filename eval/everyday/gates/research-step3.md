@@ -43,4 +43,13 @@ A failed bar means nothing ships from this run. The numbers and the list of fail
 
 ## Changes of plan
 
-None yet.
+### 2026-11-13, before any request this plan gates: I's second look, as the second reader ruled
+
+- **What sets it off.** Only the first reply's Not covered, by a plain comparison. It fires when Not covered names none of the part's own words. The words are read by the Answer's own word reader (`wordsOf`, which tells which sentence a Citation's record supports): words of three letters or more, a word of four or more by its first four letters; numbers; and pairs of Chinese characters. Function words and the phrase's words for the sentence itself are left out. Not covered is compared only in a script the part has words in, so a Chinese part is never held to an English phrase. The other trigger, "its reason says the Passage states the part", is not used: code can't tell it from the reason's free prose without guessing, and a Chinese interface writes that reason in Chinese.
+- **The free count behind it**, on main's two saved runs: 35 Unsupported the model gave, read by hand against the Documents. It fires 5 times: 3 on a wrong Unsupported, 2 on a doubtful one, none on a right one, and none of H's seven. Without the four-letter rule it fired 6 times (4, 2 and 0), but the scripted check's "the yearly floods" then fired against "they flood the harbour every year".
+- **The second look is the check's own Run, asked again from its start**, with the same sentence, Passages, model and instructions. It is not shown its first reply, nor told what was wrong or which way to answer. It is not #2313's recheck, which "What changes" item 3 named by "the way `plainVerdict.ts` already asks". That recheck tells the model its last check disagreed with itself.
+- **Its reply is read as a first reply**, with every guard that takes a ✓ away. A second reply that contradicts itself is Not checked and is asked nothing more. A second whole Unsupported stands. Every other second ask keeps #2816's reading.
+- **Reading it.** At about 3 second looks an arm there are too few for a rate. So each one is listed by hand, with the first reply's fields, the second reply's verdict, and whether its ✓ is right. That list is bar 2's "Second-look ✓".
+- **The negative**: a reply whose Not covered names the part's own words is never asked again. It is a unit test in both languages (`tests/core/unsupportedSecondLook.test.ts`).
+- **The bars are read by one script**, `eval/everyday/arms.ts`, from both arms' report folders. It refuses a void run.
+- **The answering prompt grows** by the line on what wasn't found. The run reports the input tokens added to each answering request, read against main's for the same request.
