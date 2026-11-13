@@ -319,6 +319,23 @@ describe("A call-help reply reads alike in its panel and its check (#2925)", () 
     expect(bothSides("say", sides.kept).kept).toBe(sides.kept);
   });
 
+  // protects=an option to say is one whether or not the panel has room for it: a third wrapped option is kept without the model's pair, as the two shown are, and isn't looked for, while the panel still shows two; fails_when=the third keeps its marks, so the assistant shows it beside two bare ones and the check looks for its words; no_claim=how often a model writes a third option.
+  test("a third option the panel has no room for is kept and checked as the two it shows", () => {
+    const C = "We can send the warranty terms in writing today.";
+    const reply = `★ "${A}"[^1]\n→ It answers the roof worry.\n\n"${B}"[^2]\n→ It moves to the lease.\n\n"${C}"[^3]\n→ It buys time.`;
+    const sides = bothSides("say", reply);
+    expect(sides.kept).toBe(
+      `★ ${A}[^1]\n→ It answers the roof worry.\n\n${B}[^2]\n→ It moves to the lease.\n\n${C}[^3]\n→ It buys time.`,
+    );
+    expect(sides.looks).toEqual([]);
+    expect(sides.panel).toEqual([
+      `★ “${A}”[1]`,
+      "→ It answers the roof worry.",
+      `“${B}”[2]`,
+      "→ It moves to the lease.",
+    ]);
+  });
+
   // protects=while a reply is written, and once it was stopped, the panel shows an option as it is kept, so its words don't change at its end; fails_when=the panel shows the model's marks until the reply ends, or an option before the star (a model's notes) loses its marks; no_claim=how long the reply takes.
   test.each<AnswerStatus>(["streaming", "stopped"])("read as kept while %s", (status) => {
     const reply = `I'll look at the sheet first.\n→ notes\n\n★ "${A}"[^1]\n→ It answers the roof worry.`;

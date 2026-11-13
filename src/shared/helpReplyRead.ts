@@ -156,14 +156,15 @@ export function readHelpReply(markdown: string): ReplyItem[] {
   return itemsOf(markdown.split("\n")).map(({ item }) => item);
 }
 
-/** An option to say: one in a reply of options, with its "→" line. */
-const saysAloud = (item: ReplyItem, shape: HelpShape) =>
-  shape === "options" && item.effect !== null;
-
+/**
+ * The line the panel puts first and the options, readings or short lines it shows, with every
+ * option to say (`said`): one in a reply of options with its "→" line, whether or not there is room
+ * to show it. A lead-in, a remark and a model's notes are none.
+ */
 function laidOut(
   items: readonly ReplyItem[],
   { shape, leadIn, streaming }: HelpLayout,
-): { lead: ReplyItem[]; options: ReplyItem[] } {
+): { lead: ReplyItem[]; options: ReplyItem[]; said: ReplyItem[] } {
   const [first] = items;
   if (shape === "lines") {
     const bullets = items.filter((item) => item.bullet);
@@ -171,7 +172,7 @@ function laidOut(
     // While it is written, text before the first short line is a model's notes, taken back once it
     // records its Citations (#2526): the outline stays in its place instead.
     const rest = bullets.length > 0 ? bullets : streaming ? [] : items.slice(lead.length);
-    return { lead, options: rest.slice(0, 3 - lead.length) };
+    return { lead, options: rest.slice(0, 3 - lead.length), said: [] };
   }
   const lead = leadIn && first && first.effect === null ? [first] : [];
   // While it is written, text before the first "★" line is a model's notes, taken back once it
@@ -182,20 +183,16 @@ function laidOut(
   // An item with no "→" line that another follows is a remark between options. The last is an
   // option still being written, or one whose "→" line never came (#2767): it stays as written once
   // the reply ends, so what showed doesn't vanish.
-  const options = items
-    .slice(from)
-    .filter((item) => !lead.includes(item) && (item.effect !== null || item === last))
-    .slice(0, 2);
-  return { lead, options };
+  const after = items.slice(from).filter((item) => !lead.includes(item));
+  const options = after.filter((item) => item.effect !== null || item === last).slice(0, 2);
+  const said = shape === "options" ? after.filter((item) => item.effect !== null) : [];
+  return { lead, options, said };
 }
 
 /** What the panel shows of `items`: the line put first, then the options, readings or short lines. */
 function shown(items: readonly ReplyItem[], layout: HelpLayout) {
-  const { lead, options } = laidOut(items, layout);
-  return {
-    lead,
-    options: options.map((item) => ({ ...item, said: saysAloud(item, layout.shape) })),
-  };
+  const { lead, options, said } = laidOut(items, layout);
+  return { lead, options: options.map((item) => ({ ...item, said: said.includes(item) })) };
 }
 
 /**
@@ -257,14 +254,14 @@ export interface HelpReplyRead {
 
 /**
  * A reply as its panel shows it and its check reads it, in its button's `layout`: each option to
- * say that the panel shows is read without a pair of quotation marks the model wrapped it in whole.
+ * say, shown or not, is read without a pair of quotation marks the model wrapped it in whole.
  * No marker is added or taken off, so each keeps its place. Reading the text read gives it again.
  */
 export function helpReplyRead(markdown: string, layout: HelpLayout): HelpReplyRead {
   const lines = markdown.split("\n");
   const written = itemsOf(lines);
   const items = written.map(({ item }) => item);
-  const said = laidOut(items, layout).options.filter((item) => saysAloud(item, layout.shape));
+  const { said } = laidOut(items, layout);
   const text = lines
     .map((line, index) =>
       written.some((each) => each.line === index && said.includes(each.item))
