@@ -4,7 +4,11 @@
  * model gave no record for: how many the app asked about once more (a Citation came of it, none
  * did, or no reply came), how many it matched by itself, and how many neither (no request went out,
  * the Answer's asks or room being used up, and the marker just went). Then, for each way a Citation
- * came, how many of them the Answer's own check judged and how many it passed.
+ * came, how many of them the Answer's own check judged and how many it passed. Last, of the app's
+ * own matches on a marked sentence, those whose sentence sits under a list number that differs from
+ * the one its quote sits under, and those where one side sits under a list number and a number
+ * follows it, each judged and passed; a sentence or quote that only shares a line with a list
+ * number is counted apart.
  *
  *   node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./scripts/tsResolve.mjs eval/lib/citingCount.ts <run file or folder>…
  *
@@ -15,6 +19,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { answerSentences, withoutMarkerRuns } from "../../src/shared/answerSentences";
 import type { CitationOrigin, CitingRecord } from "./citingRecord";
 
 /** Folders and files no count may read: every held-out set, and every gate's. Wide on purpose. */
@@ -86,6 +91,13 @@ const ORIGINS: readonly CitationOrigin[] = [
   "figure",
 ];
 
+/** Citations, how many of them the Answer's own check judged, and how many it passed. */
+export interface Tally {
+  citations: number;
+  judged: number;
+  passed: number;
+}
+
 export interface CitingCounts {
   model: string;
   language: string;
@@ -107,11 +119,139 @@ export interface CitingCounts {
   /** Answers the app asked about with no such marker: an Answer with no Citation at all. */
   askedWithoutMarker: number;
   /** For each way a Citation came: how many, how many the Answer's own check judged, how many it passed. */
-  origins: Record<CitationOrigin, { citations: number; judged: number; passed: number }>;
+  origins: Record<CitationOrigin, Tally>;
+  /**
+   * Of the app's own matches on a marked sentence: those whose sentence and quote each sit under a
+   * list number of their own and the two differ; those where one of them sits under one and a number
+   * follows it; those where either only shares a line with a list number; and those the record
+   * can't place (no sentence holds the marker or no line the quote, or more than one would count
+   * differently).
+   */
+  listNumbers: { differing: Tally; oneSided: Tally; sharesLine: Tally; unplaced: number };
 }
 
-const judgedBy = (citation: CitingRecord["citations"][number]) =>
+type Citation = CitingRecord["citations"][number];
+
+const judgedBy = (citation: Citation) =>
   citation.judged || citation.check === "unsupported" || citation.check === "contradicted";
+
+const tallied = (): Tally => ({ citations: 0, judged: 0, passed: 0 });
+
+function tally(into: Tally, citation: Citation): void {
+  into.citations++;
+  if (!judgedBy(citation)) return;
+  into.judged++;
+  if (citation.check === "found") into.passed++;
+}
+
+/**
+ * A list's number at the start of a line or a sentence, in every form the citing step's readers
+ * see: "2. ", "- 2. ", "2." with no space, "2．", "**2.** ", "**2.**", "(2)", "2)", "2、". The
+ * Document's reader cuts the first six off before the numbers are compared and the Answer's only
+ * "2. " and "- 2. " (#3065), so a number in those forms can't stop the app's match. A figure
+ * ("2.5 million") isn't one.
+ */
+const LIST_NUMBER =
+  /^\s*(?:[-*+•]\s+)?(?:\*\*)?(?:[(（](\d{1,3})[)）]|(\d{1,3})(?:[)）、]|[.．](?![\d.])))(?:\*\*)?\s*/u;
+
+/** The list number `text` starts with, and what follows it; null when it starts with none. */
+function listNumberOf(text: string): { number: number; rest: string } | null {
+  const found = LIST_NUMBER.exec(text);
+  if (!found) return null;
+  return { number: Number(found[1] ?? found[2]), rest: text.slice(found[0].length) };
+}
+
+const comparable = (text: string) => text.replace(/\s+/g, " ").trim();
+
+/**
+ * Where a matched sentence, or the Document's words it quotes, sits: under a list number of its
+ * own, on a line whose list number starts another sentence, or on a line with none.
+ */
+type Place = { number: number; rest: string } | "shares" | "none";
+
+const placeKey = (place: Place) =>
+  typeof place === "string" ? place : `${place.number}:${/^\d/.test(place.rest.trimStart())}`;
+
+/** The one place all of `places` agree on; null when there is none, or they would count differently. */
+function onePlace(places: readonly Place[]): Place | null {
+  const [first] = places;
+  if (first === undefined) return null;
+  return places.every((place) => placeKey(place) === placeKey(first)) ? first : null;
+}
+
+const lineAround = (text: string, at: number) => {
+  const start = text.lastIndexOf("\n", at - 1) + 1;
+  const end = text.indexOf("\n", at);
+  return { start, line: text.slice(start, end < 0 ? text.length : end) };
+};
+
+/**
+ * Each sentence of the Answer, as the citing step read and split it, that holds the Citation's
+ * marker. The Answer's reader splits "3. " and "- 3. " off as a sentence of its own, so a sentence's
+ * own number is at its start or in the number alone just before it on its line.
+ */
+function answerPlaces(citing: CitingRecord, marker: number): Place[] {
+  const text = citing.asked?.answer ?? citing.written.at(-1) ?? "";
+  const sentences = answerSentences(text);
+  const words = (at: number) => withoutMarkerRuns(sentences[at]?.text ?? "").trim();
+  return sentences.flatMap((sentence, holding): Place[] => {
+    if (!sentence.markers.includes(marker)) return [];
+    // A marker alone after its sentence's stop belongs to that sentence, as the record reads it.
+    const at = words(holding) !== "" ? holding : holding - 1;
+    const said = sentences[at];
+    if (!said) return [];
+    const own = listNumberOf(words(at));
+    if (own && own.rest.trim() !== "") return [own];
+    const { start, line } = lineAround(text, said.start);
+    const before = sentences[at - 1];
+    const alone = before && before.start >= start ? listNumberOf(words(at - 1)) : null;
+    if (alone && alone.rest.trim() === "") return [{ number: alone.number, rest: words(at) }];
+    return [listNumberOf(line) ? "shares" : "none"];
+  });
+}
+
+/**
+ * Each line of the cited Document's Passages that holds the Citation's quote: under its list number
+ * only when the quote is what follows that number.
+ */
+function documentPlaces(citing: CitingRecord, citation: Citation): Place[] {
+  // A quote of "**2.** …" taken after its number was cut starts with the bold's closing "**".
+  const quote = comparable(citation.quote).replace(/^\*+\s*/, "");
+  if (quote === "") return [];
+  const own = citing.passages.filter((passage) => passage.document === citation.document);
+  return (own.length > 0 ? own : citing.passages)
+    .flatMap((passage) => passage.text.split("\n"))
+    .filter((line) => comparable(line).includes(quote))
+    .map((line): Place => {
+      const found = listNumberOf(line);
+      if (!found) return "none";
+      const after = comparable(found.rest);
+      return after.startsWith(quote) || comparable(line).startsWith(quote) ? found : "shares";
+    });
+}
+
+function countListNumbers(
+  into: CitingCounts["listNumbers"],
+  citing: CitingRecord,
+  citation: Citation,
+): void {
+  const answer = onePlace(answerPlaces(citing, citation.marker));
+  const document = onePlace(documentPlaces(citing, citation));
+  if (answer === null || document === null) {
+    into.unplaced++;
+    return;
+  }
+  if (answer === "shares" || document === "shares") {
+    tally(into.sharesLine, citation);
+    return;
+  }
+  if (answer !== "none" && document !== "none") {
+    if (answer.number !== document.number) tally(into.differing, citation);
+    return;
+  }
+  const one = answer !== "none" ? answer : document !== "none" ? document : null;
+  if (one && /^\d/.test(one.rest.trimStart())) tally(into.oneSided, citation);
+}
 
 export function countCiting(answers: readonly CitedAnswer[]): CitingCounts[] {
   const groups = new Map<string, CitingCounts>();
@@ -130,8 +270,14 @@ export function countCiting(answers: readonly CitedAnswer[]): CitingCounts[] {
       neither: 0,
       askedWithoutMarker: 0,
       origins: Object.fromEntries(
-        ORIGINS.map((origin) => [origin, { citations: 0, judged: 0, passed: 0 }]),
+        ORIGINS.map((origin) => [origin, tallied()]),
       ) as CitingCounts["origins"],
+      listNumbers: {
+        differing: tallied(),
+        oneSided: tallied(),
+        sharesLine: tallied(),
+        unplaced: 0,
+      },
     };
     group.answers++;
     const came = (from: CitationOrigin) => citing.citations.some((each) => each.from === from);
@@ -151,11 +297,8 @@ export function countCiting(answers: readonly CitedAnswer[]): CitingCounts[] {
       group.askedWithoutMarker++;
     }
     for (const citation of citing.citations) {
-      const origin = group.origins[citation.from];
-      origin.citations++;
-      if (!judgedBy(citation)) continue;
-      origin.judged++;
-      if (citation.check === "found") origin.passed++;
+      tally(group.origins[citation.from], citation);
+      if (citation.from === "app-marked") countListNumbers(group.listNumbers, citing, citation);
     }
     groups.set(key, group);
   }
@@ -174,8 +317,15 @@ export function citingLines(counts: readonly CitingCounts[]): string[] {
       const { citations, judged, passed } = group.origins[origin];
       return `  ${origin}: ${citations} Citations, ${judged} judged, ${passed} passed`;
     }),
+    `  app-marked whose sentence sits under a list number that differs from its quote's: ${tallyText(group.listNumbers.differing)}`,
+    `  app-marked with a list number on one side only, a number after it: ${tallyText(group.listNumbers.oneSided)}`,
+    `  app-marked whose sentence or quote only shares a line with a list number: ${tallyText(group.listNumbers.sharesLine)}`,
+    `  app-marked the record can't place: ${group.listNumbers.unplaced}`,
   ]);
 }
+
+const tallyText = ({ citations, judged, passed }: Tally) =>
+  `${citations}, ${judged} judged, ${passed} passed`;
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const paths = process.argv.slice(2);
