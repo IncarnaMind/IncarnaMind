@@ -389,12 +389,12 @@ const SUPPLIER = {
     question: "供应商承担哪些费用？",
   },
 };
-const supplierDocument = (language: "en" | "zh") => {
-  const { name, lines } = SUPPLIER[language];
-  return {
-    name,
-    contents: `# ${name.replace(/\.md$/, "")}\n\n${Object.values(lines).join("\n\n")}\n`,
-  };
+const supplierDocument = (
+  language: "en" | "zh",
+  lines: readonly string[] = Object.values(SUPPLIER[language].lines),
+) => {
+  const { name } = SUPPLIER[language];
+  return { name, contents: `# ${name.replace(/\.md$/, "")}\n\n${lines.join("\n\n")}\n` };
 };
 /** A sentence of the Answer as the model writes it: a Document's line with `marker` before its full stop. */
 const marked = (line: string, marker: string) => line.replace(/([.。])$/, `${marker}$1`);
@@ -413,9 +413,12 @@ const writingModel = (query: string, answer: string) =>
     return { text: answer };
   });
 
-async function answered(language: "en" | "zh", answer: string) {
+/** `answer` written over the supplier's Document, of its own lines or of `lines`. */
+async function answered(language: "en" | "zh", answer: string, lines?: readonly string[]) {
   const model = writingModel(SUPPLIER[language].question, answer);
-  const { core, client, mind } = await setUpWithDocuments(model, [supplierDocument(language)]);
+  const { core, client, mind } = await setUpWithDocuments(model, [
+    supplierDocument(language, lines),
+  ]);
   const { answerId, finished } = await askAndFinish(
     core,
     client,
@@ -609,6 +612,7 @@ const LISTED = {
     building: "2 号楼已于三月交付给客户。",
     floors: "二层均为临街商铺，目前已经全部租出。",
     clauses: "第二条适用于北部地区的所有现场。",
+    rule: "规则 2 适用于北部地区自今年起的所有厂区和办事处。",
     numbered: "1. 去年北部地区的营收增长了 12%，主要来自新客户。",
     numberedClose: "1）同一年南部地区的成本下降了 8%，主要来自运费。",
     plain: "今年春天西部地区每个仓库的工资都上涨了 3%。",
@@ -659,6 +663,21 @@ const LIST_ROWS: { language: "en" | "zh"; sentence: string; matches: string | nu
     sentence: "1) and 2) apply to every site in the northern region from this year.",
     matches: null,
   },
+  ...[
+    "1) through 2)",
+    "1) to 2)",
+    "(1) to (2)",
+    "1)-2)",
+    "1)–2)",
+    "1) as well as 2)",
+    "1) plus 2)",
+    "1) versus 2)",
+    "1)/2)",
+  ].map((marks) => ({
+    language: "en" as const,
+    sentence: `${marks} apply to every site in the northern region from this year.`,
+    matches: null,
+  })),
   {
     language: "en",
     sentence: "1, 2 and 3 are done for every site in the northern region.",
@@ -707,6 +726,20 @@ const LIST_ROWS: { language: "en" | "zh"; sentence: string; matches: string | nu
   { language: "zh", sentence: "1、2 号楼已于三月交付给客户。", matches: null },
   { language: "zh", sentence: "一、二层均为临街商铺，目前已经全部租出。", matches: null },
   { language: "zh", sentence: "（一）和（二）适用于北部地区的所有现场。", matches: null },
+  ...[
+    "1）至 2）",
+    "1）到 2）",
+    "1）～2）",
+    "（1）至（2）",
+    "1）以及 2）",
+    "1）或者 2）",
+    "1）还有 2）",
+    "1）直到 2）",
+  ].map((marks) => ({
+    language: "zh" as const,
+    sentence: `${marks}适用于北部地区自今年起的所有厂区和办事处。`,
+    matches: null,
+  })),
   {
     language: "zh",
     sentence: "去年北部地区的营收增长了 12%，主要来自新客户。",
@@ -906,7 +939,7 @@ describe("a list's number at a sentence's start is no number it states (#3059)",
     },
   );
 
-  // protects=a list's number before a sentence ("**1.** ", "1) ", "(1) ", "1.", "12) ", "1、", "1）", "（1）", "（一）", "一、") comes off its numbers, so it matches its line; two sentences that each start with a list's number match only under the same one ("2)" is not "1)"), and one numbered on one side only matches nothing when that number is the other's own ("2) units" against "2 units"); a number of its own stays one, at the start ("3 trucks", "2024", "1.5 million") or after the list's number ("1) 3 trucks"), and an enumeration that starts it ("1) and 2)", "1, 2 and 3", "1、2 号楼", "一、二层", "（一）和（二）") and a "1)" mid-sentence keep their numbers, so neither matches a line stating fewer, in English and Chinese; fails_when=a list's number is read as the sentence's, or a number of its own or an enumeration's is taken off; no_claim=how often a model starts a sentence with a list's number.
+  // protects=a list's number before a sentence ("**1.** ", "1) ", "(1) ", "1.", "12) ", "1、", "1）", "（1）", "（一）", "一、") comes off its numbers, so it matches its line; two sentences that each start with a list's number match only under the same one ("2)" is not "1)"), and one numbered on one side only matches nothing when that number is the other's own ("2) units" against "2 units"); a number of its own stays one, at the start ("3 trucks", "2024", "1.5 million") or after the list's number ("1) 3 trucks"), and an enumeration or a range that starts it, however its marks are joined ("1) and 2)", "1) through 2)", "(1) to (2)", "1)–2)", "1)/2)", "1) as well as 2)", "1, 2 and 3", "1、2 号楼", "一、二层", "（一）和（二）", "1）至 2）", "1）～2）", "1）以及 2）"), and a "1)" mid-sentence keep their numbers, so none matches a line stating fewer ("Rule 2", "规则 2"), in English and Chinese; fails_when=a list's number is read as the sentence's, or a number of its own, an enumeration's or a range's is taken off; no_claim=how often a model starts a sentence with a list's number.
   test.each(LIST_ROWS)("in $language, “$sentence”", ({ language, sentence, matches }) => {
     expect(matched(language, sentence)).toEqual(
       matches === null ? [] : [{ passage: "P1", quote: matches }],
@@ -944,6 +977,23 @@ describe("a list's number before a Document's line, through the core (#3059)", {
     expect(quotes).toEqual([[year, "found"]]);
     expect(finished.citedAfterChecking).toMatchObject({ asked: false });
   });
+
+  // protects=a clause the Answer writes under the Document's own number, with a marker it gave no record for, takes that clause's Citation, found, without asking the model; the same clause under another number ("(3)" against "(2)", "（三）" against "（二）") takes no Citation and the model is asked, in English and Chinese; fails_when=a clause is cited to the Document's clause under another number, or the model isn't asked for it; no_claim=what a real model replies when asked.
+  test.each(["en", "zh"] as const)(
+    "in %s, a clause under another number is no Citation, and the model is asked",
+    async (language) => {
+      const clause = (number: string) =>
+        CLAUSE[language](language === "zh" ? (ZH_NUMBER[number] ?? number) : number);
+      const lines = [...Object.values(SUPPLIER[language].lines), clause("2")];
+      const marker = language === "en" ? " [^1]" : "[^1]";
+      const same = await answered(language, marked(clause("2"), marker), lines);
+      expect(same.quotes).toEqual([[clause("2"), "found"]]);
+      expect(same.finished.citedAfterChecking).toMatchObject({ asked: false });
+      const other = await answered(language, marked(clause("3"), marker), lines);
+      expect(other.quotes).toEqual([]);
+      expect(other.finished.citedAfterChecking).toMatchObject({ asked: true });
+    },
+  );
 });
 
 describe("an Answer that says it found nothing, over Documents in another language (#3059)", {

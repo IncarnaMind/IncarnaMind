@@ -142,17 +142,17 @@ const NEGATION = /\b(?:not|no|never)\b|n't\b|[不没未无非]/giu;
 const LIST_MARK =
   /\*\*\d{1,2}[.)]\*\*|\(\d{1,2}\)|（(?:\d{1,2}|[一二三四五六七八九十]{1,3})）|\d{1,2}[)）]|(?:\d{1,2}|[一二三四五六七八九十]{1,3})、|\d{1,2}\.(?=[^\s\d.])/u;
 const LIST_START = new RegExp(`^\\s*(?:[-*+•]\\s+)?(?:${LIST_MARK.source})`, "u");
-/** Another list number after the first, so the two are a sentence's enumeration: "1) and 2)". */
-const LIST_AGAIN = new RegExp(
-  `^\\s*(?:(?:,|，|、|&|and|or|和|及|与|或)\\s*)?(?:${LIST_MARK.source})`,
-  "iu",
-);
+/**
+ * Another list mark anywhere in the rest of the sentence, however it is joined to the first ("1) and
+ * 2)", "1) through 2)", "1）至 2）"): the first is then one of the sentence's own numbers.
+ */
+const LIST_AGAIN = new RegExp(LIST_MARK.source, "u");
 const NUMERAL_FIRST = /^\s*[\d零〇一二两三四五六七八九十百千万亿]/u;
 
 /**
  * The list's number `sentence` starts with, and the rest of it (#3059): "1) 3 trucks arrived" is
- * list 1 and says 3. None for an enumeration that starts it, whose numbers are what it says:
- * "1) and 2) apply", "1、2 号楼", "一、二层".
+ * list 1 and says 3. None for an enumeration or a range that starts it, whose numbers are what it
+ * says: "1) and 2) apply", "1) through 2) apply", "1、2 号楼", "一、二层".
  */
 function listStart(sentence: string): { number: string; rest: string } | null {
   const found = LIST_START.exec(sentence);
