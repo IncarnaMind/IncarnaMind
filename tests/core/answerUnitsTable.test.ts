@@ -1,7 +1,8 @@
 /**
- * #2997's measured table: each sentence of the #1332, #1452 and #2226 tests, of the checks
- * evaluation's supported set, and of the issue's rows, twins and edge cases, with what it read on
- * main and reads here. Each part of the table runs in its own file (answerUnitsTable*.test.ts).
+ * #2997's measured table: each sentence of the figure currency and unit tests (#1452, #2189,
+ * #2225, #2226), of the checks evaluation's labelled set, and of the issue's rows, twins and edge
+ * cases, with what it read on main and reads here. Each part of the table runs in its own file
+ * (answerUnitsTable*.test.ts).
  */
 import { describe, expect, test } from "vitest";
 import { PARTS, rowsOf, shows, TABLE } from "../helpers/answerUnitsTable";

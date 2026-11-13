@@ -1,7 +1,7 @@
 import { describe, test } from "vitest";
 import { readsAsMeasured, rowsOf } from "../helpers/answerUnitsTable";
 
-describe("#2997's measured table: the recorded rows of the unit tests (#1332, #1452)", () => {
+describe("#2997's measured table: the rows recorded from the figure unit tests", () => {
   // protects=each row reads, in an Answer and in Check against Documents, what was measured here; fails_when=any row reads otherwise, the first such stopping the run with its id; no_claim=what a real model replies.
   test("every row reads as measured", { timeout: 600_000 }, async () => {
     await readsAsMeasured(rowsOf("units"));
