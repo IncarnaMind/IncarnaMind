@@ -287,3 +287,113 @@ Round 1's Haiku run measured, caching included: $0.0008 a button reply, $0.0034 
   - the Haiku run's is $0.558 + $0.45 = $1.008;
   - the guard's is the ledger's total after the Haiku run + $0.50, never above $1.50.
 - **Anything past $1.50, a rerun included, needs the owner's yes first.**
+
+### Round 2's Claude Haiku 5.5 run, 2026-11-13 07:08–07:28 UTC: failed
+
+The request was frozen at 372b32326. The run used af715cd6f, with the set file put in.
+
+- **It counts.**
+  - 48 items, both arms: 96 presses, all done.
+  - The record holds 377 requests under them, all finished: 374 to Claude Haiku 5.5 and 3 local Transcript reads. All 96 judge readings came back, none failed.
+  - The arms alternated: each went first in 24 pairs, 12 in each language.
+  - It ran on the second direct Anthropic key, its allowance at 100% before and after on both models.
+  - The set file's SHA-256: 2d70668d2087706c978b3c843fe6061aefec642d786446e0c1bdb11a36ffec95.
+- **Spent** $0.366, the judge $0.22 of it, so $0.924 of $1.50 with the runs before it. The stop was $1.007.
+- **The readings.** Two readers read the 72 button replies and the 24 "last time" replies blind to the arm. Both arms were shuffled together, without the Citations' source labels.
+  - They agree on 88 of the 96, all 24 "last time" replies among them.
+  - A third reader read the 8 button replies they differ on before the key was opened, seeing only the replies and the calls. Two of the three readings settle each one, as listed below.
+- **What the first reader saw before reading.** While that reader counted the run's requests, a search printed four lines of the report's table by arm: judged right, another guard failed, failed to run. It showed no reply's arm. No final reading rests on that reader alone: the 88 agreed replies carry the second reader's reading too, and the third reading decided the 8.
+- **What the scorer saw.** While the scorer checked the record before the readings, a search of theirs printed three of the judge's listed replies with their arms. The scorer reads none of the replies, and no reading rests on them.
+
+**Bar 1, never this call's: fails.** The branch shows 10 by round 2's way and 9 by round 1's, and the bar is none. Main shows 21, so the fault is shown (at least 4).
+
+| | main, round 2's way | the branch, round 2's way | main, round 1's way | the branch, round 1's way | the judge, main | the judge, the branch |
+|---|---|---|---|---|---|---|
+| All, of 36 | 21 | 10 | 15 | 9 | 9 | 8 |
+| The earlier call said it first, of 24 | 16 | 9 | 13 | 9 | 8 | 8 |
+| The earlier call brings the changes, of 12 | 5 | 1 | 2 | 0 | 1 | 0 |
+| English, of 18 | 11 | 3 | 9 | 3 | 5 | 3 |
+| Chinese, of 18 | 10 | 7 | 6 | 6 | 4 | 5 |
+
+- Round 2's way also counts a reply that puts an earlier call's content on "the Documents" or "the record": main 6, the branch 3.
+- The branch's 9 by round 1's way, by button: "Answer their question" 6 of 12, "Check what was said" 2 of 12, "What should I say?" 1 of 12. They are mostly answers that use a fact the earlier call holds, and this call hasn't changed, with no word that it is from before.
+- In 9 of the branch's 10, the line at fault cites the earlier call's Transcript. The tenth, en-i-then-j-say, has no Citation.
+- **en-g-then-h-check, main's.** Its Citations couldn't be asked for: the model's reply reached its output limit of 450 tokens. The press finished, and the panel showed its lines without Citations: no number, no ✓, no source and no error. It is counted as the User saw it. Under bar 1 its text puts the earlier call on "the 24 October notes", so it counts by round 2's way and not round 1's (settled by the third reading).
+
+**Counted apart, an earlier line of the other side given as ours: fails.** Main 3, the branch 4; the bar is none on the branch.
+
+| Cut | main | the branch |
+|---|---|---|
+| The earlier call said it first | 2 | 4 |
+| The earlier call brings the changes | 1 | 0 |
+| English | 3 | 1 |
+| Chinese | 0 | 3 |
+
+**Bar 2, last time still answered: holds.** All four, by the settled readings: main 8 of 12, the branch 11 of 12 (at least 9 needed, and no fewer than main). The judge's count beside: main 8, the branch 11.
+
+| Cut | main | the branch |
+|---|---|---|
+| The earlier call said it first | 4 of 8 | 7 of 8 |
+| The earlier call brings the changes | 4 of 4 | 4 of 4 |
+| English | 4 of 6 | 6 of 6 |
+| Chinese | 4 of 6 | 5 of 6 |
+
+- **With and without the three replies whose text names a call's start time.** All three are the branch's:
+  - zh-g-then-h-last-time: "通话开始于 2026 年 10 月 24 日";
+  - en-j-then-i-last-time: "started at 4:24 am on 13 November, earlier the same day";
+  - en-i-then-j-last-time: "started at 4:22 am the same day".
+  Only the branch is sent start times, so a reader could have taken them for the branch's.
+- Without them, main is 8 of 12 and the branch 8 of 9, so the bar holds both ways. The judge's count without them is the same.
+
+| Cut, without the three | main | the branch |
+|---|---|---|
+| The earlier call said it first | 4 of 8 | 4 of 5 |
+| The earlier call brings the changes | 4 of 4 | 4 of 4 |
+| English | 4 of 6 | 4 of 4 |
+| Chinese | 4 of 6 | 4 of 5 |
+
+They are "last time" replies, so bar 1 doesn't change without them.
+
+**Bar 3, no worse on this call: holds,** on the judge's grade. Button replies graded right: main 15, the branch 24 of 36 (right, partly, wrong: main 15, 19, 2; the branch 24, 9, 3).
+
+| Cut | main | the branch |
+|---|---|---|
+| The earlier call said it first, of 24 | 8 | 12 |
+| The earlier call brings the changes, of 12 | 7 | 12 |
+| English, of 18 | 5 | 13 |
+| Chinese, of 18 | 10 | 11 |
+
+**Bar 4, no new false Supported: fails on the count.** Items with a false Supported: main 1, the branch 2, so the branch has more than main.
+
+| Cut | main | the branch |
+|---|---|---|
+| The earlier call said it first | 0 | 1 |
+| The earlier call brings the changes | 1 | 1 |
+| English | 0 | 1 |
+| Chinese | 1 | 1 |
+
+The branch's two, for the reading by hand of whether the change caused them:
+- **en-f-then-e-answer.** "Our installers can work after 10pm, so we can schedule the install plan around your closing time" sits over this call's line "Your installers can only come in after ten at night". The restriction is given as a capability. The quote is this call's line, not an earlier call's.
+- **zh-j-then-i-answer.** "我们目前每本说明书发货前由桐垭经销点的邬敏过一遍" sits over the earlier call's line "每本说明书发货前，都由我们桐垭经销点的邬敏看一遍". The other side's earlier line is given as ours and current. It is cited to the earlier call, and its words are found, so it shows ✓.
+- en-g-then-h-check shows no ✓, so it has none.
+
+**Bar 5, no more items failing: holds.** None failed to run on either arm, in any cut. en-g-then-h-check ran and showed its reply.
+
+**Settled by the third reading.** For each reply: the marks of the first, second and third readings, then the settled one. "as this call's" is bar 1 by round 1's way, "Documents" what round 2's way adds, "ours" the kind counted apart.
+- zh-h-then-g-check, main. Documents: no, yes, yes; settled yes. As this call's: no by all three.
+- en-g-then-h-check, main. Documents: no, yes, yes; settled yes. As this call's: no by all three.
+- zh-g-then-h-check, the branch. As this call's: yes by all three. Documents: no, yes, yes; settled yes.
+- en-j-then-i-say, main. As this call's: yes by all three. Ours: no, yes, yes; settled yes.
+- en-e-then-f-answer, the branch. As this call's: yes by all three. Ours: no, yes, yes; settled yes.
+- zh-f-then-e-check, main. Documents: no, yes, yes; settled yes. As this call's: no by all three.
+- en-f-then-e-answer, main. As this call's: yes, no, yes; settled yes.
+- en-e-then-f-answer, main. As this call's: no, yes, yes; settled yes.
+
+**Reported.**
+- A ✓ beside an earlier call's line, in a sentence putting it on this call: main 0 places, the branch 0.
+- One judgement of text beside a Citation wasn't decided, against 7 in round 1 and 9 in the pilot.
+
+**Round 2 has failed.** Bar 1 fails on the branch (10 by round 2's way, 9 by round 1's), the kind counted apart fails (4), and bar 4 fails on the count. Bars 2, 3 and 5 hold.
+- Where the earlier call brings the changes, the branch shows none by round 1's way. Main shows 2 there now that the calls are dated.
+- Where the earlier call said it first, the branch shows 9 of 24 and main 13 of 24.
+- The Claude Sonnet 5.5 guard doesn't run, and nothing ships from the branch as it is.
