@@ -815,3 +815,43 @@ describe("A Folder that keeps its work inside it", { timeout: 180_000 }, () => {
     expect(holdsEarlier(branch)).toBe(false);
   });
 });
+
+describe("Another call elsewhere in the Library", { timeout: 180_000 }, () => {
+  /** The lines that say how many Documents there are and name them, through "Use the names…". */
+  const documentsLines = (sent: string) => {
+    const lines = sent.split("\n");
+    const from = lines.findIndex((line) => line.startsWith("The User has added "));
+    const to = lines.findIndex((line, at) => at > from && line.startsWith("Use the names to tell"));
+    return from < 0 || to < 0 ? [] : lines.slice(from, to + 1);
+  };
+
+  test("a press with no Search scope is told main's line on the Documents but for the count, and their names but the other call's", async () => {
+    const setup = await folderCore("en");
+    const { core, dataDir, clock, calls } = setup;
+    const earlier = await setup.call();
+    const stopped = await stoppedMeeting(core, dataDir, earlier.meeting.id);
+    // Days later, so each call's Transcript is named for a day of its own.
+    clock.advance(6 * 24 * HOUR);
+    await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+    const { meeting: live, heard } = await setup.call(null);
+    await transcriptRead(core, dataDir, live.id, heard.documentId ?? "");
+    const branch = await press(core, calls, live.id, "say");
+    setup.unmark(true);
+    const main = await press(core, calls, live.id, "say");
+
+    expect(main.length).toBeGreaterThan(0);
+    expect(branch).toHaveLength(main.length);
+    const other = `- ${stopped.document.name}`;
+    for (const [index, sent] of main.entries()) {
+      const mains = documentsLines(sent);
+      expect(mains[0]).toMatch(/^The User has added 3 Documents \(/);
+      expect(mains).toContain(other);
+      expect(documentsLines(branch[index] ?? "")).toEqual(
+        mains
+          .filter((line) => line !== other)
+          .map((line) => line.replace("added 3 Documents", "added 2 Documents")),
+      );
+      for (const each of [sent, branch[index] ?? ""]) expect(each).not.toMatch(/^Search scope:/m);
+    }
+  });
+});
