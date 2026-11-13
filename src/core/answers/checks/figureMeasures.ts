@@ -7,6 +7,7 @@
  */
 import { MARKER } from "../../../shared/answerSentences";
 import { readFigures, readStatedUnits } from "../../../shared/figures";
+import { memoized } from "../../../shared/memo";
 import { isRecord } from "../../errors";
 
 /** The words a Figures item names for what its number measures, as the reply gives them. */
@@ -54,16 +55,23 @@ function inOrder(all: readonly string[], part: readonly string[]): boolean {
 
 const holds = (text: string, words: string): boolean => inOrder(wordsOf(text), wordsOf(words));
 
-/** `text` with its figures and stated units taken out: what is left says what they are. */
-function withoutNumbers(text: string): string {
-  const spans = [
-    ...readFigures(text, { dates: true, midLine: true }),
-    ...readStatedUnits(text),
-  ].sort((a, b) => b.start - a.start);
-  let rest = text;
-  for (const { start, end } of spans) rest = `${rest.slice(0, start)} ${rest.slice(end)}`;
-  return rest;
-}
+/**
+ * `text` with its figures and stated units taken out: what is left says what they are. A table's
+ * label is read for whether it names something, then again for whether a sentence says it.
+ */
+const withoutNumbers = memoized(
+  16,
+  (text: string) => text,
+  (text: string): string => {
+    const spans = [
+      ...readFigures(text, { dates: true, midLine: true }),
+      ...readStatedUnits(text),
+    ].sort((a, b) => b.start - a.start);
+    let rest = text;
+    for (const { start, end } of spans) rest = `${rest.slice(0, start)} ${rest.slice(end)}`;
+    return rest;
+  },
+);
 
 /** Whether `text` has a word of its own beside its numbers: a name for what they measure. */
 export const namesSomething = (text: string): boolean => /\p{L}/u.test(withoutNumbers(text));
@@ -216,13 +224,62 @@ export const ownNames = (table: Table): string[] =>
     ...alignedHeadings(table).map((heading) => cellsOf(heading)[table.column] ?? ""),
   ].filter(namesSomething);
 
+/** The names a table gives its number one way, its own and its other numbers'. */
+export interface CellNames {
+  own: string[];
+  /**
+   * The names of its other numbers that `keep` takes, each with its number's cell. Read only when
+   * asked, `keep` first: a long table's rows cost more to read than a sentence's names.
+   */
+  others(keep: (name: string) => boolean): { name: string; cell: string }[];
+}
+
+/**
+ * The names `table` gives its number and its other numbers: by row, its row's label (the nearest
+ * named cell to its left) and the label of each other row of its table that holds a number in its
+ * column; by column, its own column's headings and the heading of each other column that holds a
+ * number in its row. Null when its row has no label.
+ */
+export function cellNames(table: Table): { rows: CellNames; columns: CellNames } | null {
+  const { lines, index, column, top, end } = table;
+  const cells = cellsOf(lines[index] ?? "");
+  const label = labelOf(cells, column);
+  // A label merged over several rows is written once, or trimmed away: such a row can't say whose
+  // its number is.
+  if (label === undefined) return null;
+  const headings = alignedHeadings(table);
+  // Only another number's own names name it: a heading over the labels ("Revenue (£m)"), a
+  // section row or a units column names no other number.
+  return {
+    rows: {
+      own: [label],
+      others: (keep) =>
+        lines.slice(top, end + 1).flatMap((line, place) => {
+          if (place + top === index) return [];
+          const row = cellsOf(line);
+          const name = labelOf(row, column) ?? "";
+          const cell = row[column];
+          return keep(name) && holdsNumber(cell) ? [{ name, cell: cell ?? "" }] : [];
+        }),
+    },
+    columns: {
+      own: headings.map((heading) => cellsOf(heading)[column] ?? ""),
+      others: (keep) =>
+        headings.flatMap((heading) =>
+          cellsOf(heading).flatMap((name, place) =>
+            place !== column && keep(name) && holdsNumber(cells[place])
+              ? [{ name, cell: cells[place] ?? "" }]
+              : [],
+          ),
+        ),
+    },
+  };
+}
+
 /**
  * The names of the cell that holds `quote`'s number in `text`'s table, once `text` holds the
- * quote once: its own (the nearest named cell to the number's left, and the heading of its own
- * column) and those of the table's other numbers (the heading of another column that holds a
- * number in this row, the label of another row of its table that holds a number in this column). Null
- * when the number isn't in a table's row, its row has no label, or `text` doesn't hold the quote
- * just once.
+ * quote once: its own and those of the table's other numbers (`cellNames`). Null when the number
+ * isn't in a table's row, its row has no label, or `text` doesn't hold the quote just once.
  */
 function cellOf(
   text: string,
@@ -233,26 +290,14 @@ function cellOf(
   const [found, more] = placesOf(all, quote);
   if (!found || more) return null;
   const table = tableAt(all, boundAt(all, found, quote, bound));
-  if (!table) return null;
-  const { lines, index, column, top, end } = table;
-  const cells = cellsOf(lines[index] ?? "");
-  // A label merged over several rows is written once, or trimmed away: such a row can't say whose
-  // its number is.
-  if (labelOf(cells, column) === undefined) return null;
-  // Only another number's own names name it: a heading over the labels ("Revenue (£m)"), a
-  // section row or a units column names no other number.
-  const others = [
-    ...alignedHeadings(table).flatMap((heading) =>
-      cellsOf(heading).filter((_, place) => place !== column && holdsNumber(cells[place])),
+  const names = table && cellNames(table);
+  if (!table || !names) return null;
+  return {
+    own: ownNames(table),
+    others: [...names.columns.others(namesSomething), ...names.rows.others(namesSomething)].map(
+      ({ name }) => name,
     ),
-    ...lines
-      .slice(top, end + 1)
-      .filter((_, place) => place + top !== index)
-      .map(cellsOf)
-      .filter((row) => holdsNumber(row[column]))
-      .map((row) => labelOf(row, column) ?? ""),
-  ];
-  return { own: ownNames(table), others: others.filter(namesSomething) };
+  };
 }
 
 /** A measure's words, their digits left out. */
@@ -260,6 +305,12 @@ const named = (text: string): string[] => wordsOf(text).filter((word) => !/^\p{N
 
 /** Whether `text` holds the measure's `words`, their digits left out of both. */
 const namedIn = (text: string, words: string): boolean => inOrder(named(text), named(words));
+
+/** Whether `text` says `name`'s words beside its numbers and stated units: "二厂人数为31人" says "人数". */
+export function saysName(text: string, name: string): boolean {
+  const words = withoutNumbers(name);
+  return /\p{L}/u.test(words) && namedIn(text, words);
+}
 
 /** Whether `text` names just what `words` do: "Revenue" isn't "Revenue per store". */
 const namedAs = (text: string, words: string): boolean =>

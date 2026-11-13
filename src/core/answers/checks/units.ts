@@ -22,7 +22,15 @@ import {
 import { INTEGER_WORDS, NUMBER_WORD, SCALES, wholeNumberWords } from "../../../shared/numberWords";
 import type { TextRange } from "../../../shared/quoteMatch";
 import { documentFigureContext, mayLeaveOut } from "../calculations";
-import { isRow, ownNames, possibleLabels, tableAt } from "./figureMeasures";
+import {
+  type CellNames,
+  cellNames,
+  isRow,
+  ownNames,
+  possibleLabels,
+  saysName,
+  tableAt,
+} from "./figureMeasures";
 
 export type UnitNotStated =
   /** `currency` as the sentence writes it ("£", "英镑"), `amount` as the Document does ("54,000"). */
@@ -916,20 +924,54 @@ export const isSameUnit = (a: FigureUnit, b: FigureUnit): boolean =>
   (ofOneUnit(a, b) && atOneScale({ scale: 1, unit: a }, { scale: 1, unit: b }) === true);
 
 /**
- * Whether the Document states `figure` (followed in its sentence by `after`) at each plain number
- * of its written value that `ranges` of `text` (where a quote stands) hold, as the gate reads what
- * gives a number its unit (#2997): the labels that reach it, its own first, each of the figure's
- * kind giving it; or, where none does, every unit the lines heading its rows state
- * (`headingUnits`). A 31 under "（吨）" states 31吨; one under "（万吨）" doesn't, nor does one
- * beside a twin 31 under "（万吨）" or "同比（%）", nor one under a heading block of two units.
+ * Whether `sentence` means another number of `table` than its own (#2997): by row or by column, it
+ * says another number's name, one the number's own names don't hold, and none of the number's own.
+ * A name the sentence gives another of its figures (`numbers`, as written), which that cell holds,
+ * is spoken for: "Seventeen deals worth £830k" says Deals for its 17.
+ */
+function meansAnotherCell(
+  table: NonNullable<ReturnType<typeof tableAt>>,
+  sentence: string,
+  numbers: readonly number[],
+  context: FigureContext,
+): boolean {
+  const names = cellNames(table);
+  if (!names) return false;
+  // A cell's unit is no part of its name: "人数（人）" is 人数.
+  const nameOf = (cell: string) =>
+    bracketedUnits(cell, context).reduce((rest, { chars }) => rest.replace(chars, " "), cell);
+  const says = (cell: string) => saysName(sentence, nameOf(cell));
+  const spokenFor = (cell: string) =>
+    readFigures(cell, context).some((each) =>
+      numbers.some((number) => sameValue(writtenOf(each), number)),
+    );
+  const elsewhere = ({ own, others }: CellNames) =>
+    !own.some(says) &&
+    others(says).some(
+      ({ name, cell }) => !own.some((mine) => saysName(mine, nameOf(name))) && !spokenFor(cell),
+    );
+  return elsewhere(names.columns) || elsewhere(names.rows);
+}
+
+/**
+ * Whether the Document states `figure` of `sentence` at each plain number of its written value that
+ * `ranges` of `text` (where a quote stands) hold, as the gate reads what gives a number its unit
+ * (#2997): the labels that reach it, its own first, each of the figure's kind giving it; or, where
+ * none does, every unit the lines heading its rows state (`headingUnits`). Such a number of a table
+ * is no number of the figure when the sentence means another of its table (`numbers`: every number
+ * the sentence writes, as written); at least one number must be the figure's. A 31 under "（吨）"
+ * states 31吨; one under "（万吨）" doesn't, nor does one beside a twin 31 under "（万吨）" or
+ * "同比（%）", nor one under a heading block of two units, nor the 31 of a 人数 column under
+ * "表3 各厂情况（千克）" for "二厂产量为31千克。".
  */
 export function statesFigure(
   figure: Figure,
-  after: string,
+  sentence: { text: string; numbers: readonly number[] },
   text: string,
   ranges: readonly TextRange[],
   context: FigureContext,
 ): boolean {
+  const after = sentence.text.slice(figure.end);
   const written = writtenOf(figure);
   const numbers = ranges.flatMap(({ start, end }) => {
     const from = text.lastIndexOf("\n", start - 1) + 1;
@@ -947,31 +989,33 @@ export function statesFigure(
   });
   const kind = (statement: StatedUnit) => ofKind(statement, figure);
   const gives = (statement: StatedUnit) => namesFigure(statement, figure, after);
-  return (
-    numbers.length > 0 &&
-    numbers.every((start) => {
-      // A table's labels are its own: a heading cell of a table glued above heads other rows.
-      const table = tableAt(text, start);
-      const from = table
-        ? table.lines.slice(0, table.head).reduce((sum, line) => sum + line.length + 1, 0)
-        : 0;
-      const labels = labelled(text.slice(from), start - from, context);
-      if (labels.length > 0) {
-        const own = ownFirst(labels, kind);
-        return (
-          own.length > 0 &&
-          own.every(
-            (label) =>
-              !leavesOut(label, text, start, table) &&
-              gives(label) &&
-              !bracketNamesTwo(label.line, context),
-          )
-        );
-      }
-      const heading = headingUnits(text, start, context, table);
-      return heading.length > 0 && heading.every(gives);
-    })
-  );
+  const others = () => sentence.numbers.filter((number) => !sameValue(number, written));
+  const readings = numbers.map((start): "stated" | "unstated" | "elsewhere" => {
+    // A table's labels are its own: a heading cell of a table glued above heads other rows.
+    const table = tableAt(text, start);
+    const from = table
+      ? table.lines.slice(0, table.head).reduce((sum, line) => sum + line.length + 1, 0)
+      : 0;
+    const labels = labelled(text.slice(from), start - from, context);
+    if (labels.length > 0) {
+      const own = ownFirst(labels, kind);
+      return own.length > 0 &&
+        own.every(
+          (label) =>
+            !leavesOut(label, text, start, table) &&
+            gives(label) &&
+            !bracketNamesTwo(label.line, context),
+        )
+        ? "stated"
+        : "unstated";
+    }
+    const heading = headingUnits(text, start, context, table);
+    if (heading.length === 0 || !heading.every(gives)) return "unstated";
+    return table && meansAnotherCell(table, sentence.text, others(), context)
+      ? "elsewhere"
+      : "stated";
+  });
+  return readings.includes("stated") && !readings.includes("unstated");
 }
 
 /** A number a figure was compared with: as its quote writes it, in its unit and scale. */
