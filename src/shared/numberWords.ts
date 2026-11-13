@@ -156,3 +156,39 @@ export function wholeNumberWords(text: string): number | null {
     ? value
     : null;
 }
+
+const DIGIT_WORDS = [
+  "zero",
+  "one",
+  "two",
+  "three",
+  "four",
+  "five",
+  "six",
+  "seven",
+  "eight",
+  "nine",
+];
+const BEFORE_POINTS = new RegExp(
+  `\\b(${INTEGER_WORDS})((?: point(?: (?:${DIGIT_WORDS.join("|")}))+)?)(?= (?:percentage points?|basis points?|points?)\\b)`,
+  "gi",
+);
+
+/**
+ * `text` with a number said in words before "points" written in digits: "six percentage points"
+ * as "6 percentage points", "two point three points" as "2.3 points", "three points" as "3 points".
+ * The spoken-number reading leaves these as said, since a calculation reads "6 percentage points"
+ * as 6%; a quote that says them still states the number (#3022).
+ */
+export function pointsInDigits(text: string): string {
+  return text.replace(BEFORE_POINTS, (said, whole: string, places: string) => {
+    const value = wholeNumberWords(whole);
+    if (value === null) return said;
+    const decimals = places
+      .split(" ")
+      .slice(2)
+      .map((word) => DIGIT_WORDS.indexOf(word.toLowerCase()))
+      .join("");
+    return decimals ? `${value}.${decimals}` : String(value);
+  });
+}

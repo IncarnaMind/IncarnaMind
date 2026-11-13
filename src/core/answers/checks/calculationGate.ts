@@ -7,6 +7,7 @@ import {
   readingsOf,
   readStatedUnits,
 } from "../../../shared/figures";
+import { pointsInDigits } from "../../../shared/numberWords";
 import type { Citation, InputNumber } from "../../api";
 import { recordCiteSpans } from "../../recordCites/parser";
 import { writtenNumbers } from "../../transcription/spokenNumbers";
@@ -117,7 +118,7 @@ export function quotesHoldNumbers(
   const context = documentFigureContext(citations.flatMap((citation) => citation.units));
   const own = documentFigureContext([{ text: claim }]);
   const held = citations.flatMap(({ citation, units }) => {
-    const words = writtenNumbers(citation.quote);
+    const words = writtenNumbers(pointsInDigits(citation.quote));
     return [
       ...figureReadings(citation.quote, units).flat(),
       ...(words === citation.quote ? [] : figuresInClaim(words, context).flatMap(readingsOf)),

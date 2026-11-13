@@ -329,6 +329,40 @@ describe("On the model on this computer, which the check doesn't offer calculate
     },
   );
 
+  // protects=a quote that gives the number in another written form holds it: a unit against the number ("54,000t", "4kg", "$5bn", "£830k", "50bps", "5m") either way round, and a number said in words before points ("six percentage points", "two point three percentage points", "three points to cover"), so the sentence keeps its ✓ without calculate (#3022); fails_when=such a sentence reads Not checked, or a different number in the same form keeps its ✓; no_claim=a sentence whose own number is in words, which the rule doesn't read.
+  test.each([
+    ["The mill's output was 54,000 tonnes.", "Output was 54,000t."],
+    ["The mill's output was 54,000t.", "Output was 54,000 tonnes."],
+    ["The parcel weighs 4 kg.", "The parcel weighs 4kg."],
+    ["The route is 3 km long.", "The route is 3km long."],
+    ["Revenue was $5 billion.", "Revenue was $5bn."],
+    ["Profit was $5 million.", "Profit was $5mn."],
+    ["Pay was £830,000.", "Pay was £830k."],
+    ["Growth was 12 per cent.", "Growth was 12%."],
+    ["The spread widened 50 basis points.", "The spread widened 50bps."],
+    ["Revenue was 5 million.", "Revenue was 5m."],
+    ["It rose 6 percentage points.", "It rose six percentage points."],
+    ["It rose 2.3 percentage points.", "It rose two point three percentage points."],
+    ["There are 3 points to cover.", "There are three points to cover."],
+  ])("%s beside “%s” keeps its ✓", async (claim, quote) => {
+    expect(await ended(claim, `Figures\n${quote}\n`, quote)).toBe("supported");
+  });
+
+  test.each([
+    ["The mill's output was 55,000 tonnes.", "Output was 54,000t."],
+    ["The mill's output was 55,000t.", "Output was 54,000 tonnes."],
+    ["The parcel weighs 5 kg.", "The parcel weighs 4kg."],
+    ["Revenue was $6 billion.", "Revenue was $5bn."],
+    ["Pay was £880,000.", "Pay was £830k."],
+    ["The spread widened 60 basis points.", "The spread widened 50bps."],
+    ["Revenue was 6 million.", "Revenue was 5m."],
+    ["It rose 7 percentage points.", "It rose six percentage points."],
+    ["It rose 2.4 percentage points.", "It rose two point three percentage points."],
+    ["There are 4 points to cover.", "There are three points to cover."],
+  ])("%s beside “%s” is Not checked", async (claim, quote) => {
+    expect(await ended(claim, `Figures\n${quote}\n`, quote)).toBe("not-checked: number-unquoted");
+  });
+
   test("two figures on two quotes keep their ✓", async () => {
     const claim = "Revenue was $54m and costs were $30m.";
     const lines = ["Revenue was $54m.", "Costs were $30m."];
