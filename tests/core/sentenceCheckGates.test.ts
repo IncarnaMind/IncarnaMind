@@ -198,7 +198,7 @@ describe("A sentence's own check of a figure worked out (#2898)", () => {
       checkingModel(plans),
       page(BOARD, [[at, at + "EBITDA".length]]),
     );
-    expect(result.verdict).not.toBe("supported");
+    expect(result).toMatchObject({ verdict: "not-checked", reason: "number-not-worked-out" });
   });
 
   // protects=the same calculation from a clean page is Supported, so the case above turns on the input's quote alone; fails_when=the harness can't reach Supported; no_claim=none beyond protects.
@@ -450,5 +450,101 @@ describe("A sentence's own check of a figure resting on a calculation (#2898)", 
     const result = await checked(CLAIM, restingOn(1), page(ACCOUNTS), FIGURES);
     expect(result.verdict).toBe("unsupported");
     expect(result.figures?.map((figure) => figure.result.verdict)).toEqual(["unsupported"]);
+  });
+});
+
+describe("A sentence's own check of a figures reply with no verdict to read (#2919)", () => {
+  const CASES = [
+    {
+      language: "en",
+      claim: "Revenue in 2024 was £20.",
+      accounts: "Revenue in 2024 was £20; revenue in 2025 was £21.",
+      quote: "Revenue in 2024 was £20",
+      number: "£20",
+    },
+    {
+      language: "zh",
+      claim: "乙方的月工资为人民币18,000元。",
+      accounts: "乙方的月工资为人民币18,000元；甲方的月工资为人民币21,000元。",
+      quote: "乙方的月工资为人民币18,000元",
+      number: "人民币18,000元",
+    },
+  ] as const;
+
+  function figureOf({ claim, number, language }: (typeof CASES)[number]): CheckFigure[] {
+    const [reading] = readFigures(number, { language });
+    if (!reading) throw new Error("Missing fixture reading");
+    const at = claim.indexOf(number);
+    return [
+      {
+        id: "f1",
+        locator: {
+          kind: "text",
+          from: { blockId: "f1", offset: at },
+          to: { blockId: "f1", offset: at + number.length },
+        },
+        reading,
+        calculated: null,
+        context: claim,
+        label: "Figure",
+      },
+    ];
+  }
+
+  /** Records the quote as [^1], then replies `lines` and a Figures line that backs its figure with it. */
+  const replying = ({ quote, number }: (typeof CASES)[number], ...lines: string[]) =>
+    scriptedModel(
+      (call): ScriptedReply => {
+        const searches = searched(call);
+        if (searches.length === 0)
+          return { calls: [{ tool: "search_documents", input: { query: sentenceOf(call) } }] };
+        const [shown] = searches.flatMap((result) => shownPassages(result.text));
+        if (!call.results.some((result) => result.tool === "cite")) {
+          const citations = [{ marker: 1, passage: shown?.id, location: "p. 1", quote }];
+          return { calls: [{ tool: "cite", input: { citations } }] };
+        }
+        const items = requestedFigures(call).map(({ id }) => ({
+          id,
+          verdict: "supported",
+          scope: "same",
+          topic: "found",
+          roles: "same",
+          says: null,
+          relation: "equals",
+          source: { citation: 1, number },
+          calculation: null,
+        }));
+        const figures = `Figures: ${JSON.stringify({ items, remainder: null })}`;
+        return { text: [...lines, figures].join("\n") };
+      },
+      { generate: checkGenerate({}) },
+    );
+
+  // protects=a reply that gives its Figures line and no verdict for the sentence leaves the sentence Not checked with the card's figure still showing the quote it was read from and its difference, and the remainder row Not checked, never a bare Not checked that drops both; fails_when=the figure's source or the remainder is lost from the card, or a figure the reply backs reads Supported over a sentence with no verdict; no_claim=the reason's words, which the card writes from its code in English and Chinese.
+  test.each(CASES)(
+    "is Not checked, its figure still showing its source: $language",
+    async (each) => {
+      const result = await checked(each.claim, replying(each), page(each.accounts), figureOf(each));
+      expect(result).toMatchObject({ verdict: "not-checked", reason: "malformed" });
+      expect(result.figures).toHaveLength(1);
+      const [figure] = result.figures ?? [];
+      expect(figure?.result).toMatchObject({ verdict: "not-checked", reason: "malformed" });
+      expect(figure?.source).toMatchObject({ quote: each.quote, check: "found" });
+      expect(figure?.sourceInput?.number.chars).toBe(each.number);
+      expect(figure?.difference).toBe(0);
+      expect(result.remainder).toMatchObject({ verdict: "not-checked", reason: "malformed" });
+    },
+  );
+
+  // protects=the same reply with its verdict line is Supported, so the case above turns on the missing verdict alone; fails_when=the harness can't reach Supported; no_claim=none beyond protects.
+  test.each(CASES)("the same reply with a verdict is Supported: $language", async (each) => {
+    const result = await checked(
+      each.claim,
+      replying(each, "Verdict: supported", "Absence: no", SAME_DETAIL),
+      page(each.accounts),
+      figureOf(each),
+    );
+    expect(result).toMatchObject({ verdict: "supported" });
+    expect(result.figures?.map((figure) => figure.result.verdict)).toEqual(["supported"]);
   });
 });

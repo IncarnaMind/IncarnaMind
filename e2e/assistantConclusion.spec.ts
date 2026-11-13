@@ -44,8 +44,7 @@ const CASES = {
     join: ", ",
     stop: ".",
     quote: LINE,
-    reason:
-      "The cited fact is supported. The rest is the assistant’s own conclusion and wasn’t checked.",
+    reason: "The assistant’s own conclusion wasn’t checked. The rest of the sentence is supported.",
     opinions: "1 opinion left out",
     anyway: "Check anyway",
   },
@@ -55,7 +54,7 @@ const CASES = {
     join: "，",
     stop: "。",
     quote: LINE_ZH,
-    reason: "引用的事实有依据。其余是助手自己的结论，未核对。",
+    reason: "助手自己的结论未核对。句子的其余部分有依据。",
     opinions: "1 处观点未纳入核对",
     anyway: "仍然核对",
   },

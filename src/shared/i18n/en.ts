@@ -1535,7 +1535,9 @@ export const en = {
   "claim.reason.found-elsewhere":
     "Verdict hidden: the quote that backs this sentence isn’t among its Citations. Add it as a Citation, then check again.",
   "claim.reason.assistant-conclusion":
-    "The cited fact is supported. The rest is the assistant’s own conclusion and wasn’t checked.",
+    "The assistant’s own conclusion wasn’t checked. The rest of the sentence is supported.",
+  "claim.absenceBesideFact":
+    "What the sentence says is missing wasn’t checked: that needs its Documents read whole. The rest of it is supported.",
   "claim.reason.kept-inside": "Kept inside {detail}",
   "claim.reason.read-budget": "Stopped · {spent} spent",
   "claim.reason.read-budget.unknown": "Stopped at the most this read may spend.",
