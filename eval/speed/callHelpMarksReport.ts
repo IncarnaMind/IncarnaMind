@@ -15,7 +15,7 @@ const GATES: Readonly<Record<string, string>> = {
 /** How a press's error starts when the judge's request threw: refused or failed, after its retry. */
 export const JUDGE_FAILED = "The judge's request failed";
 
-interface RunRecord {
+export interface RunRecord {
   /** The model requests the record holds, and those of them that ended other than finished. */
   requests: number;
   unfinished: number;
@@ -25,7 +25,7 @@ interface RunRecord {
   failures: string[];
 }
 
-function recordOf(rows: readonly PairedRow[]): RunRecord {
+export function recordOf(rows: readonly PairedRow[]): RunRecord {
   const record: RunRecord = { requests: 0, unfinished: 0, voids: [], failures: [] };
   for (const row of rows) {
     for (const [arm, run] of [

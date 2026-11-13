@@ -512,6 +512,7 @@ export interface AnswerConversations {
     read: AnswerRead | null,
     emit?: boolean,
     askedIn?: (conversationFolderId: string | null) => string,
+    pressed?: MeetingHelpKind | null,
   ): AddedTurn;
   /** Emits a turn added with `emit: false`, once its Question can be asked. */
   publish(turn: Turn): void;
@@ -541,6 +542,7 @@ export interface AnswerConversations {
     read: AnswerRead | null,
     emit?: boolean,
     origin?: RetryOrigin,
+    pressed?: MeetingHelpKind | null,
   ): Turn;
   /** Writes an Answer as it stands; false when it is gone: its conversation was deleted. */
   writeAnswer(answerId: string, write: AnswerWrite): boolean;
@@ -665,12 +667,24 @@ export interface AnswersOptions {
    * records or is paused: its text is the button's name. Null for any other Question.
    */
   meetingHelp?(mindId: string, question: string): MeetingHelpKind | null;
+  /**
+   * A Note's call (#3005): whether its Meeting records or is paused, and that Meeting's Transcript
+   * Document, null until it has one. Null for a Note with no call; a voice memo is none.
+   */
+  noteCall?(mindId: string): { live: boolean; transcript: string | null } | null;
+  /**
+   * The Transcripts of every call but a Mind's own, which its help buttons never read (#3005);
+   * with `mindId` null, every call's.
+   */
+  otherCallTranscripts?(mindId: string | null): readonly string[];
   /** See `CoreAdapters.helpFormJudged`. */
   helpFormJudged?(): boolean;
   /** See `CoreAdapters.quotesAsGiven`. */
   quotesAsGiven?(): boolean;
   /** See `CoreAdapters.helpMarksQuoteOnly`. */
   helpMarksQuoteOnly?(): boolean;
+  /** See `CoreAdapters.callsUnmarked`. */
+  callsUnmarked?(): boolean;
   providerExists(providerId: string): boolean;
   /**
    * An Answer's sentences with Citations, checked against what they cite before it ends (#2311):
@@ -934,7 +948,10 @@ const messageOf = (error: unknown) => (error instanceof Error ? error.message : 
  * ids (null: every Document).
  */
 export interface DocumentsForAnswers
-  extends Pick<AnswerDocuments, "citationSource" | "pageTexts" | "documentDate" | "speakers"> {
+  extends Pick<
+    AnswerDocuments,
+    "citationSource" | "pageTexts" | "documentDate" | "speakers" | "callOf"
+  > {
   searchableCount(documentIds: readonly string[] | null): number;
   /** The Library's count as its page shows it: the examples' until the User has one, then theirs. */
   libraryCount(): number;
@@ -1014,6 +1031,7 @@ function inScope(
       documents.pageTexts(documentId, contentHash, from, to),
     documentDate: (documentId) => documents.documentDate(documentId),
     speakers: (documentId) => documents.speakers?.(documentId) ?? null,
+    callOf: (documentId) => documents.callOf?.(documentId) ?? null,
     passage: (passageId) => documents.passage(passageId),
     passagesBetween: (documentId, from, to) => documents.passagesBetween(documentId, from, to),
     passagesCovering: (documentId, from, to, overlapping) =>
@@ -1161,10 +1179,23 @@ export function createAnswers(options: AnswersOptions) {
     return from && !from.deleted ? from.mindId : null;
   };
 
-  const judgedScope = (question: ConversationQuestion): string[] | null => {
+  /**
+   * The scope an ended Answer's sentences are judged again in: its Search scope as it is now. A
+   * help button's reply is judged as its press read, without another call's Transcript (#3005).
+   */
+  const judgedScope = (
+    question: ConversationQuestion,
+    answer: ConversationAnswer,
+  ): string[] | null => {
     const mindId = judgedMind(question);
     const readsMind = mindId !== null && options.readableMindName(mindId) !== null;
-    return scopeNow(question.scope, mindId, readsMind ? null : wallOfTurn(question)).documentIds;
+    const { documentIds } = scopeNow(
+      question.scope,
+      mindId,
+      readsMind ? null : wallOfTurn(question),
+    );
+    // A reply outlives its Note in the conversation; with no Note of its own no call is its own.
+    return answer.steps?.pressed !== undefined ? pressScope(documentIds, mindId) : documentIds;
   };
 
   /** The judgements of Answers' sentences running, by Answer (#2311): stopping one ends it. */
@@ -1378,6 +1409,11 @@ export function createAnswers(options: AnswersOptions) {
      */
     listening?: () => Promise<LiveTranscript | null>;
     /**
+     * The Note whose call records or is paused as the Question is asked (#3005): its Meeting's
+     * Transcript is this call's, and every other call's an earlier one's. Absent: asked during none.
+     */
+    callIn?: string;
+    /**
      * A Meeting's saved Transcript to fill its notes in from (#142): shown with the Question as
      * `listening` is; tagged facts require the whole part, other requests keep half the window.
      */
@@ -1491,6 +1527,8 @@ export function createAnswers(options: AnswersOptions) {
     let foundAhead = false;
     /** The language the call's newest lines are in, which a help Answer is written in. */
     let callLanguage: string | null = null;
+    // A press reads no other call (#3005), so it is sent no call marks and no rule about them.
+    const unmarked = (options.callsUnmarked?.() ?? false) || help !== undefined;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let finished = false;
     let support: CitationSupport | null = null;
@@ -1635,6 +1673,7 @@ export function createAnswers(options: AnswersOptions) {
             ...(heard && transcripts.size > 0 && { transcript: true as const }),
           },
         }),
+        ...(help !== undefined && { pressed: help }),
       };
     };
     let skills: SkillSession | null = null;
@@ -1679,6 +1718,12 @@ export function createAnswers(options: AnswersOptions) {
         marksFormulas: () => workbookToolsOffered,
         defuses: CALL_TAGS,
         quotesStateClaims: () => !options.quotesAsGiven?.(),
+        // Read as each Transcript is shown: a quote can come before listening, and the Meeting's
+        // Transcript can appear after it.
+        thisCall: (documentId) =>
+          input.callIn === undefined || unmarked
+            ? undefined
+            : options.noteCall?.(input.callIn)?.transcript === documentId,
       },
       original
         ? {
@@ -2652,6 +2697,8 @@ export function createAnswers(options: AnswersOptions) {
         }
         if (finished) return;
         const kept = newestWithin(heard?.passages ?? [], listenedTokens(prepared.window));
+        // Known before they are shown, so this call's lines are marked as this call's (#3005).
+        for (const passage of kept) transcripts.add(passage.documentId);
         if (heard) messages = withTranscript(messages, session.show(kept));
         const hasEarlierTurns = messages.length > 1;
         if (heard && hasEarlierTurns) {
@@ -2670,7 +2717,6 @@ export function createAnswers(options: AnswersOptions) {
           announce("answer.delta", { ...place, answerId, text: markdown });
         }
         if (kept.length > 0) {
-          for (const passage of kept) transcripts.add(passage.documentId);
           callDocuments?.push(...transcripts);
           if (help) callLanguage = languageSaid(kept);
         }
@@ -3672,7 +3718,7 @@ export function createAnswers(options: AnswersOptions) {
             analysisInstructions(withAnalysisTools),
             codeInstructions(withCodeTools, withAnalysisTools),
             workbookInstructions(withWorkbookTools),
-            meetingInstructions(heard !== null),
+            meetingInstructions(heard !== null, unmarked),
             signInNeededInstructions(signInNeeded.map((connector) => connector.name)),
             help ? "" : language,
           ]
@@ -4220,15 +4266,35 @@ export function createAnswers(options: AnswersOptions) {
   };
 
   /**
+   * A help button's Search scope (#3005): its Note's, without another call's Transcript, since a
+   * press is about the call in progress; `mindId` null (its Note is gone), without any call's. A
+   * typed question keeps them, each marked with its call. With the evaluation's `callsUnmarked`,
+   * a press reads them as before.
+   */
+  const pressScope = (scope: string[] | null, mindId: string | null): string[] | null => {
+    if (options.callsUnmarked?.()) return scope;
+    const others = new Set(options.otherCallTranscripts?.(mindId) ?? []);
+    if (others.size === 0) return scope;
+    // Every Document, listed now: another call's Transcript whose Passages come later stays out.
+    if (scope === null) {
+      return options.documents
+        .searchableBySize(null)
+        .flatMap((each) => (others.has(each.id) ? [] : [each.id]));
+    }
+    return scope.some((id) => others.has(id)) ? scope.filter((id) => !others.has(id)) : scope;
+  };
+
+  /**
    * Writes the Answer of a Question in a conversation, added or emptied in `turn`, from
    * the messages before it, the Mind it reads and its Search scope as it is now.
    */
   function startInConversation(
     turn: Turn,
     ready: { model: ChatModelChoice; consentNeeded: boolean },
-    documentIds: string[] | null,
-    emptyScope: boolean,
+    scope: string[] | null,
+    scopeEmpty: boolean,
     mind: MindToRead | null,
+    help: MeetingHelpKind | null,
     onScreen: readonly string[],
     {
       quoted,
@@ -4241,8 +4307,13 @@ export function createAnswers(options: AnswersOptions) {
     namedScope: SearchScope | null = null,
   ): ConversationAskResult {
     const { conversation, question, answer } = turn;
-    const help = mind ? (options.meetingHelp?.(mind.mindId, question.text) ?? null) : null;
     const callOnly = help !== null && HELP_DOCUMENTS[help] === null;
+    const documentIds = help && mind ? pressScope(scope, mind.mindId) : scope;
+    // With no Search scope there is no chosen scope to be empty, listed or not.
+    const emptyScope =
+      documentIds === scope || scope === null
+        ? scopeEmpty
+        : documentIds !== null && options.documents.searchableCount(documentIds) === 0;
     // Each press of a help button stands alone: an earlier suggestion would only steer this one.
     // With no Note, the Folder in front (the Library's) is the turn's Folder: its wall is the one read.
     const wallId = mind
@@ -4404,6 +4475,7 @@ export function createAnswers(options: AnswersOptions) {
       analyse: question.analyse,
       consentNeeded: ready.consentNeeded,
       ...(mind && { listening: () => options.liveTranscript(mind.mindId) }),
+      ...(mind && options.noteCall?.(mind.mindId)?.live && { callIn: mind.mindId }),
       ...(help && { help }),
       quoted: callOnly ? [] : quoted,
       pictured: callOnly ? [] : pictured,
@@ -4776,6 +4848,7 @@ export function createAnswers(options: AnswersOptions) {
         answerModel,
       );
       const quotes = checkQuotes(question.quotes, question.mind?.id ?? null);
+      const pressed = mind ? (options.meetingHelp?.(mind.mindId, question.text) ?? null) : null;
       const added = options.conversations.add(
         { ...question, scope, quotes: storedQuotes(quotes) },
         answerModel,
@@ -4791,6 +4864,7 @@ export function createAnswers(options: AnswersOptions) {
             ? (scope.folderIds[0] ?? "")
             : "";
         },
+        pressed,
       );
       const { turn } = added;
       let published = false;
@@ -4817,11 +4891,14 @@ export function createAnswers(options: AnswersOptions) {
           question.mind?.id ?? null,
           readyMind ? null : wallOfTurn(added.turn.question),
         );
+        const help = readyMind ? pressed : null;
         const readyTurn = options.conversations.restartAnswer(
           turn.answer.id,
           ready.model,
           readOf(readyMind),
           false,
+          undefined,
+          help,
         );
         options.conversations.publish(readyTurn);
         published = true;
@@ -4831,6 +4908,7 @@ export function createAnswers(options: AnswersOptions) {
           documentIds,
           emptyScope,
           readyMind,
+          help,
           question.onScreen,
           checked,
           question.commands,
@@ -4891,12 +4969,14 @@ export function createAnswers(options: AnswersOptions) {
       } else if (front !== null) {
         origin = { folderId: front, scope: folderScope(front) };
       }
+      const help = mind ? (options.meetingHelp?.(mind.mindId, question.text) ?? null) : null;
       const turn = options.conversations.restartAnswer(
         answerId,
         ready.model,
         readOf(mind),
         true,
         origin,
+        help,
       );
       const wall =
         mindId !== null
@@ -4912,6 +4992,7 @@ export function createAnswers(options: AnswersOptions) {
         documentIds,
         emptyScope,
         mind,
+        help,
         onScreen,
         checkQuotes(question.quotes, mindId, wall),
         commands,
@@ -4944,7 +5025,7 @@ export function createAnswers(options: AnswersOptions) {
       if (!answer || answer.status === "streaming") return;
       if (!answer.citations.some((each) => each.check === "not-checked")) return;
       const limit = isRecord(input) ? moneyOf(input.limit) : null;
-      const documentIds = judgedScope(question);
+      const documentIds = judgedScope(question, answer);
       // The sentences judged again lose the ✓ an earlier check gave them, on every Citation they
       // cite, until this judgement passes them again (#2847).
       const again = new Set(
@@ -4996,7 +5077,7 @@ export function createAnswers(options: AnswersOptions) {
           figures: answer.figures,
           waiting,
           mindId: judgedMind(question),
-          documentIds: judgedScope(question),
+          documentIds: judgedScope(question, answer),
           model: answer.model,
         })) ?? null;
       if (estimate?.billing !== "per-token" || !estimate.upTo?.cost) return estimate;
