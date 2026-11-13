@@ -14,7 +14,9 @@ import {
   type JudgePart,
   judgePrompt,
   list,
+  parseJson,
   replyJson,
+  replyText,
   textOrNull,
   whole,
   word,
@@ -155,9 +157,73 @@ export function readBatch(value: unknown, count: number): Map<number, BatchVerdi
   return read;
 }
 
+/** Where the object opening at `from` closes, its strings' braces aside; -1 when it doesn't. */
+function objectEnd(text: string, from: number): number {
+  let depth = 0;
+  let inString = false;
+  for (let at = from; at < text.length; at++) {
+    const character = text.charAt(at);
+    if (inString) {
+      if (character === "\\") at++;
+      else if (character === '"') inString = false;
+    } else if (character === '"') inString = true;
+    else if (character === "{") depth++;
+    else if (character === "}" && --depth === 0) return at;
+  }
+  return -1;
+}
+
+/**
+ * The JSON objects in `text` that parse whole, outermost first, in order, and whether one opens
+ * after the last of them that doesn't: a later answer cut short or broken.
+ */
+function jsonObjects(text: string): { objects: unknown[]; broken: boolean } {
+  const objects: unknown[] = [];
+  let broken = false;
+  let at = text.indexOf("{");
+  while (at !== -1) {
+    const end = objectEnd(text, at);
+    const parsed = end === -1 ? null : parseJson(text.slice(at, end + 1));
+    if (parsed) objects.push(parsed.value);
+    broken = !parsed;
+    at = text.indexOf("{", parsed ? end + 1 : at + 1);
+  }
+  return { objects, broken };
+}
+
+/** Whether a verdict passes its sentence, as far as the reply alone says. */
+const passes = (verdict: BatchVerdict) =>
+  verdict.kind === "fact" &&
+  verdict.verdict === "supported" &&
+  verdict.roles === "same" &&
+  verdict.time === "same" &&
+  verdict.quoted === "states";
+
+/**
+ * A batch's reply as the Answer check reads it; null when it can't be read. A model that corrects
+ * itself writes a second answer after its first (#3029): the later one is read when it is a whole
+ * batch, never a mix of the two, and a sentence it passes that an earlier answer judged otherwise
+ * is left unjudged, as a ✓ can't rest on a reply that said otherwise a moment before.
+ */
+export function readBatchText(reply: string, count: number): Map<number, BatchVerdict> | null {
+  const { objects: answers, broken } = jsonObjects(replyText(reply));
+  if (answers.length > 0 && broken) return null;
+  const later = answers.length > 1 ? readBatch(answers.at(-1), count) : null;
+  if (!later) return readBatch(replyJson(reply), count);
+  const earlier = answers.slice(0, -1).flatMap((answer) => readBatch(answer, count) ?? []);
+  for (const [number, verdict] of later) {
+    const otherwise = earlier.some((answer) => {
+      const before = answer.get(number);
+      return before !== undefined && !passes(before);
+    });
+    if (passes(verdict) && otherwise) later.delete(number);
+  }
+  return later;
+}
+
 /** A batch's reply as the Answer check reads it: no sentence of one it can't read is judged. */
 export const readBatchReply = (reply: string, count: number): Map<number, BatchVerdict> =>
-  readBatch(replyJson(reply), count) ?? new Map();
+  readBatchText(reply, count) ?? new Map();
 
 /**
  * Sentences in batches, in their order: a batch closes at `BATCH_SENTENCES` sentences, or before a

@@ -122,3 +122,108 @@ describe("a batch's reply", () => {
     ]);
   });
 });
+
+describe("a reply that corrects itself (#3029)", () => {
+  // protects=a batch reply holding a first answer, words, then a corrected one reads the corrected one alone when it is a whole batch: a sentence it leaves out stays unjudged, a pass the earlier answer judged otherwise stays unjudged, a verdict it lowers stands; a reply with one answer reads as before, and a later answer that isn't a whole batch reads as before, nothing; fails_when=the two answers are mixed, the earlier one is read, a pass rests on a reply that said otherwise, or a single answer reads otherwise than before; no_claim=how often a model corrects itself, which the evaluation's trials count.
+  const answer = (...entries: ReturnType<typeof entry>[]) => JSON.stringify({ sentences: entries });
+  const twice = (first: string, words: string, later: string) => `${first}\n\n${words}\n\n${later}`;
+  const languages = [
+    { language: "English", words: "Wait, I need to include both sentences." },
+    { language: "Chinese", words: "等等，两句都要给出结论。更正如下：" },
+  ];
+
+  test.each(languages)("in $language, the corrected second answer is read", async ({ words }) => {
+    const reply = twice(
+      answer(entry(1, "supported")),
+      words,
+      answer(entry(1, "supported"), entry(2, "unsupported")),
+    );
+
+    const read = await readBatchReply(reply, 2);
+
+    expect(read.get(1)).toMatchObject({ verdict: "supported" });
+    expect(read.get(2)).toMatchObject({ verdict: "unsupported" });
+  });
+
+  test("a reply with one answer reads as before, words around it included", async () => {
+    const one = answer(entry(1, "supported"), entry(2, "contradicted"));
+
+    for (const reply of [one, `Here it is:\n${one}\nThat's all.`, `\`\`\`json\n${one}\n\`\`\``]) {
+      const read = await readBatchReply(reply, 2);
+      expect(read.get(1)).toMatchObject({ verdict: "supported" });
+      expect(read.get(2)).toMatchObject({ verdict: "contradicted" });
+    }
+  });
+
+  test.each(languages)(
+    "in $language, a later answer that isn't a whole batch reads as before: nothing",
+    async ({ words }) => {
+      const first = answer(entry(1, "supported"), entry(2, "supported"));
+      for (const later of [
+        '{"verdicts":[{"number":1,"verdict":"supported"}]}',
+        answer({ ...entry(1, "supported"), number: Number.NaN }),
+        '{"sentences":[{"number":1,"kind":"fact","verdict":"supported"',
+      ]) {
+        expect((await readBatchReply(twice(first, words, later), 2)).size).toBe(0);
+      }
+    },
+  );
+
+  test.each(languages)(
+    "in $language, a sentence the later answer leaves out stays unjudged",
+    async ({ words }) => {
+      const reply = twice(
+        answer(entry(1, "supported"), entry(2, "supported")),
+        words,
+        answer(entry(1, "supported")),
+      );
+
+      const read = await readBatchReply(reply, 2);
+
+      expect(read.get(1)).toMatchObject({ verdict: "supported" });
+      expect(read.has(2)).toBe(false);
+    },
+  );
+
+  test.each(languages)(
+    "in $language, a pass the earlier answer judged otherwise stays unjudged",
+    async ({ words }) => {
+      const reply = twice(
+        answer(entry(1, "unsupported"), { ...entry(2, "supported"), quoted: "other" }),
+        words,
+        answer(entry(1, "supported"), entry(2, "supported")),
+      );
+
+      expect((await readBatchReply(reply, 2)).size).toBe(0);
+    },
+  );
+
+  test.each(languages)(
+    "in $language, a verdict the later answer lowers stands, and one both give is read",
+    async ({ words }) => {
+      const reply = twice(
+        answer(entry(1, "supported"), entry(2, "contradicted")),
+        words,
+        answer(entry(1, "unsupported"), entry(2, "contradicted")),
+      );
+
+      const read = await readBatchReply(reply, 2);
+
+      expect(read.get(1)).toMatchObject({ verdict: "unsupported" });
+      expect(read.get(2)).toMatchObject({ verdict: "contradicted" });
+    },
+  );
+
+  test("a sentence the earlier answer gave no entry is read from the later one", async () => {
+    const reply = twice(
+      answer(entry(1, "unsupported")),
+      "Wait, I need to include both sentences.",
+      answer(entry(1, "unsupported"), entry(2, "supported")),
+    );
+
+    const read = await readBatchReply(reply, 2);
+
+    expect(read.get(1)).toMatchObject({ verdict: "unsupported" });
+    expect(read.get(2)).toMatchObject({ verdict: "supported" });
+  });
+});

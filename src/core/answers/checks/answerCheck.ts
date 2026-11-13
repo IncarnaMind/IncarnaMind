@@ -31,7 +31,7 @@ import { currentTask } from "../../runs/current";
 import { inStep } from "../../timing/flows";
 import { estimateTokens } from "../context";
 import { answerTemperature } from "../engine";
-import { json, judge } from "../judge";
+import { judge, lines } from "../judge";
 import { figureReadings, needsCalculation } from "./calculationGate";
 import type { CheckedCitation } from "./claimCheck";
 import { claimsAtOnce } from "./runChecks";
@@ -43,7 +43,7 @@ import {
   batchesOf,
   batchParts,
   batchPrompt,
-  readBatch,
+  readBatchText,
   sentenceBatchInstructions,
 } from "./sentenceBatch";
 
@@ -411,7 +411,8 @@ export function createAnswerCheck(options: AnswerCheckOptions) {
           within: { most: room },
           parts: batchParts(batch),
           data: BATCH_TAGS,
-          reply: json((value) => readBatch(value, batch.length)),
+          // Read from its text, not as one JSON value: a reply can hold a corrected answer (#3029).
+          reply: lines((text) => readBatchText(text, batch.length)),
           items: batch.length,
           retries: 1,
           signal: input.signal,

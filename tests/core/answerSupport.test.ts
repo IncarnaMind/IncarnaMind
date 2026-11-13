@@ -263,6 +263,58 @@ describe("a sentence its quote doesn't support loses its green check", () => {
   });
 });
 
+describe("a check reply that corrects itself is read by its corrected answer (#3029)", () => {
+  // protects=an Answer's check reads a batch reply that holds a first answer, words, then a corrected one, by the corrected one: its verdicts reach the Citations, and a pass the first answer judged otherwise leaves its sentence Not checked; fails_when=such a reply leaves every sentence Not checked, or a pass rests on a reply that said otherwise; no_claim=how often a model corrects itself.
+  test.each([
+    {
+      language: "English",
+      question: "How much does the kiln upgrade cost, and when is it installed?",
+      cost: "The upgrade costs £185,000 for two K9 kilns.",
+      date: "Installation is planned for February 2027.",
+      words: "Wait, I need to include both sentences.",
+    },
+    {
+      language: "Chinese",
+      question: "窑炉升级要花多少钱？什么时候安装？",
+      cost: "升级两台 K9 窑炉的费用是 £185,000。",
+      date: "安装计划在 2027 年 2 月。",
+      words: "等等，两句都要给出结论。更正如下：",
+    },
+  ])("in $language, the corrected answer's verdicts are the Citations'", async (each) => {
+    const answer = `${each.cost.slice(0, -1)}[^1]${each.cost.slice(-1)} ${each.date.slice(0, -1)}[^2]${each.date.slice(-1)}`;
+    const entry = (number: number, verdict: string) =>
+      `{"number":${number},"kind":"fact","verdict":"${verdict}","roles":"same","time":"same","quoted":"states","says":"The slide says so."}`;
+    const replies = [
+      // Sentence 2 skipped, then both: each gets the corrected answer's verdict.
+      `{"sentences":[${entry(1, "supported")}]}\n\n${each.words}\n\n{"sentences":[${entry(1, "supported")},${entry(2, "contradicted")}]}`,
+      // Sentence 1 judged unsupported, then passed: it stays Not checked.
+      `{"sentences":[${entry(1, "unsupported")},${entry(2, "supported")}]}\n\n${each.words}\n\n{"sentences":[${entry(1, "supported")},${entry(2, "supported")}]}`,
+    ];
+    const checks = [];
+    for (const reply of replies) {
+      const { core } = await setUpWithDocuments(
+        answeringModel(
+          "kilns installed cost",
+          answer,
+          [COST, INSTALLATION],
+          {},
+          {
+            judge: () => ({ text: reply }),
+          },
+        ),
+        [KILN_DECK],
+      );
+      const citations = await citationsOfAnswer(core, each.question);
+      checks.push([checkOf(citations, 1)?.check, checkOf(citations, 2)?.check]);
+    }
+
+    expect(checks).toEqual([
+      ["found", "contradicted"],
+      ["not-checked", "found"],
+    ]);
+  });
+});
+
 describe("an Answer works at once, and its Citations wait for their sentences' judgement", () => {
   const ANSWER = "Installation is planned for February 2027[^1].";
   const ANSWER_ZH = "窑炉计划在 2027 年 2 月安装[^1]。";
