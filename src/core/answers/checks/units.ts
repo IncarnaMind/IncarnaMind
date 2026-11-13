@@ -610,11 +610,13 @@ export function unitNotStated(
       sameWritten.every(({ scale }) => scale !== figure.scale) &&
       !bound?.some(({ scale }) => scale === figure.scale)
     ) {
-      // A label's "（万千瓦时）" states the scale of energy, not of tonnes.
+      // A label's "（万千瓦时）" states the scale of energy, not of tonnes nor of money.
       const ofItsMeasure = (statement: StatedUnit) =>
-        measureOf(figure.unit) === null ||
-        statement.unit.kind !== "other" ||
-        measureOf(statement.unit) === measureOf(figure.unit);
+        figure.unit.kind === "currency"
+          ? measureOf(statement.unit) === null
+          : measureOf(figure.unit) === null ||
+            statement.unit.kind !== "other" ||
+            measureOf(statement.unit) === measureOf(figure.unit);
       // A plain number with a label of its own takes that label's scale, not a Document line's
       // ("各月收入（万元）" over another heading's numbers).
       const labels = sameWritten.map(({ text, start, context, plain }) =>
