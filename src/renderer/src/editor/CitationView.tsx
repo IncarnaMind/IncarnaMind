@@ -208,6 +208,9 @@ export function CitationView({
   /** The Mind's group: the Document opens in the group to its right. */
   const place = useTabPlace();
   const state = citationState(attributes, documents, kept, keptInside);
+  // A help reply's check never reads another call's Transcript, so Check again can't change it.
+  const otherCall =
+    useContext(OtherCallsContext).has(state.documentId ?? "") && state.check === "not-checked";
   const liveVersion = useAppStore(
     (store) => store.documents.find((each) => each.id === state.documentId)?.contentHash,
   );
@@ -685,8 +688,9 @@ export function CitationView({
               onKeep={choices.keepOld}
               onPageChecked={choices.pageChecked}
               onUseDocumentWording={choices.useDocumentWording}
+              otherCall={otherCall}
               checkAgainOf={
-                state.check === "not-checked" && state.reason !== "small-model"
+                state.check === "not-checked" && state.reason !== "small-model" && !otherCall
                   ? judgedAnswer
                   : null
               }
@@ -842,6 +846,7 @@ function CitationCard({
   onKeep,
   onPageChecked,
   onUseDocumentWording,
+  otherCall,
   checkAgainOf,
   onRemove,
   onRegenerate,
@@ -875,6 +880,8 @@ function CitationCard({
   onPageChecked: (() => void) | null;
   /** Use the Document's wording: null where the quote differs in more than its marks, or can't be changed. */
   onUseDocumentWording: (() => void) | null;
+  /** Left unchecked as another call's, which a help reply's check never reads (#3005). */
+  otherCall: boolean;
   /** An Answer's Citation not checked: the Answer whose sentences Check again judges (#2311). */
   checkAgainOf: { id: string; conversationId: string } | null;
   /** Null where the text can't be changed, such as an Answer in the assistant. */
@@ -929,7 +936,6 @@ function CitationCard({
     ? modelNames(judgedAnswer.model.modelId, judgedAnswer.model.providerId).name
     : null;
   const limited = limitReason(t, state.reason, limit, judgedBy);
-  const otherCall = useContext(OtherCallsContext).has(state.documentId ?? "");
   const reason =
     state.check === "checking"
       ? t("citation.reason.checking")

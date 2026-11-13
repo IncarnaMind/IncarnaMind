@@ -199,9 +199,18 @@ async function cardOf(question: ConversationQuestion, answer: ConversationAnswer
   await act(() => {
     chip.dispatchEvent(new window.Event("click", { bubbles: true }));
   });
-  const text = (testId: string) =>
-    document.querySelector(`[data-testid="${testId}"]`)?.textContent ?? "";
-  return { badge: text("citation-badge"), reason: text("citation-reason") };
+  const element = (testId: string) => document.querySelector(`[data-testid="${testId}"]`);
+  const text = (testId: string) => element(testId)?.textContent ?? "";
+  const primary = document.querySelector(
+    '[data-testid="citation-card"] .citation-card-action--primary',
+  );
+  return {
+    badge: text("citation-badge"),
+    reason: text("citation-reason"),
+    checkAgain: element("citation-check-again") !== null,
+    open: text("citation-open"),
+    primary: primary?.getAttribute("data-testid") ?? null,
+  };
 }
 
 for (const language of ["en", "zh-CN"] as const) {
@@ -213,13 +222,16 @@ for (const language of ["en", "zh-CN"] as const) {
       "zh-CN": "引文出自另一场会议。通话助手的回复只对照这场会议和你的文档核对。",
     }[language];
 
-    // protects=#3005: a press's reply's Citation of another call says it was left out on purpose; fails_when=its card gives the general "couldn't be checked" line; no_claim=the panel's chip.
-    test("on a press's reply, of another call's Transcript: Not checked, as the quote is from another call", async () => {
+    // protects=#3005: a press's reply's Citation of another call says it was left out on purpose, and offers no Check again, which can never check it; fails_when=its card gives the general "couldn't be checked" line, or offers Check again; no_claim=the panel's chip.
+    test("on a press's reply, of another call's Transcript: Not checked, as the quote is from another call, with no Check again", async () => {
       setLanguage(language);
       const card = await cardOf(questionOf(press), answerCiting(notChecked("earlier"), true));
 
       expect(card.badge).toContain(t("citation.badge.notChecked"));
       expect(card.reason).toBe(OTHER_CALL);
+      expect(card.checkAgain).toBe(false);
+      expect(card.open).toBe(t("citation.open.time"));
+      expect(card.primary).toBe("citation-open");
     });
 
     test("on a press's reply whose Note is gone, of any call's Transcript: the same", async () => {
@@ -227,6 +239,8 @@ for (const language of ["en", "zh-CN"] as const) {
       const card = await cardOf(questionOf(press, true), answerCiting(notChecked("this"), true));
 
       expect(card.reason).toBe(OTHER_CALL);
+      expect(card.checkAgain).toBe(false);
+      expect(card.primary).toBe("citation-open");
     });
 
     // protects=#3005: only a Citation the press's check leaves out takes the line; fails_when=a typed Question's, this call's, or a press sent without the call's text takes it; no_claim=why those were left unchecked.
@@ -242,6 +256,9 @@ for (const language of ["en", "zh-CN"] as const) {
         const card = await cardOf(question, answerCiting(notChecked(cited), sent));
         expect(card.badge).toContain(t("citation.badge.notChecked"));
         expect(card.reason).toBe(general);
+        expect(card.checkAgain).toBe(true);
+        expect(card.open).toBe(t("citation.open.time"));
+        expect(card.primary).toBe("citation-check-again");
       }
     });
   });
