@@ -150,7 +150,7 @@ describe("The records ask's bars", () => {
     const reading = readBars({
       arms: ARMS,
       records,
-      judged: { model: "judge", sentences: [], failedTries: [] },
+      judged: { model: "judge", dry: true, sentences: [], failedTries: [] },
       judgeDollars: 0,
       runMain: RUN_MAIN,
     });
@@ -274,7 +274,7 @@ describe("The records ask's bars", () => {
     const reading = readBars({
       arms: ARMS,
       records,
-      judged: { model: "judge", sentences: [], failedTries: [] },
+      judged: { model: "judge", dry: true, sentences: [], failedTries: [] },
       judgeDollars: 0,
       runMain: RUN_MAIN,
     });
@@ -330,7 +330,7 @@ describe("The records ask's bars", () => {
         noAsk("branch"),
         record("main", "pair-2-wrong#1", [sentence(WRONG, "contradicted")]),
       ]),
-      judged: { model: "judge", sentences: [], failedTries: [] },
+      judged: { model: "judge", dry: true, sentences: [], failedTries: [] },
       judgeDollars: 0,
       runMain: RUN_MAIN,
     }).lines.join("\n");
@@ -390,6 +390,7 @@ describe("The records ask's bars", () => {
     const read = scoreOf(fullRun()).read;
     const judged = (unstated: string | null) => ({
       model: "judge",
+      dry: true,
       failedTries: [],
       sentences: [ticked, sentence("表 1 显示……", "supported")].map((each) => ({
         key: judgeKey(each),
@@ -427,5 +428,40 @@ describe("The records ask's bars", () => {
     expect(underTheStop(0.5, [0.8, 0.8])?.within).toBe(false);
     expect(underTheStop(0, [0.01, null])).toBeNull();
     expect(underTheStop(0, [])).toEqual({ spent: 0, most: 0, within: true });
+  });
+
+  // protects=the bars aren't read from a run that mixes the dry run's scripted work with priced work, on the arms or in the judge, or that lacks a try of an item an arm planned, an item void twice on main and so never asked of the branch aside; fails_when=a dry judge's lines read a priced run, or wrong twins missing on both arms read as no ✓; no_claim=why a try is missing.
+  test("the bars refuse mixed dry and priced work, and an item an arm planned with no try", () => {
+    const planned = [
+      ...fullRun()
+        .filter((each) => each.arm === "main")
+        .map((each) => each.key),
+      "pair-3-wrong#1",
+    ];
+    const arms = ARMS.map((each) => ({ ...each, items: planned }));
+    const read = (overrides: Partial<Parameters<typeof readBars>[0]>) =>
+      readBars({
+        arms,
+        records: fullRun(),
+        judged: { model: "judge", dry: true, sentences: [], failedTries: [] },
+        judgeDollars: 0,
+        runMain: RUN_MAIN,
+        ...overrides,
+      }).errors;
+    expect(read({})).toContain(
+      "Items an arm planned and holds no try of: main pair-3-wrong#1, branch pair-3-wrong#1.",
+    );
+    const twiceVoid = [1, 2].map((attempt) =>
+      record("main", "pair-3-wrong#1", [sentence(WRONG, "not-checked", { reason: "failed" })], {
+        attempt,
+      }),
+    );
+    expect(read({ records: fullRun(twiceVoid) }).join(" ")).not.toContain("holds no try of");
+    expect(read({ arms: [arms[0] as ArmInfo, { ...(arms[1] as ArmInfo), dry: false }] })).toContain(
+      "One arm ran dry and the other didn't: a run is dry or priced on both arms.",
+    );
+    expect(
+      read({ judged: { model: "judge", dry: false, sentences: [], failedTries: [] } }),
+    ).toContain("The judge ran dry or priced unlike the arms it read.");
   });
 });

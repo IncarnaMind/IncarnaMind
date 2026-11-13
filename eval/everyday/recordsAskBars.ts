@@ -57,6 +57,8 @@ export interface JudgedSentence {
 
 export interface Judged {
   model: string;
+  /** It was the dry run's scripted judge. */
+  dry: boolean;
   sentences: JudgedSentence[];
   failedTries: string[];
 }
@@ -577,9 +579,27 @@ export function readBars(input: {
       errors.push(`The ${each.arm} arm called fetch ${each.fetchCalls} times in a dry run.`);
     if (each.endedAt === null) errors.push(`The ${each.arm} arm didn't finish.`);
   }
+  if (main && branch && main.dry !== branch.dry)
+    errors.push("One arm ran dry and the other didn't: a run is dry or priced on both arms.");
+  if (judged && arms.some((each) => each.dry !== judged.dry))
+    errors.push("The judge ran dry or priced unlike the arms it read.");
+  if (main && branch && JSON.stringify(main.items) !== JSON.stringify(branch.items))
+    errors.push("The arms planned other items.");
   const scored = scoreOf(records);
   if (scored.unmatched.length > 0)
     errors.push(`The arms don't hold the same items: ${scored.unmatched.join(", ")}.`);
+  // An item void twice on main is never asked of the branch, so it is the one an arm may lack.
+  const lacking = arms.flatMap((each) =>
+    each.items
+      .filter(
+        (key) =>
+          !scored.leftOut.includes(key) &&
+          !records.some((record) => record.arm === each.arm && record.key === key),
+      )
+      .map((key) => `${each.arm} ${key}`),
+  );
+  if (lacking.length > 0)
+    errors.push(`Items an arm planned and holds no try of: ${lacking.join(", ")}.`);
   const cells = cellsOf(scored.read);
   const head = [
     "# The ask for a check's missing records: the bars",
@@ -738,7 +758,7 @@ export function readBars(input: {
       });
     }),
     "",
-    "Every ✓ reached through an ask, on each arm, to read by hand (only an ask's reply can differ between the arms); a pair's check on the branch says whether main's check of the same item gave a ✓ too:",
+    "Every ✓ reached through an ask, on each arm, to read by hand (only an ask's reply can differ between the arms); a pair's check on the branch says whether main's check of the same item gave a ✓ through an ask too:",
     "",
     ...ARMS.flatMap((arm) =>
       sentencesOf(scored.read[arm])
@@ -747,9 +767,9 @@ export function readBars(input: {
           const onMain = scored.read.main.find((each) => each.key === record.key);
           const beside =
             arm === "branch" && record.kind === "pair"
-              ? onMain?.sentences.some(tick)
-                ? " (main ✓ too)"
-                : " (**new**: main gave none)"
+              ? onMain?.sentences.some((each) => tick(each) && asksOf(each).length > 0)
+                ? " (main ✓ through an ask too)"
+                : " (**new**: main gave none through an ask)"
               : "";
           return `- ${arm}, ${record.key}${beside}: ${oneLine(sentence.sentence)} — cites ${sentence.cites.map((each) => quoted(each.quote)).join(" · ")}`;
         }),

@@ -579,6 +579,7 @@ test.skipIf(MODE !== "records-ask-judge")(
       JSON.stringify(
         {
           model: `anthropic/${GATE_JUDGE}`,
+          dry: DRY,
           sentences: judged,
           failedTries: batches.flatMap((each) => each.failed),
           dollars,
