@@ -131,7 +131,8 @@ async function setUp(
   given: Marking,
   quoteOnly?: () => boolean,
   cloud?: string,
-  form?: CallHelpForm,
+  /** The form presses are asked in; a function for a test that changes it between presses. */
+  form?: CallHelpForm | (() => CallHelpForm | undefined),
   sheet = SHEET,
 ) {
   const calls: ModelCall[] = [];
@@ -141,7 +142,7 @@ async function setUp(
   const { core, record } = await transcribingCore(dataDir, {
     createChatModel: models.createChatModel,
     ...(quoteOnly && { helpMarksQuoteOnly: quoteOnly }),
-    ...(form && { callHelpForm: () => form }),
+    ...(form && { callHelpForm: typeof form === "function" ? form : () => form }),
   });
   const saved = await core.saveChatProvider(
     cloud
@@ -1925,6 +1926,90 @@ describe("the evaluation's switch for the form whose facts stand apart (#2847)",
         expect(chips(asForm)).toEqual([{ marker: 1, at: 0, passed: true }]);
         expect(chips(asMain)).toEqual([]);
       }
+    },
+  );
+
+  /** Tries a press's Answer again and waits until it has ended and its sentences are judged. */
+  async function triedAgain(core: Core, answer: ConversationAnswer) {
+    const ids = { conversationId: answer.conversationId, answerId: answer.id };
+    await core.regenerateConversationAnswer(ids);
+    await vi.waitFor(
+      async () =>
+        expect((await answerOf(core, ids.conversationId, ids.answerId)).status).toBe("done"),
+      { timeout: 20_000, interval: 5 },
+    );
+    return answerJudged(core, ids.conversationId, ids.answerId);
+  }
+  const FORM_WORDS = 'on a line of its own starting with "> "';
+
+  // protects=trying a press's Answer again is a new asking: asked in the form the app asks in now and saved so in the save that empties it, in both directions; an Answer first asked as today and tried again in a form build is asked in the form's words, says so, and is read with the form's reader; a form Answer with a closing line tried again in a build that asks as today says neither value and is read as today; in English and Chinese; fails_when=a retry keeps the first asking's form, or an old closing line sits on new words; no_claim=what the model writes.
+  test.each(["English", "Chinese"] as const)("in %s, trying again asks anew", async (language) => {
+    const { reply, begun } = CLOSING[language];
+    let asking: CallHelpForm | undefined;
+    const given: Marking = { reply };
+    const { core, meeting, calls } = await setUp(given, undefined, undefined, () => asking);
+
+    const today = await (await pressed(core, meeting, "answer")).judged();
+    expect(calls.at(-1)?.prompt).not.toContain(FORM_WORDS);
+    expect(today.steps?.askedInForm).toBeUndefined();
+    asking = "fact lines";
+    const inForm = await triedAgain(core, today);
+    expect(calls.at(-1)?.prompt).toContain(FORM_WORDS);
+    expect(inForm.steps?.askedInForm).toBe(true);
+    expect(inForm.steps?.closingLine).toBe(true);
+    expect(helpParts(inForm, "answer")).toEqual(shownOf(readWith(inForm, true)));
+
+    // The save that empties it for the new asking leaves no closing line on the new words.
+    asking = undefined;
+    let release = () => {};
+    const held = pausedAfter(reply.indexOf(begun));
+    given.pause = {
+      ...held.pause,
+      until: new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+    };
+    const ids = { conversationId: inForm.conversationId, answerId: inForm.id };
+    await core.regenerateConversationAnswer(ids);
+    await held.isReached;
+    const writing = await answerOf(core, ids.conversationId, ids.answerId);
+    expect(writing.status).toBe("streaming");
+    expect(writing.steps?.closingLine).toBeUndefined();
+    expect(writing.steps?.askedInForm).toBeUndefined();
+    release();
+    await vi.waitFor(
+      async () =>
+        expect((await answerOf(core, ids.conversationId, ids.answerId)).status).toBe("done"),
+      { timeout: 20_000, interval: 5 },
+    );
+    const back = await answerJudged(core, ids.conversationId, ids.answerId);
+    expect(calls.at(-1)?.prompt).not.toContain(FORM_WORDS);
+    expect(back.steps?.askedInForm).toBeUndefined();
+    expect(back.steps?.closingLine).toBeUndefined();
+    expect(helpParts(back, "answer")).toEqual(shownOf(readWith(back, false)));
+  });
+
+  // protects=the restart a press makes while it waits for its model is no new asking: while the reply is written its Answer already says it was asked in the form, as its first save set it, and has no closing line yet; in English and Chinese; fails_when=the value is lost or a closing line is there before the reply ends; no_claim=none beyond protects.
+  test.each(["English", "Chinese"] as const)(
+    "in %s, the restart inside one press keeps the value",
+    async (language) => {
+      const { reply, begun } = CLOSING[language];
+      const pause = pausedAfter(reply.indexOf(begun));
+      const { core, meeting } = await setUp(
+        { reply, pause: pause.pause },
+        undefined,
+        undefined,
+        "fact lines",
+      );
+      const { before } = await stoppedAt(
+        core,
+        meeting,
+        pause.isReached,
+        reply.split("\n")[0]?.replace(/^★ /, "").slice(0, 12) ?? "",
+      );
+      expect(before.status).toBe("streaming");
+      expect(before.steps?.askedInForm).toBe(true);
+      expect(before.steps?.closingLine).toBeUndefined();
     },
   );
 });

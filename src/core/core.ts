@@ -2623,8 +2623,15 @@ export function createCore(adapters: CoreAdapters): Core {
         if (question) events.emit("conversation.message", question);
         return question;
       },
-      restartAnswer: (answerId, answerModel, read, emit = true, origin, pressed) => {
-        const turn = conversations.restartAnswer(answerId, answerModel, read, origin, pressed);
+      restartAnswer: (answerId, answerModel, read, emit = true, origin, pressed, askedInForm) => {
+        const turn = conversations.restartAnswer(
+          answerId,
+          answerModel,
+          read,
+          origin,
+          pressed,
+          askedInForm,
+        );
         if (emit) {
           // An origin and the Answer it resets were written together: both changed at once.
           if (origin) events.emit("conversation.message", turn.question);

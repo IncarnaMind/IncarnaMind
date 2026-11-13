@@ -551,6 +551,8 @@ export interface AnswerConversations {
     emit?: boolean,
     origin?: RetryOrigin,
     pressed?: MeetingHelpKind | null,
+    /** A press's: asked in the form whose facts stand apart (`AnswerSteps.askedInForm`). */
+    askedInForm?: boolean,
   ): Turn;
   /** Writes an Answer as it stands; false when it is gone: its conversation was deleted. */
   writeAnswer(answerId: string, write: AnswerWrite): boolean;
@@ -4884,6 +4886,8 @@ export function createAnswers(options: AnswersOptions) {
       );
       const quotes = checkQuotes(question.quotes, question.mind?.id ?? null);
       const pressed = mind ? (options.meetingHelp?.(mind.mindId, question.text) ?? null) : null;
+      const askedInForm =
+        pressed !== null && helpFormOf(pressed, options.callHelpForm?.()) === "fact lines";
       const added = options.conversations.add(
         { ...question, scope, quotes: storedQuotes(quotes) },
         answerModel,
@@ -4900,7 +4904,7 @@ export function createAnswers(options: AnswersOptions) {
             : "";
         },
         pressed,
-        pressed !== null && helpFormOf(pressed, options.callHelpForm?.()) === "fact lines",
+        askedInForm,
       );
       const { turn } = added;
       let published = false;
@@ -4935,6 +4939,7 @@ export function createAnswers(options: AnswersOptions) {
           false,
           undefined,
           help,
+          help !== null && askedInForm,
         );
         options.conversations.publish(readyTurn);
         published = true;
@@ -5006,6 +5011,7 @@ export function createAnswers(options: AnswersOptions) {
         origin = { folderId: front, scope: folderScope(front) };
       }
       const help = mind ? (options.meetingHelp?.(mind.mindId, question.text) ?? null) : null;
+      // Trying again is a new asking: in the form the app asks in now (#2847).
       const turn = options.conversations.restartAnswer(
         answerId,
         ready.model,
@@ -5013,6 +5019,7 @@ export function createAnswers(options: AnswersOptions) {
         true,
         origin,
         help,
+        help !== null && helpFormOf(help, options.callHelpForm?.()) === "fact lines",
       );
       const wall =
         mindId !== null

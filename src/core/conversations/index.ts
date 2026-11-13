@@ -1329,8 +1329,9 @@ export function createConversations(db: Database, now: () => string) {
 
     /**
      * Empties an Answer, where it is, to write it again with `answerModel` from the Mind it reads;
-     * `pressed`, the help button it is written for now, is kept from this save as `add` keeps it,
-     * and so is the form it was first asked in: written again, it is the same Answer (#2847).
+     * `pressed`, the help button it is written for now, and `askedInForm`, whether it is asked in
+     * the form whose facts stand apart, are kept from this save as `add` keeps them. Every other
+     * step goes, a closing line included (#2847).
      */
     restartAnswer(
       answerId: string,
@@ -1338,6 +1339,7 @@ export function createConversations(db: Database, now: () => string) {
       read: AnswerRead | null,
       origin?: RetryOrigin,
       pressed: MeetingHelpKind | null = null,
+      askedInForm = false,
     ): Turn {
       return db.transaction(() => {
         const answer = liveMessage(answerId);
@@ -1367,7 +1369,7 @@ export function createConversations(db: Database, now: () => string) {
              updated_at = ?
            WHERE id = ?`,
           [
-            pressedSteps(pressed, storedSteps(answer.steps)?.askedInForm === true),
+            pressedSteps(pressed, askedInForm),
             answerModel?.providerId ?? null,
             answerModel?.modelId ?? null,
             ...readColumns(read),
