@@ -19,12 +19,15 @@ import {
 } from "./app";
 
 /*
- * The one count of sentences to check (#1909): the corner badge, its card,
- * the check prompt and the line under the Answer that says "Checked 12 of 22
- * sentences · Check" count every claim a check reads, a table's cells among
- * them; the one Check (#1941) closes the count to 0 for the whole Note. The scripted model writes a table of the Document's
- * 22 revenue lines, every cell a claim, and checks each sentence against its
- * line. Set INCARNAMIND_SCREENSHOTS to a folder to also save screenshots.
+ * The one count of sentences to check (#1909): the corner badge, its card and
+ * the line under the Answer count every claim a check reads, a table's cells
+ * among them. What the assistant writes is checked whole after its reply
+ * (#2830), every one of the 22 cells, past the twelve a write once checked, so
+ * the line says "Checked 22 sentences" and only the Note's own old text is left
+ * to check; the one Check (#1941) closes the count to 0 for the whole Note.
+ * The scripted model writes a table of the Document's 22 revenue lines, every
+ * cell a claim, and checks each sentence against its line. Set
+ * INCARNAMIND_SCREENSHOTS to a folder to also save screenshots.
  */
 
 const SCREENSHOTS = process.env.INCARNAMIND_SCREENSHOTS;
@@ -47,32 +50,26 @@ const REPORT = [
 const WORDS = {
   en: {
     request: "Add a revenue table for checking",
-    line: "Checked 12 sentences · 10 sentences not checked yet",
-    lineAfter: "· 0 sentences not checked yet",
-    rest: "Check",
+    line: "Checked 22 sentences",
     badgeWords: "Not checked",
     badgeName: "Not checked",
     afterBadgeWords: "1 needs a look",
     afterBadgeName: "1 needs a look",
-    toCheck: "11 not checked",
-    tableCells: "10 table cells",
-    supported: "12 supported",
+    toCheck: "1 not checked",
+    supported: "22 supported",
     supportedAfter: "22 supported",
     look: "1 needs a look",
     uncited: "1 supported",
   },
   "zh-CN": {
     request: "添加核对用的收入表格",
-    line: "已核对 12 句 · 10 句待核对",
-    lineAfter: "· 0 句待核对",
-    rest: "核对",
+    line: "已核对 22 句",
     badgeWords: "未核对",
     badgeName: "未核对",
     afterBadgeWords: "需要留意 1 处",
     afterBadgeName: "需要留意 1 处",
-    toCheck: "11 句未核对",
-    tableCells: "10 个表格单元格",
-    supported: "12 句有依据",
+    toCheck: "1 句未核对",
+    supported: "22 句有依据",
     supportedAfter: "22 句有依据",
     look: "1 句需要留意",
     uncited: "1 句有依据",
@@ -109,7 +106,7 @@ async function useCloudChatModel(window: Page) {
 }
 
 for (const language of ["en", "zh-CN"] as const) {
-  test(`the badge, its card, the check prompt and the Answer's line count the same 22 sentences, and Check closes them (${language})`, async () => {
+  test(`a write's 22 sentences are all checked after its reply, the badge and its card count what is left, and Check closes it (${language})`, async () => {
     test.setTimeout(240_000);
     const words = WORDS[language];
     await writeFile(join(sources, "Annual report.md"), REPORT);
@@ -128,9 +125,10 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(editor).toContainText("The harbour is quiet in winter.");
 
     const answer = await askInAssistant(window, words.request);
-    // Its check ran before the reply: the 12 cited claims it checked are covered, 10 are left.
-    const line = answer.getByTestId("self-check-left");
-    await expect(line).toContainText(words.line, { timeout: 120_000 });
+    // Its check runs after the reply and covers every cell it wrote: none of them is left.
+    const line = answer.getByTestId("self-check-checked");
+    await expect(line).toHaveText(words.line, { timeout: 120_000 });
+    await expect(answer.getByTestId("self-check-left")).toHaveCount(0);
     const badge = window.getByTestId("check-badge");
     await expect(window.getByTestId("check-badge-open")).toHaveAccessibleName(
       new RegExp(words.badgeName),
@@ -138,33 +136,32 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(badge.locator(".check-badge-words")).toHaveText(words.badgeWords);
     await screenshot(window, `check-counts-line-${language}`);
 
-    // Its card counts each sentence once (#2831): the 12 the write checked supported, its 10 table
-    // cells and the Note's old text not checked, and no row of Citations.
+    // Its card counts each sentence once (#2831): the 22 the write checked supported, none of its
+    // table cells left, the Note's old text alone not checked, and no row of Citations.
     const card = await checkCard(window);
-    await expect(card.getByTestId("health-toCheck")).toContainText(words.toCheck);
-    await expect(card.getByTestId("health-table-cells")).toContainText(words.tableCells);
+    await expect(card.getByTestId("health-toCheck")).toContainText(
+      new RegExp(`(?:^|\\D)${words.toCheck}`),
+    );
+    await expect(card.getByTestId("health-table-cells")).toHaveCount(0);
     await expect(card.getByTestId("health-supported")).toContainText(words.supported);
     await expect(card.getByTestId("health-found")).toHaveCount(0);
     await expect(card.getByTestId("health-all-checked")).toHaveCount(0);
     await screenshot(window, `check-counts-card-${language}`);
     // The card holds at a narrow window too.
     await setWindowSize(app, window, 900, 720);
-    await expect(card.getByTestId("health-toCheck")).toContainText(words.toCheck);
+    await expect(card.getByTestId("health-toCheck")).toContainText(
+      new RegExp(`(?:^|\\D)${words.toCheck}`),
+    );
     await screenshot(window, `check-counts-card-${language}-narrow`);
     await setWindowSize(app, window, 1440, 900);
     await expect(card).toBeVisible();
 
-    // The one Check checks every sentence left, the uncited claims and the Note's own old text
-    // included, from its one press (#2313); the count closes.
-    await window.keyboard.press("Escape");
-    await expect(card).toHaveCount(0);
-    await expect(answer.getByTestId("self-check-left-action")).toHaveText(words.rest);
-    await pointAndClick(window, answer.getByTestId("self-check-left-action"));
+    // The one Check checks the Note's own old text from its one press (#2313); the count closes.
+    await pointAndClick(window, card.getByTestId("badge-check-mind"));
     await expect(window.getByTestId("mind-check-ask")).toHaveCount(0);
     await expect(window.getByTestId("badge-stop")).toHaveCount(0, { timeout: 120_000 });
-    // This write's line closes at 0, and the Note's old text was checked with it (#1909, #1941).
-    await expect(answer.getByTestId("self-check-left")).toContainText(words.lineAfter);
-    await expect(answer.getByTestId("self-check-left-action")).toHaveCount(0);
+    await expect(line).toHaveText(words.line);
+    await window.keyboard.press("Escape");
     const done = await checkCard(window);
     await expect(done.getByTestId("health-toCheck")).toHaveCount(0);
     // What needs a look still shows, so the card never says everything is checked (#1909): every

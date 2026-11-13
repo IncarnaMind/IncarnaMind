@@ -8,6 +8,7 @@ import type {
   MindChange,
 } from "../../src/core";
 import { answerEnded, answerJudged } from "./citations";
+import { answerRequests } from "./models";
 
 /** Asks in the assistant and resolves with the Answer as stored once it has ended. */
 export async function askAssistant(
@@ -30,9 +31,12 @@ export const changesIn = (answer: ConversationAnswer): MindChange[] =>
 /** The Answer's own requests to the model: not the check Runs of what it wrote into a Mind (#1111). */
 export { answerRequests } from "./models";
 
-/** What the model was told a Tool call came to: the last Tool result it read. */
+/**
+ * What the model was told a Tool call came to: the last Tool result its Answer read, whatever the
+ * checks of what it wrote asked after it (#2830).
+ */
 export const lastResult = (model: MockLanguageModelV4) => {
-  const prompt = model.doStreamCalls.at(-1)?.prompt ?? [];
+  const prompt = answerRequests(model).at(-1)?.prompt ?? [];
   const results = prompt.flatMap((message) =>
     message.role === "tool"
       ? message.content.flatMap((part) =>

@@ -266,9 +266,10 @@ export function namedIn(name: string, language: "en" | "zh-CN"): boolean {
 
 /**
  * Whether the summary reads longer once the request's changes are accepted: its Blocks, by id,
- * and the Blocks the request added among them, up to the next Block that was there before and
- * isn't the summary's; headings left out. Counting only the Blocks there before read an edit
- * that inserted paragraphs as shorter (#2769).
+ * and the Blocks the request added where it stands, between the Blocks around it that were there
+ * before and aren't the summary's; headings left out. Counting only the Blocks there before read
+ * an edit that inserted paragraphs as shorter (#2769), and a rewrite that took out every Block of
+ * the summary as having no text (#2830).
  */
 export function readsLonger(
   before: ReadonlyMap<string, string>,
@@ -279,12 +280,16 @@ export function readsLonger(
   const counted = (text: string, id: string) => (headings.has(id) ? 0 : text.trim().length);
   let was = 0;
   for (const [id, text] of before) if (summary.has(id)) was += counted(text, id);
+  const order = [...before.keys()];
+  const first = order.findIndex((id) => summary.has(id));
+  const opens = first > 0 ? order[first - 1] : undefined;
+  const closes = order.slice(first + 1).find((id) => !summary.has(id));
   let now = 0;
-  let inside = false;
+  let inside = opens === undefined || !after.has(opens);
   for (const [id, text] of after) {
-    if (summary.has(id)) inside = true;
-    else if (before.has(id)) inside = false;
-    if (summary.has(id) || (inside && !before.has(id))) now += counted(text, id);
+    if (id === closes) inside = false;
+    if (inside && (summary.has(id) || !before.has(id))) now += counted(text, id);
+    if (id === opens) inside = true;
   }
   return now > was;
 }

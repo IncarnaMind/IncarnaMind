@@ -8,21 +8,21 @@
 import { execFileSync } from "node:child_process";
 import { open, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { describe, expect, test } from "vitest";
-import { type Core, DATABASE_FILE, type Document } from "../../src/core";
+import { describe, expect, test, vi } from "vitest";
+import { type Core, DATABASE_FILE, type Document, type WrittenCheckProgress } from "../../src/core";
 import type { OfficeConverter } from "../../src/core/adapters";
 import { createEvidence } from "../../src/core/documents/evidence";
 import { createTextCopies } from "../../src/core/documents/textCopies";
 import { migrate, openDatabase } from "../../src/core/storage";
 import { WORD_PACKAGES_FOLDER } from "../../src/core/wordImports";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
-import { checkingModel, isCheckRun } from "../helpers/checks";
+import { checkGenerate, checkingModel, checkReply, isCheckRun, type Plan } from "../helpers/checks";
 import { shownPassages } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, createSourceFolder, sha256, waitForDocuments } from "../helpers/documents";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
 import { readMind } from "../helpers/minds";
-import { type ModelCall, scriptedModels } from "../helpers/models";
+import { type ModelCall, scriptedModel, scriptedModels } from "../helpers/models";
 import {
   type Agreement,
   agreement,
@@ -56,13 +56,37 @@ const NAMES = {
   },
 } as const;
 
-/** The checked file and its copies in the Library, then the file imported as a Note. */
+/** Checks as `checkingModel` does, and answers by adding `sentence` to the Note it is asked in. */
+function addingModel(plans: Record<string, Plan>, sentence: string, calls: ModelCall[]) {
+  return scriptedModel(
+    (call) => {
+      calls.push(call);
+      if (isCheckRun(call)) return checkReply(call, plans);
+      if (call.results.some((result) => result.tool === "add_to_mind")) {
+        return { text: "Added it to your Note." };
+      }
+      return { calls: [{ tool: "add_to_mind", input: { content: sentence } }] };
+    },
+    { generate: checkGenerate(plans) },
+  );
+}
+
+/**
+ * The checked file and its copies in the Library, then the file imported as a Note. With
+ * `adds`, the assistant answers by adding the checked sentence to the Note.
+ */
 async function importedNote(
   language: Language,
-  { addOriginal = false, file = firstClauses(agreement(language), 1), converted = false } = {},
+  {
+    addOriginal = false,
+    file = firstClauses(agreement(language), 1),
+    converted = false,
+    adds = false,
+  } = {},
 ) {
   const calls: ModelCall[] = [];
-  const model = checkingModel({ [SENTENCE[language]]: { verdict: "unsupported" } }, calls);
+  const plans: Record<string, Plan> = { [SENTENCE[language]]: { verdict: "unsupported" } };
+  const model = adds ? addingModel(plans, SENTENCE[language], calls) : checkingModel(plans, calls);
   const dataDir = await createTempDataFolder();
   const names = NAMES[language];
   const word = wordOf(file, language);
@@ -363,6 +387,85 @@ describe("A Note imported from a file whose original isn't in the Library", () =
       } finally {
         await pipe.close();
       }
+    },
+    120_000,
+  );
+
+  /**
+   * The assistant asked to add to the Note, as its kept file's read holds; resolves once the read
+   * has begun. `answered` settles as the Answer finishes, before its write's check ends.
+   */
+  async function addedWhileRead(set: Awaited<ReturnType<typeof importedNote>>) {
+    set.core.close();
+    const held = await heldRead(set.dataDir, set.word);
+    const core = set.start();
+    const ended: WrittenCheckProgress[] = [];
+    core.on("writtenCheck.progress", (event) => {
+      if (!event.running) ended.push(event);
+    });
+    const finished: string[] = [];
+    core.on("answer.finished", (event) => finished.push(event.answerId));
+    const asked = await core.askInConversation({
+      text: "Add the clause on the singular to this Note",
+      mindId: set.mindId,
+    });
+    if (!asked.asked) throw new Error("Not asked.");
+    const { answerId } = asked;
+    const answered = vi.waitFor(() => expect(finished).toContain(answerId), {
+      timeout: 20_000,
+      interval: 5,
+    });
+    const pipe = await held.started();
+    return { core, ended, answered, pipe };
+  }
+
+  // protects=the reply to a write into a Note imported from Word comes while its file is still read, and the write's check, once the file is read, leaves its copies out (#2830, #2216); fails_when=the reply waits for the read, or the check hands the model a copy; no_claim=how long a real file takes to read.
+  withHeldRead(
+    "the assistant adds to the Note while its file is read: the reply comes at once, and the check leaves the copies out once the file is read",
+    async () => {
+      const set = await importedNote("en", { adds: true });
+      const { core, ended, answered, pipe } = await addedWhileRead(set);
+      try {
+        await answered;
+        expect(set.calls.filter(isCheckRun)).toEqual([]);
+        await pipe.write(set.word);
+      } finally {
+        await pipe.close();
+      }
+
+      await vi.waitFor(() => expect(ended).toHaveLength(1), { timeout: 60_000 });
+      expect(set.calls.filter(isCheckRun).length).toBeGreaterThan(0);
+      expect(handed(set.calls)).toEqual(new Set([NAMES.en.template]));
+      expect(await leftOut(await connectToMind(core, set.mindId), SENTENCE.en)).toEqual(bothCopies);
+      core.close();
+    },
+    120_000,
+  );
+
+  // protects=the core closed while a write's check waits on the Note's file being read: the check ends at once, its sentence stopped, and nothing is sent (#2830, #2216); fails_when=close leaves the check waiting on the read, or it goes on and sends; no_claim=what a check whose requests are out does as the core closes.
+  withHeldRead(
+    "the core closed while a write's check waits on the file being read: the check ends stopped, and nothing is sent",
+    async () => {
+      const set = await importedNote("en", { adds: true });
+      const { core, ended, answered, pipe } = await addedWhileRead(set);
+      try {
+        await answered;
+        core.close();
+        expect(ended).toEqual([expect.objectContaining({ running: false })]);
+      } finally {
+        await pipe.close();
+      }
+
+      await turns(5);
+      expect(set.calls.filter(isCheckRun)).toEqual([]);
+      const again = set.start();
+      const client = await connectToMind(again, set.mindId);
+      await client.settled();
+      const check = claimSpans(readMind(client)).find(
+        (span) => span.sentence.text.trim() === SENTENCE.en,
+      )?.check;
+      expect([check?.state, check?.reason]).toEqual(["not-checked", "stopped"]);
+      again.close();
     },
     120_000,
   );
