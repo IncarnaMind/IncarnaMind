@@ -42,7 +42,7 @@ import * as Y from "yjs";
 import { citationAttributesOf, citationClosingLength } from "../../../shared/citations";
 import { restsElsewhere } from "../../../shared/citedNow";
 import { SENTENCES_CHECKED_AT_MOST } from "../../../shared/claimChecks";
-import { planOf } from "../../../shared/claimParts";
+import { partsWrittenBy, planOf } from "../../../shared/claimParts";
 import { beginFigureCheck } from "../../../shared/figureChecks";
 import { readTableBinding } from "../../../shared/figureRuns";
 import {
@@ -93,7 +93,14 @@ import {
   runClaimChecks,
 } from "./runCheck";
 import { claimsAtOnce } from "./runChecks";
-import { checkText, citedQuoteOf, figuresByBlock, markSentence, sentenceOf } from "./sentences";
+import {
+  checkText,
+  citedQuoteOf,
+  figuresByBlock,
+  markSentence,
+  sentenceOf,
+  writtenByAssistant,
+} from "./sentences";
 import type { CheckScope } from "./verify";
 
 const UNCHECKED: ReadonlySet<string> = new Set(["question", "codeBlock", "blockMath", "heading"]);
@@ -535,8 +542,11 @@ type Landing =
       nodes: NodeJSON[] | null;
       /** What the cut takes out. */
       uncovered?: string;
-      /** Its mark, made where it lands: a figure's result is footed against the table it is in. */
-      mark(blocks: Y.XmlFragment): ClaimCheckAttributes;
+      /**
+       * Its mark, made where it lands: a figure's result is footed against the table it is in, and
+       * `assistant` says whether its words there are the assistant's (`writtenByAssistant`, #3019).
+       */
+      mark(blocks: Y.XmlFragment, assistant: boolean): ClaimCheckAttributes;
       /** The Passages its check found that its Citations don't hold, each to cite after its part. */
       found?: readonly FoundCitation[];
     }
@@ -787,7 +797,10 @@ function land(
     recordOpinions(blocks, [{ ...now, parts: landing.opinion }]);
     return null;
   }
-  const mark = landing.mark(blocks);
+  const mark = landing.mark(
+    blocks,
+    writtenByAssistant(blocks, { element, from: place.from, to: place.to }),
+  );
   const content = inlineOf(element);
   const block = waitingBlock(element, change);
   // A cut puts new words in place of the whole sentence, so every word of it must still wait.
@@ -1142,10 +1155,10 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
         return;
       }
       done.checked++;
-      const mark = (note: Y.XmlFragment) =>
+      const mark = (note: Y.XmlFragment, assistant: boolean) =>
         options.withResult(
           begun(sentence, by),
-          result,
+          result.parts ? { ...result, parts: partsWrittenBy(result.parts, assistant) } : result,
           at,
           note,
           mindId,

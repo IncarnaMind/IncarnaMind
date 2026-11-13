@@ -46,7 +46,7 @@ import { ContradictionAsk, ContradictionLine } from "./ContradictionLine";
 import { checkTitle, useCheckEstimate, useCheckThisMindPlan } from "./changedSentences";
 import { type CheckEstimateView, checkPressOf } from "./checkEstimateState";
 import { useCardPlace } from "./checkPlace";
-import { checkRows } from "./healthCounts";
+import { checkRows, healthSummary } from "./healthCounts";
 import { CheckMarkIcon, ClaimMarkIcon, NotYetCitedIcon } from "./icons";
 import { MindCheckAsk, MindUnchanged, RunningText } from "./MindCheckLine";
 import { HealthCard, PartMark, partLabel, useHealth } from "./NoteHealth";
@@ -175,9 +175,16 @@ function MindBadge({
       refit={
         running
           ? "running"
-          : checkRows(health)
-              .map(({ row }) => row)
-              .join(" ")
+          : [
+              ...checkRows(health).map(({ row }) => row),
+              // The summary can land with no row of its own, as in a Note whose checked
+              // sentences all hold the assistant's own conclusion (#3019).
+              healthSummary(health, {
+                running: false,
+                problem,
+                unread: state?.unreadMatters === true ? state.unread : 0,
+              })?.kind ?? "",
+            ].join(" ")
       }
       actions={
         <CheckActions

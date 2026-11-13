@@ -45,6 +45,7 @@ import {
   withoutArea,
 } from "../../shared/locations";
 import { citesSource, type NamedSource } from "../../shared/namedSources";
+import { cleanQuote } from "../../shared/quotedSpans";
 import {
   findQuote,
   lostLigatures,
@@ -131,15 +132,8 @@ export const WRITE_NOW = " Write the Answer now if you haven't yet; don't repeat
 /** Whether what `cite` told the model asks it to fix records, which the Tool loop must not end before. */
 export const asksForFixes = (told: string): boolean => told.includes(FIX_THESE);
 
-/**
- * Where a new Unit starts inside a Passage given to the model ("[p. 4]",
- * "[slide 4]", "[§ 2.1 Sensitivity]", "[Revenue, rows 2–41]", "[lines 51–100]"),
- * where a slide's speaker notes start ("[speaker notes]"), where a Word
- * comment starts ("[comment by Reviewer]"), and a row the file sets aside
- * ("[row 4, struck through]", ./sheetRows).
- */
-const LOCATION_MARK =
-  /\[(?:p\.\s*\d+(?:[–-]\d+)?|slides?\s+\d+(?:[–-]\d+)?|(?:[^\]\n]{1,100},\s*)?rows?\s+\d+(?:[–-]\d+)?(?:, (?:struck through|hidden))*|lines?\s+\d+(?:[–-]\d+)?|§[^\]\n]{0,200}|speaker notes|comment(?: by [^\]\n]{1,100})?|\d{1,2}:\d{2}(?::\d{2})?(?: [^\]\n]{1,60})?)\]/gi;
+// The quote check and call help's reader read a quote by one rule (shared/quotedSpans).
+export { cleanQuote };
 
 /** Marks where a slide's speaker notes start, inside a Passage given to the model. */
 const NOTES_MARK = "[speaker notes]";
@@ -147,38 +141,6 @@ const NOTES_MARK = "[speaker notes]";
 /** Marks where a Word comment starts, inside a Passage given to the model, with its author if known (#76). */
 const commentMark = (author: string | null) =>
   author ? `[comment by ${author.replace(/[\]\n]+/g, " ")}]` : "[comment]";
-
-export const QUOTE_PAIRS: readonly (readonly [string, string])[] = [
-  ['"', '"'],
-  ["'", "'"],
-  ["“", "”"],
-  ["‘", "’"],
-  ["「", "」"],
-  ["『", "』"],
-  ["«", "»"],
-];
-
-/**
- * The quote as the model meant it: without location marks, without the
- * ellipses and quotation marks models put around a quote. Its words are left alone.
- */
-export function cleanQuote(raw: string): string {
-  // The marks of a scan's unsure words (#535) are the Passage's, never the quote's.
-  let quote = raw.replace(/[⟦⟧]/gu, "").replace(LOCATION_MARK, " ").trim();
-  for (;;) {
-    const before = quote;
-    quote = quote
-      .replace(/^(?:\.{3}|…)\s*/u, "")
-      .replace(/\s*(?:\.{3}|…)$/u, "")
-      .trim();
-    for (const [open, close] of QUOTE_PAIRS) {
-      if (quote.length > 1 && quote.startsWith(open) && quote.endsWith(close)) {
-        quote = quote.slice(open.length, -close.length).trim();
-      }
-    }
-    if (quote === before) return quote;
-  }
-}
 
 /** How a Document's text is matched: whether it lost its f-ligatures (see `lostLigatures`). */
 export type Matching = Pick<MatchOptions, "lostLigatures">;

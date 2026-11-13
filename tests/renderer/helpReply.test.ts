@@ -17,7 +17,12 @@ import {
   uncheckedReason,
 } from "../../src/renderer/src/helpReply";
 import { citedSentences } from "../../src/shared/citedSentences";
-import { readHelpReply, shownItems } from "../../src/shared/helpReplyRead";
+import {
+  helpLayout,
+  helpReplyRead,
+  readHelpReply,
+  shownItems,
+} from "../../src/shared/helpReplyRead";
 import { translate } from "../../src/shared/i18n";
 import type { Translate } from "../../src/shared/locations";
 import type { MeetingHelpKind } from "../../src/shared/meetingHelp";
@@ -452,22 +457,31 @@ describe("The sources under a help reply (#3005)", () => {
 });
 
 describe("An option the model wrapped in its own quotation marks (#2925)", () => {
-  // protects=the panel shows an option the model wrapped in its own quotation marks in one pair of the panel's own, each chip at its marker's place, the place its check's verdict names; fails_when=the panel shows two pairs of marks, or a chip's place differs from the check's; no_claim=how the chip looks.
+  // protects=the panel shows an option the model wrapped in its own quotation marks in one pair of the panel's own, each chip at its marker's place, the place its check's verdict names, and no chip on a "→" line (#2847); fails_when=the panel shows two pairs of marks, a "→" line shows a chip, or a chip's place differs from the check's; no_claim=how the chip looks.
   test("shows in one pair of the panel's own, its chips where the check counts them", () => {
     const reply =
       '★ "We can extend the pilot to 60 days [^1]"\n→ keeps the deal moving [^2]\n\n“Let me check with the team” [^3]\n→ buys time';
+    const chipsOf = (text: string) =>
+      helpItems({ text, status: "done" }, "say").flatMap((item) =>
+        [item.lead, item.effect ?? []]
+          .flat()
+          .flatMap((piece) => (piece.kind === "citation" ? [piece.at] : [])),
+      );
     const items = helpItems({ text: reply, status: "done" }, "say");
     expect(items.map((item) => textOf(quoted(item.lead)))).toEqual([
       "“We can extend the pilot to 60 days”[1]",
       "“Let me check with the team”[3]",
     ]);
-    const chips = items.flatMap((item) =>
-      [item.lead, item.effect ?? []]
-        .flat()
-        .flatMap((piece) => (piece.kind === "citation" ? [piece.at] : [])),
-    );
-    expect(chips).toEqual(citedSentences(reply).flatMap((sentence) => sentence.at));
-    expect(chips).toEqual([0, 1, 2]);
+    expect(items[0]?.effect?.some((piece) => piece.kind === "citation")).toBe(false);
+    // As written, each chip keeps its place; as kept, the "→" line holds none, and the places are
+    // those the check counts in the text it reads.
+    expect(chipsOf(reply)).toEqual([0, 2]);
+    const kept = helpReplyRead(
+      reply,
+      helpLayout("say", { status: "done", textBehind: false }),
+    ).text;
+    expect(chipsOf(kept)).toEqual(citedSentences(kept).flatMap((sentence) => sentence.at));
+    expect(chipsOf(kept)).toEqual([0, 1]);
   });
 
   // protects=a reading and a short line are no options to say: they show as written, the model's marks kept; fails_when=a reading's moment or a quoted short line loses its marks, or shows in the panel's; no_claim=what the check finds.
