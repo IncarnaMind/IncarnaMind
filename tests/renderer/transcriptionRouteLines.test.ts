@@ -8,6 +8,8 @@ import type {
   TranscriptionServiceStatus,
 } from "../../src/core/api";
 import type { ServicesView } from "../../src/renderer/src/transcriptionServices";
+import { createTempDataFolder } from "../helpers/core";
+import { transcribingCore } from "../helpers/transcription";
 
 /*
  * What Settings › AI and Settings › Meetings say under the meeting transcription route (#2913):
@@ -271,6 +273,156 @@ describe.each(["en", "zh-CN"] as const)(
         expect(paragraphs()).toEqual([said[line]]);
       },
     );
+  },
+);
+
+const SET_BACK = {
+  en: {
+    deepgram: "Audio now stays on this computer. Choose Deepgram again to send it to Cloudflare.",
+    qwen: "Audio now stays on this computer. Choose Qwen again to send it to International (Singapore).",
+  },
+  "zh-CN": {
+    deepgram: "音频现在只留在这台电脑上。重新选择 Deepgram 后，音频会发送到 Cloudflare。",
+    qwen: "音频现在只留在这台电脑上。重新选择通义千问后，音频会发送到国际（新加坡）。",
+  },
+} as const;
+
+/** The services as the core lists them once a key began to send the audio elsewhere (#2999). */
+const SET_BACK_SERVICES = {
+  deepgram: soniox({
+    route: "deepgram",
+    name: "deepgram",
+    recipient: { en: "Cloudflare", zh: "Cloudflare" },
+    chooseAgain: true,
+  }),
+  qwen: soniox({
+    route: "qwen",
+    name: "qwen",
+    recipient: { en: "Alibaba Cloud", zh: "阿里云" },
+    region: { en: "International (Singapore)", zh: "国际（新加坡）" },
+    key: "provider",
+    providerId: "qwen",
+    chooseAgain: true,
+  }),
+};
+
+describe.each(["en", "zh-CN"] as const)(
+  "A service set back to this computer because its key moved (%s)",
+  (language) => {
+    const pages = {
+      ai: {
+        render: (read: ServicesView) => act(() => root?.render(createElement(Consent, { read }))),
+        line: () => consentRow()?.textContent,
+      },
+      meetings: {
+        render: (read: ServicesView) => act(() => root?.render(createElement(Line, { read }))),
+        line: () => container.querySelector('[data-testid="meetings-route-line"]')?.textContent,
+      },
+    };
+    const localMode = (on: boolean) =>
+      act(() => useAppStore.setState({ embedding: { localOnly: on } as never } as never));
+    const here = language === "en" ? "Private and free" : "私密、免费";
+    const whileLocal = (page: "ai" | "meetings") => (page === "meetings" ? here : undefined);
+
+    describe.each(["deepgram", "qwen"] as const)("%s's key", (route) => {
+      const again = SET_BACK[language][route];
+      const read = () => ready(SET_BACK_SERVICES[route]);
+
+      // protects=Local mode on, with a service set back by its key, says what Settings says for this computer: Private and free on Meetings and no line on AI; fails_when=the line asks the User to choose the service again, which Local mode refuses, or says transcription here is paused when it is not; no_claim=that refusal, which the core test holds.
+      test.each(["ai", "meetings"] as const)(
+        "Settings › %s says what it says for this computer while Local mode is on",
+        async (page) => {
+          setUp(language, "local", true);
+          await pages[page].render(read());
+          expect(pages[page].line()).toBe(whileLocal(page));
+          expect(container.textContent).not.toContain(again);
+          expect(container.textContent).not.toContain(SENDS[language].paused);
+        },
+      );
+
+      // protects=Local mode off, the line asks to choose the service again and names where the audio would go; fails_when=that line changes or goes; no_claim=choosing, which is the consent.
+      test.each(["ai", "meetings"] as const)(
+        "Settings › %s asks to choose it again once Local mode is off",
+        async (page) => {
+          setUp(language, "local", false);
+          await pages[page].render(read());
+          expect(pages[page].line()).toBe(again);
+        },
+      );
+
+      // protects=turning Local mode off brings the choose-again line, and on takes it away, without the page being drawn again; fails_when=the page reads Local mode once and keeps it; no_claim=the setting's own switch.
+      test.each(["ai", "meetings"] as const)(
+        "Settings › %s follows Local mode as it is turned on and off",
+        async (page) => {
+          setUp(language, "local", true);
+          await pages[page].render(read());
+          expect(pages[page].line()).toBe(whileLocal(page));
+          await localMode(false);
+          expect(pages[page].line()).toBe(again);
+          await localMode(true);
+          expect(pages[page].line()).toBe(whileLocal(page));
+        },
+      );
+    });
+
+    // protects=what the core itself lists after a key moved while Local mode was on, by each way in, reads as this computer on both pages (Private and free on Meetings, no line on AI) and asks to choose again once Local mode is off; fails_when=either page asks for a choice Local mode refuses, says transcription here is paused, or stops asking once it is off; no_claim=the core's refusal and the audio that goes nowhere, which liveRoutes.test.ts holds.
+    test.each(["deepgram", "qwen"] as const)(
+      "with the core's own list after %s's key moved in Local mode, both pages read as this computer until Local mode is off",
+      async (route) => {
+        const { core } = await transcribingCore(await createTempDataFolder());
+        if (route === "deepgram") {
+          await core.setTranscriptionKey({ route, apiKey: "dg-test-key-0123456789" });
+        } else {
+          await core.saveChatProvider({
+            kind: "qwen",
+            apiKey: "sk-qwen-test",
+            modelId: "qwen3.7-plus",
+          });
+        }
+        await core.updateSettings({ device: { transcriptionRoute: route } });
+        await core.setLocalOnly(true);
+        if (route === "deepgram") {
+          await core.setTranscriptionKey({
+            route,
+            apiKey: "cf-test-token-0123456789",
+            server:
+              "https://api.cloudflare.com/client/v4/accounts/0f0e0d/ai/run/@cf/deepgram/nova-3",
+          });
+        } else {
+          const beijing = (await core.listChatProviders()).find((each) => each.kind === "qwen");
+          await core.saveChatProvider({
+            kind: "qwen",
+            endpoint: "intl",
+            apiKey: "sk-qwen-intl-test",
+            modelId: "qwen3.7-plus",
+          });
+          await core.deleteChatProvider(beijing?.id ?? "");
+        }
+        const show = async (embedding: unknown) => {
+          useAppStore.setState({
+            settings: { ...(await core.getSettings()), language },
+            embedding,
+          } as never);
+          const read = ready(...(await core.listTranscriptionServices()).services);
+          await pages.ai.render(read);
+          const ai = pages.ai.line();
+          await pages.meetings.render(read);
+          return [ai, pages.meetings.line()];
+        };
+        expect(await show(await core.setLocalOnly(true))).toEqual([undefined, here]);
+        const again = SET_BACK[language][route];
+        expect(await show(await core.setLocalOnly(false))).toEqual([again, again]);
+      },
+    );
+
+    // protects=a service not set back says what it did before, in Local mode: this computer, and nothing, on the two pages, the same as a service set back by its key; fails_when=a line leaks onto a route that was never set back; no_claim=the lines for a service chosen, which other tests hold.
+    test("a service that was not set back keeps its lines in Local mode", async () => {
+      setUp(language, "local", true);
+      await pages.meetings.render(ready(soniox()));
+      expect(pages.meetings.line()).toBe(here);
+      await pages.ai.render(ready(soniox()));
+      expect(pages.ai.line()).toBeUndefined();
+    });
   },
 );
 
