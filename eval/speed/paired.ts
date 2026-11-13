@@ -32,6 +32,7 @@ import type { CitingRecord, CitingWatch } from "../lib/citingRecord";
 import { type EvalQuestion, type ExpectedPassage, loadEvaluationSet } from "../lib/evaluationSet";
 import { neededPassages } from "../lib/handed";
 import { type Library, type LibraryOptions, openLibrary } from "../lib/library";
+import type { RequestSize } from "../lib/requestSizes";
 import { firstKeptText, isWrittenTwice, type TimingRecorder } from "../lib/timing";
 import { SETS as CHECK_SETS, documentsOf, writeDocuments } from "../repeats/cases";
 import { repeatChecks } from "../repeats/repeat";
@@ -56,6 +57,8 @@ export const SET_IDS = [
   "call-help-marks",
   "call-help-marks-3",
   "call-help-marks-4",
+  "call-help-fact-lines-4",
+  "call-help-fact-lines-stand-in",
   "call-help-earlier-calls",
   "call-help-earlier-calls-2",
   "call-help-earlier-calls-3",
@@ -142,6 +145,13 @@ export interface ArmRun {
   };
   /** Every Citation the reply's `cite` calls recorded, one its text no longer holds among them. */
   writtenCitations?: { marker: number; quote: string }[];
+  /**
+   * Each Citation the reply's `cite` calls recorded that the kept reply no longer holds (#2847): the
+   * form's reader took its marker off, so it was never checked. Those it holds are in `help`.
+   */
+  droppedCitations?: { marker: number; quote: string }[];
+  /** The characters of each request the press sent, the judge's included; a free record keeps them. */
+  requestSizes?: RequestSize[];
   /** What a replay of the reply's citing step needs (#3059); absent where it wasn't watched. */
   citing?: CitingRecord;
   /** Each request and local step, for an item that reads them (a help reply). */
@@ -256,6 +266,12 @@ export interface PairedItem {
   words: "answer" | "events" | "item";
   run(context: ItemContext): Promise<Measured>;
 }
+
+/** The Citations a reply's `cite` calls recorded that its kept text no longer holds. */
+export const droppedOf = (
+  written: readonly { marker: number; quote: string }[],
+  kept: readonly { marker: number }[] = [],
+) => written.filter((each) => !kept.some((one) => one.marker === each.marker));
 
 export interface OpenedGroup {
   library: Library;

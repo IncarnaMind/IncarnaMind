@@ -907,7 +907,9 @@ export const CALL_HELP_CASES: readonly CallHelpCase[] = [
 ];
 
 /** The call of a case, oldest line first. */
-export const callOf = (each: CallHelpCase): CallTurn[] => [
+export const callOf = (
+  each: Pick<CallHelpCase, "before" | "long" | "language" | "turns">,
+): CallTurn[] => [
   ...(each.before ?? []),
   ...(each.long ? rolloutOf(each.language) : []),
   ...each.turns,

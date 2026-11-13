@@ -17,7 +17,7 @@ import { createLog } from "../lib/log";
 import { createWorkerCrossEncoder } from "../lib/rerank";
 import type { TimingRecorder } from "../lib/timing";
 import { armNamed, armSwitch, type SentRequest } from "./arms";
-import { callHelpSet, rewrittenReplies } from "./callHelp";
+import { callHelpSet, loadedCallHelpSet, rewrittenReplies } from "./callHelp";
 import { marksSection } from "./callHelpMarksReport";
 import { earlierCallsSet } from "./earlierCalls";
 import { earlierCallsSection } from "./earlierCallsReport";
@@ -28,6 +28,7 @@ import {
   type ArmRun,
   cellsSet,
   checksSet,
+  droppedOf,
   everydaySet,
   gatingSet,
   hardSet,
@@ -67,7 +68,7 @@ function recorderOf(library: Library): TimingRecorder {
   return library.timings;
 }
 
-function groupsOf(set: SetId, cacheDir: string): PairedGroup[] {
+async function groupsOf(set: SetId, cacheDir: string): Promise<PairedGroup[]> {
   switch (set) {
     case "gating":
       return gatingSet(ROOT, ANSWER_TIMEOUT_MS);
@@ -90,6 +91,9 @@ function groupsOf(set: SetId, cacheDir: string): PairedGroup[] {
     case "call-help-marks-3":
     case "call-help-marks-4":
       return callHelpSet(set);
+    case "call-help-fact-lines-4":
+    case "call-help-fact-lines-stand-in":
+      return loadedCallHelpSet(set);
     case "call-help-earlier-calls":
     case "call-help-earlier-calls-2":
     case "call-help-earlier-calls-3":
@@ -178,7 +182,7 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
   let spentBefore = 0;
   let stopped: string | null = null;
 
-  const bySet = sets.map((set) => groupsOf(set, config.cacheDir));
+  const bySet = await Promise.all(sets.map((set) => groupsOf(set, config.cacheDir)));
   // A set's items are chosen across its libraries, so EACH counts a kind once per set.
   const asked = new Set(
     bySet.flatMap((ofSet) =>
@@ -322,10 +326,12 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
                 claimsJudge: judge.model,
               });
               firstSent[which] = switches[which].takeSent()[0] ?? null;
+              const written = switches[which].takeCites();
               done[which] = {
                 ...done[which],
                 checkReplies: switches[which].takeChecks(),
-                writtenCitations: switches[which].takeCites(),
+                writtenCitations: written,
+                droppedCitations: droppedOf(written, done[which]?.help?.citations),
               };
             }
             const row: PairedRow = {

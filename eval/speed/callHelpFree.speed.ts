@@ -13,9 +13,10 @@ import type { CoreAdapters } from "../../src/core";
 import { createFakeEmbedder } from "../../src/core/embedding/fake";
 import { shownPassages } from "../../tests/helpers/citations";
 import { type ModelCall, scriptedModel } from "../../tests/helpers/models";
+import { requestSizes } from "../lib/requestSizes";
 import { armNamed, armSwitch, type SentRequest } from "./arms";
-import { type CallHelpSet, callHelpSet } from "./callHelp";
-import { type ArmRun, openForArms, runOnArm } from "./paired";
+import { type CallHelpSet, callHelpSet, isLoadedCallHelpSet, loadedCallHelpSet } from "./callHelp";
+import { type ArmRun, droppedOf, openForArms, runOnArm } from "./paired";
 import { armTurns, cellOf, type PairedRow, sentPair } from "./pairedReport";
 import { env, list } from "./settings";
 
@@ -50,11 +51,19 @@ const WORDS = {
  * In the form, some buttons write a fact line out of place, a marker on the line to say, a fact in
  * quotation marks or a third fact line, so a reading's counts of each have something to count.
  */
-function replyOf(help: string, quote: string): string {
+function replyOf(help: string, quote: string, newest: string): string {
   const w = help.includes("The call is in Chinese") ? WORDS.zh : WORDS.en;
   const form = help.includes('starting with "> "');
   const words = quote.replace(/[.。!?！？]\s*$/u, "");
   const fact = `${words} [^1]`;
+  // The call's newest line on a line to say, its marker recorded on the call: the form's reader takes
+  // the marker off, so the record keeps it as a dropped Citation.
+  if (form && help.includes("newest objection")) {
+    const said = newest.replace(/[.。!?！？]\s*$/u, "");
+    return [`★ ${said} [^2]`, `> ${fact}`, `→ ${w.effect}`, "", w.second, `→ ${w.after}`].join(
+      "\n",
+    );
+  }
   if (help.includes("Check the newest claim")) {
     return form
       ? [`= ${w.wrong}`, `> ${w.said} [^1]`, `> ${fact}`].join("\n")
@@ -116,15 +125,22 @@ function replying(calls: ModelCall[]) {
           ],
         };
       }
-      return { text: replyOf(block(call.prompt, "help"), quote) };
+      const newest = (heard?.text.split("\n").at(-1) ?? "").replace(/^\[[^\]]*\]\s*/, "").trim();
+      return { text: replyOf(block(call.prompt, "help"), quote, newest) };
     },
     { judgesItsAnswers: true },
   );
 }
 
+/** A judge that grades every reply right, and, asked place by place, lists the first place. */
 const judging = () =>
   scriptedModel(() => ({ text: "" }), {
-    generate: () => ({ text: JSON.stringify({ grade: "right", unstated: [] }) }),
+    generate: (call) => {
+      const first = /^\[(p\d+)\]/m.exec(call.prompt)?.[1];
+      return call.prompt.includes("<places>")
+        ? { text: JSON.stringify({ unbacked: first ? [first] : [] }) }
+        : { text: JSON.stringify({ grade: "right", unstated: [] }) };
+    },
   });
 
 // The press answers on an Ollama choice; the model is scripted, so the server is always here.
@@ -148,8 +164,12 @@ test.skipIf(env("FREE_RECORD") === null)("a free paired call-help record", async
   const turn = armTurns();
   const rows: PairedRow[] = [];
   const calls: ModelCall[] = [];
-  const model = replying(calls);
-  for (const group of sets.flatMap((set) => callHelpSet(set))) {
+  const sizes = requestSizes();
+  const model = sizes.wrap(replying(calls), "app");
+  const groups = await Promise.all(
+    sets.map((set) => (isLoadedCallHelpSet(set) ? loadedCallHelpSet(set) : callHelpSet(set))),
+  );
+  for (const group of groups.flat()) {
     const items = group.items.filter((item) => !ids || ids.includes(item.id));
     if (items.length === 0) continue;
     const opened = await openForArms(group, (which) => ({
@@ -182,6 +202,7 @@ test.skipIf(env("FREE_RECORD") === null)("a free paired call-help record", async
             switches[which].takeSent();
             switches[which].takeChecks();
             switches[which].takeCites();
+            sizes.take();
             done[which] = await runOnArm(item, {
               library,
               meeting,
@@ -191,13 +212,16 @@ test.skipIf(env("FREE_RECORD") === null)("a free paired call-help record", async
               model: name,
               arm: arms[which].id,
               grade: async () => "unread",
-              claimsJudge: judging(),
+              claimsJudge: sizes.wrap(judging(), "judge"),
             });
             firstSent[which] = switches[which].takeSent()[0] ?? null;
+            const written = switches[which].takeCites();
             done[which] = {
               ...done[which],
               checkReplies: switches[which].takeChecks(),
-              writtenCitations: switches[which].takeCites(),
+              writtenCitations: written,
+              droppedCitations: droppedOf(written, done[which]?.help?.citations),
+              requestSizes: sizes.take(),
             };
           }
           rows.push({

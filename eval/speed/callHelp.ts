@@ -8,6 +8,7 @@
  * request the press made, with its reasoning; whether the reply gives what the case expects and
  * cites the line it rests on; and every sentence a found Citation backs whose quote doesn't say it.
  */
+import { readFileSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -20,7 +21,13 @@ import { citationNumbers, sentencePassed } from "../../src/renderer/src/helpRepl
 import { citedSentences } from "../../src/shared/citedSentences";
 import { helpReplyRead, type ReplyItem } from "../../src/shared/helpReplyRead";
 import { isTranscriptLocation } from "../../src/shared/locations";
-import { type CallHelpForm, HELP_SHAPE, helpFormOf } from "../../src/shared/meetingHelp";
+import {
+  type CallHelpForm,
+  HELP_SHAPE,
+  helpFormOf,
+  type MeetingHelpTemplate,
+  TEMPLATE_HELP,
+} from "../../src/shared/meetingHelp";
 import { normaliseText } from "../../src/shared/text";
 import { queryDatabase } from "../../tests/helpers/core";
 import {
@@ -56,6 +63,13 @@ import {
   type PlaceMark,
   type RequestTiming,
 } from "./paired";
+import { env } from "./settings";
+
+/** A case of any button, on a Meeting with the template its button needs (#2847's held-out gate). */
+export type HelpCase = Omit<CallHelpCase, "kind"> & {
+  kind: MeetingHelpKind;
+  template?: MeetingHelpTemplate;
+};
 
 const STEP_MS = 500;
 /**
@@ -329,7 +343,7 @@ export function readJudged(text: string): Judged | null {
 
 async function judge(
   model: LanguageModel,
-  each: CallHelpCase,
+  each: HelpCase,
   newest: readonly CallTurn[],
   reply: string,
   cited: readonly string[],
@@ -445,7 +459,7 @@ export function requestsSince(dataDir: string, since: string): RequestTiming[] {
  */
 async function press(
   core: Core,
-  each: CallHelpCase,
+  each: HelpCase,
   meetingId: string,
   begin: () => void,
   form?: CallHelpForm,
@@ -504,7 +518,7 @@ async function press(
   try {
     begin();
     start = performance.now();
-    const asked = await core.askMeetingHelp({ meetingId, kind: each.kind as MeetingHelpKind });
+    const asked = await core.askMeetingHelp({ meetingId, kind: each.kind });
     if (!asked.asked) throw new Error(`Not asked: ${JSON.stringify(asked)}`);
     answerId = asked.answerId;
     // The check of the changes a reply claims runs once it is written: what it shows as it runs
@@ -594,7 +608,7 @@ function marksOf(
 /** Every reply the change-claim check rewrote, with the text before the check and after it. */
 export const rewrittenReplies: { item: string; before: string; after: string }[] = [];
 
-function item(each: CallHelpCase, set: CallHelpSet): PairedGroup["items"][number] {
+function item(each: HelpCase, set: CallHelpSet): PairedGroup["items"][number] {
   return {
     set,
     id: each.id,
@@ -841,7 +855,7 @@ function item(each: CallHelpCase, set: CallHelpSet): PairedGroup["items"][number
  */
 export async function openCall(
   base: GroupOptions,
-  each: CallHelpCase,
+  each: HelpCase,
   name: string,
   /** What tells the call's speakers apart after Stop; none: the labels stay where lines came from. */
   speakers?: Pick<CoreAdapters, "speakerSeparator" | "speakerModelSource">,
@@ -869,6 +883,8 @@ export async function openCall(
     await core.updateSettings({ user: { language: each.language } });
     await core.setOutputLocation(join(library.dataDir, "Documents", "IncarnaMind"));
     const meeting = await recordCall(core, rig.capture, turns);
+    if (each.template)
+      await core.setMeetingTemplate({ meetingId: meeting.id, template: each.template });
     return {
       library,
       meeting,
@@ -889,7 +905,28 @@ export async function openCall(
  * The sets judged per place (#2847's yardstick by place, ruled on 2026-11-12): the gate's held-out
  * slice. The dev trial on `call-help-marks-3` gates nothing, so its places are read by hand alone.
  */
-const PLACE_SETS: ReadonlySet<CallHelpSet> = new Set(["call-help-marks-4"]);
+const PLACE_SETS: ReadonlySet<CallHelpSet> = new Set([
+  "call-help-marks-4",
+  "call-help-fact-lines-4",
+  "call-help-fact-lines-stand-in",
+]);
+
+/**
+ * The form's held-out gate and the stand-in its dry run is built on (#2847): their case files are
+ * read only when the set is asked for, so the held-out one is opened at the gated run alone. Each
+ * has a slots file beside it (`.slots.md`).
+ */
+const CASE_FILES = {
+  "call-help-fact-lines-4": {
+    file: "callHelpFactLinesHeldOut.ts",
+    cases: "CALL_HELP_FACT_LINES_HELD_OUT",
+  },
+  "call-help-fact-lines-stand-in": {
+    file: "callHelpFactLinesStandIn.ts",
+    cases: "CALL_HELP_FACT_LINES_STAND_IN",
+  },
+} as const;
+export type LoadedCallHelpSet = keyof typeof CASE_FILES;
 
 export type CallHelpSet =
   | "call-help"
@@ -899,9 +936,10 @@ export type CallHelpSet =
   | "call-help-checks"
   | "call-help-marks"
   | "call-help-marks-3"
-  | "call-help-marks-4";
+  | "call-help-marks-4"
+  | LoadedCallHelpSet;
 
-const CASES: Readonly<Record<CallHelpSet, readonly CallHelpCase[]>> = {
+const CASES: Readonly<Record<Exclude<CallHelpSet, LoadedCallHelpSet>, readonly HelpCase[]>> = {
   "call-help": CALL_HELP_CASES,
   "call-help-held-out": CALL_HELP_HELD_OUT,
   "call-help-fresh": CALL_HELP_FRESH,
@@ -913,12 +951,132 @@ const CASES: Readonly<Record<CallHelpSet, readonly CallHelpCase[]>> = {
 };
 
 /** One group a case: its own Library, its own Meeting heard before the press. */
-export function callHelpSet(set: CallHelpSet = "call-help"): PairedGroup[] {
-  return CASES[set].map(
+const groupsOfCases = (set: CallHelpSet, cases: readonly HelpCase[]): PairedGroup[] =>
+  cases.map(
     (each): PairedGroup => ({
       name: `${set}-${each.id}`,
       items: [item(each, set)],
       open: (base) => openCall(base, each, `paired-call-help-${each.id}`),
     }),
   );
+
+export function callHelpSet(set: Exclude<CallHelpSet, LoadedCallHelpSet> = "call-help") {
+  return groupsOfCases(set, CASES[set]);
+}
+
+export const isLoadedCallHelpSet = (set: string): set is LoadedCallHelpSet =>
+  Object.hasOwn(CASE_FILES, set);
+
+/** A slot of a gate's slots file: its button, its marks (P, +, N), its template and its two ids. */
+export interface HelpSlot {
+  slot: number;
+  button: string;
+  marks: string[];
+  template: string | null;
+  ids: string[];
+}
+
+/** The slots file's table, by its column names. */
+export function slotsOf(text: string): HelpSlot[] {
+  const rows = text
+    .split("\n")
+    .filter((each) => each.trim().startsWith("|"))
+    .map((each) =>
+      each
+        .trim()
+        .replace(/^\||\|$/g, "")
+        .split("|")
+        .map((cell) => cell.trim()),
+    );
+  const [header, , ...body] = rows;
+  if (!header) return [];
+  const at = (name: RegExp) => header.findIndex((cell) => name.test(cell));
+  const [slot, button, marks, template] = [/^slot$/i, /^button$/i, /^marks?$/i, /^template$/i].map(
+    at,
+  );
+  const idColumns = header.flatMap((cell, index) => (/\bid\b/i.test(cell) ? [index] : []));
+  return body.map((cells) => ({
+    slot: Number(cells[slot ?? -1]),
+    button: cells[button ?? -1] ?? "",
+    marks: (cells[marks ?? -1] ?? "").split(/\s+/).filter(Boolean),
+    template: cells[template ?? -1] || null,
+    ids: idColumns.map((index) => cells[index] ?? "").filter(Boolean),
+  }));
+}
+
+/**
+ * What is wrong with a gate's cases against its slots, each in one line: a field left empty, a
+ * Citation's line its Document or call doesn't hold, a template button without its template, a
+ * probe or N press with nothing to avoid, a slot with no case or a case with no slot. None: they
+ * can run.
+ */
+export function caseProblems(cases: unknown, slots: readonly HelpSlot[]): string[] {
+  if (!Array.isArray(cases) || cases.length === 0) return ["No cases."];
+  const problems: string[] = [];
+  const marksOf = new Map(slots.flatMap((slot) => slot.ids.map((id) => [id, slot] as const)));
+  const ids = new Set<string>();
+  for (const [index, value] of cases.entries()) {
+    const each = value as Partial<HelpCase>;
+    const name = typeof each.id === "string" && each.id !== "" ? each.id : `case ${index + 1}`;
+    const empty = (field: string) => problems.push(`${name}: its ${field} is empty.`);
+    if (typeof each.id !== "string" || each.id === "") empty("id");
+    else ids.add(each.id);
+    if (each.language !== "en" && each.language !== "zh-CN") empty("language");
+    if (typeof each.kind !== "string" || !Object.hasOwn(HELP_SHAPE, each.kind)) empty("kind");
+    if (!["newest", "earlier", "whole"].includes(String(each.needs))) empty("needs");
+    if (typeof each.answer !== "string" || each.answer.trim() === "") empty("answer");
+    const turns = Array.isArray(each.turns) ? each.turns : [];
+    if (turns.length === 0 || turns.some((turn) => !turn?.text?.trim())) empty("call");
+    const documents = Array.isArray(each.documents) ? each.documents : [];
+    if (documents.some((document) => !document?.file || !document.text?.trim())) empty("Document");
+    const said = [...(each.before ?? []), ...turns].map((turn) => turn.text);
+    const rests = Array.isArray(each.rests) ? each.rests : [];
+    if (rests.length === 0 || rests.some((group) => group.length === 0)) empty("rests");
+    for (const rest of rests.flat()) {
+      if (!rest.line?.trim()) empty("rests' line");
+      else if (
+        rest.in === TRANSCRIPT
+          ? !said.includes(rest.line)
+          : !documents.some(
+              (document) => document.file === rest.in && document.text.includes(rest.line),
+            )
+      )
+        problems.push(`${name}: “${rest.line.slice(0, 40)}” isn't in ${rest.in}.`);
+    }
+    const template = Object.entries(TEMPLATE_HELP).find(([, kinds]) =>
+      (kinds as readonly string[]).includes(String(each.kind)),
+    )?.[0];
+    if (template !== undefined && each.template !== template)
+      problems.push(`${name}: a ${each.kind} press needs the ${template} template.`);
+    const slot = typeof each.id === "string" ? marksOf.get(each.id) : undefined;
+    if (!slot) problems.push(`${name}: no slot lists it.`);
+    else if (
+      slot.marks.some((mark) => mark === "P" || mark === "N") &&
+      (typeof each.avoid !== "string" || each.avoid.trim() === "")
+    )
+      empty("avoid");
+  }
+  for (const slot of slots) {
+    for (const id of slot.ids) if (!ids.has(id)) problems.push(`Slot ${slot.slot}: no case ${id}.`);
+  }
+  return problems;
+}
+
+/**
+ * The form's held-out gate's set or its stand-in, read from its case file and its slots file and
+ * checked; it throws on any problem, so a dry run fails on an empty field. The Check slots are left
+ * out unless INCARNAMIND_EVAL_SPEED_CHECK_SLOTS is "pressed": the gate presses them only if the
+ * Check button's request differs from main's.
+ */
+export async function loadedCallHelpSet(set: LoadedCallHelpSet): Promise<PairedGroup[]> {
+  const { file, cases: name } = CASE_FILES[set];
+  const loaded: Record<string, unknown> = await import(/* @vite-ignore */ join(__dirname, file));
+  const slotsFile = env("SLOTS") ?? join(__dirname, file.replace(/\.ts$/, ".slots.md"));
+  const slots = slotsOf(readFileSync(slotsFile, "utf8"));
+  const problems = caseProblems(loaded[name], slots);
+  if (problems.length > 0) throw new Error(`${file} can't run:\n${problems.join("\n")}`);
+  const cases = (loaded[name] as readonly HelpCase[]).filter(
+    (each) => each.kind !== "check" || env("CHECK_SLOTS") === "pressed",
+  );
+  return groupsOfCases(set, cases);
 }
