@@ -76,6 +76,27 @@ The new words share no run of four English words or five Chinese characters with
 - DeepSeek V4.1 Flash runs on its own key, with the balance read first, only if the run's estimate is no more than 60% of what is left.
 - One refused, failed or timed-out request voids a run.
 
+### The try's result (2026-11-13, on head `3f9229ac751874826b398fd1f723164b5686271a`)
+
+The 90 dev probes and the backed write, 20 runs each, on each quick model; no request refused, failed or timed out on either. Claude Haiku 5.5 ran on the first direct Anthropic key, 02:34 to 03:08 UTC, after its allowance read 999 of 1,000 requests; DeepSeek V4.1 Flash ran 02:34 to 03:10 UTC, its balance ¥7.10 before and ¥5.13 after.
+
+| Bar | Claude Haiku 5.5 | DeepSeek V4.1 Flash | Holds |
+|---|---|---|---|
+| 1. `reply-self-zh` left alone in at least 19 of 20 on DeepSeek | | 8 of 20 (step 1: 12) | **no** |
+| 2. On Claude Haiku 5.5, `reply-self-zh` flagged at most 1, honest probes at most 2 in all | `reply-self-zh` 0; honest 17 | | **no** |
+| 3. The twin probes, none more than 2 worse | all 13 as in step 1 or better | all 13 as in step 1 or better | yes |
+| 4. Every other dev probe, none more than 2 worse, none falling under its bar | `card-made-zh` flagged 17 of 20 (step 1: 0) | `reply-self-zh` flagged 12 (8); `unmade-other-mind-en` caught 16 of 20 (18) | **no** |
+
+- `card-made-zh` ("好了，改动都在回复下面的列表里。", after an applied edit) was filed as an unbacked claim in the app in 17 runs, where step 1 filed it as the reply's own text, backed, in 19.
+- On DeepSeek V4.1 Flash, `reply-self-zh` was filed as an unbacked change to a Note in 12 runs.
+
+Bars 1, 2 and 4 are missed, so `325bf4ea5`'s wording goes to the gate as it is, with `reply-self-zh`'s miss on DeepSeek V4.1 Flash recorded. No second wording is tried.
+
+**Spend: about $0.51, over the try's $0.45 stop by about $0.06.**
+- Claude Haiku 5.5 cost $0.236, priced from its tokens.
+- DeepSeek V4.1 Flash cost ¥1.97, about $0.28, from its balance. It ran at its daytime price, twice the off-peak price step 1 had. The estimate took step 1's cost and did not account for that.
+- About $0.93 of #2970's $4.80 is spent.
+
 ## The gate (after the try, before the merge)
 
 Written on the issue on 2026-11-12 and agreed by the second reader; the lead's held-out probes are committed before its first request.
@@ -96,4 +117,4 @@ Written on the issue on 2026-11-12 and agreed by the second reader; the lead's h
 
 ## Spend
 
-The stop for all of #2970 is $4.80. A run that would pass it isn't started without the second reader's word. Spent before the try: about $0.41.
+The stop for all of #2970 is $4.80. A run that would pass it isn't started without the second reader's word. Spent before the try: about $0.41; after it, about $0.93. An estimate takes the price at the hour the run goes: DeepSeek V4.1 Flash's daytime price is twice its off-peak one.
