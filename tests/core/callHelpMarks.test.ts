@@ -12,8 +12,8 @@ import {
   type Meeting,
   type MeetingHelpKind,
 } from "../../src/core";
-import { sentencePassed } from "../../src/renderer/src/helpReply";
-import { pageBlocks, withAnswerChecks } from "../../src/shared/answerBlocks";
+import { helpParts, sentencePassed } from "../../src/renderer/src/helpReply";
+import { answerBlocks, pageBlocks, withAnswerChecks } from "../../src/shared/answerBlocks";
 import type { NodeJSON } from "../../src/shared/blockJson";
 import { readHelpReply } from "../../src/shared/helpReplyRead";
 import { isTranscriptLocation } from "../../src/shared/locations";
@@ -973,5 +973,33 @@ describe("the evaluation's switch for the form whose facts stand apart (#2847)",
       'each one sentence of at most 20 words on a line of its own starting with "> " and ending with its Citation markers',
     );
     expect(help).not.toContain("- Each option is two lines:");
+  });
+
+  // protects=a reply in the form is kept without its marks, so "> " is never a quotation block and "= " never shows: not in the panel, not in the assistant's view, not in the Note it is added to; its fact still takes ✓ and its line to say cites nothing; fails_when=a mark is kept or drawn as Markdown, or the fact loses its ✓; no_claim=how each surface lays the lines out.
+  test("in the form, its marks are never drawn as Markdown: not in the panel, the assistant or the Note", async () => {
+    const reply = [
+      "★ Yes, Enterprise is $45 a seat [^1]",
+      "> Enterprise is $45 per seat a month, with single sign-on [^1]",
+      "= The Documents don't say whether the price includes customs duty",
+      "→ answers at once",
+    ].join("\n");
+    const { core, meeting } = await setUp({ reply }, undefined, undefined, "fact lines");
+
+    const after = await (await pressed(core, meeting, "answer")).judged();
+
+    expect(after.text).toBe(
+      "★ Yes, Enterprise is $45 a seat\nEnterprise is $45 per seat a month, with single sign-on [^1]\nThe Documents don't say whether the price includes customs duty\n→ answers at once",
+    );
+    const types = (nodes: readonly NodeJSON[]): string[] =>
+      nodes.flatMap((node) => [node.type, ...types(node.content ?? [])]);
+    expect(types(answerBlocks(after))).not.toContain("blockquote");
+    expect(types(pageBlocks(after, "Answer their question"))).not.toContain("blockquote");
+    expect(textIn(pageBlocks(after, "Answer their question"))).not.toMatch(/(?:^|\n)\s*[>=]/);
+    const { options } = helpParts(after, "answer");
+    const shown = options
+      .flatMap((item) => [item.lead, ...item.notes, ...item.own, item.effect ?? []])
+      .map((line) => line.flatMap((piece) => (piece.kind === "text" ? [piece.text] : [])).join(""));
+    expect(shown.some((line) => /^\s*[>=＞＝]/.test(line))).toBe(false);
+    expect(marks(after)).toEqual([{ marker: 1, check: "found", passed: true }]);
   });
 });

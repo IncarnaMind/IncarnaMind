@@ -173,6 +173,12 @@ function Item({
           <Pieces pieces={note} answer={answer} numbers={numbers} />
         </span>
       ))}
+      {item.own.map((line, index) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: an option's own lines are in the order written.
+        <span key={index} data-testid="help-option-own" className="help-option-effect">
+          <Pieces pieces={line} answer={answer} numbers={numbers} />
+        </span>
+      ))}
       {item.effect && (
         <span data-testid="help-option-effect" className="help-option-effect">
           → <Pieces pieces={item.effect} answer={answer} numbers={numbers} />
