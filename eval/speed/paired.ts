@@ -34,6 +34,7 @@ import { firstKeptText, isWrittenTwice, type TimingRecorder } from "../lib/timin
 import { SETS as CHECK_SETS, documentsOf, writeDocuments } from "../repeats/cases";
 import { repeatChecks } from "../repeats/repeat";
 import { verdictOf } from "../repeats/score";
+import type { CheckReply } from "./arms";
 import { SIGNS } from "./flows";
 import type { Expectation, Grade } from "./judge";
 import { citedText, type UnstatedSentence, unstatedSentences } from "./unstated";
@@ -139,6 +140,11 @@ export interface ArmRun {
    * where it was asked per place, null where it wasn't.
    */
   places?: PlaceMark[];
+  /**
+   * Each reply of the sentence check while the item ran, as the check reads it: a reply that reads
+   * fewer sentences than it was asked leaves them Not checked though its request finished.
+   */
+  checkReplies?: CheckReply[];
   marks?: {
     held: number;
     checked: number;

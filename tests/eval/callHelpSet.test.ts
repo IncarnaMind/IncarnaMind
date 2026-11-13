@@ -15,6 +15,7 @@ import { openLedger } from "../../eval/speed/ledger";
 import { runOnArm } from "../../eval/speed/paired";
 import { sentPair } from "../../eval/speed/pairedReport";
 import type { CoreAdapters } from "../../src/core";
+import { sentenceBatchInstructions } from "../../src/core/answers/checks/sentenceBatch";
 import { createFakeEmbedder } from "../../src/core/embedding/fake";
 import { shownPassages } from "../helpers/citations";
 import { type ModelCall, scriptedModel } from "../helpers/models";
@@ -286,6 +287,57 @@ describe("A press during the call", { timeout: 120_000 }, () => {
     // "$45 a seat" against a quote of "$25": the check leaves it unjudged, so it shows no ✓.
     expect(branch.falseSupported).toBe(0);
     expect(branch.marks).toMatchObject({ listed: 1, listedChecked: 0 });
+  });
+
+  // protects=a gate counts each sentence check reply the check couldn't read, though its request finished: two answers in one reply read none of its sentences, a whole one reads them all; fails_when=the switch reads a reply otherwise than the check does, or keeps a reply that isn't the check's; no_claim=how often a model writes two answers.
+  test("the arm switch keeps each check reply as the check reads it", async () => {
+    const entry = (number: number) =>
+      `{"number":${number},"kind":"fact","verdict":"supported","roles":"same","time":"same","quoted":"states","says":"So."}`;
+    const whole = `{"sentences":[${entry(1)},${entry(2)}]}`;
+    const switches = armSwitch();
+    const replies: [string, string][] = [
+      [sentenceBatchInstructions("en"), whole],
+      [
+        sentenceBatchInstructions("en"),
+        `{"sentences":[${entry(1)}]}\n\nWait, both sentences:\n\n${whole}`,
+      ],
+      ["You answer the User's Question.", whole],
+    ];
+    for (const [system, text] of replies) {
+      const model = switches.chatModels(
+        () =>
+          new MockLanguageModelV4({
+            doGenerate: async () => ({
+              content: [{ type: "text", text }],
+              finishReason: { unified: "stop", raw: undefined },
+              usage: {
+                inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
+                outputTokens: { total: 1, text: 1, reasoning: 0 },
+              },
+              warnings: [],
+            }),
+          }),
+      )({ kind: "ollama", modelId: "local-model", apiKey: null, baseUrl: null });
+      await model.doGenerate({
+        prompt: [
+          { role: "system", content: system },
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: '<sentence number="1">\nA.\n</sentence>\n<sentence number="2">\nB.\n</sentence>',
+              },
+            ],
+          },
+        ],
+      });
+    }
+
+    expect(switches.takeChecks()).toEqual([
+      { sentences: 2, read: 2 },
+      { sentences: 2, read: 0 },
+    ]);
   });
 
   // protects=bar 4a of the call-help marks gate reads the same setup from two arms' own cores, each library's ids and the hash naming its prompt cache aside (#2847); fails_when=anything per library makes every pair's setup differ; no_claim=what a model does with either request.
