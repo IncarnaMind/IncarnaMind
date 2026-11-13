@@ -51,6 +51,11 @@ function twinOf(sentence: string): { pair: FixedPair; right: boolean } | null {
 const TICKED_WRONG = pairNumbered(2).wrong;
 /** The sentence whose first check is refused once in each arm, so a void try is struck and run again. */
 const REFUSED_ONCE = pairNumbered(5).wrong;
+/**
+ * The pair whose check takes a Passage's own reference line for evidence, so its check ends found
+ * elsewhere, not with no evidence, and bar 2 has both kinds to count.
+ */
+const TAKES_A_REFERENCE = pairNumbered(4);
 
 const PASSAGE = /<passage id="([^"]+)"[^>]*>\n([\s\S]*?)\n<\/passage>/gu;
 
@@ -199,15 +204,16 @@ function evidenceReply(call: GenerateCall): string {
 
 /**
  * A judgement of the sentence against one quote, read from what it is shown: a quote of none of
- * the sentence's table rows states nothing of it, and a wrong twin's row contradicts it, but for
- * the one the dry run's check takes for right.
+ * the sentence's table rows states nothing of it, but for the pair whose check takes a reference
+ * line for evidence, and a wrong twin's row contradicts it, but for the one the dry run's check
+ * takes for right.
  */
 function judged(call: GenerateCall): "same" | "conflict" | "neither" {
   const sentence = /<sentence>\n([\s\S]*?)\n<\/sentence>/u.exec(call.prompt)?.[1]?.trim() ?? "";
   const twin = twinOf(sentence);
   const quote = /<quote>\n([\s\S]*?)\n<\/quote>/u.exec(call.prompt)?.[1] ?? call.prompt;
   if (twin && !twin.pair.cites.some((row) => findQuote(quote, row, { numbers: "if-needed" })))
-    return "neither";
+    return twin.pair === TAKES_A_REFERENCE ? "same" : "neither";
   return twin?.right === false && sentence !== TICKED_WRONG ? "conflict" : "same";
 }
 
