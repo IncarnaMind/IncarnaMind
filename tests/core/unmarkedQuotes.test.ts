@@ -740,6 +740,10 @@ const PHONE = {
   zh: (code: string) => `（${code}）10 5550 1234 是北京办公室处理延迟交货的电话号码。`,
 };
 const ZH_NUMBER: Record<string, string> = { "2": "二", "3": "三" };
+const NOTICE = {
+  en: "The tenant must give 30 days' notice before leaving the flat.",
+  zh: "承租人须提前三十天书面通知出租人。",
+};
 const INSURE = {
   en: {
     landlord: "The landlord shall insure the building against fire and flood.",
@@ -838,6 +842,37 @@ const NUMBERED_PAIRS: {
       document: [`2. ${INSURE[language].tenant}`],
       sentence: `3. ${INSURE[language].tenant}`,
       matches: INSURE[language].tenant,
+    },
+    // Known: a Document's reader cuts a bold "**2.**" and an unspaced "2." off as a place in a
+    // list too, so the number never reaches the comparison; the bold's marks stay in the quote.
+    {
+      what: "known: a Document's bold **2.** is a place in a list, so **3.** matches it",
+      language,
+      document: [`**2.** ${NOTICE[language]}`],
+      sentence: `**3.** ${NOTICE[language]}`,
+      matches: `** ${NOTICE[language]}`,
+    },
+    {
+      what: "known: a Document's unspaced 2. is a place in a list, so an unspaced 3. matches it",
+      language,
+      document: [`2.${NOTICE[language]}`],
+      sentence: `3.${NOTICE[language]}`,
+      matches: NOTICE[language],
+    },
+    // Known: a code in a list's form on one side only comes off that side, as a list's number.
+    {
+      what: "known: a code on the Answer's side only is read as a list's number, so it matches",
+      language,
+      document: [PHONE[language]("86").replace(/^(?:\(86\) |（86）)/u, "")],
+      sentence: PHONE[language]("86"),
+      matches: PHONE[language]("86").replace(/^(?:\(86\) |（86）)/u, ""),
+    },
+    {
+      what: "known: a code on the Document's side only is read as a list's number, so it matches",
+      language,
+      document: [PHONE[language]("86")],
+      sentence: PHONE[language]("86").replace(/^(?:\(86\) |（86）)/u, ""),
+      matches: PHONE[language]("86"),
     },
   ];
 });

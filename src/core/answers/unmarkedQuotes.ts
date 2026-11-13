@@ -135,7 +135,9 @@ const NEGATION = /\b(?:not|no|never)\b|n't\b|[不没未无非]/giu;
 
 /**
  * A list's number as it starts a sentence: "**1.**", "(1)", "1)", "1、", "1.Then", "（一）", "一、".
- * A "1. " followed by a space is a sentence of its own already (src/shared/sentences.ts).
+ * Not what both sides see: a Passage's sentences (src/shared/sentences.ts) have already lost a
+ * "1. ", a "1." with no space, a "1．" and a bold "**1.**", so of these only an Answer's sentence
+ * can still start with "**1.**" or "1.Then"; an Answer's sentence loses only "1. " first.
  */
 const LIST_MARK =
   /\*\*\d{1,2}[.)]\*\*|\(\d{1,2}\)|（(?:\d{1,2}|[一二三四五六七八九十]{1,3})）|\d{1,2}[)）]|(?:\d{1,2}|[一二三四五六七八九十]{1,3})、|\d{1,2}\.(?=[^\s\d.])/u;
