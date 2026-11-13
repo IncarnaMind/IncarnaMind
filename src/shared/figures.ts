@@ -1306,7 +1306,8 @@ const CN_COUNT_AFTER = new RegExp(CN_COUNTS.join("|").replace("所", "所(?![示
 const EN_UNIT_AFTER =
   /[ \n]?(?:users?|customers?|clients?|subscribers?|members?|employees?|staff|people|persons?|patients?|students?|visitors?|households?|homes?|stores?|outlets?|branches|branch|restaurants?|vehicles?|cars?|units?|shares?|tonnes?|tons?|kt|Mt|kg|mg|lbs?|ounces?|oz|barrels?|bbl|boe|bcf|tcf|km\/h|km2|km|m2|m3|sq ft|square (?:feet|foot|metres?|meters?)|(?:kilo|centi|milli)?(?:metres?|meters?)|miles?|feet|foot|inches|mph|acres?|hectares?|(?:mega|kilo|giga)watt[- ]hours?|(?:mega|kilo|giga)watts?|MWh|GWh|kWh|TWh|MW|GW|kW|mAh|litres?|liters?|MtCO2e|ktCO2e|tCO2e|tCO2|°C|°F| t)(?![A-Za-z0-9])/y;
 // Tonnes written against the number ("54,000t", "1.2t", "5万t"), but only after a number written
-// as an amount: a bare "78t" is as often a section ("15 U.S.C. 78t").
+// as an amount, and none of money, whose "t" is trillions ("$1.5t"): a bare "78t" is as often a
+// section ("15 U.S.C. 78t").
 const GLUED_TONNES = /t(?![A-Za-z0-9])/y;
 
 /** Written before a figure that is approximate or a bound; outside its characters. */
@@ -3326,7 +3327,9 @@ function readAround(
         take(CN_MEASURE_AFTER) ??
         (found.single ? null : take(CN_COUNT_AFTER)) ??
         take(EN_UNIT_AFTER) ??
-        (found.formatted || draft.exponent > 0 ? take(GLUED_TONNES) : null);
+        ((found.formatted || draft.exponent > 0) && draft.currencies.length === 0
+          ? take(GLUED_TONNES)
+          : null);
       if (unit) {
         draft.unit = { kind: "other", word: unit.word };
         draft.unitAt = unit.at;

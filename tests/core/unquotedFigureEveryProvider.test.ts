@@ -329,7 +329,7 @@ describe("On the model on this computer, which the check doesn't offer calculate
     },
   );
 
-  // protects=a quote that gives the number in another written form holds it: a unit against the number ("54,000t", "4kg", "$5bn", "£830k", "50bps", "5m") either way round, and a number said in words before points ("six percentage points", "two point three percentage points", "three points to cover"), so the sentence keeps its ✓ without calculate (#3022); fails_when=such a sentence reads Not checked, or a different number in the same form keeps its ✓; no_claim=a sentence whose own number is in words, which the rule doesn't read.
+  // protects=a quote that gives the number in another written form holds it: a unit against the number ("54,000t", "4kg", "$5bn", "£830k", "50bps", "5m") either way round, and a number said in words before points ("six percentage points", "two point three percentage points", "three points to cover"), though "at one point" is a moment, so the sentence keeps its ✓ without calculate (#3022); fails_when=such a sentence reads Not checked, or a different number in the same form keeps its ✓; no_claim=a sentence whose own number is in words, which the rule doesn't read.
   test.each([
     ["The mill's output was 54,000 tonnes.", "Output was 54,000t."],
     ["The mill's output was 54,000t.", "Output was 54,000 tonnes."],
@@ -344,6 +344,8 @@ describe("On the model on this computer, which the check doesn't offer calculate
     ["It rose 6 percentage points.", "It rose six percentage points."],
     ["It rose 2.3 percentage points.", "It rose two point three percentage points."],
     ["There are 3 points to cover.", "There are three points to cover."],
+    ["It rose 1 point.", "It rose one point."],
+    ["They agreed on 1 point.", "They agreed on one point."],
   ])("%s beside “%s” keeps its ✓", async (claim, quote) => {
     expect(await ended(claim, `Figures\n${quote}\n`, quote)).toBe("supported");
   });
@@ -359,6 +361,8 @@ describe("On the model on this computer, which the check doesn't offer calculate
     ["It rose 7 percentage points.", "It rose six percentage points."],
     ["It rose 2.4 percentage points.", "It rose two point three percentage points."],
     ["There are 4 points to cover.", "There are three points to cover."],
+    ["The index rose 1 point.", "At one point in 2023 the index rose sharply."],
+    ["It rose 1%.", "At one point it rose."],
   ])("%s beside “%s” is Not checked", async (claim, quote) => {
     expect(await ended(claim, `Figures\n${quote}\n`, quote)).toBe("not-checked: number-unquoted");
   });
