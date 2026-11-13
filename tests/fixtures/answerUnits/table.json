@@ -1966,6 +1966,78 @@
     "33db0b3674e0": {
       "name": "Rates.txt",
       "text": "Rates\n单位：千瓦时\n\n各月充电量（万千瓦时）\n8月: 126\n"
+    },
+    "4123c7763677": {
+      "name": "Notes.txt",
+      "text": "Report\n表7 各厂产量（万吨）\n工厂\t产量\n一厂\t54\n二厂\t31\n"
+    },
+    "6511ea5f3573": {
+      "name": "Notes.txt",
+      "text": "Report\n各厂产量（万吨）\n工厂\t产量\n一厂\t54\n二厂\t31\n"
+    },
+    "8a2f527226ea": {
+      "name": "Notes.txt",
+      "text": "Report\n表7 各厂产量（万辆）\n工厂\t产量\n一厂\t54\n二厂\t31\n"
+    },
+    "1fcdc26fddaf": {
+      "name": "Notes.txt",
+      "text": "Report\n表7 各厂员工（万人）\n工厂\t员工\n一厂\t54\n二厂\t31\n"
+    },
+    "ae95eae484ad": {
+      "name": "Notes.txt",
+      "text": "Report\n表7 各厂用电（万千瓦时）\n工厂\t用电\n一厂\t54\n二厂\t31\n"
+    },
+    "99b724ca2f97": {
+      "name": "Notes.txt",
+      "text": "Report\n表7 各厂产值（万元）\n工厂\t产值\n一厂\t54\n二厂\t31\n"
+    },
+    "de939bca0d4c": {
+      "name": "Notes.txt",
+      "text": "Report\nTable 7 Output by plant (thousand tonnes)\nPlant\tOutput\nA\t54\nB\t31\n"
+    },
+    "7dfbb7b78b26": {
+      "name": "Notes.txt",
+      "text": "Report\nTable 7 Costs by plant (USD thousands)\nPlant\tCost\nA\t54\nB\t31\n"
+    },
+    "51d0a893a0da": {
+      "name": "Notes.txt",
+      "text": "Rates\n各月充电量（万千瓦时）\n华东\n7月: 118\n8月: 126\n华北\n7月: 90\n"
+    },
+    "6adad100568b": {
+      "name": "Sales.txt",
+      "text": "Sales\n车型\t销量\n轿车\t80\nSUV\t57\n"
+    },
+    "52bd43c050ce": {
+      "name": "Notes.txt",
+      "text": "Report\n表7 各厂产量（预计）\n工厂\t产量\n一厂\t54\n二厂\t31\n"
+    },
+    "eb02914453fe": {
+      "name": "Notes.txt",
+      "text": "Report\n表7 各厂产量（续）\n工厂\t产量\n一厂\t54\n二厂\t31\n"
+    },
+    "c2767b13013d": {
+      "name": "Notes.txt",
+      "text": "Report\n表7 各厂产量（2024）\n工厂\t产量\n一厂\t54\n二厂\t31\n"
+    },
+    "bfe2ffddadb8": {
+      "name": "Notes.txt",
+      "text": "Report\n本报告的发电量（万千瓦时）口径与上年一致。\n\n工厂\t发电量\n一厂\t54\n二厂\t31\n"
+    },
+    "88e1bf7429c7": {
+      "name": "Notes.txt",
+      "text": "Rates\n指数上涨了 20点。\n"
+    },
+    "5ea3d04938ad": {
+      "name": "Charging.pdf",
+      "base64": "JVBERi0xLjQKJeLjz9MKMSAwIG9iago8PCAvVHlwZSAvQ2F0YWxvZyAvUGFnZXMgMiAwIFIgPj4KZW5kb2JqCjIgMCBvYmoKPDwgL1R5cGUgL1BhZ2VzIC9LaWRzIFs2IDAgUiA4IDAgUl0gL0NvdW50IDIgPj4KZW5kb2JqCjMgMCBvYmoKPDwgL1R5cGUgL0ZvbnQgL1N1YnR5cGUgL1R5cGUxIC9CYXNlRm9udCAvSGVsdmV0aWNhL0VuY29kaW5nIC9XaW5BbnNpRW5jb2RpbmcgPj4KZW5kb2JqCjQgMCBvYmoKPDwgL1R5cGUgL0ZvbnQgL1N1YnR5cGUgL1R5cGUwIC9CYXNlRm9udCAvU1RTb25nLUxpZ2h0IC9FbmNvZGluZyAvVW5pR0ItVUNTMi1IIC9EZXNjZW5kYW50Rm9udHMgWzw8IC9UeXBlIC9Gb250IC9TdWJ0eXBlIC9DSURGb250VHlwZTAgL0Jhc2VGb250IC9TVFNvbmctTGlnaHQgL0NJRFN5c3RlbUluZm8gPDwgL1JlZ2lzdHJ5IChBZG9iZSkgL09yZGVyaW5nIChHQjEpIC9TdXBwbGVtZW50IDQgPj4gL0ZvbnREZXNjcmlwdG9yIDUgMCBSID4+XSA+PgplbmRvYmoKNSAwIG9iago8PCAvVHlwZSAvRm9udERlc2NyaXB0b3IgL0ZvbnROYW1lIC9TVFNvbmctTGlnaHQgL0ZsYWdzIDYgL0ZvbnRCQm94IFstMjUgLTI1NCAxMDAwIDg4MF0gL0l0YWxpY0FuZ2xlIDAgL0FzY2VudCA4ODAgL0Rlc2NlbnQgLTEyMCAvQ2FwSGVpZ2h0IDg4MCAvU3RlbVYgOTMgPj4KZW5kb2JqCjYgMCBvYmoKPDwgL1R5cGUgL1BhZ2UgL1BhcmVudCAyIDAgUiAvTWVkaWFCb3ggWzAgMCA2MTIgNzkyXSAvUmVzb3VyY2VzIDw8IC9Gb250IDw8IC9GMSAzIDAgUiAvRjIgNCAwIFIgPj4gPj4gL0NvbnRlbnRzIDcgMCBSID4+CmVuZG9iago3IDAgb2JqCjw8IC9MZW5ndGggMTk1ID4+CnN0cmVhbQpCVCAvRjIgMTEgVGYgNzIgNzYwIFRkIDw1NDA0NjcwODUxNDU3NTM1OTFjZmZmMDg0ZTA3NTM0Mzc0ZTY2NWY2ZmYwOT4gVGogRVQKQlQgL0YyIDExIFRmIDcyIDc0NiBUZCA8MDAzNzY3MDgwMDNhMDAyMDAwMzEwMDMxMDAzOD4gVGogRVQKQlQgL0YyIDExIFRmIDcyIDczMiBUZCA8MDAzODY3MDgwMDNhMDAyMDAwMzEwMDMyMDAzNj4gVGogRVQKZW5kc3RyZWFtCmVuZG9iago4IDAgb2JqCjw8IC9UeXBlIC9QYWdlIC9QYXJlbnQgMiAwIFIgL01lZGlhQm94IFswIDAgNjEyIDc5Ml0gL1Jlc291cmNlcyA8PCAvRm9udCA8PCAvRjEgMyAwIFIgL0YyIDQgMCBSID4+ID4+IC9Db250ZW50cyA5IDAgUiA+PgplbmRvYmoKOSAwIG9iago8PCAvTGVuZ3RoIDEyNyA+PgpzdHJlYW0KQlQgL0YyIDExIFRmIDcyIDc2MCBUZCA8MDAzOTY3MDgwMDNhMDAyMDAwMzEwMDMzMDAzMT4gVGogRVQKQlQgL0YyIDExIFRmIDcyIDc0NiBUZCA8NGVlNTRlMGE0ZTNhNjcyYzViNjM1ZWE2NjU3MDYzNmUzMDAyPiBUaiBFVAplbmRzdHJlYW0KZW5kb2JqCnhyZWYKMCAxMAowMDAwMDAwMDAwIDY1NTM1IGYgCjAwMDAwMDAwMTUgMDAwMDAgbiAKMDAwMDAwMDA2NCAwMDAwMCBuIAowMDAwMDAwMTI3IDAwMDAwIG4gCjAwMDAwMDAyMjMgMDAwMDAgbiAKMDAwMDAwMDQ5NSAwMDAwMCBuIAowMDAwMDAwNjY3IDAwMDAwIG4gCjAwMDAwMDA4MDMgMDAwMDAgbiAKMDAwMDAwMTA0OSAwMDAwMCBuIAowMDAwMDAxMTg1IDAwMDAwIG4gCnRyYWlsZXIKPDwgL1NpemUgMTAgL1Jvb3QgMSAwIFIgPj4Kc3RhcnR4cmVmCjEzNjMKJSVFT0YK"
+    },
+    "23a57dfb73f7": {
+      "name": "Data.txt",
+      "text": "Data\n工厂\t产量（万吨）\t销量\n二厂\t31\t126\n"
+    },
+    "dee1b812a4ec": {
+      "name": "Rates.txt",
+      "text": "Rates\n产量（万吨） 7月: 90\n\n充电量\n8月: 126\n"
     }
   },
   "rows": [
@@ -22846,13 +22918,13 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 126, not 126万千瓦时."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "The Document gives 126, not 126万千瓦时."
+          "verdict": "supported",
+          "reason": null
         }
       }
     },
@@ -22878,13 +22950,13 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "文档写的是 126，不是 126万千瓦时。"
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "文档写的是 126，不是 126万千瓦时。"
+          "verdict": "supported",
+          "reason": null
         }
       }
     },
@@ -31106,13 +31178,13 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 126, not 126万千瓦时."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "The Document gives 126, not 126万千瓦时."
+          "verdict": "supported",
+          "reason": null
         }
       }
     },
@@ -31138,13 +31210,13 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "文档写的是 126，不是 126万千瓦时。"
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "文档写的是 126，不是 126万千瓦时。"
+          "verdict": "supported",
+          "reason": null
         }
       }
     },
@@ -32233,6 +32305,1926 @@
         "document": {
           "verdict": "supported",
           "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-caption-mass-right-en",
+      "source": "heading › caption-mass-right",
+      "language": "en",
+      "sentence": "二厂产量为31万吨。",
+      "quotes": ["二厂\t31"],
+      "files": ["4123c7763677"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 31, not 31万吨."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-caption-mass-right-zh-CN",
+      "source": "heading › caption-mass-right",
+      "language": "zh-CN",
+      "sentence": "二厂产量为31万吨。",
+      "quotes": ["二厂\t31"],
+      "files": ["4123c7763677"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 31，不是 31万吨。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-caption-mass-yi-en",
+      "source": "heading › caption-mass-yi",
+      "language": "en",
+      "sentence": "二厂产量为31亿吨。",
+      "quotes": ["二厂\t31"],
+      "files": ["4123c7763677"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 31, not 31亿吨."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "The Document gives 31, not 31亿吨."
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 31, not 31亿吨."
+        }
+      }
+    },
+    {
+      "id": "e-caption-mass-yi-zh-CN",
+      "source": "heading › caption-mass-yi",
+      "language": "zh-CN",
+      "sentence": "二厂产量为31亿吨。",
+      "quotes": ["二厂\t31"],
+      "files": ["4123c7763677"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 31，不是 31亿吨。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "文档写的是 31，不是 31亿吨。"
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 31，不是 31亿吨。"
+        }
+      }
+    },
+    {
+      "id": "e-caption-mass-plain-wrong-en",
+      "source": "heading › caption-mass-plain-wrong",
+      "language": "en",
+      "sentence": "二厂产量为31吨。",
+      "quotes": ["二厂\t31"],
+      "files": ["4123c7763677"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-caption-mass-plain-wrong-zh-CN",
+      "source": "heading › caption-mass-plain-wrong",
+      "language": "zh-CN",
+      "sentence": "二厂产量为31吨。",
+      "quotes": ["二厂\t31"],
+      "files": ["4123c7763677"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-caption-no-number-mass-right-en",
+      "source": "heading › caption-no-number-mass-right",
+      "language": "en",
+      "sentence": "二厂产量为31万吨。",
+      "quotes": ["二厂\t31"],
+      "files": ["6511ea5f3573"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 31, not 31万吨."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-caption-no-number-mass-right-zh-CN",
+      "source": "heading › caption-no-number-mass-right",
+      "language": "zh-CN",
+      "sentence": "二厂产量为31万吨。",
+      "quotes": ["二厂\t31"],
+      "files": ["6511ea5f3573"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 31，不是 31万吨。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-caption-vehicles-right-en",
+      "source": "heading › caption-vehicles-right",
+      "language": "en",
+      "sentence": "二厂产量为31万辆。",
+      "quotes": ["二厂\t31"],
+      "files": ["8a2f527226ea"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 31, not 31万辆."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-caption-vehicles-right-zh-CN",
+      "source": "heading › caption-vehicles-right",
+      "language": "zh-CN",
+      "sentence": "二厂产量为31万辆。",
+      "quotes": ["二厂\t31"],
+      "files": ["8a2f527226ea"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 31，不是 31万辆。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-caption-people-right-en",
+      "source": "heading › caption-people-right",
+      "language": "en",
+      "sentence": "二厂员工为31万人。",
+      "quotes": ["二厂\t31"],
+      "files": ["1fcdc26fddaf"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 31, not 31万人."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-caption-people-right-zh-CN",
+      "source": "heading › caption-people-right",
+      "language": "zh-CN",
+      "sentence": "二厂员工为31万人。",
+      "quotes": ["二厂\t31"],
+      "files": ["1fcdc26fddaf"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 31，不是 31万人。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-caption-energy-right-en",
+      "source": "heading › caption-energy-right",
+      "language": "en",
+      "sentence": "二厂用电为31万千瓦时。",
+      "quotes": ["二厂\t31"],
+      "files": ["ae95eae484ad"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 31, not 31万千瓦时."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-caption-energy-right-zh-CN",
+      "source": "heading › caption-energy-right",
+      "language": "zh-CN",
+      "sentence": "二厂用电为31万千瓦时。",
+      "quotes": ["二厂\t31"],
+      "files": ["ae95eae484ad"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 31，不是 31万千瓦时。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-caption-energy-yi-en",
+      "source": "heading › caption-energy-yi",
+      "language": "en",
+      "sentence": "二厂用电为31亿千瓦时。",
+      "quotes": ["二厂\t31"],
+      "files": ["ae95eae484ad"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 31, not 31亿千瓦时."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "The Document gives 31, not 31亿千瓦时."
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 31, not 31亿千瓦时."
+        }
+      }
+    },
+    {
+      "id": "e-caption-energy-yi-zh-CN",
+      "source": "heading › caption-energy-yi",
+      "language": "zh-CN",
+      "sentence": "二厂用电为31亿千瓦时。",
+      "quotes": ["二厂\t31"],
+      "files": ["ae95eae484ad"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 31，不是 31亿千瓦时。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "文档写的是 31，不是 31亿千瓦时。"
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 31，不是 31亿千瓦时。"
+        }
+      }
+    },
+    {
+      "id": "e-caption-other-measure-en",
+      "source": "heading › caption-other-measure",
+      "language": "en",
+      "sentence": "二厂产量为31万吨。",
+      "quotes": ["二厂\t31"],
+      "files": ["ae95eae484ad"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 31, not 31万吨."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "The Document gives 31, not 31万吨."
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 31, not 31万吨."
+        }
+      }
+    },
+    {
+      "id": "e-caption-other-measure-zh-CN",
+      "source": "heading › caption-other-measure",
+      "language": "zh-CN",
+      "sentence": "二厂产量为31万吨。",
+      "quotes": ["二厂\t31"],
+      "files": ["ae95eae484ad"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 31，不是 31万吨。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "文档写的是 31，不是 31万吨。"
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 31，不是 31万吨。"
+        }
+      }
+    },
+    {
+      "id": "e-caption-money-right-en",
+      "source": "heading › caption-money-right",
+      "language": "en",
+      "sentence": "二厂产值为31万元。",
+      "quotes": ["二厂\t31"],
+      "files": ["99b724ca2f97"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-caption-money-right-zh-CN",
+      "source": "heading › caption-money-right",
+      "language": "zh-CN",
+      "sentence": "二厂产值为31万元。",
+      "quotes": ["二厂\t31"],
+      "files": ["99b724ca2f97"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-caption-money-yi-en",
+      "source": "heading › caption-money-yi",
+      "language": "en",
+      "sentence": "二厂产值为31亿元。",
+      "quotes": ["二厂\t31"],
+      "files": ["99b724ca2f97"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 31, not 31亿元."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "The Document gives 31, not 31亿元."
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 31, not 31亿元."
+        }
+      }
+    },
+    {
+      "id": "e-caption-money-yi-zh-CN",
+      "source": "heading › caption-money-yi",
+      "language": "zh-CN",
+      "sentence": "二厂产值为31亿元。",
+      "quotes": ["二厂\t31"],
+      "files": ["99b724ca2f97"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 31，不是 31亿元。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "文档写的是 31，不是 31亿元。"
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 31，不是 31亿元。"
+        }
+      }
+    },
+    {
+      "id": "e-caption-en-tonnes-right-en",
+      "source": "heading › caption-en-tonnes-right",
+      "language": "en",
+      "sentence": "Plant B made 31 thousand tonnes.",
+      "quotes": ["B\t31"],
+      "files": ["de939bca0d4c"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-caption-en-tonnes-right-zh-CN",
+      "source": "heading › caption-en-tonnes-right",
+      "language": "zh-CN",
+      "sentence": "Plant B made 31 thousand tonnes.",
+      "quotes": ["B\t31"],
+      "files": ["de939bca0d4c"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-caption-en-tonnes-wrong-en",
+      "source": "heading › caption-en-tonnes-wrong",
+      "language": "en",
+      "sentence": "Plant B made 31 million tonnes.",
+      "quotes": ["B\t31"],
+      "files": ["de939bca0d4c"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 31, not 31 million tonnes."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "The Document gives 31, not 31 million tonnes."
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 31, not 31 million tonnes."
+        }
+      }
+    },
+    {
+      "id": "e-caption-en-tonnes-wrong-zh-CN",
+      "source": "heading › caption-en-tonnes-wrong",
+      "language": "zh-CN",
+      "sentence": "Plant B made 31 million tonnes.",
+      "quotes": ["B\t31"],
+      "files": ["de939bca0d4c"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 31，不是 31 million tonnes。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "文档写的是 31，不是 31 million tonnes。"
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 31，不是 31 million tonnes。"
+        }
+      }
+    },
+    {
+      "id": "e-caption-en-usd-right-en",
+      "source": "heading › caption-en-usd-right",
+      "language": "en",
+      "sentence": "Plant B cost US$31,000.",
+      "quotes": ["B\t31"],
+      "files": ["7dfbb7b78b26"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-caption-en-usd-right-zh-CN",
+      "source": "heading › caption-en-usd-right",
+      "language": "zh-CN",
+      "sentence": "Plant B cost US$31,000.",
+      "quotes": ["B\t31"],
+      "files": ["7dfbb7b78b26"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-caption-en-usd-wrong-en",
+      "source": "heading › caption-en-usd-wrong",
+      "language": "en",
+      "sentence": "Plant B cost US$31 million.",
+      "quotes": ["B\t31"],
+      "files": ["7dfbb7b78b26"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 31, not US$31 million."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "The Document gives 31, not US$31 million."
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 31, not US$31 million."
+        }
+      }
+    },
+    {
+      "id": "e-caption-en-usd-wrong-zh-CN",
+      "source": "heading › caption-en-usd-wrong",
+      "language": "zh-CN",
+      "sentence": "Plant B cost US$31 million.",
+      "quotes": ["B\t31"],
+      "files": ["7dfbb7b78b26"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 31，不是 US$31 million。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "文档写的是 31，不是 US$31 million。"
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 31，不是 US$31 million。"
+        }
+      }
+    },
+    {
+      "id": "e-page-before-right-en",
+      "source": "heading › page-before-right",
+      "language": "en",
+      "sentence": "9月充电量为131万千瓦时。",
+      "quotes": ["9月: 131"],
+      "files": ["5ea3d04938ad"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 131以上, not 131万千瓦时."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-page-before-right-zh-CN",
+      "source": "heading › page-before-right",
+      "language": "zh-CN",
+      "sentence": "9月充电量为131万千瓦时。",
+      "quotes": ["9月: 131"],
+      "files": ["5ea3d04938ad"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 131以上，不是 131万千瓦时。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-page-before-yi-en",
+      "source": "heading › page-before-yi",
+      "language": "en",
+      "sentence": "9月充电量为131亿千瓦时。",
+      "quotes": ["9月: 131"],
+      "files": ["5ea3d04938ad"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 131以上, not 131亿千瓦时."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "The Document gives 131以上, not 131亿千瓦时."
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 131以上, not 131亿千瓦时."
+        }
+      }
+    },
+    {
+      "id": "e-page-before-yi-zh-CN",
+      "source": "heading › page-before-yi",
+      "language": "zh-CN",
+      "sentence": "9月充电量为131亿千瓦时。",
+      "quotes": ["9月: 131"],
+      "files": ["5ea3d04938ad"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 131以上，不是 131亿千瓦时。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "文档写的是 131以上，不是 131亿千瓦时。"
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 131以上，不是 131亿千瓦时。"
+        }
+      }
+    },
+    {
+      "id": "e-group-heading-right-en",
+      "source": "heading › group-heading-right",
+      "language": "en",
+      "sentence": "华北7月充电量为90万千瓦时。",
+      "quotes": ["7月: 90"],
+      "files": ["51d0a893a0da"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 90, not 90万千瓦时."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-group-heading-right-zh-CN",
+      "source": "heading › group-heading-right",
+      "language": "zh-CN",
+      "sentence": "华北7月充电量为90万千瓦时。",
+      "quotes": ["7月: 90"],
+      "files": ["51d0a893a0da"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 90，不是 90万千瓦时。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-group-heading-yi-en",
+      "source": "heading › group-heading-yi",
+      "language": "en",
+      "sentence": "华北7月充电量为90亿千瓦时。",
+      "quotes": ["7月: 90"],
+      "files": ["51d0a893a0da"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 90, not 90亿千瓦时."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "The Document gives 90, not 90亿千瓦时."
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 90, not 90亿千瓦时."
+        }
+      }
+    },
+    {
+      "id": "e-group-heading-yi-zh-CN",
+      "source": "heading › group-heading-yi",
+      "language": "zh-CN",
+      "sentence": "华北7月充电量为90亿千瓦时。",
+      "quotes": ["7月: 90"],
+      "files": ["51d0a893a0da"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 90，不是 90亿千瓦时。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "文档写的是 90，不是 90亿千瓦时。"
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 90，不是 90亿千瓦时。"
+        }
+      }
+    },
+    {
+      "id": "e-group-heading-plain-wrong-en",
+      "source": "heading › group-heading-plain-wrong",
+      "language": "en",
+      "sentence": "华北7月充电量为90千瓦时。",
+      "quotes": ["7月: 90"],
+      "files": ["51d0a893a0da"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-group-heading-plain-wrong-zh-CN",
+      "source": "heading › group-heading-plain-wrong",
+      "language": "zh-CN",
+      "sentence": "华北7月充电量为90千瓦时。",
+      "quotes": ["7月: 90"],
+      "files": ["51d0a893a0da"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-no-unit-anywhere-en",
+      "source": "heading › no-unit-anywhere",
+      "language": "en",
+      "sentence": "SUV销量为57万辆。",
+      "quotes": ["SUV\t57"],
+      "files": ["6adad100568b"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 57, not 57万辆."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "The Document gives 57, not 57万辆."
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 57, not 57万辆."
+        }
+      }
+    },
+    {
+      "id": "e-no-unit-anywhere-zh-CN",
+      "source": "heading › no-unit-anywhere",
+      "language": "zh-CN",
+      "sentence": "SUV销量为57万辆。",
+      "quotes": ["SUV\t57"],
+      "files": ["6adad100568b"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 57，不是 57万辆。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "文档写的是 57，不是 57万辆。"
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 57，不是 57万辆。"
+        }
+      }
+    },
+    {
+      "id": "e-bracket-no-unit-forecast-en",
+      "source": "heading › bracket-no-unit-forecast",
+      "language": "en",
+      "sentence": "二厂产量为31万吨。",
+      "quotes": ["二厂\t31"],
+      "files": ["52bd43c050ce"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 31, not 31万吨."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "The Document gives 31, not 31万吨."
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 31, not 31万吨."
+        }
+      }
+    },
+    {
+      "id": "e-bracket-no-unit-forecast-zh-CN",
+      "source": "heading › bracket-no-unit-forecast",
+      "language": "zh-CN",
+      "sentence": "二厂产量为31万吨。",
+      "quotes": ["二厂\t31"],
+      "files": ["52bd43c050ce"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 31，不是 31万吨。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "文档写的是 31，不是 31万吨。"
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 31，不是 31万吨。"
+        }
+      }
+    },
+    {
+      "id": "e-bracket-no-unit-continued-en",
+      "source": "heading › bracket-no-unit-continued",
+      "language": "en",
+      "sentence": "二厂产量为31万吨。",
+      "quotes": ["二厂\t31"],
+      "files": ["eb02914453fe"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 31, not 31万吨."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "The Document gives 31, not 31万吨."
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 31, not 31万吨."
+        }
+      }
+    },
+    {
+      "id": "e-bracket-no-unit-continued-zh-CN",
+      "source": "heading › bracket-no-unit-continued",
+      "language": "zh-CN",
+      "sentence": "二厂产量为31万吨。",
+      "quotes": ["二厂\t31"],
+      "files": ["eb02914453fe"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 31，不是 31万吨。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "文档写的是 31，不是 31万吨。"
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 31，不是 31万吨。"
+        }
+      }
+    },
+    {
+      "id": "e-bracket-no-unit-year-en",
+      "source": "heading › bracket-no-unit-year",
+      "language": "en",
+      "sentence": "二厂产量为31万吨。",
+      "quotes": ["二厂\t31"],
+      "files": ["c2767b13013d"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 31, not 31万吨."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "The Document gives 31, not 31万吨."
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 31, not 31万吨."
+        }
+      }
+    },
+    {
+      "id": "e-bracket-no-unit-year-zh-CN",
+      "source": "heading › bracket-no-unit-year",
+      "language": "zh-CN",
+      "sentence": "二厂产量为31万吨。",
+      "quotes": ["二厂\t31"],
+      "files": ["c2767b13013d"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 31，不是 31万吨。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "文档写的是 31，不是 31万吨。"
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 31，不是 31万吨。"
+        }
+      }
+    },
+    {
+      "id": "e-prose-bracket-right-en",
+      "source": "heading › prose-bracket-right",
+      "language": "en",
+      "sentence": "二厂发电量为31万千瓦时。",
+      "quotes": ["二厂\t31"],
+      "files": ["bfe2ffddadb8"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 31, not 31万千瓦时."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-prose-bracket-right-zh-CN",
+      "source": "heading › prose-bracket-right",
+      "language": "zh-CN",
+      "sentence": "二厂发电量为31万千瓦时。",
+      "quotes": ["二厂\t31"],
+      "files": ["bfe2ffddadb8"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 31，不是 31万千瓦时。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-prose-bracket-yi-en",
+      "source": "heading › prose-bracket-yi",
+      "language": "en",
+      "sentence": "二厂发电量为31亿千瓦时。",
+      "quotes": ["二厂\t31"],
+      "files": ["bfe2ffddadb8"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 31, not 31亿千瓦时."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "The Document gives 31, not 31亿千瓦时."
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 31, not 31亿千瓦时."
+        }
+      }
+    },
+    {
+      "id": "e-prose-bracket-yi-zh-CN",
+      "source": "heading › prose-bracket-yi",
+      "language": "zh-CN",
+      "sentence": "二厂发电量为31亿千瓦时。",
+      "quotes": ["二厂\t31"],
+      "files": ["bfe2ffddadb8"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 31，不是 31亿千瓦时。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "文档写的是 31，不是 31亿千瓦时。"
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 31，不是 31亿千瓦时。"
+        }
+      }
+    },
+    {
+      "id": "e-zh-rose-points-space-vs-percent-en",
+      "source": "points › zh-rose-points-space-vs-percent",
+      "language": "en",
+      "sentence": "指数上涨了20%。",
+      "quotes": ["指数上涨了 20点"],
+      "files": ["88e1bf7429c7"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 20, not 20%."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "The Document gives 20点, not 20%."
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 20点, not 20%."
+        }
+      }
+    },
+    {
+      "id": "e-zh-rose-points-space-vs-percent-zh-CN",
+      "source": "points › zh-rose-points-space-vs-percent",
+      "language": "zh-CN",
+      "sentence": "指数上涨了20%。",
+      "quotes": ["指数上涨了 20点"],
+      "files": ["88e1bf7429c7"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 20，不是 20%。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "文档写的是 20点，不是 20%。"
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 20点，不是 20%。"
+        }
+      }
+    },
+    {
+      "id": "e-zh-rose-points-space-twin-en",
+      "source": "points › zh-rose-points-space-twin",
+      "language": "en",
+      "sentence": "指数上涨了20点。",
+      "quotes": ["指数上涨了 20点"],
+      "files": ["88e1bf7429c7"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-zh-rose-points-space-twin-zh-CN",
+      "source": "points › zh-rose-points-space-twin",
+      "language": "zh-CN",
+      "sentence": "指数上涨了20点。",
+      "quotes": ["指数上涨了 20点"],
+      "files": ["88e1bf7429c7"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-column-other-series-same-measure-en",
+      "source": "heading › column-other-series-same-measure",
+      "language": "en",
+      "sentence": "二厂销量为126万吨。",
+      "quotes": ["二厂\t31\t126"],
+      "files": ["23a57dfb73f7"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 126, not 126万吨."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "The Document gives 126, not 126万吨."
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 126, not 126万吨."
+        }
+      }
+    },
+    {
+      "id": "e-column-other-series-same-measure-zh-CN",
+      "source": "heading › column-other-series-same-measure",
+      "language": "zh-CN",
+      "sentence": "二厂销量为126万吨。",
+      "quotes": ["二厂\t31\t126"],
+      "files": ["23a57dfb73f7"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 126，不是 126万吨。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "文档写的是 126，不是 126万吨。"
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 126，不是 126万吨。"
+        }
+      }
+    },
+    {
+      "id": "e-other-line-series-same-measure-en",
+      "source": "heading › other-line-series-same-measure",
+      "language": "en",
+      "sentence": "8月充电量为126万吨。",
+      "quotes": ["8月: 126"],
+      "files": ["dee1b812a4ec"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 126, not 126万吨."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "The Document gives 126, not 126万吨."
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 126, not 126万吨."
+        }
+      }
+    },
+    {
+      "id": "e-other-line-series-same-measure-zh-CN",
+      "source": "heading › other-line-series-same-measure",
+      "language": "zh-CN",
+      "sentence": "8月充电量为126万吨。",
+      "quotes": ["8月: 126"],
+      "files": ["dee1b812a4ec"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 126，不是 126万吨。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "文档写的是 126，不是 126万吨。"
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 126，不是 126万吨。"
         }
       }
     }

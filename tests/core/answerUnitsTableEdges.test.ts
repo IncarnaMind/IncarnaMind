@@ -12,7 +12,7 @@ describe("#2997's measured table: the issue's rows, twins and edge cases", () =>
     await readsAsMeasured(rowsOf("points"));
   });
 
-  // protects=a heading heads every row under it up to a blank line or the next heading, a year in it included, a row with its own bracket is a row, a heading row of cells states only its column's unit, a number's own label outranks its column's and a unit line elsewhere, right scale kept and wrong caught, in English and Chinese; fails_when=any of those rows reads otherwise; no_claim=what a real model replies.
+  // protects=a heading heads every row under it up to a blank line or the next heading, a year in it included, a row with its own bracket is a row, a heading row of cells states only its column's unit, a number's own label outranks its column's and a unit line elsewhere, a caption or heading the label reading doesn't reach leaves its own unit's scale open and never another unit's or series', right scale kept and wrong caught, in English and Chinese; fails_when=any of those rows reads otherwise; no_claim=what a real model replies.
   test("a heading's unit reaches every row under it", { timeout: 600_000 }, async () => {
     await readsAsMeasured(rowsOf("headings"));
   });

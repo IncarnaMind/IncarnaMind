@@ -90,7 +90,7 @@ const SHARE_IN_WORDS = new RegExp(
 const CHANGE_BEFORE =
   /\b(?:rise|rises|rising|risen|rose|fall|falls|falling|fallen|fell|up|down|by|gain|gains|gained|lose|loses|lost|drop|drops|dropped|climb|climbs|climbed|increase|increases|increased|decrease|decreases|decreased)(?: by| of)? $/iu;
 const CN_CHANGE_BEFORE =
-  /(?:上升|上涨|下降|下跌|提高|降低|增加|减少|回落|反弹|攀升|下滑|涨|跌|升|降)了?$/u;
+  /(?:上升|上涨|下降|下跌|提高|降低|增加|减少|回落|反弹|攀升|下滑|涨|跌|升|降)了?\s*$/u;
 
 function sharesInWords(text: string): Figure[] {
   return [...text.matchAll(SHARE_IN_WORDS)].flatMap((match) => {
@@ -623,12 +623,40 @@ export function unitNotStated(
         text.gateReads && plain ? labelled(text.cited(), start, context) : [],
       );
       const headings = labels.flat();
+      // A unit in brackets on a line of words in the Document ("表7 各厂产量（万吨）" over its
+      // table) states the scale as a unit line does, for that unit only: "（万千瓦时）" never opens
+      // tonnes. One on a line that gives a value, its own or a table's row, labels another series.
+      const sameUnit = (statement: StatedUnit) =>
+        figure.unit.kind === "currency"
+          ? statement.unit.kind === "currency"
+          : figure.unit.kind !== "other" ||
+            (statement.unit.kind === "other" &&
+              (statement.unit.word === figure.unit.word ||
+                (measureOf(figure.unit) !== null &&
+                  measureOf(statement.unit) === measureOf(figure.unit))));
       const stated = sameWritten
-        .flatMap(({ text, context }, at) => {
+        .flatMap(({ text, context, start }, at) => {
           const own = labels[at] ?? [];
-          return own.length > 0
-            ? ownFirst(own, ofItsMeasure)
-            : readStatedUnits(text.document(), context);
+          if (own.length > 0) return ownFirst(own, ofItsMeasure);
+          const cited = text.cited();
+          const itsLine = cited
+            .slice(cited.lastIndexOf("\n", start - 1) + 1)
+            .split("\n")[0]
+            ?.trim();
+          const bracketed = text.gateReads
+            ? text
+                .document()
+                .split("\n")
+                .filter(
+                  (line) =>
+                    !line.includes("\t") &&
+                    line.trim() !== itsLine &&
+                    readFigures(line, context).length === 0,
+                )
+                .flatMap((line) => bracketedUnits(line, context))
+                .filter(sameUnit)
+            : [];
+          return [...readStatedUnits(text.document(), context), ...bracketed];
         })
         .some(
           (statement) =>
