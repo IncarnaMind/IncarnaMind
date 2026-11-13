@@ -77,6 +77,27 @@ const WORD_CHARACTER = /[\p{L}\p{N}]/u;
 
 interface Enclosed extends SentenceSpan {
   lastStopEndsSentence: boolean;
+  /** Its last sentence has a Citation of its own inside it: so has each before it that has one. */
+  citesItsSentences: boolean;
+}
+
+const STOP = /[.!?。！？]/u;
+
+/** Whether a Citation's marker stands right before or right after the stop at `at`. */
+const citedAt = (text: string, at: number) =>
+  text.charAt(at - 1) === INLINE_NODE || text.charAt(at + 1) === INLINE_NODE;
+
+/**
+ * Whether the quotation or bracket from `from` to `to` (its closing mark) ends its last
+ * sentence with a Citation of its own, inside it: "(Revenue rose[^1]. Costs fell[^2].)".
+ */
+function citesItsSentences(text: string, from: number, to: number): boolean {
+  for (let at = to - 1; at > from; at--) {
+    const char = text.charAt(at);
+    if (STOP.test(char)) return citedAt(text, at);
+    if (char !== INLINE_NODE && !isSpace(char)) return false;
+  }
+  return false;
 }
 
 function inChineseSentence(text: string, open: number, close: number | null): boolean {
@@ -169,15 +190,29 @@ function enclosedQuotations(text: string): Enclosed[] {
       // quoted sentence starts the next.
       const lastStopEndsSentence =
         close !== null && !NEVER_END_A_SENTENCE.has(open) && spaceBeforeNextWord(text, close + 1);
-      found.push({ from: at, to: close ?? sentenceEnd, lastStopEndsSentence });
+      const to = close ?? sentenceEnd;
+      found.push({
+        from: at,
+        to,
+        lastStopEndsSentence,
+        citesItsSentences: citesItsSentences(text, at, to),
+      });
       at = close ?? sentenceEnd;
-    } else if (close !== null && ENGLISH_MARKS.has(open) && quotesAPair(text, at, close)) {
+    } else if (
+      close !== null &&
+      ENGLISH_MARKS.has(open) &&
+      quotesAPair(text, at, close) &&
+      // A single mark before a word ("‘90s", "‘Twas") stands for an apostrophe, and one after a
+      // plural ("tenants’") closes nothing: a quoted sentence ends at a stop inside its marks.
+      (open !== "‘" || !WORD_CHARACTER.test(text.charAt(close - 1)))
+    ) {
       // English closes a quoted sentence inside its marks, so the stop that is the quotation's
       // last character ends its sentence when a space comes before the next word (#3019).
       found.push({
         from: at,
         to: close,
         lastStopEndsSentence: spaceBeforeMore(text, close + 1),
+        citesItsSentences: citesItsSentences(text, at, close),
       });
       at = close;
     } else if (close !== null && !(open === '"' && ENGLISH_MARKS.has(open))) at = close;
@@ -227,6 +262,8 @@ export function sentenceSpans(text: string, figures: readonly number[] = []): Se
     while ((enclosures[enclosedAt]?.to ?? Number.POSITIVE_INFINITY) <= stop) enclosedAt++;
     const enclosed = enclosures[enclosedAt];
     if (enclosed === undefined || enclosed.from >= stop) return false;
+    // Each quoted sentence with a Citation of its own is a sentence (#3019).
+    if (enclosed.citesItsSentences && citedAt(text, stop)) return false;
     return !enclosed.lastStopEndsSentence || hasWords(text.slice(stop, enclosed.to));
   };
   let englishStop: number | null = null;

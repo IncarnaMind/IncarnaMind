@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { citedSentences } from "../../src/shared/citedSentences";
+import { sentenceSpans } from "../../src/shared/sentences";
 import { random } from "../helpers/random";
 
 const MARKER = /\[\^\d+\]/g;
@@ -352,5 +353,119 @@ describe("The cited sentences of an Answer", () => {
       const answer = generatedAnswer(seed);
       expect(wordsReturned(answer), answer).toEqual(wordsOf(answer));
     }
+  });
+});
+
+describe("Quoted sentences with Citations of their own, and single marks for apostrophes (#3019)", () => {
+  // protects=each sentence inside a quotation or bracket that carries a Citation of its own is a sentence, as on main, with its marker before or after its stop, while a quotation cited as a whole stays one; fails_when=two quoted sentences with their own Citations are judged as one; no_claim=none beyond protects.
+  test.each<[string, string[]]>([
+    [
+      "(Revenue rose five percent[^1]. Costs fell three percent[^2].) The board agreed with both[^3].",
+      ["(Revenue rose five percent.", "Costs fell three percent.)", "The board agreed with both."],
+    ],
+    [
+      'The report says "Revenue rose five percent[^1]. Costs fell three percent[^2]." The board agreed[^3].',
+      [
+        'The report says "Revenue rose five percent.',
+        'Costs fell three percent."',
+        "The board agreed.",
+      ],
+    ],
+    // As on main: a marker after the stop leaves the closing mark with the next sentence.
+    [
+      "The report says “Revenue rose five percent.[^1] Costs fell three percent.[^2]” The board agreed[^3].",
+      [
+        "The report says “Revenue rose five percent.",
+        "Costs fell three percent.",
+        "” The board agreed.",
+      ],
+    ],
+    [
+      "Revenue rose (see the first table[^1]. The second table gives costs[^2].) in every region[^3].",
+      ["Revenue rose (see the first table.", "The second table gives costs.) in every region."],
+    ],
+    [
+      'The report says "Revenue rose five percent. Costs fell three percent."[^1] The board agreed[^2].',
+      [
+        'The report says "Revenue rose five percent. Costs fell three percent."',
+        "The board agreed.",
+      ],
+    ],
+    [
+      "(Revenue rose five percent. Costs fell three percent.)[^1] The board agreed[^2].",
+      ["(Revenue rose five percent. Costs fell three percent.)", "The board agreed."],
+    ],
+    [
+      'The report says "Prepared for software testing. The text is fictional[^1]."',
+      ['The report says "Prepared for software testing. The text is fictional."'],
+    ],
+    [
+      'The report says "Prepared for software testing[^4]. The text is fictional."[^3] So it may not be real[^5].',
+      [
+        'The report says "Prepared for software testing. The text is fictional."',
+        "So it may not be real.",
+      ],
+    ],
+    [
+      "He wrote ‘It’s done. They’re gone.’[^1] She agreed with him[^2].",
+      ["He wrote ‘It’s done. They’re gone.’", "She agreed with him."],
+    ],
+    [
+      "The lease (clause 4. See also clause 9.) binds both[^1].",
+      ["The lease (clause 4. See also clause 9.) binds both."],
+    ],
+  ])("%s", (answer, sentences) => {
+    expect(split(answer).map(([sentence]) => sentence)).toEqual(sentences);
+  });
+
+  const APOSTROPHES: [string, string[]][] = [
+    [
+      "In the ‘90s rents rose[^1]. The tenants’ costs fell[^2].",
+      ["In the ‘90s rents rose.", "The tenants’ costs fell."],
+    ],
+    [
+      "In the ‘90s rents rose[^1]. Costs fell in the 2000s[^2]. The tenants’ view differed[^3].",
+      ["In the ‘90s rents rose.", "Costs fell in the 2000s.", "The tenants’ view differed."],
+    ],
+    [
+      "‘Twas a hard year for the firm[^1]. The owners’ losses grew[^2].",
+      ["‘Twas a hard year for the firm.", "The owners’ losses grew."],
+    ],
+    [
+      "Get ‘em signed by Friday[^1]. The partners’ shares follow[^2].",
+      ["Get ‘em signed by Friday.", "The partners’ shares follow."],
+    ],
+    [
+      "In the ’90s rents rose[^1]. The tenants’ costs fell[^2].",
+      ["In the ’90s rents rose.", "The tenants’ costs fell."],
+    ],
+    [
+      "In the ‘90s rents rose[^1]. The memo called it ‘final’ in May[^2].",
+      ["In the ‘90s rents rose.", "The memo called it ‘final’ in May."],
+    ],
+  ];
+
+  // protects=a single mark that stands for an apostrophe ("‘90s", "‘Twas", "tenants’") opens and closes no quotation, with Citations and in plain text, as the Note's own editor writes them; fails_when=two or three sentences join into one; no_claim=none beyond protects.
+  test.each(APOSTROPHES)("%s", (answer, sentences) => {
+    expect(split(answer).map(([sentence]) => sentence)).toEqual(sentences);
+  });
+
+  test.each(APOSTROPHES.slice(0, 4))("as plain text: %s", (answer, sentences) => {
+    const plain = answer.replaceAll(/\[\^\d+\]/g, "");
+    expect(sentenceSpans(plain).map(({ from, to }) => plain.slice(from, to))).toEqual(sentences);
+  });
+
+  // protects=the Chinese twins of the cited quoted sentences stay apart, as on main; fails_when=the rule for Citations inside quotations changes Chinese; no_claim=none beyond protects.
+  test.each<[string, string[]]>([
+    [
+      "报告写明“收入增长了百分之五[^1]。成本下降了百分之三[^2]。”董事会都同意[^3]。",
+      ["报告写明“收入增长了百分之五。", "成本下降了百分之三。”", "董事会都同意。"],
+    ],
+    [
+      "（收入增长了百分之五[^1]。成本下降了百分之三[^2]。）董事会都同意[^3]。",
+      ["（收入增长了百分之五。", "成本下降了百分之三。）", "董事会都同意。"],
+    ],
+  ])("%s", (answer, sentences) => {
+    expect(split(answer).map(([sentence]) => sentence)).toEqual(sentences);
   });
 });
