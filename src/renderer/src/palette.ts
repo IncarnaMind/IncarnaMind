@@ -4,6 +4,7 @@
  * inside Minds, Documents and conversations, which the core finds once typing
  * pauses; and, when nothing matches, asking about what was typed.
  */
+import { NodeSelection } from "@tiptap/pm/state";
 import { create } from "zustand";
 import type {
   AnnotationMatch,
@@ -25,11 +26,12 @@ import { mindName } from "../../shared/naming";
 import { useAnnotations } from "./annotations";
 import { focusComposer } from "./commands/assistant";
 import { placeAt } from "./commands/edit";
-import { citationHandle, paletteOpen } from "./commands/handles";
+import { citationHandle, noteHandle, paletteOpen } from "./commands/handles";
 import { placeHere } from "./commands/here";
 import { menuKeysLabel, objectAt } from "./commands/keymap";
 import {
   COMMAND_GROUPS,
+  type Command,
   type CommandContext,
   commands,
   isEnabled,
@@ -72,10 +74,18 @@ function underTab(focus: ObjectRef | null): ObjectRef | null {
   return shown ?? focus;
 }
 
+/** Whether words are selected in the Note last written in; a picture or a Block is not text. */
+function textSelected(): boolean {
+  const note = noteHandle.current;
+  if (!note || note.editor.isDestroyed) return false;
+  const { selection } = note.editor.state;
+  return !selection.empty && !(selection instanceof NodeSelection);
+}
+
 function acting(
   target: ObjectRef | undefined,
   active: Element | null,
-  on: Pick<CommandContext, "selection" | "focus">,
+  on: Pick<CommandContext, "selection" | "focus" | "picked">,
 ): CommandContext {
   const targets = on.selection.length > 0 ? on.selection : on.focus ? [on.focus] : [];
   const moveTo = () => moveFromPalette(targets);
@@ -83,6 +93,7 @@ function acting(
   return {
     ...NOTHING,
     ...on,
+    ...(textSelected() && { textSelected: true }),
     place: placeAt(active),
     task: taskAt(active),
     here: {
@@ -102,13 +113,14 @@ function acting(
  * shows, as a list's own keys and the shortcuts on the note decide.
  */
 export function contextAt(active: Element | null): CommandContext {
-  const { surface, items } = useSelection.getState();
+  const { surface, items, picked } = useSelection.getState();
   // By the list's own mark: the Figure schedule holds a selection without being a command surface.
   const list = active?.closest<HTMLElement>("[data-surface]")?.dataset.surface;
   if (surface !== null && items.length > 0 && list === surface) {
     return acting(items.length === 1 ? items[0] : undefined, active, {
       selection: items,
       focus: null,
+      ...(picked && { picked: true }),
     });
   }
   const focus = underTab(objectAt(active)) ?? objectInFront();
@@ -281,8 +293,9 @@ export function nameGroups(words: readonly string[], found: Findings): PaletteGr
 
 /**
  * The name groups and the action group as the palette lists them: the actions above the names
- * when their first matches the words typed more closely than any name does, so Enter runs Check
- * rather than opening the Note named "Checking: Estuary memo" (#2771).
+ * when one of them matches the words typed more closely than any name does, so Enter runs Check
+ * rather than opening the Note named "Checking: Estuary memo" (#2771). The closest action, not
+ * the first: the selection's own actions come first whatever their match.
  */
 export function rankedNamesAndActions(
   names: readonly PaletteGroup[],
@@ -292,9 +305,11 @@ export function rankedNamesAndActions(
   const score = (item: PaletteItem | undefined) =>
     item === undefined ? -Infinity : (matchName(words, item.name)?.score ?? -Infinity);
   const closestName = Math.max(-Infinity, ...names.map((group) => score(group.items[0])));
-  return score(actions[0]?.items[0]) > closestName
-    ? [...actions, ...names]
-    : [...names, ...actions];
+  const closestAction = Math.max(
+    -Infinity,
+    ...actions.flatMap((group) => group.items.map((item) => score(item))),
+  );
+  return closestAction > closestName ? [...actions, ...names] : [...names, ...actions];
 }
 
 /** With nothing typed: the Minds edited last, other than the one in front. */
@@ -319,12 +334,21 @@ export function recentGroup(
 }
 
 /**
+ * Whether a command acts on what the User selected: the rows they picked in a list, or the words
+ * selected in a Note. A list's current row, the one shown or opened, is not a selection here.
+ */
+const onSelection = (command: Command, ctx: CommandContext): boolean =>
+  (ctx.picked === true && ctx.selection.length > 0 && command.appliesTo !== undefined) ||
+  (ctx.textSelected === true && command.appliesToText === true);
+
+/**
  * The registry's commands that apply here, with their shortcuts and, when they
  * act on one thing, its name: those whose name or keywords, in English or
  * Chinese, hold every word typed at a word's start or one typo from it, best
  * first, so letters inside a word or across two never find an action (#1372);
  * with nothing typed, the few that are `top`, in its order, or, for ">" (`all`),
- * every one in the menus' order.
+ * every one in the menus' order. With rows picked or words selected, the actions
+ * on the selection come before the others that match, each part best first.
  */
 export function actionGroup(
   words: readonly string[],
@@ -374,11 +398,12 @@ export function actionGroup(
     };
     // A match by keyword or in the other language ranks below one by its name.
     const score = named?.score ?? (elsewhere ? elsewhere.score - 4000 : 0);
-    return [{ item, score, group: command.group }];
+    return [{ item, score, group: command.group, selected: onSelection(command, ctx) }];
   });
   const topOf = (id: CommandId) => commands.get(id)?.top ?? Number.MAX_SAFE_INTEGER;
-  if (words.length > 0) items.sort((a, b) => b.score - a.score);
-  else if (all)
+  if (words.length > 0) {
+    items.sort((a, b) => Number(b.selected) - Number(a.selected) || b.score - a.score);
+  } else if (all)
     items.sort((a, b) => COMMAND_GROUPS.indexOf(a.group) - COMMAND_GROUPS.indexOf(b.group));
   else items.sort((a, b) => topOf(a.item.id) - topOf(b.item.id));
   const shown = (all && words.length === 0 ? items : items.slice(0, SHOWN.actions)).map(

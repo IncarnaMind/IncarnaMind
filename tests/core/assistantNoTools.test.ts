@@ -8,6 +8,7 @@ import { heading, note, writeMind } from "../helpers/minds";
 import {
   claimCheckReply,
   type ModelCall,
+  questionOf,
   type ScriptedReply,
   scriptedModel,
   scriptedModels,
@@ -103,7 +104,11 @@ describe("A model without Tools asked to write into a Mind", { timeout: 30_000 }
     });
 
     expect(answer.steps?.unbackedClaims).toBeUndefined();
-    expect(claims.doGenerateCalls).toHaveLength(1);
+    // Nothing was written, so the reply is also asked whether it says the request is done (#2878).
+    expect(claims.doGenerateCalls.map((call) => questionOf(call)).sort()).toEqual([
+      "claimed-changes",
+      "request-done",
+    ]);
 
     const ignoringModel = scriptedModel(
       (call) =>
@@ -124,7 +129,10 @@ describe("A model without Tools asked to write into a Mind", { timeout: 30_000 }
     });
 
     expect(caught.steps?.unbackedClaims).toEqual(["added"]);
-    expect(ignoringModel.doGenerateCalls).toHaveLength(1);
+    expect(ignoringModel.doGenerateCalls.map((call) => questionOf(call)).sort()).toEqual([
+      "claimed-changes",
+      "request-done",
+    ]);
     expect(caught.text).toContain("## Summary");
   });
 });

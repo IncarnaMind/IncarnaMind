@@ -270,6 +270,7 @@ import { asksToCheckOrCalculate } from "./carefulIntent";
 import { type ChangedScale, changedScale, changedScaleNote } from "./changedScale";
 import {
   type AnswerCheckInput,
+  type JudgementCut,
   type JudgementStop,
   judgedMarkers,
   type SupportResult,
@@ -1235,7 +1236,7 @@ export function createAnswers(options: AnswersOptions) {
     const judged = (
       marker: number | null,
       result: SupportResult | null,
-      stop: JudgementStop | null = null,
+      stop: JudgementStop | JudgementCut | null = null,
     ) => {
       citations = citations.map((citation): MarkedCitation => {
         if (citation.check !== "checking" || (marker !== null && citation.marker !== marker)) {
@@ -3477,6 +3478,7 @@ export function createAnswers(options: AnswersOptions) {
                     const checked = await inStep("change-claim-check", () =>
                       claimsNoCallMade(reply, toolCalls, mindsListed(), focusedId, {
                         model: judgeModel,
+                        request: context.question,
                         names: options.readableMindName,
                         states: appliedInTurn,
                         parts: (mindId, part) =>
@@ -3488,7 +3490,10 @@ export function createAnswers(options: AnswersOptions) {
                     // refused as the User's alone, whatever the judge took a claim to be about, so
                     // none of it reads as done (#2407). Only a verdict asks again.
                     const refused = new Set<string>(refusedCommands().map(({ yours }) => yours));
-                    const claimed = checked.claims.length > 0 || checked.commands.length > 0;
+                    const claimed =
+                      checked.claims.length > 0 ||
+                      checked.commands.length > 0 ||
+                      checked.unfinished === true;
                     const commands =
                       claimed || checked.failed
                         ? CLAIMED_COMMANDS.filter(
@@ -3498,7 +3503,12 @@ export function createAnswers(options: AnswersOptions) {
                     if (!claimed)
                       return commands.length > 0 ? { claims: [], commands, note: "" } : null;
                     return {
-                      claims: checked.claims,
+                      // A request said done and left undone is a change claimed, for the line
+                      // under the reply (#2878).
+                      claims:
+                        checked.unfinished && checked.claims.length === 0
+                          ? (["changed"] satisfies ClaimedChange[])
+                          : checked.claims,
                       commands,
                       note: askAgainNote(
                         checked,

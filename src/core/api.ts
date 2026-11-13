@@ -2358,6 +2358,13 @@ export type CitationCheckReason =
   /** Not checked: judging the Answer's sentences reached the monthly cap before this one's (#2311). */
   | "monthly-limit"
   /**
+   * Not checked: the Answer's own limit kept this sentence's batch below the room the model needed
+   * to finish it, and its reply was cut short (#2962).
+   */
+  | "answer-limit-unfinished"
+  /** Not checked: the monthly cap kept this sentence's batch below that room, as above (#2962). */
+  | "monthly-limit-unfinished"
+  /**
    * Not checked: the model that wrote the Answer runs on this computer and is too small to judge
    * its sentences, so their check never ran (#2375).
    */
@@ -2377,6 +2384,8 @@ export const CITATION_CHECK_REASONS = [
   "document-removed",
   "answer-limit",
   "monthly-limit",
+  "answer-limit-unfinished",
+  "monthly-limit-unfinished",
   "small-model",
 ] as const satisfies readonly CitationCheckReason[];
 

@@ -72,9 +72,20 @@ interface Selection extends SelectionState {
 export const useSelection = create<Selection>()((set, get) => {
   const change = (next: SelectionState) => {
     const now = get();
-    if (next.surface === now.surface && next.items === now.items && next.anchor === now.anchor)
+    if (
+      next.surface === now.surface &&
+      next.items === now.items &&
+      next.anchor === now.anchor &&
+      next.picked === now.picked
+    )
       return;
-    set({ surface: next.surface, items: next.items, keys: next.keys, anchor: next.anchor });
+    set({
+      surface: next.surface,
+      items: next.items,
+      keys: next.keys,
+      anchor: next.anchor,
+      picked: next.picked,
+    });
   };
   return {
     ...NOTHING_SELECTED,

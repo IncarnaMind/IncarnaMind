@@ -102,6 +102,8 @@ const REASONS = [
   "document-removed",
   "answer-limit",
   "monthly-limit",
+  "answer-limit-unfinished",
+  "monthly-limit-unfinished",
   "small-model",
   "unsure-word",
 ] as const satisfies readonly CitationCheckReason[];

@@ -356,6 +356,13 @@ describe("A help reply", () => {
     expect(uncheckedReason({ check: "not-checked", checkReason: "small-model" })).toBe(
       "small-model",
     );
+    // Kept too short by a limit to finish (#2962).
+    expect(uncheckedReason({ check: "not-checked", checkReason: "monthly-limit-unfinished" })).toBe(
+      "monthly-limit-unfinished",
+    );
+    expect(uncheckedReason({ check: "not-checked", checkReason: "answer-limit-unfinished" })).toBe(
+      "answer-limit-unfinished",
+    );
     // A line the check doesn't judge, a quote not found, and a sentence it judged say nothing more.
     expect(uncheckedReason({ check: "not-checked", checkReason: null })).toBeNull();
     expect(uncheckedReason({ check: "not-found", checkReason: "quote-not-on-pages" })).toBeNull();
