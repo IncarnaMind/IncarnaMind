@@ -10,6 +10,7 @@ import type { Citation, ClaimCheckResult, ProviderError, UnsupportedReason } fro
 import type { PageText } from "../../documents/passages";
 import { documentFigureContext } from "../calculations";
 import type { AnswerDocuments, createCitationSession } from "../citations";
+import { wordsOf } from "../markerPlacement";
 import type { AbsenceFor } from "./absence";
 import { statedFigure } from "./calculated";
 import type { CalculationLedger } from "./calculationLedger";
@@ -72,6 +73,12 @@ interface PlainVerdictCheck {
   absenceFor: AbsenceFor;
   newestFirst: AnswerDocuments["documentDate"];
   unitsOf: (citation: Citation) => readonly PageText[];
+  /**
+   * The first look's: has the check's Run asked once more from its start, whose verdict then
+   * replaces this one (#3019). Null on that second look, where a reply that contradicts itself is
+   * Not checked and is asked nothing more.
+   */
+  askAnew: (() => void) | null;
 }
 
 type PlainVerdictRequest = Pick<
@@ -150,6 +157,7 @@ async function verdictOf(
   const refused = readsAsRefusal(reply);
   let verdict = readCheckReply(transcript.written());
   if (!verdict) return notChecked(refused ? "refused" : "malformed");
+  const said = verdict.verdict;
   if (!looked()) return notChecked("unread");
   // Whatever its verdict line says: a contradiction's judgements compared only the figures
   // ("Managers… 30 days" against the Employee's 27), and an absence's whole read would find
@@ -365,6 +373,7 @@ async function verdictOf(
       )?.why &&
       quoteStatesDetail(request.claim, stated.quote)
     ) {
+      if (!check.askAnew) return notChecked("malformed");
       const again = await compare(
         request,
         stated,
@@ -378,6 +387,19 @@ async function verdictOf(
     // A part covered stands only for a claim whose own topic a Passage is about: the reply's own
     // field says so, so a neighbouring topic's line is never shown as part of the claim.
     const onTopic = verdict.topic !== "not found";
+    // Its own Unsupported, whose Not covered is about none of the part's words, doesn't hold up:
+    // its Run is asked once more, anew, and that later verdict is the model's (#3019). The
+    // placeholder returned here is never shown.
+    if (
+      onTopic &&
+      said === "unsupported" &&
+      verdict.uncovered !== null &&
+      namesNoneOfItsWords(verdict.uncovered, request.claim)
+    ) {
+      if (!check.askAnew) return notChecked("malformed");
+      check.askAnew();
+      return notChecked("malformed");
+    }
     const parts = onTopic && verdict.covered !== null && verdict.uncovered !== null;
     return unsupported({
       reason: verdict.says,
@@ -515,6 +537,7 @@ async function verdictOf(
       evidence !== null &&
       quoteStatesDetail(request.claim, evidence.quote)
     ) {
+      if (!check.askAnew) return notChecked("malformed");
       const again = await compare(
         request,
         deciding,
@@ -653,6 +676,43 @@ export function quoteStatesDetail(claim: string, quote: string): boolean {
   for (const word of words(own))
     if (/^\p{Script=Han}+$/u.test(word) && !text.includes(word)) return false;
   return true;
+}
+
+/** The words a check's phrase uses for the sentence and its Documents, and its "only" and "whether". */
+const PHRASE_WORDS = new Set(
+  "about also any claim claims document documents only over paper passage passages report rest sentence sentences text whether".split(
+    " ",
+  ),
+);
+
+const CJK_WORD = /^[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
+
+/** A text's words as the Answer's Citations are matched to sentences (`wordsOf`), by kind. */
+function wordKinds(text: string) {
+  const kinds = { words: new Set<string>(), numbers: new Set<string>(), cjk: new Set<string>() };
+  for (const word of wordsOf(text)) {
+    if (CJK_WORD.test(word)) kinds.cjk.add(word);
+    else if (/^\p{N}+$/u.test(word)) kinds.numbers.add(word);
+    else if (word.length >= 3 && !PHRASE_WORDS.has(word)) kinds.words.add(word.slice(0, 4));
+  }
+  return kinds;
+}
+
+/**
+ * Whether the reply's Not covered phrase names none of the part's own words (#3019): its words, a
+ * word by its first four letters (so "the yearly floods" names "flood the harbour every year"), its
+ * numbers and its pairs of Chinese characters. Words in a script the part has none of can't be
+ * compared, so a part in Chinese is never held to an English phrase.
+ */
+export function namesNoneOfItsWords(uncovered: string, claim: string): boolean {
+  const part = wordKinds(claim);
+  const phrase = wordKinds(uncovered);
+  const compared = [
+    ...(part.words.size > 0 ? [...phrase.words].map((word) => part.words.has(word)) : []),
+    ...[...phrase.numbers].map((number) => part.numbers.has(number)),
+    ...(part.cjk.size > 0 ? [...phrase.cjk].map((pair) => part.cjk.has(pair)) : []),
+  ];
+  return compared.length > 0 && !compared.includes(true);
 }
 
 // A calculation settles one missing figure, not another coordinated or adjoining clause.
