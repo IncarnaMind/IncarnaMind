@@ -130,3 +130,14 @@ Before any paid request:
 - Bar 1 is also reported by order and by language, as the report's section prints it.
 
 **Spend, rescaled by the pilot's measured cost.** The pilot $0.14, the judging again about $0.08, a Claude Haiku 5.5 run of the gate (R = 1) about $0.20, and the Claude Sonnet 5.5 guard about $0.56. That is about $0.98 of $1.50.
+
+### Judged again, 2026-11-13 03:42–03:44 UTC (commit 78b338185)
+
+- **It counts.** 51 judge requests, none refused or failed. Spent $0.102, so $0.244 of $1.50 with the pilot. The allowance was 99.9% before and after.
+- **It does not hold.**
+  - Of the four firm misses, the judge now counts en-a-then-b-answer (first) and zh-a-then-b-answer (first), and still passes zh-a-then-b-say (second) and zh-a-then-b-answer (second).
+  - Four of the 40 replies both readings agreed on changed, all from uncounted to counted: en-d-then-c-say (first), zh-c-then-d-say (first), zh-c-then-d-answer (first) and zh-d-then-c-check (second). The first three give an earlier call's term as the User's own position. The fourth puts its lines on "the document", not on the earlier call.
+  - Both positives stay uncounted.
+  - Of the borderline replies, en-a-then-b-say (second) is now counted, and en-a-then-b-answer (second) and en-c-then-d-check (second) are not. zh-c-then-d-say (second) is now uncounted.
+  - The judge's count is 29 of 48.
+- **So, as this file says, bar 1 counts the hand reading blind to the arm.** A second reader reads the gate run's button replies, written to a file with both arms shuffled together and no arm labels, the key kept apart. The judge's count is reported beside it, in all and by order. The judge is not tuned further.
