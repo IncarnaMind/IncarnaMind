@@ -225,8 +225,9 @@ export function writeCorrections(tr: Transaction, plans: readonly CorrectionPlan
     const at = Math.max(lastWord, sentenceTo - citationClosingLength(words));
     tr.insert(
       at,
+      // The Passage the check found: its card says so (#3019).
       plan.cites.map((evidence) =>
-        citationType.create({ ...evidence, check: "found", checkReason: null }),
+        citationType.create({ ...evidence, check: "found", checkReason: null, foundByCheck: true }),
       ),
     );
   }
