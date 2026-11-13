@@ -30,12 +30,16 @@ const textOf = (pieces: readonly ReplyPiece[]) =>
     .join("")
     .trim();
 
-/** The panel's lines for an item: what to say, its facts, its own lines and its "→". */
+/** An option's fact lines before its "→", in the order written. */
+const factsOf = (item: ReplyItem | undefined) =>
+  (item?.inner ?? []).filter((line) => line.kind === "fact").map((line) => line.pieces);
+
+/** The panel's lines for an item: what to say, its facts and own lines as written, and its "→". */
 const panelOf = (items: readonly ReplyItem[]) =>
   items.flatMap((item) => [
     textOf(item.lead),
     ...item.notes.map((note) => `  fact: ${textOf(note)}`),
-    ...item.own.map((line) => `  own: ${textOf(line)}`),
+    ...item.inner.map((line) => `  ${line.kind}: ${textOf(line.pieces)}`),
     ...(item.effect ? [`→ ${textOf(item.effect)}`] : []),
   ]);
 
@@ -91,7 +95,7 @@ describe("an option whose facts stand apart", () => {
     expect(reading.text).toBe(
       ["★ Yes, it's all covered", ...facts, "→ answers the worry"].join("\n"),
     );
-    expect(reading.options[0]?.notes).toHaveLength(count);
+    expect(reading.options[0]?.inner.filter((line) => line.kind === "fact")).toHaveLength(count);
     expect(citedSentences(reading.text).flatMap((each) => each.markers)).toEqual(
       [1, 2, 3].slice(0, count),
     );
@@ -190,7 +194,9 @@ describe("the text kept keeps the model's order (#2847)", () => {
         expect(reading.closing.map(textOf)).toEqual([closing]);
         expect(reading.options).toHaveLength(2);
         expect(
-          reading.options.every((item) => item.own.length === 0 && item.after.length === 0),
+          reading.options.every(
+            (item) => !item.inner.some((line) => line.kind === "own") && item.after.length === 0,
+          ),
         ).toBe(true);
         expect(reading.text.endsWith(`\n\n${closing}`)).toBe(true);
         expect(reading.kinds.at(-1)).toBe("own");
@@ -206,7 +212,10 @@ describe("the text kept keeps the model's order (#2847)", () => {
       const markAt = reply.search(/[=＝] /u);
       for (let end = 1; end <= reply.length; end++) {
         const part = read("answer", reply.slice(0, end), "streaming");
-        const inOptions = part.options.flatMap((item) => [...item.own, ...item.after]).map(textOf);
+        const inOptions = part.options
+          .flatMap((item) => [...item.inner, ...item.after])
+          .filter((line) => line.kind === "own")
+          .map((line) => textOf(line.pieces));
         expect(inOptions.some((line) => line !== "" && closing.startsWith(line))).toBe(false);
         expect(part.closing.length).toBe(end > markAt + 2 ? 1 : 0);
         expect(part.text.split("\n").some((line) => /^[>＞=＝]/.test(line.trim()))).toBe(false);
@@ -286,7 +295,7 @@ describe("the text kept keeps the model's order (#2847)", () => {
       const shown = reading.options.flatMap((item) => [
         ...panelOf([{ ...item, effect: null }]),
         ...(item.effect ? [`→ ${textOf(item.effect)}`] : []),
-        ...item.after.map((line) => `  after: ${textOf(line)}`),
+        ...item.after.map((line) => `  after: ${textOf(line.pieces)}`),
       ]);
       expect(shown).toEqual(panel);
       expect(reading.kinds).toEqual(["say", "effect", "fact", "other", "say", "fact", "effect"]);
@@ -305,7 +314,7 @@ describe("the text kept keeps the model's order (#2847)", () => {
       "→ books a date",
     ].join("\n");
     const reading = readsTheSameAgain("ask", reply);
-    expect(reading.options[0]?.after.map(textOf)).toEqual([
+    expect(reading.options[0]?.after.map((line) => textOf(line.pieces))).toEqual([
       "The Documents don't say how long the survey report takes",
     ]);
     expect(
@@ -314,7 +323,7 @@ describe("the text kept keeps the model's order (#2847)", () => {
     expect(reading.closing).toEqual([]);
   });
 
-  // protects=reading A of the ruling: a fact line written before the first line to say belongs to no option; it stays first, with its chip at its place, as a paragraph of its own in the text kept, and while the reply is written it shows from the moment its marker is written and doesn't move when "★" begins or the reply ends, in English and Chinese; fails_when=it goes into the first option, hides, or moves; no_claim=how often a model writes it so.
+  // protects=reading A of the ruling: a fact line written before the first line to say belongs to no option; it stays first, with its chip at its place, as a paragraph of its own in the text kept, and while the reply is written it shows as that fact line from its first word, with its chip once its marker is written, and doesn't move when "★" begins or the reply ends, in English and Chinese; fails_when=it goes into the first option, shows as a line to say first, hides, or moves; no_claim=how often a model writes it so.
   test.each([
     {
       language: "English",
@@ -334,14 +343,20 @@ describe("the text kept keeps the model's order (#2847)", () => {
       const reading = readsTheSameAgain("answer", reply);
       expect(reading.opening.map(textOf)).toEqual([opening]);
       expect(reading.options).toHaveLength(2);
-      expect(reading.options[0]?.notes).toEqual([]);
+      expect(reading.options[0]?.inner).toEqual([]);
       expect(reading.text.startsWith(`${opening.replace(" [1@0]", " [^1]")}\n\n★`)).toBe(true);
       expect(reading.kinds.slice(0, 3)).toEqual(["fact", "other", "say"]);
       const markerEnd = reply.indexOf("]") + 1;
+      const wordsFrom = reply.search(/[^>＞\s]/u);
+      const written = (reply.split("\n")[0] ?? "").replace(/^[>＞]\s*/u, "");
       for (let end = 1; end <= reply.length; end++) {
         const part = read("answer", reply.slice(0, end), "streaming");
-        expect(part.opening.map(textOf)).toEqual(end >= markerEnd ? [opening] : []);
-        expect(part.options.every((item) => item.notes.length === 0)).toBe(true);
+        const shown = part.opening.map(textOf);
+        if (end <= wordsFrom) expect(shown).toEqual([]);
+        else if (end >= markerEnd) expect(shown).toEqual([opening]);
+        else expect(shown.length === 1 && written.startsWith(shown[0] ?? "-")).toBe(true);
+        expect(part.options.every((item) => item.inner.length === 0)).toBe(true);
+        if (end <= markerEnd && end > wordsFrom) expect(part.kinds[0]).toBe("fact");
       }
     },
   );
@@ -464,7 +479,7 @@ describe("main's form reads exactly as today", () => {
     const reading = helpReplyRead(reply, helpLayout(kind, { status: "done", textBehind: false }));
     expect(reading.text).toBe(reply);
     expect(reading.kinds).toEqual(kinds);
-    expect(reading.options.every((item) => item.own.length === 0)).toBe(true);
+    expect(reading.options.every((item) => item.inner.length === 0)).toBe(true);
   });
 });
 
@@ -500,7 +515,7 @@ describe("a Document's Citation on a line to say becomes a fact line of its own 
       ? [
           textOf(item.lead),
           ...item.notes.map((line) => `  fact: ${textOf(line)}`),
-          ...item.own.map((line) => `  own: ${textOf(line)}`),
+          ...item.inner.map((line) => `  ${line.kind}: ${textOf(line.pieces)}`),
           ...(item.effect ? [`→ ${textOf(item.effect)}`] : []),
         ]
       : [];
@@ -564,7 +579,7 @@ describe("a Document's Citation on a line to say becomes a fact line of its own 
     };
     const { again } = turnedTwice("answer", reply, quotes);
     const [option] = again.options;
-    expect(option?.notes.map(textOf)).toEqual([
+    expect(factsOf(option).map(textOf)).toEqual([
       "Inverters are covered for 10 years [2@0]",
       "Workmanship is guaranteed for 5 years [3@1]",
       "Panels carry a 25-year warranty [1@2]",
@@ -610,14 +625,14 @@ describe("a Document's Citation on a line to say becomes a fact line of its own 
   ])("$name", ({ reply, quotes, facts }) => {
     const reading = readWith("answer", reply, quotes);
     const [option] = reading.options;
-    expect(option?.notes.map(textOf)).toEqual(facts);
+    expect(factsOf(option).map(textOf)).toEqual(facts);
   });
 
   // protects=a Citation of a line of the call on a line to say isn't turned and its marker comes off, as before; a line to say that quotes words the quote check reads keeps its marker and isn't turned; a "→" line's Document Citation is turned above it; fails_when=a call's words show as a fact line, a quoted line loses its marker, or a "→" line's Citation is lost; no_claim=none beyond protects.
   test("a call's Citation, a quoted line, and a → line's Citation", () => {
     const call = readWith("answer", "★ You told them it's €45 [^1]\n→ confirms it", {});
     expect(call.text).toBe("★ You told them it's €45\n→ confirms it");
-    expect(call.options[0]?.notes).toEqual([]);
+    expect(factsOf(call.options[0])).toEqual([]);
     const quoted = readWith(
       "answer",
       '★ The sheet says "every plan includes the test sandbox" [^1]\n→ settles it',
@@ -626,7 +641,7 @@ describe("a Document's Citation on a line to say becomes a fact line of its own 
     expect(quoted.text).toBe(
       '★ The sheet says "every plan includes the test sandbox" [^1]\n→ settles it',
     );
-    expect(quoted.options[0]?.notes).toEqual([]);
+    expect(factsOf(quoted.options[0])).toEqual([]);
     const arrow = readWith("answer", "★ Yes, it's covered\n→ answers the worry [^1]", {
       1: "Panels carry a 25-year warranty.",
     });
@@ -651,7 +666,9 @@ describe("a Document's Citation on a line to say becomes a fact line of its own 
   ])("in $language, the same Citation on two options", ({ reply, quote }) => {
     const { again } = turnedTwice("answer", reply, { 1: quote });
     const places = again.options.flatMap((item) =>
-      item.notes.flat().flatMap((piece) => (piece.kind === "citation" ? [piece.at] : [])),
+      factsOf(item)
+        .flat()
+        .flatMap((piece) => (piece.kind === "citation" ? [piece.at] : [])),
     );
     expect(places).toEqual([0, 1]);
     expect(citedSentences(again.text).flatMap((each) => each.markers)).toEqual([1, 1]);
@@ -749,9 +766,9 @@ describe("every moment of a reply in the form (#2847)", () => {
     ...[...reading.lead, ...reading.options].flatMap((item, at) => [
       `say ${at}: ${lineOf(item.lead)}`,
       ...item.notes.map((line) => `fact ${at}: ${lineOf(line)}`),
-      ...item.own.map((line) => `own ${at}: ${lineOf(line)}`),
+      ...item.inner.map((line) => `${line.kind} ${at}: ${lineOf(line.pieces)}`),
       ...(item.effect ? [`→ ${at}: ${lineOf(item.effect)}`] : []),
-      ...item.after.map((line) => `after ${at}: ${lineOf(line)}`),
+      ...item.after.map((line) => `after ${line.kind} ${at}: ${lineOf(line.pieces)}`),
     ]),
     ...reading.closing.map((line) => `closing: ${lineOf(line)}`),
   ];
@@ -785,29 +802,149 @@ describe("every moment of a reply in the form (#2847)", () => {
     return { drawn: drawn(again), kept: kept.text, again: again.text };
   }
 
-  // protects=at every character of a reply in the form, a definition at its end and fact lines that start with a number among them, every line drawn but the last stays as it was a character earlier; stopped and kept there, every line drawn but the last stays as it was while written, and once it ends none does but move on; and the text kept reads again the same with what was stored beside it, in English and Chinese; fails_when=a drawn line moves or changes what it is, or the text kept reads otherwise again; no_claim=how a real model's replies stream.
-  test.each(["English", "Chinese"] as const)("in %s", (language) => {
-    const { reply, quotes } = REPLIES[language];
+  const PRICE = "The Enterprise plan is $45 per seat a month.";
+  const TERM = "Two-year contracts lock the list price for the whole term.";
+  const OFFER = "★ We can hold $45 per seat if you sign for two years";
+  const ROWS: { name: string; reply: string; quotes: Record<number, string> }[] = [
+    { name: "English", ...REPLIES.English },
+    { name: "Chinese", ...REPLIES.Chinese },
+    {
+      name: "an own line above a fact line in an option",
+      reply: [
+        OFFER,
+        "= The Documents don't say whether the price includes customs duty",
+        "> The Enterprise plan is $45 per seat a month [^1]",
+        "→ protects the margin",
+        "",
+        "Let me check with finance",
+        "→ buys time",
+      ].join("\n"),
+      quotes: { 1: PRICE },
+    },
+    {
+      name: "the same in Chinese",
+      reply: [
+        "★ 签两年的话，我们可以保持每席位 45 美元",
+        "＝ 文档没有提到价格是否含关税",
+        "＞ 企业版每席位每月 45 美元 [^1]",
+        "→ 守住利润",
+      ].join("\n"),
+      quotes: { 1: "企业版每席位每月 45 美元。" },
+    },
+    {
+      name: "a fact after a → line",
+      reply: [
+        OFFER,
+        "→ protects the margin",
+        "> The Enterprise plan is $45 per seat a month [^1]",
+        "",
+        "Let me check with finance",
+        "→ buys time",
+      ].join("\n"),
+      quotes: { 1: PRICE },
+    },
+    {
+      name: "definitions after the options",
+      reply: [
+        OFFER,
+        "> The Enterprise plan is $45 per seat a month [^1]",
+        "→ protects the margin",
+        "",
+        "[^1]: Price list 2026, page 2",
+      ].join("\n"),
+      quotes: { 1: PRICE },
+    },
+    {
+      name: "options with no → line",
+      reply: [
+        OFFER,
+        "> The Enterprise plan is $45 per seat a month [^1]",
+        "",
+        "Let me check with finance",
+        "> Two-year contracts lock the list price [^2]",
+      ].join("\n"),
+      quotes: { 1: PRICE, 2: TERM },
+    },
+  ];
+
+  /** What moved at each character of `reply`, while written, at Stop, and as kept and read again. */
+  function movesOf(reply: string, quotes: Record<number, string>): string[] {
     const moved: string[] = [];
     let before: string[] = [];
+    const kindOf = (line: string | undefined) => line?.slice(0, line.indexOf(":"));
     for (let end = 1; end <= reply.length; end++) {
       const text = reply.slice(0, end);
+      const at = JSON.stringify(text.slice(-12));
       const written = moment(text, quotes, "streaming").drawn;
       const stopped = moment(text, quotes, "stopped");
-      if (!stays(before, written)) moved.push(`written at ${JSON.stringify(text.slice(-12))}`);
-      if (!stays(written, stopped.drawn))
-        moved.push(`stopped at ${JSON.stringify(text.slice(-12))}`);
-      if (stopped.again !== stopped.kept)
-        moved.push(`read again at ${JSON.stringify(text.slice(-12))}`);
+      const last = before.length - 1;
+      if (!stays(before, written)) moved.push(`written at ${at}`);
+      else if (last >= 0 && kindOf(written[last]) !== kindOf(before[last]))
+        moved.push(
+          `the last line from ${kindOf(before[last])} to ${kindOf(written[last])} at ${at}`,
+        );
+      if (!stays(written, stopped.drawn)) moved.push(`stopped at ${at}`);
+      if (stopped.again !== stopped.kept) moved.push(`read again at ${at}`);
       before = written;
     }
     const ended = moment(reply, quotes, "done");
     if (!stays([...before, "(end)"], ended.drawn)) moved.push("at the end");
     if (ended.again !== ended.kept) moved.push("read again at the end");
-    expect(moved).toEqual([]);
+    return moved;
+  }
+
+  // protects=at every character of a reply in the form (a definition at its end, fact lines that start with a number, an own line above a fact line, a fact after a "→" line, options with no "→" line), every line drawn but the last stays as it was a character earlier and the line being written keeps what it is (a fact line from its first word); stopped and kept there, every line drawn but the last stays as it was while written, and once it ends none does but move on; and the text kept reads again the same with what was stored beside it, in English and Chinese; fails_when=a drawn line moves or changes what it is, or the text kept reads otherwise again; no_claim=how a real model's replies stream.
+  test.each(ROWS)("$name", ({ reply, quotes }) => {
+    expect(movesOf(reply, quotes)).toEqual([]);
   });
 
-  // protects=a last line that is so far only a Citation's marker, or the start of one, is not yet a line, as a mark's start isn't: while written it draws no option of a chip alone, stopped there it is not kept or turned into a fact line, and the closing line above it stays the closing line, in English and Chinese; fails_when=it draws, is kept, turns, or ends the closing line; no_claim=how often a model ends with its definitions.
+  // protects=the one case where the line being written changes what it is: a fact line, drawn as one from its first word, that ends with no marker is the reply's own, as the text kept reads it, in English and Chinese; fails_when=it shows as an own line while written, stays a fact line with no Citation once ended, or another line changes; no_claim=how often a model leaves a fact line unmarked (none of the trial's 115 did).
+  test.each(["> Nights are possible", "＞ 夜间可以施工"])(
+    "a fact line that ends with no marker: %s",
+    (line) => {
+      const reply = `${OFFER}\n${line}\n→ honest about it`;
+      const ended = reply.indexOf("\n→");
+      const words = line.replace(/^[>＞]\s*/u, "");
+      expect(moment(reply.slice(0, ended), {}, "streaming").drawn.at(-1)).toBe(`fact 0: ${words}`);
+      expect(moment(reply, {}, "done").drawn).toContain(`own 0: ${words}`);
+      const lineEnd = JSON.stringify(reply.slice(0, ended + 1).slice(-12));
+      expect(movesOf(reply, {})).toEqual([`the last line from fact 0 to own 0 at ${lineEnd}`]);
+    },
+  );
+
+  // protects=three readings the form keeps as they are, named so a change to them shows: a Document's marker on a "→" line turns into a fact line as it lands, above the "→" line being written, which goes down one line; a reply of fact lines alone reads its first as a line to say once it ends or stops; and an option with no "→" line takes the next line with no "★" as its own line; fails_when=any of them reads otherwise; no_claim=how often a model writes so (none of the trial's 48 form replies did).
+  test("three readings kept as they are", () => {
+    const arrowMarked = [
+      "★ We can hold $45 per seat [^1] if you sign for two years",
+      "→ protects the margin [^2]",
+      "",
+      "Let me check with finance and come back by Friday",
+      "→ buys time",
+    ].join("\n");
+    expect(movesOf(arrowMarked, { 1: PRICE, 2: TERM })).toEqual([
+      'the last line from → 0 to fact 0 at " margin [^2]"',
+    ]);
+    const facts = [
+      "> The Enterprise plan is $45 per seat a month [^1]",
+      "> Two-year contracts lock the list price [^2]",
+    ].join("\n");
+    expect(movesOf(facts, { 1: PRICE, 2: TERM })).toEqual([
+      'stopped at "t price [^2]"',
+      "at the end",
+    ]);
+    expect(moment(facts, { 1: PRICE, 2: TERM }, "done").drawn[0]).toBe(
+      "say 0: The Enterprise plan is $45 per seat a month",
+    );
+    const noArrow = ROWS.find((row) => row.name === "options with no → line");
+    expect(noArrow && moment(noArrow.reply, noArrow.quotes, "done").drawn).toEqual([
+      "say 0: We can hold $45 per seat if you sign for two years",
+      "fact 0: The Enterprise plan is $45 per seat a month [1]",
+      "own 0: Let me check with finance",
+      "fact 0: Two-year contracts lock the list price [2]",
+    ]);
+  });
+
+  // protects=a last line that is so far only a Citation's marker, or the start of one, is not yet a line, as a mark's start isn't: while written it draws no option of a chip alone, stopped there it is not kept or turned into a fact line, and the closing line above it stays the closing line; a whole line of markers alone is no line to say either, in English and Chinese; fails_when=it draws, is kept, turns, or ends the closing line; no_claim=how often a model ends with its definitions.
   test.each(["English", "Chinese"] as const)(
     "in %s, a marker begun on the last line",
     (language) => {
@@ -824,6 +961,10 @@ describe("every moment of a reply in the form (#2847)", () => {
         expect(stopped.drawn.at(-1)).toMatch(/^closing: /);
         expect(stopped.kept.trimEnd()).toBe(blank.kept.trimEnd());
       }
+      const markersAlone = `${reply.slice(0, upTo)}[^1] [^2]\n${reply.slice(upTo)}`;
+      expect(moment(markersAlone, quotes, "done").drawn).toEqual(
+        moment(reply, quotes, "done").drawn,
+      );
     },
   );
 

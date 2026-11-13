@@ -241,8 +241,9 @@ export function shownReply(
       [
         `${item.recommended ? "★ " : ""}${text(item.lead)}`,
         ...item.notes.map(text),
+        ...item.inner.filter((line) => line.kind === "fact").map((line) => text(line.pieces)),
         ...(item.effect ? [`→ ${text(item.effect)}`] : []),
-        ...item.after.map(text),
+        ...item.after.map((line) => text(line.pieces)),
       ].join("\n"),
     ),
     ...paragraph(apart.closing),
@@ -662,7 +663,13 @@ function item(each: HelpCase, set: CallHelpSet): PairedGroup["items"][number] {
       // "→" line included.
       const shownLines = [
         ...kept.opening,
-        ...shown.flatMap((item) => [item.lead, ...item.notes, item.effect ?? [], ...item.after]),
+        ...shown.flatMap((item) => [
+          item.lead,
+          ...item.notes,
+          ...item.inner.map((line) => line.pieces),
+          item.effect ?? [],
+          ...item.after.map((line) => line.pieces),
+        ]),
       ];
       const places = shownLines
         .flat()

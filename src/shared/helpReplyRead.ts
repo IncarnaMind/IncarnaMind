@@ -50,14 +50,20 @@ export interface ReplyItem {
   said: boolean;
   /** The sentence to say, the reading, or the line. */
   lead: ReplyPiece[];
-  /** Lines between it and its "→": a reading's moment of the transcript, or an option's facts. */
+  /** Lines between it and its "→": a reading's moment of the transcript, or an option's facts asked as today. */
   notes: ReplyPiece[][];
-  /** Lines between it and its "→" that are the reply's own, where its facts stand apart (#2847). */
-  own: ReplyPiece[][];
+  /** Where its facts stand apart (#2847), its fact and own lines before its "→", as written. */
+  inner: OptionLine[];
   /** What it leads to; null before its "→" line. */
   effect: ReplyPiece[] | null;
-  /** Its fact and own lines written after its "→" line, where its facts stand apart (#2847). */
-  after: ReplyPiece[][];
+  /** Where its facts stand apart (#2847), its fact and own lines after its "→" line, as written. */
+  after: OptionLine[];
+}
+
+/** A line of an option whose facts stand apart (#2847): a fact it rests on, or the reply's own. */
+export interface OptionLine {
+  kind: "fact" | "own";
+  pieces: ReplyPiece[];
 }
 
 /**
@@ -162,14 +168,14 @@ function marksOf(line: string): { recommended: boolean; bullet: boolean; text: s
 }
 
 /**
- * An item and the lines it is on: its lead's (none for a "→" line alone), its notes', its own lines',
- * its "→" line's and the lines after it.
+ * An item and the lines it is on: its lead's (none for a "→" line alone), its notes', its lines
+ * before its "→" where its facts stand apart, its "→" line's and the lines after it.
  */
 interface Placed {
   item: ReplyItem;
   line: number | null;
   notes: number[];
-  own: number[];
+  inner: number[];
   effect: number | null;
   after: number[];
 }
@@ -178,14 +184,23 @@ const itemOf = (
   lead: ReplyPiece[],
   { recommended, bullet }: { recommended: boolean; bullet: boolean },
   effect: ReplyPiece[] | null = null,
-): ReplyItem => ({ recommended, bullet, said: false, lead, notes: [], own: [], effect, after: [] });
+): ReplyItem => ({
+  recommended,
+  bullet,
+  said: false,
+  lead,
+  notes: [],
+  inner: [],
+  effect,
+  after: [],
+});
 const UNMARKED = { recommended: false, bullet: false };
 
 const placedOf = (item: ReplyItem, line: number | null, effect: number | null = null): Placed => ({
   item,
   line,
   notes: [],
-  own: [],
+  inner: [],
   effect,
   after: [],
 });
@@ -195,12 +210,12 @@ const cites = (line: readonly ReplyPiece[]) => line.some((piece) => piece.kind =
 /**
  * Each reply's item and the lines it is on. `firstOf` gives the place of a line's first marker among
  * the reply's markers as it was written, where a line read may hold fewer; unset, as `lines` hold
- * them. With `ownApart`, a line between an item and its "→" that cites nothing is the reply's own.
+ * them. With `apart`, a line between an item and its "→" is a fact if it cites, else the reply's own.
  */
 function itemsOf(
   lines: readonly string[],
   firstOf?: (index: number) => number,
-  ownApart = false,
+  apart = false,
 ): Placed[] {
   const found: Placed[] = [];
   let cited = 0;
@@ -224,9 +239,13 @@ function itemsOf(
     const open = current && current.item.effect === null && current.item.lead.length > 0;
     if (!recommended && !bullet && current && open) {
       const note = pieces(text, first);
-      const own = ownApart && !cites(note);
-      (own ? current.item.own : current.item.notes).push(note);
-      (own ? current.own : current.notes).push(index);
+      if (apart) {
+        current.item.inner.push({ kind: cites(note) ? "fact" : "own", pieces: note });
+        current.inner.push(index);
+      } else {
+        current.item.notes.push(note);
+        current.notes.push(index);
+      }
       continue;
     }
     found.push(placedOf(itemOf(pieces(text, first), { recommended, bullet }), index));
@@ -243,12 +262,12 @@ function oneStar(found: Placed[]): Placed[] {
 
 /**
  * An options reply's items in the form whose facts stand apart, from what each line read is
- * (`roles`, ./helpFactLines): the fact lines before its first option and its closing line belong to
- * no item. `firstOf` gives the place of a line's first marker, as for `itemsOf`.
+ * (`roles` and `facts`, ./helpFactLines): the fact lines before its first option and its closing
+ * line belong to no item. `firstOf` gives the place of a line's first marker, as for `itemsOf`.
  */
 function itemsOfRoles(
   lines: readonly string[],
-  roles: readonly FactLineRole[],
+  { roles, facts }: { roles: readonly FactLineRole[]; facts: readonly boolean[] },
   firstOf: (index: number) => number,
 ): { placed: Placed[]; opening: number[]; closing: number[] } {
   const placed: Placed[] = [];
@@ -273,15 +292,13 @@ function itemsOfRoles(
         placed.push(placedOf(itemOf([], UNMARKED, effect), null, index));
       }
     } else if (current) {
-      const line = pieces(text, firstOf(index));
-      if (role === "after") {
-        current.item.after.push(line);
-        current.after.push(index);
-      } else {
-        const own = !cites(line);
-        (own ? current.item.own : current.item.notes).push(line);
-        (own ? current.own : current.notes).push(index);
-      }
+      const line: OptionLine = {
+        kind: facts[index] ? "fact" : "own",
+        pieces: pieces(text, firstOf(index)),
+      };
+      const where = role === "after" ? "after" : "inner";
+      current.item[where].push(line);
+      current[where].push(index);
     }
   }
   return { placed: oneStar(placed), opening, closing };
@@ -432,12 +449,10 @@ function kindsOf(
   { lead, options, said }: ReturnType<typeof laidOut>,
 ): HelpLineKind[] {
   const kinds: HelpLineKind[] = Array.from({ length: count }, () => "other");
-  for (const { item, line, notes, own, effect, after } of placed) {
+  for (const { item, line, notes, inner, effect, after } of placed) {
     for (const at of notes) kinds[at] = "fact";
-    for (const at of own) kinds[at] = "own";
-    for (const [index, at] of after.entries()) {
-      kinds[at] = cites(item.after[index] ?? []) ? "fact" : "own";
-    }
+    for (const [index, at] of inner.entries()) kinds[at] = item.inner[index]?.kind ?? "own";
+    for (const [index, at] of after.entries()) kinds[at] = item.after[index]?.kind ?? "own";
     if (effect !== null) kinds[effect] = "effect";
     if (line === null) continue;
     if (lead.includes(item)) kinds[line] = "lead-in";
@@ -488,6 +503,7 @@ export function helpReplyRead(markdown: string, layout: HelpLayout): HelpReplyRe
           }),
           origin: lines.map((_, index) => index),
           roles: [],
+          facts: [],
           offset: lines.map(() => 0),
         };
   const firstPlaces: number[] = [];
@@ -500,7 +516,7 @@ export function helpReplyRead(markdown: string, layout: HelpLayout): HelpReplyRe
     (firstPlaces[read.origin[index] ?? 0] ?? 0) + (read.offset[index] ?? 0);
   const { placed, opening, closing } =
     read.roles.length > 0
-      ? itemsOfRoles(read.lines, read.roles, firstOf)
+      ? itemsOfRoles(read.lines, read, firstOf)
       : {
           placed: itemsOf(read.lines, firstOf, layout.form === "fact lines"),
           opening: [],
@@ -509,7 +525,7 @@ export function helpReplyRead(markdown: string, layout: HelpLayout): HelpReplyRe
   const items = placed.map(({ item }) => item);
   const kinds = kindsOf(read.lines.length, placed, layout, laidOut(items, layout));
   const piecesAt = (index: number) => pieces(plainLine(read.lines[index] ?? ""), firstOf(index));
-  for (const at of opening) kinds[at] = cites(piecesAt(at)) ? "fact" : "own";
+  for (const at of opening) kinds[at] = read.facts[at] ? "fact" : "own";
   for (const at of closing) kinds[at] = "own";
   return {
     text: read.lines.join("\n"),

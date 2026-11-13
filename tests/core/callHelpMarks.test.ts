@@ -1161,12 +1161,12 @@ describe("the evaluation's switch for the form whose facts stand apart (#2847)",
     expect(batches).toHaveLength(1);
     expect(marks(after)).toEqual([{ marker: 1, check: "found", passed: true }]);
     const [first, second] = helpParts(after, "answer").options;
-    const chip = first?.after[0]?.find((piece) => piece.kind === "citation");
+    const chip = first?.after[0]?.pieces.find((piece) => piece.kind === "citation");
     const citation = after.citations[0];
     expect(chip?.kind === "citation" && citation && sentencePassed(citation, chip.at)).toBe(true);
     expect(words(second?.lead)).toBe("I'll send the price sheet today");
     expect(words(second?.effect ?? [])).toBe("buys time");
-    expect(second?.notes).toEqual([]);
+    expect(second?.inner).toEqual([]);
     expect(second?.after).toEqual([]);
     expect(paragraphsOf(after)).toEqual([
       "★ Yes, Enterprise is $45 a seat\n→ answers at once\nEnterprise is $45 per seat a month, with single sign-on",
@@ -1198,7 +1198,12 @@ describe("the evaluation's switch for the form whose facts stand apart (#2847)",
     expect(textIn(pageBlocks(after, "Answer their question"))).not.toMatch(/(?:^|\n)\s*[>=]/);
     const { options } = helpParts(after, "answer");
     const shown = options
-      .flatMap((item) => [item.lead, ...item.notes, ...item.own, item.effect ?? []])
+      .flatMap((item) => [
+        item.lead,
+        ...item.notes,
+        ...item.inner.map((line) => line.pieces),
+        item.effect ?? [],
+      ])
       .map((line) => line.flatMap((piece) => (piece.kind === "text" ? [piece.text] : [])).join(""));
     expect(shown.some((line) => /^\s*[>=＞＝]/.test(line))).toBe(false);
     expect(marks(after)).toEqual([{ marker: 1, check: "found", passed: true }]);
@@ -1240,7 +1245,10 @@ describe("the evaluation's switch for the form whose facts stand apart (#2847)",
     const { options, closing } = helpParts(answer, "answer");
     return {
       closing: closing.map(words),
-      inOptions: options.flatMap((item) => [...item.own, ...item.after]).map(words),
+      inOptions: options
+        .flatMap((item) => [...item.inner, ...item.after])
+        .filter((line) => line.kind === "own")
+        .map((line) => words(line.pieces)),
     };
   };
 
@@ -1507,8 +1515,9 @@ describe("the evaluation's switch for the form whose facts stand apart (#2847)",
       options: options.map((item) => [
         words(item.lead),
         ...item.notes.map(words),
+        ...item.inner.map((line) => words(line.pieces)),
         ...(item.effect ? [`→ ${words(item.effect)}`] : []),
-        ...item.after.map((line) => `after: ${words(line)}`),
+        ...item.after.map((line) => `after: ${words(line.pieces)}`),
       ]),
       closing: closing.map(words),
     };
@@ -1578,7 +1587,7 @@ describe("the evaluation's switch for the form whose facts stand apart (#2847)",
       // last piece of text, a few characters on from the pause.
       const said = (line: string) => line.replace(/^[★>＞]\s*/u, "").replace(" [^1]", "");
       const startedFrom = (shown: string | undefined, upTo: string, line: string) =>
-        shown !== undefined && shown.startsWith(upTo) && line.startsWith(shown);
+        shown?.startsWith(upTo) === true && line.startsWith(shown);
       const starredLeads = panelAt(inStarred.after).options.map((lines) => lines[0]);
       expect(starredLeads).toHaveLength(1);
       expect(startedFrom(starredLeads[0], lead(starred), said(starred))).toBe(true);
@@ -1630,7 +1639,7 @@ describe("the evaluation's switch for the form whose facts stand apart (#2847)",
       const chip = opening[0]?.find((piece) => piece.kind === "citation");
       const citation = after.citations[0];
       expect(chip?.kind === "citation" && citation && sentencePassed(citation, chip.at)).toBe(true);
-      expect(options.flatMap((item) => item.notes)).toEqual([]);
+      expect(options.flatMap((item) => item.inner)).toEqual([]);
       const paragraphs = paragraphsOf(after);
       expect(paragraphs).toHaveLength(3);
       expect(paragraphs[0]).toBe(fact);
@@ -1643,16 +1652,19 @@ describe("the evaluation's switch for the form whose facts stand apart (#2847)",
    */
   const turnedOf = (answer: ConversationAnswer) =>
     helpParts(answer, "answer").options.flatMap((item) =>
-      item.notes.map((line) => ({
-        words: words(line),
-        passed: line.some(
-          (piece) =>
-            piece.kind === "citation" &&
-            answer.citations.some(
-              (citation) => citation.marker === piece.marker && sentencePassed(citation, piece.at),
-            ),
-        ),
-      })),
+      item.inner
+        .flatMap(({ kind, pieces: line }) => (kind === "fact" ? [line] : []))
+        .map((line) => ({
+          words: words(line),
+          passed: line.some(
+            (piece) =>
+              piece.kind === "citation" &&
+              answer.citations.some(
+                (citation) =>
+                  citation.marker === piece.marker && sentencePassed(citation, piece.at),
+              ),
+          ),
+        })),
     );
   const TURNED = PRICE.replace(/\.$/, "");
 
@@ -1882,8 +1894,9 @@ describe("the evaluation's switch for the form whose facts stand apart (#2847)",
           ...parts.options.flatMap((item) => [
             item.lead,
             ...item.notes,
+            ...item.inner.map((line) => line.pieces),
             item.effect ?? [],
-            ...item.after,
+            ...item.after.map((line) => line.pieces),
           ]),
           ...parts.closing,
         ]
@@ -1907,9 +1920,9 @@ describe("the evaluation's switch for the form whose facts stand apart (#2847)",
           ...parts.options.flatMap((item) => [
             item.lead,
             ...item.notes,
-            ...item.own,
+            ...item.inner.map((line) => line.pieces),
             item.effect ?? [],
-            ...item.after,
+            ...item.after.map((line) => line.pieces),
           ]),
           ...parts.closing,
         ]

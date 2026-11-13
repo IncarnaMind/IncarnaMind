@@ -34,7 +34,8 @@ const notYetALine = (plain: string) => {
   const words = plain.replace(FACT_MARK, "").replace(OWN_MARK, "");
   return MARK_ONLY.test(plain) || (words !== plain && MARK_ONLY.test(words));
 };
-const SKIPPED = /^(?:\[\^\d{1,4}\]:|#+\s)/;
+/** A footnote's definition, a heading, or a line of Citation markers alone: no line of the reply. */
+const SKIPPED = /^(?:\[\^\d{1,4}\]:|#+\s|(?:\[\^\d{1,4}\]\s*)+$)/;
 const BEFORE_MARK = /^\s*(?:\*\*|__)?\s*/;
 const CITES = new RegExp(MARKER.source);
 
@@ -71,6 +72,12 @@ export interface FactLinesText {
   origin: number[];
   /** For each line read of an options reply, what it is; none for short lines. */
   roles: FactLineRole[];
+  /**
+   * For each line read of an options reply, whether it is a fact line: it cites, or it is the line
+   * still being written and carries the fact mark, so it is drawn as one from its first word. One that
+   * ends with no marker is the reply's own, as the text kept reads it.
+   */
+  facts: boolean[];
   /**
    * For each line read, the place of its first marker among the markers of the line it was as
    * written: a line turned from a Citation on a line to say starts where that marker stood.
@@ -116,6 +123,7 @@ export function factLinesText(
     lines: out.map(({ line }) => line),
     origin: out.map(({ origin }) => origin),
     roles: [],
+    facts: [],
     offset: out.map(() => 0),
   };
 }
@@ -128,8 +136,7 @@ function optionsText(
   const last = written.length - 1;
   const plain = written.map(plainLine);
   const blank = (at: number) => plain[at] === "";
-  const dropped = (at: number) =>
-    layout.streaming && at === last && notYetALine(plain[at] ?? "");
+  const dropped = (at: number) => layout.streaming && at === last && notYetALine(plain[at] ?? "");
   const words = (at: number) =>
     at <= last && !blank(at) && !SKIPPED.test(plain[at] ?? "") && !dropped(at);
   const arrow = (at: number) => EFFECT_MARK.test(plain[at] ?? "");
@@ -137,12 +144,15 @@ function optionsText(
   const fact = (at: number) => FACT_MARK.test(plain[at] ?? "");
   const own = (at: number) => OWN_MARK.test(plain[at] ?? "");
   const cites = (at: number) => CITES.test(written[at] ?? "");
+  const writing = layout.streaming && !layout.ended;
+  /** A fact line by its mark: the line still being written, whose marker may come yet. */
+  const factBegun = (at: number) => writing && at === last && fact(at);
   const later = (from: number) =>
     Array.from({ length: Math.max(0, last - from + 1) }, (_, step) => from + step).filter(words);
 
   /** A fact line before the first line to say, which stands apart from every option. */
   const opens = (at: number): boolean => {
-    if (star(at) || own(at) || !cites(at)) return false;
+    if (star(at) || own(at) || !(cites(at) || factBegun(at))) return false;
     // Something must follow it, or, ended, it is read as a line to say, as before.
     const more = later(at + 1).some((next) => !(fact(next) && cites(next)));
     if (fact(at)) return !layout.ended || more;
@@ -226,13 +236,22 @@ function optionsText(
   }
 
   const turned = layout.quoteOf
-    ? turnedLines(written, roles, read, layout.quoteOf, layout.streaming && !layout.ended)
+    ? turnedLines(written, roles, read, layout.quoteOf, writing)
     : new Map();
-  const out: { line: string; origin: number; role: FactLineRole; offset?: number }[] = [];
+  const out: {
+    line: string;
+    origin: number;
+    role: FactLineRole;
+    fact?: boolean;
+    offset?: number;
+  }[] = [];
   const blankBefore = (origin: number) => {
     const previous = out.at(-1);
     if (previous && previous.line.trim() !== "") out.push({ line: "", origin, role: "other" });
   };
+  const isFact = (at: number, role: FactLineRole) =>
+    (role === "inner" || role === "after" || role === "opening") &&
+    (CITES.test(read[at] ?? "") || factBegun(at));
   for (let at = 0; at <= last; at++) {
     const role = roles[at];
     if (role === null || role === undefined) continue;
@@ -247,13 +266,14 @@ function optionsText(
     // The fact lines before the first option, and the closing line, are paragraphs of their own.
     if (role === "opening" ? previous !== "opening" : previous === "opening") blankBefore(at);
     else if (role === "closing" && previous !== "closing") blankBefore(at);
-    out.push({ line: read[at] ?? "", origin: at, role });
-    for (const each of turned.get(at) ?? []) out.push({ ...each, role: "inner" });
+    out.push({ line: read[at] ?? "", origin: at, role, fact: isFact(at, role) });
+    for (const each of turned.get(at) ?? []) out.push({ ...each, role: "inner", fact: true });
   }
   return {
     lines: out.map(({ line }) => line),
     origin: out.map(({ origin }) => origin),
     roles: out.map(({ role }) => role),
+    facts: out.map(({ fact }) => fact === true),
     offset: out.map(({ offset }) => offset ?? 0),
   };
 }

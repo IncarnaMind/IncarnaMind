@@ -16,9 +16,9 @@ const saved: { kind: MeetingHelpKind; text: string; main: string }[] = JSON.pars
   readFileSync(join(__dirname, "../fixtures/callHelp/savedReplies.json"), "utf8"),
 );
 
-/** An item as main reads it: without the form's own lines and those after its "→" line, which main has none of. */
+/** An item as main reads it: without the form's lines before and after its "→" line, which main has none of. */
 const strip = (items: readonly ReplyItem[]) =>
-  items.map(({ own: _own, after: _after, ...item }) => item);
+  items.map(({ inner: _inner, after: _after, ...item }) => item);
 
 describe("an Answer asked as today reads every saved reply as main does", () => {
   // protects=main's reading of 133 real replies, its text kept and every item with each chip's place, is what an Answer asked as today reads, the evaluation's as-before arm's among them, byte for byte, and none of the form's parts comes of it; fails_when=the reader changes main's reading of any of them; no_claim=how the form reads them.
@@ -38,7 +38,9 @@ describe("an Answer asked as today reads every saved reply as main does", () => 
       const apart =
         read.opening.length > 0 ||
         read.closing.length > 0 ||
-        [...read.lead, ...read.options].some((item) => item.after.length > 0);
+        [...read.lead, ...read.options].some(
+          (item) => item.inner.length > 0 || item.after.length > 0,
+        );
       return hash !== main || apart;
     });
     expect(differ.map(({ text }) => text.slice(0, 60))).toEqual([]);

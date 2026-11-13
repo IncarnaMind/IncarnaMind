@@ -82,7 +82,13 @@ export function citationNumbers(
   const numbers = new Map<number, number>();
   const lines = [
     ...opening,
-    ...items.flatMap((item) => [item.lead, ...item.notes, item.effect ?? [], ...item.after]),
+    ...items.flatMap((item) => [
+      item.lead,
+      ...item.notes,
+      ...item.inner.map((line) => line.pieces),
+      item.effect ?? [],
+      ...item.after.map((line) => line.pieces),
+    ]),
   ];
   for (const piece of lines.flat()) {
     if (piece.kind === "citation" && !numbers.has(piece.marker) && cited(piece.marker))

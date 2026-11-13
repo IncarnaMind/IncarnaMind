@@ -6,7 +6,7 @@ import type {
   MeetingHelpKind,
 } from "../../../../core/api";
 import { citationSource, citedLocation } from "../../../../shared/citations";
-import type { ReplyItem, ReplyPiece } from "../../../../shared/helpReplyRead";
+import type { OptionLine, ReplyItem, ReplyPiece } from "../../../../shared/helpReplyRead";
 import { isTranscriptLocation } from "../../../../shared/locations";
 import { helpLabel } from "../../../../shared/meetingHelp";
 import { isTheirs, SPEAKER_ME } from "../../../../shared/speakers";
@@ -186,37 +186,62 @@ function Item({
           <Pieces pieces={note} answer={answer} numbers={numbers} starts={starts} />
         </span>
       ))}
-      {item.own.map((line, index) => (
-        // biome-ignore lint/suspicious/noArrayIndexKey: an option's own lines are in the order written.
-        <span key={index} data-testid="help-option-own" className="help-option-effect">
-          <Pieces pieces={line} answer={answer} numbers={numbers} starts={starts} />
-        </span>
+      {item.inner.map((line, index) => (
+        <OptionLineShown
+          // biome-ignore lint/suspicious/noArrayIndexKey: an option's lines are in the order written.
+          key={index}
+          line={line}
+          answer={answer}
+          numbers={numbers}
+          starts={starts}
+        />
       ))}
       {item.effect && (
         <span data-testid="help-option-effect" className="help-option-effect">
           → <Pieces pieces={item.effect} answer={answer} numbers={numbers} starts={starts} />
         </span>
       )}
-      {item.after.map((line, index) => {
-        const fact = line.some((piece) => piece.kind === "citation");
-        return (
-          <span
-            // biome-ignore lint/suspicious/noArrayIndexKey: an option's lines after its "→" are in the order written.
-            key={index}
-            data-testid={fact ? "help-option-note" : "help-option-own"}
-            className={fact ? "help-option-note" : "help-option-effect"}
-          >
-            <Pieces pieces={line} answer={answer} numbers={numbers} starts={starts} />
-          </span>
-        );
-      })}
+      {item.after.map((line, index) => (
+        <OptionLineShown
+          // biome-ignore lint/suspicious/noArrayIndexKey: an option's lines after its "→" are in the order written.
+          key={index}
+          line={line}
+          answer={answer}
+          numbers={numbers}
+          starts={starts}
+        />
+      ))}
     </div>
+  );
+}
+
+/** A fact line of an option, or a line of the reply's own, where its facts stand apart (#2847). */
+function OptionLineShown({
+  line,
+  answer,
+  numbers,
+  starts,
+}: {
+  line: OptionLine;
+  answer: ConversationAnswer;
+  numbers: ReadonlyMap<number, number>;
+  starts: ReadonlyMap<string, string>;
+}) {
+  const fact = line.kind === "fact";
+  return (
+    <span
+      data-testid={fact ? "help-option-note" : "help-option-own"}
+      className={fact ? "help-option-note" : "help-option-effect"}
+    >
+      <Pieces pieces={line.pieces} answer={answer} numbers={numbers} starts={starts} />
+    </span>
   );
 }
 
 /**
  * A line of the reply's own that belongs to no option (#2847): a fact written before the first
- * option, with its Citation, or the reply's closing line after the options.
+ * option, a fact line from its first word as it is written, or the reply's closing line after the
+ * options.
  */
 function ReplyLine({
   line,
@@ -231,7 +256,7 @@ function ReplyLine({
   starts: ReadonlyMap<string, string>;
   testId: "help-opening" | "help-closing";
 }) {
-  const fact = line.some((piece) => piece.kind === "citation");
+  const fact = testId === "help-opening" || line.some((piece) => piece.kind === "citation");
   return (
     <p data-testid={testId} className={fact ? "help-reply-fact" : "help-reply-own"}>
       <Pieces pieces={line} answer={answer} numbers={numbers} starts={starts} />
