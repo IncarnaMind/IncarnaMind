@@ -489,6 +489,27 @@ describe("An Answer leaves a dollar or ¥ its Document doesn't say to Check agai
   });
 });
 
+describe("A label that reaches a number outranks another table's caption (#2997)", {
+  timeout: 60_000,
+}, () => {
+  // protects=a number under a heading that states another measure's unit keeps no ✓ for the sentence's unit when another table's caption gives that unit, in an Answer and in Check against Documents, in English and Chinese; fails_when="8月用电为126万吨。" under 各月用电（万千瓦时）, with 表7 各厂产量（万吨） over another table, keeps its ✓ or reads Supported; no_claim=a caption that heads the number's own table, nor a unit line (单位：万吨) elsewhere, under which the sentence passes as on main.
+  test("8月用电为126万吨。 under a kilowatt-hour heading stays Unsupported beside another table's （万吨）", async () => {
+    const file = {
+      name: "月报.txt",
+      contents: "表7 各厂产量（万吨）\n一厂\t54\n\n各月用电（万千瓦时）\n8月: 126\n",
+    };
+    for (const [language, reason] of [
+      ["en", "The Document gives 126, not 126万吨."],
+      ["zh-CN", "文档写的是 126，不是 126万吨。"],
+    ] as const) {
+      expect(await judged("8月用电为126万吨。", "8月: 126", file, language), language).toEqual({
+        answer: { check: "unsupported", verdict: reason },
+        document: { verdict: "unsupported", reason },
+      });
+    }
+  });
+});
+
 describe("A check reply that corrects itself, and the unit gate (#2997, #3029)", {
   timeout: 60_000,
 }, () => {
