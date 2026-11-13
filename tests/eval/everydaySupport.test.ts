@@ -275,7 +275,7 @@ describe("The record of each cited sentence's check", () => {
     ]);
   });
 
-  // protects=the report counts the sentences without a ✓ by the check's reason and language, and lists each under its reason with its quotes and the parts' reasons; fails_when=a Supported sentence is listed, reasons or languages are summed together, or a sentence's quote or part is left out; no_claim=none beyond protects.
+  // protects=the report counts the sentences without a ✓ by the check's reason and language, an Unsupported with nothing in scope about it as Not found, and lists each under its reason with its quotes and the parts' reasons; fails_when=a Supported sentence is listed, reasons or languages are summed together, or a sentence's quote or part is left out; no_claim=none beyond protects.
   test("the report lists the sentences without a ✓ by the check's reason", async () => {
     const support = await checkCitedSentences(
       { checkClaim: async (input) => recordingCheck(input) },
@@ -288,6 +288,13 @@ describe("The record of each cited sentence's check", () => {
       { id: "research-attention-long-zh", model: "m", language: "zh-CN", ...table },
       { id: "research-attention-long", model: "m", language: "en", ...later },
       {
+        id: "research-attention-long-zh",
+        model: "m",
+        language: "zh-CN",
+        ...later,
+        unsupported: { reason: null, covered: null, uncovered: null },
+      },
+      {
         id: "research-attention-long",
         model: "m",
         language: "en",
@@ -299,6 +306,7 @@ describe("The record of each cited sentence's check", () => {
     expect(lines.filter((line) => line.startsWith("| ") && !line.startsWith("| Reason"))).toEqual([
       "| Not checked: no-evidence | 1 | 1 |",
       "| Unsupported: a Passage about it doesn't back it | 1 | 0 |",
+      "| Not found | 0 | 1 |",
     ]);
     expect(lines).toContain("### Not checked: no-evidence (2)");
     expect(lines).toContain("  - cites “O(n^2 · d)” (Weighted Keys Shorter Paths)");

@@ -213,9 +213,7 @@ export function reasonOfSentence(sentence: SentenceSupport): string {
       const why = sentence.unsupported;
       if (!why) return "Unsupported: no reason given";
       if (why.kind) return `Unsupported: ${why.kind}`;
-      return why.found
-        ? "Unsupported: a Passage about it doesn't back it"
-        : "Unsupported: nothing about it found";
+      return why.found ? "Unsupported: a Passage about it doesn't back it" : "Not found";
     }
   }
 }
