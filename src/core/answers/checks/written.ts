@@ -42,7 +42,7 @@ import * as Y from "yjs";
 import { citationAttributesOf, citationClosingLength } from "../../../shared/citations";
 import { restsElsewhere } from "../../../shared/citedNow";
 import { SENTENCES_CHECKED_AT_MOST } from "../../../shared/claimChecks";
-import { planOf } from "../../../shared/claimParts";
+import { partsWrittenBy, planOf } from "../../../shared/claimParts";
 import { beginFigureCheck } from "../../../shared/figureChecks";
 import { readTableBinding } from "../../../shared/figureRuns";
 import {
@@ -1142,10 +1142,14 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
         return;
       }
       done.checked++;
+      // Every sentence this check reads is the assistant's own write (#3019).
+      const written = result.parts
+        ? { ...result, parts: partsWrittenBy(result.parts, true) }
+        : result;
       const mark = (note: Y.XmlFragment) =>
         options.withResult(
           begun(sentence, by),
-          result,
+          written,
           at,
           note,
           mindId,

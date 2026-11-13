@@ -32,6 +32,7 @@ import {
   CLAIM_CHECK_FAILURES,
   checkWithParts,
   keepCheckAsView,
+  leftOutByAssistant,
   partCitations,
   readCheckedVersions,
   readClaimCalculation,
@@ -769,7 +770,7 @@ export function claimCheckShown(check: ClaimCheckAttributes, now: ClaimCheckNow)
     return { state: "needs-recheck", why: "referent" };
   }
   const figures = check.figures.map((figure) => figureCheckShown(figure, now));
-  return aggregateFigureStates(
+  const shown = aggregateFigureStates(
     figures,
     check.remainder === null
       ? null
@@ -777,6 +778,10 @@ export function claimCheckShown(check: ClaimCheckAttributes, now: ClaimCheckNow)
         ? basisShown(check.remainder, now)
         : undefined,
   );
+  // Its figures each have their own check, so the sentence's parts don't decide its state here.
+  return shown.state === "supported" && check.parts?.some(leftOutByAssistant)
+    ? { state: "not-checked", reason: "assistant-conclusion" }
+    : shown;
 }
 
 /**
@@ -892,16 +897,19 @@ export function figureCheckShown(
 /**
  * Whether Documents added to its scope since could change a check (#993): one
  * found unsupported or not checked. A supported or contradicted one already
- * has its evidence, as has one whose ✓ waits on the Passage it found becoming
- * a Citation (#3019); contradiction watch makes its own checks again, and a
- * whole read covered only the User's pick.
+ * has its evidence, as have one whose ✓ waits on the Passage it found becoming
+ * a Citation and one beside the assistant's own conclusion (#3019);
+ * contradiction watch makes its own checks again, and a whole read covered
+ * only the User's pick.
  */
 export const addedCouldChange = (check: ClaimCheckAttributes, shown: ClaimCheckShown): boolean =>
   check.action !== "contradiction-watch" &&
   check.action !== "check-against-document" &&
   check.checkedAt !== "" &&
   (shown.state === "unsupported" ||
-    (shown.state === "not-checked" && shown.reason !== "found-elsewhere") ||
+    (shown.state === "not-checked" &&
+      shown.reason !== "found-elsewhere" &&
+      shown.reason !== "assistant-conclusion") ||
     (shown.state === "supported" && (check.readDocuments?.length ?? 0) > 0));
 
 /**
@@ -963,7 +971,10 @@ export function checkedSentence(input: {
       case "contradicted":
         return { kind: "covered" };
       case "not-checked":
-        return { kind: "to-check", fresh: false, why: "failed" };
+        // Checked: what is left is the assistant's own conclusion, which no check settles (#3019).
+        return input.check.reason === "assistant-conclusion"
+          ? { kind: "covered" }
+          : { kind: "to-check", fresh: false, why: "failed" };
       case "needs-recheck":
         return { kind: "to-check", fresh: false, why: "recheck" };
     }

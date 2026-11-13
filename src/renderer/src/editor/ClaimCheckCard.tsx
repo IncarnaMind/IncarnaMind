@@ -832,6 +832,8 @@ export function ClaimCard({
   const waitingConsent = widened && consentWaiting;
   // A description of the Library its facts can't settle: no check can change it, so none is offered.
   const described = shown.state === "not-checked" && shown.reason === "library-unsettled";
+  // Checked again, the assistant's own conclusion is left out again: its row's Check anyway judges it (#3019).
+  const ownConclusion = shown.state === "not-checked" && shown.reason === "assistant-conclusion";
   const lineAction = pastCap
     ? { label: t("claim.checkNow"), testId: "claim-check-now" }
     : waitingConsent
@@ -1541,7 +1543,12 @@ export function ClaimCard({
         )}
         {/* Checked again, a ✓ waiting on its found Passage gets the same answer: adding it is the way (#3019). */}
         {(state === "needs-recheck" ||
-          (state === "not-checked" && added === 0 && !lineAction && !described && !awaiting)) && (
+          (state === "not-checked" &&
+            added === 0 &&
+            !lineAction &&
+            !described &&
+            !awaiting &&
+            !ownConclusion)) && (
           <button
             type="button"
             data-testid="claim-check-again"
@@ -1561,10 +1568,11 @@ export function ClaimCard({
           onPickerChange={onSourcePickerChange}
         />
       )}
-      {/* Supported, not yet cited is the model's Supported: its line names the models as one does. */}
+      {/* Supported, not yet cited is the model's Supported, as are the facts beside the
+          assistant's own conclusion: their line names the models as one does. */}
       <CheckedByLine
         check={awaiting ? claim.check : check}
-        shown={awaiting ? "supported" : state}
+        shown={awaiting || ownConclusion ? "supported" : state}
       />
       {findSourcesOffered && (
         <ObjectMenu

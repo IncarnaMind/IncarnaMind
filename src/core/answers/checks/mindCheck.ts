@@ -569,10 +569,12 @@ export function createMindCheck(options: MindCheckOptions) {
         // gone. Nor can a sentence Supported, not yet cited (#3019): checked again, it would ask
         // the same question for the same answer. A mark an older version stored as Not checked,
         // found elsewhere, holds no verdict, so it is checked again. An edit of the sentence shows
-        // it to check again.
+        // it to check again. The assistant's own conclusion beside its supported facts is settled
+        // too: no check judges it unasked.
         const settled =
           shown?.state === "not-checked" &&
           (ANALYSIS_REASONS.has(shown.reason) ||
+            shown.reason === "assistant-conclusion" ||
             (shown.reason === "found-elsewhere" && mark?.check.state !== "not-checked"));
         if (mark && settled) {
           held.push(mark.check.checkedAt);

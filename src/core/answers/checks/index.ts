@@ -34,6 +34,7 @@ import {
   checkedCitation,
   checkWithParts,
   figuresByPart,
+  partsWrittenBy,
   partWithResult,
   pendingPart,
   planOf,
@@ -161,6 +162,7 @@ import {
 import { notCheckedMark, pendingParts } from "./runChecks";
 import {
   markedSentences as allMarks,
+  assistantWrote,
   checkedSentences,
   checkText,
   citedQuoteOf,
@@ -816,6 +818,10 @@ export function createChecks(options: ChecksOptions) {
       before.parts &&
       partsKeptInside(result.parts, before.parts, behindAnotherWall);
     if (keptParts) result = resultFromParts(keptParts);
+    // A mark not in the Note yet is the assistant's own write's, which says whose it is itself.
+    const assistant = assistantWrote(blocks, check.id);
+    if (result.parts && assistant !== null)
+      result = { ...result, parts: partsWrittenBy(result.parts, assistant) };
     return withResult(
       check,
       {

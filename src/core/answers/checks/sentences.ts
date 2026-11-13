@@ -5,6 +5,7 @@
  * inline node counts as one character.
  */
 import * as Y from "yjs";
+import { INLINE_CODE_MARK } from "../../../shared/aiText";
 import { readCalculatedFigureEvidence } from "../../../shared/calculatedFigures";
 import { chartCheckText, chartPoints, fromAnalysisOnly, readChart } from "../../../shared/charts";
 import { citationAttributesOf } from "../../../shared/citations";
@@ -24,9 +25,11 @@ import { countingCheckOf, isCheckKey, keyedFormats, markValueOf } from "../../..
 import { perBlock } from "../../../shared/memo";
 import { readProposalAttribute, readProposalRef } from "../../../shared/proposals";
 import { INLINE_NODE, onlyNamesItsTable, sentenceSpans } from "../../../shared/sentences";
+import { textOriginOf } from "../../../shared/textOrigins";
 import {
   ANALYSIS_TABLE_ATTRIBUTE,
   ANALYSIS_TABLE_NODE,
+  ANSWER_BLOCK,
   BLOCK_ID_ATTRIBUTE,
   CALCULATED_FIGURE_NODE,
   CHART_NODE,
@@ -36,10 +39,12 @@ import {
   type CitedQuote,
   CLAIM_CHECK_MARK,
   type ClaimCheckAttributes,
+  GENERATED_MARK,
   PROPOSAL_ATTRIBUTE,
   PROPOSAL_DELETE_MARK,
   PROPOSAL_INSERT_MARK,
   type TextStretch,
+  type ThirdPartySource,
   type WaitingSentences,
 } from "../../api";
 import { layout, textBlocks, textBlocksOf } from "../../proposals/write";
@@ -722,6 +727,57 @@ function firstMarks<T extends { check: ClaimCheckAttributes }>(
 /** Every check's mark in the Mind, in order. */
 export function markedSentences(blocks: Y.XmlFragment): MarkedSentence[] {
   return firstMarks(blocks, marksOfBlock);
+}
+
+/** Text that came from someone else's file or agent, whatever marks it carries (#78). */
+const SOMEONE_ELSES: ReadonlySet<ThirdPartySource> = new Set([
+  "imported",
+  "web-page",
+  "outside-agent",
+]);
+
+function topOf(element: Y.XmlElement): Y.XmlElement {
+  let top = element;
+  while (top.parent instanceof Y.XmlElement) top = top.parent;
+  return top;
+}
+
+/**
+ * Whether the assistant wrote the sentence the check `checkId` is marked on, as the Note holds it
+ * now (#3019): every word of it AI text, or in an Answer whose words are AI text as a whole, and
+ * none of it from someone else's file. A word the User typed or made theirs makes it theirs; one
+ * they only deleted leaves no trace. Null when the Note holds no such mark yet.
+ */
+export function assistantWrote(blocks: Y.XmlFragment, checkId: string): boolean | null {
+  const marked = markedSentences(blocks).find((each) => each.check.id === checkId);
+  if (!marked) return null;
+  if (marked.element.nodeName === CHART_NODE) return false;
+  const top = topOf(marked.element);
+  const blockId = top.getAttribute(BLOCK_ID_ATTRIBUTE);
+  const origin =
+    blocks.doc && typeof blockId === "string" ? textOriginOf(blocks.doc, blockId) : null;
+  if (origin !== null && SOMEONE_ELSES.has(origin)) return false;
+  if (
+    top.nodeName === ANSWER_BLOCK &&
+    (top.getAttributes() as Record<string, unknown>).generatedMarks !== true
+  )
+    return true;
+  let words = false;
+  for (const { node, start } of layout(marked.element)) {
+    if (!(node instanceof Y.XmlText)) continue;
+    let offset = start;
+    for (const run of node.toDelta() as Run[]) {
+      const length = typeof run.insert === "string" ? run.insert.length : 1;
+      const inside = offset < marked.to && offset + length > marked.from;
+      offset += length;
+      if (!inside || typeof run.insert !== "string") continue;
+      const attributes = run.attributes ?? {};
+      if (GENERATED_MARK in attributes) words = true;
+      // Inline code can't hold the mark, so the assistant's code is never AI text.
+      else if (!(INLINE_CODE_MARK in attributes)) return false;
+    }
+  }
+  return words;
 }
 
 /** Whether the User keeps a sentence as their own view (#1111, #1909): a kept mark at its place, with its words as they were. */

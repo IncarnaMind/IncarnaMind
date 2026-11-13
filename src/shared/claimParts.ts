@@ -80,6 +80,7 @@ const FAILURES: Record<ClaimCheckFailure, true> = {
   "sentence-figures-not-read": true,
   "library-unsettled": true,
   "analysis-unnamed": true,
+  "assistant-conclusion": true,
 };
 export const CLAIM_CHECK_FAILURES: readonly ClaimCheckFailure[] = Object.keys(FAILURES).filter(
   (key): key is ClaimCheckFailure => Object.hasOwn(FAILURES, key),
@@ -811,6 +812,7 @@ export function readClaimParts(
       citedCaseFound: each.citedCaseFound,
       ...(coverage && { coverage }),
       ...(each.kept === true && { kept: true }),
+      ...(each.byAssistant === true && plan.kind === "opinion" && { byAssistant: true }),
       ...(each.figures !== undefined && { figures }),
       ...(remainder !== undefined && { remainder }),
       ...(typeof each.checkedAt === "string" && { checkedAt: each.checkedAt }),
@@ -997,6 +999,27 @@ function notCheckedPart(
     citedCaseUnchecked: false,
     citedCaseFound: false,
   };
+}
+
+/** An opinion left out of a sentence the assistant wrote: never judged, it counts as not checked (#3019). */
+export const leftOutByAssistant = (part: ClaimCheckPart): boolean =>
+  part.byAssistant === true && part.kind === "opinion" && part.verdict === null && !part.itself;
+
+/**
+ * `parts` as whoever wrote their sentence leaves them (#3019): when the assistant did, each opinion
+ * left out is the assistant's; otherwise none is.
+ */
+export function partsWrittenBy(
+  parts: readonly ClaimCheckPart[],
+  assistant: boolean,
+): ClaimCheckPart[] {
+  return parts.map((part) => {
+    const own = assistant && part.kind === "opinion" && part.verdict === null && !part.itself;
+    if (own === (part.byAssistant === true)) return part;
+    if (own) return { ...part, byAssistant: true };
+    const { byAssistant: _byAssistant, ...rest } = part;
+    return rest;
+  });
 }
 
 export function resultFromParts(parts: readonly ClaimCheckPart[]): ClaimCheckResult {
@@ -1201,6 +1224,9 @@ export function resultFromParts(parts: readonly ClaimCheckPart[]): ClaimCheckRes
     failures.find(({ part }) => part.reason && SAYS_WHAT_TO_DO.has(part.reason)) ??
     failures[0];
   if (!adverse && failure) return failed(failure.part.reason ?? "failed", failure.part.detail);
+  // Only once every part judged is supported, as this reason's words say.
+  if (!adverse && outcomes.some(({ part }) => leftOutByAssistant(part)))
+    return failed("assistant-conclusion");
   const outcome = adverse ?? checked[0];
   if (
     !outcome ||
