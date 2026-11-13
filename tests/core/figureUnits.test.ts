@@ -9,6 +9,7 @@
 import { describe, expect, test } from "vitest";
 import { type CheckedText, unitNotStated } from "../../src/core/answers/checks/units";
 import { documentInstructions } from "../../src/core/answers/prompt";
+import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { askAssistant, changesIn } from "../helpers/assistant";
 import {
   checkGenerate,
@@ -20,7 +21,7 @@ import {
 } from "../helpers/checks";
 import { setUpWithDocuments, shownPassages } from "../helpers/citations";
 import { connectToMind } from "../helpers/mindClient";
-import { shownWithChanges } from "../helpers/minds";
+import { readMind, shownWithChanges } from "../helpers/minds";
 import { type ModelCall, scriptedModel } from "../helpers/models";
 
 const CONTRACT = {
@@ -664,17 +665,11 @@ describe("What the assistant writes", { timeout: 30_000 }, () => {
   const WRITTEN = "The annual salary is £54,000";
   const CUT = /<task action="cut-unsupported">/;
 
-  // protects=the flow #1332 reports: the assistant writes "£54,000" into a Mind against the plain "54,000", its check calls it supported, and the "£" is cut before it lands, the Citation kept; fails_when=the page keeps "£54,000", or the cut is told to take more than the currency; no_claim=how well a real model cuts.
-  test("a currency it adds to a figure is cut before it lands", async () => {
+  // protects=the flow #1332 reports: the assistant writes "£54,000" into a Mind against the plain "54,000", and its check, though the judge calls it supported, marks the sentence for the currency alone, which its card's Cut takes out; since #2830 nothing is cut after the reply, so it lands as written with its Citation; fails_when=it lands unmarked, the mark names more than the currency, or a cut is asked for; no_claim=how well a real model cuts.
+  test("a currency it adds to a figure lands marked for the currency alone, its words and Citation as written", async () => {
     const calls: ModelCall[] = [];
     const plans = {
       [`${WRITTEN} .`]: {
-        verdict: "supported" as const,
-        quote: STATED,
-        says: STATED,
-      },
-      // The cut, checked once as it would land.
-      "The annual salary is 54,000 .": {
         verdict: "supported" as const,
         quote: STATED,
         says: STATED,
@@ -683,7 +678,6 @@ describe("What the assistant writes", { timeout: 30_000 }, () => {
     const model = scriptedModel((call) => {
       calls.push(call);
       if (isCheckRun(call)) return checkReply(call, plans);
-      if (CUT.test(call.prompt)) return { text: "The annual salary is 54,000 [1]." };
       const search = call.results.find((result) => result.tool === "search_documents");
       if (!search) return { calls: [{ tool: "search_documents", input: { query: "salary" } }] };
       if (!call.results.some((result) => result.tool === "cite")) {
@@ -704,10 +698,13 @@ describe("What the assistant writes", { timeout: 30_000 }, () => {
     const page = await connectToMind(core, change?.mindId ?? "");
     await page.settled();
 
-    expect(shownWithChanges(page)).toContain("+ The annual salary is 54,000 ⟨found⟩.");
-    const cuts = calls.filter((call) => CUT.test(call.prompt));
-    expect(cuts).toHaveLength(1);
-    expect(cuts[0]?.prompt).toContain("the currency (£)");
+    expect(shownWithChanges(page)).toContain("+ The annual salary is £54,000 ⟨found⟩.");
+    const [mark] = claimSpans(readMind(page));
+    expect(mark?.check).toMatchObject({
+      state: "unsupported",
+      unsupported: { covered: "the amount, 54,000", uncovered: "the currency (£)" },
+    });
+    expect(calls.some((call) => CUT.test(call.prompt))).toBe(false);
   });
 });
 

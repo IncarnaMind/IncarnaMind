@@ -98,7 +98,7 @@ export function AskedChangesCard({
           <button
             type="button"
             data-testid="mind-changes-also-review"
-            onClick={() => showChanges(row)}
+            onClick={() => showChanges(row, answerId)}
             className="mind-changes-review"
           >
             {t("mindChanges.also.review")}
@@ -197,7 +197,7 @@ function AskedRow({
           <button
             type="button"
             data-testid={id(held, "mind-changes-review")}
-            onClick={() => showChanges(row)}
+            onClick={() => showChanges(row, answerId)}
             className="mind-changes-review"
           >
             {t(reviewed ? "mindChanges.review" : "mindChanges.open")}
@@ -369,7 +369,7 @@ function AppliedActions({
             type="button"
             data-testid={id("mind-changes-open")}
             aria-label={`${t("mindChanges.open")} ${name}`}
-            onClick={() => showChanges(row)}
+            onClick={() => showChanges(row, answerId)}
             className="mind-changes-review"
           >
             {t("mindChanges.open")}

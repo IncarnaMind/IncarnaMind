@@ -230,6 +230,44 @@ describe("The everyday request guards", () => {
     expect(readsLonger(withOther, elsewhere, summary, headings)).toBe(false);
   });
 
+  // protects=a summary written again whole, every Block of it taken out and new ones put where it stood, reads longer when the new text is longer, and the User's text around it isn't counted (#2830); fails_when=the new Blocks aren't counted because none of the summary's own is left, or a Block before or after the summary is; no_claim=what counts as the summary.
+  test("a summary written again whole reads longer by the new Blocks where it stood", () => {
+    const before = new Map([
+      ["x", "Notes from the reading group."],
+      ["h", "Summary"],
+      ["p1", "GraphST learns region embeddings."],
+      ["p2", "It is tested on crime, traffic and house prices."],
+      ["o", "Other notes the User keeps."],
+    ]);
+    const summary = new Set(["h", "p1", "p2"]);
+    const headings = new Set(["h", "n0"]);
+    const rewritten = new Map([
+      ["x", "Notes from the reading group."],
+      ["n0", "Summary"],
+      ["n1", "GraphST learns region embeddings from noisy, incomplete city data."],
+      [
+        "n2",
+        "Its graph augmentation is learned, and it is tested on crime, traffic and house prices.",
+      ],
+      ["o", "Other notes the User keeps."],
+      [
+        "n3",
+        "A long paragraph the rewrite put after the User's other notes, not where the summary was.",
+      ],
+    ]);
+    expect(readsLonger(before, rewritten, summary, headings)).toBe(true);
+    const shorter = new Map([
+      ["x", "Notes from the reading group."],
+      ["n1", "GraphST learns region embeddings."],
+      ["o", "Other notes the User keeps."],
+      [
+        "n3",
+        "A long paragraph the rewrite put after the User's other notes, not where the summary was.",
+      ],
+    ]);
+    expect(readsLonger(before, shorter, summary, headings)).toBe(false);
+  });
+
   // protects=a Note made for an English request is named without Chinese, and one for a Chinese request with it, and the request fails naming the Note otherwise (#2770); fails_when=the mixed name of the report passes, or a Chinese name with a Latin product name fails; no_claim=the Note's text.
   test("a new Note named outside the request's language fails", () => {
     expect(namedIn("Harbour Logistics 文档笔记", "en")).toBe(false);

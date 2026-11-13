@@ -278,7 +278,7 @@ describe("text written before cite, read as more Blocks once an Analysis has run
         true,
       );
       const [change] = changesIn(answer);
-      expect(change?.selfCheck).toMatchObject({ sent: 1 });
+      expect(change?.selfCheck).toMatchObject({ cited: 1, failed: 0 });
       const marked = claimSpans(readMind(client)).map((span) =>
         span.sentence.text.replaceAll(INLINE_NODE, "").trim(),
       );

@@ -225,7 +225,7 @@ import { findUnreadDocuments } from "./documents/unread";
 import { createViewing } from "./documents/viewing";
 import { fsWatchFolder } from "./documents/watcher";
 import { createWebPages, wallKey } from "./documents/web";
-import { createEdits, editText } from "./edits";
+import { createEdits } from "./edits";
 import { BUILT_IN_EMBEDDING_MODEL, createEmbeddingModel } from "./embedding";
 import { createActiveEmbedding } from "./embedding/active";
 import { createModelSources, MODEL_COPIES, modelCopyUrl } from "./embedding/modelSources";
@@ -377,6 +377,7 @@ import {
 import { parseReference } from "./references";
 import { BUILT_IN_RERANKING_MODEL, createRerankingModel } from "./reranking";
 import { createResearch } from "./research";
+import { createRepliesOut } from "./runs/replies";
 import { createTasks, type TaskKind, type TaskNotice } from "./runs/tasks";
 import { parseSearchScope, resolveSearchScope } from "./scope";
 import { createSecrets } from "./secrets";
@@ -813,6 +814,7 @@ export function createCore(adapters: CoreAdapters): Core {
       checkpoints.edited(mindId);
       mindIndex.contentStored(mindId);
       comparisons.mindChanged(mindId);
+      checks.mindChanged(mindId);
       noteConversations.changed(mindId);
       const renamed = minds.setAutoTitle(mindId, content.peek(mindId, firstLineOf));
       if (renamed) {
@@ -2334,10 +2336,13 @@ export function createCore(adapters: CoreAdapters): Core {
       ? fastest
       : null;
   };
+  // An Answer marks its provider while it is written, and a write's check waits behind it (#2830).
+  const repliesOut = createRepliesOut();
   const answers = createAnswers({
     content,
     changes,
     events,
+    repliesOut,
     engine: answerEngine,
     ...(adapters.analysisRuntime && { analysisRuntime: adapters.analysisRuntime }),
     ...(codeRunner && {
@@ -2527,6 +2532,7 @@ export function createCore(adapters: CoreAdapters): Core {
                 {
                   id: mind.id,
                   name: mindName(mind) || translate(settings.get().language, "mind.untitled"),
+                  titled: mind.title !== "",
                   folderId: mind.folderId,
                   changedAt: mind.updatedAt,
                 },
@@ -3165,6 +3171,7 @@ export function createCore(adapters: CoreAdapters): Core {
   }
 
   const checks = createChecks({
+    repliesOut,
     closed: lifetime.signal,
     language: () => settings.get().language,
     warmReranker: () => rerank.warm(),
@@ -3256,6 +3263,9 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     claimTimeLimitMs: adapters.contradictionWatch?.claimTimeLimitMs ?? CLAIM_TIME_LIMIT_MS,
     timers: paceTimers,
+    ...(adapters.contradictionWatch?.sortTimeLimit && {
+      sortTimeLimit: adapters.contradictionWatch.sortTimeLimit,
+    }),
     mindFolder: (mindId) => minds.get(mindId).folderId,
     walledFolder,
     walledDocument,
@@ -3307,7 +3317,6 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     engine: answerEngine,
     retention,
-    editText,
     recheckCitation: (citation) => recheckCitation(documents, citation),
     estimateRead(model, read) {
       const metered = chat.metered(model ?? undefined);
@@ -3322,6 +3331,7 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     documentCheckProgress: (event) => events.emit("documentCheck.progress", event),
     checkingEarly: (event) => events.emit("mindCheck.early", event),
+    writtenProgress: (event) => events.emit("writtenCheck.progress", event),
     now: () => adapters.now?.() ?? new Date(),
   });
 

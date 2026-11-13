@@ -126,6 +126,7 @@ import { parseRecordCite, recordCiteTokens } from "../../recordCites/parser";
 import { recordCiteChoiceAlias, resolveChosenRecordCite } from "../../recordCites/resolver";
 import { asCheckWork } from "../../reranking/order";
 import { currentTask } from "../../runs/current";
+import type { RepliesOut } from "../../runs/replies";
 import { parseSearchScope } from "../../scope";
 import type { AnswerEngine } from "../engine";
 import { type AnswerCheckInput, createAnswerCheck } from "./answerCheck";
@@ -259,6 +260,10 @@ export interface ChecksOptions
     WatchOptions,
     "minds" | "documentVersions" | "background" | "runCost" | "delayMs" | "log"
   >;
+  /** Aborts once a write's claims sort has taken too long; a check's time limit unless given. */
+  sortTimeLimit?: () => AbortSignal;
+  /** Where an Answer marks its provider while it is written, which a write's check waits behind. */
+  repliesOut?: RepliesOut;
   /** Throws unless the Mind exists and this version may write to it. */
   requireMind(mindId: string): void;
   /** The Folder the Mind is in; null for none. */
@@ -344,10 +349,10 @@ export interface ChecksOptions
   documentCheckProgress(event: DocumentCheckProgress): void;
   /** A Check this Note run's sentences checked before it marks them. */
   checkingEarly(event: MindCheckEarly): void;
+  /** How far the check of what the assistant wrote is (./written). */
+  writtenProgress: WrittenCheckOptions["progress"];
   engine: AnswerEngine;
   retention: Pick<VersionRetention, "retain" | "retainedBy">;
-  /** Edit with AI's new text for a passage not in a Mind, for what the assistant writes (#1111). */
-  editText: WrittenCheckOptions["editText"];
   now(): Date;
 }
 
@@ -960,6 +965,11 @@ export function createChecks(options: ChecksOptions) {
     // Quitting settles every running request at once, then closes the Notes: one that unwinds
     // after that has been settled.
     if (!running.has(request)) return;
+    settleChecking(mindId, request);
+  }
+
+  /** Marks a request's sentences still shown as being checked "stopped", whether or not it runs. */
+  function settleChecking(mindId: string, request: string): void {
     const ids = content.read(mindId, (blocks) =>
       markedSentences(blocks)
         .filter(({ check }) => check.request === request && check.state === "checking")
@@ -1598,10 +1608,13 @@ export function createChecks(options: ChecksOptions) {
     }
   }
 
+  const evidenceReady = (stop: AbortSignal, mindId: string) =>
+    options.evidence.ready(stop, () => leftOutOf(mindId));
+
   const watch = createContradictionWatch({
     ...options,
     ...options.watch,
-    evidenceReady: (stop, mindId) => options.evidence.ready(stop, () => leftOutOf(mindId)),
+    evidenceReady,
     folderDocuments: (folderId) =>
       options.resolveScope({ folderIds: [folderId], tagIds: [], documentIds: [] }) ?? [],
     evidenceScope: (mindId, documentIds, citedIds) =>
@@ -1629,7 +1642,7 @@ export function createChecks(options: ChecksOptions) {
     prepare,
     evidenceScope: (mindId, allDocuments, verification) =>
       scopeOf(mindId, allDocuments, { documentIds: [verification.documentId] }),
-    evidenceReady: (stop, mindId) => options.evidence.ready(stop, () => leftOutOf(mindId)),
+    evidenceReady,
     claimCheck,
     withResult: noteResult,
     retainEvidence,
@@ -1643,7 +1656,7 @@ export function createChecks(options: ChecksOptions) {
     documentVersions: options.watch.documentVersions,
     prepare,
     scopeOf: (mindId, allDocuments) => scopeOf(mindId, allDocuments),
-    evidenceReady: (stop, mindId) => options.evidence.ready(stop, () => leftOutOf(mindId)),
+    evidenceReady,
     citedNow,
     recordUnread,
     isRunning: (requestId) => running.has(requestId),
@@ -1688,7 +1701,7 @@ export function createChecks(options: ChecksOptions) {
     versionNow: (documentId) => options.documents.live([documentId])[0]?.contentHash ?? null,
   });
 
-  const checkWritten = createWrittenCheck({
+  const written = createWrittenCheck({
     ...options,
     prepare: (answer) =>
       prepareQuietly({ providerId: answer.provider.id, modelId: answer.modelId }, WRITTEN_SENDS),
@@ -1697,10 +1710,19 @@ export function createChecks(options: ChecksOptions) {
     firstLook,
     claimCheck,
     scopeOf: (mindId) => scopeOf(mindId, false),
+    evidenceReady,
     citedNow,
     withResult: noteResult,
     read: (mindId, look) => content.read(mindId, look),
     retainEvidence,
+    ...(options.sortTimeLimit && { sortTimeLimit: options.sortTimeLimit }),
+    track,
+    settleStopped,
+    // A write a Redo brings back was ended by its Undo: its check runs no more.
+    settleBroughtBack: (mindId, request) => {
+      if (!options.closed.aborted) settleChecking(mindId, request);
+    },
+    progress: options.writtenProgress,
   });
 
   /**
@@ -1776,12 +1798,11 @@ export function createChecks(options: ChecksOptions) {
   return {
     ...verify,
 
-    /** What the assistant wrote in a Mind, checked before it lands (./written). */
-    async checkWritten(input: Parameters<typeof checkWritten>[0]) {
-      // A Note imported from Word leaves its original's copies out: they must all be told (#2216).
-      await options.evidence.ready(undefined, () => leftOutOf(input.mindId));
-      return checkWritten(input);
-    },
+    /** What the assistant wrote in a Mind, checked once it lands, the turn not waiting (./written). */
+    checkWritten: written.checkWritten,
+
+    /** A Mind changed: the check of a write an Undo took away ends (./written). */
+    mindChanged: written.mindChanged,
 
     /** An Answer's sentences with Citations, checked before it ends (./answerCheck). */
     checkAnswer: answerCheck.check,
@@ -2185,6 +2206,7 @@ export function createChecks(options: ChecksOptions) {
     /** Stops every request, as IncarnaMind quits: their sentences not checked yet say "stopped". */
     stopAll(): void {
       watch.close();
+      written.stopAll();
       for (const [requestId, { controller, mindId }] of running) {
         controller.abort();
         try {

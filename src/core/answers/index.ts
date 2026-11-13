@@ -213,6 +213,7 @@ import type { CodeRunner } from "../runCode";
 import { runCodeTool } from "../runCode/tool";
 import { currentTask } from "../runs/current";
 import type { GateDecision, TokenUsage } from "../runs/engine";
+import type { RepliesOut } from "../runs/replies";
 import type { SkillScript, SkillSession } from "../skills";
 import {
   parseScriptArgs,
@@ -704,6 +705,8 @@ export interface AnswersOptions {
     choice: ChatModelChoice,
     thinking: "off" | "summary" | ThinkingKind,
   ): Promise<PreparedChatModel>;
+  /** Where an Answer marks its provider while it is written (../runs/replies). */
+  repliesOut?: RepliesOut;
   /**
    * The model call help answers on under `answers` (#2526), of the same provider; null:
    * `answers` itself.
@@ -1113,6 +1116,11 @@ export function createAnswers(options: AnswersOptions) {
   const { content, events, engine } = options;
   /** Answers being written, by id. */
   const active = new Map<string, Generation>();
+  /**
+   * By Answer: the turn that wrote it last. Retry and regenerate write it again under its id, while
+   * an older turn's check of what it wrote may still end, which mustn't write that turn's calls.
+   */
+  const turns = new Map<string, symbol>();
   /** Whether an Answer not written for a Task is being written. */
   let writing = false;
   const writingChanged = () => {
@@ -1531,6 +1539,8 @@ export function createAnswers(options: AnswersOptions) {
     const unmarked = (options.callsUnmarked?.() ?? false) || help !== undefined;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let finished = false;
+    /** Ends the Answer's mark on its provider (`AnswersOptions.repliesOut`). */
+    let replyEnded = () => {};
     let support: CitationSupport | null = null;
     /** Markers the engine put in for records the model gave without them. */
     let placedMarkers = 0;
@@ -2041,6 +2051,7 @@ export function createAnswers(options: AnswersOptions) {
       if (finished) return;
       finished = true;
       finishedAt = Date.now();
+      replyEnded();
       if (timer) clearTimeout(timer);
       active.delete(answerId);
       writingChanged();
@@ -2052,12 +2063,6 @@ export function createAnswers(options: AnswersOptions) {
         const cut = call.status === "running";
         if (cut) call.status = "failed";
         if (call.approval === "waiting") call.approval = "denied";
-        // A check still running when the Answer stopped never reports again: its row says what the
-        // call did, not that it is checking (#2710).
-        if (call.mindChange?.checking !== undefined) {
-          const { checking: _checking, ...change } = call.mindChange;
-          call.mindChange = change;
-        }
         // What a call was given is kept with the conversation, where no id may be stored (#1800).
         call.input = Object.fromEntries(
           Object.entries(call.input).map(([key, value]) => [
@@ -2131,6 +2136,8 @@ export function createAnswers(options: AnswersOptions) {
     };
 
     active.set(answerId, { home, model, finish, task: input.task === true });
+    const ownTurn = Symbol(answerId);
+    turns.set(answerId, ownTurn);
     writingChanged();
     announce("answer.started", { ...place, answerId, questionId: input.questionId, model });
 
@@ -2606,6 +2613,7 @@ export function createAnswers(options: AnswersOptions) {
       const helpModel = help ? (options.helpModel?.(model) ?? null) : null;
       try {
         prepared = await options.prepareModel(model, thinking);
+        if (!finished) replyEnded = options.repliesOut?.begin(prepared.provider.id) ?? replyEnded;
         if (helpModel) {
           try {
             const quick = await options.prepareModel(helpModel, thinking);
@@ -3130,8 +3138,18 @@ export function createAnswers(options: AnswersOptions) {
                   writeSoon();
                 }
               },
+              checkRecorded: (toolCallId, change) => {
+                if (mindChanges.has(toolCallId)) mindChanges.set(toolCallId, change);
+                const call = toolCalls.find((each) => each.id === toolCallId);
+                // A call whose change was taken back has no card to say it on.
+                if (!call?.mindChange) return;
+                call.mindChange = change;
+                if (!finished) writeSoon();
+                else if (turns.get(answerId) === ownTurn)
+                  options.conversations.writeToolCalls(answerId, toolCalls);
+              },
               failed: (toolCallId, problem) => {
-                mindProblems.set(toolCallId, problem);
+                if (problem) mindProblems.set(toolCallId, problem);
                 // Whatever it wrote as its input came in was taken back: nothing of it counts.
                 mindChanges.delete(toolCallId);
                 const call = toolCalls.find((each) => each.id === toolCallId);

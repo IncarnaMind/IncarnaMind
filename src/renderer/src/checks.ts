@@ -92,6 +92,11 @@ export interface LeftOut {
 interface ChecksState {
   /** By Mind: the request checking its sentences now, and how: an action's, or Check this Mind (#737). */
   running: Readonly<Record<string, CheckRunning>>;
+  /**
+   * By Mind: the checks of what the assistant wrote there that run on their own (#2830), oldest
+   * first. The first is `running` whenever nothing the User started is.
+   */
+  background: Readonly<Record<string, readonly string[]>>;
   /** By Mind: why the last request gave no marks. */
   problems: Readonly<Record<string, CheckProblem>>;
   /** By Mind: its last verdicts came from a model too small to judge reliably (#680). */
@@ -117,6 +122,7 @@ interface ChecksState {
 
 export const useChecks = create<ChecksState>()(() => ({
   running: {},
+  background: {},
   problems: {},
   smallModel: {},
   cardOpen: {},
@@ -143,9 +149,38 @@ function setFor<K extends keyof ChecksState>(
 
 export const dismissCheckProblem = (mindId: string) => setFor("problems", mindId, null);
 
-/** Records a check of a Mind as running, or as no longer running (null). */
+const backgroundRun = (requestId: string | undefined): CheckRunning | null =>
+  requestId === undefined ? null : { requestId, action: "whole-mind" };
+
+/**
+ * Records a check of a Mind as running, or as no longer running (null): then a check of what the
+ * assistant wrote that still runs there is the one the badge shows.
+ */
 export const setCheckRunning = (mindId: string, running: CheckRunning | null) =>
-  setFor("running", mindId, running);
+  setFor("running", mindId, running ?? backgroundRun(useChecks.getState().background[mindId]?.[0]));
+
+/** A check of what the assistant wrote in a Mind began or ended (#2830): its badge shows it while nothing else runs. */
+export function backgroundCheck(mindId: string, requestId: string, running: boolean): void {
+  useChecks.setState((state) => {
+    const before = state.background[mindId] ?? [];
+    const after = running
+      ? before.includes(requestId)
+        ? before
+        : [...before, requestId]
+      : before.filter((each) => each !== requestId);
+    const background = { ...state.background };
+    if (after.length > 0) background[mindId] = after;
+    else delete background[mindId];
+    const shown = state.running[mindId];
+    const ours = shown === undefined || before.includes(shown.requestId);
+    if (!ours) return { background };
+    const next = { ...state.running };
+    const first = backgroundRun(after[0]);
+    if (first) next[mindId] = first;
+    else delete next[mindId];
+    return { background, running: next };
+  });
+}
 
 /** Records whether a Mind's last verdicts came from a model too small to judge reliably (#680). */
 export const setCheckSmallModel = (mindId: string, small: boolean) =>
@@ -435,10 +470,15 @@ export function restoreCheck(
   editor.view.dispatch(tr);
 }
 
-/** Stops the Mind's check: the sentences not checked yet say "stopped". */
+/** Stops the Mind's check, or every check there of what the assistant wrote: the sentences not checked yet say "stopped". */
 export function stopCheck(mindId: string): void {
-  const running = useChecks.getState().running[mindId];
-  if (running) void core.cancelCheck(running.requestId);
+  const { running: all, background } = useChecks.getState();
+  const running = all[mindId];
+  if (!running) return;
+  const written = background[mindId] ?? [];
+  for (const requestId of written.includes(running.requestId) ? written : [running.requestId]) {
+    void core.cancelCheck(requestId);
+  }
 }
 
 /**

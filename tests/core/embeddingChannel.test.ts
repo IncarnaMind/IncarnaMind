@@ -151,8 +151,8 @@ describe("The embedding model in another process", () => {
     await expect(embedder.embed("text")).rejects.toThrow("isn't loaded");
   });
 
-  // protects=a text still out when the model is closed fails in words instead of waiting for ever, while one answered before keeps its vector (#2930); fails_when=the closed process's request stays pending; no_claim=how long a real process takes to stop.
-  test("closing it fails the text still out, and a text answered before keeps its vector", async () => {
+  // protects=a text still out when the model is closed fails in words instead of waiting for ever, while one answered before keeps its vector (#2930); the process stops only once it has answered that text, as stopping a Node worker thread under onnxruntime aborts the whole process (#2830: a check of what the assistant wrote may still search as the core closes); fails_when=the closed process's request stays pending, or close stops it under the run; no_claim=how long a real process takes to stop, or how a real worker aborts.
+  test("closing it fails the text still out at once, stops the process once that text is answered, and a text answered before keeps its vector", async () => {
     const held = heldModel((text) => text === "query: held");
     const processes = fakeProcesses(held.model);
     const embedder = createChannelEmbedder(processes.start);
@@ -161,10 +161,33 @@ describe("The embedding model in another process", () => {
     const answered = embedder.embed("query: tides");
     const out = embedder.embed("query: held");
     expect(await answered).toEqual(fakeVector("query: tides"));
+    await vi.waitFor(() => expect(held.reached).toEqual(["query: held"]));
     embedder.close();
 
     await expect(out).rejects.toThrow("The embedding model was stopped.");
-    expect(processes.started[0]?.stopped).toBe(true);
+    expect(processes.started[0]?.stopped).toBe(false);
+    held.release();
+    await vi.waitFor(() => expect(processes.started[0]?.stopped).toBe(true));
+  });
+
+  // protects=a process closed with nothing of its own left to answer stops at once, while an earlier closed one still answers its text (#2830); fails_when=it waits for the earlier one's request, which it can never answer, keeping its model in memory until the time limit; no_claim=how long a real model takes.
+  test("a process closed with nothing of its own to answer stops at once, while an earlier one still answers", async () => {
+    const held = heldModel((text) => text === "query: held");
+    const processes = fakeProcesses(held.model);
+    const embedder = createChannelEmbedder(processes.start);
+    await embedder.load(FILES);
+    const out = embedder.embed("query: held");
+    await vi.waitFor(() => expect(held.reached).toEqual(["query: held"]));
+    embedder.close();
+    await expect(out).rejects.toThrow("The embedding model was stopped.");
+
+    await embedder.load(FILES);
+    embedder.close();
+
+    expect(processes.started[1]?.stopped).toBe(true);
+    expect(processes.started[0]?.stopped).toBe(false);
+    held.release();
+    await vi.waitFor(() => expect(processes.started[0]?.stopped).toBe(true));
   });
 
   // protects=a closed process's late exit fails only what was out on it, never the next process's requests (#2930); fails_when=the old exit rejects the new text, or the old text never settles; no_claim=the order a real process's messages arrive in.
@@ -255,7 +278,9 @@ describe("A search waiting on the embedding process", { timeout: 30_000 }, () =>
 
     expect((await searching).map((each) => each.documentId)).toEqual([tides.id]);
     expect(processes.started).toHaveLength(1);
-    expect(processes.started[0]?.stopped).toBe(true);
+    expect(processes.started[0]?.stopped).toBe(false);
+    held.release();
+    await vi.waitFor(() => expect(processes.started[0]?.stopped).toBe(true));
   });
 
   // protects=a search whose process crashes is sent once more after the model starts again, and only once: a second crash leaves it to its words (#2930); fails_when=the search fails, waits, or starts processes again and again; no_claim=why a real process crashes.

@@ -178,7 +178,9 @@ export function MindChangesCard({
                 <button
                   type="button"
                   data-testid="mind-changes-review"
-                  onClick={() => (first ? showChanges(first) : only && showNoteWaiting(only))}
+                  onClick={() =>
+                    first ? showChanges(first, answer.id) : only && showNoteWaiting(only)
+                  }
                   className="mind-changes-review"
                 >
                   {t("mindChanges.review")}
@@ -194,7 +196,7 @@ export function MindChangesCard({
                   type="button"
                   data-testid="mind-changes-open"
                   aria-label={`${t("mindChanges.open")} ${nameOf(only)}`}
-                  onClick={() => showChanges(only)}
+                  onClick={() => showChanges(only, answer.id)}
                   className="mind-changes-review"
                 >
                   {t("mindChanges.open")}
@@ -254,7 +256,7 @@ export function MindChangesCard({
                   type="button"
                   data-testid="mind-changes-open"
                   aria-label={`${t("mindChanges.open")} ${name}`}
-                  onClick={() => showChanges(row)}
+                  onClick={() => showChanges(row, answer.id)}
                   className="mind-changes-action"
                 >
                   {t("mindChanges.open")}
