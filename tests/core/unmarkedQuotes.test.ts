@@ -362,3 +362,181 @@ describe("Matching sentences to Passages", () => {
     expect(parseAsked(undefined)).toEqual([]);
   });
 });
+
+/*
+ * #3059: a sentence's numbers are read without its Citation markers, so a sentence whose marker
+ * has no record matches its own Document line, and a marker's digits never stand in for a number
+ * the sentence left out.
+ */
+const SUPPLIER = {
+  en: {
+    name: "Survey terms.md",
+    lines: {
+      year: "The full cost of the survey is covered by the supplier in the first year.",
+      years: "Travel to each site is paid by the client for the first 2 years of the contract.",
+      figure: "The survey costs $4,500 for each site in the region.",
+    },
+    question: "What does the supplier cover?",
+  },
+  zh: {
+    name: "调研条款.md",
+    lines: {
+      year: "第一年调研的全部费用由供应商承担。",
+      years: "合同前 2 年去各个现场的差旅费由客户支付。",
+      figure: "本地区每个地点的调研费用为 4,500 美元。",
+    },
+    question: "供应商承担哪些费用？",
+  },
+};
+const supplierDocument = (language: "en" | "zh") => {
+  const { name, lines } = SUPPLIER[language];
+  return {
+    name,
+    contents: `# ${name.replace(/\.md$/, "")}\n\n${Object.values(lines).join("\n\n")}\n`,
+  };
+};
+/** A sentence of the Answer as the model writes it: a Document's line with `marker` before its full stop. */
+const marked = (line: string, marker: string) => line.replace(/([.。])$/, `${marker}$1`);
+/** The other years' line with its number left out: "for the first years", "前几年". */
+const yearsLeftOut = {
+  en: SUPPLIER.en.lines.years.replace("first 2 years", "first years"),
+  zh: SUPPLIER.zh.lines.years.replace("前 2 年", "前几年"),
+};
+/** A model that searches for `query` once and answers `answer`, giving no record of its own; the one request gets nothing. */
+const writingModel = (query: string, answer: string) =>
+  scriptedModel((call) => {
+    if (call.json) return { text: "{}" };
+    if (!call.results.some((result) => result.tool === "search_documents")) {
+      return { calls: [{ tool: "search_documents", input: { query } }] };
+    }
+    return { text: answer };
+  });
+
+async function answered(language: "en" | "zh", answer: string) {
+  const model = writingModel(SUPPLIER[language].question, answer);
+  const { core, client, mind } = await setUpWithDocuments(model, [supplierDocument(language)]);
+  const { answerId, finished } = await askAndFinish(
+    core,
+    client,
+    mind.id,
+    SUPPLIER[language].question,
+  );
+  return {
+    quotes: citationsIn(client, answerId).map((each) => [each.quote, each.check]),
+    finished,
+    model,
+  };
+}
+
+describe("a sentence's numbers are read without its markers (#3059)", { timeout: 60_000 }, () => {
+  // protects=a sentence that is its Document's line, with a marker the model gave no record for, takes that line's Citation, found, and the model isn't asked again, in English and Chinese, whatever the marker's digits: one, two of them, or two markers; fails_when=the marker's digits are read as one of the sentence's numbers, so it doesn't match and the model is asked again; no_claim=how often a model leaves a marker without its record.
+  test.each([
+    ["en", "[^1]"],
+    ["zh", "[^1]"],
+    ["en", "[^12]"],
+    ["zh", "[^12]"],
+    ["en", "[^1][^2]"],
+    ["zh", "[^1][^2]"],
+  ] as const)(
+    "in %s, a sentence with %s and no record takes its line's Citation",
+    async (language, marker) => {
+      const { year } = SUPPLIER[language].lines;
+      const { quotes, finished } = await answered(language, marked(year, ` ${marker}`));
+      expect(quotes).toEqual([[year, "found"]]);
+      expect(finished.citedAfterChecking).toMatchObject({ asked: false });
+    },
+  );
+
+  // protects=a sentence with a figure and a marker with no record matches its Document line, the figure read once, in English and Chinese, the marker glued to the figure's sentence; fails_when=the marker's digits are added to the sentence's figures; no_claim=none beyond protects.
+  test.each(["en", "zh"] as const)(
+    "in %s, a sentence with a figure and a marker with no record takes its line's Citation",
+    async (language) => {
+      const { figure } = SUPPLIER[language].lines;
+      const { quotes, finished } = await answered(language, marked(figure, "[^3]"));
+      expect(quotes).toEqual([[figure, "found"]]);
+      expect(finished.citedAfterChecking).toMatchObject({ asked: false });
+    },
+  );
+
+  // protects=a marker's digits never stand in for a number the sentence left out: "for the first years [^2]" doesn't match "for the first 2 years", nor "前几年 [^2]" "前 2 年", so no Citation quotes a number the sentence doesn't state, and the model is asked once; fails_when=the marker's 2 is read as the sentence's number and the line matches; no_claim=what a real model replies when asked.
+  test.each(["en", "zh"] as const)(
+    "in %s, a marker's digits don't fill a number the sentence left out",
+    async (language) => {
+      const { quotes, finished } = await answered(
+        language,
+        marked(yearsLeftOut[language], " [^2]"),
+      );
+      expect(quotes).toEqual([]);
+      expect(finished.citedAfterChecking).toMatchObject({ asked: true });
+    },
+  );
+
+  // protects=without a marker the two sentences read as before: the line itself matches, and the one with its number left out doesn't, in English and Chinese; fails_when=either changes; no_claim=none beyond protects.
+  test.each(["en", "zh"] as const)(
+    "in %s, a sentence with no marker reads as before",
+    async (language) => {
+      const { year } = SUPPLIER[language].lines;
+      const same = await answered(language, year);
+      expect(same.quotes).toEqual([[year, "found"]]);
+      const leftOut = await answered(language, yearsLeftOut[language]);
+      expect(leftOut.quotes).toEqual([]);
+    },
+  );
+
+  // protects=a marker with a record keeps its record's Citation and nothing is matched for its sentence, in English and Chinese; fails_when=the citing step adds or changes a Citation for a recorded marker; no_claim=none beyond protects.
+  test.each(["en", "zh"] as const)(
+    "in %s, a marker with a record keeps its record",
+    async (language) => {
+      const { year, figure } = SUPPLIER[language].lines;
+      const query = SUPPLIER[language].question;
+      const model = scriptedModel((call) => {
+        if (call.json) return { text: "{}" };
+        const searched = call.results.find((result) => result.tool === "search_documents");
+        if (!searched) return { calls: [{ tool: "search_documents", input: { query } }] };
+        if (!call.results.some((result) => result.tool === "cite")) {
+          const [passage] = passageIds(searched.text);
+          const citations = [{ marker: 1, passage, quote: figure }];
+          return { calls: [{ tool: "cite", input: { citations } }] };
+        }
+        return { text: marked(year, " [^1]") };
+      });
+      const { core, client, mind } = await setUpWithDocuments(model, [supplierDocument(language)]);
+      const { answerId, finished } = await askAndFinish(core, client, mind.id, query);
+      expect(citationsIn(client, answerId).map((each) => each.quote)).toEqual([figure]);
+      expect(finished.citedAfterChecking ?? { count: 0 }).toMatchObject({ count: 0 });
+    },
+  );
+
+  // protects=a quotation with a marker written inside its quotation marks is looked for on the page without the marker, and takes its Citation, found; fails_when=the marker's text is looked for with the quoted words, so the quote isn't found; no_claim=how often a model writes a marker inside quotation marks.
+  test("a quotation with a marker inside its marks is looked for without it", async () => {
+    const { year } = SUPPLIER.en.lines;
+    const { quotes } = await answered("en", `The terms say "${marked(year, " [^1]")}" for now.`);
+    expect(quotes).toEqual([[year, "found"]]);
+  });
+
+  // protects=whether an uncited Answer in another language may draw on the Passages reads its figures without its markers' digits, so a marker [^12] doesn't share "12" with a Passage; fails_when=a marker's digits count as the Answer's figure; no_claim=none beyond protects.
+  test("an Answer's figures for the one request are read without its markers' digits", () => {
+    const passages = [
+      {
+        id: "P1",
+        text: "The Transformer achieves 28.4 BLEU on the WMT 2014 English-to-German translation task.",
+      },
+      { id: "P2", text: "Table 2 lists the 7 models we trained on 12 GPUs." },
+    ];
+    expect(mayDrawOn("我在你的文档中没有找到相关内容 [^12]。", passages)).toBe(false);
+    expect(mayDrawOn("训练在 8 块 GPU 上进行了 12 小时。", passages)).toBe(true);
+  });
+
+  // protects=the ask for Citations goes out only when a marker with no record matches nothing: with every such marker matched there is no request beyond the search and the Answer; with one left unmatched the one request goes out; fails_when=an ask goes out though every marker matched, or none goes out though one didn't; no_claim=none beyond protects.
+  test("the ask goes out only when a marker with no record matches nothing", async () => {
+    const { year, figure } = SUPPLIER.en.lines;
+    const all = await answered("en", `${marked(year, " [^1]")} ${marked(figure, " [^2]")}`);
+    expect(all.finished.citedAfterChecking).toMatchObject({ asked: false });
+    expect(all.model.doStreamCalls).toHaveLength(2);
+    const one = await answered(
+      "en",
+      `${marked(year, " [^1]")} ${marked(yearsLeftOut.en, " [^2]")}`,
+    );
+    expect(one.finished.citedAfterChecking).toMatchObject({ asked: true });
+  });
+});

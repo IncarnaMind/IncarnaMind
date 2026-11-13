@@ -48,6 +48,7 @@ import {
   likeness,
   type MarkerRecord,
   withMissingMarkers,
+  withoutMarkers,
   wordsOf,
 } from "./markerPlacement";
 import { CITE_RETRY_INSTRUCTIONS, citeRetryParts, citeRetryPrompt, RETRY_TAGS } from "./prompt";
@@ -134,10 +135,11 @@ const NEGATION = /\b(?:not|no|never)\b|n't\b|[不没未无非]/giu;
 
 /** The numbers in a text, sorted, so two texts' can be compared as a multiset. */
 function numbersOf(text: string): string[] {
-  const latin = [...text.matchAll(LATIN_NUMBER)].map((found) =>
+  const read = withoutMarkers(text);
+  const latin = [...read.matchAll(LATIN_NUMBER)].map((found) =>
     found[0].replace(/[,\s](?=\d{3}(?!\d))/g, ""),
   );
-  const chinese = [...text.matchAll(CHINESE_NUMBER)].map((found) => found[0]);
+  const chinese = [...read.matchAll(CHINESE_NUMBER)].map((found) => found[0]);
   return [...latin, ...chinese].sort();
 }
 
@@ -178,7 +180,12 @@ function passageSentences(text: string): string[] {
  */
 function quotationsIn(answer: string): { at: number; quote: string }[] {
   return [...answer.matchAll(QUOTATION)]
-    .map((found) => ({ at: found.index, quote: (found[1] as string).trim() }))
+    .map((found) => ({
+      at: found.index,
+      quote: withoutMarkers(found[1] as string)
+        .replace(/\s+/g, " ")
+        .trim(),
+    }))
     .filter(({ quote }) => wordsOf(quote).size >= MIN_QUOTED_WORDS);
 }
 
@@ -326,7 +333,7 @@ const LATIN_TERM = /\p{Script=Latin}{4,}/gu;
 
 /** A figure of two or more digits: nearly every Passage has a one-digit one ("Table 2", "Section 3"), so sharing it says nothing. */
 const figuresOf = (text: string): string[] =>
-  [...text.matchAll(DIGITS)]
+  [...withoutMarkers(text).matchAll(DIGITS)]
     .map((found) => found[0].replace(/,(?=\d{3}(?!\d))/g, ""))
     .filter((figure) => figure.length > 1);
 
