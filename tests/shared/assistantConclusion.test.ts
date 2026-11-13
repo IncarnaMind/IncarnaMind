@@ -10,6 +10,7 @@ import type {
   ClaimCheckAttributes,
   ClaimCheckFailure,
   ClaimCheckPart,
+  FigureCheckAttributes,
 } from "../../src/core";
 import { runFailureOf } from "../../src/core/answers/checks/checkResults";
 import { asCitedNow, type HeldCitation } from "../../src/shared/citedNow";
@@ -25,6 +26,7 @@ import {
   partsWrittenBy,
   resultFromParts,
 } from "../../src/shared/claimParts";
+import { readFigures } from "../../src/shared/figures";
 
 const CASES = {
   en: {
@@ -317,5 +319,42 @@ describe("An opinion left out of a sentence the assistant wrote", () => {
     onAFact.parts[0].byAssistant = true;
     expect(readClaimCheck(onAFact)?.parts?.[0]?.byAssistant).toBeUndefined();
     expect(readClaimCheck(onAFact)?.state).toBe("supported");
+  });
+
+  // protects=a sentence whose figures are each checked with their own source reads its figures' result, never Supported while the assistant's conclusion beside them was left out; without the flag it reads Supported as before; fails_when=a figure sentence of the assistant's shows ✓ beside its own conclusion; no_claim=how each figure is checked.
+  test("a sentence whose figures are checked one by one", () => {
+    const text = "Revenue was 10, so the year went well.";
+    const [reading] = readFigures("10", { language: "en" });
+    if (!reading) throw new Error("No figure.");
+    const base = checkOf(text, []);
+    const figure: FigureCheckAttributes = {
+      ...base,
+      state: "supported",
+      id: "revenue",
+      locator: {
+        kind: "text",
+        from: { blockId: "block", offset: 12 },
+        to: { blockId: "block", offset: 14 },
+      },
+      reading,
+      calculated: null,
+      sourceInput: null,
+      roundedFrom: null,
+      difference: null,
+      footing: [],
+    };
+    const opinion = part(16, text.length - 1, "opinion", null);
+    const withFigures = (parts: ClaimCheckPart[]): ClaimCheckAttributes => ({
+      ...base,
+      figures: [figure],
+      remainder: null,
+      parts,
+    });
+    const fact = part(0, 14, "fact", "supported");
+    expect(reads(withFigures([fact, opinion]), text)).toEqual({ state: "supported" });
+    expect(reads(withFigures(partsWrittenBy([fact, opinion], true)), text)).toEqual({
+      state: "not-checked",
+      reason: "assistant-conclusion",
+    });
   });
 });
