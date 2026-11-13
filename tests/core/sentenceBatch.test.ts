@@ -125,7 +125,7 @@ describe("a batch's reply", () => {
 
 describe("a reply that corrects itself (#3029)", () => {
   // protects=a batch reply holding a first answer, words, then a corrected one reads the corrected one alone when it is a whole batch: a sentence it leaves out stays unjudged, a pass the earlier answer judged otherwise stays unjudged, a verdict it lowers stands; a reply with one answer reads as before, and a later answer that isn't a whole batch reads as before, nothing; fails_when=the two answers are mixed, the earlier one is read, a pass rests on a reply that said otherwise, or a single answer reads otherwise than before; no_claim=how often a model corrects itself, which the evaluation's trials count.
-  const answer = (...entries: ReturnType<typeof entry>[]) => JSON.stringify({ sentences: entries });
+  const answer = (...entries: Record<string, unknown>[]) => JSON.stringify({ sentences: entries });
   const twice = (first: string, words: string, later: string) => `${first}\n\n${words}\n\n${later}`;
   const languages = [
     { language: "English", words: "Wait, I need to include both sentences." },
@@ -211,6 +211,58 @@ describe("a reply that corrects itself (#3029)", () => {
       }
     },
   );
+
+  test.each([
+    {
+      earlier: "an entry for sentence 1 that doesn't read whole",
+      first: answer({ number: 1, kind: "fact", verdict: "contradicted" }, entry(2, "supported")),
+      unjudged: [1],
+    },
+    {
+      earlier: "a word for sentence 1 that isn't one of its verdicts",
+      first: answer(entry(1, "partly"), entry(2, "supported")),
+      unjudged: [1],
+    },
+    {
+      earlier: "two entries for sentence 1",
+      first: answer(entry(1, "supported"), entry(1, "supported"), entry(2, "supported")),
+      unjudged: [1],
+    },
+    {
+      earlier: 'an entry numbered "one", which might be any sentence',
+      first: answer({ ...entry(1, "contradicted"), number: "one" }),
+      unjudged: [1, 2],
+    },
+    {
+      earlier: "a JSON object that isn't a batch",
+      first: '{"verdict":"contradicted","sentence":1}',
+      unjudged: [1, 2],
+    },
+  ])(
+    "after $earlier, a later pass there stays unjudged, in English and Chinese",
+    async ({ first, unjudged }) => {
+      for (const { words } of languages) {
+        const reply = twice(first, words, answer(entry(1, "supported"), entry(2, "supported")));
+
+        const read = await readBatchReply(reply, 2);
+
+        for (const number of [1, 2]) expect(read.has(number)).toBe(!unjudged.includes(number));
+      }
+    },
+  );
+
+  test("after an earlier answer that can't be placed, a verdict the later answer lowers still stands", async () => {
+    const reply = twice(
+      '{"verdict":"supported","sentence":1}',
+      "等等，更正如下：",
+      answer(entry(1, "unsupported"), entry(2, "contradicted")),
+    );
+
+    const read = await readBatchReply(reply, 2);
+
+    expect(read.get(1)).toMatchObject({ verdict: "unsupported" });
+    expect(read.get(2)).toMatchObject({ verdict: "contradicted" });
+  });
 
   test("a first answer left open, then a whole one, reads nothing: what the first said can't be known", async () => {
     const reply = `{"sentences":[{"number":1,\n\nWait, both sentences:\n\n${answer(entry(1, "supported"), entry(2, "supported"))}`;

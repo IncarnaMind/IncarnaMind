@@ -204,29 +204,51 @@ function jsonObjects(text: string): { objects: unknown[]; broken: boolean } {
 }
 
 /** Whether two answers judged a sentence alike: every field of an entry but what it says. */
-const alike = (one: BatchVerdict, other: BatchVerdict) =>
+const alike = (one: Pick<BatchVerdict, keyof typeof ENTRY>, other: BatchVerdict) =>
   (Object.keys(ENTRY) as (keyof typeof ENTRY)[]).every(
     (field) => field === "says" || one[field] === other[field],
   );
 
 /**
+ * What an earlier answer said of each sentence it gave an entry: its entry, or null where that
+ * entry doesn't read whole or the sentence has two. Null as a whole when nothing it said can be
+ * placed: it isn't a batch, or an entry's number can't be read, so it might be any sentence's.
+ */
+function saidOf(value: unknown): Map<number, Pick<BatchVerdict, keyof typeof ENTRY> | null> | null {
+  const reply = fieldsOf(value, { sentences: list });
+  if (!reply) return null;
+  const said = new Map<number, Pick<BatchVerdict, keyof typeof ENTRY> | null>();
+  for (const entry of reply.sentences) {
+    const number = isRecord(entry) ? whole(entry.number) : undefined;
+    if (number === undefined) return null;
+    said.set(number, said.has(number) ? null : (fieldsOf(entry, ENTRY) ?? null));
+  }
+  return said;
+}
+
+/**
  * A batch's reply as the Answer check reads it; null when it can't be read. A model that corrects
  * itself writes a second answer after its first (#3029): the later one is read when it is a whole
- * batch, never a mix of the two, and a sentence it passes that an earlier answer judged otherwise
- * is left unjudged, as a ✓ can't rest on a reply that said otherwise a moment before.
+ * batch, never a mix of the two. A sentence it passes stays unjudged unless everything before it
+ * agrees, as a ✓ can't rest on a reply that said otherwise a moment before: an earlier answer
+ * that gave the sentence no entry said nothing of it, and one whose entry differs, can't be read
+ * whole, or can't be placed doesn't agree. A verdict it lowers stands.
  */
 export function readBatchText(reply: string, count: number): Map<number, BatchVerdict> | null {
   const { objects: answers, broken } = jsonObjects(replyText(reply));
   if (answers.length > 0 && broken) return null;
   const later = answers.length > 1 ? readBatch(answers.at(-1), count) : null;
   if (!later) return readBatch(replyJson(reply), count);
-  const earlier = answers.slice(0, -1).flatMap((answer) => readBatch(answer, count) ?? []);
+  const earlier = answers.slice(0, -1).map(saidOf);
   for (const [number, verdict] of later) {
-    const otherwise = earlier.some((answer) => {
-      const before = answer.get(number);
-      return before !== undefined && !alike(before, verdict);
+    if (!passesSentence(verdict)) continue;
+    const agrees = earlier.every((said) => {
+      if (said === null) return false;
+      if (!said.has(number)) return true;
+      const before = said.get(number);
+      return before ? alike(before, verdict) : false;
     });
-    if (passesSentence(verdict) && otherwise) later.delete(number);
+    if (!agrees) later.delete(number);
   }
   return later;
 }
