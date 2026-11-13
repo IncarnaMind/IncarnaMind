@@ -1568,11 +1568,10 @@ export function ClaimCard({
           onPickerChange={onSourcePickerChange}
         />
       )}
-      {/* Supported, not yet cited is the model's Supported, as are the facts beside the
-          assistant's own conclusion: their line names the models as one does. */}
+      {/* Supported, not yet cited is the model's Supported: its line names the models as one does. */}
       <CheckedByLine
         check={awaiting ? claim.check : check}
-        shown={awaiting || ownConclusion ? "supported" : state}
+        shown={awaiting ? "supported" : state}
       />
       {findSourcesOffered && (
         <ObjectMenu
