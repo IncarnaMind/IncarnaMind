@@ -14,6 +14,7 @@ import type {
   AnalysisVersions,
 } from "../shared/analysis";
 import type { DrawnPage, PageCaptureRequest } from "../shared/citedPage";
+import type { CallHelpForm } from "../shared/meetingHelp";
 import type { PrintDocument } from "../shared/printDocument";
 import type { AgentLauncher } from "./agents";
 import type { AnswerEngine } from "./answers/engine";
@@ -1394,6 +1395,11 @@ export interface CoreAdapters {
    * evaluation pass one.
    */
   helpMarksQuoteOnly?: () => boolean | undefined;
+  /**
+   * The form call help is asked and read in, other than today's (`CallHelpForm`); unset, today's.
+   * Only tests and the evaluation pass one.
+   */
+  callHelpForm?: () => CallHelpForm | undefined;
   /**
    * Tunes and watches the search Tool for Answers' searches (reranking depth,
    * Passages handed, a callback with each search's timings). Only the

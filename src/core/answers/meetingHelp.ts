@@ -6,6 +6,7 @@
  */
 
 import {
+  type CallHelpForm,
   EFFECT_MARK,
   HELP_SHAPE,
   type HelpShape,
@@ -109,8 +110,67 @@ const EXAMPLES: Readonly<Record<"en" | "zh", Readonly<Record<HelpShape, readonly
   },
 };
 
-/** A short line's own mark: a list's, as the form asks for, never a numbered step. */
-const SHORT_LINE = /^[-*•]\s+/;
+/**
+ * What call help is told in the form whose fact lines stand apart (#2847): the text frozen for its
+ * trial, in place of the lines above for options and short lines. Readings stay as they are.
+ */
+const FACT_LINES = {
+  check:
+    'Check the newest claim in the transcript against the User\'s Documents, in three lines: your verdict, "Right." or "Wrong." (in Chinese "对。" or "不对。"); what they said, citing the call; and what the Documents say, citing them. If the Documents don\'t say, the first line says so instead of a verdict, and there is no third.',
+  shapes: {
+    options: [
+      '- One or two options, never more. The one you recommend comes first, its line starting with "★ ".',
+      '- Each option is first what the User could say, as they would say it aloud, one sentence of at most 25 words with no quotation marks around it and no Citation marker; then each fact it rests on, at most two, each one sentence of at most 20 words on a line of its own starting with "> " and ending with its Citation markers; then a line starting with "→ " and what saying it leads to, in at most eight words, with no Citation marker.',
+    ],
+    lines: [
+      '- At most three short lines, each one sentence of at most 20 words: a fact, starting with "> " and ending with its Citation markers, or a remark of your own, starting with "= " and with none.',
+    ],
+  },
+  /** For the buttons that read the User's Documents. */
+  notInDocuments: {
+    en: '- What neither the Documents nor the call says goes on a line starting with "= ", with no Citation marker: "= The Documents don\'t say whether the price includes customs duty".',
+    zh: '- What neither the Documents nor the call says goes on a line starting with "= ", with no Citation marker: "= 文档没有提到价格是否含关税".',
+  },
+  examples: {
+    en: {
+      options: [
+        "★ We can't go below list for Enterprise, but we can give your developers a free sandbox",
+        "> Every Enterprise plan includes a test sandbox at no charge [^1]",
+        "→ keeps the deal moving; protects the margin",
+        "",
+        "Let me check with our team and come back to you by Friday",
+        "→ buys time; momentum may drop",
+      ],
+      lines: [
+        "> The launch moves to 18 November [^1]",
+        "> Dana confirms the date with the provider [^2]",
+      ],
+      check: [
+        "= Wrong.",
+        "> They said backups run every twelve hours [^1]",
+        "> Backups run every eight hours [^2]",
+      ],
+    },
+    zh: {
+      options: [
+        "★ 企业版价格没法低于标价，但可以免费给你们的开发团队开一个沙盒",
+        "> 每个企业版套餐都免费含一个测试沙盒 [^1]",
+        "→ 推进成交，守住利润",
+        "",
+        "我跟团队确认一下，周五前给你答复",
+        "→ 争取时间，但可能冷场",
+      ],
+      lines: ["> 上线推迟到 11 月 18 日 [^1]", "> Dana 跟服务商确认日期 [^2]"],
+      check: ["= 不对。", "> 对方说每十二小时备份一次 [^1]", "> 每八小时备份一次 [^2]"],
+    },
+  },
+} as const;
+
+/**
+ * A short line's own mark: a list's, as the form asks for, never a numbered step; or, where its
+ * facts stand apart, a fact's ("> ") or the reply's own ("= ").
+ */
+const SHORT_LINE = /^(?:[-*•]\s+|[>＞=＝]\s*)/;
 
 /**
  * The spans of a button's reply in `text` that are its own lines: each option or reading from its
@@ -214,6 +274,7 @@ export const LIVE_TEXT_BEHIND_NOTE =
  * What the model is told for a button's Question during a call. `found`: Passages of the User's
  * Documents were found ahead for the newest lines. `callLanguage`: the language the call's newest
  * lines are in, which the reply is written in; `language`, the interface's, when it can't be told.
+ * `form`: the form whose fact lines stand apart, or today's, for the evaluation alone.
  */
 export function meetingHelpInstructions(
   kind: MeetingHelpKind,
@@ -221,18 +282,24 @@ export function meetingHelpInstructions(
     found,
     language,
     callLanguage,
-  }: { found: boolean; language: Language; callLanguage: string | null },
+    form,
+  }: { found: boolean; language: Language; callLanguage: string | null; form?: CallHelpForm },
 ): string {
   const shape = HELP_SHAPE[kind];
-  const task = TASKS[kind];
   const documents = HELP_DOCUMENTS[kind];
+  const inLanguage = callLanguage === "Chinese" ? "zh" : "en";
+  const factLines = form === "fact lines" && shape !== "readings" ? shape : null;
+  const task = factLines && kind === "check" ? FACT_LINES.check : TASKS[kind];
   return [
     "The User is in a call and pressed a button for help: the Question is the button's name. They will read your reply in a second or two while the call goes on.",
     `What they need: ${task}`,
     "Reply in exactly this form, with nothing before or after it: start with its first line, and add no heading, introduction, plan, remark on the transcript or closing line.",
-    ...SHAPES[shape],
+    ...(factLines ? FACT_LINES.shapes[factLines] : SHAPES[shape]),
+    ...(factLines && documents !== null ? [FACT_LINES.notInDocuments[inLanguage]] : []),
     "For example:",
-    ...EXAMPLES[callLanguage === "Chinese" ? "zh" : "en"][shape],
+    ...(factLines
+      ? FACT_LINES.examples[inLanguage][kind === "check" ? "check" : factLines]
+      : EXAMPLES[inLanguage][shape]),
     "- Base it on the newest lines of <live-transcript>: what was said last matters most.",
     "- Never say what you can't read or which button this is.",
     "- When the other side names a price or a figure, it is what they ask for, never the User's: don't repeat it as the User's price or offer.",

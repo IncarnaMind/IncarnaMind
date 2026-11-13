@@ -16,6 +16,7 @@ import type { AnswerStatus } from "../core/api";
 import { MARKER } from "./answerSentences";
 import { FIGURE_MARKER } from "./figureMarkers";
 import {
+  type CallHelpForm,
   EFFECT_MARK,
   HELP_SHAPE,
   type HelpShape,
@@ -48,11 +49,15 @@ export interface ReplyItem {
   effect: ReplyPiece[] | null;
 }
 
-/** How a reply is laid out: its button's shape, a line put first, and whether it is still written. */
+/**
+ * How a reply is laid out: its button's shape, a line put first, whether it is still written, and
+ * the form it was asked in when that isn't today's.
+ */
 export interface HelpLayout {
   shape: HelpShape;
   leadIn: boolean;
   streaming: boolean;
+  form?: CallHelpForm;
 }
 
 /**
@@ -62,11 +67,12 @@ export interface HelpLayout {
  */
 export const helpLayout = (
   kind: MeetingHelpKind,
-  { status, textBehind }: { status: AnswerStatus; textBehind: boolean },
+  { status, textBehind, form }: { status: AnswerStatus; textBehind: boolean; form?: CallHelpForm },
 ): HelpLayout => ({
   shape: HELP_SHAPE[kind],
   leadIn: kind === "leading" || textBehind,
   streaming: status === "streaming" || status === "stopped",
+  ...(form && { form }),
 });
 
 const DEFINITION = /^\[\^\d{1,4}\]:/;
@@ -290,8 +296,9 @@ export function helpReplyRead(markdown: string, layout: HelpLayout): HelpReplyRe
   const read = lines.map((line, index) => {
     const lead = written.find((each) => each.line === index)?.item;
     const own =
-      EFFECT_MARK.test(plainLine(line)) ||
-      (layout.shape === "readings" && lead !== undefined && readingItself(lead, line));
+      layout.form !== "as before" &&
+      (EFFECT_MARK.test(plainLine(line)) ||
+        (layout.shape === "readings" && lead !== undefined && readingItself(lead, line)));
     const words = lead && said.includes(lead) ? optionRead(line) : line;
     return own ? withoutCitations(words) : words;
   });

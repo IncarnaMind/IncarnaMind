@@ -15,6 +15,7 @@ import type {
 } from "../../src/core";
 import { estimateTokens } from "../../src/core/answers/context";
 import type { ChatModelSpec } from "../../src/core/providers/models";
+import type { CallHelpForm } from "../../src/shared/meetingHelp";
 
 export interface Arm {
   id: string;
@@ -41,6 +42,8 @@ export interface Arm {
   quotesAsGiven?: boolean;
   /** Whether call help's ✓ comes from a found quote alone, its sentences not judged (#2847); unset: judged. */
   helpMarksQuoteOnly?: boolean;
+  /** The form call help is asked and read in (#2847); unset: today's. */
+  callHelpForm?: CallHelpForm;
 }
 
 /** The most of the live transcript `newest-stretch` keeps: some three minutes of talk. */
@@ -191,6 +194,18 @@ export const ARMS: readonly Arm[] = [
     helpMarksQuoteOnly: true,
   },
   {
+    id: "call-help-as-before",
+    label:
+      "call help asked and read as before #2847's fact lines: today's instructions, and no marker taken off a → line or a reading's first line",
+    callHelpForm: "as before",
+  },
+  {
+    id: "call-help-fact-lines",
+    label:
+      "call help's facts on lines of their own, apart from the line to say, and the reply's own lines with no marker (#2847)",
+    callHelpForm: "fact lines",
+  },
+  {
     id: "retrieve-first",
     label:
       "the Question searched before the first call, answered from those Passages unless it needs more (#1633)",
@@ -257,6 +272,7 @@ export function armSwitch() {
     helpFormJudged: () => current?.helpFormJudged,
     quotesAsGiven: () => current?.quotesAsGiven,
     helpMarksQuoteOnly: () => current?.helpMarksQuoteOnly,
+    callHelpForm: () => current?.callHelpForm,
     /** The requests sent since it was last asked, oldest first. */
     takeSent: (): SentRequest[] => sent.splice(0),
     use(arm: Arm): void {

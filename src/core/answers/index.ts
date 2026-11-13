@@ -78,7 +78,7 @@ import {
 import { holdsNothing, madeByAnswer } from "../../shared/madeMind";
 import { linkTableSources } from "../../shared/markdownTables";
 import { escapeMarkdownText } from "../../shared/markdownText";
-import type { MeetingHelpKind } from "../../shared/meetingHelp";
+import type { CallHelpForm, MeetingHelpKind } from "../../shared/meetingHelp";
 import {
   MISSING_NUMBER_REFUSED,
   missingNumberWords,
@@ -671,6 +671,8 @@ export interface AnswersOptions {
   quotesAsGiven?(): boolean;
   /** See `CoreAdapters.helpMarksQuoteOnly`. */
   helpMarksQuoteOnly?(): boolean;
+  /** See `CoreAdapters.callHelpForm`. */
+  callHelpForm?(): CallHelpForm | undefined;
   providerExists(providerId: string): boolean;
   /**
    * An Answer's sentences with Citations, checked against what they cite before it ends (#2311):
@@ -1491,6 +1493,8 @@ export function createAnswers(options: AnswersOptions) {
     let foundAhead = false;
     /** The language the call's newest lines are in, which a help Answer is written in. */
     let callLanguage: string | null = null;
+    /** The form a help Answer is asked and read in, when the evaluation chooses one. */
+    const helpForm = help ? options.callHelpForm?.() : undefined;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let finished = false;
     let support: CitationSupport | null = null;
@@ -1955,7 +1959,14 @@ export function createAnswers(options: AnswersOptions) {
       if (settled) return;
       settled = true;
       markdown = session.citeWrittenIds(markdown, notKept);
-      if (help) markdown = helpReplyRead(markdown, helpLayout(help, { status, textBehind })).text;
+      if (help) {
+        const layout = helpLayout(help, {
+          status,
+          textBehind,
+          ...(helpForm && { form: helpForm }),
+        });
+        markdown = helpReplyRead(markdown, layout).text;
+      }
       // The check runs once, now; its results are stored with each Citation, and each figure's input.
       try {
         session.check();
@@ -3688,6 +3699,7 @@ export function createAnswers(options: AnswersOptions) {
                   found: foundAhead,
                   language: options.interfaceLanguage(),
                   callLanguage,
+                  ...(helpForm && { form: helpForm }),
                 }),
                 ...(textBehind ? [LIVE_TEXT_BEHIND_NOTE] : []),
               ].join("\n\n"),

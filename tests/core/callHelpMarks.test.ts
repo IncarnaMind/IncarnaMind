@@ -17,6 +17,7 @@ import { pageBlocks, withAnswerChecks } from "../../src/shared/answerBlocks";
 import type { NodeJSON } from "../../src/shared/blockJson";
 import { readHelpReply } from "../../src/shared/helpReplyRead";
 import { isTranscriptLocation } from "../../src/shared/locations";
+import type { CallHelpForm } from "../../src/shared/meetingHelp";
 import { answerJudged, shownPassages } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { createSourceFolder, waitForProcessing, writeSourceFile } from "../helpers/documents";
@@ -120,7 +121,12 @@ function markingModel(given: Marking, calls: ModelCall[], batches: GenerateCall[
  * A meeting recording, with the price sheet in its Library, its help answered by `given`, on a
  * model in Ollama unless `cloud` names an Anthropic one.
  */
-async function setUp(given: Marking, quoteOnly?: () => boolean, cloud?: string) {
+async function setUp(
+  given: Marking,
+  quoteOnly?: () => boolean,
+  cloud?: string,
+  form?: CallHelpForm,
+) {
   const calls: ModelCall[] = [];
   const batches: GenerateCall[] = [];
   const dataDir = await createTempDataFolder();
@@ -128,6 +134,7 @@ async function setUp(given: Marking, quoteOnly?: () => boolean, cloud?: string) 
   const { core, record } = await transcribingCore(dataDir, {
     createChatModel: models.createChatModel,
     ...(quoteOnly && { helpMarksQuoteOnly: quoteOnly }),
+    ...(form && { callHelpForm: () => form }),
   });
   const saved = await core.saveChatProvider(
     cloud
@@ -912,4 +919,59 @@ describe("a reply is kept, checked and read again as the panel shows it (#2925)"
       expect(marks(after)[0]?.passed).toBe(false);
     },
   );
+});
+
+describe("the evaluation's switch for the form whose facts stand apart (#2847)", {
+  timeout: 60_000,
+}, () => {
+  // protects=the evaluation's as-before arm asks and keeps a reply as main did: its instructions are today's and a "→" line keeps its marker, judged as any sentence; fails_when=the arm takes a marker off or asks otherwise, so the trial would compare more than the form; no_claim=what the check decides.
+  test("as before, a press is asked as today and a → line keeps its marker, judged as any sentence", async () => {
+    const reply =
+      "★ Yes, Enterprise is $45 a seat with single sign-on [^1]\n→ answers at once [^2]\n\nI'll confirm the price in writing today [^3]\n→ buys time";
+    const { core, meeting, calls } = await setUp(
+      {
+        reply,
+        records: [
+          { marker: 1, from: "sheet" },
+          { marker: 2, from: "sheet" },
+          { marker: 3, from: "sheet" },
+        ],
+        verdicts: [
+          ["answers at once", { verdict: "supported", kind: "opinion" }],
+          ["in writing", { verdict: "unsupported" }],
+        ],
+      },
+      undefined,
+      undefined,
+      "as before",
+    );
+
+    const after = await (await pressed(core, meeting, "answer")).judged();
+
+    expect(after.text).toBe(reply);
+    expect(marks(after)).toEqual([
+      { marker: 1, check: "found", passed: true },
+      { marker: 2, check: "not-checked", passed: false },
+      { marker: 3, check: "unsupported", passed: false },
+    ]);
+    expect(calls[0]?.prompt).toContain("- Each option is two lines:");
+  });
+
+  // protects=under the form a press is asked in the form's words, in the Question's own message as today's are; fails_when=the switch doesn't reach the instructions; no_claim=what the model writes.
+  test("in the form, a press is asked in the form's words", async () => {
+    const { core, meeting, calls } = await setUp(
+      { reply: ENGLISH },
+      undefined,
+      undefined,
+      "fact lines",
+    );
+
+    await (await pressed(core, meeting, "answer")).judged();
+
+    const help = block(calls[0]?.prompt ?? "", "help");
+    expect(help).toContain(
+      'each one sentence of at most 20 words on a line of its own starting with "> " and ending with its Citation markers',
+    );
+    expect(help).not.toContain("- Each option is two lines:");
+  });
 });

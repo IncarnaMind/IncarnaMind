@@ -31,6 +31,14 @@ export const helpKindsFor = (template: MeetingHelpTemplate | null): readonly Mee
 /** How a button's Answer is laid out: options to say, readings of what they want, or short lines. */
 export type HelpShape = "options" | "readings" | "lines";
 
+/**
+ * A form call help is asked and read in other than today's, while its trial runs (#2847): "fact
+ * lines", where each fact an option rests on is a line of its own apart from the line to say; or
+ * "as before", today's without the rule that takes a marker off a "→" line and a reading's first
+ * line. Only tests and the evaluation choose one.
+ */
+export type CallHelpForm = "fact lines" | "as before";
+
 export const HELP_SHAPE: Readonly<Record<MeetingHelpKind, HelpShape>> = {
   say: "options",
   answer: "options",
