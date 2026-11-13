@@ -799,3 +799,78 @@ describe("Of two numbers written the same, a label states a unit only for its ow
     }
   });
 });
+
+const overRows = (heading: string) => report(`${heading}\n七月: 118\n八月: 126\n`);
+const overColumn = (heading: string) => report(`月份\t${heading}\n七月\t118\n八月\t126\n`);
+const CAPTION_OF_TWO_SCALES = report(
+  "Report\n表7 各厂产量（万吨）/（亿吨）\n工厂\t数值\n一厂\t54\n二厂\t31\n",
+);
+
+describe("A heading that names two units states neither for a number under it (#2997)", {
+  timeout: 120_000,
+}, () => {
+  // protects=a heading over rows whose brackets state two units is not read as its last bracket, so a right sentence in the first unit keeps its ✓ in an Answer and reads Supported in Check against Documents, in English and Chinese; fails_when="八月产量为126万吨。" under 各月产量（万吨）及同比（%） or 各月产量（万吨）、用电（万千瓦时） reads Unsupported for the other bracket; no_claim=which of the two units a number under the heading is in.
+  test.each([
+    ["各月产量（万吨）及同比（%）", "八月产量为126万吨。"],
+    ["各月产量（万吨）、用电（万千瓦时）", "八月产量为126万吨。"],
+    ["各月产量（万吨）、用电（万千瓦时）", "八月用电为126万千瓦时。"],
+  ] as const)("under %s, %s keeps its ✓", async (heading, sentence) => {
+    for (const language of ["en", "zh-CN"] as const) {
+      expect(await judged(sentence, "八月: 126", overRows(heading), language), language).toEqual({
+        answer: { check: "found", verdict: null },
+        document: { verdict: "supported", reason: null },
+      });
+    }
+  });
+
+  // protects=under a heading of two units a sentence at another scale than the heading gives its own unit is still Unsupported in both checks and both languages; fails_when="八月产量为126亿吨。" under 各月产量（万吨）及同比（%） keeps its ✓ or reads Supported.
+  test.each([["各月产量（万吨）及同比（%）"], ["各月产量（万吨）、用电（万千瓦时）"]] as const)(
+    "under %s, 八月产量为126亿吨。 is Unsupported",
+    async (heading) => {
+      for (const [language, reason] of linesOf("126", "126亿吨")) {
+        expect(
+          await judged("八月产量为126亿吨。", "八月: 126", overRows(heading), language),
+          language,
+        ).toEqual({
+          answer: { check: "unsupported", verdict: reason },
+          document: { verdict: "unsupported", reason },
+        });
+      }
+    },
+  );
+
+  // protects=one unit named at two scales (in two brackets of a heading, a caption or a cell, or in one bracket) states no scale, so a sentence at either scale reads as on main: the model's ✓ in an Answer and Unsupported in Check against Documents, in English and Chinese; fails_when=the last scale named is read as the label, so "126万吨" loses its ✓ under 各月产量（万吨）/（亿吨）, or the first is, so "126亿吨" does under 产量（万吨/亿吨）, or either reads Supported; no_claim=a rate ("万吨/年"), which names one unit.
+  test.each([
+    ["a heading over rows", overRows("各月产量（万吨）/（亿吨）"), "八月产量", "126", "八月: 126"],
+    ["a column's heading", overColumn("产量（万吨）/（亿吨）"), "八月产量", "126", "八月\t126"],
+    ["one bracket", overColumn("产量（万吨/亿吨）"), "八月产量", "126", "八月\t126"],
+    ["one bracket with 、", overColumn("产量（万吨、亿吨）"), "八月产量", "126", "八月\t126"],
+    ["a caption over a table", CAPTION_OF_TWO_SCALES, "二厂产量", "31", "二厂\t31"],
+  ] as const)(
+    "one unit at two scales in %s leaves either scale to the model",
+    async (_, file, subject, number, quote) => {
+      for (const figure of [`${number}万吨`, `${number}亿吨`]) {
+        for (const [language, reason] of linesOf(number, figure)) {
+          expect(await judged(`${subject}为${figure}。`, quote, file, language), figure).toEqual({
+            answer: { check: "found", verdict: null },
+            document: { verdict: "unsupported", reason },
+          });
+        }
+      }
+    },
+  );
+
+  // protects=two units that spell their scales in a heading's brackets ("(kt) / (Mt)") state neither, so a sentence in the first reads as on main in both checks; fails_when="August output was 126 kt." reads Unsupported with "The Document gives 126 (Mt), not 126 kt.".
+  test("under Output (kt) / (Mt), August output was 126 kt. reads as on main", async () => {
+    const file = report("Output (kt) / (Mt)\nJuly: 118\nAugust: 126\n");
+    for (const language of ["en", "zh-CN"] as const) {
+      expect(
+        await judged("August output was 126 kt.", "August: 126", file, language),
+        language,
+      ).toEqual({
+        answer: { check: "not-checked", verdict: null },
+        document: { verdict: "supported", reason: null },
+      });
+    }
+  });
+});

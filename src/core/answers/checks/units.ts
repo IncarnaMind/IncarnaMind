@@ -541,11 +541,22 @@ function asUnitLine(piece: string, context: FigureContext): StatedUnit[] {
   return [{ start: 0, end: piece.length, chars: piece, scale, scaleWord, unit }];
 }
 
-// A unit in brackets states what its words do: "（万千瓦时）" as "万千瓦时"; "（预计）" states none.
+const statesScale = (piece: string, context: FigureContext) =>
+  asUnitLine(piece, context).some((statement) => statement.scaleWord !== null);
+
+// A unit in brackets states what its words do: "（万千瓦时）" as "万千瓦时"; "（预计）" states none,
+// and neither does a bracket of two units ("（万吨/亿吨）"), where a rate has one ("（万吨/年）").
 const bracketedUnits = (written: string, context: FigureContext): StatedUnit[] =>
   [...written.matchAll(/[(（]([^()（）\n]{1,24})[)）]/gu)].flatMap(([bracket, inner = ""]) =>
-    asUnitLine(inner, context).map((statement) => ({ ...statement, chars: bracket })),
+    inner.split(/[/／、]/u).filter((piece) => statesScale(piece, context)).length > 1
+      ? []
+      : asUnitLine(inner, context).map((statement) => ({ ...statement, chars: bracket })),
   );
+
+// A heading whose brackets state two units ("各月产量（万吨）/（亿吨）", "产量（万吨）及同比（%）")
+// doesn't say which of them a number under it is in.
+const namesTwoUnits = (units: readonly StatedUnit[]) =>
+  new Set(units.map(({ scale, unit }) => JSON.stringify([scale, unit]))).size > 1;
 
 // A sentence's end in either language; "1.20" holds no end.
 const SENTENCE_END = /[。；;！？!?]|\.(?!\d)/u;
@@ -584,14 +595,18 @@ function labelled(text: string, start: number, context: FigureContext): Label[] 
       if (/\p{N}/u.test(line)) break;
       // A heading row of cells states only its own column's unit.
       labelLine = line.includes("\t") ? (line.split("\t")[column] ?? "") : line;
-      label = bracketedUnits(labelLine, context).slice(-1);
+      const units = bracketedUnits(labelLine, context);
+      if (namesTwoUnits(units)) break;
+      label = units.slice(-1);
       continue;
     }
     if (readFigures(line, context).length > 0) {
       if (named) break;
       continue;
     }
-    label = bracketedUnits(line, context).slice(-1);
+    const units = bracketedUnits(line, context);
+    if (namesTwoUnits(units)) break;
+    label = units.slice(-1);
     labelLine = line;
     named = true;
   }
@@ -600,10 +615,9 @@ function labelled(text: string, start: number, context: FigureContext): Label[] 
     ...label.map((statement) => ({ ...statement, own: false, line: labelLine })),
   ];
   if (!inTable) return mine;
-  const statesScale = (part: string) =>
-    [...asUnitLine(part, context), ...bracketedUnits(part, context)].some(
-      (statement) => statement.scaleWord !== null,
-    );
+  const scaled = (part: string) =>
+    statesScale(part, context) ||
+    bracketedUnits(part, context).some((statement) => statement.scaleWord !== null);
   const cells: string[] = [];
   for (let at = above.length - 1; at >= 0 && above[at]?.includes("\t"); at--) {
     const cell = above[at]?.split("\t")[column]?.trim();
@@ -613,7 +627,7 @@ function labelled(text: string, start: number, context: FigureContext): Label[] 
     ...mine,
     // A merged heading over columns of two units ("亿美元 / 亿SDR") states neither.
     ...cells
-      .filter((cell) => cell.split(/[/／、]/u).filter(statesScale).length < 2)
+      .filter((cell) => cell.split(/[/／、]/u).filter(scaled).length < 2)
       // A heading cell is read as its own unit line too: "亿SDR" states 亿 though SDR is unread.
       .flatMap((cell) =>
         [
@@ -655,7 +669,14 @@ function wordLineUnits(text: CheckedText, start: number, context: FigureContext)
     .filter((line) => !line.includes("\t") && line.trim() !== itsLine)
     .flatMap((line) => {
       const units = bracketedUnits(line, context);
-      return units.length > 0 && readFigures(line, context).length === 0 ? units : [];
+      if (units.length === 0 || readFigures(line, context).length > 0) return [];
+      // One unit at two scales on a line ("各月产量（万吨）/（亿吨）") leaves its scale unsaid.
+      return units.filter(
+        ({ scale, unit }) =>
+          !units.some(
+            (other) => other.scale !== scale && JSON.stringify(other.unit) === JSON.stringify(unit),
+          ),
+      );
     });
 }
 
