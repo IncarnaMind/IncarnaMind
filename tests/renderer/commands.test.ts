@@ -196,6 +196,32 @@ const blockFirst = (window: Command, block: Command) =>
   block.appliesTo?.every((kind) => kind === "block") === true &&
   block.when !== undefined;
 
+describe("Quick note in ⌘K (#2925)", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  test.each([
+    { platform: "MacIntel", offered: true },
+    { platform: "Win32", offered: true },
+    // The panel has no field on Linux, so nothing offers one.
+    { platform: "Linux x86_64", offered: false },
+  ])("is offered on $platform: $offered", async ({ platform, offered }) => {
+    const { useAppStore } = await import("../../src/renderer/src/store");
+    const settings = useAppStore.getState().settings;
+    vi.stubGlobal("navigator", { ...navigator, platform });
+    useAppStore.setState({ settings: { meetingAudio: "both" } as typeof settings });
+    try {
+      const quickNote = all.find((command) => command.id === "meeting.quick-note");
+      if (!quickNote) throw new Error("No Quick note command.");
+      expect(labelOf(quickNote, NOWHERE, translator("zh-CN"))).toBe("记一笔");
+      expect(quickNote.when?.(NOWHERE)).toBe(offered);
+    } finally {
+      useAppStore.setState({ settings });
+    }
+  });
+});
+
 describe("Tasks from the keyboard", () => {
   // The Tasks and the seat one test sets are the store's for every test after it.
   afterEach(async () => {

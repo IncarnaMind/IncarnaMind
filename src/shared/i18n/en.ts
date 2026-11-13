@@ -4605,7 +4605,15 @@ export const en = {
   "citation.reason.answer-limit":
     "Not checked: this Answer’s {limit} checking limit was reached before this sentence.",
   "citation.reason.monthly-limit":
-    "Not checked: your monthly limit of {cap} was reached before this sentence.",
+    "Not checked: your monthly limit was reached before this sentence.",
+  "citation.reason.answer-limit-unfinished":
+    "Not checked: this Answer’s {limit} checking limit was reached before {model} finished checking this sentence.",
+  "citation.reason.answer-limit-unfinished.unnamed":
+    "Not checked: this Answer’s {limit} checking limit was reached before this sentence’s check finished.",
+  "citation.reason.monthly-limit-unfinished":
+    "Not checked: your monthly limit was reached before {model} finished checking this sentence.",
+  "citation.reason.monthly-limit-unfinished.unnamed":
+    "Not checked: your monthly limit was reached before this sentence’s check finished.",
   "citation.reason.notChecked": "Whether the quote supports this sentence couldn’t be checked.",
   "citation.reason.small-model":
     "This model on this computer is too small to judge whether the quote supports the sentence.",
@@ -6127,6 +6135,8 @@ export const en = {
   "error.meeting.notRecording": "That Meeting isn’t recording.",
   "error.meeting.notPaused": "That Meeting isn’t paused.",
   "error.meeting.notBeingRecorded": "That Meeting isn’t being recorded.",
+  "error.meeting.quickNoteEmpty": "Type something to add to notes.",
+  "error.meeting.quickNoteTime": "That isn’t a time in the meeting.",
   "error.meetingOffer.gone": "That call has ended.",
   "error.openAtLogin.unsupported": "This copy of IncarnaMind can’t open at login.",
   "error.meeting.helpButton": "This meeting doesn’t have that kind of help.",
@@ -7460,6 +7470,18 @@ export const en = {
   "meetings.help.disagree": "Where we disagree",
   "meetings.help.button": "{name} ({shortcut})",
   "meetings.help.more": "More…",
+  "meetings.help.keywords.say": "suggest reply respond",
+  "meetings.help.keywords.answer": "reply respond",
+  "meetings.help.keywords.want": "intent need goal",
+  "meetings.help.keywords.sum": "summary recap",
+  "meetings.help.keywords.no": "decline refuse",
+  "meetings.help.keywords.ask": "question follow-up",
+  "meetings.help.keywords.check": "verify fact",
+  "meetings.quickNote": "Quick note",
+  "meetings.quickNote.placeholder": "Note for this meeting…",
+  "meetings.quickNote.add": "Add to notes",
+  "meetings.quickNote.added": "Added to notes at {time}",
+  "meetings.quickNote.addedNoTime": "Added to notes",
   "meetings.help.setUp": "Choose an AI model to get help during the call",
   "meetings.help.failed": "No help this time: {message}",
   "meetings.help.nothing": "the Answer had nothing to suggest",
@@ -7604,8 +7626,7 @@ export const en = {
   "steps.check.needALook.one": "1 needs a look",
   "steps.check.answerLimit":
     "{checked} of {total} sentences checked · This Answer’s {limit} checking limit reached",
-  "steps.check.monthlyLimit":
-    "{checked} of {total} sentences checked · Your monthly limit of {cap} reached",
+  "steps.check.monthlyLimit": "{checked} of {total} sentences checked · Your monthly limit reached",
   "steps.check.checkTheRest": "Check the rest",
   "steps.check.checkTheRest.go": "Check",
   "steps.check.checkTheRest.cancel": "Cancel",

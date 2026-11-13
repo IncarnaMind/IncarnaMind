@@ -2,10 +2,10 @@ import { type KeyboardEvent, useEffect, useId, useState } from "react";
 import type { CallHelpModel, ChatModelChoice, Settings } from "../../../../core/api";
 import {
   defaultHelpKeys,
-  HELP_SHORTCUTS,
   type HelpShortcut,
   helpKeysOf,
   helpShortcutLabel,
+  helpShortcutsOn,
   isGlobalKeys,
 } from "../../../../shared/meetingHelp";
 import { SAYS_HIDDEN_FROM_SHARES } from "../../../../shared/meetingPanel";
@@ -13,6 +13,7 @@ import { loadCallHelpOffer, useCallHelpOffer } from "../../callHelpOffer";
 import { keysHere } from "../../commands/keymap";
 import { files } from "../../core";
 import { useT } from "../../i18n";
+import { quickNotesHere } from "../../meetingHelp";
 import { useModelInUse } from "../../modelInUse";
 import { useModelNames } from "../../modelNames";
 import { useSettingsTarget } from "../../settingsTarget";
@@ -95,7 +96,7 @@ function ShortcutRow({ kind, device }: { kind: HelpShortcut; device: Settings["d
       setProblem({ kind: "invalid" });
       return;
     }
-    const by = HELP_SHORTCUTS.find(
+    const by = helpShortcutsOn(!quickNotesHere()).find(
       (other) => other !== kind && helpKeysOf(other, device.meetingHelpKeys, isMac) === chosen,
     );
     if (by) {
@@ -293,7 +294,7 @@ export function HelpSettings() {
         help={t(isMac ? "meetings.settings.keysBody.mac" : "meetings.settings.keysBody.other")}
       >
         <SettingsGroup>
-          {HELP_SHORTCUTS.map((kind) => (
+          {helpShortcutsOn(!quickNotesHere()).map((kind) => (
             <ShortcutRow key={kind} kind={kind} device={device} />
           ))}
         </SettingsGroup>
