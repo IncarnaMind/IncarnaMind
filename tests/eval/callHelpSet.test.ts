@@ -13,6 +13,7 @@ import { callHelpSet, formFailures, placedReply, unstatedChecked } from "../../e
 import { CALL_HELP_CASES, callOf, TRANSCRIPT } from "../../eval/speed/callHelpCases";
 import { CALL_HELP_TYPED } from "../../eval/speed/callHelpTyped";
 import { CALL_HELP_TYPED_FRESH } from "../../eval/speed/callHelpTypedFresh";
+import { CALL_HELP_TYPED_FRESH2 } from "../../eval/speed/callHelpTypedFresh2";
 import { openLedger } from "../../eval/speed/ledger";
 import { runOnArm } from "../../eval/speed/paired";
 import { sentPair } from "../../eval/speed/pairedReport";
@@ -374,6 +375,66 @@ describe("The typed question's fresh cases (#2925)", () => {
     expect(run.status).toBe("done");
     expect(run.text).toContain(`[citations asked] ${asked}`);
   }, 120_000);
+});
+
+describe("The typed question's confirming slice (#2925)", () => {
+  // protects=the confirming round's slice has twelve cases a language, the Chinese the English's twins, six a language whose fact no Document gives, Documents of its own that no other case or earlier slice has and others beside them in each Library, and every line it rests on in its Documents or call; fails_when=a case is missing, a twin differs, fewer than six a language have no Document fact, a Library holds only the Document it rests on, or a Document is shared; no_claim=what a model replies.
+  test("12 cases a language, twins, six with no Document fact, each Library with Documents the question isn't about", () => {
+    const english = CALL_HELP_TYPED_FRESH2.filter((each) => each.language === "en");
+    const chinese = CALL_HELP_TYPED_FRESH2.filter((each) => each.language === "zh-CN");
+    const kinds = [
+      "price",
+      "included",
+      "said",
+      "limit",
+      "list",
+      "worry-pointing",
+      "followup-unknown",
+      "unknown-fee",
+      "unknown-cover",
+      "unknown-limit",
+      "unknown-worry",
+      "unknown-say",
+    ];
+    expect(english.map((each) => each.id)).toEqual(kinds.map((kind) => `en-fresh2-${kind}`));
+    expect(chinese.map((each) => each.id)).toEqual(kinds.map((kind) => `zh-fresh2-${kind}`));
+    for (const [index, each] of english.entries()) {
+      const twin = chinese[index];
+      expect(
+        [twin?.kind, twin?.typed?.form, twin?.rests.length, twin?.typed?.follows === undefined],
+        each.id,
+      ).toEqual([
+        each.kind,
+        each.typed?.form,
+        each.rests.length,
+        each.typed?.follows === undefined,
+      ]);
+    }
+    for (const language of [english, chinese]) {
+      expect(language.filter((each) => each.rests.length === 0)).toHaveLength(6);
+    }
+    const files = CALL_HELP_TYPED_FRESH2.flatMap((each) => each.documents.map((one) => one.file));
+    expect(new Set(files).size).toBe(files.length);
+    const earlier = new Set(
+      [...CALL_HELP_TYPED_FRESH, ...CALL_HELP_TYPED, ...CALL_HELP_CASES].flatMap((each) =>
+        each.documents.map((one) => one.file),
+      ),
+    );
+    expect(files.filter((file) => earlier.has(file))).toEqual([]);
+    for (const each of CALL_HELP_TYPED_FRESH2) {
+      expect(each.typed?.question, each.id).toEqual(expect.any(String));
+      expect(each.documents.length, each.id).toBeGreaterThanOrEqual(3);
+      const said = callOf(each).map((turn) => turn.text);
+      for (const rest of each.rests.flat()) {
+        if (rest.in === TRANSCRIPT) expect(said, each.id).toContain(rest.line);
+        else expect(each.documents.find((one) => one.file === rest.in)?.text).toContain(rest.line);
+      }
+    }
+    const set = callHelpSet("call-help-typed-fresh-2");
+    expect(set.map((group) => group.name)).toEqual(
+      CALL_HELP_TYPED_FRESH2.map((each) => `call-help-typed-fresh-2-${each.id}`),
+    );
+  });
 });
 
 describe("A typed reply's ✓ the judge finds unstated (#2925)", () => {

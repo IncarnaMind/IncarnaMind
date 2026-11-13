@@ -52,6 +52,7 @@ import { CALL_HELP_MARKS_3 } from "./callHelpMarks3";
 import { JUDGE_FAILED } from "./callHelpMarksReport";
 import { CALL_HELP_TYPED } from "./callHelpTyped";
 import { CALL_HELP_TYPED_FRESH } from "./callHelpTypedFresh";
+import { CALL_HELP_TYPED_FRESH2 } from "./callHelpTypedFresh2";
 import {
   type GroupOptions,
   type Measured,
@@ -954,7 +955,8 @@ type CallHelpSet =
   | "call-help-marks"
   | "call-help-marks-3"
   | "call-help-typed"
-  | "call-help-typed-fresh";
+  | "call-help-typed-fresh"
+  | "call-help-typed-fresh-2";
 
 const CASES: Readonly<Record<CallHelpSet, readonly CallHelpCase[]>> = {
   "call-help": CALL_HELP_CASES,
@@ -966,6 +968,7 @@ const CASES: Readonly<Record<CallHelpSet, readonly CallHelpCase[]>> = {
   "call-help-marks-3": CALL_HELP_MARKS_3,
   "call-help-typed": CALL_HELP_TYPED,
   "call-help-typed-fresh": CALL_HELP_TYPED_FRESH,
+  "call-help-typed-fresh-2": CALL_HELP_TYPED_FRESH2,
 };
 
 /** One group a case: its own Library, its own Meeting heard before the press. */
