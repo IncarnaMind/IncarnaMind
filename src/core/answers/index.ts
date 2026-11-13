@@ -3727,7 +3727,9 @@ export function createAnswers(options: AnswersOptions) {
         streamsInput,
         toolSet: input.toolSet ?? (help ? "documents" : undefined),
         ...(help &&
-          !options.helpFormJudged?.() && { ownLines: (text: string) => helpOwnLines(help, text) }),
+          !options.helpFormJudged?.() && {
+            ownLines: (text: string) => helpOwnLines(help, text, helpForm),
+          }),
         ...(input.outputKind && { outputKind: input.outputKind }),
         ...(keepsQuestionsLanguage && {
           languageNote: () => (skillNamesNoLanguage ? skillLanguageNote(language) : null),

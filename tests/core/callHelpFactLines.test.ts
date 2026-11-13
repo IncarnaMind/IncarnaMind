@@ -48,7 +48,7 @@ function examples(kind: MeetingHelpKind, callLanguage: string): string[] {
 }
 
 describe("the evaluation's switch", () => {
-  // protects=today's instructions, and the evaluation's "as before" arm, are main's at 61615612f byte for byte, for every button, language and Passages found ahead, so the trial compares main with the form and nothing else; fails_when=one byte of either differs; no_claim=what a model writes under them.
+  // protects=today's instructions, and the evaluation's "as before" arm, are main's byte for byte (the hash is main's), for every button, language and Passages found ahead, so the trial compares main with the form and nothing else; fails_when=one byte of either differs; no_claim=what a model writes under them.
   test("today's form and the as-before arm send main's instructions, byte for byte", () => {
     const main = "464daefa8ebee8999a2b41e32fa744f942b1b56e76795d1ba76329e0ad384bf5";
     expect(hashOf()).toBe(main);
@@ -154,12 +154,29 @@ describe("the form's instructions", () => {
   });
 });
 
-describe("a short line of the form is the reply's own line, never a model's working", () => {
-  // protects=a fact line ("> ") and an own line ("= ") in a short-lines reply are the reply's own lines, as a "- " line is, so none is judged the model's working or taken back (#2778), in either width of mark; fails_when=a "> " or "= " line is left out of the reply's own lines; no_claim=how the judgement decides the rest.
-  test("fact and own lines in either width", () => {
+describe("which lines of a reply are its own, never a model's working (#2778)", () => {
+  const ownOf = (kind: MeetingHelpKind, text: string, form?: CallHelpForm) =>
+    helpOwnLines(kind, text, form).map(({ from, to }) => text.slice(from, to));
+
+  // protects=in the form, a fact line ("> ") and an own line ("= ") are the reply's own lines, as a "- " line is, so none is judged the model's working or taken back, in either width of mark; today's form and the as-before arm keep main's own lines exactly, a "> " or "= " line among a model's notes; fails_when=the form leaves a fact or own line to the judgement, or today's form or the as-before arm takes one as its own; no_claim=how the judgement decides the rest.
+  test("a short-lines reply", () => {
     const text =
-      "> The launch moves to 18 November [^1]\n= Nothing was decided on the price\n＞ 上线推迟到 11 月 18 日 [^2]\n＝ 价格还没定";
-    const own = helpOwnLines("sum", text).map(({ from, to }) => text.slice(from, to));
-    expect(own).toEqual(text.split("\n"));
+      "- The launch moves to 18 November [^1]\n> Dana confirms the date [^2]\n= Nothing was decided on the price\n＞ 上线推迟到 11 月 18 日 [^3]\n＝ 价格还没定";
+    const main = ["- The launch moves to 18 November [^1]"];
+    expect(ownOf("sum", text)).toEqual(main);
+    expect(ownOf("sum", text, "as before")).toEqual(main);
+    expect(ownOf("sum", text, "fact lines")).toEqual(text.split("\n"));
+  });
+
+  // protects=in the form, a fact line the model wrote after its option's "→" line or before the first option is still the reply's own, so it isn't taken back before the reader puts it into its option; today's form keeps main's spans; fails_when=such a line is left to the judgement in the form, or counted own today; no_claim=how often a model writes it so.
+  test("an options reply with a fact line outside its option", () => {
+    const text =
+      "> Every roof is surveyed first [^1]\n★ We'll survey each roof\n→ moves to a survey\n> A survey takes two hours [^2]";
+    expect(ownOf("ask", text)).toEqual(["★ We'll survey each roof\n→ moves to a survey"]);
+    expect(ownOf("ask", text, "fact lines")).toEqual([
+      "> Every roof is surveyed first [^1]",
+      "★ We'll survey each roof\n→ moves to a survey",
+      "> A survey takes two hours [^2]",
+    ]);
   });
 });

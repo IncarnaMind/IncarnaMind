@@ -166,20 +166,26 @@ const FACT_LINES = {
   },
 } as const;
 
-/**
- * A short line's own mark: a list's, as the form asks for, never a numbered step; or, where its
- * facts stand apart, a fact's ("> ") or the reply's own ("= ").
- */
-const SHORT_LINE = /^(?:[-*•]\s+|[>＞=＝]\s*)/;
+/** A short line's own mark: a list's, as the form asks for, never a numbered step. */
+const SHORT_LINE = /^[-*•]\s+/;
+/** Where its facts stand apart (#2847), a fact line's mark ("> ") or the reply's own line's ("= "). */
+const FACT_OR_OWN = /^[>＞=＝]/;
 
 /**
  * The spans of a button's reply in `text` that are its own lines: each option or reading from its
  * "★" line, or from the start of its paragraph, to its "→" line; a "★" line still waiting for its
- * "→" line; each short line; and the one line "Am I leading them?" puts before its options. They
+ * "→" line; each short line; and the one line "Am I leading them?" puts before its options. In the
+ * form whose facts stand apart (`form`), so is every fact or own line, wherever it was written. They
  * are never the model's working, so none is taken back (#2778); a model's notes and remarks around
  * them are judged as any Answer's are (#2526).
  */
-export function helpOwnLines(kind: MeetingHelpKind, text: string): { from: number; to: number }[] {
+export function helpOwnLines(
+  kind: MeetingHelpKind,
+  text: string,
+  form?: CallHelpForm,
+): { from: number; to: number }[] {
+  const marked = (plain: string) =>
+    SHORT_LINE.test(plain) || (form === "fact lines" && FACT_OR_OWN.test(plain));
   const lines: { from: number; to: number; plain: string; paragraph: number }[] = [];
   let at = 0;
   let paragraph = 0;
@@ -190,7 +196,7 @@ export function helpOwnLines(kind: MeetingHelpKind, text: string): { from: numbe
     } else lines.push({ from: at, to: at + raw.length, plain, paragraph });
     at += raw.length + 1;
   }
-  if (HELP_SHAPE[kind] === "lines") return lines.filter((line) => SHORT_LINE.test(line.plain));
+  if (HELP_SHAPE[kind] === "lines") return lines.filter((line) => marked(line.plain));
   const own: { from: number; to: number; first: number }[] = [];
   let start = 0;
   for (const [index, line] of lines.entries()) {
@@ -202,7 +208,10 @@ export function helpOwnLines(kind: MeetingHelpKind, text: string): { from: numbe
   }
   for (const [index, line] of lines.entries()) {
     const covered = own.some((each) => each.from <= line.from && line.to <= each.to);
-    if (RECOMMENDED_MARK.test(line.plain) && !covered) own.push({ ...line, first: index });
+    const factOrOwn = form === "fact lines" && FACT_OR_OWN.test(line.plain);
+    if ((RECOMMENDED_MARK.test(line.plain) || factOrOwn) && !covered) {
+      own.push({ ...line, first: index });
+    }
   }
   own.sort((a, b) => a.from - b.from);
   const leadIn = kind === "leading" && own[0] ? lines[own[0].first - 1] : undefined;

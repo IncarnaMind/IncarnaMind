@@ -15,7 +15,7 @@ import {
 import { helpParts, sentencePassed } from "../../src/renderer/src/helpReply";
 import { answerBlocks, pageBlocks, withAnswerChecks } from "../../src/shared/answerBlocks";
 import type { NodeJSON } from "../../src/shared/blockJson";
-import { readHelpReply } from "../../src/shared/helpReplyRead";
+import { helpLayout, helpReplyRead, readHelpReply } from "../../src/shared/helpReplyRead";
 import { isTranscriptLocation } from "../../src/shared/locations";
 import type { CallHelpForm } from "../../src/shared/meetingHelp";
 import { answerJudged, shownPassages } from "../helpers/citations";
@@ -973,6 +973,41 @@ describe("the evaluation's switch for the form whose facts stand apart (#2847)",
       'each one sentence of at most 20 words on a line of its own starting with "> " and ending with its Citation markers',
     );
     expect(help).not.toContain("- Each option is two lines:");
+  });
+
+  // protects=a fact line the model wrote after its option's "→" line is kept in that option, above its "→", checked there and given its ✓ on its own chip under the first option, the second option left whole, and the text kept reads the same again; fails_when=the fact starts an option of its own, the ✓ lands elsewhere, the second option loses a line, or a second reading moves it again; no_claim=how often a model writes it so.
+  test("in the form, a fact written after its → line takes its ✓ under the option it belongs to", async () => {
+    const reply = [
+      "★ Yes, Enterprise is $45 a seat",
+      "→ answers at once",
+      "> Enterprise is $45 per seat a month, with single sign-on [^1]",
+      "",
+      "I'll send the price sheet today",
+      "→ buys time",
+    ].join("\n");
+    const { core, meeting, batches } = await setUp({ reply }, undefined, undefined, "fact lines");
+
+    const after = await (await pressed(core, meeting, "answer")).judged();
+
+    expect(after.text).toBe(
+      "★ Yes, Enterprise is $45 a seat\nEnterprise is $45 per seat a month, with single sign-on [^1]\n→ answers at once\n\nI'll send the price sheet today\n→ buys time",
+    );
+    expect(batches).toHaveLength(1);
+    expect(marks(after)).toEqual([{ marker: 1, check: "found", passed: true }]);
+    const [first, second] = helpParts(after, "answer").options;
+    const chip = first?.notes[0]?.find((piece) => piece.kind === "citation");
+    const citation = after.citations[0];
+    expect(chip?.kind === "citation" && citation && sentencePassed(citation, chip.at)).toBe(true);
+    const words = (pieces: readonly { kind: string; text?: string }[] = []) =>
+      pieces
+        .flatMap((piece) => (piece.kind === "text" ? [piece.text] : []))
+        .join("")
+        .trim();
+    expect(words(second?.lead)).toBe("I'll send the price sheet today");
+    expect(words(second?.effect ?? [])).toBe("buys time");
+    expect(second?.notes).toEqual([]);
+    const layout = helpLayout("answer", { status: "done", textBehind: false, form: "fact lines" });
+    expect(helpReplyRead(after.text, layout).text).toBe(after.text);
   });
 
   // protects=a reply in the form is kept without its marks, so "> " is never a quotation block and "= " never shows: not in the panel, not in the assistant's view, not in the Note it is added to; its fact still takes ✓ and its line to say cites nothing; fails_when=a mark is kept or drawn as Markdown, or the fact loses its ✓; no_claim=how each surface lays the lines out.
