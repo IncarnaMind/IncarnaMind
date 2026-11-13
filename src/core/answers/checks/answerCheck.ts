@@ -9,7 +9,7 @@
  * stops the judgement stops it at a batch, so the sentences it leaves are the last ones.
  */
 import { type CitedSentence, citedSentences } from "../../../shared/citedSentences";
-import type { Figure, FigureUnit } from "../../../shared/figures";
+import type { Figure } from "../../../shared/figures";
 import { judgesUnreliably } from "../../../shared/smallModel";
 import type {
   ChatModelChoice,
@@ -48,6 +48,7 @@ import {
   sentenceBatchInstructions,
 } from "./sentenceBatch";
 import type { UnitGate } from "./unitGate";
+import { isSameUnit } from "./units";
 
 /** What a checked sentence's result makes of each of its found Citations. */
 export interface SupportResult {
@@ -217,11 +218,6 @@ async function supportOf(
   return calculation ? null : { check: "found", verdict: null };
 }
 
-const sameUnit = (a: FigureUnit, b: FigureUnit): boolean =>
-  a.kind === b.kind &&
-  (a.kind !== "currency" || (b.kind === "currency" && a.code === b.code)) &&
-  (a.kind !== "other" || (b.kind === "other" && a.word === b.word));
-
 /**
  * Whether the words the model quoted for a sentence, all its Citations' together, hold `figure` as
  * their one figure of its unit (#2739), read as the figure rule reads a quote: in its page's figure
@@ -236,14 +232,14 @@ export function pinnedByModel(
 ): boolean {
   const ofUnit = cited.flatMap((citation) =>
     figureReadings(citation.given ?? citation.quote, units(citation)).filter((readings) =>
-      readings.some((each) => sameUnit(each.unit, figure.unit)),
+      readings.some((each) => isSameUnit(each.unit, figure.unit)),
     ),
   );
   const [only] = ofUnit;
   return (
     ofUnit.length === 1 &&
     only !== undefined &&
-    only.some((each) => sameUnit(each.unit, figure.unit) && each.value === figure.value)
+    only.some((each) => isSameUnit(each.unit, figure.unit) && each.value === figure.value)
   );
 }
 

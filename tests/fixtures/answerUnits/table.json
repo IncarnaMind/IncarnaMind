@@ -2227,8 +2227,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives $54,000, not £54,000."
           }
         ],
         "document": {
@@ -2259,8 +2259,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives $54,000, not £54,000."
           }
         ],
         "document": {
@@ -2291,8 +2291,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 2万美元, not 人民币两万元."
           }
         ],
         "document": {
@@ -2323,8 +2323,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 2万元, not 2万港币."
           }
         ],
         "document": {
@@ -2355,8 +2355,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives -$54,000, not -£54,000."
           }
         ],
         "document": {
@@ -2387,8 +2387,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 200万元, not $2m."
           }
         ],
         "document": {
@@ -2419,8 +2419,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 54 (USD millions), not £54m."
           }
         ],
         "document": {
@@ -2451,8 +2451,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives US$170 million, not £170 million."
           }
         ],
         "document": {
@@ -2483,8 +2483,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 54.000 $, not 54.000 £."
           }
         ],
         "document": {
@@ -3349,8 +3349,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives $54,000, not £54,000."
           }
         ],
         "document": {
@@ -3575,8 +3575,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives ¥54,000, not RMB 54,000."
           }
         ],
         "document": {
@@ -4215,8 +4215,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives $54,000 AUD, not US$54,000."
           }
         ],
         "document": {
@@ -4247,8 +4247,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives $54,000 AUD, not US$54,000."
           }
         ],
         "document": {
@@ -4279,8 +4279,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives HK$54,000, not $54,000 AUD."
           }
         ],
         "document": {
@@ -4343,8 +4343,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives ¥54,000, not RMB 54,000."
           }
         ],
         "document": {
@@ -4375,8 +4375,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 54 (USD m), not €54m."
           }
         ],
         "document": {
@@ -4407,8 +4407,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 54 (USD m), not £54m."
           }
         ],
         "document": {
@@ -4439,8 +4439,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 54 (USD m), not ¥54m."
           }
         ],
         "document": {
@@ -4471,8 +4471,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 54 (USD m), not €54m."
           }
         ],
         "document": {
@@ -4567,8 +4567,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives CA$54m, not US$54m."
           }
         ],
         "document": {
@@ -4599,8 +4599,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives $54,000 USD, not A$54,000."
           }
         ],
         "document": {
@@ -4631,8 +4631,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives US $54m, not A$54m."
           }
         ],
         "document": {
@@ -4663,8 +4663,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives $54,000 AUD, not 54,000美元."
           }
         ],
         "document": {
@@ -6083,7 +6083,7 @@
       "here": {
         "answer": [
           {
-            "check": "not-checked",
+            "check": "found",
             "verdict": null
           }
         ],
@@ -6243,7 +6243,7 @@
       "here": {
         "answer": [
           {
-            "check": "not-checked",
+            "check": "found",
             "verdict": null
           }
         ],
@@ -6935,8 +6935,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 2 percentage points, not 2%."
           }
         ],
         "document": {
@@ -8675,7 +8675,7 @@
       "here": {
         "answer": [
           {
-            "check": "not-checked",
+            "check": "found",
             "verdict": null
           }
         ],
@@ -8803,7 +8803,7 @@
       "here": {
         "answer": [
           {
-            "check": "not-checked",
+            "check": "found",
             "verdict": null
           }
         ],
@@ -9763,7 +9763,7 @@
       "here": {
         "answer": [
           {
-            "check": "not-checked",
+            "check": "found",
             "verdict": null
           }
         ],
@@ -10275,7 +10275,7 @@
       "here": {
         "answer": [
           {
-            "check": "not-checked",
+            "check": "found",
             "verdict": null
           }
         ],
@@ -10307,7 +10307,7 @@
       "here": {
         "answer": [
           {
-            "check": "not-checked",
+            "check": "found",
             "verdict": null
           }
         ],
@@ -11146,8 +11146,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 54,000 without a currency."
           }
         ],
         "document": {
@@ -13043,8 +13043,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 2个百分点, not 2%."
           }
         ],
         "document": {
@@ -13075,8 +13075,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 50 bps, not 0.5%."
           }
         ],
         "document": {
@@ -13107,8 +13107,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 2%, not 2 percentage points."
           }
         ],
         "document": {
@@ -13235,8 +13235,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 2 percentage points, not 2%."
           }
         ],
         "document": {
@@ -14076,8 +14076,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 2千元, not 2万美元."
           }
         ],
         "document": {
@@ -14108,8 +14108,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 2千美元, not 2万元."
           }
         ],
         "document": {
@@ -14140,8 +14140,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 2万元, not 2千美元."
           }
         ],
         "document": {
@@ -14172,8 +14172,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 2万美元, not 2千元."
           }
         ],
         "document": {
@@ -15228,8 +15228,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives $54,000 USD, not A$54,000."
           }
         ],
         "document": {
@@ -15260,8 +15260,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives $34,000 AUD, not US$34,000."
           }
         ],
         "document": {
@@ -15292,8 +15292,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 94, not €94m."
           }
         ],
         "document": {
@@ -15484,8 +15484,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives $54,000, not £54,000."
           }
         ],
         "document": {
@@ -15548,8 +15548,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 2万美元, not 人民币两万元."
           }
         ],
         "document": {
@@ -15580,8 +15580,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 2万元, not 2万港币."
           }
         ],
         "document": {
@@ -15688,7 +15688,7 @@
       "here": {
         "answer": [
           {
-            "check": "not-checked",
+            "check": "found",
             "verdict": null
           }
         ],
@@ -15720,7 +15720,7 @@
       "here": {
         "answer": [
           {
-            "check": "not-checked",
+            "check": "found",
             "verdict": null
           }
         ],
@@ -15784,7 +15784,7 @@
       "here": {
         "answer": [
           {
-            "check": "not-checked",
+            "check": "found",
             "verdict": null
           }
         ],
@@ -16351,8 +16351,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 2 percentage points, not 2%."
           }
         ],
         "document": {
@@ -16806,8 +16806,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 6 percentage points, not 6%."
           }
         ],
         "document": {
@@ -16838,8 +16838,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 6 percentage points，不是 6%。"
           }
         ],
         "document": {
@@ -16870,8 +16870,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 20 points, not 20%."
           }
         ],
         "document": {
@@ -16902,8 +16902,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 20 points，不是 20%。"
           }
         ],
         "document": {
@@ -16934,8 +16934,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 6%, not 6 percentage points."
           }
         ],
         "document": {
@@ -16966,8 +16966,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 6%，不是 6 percentage points。"
           }
         ],
         "document": {
@@ -17126,8 +17126,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 6个百分点, not 6%."
           }
         ],
         "document": {
@@ -17158,8 +17158,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 6个百分点，不是 6%。"
           }
         ],
         "document": {
@@ -17190,13 +17190,13 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 20点, not 20%."
           }
         ],
         "document": {
           "verdict": "unsupported",
-          "reason": "The Document gives 20, not 20%."
+          "reason": "The Document gives 20点, not 20%."
         }
       },
       "here": {
@@ -17222,13 +17222,13 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 20点，不是 20%。"
           }
         ],
         "document": {
           "verdict": "unsupported",
-          "reason": "文档写的是 20，不是 20%。"
+          "reason": "文档写的是 20点，不是 20%。"
         }
       },
       "here": {
@@ -17254,8 +17254,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 6%, not 6个百分点."
           }
         ],
         "document": {
@@ -17286,8 +17286,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 6%，不是 6个百分点。"
           }
         ],
         "document": {
@@ -17958,8 +17958,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 6 percentage points, not 6%."
           }
         ],
         "document": {
@@ -17990,8 +17990,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 6 percentage points，不是 6%。"
           }
         ],
         "document": {
@@ -18022,8 +18022,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 6%, not 6 percentage points."
           }
         ],
         "document": {
@@ -18054,8 +18054,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 6%，不是 6 percentage points。"
           }
         ],
         "document": {
@@ -18278,13 +18278,13 @@
       "main": {
         "answer": [
           {
-            "check": "not-checked",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives six percentage points, not 6%."
           }
         ],
         "document": {
-          "verdict": "not-checked",
-          "reason": "number-unquoted"
+          "verdict": "unsupported",
+          "reason": "The Document gives six percentage points, not 6%."
         }
       },
       "here": {
@@ -18310,13 +18310,13 @@
       "main": {
         "answer": [
           {
-            "check": "not-checked",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 six percentage points，不是 6%。"
           }
         ],
         "document": {
-          "verdict": "not-checked",
-          "reason": "number-unquoted"
+          "verdict": "unsupported",
+          "reason": "文档写的是 six percentage points，不是 6%。"
         }
       },
       "here": {
@@ -18342,8 +18342,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 6个百分点, not 6%."
           }
         ],
         "document": {
@@ -18374,8 +18374,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 6个百分点，不是 6%。"
           }
         ],
         "document": {
@@ -18790,8 +18790,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 三点五个百分点, not 3.5%."
           }
         ],
         "document": {
@@ -18822,8 +18822,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是三点五个百分点，不是 3.5%。"
           }
         ],
         "document": {
@@ -18918,8 +18918,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 2个点, not 2%."
           }
         ],
         "document": {
@@ -18950,8 +18950,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 2个点，不是 2%。"
           }
         ],
         "document": {
@@ -19174,13 +19174,13 @@
       "main": {
         "answer": [
           {
-            "check": "not-checked",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives six percentage points, not 6%."
           }
         ],
         "document": {
-          "verdict": "not-checked",
-          "reason": "number-unquoted"
+          "verdict": "unsupported",
+          "reason": "The Document gives six percentage points, not 6%."
         }
       },
       "here": {
@@ -19206,13 +19206,13 @@
       "main": {
         "answer": [
           {
-            "check": "not-checked",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 six percentage points，不是 6%。"
           }
         ],
         "document": {
-          "verdict": "not-checked",
-          "reason": "number-unquoted"
+          "verdict": "unsupported",
+          "reason": "文档写的是 six percentage points，不是 6%。"
         }
       },
       "here": {
@@ -19366,13 +19366,13 @@
       "main": {
         "answer": [
           {
-            "check": "not-checked",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives two point three percentage points, not 2.3%."
           }
         ],
         "document": {
-          "verdict": "not-checked",
-          "reason": "number-unquoted"
+          "verdict": "unsupported",
+          "reason": "The Document gives two point three percentage points, not 2.3%."
         }
       },
       "here": {
@@ -19398,13 +19398,13 @@
       "main": {
         "answer": [
           {
-            "check": "not-checked",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 two point three percentage points，不是 2.3%。"
           }
         ],
         "document": {
-          "verdict": "not-checked",
-          "reason": "number-unquoted"
+          "verdict": "unsupported",
+          "reason": "文档写的是 two point three percentage points，不是 2.3%。"
         }
       },
       "here": {
@@ -19494,8 +19494,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 六个百分点, not 6%."
           }
         ],
         "document": {
@@ -19526,8 +19526,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是六个百分点，不是 6%。"
           }
         ],
         "document": {
@@ -19686,8 +19686,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 2 percentage points, not 2%."
           }
         ],
         "document": {
@@ -19718,8 +19718,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 2 percentage points，不是 2%。"
           }
         ],
         "document": {
@@ -19814,8 +19814,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 2个百分点, not 2%."
           }
         ],
         "document": {
@@ -19846,8 +19846,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 2个百分点，不是 2%。"
           }
         ],
         "document": {
@@ -19878,8 +19878,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 6, not 6%."
           }
         ],
         "document": {
@@ -19910,8 +19910,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 6，不是 6%。"
           }
         ],
         "document": {
@@ -20070,8 +20070,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 6 percentage points, not 6％."
           }
         ],
         "document": {
@@ -20102,8 +20102,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 6 percentage points，不是 6％。"
           }
         ],
         "document": {
@@ -20198,8 +20198,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives £54,000, not ＄54,000."
           }
         ],
         "document": {
@@ -20230,8 +20230,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 £54,000，不是 ＄54,000。"
           }
         ],
         "document": {
@@ -20326,8 +20326,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 6个百分点, not 6％."
           }
         ],
         "document": {
@@ -20358,8 +20358,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 6个百分点，不是 6％。"
           }
         ],
         "document": {
@@ -20390,8 +20390,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 2, not 2%."
           }
         ],
         "document": {
@@ -20422,8 +20422,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 2，不是 2%。"
           }
         ],
         "document": {
@@ -20518,8 +20518,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 2, not 2%."
           }
         ],
         "document": {
@@ -20550,8 +20550,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 2，不是 2%。"
           }
         ],
         "document": {
@@ -20582,8 +20582,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 54 (USD millions), not £54m."
           }
         ],
         "document": {
@@ -20614,8 +20614,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 54 (USD millions)，不是 £54m。"
           }
         ],
         "document": {
@@ -20715,8 +20715,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "The Document gives 34002.51, not 34002.51亿美元."
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -20747,8 +20747,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "文档写的是 34002.51，不是 34002.51亿美元。"
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -20774,8 +20774,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 34002.51, not 34002.51万美元."
           }
         ],
         "document": {
@@ -20806,8 +20806,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 34002.51，不是 34002.51万美元。"
           }
         ],
         "document": {
@@ -20907,8 +20907,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "The Document gives 126, not 126万千瓦时."
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -20939,8 +20939,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "文档写的是 126，不是 126万千瓦时。"
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -20966,13 +20966,13 @@
       "main": {
         "answer": [
           {
-            "check": "not-checked",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 126（万千瓦时）, not 126千瓦时."
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "unsupported",
+          "reason": "The Document gives 126（万千瓦时）, not 126千瓦时."
         }
       },
       "here": {
@@ -20998,13 +20998,13 @@
       "main": {
         "answer": [
           {
-            "check": "not-checked",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 126（万千瓦时），不是 126千瓦时。"
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "unsupported",
+          "reason": "文档写的是 126（万千瓦时），不是 126千瓦时。"
         }
       },
       "here": {
@@ -21030,8 +21030,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 126, not 126万吨."
           }
         ],
         "document": {
@@ -21062,8 +21062,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 126，不是 126万吨。"
           }
         ],
         "document": {
@@ -21099,8 +21099,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "The Document gives 126, not 126万千瓦时."
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -21131,8 +21131,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "文档写的是 126，不是 126万千瓦时。"
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -21547,8 +21547,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "The Document gives 126, not 126万千瓦时."
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -21579,8 +21579,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "文档写的是 126，不是 126万千瓦时。"
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -21606,8 +21606,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 126, not 126万吨."
           }
         ],
         "document": {
@@ -21638,8 +21638,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 126，不是 126万吨。"
           }
         ],
         "document": {
@@ -21862,8 +21862,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 34002.51, not 34002.51万美元."
           }
         ],
         "document": {
@@ -21894,8 +21894,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 34002.51，不是 34002.51万美元。"
           }
         ],
         "document": {
@@ -21926,8 +21926,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 25006.53, not 25006.53亿美元."
           }
         ],
         "document": {
@@ -21958,8 +21958,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 25006.53，不是 25006.53亿美元。"
           }
         ],
         "document": {
@@ -22442,13 +22442,13 @@
       "main": {
         "answer": [
           {
-            "check": "not-checked",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 54 (USD millions), not $54."
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "unsupported",
+          "reason": "The Document gives 54 (USD millions), not $54."
         }
       },
       "here": {
@@ -22474,13 +22474,13 @@
       "main": {
         "answer": [
           {
-            "check": "not-checked",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 54 (USD millions)，不是 $54。"
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "unsupported",
+          "reason": "文档写的是 54 (USD millions)，不是 $54。"
         }
       },
       "here": {
@@ -22511,8 +22511,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "The Document gives 126, not 126万千瓦时."
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -22543,8 +22543,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "文档写的是 126，不是 126万千瓦时。"
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -22570,13 +22570,13 @@
       "main": {
         "answer": [
           {
-            "check": "not-checked",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 126（万千瓦时）, not 126千瓦时."
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "unsupported",
+          "reason": "The Document gives 126（万千瓦时）, not 126千瓦时."
         }
       },
       "here": {
@@ -22602,13 +22602,13 @@
       "main": {
         "answer": [
           {
-            "check": "not-checked",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 126（万千瓦时），不是 126千瓦时。"
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "unsupported",
+          "reason": "文档写的是 126（万千瓦时），不是 126千瓦时。"
         }
       },
       "here": {
@@ -22698,13 +22698,13 @@
       "main": {
         "answer": [
           {
-            "check": "not-checked",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 54 (USD millions), not $54."
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "unsupported",
+          "reason": "The Document gives 54 (USD millions), not $54."
         }
       },
       "here": {
@@ -22730,13 +22730,13 @@
       "main": {
         "answer": [
           {
-            "check": "not-checked",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 54 (USD millions)，不是 $54。"
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "unsupported",
+          "reason": "文档写的是 54 (USD millions)，不是 $54。"
         }
       },
       "here": {
@@ -22826,13 +22826,13 @@
       "main": {
         "answer": [
           {
-            "check": "not-checked",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 54（万元）, not 54元."
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "unsupported",
+          "reason": "The Document gives 54（万元）, not 54元."
         }
       },
       "here": {
@@ -22858,13 +22858,13 @@
       "main": {
         "answer": [
           {
-            "check": "not-checked",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 54（万元），不是 54元。"
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "unsupported",
+          "reason": "文档写的是 54（万元），不是 54元。"
         }
       },
       "here": {
@@ -22902,7 +22902,7 @@
       "here": {
         "answer": [
           {
-            "check": "not-checked",
+            "check": "found",
             "verdict": null
           }
         ],
@@ -22934,7 +22934,7 @@
       "here": {
         "answer": [
           {
-            "check": "not-checked",
+            "check": "found",
             "verdict": null
           }
         ],
@@ -23030,7 +23030,7 @@
       "here": {
         "answer": [
           {
-            "check": "not-checked",
+            "check": "found",
             "verdict": null
           }
         ],
@@ -23062,7 +23062,7 @@
       "here": {
         "answer": [
           {
-            "check": "not-checked",
+            "check": "found",
             "verdict": null
           }
         ],
@@ -23087,8 +23087,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "The Document gives 126, not 126万千瓦时."
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -23119,8 +23119,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "文档写的是 126，不是 126万千瓦时。"
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -23601,8 +23601,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "The Document gives 34002.51, not 34002.51亿美元."
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       },
       "here": {
@@ -23633,8 +23633,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "文档写的是 34002.51，不是 34002.51亿美元。"
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       },
       "here": {
@@ -23660,8 +23660,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 6 percentage points, not 6%."
           }
         ],
         "document": {
@@ -23692,8 +23692,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 6 percentage points，不是 6%。"
           }
         ],
         "document": {
@@ -23832,8 +23832,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 6 percentage points, not 6%."
           }
         ],
         "document": {
@@ -23864,8 +23864,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 6 percentage points，不是 6%。"
           }
         ],
         "document": {
@@ -23896,13 +23896,13 @@
       "main": {
         "answer": [
           {
-            "check": "not-checked",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives six percentage points, not 6%."
           }
         ],
         "document": {
-          "verdict": "not-checked",
-          "reason": "number-unquoted"
+          "verdict": "unsupported",
+          "reason": "The Document gives six percentage points, not 6%."
         }
       },
       "here": {
@@ -23928,13 +23928,13 @@
       "main": {
         "answer": [
           {
-            "check": "not-checked",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 six percentage points，不是 6%。"
           }
         ],
         "document": {
-          "verdict": "not-checked",
-          "reason": "number-unquoted"
+          "verdict": "unsupported",
+          "reason": "文档写的是 six percentage points，不是 6%。"
         }
       },
       "here": {
@@ -24682,7 +24682,7 @@
       "here": {
         "answer": [
           {
-            "check": "not-checked",
+            "check": "found",
             "verdict": null
           }
         ],
@@ -26287,8 +26287,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "The Document gives 126, not 126万千瓦时."
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -28782,13 +28782,13 @@
       "main": {
         "answer": [
           {
-            "check": "not-checked",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives twenty points, not 20%."
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "unsupported",
+          "reason": "The Document gives twenty points, not 20%."
         }
       },
       "here": {
@@ -28814,13 +28814,13 @@
       "main": {
         "answer": [
           {
-            "check": "not-checked",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 twenty points，不是 20%。"
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "unsupported",
+          "reason": "文档写的是 twenty points，不是 20%。"
         }
       },
       "here": {
@@ -28910,13 +28910,13 @@
       "main": {
         "answer": [
           {
-            "check": "not-checked",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives five points, not 5%."
           }
         ],
         "document": {
-          "verdict": "not-checked",
-          "reason": "number-unquoted"
+          "verdict": "unsupported",
+          "reason": "The Document gives five points, not 5%."
         }
       },
       "here": {
@@ -28942,13 +28942,13 @@
       "main": {
         "answer": [
           {
-            "check": "not-checked",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 five points，不是 5%。"
           }
         ],
         "document": {
-          "verdict": "not-checked",
-          "reason": "number-unquoted"
+          "verdict": "unsupported",
+          "reason": "文档写的是 five points，不是 5%。"
         }
       },
       "here": {
@@ -29742,8 +29742,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 0.5个点, not 0.5%."
           }
         ],
         "document": {
@@ -29774,8 +29774,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 0.5个点，不是 0.5%。"
           }
         ],
         "document": {
@@ -29998,13 +29998,13 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 0.5点, not 0.5%."
           }
         ],
         "document": {
           "verdict": "unsupported",
-          "reason": "The Document gives 0.5, not 0.5%."
+          "reason": "The Document gives 0.5点, not 0.5%."
         }
       },
       "here": {
@@ -30030,13 +30030,13 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 0.5点，不是 0.5%。"
           }
         ],
         "document": {
           "verdict": "unsupported",
-          "reason": "文档写的是 0.5，不是 0.5%。"
+          "reason": "文档写的是 0.5点，不是 0.5%。"
         }
       },
       "here": {
@@ -30062,13 +30062,13 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 3点, not 3%."
           }
         ],
         "document": {
           "verdict": "unsupported",
-          "reason": "The Document gives 3, not 3%."
+          "reason": "The Document gives 3点, not 3%."
         }
       },
       "here": {
@@ -30094,13 +30094,13 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 3点，不是 3%。"
           }
         ],
         "document": {
           "verdict": "unsupported",
-          "reason": "文档写的是 3，不是 3%。"
+          "reason": "文档写的是 3点，不是 3%。"
         }
       },
       "here": {
@@ -30131,8 +30131,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "The Document gives 118, not 118万千瓦时."
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -30163,8 +30163,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "文档写的是 118，不是 118万千瓦时。"
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -30190,13 +30190,13 @@
       "main": {
         "answer": [
           {
-            "check": "not-checked",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 118（万千瓦时）, not 118千瓦时."
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "unsupported",
+          "reason": "The Document gives 118（万千瓦时）, not 118千瓦时."
         }
       },
       "here": {
@@ -30222,13 +30222,13 @@
       "main": {
         "answer": [
           {
-            "check": "not-checked",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 118（万千瓦时），不是 118千瓦时。"
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "unsupported",
+          "reason": "文档写的是 118（万千瓦时），不是 118千瓦时。"
         }
       },
       "here": {
@@ -30259,8 +30259,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "The Document gives 126, not 126万千瓦时."
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -30291,8 +30291,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "文档写的是 126，不是 126万千瓦时。"
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -30318,13 +30318,13 @@
       "main": {
         "answer": [
           {
-            "check": "not-checked",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 126（万千瓦时）, not 126千瓦时."
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "unsupported",
+          "reason": "The Document gives 126（万千瓦时）, not 126千瓦时."
         }
       },
       "here": {
@@ -30350,13 +30350,13 @@
       "main": {
         "answer": [
           {
-            "check": "not-checked",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 126（万千瓦时），不是 126千瓦时。"
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "unsupported",
+          "reason": "文档写的是 126（万千瓦时），不是 126千瓦时。"
         }
       },
       "here": {
@@ -30387,8 +30387,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "The Document gives 131, not 131万千瓦时."
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -30419,8 +30419,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "文档写的是 131，不是 131万千瓦时。"
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -30446,13 +30446,13 @@
       "main": {
         "answer": [
           {
-            "check": "not-checked",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 131（万千瓦时）, not 131千瓦时."
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "unsupported",
+          "reason": "The Document gives 131（万千瓦时）, not 131千瓦时."
         }
       },
       "here": {
@@ -30478,13 +30478,13 @@
       "main": {
         "answer": [
           {
-            "check": "not-checked",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 131（万千瓦时），不是 131千瓦时。"
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "unsupported",
+          "reason": "文档写的是 131（万千瓦时），不是 131千瓦时。"
         }
       },
       "here": {
@@ -30574,13 +30574,13 @@
       "main": {
         "answer": [
           {
-            "check": "not-checked",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 22（万元）, not 22元."
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "unsupported",
+          "reason": "The Document gives 22（万元）, not 22元."
         }
       },
       "here": {
@@ -30606,13 +30606,13 @@
       "main": {
         "answer": [
           {
-            "check": "not-checked",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 22（万元），不是 22元。"
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "unsupported",
+          "reason": "文档写的是 22（万元），不是 22元。"
         }
       },
       "here": {
@@ -30638,13 +30638,13 @@
       "main": {
         "answer": [
           {
-            "check": "not-checked",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 800 (USD thousands), not $800."
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "unsupported",
+          "reason": "The Document gives 800 (USD thousands), not $800."
         }
       },
       "here": {
@@ -30670,13 +30670,13 @@
       "main": {
         "answer": [
           {
-            "check": "not-checked",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 800 (USD thousands)，不是 $800。"
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "unsupported",
+          "reason": "文档写的是 800 (USD thousands)，不是 $800。"
         }
       },
       "here": {
@@ -30766,13 +30766,13 @@
       "main": {
         "answer": [
           {
-            "check": "not-checked",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 1,200 (USD thousands), not $1,200."
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "unsupported",
+          "reason": "The Document gives 1,200 (USD thousands), not $1,200."
         }
       },
       "here": {
@@ -30798,13 +30798,13 @@
       "main": {
         "answer": [
           {
-            "check": "not-checked",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 1,200 (USD thousands)，不是 $1,200。"
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "unsupported",
+          "reason": "文档写的是 1,200 (USD thousands)，不是 $1,200。"
         }
       },
       "here": {
@@ -30835,8 +30835,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "The Document gives 118, not 118万千瓦时."
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -30867,8 +30867,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "文档写的是 118，不是 118万千瓦时。"
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -30894,13 +30894,13 @@
       "main": {
         "answer": [
           {
-            "check": "not-checked",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 118（万千瓦时）, not 118千瓦时."
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "unsupported",
+          "reason": "The Document gives 118（万千瓦时）, not 118千瓦时."
         }
       },
       "here": {
@@ -30926,13 +30926,13 @@
       "main": {
         "answer": [
           {
-            "check": "not-checked",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 118（万千瓦时），不是 118千瓦时。"
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "unsupported",
+          "reason": "文档写的是 118（万千瓦时），不是 118千瓦时。"
         }
       },
       "here": {
@@ -30963,8 +30963,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "The Document gives 126, not 126万千瓦时."
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -30995,8 +30995,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "文档写的是 126，不是 126万千瓦时。"
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -31022,13 +31022,13 @@
       "main": {
         "answer": [
           {
-            "check": "not-checked",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 126（万千瓦时）, not 126千瓦时."
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "unsupported",
+          "reason": "The Document gives 126（万千瓦时）, not 126千瓦时."
         }
       },
       "here": {
@@ -31054,13 +31054,13 @@
       "main": {
         "answer": [
           {
-            "check": "not-checked",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 126（万千瓦时），不是 126千瓦时。"
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "unsupported",
+          "reason": "文档写的是 126（万千瓦时），不是 126千瓦时。"
         }
       },
       "here": {
@@ -31086,13 +31086,13 @@
       "main": {
         "answer": [
           {
-            "check": "not-checked",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 118（万千瓦时）, not 118千瓦时."
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "unsupported",
+          "reason": "The Document gives 118（万千瓦时）, not 118千瓦时."
         }
       },
       "here": {
@@ -31118,13 +31118,13 @@
       "main": {
         "answer": [
           {
-            "check": "not-checked",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 118（万千瓦时），不是 118千瓦时。"
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "unsupported",
+          "reason": "文档写的是 118（万千瓦时），不是 118千瓦时。"
         }
       },
       "here": {
@@ -31162,7 +31162,7 @@
       "here": {
         "answer": [
           {
-            "check": "not-checked",
+            "check": "found",
             "verdict": null
           }
         ],
@@ -31194,7 +31194,7 @@
       "here": {
         "answer": [
           {
-            "check": "not-checked",
+            "check": "found",
             "verdict": null
           }
         ],
@@ -31214,13 +31214,13 @@
       "main": {
         "answer": [
           {
-            "check": "not-checked",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 126（万千瓦时）, not 126千瓦时."
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "unsupported",
+          "reason": "The Document gives 126（万千瓦时）, not 126千瓦时."
         }
       },
       "here": {
@@ -31246,13 +31246,13 @@
       "main": {
         "answer": [
           {
-            "check": "not-checked",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 126（万千瓦时），不是 126千瓦时。"
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "unsupported",
+          "reason": "文档写的是 126（万千瓦时），不是 126千瓦时。"
         }
       },
       "here": {
@@ -31347,8 +31347,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "The Document gives 126, not 126万千瓦时."
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -31379,8 +31379,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "文档写的是 126，不是 126万千瓦时。"
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -31475,8 +31475,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "The Document gives 118, not 118万千瓦时."
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -31507,8 +31507,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "文档写的是 118，不是 118万千瓦时。"
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -31539,8 +31539,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "The Document gives 126, not 126万千瓦时."
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -31571,8 +31571,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "文档写的是 126，不是 126万千瓦时。"
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -31598,13 +31598,13 @@
       "main": {
         "answer": [
           {
-            "check": "not-checked",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 126（万千瓦时）, not 126千瓦时."
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "unsupported",
+          "reason": "The Document gives 126（万千瓦时）, not 126千瓦时."
         }
       },
       "here": {
@@ -31630,13 +31630,13 @@
       "main": {
         "answer": [
           {
-            "check": "not-checked",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 126（万千瓦时），不是 126千瓦时。"
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "unsupported",
+          "reason": "文档写的是 126（万千瓦时），不是 126千瓦时。"
         }
       },
       "here": {
@@ -31790,13 +31790,13 @@
       "main": {
         "answer": [
           {
-            "check": "not-checked",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 61 (USD millions), not $61."
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "unsupported",
+          "reason": "The Document gives 61 (USD millions), not $61."
         }
       },
       "here": {
@@ -31822,13 +31822,13 @@
       "main": {
         "answer": [
           {
-            "check": "not-checked",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 61 (USD millions)，不是 $61。"
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "unsupported",
+          "reason": "文档写的是 61 (USD millions)，不是 $61。"
         }
       },
       "here": {
@@ -32110,8 +32110,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 126, not 126亿千瓦时."
           }
         ],
         "document": {
@@ -32142,8 +32142,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 126，不是 126亿千瓦时。"
           }
         ],
         "document": {
@@ -32179,8 +32179,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "The Document gives 126, not 126万千瓦时."
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -32211,8 +32211,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "文档写的是 126，不是 126万千瓦时。"
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -32314,7 +32314,7 @@
       "here": {
         "answer": [
           {
-            "check": "not-checked",
+            "check": "found",
             "verdict": null
           }
         ],
@@ -32346,7 +32346,7 @@
       "here": {
         "answer": [
           {
-            "check": "not-checked",
+            "check": "found",
             "verdict": null
           }
         ],
@@ -32366,13 +32366,13 @@
       "main": {
         "answer": [
           {
-            "check": "not-checked",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 126（万千瓦时）, not 126千瓦时."
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "unsupported",
+          "reason": "The Document gives 126（万千瓦时）, not 126千瓦时."
         }
       },
       "here": {
@@ -32398,13 +32398,13 @@
       "main": {
         "answer": [
           {
-            "check": "not-checked",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 126（万千瓦时），不是 126千瓦时。"
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "unsupported",
+          "reason": "文档写的是 126（万千瓦时），不是 126千瓦时。"
         }
       },
       "here": {
@@ -32435,8 +32435,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "The Document gives 126, not 126万千瓦时."
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -32467,8 +32467,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "文档写的是 126，不是 126万千瓦时。"
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -32499,8 +32499,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "The Document gives 31, not 31万吨."
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -32531,8 +32531,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "文档写的是 31，不是 31万吨。"
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -32558,8 +32558,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 31, not 31亿吨."
           }
         ],
         "document": {
@@ -32590,8 +32590,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 31，不是 31亿吨。"
           }
         ],
         "document": {
@@ -32691,8 +32691,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "The Document gives 31, not 31万吨."
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -32723,8 +32723,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "文档写的是 31，不是 31万吨。"
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -32755,8 +32755,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "The Document gives 31, not 31万辆."
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -32787,8 +32787,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "文档写的是 31，不是 31万辆。"
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -32819,8 +32819,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "The Document gives 31, not 31万人."
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -32851,8 +32851,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "文档写的是 31，不是 31万人。"
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -32883,8 +32883,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "The Document gives 31, not 31万千瓦时."
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -32915,8 +32915,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "文档写的是 31，不是 31万千瓦时。"
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -32942,8 +32942,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 31, not 31亿千瓦时."
           }
         ],
         "document": {
@@ -32974,8 +32974,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 31，不是 31亿千瓦时。"
           }
         ],
         "document": {
@@ -33134,8 +33134,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 31, not 31亿元."
           }
         ],
         "document": {
@@ -33166,8 +33166,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 31，不是 31亿元。"
           }
         ],
         "document": {
@@ -33262,8 +33262,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 31, not 31 million tonnes."
           }
         ],
         "document": {
@@ -33294,8 +33294,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 31，不是 31 million tonnes。"
           }
         ],
         "document": {
@@ -33390,8 +33390,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 31, not US$31 million."
           }
         ],
         "document": {
@@ -33422,8 +33422,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 31，不是 US$31 million。"
           }
         ],
         "document": {
@@ -33459,8 +33459,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "The Document gives 131以上, not 131万千瓦时."
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -33491,8 +33491,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "文档写的是 131以上，不是 131万千瓦时。"
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -33518,8 +33518,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 131以上, not 131亿千瓦时."
           }
         ],
         "document": {
@@ -33550,8 +33550,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 131以上，不是 131亿千瓦时。"
           }
         ],
         "document": {
@@ -33587,8 +33587,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "The Document gives 90, not 90万千瓦时."
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -33619,8 +33619,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "文档写的是 90，不是 90万千瓦时。"
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -33646,8 +33646,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 90, not 90亿千瓦时."
           }
         ],
         "document": {
@@ -33678,8 +33678,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 90，不是 90亿千瓦时。"
           }
         ],
         "document": {
@@ -34035,8 +34035,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "The Document gives 31, not 31万千瓦时."
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -34067,8 +34067,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "文档写的是 31，不是 31万千瓦时。"
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -34094,8 +34094,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 31, not 31亿千瓦时."
           }
         ],
         "document": {
@@ -34126,8 +34126,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 31，不是 31亿千瓦时。"
           }
         ],
         "document": {
@@ -34158,13 +34158,13 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 20点, not 20%."
           }
         ],
         "document": {
           "verdict": "unsupported",
-          "reason": "The Document gives 20, not 20%."
+          "reason": "The Document gives 20点, not 20%."
         }
       },
       "here": {
@@ -34190,13 +34190,13 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 20点，不是 20%。"
           }
         ],
         "document": {
           "verdict": "unsupported",
-          "reason": "文档写的是 20，不是 20%。"
+          "reason": "文档写的是 20点，不是 20%。"
         }
       },
       "here": {
@@ -34419,8 +34419,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "The Document gives 455, not 455万人."
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -34451,8 +34451,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "文档写的是 455，不是 455万人。"
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -34483,8 +34483,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "The Document gives 812, not 812万人."
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -34515,8 +34515,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "文档写的是 812，不是 812万人。"
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -34542,8 +34542,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 455, not 455亿人."
           }
         ],
         "document": {
@@ -34574,8 +34574,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 455，不是 455亿人。"
           }
         ],
         "document": {
@@ -34611,8 +34611,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "The Document gives 5, not 5万人."
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -34643,8 +34643,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "文档写的是 5，不是 5万人。"
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -34675,8 +34675,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "The Document gives 31, not 31万辆."
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -34707,8 +34707,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "文档写的是 31，不是 31万辆。"
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -34739,8 +34739,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "The Document gives 31, not 31万台."
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -34771,8 +34771,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "文档写的是 31，不是 31万台。"
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -34803,8 +34803,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "The Document gives 31, not 31万吨."
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -34835,8 +34835,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "文档写的是 31，不是 31万吨。"
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -34862,8 +34862,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 31, not 31万人次."
           }
         ],
         "document": {
@@ -34894,8 +34894,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 31，不是 31万人次。"
           }
         ],
         "document": {
@@ -34926,8 +34926,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 455, not 455万人."
           }
         ],
         "document": {
@@ -34958,8 +34958,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 455，不是 455万人。"
           }
         ],
         "document": {
@@ -35059,8 +35059,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "The Document gives 455, not 455万人."
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -35091,8 +35091,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "文档写的是 455，不是 455万人。"
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -35118,8 +35118,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 455, not 455亿人."
           }
         ],
         "document": {
@@ -35150,8 +35150,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 455，不是 455亿人。"
           }
         ],
         "document": {
@@ -35251,8 +35251,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "The Document gives 455, not 455 thousand people."
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -35283,8 +35283,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "文档写的是 455，不是 455 thousand people。"
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -35315,8 +35315,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "The Document gives 31, not 31万吨."
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -35347,8 +35347,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "文档写的是 31，不是 31万吨。"
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -35438,8 +35438,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 31, not 31亿吨."
           }
         ],
         "document": {
@@ -35470,8 +35470,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 31，不是 31亿吨。"
           }
         ],
         "document": {
@@ -35507,8 +35507,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "The Document gives 31, not 31万吨."
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -35539,8 +35539,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "文档写的是 31，不是 31万吨。"
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -35566,13 +35566,13 @@
       "main": {
         "answer": [
           {
-            "check": "not-checked",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 31（万吨标准煤）, not 31吨."
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "unsupported",
+          "reason": "The Document gives 31（万吨标准煤）, not 31吨."
         }
       },
       "here": {
@@ -35598,13 +35598,13 @@
       "main": {
         "answer": [
           {
-            "check": "not-checked",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 31（万吨标准煤），不是 31吨。"
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "unsupported",
+          "reason": "文档写的是 31（万吨标准煤），不是 31吨。"
         }
       },
       "here": {
@@ -35635,8 +35635,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "The Document gives 31, not 31万吨."
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -35667,8 +35667,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "文档写的是 31，不是 31万吨。"
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -35699,8 +35699,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "The Document gives 126, not 126万吨."
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -35731,8 +35731,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "文档写的是 126，不是 126万吨。"
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -35758,13 +35758,13 @@
       "main": {
         "answer": [
           {
-            "check": "not-checked",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 126（万吨标准煤）, not 126吨."
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "unsupported",
+          "reason": "The Document gives 126（万吨标准煤）, not 126吨."
         }
       },
       "here": {
@@ -35790,13 +35790,13 @@
       "main": {
         "answer": [
           {
-            "check": "not-checked",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 126（万吨标准煤），不是 126吨。"
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "unsupported",
+          "reason": "文档写的是 126（万吨标准煤），不是 126吨。"
         }
       },
       "here": {
@@ -35827,8 +35827,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "The Document gives 126, not 126万吨."
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -35859,8 +35859,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "文档写的是 126，不是 126万吨。"
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -35886,13 +35886,13 @@
       "main": {
         "answer": [
           {
-            "check": "not-checked",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 126（万吨标准煤）, not 126吨."
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "unsupported",
+          "reason": "The Document gives 126（万吨标准煤）, not 126吨."
         }
       },
       "here": {
@@ -35918,13 +35918,13 @@
       "main": {
         "answer": [
           {
-            "check": "not-checked",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 126（万吨标准煤），不是 126吨。"
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "unsupported",
+          "reason": "文档写的是 126（万吨标准煤），不是 126吨。"
         }
       },
       "here": {
@@ -35955,8 +35955,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "The Document gives 31, not 31万吨."
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -35987,8 +35987,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "文档写的是 31，不是 31万吨。"
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -36083,8 +36083,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "The Document gives 31, not 31亿元."
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -36115,8 +36115,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "文档写的是 31，不是 31亿元。"
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -36147,8 +36147,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "The Document gives 31, not 31亿元人民币."
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -36179,8 +36179,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "文档写的是 31，不是 31亿元人民币。"
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -36275,8 +36275,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "The Document gives 31, not 31万元."
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -36307,8 +36307,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "文档写的是 31，不是 31万元。"
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -36334,13 +36334,13 @@
       "main": {
         "answer": [
           {
-            "check": "not-checked",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 31（万元人民币）, not 31元."
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "unsupported",
+          "reason": "The Document gives 31（万元人民币）, not 31元."
         }
       },
       "here": {
@@ -36366,13 +36366,13 @@
       "main": {
         "answer": [
           {
-            "check": "not-checked",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 31（万元人民币），不是 31元。"
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "unsupported",
+          "reason": "文档写的是 31（万元人民币），不是 31元。"
         }
       },
       "here": {
@@ -36403,8 +36403,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "The Document gives 22, not 22万元."
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -36435,8 +36435,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "文档写的是 22，不是 22万元。"
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -36462,13 +36462,13 @@
       "main": {
         "answer": [
           {
-            "check": "not-checked",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 22（万元人民币）, not 22元."
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "unsupported",
+          "reason": "The Document gives 22（万元人民币）, not 22元."
         }
       },
       "here": {
@@ -36494,13 +36494,13 @@
       "main": {
         "answer": [
           {
-            "check": "not-checked",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 22（万元人民币），不是 22元。"
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "unsupported",
+          "reason": "文档写的是 22（万元人民币），不是 22元。"
         }
       },
       "here": {
@@ -37043,8 +37043,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "The Document gives 31, not 31万吨."
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -37075,8 +37075,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "文档写的是 31，不是 31万吨。"
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -37102,13 +37102,13 @@
       "main": {
         "answer": [
           {
-            "check": "not-checked",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 31（万吨）, not 31吨."
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "unsupported",
+          "reason": "The Document gives 31（万吨）, not 31吨."
         }
       },
       "here": {
@@ -37134,13 +37134,13 @@
       "main": {
         "answer": [
           {
-            "check": "not-checked",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 31（万吨），不是 31吨。"
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "unsupported",
+          "reason": "文档写的是 31（万吨），不是 31吨。"
         }
       },
       "here": {
@@ -37422,8 +37422,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 31, not 31 million tonnes."
           }
         ],
         "document": {
@@ -37454,8 +37454,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 31，不是 31 million tonnes。"
           }
         ],
         "document": {
@@ -37550,8 +37550,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 31, not 31 million tonnes."
           }
         ],
         "document": {
@@ -37582,8 +37582,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 31，不是 31 million tonnes。"
           }
         ],
         "document": {
@@ -37934,8 +37934,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 54,000 without a currency."
           }
         ],
         "document": {
@@ -37966,8 +37966,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 54,000，没有注明币种。"
           }
         ],
         "document": {
@@ -38062,8 +38062,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives $54 million, not $54bn."
           }
         ],
         "document": {
@@ -38094,8 +38094,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 $54 million，不是 $54bn。"
           }
         ],
         "document": {
@@ -38259,8 +38259,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "The Document gives 20, not 20万."
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -38291,8 +38291,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "文档写的是 20，不是 20万。"
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -38382,8 +38382,8 @@
       "main": {
         "answer": [
           {
-            "check": "not-checked",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 6 percentage points, not 6%."
           }
         ],
         "document": {
@@ -38414,8 +38414,8 @@
       "main": {
         "answer": [
           {
-            "check": "not-checked",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 6 percentage points，不是 6%。"
           }
         ],
         "document": {
@@ -38446,8 +38446,8 @@
       "main": {
         "answer": [
           {
-            "check": "not-checked",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 6个百分点, not 6%."
           }
         ],
         "document": {
@@ -38478,8 +38478,8 @@
       "main": {
         "answer": [
           {
-            "check": "not-checked",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 6个百分点，不是 6%。"
           }
         ],
         "document": {
@@ -38702,8 +38702,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 126, not 126万吨."
           }
         ],
         "document": {
@@ -38734,8 +38734,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 126，不是 126万吨。"
           }
         ],
         "document": {
@@ -38766,8 +38766,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 126, not 126万吨."
           }
         ],
         "document": {
@@ -38798,8 +38798,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 126，不是 126万吨。"
           }
         ],
         "document": {
@@ -38830,8 +38830,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 126, not 126万吨."
           }
         ],
         "document": {
@@ -38862,8 +38862,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 126，不是 126万吨。"
           }
         ],
         "document": {
@@ -38894,8 +38894,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 31, not 31万吨."
           }
         ],
         "document": {
@@ -38926,8 +38926,8 @@
       "main": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 31，不是 31万吨。"
           }
         ],
         "document": {
@@ -38963,8 +38963,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "The Document gives 34002.51, not 34002.51亿美元."
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -38995,8 +38995,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "文档写的是 34002.51，不是 34002.51亿美元。"
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
