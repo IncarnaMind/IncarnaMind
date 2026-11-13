@@ -4687,6 +4687,8 @@ export const en = {
   "citation.changed.moved": "Its quote is now at {location}.",
   "citation.changed.moved.anywhere": "Its quote is in another place in the new version.",
   "citation.placeGone": "The cited place ({location}) is no longer in this Document.",
+  "citation.placeGone.named":
+    "The cited place ({location}) is no longer where it was in this Document.",
   "citation.changed.words": "The cited words changed in the new version:",
   "citation.badge.recheck": "Needs re-check",
   "citation.update": "Update the sentence",

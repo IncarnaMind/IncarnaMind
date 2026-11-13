@@ -181,6 +181,8 @@ async function openAt(format: Format, language: Language, unit: number, version:
     },
   };
   const frame = { document, target, tabId: "tab-1", preview: false, keep: () => undefined };
+  // Each opening starts afresh: the new version isn't looked at again for the same Citation.
+  await act(() => mounted.root.render(null));
   await act(() =>
     mounted.root.render(
       createElement(

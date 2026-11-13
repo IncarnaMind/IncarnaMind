@@ -1,7 +1,7 @@
 import { isMacOS } from "@tiptap/core";
 import { createContext, type ReactNode, useContext, useMemo, useRef } from "react";
 import type { Document } from "../../../core/api";
-import { changedSourceLines, citationState } from "../../../shared/citations";
+import { changedSourceLines, citationState, quoteStanding } from "../../../shared/citations";
 import { displayName, sourceOf } from "../../../shared/documentNames";
 import { useAnnotations } from "../annotations";
 import { useCitationRecheck } from "../citationVersion";
@@ -128,22 +128,20 @@ export function ViewerHeader({
     // The Document's own viewer is browsing, which a Folder wall leaves open (#1934).
     null,
   );
+  const citedPlace = {
+    pageFrom: cited?.pageFrom ?? target?.pageFrom ?? null,
+    pageTo: cited?.pageTo ?? target?.pageTo ?? null,
+    location: cited?.location ?? null,
+  };
   const changed =
     !showingCited && citedState
-      ? changedSourceLines(
-          changedState,
-          {
-            pageFrom: cited?.pageFrom ?? target?.pageFrom ?? null,
-            pageTo: cited?.pageTo ?? target?.pageTo ?? null,
-            location: cited?.location ?? null,
-          },
-          recheck,
-          document,
-          language,
-          t,
-        ).note
+      ? changedSourceLines(changedState, citedPlace, recheck, document, language, t).note
       : null;
-  const gone = placeGone && target ? citedPlaceGoneLine(target, t, documents) : null;
+  const standing =
+    recheck === null || recheck === "failed" || "keptInside" in recheck
+      ? null
+      : quoteStanding(citedPlace, recheck);
+  const gone = placeGone && target ? citedPlaceGoneLine(target, t, documents, standing) : null;
   const notice = [changed?.notice, changed?.quote, gone].reduce<string>(
     (text, line) => (line ? `${text}${text ? gap(text, line) : ""}${line}` : text),
     "",
