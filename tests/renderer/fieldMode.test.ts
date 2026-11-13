@@ -3,7 +3,7 @@
  * computer, through a panel closed and shown again, and Note for any other Meeting.
  */
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { saveFieldMode, savedFieldMode } from "../../src/renderer/src/meetingPanel/fieldMode";
+import { savedFieldMode, saveFieldMode } from "../../src/renderer/src/meetingPanel/fieldMode";
 
 let stored: Map<string, string>;
 

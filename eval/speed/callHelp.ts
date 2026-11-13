@@ -24,7 +24,7 @@ import {
   shownItems,
 } from "../../src/renderer/src/helpReply";
 import { isTranscriptLocation } from "../../src/shared/locations";
-import { HELP_SHAPE } from "../../src/shared/meetingHelp";
+import { HELP_SHAPE, type HelpShape } from "../../src/shared/meetingHelp";
 import { normaliseText } from "../../src/shared/text";
 import { queryDatabase } from "../../tests/helpers/core";
 import {
@@ -49,6 +49,7 @@ import { CALL_HELP_HELD_OUT } from "./callHelpHeldOut";
 import { CALL_HELP_MARKS } from "./callHelpMarks";
 import { CALL_HELP_MARKS_3 } from "./callHelpMarks3";
 import { JUDGE_FAILED } from "./callHelpMarksReport";
+import { CALL_HELP_TYPED } from "./callHelpTyped";
 import {
   type GroupOptions,
   type Measured,
@@ -222,12 +223,20 @@ function shownReply(
     .join("\n\n");
 }
 
-const JUDGE = [
-  "You grade a reply that helps the User during a live call: they pressed a button and read the reply in a second or two while the call goes on.",
+const JUDGE_LINES = [
   "<expected> says what a right reply gives; <avoid>, when there is one, what it must not give as so. <call> holds the newest lines of the call.",
   "Grade it: right when it gives what <expected> says, in any wording or language (an option to say counts when what it would have the User say carries it); partly when it gives only some of it, or adds something the Documents or the call contradict; wrong when it gives something else, misses it, or gives what <avoid> names.",
   "Then read each sentence that carries a Citation number [n] against the words that Citation quotes, in <citations>: list n when the sentence states as so something its quoted words don't say, such as a figure, a term, a yes, or a claim it calls supported.",
   'Reply with JSON and nothing else: {"grade": "right" | "partly" | "wrong", "unstated": [n, ...]}',
+];
+const JUDGE = [
+  "You grade a reply that helps the User during a live call: they pressed a button and read the reply in a second or two while the call goes on.",
+  ...JUDGE_LINES,
+].join("\n");
+/** For a question the User typed during the call (#2925), which <question> holds. */
+const JUDGE_TYPED = [
+  "You grade a reply that helps the User during a live call: they typed the question in <question> and read the reply in a second or two while the call goes on.",
+  ...JUDGE_LINES,
 ].join("\n");
 
 export interface Judged {
@@ -261,8 +270,9 @@ async function judge(
   reply: string,
   cited: readonly string[],
 ): Promise<Judged> {
+  const instructions = each.typed ? JUDGE_TYPED : JUDGE;
   const prompt = [
-    `<button>${each.kind}</button>`,
+    each.typed ? `<question>${each.typed.question}</question>` : `<button>${each.kind}</button>`,
     "<call>",
     ...newest.map((turn) => `${turn.who === "me" ? "The User" : "The other side"}: ${turn.text}`),
     "</call>",
@@ -277,7 +287,7 @@ async function judge(
   ].join("\n");
   const first = await generateText({
     model,
-    instructions: JUDGE,
+    instructions,
     prompt,
     maxOutputTokens: 400,
     maxRetries: 1,
@@ -291,14 +301,14 @@ async function judge(
     first.text.trim() === ""
       ? await generateText({
           model,
-          instructions: JUDGE,
+          instructions,
           prompt,
           maxOutputTokens: 1_200,
           maxRetries: 1,
         })
       : await generateText({
           model,
-          instructions: JUDGE,
+          instructions,
           messages: [
             { role: "user", content: prompt },
             { role: "assistant", content: first.text },
@@ -357,7 +367,24 @@ function requestsSince(dataDir: string, since: string): RequestTiming[] {
   }));
 }
 
-/** Presses the case's button and reads what the panel showed, and when. */
+/** How the panel lays a case's measured reply out: its button's, or a typed question's (#2925). */
+const shapeOf = (each: CallHelpCase) => HELP_SHAPE[each.typed ? "question" : each.kind];
+
+/**
+ * Whether the panel shows a whole item of the reply yet: an option or reading with its "→" line,
+ * or a short line or sentence once another follows it or the reply ends.
+ */
+function wholeShown(shape: HelpShape, shown: readonly ReplyItem[], streaming: boolean): boolean {
+  const [first] = shown;
+  if (first === undefined) return false;
+  const lines = shape === "lines" || (shape === "answer" && !shown.some((item) => item.effect));
+  return lines ? shown.length > 1 || !streaming : first.effect !== null;
+}
+
+/**
+ * Presses the case's button and reads what the panel showed, and when. For a typed question, the
+ * button's reply is waited for to its marks first, as in a call, and the question's is the one read.
+ */
 async function press(
   core: Core,
   each: CallHelpCase,
@@ -371,6 +398,7 @@ async function press(
 }> {
   let stopPhase: () => void = () => undefined;
   let answerId: string | null = null;
+  let pressedFirst: string | null = null;
   let finishedAt: number | null = null;
   let settledAt: number | null = null;
   const stopFinished = core.on("answer.finished", (event) => {
@@ -378,30 +406,21 @@ async function press(
   });
   let snapshotting = false;
   let beforeCheck: string | null = null;
-  const shape = HELP_SHAPE[each.kind];
+  const shape = shapeOf(each);
   const seen = new Map<string, { firstWordsMs: number | null; firstOptionMs: number | null }>();
   let start = 0;
   let latestText = "";
   const stop = core.on("conversation.message", (message) => {
-    if (message.kind !== "answer") return;
+    if (message.kind !== "answer" || message.id === pressedFirst) return;
     latestText = message.text;
     if (snapshotting) beforeCheck = message.text;
     const at = performance.now() - start;
-    const shown = shownItems(readHelpReply(message.text), {
-      shape,
-      leadIn: false,
-      streaming: message.status === "streaming",
-    });
+    const streaming = message.status === "streaming";
+    const shown = shownItems(readHelpReply(message.text), { shape, leadIn: false, streaming });
     const times = seen.get(message.id) ?? { firstWordsMs: null, firstOptionMs: null };
     if (shown.some((item) => item.lead.some((piece) => piece.kind === "text" && piece.text.trim())))
       times.firstWordsMs ??= at;
-    const [first] = shown;
-    const whole =
-      first !== undefined &&
-      (shape === "lines"
-        ? shown.length > 1 || message.status !== "streaming"
-        : first.effect !== null);
-    if (whole) times.firstOptionMs ??= at;
+    if (wholeShown(shape, shown, streaming)) times.firstOptionMs ??= at;
     seen.set(message.id, times);
     // Its marks have settled once it has ended and no Citation still waits for its check.
     if (
@@ -414,9 +433,26 @@ async function press(
     }
   });
   try {
+    if (each.typed) {
+      const button = await core.askMeetingHelp({ meetingId, kind: each.kind as MeetingHelpKind });
+      if (!button.asked) throw new Error(`Not asked: ${JSON.stringify(button)}`);
+      pressedFirst = button.answerId;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const late = new Promise<"late">((resolve) => {
+        timer = setTimeout(() => resolve("late"), ANSWER_TIMEOUT_MS);
+      });
+      const ended = await Promise.race([
+        replyEnded(core, button.conversation.id, button.answerId),
+        late,
+      ]).finally(() => clearTimeout(timer));
+      if (ended !== "finished")
+        throw new Error(`The button's reply before the question: ${ended}.`);
+    }
     begin();
     start = performance.now();
-    const asked = await core.askMeetingHelp({ meetingId, kind: each.kind as MeetingHelpKind });
+    const asked = each.typed
+      ? await core.askMeetingQuestion({ meetingId, text: each.typed.question })
+      : await core.askMeetingHelp({ meetingId, kind: each.kind as MeetingHelpKind });
     if (!asked.asked) throw new Error(`Not asked: ${JSON.stringify(asked)}`);
     answerId = asked.answerId;
     // The check of the changes a reply claims runs once it is written: what it shows as it runs
@@ -503,6 +539,45 @@ function marksOf(
   };
 }
 
+/** The longest a typed question's short reply's item may be and still be read in a second or two. */
+const LONGEST_WORDS = 40;
+const LONGEST_HAN = 80;
+
+/**
+ * Where a typed question's reply left the form its case asks for (#2925), as the panel shows it:
+ * more than two items, or an item too long to read in a second or two, for a short reply or
+ * options; options without their "→" lines or with no recommended one first; a list with an item
+ * missing; its words not in the question's language. Empty for a button's reply.
+ */
+export function formFailures(each: CallHelpCase, shown: readonly ReplyItem[]): string[] {
+  const { typed } = each;
+  if (!typed) return [];
+  const words = (item: ReplyItem) =>
+    item.lead.flatMap((piece) => (piece.kind === "text" ? [piece.text] : [])).join("");
+  const tooLong = shown.some((item) => {
+    const text = words(item);
+    const han = text.match(/\p{Script=Han}/gu)?.length ?? 0;
+    const latin = text
+      .replace(/\p{Script=Han}/gu, " ")
+      .split(/\s+/)
+      .filter(Boolean).length;
+    return han > LONGEST_HAN || latin > LONGEST_WORDS;
+  });
+  const all = shown.map(words).join(" ");
+  const han = all.match(/\p{Script=Han}/gu)?.length ?? 0;
+  const letters = all.match(/[A-Za-z]/g)?.length ?? 0;
+  const hanShare = han + letters === 0 ? 0 : han / (han + letters);
+  const options =
+    shown.length > 0 && shown.every((item) => item.effect !== null) && shown[0]?.recommended;
+  return [
+    ...(typed.form !== "list" && shown.length > 2 ? ["form-too-many"] : []),
+    ...(typed.form !== "list" && tooLong ? ["form-too-long"] : []),
+    ...(typed.form === "options" && !options ? ["form-not-options"] : []),
+    ...(typed.form === "list" && shown.length < each.rests.length ? ["form-list-short"] : []),
+    ...((each.language === "zh-CN" ? hanShare < 0.5 : hanShare > 0.1) ? ["language"] : []),
+  ];
+}
+
 /** Every reply the change-claim check rewrote, with the text before the check and after it. */
 export const rewrittenReplies: { item: string; before: string; after: string }[] = [];
 
@@ -510,7 +585,7 @@ function item(each: CallHelpCase, set: CallHelpSet): PairedGroup["items"][number
   return {
     set,
     id: each.id,
-    kind: `${each.kind}-${each.needs}`,
+    kind: each.typed ? `question-${each.typed.form}` : `${each.kind}-${each.needs}`,
     language: each.language,
     words: "item",
     async run({ library, claimsJudge, meeting, choice, arm }) {
@@ -536,7 +611,7 @@ function item(each: CallHelpCase, set: CallHelpSet): PairedGroup["items"][number
       const requests = requestsSince(library.dataDir, since);
       const done = answer.status === "done";
       const shown = shownItems(readHelpReply(answer.text), {
-        shape: HELP_SHAPE[each.kind],
+        shape: shapeOf(each),
         leadIn: answer.steps?.textBehind === true,
         streaming: false,
       });
@@ -623,6 +698,7 @@ function item(each: CallHelpCase, set: CallHelpSet): PairedGroup["items"][number
           ...(toolTextIn(answer.text).length > 0 ? ["tool-text"] : []),
           ...(answer.steps?.textBehind ? ["text-behind"] : []),
           ...(done && shown.length === 0 ? ["nothing-shown"] : []),
+          ...(done ? formFailures(each, shown) : []),
         ],
         firstWordsMs,
         firstOptionMs,
@@ -715,7 +791,8 @@ type CallHelpSet =
   | "call-help-documents"
   | "call-help-checks"
   | "call-help-marks"
-  | "call-help-marks-3";
+  | "call-help-marks-3"
+  | "call-help-typed";
 
 const CASES: Readonly<Record<CallHelpSet, readonly CallHelpCase[]>> = {
   "call-help": CALL_HELP_CASES,
@@ -725,6 +802,7 @@ const CASES: Readonly<Record<CallHelpSet, readonly CallHelpCase[]>> = {
   "call-help-checks": CALL_HELP_CHECKS,
   "call-help-marks": CALL_HELP_MARKS,
   "call-help-marks-3": CALL_HELP_MARKS_3,
+  "call-help-typed": CALL_HELP_TYPED,
 };
 
 /** One group a case: its own Library, its own Meeting heard before the press. */

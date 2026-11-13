@@ -99,8 +99,16 @@ export function Thread({
     if (pending !== undefined || !pointed.current) setAsked((now) => now + 1);
   }, [helps.length, pending, pointed]);
 
+  // The thread alone scrolls, never the page around it: its top is where the window is anchored.
   useLayoutEffect(() => {
-    if (asked > 0) newest.current?.scrollIntoView?.({ block: "nearest" });
+    const box = scroller.current;
+    const item = newest.current;
+    if (asked === 0 || !box || !item) return;
+    const within = box.getBoundingClientRect();
+    const at = item.getBoundingClientRect();
+    if (at.top < within.top) box.scrollTop -= within.top - at.top;
+    else if (at.bottom > within.bottom)
+      box.scrollTop += Math.min(at.bottom - within.bottom, at.top - within.top);
   }, [asked]);
 
   const empty = helps.length === 0 && !pending && !blocked;

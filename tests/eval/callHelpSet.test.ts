@@ -9,13 +9,15 @@ import { join } from "node:path";
 import { MockLanguageModelV4 } from "ai/test";
 import { afterEach, describe, expect, test } from "vitest";
 import { armSwitch, newestStretch } from "../../eval/speed/arms";
-import { callHelpSet } from "../../eval/speed/callHelp";
+import { callHelpSet, formFailures } from "../../eval/speed/callHelp";
 import { CALL_HELP_CASES, callOf, TRANSCRIPT } from "../../eval/speed/callHelpCases";
+import { CALL_HELP_TYPED } from "../../eval/speed/callHelpTyped";
 import { openLedger } from "../../eval/speed/ledger";
 import { runOnArm } from "../../eval/speed/paired";
 import { sentPair } from "../../eval/speed/pairedReport";
 import type { CoreAdapters } from "../../src/core";
 import { createFakeEmbedder } from "../../src/core/embedding/fake";
+import { readHelpReply, shownItems } from "../../src/renderer/src/helpReply";
 import { shownPassages } from "../helpers/citations";
 import { type ModelCall, scriptedModel } from "../helpers/models";
 
@@ -103,8 +105,9 @@ async function pressed(
   arm: "today" | "help-marks-quote-only" = "today",
   /** The arm switch a paired run sends through, to read the requests as it records them. */
   through?: ReturnType<typeof armSwitch>,
+  set: "call-help" | "call-help-typed" = "call-help",
 ) {
-  const group = callHelpSet().find((each) => each.name === `call-help-${id}`);
+  const group = callHelpSet(set).find((each) => each.name === `${set}-${id}`);
   const item = group?.items[0];
   if (!group || !item) throw new Error(`No case ${id}.`);
   const calls: ModelCall[] = [];
@@ -187,6 +190,92 @@ describe("The call-help cases", () => {
     }
     const short = CALL_HELP_CASES.find((each) => each.id === "en-answer-sso");
     expect(short && callOf(short)).toHaveLength(5);
+  });
+});
+
+describe("The typed question's cases (#2925)", () => {
+  test("7 cases a language, the Chinese the English's twins, each a button then a question, resting on lines of its own Documents or call", () => {
+    expect(new Set(CALL_HELP_TYPED.map((each) => each.id)).size).toBe(14);
+    const english = CALL_HELP_TYPED.filter((each) => each.language === "en");
+    const chinese = CALL_HELP_TYPED.filter((each) => each.language === "zh-CN");
+    expect(english).toHaveLength(7);
+    expect(chinese.map((each) => each.id)).toEqual(
+      english.map((each) => each.id.replace(/^en-/, "zh-")),
+    );
+    for (const [index, each] of english.entries()) {
+      const twin = chinese[index];
+      expect([twin?.kind, twin?.typed?.form, twin?.rests.length], each.id).toEqual([
+        each.kind,
+        each.typed?.form,
+        each.rests.length,
+      ]);
+    }
+    for (const each of CALL_HELP_TYPED) {
+      expect(each.typed?.question, each.id).toEqual(expect.any(String));
+      const said = callOf(each).map((turn) => turn.text);
+      for (const rest of each.rests.flat()) {
+        if (rest.in === TRANSCRIPT) expect(said, each.id).toContain(rest.line);
+        else expect(each.documents.find((one) => one.file === rest.in)?.text).toContain(rest.line);
+      }
+    }
+  });
+
+  // protects=a typed question's reply is held to the form its case asks for, as the panel shows it (#2925); fails_when=a long reply, a third item, options without "→" lines, a short list or another language passes; no_claim=what a model writes.
+  test("a reply is held to its case's form and the question's language", () => {
+    const of = (id: string) => {
+      const each = CALL_HELP_TYPED.find((one) => one.id === id);
+      if (!each) throw new Error(`No case ${id}.`);
+      return each;
+    };
+    const shown = (text: string, id: string) =>
+      formFailures(
+        of(id),
+        shownItems(readHelpReply(text), { shape: "answer", leadIn: false, streaming: false }),
+      );
+    expect(shown("Towels are €1.50 per kilo [^1]", "en-typed-price")).toEqual([]);
+    expect(shown("One.\nTwo.\nThree.", "en-typed-price")).toEqual(["form-too-many"]);
+    expect(shown(`${"word ".repeat(45)}[^1]`, "en-typed-price")).toEqual(["form-too-long"]);
+    expect(shown("毛巾每公斤 11 元 [^1]", "en-typed-price")).toEqual(["language"]);
+    expect(shown("Towels are €1.50 per kilo [^1]", "zh-typed-price")).toEqual(["language"]);
+    expect(shown("毛巾每公斤 11 元 [^1]", "zh-typed-price")).toEqual([]);
+    expect(
+      shown("★ We reuse 60% of our rinse water [^1]\n→ answers the worry", "en-typed-say"),
+    ).toEqual([]);
+    expect(shown("We reuse 60% of our rinse water [^1]", "en-typed-say")).toEqual([
+      "form-not-options",
+    ]);
+    expect(shown("- Bed linen €1.20 [^1]\n- Towels €1.50 [^2]", "en-typed-list")).toEqual([
+      "form-list-short",
+    ]);
+    expect(
+      shown(
+        "- Bed linen €1.20 [^1]\n- Towels €1.50 [^2]\n- Table linen €2.10 [^3]",
+        "en-typed-list",
+      ),
+    ).toEqual([]);
+    expect(formFailures(CALL_HELP_CASES[0] ?? of("en-typed-price"), [])).toEqual([]);
+  });
+});
+
+describe("A question typed during the call (#2925)", { timeout: 120_000 }, () => {
+  test("is asked once its button's reply has ended, and is the reply read, cited and judged as the question", async () => {
+    const { run, calls, judged } = await pressed(
+      "en-typed-price",
+      "Towels are laundered at €1.50 per kilo.",
+      { grade: "right", unstated: [] },
+      "today",
+      undefined,
+      "call-help-typed",
+    );
+    expect(run.status).toBe("done");
+    const typed = calls.findIndex((call) => call.prompt.includes("typed a question about it"));
+    expect(typed).toBeGreaterThan(0);
+    expect(calls[0]?.prompt).toContain("pressed a button for help");
+    expect(block(calls[typed]?.prompt ?? "", "found-in-documents")).toContain("Towels");
+    expect(run.cited).toBe(true);
+    expect(run.grade).toBe("right");
+    expect(judged[0]).toContain("<question>How much are towels per kilo?</question>");
+    expect(judged[0]).not.toContain("<button>");
   });
 });
 

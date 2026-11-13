@@ -78,7 +78,8 @@ export function MeetingPanel() {
   const drafts = useRef(new Map<string, Draft>());
   const meetingId = meeting?.id;
   const [modes, setModes] = useState<Readonly<Record<string, FieldMode>>>({});
-  const mode = meetingId ? (modes[meetingId] ?? savedFieldMode(meetingId)) : "note";
+  const saved = useMemo(() => (meetingId ? savedFieldMode(meetingId) : "note"), [meetingId]);
+  const mode = (meetingId && modes[meetingId]) || saved;
   const chooseMode = useCallback(
     (chosen: FieldMode) => {
       if (!meetingId) return;
@@ -173,8 +174,7 @@ export function MeetingPanel() {
   const fieldTaken = useCallback(() => setFieldWanted(null), []);
   // While a press waits for its help, the Meeting's help is still the one before, which isn't the newest.
   const asking = useMeetingHelp((state) => (meeting ? state.pending[meeting.id] : undefined));
-  const latestPinned =
-    !asking && meeting?.help !== null && pinned.includes(meeting?.help?.answerId ?? "");
+  const latestPinned = !asking && pinned.includes(meeting?.help?.answerId ?? "");
   useEffect(() => bridge.state({ folded, pinned: latestPinned }), [folded, latestPinned]);
 
   const meetingRef = useRef(meeting);

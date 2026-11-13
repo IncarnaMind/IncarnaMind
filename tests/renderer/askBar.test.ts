@@ -416,14 +416,18 @@ describe("the ask bar", () => {
   test("a prompt asked another way, by its shortcut, closes the list", async () => {
     await show();
     await fire(one("help-more"), "click");
-    await act(async () => usePending.setState({ pending: { "meeting-1": "check" } }));
+    await act(async () =>
+      usePending.setState({ pending: { "meeting-1": { kind: "check", question: null } } }),
+    );
     expect(all("help-more-list")).toHaveLength(0);
   });
 
   test('a prompt asked by its shortcut closes the "/" list too, and clears the "/"', async () => {
     await show();
     await type("/su");
-    await act(async () => usePending.setState({ pending: { "meeting-1": "check" } }));
+    await act(async () =>
+      usePending.setState({ pending: { "meeting-1": { kind: "check", question: null } } }),
+    );
     expect(all("help-slash-list")).toHaveLength(0);
     expect(field().value).toBe("");
   });
