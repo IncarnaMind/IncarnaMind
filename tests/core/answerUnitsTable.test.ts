@@ -8,8 +8,8 @@ import { describe, expect, test } from "vitest";
 import { PARTS, rowsOf, shows, TABLE } from "../helpers/answerUnitsTable";
 
 describe("#2997's measured table", () => {
-  // protects=the table itself: the rows that read ✓ here and not on main are exactly the right sentences a label, a unit line or the quote's unit in another word now states (#2997), no row Check against Documents calls Supported on main loses the Answer's ✓, and every twin keeps the ✓ it had; fails_when=another row gains a ✓, one of these loses it, or a row of the table is changed to say otherwise; no_claim=what the code reads, which the part files run.
-  test("gives a ✓ only to the listed right sentences, and never takes one from a sentence Check against Documents calls Supported", () => {
+  // protects=the table itself: the rows that read ✓ here and not on main are exactly the listed ones, the right sentences a label, a unit line or the quote's unit in another word now states and u252, whose dollar the Document states nowhere and the Answer leaves to the model (#2997), no row Check against Documents calls Supported on main loses the Answer's ✓, and every twin keeps the ✓ it had; fails_when=another row gains a ✓, one of these loses it, or a row of the table is changed to say otherwise; no_claim=what the code reads, which the part files run.
+  test("gives a ✓ only to the listed sentences, and never takes one from a sentence Check against Documents calls Supported", () => {
     expect(
       TABLE.rows.filter((row) => shows(row.here) && !shows(row.main)).map(({ id }) => id),
     ).toEqual([
