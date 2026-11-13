@@ -21,6 +21,7 @@ import {
   EFFECT_MARK,
   HELP_SHAPE,
   type HelpShape,
+  helpFormOf,
   LINE_MARK,
   type MeetingHelpKind,
   plainLine,
@@ -86,12 +87,15 @@ export interface HelpLayout {
 export const helpLayout = (
   kind: MeetingHelpKind,
   { status, textBehind, form }: { status: AnswerStatus; textBehind: boolean; form?: CallHelpForm },
-): HelpLayout => ({
-  shape: HELP_SHAPE[kind],
-  leadIn: kind === "leading" || textBehind,
-  streaming: status === "streaming" || status === "stopped",
-  ...(form && { form }),
-});
+): HelpLayout => {
+  const read = helpFormOf(kind, form);
+  return {
+    shape: HELP_SHAPE[kind],
+    leadIn: kind === "leading" || textBehind,
+    streaming: status === "streaming" || status === "stopped",
+    ...(read && { form: read }),
+  };
+};
 
 const DEFINITION = /^\[\^\d{1,4}\]:/;
 const MARKERS = new RegExp(`${MARKER.source}|${FIGURE_MARKER.source}`, "g");

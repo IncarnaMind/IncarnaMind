@@ -55,15 +55,33 @@ describe("the evaluation's switch", () => {
     expect(hashOf("as before")).toBe(main);
   });
 
-  // protects=the form's instructions are the text frozen for its trial, changed only by a new freeze; every button but the readings one is asked in it; fails_when=the form's text changes without its hash, or a reading's instructions change; no_claim=whether the wording works.
-  test("the form sends its frozen text to every button but the readings one", () => {
-    expect(hashOf("fact lines")).toBe(
-      "1aa86c1e1040ef820219c5fa98834eb1b651b6f7b1715776b519a5018404b41b",
+  // protects=every button but readings and Check is asked in the form's text exactly as its development trial sent it (the hash is the trial's over those buttons), so the trial's rows stand for them; fails_when=one byte of one of their requests differs, or a reading's or Check's changes; no_claim=whether the wording works.
+  test("the form sends its trial's text to every button but readings and Check", () => {
+    const all = createHash("sha256");
+    for (const state of STATES) {
+      if (state.kind !== "check") all.update(textOf(state, "fact lines"));
+    }
+    expect(all.digest("hex")).toBe(
+      "b82bcbfcb7dd21677ba6928808cbf0b8113b5979a12bb3acbc4ca474105f3123",
     );
     for (const state of STATES) {
       const changed = textOf(state, "fact lines") !== textOf(state);
-      expect(changed).toBe(HELP_SHAPE[state.kind] !== "readings");
+      expect(changed).toBe(HELP_SHAPE[state.kind] !== "readings" && state.kind !== "check");
     }
+  });
+
+  // protects=the Check button's request is main's in both of the evaluation's arms, byte for byte, in every language and found state (the hash is main's over Check's), since its verdict went wrong on Claude Haiku 5.5 in the form; fails_when=one byte differs in either arm; no_claim=how a model answers it.
+  test("Check is asked as on main in both arms", () => {
+    const check = STATES.filter((state) => state.kind === "check");
+    const hash = (form?: CallHelpForm) => {
+      const all = createHash("sha256");
+      for (const state of check) all.update(textOf(state, form));
+      return all.digest("hex");
+    };
+    const main = "8a78c44d21501701249a920f5e9c64d391f892a5f17c450cbd699fd22332ec6c";
+    expect(hash()).toBe(main);
+    expect(hash("as before")).toBe(main);
+    expect(hash("fact lines")).toBe(main);
   });
 });
 
@@ -88,7 +106,7 @@ describe("the form's instructions", () => {
     );
   });
 
-  // protects=the line for what neither the Documents nor the call says goes to the nine buttons that read the Documents and no other, its example in the call's language; fails_when=a button that reads only the call is given it, or one that reads the Documents isn't; no_claim=how often a model writes it.
+  // protects=the line for what neither the Documents nor the call says goes to the eight buttons in the form that read the Documents and no other, Check, asked as on main, not among them, its example in the call's language; fails_when=a button that reads only the call or Check is given it, or one that reads the Documents isn't; no_claim=how often a model writes it.
   test.each(["English", "Chinese"])("the not-in-the-Documents line, in %s", (callLanguage) => {
     const example =
       callLanguage === "Chinese"
@@ -104,32 +122,17 @@ describe("the form's instructions", () => {
         `- What neither the Documents nor the call says goes on a line starting with "= ", with no Citation marker: ${example}.`,
       ),
     );
-    expect(given.sort()).toEqual(KINDS.filter((kind) => HELP_DOCUMENTS[kind] !== null).sort());
-    expect(given).toHaveLength(9);
-  });
-
-  // protects=the check button checks the newest claim in three lines, the verdict its own line, what they said and what the Documents say fact lines each with its Citation, and where the Documents don't say the first line says so; fails_when=the task or its examples differ; no_claim=how a model follows it.
-  test.each(["English", "Chinese"])("the check button, in %s", (callLanguage) => {
-    const text = meetingHelpInstructions("check", {
-      found: true,
-      language: "en",
-      callLanguage,
-      form: "fact lines",
-    });
-    expect(text).toContain(
-      'Check the newest claim in the transcript against the User\'s Documents, in three lines: your verdict, "Right." or "Wrong." (in Chinese "对。" or "不对。"); what they said, citing the call; and what the Documents say, citing them. If the Documents don\'t say, the first line says so instead of a verdict, and there is no third.',
+    expect(given.sort()).toEqual(
+      KINDS.filter((kind) => HELP_DOCUMENTS[kind] !== null && kind !== "check").sort(),
     );
-    const lines = examples("check", callLanguage);
-    expect(lines).toHaveLength(3);
-    expect(lines[0]).toMatch(/^= (?:Wrong\.|不对。)$/);
-    for (const line of lines.slice(1)) expect(line).toMatch(/^> .+ \[\^\d\]$/);
+    expect(given).toHaveLength(8);
   });
 
   // protects=in every example of the form a Citation sits only on a fact line, a line to say and a "→" line carry none, and an option resting on nothing shows no fact line, in both languages; fails_when=an example cites its line to say, its "→" line or its own line; no_claim=how a model copies them.
   test.each(["English", "Chinese"])(
     "its examples cite on fact lines only, in %s",
     (callLanguage) => {
-      for (const kind of ["answer", "sum", "check"] as const) {
+      for (const kind of ["answer", "sum"] as const) {
         for (const line of examples(kind, callLanguage)) {
           if (line.includes("[^")) expect(line.startsWith("> ")).toBe(true);
         }

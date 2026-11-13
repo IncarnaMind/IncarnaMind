@@ -166,35 +166,49 @@ describe("an option whose facts stand apart", () => {
 });
 
 describe("short lines whose facts stand apart", () => {
-  // protects=the check button's reply is its verdict, the reply's own line with no marker, then what they said and what the Documents say, each a fact line with its marker, kept as a list's lines with no "> " or "= ", in English and Chinese; the panel shows its three lines; fails_when=a mark stays, the verdict cites, or a fact loses its marker; no_claim=whether the verdict is right.
+  // protects=a short-lines reply in the form is its fact lines, each with its marker, and the reply's own lines with no marker, kept as a list's lines with no "> " or "= ", in English and Chinese; the panel shows its three lines; fails_when=a mark stays, an own line cites, or a fact loses its marker; no_claim=what the check finds.
   test.each([
     {
       reply:
-        "= Wrong. [^1]\n> They said backups run every twelve hours [^1]\n> Backups run every eight hours [^2]",
-      text: "- Wrong.\n- They said backups run every twelve hours [^1]\n- Backups run every eight hours [^2]",
+        "= No one has said who tells support [^1]\n> The launch moves to 18 November [^1]\n> Dana confirms the date with the provider [^2]",
+      text: "- No one has said who tells support\n- The launch moves to 18 November [^1]\n- Dana confirms the date with the provider [^2]",
     },
     {
-      reply: "＝ 不对。\n＞ 对方说每十二小时备份一次 [^1]\n＞ 每八小时备份一次 [^2]",
-      text: "- 不对。\n- 对方说每十二小时备份一次 [^1]\n- 每八小时备份一次 [^2]",
+      reply:
+        "＝ 还没人说由谁通知客服\n＞ 上线推迟到 11 月 18 日 [^1]\n＞ Dana 跟服务商确认日期 [^2]",
+      text: "- 还没人说由谁通知客服\n- 上线推迟到 11 月 18 日 [^1]\n- Dana 跟服务商确认日期 [^2]",
     },
-  ])("the check button: $text", ({ reply, text }) => {
-    const reading = read("check", reply);
+  ])("the facts button: $text", ({ reply, text }) => {
+    const reading = read("facts", reply);
     expect(reading.text).toBe(text);
     expect(reading.kinds).toEqual(["own", "fact", "fact"]);
     expect(reading.options).toHaveLength(3);
   });
 
-  // protects=one claim a press: a reply checking two claims shows the newest's three lines and no more, as the panel shows three short lines; fails_when=a fourth line shows; no_claim=which claim a model checks.
-  test("a reply that checks two claims shows three lines", () => {
+  // protects=a short-lines reply shows three lines and no more, as the panel shows three short lines; fails_when=a fourth line shows; no_claim=how many a model writes.
+  test("a short-lines reply of four lines shows three", () => {
     const reply = [
-      "= Wrong.",
-      "> They said backups run every twelve hours [^1]",
-      "> Backups run every eight hours [^2]",
-      "= Right.",
-      "> They said restores take a day [^3]",
-      "> A restore takes a day [^4]",
+      "> The launch moves to 18 November [^1]",
+      "> Dana confirms the date with the provider [^2]",
+      "> Marketing waits for the new date [^3]",
+      "= No one has said who tells support",
     ].join("\n");
-    expect(read("check", reply).options).toHaveLength(3);
+    expect(read("facts", reply).options).toHaveLength(3);
+  });
+
+  // protects=the Check button's reply is read as on main in the form, its marks, markers and "→" line included, since Check is asked as on main (#2847); fails_when=the form takes a mark or a marker off a Check reply, or reads its lines otherwise than main; no_claim=whether its verdict is right.
+  test.each([
+    "- They said backups run every twelve hours [^1]\n- Supported: backups run every eight hours [^2]\n→ Ask which plan they mean [^2]",
+    "- 对方说每十二小时备份一次 [^1]\n- 文档说每八小时备份一次 [^2]\n→ 问清对方说的是哪个套餐 [^2]",
+    "= Wrong.\n> They said backups run every twelve hours [^1]",
+  ])("the Check button is read as on main: %s", (reply) => {
+    const inForm = read("check", reply);
+    const asToday = helpReplyRead(
+      reply,
+      helpLayout("check", { status: "done", textBehind: false }),
+    );
+    expect(inForm.text).toBe(asToday.text);
+    expect(inForm.options).toEqual(asToday.options);
   });
 
   // protects=a sum's lines in the form keep their markers on facts and drop none from an own remark that never had one; an unmarked line is a model's note, left out as today; fails_when=a fact loses its marker or a note shows; no_claim=what the check finds.

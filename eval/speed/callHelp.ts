@@ -20,7 +20,7 @@ import { citationNumbers, sentencePassed } from "../../src/renderer/src/helpRepl
 import { citedSentences } from "../../src/shared/citedSentences";
 import { helpReplyRead, type ReplyItem } from "../../src/shared/helpReplyRead";
 import { isTranscriptLocation } from "../../src/shared/locations";
-import { type CallHelpForm, HELP_SHAPE } from "../../src/shared/meetingHelp";
+import { type CallHelpForm, HELP_SHAPE, helpFormOf } from "../../src/shared/meetingHelp";
 import { normaliseText } from "../../src/shared/text";
 import { queryDatabase } from "../../tests/helpers/core";
 import {
@@ -588,7 +588,7 @@ function item(each: CallHelpCase, set: CallHelpSet): PairedGroup["items"][number
     async run({ library, claimsJudge, meeting, choice, arm }) {
       if (!meeting) throw new Error("The call-help set needs its Meeting.");
       const quoteOnly = armNamed(arm).helpMarksQuoteOnly === true;
-      const form = armNamed(arm).callHelpForm;
+      const form = helpFormOf(each.kind, armNamed(arm).callHelpForm);
       // A press answers on the Answers model the User chose, as the panel's does.
       await library.core.updateSettings({ user: { chatModel: choice } });
       const since = new Date().toISOString();

@@ -10,6 +10,7 @@ import {
   EFFECT_MARK,
   HELP_SHAPE,
   type HelpShape,
+  helpFormOf,
   type MeetingHelpKind,
   plainLine,
   RECOMMENDED_MARK,
@@ -112,11 +113,10 @@ const EXAMPLES: Readonly<Record<"en" | "zh", Readonly<Record<HelpShape, readonly
 
 /**
  * What call help is told in the form whose fact lines stand apart (#2847): the text frozen for its
- * trial, in place of the lines above for options and short lines. Readings stay as they are.
+ * trial, in place of the lines above for options and short lines. Readings and Check stay as they
+ * are.
  */
 const FACT_LINES = {
-  check:
-    'Check the newest claim in the transcript against the User\'s Documents, in three lines: your verdict, "Right." or "Wrong." (in Chinese "对。" or "不对。"); what they said, citing the call; and what the Documents say, citing them. If the Documents don\'t say, the first line says so instead of a verdict, and there is no third.',
   shapes: {
     options: [
       '- One or two options, never more. The one you recommend comes first, its line starting with "★ ".',
@@ -145,11 +145,6 @@ const FACT_LINES = {
         "> The launch moves to 18 November [^1]",
         "> Dana confirms the date with the provider [^2]",
       ],
-      check: [
-        "= Wrong.",
-        "> They said backups run every twelve hours [^1]",
-        "> Backups run every eight hours [^2]",
-      ],
     },
     zh: {
       options: [
@@ -161,7 +156,6 @@ const FACT_LINES = {
         "→ 争取时间，但可能冷场",
       ],
       lines: ["> 上线推迟到 11 月 18 日 [^1]", "> Dana 跟服务商确认日期 [^2]"],
-      check: ["= 不对。", "> 对方说每十二小时备份一次 [^1]", "> 每八小时备份一次 [^2]"],
     },
   },
 } as const;
@@ -184,8 +178,9 @@ export function helpOwnLines(
   text: string,
   form?: CallHelpForm,
 ): { from: number; to: number }[] {
+  const factLines = helpFormOf(kind, form) === "fact lines";
   const marked = (plain: string) =>
-    SHORT_LINE.test(plain) || (form === "fact lines" && FACT_OR_OWN.test(plain));
+    SHORT_LINE.test(plain) || (factLines && FACT_OR_OWN.test(plain));
   const lines: { from: number; to: number; plain: string; paragraph: number }[] = [];
   let at = 0;
   let paragraph = 0;
@@ -208,7 +203,7 @@ export function helpOwnLines(
   }
   for (const [index, line] of lines.entries()) {
     const covered = own.some((each) => each.from <= line.from && line.to <= each.to);
-    const factOrOwn = form === "fact lines" && FACT_OR_OWN.test(line.plain);
+    const factOrOwn = factLines && FACT_OR_OWN.test(line.plain);
     if ((RECOMMENDED_MARK.test(line.plain) || factOrOwn) && !covered) {
       own.push({ ...line, first: index });
     }
@@ -297,18 +292,15 @@ export function meetingHelpInstructions(
   const shape = HELP_SHAPE[kind];
   const documents = HELP_DOCUMENTS[kind];
   const inLanguage = callLanguage === "Chinese" ? "zh" : "en";
-  const factLines = form === "fact lines" && shape !== "readings" ? shape : null;
-  const task = factLines && kind === "check" ? FACT_LINES.check : TASKS[kind];
+  const factLines = helpFormOf(kind, form) === "fact lines" && shape !== "readings" ? shape : null;
   return [
     "The User is in a call and pressed a button for help: the Question is the button's name. They will read your reply in a second or two while the call goes on.",
-    `What they need: ${task}`,
+    `What they need: ${TASKS[kind]}`,
     "Reply in exactly this form, with nothing before or after it: start with its first line, and add no heading, introduction, plan, remark on the transcript or closing line.",
     ...(factLines ? FACT_LINES.shapes[factLines] : SHAPES[shape]),
     ...(factLines && documents !== null ? [FACT_LINES.notInDocuments[inLanguage]] : []),
     "For example:",
-    ...(factLines
-      ? FACT_LINES.examples[inLanguage][kind === "check" ? "check" : factLines]
-      : EXAMPLES[inLanguage][shape]),
+    ...(factLines ? FACT_LINES.examples[inLanguage][factLines] : EXAMPLES[inLanguage][shape]),
     "- Base it on the newest lines of <live-transcript>: what was said last matters most.",
     "- Never say what you can't read or which button this is.",
     "- When the other side names a price or a figure, it is what they ask for, never the User's: don't repeat it as the User's price or offer.",

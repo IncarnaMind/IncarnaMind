@@ -39,6 +39,15 @@ export type HelpShape = "options" | "readings" | "lines";
  */
 export type CallHelpForm = "fact lines" | "as before";
 
+/**
+ * The form a button's reply is asked and read in: Check stays as it is today in the form whose facts
+ * stand apart, where its verdict went wrong on Claude Haiku 5.5 (#2847).
+ */
+export const helpFormOf = (
+  kind: MeetingHelpKind,
+  form: CallHelpForm | undefined,
+): CallHelpForm | undefined => (form === "fact lines" && kind === "check" ? undefined : form);
+
 export const HELP_SHAPE: Readonly<Record<MeetingHelpKind, HelpShape>> = {
   say: "options",
   answer: "options",
