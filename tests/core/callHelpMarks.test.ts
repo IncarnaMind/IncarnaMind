@@ -783,3 +783,49 @@ describe("call help's ✓ comes only from the sentence check", { timeout: 60_000
     expect(after.atEnd.text).toBe(before.atEnd.text);
   });
 });
+
+describe("an option is checked as the panel shows it (#2925)", { timeout: 60_000 }, () => {
+  // protects=an option the model wrapped whole in its own quotation marks, its marker inside the marks or after them, in English and Chinese marks, is checked on its Citation's quote as the panel shows it, so its Citation can take ✓ as a bare option's does; fails_when=the check reads the option's own words as the Document's and shows its Citation not found; no_claim=how often a model wraps an option.
+  test.each([
+    {
+      form: "its marker inside the marks",
+      reply: '★ "Yes, Enterprise is $45 a seat with single sign-on [^1]"\n→ answers at once',
+    },
+    {
+      form: "its marker after the marks",
+      reply: '★ "Yes, Enterprise is $45 a seat with single sign-on" [^1]\n→ answers at once',
+    },
+    {
+      form: "Chinese marks",
+      reply: "★ “是的，企业版每个席位每月 45 美元，含单点登录 [^1]”\n→ 直接回答，推进通话",
+    },
+  ])("an option wrapped in its own quotation marks, $form, takes ✓", async ({ reply }) => {
+    const { core, meeting } = await setUp({ reply });
+    const after = await (await pressed(core, meeting, "answer")).judged();
+    expect(after.text).toBe(reply);
+    expect(marks(after)).toEqual([{ marker: 1, check: "found", passed: true }]);
+  });
+
+  // protects=words quoted inside an option, not on the cited page, still read as a quotation and leave its Citation not found, in English and Chinese marks; fails_when=the option's own marks taken off hide a quotation inside it; no_claim=what a model quotes.
+  test.each([
+    {
+      marks: "English marks inside straight ones",
+      reply:
+        '★ "Enterprise comes with “free onboarding for every single seat” at $45 [^1]"\n→ answers at once',
+    },
+    // In the page's own language: Chinese words on the English sheet read as a translation.
+    {
+      marks: "Chinese marks inside curly ones",
+      reply:
+        "★ “Enterprise comes with 「free onboarding for every single seat」 at $45 [^1]”\n→ answers at once",
+    },
+  ])(
+    "words quoted inside an option and not on its page still read not found: $marks",
+    async ({ reply }) => {
+      const { core, meeting } = await setUp({ reply });
+      const after = await (await pressed(core, meeting, "answer")).judged();
+      expect(after.citations.map((citation) => citation.check)).toEqual(["not-found"]);
+      expect(marks(after)[0]?.passed).toBe(false);
+    },
+  );
+});

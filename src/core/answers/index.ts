@@ -67,6 +67,7 @@ import { sameWords, yoursLine } from "../../shared/commands";
 import { FIGURE_MARKER, withFigures, withFigureText } from "../../shared/figureMarkers";
 import { figureRunsOfAnswer, installFigureRuns } from "../../shared/figureRuns";
 import { readFigures } from "../../shared/figures";
+import { helpReplyRead } from "../../shared/helpReplyRead";
 import { type MessageKey, type MessageParams, translate } from "../../shared/i18n";
 import {
   citationLocation,
@@ -1195,7 +1196,12 @@ export function createAnswers(options: AnswersOptions) {
     limit: Money = ANSWER_CHECKING_LIMIT,
     /** By marker, the places of passed sentences Check again took off to judge them anew. */
     taken: ReadonlyMap<number, readonly number[]> = new Map(),
+    /** Call help's reply, which is judged as its panel shows it (`helpReplyRead`). */
+    help = false,
   ) {
+    const asShown = help ? helpReplyRead(answer.text) : null;
+    /** A place the check gives, as a place among the reply's markers as written. */
+    const asWritten = (at: number) => asShown?.at[at] ?? at;
     const waiting = new Set(
       answer.citations.filter((each) => each.check === "checking").map((each) => each.marker),
     );
@@ -1217,10 +1223,11 @@ export function createAnswers(options: AnswersOptions) {
     /** The places of sentences the model answered about, passed or not. */
     const settled = new Set<number>();
     const passed = (sentence: CitedSentence, result: SupportResult | null, read: boolean) => {
-      if (read) for (const at of sentence.at) settled.add(at);
+      if (read) for (const at of sentence.at) settled.add(asWritten(at));
       if (result?.check !== "found") return;
       for (const [index, marker] of sentence.markers.entries()) {
-        const at = sentence.at[index];
+        const shown = sentence.at[index];
+        const at = shown === undefined ? undefined : asWritten(shown);
         if (at !== undefined && (waiting.has(marker) || judgedBefore.has(marker)))
           passedAt.set(marker, [...(passedAt.get(marker) ?? []), at]);
       }
@@ -1284,7 +1291,7 @@ export function createAnswers(options: AnswersOptions) {
         // Every request of the judgement counts toward its limit, which the meter never passes.
         await currentTask.run({ id: randomUUID(), budget: limit }, () =>
           checkAnswer({
-            text: answer.text,
+            text: asShown?.text ?? answer.text,
             citations: answer.citations,
             figures: answer.figures,
             waiting,
@@ -1955,7 +1962,7 @@ export function createAnswers(options: AnswersOptions) {
         session.check();
         figures.check();
         const translated = session.checkQuotedWords(
-          quotedWordsIn(withoutFootnoteDefinitions(markdown)),
+          quotedWordsIn(withoutFootnoteDefinitions(help ? helpReplyRead(markdown).text : markdown)),
         );
         if (translated.length > 0) markdown = withoutQuotationMarks(markdown, new Set(translated));
       } catch (error) {
@@ -2067,7 +2074,16 @@ export function createAnswers(options: AnswersOptions) {
       }
       if (judging && written && waitingAs === "checking" && waiting.size > 0) {
         const stored = options.conversations.answer(answerId);
-        if (stored) void judgeAnswer(stored, place.mindId, input.documentIds);
+        if (stored) {
+          void judgeAnswer(
+            stored,
+            place.mindId,
+            input.documentIds,
+            undefined,
+            undefined,
+            help !== undefined,
+          );
+        }
       }
     };
 

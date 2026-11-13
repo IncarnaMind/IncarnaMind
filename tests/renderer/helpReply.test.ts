@@ -369,3 +369,24 @@ describe("A help reply", () => {
     expect(uncheckedReason({ check: "unsupported", checkReason: null })).toBeNull();
   });
 });
+
+describe("An option the model wrapped in its own quotation marks (#2925)", () => {
+  // protects=the panel reads an option the model wrapped in its own quotation marks as its check does, without them, and shows it in one pair of its own, each chip at its marker's place as written, the place its check's verdict names; fails_when=the panel shows two pairs of marks, or a chip's place differs from the check's; no_claim=how the chip looks.
+  test("is read without them, shown in one pair of its own, its chips at their places as written", () => {
+    const reply =
+      '★ "We can extend the pilot to 60 days [^1]"\n→ keeps the deal moving [^2]\n\n“Let me check with the team” [^3]\n→ buys time';
+    const items = readHelpReply(reply);
+    expect(items.map((item) => textOf(item.lead))).toEqual([
+      "We can extend the pilot to 60 days [1]",
+      "Let me check with the team [3]",
+    ]);
+    expect(textOf(quoted(items[0]?.lead ?? []))).toBe("“We can extend the pilot to 60 days”[1]");
+    const chips = items.flatMap((item) =>
+      [item.lead, item.effect ?? []]
+        .flat()
+        .flatMap((piece) => (piece.kind === "citation" ? [piece.at] : [])),
+    );
+    expect(chips).toEqual(citedSentences(reply).flatMap((sentence) => sentence.at));
+    expect(chips).toEqual([0, 1, 2]);
+  });
+});

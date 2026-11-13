@@ -5,6 +5,7 @@
  * it leads to; or up to three short lines. It reads a part still streaming.
  */
 import type { AnswerStatus, CitationCheckReason, MarkedCitation } from "../../core/api";
+import { helpReplyRead } from "../../shared/helpReplyRead";
 import {
   EFFECT_MARK,
   HELP_SHAPE,
@@ -208,10 +209,12 @@ export function uncheckedReason(
 
 const CITATION_MARKER = /\[\^\d+\]/g;
 
+/** A help reply's items, read as its check reads it (see `helpReplyRead`). */
 export function readHelpReply(markdown: string): ReplyItem[] {
+  const read = helpReplyRead(markdown);
   const items: ReplyItem[] = [];
   let cited = 0;
-  for (const raw of markdown.split("\n")) {
+  for (const raw of read.text.split("\n")) {
     const first = cited;
     cited += raw.match(CITATION_MARKER)?.length ?? 0;
     const line = plainLine(raw);
@@ -232,7 +235,18 @@ export function readHelpReply(markdown: string): ReplyItem[] {
     }
     items.push({ recommended, bullet, lead: pieces(text, first), notes: [], effect: null });
   }
+  // Each chip takes its marker's place as the reply was written, which its check's verdict names.
+  const placed = (shown: ReplyPiece[]): ReplyPiece[] =>
+    shown.map((piece) =>
+      piece.kind === "citation" ? { ...piece, at: read.at[piece.at] ?? piece.at } : piece,
+    );
   // One recommendation: a second star a model adds is dropped.
   const first = items.findIndex((item) => item.recommended);
-  return items.map((item, index) => (index === first ? item : { ...item, recommended: false }));
+  return items.map((item, index) => ({
+    ...item,
+    recommended: index === first && item.recommended,
+    lead: placed(item.lead),
+    notes: item.notes.map(placed),
+    effect: item.effect && placed(item.effect),
+  }));
 }
