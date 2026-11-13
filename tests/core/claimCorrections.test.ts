@@ -631,8 +631,12 @@ describe("A correction from the public core", () => {
     expect(correctionIn(result)).toBeUndefined();
   });
 
-  test.each(["supported", "unsupported"] as const)("has none for %s", async (verdict) => {
-    const result = await checkWith({ verdict, quote: QUOTE, says: correctionLines() });
+  // A supported sentence is one its quote states: one with another figure is never Supported (#3022).
+  test.each([
+    ["supported", QUOTE],
+    ["unsupported", CLAIM],
+  ] as const)("has none for %s", async (verdict, claim) => {
+    const result = await checkWith({ verdict, quote: QUOTE, says: correctionLines() }, claim);
 
     expect(result.verdict).toBe(verdict);
     expect(correctionIn(result)).toBeUndefined();

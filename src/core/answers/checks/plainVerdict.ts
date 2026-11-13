@@ -58,7 +58,12 @@ interface PlainVerdictCheck {
   session: ReturnType<typeof createCitationSession>;
   ledger: Pick<
     CalculationLedger,
-    "confirmationFailure" | "invalidInput" | "pending" | "worked" | "requiresCalculation"
+    | "confirmationFailure"
+    | "invalidInput"
+    | "pending"
+    | "worked"
+    | "requiresCalculation"
+    | "unquotedFigure"
   >;
   results: CheckResults;
   court: CourtDecisions;
@@ -90,6 +95,7 @@ export async function plainVerdict(
     request.signal,
     check.results,
   );
+  if (check.ledger.unquotedFigure(judged)) return check.results.notChecked("number-unquoted");
   return taken.size > 0 ? { ...judged, writtenQuotes: taken } : judged;
 }
 
@@ -238,14 +244,14 @@ async function verdictOf(
   if (absence) return absence;
   if (await ledger.requiresCalculation(verdict)) {
     unconfirmed = ledger.confirmationFailure();
-    return unconfirmed ? unjudged(unconfirmed) : notChecked("no-evidence");
+    return unconfirmed ? unjudged(unconfirmed) : notChecked("number-not-worked-out");
   }
   // A worked figure settles its number alone: never Supported over a reply that records another
   // duty or a dropped condition, or gives neither line (#1766, #1708).
   const byCalculation: ClaimCheckResult | null =
     worked && !ownDetailDiffers(verdict) && !ownDetailUnread(verdict)
       ? (await ledger.requiresCalculation({ ...verdict, verdict: "supported" }))
-        ? notChecked("no-evidence")
+        ? notChecked("number-not-worked-out")
         : {
             verdict: "supported",
             evidence: worked.evidence,
