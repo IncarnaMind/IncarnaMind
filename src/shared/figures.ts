@@ -3327,7 +3327,9 @@ function readAround(
         take(CN_MEASURE_AFTER) ??
         (found.single ? null : take(CN_COUNT_AFTER)) ??
         take(EN_UNIT_AFTER) ??
-        ((found.formatted || draft.exponent > 0) && draft.currencies.length === 0
+        ((found.formatted || draft.exponent > 0) &&
+        draft.currencies.length === 0 &&
+        (bracket === null || currencyBefore(bracket) === null)
           ? take(GLUED_TONNES)
           : null);
       if (unit) {

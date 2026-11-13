@@ -24,6 +24,7 @@ describe("tonnes written against the number (#3022)", () => {
     ["HK$2.5t"],
     ["¥1,000t"],
     ["USD 1,500t"],
+    ["Losses were £(1.5t)."],
   ])("money's t is trillions, so %s reads as before: nothing", (text) => {
     expect(read(text)).toEqual([]);
   });
