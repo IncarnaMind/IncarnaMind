@@ -98,7 +98,13 @@ import { useCardPlace } from "./checkPlace";
 import type { NumberedCitation } from "./citationNumbers";
 import { useReadableQuote } from "./citationScan";
 import { badgeCorner, claimCardPlace } from "./claimCardPlace";
-import { claimPartRows, foundElsewhere, markOf, type ShownClaim } from "./claimChecks";
+import {
+  claimPartRows,
+  foundElsewhere,
+  markOf,
+  type ShownClaim,
+  waitingParts,
+} from "./claimChecks";
 import { DocumentCheckAction } from "./DocumentCheckAction";
 import { ClaimMarkIcon, type ClaimMarkState } from "./icons";
 import { LibrarySource } from "./LibrarySource";
@@ -844,9 +850,10 @@ export function ClaimCard({
       ? unreadFiguresOf(check.detail)
       : null;
   const unreadLocation = unread ? citationLocation(unread) : null;
+  // Supported, not yet cited says so in its own line, by the source, as Widen's and Replace's notes do.
   const reason =
     shown.state === "not-checked"
-      ? widened && !consentWaiting
+      ? (widened && !consentWaiting) || awaiting
         ? null
         : reasonText(t, language, shown.reason, check.detail, { cap: SENTENCES_CHECKED_AT_MOST })
       : shown.state === "needs-recheck"
@@ -996,6 +1003,7 @@ export function ClaimCard({
             scope={check.scope}
             read={pickRead ?? undefined}
             citations={partCitations}
+            waiting={waitingParts(claim)}
             onOpen={onOpen}
             working={(partCalculation) => <Working calculation={partCalculation} onOpen={onOpen} />}
           />
@@ -1094,6 +1102,11 @@ export function ClaimCard({
                 title={savedPageSource(savedFrom, language, t, { compact: false })}
               >
                 {savedPageSource(savedFrom, language, t, { compact: true })}
+              </p>
+            )}
+            {!partRows && awaiting && decision.kind !== "widen" && decision.kind !== "replace" && (
+              <p data-testid="claim-not-yet-cited" className="claim-card-says">
+                {t("claim.notYetCited")}
               </p>
             )}
             {!partRows && decision.kind === "widen" && (
@@ -1281,7 +1294,7 @@ export function ClaimCard({
             : t("claim.checkedIn", { scope: lookedIn })}
         </p>
       )}
-      {state === "supported" && (
+      {(state === "supported" || awaiting) && (
         <p data-testid="claim-limit" className="citation-card-note">
           {t("claim.limit")}
         </p>
@@ -1548,7 +1561,11 @@ export function ClaimCard({
           onPickerChange={onSourcePickerChange}
         />
       )}
-      <CheckedByLine check={check} shown={state} />
+      {/* Supported, not yet cited is the model's Supported: its line names the models as one does. */}
+      <CheckedByLine
+        check={awaiting ? claim.check : check}
+        shown={awaiting ? "supported" : state}
+      />
       {findSourcesOffered && (
         <ObjectMenu
           target={{ kind: "check", id: check.id }}

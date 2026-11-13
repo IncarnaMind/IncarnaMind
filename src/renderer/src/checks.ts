@@ -39,6 +39,7 @@ import {
   placeInSentence,
   type ShownClaim,
   shownClaims,
+  waitingParts,
 } from "./editor/claimChecks";
 import { asOneStep } from "./editor/editorUndo";
 import { selectionForEdit } from "./editor/editSelection";
@@ -606,26 +607,21 @@ export function addPartCitations(
 }
 
 /**
- * The Passages the Note's checks found that its sentences don't cite, each where its part's row
- * would add it: what the result line adds all together (#3019).
+ * The Passages of the Note's sentences that are Supported, not yet cited, each where its part's row
+ * would add it: what the panel's row adds all together (#3019).
  */
 export function foundCitationInserts(state: EditorState): CitationInserts {
   return shownClaims(state).flatMap((claim) => {
-    // Its parts index the words it was checked on: an edit since leaves it to check again.
-    if (claim.shown.state === "needs-recheck" || claim.shown.state === "checking") return [];
-    const waiting = (claim.reads.parts ?? []).filter(
-      (part) => part.verdict === "not-checked" && part.reason === "found-elsewhere",
-    );
-    if (claim.kind === "chart" || waiting.length === 0) return [];
-    const inserts = partCitationInserts(state, claim, waiting);
+    if (claim.kind === "chart" || !foundElsewhere(claim)) return [];
+    const inserts = partCitationInserts(state, claim, [...waitingParts(claim)]);
     return inserts === "changed" ? [] : inserts;
   });
 }
 
 /**
- * Adds every Passage the Note's checks found that its sentences don't cite, as one step of Undo
- * (#3019): the ✓ they waited on shows at once, with no new request. A sentence edited since its
- * check reads needs re-check, not found elsewhere, so it is left as it is; one deleted has no mark.
+ * Adds every Passage of the Note's sentences that are Supported, not yet cited, as one step of Undo
+ * (#3019): their ✓ shows at once, with no new request. A sentence edited since its check reads
+ * needs re-check, so it is left as it is; one deleted has no mark.
  */
 export function addFoundCitations(editor: Editor): number {
   const inserts = foundCitationInserts(editor.state);

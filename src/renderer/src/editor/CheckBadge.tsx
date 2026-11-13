@@ -46,7 +46,7 @@ import { ContradictionAsk, ContradictionLine } from "./ContradictionLine";
 import { checkTitle, useCheckEstimate, useCheckThisMindPlan } from "./changedSentences";
 import { type CheckEstimateView, checkPressOf } from "./checkEstimateState";
 import { useCardPlace } from "./checkPlace";
-import { CheckMarkIcon, ClaimMarkIcon } from "./icons";
+import { CheckMarkIcon, ClaimMarkIcon, NotYetCitedIcon } from "./icons";
 import { MindCheckAsk, MindUnchanged, RunningText } from "./MindCheckLine";
 import { HealthCard, PartMark, partLabel, useHealth } from "./NoteHealth";
 import { Popover } from "./Popover";
@@ -358,6 +358,7 @@ function VerifyBadge({
       contradicted: rows.contradicted.length,
       unsupported: rows.unsupported.length,
       notChecked: rows.notChecked.length,
+      notYetCited: rows.notYetCited.length,
     },
     checkable: state.total,
     toCheck,
@@ -591,6 +592,8 @@ function StateMark({ state }: { state: NoteState }) {
       return <ClaimMarkIcon state="needs-recheck" className="mind-health-icon" />;
     case "notChecked":
       return <ClaimMarkIcon state="not-checked" className="mind-health-icon" />;
+    case "notYetCited":
+      return <NotYetCitedIcon className="mind-health-icon" />;
   }
 }
 
@@ -655,6 +658,9 @@ function BadgePill({
           <span className="check-badge-short">
             {format(state.look > 0 ? state.look : state.unread)}
           </span>
+        )}
+        {state.kind === "not-yet-cited" && (
+          <span className="check-badge-short">{format(state.notYetCited)}</span>
         )}
         {state.kind === "checked" && state.checkedAt !== null && (
           <span className="check-badge-short">{formatDateTime(state.checkedAt, language)}</span>

@@ -17,6 +17,7 @@ import {
   type CitationAttributes,
   CLAIM_CHECK_MARK,
   type ClaimCheckAttributes,
+  type ClaimCheckPart,
   type RetainedFigureAnalysis,
   type SearchScope,
 } from "../../../core/api";
@@ -507,7 +508,7 @@ function stateOf(
   // box, exactly its own width plus 4px, so the room never makes a line of its own.
   const roomsOf = inline
     ? claims.flatMap(({ check, sentence, shown }) =>
-        shown.state === "not-checked" && !foundElsewhere({ shown })
+        shown.state === "not-checked" && !foundElsewhere({ shown, check })
           ? []
           : [
               Decoration.inline(sentence.to - 1, sentence.to, {
@@ -583,9 +584,31 @@ export const sameCoverage = (a: Coverage, b: Coverage | null | undefined): boole
 /** What a check's margin glyph shows (`claimMarkState`). */
 export const markOf = (claim: ShownClaim) => claimMarkState(claim.shown.state, claim.check);
 
-/** Whether its ✓ waits on the User adding the Passage its check found (#3019): its mark shows. */
-export const foundElsewhere = ({ shown }: Pick<ShownClaim, "shown">): boolean =>
-  shown.state === "not-checked" && shown.reason === "found-elsewhere";
+/**
+ * Whether it is Supported, not yet cited (#3019): the model's ✓, which shows once the Passage its
+ * check found is one of the sentence's Citations. Its mark shows, and it is counted apart. A mark an
+ * older version stored as Not checked, found elsewhere, has no verdict to bring back: it is Not
+ * checked, and a check makes it again.
+ */
+export const foundElsewhere = ({ shown, check }: Pick<ShownClaim, "shown" | "check">): boolean =>
+  shown.state === "not-checked" &&
+  shown.reason === "found-elsewhere" &&
+  check.state !== "not-checked";
+
+/** The parts of a check, as its Citations read them now, that are Supported, not yet cited (#3019). */
+export function waitingParts({
+  check,
+  reads,
+}: Pick<ShownClaim, "check" | "reads">): ReadonlySet<ClaimCheckPart> {
+  return new Set(
+    (reads.parts ?? []).filter(
+      (part, index) =>
+        part.verdict === "not-checked" &&
+        part.reason === "found-elsewhere" &&
+        (check.parts?.[index]?.verdict ?? check.state) === "supported",
+    ),
+  );
+}
 
 /** The checks in the editor, as they show now. Empty without `ClaimChecks`. */
 export function shownClaims(state: EditorState): readonly ShownClaim[] {

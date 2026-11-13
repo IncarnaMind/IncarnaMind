@@ -1959,6 +1959,30 @@
     background: var(--color-hover);
     color: var(--color-ink);
   }
+  /* A row with its own action, Add all (#3019): its Next button lies under the whole row, as the
+     other rows are one button, and the action sits over it, before Next. */
+  .check-row--action {
+    position: relative;
+    grid-template-columns: 16px 1fr auto auto;
+  }
+  .check-row-go {
+    position: absolute;
+    inset: 0;
+    border-radius: 6px;
+    outline: none;
+
+    &:focus-visible {
+      outline: 2px solid var(--color-accent);
+      outline-offset: -2px;
+    }
+  }
+  .check-row-action {
+    position: relative;
+  }
+  .check-row--action:has(> .check-row-go:is(:hover, :focus-visible)) > .check-row-next {
+    background: var(--color-hover);
+    color: var(--color-ink);
+  }
   .check-card-summary {
     margin: 0;
     padding: 0 8px 6px;

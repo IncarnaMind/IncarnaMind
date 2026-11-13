@@ -28,6 +28,7 @@ const ROW_KEY = {
   look: "look",
   supported: "supported",
   ownNotes: "ownNotes",
+  notYetCited: "notYetCited",
   checking: "checking",
   toCheck: "notChecked",
 } as const;

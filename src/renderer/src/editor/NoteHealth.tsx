@@ -1,7 +1,7 @@
 import type { Editor } from "@tiptap/core";
 import { TextSelection } from "@tiptap/pm/state";
 import { useEditorState } from "@tiptap/react";
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type * as Y from "yjs";
 import { ANALYSIS_TABLE_ATTRIBUTE, type CitationAttributes } from "../../../core/api";
 import { liveVersions, tableShownIn } from "../../../shared/analysisTables";
@@ -39,7 +39,6 @@ import { AnswerError } from "./AnswerView";
 import type { BadgeMark } from "./badgeState";
 import { useCardPlace } from "./checkPlace";
 import { coverageOf, keptSpans, sameCoverage, shownClaims } from "./claimChecks";
-import { FoundPassagesLine, useFoundPassages } from "./FoundPassagesLine";
 import {
   type CheckRow,
   checkRows,
@@ -47,9 +46,10 @@ import {
   healthSummary,
   noteHealth,
 } from "./healthCounts";
-import { CheckMarkIcon, ClaimMarkIcon } from "./icons";
+import { CheckMarkIcon, ClaimMarkIcon, NotYetCitedIcon } from "./icons";
 import { CheckedWhen } from "./MindCheckLine";
 import { useRunModel } from "./ModelChip";
+import { NotYetCitedRow } from "./NotYetCitedRow";
 import { OpinionsLine } from "./OpinionsLine";
 import { useOpinionChecks } from "./opinionChecks";
 import { opinionSentenceRanges } from "./opinionLocations";
@@ -76,6 +76,7 @@ const NO_HEALTH: Health = {
   noCitation: [],
   ownNotes: [],
   supportedAt: [],
+  notYetCited: [],
   checkable: 0,
   supported: 0,
   checkedAt: null,
@@ -116,6 +117,10 @@ export function partLabel(
     case "notChecked":
       // Verify's own part: the Mind folds a failed check into its sentences to check (#1909).
       return t("verify.notChecked", params);
+    case "notYetCited":
+      return count === 1
+        ? t("health.state.notYetCited.one")
+        : t("health.state.notYetCited", params);
   }
 }
 
@@ -130,6 +135,8 @@ export function PartMark({ part }: { part: BadgeMark }) {
       return <ClaimMarkIcon state="contradicted" className="mind-health-icon" />;
     case "notChecked":
       return <ClaimMarkIcon state="not-checked" className="mind-health-icon" />;
+    case "notYetCited":
+      return <NotYetCitedIcon className="mind-health-icon" />;
   }
 }
 
@@ -186,6 +193,7 @@ const ROW_WORDS = {
   look: "checks.row.look",
   supported: "checks.row.supported",
   ownNotes: "checks.row.ownNotes",
+  notYetCited: "checks.row.notYetCited",
   checking: "checks.row.checking",
   toCheck: "checks.row.notChecked",
 } as const;
@@ -198,6 +206,8 @@ function RowMark({ row }: { row: CheckRow }) {
       return <ClaimMarkIcon state="supported" className="mind-health-icon" />;
     case "ownNotes":
       return <ClaimMarkIcon state="supported" ownNoteOnly className="mind-health-icon" />;
+    case "notYetCited":
+      return <NotYetCitedIcon className="mind-health-icon" />;
     case "checking":
       return <ClaimMarkIcon state="checking" className="mind-health-icon" />;
     case "toCheck":
@@ -243,7 +253,6 @@ export function HealthCard({
   const running = useChecks((state) => state.running[mindId]);
   // The opinions left out show once in the card: on the last check's line when it shows.
   const opinionsHere = opinions.length > 0 && (Boolean(running) || !checkedAll);
-  const foundHere = useFoundPassages(editor) >= 2 && (Boolean(running) || !checkedAll);
   const problem = useChecks((state) => state.problems[mindId]);
   const smallModel = useChecks((state) => state.smallModel[mindId] === true);
   const contradictions = useContradictionLine(doc, mindId);
@@ -265,6 +274,13 @@ export function HealthCard({
   const rows = checkRows(health);
   const placesOf = (row: CheckRow): readonly number[] =>
     rows.find((each) => each.row === row)?.places ?? [];
+  // The card keeps the height it opened with while a check runs (#2313): the row the check's end
+  // brings can land below it, and is scrolled into view where it lands (#3019).
+  const notYetCitedRow = useRef<HTMLDivElement>(null);
+  const waitingShown = running === undefined && placesOf("notYetCited").length > 0;
+  useEffect(() => {
+    if (waitingShown) notYetCitedRow.current?.scrollIntoView({ block: "nearest" });
+  }, [waitingShown]);
 
   /**
    * Puts the cursor at the next such sentence after it, round to the first. It is centred by its
@@ -312,6 +328,20 @@ export function HealthCard({
   const row = (part: CheckRow) => {
     const count = placesOf(part).length;
     const text = rowText(part, count);
+    if (part === "notYetCited")
+      return (
+        <NotYetCitedRow
+          key={part}
+          editor={editor}
+          count={count}
+          label={t("health.next", { part: text })}
+          testId={`health-${part}`}
+          rowRef={notYetCitedRow}
+          onNext={() => goToNext(part)}
+        >
+          <Counted text={text} count={format(count)} />
+        </NotYetCitedRow>
+      );
     return (
       <button
         key={part}
@@ -371,11 +401,6 @@ export function HealthCard({
             })}
           {health.kept.length > 0 && opinionsHere && " · "}
           {opinionsHere && <OpinionsLine editor={editor} doc={doc} mindId={mindId} className="" />}
-        </p>
-      )}
-      {foundHere && (
-        <p className="mind-health-line">
-          <FoundPassagesLine editor={editor} className="" />
         </p>
       )}
       {health.tableCells.length > 0 && (

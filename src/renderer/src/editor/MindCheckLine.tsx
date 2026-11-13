@@ -12,7 +12,6 @@ import { type EstimateLine, estimateLine, runStopParts } from "../cost";
 import { useLanguage, useT } from "../i18n";
 import { confirmCheck, dismissMindCheck, startMindCheck, useMindCheck } from "../mindCheck";
 import { shownClaims } from "./claimChecks";
-import { FoundPassagesLine, useFoundPassages } from "./FoundPassagesLine";
 import { OpinionsLine } from "./OpinionsLine";
 import { useOpinionChecks } from "./opinionChecks";
 
@@ -179,7 +178,6 @@ export function CheckedWhen({
   const t = useT();
   const language = useLanguage();
   const opinions = useOpinionChecks(editor, doc);
-  const found = useFoundPassages(editor);
   const format = (value: number) => new Intl.NumberFormat(language).format(value);
   const when = formatDateTime(run.at, language);
   const said = t(run.sentences === 1 ? "health.checkedAll.one" : "health.checkedAll", {
@@ -201,7 +199,6 @@ export function CheckedWhen({
         opinions.length > 0 && (
           <OpinionsLine key="opinions" editor={editor} doc={doc} mindId={mindId} className="" />
         ),
-        found >= 2 && <FoundPassagesLine key="found" editor={editor} className="" />,
         ...(run.stop ? runStopParts(run.stop, t, language) : []),
       ]}
     />

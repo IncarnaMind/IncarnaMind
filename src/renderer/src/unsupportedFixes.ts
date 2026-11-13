@@ -26,6 +26,7 @@ import { makeMine } from "./editor/aiText";
 import { citationsOf } from "./editor/alreadyCited";
 import {
   claimPlaces,
+  foundElsewhere,
   markOf,
   placeInSentence,
   type ShownClaim,
@@ -108,17 +109,19 @@ export const sentenceOf = (editor: Editor, claim: ShownClaim): string =>
 
 /**
  * The word a check's mark and card are headed with: "Not found" or "Units may differ" apart from
- * "Unsupported", and "Record cite" for a Supported sentence one of whose own record cites needs a
- * look.
+ * "Unsupported", "Record cite" for a Supported sentence one of whose own record cites needs a
+ * look, and "Supported, not yet cited" for one whose ✓ waits on its Passage (#3019).
  */
 export const checkStateKey = (editor: Editor, claim: ShownClaim): MessageKey =>
   markOf(claim) !== claim.shown.state
     ? "claim.state.recordCite"
-    : notFoundIn(editor, claim)
-      ? "claim.state.notFound"
-      : claim.shown.state === "unsupported" && claim.check.unsupported?.kind === "units"
-        ? "claim.state.unitsMayDiffer"
-        : `claim.state.${claim.shown.state}`;
+    : foundElsewhere(claim)
+      ? "claim.state.notYetCited"
+      : notFoundIn(editor, claim)
+        ? "claim.state.notFound"
+        : claim.shown.state === "unsupported" && claim.check.unsupported?.kind === "units"
+          ? "claim.state.unitsMayDiffer"
+          : `claim.state.${claim.shown.state}`;
 
 export function offersKeepAsView(editor: Editor, claim: ShownClaim): boolean {
   return claim.kind !== "chart" && editor.isEditable && claim.shown.state === "contradicted";

@@ -566,12 +566,14 @@ export function createMindCheck(options: MindCheckOptions) {
           kept: keptAsView(marks, sentence),
         });
         // An Analysis's figure no check can change (#2378): not worked out again, or its record
-        // gone. Nor can one for a sentence whose ✓ waits on the User adding the Passage its check
-        // found (#3019): checked again, it would ask the same question for the same answer. An
-        // edit of the sentence shows it to check again.
+        // gone. Nor can a sentence Supported, not yet cited (#3019): checked again, it would ask
+        // the same question for the same answer. A mark an older version stored as Not checked,
+        // found elsewhere, holds no verdict, so it is checked again. An edit of the sentence shows
+        // it to check again.
         const settled =
           shown?.state === "not-checked" &&
-          (ANALYSIS_REASONS.has(shown.reason) || shown.reason === "found-elsewhere");
+          (ANALYSIS_REASONS.has(shown.reason) ||
+            (shown.reason === "found-elsewhere" && mark?.check.state !== "not-checked"));
         if (mark && settled) {
           held.push(mark.check.checkedAt);
           continue;
