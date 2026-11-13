@@ -332,7 +332,10 @@ async function pressAll(items: readonly Item[], out: string): Promise<Pressed[]>
     const mine = items.filter((item) => item.group.name === name);
     const first = mine[0];
     if (!first) continue;
-    const order: readonly Rule[] = at % 2 === 0 ? RULES : [...RULES].reverse();
+    const asked = (list("RULES") ?? [...RULES]).filter((rule): rule is Rule =>
+      RULES.some((each) => each === rule),
+    );
+    const order: readonly Rule[] = at % 2 === 0 ? asked : [...asked].reverse();
     let current = first;
     const batches: BatchRecord[] = [];
     const fake = scripted(() => current);
@@ -419,7 +422,8 @@ async function pressAll(items: readonly Item[], out: string): Promise<Pressed[]>
 
 /** The saved replies judged again per place, with the number listing their earlier judge gave. */
 async function rejudge(rows: readonly SavedRow[], out: string) {
-  const each = Number(env("REJUDGE_EACH") ?? "30");
+  // Every case's first run, on each model: 15 presses in each language a model.
+  const run = Number(env("REJUDGE_RUN") ?? "1");
   const stopUsd = Number(env("STOP_USD") ?? "0");
   if (!(stopUsd > 0))
     throw new Error("INCARNAMIND_EVAL_SPEED_STOP_USD is needed for a run that pays.");
@@ -437,9 +441,7 @@ async function rejudge(rows: readonly SavedRow[], out: string) {
       },
     },
   });
-  const picked = [...new Set(rows.map((row) => row.model))].flatMap((model) =>
-    rows.filter((row) => row.model === model && row.candidate.marks).slice(0, each),
-  );
+  const picked = rows.filter((row) => row.run === run && row.candidate.marks);
   const judged = [];
   for (const row of picked) {
     await ledger.record(judge.spent());
