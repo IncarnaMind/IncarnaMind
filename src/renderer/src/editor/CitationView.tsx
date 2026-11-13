@@ -48,6 +48,7 @@ import {
 } from "../../../shared/locations";
 import { checkedByMe } from "../../../shared/signOffs";
 import { useAnswers } from "../answers";
+import { CallStartsContext } from "../callStarts";
 import { type MindFormatting, useMindFormatting } from "../citationFormatting";
 import { followNewVersion } from "../citationUpdate";
 import { useCitationRecheck } from "../citationVersion";
@@ -248,7 +249,9 @@ export function CitationView({
   // In a footnote's text it is part of the footnote: it shows where it points, not a number.
   const footnoteId = useContext(InFootnoteContext);
   const inFootnote = footnoteId !== null;
-  const pointsTo = citationSource(shown, t, language, documents).text;
+  const started = useContext(CallStartsContext).get(attributes.documentId ?? "") ?? null;
+  const source = citationSource(shown, t, language, documents).text;
+  const pointsTo = started ? t("citation.where", { document: source, location: started }) : source;
   /** Clicked: the card stays until it is dismissed. */
   const [pinned, setPinned] = useState(false);
   /** Hovered or focused, with the card, the marker or its mark. */
@@ -672,6 +675,7 @@ export function CitationView({
               recheck={recheck}
               recheckAsked={recheckAsked}
               badgeText={badgeText}
+              started={started}
               onOpen={openFromCard}
               onUpdate={choices.update}
               onKeep={choices.keepOld}
@@ -826,6 +830,7 @@ function CitationCard({
   recheck,
   recheckAsked,
   badgeText,
+  started,
   inAnswer,
   note,
   onOpen,
@@ -853,6 +858,8 @@ function CitationCard({
   recheck: CitationRecheck | "failed" | null;
   recheckAsked: boolean;
   badgeText: string;
+  /** When its call started, beside its name in an Answer in the assistant (`CallStartsContext`). */
+  started: string | null;
   inAnswer: boolean;
   /** In a note style, the note the Citation is written in, as an export will write it. */
   note: readonly StyledRun[] | null;
@@ -901,7 +908,7 @@ function CitationCard({
       : null;
   // Once checked, the state line names the place, or the Document if it names none; a page line
   // under the name says the place, so the name stands alone.
-  const source =
+  const named =
     scanWhere ??
     (checked || withPdfPage
       ? where || place
@@ -910,6 +917,7 @@ function CitationCard({
       : where
         ? citationSource(attributes, t, language, lives).text
         : name);
+  const source = named && started ? `${named} · ${started}` : named;
   const stoppedAt = useJudgementLimit();
   const reason =
     state.check === "checking"
@@ -981,7 +989,7 @@ function CitationCard({
             data-testid="citation-source"
             title={source}
             // A scan's name and place wrap: the place must show, whatever the name's length (#535).
-            className={`citation-card-source${scanWhere ? " citation-card-source--scan" : ""}`}
+            className={`citation-card-source${scanWhere ? " citation-card-source--scan" : ""}${started ? " citation-card-source--call" : ""}`}
           >
             {source}
           </p>

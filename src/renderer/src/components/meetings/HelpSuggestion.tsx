@@ -10,21 +10,19 @@ import { isTranscriptLocation } from "../../../../shared/locations";
 import { HELP_SHAPE, helpLabel } from "../../../../shared/meetingHelp";
 import { isTheirs, SPEAKER_ME } from "../../../../shared/speakers";
 import { useAnswers } from "../../answers";
+import { useCallStarts } from "../../callStarts";
 import { core } from "../../core";
 import {
-  callStarts,
   citationNumbers,
   helpParts,
   quoted,
   type ReplyItem,
   type ReplyPiece,
   sentencePassed,
-  startedLabel,
   uncheckedReason,
 } from "../../helpReply";
-import { useLanguage, useT } from "../../i18n";
+import { useT } from "../../i18n";
 import { useJudgementLimit } from "../../judgementLimit";
-import { isLive, useMeetings } from "../../meetings";
 import { useModelNames, useServiceName } from "../../modelNames";
 import { answerProblem } from "../../problems";
 import { CheckLineIcon, DocumentLineIcon } from "../lineIcons";
@@ -340,8 +338,6 @@ export function HelpSuggestion({
   onRetry(): void;
 }) {
   const t = useT();
-  const language = useLanguage();
-  const meetings = useMeetings((state) => state.meetings);
   const providerId = answer.model?.providerId ?? null;
   const service = useServiceName(providerId);
   const shownModel = useModelNames()(answer.model?.modelId ?? "", providerId);
@@ -371,15 +367,7 @@ export function HelpSuggestion({
     items,
     (marker) => streaming || answer.citations.some((each) => each.marker === marker),
   );
-  const starts = new Map(
-    [
-      ...callStarts(
-        citedIn(answer, numbers).map(({ citation }) => citation),
-        meetings,
-        meetings.find(isLive)?.transcript?.documentId ?? null,
-      ),
-    ].map(([documentId, startedAt]) => [documentId, startedLabel(startedAt, t, language)]),
-  );
+  const starts = useCallStarts(citedIn(answer, numbers).map(({ citation }) => citation));
   return (
     <div
       data-testid="help-suggestion"

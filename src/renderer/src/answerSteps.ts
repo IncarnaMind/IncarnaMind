@@ -262,7 +262,7 @@ function searchBehind(
  * Notes (#2768), which are as much the sources it used. The last Answer written in as it was
  * cites what that Answer used, not this one.
  */
-const citedBy = ({
+export const citedBy = ({
   citations,
   toolCalls,
 }: Pick<StepsInput["answer"], "citations" | "toolCalls">): Citation[] => [

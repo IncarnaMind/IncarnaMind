@@ -5,9 +5,11 @@ import { answerBlocks, hasText } from "../../../../shared/answerBlocks";
 import type { NodeJSON } from "../../../../shared/blockJson";
 import { figureRunsOfAnswer } from "../../../../shared/figureRuns";
 import { figuresOf } from "../../answerFigures";
+import { citedBy } from "../../answerSteps";
 import { useAnswers } from "../../answers";
 import { useAnswerWait } from "../../answerWait";
 import { useApprovals, waitingFor } from "../../approvals";
+import { CallStartsContext, useCallStarts } from "../../callStarts";
 import { repliesOnlyRefusals } from "../../commandFacts";
 import { regenerateAnswer } from "../../conversations";
 import {
@@ -87,11 +89,13 @@ export function AssistantAnswer({
   doc: Y.Doc | null;
 }) {
   const t = useT();
-  const { id, conversationId, analyses, text, citations, figures, status } = answer;
+  const { id, conversationId, analyses, text, citations, figures, status, toolCalls } = answer;
   const blocks = useMemo(
     () => answerBlocks({ id, analyses, text, citations, figures, status }),
     [id, analyses, text, citations, figures, status],
   );
+  const cited = useMemo(() => citedBy({ citations, toolCalls }), [citations, toolCalls]);
+  const starts = useCallStarts(cited);
   const writing = useAnswers((state) => state.writing.has(answer.id));
   const streaming = writing || status === "streaming";
   const problem = useAnswers((state) => state.blocked[answer.id]);
@@ -122,137 +126,141 @@ export function AssistantAnswer({
     : null;
 
   return (
-    <article
-      data-testid="assistant-answer"
-      data-answer-id={answer.id}
-      data-status={streaming ? "streaming" : status}
-      data-sought={sought || undefined}
-      aria-label={t("answer.label")}
-      className="assistant-answer"
-    >
-      <AskedLines answer={answer} />
-      <AnswerSteps
-        answer={answer}
-        question={question}
-        askedAgain={askedAgain}
-        streaming={streaming}
-        waitingForApproval={approvals.length > 0}
-        wait={silent ? { usual } : null}
-        onRegenerate={regenerate}
-      />
-      {answer.citationSupport === "none" && (
-        <NoCitationsLine
-          modelId={answer.model?.modelId ?? null}
-          providerId={answer.model?.providerId ?? null}
+    <CallStartsContext.Provider value={starts}>
+      <article
+        data-testid="assistant-answer"
+        data-answer-id={answer.id}
+        data-status={streaming ? "streaming" : status}
+        data-sought={sought || undefined}
+        aria-label={t("answer.label")}
+        className="assistant-answer"
+      >
+        <AskedLines answer={answer} />
+        <AnswerSteps
+          answer={answer}
+          question={question}
+          askedAgain={askedAgain}
+          streaming={streaming}
+          waitingForApproval={approvals.length > 0}
+          wait={silent ? { usual } : null}
+          onRegenerate={regenerate}
         />
-      )}
-      <CoverageLine answer={answer} question={question} />
-      {!streaming && <WrittenFromLine answer={answer} />}
-      {(written || streaming) && (
-        <ConversationIdContext.Provider value={conversationId}>
-          <AnswerText
-            answerId={answer.id}
-            blocks={blocks}
-            figureRuns={figureRunsOfAnswer(answer, blocks)}
-            label={t("answer.label")}
-            streaming={streaming}
-            regenerate={regenerate}
-            judged={answer}
-            onOpenTable={(table) => keeping.openTable(answer, table)}
+        {answer.citationSupport === "none" && (
+          <NoCitationsLine
+            modelId={answer.model?.modelId ?? null}
+            providerId={answer.model?.providerId ?? null}
           />
-        </ConversationIdContext.Provider>
-      )}
-      <MindChangesCard answer={answer} streaming={streaming} />
-      <CommandsCard answer={answer} streaming={streaming} />
-      {!streaming && <SelfCheckLines answer={answer} />}
-      {!streaming && question && !question.askedFrom && wantedAMind(answer) && (
-        <NoMindLine question={question} />
-      )}
-      {!streaming && <WaitingChangesLine answer={answer} />}
-      {!streaming && <UnbackedClaimLine answer={answer} onRetry={regenerate} />}
-      {!streaming && <UnbackedCommandLines steps={answer.steps} onRetry={regenerate} />}
-      {!streaming && <UnrunToolLines steps={answer.steps} onRetry={regenerate} />}
-      {!streaming && <PythonProblemLine calls={answer.toolCalls} onRetry={regenerate} />}
-      {!streaming && <UncitedWritesLine answer={answer} onRetry={regenerate} />}
-      {!streaming && <UncitedReplyLine answer={answer} onRetry={regenerate} />}
-      {!streaming && scopeEmpty && (
-        <ProblemLine
-          role="status"
-          testId="answer-empty-scope"
-          action={{
-            label: t("claim.searchAll"),
-            testId: "answer-search-all",
-            onClick: () => void regenerateAnswer(answer.id, { clearScope: true }),
-          }}
-        >
-          {t("scope.empty.line", { scope: scopeName })}
-        </ProblemLine>
-      )}
-      {!streaming && figureSummary.uncalculated > 0 && <UncalculatedLine figures={figureSummary} />}
-      {!streaming && status !== "failed" && <StillReadingLine answer={answer} />}
-      {!streaming && status !== "failed" && <UnreadFilesLine files={unread} />}
-      {!streaming && status === "failed" && !planModel && (
-        <AnswerError
-          kind={answer.errorKind ?? "unknown"}
-          modelId={answer.model?.modelId ?? null}
-          providerId={answer.model?.providerId ?? null}
-          // A conversation doesn't keep when a plan's limit resets: the line says so without it.
-          resetsAt={null}
-          signInRoute={answer.errorSignInRoute}
-          details={answer.errorMessage}
-          failedAt={answer.updatedAt}
-          onRetry={regenerate}
-          onRetryWith={(model) => void regenerateAnswer(answer.id, { model })}
-          modelNow={modelNow}
-          chooseHere
-          question={
-            question
-              ? {
-                  text: question.text,
-                  scope: question.scope,
-                  askedFrom: question.askedFrom,
-                  folderAskedIn: question.folderAskedIn,
-                }
-              : null
-          }
-          onOpenSettings={openSettings}
+        )}
+        <CoverageLine answer={answer} question={question} />
+        {!streaming && <WrittenFromLine answer={answer} />}
+        {(written || streaming) && (
+          <ConversationIdContext.Provider value={conversationId}>
+            <AnswerText
+              answerId={answer.id}
+              blocks={blocks}
+              figureRuns={figureRunsOfAnswer(answer, blocks)}
+              label={t("answer.label")}
+              streaming={streaming}
+              regenerate={regenerate}
+              judged={answer}
+              onOpenTable={(table) => keeping.openTable(answer, table)}
+            />
+          </ConversationIdContext.Provider>
+        )}
+        <MindChangesCard answer={answer} streaming={streaming} />
+        <CommandsCard answer={answer} streaming={streaming} />
+        {!streaming && <SelfCheckLines answer={answer} />}
+        {!streaming && question && !question.askedFrom && wantedAMind(answer) && (
+          <NoMindLine question={question} />
+        )}
+        {!streaming && <WaitingChangesLine answer={answer} />}
+        {!streaming && <UnbackedClaimLine answer={answer} onRetry={regenerate} />}
+        {!streaming && <UnbackedCommandLines steps={answer.steps} onRetry={regenerate} />}
+        {!streaming && <UnrunToolLines steps={answer.steps} onRetry={regenerate} />}
+        {!streaming && <PythonProblemLine calls={answer.toolCalls} onRetry={regenerate} />}
+        {!streaming && <UncitedWritesLine answer={answer} onRetry={regenerate} />}
+        {!streaming && <UncitedReplyLine answer={answer} onRetry={regenerate} />}
+        {!streaming && scopeEmpty && (
+          <ProblemLine
+            role="status"
+            testId="answer-empty-scope"
+            action={{
+              label: t("claim.searchAll"),
+              testId: "answer-search-all",
+              onClick: () => void regenerateAnswer(answer.id, { clearScope: true }),
+            }}
+          >
+            {t("scope.empty.line", { scope: scopeName })}
+          </ProblemLine>
+        )}
+        {!streaming && figureSummary.uncalculated > 0 && (
+          <UncalculatedLine figures={figureSummary} />
+        )}
+        {!streaming && status !== "failed" && <StillReadingLine answer={answer} />}
+        {!streaming && status !== "failed" && <UnreadFilesLine files={unread} />}
+        {!streaming && status === "failed" && !planModel && (
+          <AnswerError
+            kind={answer.errorKind ?? "unknown"}
+            modelId={answer.model?.modelId ?? null}
+            providerId={answer.model?.providerId ?? null}
+            // A conversation doesn't keep when a plan's limit resets: the line says so without it.
+            resetsAt={null}
+            signInRoute={answer.errorSignInRoute}
+            details={answer.errorMessage}
+            failedAt={answer.updatedAt}
+            onRetry={regenerate}
+            onRetryWith={(model) => void regenerateAnswer(answer.id, { model })}
+            modelNow={modelNow}
+            chooseHere
+            question={
+              question
+                ? {
+                    text: question.text,
+                    scope: question.scope,
+                    askedFrom: question.askedFrom,
+                    folderAskedIn: question.folderAskedIn,
+                  }
+                : null
+            }
+            onOpenSettings={openSettings}
+          />
+        )}
+        {!streaming && status === "failed" && planModel && (
+          <PlanLimitLine
+            modelId={planModel}
+            providerId={answer.model?.providerId ?? null}
+            details={answer.errorMessage}
+            onAnswerAgain={() => regenerateAnswer(answer.id)}
+          />
+        )}
+        {problem && (
+          <AskProblem
+            problem={problem}
+            testIds={{
+              notReady: "answer-not-ready",
+              skillUnavailable: "answer-skill-unavailable",
+              error: "answer-ask-error",
+            }}
+          />
+        )}
+        {approvals.length > 0 && (
+          <div className="answer-approvals">
+            {approvals.map((request) => (
+              <ApprovalCard key={request.requestId} request={request} />
+            ))}
+          </div>
+        )}
+        <AnswerActions
+          answer={answer}
+          streaming={streaming}
+          canKeep={written && !repliesOnlyRefusals(answer)}
+          focusedMindName={keeping.focusedMindName}
+          mindEmpty={keeping.mindEmpty}
+          onAdd={() => keeping.add(answer)}
+          onPick={(anchor) => keeping.pick(answer, anchor)}
+          onWriteNote={() => keeping.newMind(answer)}
         />
-      )}
-      {!streaming && status === "failed" && planModel && (
-        <PlanLimitLine
-          modelId={planModel}
-          providerId={answer.model?.providerId ?? null}
-          details={answer.errorMessage}
-          onAnswerAgain={() => regenerateAnswer(answer.id)}
-        />
-      )}
-      {problem && (
-        <AskProblem
-          problem={problem}
-          testIds={{
-            notReady: "answer-not-ready",
-            skillUnavailable: "answer-skill-unavailable",
-            error: "answer-ask-error",
-          }}
-        />
-      )}
-      {approvals.length > 0 && (
-        <div className="answer-approvals">
-          {approvals.map((request) => (
-            <ApprovalCard key={request.requestId} request={request} />
-          ))}
-        </div>
-      )}
-      <AnswerActions
-        answer={answer}
-        streaming={streaming}
-        canKeep={written && !repliesOnlyRefusals(answer)}
-        focusedMindName={keeping.focusedMindName}
-        mindEmpty={keeping.mindEmpty}
-        onAdd={() => keeping.add(answer)}
-        onPick={(anchor) => keeping.pick(answer, anchor)}
-        onWriteNote={() => keeping.newMind(answer)}
-      />
-    </article>
+      </article>
+    </CallStartsContext.Provider>
   );
 }
