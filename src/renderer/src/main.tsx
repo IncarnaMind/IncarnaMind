@@ -14,11 +14,13 @@ import { installMotion } from "./motion";
 import { retryTaggingWhenOnline } from "./taggingRetry";
 import { installTestHooks } from "./viewerControls";
 import { installWindowMemory } from "./windowMemory";
+import { installWrittenChecks } from "./writtenChecks";
 
 installErrorLog();
 installWindowMemory();
 installTestHooks();
 retryTaggingWhenOnline();
+installWrittenChecks();
 // Before the first paint: the system's Reduce motion holds until the settings say the User's choice.
 installMotion();
 installAppearance();

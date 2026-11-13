@@ -611,6 +611,43 @@ describe("The reranking channel", () => {
     await expect(crossEncoder.score("q", ["t"])).rejects.toThrow("The model failed on this text.");
   });
 
+  // protects=closing it while it scores stops the process or thread only once it has answered, as stopping a Node worker thread under onnxruntime aborts the whole process (#2830: a check of what the assistant wrote may still search as the core closes), while the scoring that waited fails at once; fails_when=close stops it under the run; no_claim=how a real worker aborts.
+  test("closing it while it scores stops it once it has answered", async () => {
+    let reached = false;
+    let answer: (scores: number[]) => void = () => {};
+    const held: CrossEncoder = {
+      load: async () => ({ device: "cpu" }),
+      score: () =>
+        new Promise((resolve) => {
+          reached = true;
+          answer = resolve;
+        }),
+      close: () => {},
+    };
+    let stopped = 0;
+    const link = linkedChannel(held);
+    const start = (): CrossEncoderChannel => {
+      const channel = link.start();
+      return {
+        ...channel,
+        stop: () => {
+          stopped++;
+          channel.stop();
+        },
+      };
+    };
+    const crossEncoder = createChannelCrossEncoder(start);
+    await crossEncoder.load(FILES);
+    const scoring = crossEncoder.score("ships", ["ships at sea"]);
+    await vi.waitFor(() => expect(reached).toBe(true));
+
+    crossEncoder.close();
+    await expect(scoring).rejects.toThrow("The reranking model was stopped.");
+    expect(stopped).toBe(0);
+    answer([1]);
+    await vi.waitFor(() => expect(stopped).toBe(1));
+  });
+
   // protects=closing the model on purpose (reranking turned off, the model unloaded) fails what waits on it, so the searches queued behind it go on, and the next load starts afresh (#2532); fails_when=a scoring under way when the model is closed never settles and holds every search after it; no_claim=a process that exits by itself, which the next test covers.
   test("closing it while it scores fails that scoring, so the searches after it go on", async () => {
     let reachedModel = () => {};

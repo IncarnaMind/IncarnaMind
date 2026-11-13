@@ -115,7 +115,7 @@ interface World {
   note: { mindId: string; client: MindClient };
   /** The claims' results, for a flow that lands none in a Note. */
   results: (ClaimCheckResult | null)[];
-  /** How the assistant's Answer ends: a cap reached after the write stops its last turn too. */
+  /** How the assistant's Answer ends: a cap reached before the write stops its last turn too. */
   ends: "finished" | "failed";
 }
 
@@ -367,7 +367,23 @@ async function worldOf(example: Example, flow: Flow, kind: Model = "cloud") {
     return { ...reply, until: capReached };
   };
 
-  const check = (call: ModelCall): ScriptedReply => {
+  let answered: () => void = () => undefined;
+  // The reply comes before the write's check ends (#2830): the script lets the check's first
+  // request through once the Answer has ended, so a limit or the cap never reaches the reply.
+  const replied = new Promise<void>((resolve) => {
+    answered = resolve;
+  });
+  const afterTheReply = (call: ModelCall, reply: ScriptedReply): ScriptedReply => {
+    if (flow.asksFirst !== "write" || call.results.length > 0 || "error" in reply) return reply;
+    // A reply's own pause keeps where it stops and what it says when it gets there.
+    if ("pause" in reply && reply.pause) {
+      const until = Promise.all([replied, reply.pause.until]).then(() => undefined);
+      return { ...reply, pause: { ...reply.pause, until } };
+    }
+    return { ...reply, pause: { after: 0, until: replied } };
+  };
+
+  const scripted = (call: ModelCall): ScriptedReply => {
     const reply = checkReply(call, plans);
     const index = example.claims.indexOf(sentenceOf(call));
     if (!script || index < 0) return reply;
@@ -407,6 +423,8 @@ async function worldOf(example: Example, flow: Flow, kind: Model = "cloud") {
     if (script.cap && index > 0 && first) return { ...reply, pause: { after: 0, until: released } };
     return reply;
   };
+
+  const check = (call: ModelCall): ScriptedReply => afterTheReply(call, scripted(call));
 
   const write = (call: ModelCall): ScriptedReply => {
     if (script?.answer)
@@ -463,6 +481,7 @@ async function worldOf(example: Example, flow: Flow, kind: Model = "cloud") {
   reachCap = async () => {
     await started.updateSettings({ user: { monthlyCap: { amount: 0, currency: "USD" } } });
   };
+  started.on("answer.finished", () => answered());
   started.on("consent.requested", (asked) => void started.respondToConsent(asked.requestId, true));
   // A plan with a weekly limit: a cloud model in Ollama, which sends to ollama.com.
   const provider = await started.saveChatProvider(
@@ -733,8 +752,8 @@ describe.each([EN, ZH])("every check flow, through one runner ($language)", (exa
       await flow.setUp?.(world);
       const before = await recorded(world);
       const pausedBefore = world.clock.pauses().length;
-      const stopped = each.script.cap || each.script.capFirst || each.script.planLimit;
-      if (stopped && flow.asksFirst === "write") world.ends = "failed";
+      // Its reply comes before its write's check (#2830): only a cap reached before the write stops it.
+      if (each.script.capFirst && flow.asksFirst === "write") world.ends = "failed";
       await made.begin(each.script);
 
       const running = flow.run(world);
