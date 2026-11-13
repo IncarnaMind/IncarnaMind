@@ -1403,7 +1403,7 @@ export function mindTools(options: MindToolsOptions): {
   const gated = (tool: Tool): Tool => ({
     ...tool,
     async call(input, context) {
-      const target = targetOf(input);
+      const target = meantBy(context.toolCallId, input);
       if (target instanceof Refusal) return tool.call(input, context);
       const { mind, said } = await confirmed(context.toolCallId, target, context.signal);
       picked.set(context.toolCallId, mind);
@@ -1435,7 +1435,12 @@ export function mindTools(options: MindToolsOptions): {
       try {
         return await tool.call(input, context);
       } catch (error) {
-        if (error instanceof Refusal) options.failed(context.toolCallId, error.problem);
+        if (error instanceof Refusal) {
+          // Refused before its content was finished, it leaves nothing of what streamed in, so the
+          // Note holds what its card says (#2830).
+          takeBackStream(context.toolCallId);
+          options.failed(context.toolCallId, error.problem);
+        }
         throw error;
       }
     },
@@ -1705,6 +1710,41 @@ export function mindTools(options: MindToolsOptions): {
    * (it reads the stream behind the call) writes nothing more.
    */
   const ended = new Set<string>();
+
+  /**
+   * Takes back what a call wrote as its content came in, and a Note it made for it: the call
+   * never finished it. True when it had written some of it.
+   */
+  const takeBackStream = (toolCallId: string): boolean => {
+    const stream = streams.get(toolCallId);
+    streams.delete(toolCallId);
+    ended.add(toolCallId);
+    const writer = stream?.writer;
+    if (!stream || !writer) return false;
+    withdraw(writer);
+    minds.writing(writer.mind.id, null);
+    if (stream.created) minds.discard(writer.mind.id);
+    return writer.written > 0;
+  };
+
+  /**
+   * The Note a call that names one means: the one its content began to stream into, while it is
+   * still there, as the name meant it then; the call's own first line may have renamed it since,
+   * as an empty Note named "Untitled" takes its first line's name (#2830). Else as `targetOf` reads it.
+   */
+  const meantBy = (
+    toolCallId: string,
+    input: Record<string, unknown>,
+  ): ChangeableMind | Refusal => {
+    const streamed = streams.get(toolCallId)?.writer?.mind;
+    if (
+      streamed &&
+      optional(input.mind) !== null &&
+      minds.list().some((each) => each.id === streamed.id)
+    )
+      return streamed;
+    return targetOf(input);
+  };
 
   options.signal.addEventListener("abort", () => {
     for (const stream of streams.values()) {
@@ -2144,16 +2184,11 @@ export function mindTools(options: MindToolsOptions): {
   >();
 
   const takeBackUnmade = (): void => {
-    for (const [toolCallId, stream] of streams) {
-      const { writer } = stream;
-      if (!writer) continue;
-      withdraw(writer);
-      minds.writing(writer.mind.id, null);
-      if (stream.created) minds.discard(writer.mind.id);
-      if (writer.written > 0)
-        options.failed(toolCallId, { kind: "stopped", mindId: writer.mind.id });
+    for (const [toolCallId, stream] of [...streams]) {
+      const mindId = stream.writer?.mind.id;
+      if (takeBackStream(toolCallId) && mindId)
+        options.failed(toolCallId, { kind: "stopped", mindId });
     }
-    streams.clear();
   };
 
   type Settled = Pick<Written, "blocks"> & { change: MindChange };
@@ -2868,7 +2903,7 @@ export function mindTools(options: MindToolsOptions): {
     },
     async call(input, { toolCallId, signal, canCallAgain }) {
       const asked = chartAsked(input.chart);
-      const target = picked.get(toolCallId) ?? found(targetOf(input));
+      const target = picked.get(toolCallId) ?? found(meantBy(toolCallId, input));
       if (asked && (input.content === undefined || input.content === "") && input.answer !== true) {
         return chartExisting(toolCallId, target, asked);
       }
@@ -3063,6 +3098,7 @@ export function mindTools(options: MindToolsOptions): {
         given !== null && typeof given !== "string" ? given.folderId : options.folderId,
       );
       if (filed === null) {
+        takeBackStream(toolCallId);
         options.notFiled();
         return NOT_FILED;
       }
