@@ -127,8 +127,8 @@ export function quotesHoldNumbers(
       ...(words === citation.quote ? [] : figuresInClaim(words, context).flatMap(readingsOf)),
     ];
   });
-  // A quote's points hold only a sentence's figure in points: "three points about churn", or
-  // "twenty-three points", is no 3% or 23%. Said in words they're read for that alone.
+  // A number said in words before points is read for a sentence's figure in points alone:
+  // "three points about churn" is no 3%.
   const inPoints = held.concat(
     citations.flatMap(({ citation }) => {
       const said = writtenNumbers(citation.quote, { points: true });
@@ -151,7 +151,7 @@ export function quotesHoldNumbers(
       claimed.some((reading) => values.some((value) => sameValue(value, reading.value))) ||
       plain.some((value) => sameValue(value, written));
   };
-  const holdsAny = holderOf(held.filter((each) => !isPoints(each)));
+  const holdsAny = holderOf(held);
   const holdsPoints = holderOf(inPoints);
   const cites = recordCiteSpans(claim);
   return figuresInClaim(claim, own.language ? own : { ...context, header: null })
