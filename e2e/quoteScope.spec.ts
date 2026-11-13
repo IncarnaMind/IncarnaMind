@@ -1,8 +1,10 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "@playwright/test";
+import type { CitationLocation } from "../src/core/api";
 import { part, unzip } from "../tests/helpers/docx";
 import { docxOf, xlsxOf } from "../tests/helpers/office";
+import { buildPdf } from "../tests/helpers/pdf";
 import { para, pptxOf, sp, xfrm } from "../tests/helpers/pptx";
 import { buildZip } from "../tests/helpers/zip";
 import {
@@ -18,15 +20,56 @@ import {
   setWindowSize,
 } from "./app";
 
+const SECTION = {
+  location: { kind: "section", heading: "Elsewhere" } as CitationLocation,
+  words: { en: "§ Elsewhere", "zh-CN": "§ Elsewhere" },
+};
+
+/**
+ * Where a Citation points in each format once the Document no longer has that Unit (a Unit
+ * numbered 9999), and how its chip words it in each language.
+ */
+const GONE_PLACE: Record<
+  string,
+  { location: CitationLocation; words: Record<"en" | "zh-CN", string> }
+> = {
+  pdf: {
+    location: { kind: "page", from: 9999, to: 9999 },
+    words: { en: "p. 9999", "zh-CN": "第 9999 页" },
+  },
+  md: SECTION,
+  docx: SECTION,
+  "docx-notes": SECTION,
+  pptx: {
+    location: { kind: "slide", from: 9999, to: 9999 },
+    words: { en: "slide 9999", "zh-CN": "第 9999 张幻灯片" },
+  },
+  xlsx: {
+    location: { kind: "rows", sheet: "Elsewhere", from: 1, to: 1 },
+    words: { en: "Elsewhere, row 1", "zh-CN": "Elsewhere，第 1 行" },
+  },
+  web: SECTION,
+  vtt: {
+    location: { kind: "time", from: 20_000, to: 30_000 },
+    words: { en: "0:20", "zh-CN": "0:20" },
+  },
+};
+const GONE_LINE = {
+  en: (place: string) => `The cited place (${place}) is no longer in this Document.`,
+  "zh-CN": (place: string) => `引用的位置（${place}）已不在此文档中。`,
+};
+
 for (const language of ["en", "zh-CN"] as const) {
-  for (const format of ["md", "docx", "docx-notes", "pptx", "xlsx", "web", "vtt"] as const) {
-    test(`${format}, ${language}: a placed quote stays in its Unit; an unplaced quote searches the file`, async () => {
+  for (const format of ["pdf", "md", "docx", "docx-notes", "pptx", "xlsx", "web", "vtt"] as const) {
+    test(`${format}, ${language}: a placed quote stays in its Unit; an unplaced quote searches the file; a gone place is said`, async () => {
       const data = await createDataFolder();
       const sources = await createDataFolder();
+      // A PDF's text is drawn in Helvetica, which has no Chinese: its words are English in both.
+      const words = language === "en" || format === "pdf" ? "en" : "zh-CN";
       const inside =
-        language === "en" ? "The stored place has no quoted decision." : "指定位置没有这条决定。";
+        words === "en" ? "The stored place has no quoted decision." : "指定位置没有这条决定。";
       const quote =
-        language === "en" ? "The final decision is to retain the harbour." : "最终决定是保留港口。";
+        words === "en" ? "The final decision is to retain the harbour." : "最终决定是保留港口。";
       const endnote =
         language === "en" ? "The endnote records the revised budget." : "尾注记录了修订后的预算。";
       const { app, window } = await launchApp(data);
@@ -72,7 +115,9 @@ for (const language of ["en", "zh-CN"] as const) {
                         { name: "Stored", rows: [[inside]] },
                         { name: "Elsewhere", rows: [[quote]] },
                       ])
-                    : `WEBVTT\n\n00:00:00.000 --> 00:00:10.000\n${inside.repeat(180)}\n\n00:00:20.000 --> 00:00:30.000\n${quote}\n`;
+                    : format === "vtt"
+                      ? `WEBVTT\n\n00:00:00.000 --> 00:00:10.000\n${inside.repeat(180)}\n\n00:00:20.000 --> 00:00:30.000\n${quote}\n`
+                      : buildPdf([{ lines: [inside] }, { lines: [quote] }]);
           if ((format === "docx" || format === "docx-notes") && typeof content !== "string") {
             const template = unzip(
               await readFile(
@@ -154,10 +199,42 @@ for (const language of ["en", "zh-CN"] as const) {
             "true",
           );
         }
-        await openAt();
-        await expect(highlights.first()).toBeVisible();
+        // A PDF opened at a quote with no place looks on its first page only.
+        if (format !== "pdf") {
+          await openAt();
+          await expect(highlights.first()).toBeVisible();
+        }
         await openAt(9999);
         await expect(highlights).toHaveCount(0);
+
+        // Opened by a Citation, the place that is gone is said at the top, in the chip's words;
+        // a place the Document has is washed or not by its quote, and says nothing.
+        const place = GONE_PLACE[format];
+        if (!place) throw new Error(`No gone place is set for ${format}.`);
+        const said = viewer.getByTestId("viewer-citation-changed");
+        const openCitedAt = (page: number) =>
+          openDocumentAt(window, {
+            documentId: document.id,
+            quote,
+            pageFrom: page,
+            pageTo: page,
+            citation: {
+              check: "found",
+              number: 1,
+              pageFrom: page,
+              pageTo: page,
+              location: place.location,
+            },
+          });
+        await openCitedAt(9999);
+        await expect(highlights).toHaveCount(0);
+        await expect(said).toHaveText(GONE_LINE[language](place.words[language]));
+        await openCitedAt(last.page);
+        await expect(highlights.first()).toBeVisible();
+        await expect(said).toHaveCount(0);
+        await openCitedAt(first.page);
+        await expect(highlights).toHaveCount(0);
+        await expect(said).toHaveCount(0);
         if (format === "docx-notes") {
           await openDocumentAt(window, {
             documentId: document.id,
