@@ -59,14 +59,15 @@ An English call gets the same lines with the English examples. A reading's instr
 
 ### Main at the run
 
-- **The gate runs on a `main` that holds the fix for a sentence-check reply that corrects itself (#3029)**, so a reply that holds a corrected answer is read by it on both arms. It also waits until #3005 part 2 (how call help treats an earlier call's lines, which also changes what call help is asked) has merged or been put down.
-- `main` is merged into the branch first, and the run names its commit.
+- [x] **The fix for a sentence-check reply that corrects itself (#3029) is on `main`** (#3031), so such a reply is read by its corrected answer on both arms. `main` at 5fe364b78 was merged into the branch on 2026-11-13. It changed the sentence check, the same for both arms, and not call help's instructions: the hash of main's instructions holds unchanged.
+- [ ] **#3005 part 2** (how call help treats an earlier call's lines, which also changes what call help is asked) has merged or been put down.
+- `main` is merged into the branch again first, and the run names its commit.
 - If that merge changes call help's instructions beyond #3005 part 2's own rule, that is said on #2847 before the gate.
 - Neither change touches an instruction sentence the other does. #3005 part 2 edits "A Document fact was not said in this call…". This change edits the option and line shapes, their examples and the check button's task. Both add a parameter to `meetingHelpInstructions`, a line to its doc comment and a parameter to the test helper, which merge by hand.
-- After the merge:
-  - `tests/core/callHelpOwnSentence.test.ts`'s hash of main's instructions is set again from that commit;
-  - the record's reading of each check reply (`checkReplies` in `../arms.ts`) takes the check's own new reader;
+- After each merge:
+  - `tests/core/callHelpOwnSentence.test.ts`'s hash of main's instructions is set again from that commit when main's instructions changed;
   - every unit test of call help runs again before the run.
+- The record reads each check reply with the check's own reader (`checkReplies` in `../arms.ts`), a corrected answer included.
 
 ## Arms, models, judge and the runs' rules
 
@@ -75,10 +76,15 @@ An English call gets the same lines with the English examples. A reading's instr
   - `today`, this branch.
   - Both arms judge with `main`'s sentence check as it is.
 - **Models:** Claude Haiku 5.5, then Claude Sonnet 5.5, each as the Answers model with call help on Same as Answers. Sonnet runs only if every bar holds on Haiku.
-- **Judge:** Claude Sonnet 5.5, never Claude Fable 5 or Claude Opus.
-  - One request a press grades the reply against the expected answer.
-  - In the gate, a second reads each place on its sentence and quotes alone. Its count of wrong ✓ goes beside the hand reading's, never instead. On the earlier trial it agreed with the hand reading on 58 of 78 places, and called advice and conclusions backed.
+- **Judge:** never Claude Fable 5 or Claude Opus, and never the model under test, which the runner refuses.
+  - One request a press grades the reply against the expected answer: Claude Sonnet 5.5 on the Haiku half, and Claude Haiku 5.5 on the Sonnet half.
+  - In the gate, a second request reads each place on its sentence and quotes alone. Its count of wrong ✓ goes beside the hand reading's, never instead. On the earlier trial it agreed with the hand reading on 58 of 78 places, and called advice and conclusions backed.
   - The dev trial sends no per-place request: it gates nothing, and the hand reading is its yardstick.
+  - **The judge's grade on the Sonnet half is a weaker model's.** In the dev trial it, and the false Supported it counts, are reported and gate nothing.
+  - **In the gate, only G3's "judged right" rests on the grade.** Bars 1 to 3, G1, G5 and G7 rest on the hand reading. G2 and "cited" and "every Citation found" in G3 are counted from the record, G4 from its times, and G6 from its outcomes.
+  - **So on the gate's Sonnet half, Claude Haiku 5.5's grade is checked by hand, blind to the arm.** Before the key is opened, a seeded draw (seed 2847) takes 10 pairs from the Sonnet half, 5 in each language. Both answers of each pair go into the sample, 20 answers, shuffled and unlabelled, with the case's expected answer beside each. The hand reading grades each one right or not.
+  - If the hand grade and Haiku's differ on more than 2 of the 20, G3's "judged right" on Sonnet is unread and goes back for a decision. Otherwise Haiku's grade stands. Two is the allowance in each Sonnet cell of G3. A grade wrong on more answers than that could move a cell's count by the allowance on its own.
+  - The judge's false Supported count gates nothing, on either half.
 - **The yardstick for a wrong ✓ is the hand reading by place, blind to the arm.**
   - A script builds the reading file. It holds every place of both arms whose quote was found, shuffled together, unlabelled: the sentence, every quote it cites, and how many of its places show ✓. The same sentence with the same quotes is read once.
   - **Two readers fill their own copy** of the same file: the coordinator, and an independent reader who sees only that file. The bars count the coordinator's reading. The two readings' agreement, by label and by side (backed, unbacked, borderline), is reported beside them, with every item they differ on.
@@ -104,10 +110,16 @@ An English call gets the same lines with the English examples. A reading's instr
    - **Probes** (main's writing joined a cited fact to the reply's own part on these cases in the earlier gates): `answer-unknown`, `sum`, `no-price`, `say-outage`, `check-wrong`, `say-roof`.
    - **Positives beside them**, where a cited fact alone is the right reply: `answer-price`, `answer-relief`, `answer-two`, `check-right`, `ask-shops`, `answer-earlier`.
    - **What it decides:** the bars below are read and reported, and gate nothing. The instructions may change on what the trial shows. They are then frozen at a commit this file names before the gate, and the gate runs only on a yes.
-   - **On today's `main`,** before #3005 part 2: these cases hold no earlier call, and the trial gates nothing. The wording may change on it once, and is then frozen.
-   - **Where it runs:** on the first direct key, in a pause the lead sets between another lane's rounds. It holds the key's lease with the judge's lease nested inside it, since Claude Sonnet 5.5 runs there as a model and as the grade's judge. `LANE_NAME=bonito-2847-dev`, the allowance read first, a PID file from its start, run directly, and nothing else of this lane's alongside.
-   - **About $0.92, stop $1.40.** No per-place request, and the grade request stays.
-   - **If it ends above about $1.09,** what is left of #2847's $8 no longer covers the gate's estimate and a tenth more, and the gate's size goes back for a decision before it runs.
+   - **Before #3005 part 2:** these cases hold no earlier call, and the trial gates nothing. The wording may change on it once, and is then frozen.
+   - **False Supported counted over the set** (`INCARNAMIND_EVAL_SPEED_FALSE_SUPPORTED=counted`), as a trial that gates nothing does, never stopping at the first.
+   - **Where it runs:** on a second direct Anthropic key with its own limit, in a pause between other lanes' rounds. It holds that key's lease, with its judge's lease nested inside, since the models under test and the grade's judges are all on it. `LANE_NAME=bonito-2847-dev`, the allowance read first, a PID file from its start, run directly, and nothing else of this lane's alongside.
+   - **Its dry mode** builds each half's settings with the runner's own plan (`INCARNAMIND_EVAL_SPEED_PLAN=1`) and exactly the run's environment, sending nothing. A judge that is a model under test, or an item that isn't in the set, fails it.
+   - **The first run is void** (2026-11-13, 04:53–04:57Z), for two faults of its script:
+     - false Supported stopped the Haiku half after 14 of 24 items;
+     - the Sonnet half judged itself and never started.
+     Its $0.073 counts inside the stop, and its presses are not used.
+   - **The rerun is the whole trial again,** all 24 items on both models, fresh presses: about $0.75 (the Haiku half $0.13, the Sonnet half $0.62). The phase then totals about $0.82, inside the $1.40 stop.
+   - **If the phase ends above about $1.09,** what is left of #2847's $8 no longer covers the gate's estimate and a tenth more, and the gate's size goes back for a decision before it runs.
 2. **The gate: held-out presses.**
    - **The cases** are written blind to this change by someone else, put into `../callHelpMarks4.ts` at the run, and not opened before it. Its needs are listed below.
    - **Runs:** two of every case, both arms, Haiku and then Sonnet.
@@ -181,12 +193,12 @@ Anthropic's prices don't change by the hour, so the hour's price is the list pri
 
 | Phase | Presses | Requests, Haiku | Requests, Sonnet | Estimate | Stop | Items to read blind |
 |---|---|---|---|---|---|---|
-| Dev trial | 96 | about 100, and 48 the judge's | about 120, and 48 the judge's | $0.92 | $1.40 | about 175, and its check lines, by each of two readers |
+| Dev trial | 96 | about 120, and 48 the judge's on Sonnet | about 120, and 48 the judge's on Haiku | $0.75, with the void run's $0.073 about $0.82 | $1.40 | about 175, and its check lines, by each of two readers |
 | Gate | 240 | about 250, and 240 the judge's | about 300, and 240 the judge's | $2.55 | $3.20 | about 430 (Haiku's about 215 first), by each of two readers |
 
-- The requests by model count the product's reply and check on the model under test. The judge's requests are all on Claude Sonnet 5.5.
+- The requests by model count the product's reply and check on the model under test. The judge's requests are on the other model: Claude Sonnet 5.5 judges the Haiku half, and Claude Haiku 5.5 the Sonnet half.
 - The items to read are about 1.8 a press, as on the saved presses.
-- #2847 was at $4.11 of its $8 before this file. Both phases at their estimates bring it to $7.58. The gate's start rule above keeps it inside the $8.
+- #2847 was at $4.11 of its $8 before this file. Both phases at their estimates, the void run included, bring it to $7.48. The gate's start rule above keeps it inside the $8.
 
 ## What can't be known before the run
 
