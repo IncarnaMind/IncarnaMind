@@ -489,4 +489,17 @@ describe("The earlier-call judge's reading", () => {
     ).toBeNull();
     expect(readEarlierJudged("The reply is fine.")).toBeNull();
   });
+
+  test("a list it gives as something else than a list makes the reading unreadable", () => {
+    expect(
+      readEarlierJudged(
+        '{"earlierAsThis": false, "thenWithWhen": true, "grade": "right", "unstated": 2}',
+      ),
+    ).toBeNull();
+    expect(
+      readEarlierJudged(
+        '{"earlierAsThis": false, "thenWithWhen": true, "grade": "right", "asThisCall": "1"}',
+      ),
+    ).toBeNull();
+  });
 });

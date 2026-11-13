@@ -51,6 +51,9 @@ test.skipIf(env("REJUDGE") === null)(
     const judged = judgeOf([]);
     let attempts = 0;
     const refused: string[] = [];
+    /** Replies the judge's answers couldn't be read for, and hand-written positives it counted. */
+    let unread = 0;
+    let controlsFailed = 0;
     const counting: LanguageModelMiddleware = {
       specificationVersion: "v4",
       wrapGenerate: async ({ doGenerate }) => {
@@ -86,7 +89,8 @@ test.skipIf(env("REJUDGE") === null)(
             model,
             each,
             row.kind === "last-time" ? "last-time" : "button",
-            earlierStartedOf(rows, caseId),
+            // Each arm recorded its own earlier call, so each reply is judged with its own start.
+            run.callReading?.earlierStarted ?? earlierStartedOf([row], caseId),
             run.text,
             citedOfPlaces(run.places ?? []),
           );
@@ -95,6 +99,7 @@ test.skipIf(env("REJUDGE") === null)(
             `#${number} ${row.id} ${arm}: earlierAsThis ${before} -> ${reading.earlierAsThis}${before !== reading.earlierAsThis ? "  CHANGED" : ""}`,
           );
         } catch (error) {
+          unread++;
           results.push({ number, id: row.id, arm, before, failed: String(error) });
           lines.push(`#${number} ${row.id} ${arm}: the judge failed`);
         }
@@ -114,10 +119,12 @@ test.skipIf(env("REJUDGE") === null)(
           positive.cited,
         );
         results.push({ number, id: positive.id, positive: true, after: reading });
+        if (reading.earlierAsThis) controlsFailed++;
         lines.push(
           `#${number} ${positive.id}: earlierAsThis ${reading.earlierAsThis} (must be false)${reading.earlierAsThis ? "  POSITIVE COUNTED" : ""}`,
         );
       } catch (error) {
+        unread++;
         results.push({ number, id: positive.id, positive: true, failed: String(error) });
         lines.push(`#${number} ${positive.id}: the judge failed`);
       }
@@ -131,17 +138,18 @@ test.skipIf(env("REJUDGE") === null)(
     );
     await mkdir(out, { recursive: true });
     const changed = lines.filter((line) => line.endsWith("CHANGED")).length;
+    const counts = refused.length === 0 && unread === 0 && controlsFailed === 0;
     const summary = [
       `# The earlier-call set's replies judged again`,
       "",
-      `${startedAt} · ${path} · judge ${judged.name}. ${number} replies; ${attempts} judge requests, ${refused.length} refused or failed${refused.length ? ` (${refused.join("; ")})` : ""}: the re-judging ${refused.length === 0 ? "counts" : "is void"}. Changed: ${changed}. Spent $${judged.spent().toFixed(3)}; with the runs before it $${(ledger.before + judged.spent()).toFixed(3)} of $${stopUsd}.`,
+      `${startedAt} · ${path} · judge ${judged.name}. ${number} replies; ${attempts} judge requests, ${refused.length} refused or failed${refused.length ? ` (${refused.join("; ")})` : ""}; ${unread} readings unread; ${controlsFailed} positives counted: the re-judging ${counts ? "counts" : "is void"}. Changed: ${changed}. Spent $${judged.spent().toFixed(3)}; with the runs before it $${(ledger.before + judged.spent()).toFixed(3)} of $${stopUsd}.`,
       "",
       ...lines,
     ].join("\n");
     await writeFile(join(out, "rejudge.md"), `${summary}\n`);
     await writeFile(
       join(out, "rejudge.json"),
-      `${JSON.stringify({ attempts, refused, results }, null, 2)}\n`,
+      `${JSON.stringify({ attempts, refused, unread, controlsFailed, counts, results }, null, 2)}\n`,
     );
     console.log(summary);
   },

@@ -55,9 +55,10 @@ export interface Judged {
   unstated: number[];
 }
 
-const numbersIn = (read: object, key: string): number[] => {
+/** The numbers a list holds, [] when the reply leaves it out; null when it isn't a list. */
+const numbersIn = (read: object, key: string): number[] | null => {
   const value: unknown = key in read ? (read as Record<string, unknown>)[key] : [];
-  return Array.isArray(value) ? value.filter((n): n is number => typeof n === "number") : [];
+  return Array.isArray(value) ? value.filter((n): n is number => typeof n === "number") : null;
 };
 
 /** The judge's reading, or null when its reply holds no such JSON. */
@@ -70,12 +71,15 @@ export function readEarlierJudged(text: string): Judged | null {
     if (!("grade" in read)) return null;
     const grade = read.grade;
     if (grade !== "right" && grade !== "partly" && grade !== "wrong") return null;
+    const asThisCall = numbersIn(read, "asThisCall");
+    const unstated = numbersIn(read, "unstated");
+    if (asThisCall === null || unstated === null) return null;
     return {
       earlierAsThis: read.earlierAsThis,
       thenWithWhen: read.thenWithWhen,
       grade,
-      asThisCall: numbersIn(read, "asThisCall"),
-      unstated: numbersIn(read, "unstated"),
+      asThisCall,
+      unstated,
     };
   } catch {
     return null;
