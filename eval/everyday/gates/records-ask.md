@@ -20,7 +20,7 @@ That is `evidenceParts` in `src/core/answers/checks/prompt.ts`, sent by `askForE
   1. **The four research requests:** `research-attention-long`, `research-gpt3-energy` and their Chinese twins, 6 runs each per arm, so 24 Answers per arm. That is the record of #3019's runs.
   2. **A wrong sentence beside every right one.** Six table-row restatements as Haiku wrote them in the saved records, three English and three Chinese, each with a wrong twin. The twin swaps one figure or one row: "O(n) for weighted keys against O(1) for recurrent layers". Each sentence cites the Answer's own Citation quote for its row and is checked by Check against Documents (`checkClaim`), 3 times per arm. That is 12 sentences, 36 checks per arm. The list is committed with the plan's next entry, before any request, and never changed after.
 - **Models:** Claude Haiku 5.5 for the Answers and the checks, and Claude Sonnet 5.5 as judge. Never Fable or Opus.
-- **Key:** the key slot cory gives, after the allowance probe, starting only above 90%.
+- **Key:** the key slot the lead engineer gives, after the allowance probe, starting only above 90%.
 - **Void rule:** a run with any request refused, failed or timed out is void, a retried one included. It is kept, struck with the reason, and run again once; its numbers aren't read. A second void of the same item leaves that pair out on both arms.
 - **Free dry run first.** The whole run is played once on the scripted chat model, with no request to any provider: both arms, both case sets, the report and the script that reads the bars. It must give a full report, and the bars read on its fake numbers, before any priced request.
 - **Then a priced pilot of three items:**
@@ -99,3 +99,16 @@ A failed bar means nothing ships from this run. The numbers and the list of fail
   - p. 12: the references [1]–[5].
 - **Demonstrations Not Weights:** p. 75, the references [1]–[5].
 - Table 1 is on p. 4 and Table 4 on p. 38. Neither table holds a bracketed number.
+
+### 2026-11-13, after the free dry run and before any request this plan gates: bar 2's two kinds, the run's `main`, and the key slot
+
+1. **Bar 2 counts a right sentence's check that ends with no evidence or found elsewhere.**
+   - Found elsewhere means its evidence isn't on its own rows. A check that takes a Document's own reference line as its evidence ends so, as the free dry run showed. For the User it is the same failure: the right sentence doesn't end on its own rows.
+   - Each check is listed by its kind, by arm and language. A check that holds both kinds is listed as no evidence.
+   - Bar 2 is not settled when `main` has fewer than 4 of the two kinds together. The branch must have at most half of `main`'s.
+   - The research Answers' table-row count beside it is given by the same two kinds, still with no bar.
+2. **The run's `main` is 35c8b3196**, merged into this branch at 33a335624.
+   - The `main` arm is built from that commit's `src`, and the run names it.
+   - The runner refuses a `main` arm that names another commit, and a branch that doesn't hold it.
+   - The bars refuse a `main` arm whose `src` isn't that commit's.
+3. **The key slot** is the one the lead engineer gives ("Key" above).
