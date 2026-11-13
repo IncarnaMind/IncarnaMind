@@ -250,6 +250,37 @@ describe("call help's ✓ comes only from the sentence check", { timeout: 60_000
     },
   );
 
+  // protects=a reply's sentence giving a currency its quote gives otherwise is Unsupported with the line Check against Documents gives, so it shows its number alone though the model called it supported (#2997); fails_when="£45" or "45 英镑" citing the sheet's "$45" shows ✓; no_claim=what a real model replies.
+  test.each([
+    {
+      language: "English",
+      reply: "★ Yes, Enterprise is £45 a seat with single sign-on [^1]\n→ answers at once",
+      line: "The Document gives $45, not £45.",
+    },
+    {
+      language: "Chinese",
+      reply: "★ 是的，企业版每个席位每月 45 英镑，含单点登录 [^1]\n→ 直接回答，推进通话",
+      line: "The Document gives $45, not 45 英镑.",
+    },
+  ])(
+    "in $language, a sentence whose quote gives another currency shows its number alone",
+    async ({ reply, line }) => {
+      const { core, meeting } = await setUp({ reply });
+      const after = await (await pressed(core, meeting, "answer")).judged();
+
+      expect(marks(after)).toEqual([{ marker: 1, check: "unsupported", passed: false }]);
+      expect(after.citations[0]?.verdict).toBe(line);
+    },
+  );
+
+  // protects=a reply naming the dollar the sheet's bare "$" doesn't ("45 美元") keeps the ✓ its check passes, as before #2997: an Answer leaves that reading out until its replies write the Document's own sign (#3030); fails_when="45 美元" citing "$45" shows its number alone; no_claim=Check against Documents, which reads it Unsupported.
+  test("a reply naming the dollar the sheet's bare $ doesn't keeps its ✓ for now", async () => {
+    const { core, meeting } = await setUp({ reply: CHINESE });
+    const after = await (await pressed(core, meeting, "answer")).judged();
+
+    expect(marks(after)).toEqual([{ marker: 1, check: "found", passed: true }]);
+  });
+
   test.each([
     { language: "English", reply: ENGLISH, words: "Enterprise is $45" },
     { language: "Chinese", reply: CHINESE, words: "企业版每个席位" },

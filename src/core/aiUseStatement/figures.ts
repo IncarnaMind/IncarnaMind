@@ -349,6 +349,7 @@ export function readFigures(sources: FigureSources): AiUseFigures {
     requests.push(check.request);
     const shown = claimCheckShown(check, {
       text: sentence,
+      citations: marked.citations,
       footing,
       figureContexts,
       figured: figured(marked),

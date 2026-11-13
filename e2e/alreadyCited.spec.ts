@@ -247,11 +247,13 @@ test("Check on a note whose sentences cite their Passages: the ones that already
 
   await checkThisMind(window);
   await expect(marks(window)).toHaveCount(CASES.length);
-  await expect(marks(window).and(window.locator('[data-check="supported"]'))).toHaveCount(
-    CASES.length,
-  );
-
+  // A ✓ shows only beside a Citation that holds the Passage the check found; the others wait,
+  // with their "+", for the User to add it (#3019).
   for (const [index, each] of CASES.entries()) {
+    await expect(marks(window).nth(index)).toHaveAttribute(
+      "data-check",
+      each.cited ? "supported" : "not-checked",
+    );
     if (each.cited) await expect(marks(window).nth(index)).not.toHaveAttribute("data-addable");
     else await expect(marks(window).nth(index)).toHaveAttribute("data-addable", "true");
   }
@@ -300,6 +302,8 @@ test("Check on a note whose sentences cite their Passages: the ones that already
     if (index === 3) await screenshot(window, "add-as-citation-en");
     await pointAndClick(window, card.getByTestId("claim-add-citation"));
     await expect(lines.nth(index).getByTestId("citation")).toHaveCount(2);
+    // The ✓ shows at once, read from the Citations as they stand, with no new check (#3019).
+    await expect(marks(window).nth(index)).toHaveAttribute("data-check", "supported");
   }
   for (const index of [0, 1, 2]) {
     await expect(lines.nth(index).getByTestId("citation")).toHaveCount(1);
@@ -348,7 +352,8 @@ test("In Chinese and a narrow window: a Citation whose quote differs in punctuat
     window.getByTestId("selection-menu").getByTestId("selection-action-check-against-documents"),
   );
   await expect(marks(window)).toHaveCount(2);
-  await expect(marks(window).and(window.locator('[data-check="supported"]'))).toHaveCount(2);
+  await expect(marks(window).nth(0)).toHaveAttribute("data-check", "supported");
+  await expect(marks(window).nth(1)).toHaveAttribute("data-check", "not-checked");
   await expect(marks(window).nth(0)).not.toHaveAttribute("data-addable");
   await expect(marks(window).nth(1)).toHaveAttribute("data-addable", "true");
 
@@ -368,6 +373,7 @@ test("In Chinese and a narrow window: a Citation whose quote differs in punctuat
   await pointAndClick(window, card.getByTestId("claim-add-citation"));
   await expect(lines.nth(1).getByTestId("citation")).toHaveCount(2);
   await expect(lines.nth(0).getByTestId("citation")).toHaveCount(1);
+  await expect(marks(window).nth(1)).toHaveAttribute("data-check", "supported");
 });
 
 const HOME_LINE =
@@ -390,7 +396,8 @@ test("a Citation that quotes part of a clause is widened to the whole clause it 
 
   await checkThisMind(window);
   await expect(marks(window)).toHaveCount(1);
-  await expect(marks(window).first()).toHaveAttribute("data-check", "supported");
+  // A Citation of part of the clause doesn't hold what backs the sentence: no ✓ until widened (#3019).
+  await expect(marks(window).first()).toHaveAttribute("data-check", "not-checked");
   await expect(marks(window).first()).not.toHaveAttribute("data-addable");
 
   const card = await openCard(window, marks(window).first());
@@ -406,12 +413,14 @@ test("a Citation that quotes part of a clause is widened to the whole clause it 
 
   await expect.poll(() => citationAttrs(window)).toEqual([{ quote: HOME_LINE, check: "found" }]);
   await expect(lines.nth(0).getByTestId("citation")).toHaveCount(1);
+  await expect(marks(window).first()).toHaveAttribute("data-check", "supported");
 
   await undoInNote(window);
   await expect
     .poll(() => citationAttrs(window))
     .toEqual([{ quote: "two days a week", check: "found" }]);
   await expect(lines.nth(0).getByTestId("citation")).toHaveCount(1);
+  await expect(marks(window).first()).toHaveAttribute("data-check", "not-checked");
 });
 
 const SPRING_ZH = "春季大潮出现在新月和满月，Spring tides happen at new moon and at full moon。";
@@ -441,7 +450,8 @@ test("a Citation that isn't found is replaced in place by the Passage the check 
 
   await checkThisMind(window, "核对");
   await expect(marks(window)).toHaveCount(1);
-  await expect(marks(window).first()).toHaveAttribute("data-check", "supported");
+  // A Citation whose quote isn't found holds nothing: no ✓ until it is replaced (#3019).
+  await expect(marks(window).first()).toHaveAttribute("data-check", "not-checked");
   await expect(marks(window).first()).not.toHaveAttribute("data-addable");
 
   const card = await openCard(window, marks(window).first());
@@ -455,6 +465,7 @@ test("a Citation that isn't found is replaced in place by the Passage the check 
 
   await expect.poll(() => citationAttrs(window)).toEqual([{ quote: NEAP_ZH, check: "found" }]);
   await expect(lines.nth(0).getByTestId("citation")).toHaveCount(1);
+  await expect(marks(window).first()).toHaveAttribute("data-check", "supported");
 
   await undoInNote(window);
   await expect

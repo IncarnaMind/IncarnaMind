@@ -30,6 +30,7 @@ function selected(element: Y.XmlElement, from = 0, to = textOf(element).length):
     text: text.slice(from, to),
     context: text,
     cited: [],
+    citations: [],
   };
 }
 
