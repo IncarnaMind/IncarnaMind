@@ -212,6 +212,7 @@ describe("A case of the earlier-call set", { timeout: 240_000 }, () => {
       earlierAsThis: true,
       thenWithWhen: false,
       asThisCall: [1],
+      earlierStarted: expect.stringMatching(/\d{1,2}:\d\d/),
     });
     expect(say?.cited).toBeNull();
     expect(lastTime?.cited).toBe(true);

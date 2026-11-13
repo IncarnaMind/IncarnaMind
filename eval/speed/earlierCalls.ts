@@ -42,7 +42,7 @@ const ANSWER_TIMEOUT_MS = 120_000;
 const JUDGE = [
   "You read a reply that helps the User during a live call, with people they have spoken to before.",
   "<this-call> holds what was said in this call. <earlier-call> holds what an earlier call with the same people said, and when that call started: none of it was said in this call.",
-  "earlierAsThis: true when the reply gives anything that only <earlier-call> holds as said, asked or wanted in this call, or as where the other side stands now, without saying it comes from the earlier call; false otherwise. Giving it as from the earlier call (last time, before, in that call) is fine.",
+  "earlierAsThis: true when the reply gives anything that only <earlier-call> holds as said, asked or wanted in this call, or as a settled fact, a requirement or where the other side stands, in anyone's voice, the User's included, unless the reply's own words say it comes from the earlier call (last time, before, in that call, on its date). A Citation, or the call its quote is from in <citations>, doesn't say that: only the reply's words do. False otherwise.",
   'thenWithWhen: for <asked kind="last-time">, true when the reply gives at least one thing <earlier-call> holds as said in that call and says when that call was, by its date, its day or its time; false otherwise, and always false for <asked kind="button">.',
   'grade: for <asked kind="button">, right when what the reply gives the User to say fits the newest lines of <this-call> and earlierAsThis is false; partly when it fits only in part; wrong otherwise. For <asked kind="last-time">, right when it gives what <earlier-call> holds as from that call, saying when; partly when only some of it, or without when; wrong when it misses it or gives this call\'s words as the earlier call\'s.',
   "asThisCall: the number n of each sentence carrying a Citation [n] that says the other side said, asked or wants something in this call.",
@@ -50,7 +50,7 @@ const JUDGE = [
   'Reply with JSON and nothing else: {"earlierAsThis": true | false, "thenWithWhen": true | false, "grade": "right" | "partly" | "wrong", "asThisCall": [n, ...], "unstated": [n, ...]}',
 ].join("\n");
 
-interface Judged {
+export interface Judged {
   earlierAsThis: boolean;
   thenWithWhen: boolean;
   grade: "right" | "partly" | "wrong";
@@ -88,7 +88,7 @@ export function readEarlierJudged(text: string): Judged | null {
 const said = (turns: readonly CallTurn[]) =>
   turns.map((turn) => `${turn.who === "me" ? "The User" : "The other side"}: ${turn.text}`);
 
-async function judge(
+export async function judge(
   model: LanguageModel,
   each: EarlierCallCase,
   asked: "button" | "last-time",
@@ -356,6 +356,7 @@ function item(each: EarlierCallCase, kind: MeetingHelpKind | null): PairedItem {
             earlierAsThis: judged.earlierAsThis,
             thenWithWhen: judged.thenWithWhen,
             asThisCall: judged.asThisCall,
+            earlierStarted: formatFullDateTime(earlierStarted, each.language),
           },
         }),
       };

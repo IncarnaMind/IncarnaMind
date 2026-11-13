@@ -132,7 +132,13 @@ export interface ArmRun {
    * in this call; for "last time", it gives them as said then, saying when; and the numbers whose
    * sentence says the other side said, asked or wants something in this call.
    */
-  callReading?: { earlierAsThis: boolean; thenWithWhen: boolean; asThisCall: number[] };
+  callReading?: {
+    earlierAsThis: boolean;
+    thenWithWhen: boolean;
+    asThisCall: number[];
+    /** The earlier call's start as the judge was given it, so a saved reply can be judged again. */
+    earlierStarted?: string;
+  };
   /**
    * A help reply's marks (#2847), read once every mark settled. Of the Citations it shows whose
    * quote was found and whose sentence the judge says their quoted words hold (`held`): how many

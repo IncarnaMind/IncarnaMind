@@ -4,7 +4,11 @@
  * what it reports.
  */
 import { describe, expect, test } from "vitest";
-import { earlierCallsSection } from "../../eval/speed/earlierCallsReport";
+import {
+  citedOfPlaces,
+  earlierCallsSection,
+  earlierStartedOf,
+} from "../../eval/speed/earlierCallsReport";
 import type { ArmRun, RequestTiming } from "../../eval/speed/paired";
 import type { PairedRow } from "../../eval/speed/pairedReport";
 
@@ -195,5 +199,71 @@ describe("The earlier-call gate's section", () => {
     );
     expect(section).toContain("Runs for an expected 6: 3; for an expected 3: 2.");
     expect(section).not.toContain("Bar 1");
+  });
+
+  test("counts bar 1 by which call of the pair was the earlier", () => {
+    const named = (id: string, onMain: boolean): PairedRow => ({
+      ...row("say", "en", arm({ asThis: onMain }), arm()),
+      id,
+    });
+    const section =
+      earlierCallsSection(
+        [
+          named("en-b-then-a-say", true),
+          named("en-d-then-c-say", true),
+          named("en-a-then-b-say", false),
+          named("en-c-then-d-say", true),
+        ],
+        ARMS,
+      ) ?? "";
+    expect(section).toContain(
+      "By order: main the earlier call brings the changes: 2 of 2; the earlier call said it first: 1 of 2; the branch the earlier call brings the changes: 0 of 2; the earlier call said it first: 0 of 2.",
+    );
+  });
+});
+
+describe("A saved reply judged again", () => {
+  const place = (number: number, call: "this" | "earlier", found = true) => ({
+    line: `A line [${number}]`,
+    number,
+    source: `${number} · Transcript · Meeting, 13 November · Them · 0:07${call === "earlier" ? " · started 09:12" : ""}`,
+    call,
+    quote: `quote ${number}`,
+    found,
+    passed: false,
+  });
+
+  test("gives the judge each number once, its Document and whose call it quotes", () => {
+    expect(
+      citedOfPlaces([place(1, "this"), place(2, "earlier", false), place(2, "earlier")]),
+    ).toEqual([
+      "[1] Transcript · Meeting, 13 November (this call): “quote 1” (found)",
+      "[2] Transcript · Meeting, 13 November (the earlier call): “quote 2” (not found)",
+    ]);
+  });
+
+  test("gives the earlier call's start as the reply kept it, else as a source line of that call shows it", () => {
+    const kept = row("say", "en", arm(), arm());
+    const withKept: PairedRow = {
+      ...kept,
+      id: "en-a-then-b-say",
+      baseline: {
+        ...kept.baseline,
+        callReading: {
+          earlierAsThis: false,
+          thenWithWhen: false,
+          asThisCall: [],
+          earlierStarted: "13 Nov 2026, 09:12",
+        },
+      },
+    };
+    expect(earlierStartedOf([withKept], "en-a-then-b")).toBe("13 Nov 2026, 09:12");
+    const shown: PairedRow = {
+      ...kept,
+      id: "en-b-then-a-say",
+      baseline: arm({ places: [place(1, "earlier")] }),
+    };
+    expect(earlierStartedOf([shown], "en-b-then-a")).toBe("09:12");
+    expect(earlierStartedOf([shown], "zh-a-then-b")).toBe("");
   });
 });

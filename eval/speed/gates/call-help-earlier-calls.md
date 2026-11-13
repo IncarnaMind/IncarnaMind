@@ -98,4 +98,32 @@ Before any paid request:
 
 ## Results
 
-None yet.
+### The pilot, 2026-11-13 03:08–03:18 UTC (commit 4e63e3bc9)
+
+- **It counts.** 156 model requests, none refused, failed or timed out. The allowance was 99.9% before and after; the 15-minute load was 5.75 at the start and 8.44 at the end. Spent $0.14, the judge $0.08 of it: $0.0029 a reply against the estimate of $0.004.
+- **Main's rate.** The judge counted 23 of main's 48 button replies as `earlier-as-this` (47.9%). A hand reading counted 29 (60.4%). Either way a run of 24 presses an arm expects well over 6 on main's arm, so R = 1.
+- **By order (the judge's count).** When the earlier call is the one that changes what the other said ("we'd start in March now"), 21 of 24. When the earlier call said it first, 2 of 24. The model takes an earlier call's lines about a change for the newest.
+- **Where the judge and the hand reading differ: 8 replies.**
+  - The judge passed seven that the hand reading counts: en-a-then-b-answer (first), zh-a-then-b-say (second), zh-a-then-b-answer (both), en-a-then-b-say (second), en-a-then-b-answer (second), en-c-then-d-check (second).
+  - The judge counted one that the hand reading passes: zh-c-then-d-say (second).
+  - A second reader took four of the seven as firm: en-a-then-b-answer (first), zh-a-then-b-say (second) and zh-a-then-b-answer (both). Each gives an earlier call's requirement as settled, or as the other side's position now, cited to the earlier call, with no word that it was said then. The other three are borderline. Both readers pass zh-c-then-d-say (second).
+
+### The judge sharpened, 2026-11-13, before the gate run
+
+**Why the change.** All four firm misses are one form: an earlier call's requirement stated as a settled fact, in the User's voice. That is the form the issue was opened on, a line offered to say. The replies the judge did count put a question or a want on the other side. The judge's line named "said, asked or wanted in this call" first, and "where the other side stands now" only after it. And it read the Citation's label in `<citations>`, "(the earlier call)", as the reply saying where the line came from, though the User sees only a number. Counted as it was, the branch could pass bar 1 with that form still in its replies.
+
+**What changed.**
+- `earlierAsThis` now also counts something only the earlier call holds given as a settled fact, a requirement or where the other side stands, in anyone's voice, the User's included.
+- It holds unless the reply's own words say it comes from the earlier call. A Citation, or the call its quote is from, doesn't say that. The words are general: none of the cases' or the pilot's sentences or names.
+- What the branch sends is unchanged, frozen at 85799c87a.
+
+**Judged again (`../earlierCallsRejudge.speed.ts`).** The pilot's 48 saved replies go to the judge alone, Claude Sonnet 5.5, under the first key's judge lease, on the gate's one ledger, for about $0.08.
+- It holds if the judge now lists the four firm misses, en-a-then-b-answer (first), zh-a-then-b-say (second) and zh-a-then-b-answer (both), and changes none of the 40 replies both readings agreed on.
+- The three borderline replies and zh-c-then-d-say (second) are reported, and either way is accepted.
+- It counts only with no judge request refused or failed. There is one try and no further tuning.
+
+**Which yardstick bar 1 counts.** If the judging again holds, bar 1 counts the judge, on both arms.
+- If it doesn't, bar 1 counts a hand reading of the gate run's button replies by a second reader, blind to the arm. The replies are written to a file without arm labels, with the key kept apart. The judge's count is reported beside it.
+- Bar 1 is also reported by order and by language, as the report's section prints it.
+
+**Spend, rescaled by the pilot's measured cost.** The pilot $0.14, the judging again about $0.08, a Claude Haiku 5.5 run of the gate (R = 1) about $0.20, and the Claude Sonnet 5.5 guard about $0.56. That is about $0.98 of $1.50.

@@ -20,6 +20,14 @@ const PILOT_FLOOR = 3;
 const LAST_TIME_FLOOR = 0.75;
 
 const isButton = (row: PairedRow) => row.kind !== "last-time";
+/**
+ * Which call of the pair was the earlier: the one that changes what the other said (b, d: "we'd
+ * start in March now") or the one that first said it (a, c), from the case's id ("en-b-then-a").
+ */
+const ORDERS = [
+  ["the earlier call brings the changes", /^[a-z]{2}-[bd]-then-/],
+  ["the earlier call said it first", /^[a-z]{2}-[ac]-then-/],
+] as const;
 const shownAsThis = (run: ArmRun) => run.failures.includes("earlier-as-this");
 /** "Last time" answered as bar 2 reads it: the earlier call's words as said then, with when, cited. */
 const answeredThen = (run: ArmRun) =>
@@ -62,6 +70,14 @@ function byButtonAndLanguage(rows: readonly PairedRow[], arm: "baseline" | "cand
   });
 }
 
+function byOrder(rows: readonly PairedRow[], arms: readonly ("baseline" | "candidate")[]) {
+  return ORDERS.map(([order, pattern]) => {
+    const cell = rows.filter((row) => pattern.test(row.id));
+    const shown = arms.reduce((sum, arm) => sum + count(cell, arm, shownAsThis), 0);
+    return `${order}: ${shown} of ${cell.length * arms.length}`;
+  }).join("; ");
+}
+
 function pilotSection(rows: readonly PairedRow[], model: string): string[] {
   const presses = rows.filter(isButton);
   const replies = presses.length * 2;
@@ -72,6 +88,7 @@ function pilotSection(rows: readonly PairedRow[], model: string): string[] {
   return [
     `**Pilot, ${model}: main's path against itself.** ${shown} of ${replies} of main's button replies are \`earlier-as-this\` (${(rate * 100).toFixed(1)}%), so a run of the gate's 24 presses an arm expects ${perRun.toFixed(2)} on main's arm.`,
     `Runs for an expected ${PILOT_AIM}: ${runsFor(PILOT_AIM) ?? "none reach it"}; for an expected ${PILOT_FLOOR}: ${runsFor(PILOT_FLOOR) ?? "none reach it"}. The gate file says how the stop then sets the runs.`,
+    `By order: ${byOrder(presses, ["baseline", "candidate"])}.`,
     "",
     "Every reply, for the hand read:",
     ...presses.flatMap((row) => [listed(row, row.baseline), listed(row, row.candidate)]),
@@ -108,6 +125,8 @@ function gateSection(rows: readonly PairedRow[], model: string): string[] {
   return [
     `**Bar 1, never this call's, ${model}: ${bar1}.** Button presses both arms finished: ${both(buttons).length}. \`earlier-as-this\`: main ${mainShown}, the branch ${branchShown}.`,
     "",
+    `By order: main ${byOrder(both(buttons), ["baseline"])}; the branch ${byOrder(both(buttons), ["candidate"])}.`,
+    "",
     "| Button | main, English | main, Chinese |",
     "|---|---|---|",
     ...byButtonAndLanguage(both(buttons), "baseline"),
@@ -132,6 +151,40 @@ function gateSection(rows: readonly PairedRow[], model: string): string[] {
       ...(shownAsThis(row.candidate) ? [`the branch: ${listed(row, row.candidate)}`] : []),
     ]),
   ];
+}
+
+/** The judge's Citations line for each number a reply shows, from its saved places. */
+export function citedOfPlaces(places: NonNullable<ArmRun["places"]>): string[] {
+  const seen = new Set<number>();
+  return places.flatMap((place) => {
+    if (seen.has(place.number)) return [];
+    seen.add(place.number);
+    const documentName = place.source.split(" · ").slice(1, 3).join(" · ");
+    const call = place.call === "earlier" ? "the earlier call" : "this call";
+    return [
+      `[${place.number}] ${documentName} (${call}): “${place.quote}” (${place.found ? "found" : "not found"})`,
+    ];
+  });
+}
+
+/**
+ * The earlier call's start as the judge was given it: kept with the reply since this tool, else the
+ * start a source line of that call shows in the case's replies, else none.
+ */
+export function earlierStartedOf(rows: readonly PairedRow[], caseId: string): string {
+  const own = rows.find((row) => row.id.startsWith(`${caseId}-`));
+  const kept = own?.baseline.callReading?.earlierStarted;
+  if (kept) return kept;
+  for (const row of rows.filter((each) => each.id.startsWith(`${caseId}-`))) {
+    for (const run of [row.baseline, row.candidate]) {
+      for (const place of run.places ?? []) {
+        const shown =
+          place.call === "earlier" ? /(?:started|开始于) (.+)$/.exec(place.source) : null;
+        if (shown?.[1]) return shown[1];
+      }
+    }
+  }
+  return "";
 }
 
 /** The gate's section of a paired run's report, or null when the run holds none of the set. */
