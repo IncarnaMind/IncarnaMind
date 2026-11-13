@@ -419,7 +419,7 @@ The branch's two, for the reading by hand of whether the change caused them:
 
 As round 2's, read the same way: bar 1 and the kind counted apart by two readers blind to the arm, a third where they differ, the judge's count beside; bar 2 by the two readers; bar 3 by the judge; bar 4 as repaired; bar 5. Main's arm must show at least 4 on bar 1, and the branch none.
 
-**Frozen.** What the branch sends is frozen for round 3 at commit 1adf8ef84. Later commits change only this gate's files and the evaluation's code.
+**Frozen.** What the branch sends is frozen for round 3 at commit 1adf8ef84. Later commits change this gate's files and the evaluation's code; 2f8e014c1 also changes the renderer's and shared code for a Citation's line in the assistant, and a later commit has the later check read the press rule from that shared code, unchanged. What a press or a typed Question sends is unchanged since 1adf8ef84.
 
 ### Models, judges, keys and spend
 
@@ -442,3 +442,112 @@ As round 2's, read the same way: bar 1 and the kind counted apart by two readers
 - **The first try's replies in the four rows,** 7 presses that failed and the one press that finished beside a failed one, are struck: kept in the first run's record with their times and error text, and never read.
 - **The readings.** The blind readings of the 44 rows may start before the four rows run. The four rows' replies go into the same blind files under new shuffled names, for the same two readers. The key stays closed, and nobody searches a log or a report by arm, until every reading is fixed, the four rows' included.
 - **The result says** which rows came from which run, and on how many pairs each bar was read.
+
+### Round 3's Claude Haiku 5.5 runs, 2026-11-13 13:05–13:38 UTC: every bar holds
+
+What the branch sends was frozen at 1adf8ef84. The runs used 20dfcb74b, with the set file put in (SHA-256 2be5f3c11e647e611d9e3f8173cb37198cb1761a0f321f71ed51584eafc6509d), on the second direct Anthropic key, its allowance at 100% before and after each run.
+
+- **It counts, on 48 rows from two runs.**
+
+| Run | When (UTC) | Rows | Requests | Spent | Counted |
+|---|---|---|---|---|---|
+| First run | 13:05:45–13:24:17 | 48 | 397: 374 finished, 23 failed | $0.3071 | the 44 rows where every request finished |
+| The four rows asked once more | 13:36:13–13:37:56 | 4 | 29, all finished | $0.0290 | the 4 rows |
+| The gate as read | | 48 | 397, all finished | $0.3361, under the $0.45 stop | |
+
+- **Why four rows ran twice.** The first run's 23 failed requests are Claude Haiku 5.5 chat requests with nothing billed, in rows 39 to 42 of 48, about 13:20:42–13:21:50Z. Another run on another direct key of the same provider got HTTP 503 at 13:20:41Z and 13:21:01Z, and a probe at 13:22:42Z was clean: one outage on both keys. The rule for them was written before any of their requests, in the subsection above.
+- **Struck: the first try's four rows,** kept in the first run's record and never read.
+
+| Row | Went first | main | the branch |
+|---|---|---|---|
+| en-p-then-o-check | main | failed; 3 of 6 requests failed | failed; 3 of 3 requests failed |
+| en-p-then-o-last-time | the branch | failed; 3 of 3 | failed; 3 of 3 |
+| zh-o-then-p-say | main | failed; 3 of 3 | failed; 3 of 3 |
+| zh-o-then-p-answer | the branch | done; 2 of 5 requests failed | failed; 3 of 3 |
+
+- **The arms alternated:** each went first in 24 of the 48 pairs, and in 2 of the four rows asked once more.
+- **The readings.** Two readers read all 96 replies by hand, blind to the arm, both arms shuffled together: the 88 of the 44 rows, then the four rows' 8 under the next names. They differ on 4 of the 96, all button replies. A third reader, given only those four replies and the calls, settled them, two of three readings deciding each mark. All three readings were fixed, each with its SHA-256, before the key was opened (13:43:33Z, 13:44:18Z and 13:46:35Z; the key at 13:46:43Z). No log or report was searched by arm before then; the records were counted only by scripts that print both arms' numbers together. On a button reply the arm can often be guessed, since only one arm can cite an earlier call, so each mark was made from the reply's words against the two calls.
+- **Every bar is read on all its pairs:** 36 button pairs, 12 "last time" pairs, 48 items.
+
+| Bar | main | the branch | Needs | |
+|---|---|---|---|---|
+| 1. An earlier call's content given as this call's, or put on the Documents or the record, of 36 | 21 | 0 | none on the branch; main at least 4 | holds |
+| Counted apart: the other side's earlier line given as ours, of 36 | 8 | 0 | none on the branch | holds |
+| 2. "Last time" answered with all four, of 12 | 8 | 12 | at least 9, and no fewer than main | holds |
+| 3. Button replies graded right by the judge, of 36 | 16 | 28 | no fewer than main | holds |
+| 4. Items with a false Supported, of 48 | 2 | 0 | no more than main | holds |
+| 5. Items that failed, of 48 | 0 | 0 | no more than main | holds |
+
+**Bar 1, never this call's: holds.**
+
+| | main, round 2's way | the branch, round 2's way | main, round 1's way | the branch, round 1's way | the judge, main | the judge, the branch |
+|---|---|---|---|---|---|---|
+| All, of 36 | 21 | 0 | 20 | 0 | 13 | 0 |
+| The earlier call said it first, of 24 | 17 | 0 | 16 | 0 | 10 | 0 |
+| The earlier call brings the changes, of 12 | 4 | 0 | 4 | 0 | 3 | 0 |
+| English, of 18 | 12 | 0 | 12 | 0 | 7 | 0 |
+| Chinese, of 18 | 9 | 0 | 8 | 0 | 6 | 0 |
+
+- Put on the Documents or the record: main 2 (en-m-then-n-answer, zh-m-then-n-check), the branch 0.
+- The four replies the third reading settled are all main's: zh-l-then-k-answer (counted), zh-m-then-n-check (on the Documents, not as this call's), en-n-then-m-answer (counted, and the other side's line as ours), en-n-then-m-say (counted, and as ours).
+- The first two readers marked 16 of main's replies as a close call on some mark, and 1 of the branch's, a "last time" reply both mark answered. No button reply of the branch's is a close call for either reader.
+- **What a press was given, seen in the replies.** The branch's 36 button replies cite the earlier call nowhere: 67 places cite this call, 27 with ✓. Main's cite it in 31 of 36 replies, 43 places, 9 with ✓; of main's 21 counted on bar 1, 7 carry a ✓ on a quote from the earlier call.
+
+**Counted apart, an earlier line of the other side given as ours: holds.** Main 8, the branch 0.
+
+| Cut | main | the branch |
+|---|---|---|
+| The earlier call said it first, of 24 | 6 | 0 |
+| The earlier call brings the changes, of 12 | 2 | 0 |
+| English, of 18 | 6 | 0 |
+| Chinese, of 18 | 2 | 0 |
+
+**Bar 2, last time still answered: holds.** All four, by the settled readings: main 8 of 12, the branch 12 of 12. The judge's count beside, graded right: main 8 (right, partly, wrong: 8, 1, 3), the branch 12 (12, 0, 0).
+
+| Cut | main | the branch |
+|---|---|---|
+| The earlier call said it first | 4 of 8 | 8 of 8 |
+| The earlier call brings the changes | 4 of 4 | 4 of 4 |
+| English | 4 of 6 | 6 of 6 |
+| Chinese | 4 of 6 | 6 of 6 |
+
+- Main's four misses are the pair recorded the same day, o and p, in both orders and both languages: three give this call's lines as the last thing said, and one gives the earlier call's points with only the shared day, saying it can't tell which meeting came first. The branch answers all four with the earlier call's time of day.
+- The branch's 12 "last time" replies all cite the earlier call: 35 places, 29 with ✓.
+
+**Bar 3, no worse on this call: holds.** Button replies graded right by the judge: main 16, the branch 28 of 36 (right, partly, wrong: main 16, 18, 2; the branch 28, 7, 1).
+
+| Cut | main | the branch |
+|---|---|---|
+| The earlier call said it first | 7 of 24 | 17 of 24 |
+| The earlier call brings the changes | 9 of 12 | 11 of 12 |
+| English | 6 of 18 | 15 of 18 |
+| Chinese | 10 of 18 | 13 of 18 |
+
+**Bar 4, no new false Supported: holds.** Items with one: main 2 (zh-l-then-k-last-time, zh-o-then-p-check), the branch 0, so none of the branch's to read by hand. By order: said it first 1 and 0 of 32, brings the changes 1 and 0 of 16. By language: English 0 and 0, Chinese 2 and 0 of 24.
+
+**Bar 5, no more items failing: holds.** None on either arm, in any cut.
+
+### The typed question on Claude Sonnet 5.5, 2026-11-13 13:47–13:48 UTC: both arms pass
+
+- **The run.** "上次他们说了什么？" typed on zh-k-then-l, where the earlier call said it first, 6 days before; both arms, main first, one run, no judge. 12 requests, all finished. On each arm 4 went to Claude Sonnet 5.5, three for the answer and one for its check, and 2 to Claude Haiku 5.5, the quick check that a typed Question's reply claims no change it didn't make. Spent $0.0883, under its $0.175 stop. The English twin didn't run: it needed $0.35 left, and $0.2402 was.
+- **Read by hand, blind to the arm,** the reading fixed with its SHA-256 before the key was opened. Each reply passes or fails on one thing: an earlier call's line given as this call's, or given without who said it and when.
+  - The branch passes: "11月7日那次通话中，对方（钟经理）说了这几点", the budget, the eleven hotels and month-end settlement, each cited to the earlier call with ✓; the User's promise put on then, and four hotels and the fortnight put on today.
+  - Main passes: "上次（11月7日）的会议里，对方说了三点", the same three points, cited and dated the same way, and today's put on today.
+- No false Supported on either arm. Two replies can't hold a rate: this looks for the one failure named, and there is none.
+
+### Round 3's spend
+
+| Step | Spent | Its stop |
+|---|---|---|
+| The Haiku gate, first run | $0.3071 | $0.45 for the gate |
+| The four rows asked once more | $0.0290 | $0.04, inside the gate's $0.45 |
+| The typed question on Claude Sonnet 5.5 | $0.0883 | $0.175 |
+| Round 3 in all | $0.4244 | $0.576 left for it |
+
+The ledger for rounds 1 to 3 holds $1.3481 of $1.50. Nothing ran past a stop, and no run was started a third time.
+
+**Round 3 holds on every bar.**
+- A press given no other call gives none of an earlier call's content as this call's: 0 of 36 against main's 21, and 0 against main's 8 for the other side's earlier line given as ours. Rounds 1 and 2 failed on that bar (the branch: 5 of 24 in round 1, 10 of 36 in round 2, counted as here).
+- A typed question keeps earlier calls, marked: "last time" is answered with who said it and when in 12 of 12, where main misses the four on the pair recorded the same day.
+- On this call's own content the branch is no worse on any count: more button replies graded right (28 against 16), no false Supported, nothing failed.
+- **These 12 cases are now seen** by this change, so they no longer count as proof for a later one.
