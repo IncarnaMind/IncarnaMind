@@ -28,7 +28,7 @@ import { answerTableCommands } from "./answerTables";
 import { appearanceCommands } from "./appearance";
 import { assistantCommands } from "./assistant";
 import { bibliographyCommands } from "./bibliography";
-import { blockCommands, blockIn } from "./blocks";
+import { blockCommands } from "./blocks";
 import { calendarCommands } from "./calendars";
 import { chartCommands } from "./charts";
 import { checkCommands } from "./checks";
@@ -465,26 +465,6 @@ const appCommands: readonly Command[] = [
     run: () => {
       const on = useAppStore.getState().settings?.user.suggestWhileWriting ?? false;
       return useAppStore.getState().updateSettings({ user: { suggestWhileWriting: !on } });
-    },
-  },
-  {
-    id: "block.delete",
-    label: "block.delete.command",
-    menuLabel: "editor.block.delete",
-    shortcut: { keys: "CmdOrCtrl+Shift+Backspace" },
-    group: "danger",
-    destructive: true,
-    appliesTo: ["block", "answer", "chart", "mind"],
-    // From ⌘K it deletes where the cursor is, which an Answer can't see.
-    assistant: false,
-    // The note's own undo (⌘Z) brings it back.
-    reversible: true,
-    when: (ctx) => ctx.here?.["block.delete"] !== undefined || blockIn(ctx) !== null,
-    run(ctx) {
-      // An Answer's or a chart's menu deletes it, wherever the cursor is.
-      if (ctx.here?.["block.delete"]) return ctx.here["block.delete"]();
-      // The Blocks the note's selection touches, the focused one among them.
-      blockIn(ctx)?.editor.commands.deleteBlock();
     },
   },
   ...blockCommands,

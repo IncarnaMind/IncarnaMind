@@ -334,7 +334,9 @@ test("an Answer goes to another Mind through the ▾, and to a new Mind as chang
       }
     ).incarnamind.updateSettings({ user: { language: "zh-CN" } }),
   );
-  await window.keyboard.press("Escape");
+  // The Note has the focus after the menu, and keeps Esc for itself: the notice is closed by its ✕.
+  await pointAndClick(window, window.getByTestId("error-notice-dismiss"));
+  await expect(window.getByRole("alert")).toHaveCount(0);
   await (
     await slideToHandle(window, window.getByTestId("mind-editor").locator(":scope > p").nth(1))
   ).click();

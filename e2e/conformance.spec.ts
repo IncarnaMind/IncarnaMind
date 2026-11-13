@@ -81,6 +81,8 @@ interface Stage {
   show(run: Run, key: string): Promise<string>;
   /** What the core calls it, for the kinds that rename. */
   name?(run: Run, key: string): Promise<string>;
+  /** False for a kind whose menu holds only another kind's Rename (a Block's holds a chart's). */
+  renames?: false;
   /** What shows once it is opened, for the kinds that open. */
   opened?(run: Run, key: string): Locator;
   /** A kind that lives in a Mind's text, whose key is the Mind's: its state is the note, its undo the note's. */
@@ -529,7 +531,7 @@ async function conform(run: Run, kind: ObjectKind, stage: Stage): Promise<void> 
     await closeMenu(window, place);
   });
 
-  if (menu.some((each) => registry.commands[each.id]?.renames)) {
+  if (stage.renames !== false && menu.some((each) => registry.commands[each.id]?.renames)) {
     await test.step(`${kind}: renames in place`, () => checkRename(run, kind, stage, key));
   }
   if (menu.some((each) => each.id === `${kind}.open`)) {
@@ -981,6 +983,7 @@ const STAGES: Record<Staged, Stage> = {
   // paragraph is the one its ⋯ and its right-click are about.
   block: {
     inNote: true,
+    renames: false,
     make: ({ window }) =>
       mindWrittenBefore(window, "Tide notes", [
         { note: "Spring tides follow the Moon." },

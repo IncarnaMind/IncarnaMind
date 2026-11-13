@@ -7280,6 +7280,11 @@
       outline: 2px solid var(--color-accent);
     }
   }
+  /* A right-click or a key opens the menu with the handle hidden, which its children inherit. */
+  .block-handle [role="menu"] {
+    visibility: visible;
+    pointer-events: auto;
+  }
   .block-handle[data-dragging="true"] .block-grip {
     cursor: grabbing;
   }

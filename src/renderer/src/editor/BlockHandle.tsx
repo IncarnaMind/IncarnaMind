@@ -189,8 +189,12 @@ export function BlockHandle({
   const hovered = useRef<{ node: ProseMirrorNode; pos: number } | null>(null);
   /** Where the pointer is, so a list's handle stands by the item under it, not the list's first. */
   const pointer = useRef({ x: 0, y: 0 });
-  /** The Block the menu is for: the one under the handle, until it opens, then the one asked about. */
-  const [target, setTarget] = useState<string | null>(null);
+  /**
+   * The Block the menu is for: the one under the handle, until it opens, then the one asked about.
+   * Empty until the pointer first comes to a Block, when the handle is not showing yet, but is
+   * drawn so that it has its size when it is first placed.
+   */
+  const [target, setTarget] = useState("");
   const menuOpen = useRef(false);
 
   // A Question and the Answer right after it are dragged as one. This runs
@@ -260,7 +264,7 @@ export function BlockHandle({
     return row.querySelector<HTMLButtonElement>('[data-testid="block-menu"]');
   });
 
-  const block = target === null ? null : findBlock(editor.state.doc, target);
+  const block = findBlock(editor.state.doc, target);
   const label = t("editor.block.menu");
 
   return (
@@ -283,43 +287,38 @@ export function BlockHandle({
             if (dom instanceof Element) dom.setAttribute("data-handle-on", "");
           }}
         >
-          {target !== null && (
-            <div
-              className="contents"
-              onClickCapture={(event) => {
-                // The handle's click is for the Block it stands by, whichever one was asked about
-                // last; a click the right-click or the key made is for the Block they chose.
-                const stands = hovered.current?.node.attrs[BLOCK_ID_ATTRIBUTE];
-                if (!event.nativeEvent.isTrusted || menuOpen.current) return;
-                if (
-                  !(event.target instanceof Element) ||
-                  !event.target.closest("[data-object-menu]")
-                )
-                  return;
-                if (typeof stands !== "string") return;
-                const found = findBlock(editor.state.doc, stands);
-                if (!found) return;
-                enter(editor, found, undefined);
-                flushSync(() => setTarget(stands));
+          <div
+            className="contents"
+            onClickCapture={(event) => {
+              // The handle's click is for the Block it stands by, whichever one was asked about
+              // last; a click the right-click or the key made is for the Block they chose.
+              const stands = hovered.current?.node.attrs[BLOCK_ID_ATTRIBUTE];
+              if (!event.nativeEvent.isTrusted || menuOpen.current) return;
+              if (!(event.target instanceof Element) || !event.target.closest("[data-object-menu]"))
+                return;
+              if (typeof stands !== "string") return;
+              const found = findBlock(editor.state.doc, stands);
+              if (!found) return;
+              enter(editor, found, undefined);
+              flushSync(() => setTarget(stands));
+            }}
+          >
+            <ObjectMenu
+              target={{ kind: "block", id: target }}
+              label={label}
+              hint={t("editor.block.handle")}
+              icon={GripIcon}
+              className="block-grip"
+              onOpenChange={onOpenChange}
+              without={block ? withoutOwnDelete(block.node) : []}
+              here={{
+                "block.delete": () => {
+                  const found = findBlock(editor.state.doc, target);
+                  if (found) editor.chain().focus().deleteBlock(found.pos).run();
+                },
               }}
-            >
-              <ObjectMenu
-                target={{ kind: "block", id: target }}
-                label={label}
-                hint={t("editor.block.handle")}
-                icon={GripIcon}
-                className="block-grip"
-                onOpenChange={onOpenChange}
-                without={block ? withoutOwnDelete(block.node) : []}
-                here={{
-                  "block.delete": () => {
-                    const found = findBlock(editor.state.doc, target);
-                    if (found) editor.chain().focus().deleteBlock(found.pos).run();
-                  },
-                }}
-              />
-            </div>
-          )}
+            />
+          </div>
         </DragHandle>
       )}
     </div>
