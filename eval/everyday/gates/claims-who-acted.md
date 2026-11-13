@@ -115,6 +115,50 @@ Written on the issue on 2026-11-12 and agreed by the second reader; the lead's h
    - honest: the User's own edits read from a Note, a named person's change from a Document, and what the User could do next.
 6. **#2769's 41 everyday requests,** once on head, on each model, read and not counted against a number: every flag is listed with its sentence. A flag on an honest sentence goes to the second reader before the merge, with what `main`'s saved run did on the same request.
 
+### The gate's Claude Haiku 5.5 half (2026-11-13, written before its first request)
+
+No bar joins the two models, so this half runs before DeepSeek V4.1 Flash's key is topped up. That half waits, and its plan is written before it runs, with the price of its own hour read right before it starts.
+
+**The arms.** Both run under this branch's `eval/`, so they are scored the same way:
+- **head:** the branch's head at the gate's first request, the head that merges;
+- **main:** the `origin/main` commit the head was last merged with (`61615612f` as this is written), with its `src/` in place of the branch's, so the arms differ only by this change. If `main` has moved by the first request, it is merged in first and the gate runs on the new head.
+
+Each arm is a tree of its own, built with `git archive`. Its code is that commit's byte for byte.
+
+**The probes.** All 167 of #2878's plan and this change's (90 dev, #2878's 61 held-out, the lead's 16 held-out) and the backed write: 168 checks per run.
+
+**The order.** Twenty rounds. Each round runs main A once, head once, then main B once, every probe in each. So a change at the provider during the gate touches every arm alike.
+- 60 runs, 10,080 checks.
+- About 3.4 hours, from the try's 1.12 s a check on this key and about 15 s to start each run.
+
+**#2769's 41 everyday requests,** once each on head, after the twenty rounds:
+- the Library's model is Claude Haiku 5.5, and the claims are judged by Claude Sonnet 5.5 on the same key;
+- about 25 minutes, as #2878's run of them took 21.
+
+**The estimate.** Anthropic's prices don't change by the hour.
+
+| Part | Each | All |
+|---|---|---|
+| Probe runs, 10,080 checks | $0.00013 a check (the try's $0.236 for 1,820) | about $1.31 |
+| The 41 on head, Claude Haiku 5.5 with the Claude Sonnet 5.5 judge | #2878's run of them: $0.76 | about $0.80 |
+| **This half** | | **about $2.11** |
+
+**The stop for this half: $2.40.** That leaves about $1.47 of the $3.87 still in #2970's $4.80 for DeepSeek V4.1 Flash's half.
+- That half's estimate at its off-peak price: about $0.73 for its probe runs, from step 1's ¥0.94 for 1,820 checks, and about $0.50 for its 41.
+- So it goes off-peak, or it waits for more room.
+
+**Keys and leases.**
+- The half runs in the lead's slot, `cory-2970-gate`, under the `key-anthropic` lease, on `ANTHROPIC_API_KEY`. The judge's lease is nested inside it for the 41.
+- The hold is renewed after each round, so its two-hour limit doesn't end it partway.
+- Before each round, one smallest request reads the key's per-minute allowance. A round starts only above 90%, and before the 41 the same holds for Claude Sonnet 5.5.
+
+**What voids a run.** A run counts only with no refused, failed or timed-out request in its own record. A void run is kept, struck with its reason, and run again in the same place of the order. The others aren't moved.
+
+**What is read.** Bars 1 to 5 for this model, from the three arms. Bar 6 from the 41 on head, beside #2878's saved run of the same 41 on Claude Haiku 5.5, whose code is `main`'s.
+- Every flag of the 41 is listed with its sentence.
+- Where each sentence was filed is reported for every probe on each arm, and the unmade marks probes are shown caught whatever value they get.
+- `reply-self-zh` and its miss on DeepSeek V4.1 Flash stay recorded as in the try's result.
+
 ## Spend
 
 The stop for all of #2970 is $4.80. A run that would pass it isn't started without the second reader's word. Spent before the try: about $0.41; after it, about $0.93. An estimate takes the price at the hour the run goes: DeepSeek V4.1 Flash's daytime price is twice its off-peak one.
