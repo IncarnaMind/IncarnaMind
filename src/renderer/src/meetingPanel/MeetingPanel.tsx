@@ -580,6 +580,7 @@ function Suggestion({
         help={help}
         answer={answer}
         onRetry={() => void askHelp(meeting, help.kind)}
+        {...(bridge.callHelpForm && { form: bridge.callHelpForm })}
       />
       {(keeps || pinned) && answer.status !== "streaming" && (
         <div className="panel-actions">

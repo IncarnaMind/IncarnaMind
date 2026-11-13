@@ -29,6 +29,7 @@ import {
 } from "../shared/citedPage";
 import type { GeneralHelpKind } from "../shared/meetingHelp";
 import {
+  CALL_HELP_FACT_LINES_ARGUMENT,
   type HeldKeys,
   MEETING_PANEL_ARGUMENT,
   MEETING_PANEL_BRIDGE_KEY,
@@ -200,6 +201,7 @@ if (process.argv.includes(MEETING_PANEL_ARGUMENT)) {
     state: (state) => send(MEETING_PANEL_CHANNELS.state, state),
     onCommand: (listener) => listen<PanelCommand>(MEETING_PANEL_CHANNELS.command, listener),
     keyboard: (take) => send(MEETING_PANEL_CHANNELS.keyboard, take),
+    callHelpForm: process.argv.includes(CALL_HELP_FACT_LINES_ARGUMENT) ? "fact lines" : null,
   };
   contextBridge.exposeInMainWorld(MEETING_PANEL_BRIDGE_KEY, panel);
 }

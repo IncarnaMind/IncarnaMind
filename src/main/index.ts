@@ -27,6 +27,7 @@ import { defaultOllamaUrl } from "../core/providers/kinds";
 import { installedOllamaModels } from "../core/providers/ollama";
 import { channelFor, EVENT_CHANNEL, FILES_CHANNELS, SERVED_CHANNEL } from "../shared/bridge";
 import { translate } from "../shared/i18n";
+import type { CallHelpForm } from "../shared/meetingHelp";
 import { ANALYSIS_SCHEME_PRIVILEGES } from "./analysis";
 import { crashReloads, logAppEnd, unexpectedEnds } from "./appEnd";
 import {
@@ -213,6 +214,16 @@ function testSandboxProblem(): { problem?: SandboxProblem } {
     import.meta.env.MODE === "test" ? process.env.INCARNAMIND_TEST_SANDBOX_PROBLEM : undefined;
   return given ? { problem: JSON.parse(given) as SandboxProblem } : {};
 }
+
+/**
+ * Test-only: call help asked and read in the form whose facts stand apart (#2847), for its stills
+ * and smoke tests before it ships. The one place the switch is read: in any build but a test build
+ * this is undefined at build time. The commit that makes the form the default takes it out.
+ */
+const testCallHelpForm: CallHelpForm | undefined =
+  import.meta.env.MODE === "test" && process.env.INCARNAMIND_TEST_CALL_HELP_FORM === "fact lines"
+    ? "fact lines"
+    : undefined;
 
 /** Set by electron-vite in development; absent in a built app. */
 const rendererUrl = process.env.ELECTRON_RENDERER_URL;
@@ -597,6 +608,7 @@ app.whenReady().then(async () => {
     logger.info("app.startup.adaptersReady");
     core = createCore({
       ...adapters,
+      ...(testCallHelpForm && { callHelpForm: () => testCallHelpForm }),
       notifications: createSystemNotifications(appWindows),
       ...callWatching(),
       loginItem: app.isPackaged
@@ -657,6 +669,7 @@ app.whenReady().then(async () => {
     mac: process.platform === "darwin",
     log: logger,
     testHooks,
+    ...(testCallHelpForm && { callHelpForm: testCallHelpForm }),
   });
   servePermissionGuide({ rendererUrl, appWindows, trusted: isFromOurRenderer, testHooks });
   const background = serveBackground({
