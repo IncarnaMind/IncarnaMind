@@ -42,6 +42,7 @@ import { useLanguage, useT } from "../i18n";
 import { useSettingUp } from "../modelSetup";
 import { useAppStore, type ViewerTarget } from "../store";
 import { useCitedArea } from "./citedArea";
+import { citedPlaceGone } from "./citedPlace";
 import { FileStates } from "./FileStates";
 import { CitationMark, MARK_HEIGHT, quoteMarkOf, quoteTone, useMarkMeasure } from "./quoteMark";
 import { citeRangeAction, SheetSelectionMenu } from "./SelectionMenu";
@@ -291,7 +292,7 @@ function Sheets({
 
   return (
     <>
-      <ViewerHeader />
+      <ViewerHeader placeGone={citedPlaceGone(target, units.length)} />
       <div
         ref={box}
         data-testid="viewer-sheet"

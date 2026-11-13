@@ -67,6 +67,7 @@ import { sameWords, yoursLine } from "../../shared/commands";
 import { FIGURE_MARKER, withFigures, withFigureText } from "../../shared/figureMarkers";
 import { figureRunsOfAnswer, installFigureRuns } from "../../shared/figureRuns";
 import { readFigures } from "../../shared/figures";
+import { helpLayout, helpReplyRead } from "../../shared/helpReplyRead";
 import { type MessageKey, type MessageParams, translate } from "../../shared/i18n";
 import {
   citationLocation,
@@ -1955,11 +1956,16 @@ export function createAnswers(options: AnswersOptions) {
     /** Call help's own model while it writes the reply; null: the model it was asked of (#2526). */
     let writtenBy: ChatModelChoice | null = null;
     let settled = false;
-    /** The text as it ends: each quote checked, once, and the markers no Citation backs taken out. */
-    const settle = () => {
+    /**
+     * The text as it ends: each quote checked, once, and the markers no Citation backs taken out.
+     * Call help's reply is kept as its panel reads it (#2925), so every later reader of it reads the
+     * words its check read.
+     */
+    const settle = (status: Outcome["status"]) => {
       if (settled) return;
       settled = true;
       markdown = session.citeWrittenIds(markdown, notKept);
+      if (help) markdown = helpReplyRead(markdown, helpLayout(help, { status, textBehind })).text;
       // The check runs once, now; its results are stored with each Citation, and each figure's input.
       try {
         session.check();
@@ -2021,7 +2027,7 @@ export function createAnswers(options: AnswersOptions) {
         );
         if (cut) input.onCall?.({ ...call });
       }
-      settle();
+      settle(outcome.status);
       const judging = judgesItsSentences() && outcome.status !== "failed";
       if (judging) {
         // A stopped Answer's sentences aren't judged: they wait for the User's Check again.
