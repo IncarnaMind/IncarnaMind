@@ -287,4 +287,13 @@ describe("On the model on this computer, which the check doesn't offer calculate
   ])("no cell holds %s: it is Not checked", async (claim, contents, quote) => {
     expect(await ended(claim, contents, quote)).toBe("not-checked: no-evidence");
   });
+
+  test.each([
+    ["Growth was 2–3%.", "supported"],
+    ["Growth was 2–9%.", "not-checked: no-evidence"],
+    ["增长率为2%至9%。", "not-checked: no-evidence"],
+  ])("a range is held only with both its ends: %s", async (claim, verdict) => {
+    const line = "Growth was 2–3%.";
+    expect(await ended(claim, `Growth\n${line}\n`, line)).toBe(verdict);
+  });
 });

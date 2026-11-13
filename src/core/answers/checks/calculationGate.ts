@@ -123,19 +123,29 @@ export function quotesHoldNumbers(
       ...(words === citation.quote ? [] : figuresInClaim(words, context).flatMap(readingsOf)),
     ];
   });
+  // A range's second end is a number of its own: "2–3%" holds 3% as well as 2%.
+  const ends = (each: Reading) => [
+    each.value,
+    ...("rangeTo" in each && typeof each.rangeTo === "number" ? [each.rangeTo] : []),
+  ];
+  const values = held.flatMap(ends);
+  const plain = held.flatMap((each) =>
+    each.unit.kind === "plain" ? ends(each).map((value) => value / each.scale) : [],
+  );
+  const holds = (readings: readonly Reading[], written: number) =>
+    readings.some((reading) => values.some((value) => sameValue(value, reading.value))) ||
+    plain.some((value) => sameValue(value, written));
   const cites = recordCiteSpans(claim);
   return figuresInClaim(claim, own.language ? own : { ...context, header: null })
     .filter((figure) => !cites.some((cite) => figure.start < cite.to && figure.end > cite.from))
-    .every(
-      (figure) =>
-        readingsOf(figure).some((reading) =>
-          held.some((each) => sameValue(each.value, reading.value)),
-        ) ||
-        held.some(
-          (each) =>
-            each.unit.kind === "plain" && sameValue(each.value / each.scale, writtenOf(figure)),
-        ),
-    );
+    .every((figure) => {
+      const second = figure.ambiguous.find((each) => each.kind === "range")?.readings[1];
+      const first = readingsOf(figure).filter((reading) => reading !== second);
+      return (
+        holds(first, writtenOf(figure)) &&
+        (second === undefined || holds([second], writtenOf({ ...figure, value: second.value })))
+      );
+    });
 }
 
 export async function needsCalculation({
