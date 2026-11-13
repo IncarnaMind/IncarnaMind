@@ -96,79 +96,44 @@ describe("A check reply's own record lines", () => {
   });
 });
 
-describe("A record line holding the quotes of every marker, and a cite call written as code", () => {
+describe("A cite call written as code, and a record line holding two quotes", () => {
   const replying = (evidence: string, line: string) =>
     ["Verdict: supported", `Evidence: ${evidence}`, line].join("\n");
-  const TWO =
-    'Cite: [1] passage P1, p. 4, quote: "Recurrent O(n d2) O(n) O(n)" and "Weighted keys O(n2 d) O(1) O(1)"';
-  const record = (marker: number, quote: string, location: string | null = "p. 4") => ({
+  const record = (marker: number, quote: string) => ({
     marker,
     passage: "P1",
     document: null,
-    location,
+    location: "p. 4",
     quote,
   });
+  const call = (body: string) => `cite(citations=[${body}])`;
+  const ROW = (marker: number, quote: string) =>
+    `{"marker": ${marker}, "passage": "P1", "location": "p. 4", "quote": "${quote}"}`;
 
-  // protects=one record line with as many quotes as the reply's Evidence line names markers, its own label the first, joined by "and" or a comma alone, gives one record each in that order with the line's Passage and page, in English and Chinese; a cite call written as code gives its records as one written as JSON does; fails_when=such a line or call is left unread, so the check asks again for records the reply gave; no_claim=whether the quotes are found, which the Citation check decides.
-  test("read: the quotes of every marker on one line, and a cite call written as code", () => {
-    expect(writtenRecords(replying("[1, 2]", TWO))).toEqual([
-      record(1, "Recurrent O(n d2) O(n) O(n)"),
-      record(2, "Weighted keys O(n2 d) O(1) O(1)"),
-    ]);
-    expect(
-      writtenRecords(
-        replying("[1，2]", "[^1]: 段落 P1，p. 2：“港口的潮水每天都会涨落。”和“港口在黄昏关闭。”"),
-      ),
-    ).toEqual([
-      record(1, "港口的潮水每天都会涨落。", "p. 2"),
-      record(2, "港口在黄昏关闭。", "p. 2"),
-    ]);
-    expect(
-      writtenRecords(
-        replying(
-          "[1, 2]",
-          'cite(citations=[{"marker": 1, "passage": "P1", "location": "p. 4", "quote": "Recurrent O(n d2) O(n) O(n)"}, {"marker": 2, "passage": "P1", "location": "p. 4", "quote": "Weighted keys O(n2 d) O(1) O(1)"}])',
-        ),
-      ),
-    ).toEqual([
-      record(1, "Recurrent O(n d2) O(n) O(n)"),
-      record(2, "Weighted keys O(n2 d) O(1) O(1)"),
-    ]);
+  // protects=a cite call written as code gives its records as the same call written as JSON does, in English and Chinese; fails_when=it is left unread, so the check asks again for records the reply gave; no_claim=whether the quotes are found, which the Citation check decides.
+  test.each([
+    ["English", "Recurrent O(n d2) O(n) O(n)", "Weighted keys O(n2 d) O(1) O(1)"],
+    ["Chinese", "港口的潮水每天都会涨落。", "港口在黄昏关闭。"],
+  ])("read: a cite call written as code, %s", (_language, first, second) => {
+    expect(writtenRecords(replying("[1, 2]", call(`${ROW(1, first)}, ${ROW(2, second)}`)))).toEqual(
+      [record(1, first), record(2, second)],
+    );
   });
 
-  // protects=a line with more than one quote stays no record when the Evidence line names another count of markers, one marker, or the line's label isn't its first, and when a quoted Document name, page or Passage text stands beside the quote; a location in quotation marks is never a quote, so a line with it and one quote gives that one record alone, in English and Chinese; fails_when=any of them is read as records, or a location is taken for the second marker's quote; no_claim=lines with one quote each, which the test above holds.
+  // protects=a cite call written as code is read only as JSON: single quotes in place of double, or a quote holding "])", give no record; a line with two quotes beside an Evidence line naming two markers gives none, since a reply that writes one gives marker 2 a line of its own and both quotes are marker 1's (the 13-07-30 reply), in English and Chinese; fails_when=any of them is read as records, which would give marker 2 the quote the model gave for marker 1; no_claim=lines with one quote each, which the first test holds.
   test.each([
-    ["the counts differ", "[1, 2, 3]", TWO],
-    ["two quotes where Evidence names one marker", "[1]", TWO],
-    ["the line's label isn't the first marker", "[1, 2]", TWO.replace("[1]", "[2]")],
     [
-      "a Document's name in quotation marks",
-      "[1, 2]",
-      'Cite 1: "Demonstrations Not Weights", p. 5 — "training a 220 billion parameter autoregressive language model"',
+      "single quotes",
+      call("{'marker': 1, 'passage': 'P1', 'quote': 'Recurrent O(n d2) O(n) O(n)'}"),
     ],
-    ["a page in quotation marks", "[1, 2]", '[^1]: P4, "p. 38" — Table 4 row: "220 B 210 B 2,740"'],
+    ["a quote holding ])", call(ROW(1, "the table [see Table 1]) on p. 4"))],
     [
-      "a Passage's text beside the quote",
-      "[1, 2]",
-      '[1] P2, p. 2: "up to million-length sequences" (passage P2 text: "its performance improves")',
+      "13-07-30: two rows on [^1], no line for marker 2",
+      '[^1] passage P3, page 4: "Recurrent O(n d2) O(n) O(n)" and "Weighted keys O(n2 d) O(1) O(1)"',
     ],
-    [
-      "两个引文而依据只列一个标记",
-      "[1]",
-      "[^1]: 段落 P1，p. 2：“港口的潮水每天都会涨落。”和“港口在黄昏关闭。”",
-    ],
-  ])("none: %s", (_case, evidence, line) => {
-    expect(writtenRecords(replying(evidence, line))).toEqual([]);
-  });
-
-  test.each([
-    ["English", '- marker 1: passage P1, location "p. 4", quote "Recurrent O(n d2) O(n) O(n)"'],
-    ["Chinese", "- marker 1: passage P1, location “p. 4”, quote “港口的潮水每天都会涨落。”"],
-  ])("a location in quotation marks is no quote: %s", (_language, line) => {
-    const [only, ...more] = writtenRecords(replying("[1, 2]", line));
-    expect(only?.marker).toBe(1);
-    expect(only?.location).toBe("p. 4");
-    expect(more).toEqual([]);
+    ["两个引文在一行", "[^1]: 段落 P1，p. 2：“港口的潮水每天都会涨落。”和“港口在黄昏关闭。”"],
+  ])("none: %s", (_case, line) => {
+    expect(writtenRecords(replying("[1, 2]", line))).toEqual([]);
   });
 });
 
@@ -252,46 +217,41 @@ describe("A record the reply wrote is taken before the check asks for it again",
   });
 });
 
-describe("The two record forms, through the core's check", () => {
+describe("A cite call written as code, and a line holding two quotes, through the core's check", () => {
   const BOTH = "The tide turns twice a day, and the harbour closes at dusk.";
   const BOTH_ZH = "港口的潮水每天都会涨落，港口在黄昏关闭。";
   const CLOSES = "The harbour closes at dusk.";
   const ZH_LINE = "港口的潮水每天都会涨落。";
+  const call = (first: string) =>
+    `cite(citations=[{"marker": 1, "passage": "P1", "quote": "${first}"}, {"marker": 2, "passage": "P1", "quote": "${CLOSES}"}])`;
 
-  // protects=a check reply that writes the quotes of both its markers on one record line, or its records as a cite call written as code, has both records taken when the Citation check finds each in the Document named, so its own Supported stands with them and no ask goes out, in English and Chinese; fails_when=such records are left unread and the sentence reads Not checked; no_claim=what a real model writes.
+  // protects=a check reply that writes its records as a cite call written as code has them taken when the Citation check finds each in the Passage named, so its own Supported stands with them and no ask goes out, in English and Chinese; fails_when=the call is left unread and the sentence reads Not checked; no_claim=what a real model writes.
   test.each([
-    ["a line, English", BOTH, `[^1]: Tides: "${LINE}" and "${CLOSES}"`],
-    ["a line, Chinese", BOTH_ZH, `[^1]: Tides：“${ZH_LINE}”和“${CLOSES}”`],
-    [
-      "a cite call written as code",
-      BOTH,
-      `cite(citations=[{"marker": 1, "passage": "P1", "quote": "${LINE}"}, {"marker": 2, "passage": "P1", "quote": "${CLOSES}"}])`,
-    ],
-  ])("taken: %s", async (_case, claim, record) => {
+    ["English", BOTH, call(LINE)],
+    ["Chinese", BOTH_ZH, call(ZH_LINE)],
+  ])("taken: a cite call written as code, %s", async (_case, claim, record) => {
     const result = await checked(claim, record, LINE, "[1, 2]");
     expect(result.verdict).toBe("supported");
     if (result.verdict !== "supported") return;
     expect([LINE, ZH_LINE]).toContain(result.evidence?.quote);
   });
 
-  // protects=every record asked for is taken or none: two quotes where the Evidence line names another count, two where it names one, a second quote the Document doesn't hold, a quote that only repeats the sentence, and a location in quotation marks beside one quote all leave the ask to go out as before, whose empty answer leaves the sentence Not checked, in English and Chinese; fails_when=any of them is taken and the sentence reads Supported; no_claim=what a real model's ask answers.
+  // protects=a line holding two quotes beside an Evidence line naming two markers is no record, so the ask goes out and the sentence reads as on main, in English and Chinese, the 13-07-30 reply's shape among them; and every record asked for is taken or none: a code call's second quote the Document doesn't hold, or a quote that only repeats the sentence, leaves the ask to go out as before, whose empty answer leaves the sentence Not checked; fails_when=any of them is taken and the sentence reads Supported; no_claim=what a real model's ask answers.
   test.each([
-    ["the counts differ", BOTH, `[^1]: Tides: "${LINE}" and "${CLOSES}"`, "[1, 2, 3]"],
-    ["Evidence names one marker", BOTH, `[^1]: Tides: "${LINE}" and "${CLOSES}"`, "[1]"],
     [
-      "a quote the Document doesn't hold",
+      "13-07-30: two rows on [^1], no line for marker 2",
       BOTH,
-      `[^1]: Tides: "${LINE}" and "The harbour closes at noon."`,
-      "[1, 2]",
+      `[^1]: Tides: "${LINE}" and "${CLOSES}"`,
     ],
-    ["a quote that repeats the sentence", LINE, `[^1]: Tides: "${LINE}" and "${CLOSES}"`, "[1, 2]"],
+    ["两个引文在一行", BOTH_ZH, `[^1]: Tides：“${ZH_LINE}”和“${CLOSES}”`],
     [
-      "a location in quotation marks",
-      BOTH_ZH,
-      `- marker 1: passage P1, location “p. 1”, quote “${ZH_LINE}”`,
-      "[1, 2]",
+      "a code call's quote the Document doesn't hold",
+      BOTH,
+      call(LINE).replace(CLOSES, "The harbour closes at noon."),
     ],
-  ])("none: %s", async (_case, claim, record, evidence) => {
+    ["a code call's quote that repeats the sentence", LINE, call(LINE)],
+  ])("none: %s", async (_case, claim, record) => {
+    const evidence = "[1, 2]";
     const result = await checked(claim, record, LINE, evidence);
     expect(result.verdict).toBe("not-checked");
     if (result.verdict !== "not-checked") return;
