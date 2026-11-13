@@ -664,6 +664,8 @@ export interface AnswersOptions {
    * records or is paused: its text is the button's name. Null for any other Question.
    */
   meetingHelp?(mindId: string, question: string): MeetingHelpKind | null;
+  /** The Transcripts of every call but the one recording in a Mind, which its help buttons never read (#3005). */
+  otherCallTranscripts?(mindId: string): readonly string[];
   /** See `CoreAdapters.helpFormJudged`. */
   helpFormJudged?(): boolean;
   /** See `CoreAdapters.quotesAsGiven`. */
@@ -4225,13 +4227,26 @@ export function createAnswers(options: AnswersOptions) {
   };
 
   /**
+   * A help button's Search scope (#3005): its Note's, without another call's Transcript, since a
+   * press is about the call in progress. A typed question keeps them, each marked with its call.
+   * With the evaluation's `callsUnmarked`, a press reads them as before.
+   */
+  const pressScope = (scope: string[] | null, mindId: string): string[] | null => {
+    if (options.callsUnmarked?.()) return scope;
+    const others = new Set(options.otherCallTranscripts?.(mindId) ?? []);
+    if (others.size === 0) return scope;
+    const within = scope ?? options.documents.searchableBySize(null).map((each) => each.id);
+    return within.some((id) => others.has(id)) ? within.filter((id) => !others.has(id)) : scope;
+  };
+
+  /**
    * Writes the Answer of a Question in a conversation, added or emptied in `turn`, from
    * the messages before it, the Mind it reads and its Search scope as it is now.
    */
   function startInConversation(
     turn: Turn,
     ready: { model: ChatModelChoice; consentNeeded: boolean },
-    documentIds: string[] | null,
+    scope: string[] | null,
     emptyScope: boolean,
     mind: MindToRead | null,
     onScreen: readonly string[],
@@ -4248,6 +4263,7 @@ export function createAnswers(options: AnswersOptions) {
     const { conversation, question, answer } = turn;
     const help = mind ? (options.meetingHelp?.(mind.mindId, question.text) ?? null) : null;
     const callOnly = help !== null && HELP_DOCUMENTS[help] === null;
+    const documentIds = help && mind ? pressScope(scope, mind.mindId) : scope;
     // Each press of a help button stands alone: an earlier suggestion would only steer this one.
     // With no Note, the Folder in front (the Library's) is the turn's Folder: its wall is the one read.
     const wallId = mind

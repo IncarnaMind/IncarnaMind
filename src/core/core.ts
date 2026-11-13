@@ -282,6 +282,7 @@ import {
   isMemo,
   linkTranscript,
   meetingRecord,
+  otherCallTranscripts,
 } from "./meetings";
 import { listParts, meetingFolder } from "./meetings/audioFiles";
 import { createMeetingFill } from "./meetings/fill";
@@ -2349,6 +2350,7 @@ export function createCore(adapters: CoreAdapters): Core {
     readableMindName,
     liveTranscript: (mindId) => liveTranscriptOf(mindId),
     meetingHelp: (mindId, question) => meetingHelpOf(mindId, question),
+    otherCallTranscripts: (mindId) => otherCallTranscripts(db, mindId),
     helpFormJudged: () => adapters.helpFormJudged?.() ?? false,
     quotesAsGiven: () => adapters.quotesAsGiven?.() ?? false,
     helpMarksQuoteOnly: () => adapters.helpMarksQuoteOnly?.() ?? false,

@@ -273,6 +273,19 @@ export function callOfTranscript(
 }
 
 /**
+ * The Transcripts of every call but the one recording or paused in Note `mindId`: what a help
+ * button's press never reads (#3005).
+ */
+export function otherCallTranscripts(db: Database, mindId: string): string[] {
+  return db
+    .all<Pick<MeetingRow, "transcript_document_id">>(
+      "SELECT transcript_document_id FROM meetings WHERE kind = 'meeting' AND transcript_document_id IS NOT NULL AND NOT (mind_id = ? AND status IN ('recording', 'paused'))",
+      [mindId],
+    )
+    .flatMap((row) => (row.transcript_document_id ? [row.transcript_document_id] : []));
+}
+
+/**
  * Records which Document is the Meeting's Transcript, in the transaction that makes it, and that
  * it belongs to the Meeting's Note (#2528).
  */
