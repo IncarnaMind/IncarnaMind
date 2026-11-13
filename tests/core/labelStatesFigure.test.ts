@@ -1057,6 +1057,12 @@ const PIPELINE =
 const COSTS =
   "(USD millions)\nItem\t2023\t2024\nRevenue\t540\t620\nCosts\t300\t350\nProfit\t240\t270";
 const COSTS_ZH = "单位：万元\n项目\t2023年\t2024年\n收入\t540\t620\n成本\t300\t350\n利润\t240\t270";
+const REGIONS_ZH = "表3 各地区情况（万元）\n地区\t收入\t成本\n华东地区\t62\t40\n华北地区\t54\t31";
+const REGIONS =
+  "Table 3. Regions (USD millions)\nRegion\tRevenue\tCosts\nEast region\t62\t40\nNorth region\t54\t31";
+const RESULTS_ZH = "单位：万元\n项目\t2023年\t2024年\n营业收入\t540\t620\n营业成本\t300\t350";
+const RESULTS =
+  "(USD millions)\nItem\t2023\t2024\nTotal revenue\t540\t620\nCost of sales\t300\t350";
 
 describe("A number that takes its unit from a line over its table isn't the figure of a sentence that means another of its numbers (#2997)", {
   timeout: 120_000,
@@ -1294,7 +1300,7 @@ describe("A number that takes its unit from a line over its table isn't the figu
     ]);
   });
 
-  // protects=what the names can't tell, pinned so the next change that touches them shows it: a right sentence that names another column or row of the table for its one figure and not its own reads Not checked in an Answer where the line over the table gave it a ✓ ("Deals at the proposal stage were worth £830k." over Stage, Deals and Value; "方案阶段商机价值830万元。" over 阶段, 商机 and 金额; "The second site made 31 tonnes of the total." beside a Total row; "The second site had a load of 31 kW.", whose article says row A), while naming its own row keeps the ✓; a wrong sentence that names both columns with its two figures swapped keeps its ✓; fails_when=any reads otherwise without this list changing; no_claim=that these readings are right.
+  // protects=what the names can't tell, pinned so the next change that touches them shows it: a right sentence that names another column or row of the table for its one figure and not its own reads Not checked in an Answer where the line over the table gave it a ✓ ("Deals at the proposal stage were worth £830k." over Stage, Deals and Value; "方案阶段商机价值830万元。" over 阶段, 商机 and 金额; "The second site made 31 tonnes of the total." beside a Total row; "The second site had a load of 31 kW.", whose article says row A), and so does one that says its own column or row by a shorter name or another word while it says another in full ("Revenue in 2024 was $620 million, well above cost of sales." beside Total revenue and Cost of sales; "华东地区营收为62万元，成本较低。" over 收入 and 成本), while naming its own column or row in full keeps the ✓; a wrong sentence that names both columns with its two figures swapped keeps its ✓; fails_when=any reads otherwise without this list changing; no_claim=that these readings are right.
   test("what the names can't tell", async () => {
     await readsAsWanted([
       [PIPELINE, "Proposal\t17\t830", "Deals at the proposal stage were worth £830k.", UNJUDGED],
@@ -1339,6 +1345,34 @@ describe("A number that takes its unit from a line over its table isn't the figu
         "Table 3. Sites (tonnes)\nSite\tOutput\tStock\nA\t54\t77\nB\t62\t31",
         "B\t62\t31",
         "Site B's output was 31 tonnes and its stock 62 tonnes.",
+        TICK,
+      ],
+      [REGIONS_ZH, "华东地区\t62\t40", "华东地区营收为62万元，成本较低。", UNJUDGED],
+      [REGIONS_ZH, "华东地区\t62\t40", "华东地区收入为62万元，成本较低。", TICK],
+      [
+        REGIONS,
+        "East region\t62\t40",
+        "The East region's sales were $62 million, with lower costs.",
+        UNJUDGED,
+      ],
+      [
+        REGIONS,
+        "East region\t62\t40",
+        "The East region's revenue was $62 million, with lower costs.",
+        TICK,
+      ],
+      [RESULTS_ZH, "营业收入\t540\t620", "2024年收入为620万元，高于营业成本。", UNJUDGED],
+      [RESULTS_ZH, "营业收入\t540\t620", "2024年营业收入为620万元，高于营业成本。", TICK],
+      [
+        RESULTS,
+        "Total revenue\t540\t620",
+        "Revenue in 2024 was $620 million, well above cost of sales.",
+        UNJUDGED,
+      ],
+      [
+        RESULTS,
+        "Total revenue\t540\t620",
+        "Total revenue in 2024 was $620 million, well above cost of sales.",
         TICK,
       ],
     ]);
