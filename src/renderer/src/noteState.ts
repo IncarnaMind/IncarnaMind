@@ -1,9 +1,10 @@
 /**
  * Whether a note is done (#1915), one rule for the corner badge, Home's Recent row and
  * the Export menu: "Claims not checked" while a claim has no check (none yet, or one this Note has
- * never had checked), "{n} need a look" while a check found a problem, and "Checked {time}"
- * once every claim is covered, naming the files the checks couldn't read and the sentences a
- * check couldn't settle or a change made need one. It reads `noteHealth`, the one count
+ * never had checked), "{n} need a look" while a check found a problem, "{n} not yet cited" while
+ * nothing more pressing is left but sentences Supported, not yet cited (#3019), and "Checked
+ * {time}" once every claim is covered, naming the files the checks couldn't read and the
+ * sentences a check couldn't settle or a change made need one. It reads `noteHealth`, the one count
  * (#1909). A sentence kept as the User's view counts as handled and is named in the card.
  */
 
@@ -36,7 +37,7 @@ import { BLOCK_ID_ATTRIBUTE, noteExtensions } from "./editor/noteSchema";
 import { opinionSentenceRanges } from "./editor/opinionLocations";
 import { keptInsideName } from "./walls";
 
-export type NoteStateKind = "not-checked" | "needs-look" | "checked";
+export type NoteStateKind = "not-checked" | "needs-look" | "not-yet-cited" | "checked";
 
 /** The mark the state speaks for: the worst of what it found, as the margin draws it. */
 export type NoteStateMark =
@@ -45,6 +46,7 @@ export type NoteStateMark =
   | "notFound"
   | "notChecked"
   | "recheck"
+  | "notYetCited"
   | "checked";
 
 export interface NoteState {
@@ -71,6 +73,8 @@ export interface NoteState {
   notRecalculated: number;
   /** Sentences a change made since their check, named after the time while the rest holds. */
   needsCheck: number;
+  /** Sentences Supported, not yet cited (#3019): with nothing more pressing, the state names them. */
+  notYetCited: number;
 }
 
 /**
@@ -97,7 +101,13 @@ export function noteStateOf(health: NoteHealth, unread = 0, narrowUnread = 0): N
     cantCheck: 0,
     notRecalculated: 0,
     needsCheck: 0,
+    notYetCited: health.notYetCited.length,
   };
+  // Never the green while a sentence is Supported, not yet cited: the state names them (#3019).
+  const rested = (state: NoteState): NoteState =>
+    state.notYetCited > 0
+      ? { ...state, kind: "not-yet-cited", tone: "neutral", mark: "notYetCited" }
+      : state;
   if (health.contradicted.length > 0) {
     return {
       ...base,
@@ -127,8 +137,8 @@ export function noteStateOf(health: NoteHealth, unread = 0, narrowUnread = 0): N
     const settled =
       health.uncheckable.length + health.edited.length + health.notRecalculated.length;
     // A figure an Analysis gave that couldn't be worked out again is settled as well as it can be,
-    // but earns no ✓: only a verdict a check gave does (#2378).
-    if (health.supported > 0 && settled === health.toCheck.length) {
+    // but earns no ✓: only a verdict a check gave does (#2378), as Supported, not yet cited is.
+    if (health.supported + health.notYetCited.length > 0 && settled === health.toCheck.length) {
       // A file a narrow check couldn't read could hold the evidence: the unread reading keeps the Note amber.
       if (unreadMatters) {
         return {
@@ -139,7 +149,7 @@ export function noteStateOf(health: NoteHealth, unread = 0, narrowUnread = 0): N
           mark: "notChecked",
         };
       }
-      return {
+      return rested({
         ...base,
         kind: "checked",
         look: 0,
@@ -148,7 +158,7 @@ export function noteStateOf(health: NoteHealth, unread = 0, narrowUnread = 0): N
         cantCheck: health.uncheckable.length,
         notRecalculated: health.notRecalculated.length,
         needsCheck: health.edited.length,
-      };
+      });
     }
     // Nothing to fix and nothing earned: the Note rests on what wasn't recalculated, never on ✓.
     if (
@@ -178,7 +188,7 @@ export function noteStateOf(health: NoteHealth, unread = 0, narrowUnread = 0): N
       mark: "notChecked",
     };
   }
-  return { ...base, kind: "checked", look: 0, tone: "success", mark: "checked" };
+  return rested({ ...base, kind: "checked", look: 0, tone: "success", mark: "checked" });
 }
 
 /**
@@ -188,7 +198,9 @@ export function noteStateOf(health: NoteHealth, unread = 0, narrowUnread = 0): N
 export function noteStateShowsUnread(state: NoteState): boolean {
   return (
     state.unread > 0 &&
-    (state.kind === "checked" || (state.kind === "needs-look" && state.unreadMatters))
+    (state.kind === "checked" ||
+      state.kind === "not-yet-cited" ||
+      (state.kind === "needs-look" && state.unreadMatters))
   );
 }
 
@@ -254,7 +266,14 @@ export function noteStateParts(
   }
   const time =
     state.checkedAt === null ? "" : formatDateTime(state.checkedAt, language, now ? { now } : {});
-  const said = time === "" ? t("health.state.checked.noTime") : t("health.state.checked", { time });
+  const said =
+    state.kind === "not-yet-cited"
+      ? t(state.notYetCited === 1 ? "health.state.notYetCited.one" : "health.state.notYetCited", {
+          count: count(state.notYetCited),
+        })
+      : time === ""
+        ? t("health.state.checked.noTime")
+        : t("health.state.checked", { time });
   return [
     said,
     ...(unread === null ? [] : [unread]),

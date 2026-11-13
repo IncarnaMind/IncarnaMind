@@ -81,6 +81,8 @@ export interface SelectedSentence {
   context: string;
   /** What its Citations quote. */
   cited: CitedQuote[];
+  /** Its Citations as the Note holds them: what a ✓ on a Passage its check found is held to (#3019). */
+  citations: Partial<CitationAttributes>[];
   figures?: FigureOccurrence[];
   projection?: InlineTextProjection;
 }
@@ -265,6 +267,7 @@ export function sentenceOf(
     text,
     context: frame.text,
     cited: citedIn(element, span.from, span.to),
+    citations: citationsIn(element, span.from, span.to),
     figures: inSpan(figures.get(blockId) ?? [], span.from, span.to),
     ...(projection && { projection }),
   };
@@ -295,6 +298,7 @@ function chartSentence(
     text,
     context: text,
     cited: [],
+    citations: [],
     figures: [...figures],
   };
 }
@@ -339,14 +343,25 @@ export function citedQuoteOf(attributes: Readonly<Record<string, unknown>>): Cit
   };
 }
 
-/** What the Citations in `from`..`to` of a Block quote. */
-function citedIn(element: Y.XmlElement, from: number, to: number): CitedQuote[] {
-  return layout(element).flatMap(({ node, start }) => {
-    if (start < from || start >= to || !(node instanceof Y.XmlElement)) return [];
-    if (node.nodeName !== CITATION_NODE) return [];
-    return citedQuoteOf(node.getAttributes()) ?? [];
-  });
+/** The Citations in `from`..`to` of a Block, by their attributes. */
+function citationNodesIn(
+  element: Y.XmlElement,
+  from: number,
+  to: number,
+): Record<string, unknown>[] {
+  return layout(element).flatMap(({ node, start }) =>
+    start >= from && start < to && node instanceof Y.XmlElement && node.nodeName === CITATION_NODE
+      ? [node.getAttributes()]
+      : [],
+  );
 }
+
+/** What the Citations in `from`..`to` of a Block quote. */
+const citedIn = (element: Y.XmlElement, from: number, to: number): CitedQuote[] =>
+  citationNodesIn(element, from, to).flatMap((attributes) => citedQuoteOf(attributes) ?? []);
+
+const citationsIn = (element: Y.XmlElement, from: number, to: number) =>
+  citationNodesIn(element, from, to).map(citationAttributesOf);
 
 function claimFrame(element: Y.XmlElement) {
   const pieces = inlinePieces(element);
@@ -372,6 +387,7 @@ function claimFrame(element: Y.XmlElement) {
         text: sliced.text,
         projection: sliced,
         cited: citedIn(element, from, extent),
+        citations: citationsIn(element, from, extent),
       },
     ];
   });
@@ -474,6 +490,7 @@ export function selectedSentences(
           text: words,
           context: text,
           cited: span.cited,
+          citations: span.citations,
           projection: span.projection,
           figures: inSpan(figures.get(blockId) ?? [], span.from, span.to),
         });
@@ -537,6 +554,7 @@ export function everySentence(blocks: Y.XmlFragment): SelectedSentence[] {
               text: words,
               context: text,
               cited: span.cited,
+              citations: span.citations,
               projection: span.projection,
               figures: inSpan(figures.get(blockId) ?? [], span.from, span.to),
             },
@@ -730,6 +748,8 @@ export function checkedSentences(blocks: Y.XmlFragment): CheckedSentence[] {
 type CheckedSentence = MarkedSentence & {
   sentence: string;
   cited: CitedQuote[];
+  /** Its Citations as the Note holds them: what a ✓ on a Passage its check found is held to (#3019). */
+  citations: Partial<CitationAttributes>[];
   noteText?: string;
   place?: RecordCitePlace;
   /**
@@ -743,7 +763,13 @@ const checkedOfBlock = perBlock((block): readonly CheckedSentence[] =>
   marksOfBlock(block).map((marked) => {
     const { element, from, to } = marked;
     if (element.nodeName === CHART_NODE)
-      return { ...marked, sentence: textOf(element), cited: [], sentences: { from: 0, to: 1 } };
+      return {
+        ...marked,
+        sentence: textOf(element),
+        cited: [],
+        citations: [],
+        sentences: { from: 0, to: 1 },
+      };
     const { text, spans } = claimFrame(element);
     const touched = spans.filter((span) => span.from < to && span.to > from);
     const blockId = element.getAttribute(BLOCK_ID_ATTRIBUTE);
@@ -752,6 +778,7 @@ const checkedOfBlock = perBlock((block): readonly CheckedSentence[] =>
       ...marked,
       sentence: text.slice(touched[0]?.start ?? 0, touched.at(-1)?.end ?? 0),
       cited: touched.flatMap((span) => span.cited),
+      citations: touched.flatMap((span) => span.citations),
       noteText: textOf(element).slice(start, touched.at(-1)?.to ?? 0),
       ...(typeof blockId === "string" && { place: { blockId, from: start } }),
       sentences: {

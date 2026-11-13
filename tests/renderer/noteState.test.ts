@@ -55,6 +55,7 @@ const health = (parts: Partial<NoteHealth>): NoteHealth => ({
   noCitation: [],
   ownNotes: [],
   supportedAt: [],
+  notYetCited: [],
   checkable: 0,
   supported: 0,
   checkedAt: null,
@@ -145,6 +146,7 @@ describe("A note's state (D266)", () => {
       cantCheck: 0,
       notRecalculated: 0,
       needsCheck: 0,
+      notYetCited: 0,
     });
   });
 

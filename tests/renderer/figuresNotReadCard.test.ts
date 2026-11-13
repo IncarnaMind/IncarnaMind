@@ -123,6 +123,7 @@ async function card(language: string) {
   });
   const claim = {
     check: CHECK,
+    reads: CHECK,
     from: 0,
     to: SENTENCE.length,
     sentence: { from: 0, to: SENTENCE.length, text: SENTENCE },

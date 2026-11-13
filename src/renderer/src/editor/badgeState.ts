@@ -1,4 +1,10 @@
-export const BADGE_MARKS = ["contradicted", "unsupported", "notFound", "notChecked"] as const;
+export const BADGE_MARKS = [
+  "contradicted",
+  "unsupported",
+  "notFound",
+  "notChecked",
+  "notYetCited",
+] as const;
 export type BadgeMark = (typeof BADGE_MARKS)[number];
 
 export interface BadgeInput {

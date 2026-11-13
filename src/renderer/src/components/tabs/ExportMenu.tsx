@@ -101,7 +101,8 @@ export function ExportMenu({ mindId }: { mindId: string }) {
   const format = (value: number) => new Intl.NumberFormat(language).format(value);
   const running = useChecks((state) => state.running[mindId] !== undefined);
   // The state's own line, never a block on the export (D266): a run in flight opens the card at
-  // its progress, not checked starts a Check, and needs a look opens the card at its marks.
+  // its progress, not checked starts a Check, and needs a look or not yet cited opens the card at
+  // its rows.
   const stateLine = running
     ? {
         label: `${t("export.running")} · ${t("export.show")}`,
@@ -109,7 +110,7 @@ export function ExportMenu({ mindId }: { mindId: string }) {
       }
     : noteState === null || noteState.kind === "checked"
       ? null
-      : noteState.kind === "needs-look"
+      : noteState.kind === "needs-look" || noteState.kind === "not-yet-cited"
         ? {
             label: `${noteStateParts(noteState, t, language).join(" · ")} · ${t("export.show")}`,
             run: () => showCheckCard(mindId),

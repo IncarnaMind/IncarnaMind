@@ -395,4 +395,32 @@ describe("A sentence backed by a Passage the check found", () => {
     ]);
     expect(supportedShare([found])).toBe(1);
   });
+
+  // protects=the record reads the check's Supported against the sentence's own Citations as a Note would (#3019): resting on another Document's Passage it is found elsewhere, counted Supported and listed apart, and resting on the words its own Citation quotes it is Supported; fails_when=the record keeps a bare Supported for a ✓ the Note doesn't show, or turns one its Citation holds away; no_claim=none.
+  test("the check's Supported is read against the sentence's own Citations", async () => {
+    const resting = (quote: string, documentId: string) =>
+      verdict("supported", null, [
+        part(0, 17, {
+          kind: "fact",
+          verdict: "supported",
+          evidence: [{ ...evidence(quote), documentId, check: "found", checkReason: null }],
+          decidingEvidence: 0,
+        }),
+      ]);
+    const [elsewhere, own] = await checkCitedSentences(
+      {
+        checkClaim: async (input) =>
+          input.claim === "Cost is quadratic."
+            ? resting("Each layer costs O(n² · d) operations.", "doc-3")
+            : resting("self-attention layers are faster than recurrent layers", "doc-1"),
+      },
+      {
+        text: "Cost is quadratic [^2]. That makes it fast [^1].",
+        citations: CITATIONS,
+      },
+    );
+    expect([elsewhere?.verdict, elsewhere?.reason]).toEqual(["not-checked", "found-elsewhere"]);
+    expect(elsewhere && backedByFound(elsewhere)).toBe(true);
+    expect(own?.verdict).toBe("supported");
+  });
 });

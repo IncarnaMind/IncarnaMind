@@ -98,7 +98,13 @@ import { useCardPlace } from "./checkPlace";
 import type { NumberedCitation } from "./citationNumbers";
 import { useReadableQuote } from "./citationScan";
 import { badgeCorner, claimCardPlace } from "./claimCardPlace";
-import { claimPartRows, markOf, type ShownClaim } from "./claimChecks";
+import {
+  claimPartRows,
+  foundElsewhere,
+  markOf,
+  type ShownClaim,
+  waitingParts,
+} from "./claimChecks";
 import { DocumentCheckAction } from "./DocumentCheckAction";
 import { ClaimMarkIcon, type ClaimMarkState } from "./icons";
 import { LibrarySource } from "./LibrarySource";
@@ -176,9 +182,10 @@ export function ClaimMark({
   const rewritingAny = useChecks((store) => store.rewriting[mindId] !== undefined);
   const mark = reading || rewriting ? "checking" : markOf(claim);
   // Supported by the User's own notes alone: a box, so shape says it as well as colour (#335).
-  const ownNoteOnly = mark === "supported" && supportedByOwnNotesOnly(claim.check);
+  const ownNoteOnly = mark === "supported" && supportedByOwnNotesOnly(claim.reads);
+  const awaiting = foundElsewhere(claim);
   // A sentence not checked yet has no mark on the page (D276): its button stays, unseen, as its card's anchor (#1941).
-  const silent = mark === "not-checked";
+  const silent = mark === "not-checked" && !awaiting;
   const id = claim.check.id;
   const place = useCardPlace(mindId);
   const [button, setButton] = useState<HTMLButtonElement | null>(null);
@@ -193,17 +200,19 @@ export function ClaimMark({
   const openedByKeyboard = useRef(false);
   const open = claim.kind !== "chart" && (pinned || peeking);
   const onPage = useQuotedWordsOnPage(
-    state === "supported" && claim.kind !== "chart" ? quotedWordsAsks(editor.state, claim) : [],
+    (state === "supported" || awaiting) && claim.kind !== "chart"
+      ? quotedWordsAsks(editor.state, claim)
+      : [],
     mindId,
     useContext(ConversationIdContext),
   );
   const decision =
-    state === "supported" && claim.kind !== "chart"
+    (state === "supported" || awaiting) && claim.kind !== "chart"
       ? citationDecision(editor.state, claim, onPage)
       : NO_DECISION;
-  const rows = claimPartRows(claim.check);
+  const rows = claimPartRows(claim.reads);
   const plus = rows
-    ? state === "supported" && citesMore(editor.state, claim, rows, onPage)
+    ? (state === "supported" || awaiting) && citesMore(editor.state, claim, rows, onPage)
     : decision.kind === "add";
   const added = useAddedDocuments((store) => store.byMind[mindId]?.[claim.check.id]?.length ?? 0);
   const heading = t(checkStateKey(editor, claim));
@@ -315,6 +324,7 @@ export function ClaimMark({
         data-open={open || undefined}
         data-guided={guided || undefined}
         data-addable={plus || undefined}
+        data-waiting={awaiting || undefined}
         data-own-note={ownNoteOnly || undefined}
         className={`margin-check claim-mark ${inline ? "claim-mark--inline" : ""} ${reveal ? "margin-check--reveal" : ""}`}
         style={style}
@@ -712,7 +722,7 @@ export function ClaimCard({
   const webSearchOn = useAppStore((store) => store.settings?.user.webSearch === true);
   // Search the web with web search off says why, and where to turn it on, before anything else happens.
   const [webOffShown, setWebOffShown] = useState(false);
-  const { shown, check } = claim;
+  const { shown, reads: check } = claim;
   const state = shown.state;
   const mark = markOf(claim);
   const ownNoteOnly = mark === "supported" && supportedByOwnNotesOnly(check);
@@ -742,7 +752,13 @@ export function ClaimCard({
     state === "unsupported" && !differs && !fixes && !decisionMissing && !ownWorkings
       ? coveredPart(check.unsupported)
       : null;
-  const evidence = (decided && fromPassage) || differs ? check.evidence : (covers?.quoted ?? null);
+  const awaiting = foundElsewhere(claim);
+  const evidence =
+    (decided && fromPassage) || differs
+      ? check.evidence
+      : awaiting
+        ? claim.check.evidence
+        : (covers?.quoted ?? null);
   // A figure's Contradicted is a comparison with the number it is bound to, not a reading of
   // what a passage says: the card shows that number and where it is, to check at a glance.
   const mismatched =
@@ -806,7 +822,7 @@ export function ClaimCard({
   const pickRead = check.action === "check-against-document" ? check.read : null;
   const findSourcesOffered = offersFindSources(editor, claim);
   const objectMenu = useObjectMenu({ kind: "check", id: check.id });
-  const checkedIn = decided || state === "unsupported";
+  const checkedIn = decided || awaiting || state === "unsupported";
   const cuttable = fixes && uncoveredOf(claim) !== null;
   const pastCap = shown.state === "not-checked" && shown.reason === "too-many";
   // Review… is the Check, which asks the User to allow what checks send now (#2525); allowed
@@ -834,9 +850,10 @@ export function ClaimCard({
       ? unreadFiguresOf(check.detail)
       : null;
   const unreadLocation = unread ? citationLocation(unread) : null;
+  // Supported, not yet cited says so in its own line, by the source, as Widen's and Replace's notes do.
   const reason =
     shown.state === "not-checked"
-      ? widened && !consentWaiting
+      ? (widened && !consentWaiting) || awaiting
         ? null
         : reasonText(t, language, shown.reason, check.detail, { cap: SENTENCES_CHECKED_AT_MOST })
       : shown.state === "needs-recheck"
@@ -986,6 +1003,7 @@ export function ClaimCard({
             scope={check.scope}
             read={pickRead ?? undefined}
             citations={partCitations}
+            waiting={waitingParts(claim)}
             onOpen={onOpen}
             working={(partCalculation) => <Working calculation={partCalculation} onOpen={onOpen} />}
           />
@@ -1084,6 +1102,11 @@ export function ClaimCard({
                 title={savedPageSource(savedFrom, language, t, { compact: false })}
               >
                 {savedPageSource(savedFrom, language, t, { compact: true })}
+              </p>
+            )}
+            {!partRows && awaiting && decision.kind !== "widen" && decision.kind !== "replace" && (
+              <p data-testid="claim-not-yet-cited" className="claim-card-says">
+                {t("claim.notYetCited")}
               </p>
             )}
             {!partRows && decision.kind === "widen" && (
@@ -1271,7 +1294,7 @@ export function ClaimCard({
             : t("claim.checkedIn", { scope: lookedIn })}
         </p>
       )}
-      {state === "supported" && (
+      {(state === "supported" || awaiting) && (
         <p data-testid="claim-limit" className="citation-card-note">
           {t("claim.limit")}
         </p>
@@ -1516,8 +1539,9 @@ export function ClaimCard({
             {t("claim.removeMark")}
           </button>
         )}
+        {/* Checked again, a ✓ waiting on its found Passage gets the same answer: adding it is the way (#3019). */}
         {(state === "needs-recheck" ||
-          (state === "not-checked" && added === 0 && !lineAction && !described)) && (
+          (state === "not-checked" && added === 0 && !lineAction && !described && !awaiting)) && (
           <button
             type="button"
             data-testid="claim-check-again"
@@ -1537,7 +1561,11 @@ export function ClaimCard({
           onPickerChange={onSourcePickerChange}
         />
       )}
-      <CheckedByLine check={check} shown={state} />
+      {/* Supported, not yet cited is the model's Supported: its line names the models as one does. */}
+      <CheckedByLine
+        check={awaiting ? claim.check : check}
+        shown={awaiting ? "supported" : state}
+      />
       {findSourcesOffered && (
         <ObjectMenu
           target={{ kind: "check", id: check.id }}
