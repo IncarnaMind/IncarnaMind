@@ -1,4 +1,7 @@
-import { CLAIM_CHECK_INSTRUCTIONS } from "../../core/answers/claimedChanges";
+import {
+  CLAIM_CHECK_INSTRUCTIONS,
+  REQUEST_DONE_INSTRUCTIONS,
+} from "../../core/answers/claimedChanges";
 import { type GenerateOptions, lastUserText, systemOf } from "./prompt";
 
 /** Finding the claims of a verified document (#97) or of the User's own draft (#737), src/core/answers/checks/claims.ts. */
@@ -52,6 +55,12 @@ export function fakeClaims(
 
 export const checksChangeClaims = (options: GenerateOptions): boolean =>
   systemOf(options.prompt).includes(CLAIM_CHECK_INSTRUCTIONS);
+
+/** Whether a reply says its request is done: the fake never reads one as saying so. */
+export const fakeRequestDone = (options: GenerateOptions): string | null =>
+  systemOf(options.prompt).includes(REQUEST_DONE_INSTRUCTIONS)
+    ? JSON.stringify({ asks_change: "no", request: "none" })
+    : null;
 
 export function fakeChangeClaims(options: GenerateOptions): string | null {
   if (!checksChangeClaims(options)) return null;

@@ -3200,7 +3200,7 @@ export const en = {
   "providers.sendsLine":
     "What you ask, edit or check, with the notes and the parts of your Documents it needs, goes to {provider}.",
   "providers.sends.chat":
-    "your Questions, earlier Questions and Answers, the note you’re in or one you name, the names of up to 30 of your most recently changed notes, noting which an Answer wrote, matching passages with their Document names and pages, the names, Folders and Tags of the Documents and notes a Question or a command finds (up to 50), a Meeting’s Transcript, a picture you select in a note to ask about, the names and descriptions of Skills that are on and the instructions and files of Skills an Answer loads, and the capped reports of Analyses it runs; and, for a quick-tasks model that finds the quotes behind an Answer’s Citations, the Answer and its passages",
+    "your Questions, earlier Questions and Answers, the note you’re in or one you name, the names of up to 30 of your most recently changed notes, noting which an Answer wrote, matching passages with their Document names and pages, the names, Folders and Tags of the Documents and notes a Question or a command finds (up to 50), a Meeting’s Transcript, a picture you select in a note to ask about, the names and descriptions of Skills that are on and the instructions and files of Skills an Answer loads, and the capped reports of Analyses it runs; and, for a quick-tasks model that finds the quotes behind an Answer’s Citations, the Answer and its passages, or that checks what the assistant’s reply says it changed, the reply, the Question it answers and the record of what its Tools did",
   "providers.sends.checks":
     "each sentence you check, with its paragraph and figures, and the passages it’s checked against with their Document names, pages or locations and which of a workbook’s rows hold values its formulas worked out; every sentence of a note or file you check whole, to find its claims; whole Documents in the scope, up to 40 pages, for a sentence that says something is absent; a file’s name, dates, author, page count and size, for a sentence about the file; the heading above a sentence the assistant wrote; after a new version of a Document, the cited sentences of the notes in its Folder; and for a sentence about your Library, its counts, the name of the Folder, Tag or Document the note searches with how many more items its search has, and the names, kinds and counts of the Documents, Folders and Tags, and the names of notes, that match the sentence’s words, with how many more matched",
   "providers.sends.suggestions":
@@ -3956,7 +3956,8 @@ export const en = {
   "ai.jobs.answers.tip":
     "New notes use this, as do notes and conversations with no model of their own.",
   "ai.jobs.quick": "Quick tasks",
-  "ai.jobs.quick.line": "Titles, Tag suggestions, search wording",
+  "ai.jobs.quick.line":
+    "Titles, Tag suggestions, search wording, Citation quotes and checking replies",
   "ai.jobs.images": "Reading images",
   "ai.jobs.images.line": "Scans and a selected area",
   "ai.jobs.follows": "Follows Answers · {model}",
@@ -4604,7 +4605,15 @@ export const en = {
   "citation.reason.answer-limit":
     "Not checked: this Answer’s {limit} checking limit was reached before this sentence.",
   "citation.reason.monthly-limit":
-    "Not checked: your monthly limit of {cap} was reached before this sentence.",
+    "Not checked: your monthly limit was reached before this sentence.",
+  "citation.reason.answer-limit-unfinished":
+    "Not checked: this Answer’s {limit} checking limit was reached before {model} finished checking this sentence.",
+  "citation.reason.answer-limit-unfinished.unnamed":
+    "Not checked: this Answer’s {limit} checking limit was reached before this sentence’s check finished.",
+  "citation.reason.monthly-limit-unfinished":
+    "Not checked: your monthly limit was reached before {model} finished checking this sentence.",
+  "citation.reason.monthly-limit-unfinished.unnamed":
+    "Not checked: your monthly limit was reached before this sentence’s check finished.",
   "citation.reason.notChecked": "Whether the quote supports this sentence couldn’t be checked.",
   "citation.reason.small-model":
     "This model on this computer is too small to judge whether the quote supports the sentence.",
@@ -7603,8 +7612,7 @@ export const en = {
   "steps.check.needALook.one": "1 needs a look",
   "steps.check.answerLimit":
     "{checked} of {total} sentences checked · This Answer’s {limit} checking limit reached",
-  "steps.check.monthlyLimit":
-    "{checked} of {total} sentences checked · Your monthly limit of {cap} reached",
+  "steps.check.monthlyLimit": "{checked} of {total} sentences checked · Your monthly limit reached",
   "steps.check.checkTheRest": "Check the rest",
   "steps.check.checkTheRest.go": "Check",
   "steps.check.checkTheRest.cancel": "Cancel",
@@ -7822,7 +7830,7 @@ export const en = {
   "answer.notWritten": "Nothing was written: {reason}",
   "answer.notWritten.noCall": "the assistant didn’t run the write",
   "answer.notWritten.retry": "Try again",
-  "answer.notAllDone": "The assistant didn’t make every change this reply describes",
+  "answer.notAllDone": "The assistant didn’t do everything this reply says",
   "answer.notCalculated":
     "No calculation ran: IncarnaMind didn’t calculate the figures worked out in this reply, so they’re unchecked",
   "answer.notCalculated.unavailable":

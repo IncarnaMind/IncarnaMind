@@ -1064,7 +1064,7 @@ describe("A reply that claims a change no call made", { timeout: 30_000 }, () =>
     expect(pendingProposals(client.blocks)).toEqual([]);
   });
 
-  // protects=a change that takes out most of the User's text reads as waiting to the claim check, so its claim is flagged and the model is asked again; fails_when=the record marks it applied (a `return true` in appliedAsAsked) and the claim stands; no_claim=how a real model words it.
+  // protects=a change that takes out most of the User's text reads as waiting, in the part it waits in, to the claim check, so its claim is flagged and the model is asked again; fails_when=the record marks it applied (a `return true` in appliedAsAsked) and the claim stands; no_claim=how a real model words it.
   test("a held change isn't read as applied when its claim is checked", async () => {
     const claim = "I've shortened the summary in “Q3 review”.";
     const waiting = "The shortened summary waits for you to apply it.";
@@ -1085,7 +1085,8 @@ describe("A reply that claims a change no call made", { timeout: 30_000 }, () =>
       },
       {
         generate: (call) => {
-          if (call.prompt.includes('"state": null')) sawWaiting = true;
+          if (call.prompt.includes('"state": "waiting for the User, in “Summary”"'))
+            sawWaiting = true;
           return claimCheckReply(call, (prompt) =>
             prompt.includes('"applied": true') ? [] : [{ sentence: claim, kind: "changed" }],
           );

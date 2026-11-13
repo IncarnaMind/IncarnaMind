@@ -188,6 +188,7 @@ describe("What an edit did to the User's sentences is said from the change, not 
     {
       case: "English 7, its reply saying the others stayed",
       language: "en",
+      request: "Take the sentence about who allocates the spaces out of the Parking paragraph.",
       parking: "Parking: the tenant may use six underground spaces, each costing 800 a month.",
       reply:
         'Deleted "Spaces are allocated by the landlord." from the Parking paragraph in "Lease terms", leaving the other two sentences in place.',
@@ -198,6 +199,7 @@ describe("What an edit did to the User's sentences is said from the change, not 
     {
       case: "Chinese 11, its reply saying a sentence was deleted",
       language: "zh",
+      request: "把停车位那段里讲车位数量的那句删掉。",
       parking: "地下停车位 6 个，每车位月租 800 元，由出租方分配。",
       reply:
         "已在「租赁条款」的停车位一段删去关于车位数量的一句话；其余两句（车位费用、车位由出租方分配）保留。",
@@ -234,7 +236,7 @@ describe("What an edit did to the User's sentences is said from the change, not 
       answer.toolCalls,
       [{ id: mind.id, name: LEASE[each.language].name }],
       mind.id,
-      { model: judge, names, signal: new AbortController().signal },
+      { model: judge, request: each.request, names, signal: new AbortController().signal },
     );
     expect(judged.join("")).toContain(each.said);
     const t = (key: Parameters<typeof translate>[1], params?: Parameters<typeof translate>[2]) =>

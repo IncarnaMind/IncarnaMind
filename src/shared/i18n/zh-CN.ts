@@ -3051,7 +3051,7 @@ export const zhCN = {
   "providers.sendsLine":
     "你提问、修改或核对的内容，连同所需的笔记和文档内容，会发送给 {provider}。",
   "providers.sends.chat":
-    "你的问题、此前的问答、当前笔记或你指定的笔记、最近修改的最多 30 篇笔记的名称（标出由回答写成的）、匹配的段落及其文档名称和页码、问题或命令找到的文档和笔记（最多 50 个）的名称、文件夹和标签、会议的转写稿、你在笔记中选中提问的图片、已开启技能的名称和描述、回答加载的技能的说明和文件，以及回答运行的数据分析报告（有上限）；快速任务模型为回答中的引用找出对应引文时，该回答及其段落",
+    "你的问题、此前的问答、当前笔记或你指定的笔记、最近修改的最多 30 篇笔记的名称（标出由回答写成的）、匹配的段落及其文档名称和页码、问题或命令找到的文档和笔记（最多 50 个）的名称、文件夹和标签、会议的转写稿、你在笔记中选中提问的图片、已开启技能的名称和描述、回答加载的技能的说明和文件，以及回答运行的数据分析报告（有上限）；快速任务模型为回答中的引用找出对应引文时，该回答及其段落；核对助手的回答中说做了的改动时，该回答、它回答的问题，以及工具实际做了什么的记录",
   "providers.sends.checks":
     "你核对的每一句话及其所在段落和数字，以及用于核对的段落、其文档名称、页码或位置和工作簿中哪些行的数值由公式算出；整篇核对笔记或文件时，其中每一句话（用于找出说法）；句子说某处没有某内容时，范围内的整份文档（最多 40 页）；句子说的是文件本身时，文件的名称、日期、作者、页数和大小；助手所写句子上方的标题；文档有新版本后，所在文件夹中笔记里带引用的句子；句子说的是你的资料库时，资料库的数量、笔记搜索的文件夹、标签或文档名称及其搜索范围中其余项目的数量，以及与句中词语相符的文档、文件夹和标签的名称、类型和数量、笔记的名称，和其余相符名称的数量",
   "providers.sends.suggestions":
@@ -3764,7 +3764,7 @@ export const zhCN = {
   "ai.jobs.answers.line": "助手、提问、对比、编辑和核对",
   "ai.jobs.answers.tip": "新笔记使用这个模型，没有自选模型的笔记和对话也使用它。",
   "ai.jobs.quick": "快速任务",
-  "ai.jobs.quick.line": "标题、标签建议和搜索用词",
+  "ai.jobs.quick.line": "标题、标签建议、搜索用词、引文和核对回答",
   "ai.jobs.images": "读取图片",
   "ai.jobs.images.line": "扫描件和选中的区域",
   "ai.jobs.follows": "跟随回答 · {model}",
@@ -4403,7 +4403,13 @@ export const zhCN = {
   "citation.reason.quoted-words-not-on-pages": "所引位置没有引号里的文字。",
   "citation.reason.checking": "正在核对引文，以及它是否支持这句话。",
   "citation.reason.answer-limit": "未核对：核对到这句之前，已达本回答 {limit} 的核对上限。",
-  "citation.reason.monthly-limit": "未核对：核对到这句之前，已达每月上限 {cap}。",
+  "citation.reason.monthly-limit": "未核对：核对到这句之前，已达每月上限。",
+  "citation.reason.answer-limit-unfinished":
+    "未核对：{model} 还没核对完这句，就已达本回答 {limit} 的核对上限。",
+  "citation.reason.answer-limit-unfinished.unnamed":
+    "未核对：这句还没核对完，就已达本回答 {limit} 的核对上限。",
+  "citation.reason.monthly-limit-unfinished": "未核对：{model} 还没核对完这句，就已达每月上限。",
+  "citation.reason.monthly-limit-unfinished.unnamed": "未核对：这句还没核对完，就已达每月上限。",
   "citation.reason.notChecked": "未能核对引文是否支持这句话。",
   "citation.reason.small-model": "这台电脑上的模型太小，无法核对引文是否支持这句话。",
   "citation.where": "{document}，{location}",
@@ -7205,7 +7211,7 @@ export const zhCN = {
   "steps.check.needALook": "{count} 处需要留意",
   "steps.check.needALook.one": "1 处需要留意",
   "steps.check.answerLimit": "已核对 {total} 句中的 {checked} 句 · 已达本回答 {limit} 的核对上限",
-  "steps.check.monthlyLimit": "已核对 {total} 句中的 {checked} 句 · 已达每月上限 {cap}",
+  "steps.check.monthlyLimit": "已核对 {total} 句中的 {checked} 句 · 已达每月上限",
   "steps.check.checkTheRest": "核对其余",
   "steps.check.checkTheRest.go": "核对",
   "steps.check.checkTheRest.cancel": "取消",
@@ -7402,7 +7408,7 @@ export const zhCN = {
   "answer.notWritten": "未写入任何内容：{reason}",
   "answer.notWritten.noCall": "助手没有执行写入",
   "answer.notWritten.retry": "重试",
-  "answer.notAllDone": "助手没有完成这条回答中说的全部改动",
+  "answer.notAllDone": "这条回答说的事，助手没有全部完成",
   "answer.notCalculated": "未运行计算：这条回答中算出的数字不是 IncarnaMind 计算得出的，尚未核对",
   "answer.notCalculated.unavailable":
     "未运行计算：这个模型无法调用 IncarnaMind 的计算工具，这条回答中算出的数字尚未核对",
