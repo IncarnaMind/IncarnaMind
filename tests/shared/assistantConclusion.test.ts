@@ -365,6 +365,68 @@ describe("An opinion left out of a sentence the assistant wrote", () => {
       expect(judged("unsupported")).toEqual({ state: "unsupported" });
       expect(judged("contradicted")).toEqual({ state: "contradicted" });
       expect(judged("supported")).toEqual({ state: "supported" });
+      expect(judged("checking")).toEqual({ state: "checking" });
     }
+  });
+
+  // protects=an opinion Check anyway judged counts beside a figure sentence's figures as one more of its parts: the worst result is the sentence's, a Contradicted opinion over an Unsupported figure and an Unsupported one over a figure that couldn't be checked; and the opinion's result is read against its Documents as they are now, so one that changed since asks for the check again as a plain sentence's would; fails_when=the figures' result hides a worse opinion, or a judged opinion keeps its result after its Document changed; no_claim=how figures rank among themselves.
+  test("a judged opinion counts beside the figures, read against its Documents now", () => {
+    const text = "Revenue was 10, so the year went well.";
+    const [reading] = readFigures("10", { language: "en" });
+    if (!reading) throw new Error("No figure.");
+    const base = checkOf(text, []);
+    const figureOf = (
+      shown: Pick<FigureCheckAttributes, "state" | "reason">,
+    ): FigureCheckAttributes => ({
+      ...base,
+      ...shown,
+      id: "revenue",
+      locator: {
+        kind: "text",
+        from: { blockId: "block", offset: 12 },
+        to: { blockId: "block", offset: 14 },
+      },
+      reading,
+      calculated: null,
+      sourceInput: null,
+      roundedFrom: null,
+      difference: null,
+      footing: [],
+    });
+    const read = { documentId: "tides", contentHash: "v1" };
+    const sentence = (
+      figure: Pick<FigureCheckAttributes, "state" | "reason">,
+      verdict: ClaimCheckPart["verdict"],
+    ): ClaimCheckAttributes => ({
+      ...base,
+      figures: [figureOf(figure)],
+      remainder: null,
+      parts: [
+        part(0, 14, "fact", "supported"),
+        part(16, text.length - 1, "opinion", verdict, { versions: [read] }),
+      ],
+    });
+    const supported = { state: "supported", reason: null } as const;
+    expect(reads(sentence({ state: "unsupported", reason: null }, "contradicted"), text)).toEqual({
+      state: "contradicted",
+    });
+    expect(
+      reads(sentence({ state: "not-checked", reason: "failed" }, "unsupported"), text),
+    ).toEqual({ state: "unsupported" });
+    const now = (check: ClaimCheckAttributes, contentHash: string) =>
+      claimCheckShown(check, {
+        footing: "not-yet-known",
+        text,
+        citations: [],
+        versions: new Map([["tides", contentHash]]),
+        folderId: null,
+        scope: null,
+      });
+    expect(now(sentence(supported, "unsupported"), "v1")).toEqual({ state: "unsupported" });
+    expect(now(sentence(supported, "unsupported"), "v2")).toEqual({
+      state: "needs-recheck",
+      why: "new-version",
+    });
+    expect(now(sentence(supported, null), "v2")).toEqual({ state: "supported" });
   });
 });

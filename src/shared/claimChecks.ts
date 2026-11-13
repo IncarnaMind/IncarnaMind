@@ -642,6 +642,34 @@ export function restsOn(check: ClaimCheckAttributes): (CitationAttributes | Cita
   ].filter((each): each is CitationAttributes | Citation => each !== null);
 }
 
+/**
+ * Why a result read at `versions` needs checking again with the Documents as they are now; null
+ * when none it depends on changed. `relied`: what it rests on, which it can't do without.
+ */
+function staleVersions(
+  versions: ClaimCheckBasis["versions"],
+  relied: () => readonly { documentId: string | null }[],
+  now: Pick<ClaimCheckNow, "versions">,
+  fromAnswer: boolean,
+): RecheckReason | null {
+  if (!now.versions) return null;
+  const restsOnIds = new Set(relied().map((each) => each.documentId));
+  for (const version of versions) {
+    const current = now.versions.get(version.documentId);
+    // A fact of the Library not known yet is taken as it was: the window asks for them apart.
+    if (readLibraryVersion(version.documentId)) {
+      if (current !== undefined && current !== version.contentHash) return "library";
+      continue;
+    }
+    // A Document only read, gone, takes nothing from the result: an example's, swapped for the interface language, among them (#962).
+    // A carried check relied on every Citation its Answer judged, not only the one that decided.
+    if (current === undefined && (restsOnIds.has(version.documentId) || fromAnswer))
+      return "document-removed";
+    if (current !== undefined && current !== version.contentHash) return "new-version";
+  }
+  return null;
+}
+
 /** How a check shows, given the sentence, the Documents and the Mind's Folder and scope as they are now. */
 function basisShown(check: ClaimCheckBasis, now: Omit<ClaimCheckNow, "footing">): ClaimCheckShown {
   if (check.state === "checking") return { state: "checking" };
@@ -654,32 +682,13 @@ function basisShown(check: ClaimCheckBasis, now: Omit<ClaimCheckNow, "footing">)
   }
   if (referentsMoved(check, now)) return { state: "needs-recheck", why: "referent" };
   if (check.kept) return { state: "kept" };
-  if (now.versions) {
-    const relied = new Set([
-      ...restsOn(check).map((each) => each.documentId),
-      ...(check.readDocuments ?? []).map((each) => each.documentId),
-    ]);
-    for (const version of check.versions) {
-      const current = now.versions.get(version.documentId);
-      // A fact of the Library not known yet is taken as it was: the window asks for them apart.
-      if (readLibraryVersion(version.documentId)) {
-        if (current !== undefined && current !== version.contentHash)
-          return { state: "needs-recheck", why: "library" };
-        continue;
-      }
-      // A Document only read, gone, takes nothing from the result: an example's, swapped for the interface language, among them (#962).
-      // A carried check relied on every Citation its Answer judged, not only the one that decided.
-      if (
-        current === undefined &&
-        (relied.has(version.documentId) || check.fromAnswer !== undefined)
-      ) {
-        return { state: "needs-recheck", why: "document-removed" };
-      }
-      if (current !== undefined && current !== version.contentHash) {
-        return { state: "needs-recheck", why: "new-version" };
-      }
-    }
-  }
+  const stale = staleVersions(
+    check.versions,
+    () => [...restsOn(check), ...(check.readDocuments ?? [])],
+    now,
+    check.fromAnswer !== undefined,
+  );
+  if (stale) return { state: "needs-recheck", why: stale };
   // A landed result searched the Folder it was in: filed elsewhere with Documents never read, a
   // whole-Folder read or a result with no quote to rest on must be checked there (#2313). A check
   // that landed nothing is not a result the move can rewrite.
@@ -769,9 +778,18 @@ export function claimCheckShown(check: ClaimCheckAttributes, now: ClaimCheckNow)
   ) {
     return { state: "needs-recheck", why: "referent" };
   }
-  const figures = check.figures.map((figure) => figureCheckShown(figure, now));
+  // Its figures each have their own check, and its remainder holds only its facts: an opinion
+  // Check anyway is judging reads as a plain sentence being checked, one it judged counts beside
+  // them, and the assistant's own left out still takes its ✓ (#3019).
+  const opinions = (check.parts ?? []).filter((part) => part.kind === "opinion" && !part.itself);
+  if (opinions.some((part) => part.verdict === "checking")) return { state: "checking" };
   const shown = aggregateFigureStates(
-    figures,
+    [
+      ...check.figures.map((figure) => figureCheckShown(figure, now)),
+      ...opinions.flatMap((part) =>
+        part.verdict === null ? [] : [opinionShown(part, part.verdict, now)],
+      ),
+    ],
     check.remainder === null
       ? null
       : check.remainder
@@ -779,19 +797,27 @@ export function claimCheckShown(check: ClaimCheckAttributes, now: ClaimCheckNow)
         : undefined,
   );
   if (shown.state !== "supported") return shown;
-  // Its figures each have their own check, and its remainder holds only its facts: an opinion
-  // Check anyway is judging or judged, or the assistant's own left out, still takes its ✓ (#3019).
-  const opinions = (check.parts ?? []).filter((part) => part.kind === "opinion" && !part.itself);
-  const judged = (verdict: ClaimCheckPart["verdict"]) =>
-    opinions.find((part) => part.verdict === verdict);
-  const failed = judged("not-checked");
-  if (judged("checking")) return { state: "checking" };
-  if (judged("contradicted")) return { state: "contradicted" };
-  if (judged("unsupported")) return { state: "unsupported" };
-  if (failed) return { state: "not-checked", reason: failed.reason ?? "failed" };
   return opinions.some(leftOutByAssistant)
     ? { state: "not-checked", reason: "assistant-conclusion" }
     : shown;
+}
+
+/** How an opinion part Check anyway judged shows, read against the Documents as they are now. */
+function opinionShown(
+  part: ClaimCheckPart,
+  verdict: NonNullable<ClaimCheckPart["verdict"]>,
+  now: ClaimCheckNow,
+): ClaimCheckShown {
+  if (verdict === "checking") return { state: "checking" };
+  const stale = staleVersions(
+    part.versions,
+    () => [...partCitations(part), ...(part.readDocuments ?? [])],
+    now,
+    false,
+  );
+  if (stale) return { state: "needs-recheck", why: stale };
+  if (verdict === "not-checked") return { state: "not-checked", reason: part.reason ?? "failed" };
+  return { state: verdict };
 }
 
 /**
