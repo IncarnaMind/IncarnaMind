@@ -2182,6 +2182,38 @@
     "4497d40a9bec": {
       "name": "Notes.txt",
       "text": "Rates\n各月订单\n7月: 20\n"
+    },
+    "a7a3ad821660": {
+      "name": "Rates.txt",
+      "text": "Rates\nThe margin rose 6 percentage points.\n"
+    },
+    "048841ae17d6": {
+      "name": "Notes.txt",
+      "text": "Report\n指标\t2023年\t2024年\n原煤产量（万吨）\t54\t31\n焦炭产量（万吨）\t12\t9\n\n表9 各厂用电（万千瓦时）\n工厂\t用电\n一厂\t118\n"
+    },
+    "8fa1441790a2": {
+      "name": "Notes.txt",
+      "text": "Report\n指标\t2023年\t2024年\n原煤产量（万吨）\t54\t31\n焦炭产量（万吨）\t12\t9\n\n表8 各厂占比（%）\n工厂\t占比\n一厂\t35\n"
+    },
+    "92b6ad09374c": {
+      "name": "Notes.txt",
+      "text": "Sales\n车型\t销量\n轿车\t80\nSUV\t57\n\n表9 各厂用电（万千瓦时）\n工厂\t用电\n一厂\t118\n"
+    },
+    "fc696b71262c": {
+      "name": "Notes.txt",
+      "text": "Rates\n用电（万千瓦时）126。\n"
+    },
+    "205975f01c82": {
+      "name": "Notes.txt",
+      "text": "Data\n月份\t产量（万吨）\t销量（万千瓦时）\n8月\t90\t126\n"
+    },
+    "f74370173667": {
+      "name": "Notes.txt",
+      "text": "Rates\n各月充电量（万千瓦时）\n7月: 118\n8月: 126\n"
+    },
+    "daa36048bf31": {
+      "name": "Notes.txt",
+      "text": "Report\n表3 各厂产量\n工厂\t产量\n一厂\t54\n二厂\t31\n\n表4 各港吞吐量（千吨）\n港口\t吞吐量\n甲港\t12\n"
     }
   },
   "rows": [
@@ -2872,8 +2904,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       },
       "here": {
@@ -2884,8 +2916,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       }
     },
@@ -2904,8 +2936,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       },
       "here": {
@@ -2916,8 +2948,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       }
     },
@@ -9724,8 +9756,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       },
       "here": {
@@ -9736,8 +9768,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       }
     },
@@ -10724,8 +10756,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       },
       "here": {
@@ -10736,8 +10768,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       }
     },
@@ -10756,8 +10788,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       },
       "here": {
@@ -10768,8 +10800,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       }
     },
@@ -13825,8 +13857,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       },
       "here": {
@@ -13837,8 +13869,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       }
     },
@@ -13857,8 +13889,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       },
       "here": {
@@ -13869,8 +13901,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       }
     },
@@ -13889,8 +13921,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       },
       "here": {
@@ -13901,8 +13933,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       }
     },
@@ -15713,8 +15745,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       },
       "here": {
@@ -15725,8 +15757,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       }
     },
@@ -16971,8 +17003,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       },
       "here": {
@@ -16983,8 +17015,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       }
     },
@@ -17003,8 +17035,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       },
       "here": {
@@ -17015,8 +17047,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       }
     },
@@ -17035,8 +17067,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       },
       "here": {
@@ -17047,8 +17079,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       }
     },
@@ -17067,8 +17099,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       },
       "here": {
@@ -17079,8 +17111,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       }
     },
@@ -17291,8 +17323,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       },
       "here": {
@@ -17303,8 +17335,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       }
     },
@@ -17323,8 +17355,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       },
       "here": {
@@ -17335,8 +17367,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       }
     },
@@ -17355,8 +17387,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       },
       "here": {
@@ -17367,8 +17399,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       }
     },
@@ -17387,8 +17419,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       },
       "here": {
@@ -17399,8 +17431,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       }
     },
@@ -18059,8 +18091,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       },
       "here": {
@@ -18071,8 +18103,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       }
     },
@@ -18091,8 +18123,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       },
       "here": {
@@ -18103,8 +18135,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       }
     },
@@ -18251,8 +18283,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       },
       "here": {
@@ -18283,8 +18315,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       },
       "here": {
@@ -18507,8 +18539,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       },
       "here": {
@@ -18519,8 +18551,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       }
     },
@@ -18539,8 +18571,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       },
       "here": {
@@ -18551,8 +18583,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       }
     },
@@ -19147,8 +19179,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       },
       "here": {
@@ -19179,8 +19211,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       },
       "here": {
@@ -19211,8 +19243,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       },
       "here": {
@@ -19223,8 +19255,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       }
     },
@@ -19243,8 +19275,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       },
       "here": {
@@ -19255,8 +19287,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       }
     },
@@ -19339,8 +19371,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       },
       "here": {
@@ -19371,8 +19403,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       },
       "here": {
@@ -19403,8 +19435,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       },
       "here": {
@@ -19415,8 +19447,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       }
     },
@@ -19435,8 +19467,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       },
       "here": {
@@ -19447,8 +19479,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       }
     },
@@ -20811,8 +20843,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       },
       "here": {
@@ -20823,8 +20855,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       }
     },
@@ -20843,8 +20875,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       },
       "here": {
@@ -20855,8 +20887,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       }
     },
@@ -21771,8 +21803,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       },
       "here": {
@@ -21783,8 +21815,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       }
     },
@@ -21803,8 +21835,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       },
       "here": {
@@ -21815,8 +21847,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       }
     },
@@ -23581,8 +23613,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       }
     },
@@ -23613,8 +23645,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       }
     },
@@ -23869,8 +23901,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       },
       "here": {
@@ -23901,8 +23933,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       },
       "here": {
@@ -25839,8 +25871,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       },
       "here": {
@@ -25851,8 +25883,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       }
     },
@@ -27473,8 +27505,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       },
       "here": {
@@ -27485,8 +27517,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       }
     },
@@ -27505,8 +27537,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       },
       "here": {
@@ -27517,8 +27549,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       }
     },
@@ -27537,8 +27569,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       },
       "here": {
@@ -27549,8 +27581,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       }
     },
@@ -27569,8 +27601,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       },
       "here": {
@@ -27581,8 +27613,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       }
     },
@@ -27923,8 +27955,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       },
       "here": {
@@ -27935,8 +27967,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       }
     },
@@ -27955,8 +27987,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       },
       "here": {
@@ -27967,8 +27999,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       }
     },
@@ -28435,8 +28467,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       },
       "here": {
@@ -28447,8 +28479,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       }
     },
@@ -28467,8 +28499,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       },
       "here": {
@@ -28479,8 +28511,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       }
     },
@@ -28563,8 +28595,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       },
       "here": {
@@ -28575,8 +28607,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       }
     },
@@ -28595,8 +28627,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       },
       "here": {
@@ -28607,8 +28639,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       }
     },
@@ -28883,8 +28915,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       },
       "here": {
@@ -28915,8 +28947,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       },
       "here": {
@@ -29459,8 +29491,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       },
       "here": {
@@ -29471,8 +29503,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       }
     },
@@ -29491,8 +29523,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       },
       "here": {
@@ -29503,8 +29535,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       }
     },
@@ -29587,8 +29619,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       },
       "here": {
@@ -29599,8 +29631,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       }
     },
@@ -29619,8 +29651,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       },
       "here": {
@@ -29631,8 +29663,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       }
     },
@@ -29843,8 +29875,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       },
       "here": {
@@ -29855,8 +29887,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       }
     },
@@ -29875,8 +29907,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       },
       "here": {
@@ -29887,8 +29919,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       }
     },
@@ -31827,8 +31859,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       },
       "here": {
@@ -31839,8 +31871,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       }
     },
@@ -31859,8 +31891,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       },
       "here": {
@@ -31871,8 +31903,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       }
     },
@@ -32986,8 +33018,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 31, not 31万吨."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -33018,8 +33050,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "文档写的是 31，不是 31万吨。"
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -38175,8 +38207,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       }
     },
@@ -38207,8 +38239,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
         }
       }
     },
@@ -38337,6 +38369,646 @@
         "document": {
           "verdict": "unsupported",
           "reason": "文档写的是 20，不是 20万。"
+        }
+      }
+    },
+    {
+      "id": "e-unit-and-unquoted-en",
+      "source": "edge › unit-and-unquoted",
+      "language": "en",
+      "sentence": "The margin rose 6% to 18%.",
+      "quotes": ["The margin rose 6 percentage points"],
+      "files": ["a7a3ad821660"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 6 percentage points, not 6%."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "The Document gives 6 percentage points, not 6%."
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 6 percentage points, not 6%."
+        }
+      }
+    },
+    {
+      "id": "e-unit-and-unquoted-zh-CN",
+      "source": "edge › unit-and-unquoted",
+      "language": "zh-CN",
+      "sentence": "The margin rose 6% to 18%.",
+      "quotes": ["The margin rose 6 percentage points"],
+      "files": ["a7a3ad821660"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 6 percentage points，不是 6%。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "文档写的是 6 percentage points，不是 6%。"
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 6 percentage points，不是 6%。"
+        }
+      }
+    },
+    {
+      "id": "e-zh-unit-and-unquoted-en",
+      "source": "edge › zh-unit-and-unquoted",
+      "language": "en",
+      "sentence": "利润率上升了6%，达到18%。",
+      "quotes": ["利润率上升了6个百分点"],
+      "files": ["53c1735c0594"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 6个百分点, not 6%."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "The Document gives 6个百分点, not 6%."
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 6个百分点, not 6%."
+        }
+      }
+    },
+    {
+      "id": "e-zh-unit-and-unquoted-zh-CN",
+      "source": "edge › zh-unit-and-unquoted",
+      "language": "zh-CN",
+      "sentence": "利润率上升了6%，达到18%。",
+      "quotes": ["利润率上升了6个百分点"],
+      "files": ["53c1735c0594"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 6个百分点，不是 6%。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "文档写的是 6个百分点，不是 6%。"
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 6个百分点，不是 6%。"
+        }
+      }
+    },
+    {
+      "id": "e-row-label-right-other-caption-energy-en",
+      "source": "heading › row-label-right-other-caption-energy",
+      "language": "en",
+      "sentence": "2024年原煤产量为31万吨。",
+      "quotes": ["原煤产量（万吨）\t54\t31"],
+      "files": ["048841ae17d6"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 31, not 31万吨."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 31, not 31万吨."
+        }
+      }
+    },
+    {
+      "id": "e-row-label-right-other-caption-energy-zh-CN",
+      "source": "heading › row-label-right-other-caption-energy",
+      "language": "zh-CN",
+      "sentence": "2024年原煤产量为31万吨。",
+      "quotes": ["原煤产量（万吨）\t54\t31"],
+      "files": ["048841ae17d6"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 31，不是 31万吨。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 31，不是 31万吨。"
+        }
+      }
+    },
+    {
+      "id": "e-row-label-right-other-caption-percent-en",
+      "source": "heading › row-label-right-other-caption-percent",
+      "language": "en",
+      "sentence": "2024年原煤产量为31万吨。",
+      "quotes": ["原煤产量（万吨）\t54\t31"],
+      "files": ["8fa1441790a2"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 31, not 31万吨."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 31, not 31万吨."
+        }
+      }
+    },
+    {
+      "id": "e-row-label-right-other-caption-percent-zh-CN",
+      "source": "heading › row-label-right-other-caption-percent",
+      "language": "zh-CN",
+      "sentence": "2024年原煤产量为31万吨。",
+      "quotes": ["原煤产量（万吨）\t54\t31"],
+      "files": ["8fa1441790a2"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 31，不是 31万吨。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 31，不是 31万吨。"
+        }
+      }
+    },
+    {
+      "id": "e-no-unit-other-caption-elsewhere-en",
+      "source": "heading › no-unit-other-caption-elsewhere",
+      "language": "en",
+      "sentence": "SUV销量为57万辆。",
+      "quotes": ["SUV\t57"],
+      "files": ["92b6ad09374c"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 57, not 57万辆."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 57, not 57万辆."
+        }
+      }
+    },
+    {
+      "id": "e-no-unit-other-caption-elsewhere-zh-CN",
+      "source": "heading › no-unit-other-caption-elsewhere",
+      "language": "zh-CN",
+      "sentence": "SUV销量为57万辆。",
+      "quotes": ["SUV\t57"],
+      "files": ["92b6ad09374c"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 57，不是 57万辆。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 57，不是 57万辆。"
+        }
+      }
+    },
+    {
+      "id": "e-own-label-other-unit-en",
+      "source": "heading › own-label-other-unit",
+      "language": "en",
+      "sentence": "产量为126万吨。",
+      "quotes": ["用电（万千瓦时）126"],
+      "files": ["fc696b71262c"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 126, not 126万吨."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "The Document gives 126, not 126万吨."
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 126, not 126万吨."
+        }
+      }
+    },
+    {
+      "id": "e-own-label-other-unit-zh-CN",
+      "source": "heading › own-label-other-unit",
+      "language": "zh-CN",
+      "sentence": "产量为126万吨。",
+      "quotes": ["用电（万千瓦时）126"],
+      "files": ["fc696b71262c"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 126，不是 126万吨。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "文档写的是 126，不是 126万吨。"
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 126，不是 126万吨。"
+        }
+      }
+    },
+    {
+      "id": "e-column-cell-other-unit-en",
+      "source": "heading › column-cell-other-unit",
+      "language": "en",
+      "sentence": "8月销量为126万吨。",
+      "quotes": ["8月\t90\t126"],
+      "files": ["205975f01c82"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 126, not 126万吨."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "The Document gives 126, not 126万吨."
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 126, not 126万吨."
+        }
+      }
+    },
+    {
+      "id": "e-column-cell-other-unit-zh-CN",
+      "source": "heading › column-cell-other-unit",
+      "language": "zh-CN",
+      "sentence": "8月销量为126万吨。",
+      "quotes": ["8月\t90\t126"],
+      "files": ["205975f01c82"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 126，不是 126万吨。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "文档写的是 126，不是 126万吨。"
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 126，不是 126万吨。"
+        }
+      }
+    },
+    {
+      "id": "e-heading-over-rows-other-unit-en",
+      "source": "heading › heading-over-rows-other-unit",
+      "language": "en",
+      "sentence": "8月产量为126万吨。",
+      "quotes": ["8月: 126"],
+      "files": ["f74370173667"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 126, not 126万吨."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "The Document gives 126, not 126万吨."
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 126, not 126万吨."
+        }
+      }
+    },
+    {
+      "id": "e-heading-over-rows-other-unit-zh-CN",
+      "source": "heading › heading-over-rows-other-unit",
+      "language": "zh-CN",
+      "sentence": "8月产量为126万吨。",
+      "quotes": ["8月: 126"],
+      "files": ["f74370173667"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 126，不是 126万吨。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "文档写的是 126，不是 126万吨。"
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 126，不是 126万吨。"
+        }
+      }
+    },
+    {
+      "id": "e-same-unit-caption-elsewhere-other-scale-en",
+      "source": "heading › same-unit-caption-elsewhere-other-scale",
+      "language": "en",
+      "sentence": "二厂产量为31万吨。",
+      "quotes": ["二厂\t31"],
+      "files": ["daa36048bf31"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 31, not 31万吨."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "The Document gives 31, not 31万吨."
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 31, not 31万吨."
+        }
+      }
+    },
+    {
+      "id": "e-same-unit-caption-elsewhere-other-scale-zh-CN",
+      "source": "heading › same-unit-caption-elsewhere-other-scale",
+      "language": "zh-CN",
+      "sentence": "二厂产量为31万吨。",
+      "quotes": ["二厂\t31"],
+      "files": ["daa36048bf31"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 31，不是 31万吨。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "文档写的是 31，不是 31万吨。"
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 31，不是 31万吨。"
+        }
+      }
+    },
+    {
+      "id": "e-column-unread-currency-heading-one-figure-en",
+      "source": "edge › column-unread-currency-heading-one-figure",
+      "language": "en",
+      "sentence": "9月末外汇储备为34002.51亿美元。",
+      "quotes": ["34002.51"],
+      "files": ["09a41dac8488"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 34002.51, not 34002.51亿美元."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-column-unread-currency-heading-one-figure-zh-CN",
+      "source": "edge › column-unread-currency-heading-one-figure",
+      "language": "zh-CN",
+      "sentence": "9月末外汇储备为34002.51亿美元。",
+      "quotes": ["34002.51"],
+      "files": ["09a41dac8488"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 34002.51，不是 34002.51亿美元。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
         }
       }
     }

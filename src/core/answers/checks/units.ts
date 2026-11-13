@@ -562,13 +562,12 @@ function wordLineUnits(text: CheckedText, start: number, context: FigureContext)
 }
 
 /**
- * Whether the gate reads a unit stated for the cited number at `start`: its label, a heading or
- * column cell over it, or a unit in brackets on a line of words in its Document.
+ * Whether a label reaches the cited number at `start` (its own, the heading over its rows, its
+ * column's cell), whatever unit it states. A bracket for another measure on a line of words
+ * elsewhere states nothing for it: the gate can't tell which table a caption heads (#2997).
  */
 const unitStatedFor = (text: CheckedText, start: number, context: FigureContext): boolean =>
-  text.gateReads === true &&
-  (labelled(text.cited(), start, context).length > 0 ||
-    wordLineUnits(text, start, context).length > 0);
+  text.gateReads === true && labelled(text.cited(), start, context).length > 0;
 
 /** A number a figure was compared with: as its quote writes it, in its unit and scale. */
 export interface BoundNumber {
@@ -728,8 +727,8 @@ export function unitNotStated(
             (isDollar(figure.unit.code) && bareDollarStatement(statement)) ||
             same.some(({ unit }) => unit.kind === "currency")),
       );
-      // The Document states otherwise when the number writes its own sign or scale, a unit is stated
-      // for it, or a line states a scale, its currency or its unit for the Document's figures.
+      // The Document states otherwise when the number writes its own sign or scale, a label reaches
+      // it, or a line states a scale, its currency, or its own unit or measure.
       const forItsUnit = (statement: StatedUnit) =>
         statement.unit.kind === "plain" ||
         (figure.unit.kind === "currency"
