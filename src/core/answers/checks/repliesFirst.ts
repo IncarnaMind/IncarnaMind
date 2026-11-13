@@ -75,7 +75,8 @@ export function repliesFirst(replies: RepliesOut | undefined, base: PaceTimers):
       sinceHere = Date.now();
     }
     try {
-      await replies.none(provider, signal);
+      // A reply may begin between this one's end and the request going out: it goes first too.
+      while (replies.out(provider) && !signal.aborted) await replies.none(provider, signal);
     } finally {
       if (--waitingNow === 0) {
         waited += base.now() - since;
@@ -94,8 +95,9 @@ export function repliesFirst(replies: RepliesOut | undefined, base: PaceTimers):
       while (left > 0) {
         const from = waitedSoFar();
         await base.sleep(left, signal);
-        await free(signal);
+        // Only the wait inside the sleep is owed: `free` sits out the rest of it.
         left = waitedSoFar() - from;
+        await free(signal);
       }
     },
   };
@@ -127,8 +129,8 @@ export function repliesFirst(replies: RepliesOut | undefined, base: PaceTimers):
         while (left > 0) {
           const from = waitedHereSoFar();
           await sleepHere(left, until);
-          await free(until);
           left = waitedHereSoFar() - from;
+          await free(until);
         }
         timedOut.abort(new DOMException("The check's time limit passed.", "TimeoutError"));
       };
