@@ -32,8 +32,10 @@ export function unitGate(
   documents: Pick<AnswerDocuments, "pageTexts">,
   figureContext: (citation: Citation) => FigureContext,
   /**
-   * Whether it reads a dollar or ¥ the Document leaves unsaid. An Answer's check doesn't yet: its
-   * Chinese replies write 美元 for a bare "$" (#3030).
+   * Whether it reads what the Document leaves unsaid: which dollar a bare "$" is, the yuan sign,
+   * and a unit, currency or scale stated nowhere for the figure. An Answer's check doesn't: its
+   * Chinese replies write 美元 for a bare "$" (#3030), and "not found" in a table is no evidence
+   * that the Document doesn't say it (#2997).
    */
   unsaid = true,
 ) {

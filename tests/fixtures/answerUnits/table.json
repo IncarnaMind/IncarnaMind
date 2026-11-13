@@ -2122,6 +2122,66 @@
     "4070aba8a24b": {
       "name": "Notes.txt",
       "text": "Report\n表5 各厂能耗（吨标准煤）\n工厂\t数值\n一厂\t54\n二厂\t31\n"
+    },
+    "a042605f3922": {
+      "name": "Data.txt",
+      "text": "Report\n指标\t2023年\t2024年\n原煤产量（万吨）\t54\t31\n焦炭产量（万吨）\t12\t9\n"
+    },
+    "93ebcb3f8543": {
+      "name": "Data.txt",
+      "text": "Report\n指标\t2023年\t2024年\n原煤产量（万吨）\t54\t31\n营业收入（亿元）\t820\t905\n"
+    },
+    "f474a95806bf": {
+      "name": "Data.txt",
+      "text": "Report\n指标 2023年 2024年\n原煤产量（万吨） 54 31\n焦炭产量（万吨） 12 9\n"
+    },
+    "44de1190dac1": {
+      "name": "Data.txt",
+      "text": "Report\n指标\t单位\t2023年\t2024年\n原煤产量\t万吨\t54\t31\n发电量\t亿千瓦时\t118\t126\n"
+    },
+    "b778adc0f672": {
+      "name": "Data.txt",
+      "text": "Report\nIndicator\tUnit\t2023\t2024\nCoal output\tthousand tonnes\t54\t31\n"
+    },
+    "684dc59aa3a6": {
+      "name": "Data.txt",
+      "text": "Report\nIndicator\t2023\t2024\nCoal output (thousand tonnes)\t54\t31\n"
+    },
+    "1acd446eb12e": {
+      "name": "Notes.txt",
+      "text": "Rates\n各月能耗（吨标准煤）\n7月: 118\n8月: 126\n"
+    },
+    "106e8b376de7": {
+      "name": "Notes.txt",
+      "text": "Report\n表5 各厂能耗\n工厂\t能耗（吨标准煤）\n一厂\t54\n二厂\t31\n"
+    },
+    "e74d740216ae": {
+      "name": "Notes.txt",
+      "text": "Rates\n能耗（吨标准煤）126。\n"
+    },
+    "ec47c490b2fa": {
+      "name": "Notes.txt",
+      "text": "Report\n表6 各厂排放量（吨二氧化碳当量）\n工厂\t数值\n一厂\t54\n二厂\t31\n"
+    },
+    "f745f4fa3297": {
+      "name": "Notes.txt",
+      "text": "Invoice\nAll amounts in this invoice are in US dollars.\nThe fee is 54,000.\n"
+    },
+    "fafb121ee137": {
+      "name": "Notes.txt",
+      "text": "Results\nRevenue was $54 million.\n"
+    },
+    "ebeefa6f0290": {
+      "name": "Notes.txt",
+      "text": "Report\n二厂产量为31亿吨。\n"
+    },
+    "d544ce2cffda": {
+      "name": "Notes.txt",
+      "text": "Rates\n各月充电量（万千瓦时）\n7月: 118\n\n各月订单\n7月: 20\n"
+    },
+    "4497d40a9bec": {
+      "name": "Notes.txt",
+      "text": "Rates\n各月订单\n7月: 20\n"
     }
   },
   "rows": [
@@ -4839,8 +4899,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 64,000 without a currency."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -5639,8 +5699,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 54,000, not 54,000 tonnes."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -5671,8 +5731,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 54,000, not 5.4万吨."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -5703,8 +5763,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 54, not 54 kilometres."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -5735,8 +5795,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 5,400, not 5400平方米."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -5767,8 +5827,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 54, not 54 MW."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -5799,8 +5859,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 12, not 12%."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -5831,8 +5891,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 12, not 12 percent."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -5863,8 +5923,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 12, not 百分之十二."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -5895,8 +5955,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 12, not 12 percentage points."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -5927,8 +5987,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 12, not 12个百分点."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -5959,8 +6019,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 3, not 3 pps."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -6887,8 +6947,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 54,000, not 54,000 tonnes."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -6919,8 +6979,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 54, not 54 kilometres."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -6951,8 +7011,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 54,000, not 54,000 tonnes."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -6983,8 +7043,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 54,000, not 54,000 tonnes."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -7015,8 +7075,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 54,000, not 54,000 tonnes."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -7047,8 +7107,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 54, not 54 kilometres."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -7079,8 +7139,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 54,000, not 54,000 tonnes."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -7111,8 +7171,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 54, not 54 kilometres."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -7143,8 +7203,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 54,000, not 54,000 tonnes."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -7175,8 +7235,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 54,000, not 54,000 tonnes."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -7207,8 +7267,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 54,000, not 54,000 tonnes."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -7239,8 +7299,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 54, not 54 litres."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -7271,8 +7331,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 54,000, not 54,000 tonnes."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -7303,8 +7363,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 54,000, not 54,000 tonnes."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -7335,8 +7395,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 54, not 54 litres."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -7367,8 +7427,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 54,000, not 54,000吨."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -7399,8 +7459,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 54, not 54公里."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -7431,8 +7491,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 54,000, not 54,000吨."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -7463,8 +7523,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 54, not 54公里."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -7495,8 +7555,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 54, not 54升."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -7527,8 +7587,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 54,000, not 54,000吨."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -7559,8 +7619,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 54, not 54公里."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -7591,8 +7651,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 54,000, not 54,000吨."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -7623,8 +7683,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 54, not 54升."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -7655,8 +7715,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 54,000, not 54,000吨."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -7687,8 +7747,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 54, not 54升."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -7719,8 +7779,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 54, not 54克."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -7751,8 +7811,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 54, not 54升."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -7783,8 +7843,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 54, not 54克."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -7815,8 +7875,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 54, not 54公里."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -7847,8 +7907,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 54, not 54公里."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -7879,8 +7939,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 54,000, not 54,000吨."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -7911,8 +7971,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 54, not 54升."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -7943,8 +8003,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 54,000, not 54,000吨."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -7975,8 +8035,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 54, not 54升."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -8007,8 +8067,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 54, not 54升."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -8039,8 +8099,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 54, not 54米."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -8071,8 +8131,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 54,000, not 54,000吨."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -8103,8 +8163,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 54,000, not 54,000吨."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -8135,8 +8195,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 54, not 54升."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -8167,8 +8227,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 54,000, not 54,000桶."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -8199,8 +8259,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 54, not 54克."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -8231,8 +8291,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 54, not 54公里."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -8263,8 +8323,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 54,000, not 54,000吨."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -8295,8 +8355,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 54, not 54公里."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -10215,8 +10275,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 54,000 without a currency."
+            "check": "not-checked",
+            "verdict": null
           }
         ],
         "document": {
@@ -10247,8 +10307,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 54,000, not 54,000 tonnes."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -10311,8 +10371,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 54,000 without a currency."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -10343,8 +10403,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 600 without a currency."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -10379,12 +10439,12 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 600 without a currency."
+            "check": "found",
+            "verdict": null
           },
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 600 without a currency."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -10415,8 +10475,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 54,000 without a currency."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -10447,8 +10507,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 54,000 without a currency."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -10479,8 +10539,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 54,000 without a currency."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -10511,8 +10571,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 54,000 without a currency."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -10543,8 +10603,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 54,000 without a currency."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -10575,8 +10635,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 54,000 without a currency."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -10607,8 +10667,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 54,000 without a currency."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -10639,8 +10699,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 528.9, not £528.9m."
+            "check": "not-checked",
+            "verdict": null
           }
         ],
         "document": {
@@ -10774,12 +10834,12 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 528.9, not £528.9m."
+            "check": "not-checked",
+            "verdict": null
           },
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 528.9, not £528.9m."
+            "check": "not-checked",
+            "verdict": null
           }
         ],
         "document": {
@@ -10810,8 +10870,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 528.9 without a currency."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -10842,8 +10902,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 528.9, not 528.9m."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -10938,8 +10998,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 528.9, not £528.9m."
+            "check": "not-checked",
+            "verdict": null
           }
         ],
         "document": {
@@ -10970,8 +11030,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 54,000 without a currency."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -11034,8 +11094,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 54,000 without a currency."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -11098,8 +11158,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 54,000 without a currency."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -12888,8 +12948,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 54,000 without a currency."
+            "check": "not-checked",
+            "verdict": null
           }
         ],
         "document": {
@@ -13932,8 +13992,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 2, not 2万元."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -13964,8 +14024,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 2, not 人民币两万元."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -14124,8 +14184,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 2, not 2万元."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -14156,8 +14216,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 2.5, not £2.5m."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -15532,8 +15592,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 54,000, not 54,000 tonnes."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -15564,8 +15624,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 12, not 12%."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -16012,8 +16072,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 54,000, not 54,000 tonnes."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -16044,8 +16104,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 54,000, not 54,000吨."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -16076,8 +16136,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 54,000, not 54,000吨."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -16154,8 +16214,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 54,000 without a currency."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -16193,8 +16253,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 54,000 without a currency."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -16232,8 +16292,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 63,000 without a currency."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -16310,8 +16370,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 54,000 without a currency."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -21078,8 +21138,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 126, not 126万吨."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -21110,8 +21170,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "文档写的是 126，不是 126万吨。"
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -21142,8 +21202,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 126, not 126万千瓦时."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -21174,8 +21234,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "文档写的是 126，不是 126万千瓦时。"
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -21206,8 +21266,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 126, not 126万千瓦时."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -21238,8 +21298,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "文档写的是 126，不是 126万千瓦时。"
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -21270,8 +21330,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 126, not 126 million kWh."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -21302,8 +21362,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "文档写的是 126，不是 126 million kWh。"
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -21590,8 +21650,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 34002.51, not 34002.51亿美元."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -21622,8 +21682,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "文档写的是 34002.51，不是 34002.51亿美元。"
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -21654,8 +21714,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 34002.51, not 34002.51亿美元."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -21686,8 +21746,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "文档写的是 34002.51，不是 34002.51亿美元。"
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -28126,8 +28186,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 3 points, not 3%."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -28158,8 +28218,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "文档写的是 3 points，不是 3%。"
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -28638,8 +28698,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 10 points, not 10%."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -28670,8 +28730,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "文档写的是 10 points，不是 10%。"
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -28958,8 +29018,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 3, not 3%."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -28990,8 +29050,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "文档写的是 3，不是 3%。"
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -29150,8 +29210,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 2, not 2%."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -29182,8 +29242,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "文档写的是 2，不是 2%。"
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -31902,8 +31962,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 3, not 3%."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -31934,8 +31994,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "文档写的是 3，不是 3%。"
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -33694,8 +33754,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 57, not 57万辆."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -33726,8 +33786,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "文档写的是 57，不是 57万辆。"
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -33758,8 +33818,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 31, not 31万吨."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -33790,8 +33850,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "文档写的是 31，不是 31万吨。"
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -33822,8 +33882,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 31, not 31万吨."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -33854,8 +33914,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "文档写的是 31，不是 31万吨。"
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -33886,8 +33946,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 31, not 31万吨."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -33918,8 +33978,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "文档写的是 31，不是 31万吨。"
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -34206,8 +34266,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 126, not 126万吨."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -34238,8 +34298,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "文档写的是 126，不是 126万吨。"
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -34270,8 +34330,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 126, not 126万吨."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -34302,8 +34362,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "文档写的是 126，不是 126万吨。"
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -34910,8 +34970,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 5, not 5万人."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -34942,8 +35002,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "文档写的是 5，不是 5万人。"
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -35102,8 +35162,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 455, not 455万人."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -35134,8 +35194,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "文档写的是 455，不是 455万人。"
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -35166,8 +35226,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 455, not 455 thousand people."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -35198,8 +35258,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "文档写的是 455，不是 455 thousand people。"
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -36446,8 +36506,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 31, not 31吨."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -36478,8 +36538,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "文档写的是 31，不是 31吨。"
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -36510,8 +36570,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 31, not 31万吨."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -36542,13 +36602,1741 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "文档写的是 31，不是 31万吨。"
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
           "verdict": "unsupported",
           "reason": "文档写的是 31，不是 31万吨。"
+        }
+      }
+    },
+    {
+      "id": "e-row-label-right-2024-en",
+      "source": "heading › row-label-right-2024",
+      "language": "en",
+      "sentence": "2024年原煤产量为31万吨。",
+      "quotes": ["原煤产量（万吨）\t54\t31"],
+      "files": ["a042605f3922"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 31, not 31万吨."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 31, not 31万吨."
+        }
+      }
+    },
+    {
+      "id": "e-row-label-right-2024-zh-CN",
+      "source": "heading › row-label-right-2024",
+      "language": "zh-CN",
+      "sentence": "2024年原煤产量为31万吨。",
+      "quotes": ["原煤产量（万吨）\t54\t31"],
+      "files": ["a042605f3922"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 31，不是 31万吨。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 31，不是 31万吨。"
+        }
+      }
+    },
+    {
+      "id": "e-row-label-right-2023-en",
+      "source": "heading › row-label-right-2023",
+      "language": "en",
+      "sentence": "2023年原煤产量为54万吨。",
+      "quotes": ["原煤产量（万吨）\t54\t31"],
+      "files": ["a042605f3922"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 54, not 54万吨."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 54, not 54万吨."
+        }
+      }
+    },
+    {
+      "id": "e-row-label-right-2023-zh-CN",
+      "source": "heading › row-label-right-2023",
+      "language": "zh-CN",
+      "sentence": "2023年原煤产量为54万吨。",
+      "quotes": ["原煤产量（万吨）\t54\t31"],
+      "files": ["a042605f3922"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 54，不是 54万吨。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 54，不是 54万吨。"
+        }
+      }
+    },
+    {
+      "id": "e-row-label-yi-en",
+      "source": "heading › row-label-yi",
+      "language": "en",
+      "sentence": "2024年原煤产量为31亿吨。",
+      "quotes": ["原煤产量（万吨）\t54\t31"],
+      "files": ["a042605f3922"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 31, not 31亿吨."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 31, not 31亿吨."
+        }
+      }
+    },
+    {
+      "id": "e-row-label-yi-zh-CN",
+      "source": "heading › row-label-yi",
+      "language": "zh-CN",
+      "sentence": "2024年原煤产量为31亿吨。",
+      "quotes": ["原煤产量（万吨）\t54\t31"],
+      "files": ["a042605f3922"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 31，不是 31亿吨。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 31，不是 31亿吨。"
+        }
+      }
+    },
+    {
+      "id": "e-row-label-plain-wrong-en",
+      "source": "heading › row-label-plain-wrong",
+      "language": "en",
+      "sentence": "2024年原煤产量为31吨。",
+      "quotes": ["原煤产量（万吨）\t54\t31"],
+      "files": ["a042605f3922"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-row-label-plain-wrong-zh-CN",
+      "source": "heading › row-label-plain-wrong",
+      "language": "zh-CN",
+      "sentence": "2024年原煤产量为31吨。",
+      "quotes": ["原煤产量（万吨）\t54\t31"],
+      "files": ["a042605f3922"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-row-label-money-row-yi-en",
+      "source": "heading › row-label-money-row-yi",
+      "language": "en",
+      "sentence": "2024年原煤产量为31亿吨。",
+      "quotes": ["原煤产量（万吨）\t54\t31"],
+      "files": ["93ebcb3f8543"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-row-label-money-row-yi-zh-CN",
+      "source": "heading › row-label-money-row-yi",
+      "language": "zh-CN",
+      "sentence": "2024年原煤产量为31亿吨。",
+      "quotes": ["原煤产量（万吨）\t54\t31"],
+      "files": ["93ebcb3f8543"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-row-label-money-row-right-en",
+      "source": "heading › row-label-money-row-right",
+      "language": "en",
+      "sentence": "2024年原煤产量为31万吨。",
+      "quotes": ["原煤产量（万吨）\t54\t31"],
+      "files": ["93ebcb3f8543"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 31, not 31万吨."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 31, not 31万吨."
+        }
+      }
+    },
+    {
+      "id": "e-row-label-money-row-right-zh-CN",
+      "source": "heading › row-label-money-row-right",
+      "language": "zh-CN",
+      "sentence": "2024年原煤产量为31万吨。",
+      "quotes": ["原煤产量（万吨）\t54\t31"],
+      "files": ["93ebcb3f8543"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 31，不是 31万吨。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 31，不是 31万吨。"
+        }
+      }
+    },
+    {
+      "id": "e-row-label-spaces-right-en",
+      "source": "heading › row-label-spaces-right",
+      "language": "en",
+      "sentence": "2024年原煤产量为31万吨。",
+      "quotes": ["原煤产量（万吨） 54 31"],
+      "files": ["f474a95806bf"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 31, not 31万吨."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-row-label-spaces-right-zh-CN",
+      "source": "heading › row-label-spaces-right",
+      "language": "zh-CN",
+      "sentence": "2024年原煤产量为31万吨。",
+      "quotes": ["原煤产量（万吨） 54 31"],
+      "files": ["f474a95806bf"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 31，不是 31万吨。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-row-label-spaces-plain-wrong-en",
+      "source": "heading › row-label-spaces-plain-wrong",
+      "language": "en",
+      "sentence": "2024年原煤产量为31吨。",
+      "quotes": ["原煤产量（万吨） 54 31"],
+      "files": ["f474a95806bf"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "The Document gives 31（万吨）, not 31吨."
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 31（万吨）, not 31吨."
+        }
+      }
+    },
+    {
+      "id": "e-row-label-spaces-plain-wrong-zh-CN",
+      "source": "heading › row-label-spaces-plain-wrong",
+      "language": "zh-CN",
+      "sentence": "2024年原煤产量为31吨。",
+      "quotes": ["原煤产量（万吨） 54 31"],
+      "files": ["f474a95806bf"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "文档写的是 31（万吨），不是 31吨。"
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 31（万吨），不是 31吨。"
+        }
+      }
+    },
+    {
+      "id": "e-unit-column-right-en",
+      "source": "heading › unit-column-right",
+      "language": "en",
+      "sentence": "2024年原煤产量为31万吨。",
+      "quotes": ["原煤产量\t万吨\t54\t31"],
+      "files": ["44de1190dac1"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 31, not 31万吨."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 31, not 31万吨."
+        }
+      }
+    },
+    {
+      "id": "e-unit-column-right-zh-CN",
+      "source": "heading › unit-column-right",
+      "language": "zh-CN",
+      "sentence": "2024年原煤产量为31万吨。",
+      "quotes": ["原煤产量\t万吨\t54\t31"],
+      "files": ["44de1190dac1"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 31，不是 31万吨。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 31，不是 31万吨。"
+        }
+      }
+    },
+    {
+      "id": "e-unit-column-yi-en",
+      "source": "heading › unit-column-yi",
+      "language": "en",
+      "sentence": "2024年原煤产量为31亿吨。",
+      "quotes": ["原煤产量\t万吨\t54\t31"],
+      "files": ["44de1190dac1"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 31, not 31亿吨."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 31, not 31亿吨."
+        }
+      }
+    },
+    {
+      "id": "e-unit-column-yi-zh-CN",
+      "source": "heading › unit-column-yi",
+      "language": "zh-CN",
+      "sentence": "2024年原煤产量为31亿吨。",
+      "quotes": ["原煤产量\t万吨\t54\t31"],
+      "files": ["44de1190dac1"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 31，不是 31亿吨。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 31，不是 31亿吨。"
+        }
+      }
+    },
+    {
+      "id": "e-unit-column-plain-wrong-en",
+      "source": "heading › unit-column-plain-wrong",
+      "language": "en",
+      "sentence": "2024年原煤产量为31吨。",
+      "quotes": ["原煤产量\t万吨\t54\t31"],
+      "files": ["44de1190dac1"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-unit-column-plain-wrong-zh-CN",
+      "source": "heading › unit-column-plain-wrong",
+      "language": "zh-CN",
+      "sentence": "2024年原煤产量为31吨。",
+      "quotes": ["原煤产量\t万吨\t54\t31"],
+      "files": ["44de1190dac1"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-en-unit-column-right-en",
+      "source": "heading › en-unit-column-right",
+      "language": "en",
+      "sentence": "Coal output was 31 thousand tonnes in 2024.",
+      "quotes": ["Coal output\tthousand tonnes\t54\t31"],
+      "files": ["b778adc0f672"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-en-unit-column-right-zh-CN",
+      "source": "heading › en-unit-column-right",
+      "language": "zh-CN",
+      "sentence": "Coal output was 31 thousand tonnes in 2024.",
+      "quotes": ["Coal output\tthousand tonnes\t54\t31"],
+      "files": ["b778adc0f672"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-en-unit-column-wrong-en",
+      "source": "heading › en-unit-column-wrong",
+      "language": "en",
+      "sentence": "Coal output was 31 million tonnes in 2024.",
+      "quotes": ["Coal output\tthousand tonnes\t54\t31"],
+      "files": ["b778adc0f672"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 31, not 31 million tonnes."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "The Document gives 31, not 31 million tonnes."
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 31, not 31 million tonnes."
+        }
+      }
+    },
+    {
+      "id": "e-en-unit-column-wrong-zh-CN",
+      "source": "heading › en-unit-column-wrong",
+      "language": "zh-CN",
+      "sentence": "Coal output was 31 million tonnes in 2024.",
+      "quotes": ["Coal output\tthousand tonnes\t54\t31"],
+      "files": ["b778adc0f672"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 31，不是 31 million tonnes。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "文档写的是 31，不是 31 million tonnes。"
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 31，不是 31 million tonnes。"
+        }
+      }
+    },
+    {
+      "id": "e-en-row-label-right-en",
+      "source": "heading › en-row-label-right",
+      "language": "en",
+      "sentence": "Coal output was 31 thousand tonnes in 2024.",
+      "quotes": ["Coal output (thousand tonnes)\t54\t31"],
+      "files": ["684dc59aa3a6"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-en-row-label-right-zh-CN",
+      "source": "heading › en-row-label-right",
+      "language": "zh-CN",
+      "sentence": "Coal output was 31 thousand tonnes in 2024.",
+      "quotes": ["Coal output (thousand tonnes)\t54\t31"],
+      "files": ["684dc59aa3a6"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-en-row-label-wrong-en",
+      "source": "heading › en-row-label-wrong",
+      "language": "en",
+      "sentence": "Coal output was 31 million tonnes in 2024.",
+      "quotes": ["Coal output (thousand tonnes)\t54\t31"],
+      "files": ["684dc59aa3a6"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 31, not 31 million tonnes."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "The Document gives 31, not 31 million tonnes."
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 31, not 31 million tonnes."
+        }
+      }
+    },
+    {
+      "id": "e-en-row-label-wrong-zh-CN",
+      "source": "heading › en-row-label-wrong",
+      "language": "zh-CN",
+      "sentence": "Coal output was 31 million tonnes in 2024.",
+      "quotes": ["Coal output (thousand tonnes)\t54\t31"],
+      "files": ["684dc59aa3a6"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 31，不是 31 million tonnes。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "文档写的是 31，不是 31 million tonnes。"
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 31，不是 31 million tonnes。"
+        }
+      }
+    },
+    {
+      "id": "e-c-heading-coal-right-en",
+      "source": "heading › c-heading-coal-right",
+      "language": "en",
+      "sentence": "8月能耗为126吨标准煤。",
+      "quotes": ["8月: 126"],
+      "files": ["1acd446eb12e"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 126, not 126吨."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 126, not 126吨."
+        }
+      }
+    },
+    {
+      "id": "e-c-heading-coal-right-zh-CN",
+      "source": "heading › c-heading-coal-right",
+      "language": "zh-CN",
+      "sentence": "8月能耗为126吨标准煤。",
+      "quotes": ["8月: 126"],
+      "files": ["1acd446eb12e"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 126，不是 126吨。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 126，不是 126吨。"
+        }
+      }
+    },
+    {
+      "id": "e-c-heading-coal-wan-en",
+      "source": "heading › c-heading-coal-wan",
+      "language": "en",
+      "sentence": "8月能耗为126万吨标准煤。",
+      "quotes": ["8月: 126"],
+      "files": ["1acd446eb12e"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 126, not 126万吨."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 126, not 126万吨."
+        }
+      }
+    },
+    {
+      "id": "e-c-heading-coal-wan-zh-CN",
+      "source": "heading › c-heading-coal-wan",
+      "language": "zh-CN",
+      "sentence": "8月能耗为126万吨标准煤。",
+      "quotes": ["8月: 126"],
+      "files": ["1acd446eb12e"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 126，不是 126万吨。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 126，不是 126万吨。"
+        }
+      }
+    },
+    {
+      "id": "e-c-column-coal-right-en",
+      "source": "heading › c-column-coal-right",
+      "language": "en",
+      "sentence": "二厂能耗为31吨标准煤。",
+      "quotes": ["二厂\t31"],
+      "files": ["106e8b376de7"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 31, not 31吨."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 31, not 31吨."
+        }
+      }
+    },
+    {
+      "id": "e-c-column-coal-right-zh-CN",
+      "source": "heading › c-column-coal-right",
+      "language": "zh-CN",
+      "sentence": "二厂能耗为31吨标准煤。",
+      "quotes": ["二厂\t31"],
+      "files": ["106e8b376de7"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 31，不是 31吨。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 31，不是 31吨。"
+        }
+      }
+    },
+    {
+      "id": "e-c-own-label-coal-right-en",
+      "source": "heading › c-own-label-coal-right",
+      "language": "en",
+      "sentence": "能耗为126吨标准煤。",
+      "quotes": ["能耗（吨标准煤）126"],
+      "files": ["e74d740216ae"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 126, not 126吨."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 126, not 126吨."
+        }
+      }
+    },
+    {
+      "id": "e-c-own-label-coal-right-zh-CN",
+      "source": "heading › c-own-label-coal-right",
+      "language": "zh-CN",
+      "sentence": "能耗为126吨标准煤。",
+      "quotes": ["能耗（吨标准煤）126"],
+      "files": ["e74d740216ae"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 126，不是 126吨。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 126，不是 126吨。"
+        }
+      }
+    },
+    {
+      "id": "e-c-caption-co2-right-en",
+      "source": "heading › c-caption-co2-right",
+      "language": "en",
+      "sentence": "二厂排放量为31吨二氧化碳当量。",
+      "quotes": ["二厂\t31"],
+      "files": ["ec47c490b2fa"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 31, not 31吨."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 31, not 31吨."
+        }
+      }
+    },
+    {
+      "id": "e-c-caption-co2-right-zh-CN",
+      "source": "heading › c-caption-co2-right",
+      "language": "zh-CN",
+      "sentence": "二厂排放量为31吨二氧化碳当量。",
+      "quotes": ["二厂\t31"],
+      "files": ["ec47c490b2fa"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 31，不是 31吨。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 31，不是 31吨。"
+        }
+      }
+    },
+    {
+      "id": "e-currency-named-other-en",
+      "source": "heading › currency-named-other",
+      "language": "en",
+      "sentence": "The fee is £54,000.",
+      "quotes": ["The fee is 54,000"],
+      "files": ["f745f4fa3297"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 54,000 without a currency."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "The Document gives 54,000 without a currency."
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 54,000 without a currency."
+        }
+      }
+    },
+    {
+      "id": "e-currency-named-other-zh-CN",
+      "source": "heading › currency-named-other",
+      "language": "zh-CN",
+      "sentence": "The fee is £54,000.",
+      "quotes": ["The fee is 54,000"],
+      "files": ["f745f4fa3297"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 54,000，没有注明币种。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "文档写的是 54,000，没有注明币种。"
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 54,000，没有注明币种。"
+        }
+      }
+    },
+    {
+      "id": "e-currency-named-same-en",
+      "source": "heading › currency-named-same",
+      "language": "en",
+      "sentence": "The fee is US$54,000.",
+      "quotes": ["The fee is 54,000"],
+      "files": ["f745f4fa3297"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-currency-named-same-zh-CN",
+      "source": "heading › currency-named-same",
+      "language": "zh-CN",
+      "sentence": "The fee is US$54,000.",
+      "quotes": ["The fee is 54,000"],
+      "files": ["f745f4fa3297"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-money-own-scale-other-en",
+      "source": "heading › money-own-scale-other",
+      "language": "en",
+      "sentence": "Revenue was $54bn.",
+      "quotes": ["Revenue was $54 million"],
+      "files": ["fafb121ee137"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives $54 million, not $54bn."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "The Document gives $54 million, not $54bn."
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives $54 million, not $54bn."
+        }
+      }
+    },
+    {
+      "id": "e-money-own-scale-other-zh-CN",
+      "source": "heading › money-own-scale-other",
+      "language": "zh-CN",
+      "sentence": "Revenue was $54bn.",
+      "quotes": ["Revenue was $54 million"],
+      "files": ["fafb121ee137"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 $54 million，不是 $54bn。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "文档写的是 $54 million，不是 $54bn。"
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 $54 million，不是 $54bn。"
+        }
+      }
+    },
+    {
+      "id": "e-money-own-scale-twin-en",
+      "source": "heading › money-own-scale-twin",
+      "language": "en",
+      "sentence": "Revenue was $54m.",
+      "quotes": ["Revenue was $54 million"],
+      "files": ["fafb121ee137"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-money-own-scale-twin-zh-CN",
+      "source": "heading › money-own-scale-twin",
+      "language": "zh-CN",
+      "sentence": "Revenue was $54m.",
+      "quotes": ["Revenue was $54 million"],
+      "files": ["fafb121ee137"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-measure-own-scale-other-en",
+      "source": "heading › measure-own-scale-other",
+      "language": "en",
+      "sentence": "二厂产量为31万吨。",
+      "quotes": ["二厂产量为31亿吨"],
+      "files": ["ebeefa6f0290"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-measure-own-scale-other-zh-CN",
+      "source": "heading › measure-own-scale-other",
+      "language": "zh-CN",
+      "sentence": "二厂产量为31万吨。",
+      "quotes": ["二厂产量为31亿吨"],
+      "files": ["ebeefa6f0290"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "not-checked",
+          "reason": "number-unquoted"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-scale-word-no-unit-other-bracket-en",
+      "source": "heading › scale-word-no-unit-other-bracket",
+      "language": "en",
+      "sentence": "7月订单为20万。",
+      "quotes": ["7月: 20"],
+      "files": ["d544ce2cffda"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 20, not 20万."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-scale-word-no-unit-other-bracket-zh-CN",
+      "source": "heading › scale-word-no-unit-other-bracket",
+      "language": "zh-CN",
+      "sentence": "7月订单为20万。",
+      "quotes": ["7月: 20"],
+      "files": ["d544ce2cffda"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 20，不是 20万。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-scale-word-no-unit-nothing-en",
+      "source": "heading › scale-word-no-unit-nothing",
+      "language": "en",
+      "sentence": "7月订单为20万。",
+      "quotes": ["7月: 20"],
+      "files": ["4497d40a9bec"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 20, not 20万."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 20, not 20万."
+        }
+      }
+    },
+    {
+      "id": "e-scale-word-no-unit-nothing-zh-CN",
+      "source": "heading › scale-word-no-unit-nothing",
+      "language": "zh-CN",
+      "sentence": "7月订单为20万。",
+      "quotes": ["7月: 20"],
+      "files": ["4497d40a9bec"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 20，不是 20万。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 20，不是 20万。"
         }
       }
     }

@@ -413,7 +413,19 @@ function givenOtherwise(
     ({ each }) =>
       writesMeasure(each.cited, measure) || writesMeasure(each.text.document(), measure),
   );
-  return written ? null : given(plain);
+  if (written) return null;
+  // A plain number whose Document states no unit for it, nor ever writes the measure, states none:
+  // the Answer's reading leaves it to the model (#2997). A share's rival ("Change (pp)" beside a
+  // percent) is stated otherwise.
+  const rival =
+    figure.unit.kind === "percent" ? "points" : figure.unit.kind === "points" ? "percent" : null;
+  const statedFor = plain.filter(
+    ({ each, number }) =>
+      unitStatedFor(each.text, number.start, each.context) ||
+      (rival !== null &&
+        (writesMeasure(each.cited, rival) || writesMeasure(each.text.document(), rival))),
+  );
+  return unsaid ? given(plain) : given(statedFor);
 }
 
 /**
@@ -527,6 +539,36 @@ function ownFirst(labels: readonly Label[], keep: (label: Label) => boolean): La
   return own.length > 0 ? own : kept;
 }
 
+/**
+ * The units in brackets on the Document's lines of words ("表7 各厂产量（万吨）" over its table, a
+ * heading on another page): one on a line that gives a value, the number's own or a table's row,
+ * labels another series (#2997).
+ */
+function wordLineUnits(text: CheckedText, start: number, context: FigureContext): StatedUnit[] {
+  const cited = text.cited();
+  const itsLine = cited
+    .slice(cited.lastIndexOf("\n", start - 1) + 1)
+    .split("\n")[0]
+    ?.trim();
+  return text
+    .document()
+    .split("\n")
+    .filter((line) => !line.includes("\t") && line.trim() !== itsLine)
+    .flatMap((line) => {
+      const units = bracketedUnits(line, context);
+      return units.length > 0 && readFigures(line, context).length === 0 ? units : [];
+    });
+}
+
+/**
+ * Whether the gate reads a unit stated for the cited number at `start`: its label, a heading or
+ * column cell over it, or a unit in brackets on a line of words in its Document.
+ */
+const unitStatedFor = (text: CheckedText, start: number, context: FigureContext): boolean =>
+  text.gateReads === true &&
+  (labelled(text.cited(), start, context).length > 0 ||
+    wordLineUnits(text, start, context).length > 0);
+
 /** A number a figure was compared with: as its quote writes it, in its unit and scale. */
 export interface BoundNumber {
   chars: string;
@@ -550,7 +592,11 @@ export function unitNotStated(
   citations: readonly CheckedText[],
   bound?: readonly BoundNumber[],
   worked: readonly Pick<Figure, "start" | "end">[] = [],
-  /** Whether a dollar or ¥ the Document leaves unsaid is read ("which dollar", "yuan sign"). */
+  /**
+   * Whether a finding resting on what the Document leaves unsaid is read: which dollar a bare "$"
+   * is, the yuan sign, and a unit, currency or scale it states nowhere for the figure. The Answer's
+   * reading leaves those to the model (#2997, #3030).
+   */
   unsaid = true,
 ): UnitNotStated | null {
   const own = documentFigureContext([{ text: claim }]);
@@ -575,13 +621,26 @@ export function unitNotStated(
   const [first] = read;
   for (const figure of figuresToCheck(claim, own.language || !first ? own : first.context)) {
     // Numbers `bound` names were compared with, not read from one Citation: they match no text.
-    const same: { text: CheckedText | null; start: number; chars: string; unit: FigureUnit }[] =
+    const same: {
+      text: CheckedText | null;
+      start: number;
+      chars: string;
+      unit: FigureUnit;
+      /** A reading of "3 points" or "3个点" as percentage points, which may count things instead. */
+      loose?: boolean;
+    }[] =
       bound?.map(({ chars, unit }) => ({ text: null, start: 0, chars, unit })) ??
       read.flatMap(({ text, figures }) =>
         figures.flatMap((each) =>
           readingsOf(each)
             .filter((reading) => sameValue(reading.value, figure.value))
-            .map((reading) => ({ text, start: each.start, chars: each.chars, unit: reading.unit })),
+            .map((reading) => ({
+              text,
+              start: each.start,
+              chars: each.chars,
+              unit: reading.unit,
+              loose: reading.unit.kind === "points" && each.unit.kind !== "points",
+            })),
         ),
       );
     const sameWritten = read.flatMap(({ text, context, figures }) =>
@@ -611,6 +670,13 @@ export function unitNotStated(
             scale: reading.scale,
             // Only a number with no sign, unit word or scale of its own takes its label's.
             plain: each.unit.kind === "plain" && each.currency === null && each.scaleWord === null,
+            // Its own sign or scale word, or a header's scale for its kind of figure, says what
+            // scale the Document gives it: a "（亿元）" row heading is no scale for tonnes.
+            says:
+              each.currency !== null ||
+              each.scaleWord !== null ||
+              (reading.scale !== each.scale &&
+                (reading.unit.kind === "plain" || reading.unit.kind === figure.unit.kind)),
           }));
       }),
     );
@@ -644,38 +710,36 @@ export function unitNotStated(
               (statement.unit.word === figure.unit.word ||
                 (measureOf(figure.unit) !== null &&
                   measureOf(statement.unit) === measureOf(figure.unit))));
-      const stated = sameWritten
-        .flatMap(({ text, context, start }, at) => {
-          const own = labels[at] ?? [];
-          if (own.length > 0) return ownFirst(own, ofItsMeasure);
-          const cited = text.cited();
-          const itsLine = cited
-            .slice(cited.lastIndexOf("\n", start - 1) + 1)
-            .split("\n")[0]
-            ?.trim();
-          const bracketed = text.gateReads
-            ? text
-                .document()
-                .split("\n")
-                .filter((line) => !line.includes("\t") && line.trim() !== itsLine)
-                .flatMap((line) => {
-                  const units = bracketedUnits(line, context).filter(sameUnit);
-                  return units.length > 0 && readFigures(line, context).length === 0 ? units : [];
-                })
-            : [];
-          return [...readStatedUnits(text.document(), context), ...bracketed];
-        })
-        .some(
-          (statement) =>
-            statement.scale === figure.scale &&
-            (figure.unit.kind !== "currency" ||
-              (statement.unit.kind === "currency" && statement.unit.code === figure.unit.code) ||
-              // "Results ($m)" states a dollar figure's scale, and leaves which dollar to the currency rule.
-              (isDollar(figure.unit.code) && bareDollarStatement(statement)) ||
-              same.some(({ unit }) => unit.kind === "currency")),
-        );
+      const statements = sameWritten.flatMap(({ text, context, start }, at) => {
+        const own = labels[at] ?? [];
+        if (own.length > 0) return ownFirst(own, ofItsMeasure);
+        const bracketed = text.gateReads
+          ? wordLineUnits(text, start, context).filter(sameUnit)
+          : [];
+        return [...readStatedUnits(text.document(), context), ...bracketed];
+      });
+      const stated = statements.some(
+        (statement) =>
+          statement.scale === figure.scale &&
+          (figure.unit.kind !== "currency" ||
+            (statement.unit.kind === "currency" && statement.unit.code === figure.unit.code) ||
+            // "Results ($m)" states a dollar figure's scale, and leaves which dollar to the currency rule.
+            (isDollar(figure.unit.code) && bareDollarStatement(statement)) ||
+            same.some(({ unit }) => unit.kind === "currency")),
+      );
+      // The Document states otherwise when the number writes its own sign or scale, a unit is stated
+      // for it, or a line states a scale, its currency or its unit for the Document's figures.
+      const forItsUnit = (statement: StatedUnit) =>
+        statement.unit.kind === "plain" ||
+        (figure.unit.kind === "currency"
+          ? statement.unit.kind === "currency"
+          : figure.unit.kind === "other" && sameUnit(statement));
+      const statedOtherwise =
+        sameWritten.some(
+          ({ says, text, start, context }) => says || unitStatedFor(text, start, context),
+        ) || statements.some(forItsUnit);
       const amount = sameWritten[0]?.chars ?? figure.chars;
-      if (!stated)
+      if (!stated && (unsaid || statedOtherwise))
         return { kind: "scale", figure: figure.chars, amount, matches: matchesOf(sameWritten) };
       // "Results ($m)" over a cited "Revenue 54" gives the scale and a dollar, not which one; a
       // column headed "亿美元" names it.
@@ -734,7 +798,15 @@ export function unitNotStated(
     if (same.length === 0) continue;
     if (isShare(figure.unit)) {
       if (same.some(({ unit }) => unit.kind === figure.unit.kind)) continue;
-      const other = same.find(({ unit }) => isShare(unit));
+      // Loose points state a share only after a rise or fall; "He raised 3 points" counts them.
+      const changed = (text: CheckedText | null, start: number) => {
+        const before = text?.cited().slice(0, start) ?? "";
+        return CHANGE_BEFORE.test(before) || CN_CHANGE_BEFORE.test(before);
+      };
+      const other = same.find(
+        ({ unit, loose, text, start }) =>
+          isShare(unit) && (unsaid || !loose || changed(text, start)),
+      );
       if (other)
         return {
           kind: "unit",
@@ -754,6 +826,12 @@ export function unitNotStated(
       if (!unsaid) continue;
       return { kind: "which dollar", amount, matches };
     }
+    // Only where the Document names another currency does it state one for a plain number.
+    if (
+      !unsaid &&
+      !read.some((each) => [...namedInCited(each), ...namedInDocument(each)].length > 0)
+    )
+      continue;
     return { kind: "currency", currency: figure.currency ?? [...codes][0] ?? "", amount, matches };
   }
   return null;
