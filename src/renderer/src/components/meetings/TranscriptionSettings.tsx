@@ -36,7 +36,7 @@ export function TranscriptionRouteLine({ id, read }: { id?: string; read: Servic
     const unnamed = localMode ? "meetings.route.paused" : "meetings.route.consent";
     return (
       <p id={id} data-testid="meetings-route-line">
-        {chooseAgainLine(services, t, language) ??
+        {chooseAgainLine(services, t, language, localMode) ??
           t(route === "local" ? "meetings.route.hereLine" : unnamed)}
       </p>
     );
@@ -77,7 +77,8 @@ export function TranscriptionRouteConsent({ read }: { read: ServicesView }) {
   if (!service && !services.some((each) => each.hasKey)) return null;
   if (!service) {
     const line =
-      chooseAgainLine(services, t, language) ?? (localMode ? null : t("meetings.route.consent"));
+      chooseAgainLine(services, t, language, localMode) ??
+      (localMode ? null : t("meetings.route.consent"));
     if (line === null) return null;
     return (
       <p data-testid="meetings-route-consent" className="text-[12px] leading-5 text-ink-meta">
@@ -101,9 +102,12 @@ function chooseAgainLine(
   services: readonly TranscriptionServiceStatus[],
   t: ReturnType<typeof useT>,
   language: ReturnType<typeof useLanguage>,
+  localMode: boolean,
 ): string | null {
   const service = services.find((each) => each.chooseAgain);
   if (!service) return null;
+  // Local mode refuses the choice this line asks for, so it asks once Local mode is off (#2999).
+  if (localMode) return t("meetings.route.paused");
   const words = language === "zh-CN" ? "zh" : "en";
   return t("meetings.route.chooseAgain", {
     provider: t(ROUTE_LABELS[service.route]),
