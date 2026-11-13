@@ -24,10 +24,16 @@ import { answerEnded, shownPassages } from "../helpers/citations";
 import { createTempDataFolder, queryDatabase } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { pressedBeforeFirstLine, turnOf } from "../helpers/earlierCallPress";
+import { heldClock } from "../helpers/heldClock";
 import { connectToMind } from "../helpers/mindClient";
 import { writeMind } from "../helpers/minds";
 import { type GenerateCall, type ModelCall, scriptedModel, unscripted } from "../helpers/models";
-import { stoppedMeeting, transcribingCore, transcriptRead, until } from "../helpers/transcription";
+import {
+  liveTranscriptRead,
+  stoppedMeeting,
+  transcribingCore,
+  until,
+} from "../helpers/transcription";
 
 const SECOND = 1000;
 const HOUR = 3_600_000;
@@ -278,10 +284,12 @@ async function folderCore(
   const calls: ModelCall[] = [];
   let unmarked = false;
   const dataDir = await createTempDataFolder();
+  const pace = heldClock();
   const { core, record, clock } = await transcribingCore(dataDir, {
     model: model ? model(calls) : searchingModel(calls, lines.query),
     engine: { lines: lines.mine.slice(0, only), theirLines: lines.theirs.slice(0, only) },
     callsUnmarked: () => unmarked,
+    paceTimers: pace.timers,
   });
   await core.updateSettings({ user: { language } });
   const folder = await core.createLibraryGroup({ name: "Tallowmere Freight", description: "" });
@@ -310,6 +318,9 @@ async function folderCore(
     folder,
     call,
     record,
+    /** Every line heard so far is in the live call's Document, as its own spacing reads them. */
+    read: (meetingId: string, documentId: string | null) =>
+      liveTranscriptRead(core, dataDir, meetingId, documentId ?? "", pace),
     unmark: (on: boolean) => {
       unmarked = on;
     },
@@ -330,7 +341,7 @@ async function setUp(language: Language) {
   await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
   const { meeting: live, heard } = await setup.call();
   // Every line heard is in the Document before the first press, so each request reads the same.
-  await transcriptRead(core, dataDir, live.id, heard.documentId ?? "");
+  await setup.read(live.id, heard.documentId);
   const meetings = await core.listMeetings();
   const startOf = (meetingId: string) =>
     formatFullDateTime(meetings.find((each) => each.id === meetingId)?.startedAt ?? "", "en");
@@ -596,7 +607,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await paused;
       setup.record(9 * SECOND);
       const heard = await until(core, live.id, (transcript) => transcript.lines >= 8);
-      await transcriptRead(core, dataDir, live.id, heard.documentId ?? "");
+      await setup.read(live.id, heard.documentId);
       release();
       await answerEnded(core, asked.answerId);
 
@@ -661,7 +672,7 @@ for (const language of ["en", "zh-CN"] as const) {
         clock.advance(3 * HOUR);
         await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
         const { meeting: live, heard } = await setup.call();
-        await transcriptRead(core, dataDir, live.id, heard.documentId ?? "");
+        await setup.read(live.id, heard.documentId);
         return {
           ...setup,
           live,
@@ -748,7 +759,7 @@ for (const language of ["en", "zh-CN"] as const) {
         await core.allowDataFlow("chat", saved.service.id);
       }
       const { meeting: live, heard } = await setup.call();
-      await transcriptRead(core, dataDir, live.id, heard.documentId ?? "");
+      await setup.read(live.id, heard.documentId);
       expect(await textOf(core, stopped.document.id)).toContain(said.line);
 
       const answerOf = async (ids: { conversationId: string; answerId: string }) => {
@@ -947,20 +958,6 @@ for (const language of ["en", "zh-CN"] as const) {
   describe(`${language}: another call's Transcript with no Passages at the press`, {
     timeout: 180_000,
   }, () => {
-    /**
-     * The live call's Transcript text once some of it is read. Not `transcriptRead`: with another
-     * call's Note deleted, the live Transcript's Document isn't read again to the file's last line.
-     */
-    const heardSome = (core: Core, documentId: string) =>
-      vi.waitFor(
-        async () => {
-          const text = await textOf(core, documentId);
-          expect(text.trim()).not.toBe("");
-          return text;
-        },
-        { timeout: 20_000 },
-      );
-
     test("its Note brought back while the press's reply is written: the press's search finds nothing of it", async () => {
       let reached = () => {};
       const paused = new Promise<void>((resolve) => {
@@ -1001,7 +998,8 @@ for (const language of ["en", "zh-CN"] as const) {
       await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
       // A Note in no Folder: the press has no Search scope.
       const { meeting: live, heard } = await setup.call(null);
-      const liveText = await heardSome(core, heard.documentId ?? "");
+      await setup.read(live.id, heard.documentId);
+      const liveText = await textOf(core, heard.documentId ?? "");
       const earlierOnly = (line: string) => earlierText.includes(line) && !liveText.includes(line);
 
       const from = calls.length;
@@ -1066,7 +1064,7 @@ for (const language of ["en", "zh-CN"] as const) {
 
       setup.record(9 * SECOND);
       const heard = await until(core, live.id, (transcript) => transcript.lines >= 8);
-      await heardSome(core, heard.documentId ?? "");
+      await setup.read(live.id, heard.documentId);
       const after = await bothWays();
       expect(after.branch).toEqual(after.main);
     });
@@ -1111,7 +1109,7 @@ describe("A Folder that keeps its work inside it", { timeout: 180_000 }, () => {
     clock.advance(3 * HOUR);
     await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
     const { meeting: live, heard } = await setup.call(liveIn(folders));
-    await transcriptRead(core, dataDir, live.id, heard.documentId ?? "");
+    await setup.read(live.id, heard.documentId);
     const earlierText = await textOf(core, stopped.document.id);
     const branch = await press(core, calls, live.id, "say");
     setup.unmark(true);
@@ -1173,7 +1171,7 @@ describe("Another call elsewhere in the Library", { timeout: 180_000 }, () => {
     clock.advance(6 * 24 * HOUR);
     await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
     const { meeting: live, heard } = await setup.call(null);
-    await transcriptRead(core, dataDir, live.id, heard.documentId ?? "");
+    await setup.read(live.id, heard.documentId);
     const branch = await press(core, calls, live.id, "say");
     setup.unmark(true);
     const main = await press(core, calls, live.id, "say");
