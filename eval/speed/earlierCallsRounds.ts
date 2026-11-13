@@ -94,16 +94,18 @@ export function datedCases(
   const ids = cases.map((each) => each.id);
   const twice = ids.filter((id, index) => ids.indexOf(id) !== index);
   if (twice.length > 0) throw new Error(`The set ${name} names ${twice.join(", ")} twice.`);
-  const undated = ids.filter((id) => datings[withoutLanguage(id)] === undefined);
+  const dated: { each: EarlierCallCase; dating: Dating }[] = [];
+  const undated: string[] = [];
+  for (const each of cases) {
+    const dating = datings[withoutLanguage(each.id)];
+    if (dating) dated.push({ each, dating });
+    else undated.push(each.id);
+  }
   if (undated.length > 0) {
     throw new Error(
       `The set ${name} has cases its gate doesn't date: ${undated.join(", ")} (eval/speed/earlierCallsRounds.ts).`,
     );
   }
-  const dated = cases.map((each) => ({
-    each,
-    dating: datings[withoutLanguage(each.id)] as Dating,
-  }));
   const midnight = new Date(now);
   midnight.setHours(0, 0, 0, 0);
   const sameDay = dated.find(({ dating }) => "sameDayHours" in dating);

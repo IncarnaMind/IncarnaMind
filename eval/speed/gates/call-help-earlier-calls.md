@@ -171,11 +171,11 @@ Before any paid request:
 
 ## Round 2, written 2026-11-13, before any of its runs
 
-**Every earlier number came from calls recorded in the same minute:** the pilot's, round 1's, and their judging again, each under one Note name with one start. The pressure test that found the fault recorded its calls the same day, all named "Transcript · Meeting, 12 November"; its record gives no starts. Compare round 2 with them knowing this.
+**Every number before round 2's pilot came from calls recorded in the same minute:** round 1's pilot, its run and their judging again, each under one Note name with one start. The pressure test that found the fault recorded its calls the same day, all named "Transcript · Meeting, 12 November"; its record gives no starts. Compare round 2 with them knowing this.
 
 ### What changed, and why
 
-- **The cause, read from round 1's requests.** Every branch press already carried the Answer's rule in its system prompt: give an earlier call's line as said in that call, saying when, and cite it. The button's own instruction, after the Question, said instead: distinguish it from the transcript and cite it. Its form asks for a line said aloud, Citation markers at the end. The branch's five failing replies all distinguish the earlier call by the Citation alone, and the User doesn't say a Citation to the other side. Two of them also put the other side's words in the User's mouth: the buyer's procurement signer given as "our" rollout lead, "our board".
+- **The cause, read from round 1's requests.** Every branch press already carried the Answer's rule in its system prompt: give an earlier call's line as said in that call, saying when, and cite it. The button's own instruction, after the Question, said instead: distinguish it from the transcript and cite it. Its form asks for a line said aloud, Citation markers at the end. The branch's five failing replies all distinguish the earlier call by the Citation alone, and the User doesn't say a Citation to the other side. Two of them also put the other side's words in the User's mouth: the buyer's procurement signer given as "our" rollout lead, "our board". Read from round 1 alone, that looked like a slip main never makes. It isn't: with the calls dated, 3 of main's 24 replies in round 2's pilot give the other side's earlier line as ours ("since our board requires it to stay in Europe"). The branch's bar for it stays none.
 - **The wording.** The Answer's rule and the button's instruction now carry the same sentence, `EARLIER_CALL_RULE` in `src/core/answers/prompt.ts`: "A Transcript Passage marked call="earlier" is another call, named by its note and started: nothing in it was said in this call. Give its line only as said in that call, saying in the sentence itself who said it and when (the day that call started, or its time when it started the same day as this one), as in "When we spoke on Monday, you said …", and cite it; a sentence that can't say so leaves the line out." Its example is general words, no line of either set's cases or of any reply.
   - The system prompt's line during a call: "A Transcript Passage marked call="this" is this call's: say they or you said something only from call="this" lines." followed by that sentence.
   - The buttons' Documents line: "A Document fact was not said in this call: distinguish it from the transcript, cite it, and never invent one." followed by that sentence.
@@ -191,6 +191,42 @@ Before any paid request:
 - **Its question.** With the calls days apart, does main still give an earlier call's content as this call's in at least 4 of 24 button replies? If fewer than 4, the fault isn't shown on real dating, and part 2 goes back for a decision, with what it is then for, before any gate run. Otherwise main's rate sizes round 2.
 - **The run.** The first set's 8 cases (spent as proof, so they can serve), every earlier call 6 days before its live one. Claude Haiku 5.5, `calls-unmarked` against itself, all 32 items once, with no judge (`INCARNAMIND_EVAL_SPEED_JUDGE=none`). The runner pairs every item, so each item has two samples. The first sample's 24 button replies are read by hand by two readers and decide the question; the second's are reported, for the rate.
 - **It counts** only with none of its requests refused, failed or timed out.
+
+### The pilot, read: 2026-11-13 04:42–04:53 UTC (commit 372b32326)
+
+- **It counts.** 256 model requests, none refused, failed or timed out. Spent $0.091, so $0.558 of $1.50 with round 1.
+- **The fault is shown on real dating.** Two readers read each sample's 24 button replies by hand. Neither reading is blind to the arm: there is one arm. They agree on 43 of the 48.
+
+| Main's button replies | First sample (decides) | Second sample (for the rate) |
+|---|---|---|
+| An earlier call's content given as this call's, both readers | 8 of 24 | 5 of 24 |
+| The same, either reader | 11 | 7 |
+| Clear to both, neither marking it borderline | 6 | 3 |
+| Put on "the Documents" or "the record", both readers | 2 | 3 |
+| An earlier line of the other side given as ours, both readers | 3 | 1 |
+
+- **Where it is, both readers.**
+
+| | First sample | Second sample | Round 1's main, calls in the same minute |
+|---|---|---|---|
+| The earlier call said it first | 5 of 12 | 4 of 12 | 5 of 12 |
+| The earlier call brings the changes | 3 of 12 | 1 of 12 | 10 of 12 |
+| "What should I say?" | 4 of 8 | 2 of 8 | |
+| "Answer their question" | 4 of 8 | 2 of 8 | |
+| "Check what was said" | 0 of 8 | 1 of 8 | |
+| English | 4 of 12 | 2 of 12 | |
+| Chinese | 4 of 12 | 3 of 12 | |
+
+  - Real dates alone take most of main's faults away in the order where the earlier call brings the changes, and leave the other order's as they were.
+  - All but one fault are in the options of the two option buttons. The check lines give the earlier call by its date.
+  - Each of the first sample's 8 "last time" replies gives the earlier call with its date and cites it, so bar 2 sits at its ceiling on main.
+- **What it sizes.** At these rates main's expected count over round 2's 36 button presses (24 in the order where the earlier call said it first, 12 in the other) is about 11, so one Claude Haiku 5.5 run.
+- **Where the rule was hard to read**, for round 2's readers:
+  - The "→" line under an option counts as the reply's own words.
+  - Past tense with no marker ("the twelve thousand we discussed", "still on the table").
+  - An earlier fact assumed rather than stated ("the Eastbrook clinic delivery"), against one asked about ("whether the Eastbrook clinic should be the delivery point").
+  - An earlier question of the other side turned into the User's own.
+  - "The 7 November notes" and "文档中 11 月 7 日的会议": a record, or a meeting kept in the Documents.
 
 ### The cases
 
@@ -225,28 +261,29 @@ As committed for round 1, except as said here. Every count is given in all, by t
    Round 1's bar 4 stays failed as written.
 5. **No more items failing to run.**
 
-Where the two readers differ on a reply, it counts against the arm: under bar 1 and the kind counted apart when either reader counts it, under bar 2 as answered only when both say so. Both readers' counts are given.
+**Where the two readers differ.** A reply the two readers read differently goes to a third reader before the arms are known, who sees only the reply and the calls. Two of three readings decide, for a fault, for the kind counted apart, and for whether a "last time" reply is answered. The bars are read on that settled count, and each reply settled this way is listed with its three readings. A reply isn't counted against the change just because the readers differ: they differ on about 1 reply in 10, and with a bar of none one borderline reading would decide the round. Nor is a difference settled after the key is opened, when the arm is known.
 
-**Frozen.** What the branch sends is frozen for round 2 at the commit that adds this section, and its results name that commit.
+**Frozen.** What the branch sends is frozen for round 2 at commit 372b32326. Later commits change only this gate's files and the evaluation's code. The results name both commits: the frozen one and the one the run used.
 
 ### Models, judges, keys
 
-- **Claude Haiku 5.5 first, both arms,** one run of the 48 items, judged by Claude Sonnet 5.5. The pilot's rate sets the runs: the smallest number for which main's expected count, at its rate over 36 presses a run, is at least 6, up to what the stop allows.
+- **Claude Haiku 5.5 first, both arms:** one run of the 48 items, judged by Claude Sonnet 5.5. The pilot gives main about 11 expected over 36 presses, well over 6.
 - **The Claude Sonnet 5.5 guard** runs only if every Haiku bar holds. It takes the pair dated 6 days back, e and f: its 4 cases' 12 button presses, both arms, one run (`INCARNAMIND_EVAL_SPEED_ITEMS` naming the 12).
-  - Its judge can't be Claude Sonnet 5.5, a model under test, and no request goes to Claude Opus or Claude Fable. So the guard is judged by Claude Haiku 5.5. Its bar 1 and the kind counted apart are read by hand by the two readers, and each of its false Supported, as in the Haiku run.
-- One route and one key, the first direct Anthropic key, with its lock for each run's length and the allowance read before each run, as for round 1.
+  - Its judge can't be Claude Sonnet 5.5, a model under test, and no request goes to Claude Opus or Claude Fable. So the guard is judged by Claude Haiku 5.5.
+  - Its bar 1, the kind counted apart and each of its false Supported are read by hand, as in the Haiku run. Only the grade (bar 3) rests on Claude Haiku 5.5, and the pull request says so.
+- **One route, a second key.** Round 2 runs on a second direct Anthropic key with its own limit: its lock for each run's length, with the judge's nested inside, and its allowance read before each run. Round 1 and the pilot ran on the first key: the same provider, model and route; only the limit differs.
 
 ### Spend, from round 1's measured cost
 
 Round 1's Haiku run measured, caching included: $0.0008 a button reply, $0.0034 a typed one, $0.002 a reply for the Sonnet judge. Claude Sonnet 5.5 is priced at 20 times Claude Haiku 5.5. With the same caching, that is about $0.017 a button reply.
 
-| Step | Size | Estimate |
-|---|---|---|
-| Pilot | 32 items, main against itself, no judge | $0.09 |
-| Claude Haiku 5.5 run | 48 items, both arms, judged | $0.34 |
-| Claude Sonnet 5.5 guard | 12 button items, both arms, judged by Haiku | $0.40 |
-| Total | | $0.83 of the $1.03 left of $1.50 |
+| Step | Size | Estimate | Stop |
+|---|---|---|---|
+| Pilot | 32 items, main against itself, no judge | spent $0.091 | |
+| Claude Haiku 5.5 run | 48 items, both arms, judged by Claude Sonnet 5.5 | $0.34 | $0.45 |
+| Claude Sonnet 5.5 guard, only if every Haiku bar holds | 12 button items, both arms, judged by Claude Haiku 5.5 | $0.40 | $0.50 |
 
-- The stop stays $1.50 for everything, rounds 1 and 2 together, on the one ledger.
-- If the pilot's rate needs 2 Haiku runs, the guard doesn't fit and is brought for a decision.
-- A void Haiku run's rerun fits only without the guard; the guard then needs a new yes.
+- **Each step's stop is on the ledger's total** (`INCARNAMIND_EVAL_SPEED_STOP_USD`), the one ledger for rounds 1 and 2:
+  - the Haiku run's is $0.558 + $0.45 = $1.008;
+  - the guard's is the ledger's total after the Haiku run + $0.50, never above $1.50.
+- **Anything past $1.50, a rerun included, needs the owner's yes first.**
