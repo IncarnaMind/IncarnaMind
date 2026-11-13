@@ -11,7 +11,7 @@
 import { describe, expect, test } from "vitest";
 import type { Core, SaveChatProviderInput } from "../../src/core";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
-import { checkGenerate, checkReply, isCheckRun, type Plan } from "../helpers/checks";
+import { checkGenerate, checkingModel, checkReply, isCheckRun, type Plan } from "../helpers/checks";
 import { setUpWithDocuments } from "../helpers/citations";
 import { readMind, writeMind } from "../helpers/minds";
 import { type ModelCall, scriptedModel } from "../helpers/models";
@@ -248,5 +248,43 @@ describe.each(["DeepSeek, DeepSeek V4.1 Flash", "Anthropic, Claude Haiku 5.5"])(
     await onProvider(core, PROVIDERS[name]?.input ?? null);
 
     expect((await core.checkClaim({ claim })).verdict).toBe("supported");
+  });
+});
+
+describe("On the model on this computer, which the check doesn't offer calculate", () => {
+  const SPREADS = "Spreads\nBond\tSpread (bps)\nAlpha\t230\n";
+  const LEVIES = "Levies\nItem\tLevy (‰)\nStamp\t5\n";
+  const GROWTH = "Growth\nMetric\tYoY%\nRevenue\t12\n";
+  const PIPELINE = "Pipeline\nStage\tDeals\tValue (£k)\nProposal\t17\t830\n";
+
+  /** `claim` checked against one Document, the model scripted to call it supported citing `quote`. */
+  const ended = async (claim: string, contents: string, quote: string) => {
+    const { core } = await setUpWithDocuments(
+      checkingModel({ [claim]: { verdict: "supported", quote, says: quote } }),
+      [{ name: "Table.txt", contents }],
+    );
+    const result = await core.checkClaim({ claim });
+    return result.verdict === "not-checked" ? `not-checked: ${result.reason}` : result.verdict;
+  };
+
+  test.each([
+    ["The spread widened 230 bps.", SPREADS, "Alpha\t230"],
+    ["The levy is 5‰.", LEVIES, "Stamp\t5"],
+    ["Revenue grew 12% year on year.", GROWTH, "Revenue\t12"],
+    ["Seventeen deals worth £830k were at the proposal stage.", PIPELINE, "Proposal\t17\t830"],
+  ])(
+    "a cell holds %s in the unit its heading names: it keeps its ✓",
+    async (claim, contents, quote) => {
+      expect(await ended(claim, contents, quote)).toBe("supported");
+    },
+  );
+
+  test.each([
+    ["The spread widened 250 bps.", SPREADS, "Alpha\t230"],
+    ["The levy is 7‰.", LEVIES, "Stamp\t5"],
+    ["Revenue grew 15% year on year.", GROWTH, "Revenue\t12"],
+    ["Seventeen deals worth £880k were at the proposal stage.", PIPELINE, "Proposal\t17\t830"],
+  ])("no cell holds %s: it is Not checked", async (claim, contents, quote) => {
+    expect(await ended(claim, contents, quote)).toBe("not-checked: no-evidence");
   });
 });
