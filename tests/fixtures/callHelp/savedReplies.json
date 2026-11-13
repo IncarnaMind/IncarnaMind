@@ -1,0 +1,667 @@
+[
+  {
+    "kind": "answer",
+    "text": "★ A 50 kW roof system comes to €42,000 installed, and each extra 10 kW adds €7,500 [^1]\n→ answers their price question directly with the document figure\n\nScaffolding is charged at cost and quoted after the roof survey, so it's not in that figure [^2]\n→ sets expectations on extra costs before they ask",
+    "main": "7a7315061436153f8563c19141aa53beceb9f3e29a87f76ae6c175923055e6f3"
+  },
+  {
+    "kind": "answer",
+    "text": "★ A 50 kW roof system is €42,000 installed, and each extra 10 kW adds €7,500 [^1]\n→ answers their price question directly; scaffolding is quoted separately after the survey [^2]\n\nA 50 kW roof system is €42,000 installed [^1]. Scaffolding is charged at cost, so we'll confirm that after the roof survey [^2]\n→ gives the figure and flags the extra cost; sets up the survey\n[unstated] 1",
+    "main": "5e3eae5195ddc4202d23db9576015f556ce759e8f05a31719f2b5a91cd4a4bf4"
+  },
+  {
+    "kind": "answer",
+    "text": "★ Panels carry a 25-year performance warranty, and inverters are covered for 10 years, parts and labour [^1][^2]\n→ answers both questions directly with the documented terms\n\nPanels are guaranteed for 25 years on performance, and inverters for 10 years including parts and labour [^1][^2]\n→ same answer, phrased for a quick spoken reply",
+    "main": "372d426b6a41f4410c143ff4328d966ab5c600cfd11b5ae5abc6eb5789c7b752"
+  },
+  {
+    "kind": "answer",
+    "text": "★ Panels are guaranteed for 25 years for performance [^1]. Inverters are covered for 10 years, parts and labour [^2]\n→ answers both questions directly; confirms coverage terms\n\nLet me confirm the exact terms in writing and send them over after the call\n→ buys time; the written terms can be checked",
+    "main": "34d5eb621d4252dff9f76b0590f3d8cfb0eac1e35849bc2712f358d1ddf52722"
+  },
+  {
+    "kind": "answer",
+    "text": "★ We can do the roof work at night, but the 50 kW install takes about four working days, so we'd need to plan that schedule with you [^1][^2]\n→ answers their question directly; sets expectations on duration\n\nOur installers normally work Monday to Saturday, 7 am to 5 pm, so night roof work isn't our standard schedule [^2]\n→ keeps the conversation honest; invites a discussion on exceptions\n[unstated] 2",
+    "main": "272c528fac17d9fa21626c331c46abb102e4cbc3e30526b86158fe05da982beb"
+  },
+  {
+    "kind": "answer",
+    "text": "★ Yes, we can work on the roof at night, but it would need to be arranged with you first. [^1]\n→ shows flexibility; confirm noise and access rules before agreeing\n\nOur installers normally work Monday to Saturday, 7 am to 5 pm, so night work is outside their standard hours [^2]\n→ sets the limit; they may ask about after-hours cost",
+    "main": "e666eee39be5f8c280fd005f6138f9a1f0f7c4c13be02d23668d2db8ae92f66e"
+  },
+  {
+    "kind": "answer",
+    "text": "★ Our battery option is a 30 kWh unit, and batteries start at €14,000 [^1]\n→ answers their question directly; gives a concrete starting price\n\nLet me go through the scaffolding terms first, then the battery options [^2]\n→ keeps the deal framing in view; buys time to recap",
+    "main": "aad6a5e6934b82f9e179215090a2c97a117e3c7f752b40540abb9bfe3df2270c"
+  },
+  {
+    "kind": "answer",
+    "text": "★ The deal is that if you sign this quarter, we'll cover the scaffolding [^1]\n→ restates the offer; gets them to commit\n\nLet me pull up the battery options, and we can go through the deal terms after that\n→ moves on, but the deal question stays open",
+    "main": "3369df9961b57797d68f1e3a967587eee58b5cbadfea9ec4f2ab3b394a7437ba"
+  },
+  {
+    "kind": "say",
+    "text": "★ Our roof is old, so we'd like a structural engineer to check it before any work starts, and we'll avoid drilling through it by mounting on the existing seams [^1][^2]\n→ answers their leak worry directly; shows the plan avoids new holes\n\nI understand the concern. Any leak caused by the installation would be repaired at our cost [^3]\n→ reassures them; removes their financial risk",
+    "main": "42acb35f9aa2452ad65b64c0e2ef9b5ee8a438c0df761389dfb240c5cb02fa43"
+  },
+  {
+    "kind": "say",
+    "text": "★ Let's have a structural engineer check the roof first, and we'll only clamp onto the existing seams, with no holes drilled through the roof [^1]\n→ answers the leak worry directly; shows a concrete safeguard\n\nAny leak caused by the installation would be repaired at our cost, so you're protected if something goes wrong [^2]\n→ reassures them about the risk; keeps the conversation on solutions",
+    "main": "0f8171807d994f1ce34171094836c8c1f824af3797dd5afbeeee8666396d1de9"
+  },
+  {
+    "kind": "say",
+    "text": "★ Without a battery the system switches off in a grid cut, but with a battery chosen circuits keep running for up to 6 hours [^1]\n→ answers their question directly; shows the battery's value for outages\n\nOur system feeds your building first, and it shuts down during a grid cut unless a battery is fitted; with one, key circuits stay on for up to 6 hours [^2]\n→ explains the mechanism; sets up a battery discussion",
+    "main": "880e3b57d624b78cc3a53b5d973a8b4fc0b423a53068c8e63b3c3add47266875"
+  },
+  {
+    "kind": "say",
+    "text": "★ Yes, without a battery the system switches off in a grid cut, but with a battery some circuits stay on for up to 6 hours [^1]\n→ answers their question directly; shows the battery option\n\nThe panels feed your own building first, but during a grid outage the system shuts down unless you have a battery [^2]\n→ keeps the focus on backup power; invites a battery discussion",
+    "main": "bd663b578ff4d8f30eed18ee1c4ee604cf0f3f2dcd71b889c613f40acfd9dec1"
+  },
+  {
+    "kind": "no",
+    "text": "★ I'm not able to do the whole thing at €30,000; our pricing rules only allow a discount of up to 5% on a quoted price, and only when paid in full upfront [^1]\n→ holds the margin; keeps the door open to a discounted deal\n\nLet me look at what we can do within our standard terms and come back to you with options [^1]\n→ buys time; avoids a flat no",
+    "main": "7cad43fb11ce0bd39d512ede98c93598801239f879ce8ca2370879cc5bb7cbb7"
+  },
+  {
+    "kind": "no",
+    "text": "★ Thank you for the offer, but we can't do the full scope for that amount[^1]. We can discuss a reduced scope or a phased approach\n→ keeps the conversation open; signals flexibility without giving the price away\n\nLet me review the scope with our team and come back to you with options by Friday\n→ buys time; momentum may drop",
+    "main": "df9b50ff4e5c7fa8894caf81361d667d367991e7a36e37735ef1da47f7e84458"
+  },
+  {
+    "kind": "ask",
+    "text": "★ Ask how many roofs in total need a survey, and whether the two flat-roofed shops have any known issues [^1]\n→ scopes the survey work; clarifies roof types and quoting effort[^2]\n\nAsk whether the other two shops have pitched roofs, so we can plan surveys for all four sites\n→ completes the picture; helps us quote the full job",
+    "main": "ed0ebef8f5830131b8359385131494b53da8ed80b510701dc6460ba4f03e8b72"
+  },
+  {
+    "kind": "ask",
+    "text": "★ Two of your four shops have flat roofs[^1]. What does a survey involve for each of those roofs[^2]?\n→ turns their remark into a concrete next step; sets up the roof survey process\n\nCould we get the survey for the flat-roof shops scheduled before we discuss the quote[^3]?\n→ moves straight to timing; quoting depends on the survey",
+    "main": "0cb13dcc99cc4daf2b7eefe521d4d95857280e9ff509ca809321ac65b1efa661"
+  },
+  {
+    "kind": "check",
+    "text": "The panels are cleaned once a year, included in the service plan [^1]\n\nThe service plan costs €600 a year [^2]\n\nTranscript (13 Nov) has the other side asking if the sheet's once-a-year cleaning is right; the Maintenance doc matches it",
+    "main": "0316c5623c9011a76a2d17e1e0147bd7be5a152e43789ac4b62b54ce75f38aa8"
+  },
+  {
+    "kind": "check",
+    "text": "Right. The Maintenance sheet says panels are cleaned once a year [^1]\n\nThe service plan includes that cleaning and costs €600 a year [^1]\n[unstated] 1",
+    "main": "efca3b367001b13484d59a5fc2d55dfd2af543473d7145319c0f705778d513d0"
+  },
+  {
+    "kind": "check",
+    "text": "The monitoring app is free for as long as you have the system [^1]\n\nThe Monitoring document says it is free only for the first 2 years, then €8 a month [^2]\n→ The transcript claim conflicts with the document, so confirm the terms before relying on it.",
+    "main": "817eb14f8a901b0fff219fd2a4bfd83c67636f33a2a12871ecf4929a5211dd17"
+  },
+  {
+    "kind": "check",
+    "text": "Wrong. The monitoring app costs €8 a month after the first 2 years [^1]\n\nThe Documents show the app is free only for 2 years, not for as long as you have the system [^1]",
+    "main": "e2dfe0a8378178e0409286bd2b7d64b0b38630d9ca2e7680680ad1cb6e783075"
+  },
+  {
+    "kind": "sum",
+    "text": "The survey is set for 12 May at the main shop [^1]\n\nCorin Vale will meet your engineer there [^2]\n\nYou will send the final quote by Wednesday [^3]",
+    "main": "6ac221df2f47b63370b79106ce2b72065ca633f204f97fc42114355a20e4187f"
+  },
+  {
+    "kind": "sum",
+    "text": "The survey is set for 12 May at the main shop [^1]. Corin Vale will meet your engineer there [^2].\n\nYou will send the final quote by Wednesday [^3]. They replied \"Good\" [^4].",
+    "main": "b37c7f30f5d78cffc000c0e1adbbb33bcfc8e08cc94eda5392187c9401a61b92"
+  },
+  {
+    "kind": "answer",
+    "text": "★ Yes, the full cost can be deducted from taxable profits in the first year [^1]\n→ gives a concrete tax benefit; invites the accountant's paperwork next\n\nWe can send the paperwork your accountant needs to support the deduction [^2]\n→ shows we can help them claim it; keeps the focus on next steps",
+    "main": "6d7efe502ea262444c2995da4c0adb00a131856b5e88c2c261a7906d2fc9961a"
+  },
+  {
+    "kind": "answer",
+    "text": "★ The full cost can be deducted from taxable profits in the first year [^1]. We send the paperwork your accountant needs [^2]\n→ shows relief is available and what we provide; confirm eligibility with your accountant\n\nLet me check the exact eligibility rules with our accountant and come back to you\n→ buys time; accurate answer before committing",
+    "main": "c683217c163a4e37f4a5845138be17991d87a4331b419d05911c3d3bdbeb49ed"
+  },
+  {
+    "kind": "answer",
+    "text": "★ 50 千瓦含安装是 32 万元，每增加 10 千瓦加 5.6 万元，具体还要看屋顶勘察后的报价 [^1]\n→ 给出价格区间，留出勘察与脚手架费用空间\n\n我先了解一下你们的屋顶情况和白天用电量，勘察后再给你准确报价 [^2]\n→ 争取时间，避免未勘察前报死价",
+    "main": "543c8b05193427864b77f3f9194c2872bb00e4456bf053c2912ffee8273accca"
+  },
+  {
+    "kind": "answer",
+    "text": "★ 50 千瓦含安装大约 32 万元，每增加 10 千瓦加 5.6 万元，屋顶勘察后再报具体价格 [^1]\n→ 直接回答报价，留出勘察的余地\n\n我先按 50 千瓦的标准报价给您参考，具体还要看屋顶情况，勘察后再给准确价格\n→ 给出参考数字，但脚手架费用可能另算",
+    "main": "2418bde2f0c848f0ce407dd44d5f768d9605ffbfdfb86dbd9ea1614da0e19141"
+  },
+  {
+    "kind": "answer",
+    "text": "★ 组件的性能质保是 25 年，逆变器保修 10 年（包工包料）[^1][^2]\n→ 直接回答对方两个问题，数据清楚\n\n组件质保 25 年，逆变器保修 10 年，都是包工包料的说法[^3]\n→ 同上，但语气更像确认而非主动推进",
+    "main": "43cfa2b84c96204b5dab22b2c1a83e4b1c2a63ab0e5349b23238ee5578c9c95d"
+  },
+  {
+    "kind": "answer",
+    "text": "★ 组件质保 25 年（性能质保），逆变器保修 10 年，包工包料 [^1][^2]\n→ 直接回答对方两个问题，数字清楚\n\n组件质保和逆变器的年限我需要核对一下，稍后发给你书面确认 [^1]\n→ 争取时间，但可能显得不够专业",
+    "main": "c439c018ffa93a211ce7c0ec1c4bd38f828906e8bb15feacc2eeca7d13cc5712"
+  },
+  {
+    "kind": "answer",
+    "text": "★ 我们可以安排在晚上关店后施工，屋顶安装时间会另行和您确认\n→ 回应对方诉求，但需先确认施工时段\n\n安装人员周一至周六上午 7 点到下午 5 点施工，这一时段之外未见安排 [^1]\n→ 说明现有时段，避免超出承诺",
+    "main": "54140ae6844fbabcbb8d023686a0268beb3f32c26749487570bc2fe584b2e113"
+  },
+  {
+    "kind": "answer",
+    "text": "★ 可以，我们可以在晚上关店后上屋顶施工，但白天施工会避开营业时间 [^1]\n→ 直接回应对方，给出可行的时间方案\n\n安装人员的施工时间为周一至周六上午 7 点到下午 5 点 [^2]。这一时段与你们的营业时间可能重叠，因此晚上施工需要另行确认。",
+    "main": "e3157eff769cf561e956c275b7aa0d53d6f6204b7afbd467bea9934f50592ef5"
+  },
+  {
+    "kind": "answer",
+    "text": "★ 刚才提到的优惠是：如果本季度签约，脚手架费用由我们承担 [^1]\n→ 直接回应对方，明确优惠条件\n\n我先把优惠细节整理一下，稍后给你确切的方案 [^2]\n→ 争取时间，但可能让对方觉得拖延",
+    "main": "d46e31ac4b5db6c182f6eb4ccabd7d0a864b5fd487ecb102463d71283977bddf"
+  },
+  {
+    "kind": "answer",
+    "text": "★ 电池方案我稍后详细介绍，先说说优惠的具体内容 [^1]\n→ 先弄清对方关心的优惠，再引出电池方案\n\n我先把优惠条件整理好，马上发给您确认 [^2]\n→ 争取时间，但可能显得回避",
+    "main": "e459c99a8579e577b82dc0222535cec7f76fde50d70773e5c528da83023d0d76"
+  },
+  {
+    "kind": "say",
+    "text": "★ 我们会先检查屋顶，支架用夹具固定在原有接缝上，不在屋顶上打孔，安装造成的漏水由我们负责维修 [^1][^2]\n→ 直接回应对方对漏水的担心，建立信任\n\n我理解您的担心，屋顶旧确实需要谨慎。施工前会由结构工程师检查屋顶，您看是否方便先安排检查[^3]？ [^1]\n→ 承接顾虑，推动先检查的安排\n[unstated] 1",
+    "main": "f05b5bbf3f0217d6620aa39c4928ad1f6828a4e6028b5c1cb9a40dd22ef3b85c"
+  },
+  {
+    "kind": "say",
+    "text": "★ 我们的支架是用夹具固定在原有屋面接缝上的，不会在屋顶上打孔 [^1]\n→ 直接回应对漏水的担心，推进话题[^2]\n\n我们负责安装造成的漏水维修，施工前也会由结构工程师检查屋顶 [^3]\n→ 给对方保障，降低顾虑",
+    "main": "a8f1f39f614390a74236d04d2e9c441b5b7d7ab2268a8ab20f56560d6538bef8"
+  },
+  {
+    "kind": "say",
+    "text": "★ 我们会先保障发电给自己楼用的电，电网停电时如果配了电池，选定线路最多可继续供电 6 小时 [^1]\n→ 直接回应去年停电的担忧，给出具体保障\n\n我们理解去年冬天停电一整天的影响，我会把具体的应急安排整理后发给你们确认[^2]\n→ 承接问题，争取时间，但需尽快落实\n[unstated] 1",
+    "main": "eab4b280eea767248ab6554c13eb4250cd9c1dd22134b33b1e356b4192cda8d4"
+  },
+  {
+    "kind": "say",
+    "text": "★ 发电先供我们自己的楼用，电网停电时我们会先保障这部分[^1]。如果你们那边停电，我们有电池的线路最多能继续供电 6 小时 [^2]\n→ 直接回应对方的担心，给出具体保障\n\n我先确认一下去年冬天停电的具体情况，再给你们一个方案\n→ 争取时间，但可能显得没有准备",
+    "main": "77f8d9c9ac5ee12f52769401c0a8958e3e94b038b9d7f4b845770a92163d3cf1"
+  },
+  {
+    "kind": "no",
+    "text": "★ 整个项目 25 万的报价我们没法直接答应，不过可以先按模块拆开，看哪些部分能在预算内做 [^1]\n→ 避免直接还价，把话题引到范围上\n\n价格上我们可以给到最多 5% 的优惠，但需要一次性全额付款，期限 45 天内有效 [^2]\n→ 给出有条件的让步，守住底线",
+    "main": "5450cc8444a2434119cba320c23ab06e2cf8f1e8afe0406b66c2da19900a5dc7"
+  },
+  {
+    "kind": "no",
+    "text": "★ 整个项目二十五万目前没法直接确认，我先看看范围，再给你报价 [^1]\n→ 争取时间核算范围，避免过早承诺\n\n这个价位我现在没法答应，我们可以先按范围分阶段报价\n→ 守住底线，引导对方讨论范围",
+    "main": "a7b927408721032f621914073e863a892b0e907d5b76054fb22d7b43f3662353"
+  },
+  {
+    "kind": "ask",
+    "text": "★ 你们四家店的屋顶是否都要先勘察[^1]？平屋顶那两家能否安排勘察时间？\n→ 明确勘察范围，尽早排定现场时间\n\n你们四家店的屋顶结构大概是怎样的[^2]？能先发一下照片或图纸吗？\n→ 提前摸清情况，报价更准确",
+    "main": "eeab13924a5f06bfe946c652b848c5760dd108cceb6362828d2c1dab7c27ce58"
+  },
+  {
+    "kind": "ask",
+    "text": "★ 你们两家平屋顶的店，报价前是否需要先上门勘察？勘察要多久、收费吗？\n→ 明确勘察流程和时间，为报价做准备\n\n我们先确认一下四家店的屋顶情况，再安排勘察时间\n→ 稳住节奏，但没有实际推进",
+    "main": "30affffaa56747b143d90f0fe7ec1f5fc00cea4644026bd9f38101bd3f58938f"
+  },
+  {
+    "kind": "check",
+    "text": "对方说\"你们资料上说组件每年清洗一次\"，文档确实写明组件每年清洗一次 [^1]\n\n运维套餐每年 4,500 元，清洗包含在套餐内 [^2]\n→ 可以直接回应：确认资料中的清洗频率，并补充套餐内含清洗、每年 4,500 元的信息。",
+    "main": "7d0aee19aa81b5e27011ce7e0bdaad89af0f076f52493f12d144c4b01f2b94d7"
+  },
+  {
+    "kind": "check",
+    "text": "对。文档写明组件每年清洗一次 [^1]\n\n文档说明清洗包含在运维套餐中，套餐每年 4,500 元 [^2]",
+    "main": "4995738c56f649127f1473cd84b55a72e705e5cc17d3ff1433f0a30a96cda3e4"
+  },
+  {
+    "kind": "check",
+    "text": "对方说“只要系统在用，监控 App 就一直免费” [^1]\n\n监控文档写的是“前 2 年免费”，之后每月 60 元 [^2]\n→ 文档与对方说法相矛盾，建议确认“系统在用”是否指永久免费，还是仅限前 2 年[^3]",
+    "main": "c6bcc1f17c1887ea05ad12a8357c088dc77687ec4cd06a46038e8a250a12c74e"
+  },
+  {
+    "kind": "check",
+    "text": "不对。文档写的是前 2 年免费，之后每月 60 元 [^1]\n\n文档只说前 2 年免费，没有说“只要系统在用就一直免费” [^2]",
+    "main": "dfb2f6f0b85ea8f2ac9cfed46e357ea6ada99397858b1c99ff7b4d9faa9f3cee"
+  },
+  {
+    "kind": "sum",
+    "text": "5 月 12 日在总店勘察，祁嘉禾接待工程师 [^1]\n\n你方周三前将发送最终报价 [^2]",
+    "main": "718a5aff0ce05a40ade5a0f36b05dfd69b3412595ddb603d3037ede3a2b7364c"
+  },
+  {
+    "kind": "sum",
+    "text": "勘察定在 5 月 12 日，在总店进行 [^1]。我周三前把最终报价发给对方。\n\n对方表示祁嘉禾会在现场接待你们的工程师 [^2]。",
+    "main": "33f0947ae3e5155eedd18cb8803aed0b19e9ccd4eff62698a8212c43ecc4dff5"
+  },
+  {
+    "kind": "answer",
+    "text": "★ 全部费用可以在第一年从应纳税所得额中扣除，我们会提供会计需要的材料 [^1]\n→ 直接回应税收优惠问题，给出可用政策\n\n我先确认一下具体适用的优惠条件，稍后给你准确答复\n→ 争取时间，但可能让对方觉得不够专业\n[unstated] 1",
+    "main": "c676846b75cab6e583158f65d844af920930b72fd41f74e14cb4101a1ec2b011"
+  },
+  {
+    "kind": "answer",
+    "text": "★ 全部费用可在第一年一次性从应纳税所得额中扣除，我们会提供会计需要的材料 [^1]\n→ 直接回应优惠问题，给出可用的税务处理\n\n我先确认一下具体可用的优惠政策，周五前给你回复\n→ 争取时间，但可能显得没有准备",
+    "main": "89305a7d465b5d841cc67dc6a012ff2a30034005fc9652c4d8f68a66527b2242"
+  },
+  {
+    "kind": "answer",
+    "text": "★ A 50 kW roof system costs €42,000 installed, with scaffolding charged separately at cost after the roof survey [^1][^2]\n→ gives clear price; flags scaffolding extra\n\nA 50 kW system is €42,000 installed, and I can confirm the final figure once the roof survey is done [^1][^2]\n→ states price; sets up survey next step",
+    "main": "5d5c2dad4a77b3dbbe94388e2101c0b2077718c442185d5d88fce5b3cde9bc85"
+  },
+  {
+    "kind": "answer",
+    "text": "★ A 50 kilowatt system costs €42,000 installed [^1]. Scaffolding is extra, charged at cost after the roof survey [^2].\n→ Gives a clear price, flags the extra\n\nA 50 kilowatt roof system is €42,000 installed [^1]. We can book the roof survey to confirm scaffolding costs.\n→ Moves toward survey; keeps price simple",
+    "main": "be6353cf1e763d2bc44643ae78ec1a77e74bbbcec57e612eee07961f671d1378"
+  },
+  {
+    "kind": "answer",
+    "text": "★ Panels have a 25-year performance warranty, and inverters are covered for 10 years, parts and labour [^1][^2]\n→ answers both questions directly\n\nPanels are guaranteed for 25 years on performance, and inverters carry a 10-year parts and labour warranty [^1][^2]\n→ same facts, shorter phrasing",
+    "main": "18fc3e721cda8dbc941592872a60af94238c3e758059a458ce01d9bc4d4d0791"
+  },
+  {
+    "kind": "answer",
+    "text": "★ The panels carry a 25-year performance warranty [^1]. The inverters are covered for 10 years, parts and labour [^2].\n→ answers both questions directly\n\nPanels are 25 years and inverters are 10. I can send the warranty document after the call.\n→ answers briefly; offers a written follow-up",
+    "main": "2d98c7e8f16230db3714ab29513fa7b12e6db1cf243ba037ccfa9bec3e58e151"
+  },
+  {
+    "kind": "answer",
+    "text": "★ Our installers work Monday to Saturday, 7 am to 5 pm, so roof work would be in daytime, not at night [^1]\n→ sets clear expectations on working hours\n\nWe can plan the roof work around your opening hours; a 50 kW system takes about four working days on the roof [^2]\n→ reassures them about timing and disruption\n[unstated] 1",
+    "main": "376338157f4e8a16b023fb9a8538ff3821408c257701130eac1346f3771248c8"
+  },
+  {
+    "kind": "answer",
+    "text": "★ Our installers work Monday to Saturday, 7 am to 5 pm [^1]. We can't do night roof work, but we'd schedule around your hours.\n→ Honest answer; keeps the shop undisturbed\n\nDaytime work is our standard, and I can plan the roof days around your trading hours.\n→ Offers flexibility without promising night work",
+    "main": "f5e99e152cadd40781987f7ae80e7697a436cee9428af31e938d94381d94f408"
+  },
+  {
+    "kind": "answer",
+    "text": "★ If you sign this quarter, we'll cover the scaffolding. That was the deal I mentioned at the start [^1]\n→ restates the offer clearly, with its condition\n\nIf you sign this quarter, we cover the scaffolding, and then I can walk you through batteries, which start at €14,000 [^1][^2]\n→ restates the deal, then moves to battery options\n[unstated] 2",
+    "main": "a29f9c29463b89b52d49f44c68b07fe2500d7821daac4cb0607a57cc03fd67e2"
+  },
+  {
+    "kind": "answer",
+    "text": "★ If you sign this quarter, we'll cover the scaffolding [^1]. Happy to go through the battery options after that.\n→ restates the offer; keeps momentum\n\nI opened with the scaffolding offer, tied to signing this quarter. Want me to walk you through the details?\n→ clarifies the deal; invites questions",
+    "main": "9fe0b58810f7c919ce18771b31714e0a5c59de64e36935e24c860d6c0105ebda"
+  },
+  {
+    "kind": "say",
+    "text": "★ We won't drill at all: mounting uses clamps on the existing seams, with no holes through the roof, and any leak from the installation is repaired at our cost [^1][^2]\n→ removes the drilling worry; offers a guarantee\n\nWe also have a structural engineer check your roof before any work starts, so we'll know its condition first [^3]\n→ addresses the old-roof concern; builds trust",
+    "main": "bb74a13488e32a9942ea4d1ab1ef7f37922eac27d047d8d9cd36399c1564030f"
+  },
+  {
+    "kind": "say",
+    "text": "★ We won't drill into your roof, we clamp onto the existing seams [^1]. If the installation causes any leak, we repair it at our cost [^2].\n→ Directly removes the leak worry; builds trust\n\nA structural engineer checks your roof before any work starts [^3]. That way we confirm it's sound before we begin.\n→ Reassures about the roof's age",
+    "main": "d3f3e45049a9c05630a52ddf76e25d457489dcd3c35fcaeb3005449fdbe51c95"
+  },
+  {
+    "kind": "say",
+    "text": "★ With a battery, your chosen circuits keep running for up to 6 hours during a grid cut, so a battery would cover most outages [^1]\n→ answers the concern; opens battery upsell\n\nWithout a battery, the system switches off during a grid cut, as the rules require, so a battery is the way to keep power [^2]\n→ honest and clear; steers toward battery",
+    "main": "6aa9f9d61a655a46ccbe190b809d793e395505cd9bee57f842dba94d860d1381"
+  },
+  {
+    "kind": "say",
+    "text": "★ Without a battery, the system switches off during a grid cut, as the rules require [^1]. With a battery, chosen circuits keep running for up to 6 hours [^2].\n→ answers honestly; leads to battery option\n\nSorry about last winter. Would you like chosen circuits, like heating or fridges, to stay on in an outage?\n→ explores their needs; sets up battery pitch",
+    "main": "9a9bd3b9518ee8cf5e3fe7d3c0af4b00b6aef77340b27029b03559d1aa500f39"
+  },
+  {
+    "kind": "no",
+    "text": "★ We can't go beyond a 5% reduction, and only with full payment upfront, so I can't commit to that figure today [^1]\n→ honest limit; keeps door open to upfront discount\n\nI can't reach that number, but our quote stays valid for 45 days, so you have time to decide [^2]\n→ declines gently; gives them time to consider",
+    "main": "7b998f6b526c15b65b003eb532e1e91deb222a7e0de7c3c332cd3f781ce1c80f"
+  },
+  {
+    "kind": "no",
+    "text": "★ Thirty thousand is below what we can offer, I'm afraid. I can take up to 5% off if you pay in full upfront. [^1]\n→ keeps the deal moving; stays within policy\n\nThanks for the offer, but that's lower than we can go. I can hold our quote for 45 days while you decide. [^2]\n→ gives them time; keeps price firm",
+    "main": "d18abc882cfb1b779cc89860705ac7f3fc50e28c6d5464fe8bcbfebe272199f4"
+  },
+  {
+    "kind": "ask",
+    "text": "★ Can we book a survey for each of the four shops, since every roof needs one before we can quote[^1]? [^2][^3]\n→ starts the quote; surveys are free\n\nWhich two shops have the flat roofs, and can we survey those first? [^2]\n→ prioritizes flat roofs; clarifies scope",
+    "main": "fc62e182642b1b22ab85bddf083f11bb0243c4ef96719dbe8ed2555dde161a9b"
+  },
+  {
+    "kind": "ask",
+    "text": "★ Every roof needs its own survey before we can quote [^1]. Can we book surveys for all four shops, starting with the flat roofs?\n→ moves toward a quote; confirms scope\n\nA survey takes about two hours and costs nothing [^2]. Which days could we visit each shop?\n→ gets survey dates scheduled",
+    "main": "763d21cc0d6e829af4432e963ade46e6038beb67c7de9a0e2923930b3c8eced5"
+  },
+  {
+    "kind": "check",
+    "text": "They asked whether the panels are cleaned once a year [^1]\n\nSupported: your Maintenance sheet says panels are cleaned once a year, included in the service plan [^2]\n\n→ You can confirm \"yes\" now; the sheet also lists the service plan at €600 a year [^2]\n[unstated] 2",
+    "main": "83fb25a2c03f7260df47c3c08ffd7427e7d8ae7cd283f90d654af61109172239"
+  },
+  {
+    "kind": "check",
+    "text": "Right. The sheet says panels are cleaned once a year, included in the service plan [^1]",
+    "main": "b86d9a9f28e185319234800711f365dcb9eb90d4cf2faa1d51bdb7d381f6e1c8"
+  },
+  {
+    "kind": "check",
+    "text": "They said the monitoring app is \"free for as long as we have the system\" [^1]; your Monitoring document contradicts this.\n\nYour document says it is free only for the first 2 years [^2], then costs €8 a month [^3].\n\n→ Ask them to confirm in writing whether it is free permanently or only for 2 years, since the two claims conflict.",
+    "main": "bf1832a790cffd70646e3b42c15d053979bdd1c3a169e01c2ae84c59f7e29916"
+  },
+  {
+    "kind": "check",
+    "text": "Wrong. The Monitoring document says the app is free for the first 2 years only [^1].\n\nAfter that it costs €8 a month [^2].",
+    "main": "dba3d8b918c4de0bb566d862d7a2f07a988159405cdcb23c954436e1648973a1"
+  },
+  {
+    "kind": "sum",
+    "text": "The survey is set for 12 May at the main shop [^1]\n\nCorin Vale will meet your engineer at the survey [^2]\n\nYou will send the final quote by Wednesday [^3]",
+    "main": "4e67d4c45f7e985e3df739806f47a8a5e7cf7192e019393e5260200399a38e6d"
+  },
+  {
+    "kind": "sum",
+    "text": "The survey is set for 12 May at the main shop [^1]. Corin Vale will meet your engineer there [^2].\n\nYou said you'll send the final quote by Wednesday [^3].",
+    "main": "51e9490bc0cb7e4b9148803cc9b036be4192695fe255159572db5031c19f44fd"
+  },
+  {
+    "kind": "answer",
+    "text": "★ Yes, the full cost can be deducted from your taxable profits in the first year [^1]\n→ answers directly; gives a concrete benefit\n\nWe can also send your accountant the paperwork they need to claim it [^2]\n→ shows support; makes claiming easier",
+    "main": "9e6bff337bffd15731520de7b2b63461060818f9298a0f89117a5b24f7487abd"
+  },
+  {
+    "kind": "answer",
+    "text": "★ Yes, the full cost can be deducted from your taxable profits in the first year [^1].\n→ Answers directly; highlights the first-year benefit\n\nWe'll also send your accountant the paperwork they need [^2].\n→ Reassures them; shows the process is easy",
+    "main": "15333e8bcc7265187fbbf78dc4dd9c496be44cef1d6e4e7f3d2e3e7dbedb577d"
+  },
+  {
+    "kind": "answer",
+    "text": "★ 50 千瓦屋顶系统含安装是 32 万元，脚手架另按实际成本收费，等屋顶勘察后再报价 [^1][^2]\n→ 报价清楚，脚手架费用提前说明\n\n50 千瓦含安装 32 万元，具体还要看屋顶勘察，脚手架费用勘察后再给您 [^1][^2]\n→ 回答简短，留出勘察空间",
+    "main": "748c01135d8d8ec63f37e7da20d403e191037340dd015af4d960ed768175318f"
+  },
+  {
+    "kind": "answer",
+    "text": "★ 50 千瓦含安装是 32 万元 [^1]。脚手架另算，要等屋顶勘察后再报价 [^2]。\n→ 报价清楚，同时说明脚手架另计\n\n50 千瓦含安装是 32 万元 [^1]。具体大小我们先看您的屋顶和白天用电量再定。\n→ 先给价格，再引回需求",
+    "main": "524cd1f907133b8aa167f093f818f2e616b68ec4f392f4ecda854f0c73dee337"
+  },
+  {
+    "kind": "answer",
+    "text": "★ 组件享受 25 年性能质保 [^1]，逆变器保修 10 年，而且是包工包料 [^2]\n→ 一次答全两个问题\n\n组件 25 年性能质保；逆变器 10 年，包工包料 [^1][^2]\n→ 简短直接，信息同样完整",
+    "main": "4faadd7c6be7f50216780d9dadd4b8ab1ef31526be5c8f2589aec80450ab632b"
+  },
+  {
+    "kind": "answer",
+    "text": "★ 组件有 25 年性能质保 [^1]。逆变器保修 10 年，包工包料 [^2]。\n→ 直接回答两个问题，清楚明了\n\n组件 25 年性能质保，逆变器 10 年包工包料。您还想了解施工质保吗？\n→ 先答问题，再引出施工质保",
+    "main": "9f4cd81eafb03b7a9bc0ae0e4816210e709484e22afb4890f290444674fd95ee"
+  },
+  {
+    "kind": "answer",
+    "text": "★ 我们的安装人员是周一至周六上午 7 点到下午 5 点施工，晚上不安排，这样正好避开您的营业时间 [^1]\n→ 说明白天施工，不影响营业\n\n50 千瓦系统在屋顶上大约四个工作日就能完成，白天施工不会拖太久 [^2]\n→ 用工期短来打消顾虑",
+    "main": "8262d0ed0a90d5a86017e3d4d296a843aae7fda7648e576f4492d7ca300a7146"
+  },
+  {
+    "kind": "answer",
+    "text": "★ 我们的安装人员周一至周六上午 7 点到下午 5 点施工 [^1]。晚上上屋顶我们不安排，这样也不影响你们营业。\n→ 说明常规时间，不答应夜间施工\n\n我们的施工时间是白天，屋顶部分大约四个工作日 [^2]。我可以跟团队确认晚上能不能破例，再答复您。\n→ 留有余地，但可能让对方期待夜间施工\n[unstated] 2",
+    "main": "9b700aeb90c9c3f6d60e14dd34317f39b4c5ce37cd27ae5d61ce7d10fa2075ed"
+  },
+  {
+    "kind": "answer",
+    "text": "★ 我一开始说的是：您这个季度签约，脚手架的费用由我们来出 [^1]\n→ 直接澄清优惠，推动本季度签约\n\n优惠就是本季度签约我们出脚手架费用；电池方案 10.5 万元起，我再给您介绍 [^1][^2]\n→ 澄清优惠后，顺势引入电池方案\n[unstated] 2",
+    "main": "8ee5cc6461d723339335266d4e83beba71853537ce89244a6903b09a27c640cc"
+  },
+  {
+    "kind": "answer",
+    "text": "★ 我一开始说的是，这个季度签约，脚手架的费用我们出。 [^1] 电池 10.5 万元起，我再给您讲讲方案。 [^2]\n→ 讲清优惠，再顺势介绍电池\n\n我一开始说的是，这个季度内签约，脚手架费用由我们承担。您看这个优惠是否合适？\n→ 只确认优惠，推动尽快签约",
+    "main": "c5a546622b391fc5cc7062a02d1ced187b08c0b37b82ed3ee995fca4ba53efab"
+  },
+  {
+    "kind": "say",
+    "text": "★ 我们不在屋顶上打孔，支架用夹具固定在原有的屋面接缝上 [^1]。万一安装造成漏水，由我们负责维修 [^2]。\n→ 直接消除漏水顾虑，给出保障\n\n施工前会有结构工程师检查屋顶 [^3]。您的屋顶比较旧，我们先检查再动工，您看可以吗？\n→ 回应屋顶旧，推进下一步",
+    "main": "cca543c448c90e2e55039d72c2c673c1db0f38348a931565a95b4b1e704f347e"
+  },
+  {
+    "kind": "say",
+    "text": "★ 如果配了电池，选定的线路停电时最多能继续供电 6 小时，所以关键线路可以保住 [^1]\n→ 给出解决方案，引导考虑配电池\n\n要注意，没有电池的话，电网停电时系统会按规定自动关闭，去年那种停一整天的情况就撑不住 [^2]\n→ 如实说明限制，突出电池必要性",
+    "main": "407f61a7e2c15ab42b623c07da60ee28b6fc4e761cbc5bbf3d4725560f04d52a"
+  },
+  {
+    "kind": "say",
+    "text": "★ 配了电池，选定的线路最多可以继续供电 6 小时 [^1]。您可以选最关键的线路接上电池。\n→ 直接回应停电担忧，引导配电池\n\n没有电池的话，电网停电时系统会按规定自动关闭 [^2]。所以我建议您考虑加配电池。\n→ 说明风险，推动加购电池",
+    "main": "5493d4b7d4463cb6e5f6df117fc4137ca7c4492630095e7a496d9ffd28cd4da7"
+  },
+  {
+    "kind": "no",
+    "text": "★ 这个数我们确实做不到，报价最多只能下调 5%，而且要一次性全额付款，我们可以按这个条件再谈 [^1]\n→ 守住底线，仍推进成交\n\n整个范围按这个价格没法做，我们可以先缩小范围，把预算内的核心部分做起来\n→ 保持合作，价格不松口",
+    "main": "76ac23a842297d00efcaca123231efe49b3b6e31f111f55d7498e44ece3af9d2"
+  },
+  {
+    "kind": "no",
+    "text": "★ 这个价格我们确实做不到，报价最多只能下调 5%，而且仅限一次性全额付款 [^1]。如果您能一次性付清，我可以按这个折扣重新给您报价。\n→ 守住底线，给对方一条出路\n\n这个预算我们很难接受，但我很想把项目做成。我们可以先缩小范围，在您的预算内做一期。\n→ 保持合作，但可能拉长谈判",
+    "main": "83aa078f009bf3c4fd791b04c1e1592e2189fd47961a293540802a927e7790c1"
+  },
+  {
+    "kind": "sum",
+    "text": "勘察定在 5 月 12 日，在总店进行 [^1]\n\n对方称祁嘉禾届时在现场接你们的工程师 [^2]\n\n你承诺周三前把最终报价发给对方 [^3]",
+    "main": "e85bf7a00b60a61fd45056a968665cb7cb0ce13b5ae9c018a1eaed00bc79a93f"
+  },
+  {
+    "kind": "answer",
+    "text": "★ A 50 kW roof system costs €42,000 installed, and each extra 10 kW adds €7,500 [^1]\n→ gives a clear, sourced number right away; invites the sizing discussion\n\nScaffolding is charged at cost and quoted after the roof survey, so the full installed figure may vary[^2]\n→ sets expectations early; avoids a surprise on the final quote",
+    "main": "9fbb9870d07ff8be32a09af04f19b15a3f71460ebfadf51ca58efc34edff00ab"
+  },
+  {
+    "kind": "answer",
+    "text": "★ A 50 kW roof system comes to €42,000 installed, and each extra 10 kW adds €7,500 [^1][^2]\n→ gives them a clear, documented price straight away\n\nOur 50 kW system is €42,000 installed, and scaffolding is charged at cost after the roof survey [^3][^4]\n→ answers the price and flags the extra cost before they ask",
+    "main": "044e33bd25ecb03475edbbd60629f6e5070ecd2643200a0355a0a1a57f45f5e1"
+  },
+  {
+    "kind": "answer",
+    "text": "★ Our panels carry a 25-year performance warranty, and inverters are covered for 10 years, parts and labour [^1][^2]\n→ answers both questions directly; sets clear expectations\n\nPanels are covered for 25 years on performance, inverters for 10 years, and workmanship is guaranteed for 5 years [^1][^2]\n→ adds workmanship detail; invites follow-up on terms",
+    "main": "b2b438fa1d6e57844f5741f5059110d951b735e543ebeadc559591c8b570a177"
+  },
+  {
+    "kind": "answer",
+    "text": "★ Panels are guaranteed for 25 years for performance, and inverters are covered for 10 years, parts and labour [^1][^2]\n→ answers both questions directly, with the figures from the warranty\n\nPanels carry a 25-year performance warranty, and inverters are covered for 10 years, parts and labour. Workmanship is guaranteed for 5 years [^1][^2].",
+    "main": "d8522dc5271755075476d70cd197082155b3246184377c297f7c624f3d98abc8"
+  },
+  {
+    "kind": "answer",
+    "text": "★ Yes, our crew can work on the roof at night while the shop is closed, and we'll plan around your opening hours [^1]\n→ answers their question directly; shows we fit their schedule\n\nOur installers normally work Monday to Saturday, 7 am to 5 pm, so night work would need separate agreement first [^2]\n→ sets a realistic limit; avoids over-promising on hours",
+    "main": "dfe30deec102418a42311ea95d5432d1d13b2563961e1710c4030fc27e02bd91"
+  },
+  {
+    "kind": "answer",
+    "text": "★ Yes, we can plan roof work at night, but we'd need to check that with our crew first [^1]\n→ keeps the option open; avoids committing before a check\n\nOur standard hours are Monday to Saturday, 7 am to 5 pm [^2]. A 50 kW system takes about four working days on the roof [^3].",
+    "main": "b0908cff4c23237f534d51552e6485a4c4e39449ce2ecb8841926339c0e81a84"
+  },
+  {
+    "kind": "answer",
+    "text": "★ The battery deal starts at €14,000, and it's a 30 kWh unit that stores the afternoon surplus for the evening [^1][^2]\n→ answers their question directly; gives them the core facts\n\nLet me pull up the deal details and come back to you on the scaffolding terms before we go further\n→ buys time; they may ask about scaffolding next",
+    "main": "5f7260c191ffe6c75adb5dd1644d91f33dcc3b02d7fb1ee2702c5accd4d4a7ca"
+  },
+  {
+    "kind": "answer",
+    "text": "★ Yes, the deal is a battery package: a 30 kWh battery that stores the afternoon surplus for the evening [^1]. Batteries start at €14,000 [^2]\n→ answers their question directly; keeps the scaffolding offer in view\n\nLet me recap the deal we discussed at the start and what the battery covers before you decide.\n→ buys time to confirm the terms",
+    "main": "844d5d2e244c705a8a12e222013012a5455ddd90a4aaa05667989f03e692039e"
+  },
+  {
+    "kind": "say",
+    "text": "★ Our roof is older, so we'll have a structural engineer check it before any work starts, and we'll mount on the existing seams without drilling through it [^1][^2]\n→ answers their leak worry directly; shows the roof will be checked first\n\nIf a leak does happen from the installation, we'll repair it at our cost [^3]\n→ removes their financial risk; builds trust",
+    "main": "b9c5a200716a25c8256a02632727be899c2b2997adc4000921bb276e68693a13"
+  },
+  {
+    "kind": "say",
+    "text": "★ Let's have a structural engineer check the roof before any drilling starts[^1]. That way we can address leak risk up front [^2]\n→ reassures them; shows the roof is being handled carefully\n\nMounting can use clamps on the existing seams, so no holes are drilled through the roof [^3]. Any leak the installation causes is repaired at our cost [^4]\n→ answers the leak worry directly; limits their risk",
+    "main": "ad72653883d7fe29238484b485fb49aafb54e5fe14f3cdf75a15cb1eba53d5d3"
+  },
+  {
+    "kind": "say",
+    "text": "★ Without a battery the system switches off during a grid outage, but with a battery chosen circuits keep running for up to 6 hours [^1]\n→ answers their question directly; shows the battery's value\n\nOur system feeds your building first, and if you add a battery, key circuits can stay on for up to 6 hours during a grid cut [^1]\n→ connects their winter outage to a concrete backup option",
+    "main": "3dcf38c32dd48ceb599fcb11a36ea2c653599acd7b8a13dbac211177c4228acf"
+  },
+  {
+    "kind": "say",
+    "text": "★ Without a battery, the grid cut would switch us off too, as the rules require[^1]. With a battery, chosen circuits keep running for up to 6 hours [^2]\n→ answers their question directly and shows the battery backup option\n\nLet me confirm the outage concern: what matters most to you during a grid cut, lights, heating, or IT equipment?\n→ keeps the conversation moving; tailors the backup design",
+    "main": "f1568514075ce49cab45c3267a8802428af1a160ce4b393b3954f87737eee0c7"
+  },
+  {
+    "kind": "no",
+    "text": "★ Thank you for the offer, but I can't do the full scope for that price; I'd be happy to look at a reduced scope or a phased option [^1]\n→ keeps the conversation open; signals flexibility without discounting the whole\n\nLet me take your figure back to our team and get you a firm answer by Friday\n→ buys time; avoids committing to a number on the call",
+    "main": "3544a4d689ef3393a4cba7629f93924a86323318af3cd45520756084cfda54da"
+  },
+  {
+    "kind": "no",
+    "text": "★ I'm not able to do the full scope at €30,000. Our pricing allows only a limited reduction, and only for full upfront payment [^1]\n→ keeps the deal open; anchors the discount terms\n\nLet me review the scope with our team and come back to you with options that fit the budget\n→ buys time; momentum may slow",
+    "main": "06a8541f037374e38ac0e4bda8a09f9877b912372513f4e2e9a9ac82e5d2fcea"
+  },
+  {
+    "kind": "ask",
+    "text": "★ Ask how many roofs in total need a survey, and whether the two flat-roof shops are the priority [^1]\n→ scopes the work; the survey is free, so it's an easy yes\n\nCan you walk me through the timeline for surveying the flat roofs first[^2]?\n→ sets expectations on timing; surveys take about two hours each",
+    "main": "e92c6043e0a3274aaf945745da840c49bcfef8bf22b8a89c678986a1f902adf6"
+  },
+  {
+    "kind": "ask",
+    "text": "★ Do all four shops need a survey before you quote, or just the two with flat roofs? [^1]\n→ narrows scope; avoids surveying roofs that don't need it\n\nThe Surveys document says every roof needs its own survey before a quote can be given, and a survey takes about two hours and costs nothing [^2]. Asking which shops need surveys would confirm the scope and timing.\nLet's book surveys for both flat-roof shops this week, so we can quote quickly\n→ moves the deal forward; sets a concrete next step\n[unstated] 2",
+    "main": "545f71be95d2363107c363a22284e70781c001138a7d9d9bf5291a669483cbc8"
+  },
+  {
+    "kind": "check",
+    "text": "The panels are cleaned once a year, as the sheet says [^1]\n\nThe Documents support it: the service plan includes the yearly cleaning, at €600 a year [^2]",
+    "main": "9e542d91292645c812083e94b7dcb5b8bdeb7952610c84f889d26daba35f65c3"
+  },
+  {
+    "kind": "check",
+    "text": "Right. The sheet says panels are cleaned once a year, included in the service plan [^1]\nNot sure what's needed beyond that, but the newest claim matches the Documents.",
+    "main": "5b3d7e5433b502f5437d572563eb3de7ef4e8c2ea691d7495ef3ead84833c89b"
+  },
+  {
+    "kind": "check",
+    "text": "The monitoring app is free for as long as you have the system [^1]\n\nThe Monitoring document says it is free only for the first 2 years, then €8 a month [^2]\n→ The call's claim conflicts with the Monitoring document, so check the pricing before relying on it.",
+    "main": "4cc5c3de6974006da1ad1f7f1c05050296ae42faafa1309e55b376ab359e49f5"
+  },
+  {
+    "kind": "check",
+    "text": "Wrong. The Monitoring document says the app is free for the first 2 years, then costs €8 a month\n\nThe Documents don't say the app stays free for as long as you have the system, which is what was said [^1]\nWait, the form requires exactly the given structure. Here is the corrected reply:\nWrong. The Monitoring document says the app is free for the first 2 years\nRight. Nothing else in the Documents covers this, so the claim is unconfirmed: the Documents don't say it is free while you keep the system",
+    "main": "d80650608e815357eb6387b16a5bfd44b832c1060dfe89efb77b477ec9e71ca0"
+  },
+  {
+    "kind": "sum",
+    "text": "The survey is set for 12 May at the main shop [^1]. Corin Vale will meet your engineer there [^2].\n\nYou will send the final quote by Wednesday.",
+    "main": "7f113762033b6f9cdab12925447d899a64520c604b6ce05f5975df104226c86b"
+  },
+  {
+    "kind": "answer",
+    "text": "★ Yes, the full cost can be deducted from taxable profits in the first year [^1]\n→ gives an immediate tax benefit; ask the accountant to confirm eligibility\n\nWe can send the paperwork your accountant needs to claim it [^2]\n→ speeds up the claim; keeps the process moving",
+    "main": "e54b4cf04c4fa6da7a859f85180406fdc58e4877122e57b5921d4700cb06894b"
+  },
+  {
+    "kind": "answer",
+    "text": "★ Yes, the full cost can be deducted from taxable profits in the first year [^1]\n→ answers their question directly; sets up the accountant handoff\n\nWe can send over the paperwork your accountant needs for the claim [^2]\n→ shows the next step; keeps the tax relief moving",
+    "main": "cced258830e82f102a3c8059c8421bbd6c3bbedb44de832f0f227289bd900e70"
+  },
+  {
+    "kind": "answer",
+    "text": "★ 50 千瓦屋顶系统含安装是 32 万元，每增加 10 千瓦加 5.6 万元 [^1][^2]\n→ 直接报价，锚定价格\n\n我先按屋顶勘察结果核算，脚手架按实际成本另算，周五前给你准确报价 [^3]\n→ 争取时间，但需尽快给出报价",
+    "main": "ff37e97e93acec5f7b274f27cdc1cd38453ebff00c50a463c9034d63e5a787d5"
+  },
+  {
+    "kind": "answer",
+    "text": "★ 50 千瓦含安装大约 32 万元，每增加 10 千瓦再加 5.6 万元，屋顶勘察后再报价 [^1][^2][^3]\n→ 直接给出报价区间，推进下一步\n\n我先按 50 千瓦的标准价给您参考，具体还要看屋顶勘察后的实际情况再确认[^4]\n→ 留有余地，但显得不够具体",
+    "main": "8b94f8c300eb34b08166bd0d6c8ddbee8df756b9a3a722d76d44bfd849ee2f6f"
+  },
+  {
+    "kind": "answer",
+    "text": "★ 组件质保 25 年（性能质保），逆变器保修 10 年，包工包料 [^1][^2]\n→ 直接answer对方两个问题，逐条给出年限\n\n组件性能质保 25 年，逆变器保修 10 年且包工包料，另外施工质量保证 5 年 [^1][^2]\n→ 主动补充施工质保，展示服务完整\n[unstated] 2",
+    "main": "f0ce9cb806177b0117d4057f043bb4052125a23a50782f71a89e80137b2f8147"
+  },
+  {
+    "kind": "answer",
+    "text": "★ 组件质保 25 年，逆变器保修 10 年，包工包料 [^1]\n→ 直接回应对方两个问题，给出明确年限\n\n组件性能质保是 25 年，逆变器保修 10 年，我可以再补充施工质量保证 5 年的情况 [^2]\n→ 回答后主动补充，增加信任感",
+    "main": "452600dccdf2721c12bd0c2ea815ecfee50ad8f141e6058519cdbcd813ad41ec"
+  },
+  {
+    "kind": "answer",
+    "text": "★ 我们的施工时间是周一至周六上午 7 点到下午 5 点，晚上不施工 [^1]\n→ 直接回答，但未提供晚间施工方案，可能需再协商\n\n我们可以先确认屋顶施工能否调整到你们营业时间之外的早晨，50 千瓦系统大约四个工作日完成 [^2]\n→ 给出替代方案，推进合作",
+    "main": "6f4a3e5596f071e2b09698ec84e4e1561a90a5343a9c157daa64a1e8eae8d61e"
+  },
+  {
+    "kind": "answer",
+    "text": "★ 晚上关店以后施工可以考虑，我们会按你们的营业安排来调整时间 [^1]\n→ 满足对方诉求，但要确认夜间施工是否可行\n\n白天施工安排在周一至周六上午 7 点到下午 5 点，屋顶施工约四个工作日 [^2]\n→ 说明现有时间安排，把夜间施工作为替代方案",
+    "main": "8bb8b74334180af16f8b9b78d46b11e9162793bcab648e198afd6ca4bb3ccb7c"
+  },
+  {
+    "kind": "answer",
+    "text": "★ 电池方案我先简单说一下，优惠是这样的：电池 10.5 万元起，能把下午多余的电存到晚上用 [^1][^2]\n→ 直接回应对方疑问，推进到方案介绍\n\n先说明优惠细节，再谈脚手架费用的条件，确认是否本季度签约 [^3]\n→ 先澄清优惠，再谈签约条件\n[unstated] 1",
+    "main": "cc72b852b3df212b89a6c238f1b3184e21202d117490aafe44caa488a6caa328"
+  },
+  {
+    "kind": "answer",
+    "text": "★ 电池的具体优惠我需要先确认一下，周五前给你准确答复\n→ 争取时间，避免仓促报价\n\n我先介绍电池方案：30 千瓦时的电池可以把下午多余的电存到晚上用 [^1]\n→ 转入方案介绍，但对方还在问优惠",
+    "main": "bf16793297fda3ae938f0b298a060cd5b8a4ed152fb0f546f0b2232b34dcfb8f"
+  },
+  {
+    "kind": "say",
+    "text": "★ 我们理解您的担心。我们的支架用夹具固定在原有屋面接缝上，不在屋顶上打孔；安装造成的漏水由我们负责维修 [^1][^2]\n→ 直接回应对方顾虑，建立信任，推进合作\n\n我们会先请结构工程师检查屋顶，再开始施工，您可以放心 [^1]\n→ 说明施工前的安全把关，降低对方的担忧\n[unstated] 1",
+    "main": "2054146c7844d93b3024b3004d0ed7f37e5c11e8b2ced669c9e548e1a2989db2"
+  },
+  {
+    "kind": "say",
+    "text": "★ 我们可以先确认施工方式：支架固定在原有接缝上，不在屋顶打孔，漏水由我们负责维修 [^1][^2]\n→ 直接回应担忧，降低对方顾虑\n\n我理解您的担心，屋顶确实旧了。我们会先让结构工程师检查屋顶，您看是否可以安排一次现场查看？\n→ 邀请对方参与，建立信任",
+    "main": "1928f079beb5e7cd9a78b9603000b50698d57de3203b9d047d500e07dbdf6b4f"
+  },
+  {
+    "kind": "say",
+    "text": "★ 发电先供你们自己的楼用，停电时我们会先保障您那边的线路，具体怎么安排我马上给您说明 [^1]\n→ 先回应对方关切，把问题引向具体方案\n\n我们的线路配了电池的话，选定的线路最多可以继续供电 6 小时；没配电池的，电网停电时系统会按规定自动关闭 [^2]\n→ 给出事实依据，说明停电时的实际保障",
+    "main": "75bf1405ac247c5d268f608a34cf55082096b4751c7314ee22c0def59f001ffc"
+  },
+  {
+    "kind": "say",
+    "text": "★ 发的电先供你们自己的楼用，停电时我们会先保证你们楼的供电。\n→ 直接回应对方担心，给出优先保障的说法\n\n我们先确认一下停电时的具体安排，周五前给你书面答复\n→ 争取时间，但可能让对方觉得拖延",
+    "main": "d97e2547e05337c3096a7a6d072ffa8e736a9324703444b163dc8e8ae65d9ca6"
+  },
+  {
+    "kind": "no",
+    "text": "★ 整个项目 25 万的报价我这边没法直接给，我们先按需求范围评估一下，今天内给您回复 [^1]\n→ 拒绝压价，争取时间厘清范围\n\n我们的报价最多只能下调 5%，且仅限一次性全额付款，报价有效期 45 天 [^2]\n→ 守住价格底线，用规则说明空间有限",
+    "main": "a0bb10b63df0ad58f0298068b7be114d28327fb26f2d26f56b22345fa2b053ad"
+  },
+  {
+    "kind": "no",
+    "text": "★ 整体报价我们需要按项目范围再核算一下，目前没法直接确认 25 万能否做 [^1]\n→ 不当场承诺，争取时间核算\n\n我们先确认一下项目范围和付款方式，再给您一个准确的报价，周五前回复您\n→ 留出核算空间，但可能让对方等待",
+    "main": "a56d03cab3b2416f4fb577d251cd3b14cf17655f634a73f50d0e46073af6a91f"
+  },
+  {
+    "kind": "ask",
+    "text": "★ 两家平屋顶的店，能否先安排勘察，确认每个屋顶的情况后再报价？[^1]\n→ 推进到勘察环节，报价前先摸清情况\n\n我们四家店的屋顶类型和位置能否先发我一份清单，方便你们安排勘察？\n→ 获取信息，为勘察和报价做准备",
+    "main": "f80ccf6ff998ba3bd05c792f9d2b885ce253eaff5f64ab0ef15cb1b3d27423ca"
+  },
+  {
+    "kind": "ask",
+    "text": "★ 你们四家店里哪几家是平屋顶？我们可以先安排勘察，再报价 [^1]\n→ 明确范围，推进勘察安排\n\n我们先安排一次现场勘察，约两小时，不收费，之后再报价 [^2]\n→ 推动下一步，降低对方顾虑",
+    "main": "1bf82481679b11774e5031885420455aaf1eb228f0f6bba476e4eadc39d9aaa2"
+  },
+  {
+    "kind": "check",
+    "text": "对方说“组件每年清洗一次”，文档“运维”一致 [^1]\n\n运维套餐每年 4,500 元，组件清洗包含在套餐内 [^2]\n→ 可确认清洗频率与套餐内容一致；如对方问价格，套餐费用见文档，但未提及其他费用。",
+    "main": "ffaa9d1e66225978957f4374c4c69c791fc92c9ddd6ca8dbaf75aaf8027c9ff4"
+  },
+  {
+    "kind": "check",
+    "text": "对。组件每年清洗一次，包含在运维套餐中 [^1]\n\n运维套餐每年 4,500 元 [^2]",
+    "main": "79fee52438640fa15aed80f56c4a5590ec1a3d1e3e5590c24c86707a7229796a"
+  },
+  {
+    "kind": "check",
+    "text": "对方说“只要系统在用，监控 App 就一直免费” [^1]\n\n监控文档写的是“前 2 年免费”，之后每月 60 元 [^2]\n\n→ 文档与对方说法不符：文档只说前 2 年免费，未提“只要系统在用就一直免费”，可请对方书面确认 [^1][^2]",
+    "main": "b30e58b2d15865324458ef9f20b6c71982a965f854a239e9b055eb9438111acf"
+  },
+  {
+    "kind": "check",
+    "text": "对。监控 App 前 2 年免费，之后每月 60 元 [^1][^2]",
+    "main": "0e586f21a0c20847d285d1a09eea9e7227a228c491963dedb37e98a7eaa14b7a"
+  },
+  {
+    "kind": "sum",
+    "text": "勘察定在 5 月 12 日，在总店进行 [^1]\n\n对方祁嘉禾将在现场接待你方工程师 [^2]\n\n你方承诺周三前把最终报价发给对方 [^3]",
+    "main": "103e3a9b98491aa9d218e712d695e756029e9bb87e08200fe5a8b42e088bc589"
+  },
+  {
+    "kind": "sum",
+    "text": "勘察定在 5 月 12 日，地点在总店 [^1]。\n\n祁嘉禾将在现场接待你们的工程师 [^2]。\n\n你方承诺周三前把最终报价发给对方 [^3]。",
+    "main": "0921d96b7a8cba8c344c3cab70c78fc1aa01cf400ffd1db251dc53305f901ca2"
+  },
+  {
+    "kind": "answer",
+    "text": "★ 全部费用可在第一年从应纳税所得额中扣除 [^1]\n→ 直接回应优惠问题，突出首年扣除优势\n\n我们可以先确认项目的具体税收优惠条件，再给您准确答复 [^2]\n→ 争取时间，避免仓促承诺",
+    "main": "a61f3f84d0bbca444e5715ecd4a6ce93b61a251735114d843517704d1b5d9629"
+  },
+  {
+    "kind": "answer",
+    "text": "★ 我们的费用可以在第一年全部从应纳税所得额中扣除，具体的税收优惠我们会整理材料给你 [^1][^2]\n→ 直接回应对方问题，给出可用的优惠点\n\n我把税收优惠的具体条款和适用条件整理一下，会后发给你确认\n→ 争取时间，避免在未核实前给出具体结论",
+    "main": "674282d2b1cc5e1ca4b83b995a4e5eb882912bef30304852bd5cce6d72c8f60a"
+  }
+]
