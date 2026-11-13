@@ -3,6 +3,7 @@
  * Passages hold and the set's short answer: one word, so the two arms of a paired run are graded
  * the same way.
  */
+import type { LanguageModelV4 } from "@ai-sdk/provider";
 import {
   generateText,
   type LanguageModel,
@@ -71,8 +72,28 @@ export async function gradeAnswer(
   return "unread";
 }
 
+const noJudge = (): never => {
+  throw new Error("This run has no judge (INCARNAMIND_EVAL_SPEED_JUDGE=none).");
+};
+
+/**
+ * The judge of a run that asks for none: a set read by hand checks for it and skips its judging;
+ * any request to it fails, so a set that needs a judge can't run without one.
+ */
+export const NO_JUDGE: LanguageModelV4 = {
+  specificationVersion: "v4",
+  provider: "none",
+  modelId: "none",
+  supportedUrls: {},
+  doGenerate: async () => noJudge(),
+  doStream: async () => noJudge(),
+};
+
 /** The judge, never a model under test, with what it has cost from the catalog's price. */
 export function judgeOf(models: readonly SaveChatProviderInput[]) {
+  if (env("JUDGE") === "none") {
+    return { name: "none", model: NO_JUDGE, spent: () => 0, priced: true };
+  }
   const sonnet = models.some((each) => each.modelId === "claude-sonnet-5-5");
   const named = modelNamed(
     env("JUDGE") ?? `anthropic/${sonnet ? "claude-opus-5-5" : "claude-sonnet-5-5"}`,
@@ -115,5 +136,11 @@ export function judgeOf(models: readonly SaveChatProviderInput[]) {
     }),
     middleware: counting,
   });
-  return { name: `${named.kind}/${named.modelId}`, model, spent: () => spent };
+  // `priced`: false when the catalog has no price for it, so `spent` stays 0 whatever it costs.
+  return {
+    name: `${named.kind}/${named.modelId}`,
+    model,
+    spent: () => spent,
+    priced: price !== undefined,
+  };
 }

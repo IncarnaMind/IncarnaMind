@@ -2,6 +2,7 @@ import {
   type FocusEvent,
   type ReactNode,
   type Ref,
+  useContext,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -47,6 +48,7 @@ import {
 import { useAnswers } from "../../answers";
 import { waitText, waitTextShort } from "../../answerWaitWords";
 import { stepsScope } from "../../assistantContext";
+import { CallStartsContext } from "../../callStarts";
 import { namedMind } from "../../changeProblems";
 import { commandCallText } from "../../commandFacts";
 import { CallRow, SkillRow } from "../../editor/AnswerView";
@@ -1083,14 +1085,17 @@ function SourceRow({ source }: { source: StepSource }) {
     (state) => shownDocumentName(source, state.documents) || source.documentName,
   );
   const speakers = useAppStore((state) => citedSpeakers(source, state.documents));
+  const started = useContext(CallStartsContext)?.get(source.documentId) ?? null;
   const location = citationLocation(source);
   const where = location ? formatLocation(location, t, { speakers }) : null;
+  const named = where ? t("citation.where", { document: name, location: where }) : name;
+  const detail = [where, started].filter(Boolean).join(" · ");
   return (
     <button
       type="button"
       data-testid="answer-step-source"
       data-document-id={source.documentId}
-      title={where ? t("citation.where", { document: name, location: where }) : name}
+      title={started ? t("citation.where", { document: named, location: started }) : named}
       onClick={() =>
         void openCited(source, {
           origin,
@@ -1103,7 +1108,7 @@ function SourceRow({ source }: { source: StepSource }) {
     >
       <DocumentLineIcon kind={kind ?? "text"} className="answer-step-source-icon" />
       <span className="answer-step-source-name">{name}</span>
-      {where && <span className="answer-step-detail answer-step-source-where">{where}</span>}
+      {detail && <span className="answer-step-detail answer-step-source-where">{detail}</span>}
     </button>
   );
 }

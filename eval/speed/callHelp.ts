@@ -69,7 +69,7 @@ const MARKS_MS = 60_000;
  * The reply's end, then every mark settled, read on the stored reply; rejects when they haven't
  * settled `MARKS_MS` after the end, so the press fails to run.
  */
-function replyEnded(
+export function replyEnded(
   core: Core,
   conversationId: string,
   answerId: string,
@@ -145,9 +145,14 @@ function hear(capture: FakeCapture, ms: number, speaking: "microphone" | "system
 }
 
 /** Starts the case's Meeting and says its call, waiting for each line to be written. */
-export async function recordCall(core: Core, capture: FakeCapture, turns: readonly CallTurn[]) {
+export async function recordCall(
+  core: Core,
+  capture: FakeCapture,
+  turns: readonly CallTurn[],
+  folderId?: string,
+) {
   await core.updateSettings({ device: { meetingNoticeAccepted: true } });
-  const meeting = await core.createMeeting();
+  const meeting = await core.createMeeting(folderId === undefined ? undefined : { folderId });
   await core.startMeeting({ meetingId: meeting.id, systemAudio: true });
   for (const [index, turn] of turns.entries()) {
     hear(capture, spokenMs(turn.text), turn.who === "me" ? "microphone" : "system");
@@ -188,7 +193,7 @@ export function quotes(
 }
 
 /** The reply as the panel shows it: each item's lines, its Citations by the numbers they show with. */
-function shownReply(
+export function shownReply(
   answer: ConversationAnswer,
   items: readonly ReplyItem[],
   numbers: ReadonlyMap<number, number>,
@@ -329,7 +334,7 @@ interface TimingRow {
 }
 
 /** What the press asked of models and did on this computer, from the core's own timing records. */
-function requestsSince(dataDir: string, since: string): RequestTiming[] {
+export function requestsSince(dataDir: string, since: string): RequestTiming[] {
   const from = Date.parse(since);
   return queryDatabase<TimingRow>(
     dataDir,

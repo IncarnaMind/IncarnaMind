@@ -52,6 +52,9 @@ export const SET_IDS = [
   "call-help-checks",
   "call-help-marks",
   "call-help-marks-3",
+  "call-help-earlier-calls",
+  "call-help-earlier-calls-2",
+  "call-help-earlier-calls-3",
   "meeting-notes",
 ] as const;
 export type SetId = (typeof SET_IDS)[number];
@@ -110,6 +113,34 @@ export interface ArmRun {
   text: string;
   /** Each request and local step, for an item that reads them (a help reply). */
   requests?: RequestTiming[];
+  /**
+   * What a reply of the earlier-call set showed, place by place (#3005), so a judge's reading can
+   * be checked against the record: each line or sentence with a Citation, the number it shows, the
+   * source line the panel shows for it, whose call its Transcript is, its quote and whether it was
+   * found.
+   */
+  places?: {
+    line: string;
+    number: number;
+    source: string;
+    call: "this" | "earlier" | "other";
+    quote: string;
+    found: boolean;
+    /** It shows ✓: the sentence check passed the line or sentence it is cited in. */
+    passed: boolean;
+  }[];
+  /**
+   * The earlier-call judge's reading of the reply (#3005): it gives an earlier call's words as said
+   * in this call; for "last time", it gives them as said then, saying when; and the numbers whose
+   * sentence says the other side said, asked or wants something in this call.
+   */
+  callReading?: {
+    earlierAsThis: boolean;
+    thenWithWhen: boolean;
+    asThisCall: number[];
+    /** The earlier call's start as the judge was given it, so a saved reply can be judged again. */
+    earlierStarted?: string;
+  };
   /**
    * A help reply's marks (#2847), read once every mark settled. Of the Citations it shows whose
    * quote was found and whose sentence the judge says their quoted words hold (`held`): how many
