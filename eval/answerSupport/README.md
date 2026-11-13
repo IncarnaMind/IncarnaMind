@@ -10,7 +10,7 @@
   - **control**: sentences their quotes support, which must keep their green check.
 - **supported**: Find support's supported sentences that state a date or a year (`../checks/labels.json`, 35), each citing its labelled quote, over that evaluation's Folder.
 
-A sentence shows the green check only when its check says Supported; Unsupported and Contradicted mark it; a check that couldn't decide shows Not checked, with Check again.
+A sentence shows the green check only when its check says Supported; Unsupported and Contradicted mark it; a check that couldn't decide shows Not checked, with Check again. Checked one at a time, a Supported resting on a Passage its quote doesn't hold reads as a Note reads it: Not checked, `found-elsewhere` (#3019).
 
 ## Running it
 
