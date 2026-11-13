@@ -332,3 +332,245 @@ describe("A W before a capitalised word may be West (#2997)", { timeout: 120_000
     ]);
   });
 });
+
+describe("A unit said in prose names only the rows it heads (#2997)", { timeout: 120_000 }, () => {
+  // protects=prose that says what figures are counted in ("库存以吨计。", "功率以瓦计。") states its unit only for the rows it heads, so a headcount in another table, glued under the first or after a blank line, in a section apart where it is the only table, or in a list after a blank line, reads Unsupported in Check against Documents, as on main, in both languages; fails_when="研发人数为31吨。" or "研发人数为31瓦。" citing "研发\t31" or "研发人数: 31" reads Supported there; no_claim=the Answer's ✓ on a unit the Document states nowhere for the number, which is the model's, as on main.
+  test("the eight headcounts under another table's prose read Unsupported in Check against Documents, as on main", async () => {
+    await readsAsWanted([
+      [
+        "库存以吨计。\n项目\t库存\n一厂\t54\n\n部门\t人数\n研发\t31",
+        "研发\t31",
+        "研发人数为31吨。",
+        leftToTheModel("31", "31吨"),
+      ],
+      [
+        "库存以吨计。\n项目\t库存\n一厂\t54\n部门\t人数\n研发\t31",
+        "研发\t31",
+        "研发人数为31吨。",
+        leftToTheModel("31", "31吨"),
+      ],
+      [
+        "本报告库存以吨计。\n\n第三节 人员\n\n部门\t人数\n研发\t31",
+        "研发\t31",
+        "研发人数为31吨。",
+        leftToTheModel("31", "31吨"),
+      ],
+      [
+        "库存以吨计。\n一厂: 54\n\n研发人数: 31",
+        "研发人数: 31",
+        "研发人数为31吨。",
+        leftToTheModel("31", "31吨"),
+      ],
+      [
+        "功率以瓦计。\n项目\t功率\n一厂\t54\n\n部门\t人数\n研发\t31",
+        "研发\t31",
+        "研发人数为31瓦。",
+        leftToTheModel("31", "31瓦"),
+      ],
+      [
+        "功率以瓦计。\n项目\t功率\n一厂\t54\n部门\t人数\n研发\t31",
+        "研发\t31",
+        "研发人数为31瓦。",
+        leftToTheModel("31", "31瓦"),
+      ],
+      [
+        "本报告功率以瓦计。\n\n第三节 人员\n\n部门\t人数\n研发\t31",
+        "研发\t31",
+        "研发人数为31瓦。",
+        leftToTheModel("31", "31瓦"),
+      ],
+      [
+        "功率以瓦计。\n一厂: 54\n\n研发人数: 31",
+        "研发人数: 31",
+        "研发人数为31瓦。",
+        leftToTheModel("31", "31瓦"),
+      ],
+    ]);
+  });
+
+  // protects=prose over its own list or table still states its unit in Check against Documents ("一厂为54吨。" under "库存以吨计。"), and prose set apart from its rows by a blank line and a section heading reads as on main, in both languages; fails_when="一厂为54吨。" under "库存以吨计。" over its list reads Unsupported, or "二厂库存为31吨。" under prose apart reads Supported; no_claim=prose apart from its rows, which the part after this one reads.
+  test("prose over its own rows states its unit, and prose apart from them reads as on main", async () => {
+    await readsAsWanted([
+      ["库存以吨计。\n一厂: 54\n\n研发人数: 31", "一厂: 54", "一厂为54吨。", TICK],
+      ["功率以瓦计。\n一厂: 54\n\n研发人数: 31", "一厂: 54", "一厂为54瓦。", TICK],
+      [
+        "库存以吨计。\n项目\t库存\n一厂\t54\n\n部门\t人数\n研发\t31",
+        "一厂\t54",
+        "一厂库存为54吨。",
+        TICK,
+      ],
+      [
+        "功率以瓦计。\n项目\t功率\n一厂\t54\n\n部门\t人数\n研发\t31",
+        "一厂\t54",
+        "一厂功率为54瓦。",
+        TICK,
+      ],
+      [
+        "本报告库存以吨计。\n\n第三节 各厂情况\n\n厂区\t库存\n一厂\t54\n二厂\t31",
+        "二厂\t31",
+        "二厂库存为31吨。",
+        leftToTheModel("31", "31吨"),
+      ],
+      [
+        "本报告功率以瓦计。\n\n第三节 各厂情况\n\n厂区\t功率\n一厂\t54\n二厂\t31",
+        "二厂\t31",
+        "二厂功率为31瓦。",
+        leftToTheModel("31", "31瓦"),
+      ],
+    ]);
+  });
+});
+
+describe("A table's own heading lines and labels give its rows their unit (#2997)", {
+  timeout: 120_000,
+}, () => {
+  // protects=a table glued under another, with no line between, starts at its own heading row, so it takes nothing from the first table's caption, unit line or prose, while a heading row of periods ("厂区\t2023年\t2024年", "Site\t2023\t2024", "FY2023") heads its own table and lets the caption over it through, in both languages; fails_when="研发产量为31千克。" or "Research's headcount was 31 kg." citing the glued table reads ✓, or "二厂2024年产量为31千克。" under a caption over a heading row of years reads Not checked; no_claim=a number below a section row inside a table, which reads as on main.
+  test("a glued table takes nothing from the table above, and a heading row of periods heads its own table", async () => {
+    await readsAsWanted([
+      [
+        "表3 各厂产量（千克）\n厂区\t产量\n一厂\t54\n二厂\t62\n部门\t人数\n研发\t31",
+        "研发\t31",
+        "研发产量为31千克。",
+        UNJUDGED,
+      ],
+      [
+        "Unit: kg\nSite\tValue\nA\t54\nB\t62\nTeam\tHeadcount\nResearch\t31",
+        "Research\t31",
+        "Research's value was 31 kg.",
+        UNJUDGED,
+      ],
+      [
+        "Unit: kg\nItem\tStock\nA\t54\nTeam\tHeadcount\nResearch\t31",
+        "Research\t31",
+        "Research's headcount was 31 kg.",
+        UNJUDGED,
+      ],
+      [
+        "Unit: kg\nItem\tStock\nA\t54\nTeam\tHeadcount\nResearch\t31",
+        "A\t54",
+        "A's stock was 54 kg.",
+        TICK,
+      ],
+      [
+        "表3 各厂产量（千克）\n厂区\t2023年\t2024年\n一厂\t54\t77\n二厂\t62\t31\n部门\t2023年\t2024年\n研发\t40\t45",
+        "研发\t40\t45",
+        "研发2024年为45千克。",
+        UNJUDGED,
+      ],
+      [
+        "表3 各厂产量（千克）\n厂区\t2023年\t2024年\n一厂\t54\t77\n二厂\t62\t31\n部门\t2023年\t2024年\n研发\t40\t45",
+        "二厂\t62\t31",
+        "二厂2024年产量为31千克。",
+        TICK,
+      ],
+      [
+        "Table 3. Output by site (kg)\nSite\t2023\t2024\nA\t54\t77\nB\t62\t31\nTeam\t2023\t2024\nResearch\t40\t45",
+        "Research\t40\t45",
+        "Research's figure for 2024 was 45 kg.",
+        UNJUDGED,
+      ],
+      [
+        "Table 3. Output by site (kg)\nSite\t2023\t2024\nA\t54\t77\nB\t62\t31\nTeam\t2023\t2024\nResearch\t40\t45",
+        "B\t62\t31",
+        "Site B's output in 2024 was 31 kg.",
+        TICK,
+      ],
+      [
+        "Table 3. Output by site (kg)\nSite\tFY2023\tFY2024\nA\t54\t77\nB\t62\t31",
+        "B\t62\t31",
+        "Site B's output in FY2024 was 31 kg.",
+        TICK,
+      ],
+    ]);
+  });
+});
+
+describe("Wrong sentences the check doesn't catch yet (#2997)", { timeout: 120_000 }, () => {
+  // protects=known wrong ✓, pinned at what they read so the next change that touches them shows it: a number of a count column or another row given the unit a caption, a unit line or a heading states for the table ("二厂产量为31千克。" citing the 31 under 人数, "2024年产量为31千克。" citing the 员工人数 row), the same with no column or row named; another row's number under labelled lines; 度 as a temperature, an angle or against kilowatt-hours; and two that main's own heading rule ticks (a column heading of a table glued above, the other of two labelled columns). They are wrong sentences the check doesn't catch yet (#2997); fails_when=any reads otherwise without its kind being fixed and this list changed; no_claim=that they are right.
+  test("known wrong ✓", async () => {
+    await readsAsWanted([
+      [
+        "表3 各厂情况（千克）\n厂区\t产量\t人数\n一厂\t54\t77\n二厂\t62\t31",
+        "二厂\t62\t31",
+        "二厂产量为31千克。",
+        TICK,
+      ],
+      [
+        "Table 3. Sites (kg)\nSite\tOutput\tStaff\nA\t54\t77\nB\t62\t31",
+        "B\t62\t31",
+        "Site B's output was 31 kg.",
+        TICK,
+      ],
+      [
+        "表3 主要指标（千克）\n项目\t2023年\t2024年\n产量\t54\t62\n员工人数\t77\t31",
+        "员工人数\t77\t31",
+        "2024年产量为31千克。",
+        TICK,
+      ],
+      [
+        "Table 3. Key figures (kg)\nItem\t2023\t2024\nOutput\t54\t62\nHeadcount\t77\t31",
+        "Headcount\t77\t31",
+        "Output in 2024 was 31 kg.",
+        TICK,
+      ],
+      [
+        "各厂产量（千克）\n厂区\t产量\t人数\n一厂\t54\t12\n二厂\t40\t31",
+        "二厂\t40\t31",
+        "二厂产量为31千克。",
+        TICK,
+      ],
+      [
+        "单位：万元\n厂区\t产值\t人数\n一厂\t54\t77\n二厂\t62\t31",
+        "二厂\t62\t31",
+        "二厂产值为31万元。",
+        TICK,
+      ],
+      [
+        "Table 3. Sites (USD millions)\nSite\tRevenue\tStaff\nA\t54\t77\nB\t62\t31",
+        "B\t62\t31",
+        "Site B's revenue was $31 million.",
+        TICK,
+      ],
+      [
+        "$ in millions\nSite\tRevenue\tStaff\nA\t54\t77\nB\t62\t31",
+        "B\t62\t31",
+        "Site B's revenue was $31 million.",
+        TICK,
+      ],
+      [
+        "表3 各厂情况（千克）\n厂区\t产量\t人数\n一厂\t54\t77\n二厂\t62\t31",
+        "二厂\t62\t31",
+        "二厂为31千克。",
+        TICK,
+      ],
+      [
+        "Table 3. Sites (kg)\nSite\tOutput\tStaff\nA\t54\t77\nB\t62\t31",
+        "B\t62\t31",
+        "Site B had 31 kg.",
+        TICK,
+      ],
+      ["一厂产量（吨）: 54\n二厂产量（吨）: 31", "一厂产量（吨）: 54", "二厂产量为54吨。", TICK],
+      ["室温：26度", "室温：26度", "室内用电为26千瓦时。", TICK],
+      ["用电：26千瓦时", "用电：26千瓦时", "室温为26度。", TICK],
+      ["夹角：30度", "夹角：30度", "用电为30千瓦时。", TICK],
+      [
+        "厂区\t产量（千克）\n一厂\t54\n二厂\t62\n部门\t人数\n研发\t31",
+        "研发\t31",
+        "研发人数为31千克。",
+        TICK,
+      ],
+      [
+        "Site\tOutput (kg)\nA\t54\nB\t62\nTeam\tHeadcount\nResearch\t31",
+        "Research\t31",
+        "Research's headcount was 31 kg.",
+        TICK,
+      ],
+      [
+        "厂区\t产量（千克）\t库存（千克）\n一厂\t54\t77\n二厂\t62\t31",
+        "二厂\t62\t31",
+        "二厂产量为31千克。",
+        TICK,
+      ],
+    ]);
+  });
+});

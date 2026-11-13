@@ -7,32 +7,43 @@
 import { describe, expect, test } from "vitest";
 import { PARTS, rowsOf, shows, TABLE } from "../helpers/answerUnitsTable";
 
+const GAINED = [
+  "u120",
+  "u125",
+  "u201",
+  "u205",
+  "u235",
+  "u251",
+  "u252",
+  "c417",
+  "c418",
+  "c420",
+  "e-heading-second-label-en",
+  "e-heading-second-label-zh-CN",
+  "e-heading-en-second-label-en",
+  "e-heading-en-second-label-zh-CN",
+  "l-fs-038",
+  "e-heading-second-rows-row2-right-en",
+  "e-heading-second-rows-row2-right-zh-CN",
+  "e-cell-label-over-column-right-en",
+  "e-cell-label-over-column-right-zh-CN",
+];
+
 describe("#2997's measured table", () => {
-  // protects=the table itself: the rows that read ✓ here and not on main are exactly the listed ones, the right sentences a label, a unit line or the quote's unit in another word now states and u252, whose dollar the Document states nowhere and the Answer leaves to the model (#2997), no row Check against Documents calls Supported on main loses the Answer's ✓, and every twin keeps the ✓ it had; fails_when=another row gains a ✓, one of these loses it, or a row of the table is changed to say otherwise; no_claim=what the code reads, which the part files run.
+  // protects=the table itself: the rows that read ✓ here and not on main are exactly the listed ones, the right sentences a label, a unit line or the quote's unit in another word now states and u252, whose dollar the Document states nowhere and the Answer leaves to the model (#2997), every other row reads as on main in both checks and a listed row's Check against Documents reading is main's, no row Check against Documents calls Supported on main loses the Answer's ✓, and every twin keeps the ✓ it had; fails_when=another row gains a ✓, one of these loses it, any row reads otherwise than main in either check beyond these, or a row of the table is changed to say otherwise; no_claim=what the code reads, which the part files run.
   test("gives a ✓ only to the listed sentences, and never takes one from a sentence Check against Documents calls Supported", () => {
     expect(
       TABLE.rows.filter((row) => shows(row.here) && !shows(row.main)).map(({ id }) => id),
-    ).toEqual([
-      "u120",
-      "u125",
-      "u201",
-      "u205",
-      "u235",
-      "u251",
-      "u252",
-      "c417",
-      "c418",
-      "c420",
-      "e-heading-second-label-en",
-      "e-heading-second-label-zh-CN",
-      "e-heading-en-second-label-en",
-      "e-heading-en-second-label-zh-CN",
-      "l-fs-038",
-      "e-heading-second-rows-row2-right-en",
-      "e-heading-second-rows-row2-right-zh-CN",
-      "e-cell-label-over-column-right-en",
-      "e-cell-label-over-column-right-zh-CN",
-    ]);
+    ).toEqual(GAINED);
+    expect(
+      TABLE.rows
+        .filter((row) =>
+          GAINED.includes(row.id)
+            ? JSON.stringify(row.here.document) !== JSON.stringify(row.main.document)
+            : JSON.stringify(row.here) !== JSON.stringify(row.main),
+        )
+        .map(({ id }) => id),
+    ).toEqual([]);
     expect(
       TABLE.rows
         .filter(
