@@ -24,33 +24,49 @@ import { transcribingCore, until } from "../helpers/transcription";
 
 const SECOND = 1000;
 
-const TERMS: Record<Language, { name: string; first: string; second: string; loose: string }> = {
+const TERMS: Record<
+  Language,
+  { name: string; first: string; second: string; loose: string; part: string }
+> = {
   en: {
     name: "Hosting terms.md",
     first: "The pilot's data is kept in our Frankfurt data centre for twelve months.",
     second: "Backups of the pilot's data run every night in the same building.",
     loose: "Hosting stays inside the European Union for the whole pilot",
+    part: "kept in our Frankfurt data centre",
   },
   "zh-CN": {
     name: "托管条款.md",
     first: "试点的数据在我们法兰克福的数据中心保存十二个月。",
     second: "试点数据的备份每晚在同一栋楼里进行。",
     loose: "整个试点期间托管都留在欧盟境内",
+    part: "在我们法兰克福的数据中心",
   },
 };
 
 const withoutStop = (line: string) => line.replace(/[.。]$/, "");
 const stop = (language: Language) => (language === "en" ? "." : "。");
 
-type Way = "app" | "asked-given" | "asked-none" | "model";
+type Way =
+  | "app"
+  | "asked-given"
+  | "asked-none"
+  | "asked-refused"
+  | "model"
+  | "app-and-asked"
+  | "app-and-asked-part";
 
 /**
  * A model that searches once, then answers one way:
  * - "app": its Document's first line with a marker it gives no record for, then the second line
  *   with none, both of which the app matches by itself;
- * - "asked-given", "asked-none": a sentence the app can't match, with a marker and no record, so
- *   the one request for Citations goes out: it gives the first line, or nothing;
- * - "model": the first line, with its own record for its marker.
+ * - "asked-given", "asked-none", "asked-refused": a sentence the app can't match, with a marker and
+ *   no record, so the one request for Citations goes out: it gives the first line, or nothing, or
+ *   the provider refuses it;
+ * - "model": the first line, with its own record for its marker;
+ * - "app-and-asked", "app-and-asked-part": the first line with marker 1, which the app matches,
+ *   then a sentence it can't match with marker 2, so the request goes out; its reply cites both, as
+ *   a model shown the whole Answer does: the first line (or a part of it) and the second line.
  */
 function answering(way: Way, language: Language) {
   const terms = TERMS[language];
@@ -60,11 +76,22 @@ function answering(way: Way, language: Language) {
   return scriptedModel(
     (call: ModelCall): ScriptedReply => {
       if (call.question === "unmarked-quotes") {
-        const [id] = [...call.prompt.matchAll(/<passage id="([^"]+)"/g)].map((match) => match[1]);
+        if (way === "asked-refused") return { error: { status: 500, message: "Not now." } };
+        const id = [...call.prompt.matchAll(/<passage id="([^"]+)"/g)][0]?.[1] ?? "P1";
+        const loose = { sentence: `${terms.loose}${end}`, passage: id };
         const given =
           way === "asked-given"
-            ? [{ sentence: `${terms.loose}${end}`, passage: id ?? "P1", quote: terms.first }]
-            : [];
+            ? [{ ...loose, quote: terms.first }]
+            : way === "app-and-asked" || way === "app-and-asked-part"
+              ? [
+                  {
+                    sentence: `${withoutStop(terms.first)}${end}`,
+                    passage: id,
+                    quote: way === "app-and-asked" ? terms.first : terms.part,
+                  },
+                  { ...loose, quote: terms.second },
+                ]
+              : [];
         return { text: JSON.stringify({ citations: given }) };
       }
       const searched = call.results.some((result) => result.tool === "search_documents");
@@ -84,12 +111,11 @@ function answering(way: Way, language: Language) {
           ],
         };
       }
-      if (way === "app") {
-        return {
-          text: `${withoutStop(terms.first)} [^1]${end} ${terms.second}`,
-        };
-      }
+      if (way === "app") return { text: `${withoutStop(terms.first)} [^1]${end} ${terms.second}` };
       if (way === "model") return { text: `${withoutStop(terms.first)} [^1]${end}` };
+      if (way === "app-and-asked" || way === "app-and-asked-part") {
+        return { text: `${withoutStop(terms.first)} [^1]${end} ${terms.loose} [^2]${end}` };
+      }
       return { text: `${terms.loose} [^1]${end}` };
     },
     { judgesItsAnswers: true },
@@ -158,9 +184,42 @@ describe.each(LANGUAGES)("%s: the citing record of an Answer", (language) => {
     const record = await recorded("asked-none", language);
     expect(record.written).toEqual([`${terms.loose} [^1]${stop(language)}`]);
     expect(record.unrecorded).toEqual([1]);
-    expect(record.asked).toEqual({ given: [] });
+    expect(record.asked).toEqual({
+      answer: `${terms.loose} [^1]${stop(language)}`,
+      given: [],
+      failed: false,
+    });
     expect(record.citations).toEqual([]);
   });
+
+  // protects=a request for Citations the provider refuses still counts as asked, with no reply; fails_when=it reads as not asked; no_claim=a reply that breaks off halfway.
+  test("asked once more, and the provider refused the request", { timeout: 60_000 }, async () => {
+    const record = await recorded("asked-refused", language);
+    expect(record.unrecorded).toEqual([1]);
+    expect(record.asked).toEqual({
+      answer: `${terms.loose} [^1]${stop(language)}`,
+      given: [],
+      failed: true,
+    });
+    expect(record.citations).toEqual([]);
+  });
+
+  // protects=a sentence the app matched before it asked stays the app's though the request's reply cites it too, whole or in part; fails_when=it is counted as the request's; no_claim=a reply citing a sentence the app didn't match with another line.
+  test.each(["app-and-asked", "app-and-asked-part"] as const)(
+    "the app's own match stays its own when the request cites it too (%s)",
+    {
+      timeout: 60_000,
+    },
+    async (way) => {
+      const record = await recorded(way, language);
+      expect(record.unrecorded).toEqual([1, 2]);
+      expect(record.asked?.given).toHaveLength(2);
+      expect(record.citations.map(({ marker, from, quote }) => ({ marker, from, quote }))).toEqual([
+        { marker: 1, from: "app-marked", quote: terms.first },
+        { marker: 2, from: "request", quote: terms.second },
+      ]);
+    },
+  );
 
   test("the model's own record", { timeout: 60_000 }, async () => {
     const record = await recorded("model", language);
@@ -201,18 +260,21 @@ describe("The count over run files", () => {
       cpSync(join(runs, "2026-11-13-everyday"), join(runs, closed), { recursive: true });
     }
 
-    const files = runFiles([runs]);
+    const { files, leftOut } = runFiles([runs]);
     expect(files).toEqual([join(runs, "2026-11-13-everyday", "report.json")]);
+    expect(leftOut).toEqual([join(runs, "a-gate-run"), join(runs, "a-held-out-set")]);
     const counts = countCiting(
       files.flatMap((file) => citedAnswers(JSON.parse(readFileSync(file, "utf8")))),
     );
     const each = {
       answers: 4,
       unrecorded: 3,
-      matchedByApp: 1,
       asked: 2,
       askedGiven: 1,
       askedNone: 1,
+      askedFailed: 0,
+      matchedByApp: 1,
+      neither: 0,
       askedWithoutMarker: 0,
       origins: {
         model: { citations: 1, judged: 1, passed: 1 },
@@ -225,6 +287,49 @@ describe("The count over run files", () => {
     expect(counts).toEqual([
       { model: "ollama/local-model", language: "en", ...each },
       { model: "ollama/local-model", language: "zh-CN", ...each },
+    ]);
+  });
+
+  // protects=Answers with a marker that has no record add up to asked, matched by the app and neither: a marker that just went, with no request, is neither; fails_when=it counts as matched by the app; no_claim=why no request went out.
+  test("an Answer whose marker just went, with no request, is neither asked nor matched", () => {
+    const citing = (
+      asked: CitingRecord["asked"],
+      from: CitingRecord["citations"][number]["from"] | null,
+    ): CitingRecord => ({
+      written: ["Hosting stays in Europe [^1]."],
+      passages: [],
+      records: [],
+      unrecorded: [1],
+      asked,
+      citations: from
+        ? [
+            {
+              marker: 1,
+              document: "Hosting terms",
+              quote: "Kept in Frankfurt.",
+              from,
+              check: "found",
+              checkReason: null,
+              judged: true,
+            },
+          ]
+        : [],
+    });
+    const answers = [
+      citing(null, null),
+      citing(null, "app-marked"),
+      citing({ answer: "Hosting stays in Europe [^1].", given: [], failed: true }, null),
+    ].map((each) => ({ model: "anthropic/claude-haiku-5-5", language: "en", citing: each }));
+    expect(countCiting(answers)).toEqual([
+      expect.objectContaining({
+        unrecorded: 3,
+        asked: 1,
+        askedFailed: 1,
+        askedGiven: 0,
+        askedNone: 0,
+        matchedByApp: 1,
+        neither: 1,
+      }),
     ]);
   });
 });

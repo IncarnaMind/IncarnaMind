@@ -26,7 +26,7 @@ import type {
 import { parseRecords } from "../../src/core/answers/engine";
 import { questionOf } from "../../src/core/answers/judge";
 import { takeToolText } from "../../src/core/answers/toolText";
-import { parseAsked } from "../../src/core/answers/unmarkedQuotes";
+import { matchUnmarked, parseAsked } from "../../src/core/answers/unmarkedQuotes";
 import { markersIn } from "../../src/shared/answerBlocks";
 import { shownPassages } from "../../tests/helpers/citations";
 
@@ -43,7 +43,11 @@ import { shownPassages } from "../../tests/helpers/citations";
 export type CitationOrigin = "model" | "request" | "app-marked" | "app-unmarked" | "figure";
 
 export interface CitingRecord {
-  /** The Answer as the model wrote it, before its citing step: each reply, in order (a check asking again starts another). */
+  /**
+   * The Answer as the model wrote it: each reply, in order (a check asking again starts another).
+   * Before its citing step the app places the markers of the model's own records, so a replay
+   * places them first (`withMissingMarkers`), or starts from `asked.answer` when there was an ask.
+   */
   written: string[];
   /** The Passages its requests showed it, each once, as the model read them. */
   passages: { id: string; document: string; location: string | null; text: string }[];
@@ -51,8 +55,16 @@ export interface CitingRecord {
   records: { marker: number; passage: string; quote: string }[];
   /** The markers its last reply wrote with no record behind them, each once. */
   unrecorded: number[];
-  /** The one request for Citations: null when the app didn't ask; what it gave back when it did. */
-  asked: { given: { sentence: string; passage: string; quote: string }[] } | null;
+  /**
+   * The one request for Citations: null when none went out. `answer` is the Answer as the citing
+   * step read it, its own records' markers placed (a replay starts there, not from `written`);
+   * `given` what the reply gave; `failed` when no reply came.
+   */
+  asked: {
+    answer: string;
+    given: { sentence: string; passage: string; quote: string }[];
+    failed: boolean;
+  } | null;
   /** The finished Answer's Citations, in its order. */
   citations: {
     marker: number;
@@ -77,6 +89,8 @@ interface Exchange {
   structured: boolean;
   text: string;
   calls: { tool: string; input: string }[];
+  /** Its reply came whole; false while it streams, and for one the provider refused or that broke off. */
+  replied: boolean;
 }
 
 /** What a watcher heard of one Answer, from `begin()` to `end()`. */
@@ -129,59 +143,57 @@ function kindOf(options: LanguageModelV4CallOptions): Exchange["kind"] | null {
   return offersCite || asksForStructuredAnswer(options) ? "answer" : null;
 }
 
-function exchangeOf(
-  kind: Exchange["kind"],
-  options: LanguageModelV4CallOptions,
-  text: string,
-  calls: Exchange["calls"],
-): Exchange {
+function exchangeOf(kind: Exchange["kind"], options: LanguageModelV4CallOptions): Exchange {
   return {
     kind,
     prompt: options.prompt.map(messageText).join("\n\n"),
     lastRole: options.prompt.at(-1)?.role ?? "user",
     structured: asksForStructuredAnswer(options),
-    text,
-    calls,
+    text: "",
+    calls: [],
+    replied: false,
   };
 }
 
 /** Watches the Answer requests and the one request for Citations of each Answer begun. */
 export function watchCiting(): CitingWatch {
   let exchanges: Exchange[] = [];
-  const heard = (exchange: Exchange) => exchanges.push(exchange);
+  /** A request is heard as it is sent, so one refused or broken off still counts as made. */
+  const sent = (options: LanguageModelV4CallOptions): Exchange | null => {
+    const kind = kindOf(options);
+    if (!kind) return null;
+    const exchange = exchangeOf(kind, options);
+    exchanges.push(exchange);
+    return exchange;
+  };
   const middleware: LanguageModelMiddleware = {
     specificationVersion: "v4",
     wrapGenerate: async ({ doGenerate, params }) => {
+      const exchange = sent(params);
       const result = await doGenerate();
-      const kind = kindOf(params);
-      if (kind) {
+      if (exchange) {
         const content: LanguageModelV4Content[] = result.content;
-        heard(
-          exchangeOf(
-            kind,
-            params,
-            content.map((part) => (part.type === "text" ? part.text : "")).join(""),
-            content.flatMap((part) =>
-              part.type === "tool-call" ? [{ tool: part.toolName, input: part.input }] : [],
-            ),
-          ),
+        exchange.text = content.map((part) => (part.type === "text" ? part.text : "")).join("");
+        exchange.calls = content.flatMap((part) =>
+          part.type === "tool-call" ? [{ tool: part.toolName, input: part.input }] : [],
         );
+        exchange.replied = true;
       }
       return result;
     },
     wrapStream: async ({ doStream, params }) => {
+      const exchange = sent(params);
       const result = await doStream();
-      const kind = kindOf(params);
-      if (!kind) return result;
-      let text = "";
-      const calls: Exchange["calls"] = [];
+      if (!exchange) return result;
+      let broke = false;
       const stream = result.stream.pipeThrough(
         new TransformStream<LanguageModelV4StreamPart, LanguageModelV4StreamPart>({
           transform(part, controller) {
-            if (part.type === "text-delta") text += part.delta;
+            if (part.type === "text-delta") exchange.text += part.delta;
             else if (part.type === "tool-call")
-              calls.push({ tool: part.toolName, input: part.input });
-            else if (part.type === "finish") heard(exchangeOf(kind, params, text, calls));
+              exchange.calls.push({ tool: part.toolName, input: part.input });
+            else if (part.type === "error") broke = true;
+            else if (part.type === "finish") exchange.replied = !broke;
             controller.enqueue(part);
           },
         }),
@@ -219,7 +231,7 @@ const recordsOf = (value: unknown): CitingRecord["records"] =>
 
 const comparable = (text: string) => text.replace(/\s+/g, " ").trim();
 
-/** A quote the one request gave is the Citation's: one holds the other, as a quote is widened to its sentence. */
+/** A quote is the Citation's: one holds the other, as a quote is widened to its sentence. */
 function sameQuote(given: string, citation: ConversationAnswer["citations"][number]): boolean {
   const asked = comparable(given);
   return [citation.quote, citation.given ?? ""]
@@ -248,11 +260,15 @@ export function citingRecord(watched: Watched, answer: ConversationAnswer): Citi
     showing(exchange.prompt);
     if (exchange.kind === "ask") {
       asked ??= {
-        given: parseAsked(parsed(exchange.calls[0]?.input ?? exchange.text)).map((each) => ({
-          sentence: each.sentence ?? "",
-          passage: each.passage,
-          quote: each.quote,
-        })),
+        answer: /<answer>\n([\s\S]*?)\n<\/answer>/.exec(exchange.prompt)?.[1] ?? "",
+        given: exchange.replied
+          ? parseAsked(parsed(exchange.calls[0]?.input ?? exchange.text)).map((each) => ({
+              sentence: each.sentence,
+              passage: each.passage,
+              quote: each.quote,
+            }))
+          : [],
+        failed: !exchange.replied,
       };
       continue;
     }
@@ -278,15 +294,34 @@ export function citingRecord(watched: Watched, answer: ConversationAnswer): Citi
     (marker) => !recordedMarkers.has(marker),
   );
   const shown = new Set(markersIn(answer.text));
+  const passageList = [...passages.values()];
+  // The request's reply is taken only for sentences the app hadn't matched first, and it is given
+  // the whole Answer, so it often cites those too: which sentences the app matched is told by
+  // matching again, as the citing step did, the text it read with the Passages it was shown.
+  const appMatched = asked
+    ? matchUnmarked(
+        asked.answer,
+        passageList,
+        (id, quote) =>
+          comparable(passages.get(id)?.text ?? "").includes(comparable(quote)) && quote !== "",
+        (marker) => recordedMarkers.has(marker),
+      )
+    : null;
   const fromOf = (citation: ConversationAnswer["citations"][number]): CitationOrigin => {
     if (recordedMarkers.has(citation.marker)) return "model";
-    if (asked?.given.some((each) => sameQuote(each.quote, citation))) return "request";
-    if (unrecorded.includes(citation.marker)) return "app-marked";
-    return shown.has(citation.marker) ? "app-unmarked" : "figure";
+    if (!shown.has(citation.marker)) return "figure";
+    if (appMatched === null) {
+      return unrecorded.includes(citation.marker) ? "app-marked" : "app-unmarked";
+    }
+    const own =
+      appMatched.find((match) => match.marker === citation.marker) ??
+      appMatched.find((match) => match.marker === undefined && sameQuote(match.quote, citation));
+    if (!own) return "request";
+    return own.marker === undefined ? "app-unmarked" : "app-marked";
   };
   return {
     written,
-    passages: [...passages.values()],
+    passages: passageList,
     records,
     unrecorded,
     asked,
