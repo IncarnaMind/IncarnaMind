@@ -6,8 +6,9 @@ import type {
   MeetingHelpKind,
 } from "../../../../core/api";
 import { citationSource, citedLocation } from "../../../../shared/citations";
+import type { ReplyItem, ReplyPiece } from "../../../../shared/helpReplyRead";
 import { isTranscriptLocation } from "../../../../shared/locations";
-import { HELP_SHAPE, helpLabel } from "../../../../shared/meetingHelp";
+import { helpLabel } from "../../../../shared/meetingHelp";
 import { isTheirs, SPEAKER_ME } from "../../../../shared/speakers";
 import { useAnswers } from "../../answers";
 import { useCallStarts } from "../../callStarts";
@@ -16,8 +17,6 @@ import {
   citationNumbers,
   helpParts,
   quoted,
-  type ReplyItem,
-  type ReplyPiece,
   sentencePassed,
   uncheckedReason,
 } from "../../helpReply";
@@ -153,14 +152,11 @@ function Item({
   answer,
   numbers,
   starts,
-  said,
 }: {
   item: ReplyItem;
   answer: ConversationAnswer;
   numbers: ReadonlyMap<number, number>;
   starts: ReadonlyMap<string, string>;
-  /** It is an option to say: its sentence shows in quotation marks. */
-  said: boolean;
 }) {
   const t = useT();
   return (
@@ -178,7 +174,7 @@ function Item({
       </span>
       <span data-testid="help-option-say" className="help-option-say">
         <Pieces
-          pieces={said ? quoted(item.lead) : item.lead}
+          pieces={item.said ? quoted(item.lead) : item.lead}
           answer={answer}
           numbers={numbers}
           starts={starts}
@@ -377,7 +373,6 @@ export function HelpSuggestion({
           answer={answer}
           numbers={numbers}
           starts={starts}
-          said={HELP_SHAPE[help.kind] === "options" && item.effect !== null}
         />
       ))}
       {streaming && items.length < 2 && <HelpOutline count={items.length === 0 ? 2 : 1} />}

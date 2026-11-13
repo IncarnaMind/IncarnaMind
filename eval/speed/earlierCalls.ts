@@ -16,13 +16,12 @@ import type {
 import {
   callStarts,
   citationNumbers,
-  readHelpReply,
   sentencePassed,
-  shownItems,
   startedLabel,
 } from "../../src/renderer/src/helpReply";
 import { citedLocation } from "../../src/shared/citations";
 import { formatFullDateTime } from "../../src/shared/dates";
+import { readHelpReply, shownItems } from "../../src/shared/helpReplyRead";
 import { translate } from "../../src/shared/i18n";
 import { HELP_SHAPE } from "../../src/shared/meetingHelp";
 import { until } from "../../tests/helpers/transcription";

@@ -12,6 +12,7 @@ import { pageDate } from "../webPages";
 import { AnnotationNoteLayer } from "./AnnotationNoteLayer";
 import { markAnnotationsInDom, unmarkAnnotationsInDom } from "./annotationMarks";
 import { useCitedArea } from "./citedArea";
+import { citedPlaceGone } from "./citedPlace";
 import { loadDocumentPicture } from "./documentPicture";
 import { markQuote, textNodes, unmarkQuote } from "./domQuote";
 import { FileStates } from "./FileStates";
@@ -432,6 +433,7 @@ function WebPageContent({
             <OutlineButton open={outlineOpen} onToggle={() => setOutlineOpen((open) => !open)} />
           )
         }
+        placeGone={citedPlaceGone(target, page.units.length)}
       />
       <div className="flex min-h-0 flex-1">
         {outlineOpen && <UnitOutline entries={outline} current={current} onGo={goTo} />}
