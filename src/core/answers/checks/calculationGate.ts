@@ -184,7 +184,8 @@ export async function needsCalculation({
 }): Promise<boolean> {
   const context = documentFigureContext(citations.flatMap((citation) => citation.units));
   const own = documentFigureContext([{ text: claim }]);
-  const claimFigures = figuresInClaim(claim, own.language ? own : { ...context, header: null });
+  const claimContext = own.language ? own : { ...context, header: null };
+  const claimFigures = figuresInClaim(claim, claimContext);
   if (claimFigures.length === 0 && !attempted && !verdict.calculations?.length) return false;
   if (attempted && computed.length === 0) return true;
   if (
@@ -248,6 +249,12 @@ export async function needsCalculation({
           ranges.length > 0 ? ranges : (findQuote(text, citation.quote, { numbers: true }) ?? []),
       };
     }));
+  let said: { text: string; numbers: number[] } | undefined;
+  const sentence = () =>
+    (said ??= {
+      text: claim,
+      numbers: figuresInClaim(writtenNumbers(claim), claimContext).map(writtenOf),
+    });
   const unused = [...computed];
   for (const figure of claimFigures) {
     const at = unused.findIndex((number) => matches(figure, number));
@@ -263,9 +270,7 @@ export async function needsCalculation({
           rowStates(claim, figure, citation.quote, units, context) ||
           wordsState(figure, citation.quote, context),
       ) ||
-      places().some(({ text, ranges }) =>
-        statesFigure(figure, claim.slice(figure.end), text, ranges, context),
-      )
+      places().some(({ text, ranges }) => statesFigure(figure, sentence(), text, ranges, context))
     )
       continue;
     if (!available.some((source) => matches(figure, source))) {

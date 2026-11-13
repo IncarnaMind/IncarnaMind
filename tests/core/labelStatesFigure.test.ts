@@ -4,7 +4,9 @@
  * heading over its rows, its column's heading, or a caption, a unit line or a clause of prose that
  * heads its rows, keeps the model's ✓ in an Answer, as does one that writes the quote's unit in
  * another word. A sentence in another unit, scale, rate or notation, beside a twin, under two units
- * or none, or under another table's line, reads as on main. Each row is read in both interface languages, as an Answer's sentence and in Check against
+ * or none, or under another table's line, reads as on main, and a number in a column or row the
+ * sentence doesn't name, while it names another of its table, takes nothing from the line over the
+ * table. Each row is read in both interface languages, as an Answer's sentence and in Check against
  * Documents.
  */
 import { describe, expect, test } from "vitest";
@@ -1029,166 +1031,324 @@ describe("A heading's own exception leaves out the numbers it names (#2997)", {
   });
 });
 
-describe("Wrong sentences the check doesn't catch yet (#2997)", { timeout: 120_000 }, () => {
-  // protects=known wrong ✓, pinned at what they read so the next change that touches them shows it: a number of a count column or another row given the unit a caption, a unit line, a heading or prose directly over the table states for it ("二厂产量为31千克。" citing the 31 under 人数, "2024年产量为31千克。" citing the 员工人数 row), the same with no column or row named, or with the count column named in that unit; another row's number under labelled lines or under a caption over a column-wise table ("二厂产量为54吨。" citing 一厂's 54); a per-share row under a heading that states a scale and excepts nothing ("Earnings per share in 2024 were $2.00 million." under "(USD millions)"), or named 基本 or 稀释 alone under one that excepts per-share data, a label the clause's test reads in English only ("2024年稀释每股收益为1.95百万元。" citing the 稀释 row); 度 as a temperature, an angle or against kilowatt-hours; and two that main's own heading rule ticks (a column heading of a table glued above, the other of two labelled columns). They are wrong sentences the check doesn't catch yet (#2997); fails_when=any reads otherwise without its kind being fixed and this list changed; no_claim=that they are right.
-  test("known wrong ✓", async () => {
+/** Each Document and quote with a wrong sentence, Not checked in an Answer, then its right twin, which keeps its ✓ (citing `twinQuote` when given). */
+const twins = (
+  rows: readonly [text: string, quote: string, wrong: string, right: string, twinQuote?: string][],
+): [string, string, string, Wanted][] =>
+  rows.flatMap(([text, quote, wrong, right, twinQuote]) => [
+    [text, quote, wrong, UNJUDGED],
+    [text, twinQuote ?? quote, right, TICK],
+  ]);
+
+/** Two sites under `head`, a measure column and a headcount, in the language of `measure`. */
+const sites = (head: string, measure: string) =>
+  /\p{Script=Han}/u.test(measure)
+    ? `${head}\n厂区\t${measure}\t人数\n一厂\t54\t77\n二厂\t62\t31`
+    : `${head}\nSite\t${measure}\tStaff\nA\t54\t77\nB\t62\t31`;
+
+/** Two rows under `head`, a measure and a headcount, over two years, in the language of `measure`. */
+const keyFigures = (head: string, measure: string) =>
+  /\p{Script=Han}/u.test(measure)
+    ? `${head}\n项目\t2023年\t2024年\n${measure}\t54\t62\n员工人数\t77\t31`
+    : `${head}\nItem\t2023\t2024\n${measure}\t54\t62\nHeadcount\t77\t31`;
+
+const PIPELINE =
+  "Pipeline by stage (£k)\nStage\tDeals\tValue\nQualified\t42\t1,260\nProposal\t17\t830";
+const COSTS =
+  "(USD millions)\nItem\t2023\t2024\nRevenue\t540\t620\nCosts\t300\t350\nProfit\t240\t270";
+const COSTS_ZH = "单位：万元\n项目\t2023年\t2024年\n收入\t540\t620\n成本\t300\t350\n利润\t240\t270";
+
+describe("A number that takes its unit from a line over its table isn't the figure of a sentence that means another of its numbers (#2997)", {
+  timeout: 120_000,
+}, () => {
+  // protects=a number in a column the sentence doesn't name, while it names another column of the table, takes nothing from the caption, unit line, heading or prose over its table, so the wrong sentence reads Not checked in an Answer and its right twin keeps its ✓; tab and pipe tables, money and measures, English and Chinese; a number the row holds twice, once in the column the sentence names, still states it; fails_when="二厂产量为31千克。" citing the 31 under 人数 below "表3 各厂情况（千克）" keeps a ✓, or "二厂产量为62千克。" loses it; no_claim=a sentence that names no column or the count column itself, which stays known.
+  test("a number in a column the sentence doesn't name, while it names another, reads Not checked beside its right twin", async () => {
     await readsAsWanted([
+      ...twins(
+        (
+          [
+            ["表3 各厂情况（千克）", "产量", "二厂产量为31千克。"],
+            ["表3 各厂情况（兆瓦）", "产量", "二厂产量为31兆瓦。"],
+            ["表3 各厂情况（吨）", "产量", "二厂产量为31吨。"],
+            ["表3 各厂情况（瓦）", "产量", "二厂产量为31瓦。"],
+            ["单位：万元", "产值", "二厂产值为31万元。"],
+            ["单位：万吨", "产值", "二厂产值为31万吨。"],
+            ["表3 各厂产值（万元）", "产值", "二厂产值为31万元。"],
+            ["产量（千克）", "产量", "二厂产量为31千克。"],
+            ["Table 3. Sites (kg)", "Output", "Site B's output was 31 kg."],
+            ["Table 3. Sites (kt)", "Output", "Site B's output was 31 kt."],
+            ["Table 3. Sites (tonnes)", "Output", "Site B's output was 31 tonnes."],
+            ["Table 3. Sites (W)", "Output", "Site B's output was 31 W."],
+            ["Table 3. Sites (USD millions)", "Output", "Site B's output was $31 million."],
+            ["Table 3. Sites (USD millions)", "Revenue", "Site B's revenue was $31 million."],
+            ["(USD millions)", "Revenue", "Site B's revenue was $31 million."],
+            ["$ in millions", "Revenue", "Site B's revenue was $31 million."],
+            ["Output (kg)", "Output", "Site B's output was 31 kg."],
+          ] as const
+        ).map(([head, measure, wrong]): [string, string, string, string] => [
+          sites(head, measure),
+          /\p{Script=Han}/u.test(measure) ? "二厂\t62\t31" : "B\t62\t31",
+          wrong,
+          wrong.replace("31", "62"),
+        ]),
+      ),
+      ...twins([
+        [
+          "本报告金额以万元计。\n厂区\t产值\t人数\n一厂\t54\t12\n二厂\t57\t31",
+          "二厂\t57\t31",
+          "二厂产值为31万元。",
+          "二厂产值为57万元。",
+        ],
+        [
+          "All amounts are in USD millions.\nSite\tRevenue\tStaff\nA\t54\t12\nB\t57\t31",
+          "B\t57\t31",
+          "Site B's revenue was $31 million.",
+          "Site B's revenue was $57 million.",
+        ],
+        [
+          "各厂产量（千克）\n厂区\t产量\t人数\n一厂\t54\t12\n二厂\t40\t31",
+          "二厂\t40\t31",
+          "二厂产量为31千克。",
+          "二厂产量为40千克。",
+        ],
+        [
+          "表3 各厂情况（千克）\n| 厂区 | 产量 | 人数 |\n| --- | --- | --- |\n| 一厂 | 54 | 77 |\n| 二厂 | 62 | 31 |",
+          "| 二厂 | 62 | 31 |",
+          "二厂产量为31千克。",
+          "二厂产量为62千克。",
+        ],
+        [
+          "Table 3. Sites (kg)\n| Site | Output | Staff |\n|---|---|---|\n| A | 54 | 77 |\n| B | 62 | 31 |",
+          "| B | 62 | 31 |",
+          "Site B's output was 31 kg.",
+          "Site B's output was 62 kg.",
+        ],
+        [
+          PIPELINE,
+          "Proposal\t17\t830",
+          "The number of deals at the proposal stage was £830k.",
+          "Seventeen deals worth £830k were at the proposal stage.",
+        ],
+        [
+          "各阶段商机（万元）\n阶段\t数量\t金额\n初筛\t42\t960\n方案\t17\t830",
+          "方案\t17\t830",
+          "方案阶段商机数量为830万元。",
+          "方案阶段金额为830万元。",
+        ],
+      ]),
       [
-        "表3 各厂情况（千克）\n厂区\t产量\t人数\n一厂\t54\t77\n二厂\t62\t31",
-        "二厂\t62\t31",
+        "表3 各厂情况（千克）\n厂区\t产量\t库存\n一厂\t54\t77\n二厂\t31\t31",
+        "二厂\t31\t31",
         "二厂产量为31千克。",
         TICK,
       ],
       [
-        "表3 各厂情况（兆瓦）\n厂区\t产量\t人数\n一厂\t54\t77\n二厂\t62\t31",
-        "二厂\t62\t31",
-        "二厂产量为31兆瓦。",
-        TICK,
-      ],
-      [
-        "Table 3. Sites (kg)\nSite\tOutput\tStaff\nA\t54\t77\nB\t62\t31",
-        "B\t62\t31",
+        "Table 3. Sites (kg)\nSite\tOutput\tStock\nA\t54\t77\nB\t31\t31",
+        "B\t31\t31",
         "Site B's output was 31 kg.",
         TICK,
       ],
+    ]);
+  });
+
+  // protects=another row's number, in a row-wise table under a caption or in a column-wise one under a caption or a unit line, takes nothing from the line over its table when the sentence names another row and not its own, so the wrong sentence reads Not checked in an Answer and its right twin keeps its ✓, English and Chinese, tab and pipe tables; fails_when="2024年产量为31千克。" citing the 员工人数 row below "表3 主要指标（千克）", or "二厂产量为54吨。" citing 一厂's 54 below "表3 各厂产量（吨）", keeps a ✓, or its twin loses it; no_claim=another row's number under labelled lines ("一厂产量（吨）: 54"), which stays known.
+  test("another row's number reads Not checked beside its right twin", async () => {
+    await readsAsWanted([
+      ...twins(
+        (
+          [
+            ["表3 主要指标（千克）", "产量", "2024年产量为31千克。"],
+            ["表3 主要指标（兆瓦）", "产量", "2024年产量为31兆瓦。"],
+            ["表3 主要指标（吨）", "产量", "2024年产量为31吨。"],
+            ["表3 主要指标（瓦）", "产量", "2024年产量为31瓦。"],
+            ["Table 3. Key figures (kg)", "Output", "Output in 2024 was 31 kg."],
+            ["Table 3. Key figures (kt)", "Output", "Output in 2024 was 31 kt."],
+            ["Table 3. Key figures (tonnes)", "Output", "Output in 2024 was 31 tonnes."],
+            ["Table 3. Key figures (W)", "Output", "Output in 2024 was 31 W."],
+            ["Table 3. Key figures (USD millions)", "Output", "Output in 2024 was $31 million."],
+          ] as const
+        ).map(([head, measure, wrong]): [string, string, string, string, string] => {
+          const zh = /\p{Script=Han}/u.test(measure);
+          return [
+            keyFigures(head, measure),
+            zh ? "员工人数\t77\t31" : "Headcount\t77\t31",
+            wrong,
+            wrong.replace("31", "62"),
+            `${measure}\t54\t62`,
+          ];
+        }),
+      ),
+      ...twins([
+        [
+          "表3 各厂产量（吨）\n厂区\t产量\n一厂\t54\n二厂\t31",
+          "一厂\t54",
+          "二厂产量为54吨。",
+          "一厂产量为54吨。",
+        ],
+        [
+          "Table 3. Output by site (tonnes)\nSite\tOutput\nA\t54\nB\t31",
+          "A\t54",
+          "Site B's output was 54 tonnes.",
+          "Site A's output was 54 tonnes.",
+        ],
+        [
+          "Unit: t\nSite\tOutput\nA\t54\nB\t31",
+          "A\t54",
+          "Site B's output was 54 t.",
+          "Site A's output was 54 t.",
+        ],
+        [
+          "Table 3. Output by site (tonnes)\n| Site | Output |\n|---|---|\n| A | 54 |\n| B | 31 |",
+          "| A | 54 |",
+          "Site B's output was 54 tonnes.",
+          "Site A's output was 54 tonnes.",
+        ],
+        [
+          COSTS,
+          "Profit\t240\t270",
+          "Costs were $270 million in 2024.",
+          "Profit was $270 million in 2024.",
+        ],
+        [COSTS_ZH, "利润\t240\t270", "2024年成本为270万元。", "2024年利润为270万元。"],
+      ]),
+    ]);
+  });
+
+  // protects=a column or row the sentence names for another of its own figures, whose number the row or column holds, gives this number nothing away: "Seventeen deals worth £830k were at the proposal stage." under "Pipeline by stage (£k)" over Stage, Deals and Value keeps its ✓ (the measured table's l-fs-038, there under "Value (£k)", also keeps it); so do a name the number's own name holds ("Revenue" beside "Revenue change"), a sentence that names both columns, a panel to the right, and a year heading; fails_when=any of these reads Not checked; no_claim=a sentence that names another column for none of its figures, which reads Not checked.
+  test("a name the sentence gives another of its figures, or one the number's own name holds, gives no number away", async () => {
+    await readsAsWanted([
       [
-        "Table 3. Sites (kt)\nSite\tOutput\tStaff\nA\t54\t77\nB\t62\t31",
-        "B\t62\t31",
-        "Site B's output was 31 kt.",
+        PIPELINE,
+        "Proposal\t17\t830",
+        "Seventeen deals worth £830k were at the proposal stage.",
         TICK,
       ],
       [
-        "Table 3. Sites (USD millions)\nSite\tOutput\tStaff\nA\t54\t77\nB\t62\t31",
-        "B\t62\t31",
-        "Site B's output was $31 million.",
+        "Pipeline by stage\nStage\tDeals\tValue (£k)\nQualified\t42\t1,260\nProposal\t17\t830",
+        "Proposal\t17\t830",
+        "Seventeen deals worth £830k were at the proposal stage.",
         TICK,
       ],
       [
-        "表3 各厂情况（吨）\n厂区\t产量\t人数\n一厂\t54\t77\n二厂\t62\t31",
+        "Unit: £k\nStage\tDeals\tValue\nQualified\t42\t1,260\nProposal\t17\t830",
+        "Proposal\t17\t830",
+        "Seventeen deals worth £830k were at the proposal stage.",
+        TICK,
+      ],
+      [
+        COSTS,
+        "Costs\t300\t350\nProfit\t240\t270",
+        "Costs of $350 million in 2024 left $270 million.",
+        TICK,
+      ],
+      [COSTS_ZH, "成本\t300\t350\n利润\t240\t270", "2024年成本350万元，余下270万元。", TICK],
+      [
+        "表3 各厂情况（千克）\n厂区\t产量\t库存\n一厂\t54\t77\n二厂\t62\t31",
         "二厂\t62\t31",
-        "二厂产量为31吨。",
+        "二厂产量为62千克，另有31千克。",
         TICK,
       ],
       [
-        "表3 各厂情况（瓦）\n厂区\t产量\t人数\n一厂\t54\t77\n二厂\t62\t31",
+        "Table 3. Sites (tonnes)\nSite\tOutput\tStock\nA\t54\t77\nB\t62\t31",
+        "B\t62\t31",
+        "Site B's output was 62 tonnes, with another 31 tonnes left over.",
+        TICK,
+      ],
+      [
+        "表3 各厂情况（千克）\n厂区\t产量\t库存\n一厂\t54\t77\n二厂\t62\t31",
         "二厂\t62\t31",
-        "二厂产量为31瓦。",
+        "二厂产量为62千克，库存为31千克。",
         TICK,
       ],
       [
-        "Table 3. Sites (tonnes)\nSite\tOutput\tStaff\nA\t54\t77\nB\t62\t31",
+        "Table 3. Sites (tonnes)\nSite\tOutput\tStock\nA\t54\t77\nB\t62\t31",
         "B\t62\t31",
-        "Site B's output was 31 tonnes.",
+        "Site B's output was 62 tonnes and its stock 31 tonnes.",
         TICK,
       ],
       [
-        "Table 3. Sites (W)\nSite\tOutput\tStaff\nA\t54\t77\nB\t62\t31",
-        "B\t62\t31",
-        "Site B's output was 31 W.",
+        "Table 3. Sites (USD millions)\nSite\tRevenue\tRevenue change\nA\t54\t5\nB\t62\t8",
+        "B\t62\t8",
+        "Site B's revenue rose by $8 million.",
         TICK,
       ],
       [
-        "单位：万元\n厂区\t产值\t人数\n一厂\t54\t77\n二厂\t62\t31",
+        "表3 各厂收入（万元）\n厂区\t收入\t收入增加额\n一厂\t54\t5\n二厂\t62\t8",
+        "二厂\t62\t8",
+        "二厂收入增加了8万元。",
+        TICK,
+      ],
+      [
+        "Unit: kW\nSite\tLoad\tSite\tLoad\nA\t54\tC\t12\nB\t31\tD\t40",
+        "B\t31\tD\t40",
+        "Site D's load was 40 kW.",
+        TICK,
+      ],
+      [
+        "单位：千瓦\n厂区\t负荷\t厂区\t负荷\n一厂\t54\t三厂\t12\n二厂\t31\t四厂\t40",
+        "二厂\t31\t四厂\t40",
+        "四厂负荷为40千瓦。",
+        TICK,
+      ],
+      [keyFigures("表3 主要指标（千克）", "产量"), "产量\t54\t62", "2023年产量为54千克。", TICK],
+    ]);
+  });
+
+  // protects=what the names can't tell, pinned so the next change that touches them shows it: a right sentence that names another column or row of the table for its one figure and not its own reads Not checked in an Answer where the line over the table gave it a ✓ ("Deals at the proposal stage were worth £830k." over Stage, Deals and Value; "方案阶段商机价值830万元。" over 阶段, 商机 and 金额; "The second site made 31 tonnes of the total." beside a Total row; "The second site had a load of 31 kW.", whose article says row A), while naming its own row keeps the ✓; a wrong sentence that names both columns with its two figures swapped keeps its ✓; fails_when=any reads otherwise without this list changing; no_claim=that these readings are right.
+  test("what the names can't tell", async () => {
+    await readsAsWanted([
+      [PIPELINE, "Proposal\t17\t830", "Deals at the proposal stage were worth £830k.", UNJUDGED],
+      [
+        "各阶段商机（万元）\n阶段\t商机\t金额\n初筛\t42\t960\n方案\t17\t830",
+        "方案\t17\t830",
+        "方案阶段商机价值830万元。",
+        UNJUDGED,
+      ],
+      [
+        "Table 3. Output by site (tonnes)\nSite\tOutput\nA\t54\nB\t31\nTotal\t85",
+        "B\t31",
+        "The second site made 31 tonnes of the total.",
+        UNJUDGED,
+      ],
+      [
+        "Table 3. Output by site (tonnes)\nSite\tOutput\nA\t54\nB\t31\nTotal\t85",
+        "B\t31",
+        "Site B made 31 tonnes of the total.",
+        TICK,
+      ],
+      [
+        "表3 各厂产量（吨）\n厂区\t产量\n一厂\t54\n二厂\t31\n合计\t85",
+        "二厂\t31",
+        "二号厂区的产量为31吨，计入合计。",
+        UNJUDGED,
+      ],
+      [
+        "Unit: kW\nSite\tLoad\nA\t54\nB\t31",
+        "B\t31",
+        "The second site had a load of 31 kW.",
+        UNJUDGED,
+      ],
+      ["Unit: kW\nSite\tLoad\nA\t54\nB\t31", "B\t31", "Site B had a load of 31 kW.", TICK],
+      [
+        "表3 各厂情况（千克）\n厂区\t产量\t库存\n一厂\t54\t77\n二厂\t62\t31",
         "二厂\t62\t31",
-        "二厂产值为31万元。",
+        "二厂产量为31千克，库存为62千克。",
         TICK,
       ],
       [
-        "单位：万吨\n厂区\t产值\t人数\n一厂\t54\t77\n二厂\t62\t31",
-        "二厂\t62\t31",
-        "二厂产值为31万吨。",
-        TICK,
-      ],
-      [
-        "表3 各厂产值（万元）\n厂区\t产值\t人数\n一厂\t54\t77\n二厂\t62\t31",
-        "二厂\t62\t31",
-        "二厂产值为31万元。",
-        TICK,
-      ],
-      [
-        "(USD millions)\nSite\tRevenue\tStaff\nA\t54\t77\nB\t62\t31",
+        "Table 3. Sites (tonnes)\nSite\tOutput\tStock\nA\t54\t77\nB\t62\t31",
         "B\t62\t31",
-        "Site B's revenue was $31 million.",
+        "Site B's output was 31 tonnes and its stock 62 tonnes.",
         TICK,
       ],
-      [
-        "$ in millions\nSite\tRevenue\tStaff\nA\t54\t77\nB\t62\t31",
-        "B\t62\t31",
-        "Site B's revenue was $31 million.",
-        TICK,
-      ],
-      [
-        "Table 3. Sites (USD millions)\nSite\tRevenue\tStaff\nA\t54\t77\nB\t62\t31",
-        "B\t62\t31",
-        "Site B's revenue was $31 million.",
-        TICK,
-      ],
-      [
-        "本报告金额以万元计。\n厂区\t产值\t人数\n一厂\t54\t12\n二厂\t57\t31",
-        "二厂\t57\t31",
-        "二厂产值为31万元。",
-        TICK,
-      ],
-      [
-        "All amounts are in USD millions.\nSite\tRevenue\tStaff\nA\t54\t12\nB\t57\t31",
-        "B\t57\t31",
-        "Site B's revenue was $31 million.",
-        TICK,
-      ],
-      [
-        "表3 主要指标（千克）\n项目\t2023年\t2024年\n产量\t54\t62\n员工人数\t77\t31",
-        "员工人数\t77\t31",
-        "2024年产量为31千克。",
-        TICK,
-      ],
-      [
-        "表3 主要指标（兆瓦）\n项目\t2023年\t2024年\n产量\t54\t62\n员工人数\t77\t31",
-        "员工人数\t77\t31",
-        "2024年产量为31兆瓦。",
-        TICK,
-      ],
-      [
-        "表3 主要指标（吨）\n项目\t2023年\t2024年\n产量\t54\t62\n员工人数\t77\t31",
-        "员工人数\t77\t31",
-        "2024年产量为31吨。",
-        TICK,
-      ],
-      [
-        "表3 主要指标（瓦）\n项目\t2023年\t2024年\n产量\t54\t62\n员工人数\t77\t31",
-        "员工人数\t77\t31",
-        "2024年产量为31瓦。",
-        TICK,
-      ],
-      [
-        "Table 3. Key figures (kg)\nItem\t2023\t2024\nOutput\t54\t62\nHeadcount\t77\t31",
-        "Headcount\t77\t31",
-        "Output in 2024 was 31 kg.",
-        TICK,
-      ],
-      [
-        "Table 3. Key figures (kt)\nItem\t2023\t2024\nOutput\t54\t62\nHeadcount\t77\t31",
-        "Headcount\t77\t31",
-        "Output in 2024 was 31 kt.",
-        TICK,
-      ],
-      [
-        "Table 3. Key figures (tonnes)\nItem\t2023\t2024\nOutput\t54\t62\nHeadcount\t77\t31",
-        "Headcount\t77\t31",
-        "Output in 2024 was 31 tonnes.",
-        TICK,
-      ],
-      [
-        "Table 3. Key figures (W)\nItem\t2023\t2024\nOutput\t54\t62\nHeadcount\t77\t31",
-        "Headcount\t77\t31",
-        "Output in 2024 was 31 W.",
-        TICK,
-      ],
-      [
-        "Table 3. Key figures (USD millions)\nItem\t2023\t2024\nOutput\t54\t62\nHeadcount\t77\t31",
-        "Headcount\t77\t31",
-        "Output in 2024 was $31 million.",
-        TICK,
-      ],
+    ]);
+  });
+});
+
+describe("Wrong sentences the check doesn't catch yet (#2997)", { timeout: 120_000 }, () => {
+  // protects=known wrong ✓, 23 of the 52 wrong sentences that gained a ✓ when a label's unit came to state a figure and 3 that main ticks, pinned at what they read so the next change that touches them shows it: a number of a count column given the unit a caption over the table states for it, with no column or row named ("二厂为31千克。", "Site B had 31 kg.") or with the count column itself named in that unit ("二厂人数为31千克。"); another row's number under labelled lines ("二厂产量为54吨。" citing "一厂产量（吨）: 54"); a per-share row under a heading that states a scale and excepts nothing ("Earnings per share in 2024 were $2.00 million." under "(USD millions)"), or named 基本 or 稀释 alone under one that excepts per-share data, a label the clause's test reads in English only ("2024年稀释每股收益为1.95百万元。" citing the 稀释 row); 度 as a temperature, an angle or against kilowatt-hours; and three that main's own heading rule ticks (a column heading of a table glued above, in both languages, and the other of two labelled columns). The 29 that name another column or row of the table moved to the test above. They are wrong sentences the check doesn't catch yet (#2997); fails_when=any reads otherwise without its kind being fixed and this list changed; no_claim=that they are right.
+  test("known wrong ✓", async () => {
+    await readsAsWanted([
       [
         "表3 各厂情况（千克）\n厂区\t产量\t人数\n一厂\t54\t77\n二厂\t62\t31",
         "二厂\t62\t31",
@@ -1268,13 +1428,6 @@ describe("Wrong sentences the check doesn't catch yet (#2997)", { timeout: 120_0
         TICK,
       ],
       ["一厂产量（吨）: 54\n二厂产量（吨）: 62", "一厂产量（吨）: 54", "二厂产量为54吨。", TICK],
-      ["表3 各厂产量（吨）\n厂区\t产量\n一厂\t54\n二厂\t31", "一厂\t54", "二厂产量为54吨。", TICK],
-      [
-        "Table 3. Output by site (tonnes)\nSite\tOutput\nA\t54\nB\t31",
-        "A\t54",
-        "Site B's output was 54 tonnes.",
-        TICK,
-      ],
       [
         "(USD millions)\nItem\t2023\t2024\nRevenue\t540\t620\nEarnings per share\t1.50\t2.00",
         "Earnings per share\t1.50\t2.00",
@@ -1314,12 +1467,6 @@ describe("Wrong sentences the check doesn't catch yet (#2997)", { timeout: 120_0
       ["室温：26度\n用电：60度", "室温：26度", "室内用电为26千瓦时。", TICK],
       ["用电：26千瓦时\n室温：22度", "用电：26千瓦时", "室温为26度。", TICK],
       ["夹角：30度\n用电：60度", "夹角：30度", "用电为30千瓦时。", TICK],
-      [
-        "各厂产量（千克）\n厂区\t产量\t人数\n一厂\t54\t12\n二厂\t40\t31",
-        "二厂\t40\t31",
-        "二厂产量为31千克。",
-        TICK,
-      ],
       [
         "厂区\t产量（千克）\n一厂\t54\n二厂\t62\n部门\t人数\n研发\t31",
         "研发\t31",
