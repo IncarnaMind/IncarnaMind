@@ -175,7 +175,7 @@ describe("The records ask's bars", () => {
     expect(emptyCells(cells)).toEqual([]);
   });
 
-  // protects=a try with a failed request is struck, and the list that strikes it leaves it out of the score: its rerun is read instead, and an item void twice is left out on both arms; fails_when=a void try's ✓ or no-evidence counts, or a twice-void item is read on the other arm; no_claim=why the provider failed.
+  // protects=a try with a failed request is struck, and the list that strikes it leaves it out of the score: its rerun is read instead, an item void twice is left out on both arms, and one void try with no rerun, as an interrupted run leaves it, leaves nothing out and stops the bars as unmatched; fails_when=a void try's ✓ or no-evidence counts, a twice-void item is read on the other arm, or a single void try is taken for two; no_claim=why the provider failed.
   test("a void try is left out of the score by the same list that strikes it", () => {
     const voided = record(
       "main",
@@ -213,6 +213,9 @@ describe("The records ask's bars", () => {
     expect(scored.read.main.some((each) => each.key === "pair-2-wrong#1")).toBe(false);
     expect(bar2(scored.read).main).toBe(0);
     expect(bar3Pairs(scored.read).main).toBe(0);
+    const interrupted = scoreOf(fullRun([voided]));
+    expect(interrupted.leftOut).toEqual([]);
+    expect(interrupted.unmatched).toEqual(["pair-1-right#1"]);
   });
 
   // protects=bars 1 and 2 read "not settled" while main shows the fault fewer than 4 times, whatever the branch shows, and are read from 4 on; fails_when=3 on main against 0 on the branch reads as holding; no_claim=what a real run shows.

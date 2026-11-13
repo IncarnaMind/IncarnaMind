@@ -190,9 +190,10 @@ export function scoreOf(records: readonly ItemRecord[]): Scored {
   const keys = [...new Set(records.map((record) => record.key))];
   const kept = (arm: Arm, key: string) =>
     records.find((record) => record.arm === arm && record.key === key && !isStruck(record));
-  const tried = (arm: Arm, key: string) =>
-    records.some((record) => record.arm === arm && record.key === key);
-  const leftOut = keys.filter((key) => ARMS.some((arm) => tried(arm, key) && !kept(arm, key)));
+  // One void try with no rerun is an interrupted run: unmatched, so the bars aren't read.
+  const voidTwice = (arm: Arm, key: string) =>
+    struck.filter((each) => each.arm === arm && each.key === key).length >= 2;
+  const leftOut = keys.filter((key) => ARMS.some((arm) => voidTwice(arm, key)));
   const unmatched = keys.filter(
     (key) => !leftOut.includes(key) && ARMS.some((arm) => !kept(arm, key)),
   );
