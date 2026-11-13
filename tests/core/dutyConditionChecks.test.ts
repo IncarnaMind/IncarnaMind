@@ -160,9 +160,7 @@ function replying(each: Case, calls: ModelCall[], looks: string[]) {
           : [...verdictLines, "The rules say so [^1].", "Evidence: [1]"];
       const figures = requestedFigures(call);
       if (figures.length === 0)
-        return {
-          text: [...lines, "Covered: the rule", `Not covered: ${each.sentence}`].join("\n"),
-        };
+        return { text: [...lines, "Covered: the rule", "Not covered: its wording"].join("\n") };
       const items = figures.map(({ id }) => ({
         id,
         verdict: each.verdict,

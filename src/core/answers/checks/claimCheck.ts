@@ -300,10 +300,7 @@ async function checkSentence(
   // The Passages the check was given or shown, so that a text whose figures couldn't be read is
   // named by the one it came from.
   let shownPassageIds: () => readonly string[] = () => [];
-  const decide = async (
-    request: ClaimCheckRequest,
-    askAnew: (() => void) | null,
-  ): Promise<AtomicClaimCheckResult> => {
+  const decide = async (): Promise<AtomicClaimCheckResult> => {
     const kept = keptInside(deps, request);
     if (kept) return kept;
     const { signal } = request;
@@ -371,7 +368,6 @@ async function checkSentence(
       newestFirst: (documentId: string) => deps.documents.documentDate(documentId),
       unitsOf: (citation: Citation) =>
         deps.documents.pageTexts(citation.documentId, citation.contentHash, null, null),
-      askAnew,
     };
     const { figures } = request;
     return figures?.length
@@ -379,16 +375,7 @@ async function checkSentence(
       : plainVerdict(deps, request, verdicts);
   };
   try {
-    let anew = false;
-    const first = await decide(request, () => {
-      anew = true;
-    });
-    // The second look is the same Run, asked from its start: the parts its first turn names were
-    // settled by the first look's (#3019).
-    const decided = anew
-      ? await decide({ ...request, ...(request.findParts && { findParts: () => {} }) }, null)
-      : first;
-    const result = heldToItsCitations(request, decided);
+    const result = heldToItsCitations(request, await decide());
     return result.verdict === "supported"
       ? withDollarClause(deps, request.claim, result)
       : explainedIn(result, {
