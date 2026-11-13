@@ -22,8 +22,18 @@ import { quoteAsFact, sameWordsOf } from "./turnedFacts";
 
 export const FACT_MARK = /^(?:>|＞)\s*/;
 export const OWN_MARK = /^(?:=|＝)\s*/;
-/** A line that is so far only the start of a mark, while the reply is written: not yet a line. */
-const MARK_ONLY = /^(?:[-*•>＞=＝]|\d+[.)]?)$/;
+/** So far only the start of a mark or of a Citation's marker. */
+const MARK_ONLY = /^(?:[-*•>＞=＝]|\d+[.)]?|\[(?:\^\d{0,4}\]?)?)$/;
+
+/**
+ * A last line that is so far only the start of a mark or a marker, while the reply is written, is
+ * not yet a line; nor is a fact or own line whose words so far are only that, which would read as
+ * one once its mark is off.
+ */
+const notYetALine = (plain: string) => {
+  const words = plain.replace(FACT_MARK, "").replace(OWN_MARK, "");
+  return MARK_ONLY.test(plain) || (words !== plain && MARK_ONLY.test(words));
+};
 const SKIPPED = /^(?:\[\^\d{1,4}\]:|#+\s)/;
 const BEFORE_MARK = /^\s*(?:\*\*|__)?\s*/;
 const CITES = new RegExp(MARKER.source);
@@ -94,7 +104,7 @@ export function factLinesText(
   const last = written.length - 1;
   for (const [index, raw] of written.entries()) {
     const plain = plainLine(raw);
-    if (layout.streaming && index === last && MARK_ONLY.test(plain)) continue;
+    if (layout.streaming && index === last && notYetALine(plain)) continue;
     const own = OWN_MARK.test(plain);
     const mark = own ? OWN_MARK : FACT_MARK.test(plain) ? FACT_MARK : LINE_MARK;
     let line = raw;
@@ -119,7 +129,7 @@ function optionsText(
   const plain = written.map(plainLine);
   const blank = (at: number) => plain[at] === "";
   const dropped = (at: number) =>
-    layout.streaming && at === last && MARK_ONLY.test(plain[at] ?? "");
+    layout.streaming && at === last && notYetALine(plain[at] ?? "");
   const words = (at: number) =>
     at <= last && !blank(at) && !SKIPPED.test(plain[at] ?? "") && !dropped(at);
   const arrow = (at: number) => EFFECT_MARK.test(plain[at] ?? "");

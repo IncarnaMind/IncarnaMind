@@ -7,6 +7,7 @@ import type { AnswerStatus } from "../../src/core/api";
 import { citedSentences } from "../../src/shared/citedSentences";
 import {
   type HelpLayout,
+  helpAnswerRead,
   helpLayout,
   helpReplyRead,
   type ReplyItem,
@@ -691,4 +692,159 @@ describe("a Document's Citation on a line to say becomes a fact line of its own 
       expect(shown.slice(0, at + 1)).toEqual(final.slice(0, at + 1));
     }
   });
+});
+
+describe("every moment of a reply in the form (#2847)", () => {
+  const REPLIES = {
+    English: {
+      reply: [
+        "> A 50 kW roof system costs €42,000 installed [^1]",
+        "",
+        "★ Yes, a 50 kW system is €42,000 installed [^1]",
+        "> 50 kW of panels need about 300 square metres of roof [^2]",
+        "→ answers their price question",
+        "",
+        "Scaffolding is quoted after the survey",
+        "→ sets expectations",
+        "",
+        "= The Documents don't say whether VAT is included",
+        "",
+        "[^1]: System prices, page 2",
+        "[^2]: Roof guide, page 4",
+      ].join("\n"),
+      quotes: {
+        1: "A 50 kW roof system costs €42,000 installed.",
+        2: "A 50 kW array needs about 300 square metres of roof.",
+      },
+    },
+    Chinese: {
+      reply: [
+        "＞ 50 千瓦屋顶系统安装价 42,000 欧元 [^1]",
+        "",
+        "★ 是的，50 千瓦系统安装价 42,000 欧元 [^1]",
+        "＞ 50 千瓦的组件需要约 300 平方米屋顶 [^2]",
+        "→ 直接回答价格",
+        "",
+        "脚手架费用在勘察后报价",
+        "→ 先说清额外费用",
+        "",
+        "＝ 文档没有说是否含增值税",
+        "",
+        "[^1]: 系统价格，第 2 页",
+        "[^2]: 屋顶指南，第 4 页",
+      ].join("\n"),
+      quotes: {
+        1: "50 千瓦屋顶系统安装价 42,000 欧元。",
+        2: "50 千瓦阵列需要约 300 平方米屋顶。",
+      },
+    },
+  };
+
+  const lineOf = (pieces: readonly ReplyPiece[]) =>
+    pieces.map((piece) => (piece.kind === "text" ? piece.text : `[${piece.marker}]`)).join("");
+
+  /** What the panel draws, in its order, each line with what it is. */
+  const drawn = (reading: ReturnType<typeof read>) => [
+    ...reading.opening.map((line) => `opening: ${lineOf(line)}`),
+    ...[...reading.lead, ...reading.options].flatMap((item, at) => [
+      `say ${at}: ${lineOf(item.lead)}`,
+      ...item.notes.map((line) => `fact ${at}: ${lineOf(line)}`),
+      ...item.own.map((line) => `own ${at}: ${lineOf(line)}`),
+      ...(item.effect ? [`→ ${at}: ${lineOf(item.effect)}`] : []),
+      ...item.after.map((line) => `after ${at}: ${lineOf(line)}`),
+    ]),
+    ...reading.closing.map((line) => `closing: ${lineOf(line)}`),
+  ];
+
+  /** Whether every line of `before` but its last is drawn at the same place in `after`. */
+  const stays = (before: readonly string[], after: readonly string[]) =>
+    before.slice(0, -1).every((line, at) => after[at] === line);
+
+  /** The reply as the panel reads it while written, and as the core keeps it at Stop or its end. */
+  function moment(text: string, quotes: Record<number, string>, status: AnswerStatus) {
+    const citations = Object.entries(quotes).map(([marker, quote]) => ({
+      marker: Number(marker),
+      quote,
+      location: null,
+    }));
+    const quoteOf = (marker: number) => quotes[marker] ?? null;
+    const shown = (kept: string, closingLine: boolean) =>
+      helpAnswerRead(
+        {
+          text: kept,
+          status,
+          steps: { askedInForm: true, ...(closingLine && { closingLine: true as const }) },
+          citations,
+        },
+        "answer",
+      );
+    if (status === "streaming")
+      return { drawn: drawn(shown(text, false)), kept: text, again: text };
+    const kept = helpReplyRead(text, { ...layoutOf("answer", status), quoteOf });
+    const again = shown(kept.text, kept.closing.length > 0);
+    return { drawn: drawn(again), kept: kept.text, again: again.text };
+  }
+
+  // protects=at every character of a reply in the form, a definition at its end and fact lines that start with a number among them, every line drawn but the last stays as it was a character earlier; stopped and kept there, every line drawn but the last stays as it was while written, and once it ends none does but move on; and the text kept reads again the same with what was stored beside it, in English and Chinese; fails_when=a drawn line moves or changes what it is, or the text kept reads otherwise again; no_claim=how a real model's replies stream.
+  test.each(["English", "Chinese"] as const)("in %s", (language) => {
+    const { reply, quotes } = REPLIES[language];
+    const moved: string[] = [];
+    let before: string[] = [];
+    for (let end = 1; end <= reply.length; end++) {
+      const text = reply.slice(0, end);
+      const written = moment(text, quotes, "streaming").drawn;
+      const stopped = moment(text, quotes, "stopped");
+      if (!stays(before, written)) moved.push(`written at ${JSON.stringify(text.slice(-12))}`);
+      if (!stays(written, stopped.drawn))
+        moved.push(`stopped at ${JSON.stringify(text.slice(-12))}`);
+      if (stopped.again !== stopped.kept)
+        moved.push(`read again at ${JSON.stringify(text.slice(-12))}`);
+      before = written;
+    }
+    const ended = moment(reply, quotes, "done");
+    if (!stays([...before, "(end)"], ended.drawn)) moved.push("at the end");
+    if (ended.again !== ended.kept) moved.push("read again at the end");
+    expect(moved).toEqual([]);
+  });
+
+  // protects=a last line that is so far only a Citation's marker, or the start of one, is not yet a line, as a mark's start isn't: while written it draws no option of a chip alone, stopped there it is not kept or turned into a fact line, and the closing line above it stays the closing line, in English and Chinese; fails_when=it draws, is kept, turns, or ends the closing line; no_claim=how often a model ends with its definitions.
+  test.each(["English", "Chinese"] as const)(
+    "in %s, a marker begun on the last line",
+    (language) => {
+      const { reply, quotes } = REPLIES[language];
+      const upTo = reply.indexOf("\n[^1]:") + 1;
+      const blank = moment(reply.slice(0, upTo), quotes, "stopped");
+      for (const begun of ["[", "[^", "[^1", "[^1]"]) {
+        const text = reply.slice(0, upTo) + begun;
+        expect(moment(text, quotes, "streaming").drawn).toEqual(
+          moment(reply.slice(0, upTo), quotes, "streaming").drawn,
+        );
+        const stopped = moment(text, quotes, "stopped");
+        expect(stopped.drawn).toEqual(blank.drawn);
+        expect(stopped.drawn.at(-1)).toMatch(/^closing: /);
+        expect(stopped.kept.trimEnd()).toBe(blank.kept.trimEnd());
+      }
+    },
+  );
+
+  // protects=a fact line stopped inside its first number ("> 5", "> 50", "> 50 ") is not yet a line, as a list's mark begun isn't, so what the core keeps at Stop is what a later read reads, in English and Chinese; fails_when=the text kept holds a line the next read leaves out, or the number shows as a fact; no_claim=how often a model is stopped there.
+  test.each(["English", "Chinese"] as const)(
+    "in %s, a fact line stopped in its first number",
+    (language) => {
+      const { reply, quotes } = REPLIES[language];
+      const upTo = reply.indexOf("\n", reply.indexOf("★")) + 1;
+      const start = moment(reply.slice(0, upTo), quotes, "stopped");
+      const mark = reply.slice(upTo, upTo + 2);
+      for (const begun of ["5", "50", "50 "]) {
+        const text = `${reply.slice(0, upTo)}${mark}${begun}`;
+        const stopped = moment(text, quotes, "stopped");
+        expect(stopped.again).toBe(stopped.kept);
+        expect(stopped.kept.trimEnd()).toBe(start.kept.trimEnd());
+        expect(stopped.drawn).toEqual(start.drawn);
+        expect(moment(text, quotes, "streaming").drawn).toEqual(
+          moment(reply.slice(0, upTo), quotes, "streaming").drawn,
+        );
+      }
+    },
+  );
 });
