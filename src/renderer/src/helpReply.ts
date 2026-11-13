@@ -4,7 +4,7 @@
  * or readings, the recommended first after "★", each followed by "→" and what
  * it leads to; or up to three short lines. It reads a part still streaming.
  */
-import type { AnswerStatus, MarkedCitation, Meeting } from "../../core/api";
+import type { AnswerStatus, CitationCheckReason, MarkedCitation, Meeting } from "../../core/api";
 import type { Language } from "../../core/language";
 import { type DateOptions, formatDateTime } from "../../shared/dates";
 import { isTranscriptLocation, type Translate } from "../../shared/locations";
@@ -188,19 +188,25 @@ export function citationNumbers(
 export const sentencePassed = (citation: Pick<MarkedCitation, "passedAt">, at: number): boolean =>
   citation.passedAt?.includes(at) === true;
 
+const ACTIONABLE = [
+  "answer-limit",
+  "monthly-limit",
+  "answer-limit-unfinished",
+  "monthly-limit-unfinished",
+  "small-model",
+] as const satisfies readonly CitationCheckReason[];
+
 /**
  * Why a help reply's Citation was never checked, where the User can do something about it: the
- * Answer's checking limit or the monthly limit reached, or a model too small to judge. Null
- * otherwise, a line the check doesn't judge among them.
+ * Answer's checking limit or the monthly limit reached, before its sentence or before the model
+ * finished it (#2962), or a model too small to judge. Null otherwise, a line the check doesn't
+ * judge among them.
  */
 export function uncheckedReason(
   citation: Pick<MarkedCitation, "check" | "checkReason">,
-): "answer-limit" | "monthly-limit" | "small-model" | null {
+): (typeof ACTIONABLE)[number] | null {
   if (citation.check !== "not-checked") return null;
-  const reason = citation.checkReason;
-  return reason === "answer-limit" || reason === "monthly-limit" || reason === "small-model"
-    ? reason
-    : null;
+  return ACTIONABLE.find((each) => each === citation.checkReason) ?? null;
 }
 
 /**

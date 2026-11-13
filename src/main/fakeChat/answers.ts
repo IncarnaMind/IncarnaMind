@@ -25,7 +25,8 @@
  * line, then a table whose first rows fit the assistant and whose last is wider than it; one that asks for
  * "long headings" (长标题) gets a table of four long headings and long rows, as a real model writes one;
  * one that asks for "forty citations" (四十条引用) gets forty sentences, each with a marker, one for
- * "four citations" (四条引用) four, and one that asks for "twelve in a row" (连续十二条) gets one
+ * "four citations" (四条引用) four, each opening "On reflection" (细想之后) when "thought over"
+ * (细想), so its check needs its whole room (#2962), and one that asks for "twelve in a row" (连续十二条) gets one
  * sentence with twelve markers side by side; one with "cited below" (or 引用在下) gets a
  * table whose one Citation stands in a paragraph under it, and one with "framed" (or 带说明)
  * gets a lead-in before its content and a closing note after it (#702); one that says "without
@@ -131,6 +132,8 @@ const ASKS_FOR_A_FIGURE = /\bstate the figure\b|写出数字/i;
 
 /** The sentence such an Answer writes, which says more than its quote: the scripted check finds it unsupported. */
 export const SAYS_MORE = /\bit is already done\b|这件事已经完成/u;
+/** Sentences of an Answer "thought over" (细想), whose check needs all its room for thinking (#2962). */
+export const THOUGHT_OVER = /\bOn reflection\b|细想之后/u;
 
 /**
  * A Question whose model, after its search, runs on for pages of working notes instead of an
@@ -428,10 +431,11 @@ function longHeadingsAnswer(question: string, marker: string): string {
 
 function citedSentencesAnswer(question: string, count: number): string {
   const chinese = /\p{Script=Han}/u.test(question);
+  const thought = /\bthought over\b|细想/u.test(question);
   const sentences = Array.from({ length: count }, (_, index) =>
     chinese
-      ? `第${index + 1}条说明潮水每天涨落两次，月亮的位置决定了涨落的时间[^${index + 1}]。`
-      : `Statement ${index + 1} says the tide rises and falls twice a day, at hours that follow the moon [^${index + 1}].`,
+      ? `${thought ? "细想之后，" : ""}第${index + 1}条说明潮水每天涨落两次，月亮的位置决定了涨落的时间[^${index + 1}]。`
+      : `${thought ? "On reflection, s" : "S"}tatement ${index + 1} says the tide rises and falls twice a day, at hours that follow the moon [^${index + 1}].`,
   );
   const paragraphs: string[] = [];
   for (let at = 0; at < sentences.length; at += 8)

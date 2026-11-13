@@ -23,8 +23,9 @@ import {
 import { SEARCH_AGAIN } from "../../core/answers/checks/searchAgain";
 import { sentenceBatchInstructions } from "../../core/answers/checks/sentenceBatch";
 import { LANGUAGES } from "../../core/language";
+import { outputTokens } from "../../core/providers/outputLimits";
 import { readFigures } from "../../shared/figures";
-import { SAYS_MORE } from "./answers";
+import { SAYS_MORE, THOUGHT_OVER } from "./answers";
 import { passagesIn, recordFor, UNIT_MARK } from "./passages";
 import {
   type GenerateOptions,
@@ -119,6 +120,21 @@ export function fakeSentenceBatch(options: GenerateOptions): string | null {
       };
     }),
   });
+}
+
+/**
+ * Whether a batch's reply reaches its room (#2962): its sentences were thought over, and a limit
+ * kept its room below the room for thinking, which they need whole.
+ */
+export function thinksPastItsRoom(options: GenerateOptions): boolean {
+  if (fakeSentenceBatch(options) === null) return false;
+  const prompt = lastUserText(options.prompt);
+  if (!THOUGHT_OVER.test(prompt)) return false;
+  const sentences = [...prompt.matchAll(/<sentence number="\d+">/g)].length;
+  return (
+    (options.maxOutputTokens ?? Number.POSITIVE_INFINITY) <
+    outputTokens("sentence-batch", sentences)
+  );
 }
 
 /**
