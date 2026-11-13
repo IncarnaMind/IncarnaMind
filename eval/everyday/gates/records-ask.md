@@ -56,4 +56,7 @@ A failed bar means nothing ships from this run. The numbers and the list of fail
 
 ## Changes of plan
 
-None yet.
+### 2026-11-13, before any request this plan gates: two quotes under one marker are counted
+
+- **Added to what the run reads, with no bar:** how often a check reply puts two quotes under one marker on one record line. It is given by arm and language, read from every run's replies in the record.
+- **Why it is counted.** The reader can't take such a line. In the saved records the reply gives the next marker a line of its own, so both quotes are the first marker's (#3063). The ask is the only place that can be fixed.
