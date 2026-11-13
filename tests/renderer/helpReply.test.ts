@@ -328,7 +328,7 @@ describe("A help reply", () => {
     expect(helpToKeep({ text: "", status: "done" }, "question")).toBe(false);
   });
 
-  // protects=what a typed reply says before its first option shows first, once it ends, in English and Chinese, each line its own, the options after it as before; while it is written it waits, as a model's notes may come first (#2526); a button's reply with the same words is laid out exactly as before; fails_when=the sentence the User asked for is hidden, it shows while it may still be notes, or a button's reply changes; no_claim=what the model writes.
+  // protects=what a typed reply says before its first option shows first from the moment the option comes, while it is written, once it ends and once it was stopped, in English and Chinese, each line its own, the options after it as before; a model's notes go once the reply's text no longer holds them; a button's reply with the same words is laid out as before in each state; fails_when=the sentence the User asked for is hidden in any state, or a button's reply changes; no_claim=what the model writes.
   test.each([
     {
       language: "English",
@@ -345,23 +345,33 @@ describe("A help reply", () => {
       said: "我们的服务器在法兰克福。[3]",
     },
   ])(
-    "a typed reply's words before its first option show first, in $language; a button's are as before",
+    "a typed reply's words before its first option show first in every state, in $language; a button's are as before",
     ({ before, option, lead, said }) => {
       const text = `${before}\n\n${option}`;
-      const typed = helpParts({ text, status: "done" }, "question");
-      expect(typed.lead.map((item) => textOf(item.lead))).toEqual(lead);
-      expect(typed.lead.every((item) => !item.said && !item.recommended)).toBe(true);
-      expect(typed.options.map((item) => textOf(item.lead))).toEqual([said]);
-      expect(typed.options[0]?.said).toBe(true);
-      for (const status of ["streaming", "stopped"] as const) {
-        expect(helpParts({ text, status }, "question").lead).toEqual([]);
-      }
-      // A button's reply puts nothing first: the words before its options are a remark, left out.
-      for (const kind of ["say", "answer"] as const) {
-        expect(helpParts({ text, status: "done" }, kind)).toEqual({
-          lead: [],
-          options: typed.options,
-        });
+      for (const status of ["streaming", "done", "stopped"] as const) {
+        const typed = helpParts({ text, status }, "question");
+        expect(
+          typed.lead.map((item) => textOf(item.lead)),
+          status,
+        ).toEqual(lead);
+        expect(
+          typed.lead.every((item) => !item.said && !item.recommended),
+          status,
+        ).toBe(true);
+        expect(
+          typed.options.map((item) => textOf(item.lead)),
+          status,
+        ).toEqual([said]);
+        expect(typed.options[0]?.said, status).toBe(true);
+        // The notes taken back, the reply's text holds the option alone, and nothing shows first.
+        expect(helpParts({ text: option, status }, "question").lead, status).toEqual([]);
+        // A button's reply puts nothing first: the words before its options are a remark, left out.
+        for (const kind of ["say", "answer"] as const) {
+          expect(helpParts({ text, status }, kind), `${kind} ${status}`).toEqual({
+            lead: [],
+            options: typed.options,
+          });
+        }
       }
     },
   );
