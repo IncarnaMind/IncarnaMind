@@ -21,7 +21,13 @@ import {
   projectInlineText,
   sliceInlineText,
 } from "../../../shared/inlineText";
-import { countingCheckOf, isCheckKey, keyedFormats, markValueOf } from "../../../shared/markKeys";
+import {
+  countingCheckOf,
+  hasMarkIn,
+  isCheckKey,
+  keyedFormats,
+  markValueOf,
+} from "../../../shared/markKeys";
 import { perBlock } from "../../../shared/memo";
 import { readProposalAttribute, readProposalRef } from "../../../shared/proposals";
 import { INLINE_NODE, onlyNamesItsTable, sentenceSpans } from "../../../shared/sentences";
@@ -746,7 +752,8 @@ function topOf(element: Y.XmlElement): Y.XmlElement {
  * Whether the assistant wrote the sentence at `from`..`to` of `element`, as the Note holds it now
  * (#3019): every word of it AI text, or in an Answer whose words are AI text as a whole, and none
  * of it from someone else's file. A word the User typed or made theirs makes it theirs; one they
- * only deleted leaves no trace.
+ * only deleted leaves no trace, and nor does one a change still waiting takes out, as the sentence
+ * reads once it is accepted.
  */
 export function writtenByAssistant(
   blocks: Y.XmlFragment,
@@ -772,6 +779,7 @@ export function writtenByAssistant(
       offset += length;
       if (!inside || typeof run.insert !== "string") continue;
       const attributes = run.attributes ?? {};
+      if (hasMarkIn(PROPOSAL_DELETE_MARK, attributes)) continue;
       if (GENERATED_MARK in attributes) words = true;
       // Inline code can't hold the mark, so the assistant's code is never AI text.
       else if (!(INLINE_CODE_MARK in attributes)) return false;

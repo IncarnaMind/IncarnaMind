@@ -2,6 +2,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test } from "vitest";
+import * as Y from "yjs";
+import { checkCitedSentences, countedVerdict } from "../../eval/everyday/support";
 import {
   ANSWER_BLOCK,
   CITATION_NODE,
@@ -21,7 +23,7 @@ import { checkWithParts } from "../../src/shared/claimParts";
 import { setTextOrigin } from "../../src/shared/textOrigins";
 import { askAssistant } from "../helpers/assistant";
 import { checkGenerate, checkReply, isCheckRun, type Plan, sentenceOf } from "../helpers/checks";
-import { setUpWithDocuments, shownPassages } from "../helpers/citations";
+import { answerEnded, setUpWithDocuments, shownPassages } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { recordRows } from "../helpers/csv";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
@@ -50,6 +52,8 @@ const SENTENCES = {
   zhFirst: `所以船应该早点出发，因为${FACT_ZH}。`,
   typed: `${FACT}, so boats should really leave early.`,
   longer: `${FACT}, so boats should leave very early.`,
+  enChanged: "Tides turn twice each day here, so boats should leave early.",
+  zhChanged: "这里的潮水每日涨落两次，所以船应该早点出发。",
 } as const;
 
 /** How the check names each sentence's parts in its first turn, as the sorter would. */
@@ -74,6 +78,14 @@ const PARTS: Record<string, { kind: "fact" | "opinion"; text: string }[]> = {
     { kind: "fact", text: FACT },
     { kind: "opinion", text: "so boats should really leave early" },
   ],
+  [SENTENCES.enChanged]: [
+    { kind: "fact", text: "Tides turn twice each day here" },
+    { kind: "opinion", text: "so boats should leave early" },
+  ],
+  [SENTENCES.zhChanged]: [
+    { kind: "fact", text: "这里的潮水每日涨落两次" },
+    { kind: "opinion", text: "所以船应该早点出发" },
+  ],
 };
 
 const PLANS: Record<string, Plan> = {
@@ -85,6 +97,20 @@ const PLANS: Record<string, Plan> = {
     judgement: "same",
   },
   [FACT_ZH]: { verdict: "supported", quote: LINE_ZH, says: LINE_ZH, judgement: "same" },
+  "Tides turn twice each day here": {
+    verdict: "supported",
+    quote: LINE,
+    says: LINE,
+    judgement: "same",
+  },
+  这里的潮水每日涨落两次: {
+    verdict: "supported",
+    quote: LINE_ZH,
+    says: LINE_ZH,
+    judgement: "same",
+  },
+  [`${FACT}.`]: { verdict: "supported", quote: LINE, says: LINE, judgement: "same" },
+  [`${FACT_ZH}。`]: { verdict: "supported", quote: LINE_ZH, says: LINE_ZH, judgement: "same" },
 };
 
 /** A check that names its sentence's parts in its first turn, as the sorter would, then checks each as `PLANS` say. */
@@ -341,65 +367,203 @@ describe("Check against Documents on a Note", { timeout: 30_000 }, () => {
   });
 });
 
-/** A model that writes `SENTENCES.en` into the Note with a Citation of `LINE`, and checks as `PLANS` say. */
-function writingModel() {
+/** Each language's words for a write: the line it cites, its sentence, and the User's own words. */
+const WRITES = {
+  en: {
+    quote: LINE,
+    fact: FACT,
+    stop: ".",
+    sentence: SENTENCES.en,
+    own: "Sales were flat",
+    conclusion: ", so boats should leave early",
+    changed: SENTENCES.enChanged,
+    accepted: "«Tides turn twice each day here», so boats should leave early￼«.»",
+    content: `${SENTENCES.en.slice(0, -1)}[^1].`,
+    word: "really ",
+    before: "leave early",
+  },
+  zh: {
+    quote: LINE_ZH,
+    fact: FACT_ZH,
+    stop: "。",
+    sentence: SENTENCES.zh,
+    own: "销量持平",
+    conclusion: "，所以船应该早点出发",
+    changed: SENTENCES.zhChanged,
+    accepted: "«这里的潮水每日涨落两次»，所以船应该早点出发￼«。»",
+    content: `${SENTENCES.zh.slice(0, -1)}[^1]。`,
+    word: "真的",
+    before: "应该",
+  },
+} as const;
+
+/** A model that writes `content()` into the Note with a Citation of `quote`, and checks as `PLANS` say. */
+function writingModel(quote: string, content: () => string) {
   return scriptedModel(
     (call) => {
       if (isCheckRun(call)) return partsReply(call);
       const search = call.results.find((result) => result.tool === "search_documents");
       if (!search) return { calls: [{ tool: "search_documents", input: { query: "tides" } }] };
       if (!call.results.some((result) => result.tool === "cite")) {
-        const passage = shownPassages(search.text).find((each) => each.text.includes(LINE));
+        const passage = shownPassages(search.text).find((each) => each.text.includes(quote));
         return {
           calls: [
-            {
-              tool: "cite",
-              input: { citations: [{ marker: 1, passage: passage?.id, quote: LINE }] },
-            },
+            { tool: "cite", input: { citations: [{ marker: 1, passage: passage?.id, quote }] } },
           ],
         };
       }
       if (!call.results.some((result) => result.tool === "add_to_mind"))
-        return {
-          calls: [{ tool: "add_to_mind", input: { content: `${SENTENCES.en.slice(0, -1)}[^1].` } }],
-        };
+        return { calls: [{ tool: "add_to_mind", input: { content: content() } }] };
       return { text: "Added it." };
     },
     { generate: judgesNothing },
   );
 }
 
-describe("The assistant's own write", { timeout: 30_000 }, () => {
-  // protects=a sentence the assistant writes into a Note with a cited fact and its own conclusion lands Not checked for that conclusion, its fact's row Supported, and keeps it once the User accepts the change; fails_when=it lands with ✓; no_claim=what the Answer says.
-  test("lands Not checked for its conclusion", async () => {
-    const core = startCore(await createTempDataFolder(), {
-      createChatModel: scriptedModels(writingModel()).createChatModel,
-    });
-    core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
-    const saved = await core.saveChatProvider({
-      kind: "anthropic",
-      apiKey: "sk-ant-test",
-      modelId: "claude-haiku-5-5",
-    });
-    for (const flow of ["chat", "checks"] as const)
-      if (saved.service) await core.allowDataFlow(flow, saved.service.id);
-    const sources = await createTempDataFolder();
-    await addAndProcess(core, [await writeSourceFile(sources, TIDES.name, TIDES.contents)]);
-    const mind = await core.createMind({ title: "Harbour" });
-    const client = await connectToMind(core, mind.id);
-    await askAssistant(core, { text: "Add a line on tides to this Note", mindId: mind.id });
+/** A Note in a Folder holding Tides.md, on a provider whose checks may run, and `model` writing. */
+async function writingSetUp(model: ReturnType<typeof scriptedModel>) {
+  const core = startCore(await createTempDataFolder(), {
+    createChatModel: scriptedModels(model).createChatModel,
+  });
+  core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
+  const saved = await core.saveChatProvider({
+    kind: "anthropic",
+    apiKey: "sk-ant-test",
+    modelId: "claude-haiku-5-5",
+  });
+  for (const flow of ["chat", "checks"] as const)
+    if (saved.service) await core.allowDataFlow(flow, saved.service.id);
+  const sources = await createTempDataFolder();
+  const documents = await addAndProcess(core, [
+    await writeSourceFile(sources, TIDES.name, TIDES.contents),
+  ]);
+  const folder = await core.createLibraryGroup({ name: "Coast", description: "" });
+  await core.moveToFolder({ documentIds: documents.map((each) => each.id), folderId: folder.id });
+  const mind = await core.createMind({ title: "Harbour", folderId: folder.id });
+  const client = await connectToMind(core, mind.id);
+  const scope = { folderIds: [folder.id], tagIds: [], documentIds: [] };
+  return { core, mind, client, scope };
+}
+
+/** The mark the check stored for `text`, as it stored it: while a change waits, the Note's sentence also holds the words it takes out. */
+const storedFor = (client: MindClient, text: string) => {
+  const check = shownIn(client).find((claim) => claim.check.text === text)?.check;
+  return {
+    state: check?.state,
+    reason: check?.reason,
+    parts: check?.parts?.map((part) => [part.kind, part.verdict, part.byAssistant ?? null]),
+  };
+};
+
+const ASSISTANT_CONCLUSION = {
+  state: "not-checked",
+  reason: "assistant-conclusion",
+  parts: [
+    ["fact", "supported", null],
+    ["opinion", null, true],
+  ],
+};
+
+const USER_CONCLUSION = {
+  state: "supported",
+  reason: null,
+  parts: [
+    ["fact", "supported", null],
+    ["opinion", null, null],
+  ],
+};
+
+/** As the Note reads `stored` once nothing waits. */
+const asRead = ({
+  state,
+  reason,
+  parts,
+}: typeof ASSISTANT_CONCLUSION | typeof USER_CONCLUSION) => ({
+  shown: state === "supported" ? { state } : { state, reason },
+  parts,
+});
+
+describe("The assistant's own write", { timeout: 60_000 }, () => {
+  // protects=a sentence the assistant writes whole into a Note, with a cited fact and its own conclusion, lands Not checked for that conclusion, its fact's row Supported, in English and Chinese, while its change waits and once the User accepts it; fails_when=it lands with ✓; no_claim=what the Answer says.
+  test.each(["en", "zh"] as const)("a new sentence, written whole, %s", async (language) => {
+    const words = WRITES[language];
+    const { core, mind, client, scope } = await writingSetUp(
+      writingModel(words.quote, () => words.content),
+    );
+    await askAssistant(core, { text: "Add a line on tides to this Note", mindId: mind.id, scope });
     await client.settled();
-    const landed = {
-      shown: { state: "not-checked", reason: "assistant-conclusion" },
-      parts: [
-        ["fact", "supported", null],
-        ["opinion", null, true],
-      ],
-    };
-    expect(readsOf(client)).toEqual([landed]);
+    expect(storedFor(client, words.sentence)).toEqual(ASSISTANT_CONCLUSION);
+    expect(readsOf(client)).toEqual([asRead(ASSISTANT_CONCLUSION)]);
     await resolveChanges(client, "accept");
     await client.settled();
-    expect(readsOf(client)).toEqual([landed]);
+    expect(readsOf(client)).toEqual([asRead(ASSISTANT_CONCLUSION)]);
+  });
+
+  // protects=whose sentence a write's check reads is decided where it lands, by the rule every later check uses: a write over the User's own sentence, whole, makes it the assistant's, Not checked for its conclusion; one that changes a few words in a sentence holding the User's own conclusion leaves it theirs, ✓ as before; read as the waiting change leaves it, so a word of the User's it takes out never counts; the same while the change waits, once it is accepted, and on Check again, in English and Chinese; fails_when=the User's conclusion lands as the assistant's, the assistant's whole sentence lands as the User's, or Check again reads it otherwise than the write's check did; no_claim=how the write's changes are cut into words.
+  test.each([
+    ["the User's sentence, written over whole", "en", "whole"],
+    ["the User's sentence, written over whole", "zh", "whole"],
+    ["a few words changed in a sentence holding the User's conclusion", "en", "few"],
+    ["a few words changed in a sentence holding the User's conclusion", "zh", "few"],
+    ["a word the User typed, which the write takes out", "en", "takes out"],
+    ["a word the User typed, which the write takes out", "zh", "takes out"],
+  ] as const)("%s, %s", async (_case, language, change) => {
+    const words = WRITES[language];
+    const whole = change === "whole";
+    const few = change === "few";
+    let content = few || whole ? `${words.fact}[^1]${words.stop}` : words.content;
+    const { core, mind, client, scope } = await writingSetUp(
+      writingModel(words.quote, () => content),
+    );
+    const first = await askAssistant(core, {
+      text: "Add a line on tides to this Note",
+      mindId: mind.id,
+      scope,
+    });
+    await client.settled();
+    await resolveChanges(client, "accept");
+    await client.settled();
+    const paragraph = client.blocks.get(0);
+    const typed = paragraph instanceof Y.XmlElement ? paragraph.get(0) : null;
+    if (!(typed instanceof Y.XmlText)) throw new Error("No sentence to type in.");
+    // Typed, as the editor writes it: not AI text.
+    client.doc.transact(() => {
+      if (whole) {
+        typed.delete(0, words.fact.length);
+        typed.insert(0, words.own, { [GENERATED_MARK]: null });
+      } else if (few) typed.insert(words.fact.length, words.conclusion, { [GENERATED_MARK]: null });
+      else
+        typed.insert(words.sentence.indexOf(words.before), words.word, { [GENERATED_MARK]: null });
+    });
+    await client.settled();
+    // Written again from every Document: over the User's words, its change waits for them.
+    const sentence = few ? words.changed : words.sentence;
+    content = `${sentence.slice(0, -1)}[^1]${words.stop}`;
+    const again = await core.regenerateConversationAnswer({
+      conversationId: first.conversationId,
+      answerId: first.id,
+      clearScope: true,
+    });
+    if (!again.asked) throw new Error("Not asked again.");
+    await answerEnded(core, again.answerId);
+    await client.settled();
+
+    const landed = few ? USER_CONCLUSION : ASSISTANT_CONCLUSION;
+    expect(storedFor(client, sentence)).toEqual(landed);
+    await resolveChanges(client, "accept");
+    await client.settled();
+    if (few) expect(shownWithAiText(readMind(client).child(0))).toBe(words.accepted);
+    expect(readsOf(client)).toEqual([asRead(landed)]);
+    const id = client.blocks.get(0);
+    if (!(id instanceof Y.XmlElement)) throw new Error("No paragraph.");
+    await checkParagraph(
+      core,
+      mind.id,
+      String(id.getAttribute("id")),
+      readMind(client).child(0).content.size,
+    );
+    await client.settled();
+    expect(readsOf(client)).toEqual([asRead(landed)]);
   });
 });
 
@@ -578,5 +742,118 @@ describe("A sentence in an Answer", { timeout: 30_000 }, () => {
     await checkParagraph(core, mind.id, "p", SENTENCES.en.length + 1);
     await client.settled();
     expect(shownIn(client)[0]?.shown.state).toBe(state);
+  });
+});
+
+const BOATS = "The harbour holds 40 boats.";
+const FIGURED = "The harbour holds 40 boats, so it should grow.";
+
+describe("Check anyway on the conclusion of a sentence whose figures are checked", {
+  timeout: 30_000,
+}, () => {
+  // protects=while Check anyway judges the conclusion of a sentence whose figures each have their own check, the sentence reads checking, as a plain sentence does, whoever wrote it, never ✓ for as long as the model takes; once it answers, the conclusion's result is the sentence's; fails_when=the sentence shows ✓ while its conclusion is being judged; no_claim=the card's own words while it runs.
+  test.each([
+    ["the assistant's", true, "not-checked"],
+    ["the User's", false, "supported"],
+  ] as const)("%s sentence", async (_case, ai, landed) => {
+    let hold: { until: Promise<void>; reached: () => void } | null = null;
+    const model = scriptedModel(
+      (call) => {
+        const named = sentenceOf(call) === FIGURED && call.system.includes("Parts:");
+        const reply =
+          named && call.results.length === 0
+            ? {
+                text: `Parts: ${JSON.stringify([
+                  { kind: "fact", text: "The harbour holds 40 boats" },
+                  { kind: "opinion", text: "so it should grow" },
+                ])}`,
+                calls: [{ tool: "search_documents", input: { query: FIGURED } }],
+              }
+            : checkReply(call, {
+                [FIGURED]: { verdict: "supported", quote: BOATS, says: BOATS },
+                "The harbour holds 40 boats": { verdict: "supported", quote: BOATS, says: BOATS },
+              });
+        const held = hold;
+        if (!held) return reply;
+        hold = null;
+        return { ...reply, pause: { after: 0, until: held.until, reached: held.reached } };
+      },
+      { generate: checkGenerate({}) },
+    );
+    const set = await setUpWithDocuments(model, [
+      { name: "Harbour.md", contents: `# Harbour\n\n${BOATS}\n` },
+    ]);
+    const { core, client, mind } = set;
+    const [harbour] = set.documents;
+    if (!harbour) throw new Error("Harbour.md wasn't added.");
+    writeMind(client, [written("s", FIGURED, citationOf(harbour, BOATS), ai)]);
+    await client.settled();
+    await checkParagraph(core, mind.id, "s", FIGURED.length + 1);
+    await client.settled();
+    const [claim] = shownIn(client);
+    expect(claim?.check.figures?.map((figure) => figure.state)).toEqual(["supported"]);
+    expect(claim?.shown.state).toBe(landed);
+    const opinion = claim?.check.parts?.find((part) => part.kind === "opinion");
+    if (!claim || !opinion) throw new Error("The sentence has an opinion part.");
+
+    let release = () => {};
+    let reached = () => {};
+    const asked = new Promise<void>((resolve) => {
+      reached = resolve;
+    });
+    hold = {
+      until: new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+      reached,
+    };
+    const anyway = core.checkSentences({
+      requestId: crypto.randomUUID(),
+      mindId: mind.id,
+      action: "check-against-documents",
+      from: { blockId: "s", offset: 0 },
+      to: { blockId: "s", offset: FIGURED.length + 1 },
+      part: { id: claim.check.id, span: opinion.span },
+    });
+    await asked;
+    await client.settled();
+    const running = shownIn(client)[0];
+    expect(running?.check.parts?.find((part) => part.kind === "opinion")?.verdict).toBe("checking");
+    expect(running?.check.figures?.map((figure) => figure.state)).toEqual(["supported"]);
+    expect(running?.shown).toEqual({ state: "checking" });
+    release();
+    await anyway;
+    await client.settled();
+    expect(shownIn(client)[0]?.shown).toEqual({ state: "unsupported" });
+  });
+});
+
+describe("The evaluation's record", { timeout: 30_000 }, () => {
+  // protects=the everyday evaluation and the answer-support run read an Answer's cited sentence as the Note reads the same sentence written by the assistant, on the same check: Not checked for the assistant's own conclusion, or, when its fact's Supported rests on a Passage its Citation doesn't hold, found elsewhere, and either way not counted Supported; fails_when=the record and the Note give the sentence different results, or the record counts a ✓ the Note never shows; no_claim=the record's other fields, which tests/eval/everydaySupport.test.ts holds.
+  test.each([
+    ["its own Citation", LINE, "assistant-conclusion"],
+    ["a Passage its Citation doesn't hold", LINE_ZH, "found-elsewhere"],
+  ] as const)("a fact resting on %s", async (_case, quote, reason) => {
+    const { core, client, mind, tides } = await setUp();
+    writeMind(client, [written("ai", SENTENCES.en, citationOf(tides, quote), true)]);
+    await client.settled();
+    await checkParagraph(core, mind.id, "ai", SENTENCES.en.length + 1);
+    await client.settled();
+    const [record] = await checkCitedSentences(core, {
+      text: `${SENTENCES.en.slice(0, -1)}[^1].`,
+      citations: [
+        {
+          marker: 1,
+          documentName: tides.name,
+          documentId: tides.id,
+          contentHash: tides.contentHash,
+          quote,
+        },
+      ],
+    });
+    if (!record) throw new Error("The sentence isn't recorded.");
+    expect(shownIn(client).map((claim) => claim.shown)).toEqual([{ state: "not-checked", reason }]);
+    expect([record.verdict, record.reason]).toEqual(["not-checked", reason]);
+    expect(countedVerdict(record)).toBe("not-checked");
   });
 });

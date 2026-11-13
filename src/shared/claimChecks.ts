@@ -780,11 +780,12 @@ export function claimCheckShown(check: ClaimCheckAttributes, now: ClaimCheckNow)
   );
   if (shown.state !== "supported") return shown;
   // Its figures each have their own check, and its remainder holds only its facts: an opinion
-  // Check anyway judged, or the assistant's own left out, still takes its ✓ (#3019).
+  // Check anyway is judging or judged, or the assistant's own left out, still takes its ✓ (#3019).
   const opinions = (check.parts ?? []).filter((part) => part.kind === "opinion" && !part.itself);
   const judged = (verdict: ClaimCheckPart["verdict"]) =>
     opinions.find((part) => part.verdict === verdict);
   const failed = judged("not-checked");
+  if (judged("checking")) return { state: "checking" };
   if (judged("contradicted")) return { state: "contradicted" };
   if (judged("unsupported")) return { state: "unsupported" };
   if (failed) return { state: "not-checked", reason: failed.reason ?? "failed" };
