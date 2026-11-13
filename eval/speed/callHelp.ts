@@ -827,8 +827,11 @@ export async function openCall(
   }
 }
 
-/** The sets judged per place (#2847's yardstick by place, ruled on 2026-11-12). */
-const PLACE_SETS: ReadonlySet<CallHelpSet> = new Set(["call-help-marks-3", "call-help-marks-4"]);
+/**
+ * The sets judged per place (#2847's yardstick by place, ruled on 2026-11-12): the gate's held-out
+ * slice. The dev trial on `call-help-marks-3` gates nothing, so its places are read by hand alone.
+ */
+const PLACE_SETS: ReadonlySet<CallHelpSet> = new Set(["call-help-marks-4"]);
 
 type CallHelpSet =
   | "call-help"
