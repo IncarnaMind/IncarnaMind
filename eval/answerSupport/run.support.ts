@@ -24,6 +24,7 @@ import { findQuote } from "../../src/shared/quoteMatch";
 import { shownPassages } from "../../tests/helpers/citations";
 import { type ModelCall, type ScriptedReply, scriptedModel } from "../../tests/helpers/models";
 import { readChecksSet } from "../checks/lib/set";
+import { readAsNote } from "../everyday/support";
 import { commitOf } from "../lib/commit";
 import { chatProviderOf, readConfig } from "../lib/config";
 import { createWorkerEmbedder } from "../lib/embedder";
@@ -130,21 +131,22 @@ async function checkEach(
       log(`  ${item.id}: ${why}`);
       continue;
     }
+    const read = readAsNote({ sentence: item.sentence, cited: [cited] }, result);
     const said =
-      result.verdict === "unsupported"
-        ? (result.unsupported?.reason ?? null)
-        : result.verdict === "not-checked"
-          ? `${result.reason}${result.detail ? `: ${result.detail}` : ""}`
-          : result.says;
+      read.state === "unsupported"
+        ? (read.unsupported?.reason ?? null)
+        : read.state === "not-checked"
+          ? `${read.reason}${read.detail ? `: ${read.detail}` : ""}`
+          : read.says;
     const row: Row = {
       id: item.id,
       set: item.set,
       language: item.language,
       sentence: item.sentence,
       supported: item.supported,
-      verdict: result.verdict,
+      verdict: read.state,
       said,
-      parts: (result.parts ?? []).map((part) => ({
+      parts: (read.parts ?? []).map((part) => ({
         kind: part.kind,
         words: item.sentence.slice(part.span.start, part.span.end),
         verdict: part.verdict,
