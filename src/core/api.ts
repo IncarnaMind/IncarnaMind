@@ -11692,6 +11692,15 @@ export interface SetMeetingMicrophoneInput {
   paused: boolean;
 }
 
+/** A line or a few typed in the call-help panel's field (#2925). */
+export interface AddQuickNoteInput {
+  meetingId: string;
+  /** One paragraph a line, the spaces at either end of each trimmed; lines left empty are left out. */
+  text: string;
+  /** The Meeting's time, in ms, when typing began; null when it wasn't recording then. */
+  atMs: number | null;
+}
+
 /** How loud each source of a recording Meeting is now, from 0 (silence) to 1. */
 export interface MeetingLevel {
   meetingId: string;
@@ -14491,6 +14500,28 @@ export interface CoreApi {
    * marks the stretch; the computer's sound goes on. Every Meeting starts with its microphone on.
    */
   setMeetingMicrophone(input: SetMeetingMicrophoneInput): Promise<Meeting>;
+  /**
+   * A quick note from the call-help panel (#2925), while the Meeting records or is paused: each
+   * line a paragraph of the User's own text at the end of its Note, after the last line that holds
+   * anything, the first with `atMs` as its time, capped at the Meeting's time now. It reaches an
+   * open copy of the Note as the core's change, not as a step of that editor's Undo:
+   * `undoAddToNote` takes it back. InvalidInputError for no text or a Meeting not live.
+   */
+  addQuickNote(input: AddQuickNoteInput): Promise<AddedToNote>;
+  /**
+   * Keeps the line typed in the call-help panel's field but not sent (#2925), in memory only: a
+   * line that is blank, a "/" search, or for a Meeting not live is forgotten instead. Stopping the
+   * Meeting, a call's end and quitting add it as a quick note first, and `addQuickNoteDraft` does
+   * when the panel closes. `addQuickNote` forgets it.
+   */
+  setQuickNoteDraft(input: AddQuickNoteInput): Promise<void>;
+  /**
+   * Adds the Meeting's kept unsent line as a quick note (`setQuickNoteDraft`); null with none. A
+   * Note that refuses it leaves it kept.
+   */
+  addQuickNoteDraft(meetingId: string): Promise<AddedToNote | null>;
+  /** The live Meeting's kept unsent line, for a panel that opens again to show it; null with none. */
+  getQuickNoteDraft(meetingId: string): Promise<{ text: string; atMs: number | null } | null>;
   /** The offer to take notes in a call, and a call's end waiting to stop its Meeting (#208). */
   getMeetingOffers(): Promise<MeetingOffers>;
   /**
@@ -15252,6 +15283,10 @@ const methods: Record<CoreApiMethod, true> = {
   askMeetingHelp: true,
   setMeetingTemplate: true,
   setMeetingMicrophone: true,
+  addQuickNote: true,
+  setQuickNoteDraft: true,
+  addQuickNoteDraft: true,
+  getQuickNoteDraft: true,
   getMeetingOffers: true,
   takeMeetingOffer: true,
   declineMeetingOffer: true,

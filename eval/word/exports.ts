@@ -35,6 +35,7 @@ import { reviewReading } from "../../src/core/mindText";
 import { recordChanges, recordSources } from "../../src/core/wordImports";
 import type { NodeJSON } from "../../src/shared/blockJson";
 import { NUMBERED_STYLE } from "../../src/shared/citationStyles";
+import { hasMarkIn, markValueOf } from "../../src/shared/markKeys";
 import {
   NODE_CHARACTER,
   outOfDateProposals,
@@ -160,8 +161,8 @@ function plainWord(
   for (const run of text.toDelta() as { insert: unknown; attributes?: Record<string, unknown> }[]) {
     const length = typeof run.insert === "string" ? run.insert.length : 1;
     const changed =
-      run.attributes !== undefined &&
-      ("proposalInsert" in run.attributes || "proposalDelete" in run.attributes);
+      hasMarkIn(PROPOSAL_INSERT_MARK, run.attributes) ||
+      hasMarkIn(PROPOSAL_DELETE_MARK, run.attributes);
     const word =
       typeof run.insert === "string" && !changed
         ? /[\p{L}]{4,}|[\p{Script=Han}]{2,}/u.exec(run.insert)
@@ -866,8 +867,8 @@ function changesInMind(doc: Y.Doc): ChangeKey[] {
           attributes?: Record<string, unknown>;
         }[]) {
           const text = typeof run.insert === "string" ? run.insert : NODE_CHARACTER;
-          add(run.attributes?.[PROPOSAL_INSERT_MARK], "insert", text);
-          add(run.attributes?.[PROPOSAL_DELETE_MARK], "delete", text);
+          add(markValueOf(PROPOSAL_INSERT_MARK, run.attributes), "insert", text);
+          add(markValueOf(PROPOSAL_DELETE_MARK, run.attributes), "delete", text);
         }
       } else if (each instanceof Y.XmlElement) {
         const attribute = readProposalAttribute(each.getAttribute(PROPOSAL_ATTRIBUTE));
