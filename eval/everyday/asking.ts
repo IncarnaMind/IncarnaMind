@@ -35,6 +35,7 @@ import { connectToMind } from "../../tests/helpers/mindClient";
 import { heading, note, writeMind } from "../../tests/helpers/minds";
 import { paragraph, wordFile } from "../../tests/helpers/word";
 import { importWordBytes } from "../../tests/helpers/wordMinds";
+import { type CitingRecord, type CitingWatch, citingRecord } from "../lib/citingRecord";
 import type { ChatSettings, readConfig } from "../lib/config";
 import type { EvalDocument } from "../lib/evaluationSet";
 import type { Library } from "../lib/library";
@@ -186,6 +187,8 @@ export interface CaseResult {
   asks: Asks;
   /** A research request: each cited sentence of the reply, as the app's own check judged it; null for the others. */
   support: SentenceSupport[] | null;
+  /** What a replay of its citing step needs (#3059); absent when its requests weren't watched. */
+  citing?: CitingRecord;
   /** A summary: its sentences outside headings that make a claim, and how many carry a Citation; null for the others. */
   claims: { claims: number; cited: number } | null;
   /** Asked about every Document in scope: what it did with each (`documentsCovered`). */
@@ -405,6 +408,7 @@ export async function runCase(
   each: AskedRequest,
   {
     watch,
+    citing,
     checkModel = null,
     deciding,
     asking,
@@ -413,6 +417,8 @@ export async function runCase(
   }: {
     /** Watches the app's own asks inside the Answer; none watched without it. */
     watch?: ReaskWatch;
+    /** Watches the requests of the Answer's citing step, for its record; none kept without it. */
+    citing?: CitingWatch;
     /** Called just before the request itself is asked, after the turns it follows. */
     asking?: () => void;
     /** The model the cited sentences are checked on; null: the default chat model. */
@@ -579,6 +585,7 @@ export async function runCase(
   }
   const quoted = each.quote ? await quoteOf(core, scoped, each.quote) : null;
   watch?.begin(each.firstReply ?? null);
+  citing?.begin();
   await decideFirst(each.request);
   const stoppedAtAsk = { last: false };
   asking?.();
@@ -596,6 +603,7 @@ export async function runCase(
   );
   const answeredSeconds = (Date.now() - started) / 1000;
   const asks = watch ? { ...watch.end() } : { again: 0, coverage: 0, citations: 0 };
+  const watched = citing?.end();
   const forced = deciding ? deciding.forcing.end() : 0;
   const decision = decided.last;
   counting();
@@ -605,9 +613,8 @@ export async function runCase(
     const found = minds.find((each) => each.id === id);
     return found ? mindName(found) || null : null;
   };
-  const support = each.research
-    ? await checkCitedSentences(core, await judgedAnswer(core, answer), checkModel, hear)
-    : null;
+  const judged = each.research || watched ? await judgedAnswer(core, answer) : answer;
+  const support = each.research ? await checkCitedSentences(core, judged, checkModel, hear) : null;
   const changed = new Set(
     answer.toolCalls.flatMap((call) => (call.mindChange ? [call.mindChange.mindId] : [])),
   );
@@ -744,6 +751,7 @@ export async function runCase(
     droppedMarkers,
     asks,
     support,
+    ...(watched && { citing: citingRecord(watched, judged) }),
     claims: each.summary ? citedClaims(answer.text) : null,
     ...(each.expected.coverAll && { covered: documentsCovered(outcome) }),
     ...(decision && {
