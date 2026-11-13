@@ -1448,6 +1448,10 @@ export const zhCN = {
   "claim.reason.empty": "模型的回复是空的。",
   "claim.reason.cut-short": "模型的回复达到长度上限，已截断。",
   "claim.reason.no-evidence": "不显示结论：模型给出的引文不在那个文档中。",
+  "claim.reason.number-unquoted":
+    "不显示结论：找到的引文都没有给出这个数字，当前模型也无法用文档里的数字算出它。请对照文档核实。",
+  "claim.reason.number-not-worked-out":
+    "不显示结论：找到的引文都没有给出这个数字，也没能用文档里的数字算出它。请对照文档核实。",
   "claim.reason.unread": "不显示结论：模型没有读取你的文档。",
   "claim.reason.other-cell": "不显示结论：模型给这个数字写的是文档表格中另一行或另一列的名称。",
   "claim.reason.analysis": "来自数据分析 · 未重新计算",
@@ -1472,6 +1476,8 @@ export const zhCN = {
   "claim.reason.absence-unconfirmed": "不显示结论：模型给出的引文并没有写到这句话说不存在的内容。",
   "claim.reason.absence-other-document":
     "不显示结论：模型给出的引文出自另一份文档，不是这句话所说的那份。",
+  "claim.reason.found-elsewhere":
+    "不显示结论：支持这句话的引文不在它现有的引用里。请把它添加为引用，然后重新核对。",
   "claim.reason.kept-inside": "仅在“{detail}”内使用",
   "claim.reason.read-budget": "已停止 · 已花费{spent}",
   "claim.reason.read-budget.unknown": "已停止：已达到这次读取最多可花的费用。",

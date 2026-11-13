@@ -7220,6 +7220,10 @@ export type ClaimVerdict = "supported" | "unsupported" | "contradicted";
  * - "malformed": its reply held no verdict that could be read.
  * - "empty": its reply was empty.
  * - "no-evidence": it gave a verdict, but no quote the Citation check finds in the Passage it named.
+ * - "number-unquoted": no quote the check found gives a number of the sentence, and the model, which
+ *   a check doesn't offer the calculation Tool, can't work it out from the Documents' numbers (#3022).
+ * - "number-not-worked-out": no quote the check found gives a number of the sentence, and the model,
+ *   sent back to calculate it, gave no figure worked out from the Documents' numbers (#3022).
  * - "unread": it gave a verdict without searching the Documents, even when asked once more.
  * - "rate-limit": the model's service refused more requests for now.
  * - "cost-cap": it could pass the monthly cap, so nothing was sent.
@@ -7236,6 +7240,8 @@ export type ClaimVerdict = "supported" | "unsupported" | "contradicted";
  * - "kept-inside": the existing Citation is outside this wall, so it was not read again.
  * - "absence-unconfirmed": a whole read said what the sentence calls absent is there, but a look
  *   at its quote found it doesn't state that (#1554, #1443).
+ * - "found-elsewhere": the check backed the sentence with a Passage its own Citations don't quote:
+ *   no ✓ beside a Citation whose words don't say it, until that Passage is its Citation (#3019).
  * - "absence-other-document": a whole read's quote states what the sentence calls absent, but in
  *   another Document than the one the sentence is about (#1443).
  * - "read-budget": a whole read reached the most it may spend before this part was judged, so
@@ -7261,6 +7267,8 @@ export type ClaimCheckFailure =
   | "malformed"
   | "empty"
   | "no-evidence"
+  | "number-unquoted"
+  | "number-not-worked-out"
   | "unread"
   | "rate-limit"
   | "cost-cap"
@@ -7278,6 +7286,7 @@ export type ClaimCheckFailure =
   | "absence-read-limit"
   | "absence-unconfirmed"
   | "absence-other-document"
+  | "found-elsewhere"
   | "kept-inside"
   | "cut-short"
   | "read-budget"

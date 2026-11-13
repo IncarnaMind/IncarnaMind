@@ -171,17 +171,40 @@ export interface SupportRate {
   model: string;
   language: "en" | "zh-CN";
   supported: number;
+  /** Of the supported, those backed by a Passage the check found rather than the sentence's own Citations. */
+  backedByFound: number;
   /** The sentences the check gave a verdict for. */
   judged: number;
   notChecked: number;
 }
+
+type Counted = Pick<SentenceSupport, "sentence" | "verdict"> &
+  Partial<Pick<SentenceSupport, "reason" | "parts">>;
+
+/**
+ * Whether the check backed the sentence with a Passage its own Citations don't quote: shown with
+ * no ✓ until that Passage is its Citation, and counted Supported, listed apart (#3019).
+ */
+export function backedByFound(sentence: Counted): boolean {
+  if (sentence.verdict !== "not-checked") return false;
+  const parts = (sentence.parts ?? []).filter(
+    (part) => part.verdict !== null && part.verdict !== "supported",
+  );
+  return parts.length > 0
+    ? parts.every((part) => part.reason === "found-elsewhere")
+    : sentence.reason === "found-elsewhere";
+}
+
+/** The verdict the evaluation counts: one backed by a Passage the check found is Supported. */
+export const countedVerdict = (sentence: Counted): SentenceSupport["verdict"] =>
+  backedByFound(sentence) ? "supported" : sentence.verdict;
 
 /** Supported, judged and not-checked sentences, per model and language. */
 export function supportRates(
   runs: readonly {
     model: string;
     language: "en" | "zh-CN";
-    support: readonly Pick<SentenceSupport, "sentence" | "verdict">[];
+    support: readonly Counted[];
   }[],
 ): SupportRate[] {
   const groups = new Map<string, SupportRate>();
@@ -191,13 +214,16 @@ export function supportRates(
       model: run.model,
       language: run.language,
       supported: 0,
+      backedByFound: 0,
       judged: 0,
       notChecked: 0,
     };
     for (const each of run.support) {
-      if (each.verdict === "not-checked") group.notChecked++;
+      const verdict = countedVerdict(each);
+      if (verdict === "not-checked") group.notChecked++;
       else group.judged++;
-      if (each.verdict === "supported") group.supported++;
+      if (verdict === "supported") group.supported++;
+      if (backedByFound(each)) group.backedByFound++;
     }
     groups.set(key, group);
   }
@@ -205,12 +231,10 @@ export function supportRates(
 }
 
 /** The share of the sentences the check gave a verdict for that it judged supported, from 0 to 1; 1 when it judged none. */
-export function supportedShare(
-  sentences: readonly Pick<SentenceSupport, "sentence" | "verdict">[],
-): number {
-  const judged = sentences.filter((each) => each.verdict !== "not-checked");
+export function supportedShare(sentences: readonly Counted[]): number {
+  const judged = sentences.map(countedVerdict).filter((verdict) => verdict !== "not-checked");
   if (judged.length === 0) return 1;
-  return judged.filter((each) => each.verdict === "supported").length / judged.length;
+  return judged.filter((verdict) => verdict === "supported").length / judged.length;
 }
 
 /** The check's reason for a sentence it didn't judge Supported, as the report groups them. */
@@ -237,7 +261,7 @@ export function withoutSupportByReason<T extends SentenceSupport>(
 ): { reason: string; sentences: T[] }[] {
   const groups = new Map<string, T[]>();
   for (const each of sentences) {
-    if (each.verdict === "supported") continue;
+    if (countedVerdict(each) === "supported") continue;
     const reason = reasonOfSentence(each);
     groups.set(reason, [...(groups.get(reason) ?? []), each]);
   }
@@ -327,5 +351,28 @@ export function withoutSupportLines(
       ]),
       "",
     ]),
+  ];
+}
+
+/** The report's list of the sentences counted Supported on a Passage the check found. */
+export function backedByFoundLines(
+  sentences: readonly (SentenceSupport & { id: string; model: string })[],
+): string[] {
+  const backed = sentences.filter(backedByFound);
+  if (backed.length === 0) return [];
+  return [
+    "Backed by a Passage the check found (counted Supported; shown with no ✓ until that Passage is the sentence's Citation):",
+    "",
+    ...backed.flatMap((each) => [
+      `- ${each.id} (${each.model}): ${each.sentence}`,
+      `  - cites ${each.cites.map(quotedIn).join(" · ")}`,
+      ...each.parts
+        .filter((part) => part.reason === "found-elsewhere")
+        .map(
+          (part) =>
+            `  - part ${quoted(part.text)}: the check's Passage ${part.evidence.map(quotedIn).join(" · ")}`,
+        ),
+    ]),
+    "",
   ];
 }
