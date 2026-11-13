@@ -194,9 +194,23 @@ function evidenceReply(call: GenerateCall): string {
   return JSON.stringify({ citations: records.map((record) => ({ ...record, location: "p. 4" })) });
 }
 
-function generated(call: GenerateCall): GeneratedReply {
+/**
+ * A judgement of the sentence against one quote, read from what it is shown: a quote of none of
+ * the sentence's table rows states nothing of it, and a wrong twin's row contradicts it, but for
+ * the one the dry run's check takes for right.
+ */
+function judged(call: GenerateCall): "same" | "conflict" | "neither" {
   const sentence = /<sentence>\n([\s\S]*?)\n<\/sentence>/u.exec(call.prompt)?.[1]?.trim() ?? "";
-  const wrong = twinOf(sentence)?.right === false;
+  const twin = twinOf(sentence);
+  const quote = /<quote>\n([\s\S]*?)\n<\/quote>/u.exec(call.prompt)?.[1] ?? call.prompt;
+  if (twin && !twin.pair.cites.some((row) => findQuote(quote, row, { numbers: "if-needed" })))
+    return "neither";
+  return twin?.right === false && sentence !== TICKED_WRONG ? "conflict" : "same";
+}
+
+const RECORD_WORDS = { same: "supported", conflict: "partly", neither: "unsupported" } as const;
+
+function generated(call: GenerateCall): GeneratedReply {
   switch (call.question) {
     case "evidence":
     case "covered-evidence":
@@ -205,9 +219,9 @@ function generated(call: GenerateCall): GeneratedReply {
     case "strict":
     case "strict-figure":
     case "nearest":
-      return { text: wrong ? "conflict" : "same" };
+      return { text: judged(call) };
     case "record-cite":
-      return { text: `Judgement: ${wrong ? "partly" : "supported"}` };
+      return { text: `Judgement: ${RECORD_WORDS[judged(call)]}` };
     case "parts":
       return { text: "" };
     default:
