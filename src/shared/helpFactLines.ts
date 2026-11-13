@@ -34,8 +34,32 @@ const notYetALine = (plain: string) => {
   const words = plain.replace(FACT_MARK, "").replace(OWN_MARK, "");
   return MARK_ONLY.test(plain) || (words !== plain && MARK_ONLY.test(words));
 };
+const MARKERS_ALONE = /^(?:\[\^\d{1,4}\]\s*)+$/;
+/** So far only the start of a Citation's marker. */
+const MARKER_BEGUN = /^\[(?:\^\d{0,4}\]?)?$/;
 /** A footnote's definition, a heading, or a line of Citation markers alone: no line of the reply. */
-const SKIPPED = /^(?:\[\^\d{1,4}\]:|#+\s|(?:\[\^\d{1,4}\]\s*)+$)/;
+const SKIPPED = new RegExp(`^(?:\\[\\^\\d{1,4}\\]:|#+\\s)|${MARKERS_ALONE.source}`);
+
+/**
+ * Citation markers alone on the line right after a line of words, no blank line between, are that
+ * line's, as the app's Answer reader gives a marker alone to the sentence before it: the line above
+ * takes them and their own line goes (`gone`). Markers alone after a blank line, or first, stay no line.
+ */
+function markersJoined(written: readonly string[]): { lines: string[]; gone: Set<number> } {
+  const lines = [...written];
+  const gone = new Set<number>();
+  for (let at = 1; at < lines.length; at++) {
+    const markers = plainLine(lines[at] ?? "");
+    if (!MARKERS_ALONE.test(markers)) continue;
+    let above = at - 1;
+    while (gone.has(above)) above--;
+    const words = plainLine(lines[above] ?? "");
+    if (words === "" || SKIPPED.test(words)) continue;
+    lines[above] = `${(lines[above] ?? "").trimEnd()} ${markers}`;
+    gone.add(at);
+  }
+  return { lines, gone };
+}
 const BEFORE_MARK = /^\s*(?:\*\*|__)?\s*/;
 const CITES = new RegExp(MARKER.source);
 
@@ -102,16 +126,17 @@ interface FactLinesLayout {
  * read (without a pair of quotation marks the model wrapped it in whole).
  */
 export function factLinesText(
-  written: readonly string[],
+  asWritten: readonly string[],
   layout: FactLinesLayout,
   sayRead: (line: string) => string,
 ): FactLinesText {
-  if (layout.shape === "options") return optionsText(written, layout, sayRead);
+  if (layout.shape === "options") return optionsText(asWritten, layout, sayRead);
+  const { lines: written, gone } = markersJoined(asWritten);
   const out: { line: string; origin: number }[] = [];
   const last = written.length - 1;
   for (const [index, raw] of written.entries()) {
     const plain = plainLine(raw);
-    if (layout.streaming && index === last && notYetALine(plain)) continue;
+    if (gone.has(index) || (layout.streaming && index === last && notYetALine(plain))) continue;
     const own = OWN_MARK.test(plain);
     const mark = own ? OWN_MARK : FACT_MARK.test(plain) ? FACT_MARK : LINE_MARK;
     let line = raw;
@@ -129,14 +154,16 @@ export function factLinesText(
 }
 
 function optionsText(
-  written: readonly string[],
+  asWritten: readonly string[],
   layout: FactLinesLayout,
   sayRead: (line: string) => string,
 ): FactLinesText {
+  const { lines: written, gone } = markersJoined(asWritten);
   const last = written.length - 1;
   const plain = written.map(plainLine);
   const blank = (at: number) => plain[at] === "";
-  const dropped = (at: number) => layout.streaming && at === last && notYetALine(plain[at] ?? "");
+  const dropped = (at: number) =>
+    gone.has(at) || (layout.streaming && at === last && notYetALine(plain[at] ?? ""));
   const words = (at: number) =>
     at <= last && !blank(at) && !SKIPPED.test(plain[at] ?? "") && !dropped(at);
   const arrow = (at: number) => EFFECT_MARK.test(plain[at] ?? "");
@@ -145,8 +172,14 @@ function optionsText(
   const own = (at: number) => OWN_MARK.test(plain[at] ?? "");
   const cites = (at: number) => CITES.test(written[at] ?? "");
   const writing = layout.streaming && !layout.ended;
-  /** A fact line by its mark: the line still being written, whose marker may come yet. */
-  const factBegun = (at: number) => writing && at === last && fact(at);
+  /**
+   * A fact line by its mark whose marker may come yet: the line still being written, or the one above
+   * a last line that is so far blank or a marker begun, which would be its.
+   */
+  const factBegun = (at: number) =>
+    writing &&
+    fact(at) &&
+    (at === last || (at === last - 1 && (blank(last) || MARKER_BEGUN.test(plain[last] ?? ""))));
   const later = (from: number) =>
     Array.from({ length: Math.max(0, last - from + 1) }, (_, step) => from + step).filter(words);
 

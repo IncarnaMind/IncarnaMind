@@ -855,6 +855,36 @@ describe("every moment of a reply in the form (#2847)", () => {
       quotes: { 1: PRICE },
     },
     {
+      name: "a fact line's marker alone on the next line",
+      reply: [
+        OFFER,
+        "> The Enterprise plan is $45 per seat a month",
+        "[^1]",
+        "→ protects the margin",
+      ].join("\n"),
+      quotes: { 1: PRICE },
+    },
+    {
+      name: "a fact line's marker alone on the next line, in Chinese",
+      reply: [
+        "★ 签两年的话，我们可以保持每席位 45 美元",
+        "＞ 企业版每席位每月 45 美元",
+        "[^1]",
+        "→ 守住利润",
+      ].join("\n"),
+      quotes: { 1: "企业版每席位每月 45 美元。" },
+    },
+    {
+      name: "a line to say's marker alone on the next line",
+      reply: [OFFER, "[^1]", "→ protects the margin"].join("\n"),
+      quotes: { 1: PRICE },
+    },
+    {
+      name: "a line to say's marker alone on the next line, in Chinese",
+      reply: ["★ 签两年的话，我们可以保持每席位 45 美元", "[^1]", "→ 守住利润"].join("\n"),
+      quotes: { 1: "企业版每席位每月 45 美元。" },
+    },
+    {
       name: "options with no → line",
       reply: [
         OFFER,
@@ -893,27 +923,60 @@ describe("every moment of a reply in the form (#2847)", () => {
     return moved;
   }
 
-  // protects=at every character of a reply in the form (a definition at its end, fact lines that start with a number, an own line above a fact line, a fact after a "→" line, options with no "→" line), every line drawn but the last stays as it was a character earlier and the line being written keeps what it is (a fact line from its first word); stopped and kept there, every line drawn but the last stays as it was while written, and once it ends none does but move on; and the text kept reads again the same with what was stored beside it, in English and Chinese; fails_when=a drawn line moves or changes what it is, or the text kept reads otherwise again; no_claim=how a real model's replies stream.
+  // protects=at every character of a reply in the form (a definition at its end, fact lines that start with a number, an own line above a fact line, a fact after a "→" line, a marker alone on the line after a fact line or a line to say, options with no "→" line), every line drawn but the last stays as it was a character earlier and the line being written keeps what it is (a fact line from its first word); stopped and kept there, every line drawn but the last stays as it was while written, and once it ends none does but move on; and the text kept reads again the same with what was stored beside it, in English and Chinese; fails_when=a drawn line moves or changes what it is, or the text kept reads otherwise again; no_claim=how a real model's replies stream.
   test.each(ROWS)("$name", ({ reply, quotes }) => {
     expect(movesOf(reply, quotes)).toEqual([]);
   });
 
-  // protects=the one case where the line being written changes what it is: a fact line, drawn as one from its first word, that ends with no marker is the reply's own, as the text kept reads it, in English and Chinese; fails_when=it shows as an own line while written, stays a fact line with no Citation once ended, or another line changes; no_claim=how often a model leaves a fact line unmarked (none of the trial's 115 did).
+  // protects=Citation markers alone on the line right after a line of words are that line's, as the app's Answer reader gives a marker alone to the sentence before it: a fact line keeps its Citation and stays a fact line, a line to say's Document Citation turns into a fact line as on the line itself, and the text kept carries the marker on that line, so the check reads it on the sentence the panel draws it on; markers alone after a blank line, or first in the reply, stay no line; in English and Chinese; fails_when=the marker is dropped, the fact line reads as the reply's own, or the kept text keeps the marker on a line of its own; no_claim=how often a model writes so.
+  test.each([
+    {
+      language: "English",
+      fact: "a fact line's marker alone on the next line",
+      say: "a line to say's marker alone on the next line",
+    },
+    {
+      language: "Chinese",
+      fact: "a fact line's marker alone on the next line, in Chinese",
+      say: "a line to say's marker alone on the next line, in Chinese",
+    },
+  ])("in $language, a marker alone on the next line is that line's", (named) => {
+    const fact = ROWS.find((row) => row.name === named.fact);
+    const say = ROWS.find((row) => row.name === named.say);
+    if (!fact || !say) throw new Error("No row.");
+    for (const status of ["done", "stopped"] as const) {
+      const kept = moment(fact.reply, fact.quotes, status);
+      expect(kept.drawn[1]).toMatch(/^fact 0: .+ \[1\]$/);
+      expect(kept.kept.split("\n")).toHaveLength(3);
+      expect(kept.kept.split("\n")[1]).toMatch(/ \[\^1\]$/);
+      const turned = moment(say.reply, say.quotes, status);
+      expect(turned.drawn[1]).toMatch(/^fact 0: .+ \[1\]$/);
+      expect(turned.kept).not.toMatch(/^\[\^1\]$/m);
+    }
+    const apart = `${fact.reply.replace("\n[^1]", "\n\n[^1]")}`;
+    expect(moment(apart, fact.quotes, "done").drawn.some((line) => line.includes("[1]"))).toBe(
+      false,
+    );
+  });
+
+  // protects=the one case where the line being written changes what it is: a fact line, drawn as one from its first word, that ends with no marker is the reply's own, as the text kept reads it; it ends when the next line begins with other than its markers, so it stays a fact line across its line break, in English and Chinese; fails_when=it shows as an own line while written or at its line break, stays a fact line with no Citation once ended, or another line changes; no_claim=how often a model leaves a fact line unmarked (none of the trial's 115 did).
   test.each(["> Nights are possible", "＞ 夜间可以施工"])(
     "a fact line that ends with no marker: %s",
     (line) => {
       const reply = `${OFFER}\n${line}\n→ honest about it`;
       const ended = reply.indexOf("\n→");
       const words = line.replace(/^[>＞]\s*/u, "");
-      expect(moment(reply.slice(0, ended), {}, "streaming").drawn.at(-1)).toBe(`fact 0: ${words}`);
+      for (const at of [ended, ended + 1]) {
+        expect(moment(reply.slice(0, at), {}, "streaming").drawn.at(-1)).toBe(`fact 0: ${words}`);
+      }
       expect(moment(reply, {}, "done").drawn).toContain(`own 0: ${words}`);
-      const lineEnd = JSON.stringify(reply.slice(0, ended + 1).slice(-12));
+      const lineEnd = JSON.stringify(reply.slice(0, ended + 2).slice(-12));
       expect(movesOf(reply, {})).toEqual([`the last line from fact 0 to own 0 at ${lineEnd}`]);
     },
   );
 
-  // protects=three readings the form keeps as they are, named so a change to them shows: a Document's marker on a "→" line turns into a fact line as it lands, above the "→" line being written, which goes down one line; a reply of fact lines alone reads its first as a line to say once it ends or stops; and an option with no "→" line takes the next line with no "★" as its own line; fails_when=any of them reads otherwise; no_claim=how often a model writes so (none of the trial's 48 form replies did).
-  test("three readings kept as they are", () => {
+  // protects=six readings the form keeps as they are, named so a change to them shows: a Document's marker on a "→" line turns into a fact line as it lands, above the "→" line being written, which goes down one line; a reply of fact lines alone reads its first as a line to say once it ends or stops; an option with no "→" line takes the next line with no "★" as its own line; an own line written before the first option isn't drawn, as main hides text there; a reply that is only an own line is drawn as a line to say; and an own line after the last "→" line is the closing line while it is last, and that option's line after its "→" once a fact line begins under it; fails_when=any of them reads otherwise; no_claim=how often a model writes so (none of the trial's 48 form replies did; all 34 of its own lines in options replies stand after the last "→" line).
+  test("readings kept as they are", () => {
     const arrowMarked = [
       "★ We can hold $45 per seat [^1] if you sign for two years",
       "→ protects the margin [^2]",
@@ -941,6 +1004,29 @@ describe("every moment of a reply in the form (#2847)", () => {
       "fact 0: The Enterprise plan is $45 per seat a month [1]",
       "own 0: Let me check with finance",
       "fact 0: Two-year contracts lock the list price [2]",
+    ]);
+    const own = "= The Documents don't say whether the price includes customs duty";
+    const ownFirst = [
+      own,
+      "",
+      "★ Let me check with finance and come back by Friday",
+      "→ buys time",
+    ];
+    expect(moment(ownFirst.join("\n"), {}, "done").drawn).toEqual([
+      "say 0: Let me check with finance and come back by Friday",
+      "→ 0: buys time",
+    ]);
+    expect(moment(own, {}, "done").drawn).toEqual([
+      "say 0: The Documents don't say whether the price includes customs duty",
+    ]);
+    const ownThenFact = [
+      OFFER,
+      "→ protects the margin",
+      own,
+      "> The Enterprise plan is $45 per seat a month [^1]",
+    ].join("\n");
+    expect(movesOf(ownThenFact, { 1: PRICE })).toEqual([
+      'the last line from closing to after own 0 at "oms duty\\n> T"',
     ]);
   });
 
