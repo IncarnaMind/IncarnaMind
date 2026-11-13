@@ -17,7 +17,7 @@ import type { WindowedPassage } from "../documents/search";
 import { LANGUAGE_NAMES, type Language } from "../language";
 import { estimateTokens } from "./context";
 import type { AnswerMessage } from "./engine";
-import { EARLIER_CALL_RULE, languageSpoken } from "./prompt";
+import { languageSpoken } from "./prompt";
 
 const TASKS: Readonly<Record<MeetingHelpKind, string>> = {
   say: "What could the User say next, given the last thing said?",
@@ -214,7 +214,6 @@ export const LIVE_TEXT_BEHIND_NOTE =
  * What the model is told for a button's Question during a call. `found`: Passages of the User's
  * Documents were found ahead for the newest lines. `callLanguage`: the language the call's newest
  * lines are in, which the reply is written in; `language`, the interface's, when it can't be told.
- * `callsUnmarked`: Transcript Passages aren't marked with their call (`CoreAdapters.callsUnmarked`).
  */
 export function meetingHelpInstructions(
   kind: MeetingHelpKind,
@@ -222,8 +221,7 @@ export function meetingHelpInstructions(
     found,
     language,
     callLanguage,
-    callsUnmarked = false,
-  }: { found: boolean; language: Language; callLanguage: string | null; callsUnmarked?: boolean },
+  }: { found: boolean; language: Language; callLanguage: string | null },
 ): string {
   const shape = HELP_SHAPE[kind];
   const task = TASKS[kind];
@@ -243,7 +241,7 @@ export function meetingHelpInstructions(
           "- Use only <live-transcript> for facts, with its Citation markers. Do not use Library Documents or written notes. If there is no call text yet, say there is not enough call content to answer; never substitute other facts.",
         ]
       : [
-          `- Use the User's Documents only to ${documents}. A Document fact was not said in this call: distinguish it from the transcript, cite it, and never invent one.${callsUnmarked ? "" : ` ${EARLIER_CALL_RULE}`} When giving a suggestion, explain its relevance in the → line.`,
+          `- Use the User's Documents only to ${documents}. A Document fact was not said in this call: distinguish it from the transcript, cite it, and never invent one. When giving a suggestion, explain its relevance in the → line.`,
         ]),
     ...(documents !== null && found
       ? [

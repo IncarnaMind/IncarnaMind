@@ -77,7 +77,7 @@ import {
 import { holdsNothing, madeByAnswer } from "../../shared/madeMind";
 import { linkTableSources } from "../../shared/markdownTables";
 import { escapeMarkdownText } from "../../shared/markdownText";
-import type { MeetingHelpKind } from "../../shared/meetingHelp";
+import { ALL_HELP, helpLabel, type MeetingHelpKind } from "../../shared/meetingHelp";
 import {
   MISSING_NUMBER_REFUSED,
   missingNumberWords,
@@ -664,7 +664,7 @@ export interface AnswersOptions {
    * records or is paused: its text is the button's name. Null for any other Question.
    */
   meetingHelp?(mindId: string, question: string): MeetingHelpKind | null;
-  /** The Transcripts of every call but the one recording in a Mind, which its help buttons never read (#3005). */
+  /** The Transcripts of every call but a Mind's own, which its help buttons never read (#3005). */
   otherCallTranscripts?(mindId: string): readonly string[];
   /** See `CoreAdapters.helpFormJudged`. */
   helpFormJudged?(): boolean;
@@ -1168,10 +1168,28 @@ export function createAnswers(options: AnswersOptions) {
     return from && !from.deleted ? from.mindId : null;
   };
 
-  const judgedScope = (question: ConversationQuestion): string[] | null => {
+  /**
+   * The scope an ended Answer's sentences are judged again in: its Search scope as it is now. A
+   * help button's reply is judged as its press read, without another call's Transcript (#3005):
+   * its Question is a button's name, in either language, and the call's live text went with it.
+   */
+  const judgedScope = (
+    question: ConversationQuestion,
+    answer: ConversationAnswer,
+  ): string[] | null => {
     const mindId = judgedMind(question);
     const readsMind = mindId !== null && options.readableMindName(mindId) !== null;
-    return scopeNow(question.scope, mindId, readsMind ? null : wallOfTurn(question)).documentIds;
+    const { documentIds } = scopeNow(
+      question.scope,
+      mindId,
+      readsMind ? null : wallOfTurn(question),
+    );
+    const pressed =
+      answer.steps?.sent?.transcript === true &&
+      ALL_HELP.some((kind) =>
+        LANGUAGES.some((language) => translate(language, helpLabel(kind)) === question.text),
+      );
+    return mindId !== null && pressed ? pressScope(documentIds, mindId) : documentIds;
   };
 
   /** The judgements of Answers' sentences running, by Answer (#2311): stopping one ends it. */
@@ -1498,7 +1516,8 @@ export function createAnswers(options: AnswersOptions) {
     let foundAhead = false;
     /** The language the call's newest lines are in, which a help Answer is written in. */
     let callLanguage: string | null = null;
-    const callsUnmarked = options.callsUnmarked?.() ?? false;
+    // A press reads no other call (#3005), so it is sent no call marks and no rule about them.
+    const unmarked = (options.callsUnmarked?.() ?? false) || help !== undefined;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let finished = false;
     let support: CitationSupport | null = null;
@@ -1688,7 +1707,7 @@ export function createAnswers(options: AnswersOptions) {
         defuses: CALL_TAGS,
         quotesStateClaims: () => !options.quotesAsGiven?.(),
         thisCall: (documentId) =>
-          heard === null || callsUnmarked ? undefined : transcripts.has(documentId),
+          heard === null || unmarked ? undefined : transcripts.has(documentId),
       },
       original
         ? {
@@ -3678,7 +3697,7 @@ export function createAnswers(options: AnswersOptions) {
             analysisInstructions(withAnalysisTools),
             codeInstructions(withCodeTools, withAnalysisTools),
             workbookInstructions(withWorkbookTools),
-            meetingInstructions(heard !== null, callsUnmarked),
+            meetingInstructions(heard !== null, unmarked),
             signInNeededInstructions(signInNeeded.map((connector) => connector.name)),
             help ? "" : language,
           ]
@@ -3694,7 +3713,6 @@ export function createAnswers(options: AnswersOptions) {
                   found: foundAhead,
                   language: options.interfaceLanguage(),
                   callLanguage,
-                  callsUnmarked,
                 }),
                 ...(textBehind ? [LIVE_TEXT_BEHIND_NOTE] : []),
               ].join("\n\n"),
@@ -4969,7 +4987,7 @@ export function createAnswers(options: AnswersOptions) {
       if (!answer || answer.status === "streaming") return;
       if (!answer.citations.some((each) => each.check === "not-checked")) return;
       const limit = isRecord(input) ? moneyOf(input.limit) : null;
-      const documentIds = judgedScope(question);
+      const documentIds = judgedScope(question, answer);
       // The sentences judged again lose the ✓ an earlier check gave them, on every Citation they
       // cite, until this judgement passes them again (#2847).
       const again = new Set(
@@ -5021,7 +5039,7 @@ export function createAnswers(options: AnswersOptions) {
           figures: answer.figures,
           waiting,
           mindId: judgedMind(question),
-          documentIds: judgedScope(question),
+          documentIds: judgedScope(question, answer),
           model: answer.model,
         })) ?? null;
       if (estimate?.billing !== "per-token" || !estimate.upTo?.cost) return estimate;

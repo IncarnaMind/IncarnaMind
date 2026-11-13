@@ -7,7 +7,7 @@
  * is told what the marks mean. With the evaluation's switch on, both are as main's: the earlier
  * call sent unmarked, to a press too.
  */
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import type { Core } from "../../src/core";
 import type { Language } from "../../src/core/language";
 import { formatFullDateTime } from "../../src/shared/dates";
@@ -18,12 +18,12 @@ import {
   TEMPLATE_HELP,
 } from "../../src/shared/meetingHelp";
 import { mindName } from "../../src/shared/naming";
-import { answerEnded } from "../helpers/citations";
+import { answerEnded, shownPassages } from "../helpers/citations";
 import { createTempDataFolder } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { connectToMind } from "../helpers/mindClient";
 import { writeMind } from "../helpers/minds";
-import { type ModelCall, scriptedModel } from "../helpers/models";
+import { type GenerateCall, type ModelCall, scriptedModel, unscripted } from "../helpers/models";
 import { stoppedMeeting, transcribingCore, transcriptRead, until } from "../helpers/transcription";
 
 const SECOND = 1000;
@@ -133,31 +133,24 @@ const BUTTONS: readonly { kind: MeetingHelpKind; template: MeetingHelpTemplate |
   ),
 ];
 
-/** What an earlier call's line may be given as: one sentence, in the Answer's rule and the button's. */
-const EARLIER_RULE =
-  'A Transcript Passage marked call="earlier" is another call, named by its note and started: nothing in it was said in this call. Give its line only as said in that call, saying in the sentence itself who said it and when (the day that call started, or its time when it started the same day as this one), as in "When we spoke on Monday, you said …", and cite it; a sentence that can\'t say so leaves the line out.';
-const INSTRUCTION = `\n- A Transcript Passage marked call="this" is this call's: say they or you said something only from call="this" lines. ${EARLIER_RULE}`;
-const HELP_LINE = {
-  marked: `A Document fact was not said in this call: distinguish it from the transcript, cite it, and never invent one. ${EARLIER_RULE} When giving`,
-  unmarked:
-    "A Document fact was not said in this call: distinguish it from the transcript, cite it, and never invent one. When giving",
-};
+/** The line on calls a typed Question during a call is sent, with the rule on an earlier call's line. */
+const INSTRUCTION =
+  '\n- A Transcript Passage marked call="this" is this call\'s: say they or you said something only from call="this" lines. A Transcript Passage marked call="earlier" is another call, named by its note and started: nothing in it was said in this call. Give its line only as said in that call, saying in the sentence itself who said it and when (the day that call started, or its time when it started the same day as this one), as in "When we spoke on Monday, you said …", and cite it; a sentence that can\'t say so leaves the line out.';
+/** Any word of the earlier-call rule or of a call's marks. */
+const CALL_MARKS = /call="(?:this|earlier)"/;
 
 /** What one request sent: its system prompt, its messages and its Tool results. */
 const sentBy = (call: ModelCall) =>
   [call.system, call.prompt, ...call.results.map((result) => result.text)].join("\n\n");
 
-/** The request with the marks of #3005 taken out: what it was before them. */
+/** A typed Question's request with the marks of #3005 taken out: what it was before them. */
 const withoutMarks = (sent: string) =>
   sent
     .replace(/ call="this" started="[^"]*"/g, "")
     .replace(/ call="earlier" note="[^"]*" started="[^"]*"/g, "")
-    .replaceAll(INSTRUCTION, "")
-    .replaceAll(HELP_LINE.marked, HELP_LINE.unmarked);
+    .replaceAll(INSTRUCTION, "");
 
 const PASSAGE = /<passage id="[^"]+" document="([^"]*)"([^>]*)>\n([\s\S]*?)\n<\/passage>/g;
-/** A Passage marked as an earlier call's: the rules name the mark too, so only a tag counts. */
-const EARLIER_PASSAGE = /<passage [^>]*call="earlier"/;
 
 /** The Transcript Passages sent, each with its attributes after its Document's name, and its lines. */
 const transcriptPassages = (sent: string, transcriptName: string) =>
@@ -185,21 +178,105 @@ function searchingModel(calls: ModelCall[], query: string) {
   });
 }
 
+/** What the earlier call's other side said, and a sentence of a reply that says it again. */
+const EARLIER_SAID: Record<Language, { line: string; sentence: string }> = {
+  en: {
+    line: "Understood, your data stays in Europe then.",
+    sentence: "Your data stays in Europe",
+  },
+  "zh-CN": { line: "明白，数据就留在欧洲。", sentence: "数据就留在欧洲" },
+};
+
+/**
+ * A model that answers a press, or a typed Question, with one option whose sentence says the
+ * earlier call's line again, cited to that line wherever it can see it: a Passage it was given or
+ * found by searching once, else a Citation of the Note it reads, by its id ("C1"). While
+ * `judging.now` is false the sentences' judgement fails, so its Citation waits as not checked;
+ * then each batch is kept and judged unsupported.
+ */
+function citingModel(
+  calls: ModelCall[],
+  batches: GenerateCall[],
+  { sentence, line, query }: { sentence: string; line: string; query: string },
+  judging: { now: boolean },
+) {
+  return scriptedModel(
+    (call) => {
+      calls.push(call);
+      if (call.results.some((result) => result.tool === "cite")) {
+        return { text: `★ ${sentence} [^1]\n→ keeps it moving` };
+      }
+      const shown = [call.prompt, ...call.results.map((result) => result.text)].join("\n\n");
+      const passage = shownPassages(shown).find((each) => each.text.includes(line));
+      const cite = (id: string) => ({
+        calls: [{ tool: "cite", input: { citations: [{ marker: 1, passage: id, quote: line }] } }],
+      });
+      if (passage) return cite(passage.id);
+      if (/· C1\]/.test(call.prompt)) return cite("C1");
+      if (
+        call.tools.includes("search_documents") &&
+        !call.results.some((result) => result.tool === "search_documents")
+      ) {
+        return { calls: [{ tool: "search_documents", input: { query } }] };
+      }
+      return { text: `★ ${sentence}\n→ keeps it moving` };
+    },
+    {
+      generate: (call) => {
+        // Stop starts the Transcript's own work (its tags, the notes filled in), none of it this test's.
+        if (call.question === undefined) return { error: { status: 500, message: "Not here." } };
+        if (call.question === "claimed-changes") return { text: '{"claims":[]}' };
+        if (call.question === "request-done") {
+          return { text: '{"asks_change":"no","request":"none"}' };
+        }
+        if (call.question !== "sentence-batch") return unscripted(call.question, call.system);
+        if (!judging.now) return { error: { status: 500, message: "Not judged now." } };
+        batches.push(call);
+        const sentences = [
+          ...call.prompt.matchAll(/<sentence number="(\d+)">\n[\s\S]*?\n<\/sentence>/g),
+        ];
+        return {
+          text: JSON.stringify({
+            sentences: sentences.map(([, number]) => ({
+              number: Number(number),
+              kind: "fact",
+              verdict: "unsupported",
+              roles: "same",
+              time: "same",
+              quoted: "states",
+              says: "The quote says something else.",
+            })),
+          }),
+        };
+      },
+    },
+  );
+}
+
 /**
  * A core with one Folder holding the ordinary Document (none with `terms` false), and a way to
  * record a call in it or in another Folder. `only`: the engine says the first so many lines of
- * each side and no more, so a call's text stops there.
+ * each side and no more, so a call's text stops there. `model`: the chat model, made with the
+ * list every request goes in.
  */
 async function folderCore(
   language: Language,
-  { only, terms: withTerms = true }: { only?: number; terms?: boolean } = {},
+  {
+    only,
+    terms: withTerms = true,
+    model,
+  }: {
+    only?: number;
+    terms?: boolean;
+    model?: (calls: ModelCall[]) => ReturnType<typeof scriptedModel>;
+  } = {},
 ) {
   const lines = LINES[language];
   const calls: ModelCall[] = [];
   let unmarked = false;
   const dataDir = await createTempDataFolder();
   const { core, record, clock } = await transcribingCore(dataDir, {
-    model: searchingModel(calls, lines.query),
+    model: model ? model(calls) : searchingModel(calls, lines.query),
     engine: { lines: lines.mine.slice(0, only), theirLines: lines.theirs.slice(0, only) },
     callsUnmarked: () => unmarked,
   });
@@ -315,7 +392,7 @@ async function pressEvery(core: Core, calls: ModelCall[], meetingId: string) {
 
 for (const language of ["en", "zh-CN"] as const) {
   describe(`${language}: an earlier call's Transcript`, { timeout: 180_000 }, () => {
-    test("a typed Question is given it, marked as an earlier call with its Note and start, this call's lines as this call's, and the model is told what that means; a press is never given it; switched off, both are as main's", async () => {
+    test("a typed Question is given it, marked as an earlier call with its Note and start, this call's lines as this call's, and the model is told what that means; a press is never given it, nor any mark or rule for it; switched off, both are as main's", async () => {
       const setup = await setUp(language);
       const { core, calls, live } = setup;
       expect(setup.liveName).toBe(setup.earlierName);
@@ -350,22 +427,17 @@ for (const language of ["en", "zh-CN"] as const) {
 
       const [pressed] = markedPress;
       if (pressed === undefined) throw new Error("The press sent nothing.");
-      expect(pressed).toContain(INSTRUCTION);
-      expect(pressed).toContain(HELP_LINE.marked);
       const heard = /<live-transcript>\n([\s\S]*?)\n<\/live-transcript>/.exec(pressed)?.[1] ?? "";
-      const thisCall = transcriptPassages(heard, setup.earlierName);
-      expect(thisCall.length).toBeGreaterThan(0);
-      for (const passage of thisCall) expect(passage.attributes).toContain(thisMarks);
+      expect(transcriptPassages(heard, setup.earlierName).length).toBeGreaterThan(0);
       for (const sent of markedPress) {
         expect(transcriptPassages(sent, setup.earlierName).filter(isEarlier)).toEqual([]);
-        expect(sent).not.toMatch(EARLIER_PASSAGE);
+        expect(sent).not.toMatch(CALL_MARKS);
       }
 
       expect(unmarkedTyped).toHaveLength(markedTyped.length);
       for (const sent of [...unmarkedPress, ...unmarkedTyped]) {
-        expect(sent).not.toMatch(/ call="(?:this|earlier)"/);
+        expect(sent).not.toMatch(CALL_MARKS);
         expect(sent).not.toContain(INSTRUCTION);
-        expect(sent).not.toContain(HELP_LINE.marked);
       }
       expect(unmarkedTyped).toEqual(markedTyped.map(withoutMarks));
       // Main's path still gives a press the earlier call, as main does.
@@ -396,7 +468,7 @@ for (const language of ["en", "zh-CN"] as const) {
         }
         for (const each of sent) {
           expect(transcriptPassages(each, setup.earlierName).filter(isEarlier), kind).toEqual([]);
-          expect(each, kind).not.toMatch(EARLIER_PASSAGE);
+          expect(each, kind).not.toMatch(CALL_MARKS);
         }
         expect(
           sent.some((each) => each.includes(TERMS[language].sentence)),
@@ -430,7 +502,7 @@ for (const language of ["en", "zh-CN"] as const) {
   });
 
   describe(`${language}: a Folder with no other call`, { timeout: 180_000 }, () => {
-    test("each button's press is main's request to the byte but for the marks: the system's line on calls, the buttons' line on an earlier call's line, and this call's Passages' call and start", async () => {
+    test("each button's press is main's request to the byte", async () => {
       const setup = await folderCore(language, { only: 4 });
       const { core, calls } = setup;
       await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
@@ -441,24 +513,16 @@ for (const language of ["en", "zh-CN"] as const) {
       setup.unmark(true);
       const main = await pressEvery(core, calls, meeting.id);
 
+      expect(branch.map(({ kind }) => kind)).toHaveLength(15);
       for (const [index, { kind, sent }] of branch.entries()) {
-        const mains = main[index]?.sent ?? [];
-        expect(sent.map(withoutMarks), kind).toEqual(mains);
-        const [first] = sent;
-        expect(first, kind).toContain(INSTRUCTION);
-        expect(first, kind).toMatch(/ call="this" started="[^"]+"/);
-        if (CALL_ONLY.includes(kind)) expect(first, kind).not.toContain(HELP_LINE.marked);
-        else expect(first, kind).toContain(HELP_LINE.marked);
-        for (const each of mains) {
-          expect(each, kind).not.toMatch(/ call="(?:this|earlier)"/);
-          expect(each, kind).not.toContain(INSTRUCTION);
-        }
+        expect(sent, kind).toEqual(main[index]?.sent);
+        for (const each of sent) expect(each, kind).not.toMatch(CALL_MARKS);
       }
     });
   });
 
   describe(`${language}: a Folder that holds only calls`, { timeout: 180_000 }, () => {
-    test("with the earlier call left out, a press reads this call alone and is answered: as main's press in a Folder with this one call, but for the marks", async () => {
+    test("with the earlier call left out, a press reads this call alone and is answered: main's press in a Folder with this one call, to the byte", async () => {
       /**
        * The earlier call, stopped, then the live one three hours later, with no other Document.
        * `apart`: the earlier call is in another Folder, so the live call's Folder holds it alone.
@@ -496,14 +560,18 @@ for (const language of ["en", "zh-CN"] as const) {
           expect(answer.text, kind).toContain("Let me check the hosting options");
         }
         expect(pressed.sent.length, kind).toBeGreaterThan(0);
+        // The engine's eight lines a side come round again in the live call, so a Passage is the
+        // earlier call's when it holds a line only that call said.
+        const earlierOnly = (line: string) =>
+          branch.earlierText.includes(line) && !branch.liveText.includes(line);
         for (const each of pressed.sent) {
           expect(each, kind).not.toContain("holds no Documents, so there is nothing to search");
-          // The engine's eight lines a side come round again in the live call, so the call a
-          // Passage is from is read from its mark, which the branch gives every Transcript Passage.
-          expect(each, kind).not.toMatch(EARLIER_PASSAGE);
-          for (const passage of transcriptPassages(each, branch.earlierName)) {
-            expect(passage.attributes, kind).toContain(' call="this"');
-          }
+          expect(
+            transcriptPassages(each, branch.earlierName).filter((passage) =>
+              passage.lines.some(earlierOnly),
+            ),
+            kind,
+          ).toEqual([]);
         }
         const heard =
           /<live-transcript>\n([\s\S]*?)\n<\/live-transcript>/.exec(pressed.sent[0] ?? "")?.[1] ??
@@ -516,8 +584,127 @@ for (const language of ["en", "zh-CN"] as const) {
             kind,
           ).toBe(true);
         }
-        expect(pressed.sent.map(withoutMarks), kind).toEqual(mains.sent);
+        expect(pressed.sent, kind).toEqual(mains.sent);
       }
+    });
+  });
+
+  describe(`${language}: a press's reply checked again`, { timeout: 180_000 }, () => {
+    test("after the call stops, Check again and its estimate read the Folder without the earlier call's Transcript, though it holds the sentence's words; a typed Question's Answer still reads it", async () => {
+      const said = EARLIER_SAID[language];
+      const batches: GenerateCall[] = [];
+      const judging = { now: false };
+      const setup = await folderCore(language, {
+        model: (calls) =>
+          citingModel(
+            calls,
+            batches,
+            { sentence: said.sentence, line: said.line, query: said.sentence },
+            judging,
+          ),
+      });
+      const { core, dataDir, clock } = setup;
+      const earlier = await setup.call();
+      const stopped = await stoppedMeeting(core, dataDir, earlier.meeting.id);
+      clock.advance(3 * HOUR);
+      // A model with a price, so the check has an estimate.
+      const saved = await core.saveChatProvider({
+        kind: "anthropic",
+        apiKey: "sk-ant-test",
+        modelId: "claude-haiku-5-5",
+      });
+      if (saved.service) {
+        core.on("consent.requested", (request) => {
+          void core.respondToConsent(request.requestId, true);
+        });
+        await core.allowDataFlow("chat", saved.service.id);
+      }
+      const { meeting: live, heard } = await setup.call();
+      await transcriptRead(core, dataDir, live.id, heard.documentId ?? "");
+      expect(await textOf(core, stopped.document.id)).toContain(said.line);
+
+      const answerOf = async (ids: { conversationId: string; answerId: string }) => {
+        const { messages } = await core.getConversation(ids.conversationId);
+        const answer = messages.find((message) => message.id === ids.answerId);
+        if (answer?.kind !== "answer") throw new Error("No Answer.");
+        return answer;
+      };
+
+      // A typed Question cites the earlier call's line; the User keeps that Citation in the Note.
+      const asked = await core.askInConversation({
+        mindId: live.mindId,
+        text: language === "en" ? "What did they say last time?" : "上次他们说了什么？",
+      });
+      if (!asked.asked) throw new Error("Not asked.");
+      await answerEnded(core, asked.answerId);
+      const typedIds = { conversationId: asked.conversation.id, answerId: asked.answerId };
+      const [kept] = (await answerOf(typedIds)).citations;
+      if (!kept) throw new Error("The typed Question cited nothing.");
+      expect(kept.documentId).toBe(stopped.document.id);
+      const client = await connectToMind(core, live.mindId);
+      writeMind(client, [
+        {
+          type: "paragraph",
+          attrs: { id: "kept" },
+          content: [
+            { type: "text", text: `${said.sentence} ` },
+            {
+              type: "citation",
+              attrs: {
+                passageId: kept.passageId,
+                documentId: kept.documentId,
+                documentName: kept.documentName,
+                contentHash: kept.contentHash,
+                pageFrom: kept.pageFrom,
+                pageTo: kept.pageTo,
+                location: kept.location,
+                quote: kept.quote,
+                check: "found",
+                checkReason: null,
+              },
+            },
+          ],
+        },
+      ]);
+      await client.settled();
+
+      // The press keeps the Note's Citation: the one way its reply can cite an earlier call.
+      const pressed = await core.askMeetingHelp({
+        meetingId: live.id,
+        kind: "say",
+        conversationId: null,
+      });
+      if (!pressed.asked) throw new Error("Not pressed.");
+      await answerEnded(core, pressed.answerId);
+      const pressIds = { conversationId: pressed.conversation.id, answerId: pressed.answerId };
+      const reply = await answerOf(pressIds);
+      expect(reply.citations.map((citation) => [citation.documentId, citation.check])).toEqual([
+        [stopped.document.id, "not-checked"],
+      ]);
+
+      // Stop: the notes are tried with the model, which this test answers with an error.
+      await core.stopMeeting(live.id);
+      await until(core, live.id, (transcript) => transcript.state === "saved");
+      await vi.waitFor(async () =>
+        expect((await core.listMeetings()).find((each) => each.id === live.id)?.fill?.state).toBe(
+          "failed",
+        ),
+      );
+
+      // The estimate reads the scope Check again reads: for the press, the earlier call is out of
+      // it, so there is nothing to judge; the typed Question's Answer still has it.
+      expect(await core.estimateAnswerCheck(pressIds)).toBeNull();
+      expect(await core.estimateAnswerCheck(typedIds)).not.toBeNull();
+
+      judging.now = true;
+      await core.checkAnswerAgain(pressIds);
+      expect(batches.filter((batch) => batch.prompt.includes(said.line))).toEqual([]);
+      const rechecked = await answerOf(pressIds);
+      expect(rechecked.citations.map((citation) => citation.check)).toEqual(["not-checked"]);
+      expect(rechecked.citations.flatMap((citation) => citation.passedAt ?? [])).toEqual([]);
+
+      await core.checkAnswerAgain(typedIds);
+      expect(batches.some((batch) => batch.prompt.includes(said.line))).toBe(true);
     });
   });
 }

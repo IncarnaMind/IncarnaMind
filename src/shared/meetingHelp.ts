@@ -87,7 +87,7 @@ export const isMeetingTemplate = (value: unknown): value is MeetingHelpTemplate 
 export const isGeneralHelpKind = (value: unknown): value is GeneralHelpKind =>
   GENERAL_HELP.some((kind) => kind === value);
 
-const ALL_HELP: readonly MeetingHelpKind[] = [
+export const ALL_HELP: readonly MeetingHelpKind[] = [
   ...GENERAL_HELP,
   ...MEETING_TEMPLATES.flatMap((template) => TEMPLATE_HELP[template]),
 ];
