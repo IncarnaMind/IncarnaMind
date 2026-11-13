@@ -26,6 +26,7 @@ import { type SpeakersStep, useAppStore, type ViewerTarget } from "../store";
 import { addLineToNote, type LineAdded } from "../transcriptNotes";
 import { useTranscriptPlayer } from "../transcriptPlayer";
 import { useCitedArea } from "./citedArea";
+import { citedPlaceGone } from "./citedPlace";
 import { loadDocumentBytes, MissingDocumentError } from "./documentBytes";
 import { markQuote, textNodes, unmarkQuote } from "./domQuote";
 import { FileStates } from "./FileStates";
@@ -670,7 +671,7 @@ function TranscriptContent({
 
   return (
     <>
-      <ViewerHeader>
+      <ViewerHeader placeGone={!live && citedPlaceGone(target, units.length)}>
         {live && state === "live" && (
           <span data-testid="transcript-live" className="transcript-live">
             <span aria-hidden="true" className="recording-dot" />
