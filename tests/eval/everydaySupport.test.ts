@@ -6,6 +6,7 @@
  */
 import { describe, expect, test } from "vitest";
 import {
+  backedByFound,
   checkCitedSentences,
   citedSentences,
   supportedShare,
@@ -354,8 +355,44 @@ describe("The share of cited sentences supported", () => {
         { model: "m", language: "zh-CN", support: [{ sentence: "c", verdict: "not-checked" }] },
       ]),
     ).toEqual([
-      { model: "m", language: "en", supported: 1, judged: 2, notChecked: 0 },
-      { model: "m", language: "zh-CN", supported: 0, judged: 0, notChecked: 1 },
+      { model: "m", language: "en", supported: 1, backedByFound: 0, judged: 2, notChecked: 0 },
+      { model: "m", language: "zh-CN", supported: 0, backedByFound: 0, judged: 0, notChecked: 1 },
     ]);
+  });
+});
+
+describe("A sentence backed by a Passage the check found", () => {
+  const backedPart = {
+    ...part(0, 10, { kind: "fact", verdict: "not-checked", reason: "found-elsewhere" }),
+  };
+  const sentence = (parts: ClaimCheckPart[], reason: "found-elsewhere" | "no-evidence") => ({
+    sentence: "Tides turn twice in a day here.",
+    verdict: "not-checked" as const,
+    reason,
+    parts: parts.map((each) => ({
+      text: "Tides turn",
+      kind: each.kind,
+      verdict: each.verdict,
+      reason: each.reason,
+      detail: null,
+      unsupported: null,
+      evidence: [],
+      figures: [],
+    })),
+  });
+
+  // protects=a sentence whose only parts without a ✓ rest on a Passage the check found counts Supported, listed apart, while one with any other part Not checked stays Not checked; fails_when=it counts against the Answer, or another reason is counted Supported; no_claim=how the app shows it.
+  test("counts Supported, listed apart", () => {
+    const found = sentence([backedPart], "found-elsewhere");
+    const mixed = sentence(
+      [backedPart, part(11, 20, { kind: "fact", verdict: "not-checked", reason: "no-evidence" })],
+      "found-elsewhere",
+    );
+    expect(backedByFound(found)).toBe(true);
+    expect(backedByFound(mixed)).toBe(false);
+    expect(supportRates([{ model: "m", language: "en", support: [found, mixed] }])).toEqual([
+      { model: "m", language: "en", supported: 1, backedByFound: 1, judged: 1, notChecked: 1 },
+    ]);
+    expect(supportedShare([found])).toBe(1);
   });
 });
