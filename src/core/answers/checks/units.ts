@@ -21,8 +21,8 @@ import {
 } from "../../../shared/figures";
 import { INTEGER_WORDS, NUMBER_WORD, SCALES, wholeNumberWords } from "../../../shared/numberWords";
 import type { TextRange } from "../../../shared/quoteMatch";
-import { documentFigureContext } from "../calculations";
-import { isRow, tableAt } from "./figureMeasures";
+import { documentFigureContext, mayLeaveOut } from "../calculations";
+import { isRow, ownNames, tableAt } from "./figureMeasures";
 
 export type UnitNotStated =
   /** `currency` as the sentence writes it ("£", "英镑"), `amount` as the Document does ("54,000"). */
@@ -601,7 +601,18 @@ function asUnitLine(piece: string, context: FigureContext): StatedUnit[] {
     return stated;
   if (!scaled && stated.length === 0 && !spellsItsScale(said.unit)) return stated;
   const { scale, scaleWord, unit } = said;
-  return [{ start: 0, end: piece.length, chars: piece, scale, scaleWord, unit }];
+  const except = stated.find((statement) => statement.except)?.except;
+  return [
+    {
+      start: 0,
+      end: piece.length,
+      chars: piece,
+      scale,
+      scaleWord,
+      unit,
+      ...(except && { except }),
+    },
+  ];
 }
 
 const statesScale = (piece: string, context: FigureContext) =>
@@ -780,6 +791,24 @@ function unitsOnLine(line: string, context: FigureContext): StatedUnit[] {
 }
 
 /**
+ * Whether a statement's own exception leaves out the number at `start` ("in millions, except per
+ * share data" over an "Earnings per share" row), by the names its table gives it or its line's
+ * words before it, as the calculation rule reads the clause (#2997).
+ */
+function leavesOut(
+  statement: StatedUnit,
+  text: string,
+  start: number,
+  table = tableAt(text, start),
+): boolean {
+  if (statement.except === undefined) return false;
+  const names = table
+    ? ownNames(table)
+    : [text.slice(text.lastIndexOf("\n", start - 1) + 1, start)];
+  return names.some((name) => mayLeaveOut(statement, name));
+}
+
+/**
  * What the lines that head the rows of the number at `start` state of its unit: the lines giving
  * no value directly above its own table (its rows and heading rows, `tableAt`), or above the lines
  * of a list that give a value, up to a blank line or a row that gives a value, which is another
@@ -808,7 +837,7 @@ function headingUnits(
     if (line.trim() === "" || isRow(line) || givesValue(line)) break;
     units.push(...unitsOnLine(line, context));
   }
-  return units;
+  return units.filter((statement) => !leavesOut(statement, text, start, table));
 }
 
 // A rate after a unit: "万吨/年" is 万吨 a year, and "barrels per day" barrels a day.
@@ -930,7 +959,12 @@ export function statesFigure(
         const own = ownFirst(labels, kind);
         return (
           own.length > 0 &&
-          own.every((label) => gives(label) && !bracketNamesTwo(label.line, context))
+          own.every(
+            (label) =>
+              !leavesOut(label, text, start, table) &&
+              gives(label) &&
+              !bracketNamesTwo(label.line, context),
+          )
         );
       }
       const heading = headingUnits(text, start, context, table);

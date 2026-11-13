@@ -168,6 +168,34 @@ export function tableAt(
   return { lines, index, column: cellAt(line, at - lineStart), top, head, end };
 }
 
+type Table = NonNullable<ReturnType<typeof tableAt>>;
+
+// In side-by-side panels ("| Revenue | 12% | Operating margin | 94% |") the first cell
+// labels another number: the label is the nearest named cell to the left, never one with a
+// digit, a value the figure reader may leave unread ("6.1p", "2.6 days").
+const labelOf = (row: readonly string[], column: number) =>
+  row
+    .slice(0, column)
+    .reverse()
+    .find((cell) => namesSomething(cell) && !/\p{Nd}/u.test(cell));
+
+// A heading row that doesn't line up with the row (a reader that drops a blank corner cell,
+// a merged heading written once) can't say which heading is the number's, or whose another is.
+const alignedHeadings = ({ lines, index, top, head }: Table): string[] =>
+  lines
+    .slice(head, top)
+    .filter(
+      (heading) =>
+        !isRule(heading) && cellsOf(heading).length === cellsOf(lines[index] ?? "").length,
+    );
+
+/** The names `table` gives its number: the nearest named cell to its left and the heading of its own column. */
+export const ownNames = (table: Table): string[] =>
+  [
+    labelOf(cellsOf(table.lines[table.index] ?? ""), table.column) ?? "",
+    ...alignedHeadings(table).map((heading) => cellsOf(heading)[table.column] ?? ""),
+  ].filter(namesSomething);
+
 /**
  * The names of the cell that holds `quote`'s number in `text`'s table, once `text` holds the
  * quote once: its own (the nearest named cell to the number's left, and the heading of its own
@@ -186,29 +214,15 @@ function cellOf(
   if (!found || more) return null;
   const table = tableAt(all, boundAt(all, found, quote, bound));
   if (!table) return null;
-  const { lines, index, column, top, head, end } = table;
-  const headings = lines.slice(head, top).filter((heading) => !isRule(heading));
+  const { lines, index, column, top, end } = table;
   const cells = cellsOf(lines[index] ?? "");
-  // In side-by-side panels ("| Revenue | 12% | Operating margin | 94% |") the first cell
-  // labels another number: the label is the nearest named cell to the left, never one with a
-  // digit, a value the figure reader may leave unread ("6.1p", "2.6 days").
-  const labelOf = (row: readonly string[]) =>
-    row
-      .slice(0, column)
-      .reverse()
-      .find((cell) => namesSomething(cell) && !/\p{Nd}/u.test(cell));
-  const label = labelOf(cells);
   // A label merged over several rows is written once, or trimmed away: such a row can't say whose
   // its number is.
-  if (label === undefined) return null;
-  // A heading row that doesn't line up with the row (a reader that drops a blank corner cell,
-  // a merged heading written once) can't say which heading is the number's, or whose another is.
-  const aligned = headings.filter((heading) => cellsOf(heading).length === cells.length);
-  const own = [label, ...aligned.map((heading) => cellsOf(heading)[column] ?? "")];
+  if (labelOf(cells, column) === undefined) return null;
   // Only another number's own names name it: a heading over the labels ("Revenue (£m)"), a
   // section row or a units column names no other number.
   const others = [
-    ...aligned.flatMap((heading) =>
+    ...alignedHeadings(table).flatMap((heading) =>
       cellsOf(heading).filter((_, place) => place !== column && holdsNumber(cells[place])),
     ),
     ...lines
@@ -216,12 +230,9 @@ function cellOf(
       .filter((_, place) => place + top !== index)
       .map(cellsOf)
       .filter((row) => holdsNumber(row[column]))
-      .map((row) => labelOf(row) ?? ""),
+      .map((row) => labelOf(row, column) ?? ""),
   ];
-  return {
-    own: own.filter(namesSomething),
-    others: others.filter(namesSomething),
-  };
+  return { own: ownNames(table), others: others.filter(namesSomething) };
 }
 
 /** A measure's words, their digits left out. */
