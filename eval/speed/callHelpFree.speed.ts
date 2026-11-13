@@ -176,7 +176,7 @@ test.skipIf(env("FREE_RECORD") === null)("a free paired call-help record", async
           const done: ArmRun[] = [];
           const firstSent: (SentRequest | null)[] = [null, null];
           for (const which of order) {
-            const { library, meeting } = opened[which];
+            const { library, meeting, citing } = opened[which];
             const recorder = library.timings;
             if (!recorder || !meeting) throw new Error(`${item.id} opened without its Meeting.`);
             switches[which].takeSent();
@@ -185,6 +185,7 @@ test.skipIf(env("FREE_RECORD") === null)("a free paired call-help record", async
             done[which] = await runOnArm(item, {
               library,
               meeting,
+              ...(citing && { citing }),
               recorder,
               choice: choices[which] ?? { providerId: "", modelId: "local" },
               model: name,

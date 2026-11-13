@@ -28,6 +28,7 @@ import { loadManifest } from "../hard/lib/manifest";
 import { loadHardQuestions, textProblems } from "../hard/lib/questions";
 import { storedTextReader } from "../hard/lib/stored";
 import { type AnswerRecord, askOne } from "../lib/citations";
+import type { CitingRecord, CitingWatch } from "../lib/citingRecord";
 import { type EvalQuestion, type ExpectedPassage, loadEvaluationSet } from "../lib/evaluationSet";
 import { neededPassages } from "../lib/handed";
 import { type Library, type LibraryOptions, openLibrary } from "../lib/library";
@@ -141,6 +142,8 @@ export interface ArmRun {
   };
   /** Every Citation the reply's `cite` calls recorded, one its text no longer holds among them. */
   writtenCitations?: { marker: number; quote: string }[];
+  /** What a replay of the reply's citing step needs (#3059); absent where it wasn't watched. */
+  citing?: CitingRecord;
   /** Each request and local step, for an item that reads them (a help reply). */
   requests?: RequestTiming[];
   /**
@@ -236,6 +239,8 @@ export interface ItemContext {
   ended?(): void;
   /** The recording Meeting its group heard, for an item asked during a call. */
   meeting?: { id: string };
+  /** Its group's watcher of the citing step, where the group keeps one. */
+  citing?: CitingWatch;
 }
 
 export interface PairedItem {
@@ -258,6 +263,8 @@ export interface OpenedGroup {
   leftOut?: ReadonlySet<string>;
   /** The Meeting it recorded, for items asked during a call. */
   meeting?: { id: string };
+  /** Watches the citing step of its library's Answers (#3059), for items that keep its record. */
+  citing?: CitingWatch;
   close(): Promise<void>;
 }
 

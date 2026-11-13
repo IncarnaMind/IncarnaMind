@@ -313,6 +313,7 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
               done[which] = await runOnArm(item, {
                 library,
                 ...(opened[which].meeting && { meeting: opened[which].meeting }),
+                ...(opened[which].citing && { citing: opened[which].citing }),
                 recorder: recorders[which],
                 choice: choices[which],
                 model: name,

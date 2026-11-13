@@ -28,6 +28,7 @@ import {
   NO_TRANSCRIPTION_FILES,
   until,
 } from "../../tests/helpers/transcription";
+import { citingRecord, watchCiting } from "../lib/citingRecord";
 import type { EvalDocument } from "../lib/evaluationSet";
 import { openLibrary } from "../lib/library";
 import { armNamed } from "./arms";
@@ -590,7 +591,7 @@ function item(each: CallHelpCase, set: CallHelpSet): PairedGroup["items"][number
     kind: `${each.kind}-${each.needs}`,
     language: each.language,
     words: "item",
-    async run({ library, claimsJudge, meeting, choice, arm }) {
+    async run({ library, claimsJudge, meeting, choice, arm, citing }) {
       if (!meeting) throw new Error("The call-help set needs its Meeting.");
       const quoteOnly = armNamed(arm).helpMarksQuoteOnly === true;
       const form = helpFormOf(each.kind, armNamed(arm).callHelpForm);
@@ -605,11 +606,17 @@ function item(each: CallHelpCase, set: CallHelpSet): PairedGroup["items"][number
         requests: requestsSince(library.dataDir, since),
       });
       let pressed: Awaited<ReturnType<typeof press>>;
+      const begin = () => {
+        library.timings?.begin();
+        citing?.begin();
+      };
       try {
-        pressed = await press(library.core, each, meeting.id, () => library.timings?.begin(), form);
+        pressed = await press(library.core, each, meeting.id, begin, form);
       } catch (error) {
+        citing?.end();
         return failed(error instanceof Error ? error.message : String(error));
       }
+      const watched = citing?.end();
       const { answer, firstWordsMs, firstOptionMs, settledMs } = pressed;
       const written = library.timings?.end().writtenText ?? null;
       const requests = requestsSince(library.dataDir, since);
@@ -621,6 +628,10 @@ function item(each: CallHelpCase, set: CallHelpSet): PairedGroup["items"][number
         streaming: false,
         ...(form && { form }),
         ...(answer.steps?.closingLine === true && { closingLine: true }),
+        quoteOf: (marker) => {
+          const citation = answer.citations.find((each) => each.marker === marker);
+          return citation && !isTranscriptLocation(citation.location) ? citation.quote : null;
+        },
       });
       const shown = [...kept.lead, ...kept.options];
       const numbers = citationNumbers(shown, (marker) =>
@@ -770,6 +781,7 @@ function item(each: CallHelpCase, set: CallHelpSet): PairedGroup["items"][number
             passedAt: passedAt ?? [],
           })),
         },
+        ...(watched && { citing: citingRecord(watched, answer) }),
         ...(read &&
           judged && {
             marks: {
@@ -825,11 +837,14 @@ export async function openCall(
     documents.push({ key: document.file, path });
   }
   const rig = callRig(turns);
+  const citing = watchCiting();
   const library = await openLibrary({
     ...base,
     name,
     documents,
     meetings: { ...rig.adapters, ...speakers },
+    // The citing record reads what the core is given, outside every other wrapper.
+    chatModels: (inner) => citing.chatModels(base.chatModels?.(inner) ?? inner),
   });
   try {
     const { core } = library;
@@ -839,6 +854,7 @@ export async function openCall(
     return {
       library,
       meeting,
+      citing,
       async close() {
         await library.close();
         await rm(folder, { recursive: true, force: true });
