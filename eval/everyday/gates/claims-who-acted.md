@@ -148,7 +148,7 @@ Each arm is a tree of its own, built with `git archive`. Its code is that commit
 - So it goes off-peak, or it waits for more room.
 
 **Keys and leases.**
-- The half runs in the lead's slot, `cory-2970-gate`, under the `key-anthropic` lease, on `ANTHROPIC_API_KEY`. The judge's lease is nested inside it for the 41.
+- The half runs on the first direct Anthropic key, under its lease. Its judge's lease is nested inside it for the 41.
 - The hold is renewed after each round, so its two-hour limit doesn't end it partway.
 - Before each round, one smallest request reads the key's per-minute allowance. A round starts only above 90%, and before the 41 the same holds for Claude Sonnet 5.5.
 
@@ -223,8 +223,8 @@ The Haiku half's issue comment gave $0.26 for the 41. That counts only the Answe
 - **The balance** is read before every round and after the last, and set beside the tokens' spend. Spend is reported from the tokens, and the balance only when read at least 30 minutes after the last request.
 
 **Keys and leases.**
-- DeepSeek's key lease is held for the 60 runs and renewed after each round, so its two-hour limit doesn't end it partway.
-- The 41 take the first direct Anthropic key's judge lease outside DeepSeek's key lease, in that order of their names.
+- DeepSeek's key lease is held in one chain from the first probe to the end of the 41, and renewed after each round, so its two-hour limit doesn't end it partway and nothing else takes the key between the rounds and the 41.
+- The first direct Anthropic key's judge lease is taken only for the 41, nested inside DeepSeek's key lease, so that key's judge isn't held for the four hours.
 - DeepSeek sends no per-minute allowance for our key. What is recorded before each round is that, the balance, and the price page's hour. Before the 41 the same holds for Claude Sonnet 5.5's allowance on the first direct Anthropic key: above 90%, as in the Haiku half.
 - A dry round comes first, with a key that isn't one, so every request is refused and nothing is spent: both arms open, each check is heard, and every probe has its row.
 
