@@ -105,9 +105,8 @@ function chooseAgainLine(
   localMode: boolean,
 ): string | null {
   const service = services.find((each) => each.chooseAgain);
-  if (!service) return null;
   // Local mode refuses the choice this line asks for, so it asks once Local mode is off (#2999).
-  if (localMode) return t("meetings.route.paused");
+  if (!service || localMode) return null;
   const words = language === "zh-CN" ? "zh" : "en";
   return t("meetings.route.chooseAgain", {
     provider: t(ROUTE_LABELS[service.route]),

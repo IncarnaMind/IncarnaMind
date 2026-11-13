@@ -321,19 +321,22 @@ describe.each(["en", "zh-CN"] as const)(
     };
     const localMode = (on: boolean) =>
       act(() => useAppStore.setState({ embedding: { localOnly: on } as never } as never));
+    const here = language === "en" ? "Private and free" : "私密、免费";
+    const whileLocal = (page: "ai" | "meetings") => (page === "meetings" ? here : undefined);
 
     describe.each(["deepgram", "qwen"] as const)("%s's key", (route) => {
       const again = SET_BACK[language][route];
       const read = () => ready(SET_BACK_SERVICES[route]);
 
-      // protects=Local mode on, with a service set back by its key, says what is true: paused, nothing to choose again; fails_when=the line asks the User to choose the service again, which Local mode refuses; no_claim=that refusal, which the core test holds.
+      // protects=Local mode on, with a service set back by its key, says what Settings says for this computer: Private and free on Meetings and no line on AI; fails_when=the line asks the User to choose the service again, which Local mode refuses, or says transcription here is paused when it is not; no_claim=that refusal, which the core test holds.
       test.each(["ai", "meetings"] as const)(
-        "Settings › %s says the route is paused while Local mode is on",
+        "Settings › %s says what it says for this computer while Local mode is on",
         async (page) => {
           setUp(language, "local", true);
           await pages[page].render(read());
-          expect(pages[page].line()).toBe(SENDS[language].paused);
+          expect(pages[page].line()).toBe(whileLocal(page));
           expect(container.textContent).not.toContain(again);
+          expect(container.textContent).not.toContain(SENDS[language].paused);
         },
       );
 
@@ -353,18 +356,18 @@ describe.each(["en", "zh-CN"] as const)(
         async (page) => {
           setUp(language, "local", true);
           await pages[page].render(read());
-          expect(pages[page].line()).toBe(SENDS[language].paused);
+          expect(pages[page].line()).toBe(whileLocal(page));
           await localMode(false);
           expect(pages[page].line()).toBe(again);
           await localMode(true);
-          expect(pages[page].line()).toBe(SENDS[language].paused);
+          expect(pages[page].line()).toBe(whileLocal(page));
         },
       );
     });
 
-    // protects=what the core itself lists after a key moved while Local mode was on, by each way in, is paused on both pages and asks to choose again once Local mode is off; fails_when=either page asks for a choice Local mode refuses, or stops asking once it is off; no_claim=the core's refusal and the audio that goes nowhere, which liveRoutes.test.ts holds.
+    // protects=what the core itself lists after a key moved while Local mode was on, by each way in, reads as this computer on both pages (Private and free on Meetings, no line on AI) and asks to choose again once Local mode is off; fails_when=either page asks for a choice Local mode refuses, says transcription here is paused, or stops asking once it is off; no_claim=the core's refusal and the audio that goes nowhere, which liveRoutes.test.ts holds.
     test.each(["deepgram", "qwen"] as const)(
-      "with the core's own list after %s's key moved in Local mode, both pages say paused until Local mode is off",
+      "with the core's own list after %s's key moved in Local mode, both pages read as this computer until Local mode is off",
       async (route) => {
         const { core } = await transcribingCore(await createTempDataFolder());
         if (route === "deepgram") {
@@ -406,18 +409,17 @@ describe.each(["en", "zh-CN"] as const)(
           await pages.meetings.render(read);
           return [ai, pages.meetings.line()];
         };
-        const paused = SENDS[language].paused;
-        expect(await show(await core.setLocalOnly(true))).toEqual([paused, paused]);
+        expect(await show(await core.setLocalOnly(true))).toEqual([undefined, here]);
         const again = SET_BACK[language][route];
         expect(await show(await core.setLocalOnly(false))).toEqual([again, again]);
       },
     );
 
-    // protects=a service not set back says what it did before, in Local mode: this computer, and nothing, on the two pages; fails_when=the paused line leaks onto a route that was never set back; no_claim=the paused line for a service chosen, which the tests above hold.
+    // protects=a service not set back says what it did before, in Local mode: this computer, and nothing, on the two pages, the same as a service set back by its key; fails_when=a line leaks onto a route that was never set back; no_claim=the lines for a service chosen, which other tests hold.
     test("a service that was not set back keeps its lines in Local mode", async () => {
       setUp(language, "local", true);
       await pages.meetings.render(ready(soniox()));
-      expect(pages.meetings.line()).toBe(language === "en" ? "Private and free" : "私密、免费");
+      expect(pages.meetings.line()).toBe(here);
       await pages.ai.render(ready(soniox()));
       expect(pages.ai.line()).toBeUndefined();
     });
