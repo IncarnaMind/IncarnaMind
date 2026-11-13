@@ -199,11 +199,13 @@ export function quotes(
   return where && quote.length >= 6 && (wanted.includes(quote) || quote.includes(wanted));
 }
 
-/** The reply as the panel shows it: each item's lines, its Citations by the numbers they show with. */
+type CitationPiece = Extract<ReplyItem["lead"][number], { kind: "citation" }>;
+
+/** The reply as the panel shows it: each item's lines, each Citation as `label` writes it. */
 function shownReply(
-  answer: ConversationAnswer,
+  answer: Pick<ConversationAnswer, "figures">,
   items: readonly ReplyItem[],
-  numbers: ReadonlyMap<number, number>,
+  label: (piece: CitationPiece) => string,
 ) {
   const text = (pieces: ReplyItem["lead"]) =>
     pieces
@@ -212,9 +214,7 @@ function shownReply(
           ? piece.text
           : piece.kind === "figure"
             ? (answer.figures.find((each) => each.marker === piece.marker)?.shown ?? "")
-            : numbers.has(piece.marker)
-              ? `[${numbers.get(piece.marker)}]`
-              : "",
+            : label(piece),
       )
       .join("")
       .trim();
@@ -228,6 +228,37 @@ function shownReply(
     )
     .join("\n\n");
 }
+
+/** Where a Citation shows in a reply: its marker, and its place among the reply's (`at`). */
+export type CitedPlace = Pick<CitationPiece, "marker" | "at">;
+
+/**
+ * The reply as a typed question's judge reads it (#2925): each place a Citation shows, of those
+ * `shows`, numbered on its own in reading order, so the sentence the judge lists is the one whose
+ * ✓ is counted. Numbered by Citation, a ✓ beside one sentence counted for another that carries the
+ * same Citation.
+ */
+export function placedReply(
+  answer: Pick<ConversationAnswer, "figures">,
+  items: readonly ReplyItem[],
+  shows: (marker: number) => boolean,
+): { text: string; places: CitedPlace[] } {
+  const places: CitedPlace[] = [];
+  const text = shownReply(answer, items, (piece) => {
+    if (!shows(piece.marker)) return "";
+    places.push({ marker: piece.marker, at: piece.at });
+    return `[${places.length}]`;
+  });
+  return { text, places };
+}
+
+/** The places the judge listed (by `placedReply`'s numbers) that show ✓ (`checked`). */
+export const unstatedChecked = (
+  places: readonly CitedPlace[],
+  listed: readonly number[],
+  checked: (place: CitedPlace) => boolean,
+): CitedPlace[] =>
+  [...new Set(listed)].flatMap((number) => places[number - 1] ?? []).filter(checked);
 
 const JUDGE_LINES = [
   "<expected> says what a right reply gives; <avoid>, when there is one, what it must not give as so. <call> holds the newest lines of the call.",
@@ -406,8 +437,11 @@ async function press(
   firstOptionMs: number | null;
   settledMs: number | null;
   pressedFirst?: NonNullable<Measured["pressedFirst"]>;
+  /** What the reply showed before it was written again, oldest first: its text as it last stood. */
+  drafts: string[];
 }> {
   let stopPhase: () => void = () => undefined;
+  const drafts: string[] = [];
   let answerId: string | null = null;
   let finishedAt: number | null = null;
   let settledAt: number | null = null;
@@ -428,6 +462,10 @@ async function press(
   const stop = core.on("conversation.message", (message) => {
     if (message.kind !== "answer") return;
     if (message.id === answerId) {
+      // Written again, a reply starts over: what it showed before is kept, to tell which step
+      // wrote what the User saw.
+      if (latestText.trim() !== "" && message.text.length < latestText.length / 2)
+        drafts.push(latestText);
       latestText = message.text;
       if (snapshotting) beforeCheck = message.text;
     }
@@ -534,6 +572,7 @@ async function press(
       firstWordsMs: since(times?.wordsAt, start),
       firstOptionMs: since(times?.optionAt, start),
       settledMs,
+      drafts,
       ...(buttonId !== null && {
         pressedFirst: {
           firstWordsMs: since(button?.wordsAt, buttonAt),
@@ -656,7 +695,7 @@ function item(each: CallHelpCase, set: CallHelpSet): PairedGroup["items"][number
       } catch (error) {
         return failed(error instanceof Error ? error.message : String(error));
       }
-      const { answer, firstWordsMs, firstOptionMs, settledMs, pressedFirst } = pressed;
+      const { answer, firstWordsMs, firstOptionMs, settledMs, pressedFirst, drafts } = pressed;
       const requests = requestsSince(library.dataDir, since);
       const done = answer.status === "done";
       const shown = shownItems(readHelpReply(answer.text), {
@@ -684,7 +723,17 @@ function item(each: CallHelpCase, set: CallHelpSet): PairedGroup["items"][number
               (place) => place.marker === citation.marker && sentencePassed(citation, place.at),
             );
       const found = citations.filter(quoteFound);
-      const reply = shownReply(answer, shown, numbers);
+      const citationOf = (marker: number) =>
+        answer.citations.find((citation) => citation.marker === marker);
+      const cites = (number: number, citation: ConversationAnswer["citations"][number]) =>
+        `[${number}] ${citation.documentName}: “${citation.quote}” (${quoteFound(citation) ? "found" : citation.check})`;
+      const reply = shownReply(answer, shown, (piece) =>
+        numbers.has(piece.marker) ? `[${numbers.get(piece.marker)}]` : "",
+      );
+      // A typed question's judge reads each place a Citation shows on its own (#2925).
+      const placed = each.typed
+        ? placedReply(answer, shown, (marker) => numbers.has(marker))
+        : null;
       let judged: Judged | null = null;
       try {
         judged = done
@@ -692,37 +741,51 @@ function item(each: CallHelpCase, set: CallHelpSet): PairedGroup["items"][number
               claimsJudge,
               each,
               [...(each.before ?? []), ...each.turns],
-              reply,
-              [...numbers].flatMap(([marker, number]) => {
-                const citation = answer.citations.find((each) => each.marker === marker);
-                return citation
-                  ? [
-                      `[${number}] ${citation.documentName}: “${citation.quote}” (${quoteFound(citation) ? "found" : citation.check})`,
-                    ]
-                  : [];
-              }),
+              placed ? placed.text : reply,
+              placed
+                ? placed.places.flatMap((place, index) => {
+                    const citation = citationOf(place.marker);
+                    return citation ? [cites(index + 1, citation)] : [];
+                  })
+                : [...numbers].flatMap(([marker, number]) => {
+                    const citation = citationOf(marker);
+                    return citation ? [cites(number, citation)] : [];
+                  }),
             )
           : null;
       } catch (error) {
         return failed(`${JUDGE_FAILED}: ${error instanceof Error ? error.message : String(error)}`);
       }
-      const shownAs = (number: number) => {
-        const marker = [...numbers].find(([, shown]) => shown === number)?.[0];
-        return answer.citations.find((citation) => citation.marker === marker);
+      const markerShownAs = (number: number) =>
+        [...numbers].find(([, shown]) => shown === number)?.[0];
+      const listedMarkers = new Set(
+        placed
+          ? (judged?.unstated ?? []).flatMap((number) => placed.places[number - 1]?.marker ?? [])
+          : (judged?.unstated ?? []).flatMap((number) => markerShownAs(number) ?? []),
+      );
+      // A ✓ the judge finds unstated: where the panel shows it beside the sentence the judge
+      // listed, for a typed question; beside any sentence of the Citation it listed, for a button.
+      const placeChecked = (place: CitedPlace) => {
+        const citation = citationOf(place.marker);
+        if (!citation) return false;
+        return quoteOnly ? citation.check === "found" : sentencePassed(citation, place.at);
       };
-      const unstatedFound = (judged?.unstated ?? []).filter((number) => {
-        const citation = shownAs(number);
-        return citation !== undefined && showsCheck(citation);
-      });
+      const unstatedFound = placed
+        ? unstatedChecked(placed.places, judged?.unstated ?? [], placeChecked).flatMap(
+            (place) => numbers.get(place.marker) ?? [],
+          )
+        : (judged?.unstated ?? []).filter((number) => {
+            const marker = markerShownAs(number);
+            const citation = marker === undefined ? undefined : citationOf(marker);
+            return citation !== undefined && showsCheck(citation);
+          });
       // A judge reply that couldn't be read says nothing of which quotes hold.
       const read = judged !== null && judged.grade !== "unread";
       const foundShown = (listed: boolean) =>
         read
-          ? [...numbers.values()].flatMap((number) => {
-              const citation = shownAs(number);
-              return citation &&
-                quoteFound(citation) &&
-                judged?.unstated.includes(number) === listed
+          ? [...numbers.keys()].flatMap((marker) => {
+              const citation = citationOf(marker);
+              return citation && quoteFound(citation) && listedMarkers.has(marker) === listed
                 ? [citation]
                 : [];
             })
@@ -759,14 +822,14 @@ function item(each: CallHelpCase, set: CallHelpSet): PairedGroup["items"][number
               ...marksOf(held, listed, showsCheck, settledMs),
               judge: { grade: judged.grade, unstated: judged.unstated },
               numbers: [...numbers].flatMap(([marker, number]) => {
-                const citation = answer.citations.find((each) => each.marker === marker);
+                const citation = citationOf(marker);
                 return citation
                   ? [
                       {
                         number,
                         check: citation.check,
                         found: quoteFound(citation),
-                        listed: judged.unstated.includes(number),
+                        listed: listedMarkers.has(marker),
                         passed: showsCheck(citation),
                       },
                     ]
@@ -782,6 +845,19 @@ function item(each: CallHelpCase, set: CallHelpSet): PairedGroup["items"][number
               `[${citation.check}${showsCheck(citation) ? " ✓" : ""}] ${citation.documentName}: “${citation.quote}”`,
           ),
           ...(unstatedFound.length > 0 ? [`[unstated] ${unstatedFound.join(", ")}`] : []),
+          // Each place a Citation shows, as the judge numbered it: the panel's number, ✓ there.
+          ...(placed && placed.places.length > 0
+            ? [
+                `[places] ${placed.places
+                  .map((place, index) => {
+                    const check = placeChecked(place) ? " ✓" : "";
+                    const listed = judged?.unstated.includes(index + 1) ? " listed" : "";
+                    return `${index + 1}: [${numbers.get(place.marker)}]${check}${listed}`;
+                  })
+                  .join(", ")}`,
+              ]
+            : []),
+          ...drafts.map((draft) => `[written before] ${draft}`),
         ].join("\n"),
       } satisfies Measured;
     },

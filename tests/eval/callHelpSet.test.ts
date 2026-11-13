@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { MockLanguageModelV4 } from "ai/test";
 import { afterEach, describe, expect, test } from "vitest";
 import { armSwitch, newestStretch } from "../../eval/speed/arms";
-import { callHelpSet, formFailures } from "../../eval/speed/callHelp";
+import { callHelpSet, formFailures, placedReply, unstatedChecked } from "../../eval/speed/callHelp";
 import { CALL_HELP_CASES, callOf, TRANSCRIPT } from "../../eval/speed/callHelpCases";
 import { CALL_HELP_TYPED } from "../../eval/speed/callHelpTyped";
 import { openLedger } from "../../eval/speed/ledger";
@@ -270,6 +270,28 @@ describe("The typed question's cases (#2925)", () => {
       ),
     ).toEqual([]);
     expect(formFailures(CALL_HELP_CASES[0] ?? of("en-typed-price"), [])).toEqual([]);
+  });
+});
+
+describe("A typed reply's ✓ the judge finds unstated (#2925)", () => {
+  // protects=a typed reply's ✓ is counted against it only beside the very sentence the judge finds unstated, each place a Citation shows numbered on its own for the judge; fails_when=a ✓ beside one sentence counts for another sentence carrying the same Citation, as it did when the judge read Citations by number; no_claim=what the judge lists.
+  test("is counted by the sentence the judge lists, not by the Citation it carries", () => {
+    const shown = shownItems(
+      readHelpReply(
+        "They said to start before the first of March [^1]. This was at the 0:00 mark of the call [^1].",
+      ),
+      { shape: "answer", leadIn: false, streaming: false },
+    );
+    const { text, places } = placedReply({ figures: [] }, shown, () => true);
+    expect(text).toMatch(/March \[1\][\s\S]*call \[2\]/);
+    expect(places.map((place) => place.marker)).toEqual([1, 1]);
+    const [first] = places;
+    // The sentence check passed the first sentence alone.
+    const checked = (place: (typeof places)[number]) => place.at === first?.at;
+    expect(unstatedChecked(places, [2], checked)).toEqual([]);
+    expect(unstatedChecked(places, [1], checked)).toEqual([first]);
+    expect(unstatedChecked(places, [1, 1, 3], checked)).toEqual([first]);
+    expect(placedReply({ figures: [] }, shown, () => false).places).toEqual([]);
   });
 });
 
