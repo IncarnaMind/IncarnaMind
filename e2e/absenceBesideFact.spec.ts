@@ -44,7 +44,7 @@ const CASES = {
     stop: ".",
     quote: LINE,
     reason:
-      "The cited fact is supported. What the sentence says is missing wasn’t checked: the Documents are too long to read whole.",
+      "What the sentence says is missing wasn’t checked: that needs its Documents read whole. The rest of it is supported.",
   },
   "zh-CN": {
     fact: "大潮每月出现两次",
@@ -52,7 +52,7 @@ const CASES = {
     join: "，",
     stop: "。",
     quote: LINE_ZH,
-    reason: "引用的事实有依据。句中说没有的内容未核对：文档太长，无法通读。",
+    reason: "句中说没有的内容未核对：这需要通读文档。其余部分有依据。",
   },
 } as const;
 

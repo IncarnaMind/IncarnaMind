@@ -1484,8 +1484,8 @@ export const zhCN = {
     "不显示结论：模型给出的引文出自另一份文档，不是这句话所说的那份。",
   "claim.reason.found-elsewhere":
     "不显示结论：支持这句话的引文不在它现有的引用里。请把它添加为引用，然后重新核对。",
-  "claim.reason.assistant-conclusion": "引用的事实有依据。其余是助手自己的结论，未核对。",
-  "claim.absenceBesideFact": "引用的事实有依据。句中说没有的内容未核对：文档太长，无法通读。",
+  "claim.reason.assistant-conclusion": "助手自己的结论未核对。句子的其余部分有依据。",
+  "claim.absenceBesideFact": "句中说没有的内容未核对：这需要通读文档。其余部分有依据。",
   "claim.reason.kept-inside": "仅在“{detail}”内使用",
   "claim.reason.read-budget": "已停止 · 已花费{spent}",
   "claim.reason.read-budget.unknown": "已停止：已达到这次读取最多可花的费用。",

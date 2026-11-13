@@ -65,11 +65,14 @@ function withParts(
 
 const LINES = {
   en: {
-    line: "The cited fact is supported. What the sentence says is missing wasn’t checked: the Documents are too long to read whole.",
+    line: "What the sentence says is missing wasn’t checked: that needs its Documents read whole. The rest of it is supported.",
+    conclusion:
+      "The assistant’s own conclusion wasn’t checked. The rest of the sentence is supported.",
     absenceOnly: "A sentence that says something is absent needs its Document read whole.",
   },
   zh: {
-    line: "引用的事实有依据。句中说没有的内容未核对：文档太长，无法通读。",
+    line: "句中说没有的内容未核对：这需要通读文档。其余部分有依据。",
+    conclusion: "助手自己的结论未核对。句子的其余部分有依据。",
     absenceOnly: "说某样东西不存在的句子，需要通读文档才能核对。",
   },
 } as const;
@@ -220,5 +223,26 @@ describe("A cited fact joined to what the sentence says is missing", { timeout: 
     );
     expect(conclusion.shown.state).toBe("not-checked");
     expect(conclusion.line).not.toBe(LINES[language].line);
+  });
+
+  // protects=a sentence with no Citation, its fact supported by a Passage the check found, gets the line, which names nothing as cited, in English and Chinese; fails_when=such a sentence keeps the absence's own line, or the line calls its fact cited; no_claim=Documents read whole.
+  test.each(["en", "zh"] as const)("%s, a sentence with no Citation", async (language) => {
+    const read = await readInNote(language, [fact(language), absent(language)]);
+    expect(read.line).toBe(LINES[language].line);
+  });
+});
+
+describe("The assistant's own conclusion in a sentence with no Citation", {
+  timeout: 30_000,
+}, () => {
+  // protects=a sentence the assistant wrote with no Citation, whose fact a Passage the check found supports and whose conclusion is its own, reads Not checked for that conclusion, and its line names nothing as cited, in English and Chinese; fails_when=the line says a cited fact is supported where nothing is cited; no_claim=the sentence's verdict, which #3054's tests hold.
+  test.each(["en", "zh"] as const)("%s", async (language) => {
+    const read = await readInNote(
+      language,
+      [fact(language), ["opinion", WORDS[language].opinion, { verdict: "supported" }]],
+      { ai: true },
+    );
+    expect(read.shown).toEqual({ state: "not-checked", reason: "assistant-conclusion" });
+    expect(read.line).toBe(LINES[language].conclusion);
   });
 });
