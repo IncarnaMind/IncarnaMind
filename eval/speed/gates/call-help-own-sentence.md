@@ -8,7 +8,8 @@ Only what call help is asked to write. The sentence check, the panel and the ✓
 
 - **Options** (say, answer, no, objection, next step, ask, follow-up, leading): what the User could say is at most two short sentences and 25 words in all, where it was one sentence of at most 25.
 - **Short lines** (sum, check, facts, not covered, decisions, disagree): each line is at most two short sentences and 20 words in all, where it was one sentence of at most 20.
-- **Both shapes add one rule:** "What the Documents or the call say goes in a sentence of its own, its Citation markers at that sentence's end. What is the User's own (advice, a conclusion, a "no", an offer or a plan the Documents don't state) goes in another sentence with no Citation marker. Never join the two with "so", "and", "but" or a comma, in any language."
+- **Both shapes add one rule**, as frozen after the development trial (below): "What the Documents or the call say goes in a sentence of its own, its Citation markers at that sentence's end. Every fact in that sentence is in the words it cites: a second fact gets a Citation of its own, to the words that state it. What is the User's own (advice, a conclusion, a "no", an offer or a plan the Documents don't state) goes in another sentence with no Citation marker: it cites neither the question it answers nor the rule it rests on, and that rule is a cited sentence of its own. End the cited sentence with "." or "。" before the User's own part: joined by anything else (", so", ", but", "，", a dash, a semicolon) it is still the cited sentence. A "→" line never has a Citation marker."
+  - The trial ran an earlier form: "…at that sentence's end. What is the User's own (…) goes in another sentence with no Citation marker. Never join the two with "so", "and", "but" or a comma, in any language."
 - **The check button's line** starts with its verdict, "Right." or "Wrong." ("对。" or "不对。" in Chinese), a sentence of its own with no Citation. The Documents' fact follows in a sentence of its own with its Citation. Where the Documents don't speak to the claim, the line says so in one sentence with no Citation ("The Documents don't say …", "文档没有提到…") and cites nothing. It was "a claim, then whether the Documents support it, contradict it or don't say": a verdict in a sentence that cites one side.
   - The task line: "Check the newest claims in the transcript against the User's Documents. Each line starts with the verdict, "Right." or "Wrong." (in Chinese "对。" or "不对。"), a sentence of its own with no Citation; then what the Documents say, in a sentence of its own with its Citation. Where the Documents don't speak to the claim, the line says so in one sentence with no Citation ("The Documents don't say …"; in Chinese "文档没有提到…") and cites nothing. Restate the claim only as far as the line needs."
   - The Chinese words are "对。" and "不对。", the plain spoken way to say right and wrong, where "错。" alone reads curt on a line the User reads mid-call. "文档没有提到" says plainly that the Documents are silent. 无依据 and 与文档矛盾 stay the names of a check's results (`docs/agents/zh-CN.md`, one word for one thing).
@@ -25,7 +26,7 @@ Only what call help is asked to write. The sentence check, the panel and the ✓
   - None of them appears in a case.
   - Shared are only the verdict words themselves (the check cases' expected answers start "Wrong:" or "不对："), and common words used about other things ("included" in "included in the service plan", "your team" in "Can your team work on the roof").
   - A first wording of the "don't say" line, about whether training "is included", was dropped for that overlap.
-  - The held-out slice is checked by the coordinator, who holds it.
+  - The held-out slice is checked by whoever holds it, who isn't this file's writer.
 - **A reading** (what they want) is unchanged: it already gives its moment, cited, on a line of its own.
 
 ### What is sent, against main
@@ -35,7 +36,7 @@ For the answer button in an English call, the `<help>` block differs in these li
 ```
 < - Each option is two lines: what the User could say, as they would say it aloud, one sentence of at most 25 words with no quotation marks around it (the panel shows it as a quote), its Citation markers at its end; then a line starting with "→ " and what saying it leads to, in at most eight words, with no Citation marker.
 > - Each option is two lines: what the User could say, as they would say it aloud, at most two short sentences and 25 words in all, with no quotation marks around it (the panel shows it as a quote); then a line starting with "→ " and what saying it leads to, in at most eight words, with no Citation marker.
-> - What the Documents or the call say goes in a sentence of its own, its Citation markers at that sentence's end. What is the User's own (advice, a conclusion, a "no", an offer or a plan the Documents don't state) goes in another sentence with no Citation marker. Never join the two with "so", "and", "but" or a comma, in any language.
+> - What the Documents or the call say goes in a sentence of its own, its Citation markers at that sentence's end. Every fact in that sentence is in the words it cites: a second fact gets a Citation of its own, to the words that state it. What is the User's own (advice, a conclusion, a "no", an offer or a plan the Documents don't state) goes in another sentence with no Citation marker: it cites neither the question it answers nor the rule it rests on, and that rule is a cited sentence of its own. End the cited sentence with "." or "。" before the User's own part: joined by anything else (", so", ", but", "，", a dash, a semicolon) it is still the cited sentence. A "→" line never has a Citation marker.
 < ★ We can't go below list for Enterprise, but we can extend the pilot to 60 days [^1]
 > ★ We can't go below list for Enterprise. We can extend the pilot to 60 days [^1]
 ```
@@ -87,14 +88,14 @@ An English call gets the same lines with the English examples. A reading's instr
   - The judge's false Supported count gates nothing, on either half.
 - **The yardstick for a wrong ✓ is the hand reading by place, blind to the arm.**
   - A script builds the reading file. It holds every place of both arms whose quote was found, shuffled together, unlabelled: the sentence, every quote it cites, and how many of its places show ✓. The same sentence with the same quotes is read once.
-  - **Two readers fill their own copy** of the same file: the coordinator, and an independent reader who sees only that file. The bars count the coordinator's reading. The two readings' agreement, by label and by side (backed, unbacked, borderline), is reported beside them, with every item they differ on.
+  - **Two readers fill their own copy** of the same file: a first reader, and an independent second reader who sees only that file. The bars count the first reader's reading. The two readings' agreement, by label and by side (backed, unbacked, borderline), is reported beside them, with every item they differ on.
   - The key, which arm, press and place each item is, goes in a folder apart. Neither reader opens it until both readings are sent.
   - The labels are: right; claims nothing or restates; fault; own conclusion; own advice or plan; own no; call claim outside the quoted words; borderline.
   - Unbacked: fault, the three own labels and a call claim. Backed: right and claims nothing. Borderline counts in neither.
   - **A second part of the file holds every line of a check button's reply,** on both arms, with its case named so its Documents can be read, and the words it quotes. Each line is read as: its verdict agrees with the fact beside it and the case's Documents; it disagrees with either; or it gives no verdict.
   - Neither part names an arm, or the Document or call a quote comes from.
 - **Each run:**
-  - holds the lease of the key the lead names for its whole length, with that key's judge lease nested inside it;
+  - holds the lease of the key it is given for its whole length, with that key's judge lease nested inside it;
   - reads the allowance first and starts only above 90%;
   - starts only at a 15-minute load of 24 or less;
   - sends at most four requests at once;
@@ -120,6 +121,13 @@ An English call gets the same lines with the English examples. A reading's instr
      Its $0.073 counts inside the stop, and its presses are not used.
    - **The rerun is the whole trial again,** all 24 items on both models, fresh presses: about $0.75 (the Haiku half $0.13, the Sonnet half $0.62). The phase then totals about $0.82, inside the $1.40 stop.
    - **If the phase ends above about $1.09,** what is left of #2847's $8 no longer covers the gate's estimate and a tenth more, and the gate's size goes back for a decision before it runs.
+   - **What ran:** the Claude Haiku 5.5 half whole. On the Claude Sonnet 5.5 half, six Chinese rows were hit by the provider's failed requests and are left out, both presses of each. That half is not a run: its 18 clean rows are read for the trial only. Two readers read it blind to the arm. The phase spent $0.89.
+   - **The one wording change the trial allowed** was made after the trial's reading, read by a second reader, and frozen at 344fec2bd: the rule above. It adds three things:
+     - every fact in a cited sentence is in the words it cites;
+     - the User's own part cites neither the question nor the rule;
+     - the cited sentence ends with a full stop before the User's own part.
+     Nothing else in what is sent changed, and the as-before arm sends `main`'s text as it did.
+   - **A Haiku-only look follows** on the same 24 development cases: both arms, one run, Claude Haiku 5.5 graded by Claude Sonnet 5.5, false Supported counted, stop $0.18. It rules on no bar and cannot change the wording. The wording is frozen from here to the gate.
 2. **The gate: held-out presses.**
    - **The cases** are written blind to this change by someone else, put into `../callHelpMarks4.ts` at the run, and not opened before it. Its needs are listed below.
    - **Runs:** two of every case, both arms, Haiku and then Sonnet.
@@ -136,7 +144,7 @@ An English call gets the same lines with the English examples. A reading's instr
 
 ## The bars, set before any run and never moved after
 
-Counted per model, pooled over both languages and both runs (60 presses an arm in the gate) unless a cell is named. A cell is a model and a language. The hand reading is the coordinator's. Everything else is counted by the scoring script from the record and that reading.
+Counted per model, pooled over both languages and both runs (60 presses an arm in the gate) unless a cell is named. A cell is a model and a language. The hand reading is the first reader's. Everything else is counted by the scoring script from the record and that reading.
 
 1. **The change takes away wrong ✓.** The branch's presses with a ✓ beside an unbacked place are at most half of main's writing's, rounded down, and at most 1 where main's is under 4. This is #2847's bar 1a in form. Main's own spread between its two runs, its flips, is reported beside it; in #2847's third gate it was 7 presses on each model.
 2. **The tacked-on part lands in the sentence with no Citation.** In each cell, on the probe presses over both runs, at most 1 cited place on the branch holds the reply's own conclusion, advice, "no" or a fault. Main's writing's count is reported beside it.
