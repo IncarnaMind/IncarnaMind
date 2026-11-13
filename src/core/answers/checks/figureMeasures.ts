@@ -169,24 +169,24 @@ export function tableAt(
 }
 
 /**
- * The names of a table's cell (`tableAt`), by axis: its row's label (the nearest named cell to the
- * number's left) and the labels of the other rows of its table that hold a number in its column;
- * the headings of its column and of the other columns that hold a number in its row. Null when its
- * row has no label.
+ * The names of the cell that holds `quote`'s number in `text`'s table, once `text` holds the
+ * quote once: its own (the nearest named cell to the number's left, and the heading of its own
+ * column) and those of the table's other numbers (the heading of another column that holds a
+ * number in this row, the label of another row of its table that holds a number in this column). Null
+ * when the number isn't in a table's row, its row has no label, or `text` doesn't hold the quote
+ * just once.
  */
-function cellNames({
-  lines,
-  index,
-  column,
-  top,
-  head,
-  end,
-}: NonNullable<ReturnType<typeof tableAt>>): {
-  label: string;
-  labels: string[];
-  headings: string[];
-  otherHeadings: string[];
-} | null {
+function cellOf(
+  text: string,
+  quote: string,
+  bound: BoundNumber,
+): { own: string[]; others: string[] } | null {
+  const all = flat(text);
+  const [found, more] = placesOf(all, quote);
+  if (!found || more) return null;
+  const table = tableAt(all, boundAt(all, found, quote, bound));
+  if (!table) return null;
+  const { lines, index, column, top, head, end } = table;
   const headings = lines.slice(head, top).filter((heading) => !isRule(heading));
   const cells = cellsOf(lines[index] ?? "");
   // In side-by-side panels ("| Revenue | 12% | Operating margin | 94% |") the first cell
@@ -204,43 +204,23 @@ function cellNames({
   // A heading row that doesn't line up with the row (a reader that drops a blank corner cell,
   // a merged heading written once) can't say which heading is the number's, or whose another is.
   const aligned = headings.filter((heading) => cellsOf(heading).length === cells.length);
+  const own = [label, ...aligned.map((heading) => cellsOf(heading)[column] ?? "")];
   // Only another number's own names name it: a heading over the labels ("Revenue (£m)"), a
   // section row or a units column names no other number.
-  return {
-    label,
-    labels: lines
+  const others = [
+    ...aligned.flatMap((heading) =>
+      cellsOf(heading).filter((_, place) => place !== column && holdsNumber(cells[place])),
+    ),
+    ...lines
       .slice(top, end + 1)
       .filter((_, place) => place + top !== index)
       .map(cellsOf)
       .filter((row) => holdsNumber(row[column]))
       .map((row) => labelOf(row) ?? ""),
-    headings: aligned.map((heading) => cellsOf(heading)[column] ?? ""),
-    otherHeadings: aligned.flatMap((heading) =>
-      cellsOf(heading).filter((_, place) => place !== column && holdsNumber(cells[place])),
-    ),
-  };
-}
-
-/**
- * The names of the cell that holds `quote`'s number in `text`'s table, once `text` holds the
- * quote once: its own (its row's label and its column's headings) and those of the table's other
- * numbers (`cellNames`). Null when the number isn't in a table's row, its row has no label, or
- * `text` doesn't hold the quote just once.
- */
-function cellOf(
-  text: string,
-  quote: string,
-  bound: BoundNumber,
-): { own: string[]; others: string[] } | null {
-  const all = flat(text);
-  const [found, more] = placesOf(all, quote);
-  if (!found || more) return null;
-  const table = tableAt(all, boundAt(all, found, quote, bound));
-  const names = table && cellNames(table);
-  if (!names) return null;
+  ];
   return {
-    own: [names.label, ...names.headings].filter(namesSomething),
-    others: [...names.otherHeadings, ...names.labels].filter(namesSomething),
+    own: own.filter(namesSomething),
+    others: others.filter(namesSomething),
   };
 }
 
