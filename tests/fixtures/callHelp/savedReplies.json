@@ -7,7 +7,7 @@
   {
     "kind": "answer",
     "text": "★ A 50 kW roof system is €42,000 installed, and each extra 10 kW adds €7,500 [^1]\n→ answers their price question directly; scaffolding is quoted separately after the survey [^2]\n\nA 50 kW roof system is €42,000 installed [^1]. Scaffolding is charged at cost, so we'll confirm that after the roof survey [^2]\n→ gives the figure and flags the extra cost; sets up the survey\n[unstated] 1",
-    "main": "5e3eae5195ddc4202d23db9576015f556ce759e8f05a31719f2b5a91cd4a4bf4"
+    "main": "8641882b7b71e5d515209e08fe267874635cc759c7974e2eee02045bcfc18ad4"
   },
   {
     "kind": "answer",
@@ -72,7 +72,7 @@
   {
     "kind": "ask",
     "text": "★ Ask how many roofs in total need a survey, and whether the two flat-roofed shops have any known issues [^1]\n→ scopes the survey work; clarifies roof types and quoting effort[^2]\n\nAsk whether the other two shops have pitched roofs, so we can plan surveys for all four sites\n→ completes the picture; helps us quote the full job",
-    "main": "ed0ebef8f5830131b8359385131494b53da8ed80b510701dc6460ba4f03e8b72"
+    "main": "365a989c2f35560fa0ecd0d3b562dbaf19cb0d81394356ea10ab7936902e1a27"
   },
   {
     "kind": "ask",
@@ -167,7 +167,7 @@
   {
     "kind": "say",
     "text": "★ 我们的支架是用夹具固定在原有屋面接缝上的，不会在屋顶上打孔 [^1]\n→ 直接回应对漏水的担心，推进话题[^2]\n\n我们负责安装造成的漏水维修，施工前也会由结构工程师检查屋顶 [^3]\n→ 给对方保障，降低顾虑",
-    "main": "a8f1f39f614390a74236d04d2e9c441b5b7d7ab2268a8ab20f56560d6538bef8"
+    "main": "0d5e8345a9d8c2131624934e41cf748a78c964bce73c21d40a01ce2fe97de3cf"
   },
   {
     "kind": "say",

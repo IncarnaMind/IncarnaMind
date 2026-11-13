@@ -199,7 +199,7 @@ export const ARMS: readonly Arm[] = [
   {
     id: "call-help-as-before",
     label:
-      "call help asked and read as before #2847's fact lines: today's instructions, and no marker taken off a → line or a reading's first line",
+      "call help asked as before #2847's fact lines: today's instructions, its Answer read as today's is",
     callHelpForm: "as before",
   },
   {

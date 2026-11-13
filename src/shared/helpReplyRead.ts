@@ -480,7 +480,6 @@ export function helpReplyRead(markdown: string, layout: HelpLayout): HelpReplyRe
             // A short-lines reply is asked for no "→" line, so what a model writes on one is read as
             // written; so is a line that quotes, whose quote the quote check reads only beside its marker.
             const own =
-              layout.form !== "as before" &&
               !holdsQuote(line) &&
               ((shape !== "lines" && EFFECT_MARK.test(plainLine(line))) ||
                 (shape === "readings" && lead !== undefined && readingItself(lead, line)));
