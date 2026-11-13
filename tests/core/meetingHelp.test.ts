@@ -550,6 +550,59 @@ describe("Help during the call", { timeout: 60_000 }, () => {
     expect(latest?.helps.map(({ kind }) => kind)).toEqual(["question", "say", "question", "say"]);
   });
 
+  // protects=a typed question reads the call's earlier Answers as their words, with no Citation ids, so a marker its reply gives no record is never asked about again by the request to cite again, whose answer the User saw in the run (#2925); and a button pressed after it is sent exactly what the same button was before it; fails_when=the typed question's context shows an earlier Answer's Citation as "[Document · C1]", the request to cite again goes out, or the button's request changes; no_claim=how a real model cites.
+  test("a typed question reads the earlier Answers' words without their Citations, so its unrecorded marker isn't asked again, and a button after it is sent what it was before (#2925)", async () => {
+    const marking = (calls: ModelCall[]) =>
+      scriptedModel(
+        (call) => {
+          calls.push(call);
+          // Typed, it marks its fact and records nothing; pressed, it cites the price sheet.
+          if (call.prompt.includes("typed a question about it"))
+            return { text: "Enterprise is $45 a seat [^1]" };
+          const [found] = shownPassages(block(call.prompt, "found-in-documents") ?? "");
+          if (found && !call.results.some((result) => result.tool === "cite")) {
+            return {
+              calls: [
+                {
+                  tool: "cite",
+                  input: { citations: [{ marker: 1, passage: found.id, quote: PRICE }] },
+                },
+              ],
+            };
+          }
+          return { text: "★ Yes, Enterprise is $45 a seat [^1]\n→ answers at once" };
+        },
+        {
+          judgesItsAnswers: true,
+          generate: (call) =>
+            call.question === "unmarked-quotes"
+              ? { text: JSON.stringify({ citations: [] }) }
+              : unscripted(call.question, call.system),
+        },
+      );
+    const { core, meeting, calls } = await setUp(addPriceSheet, {}, marking);
+    await press(core, meeting, "say");
+    const before = calls.find((call) => call.prompt.includes("pressed a button for help"));
+    const typedAt = calls.length;
+    const typed = await ask(core, meeting, "How much is Enterprise per seat?");
+    const sent = calls[typedAt]?.prompt ?? "";
+    expect(sent).toContain("typed a question about it");
+    expect(sent).toContain("Yes, Enterprise is $45 a seat");
+    expect(sent).not.toMatch(/· C\d/);
+    expect(sent).not.toContain("[Price sheet");
+    expect(calls.slice(typedAt).some((call) => call.prompt.includes("no cite record backs"))).toBe(
+      false,
+    );
+    expect(typed.answer.text).toContain("Enterprise is $45 a seat");
+
+    const pressedAt = calls.length;
+    await press(core, meeting, "say");
+    const after = calls[pressedAt];
+    expect(after?.prompt).not.toContain("How much is Enterprise per seat?");
+    expect(after?.prompt).toBe(before?.prompt);
+    expect(after?.system).toBe(before?.system);
+  });
+
   // protects=a press and a question asked at once, before either has its conversation, go on in one conversation, the second reading the first, in the order asked (#2925); fails_when=each starts a conversation of its own, or the Meeting lists them out of order; no_claim=how long the second waits.
   test("a press and a question asked at once go on in one conversation, in the order asked (#2925)", async () => {
     const { core, meeting } = await setUp(addPriceSheet);

@@ -4341,7 +4341,17 @@ export function createAnswers(options: AnswersOptions) {
             const picture = pickedPicture(quote);
             return picture ? [picture] : [];
           });
-    const { context, origins } = conversationContextOf(earlier, question.text, {
+    // A typed question reads the call's earlier Answers as words, their Citations left out: shown
+    // with ids, a fact it gives again was kept by id, which Claude Haiku 5.5 marked and didn't
+    // record, and the request to cite again that followed was answered instead (#2925). Its facts
+    // are cited from what is found for it, as a button's are.
+    const read =
+      help === "question"
+        ? earlier.map((message) =>
+            message.kind === "answer" ? { ...message, citations: [] } : message,
+          )
+        : earlier;
+    const { context, origins } = conversationContextOf(read, question.text, {
       mind: section,
       documents: contextDocuments,
       mindNames: options.readableMindName,
