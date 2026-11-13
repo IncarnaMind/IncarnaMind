@@ -578,3 +578,257 @@ describe("a sentence's numbers are read without its markers (#3059)", { timeout:
     expect(one.finished.citedAfterChecking).toMatchObject({ asked: true });
   });
 });
+
+/*
+ * #3059: a list's number at a sentence's start ("**1.** ", "1) ", "1、") is no number the sentence
+ * states, so a sentence that is its Document's line after one still matches it. A number of the
+ * sentence's own stays one, and so does an enumeration that starts it.
+ */
+const LISTED = {
+  en: {
+    survey: "The supplier pays for the site survey in the first year of the contract.",
+    listed: "1) The client pays travel to each site for the whole contract term.",
+    trucks: "3 trucks arrived at the north depot early on Monday morning.",
+    year: "2024 was the first year the north depot ran at a profit.",
+    million: "1.5 million euros of revenue came from the northern region last year.",
+    clauses: "Rule 2 applies to every site in the northern region from this year.",
+    done: "2 and 3 are done for every site in the northern region.",
+    clause: "Clause 2) covers the survey costs for each site in the region.",
+    numbered: "1. Revenue rose 12% in the northern region over the last year.",
+    numberedClose: "1) Costs fell 8% in the southern region over the same year.",
+    plain: "Wages rose 3% across every depot in the western region this spring.",
+    units: "2 units were returned to the north depot on Monday morning.",
+    parcels: "2) parcels were sent back to the south depot on Friday evening.",
+  },
+  zh: {
+    survey: "供应商承担合同第一年现场调研的全部费用。",
+    listed: "1）客户承担整个合同期内去各个现场的差旅费。",
+    trucks: "3 辆卡车周二早上到了北边的仓库。",
+    year: "2024 年是北边仓库第一次盈利的年份。",
+    million: "1.5 万欧元的收入来自北部地区的新客户。",
+    building: "2 号楼已于三月交付给客户。",
+    floors: "二层均为临街商铺，目前已经全部租出。",
+    clauses: "第二条适用于北部地区的所有现场。",
+    numbered: "1. 去年北部地区的营收增长了 12%，主要来自新客户。",
+    numberedClose: "1）同一年南部地区的成本下降了 8%，主要来自运费。",
+    plain: "今年春天西部地区每个仓库的工资都上涨了 3%。",
+    units: "2 台设备周一上午退回了北边的仓库。",
+    parcels: "2、箱零件周五晚上寄回了南边的仓库。",
+    ordinal: "第一，客户承担整个合同期内的保险费用和税费。",
+  },
+};
+
+/** Each row: an Answer's sentence, and the Document's line it matches, or null for none. */
+const LIST_ROWS: { language: "en" | "zh"; sentence: string; matches: string | null }[] = [
+  ...["**1.** ", "1) ", "(1) ", "1.", "12) "].map((mark) => ({
+    language: "en" as const,
+    sentence: `${mark}${LISTED.en.survey}`,
+    matches: LISTED.en.survey,
+  })),
+  {
+    language: "en",
+    sentence: "2) The client pays travel to each site for the whole contract term.",
+    matches: LISTED.en.listed,
+  },
+  { language: "en", sentence: `1) ${LISTED.en.trucks}`, matches: LISTED.en.trucks },
+  {
+    language: "en",
+    sentence: "1) 4 trucks arrived at the north depot early on Monday morning.",
+    matches: null,
+  },
+  { language: "en", sentence: LISTED.en.trucks, matches: LISTED.en.trucks },
+  {
+    language: "en",
+    sentence: "4 trucks arrived at the north depot early on Monday morning.",
+    matches: null,
+  },
+  { language: "en", sentence: LISTED.en.year, matches: LISTED.en.year },
+  {
+    language: "en",
+    sentence: "2023 was the first year the north depot ran at a profit.",
+    matches: null,
+  },
+  { language: "en", sentence: LISTED.en.million, matches: LISTED.en.million },
+  {
+    language: "en",
+    sentence: "2.5 million euros of revenue came from the northern region last year.",
+    matches: null,
+  },
+  {
+    language: "en",
+    sentence: "1) and 2) apply to every site in the northern region from this year.",
+    matches: null,
+  },
+  {
+    language: "en",
+    sentence: "1, 2 and 3 are done for every site in the northern region.",
+    matches: null,
+  },
+  {
+    language: "en",
+    sentence: "Clause 1) covers the survey costs for each site in the region.",
+    matches: null,
+  },
+  {
+    language: "en",
+    sentence: "Revenue rose 12% in the northern region over the last year.",
+    matches: LISTED.en.numbered.replace(/^1\. /, ""),
+  },
+  {
+    language: "en",
+    sentence: "Costs fell 8% in the southern region over the same year.",
+    matches: LISTED.en.numberedClose,
+  },
+  { language: "en", sentence: `1. ${LISTED.en.plain}`, matches: LISTED.en.plain },
+  { language: "en", sentence: `1) ${LISTED.en.plain}`, matches: LISTED.en.plain },
+  {
+    language: "en",
+    sentence: "2) units were returned to the north depot on Monday morning.",
+    matches: null,
+  },
+  {
+    language: "en",
+    sentence: "2 parcels were sent back to the south depot on Friday evening.",
+    matches: null,
+  },
+  ...["1、", "1）", "（1）", "（一）", "一、", "**1.** "].map((mark) => ({
+    language: "zh" as const,
+    sentence: `${mark}${LISTED.zh.survey}`,
+    matches: LISTED.zh.survey,
+  })),
+  {
+    language: "zh",
+    sentence: "2）客户承担整个合同期内去各个现场的差旅费。",
+    matches: LISTED.zh.listed,
+  },
+  { language: "zh", sentence: `1）${LISTED.zh.trucks}`, matches: LISTED.zh.trucks },
+  { language: "zh", sentence: "1）4 辆卡车周二早上到了北边的仓库。", matches: null },
+  { language: "zh", sentence: LISTED.zh.trucks, matches: LISTED.zh.trucks },
+  { language: "zh", sentence: LISTED.zh.year, matches: LISTED.zh.year },
+  { language: "zh", sentence: "2023 年是北边仓库第一次盈利的年份。", matches: null },
+  { language: "zh", sentence: LISTED.zh.million, matches: LISTED.zh.million },
+  { language: "zh", sentence: "2.5 万欧元的收入来自北部地区的新客户。", matches: null },
+  { language: "zh", sentence: "1、2 号楼已于三月交付给客户。", matches: null },
+  { language: "zh", sentence: "一、二层均为临街商铺，目前已经全部租出。", matches: null },
+  { language: "zh", sentence: "（一）和（二）适用于北部地区的所有现场。", matches: null },
+  {
+    language: "zh",
+    sentence: "去年北部地区的营收增长了 12%，主要来自新客户。",
+    matches: LISTED.zh.numbered.replace(/^1\. /, ""),
+  },
+  {
+    language: "zh",
+    sentence: "同一年南部地区的成本下降了 8%，主要来自运费。",
+    matches: LISTED.zh.numberedClose,
+  },
+  { language: "zh", sentence: `1. ${LISTED.zh.plain}`, matches: LISTED.zh.plain },
+  { language: "zh", sentence: `1）${LISTED.zh.plain}`, matches: LISTED.zh.plain },
+  { language: "zh", sentence: "2、台设备周一上午退回了北边的仓库。", matches: null },
+  { language: "zh", sentence: "2 箱零件周五晚上寄回了南边的仓库。", matches: null },
+  ...["一是", "第一，", "其一，"].map((ordinal) => ({
+    language: "zh" as const,
+    sentence: `${ordinal}${LISTED.zh.survey}`,
+    matches: null,
+  })),
+  { language: "zh", sentence: LISTED.zh.ordinal, matches: LISTED.zh.ordinal },
+];
+
+describe("a list's number at a sentence's start is no number it states (#3059)", () => {
+  const passagesOf = (language: "en" | "zh") => [
+    { id: "P1", text: Object.values(LISTED[language]).join("\n") },
+  ];
+  const matched = (language: "en" | "zh", sentence: string) => {
+    const passages = passagesOf(language);
+    const found = (_passage: string, quote: string) => passages[0]?.text.includes(quote) ?? false;
+    return matchUnmarked(sentence, passages, found).map(({ passage, quote }) => ({
+      passage,
+      quote,
+    }));
+  };
+  /** The sentence with a marker the model gave no record for, before its full stop. */
+  const withMarker = (sentence: string) => sentence.replace(/([.。])$/, " [^1]$1");
+
+  // protects=a list's number before a sentence ("**1.** ", "1) ", "(1) ", "1.", "12) ", "1、", "1）", "（1）", "（一）", "一、") comes off its numbers, so it matches its line, and two lines carrying different list numbers match; a number of its own stays one, at the start ("3 trucks", "2024", "1.5 million") or after the list's number ("1) 3 trucks"), and an enumeration that starts it ("1) and 2)", "1, 2 and 3", "1、2 号楼", "一、二层", "（一）和（二）") and a "1)" mid-sentence keep their numbers, so neither matches a line stating fewer, in English and Chinese; fails_when=a list's number is read as the sentence's, or a number of its own or an enumeration's is taken off; no_claim=how often a model starts a sentence with a list's number.
+  test.each(LIST_ROWS)("in $language, “$sentence”", ({ language, sentence, matches }) => {
+    expect(matched(language, sentence)).toEqual(
+      matches === null ? [] : [{ passage: "P1", quote: matches }],
+    );
+  });
+
+  // protects=over the whole table, a sentence with a marker the model gave no record for matches exactly what the same sentence matches with the marker taken out, in English and Chinese; fails_when=a marker's digits change what a sentence matches; no_claim=none beyond protects.
+  test("a marker with no record changes nothing a sentence matches", () => {
+    for (const { language, sentence } of LIST_ROWS) {
+      expect(withMarker(sentence)).toContain("[^1]");
+      expect(matched(language, withMarker(sentence))).toEqual(matched(language, sentence));
+    }
+  });
+});
+
+describe("a list's number before a Document's line, through the core (#3059)", {
+  timeout: 60_000,
+}, () => {
+  // protects=a sentence that is its Document's line after a list's number ("**1.** ", "1) ", "1、", "（一）"), with a marker it gave no record for, takes that line's Citation, found, and the model isn't asked again, in English and Chinese; fails_when=the list's number is read as the sentence's and the model is asked; no_claim=how often a model writes one.
+  test.each([
+    ["en", "**1.** "],
+    ["en", "1) "],
+    ["zh", "1、"],
+    ["zh", "（一）"],
+  ] as const)("in %s, after “%s”", async (language, mark) => {
+    const { year } = SUPPLIER[language].lines;
+    const { quotes, finished } = await answered(
+      language,
+      `${mark}${marked(year, language === "en" ? " [^1]" : "[^1]")}`,
+    );
+    expect(quotes).toEqual([[year, "found"]]);
+    expect(finished.citedAfterChecking).toMatchObject({ asked: false });
+  });
+});
+
+describe("an Answer that says it found nothing, over Documents in another language (#3059)", {
+  timeout: 60_000,
+}, () => {
+  const LATE = {
+    en: {
+      name: "Late fees.md",
+      line: "Late reports are charged 45 dollars a day, and the fee is paid with the next invoice.",
+      query: "late reports",
+    },
+    zh: {
+      name: "迟交费用.md",
+      line: "迟交的报告每天收 45 美元，这笔费用和下一张发票一起支付。",
+      query: "迟交的报告",
+    },
+  };
+  /** Requests for Citations after `answer`, over the Document in `documents`' language. */
+  async function asks(documents: "en" | "zh", answer: string) {
+    let requests = 0;
+    const { name, line, query } = LATE[documents];
+    const model = scriptedModel((call) => {
+      if (call.json) {
+        requests++;
+        return { text: "{}" };
+      }
+      if (!call.results.some((result) => result.tool === "search_documents")) {
+        return { calls: [{ tool: "search_documents", input: { query } }] };
+      }
+      return { text: answer };
+    });
+    const { core, client, mind } = await setUpWithDocuments(model, [
+      { name, contents: `# ${name.replace(/\.md$/, "")}\n\n${line}\n` },
+    ]);
+    await askAndFinish(core, client, mind.id, "How much is a late report?");
+    return requests;
+  }
+
+  // protects=across languages, an Answer that says it found nothing is asked for no Citations whether or not it carries a figure's marker, whose digits are no figure it shares with the Documents, and one stating the Documents' figure gets the one request, in Chinese over English Documents and English over Chinese; fails_when=a figure marker's "45" counts as a figure shared with the Documents, or the request stops going out for a sentence that states it; no_claim=what a real model writes when it finds nothing.
+  test.each([
+    { documents: "en", answer: "我在你的文档中没有找到相关内容 [=45]。", requests: 0 },
+    { documents: "en", answer: "我在你的文档中没有找到相关内容。", requests: 0 },
+    { documents: "en", answer: LATE.zh.line, requests: 1 },
+    { documents: "zh", answer: "I found nothing about it in your Documents [=45].", requests: 0 },
+    { documents: "zh", answer: "I found nothing about it in your Documents.", requests: 0 },
+    { documents: "zh", answer: LATE.en.line, requests: 1 },
+  ] as const)("over $documents Documents, “$answer”", async ({ documents, answer, requests }) => {
+    expect(await asks(documents, answer)).toBe(requests);
+  });
+});

@@ -133,9 +133,40 @@ const LATIN_NUMBER = /\d+(?:[.,\s]\d+)*/g;
 const CHINESE_NUMBER = /[零〇一二两三四五六七八九十百千万亿]+/gu;
 const NEGATION = /\b(?:not|no|never)\b|n't\b|[不没未无非]/giu;
 
-/** The numbers in a text, sorted, so two texts' can be compared as a multiset. */
+/**
+ * A list's number as it starts a sentence: "**1.**", "(1)", "1)", "1、", "1.Then", "（一）", "一、".
+ * A "1. " followed by a space is a sentence of its own already (src/shared/sentences.ts).
+ */
+const LIST_MARK =
+  /\*\*\d{1,2}[.)]\*\*|\(\d{1,2}\)|（(?:\d{1,2}|[一二三四五六七八九十]{1,3})）|\d{1,2}[)）]|(?:\d{1,2}|[一二三四五六七八九十]{1,3})、|\d{1,2}\.(?=[^\s\d.])/u;
+const LIST_START = new RegExp(`^\\s*(?:[-*+•]\\s+)?(?:${LIST_MARK.source})`, "u");
+/** Another list number after the first, so the two are a sentence's enumeration: "1) and 2)". */
+const LIST_AGAIN = new RegExp(
+  `^\\s*(?:(?:,|，|、|&|and|or|和|及|与|或)\\s*)?(?:${LIST_MARK.source})`,
+  "iu",
+);
+const NUMERAL_FIRST = /^\s*[\d零〇一二两三四五六七八九十百千万亿]/u;
+
+/**
+ * `sentence` without the list's number it starts with, which is no number of what it says (#3059):
+ * "1) 3 trucks arrived" says 3. An enumeration that starts it keeps its numbers: "1) and 2) apply",
+ * "1、2 号楼", "一、二层".
+ */
+function withoutListNumber(sentence: string): string {
+  const found = LIST_START.exec(sentence);
+  if (!found) return sentence;
+  const rest = sentence.slice(found[0].length);
+  const enumeration =
+    LIST_AGAIN.test(rest) || (found[0].endsWith("、") && NUMERAL_FIRST.test(rest));
+  return enumeration ? sentence : rest;
+}
+
+/**
+ * The numbers a sentence states, sorted, so two sentences' can be compared as a multiset: not its
+ * markers' digits, nor the list's number it starts with.
+ */
 function numbersOf(text: string): string[] {
-  const read = withoutMarkers(text);
+  const read = withoutListNumber(withoutMarkers(text));
   const latin = [...read.matchAll(LATIN_NUMBER)].map((found) =>
     found[0].replace(/[,\s](?=\d{3}(?!\d))/g, ""),
   );
