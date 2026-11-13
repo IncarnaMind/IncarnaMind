@@ -1355,7 +1355,7 @@ describe("A figure the Documents don't state, worked out (#707)", () => {
     const { core } = await calculatingCheck(checkingModel(plans));
     expect(await core.checkClaim({ claim })).toMatchObject({
       verdict: "not-checked",
-      reason: "no-evidence",
+      reason: "number-not-worked-out",
     });
   });
 
@@ -3802,7 +3802,7 @@ describe("A quote that starts with a figure (#1969)", () => {
     if (scopeQuote) {
       expect(result).toMatchObject({ verdict: "supported", calculation: { agrees: true } });
     } else {
-      expect(result).toMatchObject({ verdict: "not-checked", reason: "no-evidence" });
+      expect(result).toMatchObject({ verdict: "not-checked", reason: "number-not-worked-out" });
     }
   });
 

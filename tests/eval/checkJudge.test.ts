@@ -138,7 +138,7 @@ describe("A check's outcome keeps what the judge said", () => {
       [BOARD],
     );
 
-    expect(outcome).toMatchObject({ verdict: "not-checked", code: "no-evidence" });
+    expect(outcome).toMatchObject({ verdict: "not-checked", code: "number-not-worked-out" });
     expect(causeOf(outcome.code, outcome.judge)).toBe("calculation-not-made");
     const calculate = callsOf(outcome).find((call) => call.tool === "calculate");
     expect(calculate?.result).toMatch(/^Recorded \[=1\] = 1\.31x/);
@@ -151,7 +151,7 @@ describe("A check's outcome keeps what the judge said", () => {
       [BOARD],
     );
 
-    expect(outcome).toMatchObject({ verdict: "not-checked", code: "no-evidence" });
+    expect(outcome).toMatchObject({ verdict: "not-checked", code: "number-not-worked-out" });
     expect(causeOf(outcome.code, outcome.judge)).toBe("calculation-not-made");
     expect(callsOf(outcome).map((call) => call.tool)).toEqual(["search_documents", "cite"]);
     expect(outcome.judge?.filter((request) => request.calculateAsked)).toHaveLength(1);
@@ -250,6 +250,11 @@ describe("Why a sentence came back Not checked", () => {
       causeOf("no-evidence", [request("Verdict: supported\nEvidence: [1]", [turnedAway])]),
     ).toBe("quote-not-found");
     expect(causeOf("no-evidence", undefined)).toBe("quote-not-found");
+  });
+
+  test("a number no quote gives, as the core names it, is a calculation not made (#3022)", () => {
+    expect(causeOf("number-unquoted", undefined)).toBe("calculation-not-made");
+    expect(causeOf("number-not-worked-out", undefined)).toBe("calculation-not-made");
   });
 
   test("a quote not found is the cause first, whatever else was asked of the judge", () => {

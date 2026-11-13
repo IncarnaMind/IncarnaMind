@@ -19,9 +19,9 @@ import type { AnswerDocuments, createCitationSession } from "../citations";
 import type { AnswerTools, CiteOptions } from "../engine";
 import type { NotJudged } from "../judge";
 import { agreesWith, comparedFigure, statedFigure } from "./calculated";
-import { needsCalculation } from "./calculationGate";
-import { foundCitations } from "./checkResults";
-import type { ClaimCheckRequest } from "./claimCheck";
+import { needsCalculation, quotesHoldNumbers } from "./calculationGate";
+import { foundCitations, uniqueCitations } from "./checkResults";
+import type { AtomicClaimCheckResult, ClaimCheckRequest } from "./claimCheck";
 import { compare } from "./looks";
 import { type ReadVerdict, readJudgement, STRICT_INSTRUCTIONS } from "./prompt";
 
@@ -255,6 +255,28 @@ export function createCalculationLedger(
     });
   };
 
+  /**
+   * Whether a Supported result, on a model the check doesn't offer `calculate`, gives a number of
+   * its sentence that none of the quotes it shows holds (#3022). It reads only what the check
+   * already has, so the model is asked nothing more.
+   */
+  const unquotedFigure = (result: AtomicClaimCheckResult): boolean => {
+    if (calculating || result.verdict !== "supported") return false;
+    // An absence a whole read found holds on the pages it read, not on a quote (./absence).
+    if (result.readDocuments) return false;
+    const shown = uniqueCitations([
+      ...(result.evidence ? [result.evidence] : []),
+      ...(result.checkedEvidence ?? []),
+    ]);
+    return !quotesHoldNumbers(
+      request.claim,
+      shown.map((citation) => ({
+        citation,
+        units: documents.pageTexts(citation.documentId, citation.contentHash, null, null),
+      })),
+    );
+  };
+
   return {
     calculations: figures,
     /** The `calculate` Tool, for a model measured to use it; null otherwise. */
@@ -266,6 +288,7 @@ export function createCalculationLedger(
     costs: (marker: number): ReadonlySet<string> => stated.get(marker)?.costs ?? new Set(),
     worked: () => calculated(request.claim, figures, stated, figureContext),
     requiresCalculation,
+    unquotedFigure,
     confirmationFailure: () => confirmationFailure,
   };
 }

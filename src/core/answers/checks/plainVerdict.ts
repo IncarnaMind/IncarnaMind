@@ -56,7 +56,12 @@ interface PlainVerdictCheck {
   session: ReturnType<typeof createCitationSession>;
   ledger: Pick<
     CalculationLedger,
-    "confirmationFailure" | "invalidInput" | "pending" | "worked" | "requiresCalculation"
+    | "confirmationFailure"
+    | "invalidInput"
+    | "pending"
+    | "worked"
+    | "requiresCalculation"
+    | "unquotedFigure"
   >;
   results: CheckResults;
   court: CourtDecisions;
@@ -79,7 +84,15 @@ export async function plainVerdict(
 ): Promise<AtomicClaimCheckResult> {
   const late = new Set<string>();
   const result = await verdictOf(deps, request, check, late);
-  return lateQuotesJudged(result, late, request, check.session, request.signal, check.results);
+  const judged = await lateQuotesJudged(
+    result,
+    late,
+    request,
+    check.session,
+    request.signal,
+    check.results,
+  );
+  return check.ledger.unquotedFigure(judged) ? check.results.notChecked("number-unquoted") : judged;
 }
 
 /** The verdict, with each quote given only when asked for after it added to `givenAfter`. */
@@ -216,14 +229,14 @@ async function verdictOf(
   if (absence) return absence;
   if (await ledger.requiresCalculation(verdict)) {
     unconfirmed = ledger.confirmationFailure();
-    return unconfirmed ? unjudged(unconfirmed) : notChecked("no-evidence");
+    return unconfirmed ? unjudged(unconfirmed) : notChecked("number-not-worked-out");
   }
   // A worked figure settles its number alone: never Supported over a reply that records another
   // duty or a dropped condition, or gives neither line (#1766, #1708).
   const byCalculation: ClaimCheckResult | null =
     worked && !ownDetailDiffers(verdict) && !ownDetailUnread(verdict)
       ? (await ledger.requiresCalculation({ ...verdict, verdict: "supported" }))
-        ? notChecked("no-evidence")
+        ? notChecked("number-not-worked-out")
         : {
             verdict: "supported",
             evidence: worked.evidence,
