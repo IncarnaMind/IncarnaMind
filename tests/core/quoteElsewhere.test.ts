@@ -64,8 +64,14 @@ function inOnePass(units: readonly PageText[], quote: string) {
   const matching = matchingOf(units);
   const at = locateQuote(units, quote, matching);
   if (!at) return quoteInUnits(units, quote, matching) ? { location: null } : null;
+  const { pageFrom, pageTo } = at;
   const covered = units.filter(
-    (unit) => unit.page !== null && unit.page >= at.pageFrom && unit.page <= at.pageTo,
+    (unit) =>
+      unit.page !== null &&
+      pageFrom !== null &&
+      pageTo !== null &&
+      unit.page >= pageFrom &&
+      unit.page <= pageTo,
   );
   return { location: locationOf(covered, quoteInUnits(covered, quote, matching)) };
 }
@@ -134,7 +140,8 @@ describe("where a quote stands, looked for a window at a time (#3041)", () => {
     const lost = (page: number) =>
       Array.from(
         { length: 30 },
-        (_, line) => `Fog report ${page}-${line}: a ferry from the fort found a few fathoms of water.`,
+        (_, line) =>
+          `Fog report ${page}-${line}: a ferry from the fort found a few fathoms of water.`,
       ).join("\n");
     const pages: PageText[] = Array.from({ length: 20 }, (_, index) => ({
       page: index + 1,
