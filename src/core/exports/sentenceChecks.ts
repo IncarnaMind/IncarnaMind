@@ -72,6 +72,7 @@ export function failedSentences(
     const { id } = check;
     const shown = claimCheckShown(check, {
       text: sentence,
+      citations: marked.citations,
       footing,
       figureContexts,
       figured: figured(marked),

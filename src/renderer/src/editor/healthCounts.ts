@@ -52,7 +52,14 @@ import { memoized } from "../../../shared/memo";
 import { sentenceKey } from "../../../shared/mindCheck";
 import { readProposalAttribute } from "../../../shared/proposals";
 import { INLINE_NODE, isClaim, onlyNamesItsTable } from "../../../shared/sentences";
-import { claimPlaces, keptSpans, markOf, type ShownClaim, shownClaims } from "./claimChecks";
+import {
+  claimPlaces,
+  foundElsewhere,
+  keptSpans,
+  markOf,
+  type ShownClaim,
+  shownClaims,
+} from "./claimChecks";
 import { BLOCK_ID_ATTRIBUTE } from "./noteSchema";
 
 export const HEALTH_PARTS = [
@@ -113,6 +120,11 @@ export interface NoteHealth {
   ownNotes: number[];
   /** The covered claims a check found supported with none of their Citations not found: no look needed (#2831). */
   supportedAt: number[];
+  /**
+   * The claims Supported, not yet cited (#3019): a model checked them and its ✓ shows once the
+   * Passage it found is their Citation. Counted apart: never supported, never to check.
+   */
+  notYetCited: number[];
   checkable: number;
   supported: number;
   checkedAt: string | null;
@@ -333,12 +345,21 @@ export function noteHealth(doc: ProseMirrorNode, input: NoteHealthInput): NoteHe
     noCitation: [],
     ownNotes: [],
     supportedAt: [],
+    notYetCited: [],
     checkable: 0,
     supported: 0,
     checkedAt: null,
     unexamined: [],
   };
   const unexamined = input.unexamined ?? new Set<string>();
+  const checkedAt = (at: string) => {
+    if (
+      at !== "" &&
+      !Number.isNaN(Date.parse(at)) &&
+      (health.checkedAt === null || Date.parse(at) > Date.parse(health.checkedAt))
+    )
+      health.checkedAt = at;
+  };
   eachSentence(
     doc,
     input,
@@ -361,6 +382,12 @@ export function noteHealth(doc: ProseMirrorNode, input: NoteHealthInput): NoteHe
         health.lookNotFound.push(...missing);
         return true;
       };
+      if (claim && foundElsewhere(claim)) {
+        health.checkable++;
+        checkedAt(claim.check.checkedAt);
+        if (!lookFor(true)) health.notYetCited.push(from);
+        return;
+      }
       if (state.kind === "to-check") {
         health.checkable++;
         lookFor(true);
@@ -400,14 +427,7 @@ export function noteHealth(doc: ProseMirrorNode, input: NoteHealthInput): NoteHe
         return;
       }
       health.checkable++;
-      const checkedAt = claim.check.checkedAt;
-      if (
-        checkedAt !== "" &&
-        !Number.isNaN(Date.parse(checkedAt)) &&
-        (health.checkedAt === null || Date.parse(checkedAt) > Date.parse(health.checkedAt))
-      ) {
-        health.checkedAt = checkedAt;
-      }
+      checkedAt(claim.check.checkedAt);
       const unsupported = markOf(claim) === "unsupported";
       const contradicted = claim.shown.state === "contradicted";
       if (unsupported) health.unsupported.push(from);
@@ -454,13 +474,20 @@ export function noteHealth(doc: ProseMirrorNode, input: NoteHealthInput): NoteHe
  * The check card's rows (#2831): its sentences, each in one row by its one state, so the rows add
  * up to the sentences a check reads. What needs a look (unsupported, contradicted, or a Citation
  * not found: its own card says which), what is supported, with the ones only the User's own notes
- * back named under it (`ownNotes`, of the supported), what is being checked and what isn't
- * checked, the sentences the last whole check couldn't sort among them (named on that check's
- * line too). Each counts once, in its worst state: needs a look, then not checked, then
- * supported, so an Analysis table with a column not recalculated is one not checked. Rows with
- * none are left out.
+ * back named under it (`ownNotes`, of the supported), what is Supported, not yet cited (#3019),
+ * what is being checked and what isn't checked, the sentences the last whole check couldn't sort
+ * among them (named on that check's line too). Each counts once, in its worst state: needs a
+ * look, then not checked, then supported, so an Analysis table with a column not recalculated is
+ * one not checked. Rows with none are left out.
  */
-export const CHECK_ROWS = ["look", "supported", "ownNotes", "checking", "toCheck"] as const;
+export const CHECK_ROWS = [
+  "look",
+  "supported",
+  "ownNotes",
+  "notYetCited",
+  "checking",
+  "toCheck",
+] as const;
 export type CheckRow = (typeof CHECK_ROWS)[number];
 
 export function checkRows(health: NoteHealth): { row: CheckRow; places: readonly number[] }[] {
@@ -473,6 +500,7 @@ export function checkRows(health: NoteHealth): { row: CheckRow; places: readonly
     look: health.lookClaims,
     supported: supportedAt,
     ownNotes: health.ownNotes.filter((pos) => supported.has(pos)),
+    notYetCited: health.notYetCited,
     checking: health.checking,
     toCheck,
   };
@@ -494,15 +522,17 @@ export interface HealthSummary {
   toCheck: number;
   /** The supported claims that cite nowhere, so they still need a Citation. */
   noCitation: number;
+  /** The claims Supported, not yet cited (#3019). */
+  notYetCited: number;
 }
 
 /**
  * The card's one summary, counted and decided from the same `NoteHealth` its
  * rows show, so the two can never disagree (#1941): "everything checked" only
- * when nothing is left — no sentence that needs a look, none not checked, and
- * no file a narrowed check couldn't read (#1915). A supported sentence with no
- * Citation counts as done (#2831). Null while a check runs or a problem shows:
- * the card says that in its place.
+ * when nothing is left — no sentence that needs a look, none not checked, none
+ * Supported, not yet cited, and no file a narrowed check couldn't read (#1915).
+ * A supported sentence with no Citation counts as done (#2831). Null while a
+ * check runs or a problem shows: the card says that in its place.
  */
 export function healthSummary(
   health: NoteHealth,
@@ -519,9 +549,10 @@ export function healthSummary(
     },
     toCheck: health.toCheck.length,
     noCitation: health.noCitation.length,
+    notYetCited: health.notYetCited.length,
   };
   // A supported sentence counts as done: finding a Citation for it is the check's job (#2831).
-  const left = summary.look.claims + summary.toCheck;
+  const left = summary.look.claims + summary.toCheck + summary.notYetCited;
   if (left > 0) return { kind: "left", summary };
   return unread > 0 ? null : { kind: "all" };
 }

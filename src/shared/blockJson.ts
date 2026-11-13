@@ -48,11 +48,13 @@ const citationAttributeNames: Record<keyof CitationAttributes, true> = {
   quotedWords: true,
   keptOver: true,
   id: true,
+  foundByCheck: true,
 };
 
 /** Every attribute of a Citation, its provenance included, with the nulls a note keeps by leaving them out. */
 export function citationAttributesOf(
-  citation: Citation & Partial<Pick<CitationAttributes, "pageChecked" | "keptOver" | "id">>,
+  citation: Citation &
+    Partial<Pick<CitationAttributes, "pageChecked" | "keptOver" | "id" | "foundByCheck">>,
 ): CitationAttributes {
   return {
     passageId: citation.passageId ?? null,
@@ -72,6 +74,7 @@ export function citationAttributesOf(
     quotedWords: citation.quotedWords ?? null,
     keptOver: citation.keptOver ?? null,
     id: citation.id ?? null,
+    foundByCheck: citation.foundByCheck ?? null,
   };
 }
 
