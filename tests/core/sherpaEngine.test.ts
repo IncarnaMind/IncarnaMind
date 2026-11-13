@@ -226,29 +226,49 @@ describe("The sherpa-onnx recognizer", () => {
       }),
     ]);
     const warned = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const reading = async (seconds: number, tokens: number) => {
+    /** What the log says of one stretch, the first reading's line first. */
+    const reading = async (seconds: number, tokens: number, read = engine) => {
       RESULTS.push(
         JSON.stringify({ lang: "", text: "Secret words.", tokens: Array(tokens).fill("x") }),
       );
-      await engine.recognizer.decode(
+      const before = warned.mock.calls.length;
+      await read.recognizer.decode(
         new Float32Array(seconds * MEETING_SAMPLE_RATE),
         "meeting:1:mic",
         [],
       );
+      return warned.mock.calls.slice(before);
     };
-    // 125 tokens after its 3-token header: all 128 written.
-    await reading(10, 125);
-    // 30 s of audio is 390 tokens: with the 15 of the prompt and 107 written, all 512.
-    await reading(30, 104);
-    await reading(15, 100);
-    await reading(15, 10);
-
     const message =
       "A reading of the speech model reached its token limit; its words may be cut short.";
-    expect(warned.mock.calls).toEqual([
-      [message, { limit: 128, seconds: 10, written: 128, total: 273 }],
-      [message, { limit: 512, seconds: 30, written: 107, total: 512 }],
+    // 125 tokens after its 3-token header: all 128 written.
+    expect((await reading(10, 125))[0]).toEqual([
+      message,
+      { limit: 128, seconds: 10, written: 128, total: 273 },
     ]);
+    // 30 s of audio is 390 tokens: with the 15 of the prompt and 107 written, all 512.
+    expect((await reading(30, 104))[0]).toEqual([
+      message,
+      { limit: 512, seconds: 30, written: 107, total: 512 },
+    ]);
+    expect(await reading(15, 100)).toEqual([]);
+    expect(await reading(15, 10)).toEqual([]);
+
+    // One value is both the model's own limit and the one its readings are checked against.
+    CONFIGS.length = 0;
+    const lower = await createSherpaEngine(model, { newTokens: 40 });
+    expect(CONFIGS).toEqual([
+      expect.objectContaining({
+        modelConfig: expect.objectContaining({
+          qwen3Asr: expect.objectContaining({ maxNewTokens: 40, maxTotalLen: 512 }),
+        }),
+      }),
+    ]);
+    expect((await reading(10, 37, lower))[0]).toEqual([
+      message,
+      { limit: 40, seconds: 10, written: 40, total: 185 },
+    ]);
+    expect(await reading(10, 36, lower)).toEqual([]);
     expect(JSON.stringify(warned.mock.calls)).not.toMatch(/Secret/);
     warned.mockRestore();
   });

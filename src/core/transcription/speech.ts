@@ -155,15 +155,15 @@ export function createLeveler(): (samples: Float32Array) => Float32Array {
 }
 
 /**
- * Where speech as long as one reading may be is cut: the middle of its quietest `QUIET_MS` in its
- * last `CUT_SEARCH_MS`, the latest of equals. A sample index into `samples`.
+ * The middle of the quietest `QUIET_MS` of `samples` between sample `from` and sample `to`, the
+ * latest of equals: where speech is cut. `to` when there is less than `QUIET_MS` between them.
  */
-function cutOf(samples: Float32Array): number {
+export function quietestCut(samples: Float32Array, from: number, to: number): number {
   const step = samplesOf(QUIET_STEP_MS);
   const width = Math.round(QUIET_MS / QUIET_STEP_MS);
-  const steps = Math.floor(samples.length / step);
-  const first = Math.max(0, steps - Math.round(CUT_SEARCH_MS / QUIET_STEP_MS));
-  if (steps - first < width) return samples.length;
+  const steps = Math.floor(Math.min(to, samples.length) / step);
+  const first = Math.max(0, Math.floor(from / step));
+  if (steps - first < width) return to;
   const energy: number[] = [];
   for (let at = first; at < steps; at++) {
     let sum = 0;
@@ -182,6 +182,10 @@ function cutOf(samples: Float32Array): number {
   }
   return (first + quietest) * step + samplesOf(QUIET_MS) / 2;
 }
+
+/** Where speech as long as one reading may be is cut: in its last `CUT_SEARCH_MS`. */
+const cutOf = (samples: Float32Array) =>
+  quietestCut(samples, samples.length - samplesOf(CUT_SEARCH_MS), samples.length);
 
 interface Job {
   stream: string;
