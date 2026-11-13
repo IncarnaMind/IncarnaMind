@@ -220,7 +220,7 @@ The Haiku half's issue comment gave $0.26 for the 41. That counts only the Answe
 
 - **The start:** only if the estimate, $1.55, is at most 60% of DeepSeek's balance, read first, less any run of another lane still unbilled, and fits inside the stop.
 - **Before every run,** the spend so far (each run's tokens at the page's price for the hour it went, plus the next run's expected cost) is checked against the stop. A run that would cross it isn't started, and the chain stops there, even mid-arm. The 41 start only if what is left covers their estimate, and the chain reports what ran as it is, not as a gate.
-- **The balance** is read before and after every round and set beside the tokens' spend. Spend is reported from the tokens, and the balance only when read at least 30 minutes after the last request.
+- **The balance** is read before every round and after the last, and set beside the tokens' spend. Spend is reported from the tokens, and the balance only when read at least 30 minutes after the last request.
 
 **Keys and leases.**
 - DeepSeek's key lease is held for the 60 runs and renewed after each round, so its two-hour limit doesn't end it partway.
@@ -229,7 +229,7 @@ The Haiku half's issue comment gave $0.26 for the 41. That counts only the Answe
 - A dry round comes first, with a key that isn't one, so every request is refused and nothing is spent: both arms open, each check is heard, and every probe has its row.
 
 **What is read.** As the Haiku half: bars 1 to 5 for this model from the three arms, and bar 6 from the 41 on head, with every flag listed with its sentence, beside #2878's saved run of the same 41 on DeepSeek V4.1 Flash.
-- `reply-self-zh` is left alone in 12 of 20 on this model in step 1 and the try. It is run and recorded at the gate, not tried again.
+- `reply-self-zh` was left alone in 12 of 20 on this model in step 1 and 8 of 20 in the try. It is run and recorded at the gate, not tried again.
 - `unmade-translated-en` is reported with main's numbers beside it, and its bar is recorded failed, with the issue that owns it, if it is under.
 - Where each sentence was filed is reported for every probe on each arm, and the unmade marks probes are shown caught whatever value they get.
 
