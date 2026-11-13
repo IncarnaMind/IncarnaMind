@@ -40,6 +40,7 @@ import type { ChatSettings, readConfig } from "../lib/config";
 import type { EvalDocument } from "../lib/evaluationSet";
 import type { Library } from "../lib/library";
 import type { Log } from "../lib/log";
+import { type WrittenSentence, writtenSentences } from "../lib/writtenSentences";
 import type { EverydayCase } from "./cases";
 import {
   documentsCovered,
@@ -181,6 +182,18 @@ export interface CaseResult {
    * same on main and on a head that checks after the reply: null when nothing it wrote was checked.
    */
   checkEndedSeconds: number | null;
+  /** From the request to its check's first request, as `checkEndedSeconds` reads them: null when none. */
+  checkStartedSeconds: number | null;
+  /** From the request to when what it wrote landed in the Note the User was in: null when nothing did. */
+  landedSeconds: number | null;
+  /**
+   * Each sentence its writes added, in the Note's order, and what its check's mark says, with when
+   * the mark was set in seconds from the request: the same on main and on a head that checks after
+   * the reply.
+   */
+  written: (Omit<WrittenSentence, "checkedAt"> & { markedSeconds: number | null })[];
+  /** Each request a check of what it wrote sent, in seconds from the request. */
+  checkRequests: CheckRequest[];
   error: string | null;
   /** The Answers' tokens, its earlier requests' included (not Edit with AI's or the judge's). */
   usage: AnswerUsage;
@@ -298,19 +311,57 @@ async function answerOf(
   return checked;
 }
 
+interface CheckRequest {
+  startSeconds: number;
+  endSeconds: number;
+  model: string;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  outcome: string;
+}
+
 /**
- * When the last request of a check of what an Answer wrote ended, in seconds after `since`, from
- * the timings the core keeps (its `written-check` step on both arms); null when there was none.
+ * The requests a check of what an Answer wrote sent since `since`, in seconds after it, from the
+ * timings the core keeps (its `written-check` step on both arms), in the order they started.
  */
-function checkEndedSince(dataDir: string, since: number): number | null {
-  const rows = queryDatabase<{ started_at: string; end_ms: number }>(
+function checkRequestsSince(dataDir: string, since: number): CheckRequest[] {
+  const rows = queryDatabase<{
+    started_at: string;
+    end_ms: number;
+    model_id: string;
+    input_tokens: number | null;
+    output_tokens: number | null;
+    outcome: string;
+  }>(
     dataDir,
-    "SELECT started_at, end_ms FROM ai_timings WHERE kind = 'model' AND step = 'written-check' AND started_at >= ?",
+    "SELECT started_at, end_ms, model_id, input_tokens, output_tokens, outcome FROM ai_timings WHERE kind = 'model' AND step = 'written-check' AND started_at >= ? ORDER BY started_at",
     [new Date(since).toISOString()],
   );
-  if (rows.length === 0) return null;
-  const last = Math.max(...rows.map((row) => Date.parse(row.started_at) + row.end_ms));
-  return (last - since) / 1000;
+  return rows.map((row) => {
+    const start = Date.parse(row.started_at);
+    return {
+      startSeconds: (start - since) / 1000,
+      endSeconds: (start + row.end_ms - since) / 1000,
+      model: row.model_id,
+      inputTokens: row.input_tokens,
+      outputTokens: row.output_tokens,
+      outcome: row.outcome,
+    };
+  });
+}
+
+/** When the text of a Note first changes from now on, in ms since the epoch: null until it does. */
+function landing(doc: Y.Doc): { at(): number | null; stop(): void } {
+  const blocks = doc.getXmlFragment(MIND_CONTENT_FIELD);
+  const before = blocks.toString();
+  let at: number | null = null;
+  const heard = () => {
+    if (at !== null || blocks.toString() === before) return;
+    at = Date.now();
+    doc.off("update", heard);
+  };
+  doc.on("update", heard);
+  return { at: () => at, stop: () => doc.off("update", heard) };
 }
 
 async function askExample(core: Core, language: "en" | "zh-CN") {
@@ -584,6 +635,7 @@ export async function runCase(
   const stoppedAtAsk = { last: false };
   asking?.();
   const askedAt = Date.now();
+  const landed = client ? landing(client.doc) : null;
   let repliedAt: number | null = null;
   const answer = await ask(
     core,
@@ -604,10 +656,16 @@ export async function runCase(
     },
   );
   const answeredSeconds = (Date.now() - started) / 1000;
-  const repliedSeconds = repliedAt === null ? null : (repliedAt - askedAt) / 1000;
-  const checkEndedSeconds = checkEndedSince(library.dataDir, askedAt);
+  landed?.stop();
+  const since = (at: number | null) => (at === null ? null : (at - askedAt) / 1000);
+  const repliedSeconds = since(repliedAt);
+  const landedSeconds = since(landed?.at() ?? null);
+  const checkRequests = checkRequestsSince(library.dataDir, askedAt);
+  const checkStartedSeconds = checkRequests[0]?.startSeconds ?? null;
+  const checkEndedSeconds =
+    checkRequests.length > 0 ? Math.max(...checkRequests.map((each) => each.endSeconds)) : null;
   console.log(
-    `  replied in ${repliedSeconds?.toFixed(1) ?? "-"} s; what it wrote was checked by ${checkEndedSeconds?.toFixed(1) ?? "-"} s`,
+    `  landed at ${landedSeconds?.toFixed(1) ?? "-"} s, replied in ${repliedSeconds?.toFixed(1) ?? "-"} s; what it wrote was checked from ${checkStartedSeconds?.toFixed(1) ?? "-"} s to ${checkEndedSeconds?.toFixed(1) ?? "-"} s`,
   );
   const asks = watch ? { ...watch.end() } : { again: 0, coverage: 0, citations: 0 };
   const forced = deciding ? deciding.forcing.end() : 0;
@@ -629,6 +687,7 @@ export async function runCase(
   const citedInMinds: string[] = [];
   const sourcesAsTextIn: string[] = [];
   const writtenInMinds: string[] = [];
+  const sentencesWritten: CaseResult["written"] = [];
   const mindDocs = new Map<string, Y.Doc>();
   const documentNames = scoped.map((document) => document.name);
   for (const mindId of changed) {
@@ -637,11 +696,25 @@ export async function runCase(
     mindDocs.set(mindId, written.doc);
     citedInMinds.push(...citedDocuments(written.doc));
     const was = mindId === mind?.id ? before : new Map<string, string>();
+    const writtenIds = new Set<string>();
     for (const [id, text] of acceptedTexts(written.doc, requests)) {
       sourcesAsTextIn.push(
         ...sourcesAsText(text, (source) => namesOneOf(source.name, documentNames)),
       );
-      if (was.get(id) !== text) writtenInMinds.push(text);
+      if (was.get(id) !== text) {
+        writtenInMinds.push(text);
+        writtenIds.add(id);
+      }
+    }
+    for (const { checkedAt, ...sentence } of writtenSentences(
+      written.doc.getXmlFragment(MIND_CONTENT_FIELD),
+      writtenIds,
+    )) {
+      sentencesWritten.push({
+        ...sentence,
+        place: sentencesWritten.length,
+        markedSeconds: since(checkedAt === null ? null : Date.parse(checkedAt)),
+      });
     }
   }
   // The judge reads the record as the app's own claim check does: what the window applies at once.
@@ -753,6 +826,10 @@ export async function runCase(
     answeredSeconds,
     repliedSeconds,
     checkEndedSeconds,
+    checkStartedSeconds,
+    landedSeconds,
+    written: sentencesWritten,
+    checkRequests,
     error: answer.status === "failed" ? `${answer.errorKind}: ${answer.errorMessage}` : null,
     usage,
     droppedMarkers,
