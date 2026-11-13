@@ -328,6 +328,44 @@ describe("A help reply", () => {
     expect(helpToKeep({ text: "", status: "done" }, "question")).toBe(false);
   });
 
+  // protects=what a typed reply says before its first option shows first, once it ends, in English and Chinese, each line its own, the options after it as before; while it is written it waits, as a model's notes may come first (#2526); a button's reply with the same words is laid out exactly as before; fails_when=the sentence the User asked for is hidden, it shows while it may still be notes, or a button's reply changes; no_claim=what the model writes.
+  test.each([
+    {
+      language: "English",
+      before: "They asked for EU hosting.[^1]\nIt is in the contract.[^2]",
+      option: "★ We host in Frankfurt.[^3]\n→ answers it",
+      lead: ["They asked for EU hosting.[1]", "It is in the contract.[2]"],
+      said: "We host in Frankfurt.[3]",
+    },
+    {
+      language: "Chinese",
+      before: "对方要求数据存放在欧盟。[^1]\n合同里写了。[^2]",
+      option: "★ 我们的服务器在法兰克福。[^3]\n→ 直接回答",
+      lead: ["对方要求数据存放在欧盟。[1]", "合同里写了。[2]"],
+      said: "我们的服务器在法兰克福。[3]",
+    },
+  ])(
+    "a typed reply's words before its first option show first, in $language; a button's are as before",
+    ({ before, option, lead, said }) => {
+      const text = `${before}\n\n${option}`;
+      const typed = helpParts({ text, status: "done" }, "question");
+      expect(typed.lead.map((item) => textOf(item.lead))).toEqual(lead);
+      expect(typed.lead.every((item) => !item.said && !item.recommended)).toBe(true);
+      expect(typed.options.map((item) => textOf(item.lead))).toEqual([said]);
+      expect(typed.options[0]?.said).toBe(true);
+      for (const status of ["streaming", "stopped"] as const) {
+        expect(helpParts({ text, status }, "question").lead).toEqual([]);
+      }
+      // A button's reply puts nothing first: the words before its options are a remark, left out.
+      for (const kind of ["say", "answer"] as const) {
+        expect(helpParts({ text, status: "done" }, kind)).toEqual({
+          lead: [],
+          options: typed.options,
+        });
+      }
+    },
+  );
+
   // protects=the words a model puts in bold show in bold, a run that holds a Citation and one around a line's mark included, and a bold mark still open while it streams bolds nothing; fails_when=the marks show as asterisks, a bold run is lost, or an open mark bolds the rest of the line; no_claim=whether a model writes bold (#2925).
   test("bold marks a model writes show in bold, over a Citation too, and one left open bolds nothing", () => {
     const [item] = readHelpReply(

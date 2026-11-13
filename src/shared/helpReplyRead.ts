@@ -205,10 +205,12 @@ function laidOut(
   if (shape === "answer") {
     // A typed question's reply is options, laid out as a button's, or what answers it, all of it:
     // a sentence or two, or as many short lines as it asked for.
-    if (items.some((item) => item.recommended || item.effect !== null)) {
-      return laidOut(items, { shape: "options", leadIn, streaming });
-    }
-    return { lead: [], options: items.flatMap(apart), said: [] };
+    const firstOption = items.findIndex((item) => item.recommended || item.effect !== null);
+    if (firstOption === -1) return { lead: [], options: items.flatMap(apart), said: [] };
+    const laid = laidOut(items, { shape: "options", leadIn, streaming });
+    // What it says before its options answers the question the User typed, so it shows first once
+    // the reply ends; while it is written, it may still be a model's notes (#2526).
+    return streaming ? laid : { ...laid, lead: items.slice(0, firstOption).flatMap(apart) };
   }
   if (shape === "lines") {
     const bullets = items.filter((item) => item.bullet);
