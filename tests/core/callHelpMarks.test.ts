@@ -1240,7 +1240,7 @@ describe("the evaluation's switch for the form whose facts stand apart (#2847)",
     };
   };
 
-  // protects=the reply's own line after its options stays its closing line, after the options and in no option, through its check, Check again and the Note it is added to, where it is a paragraph of its own, in English and Chinese; fails_when=it goes into the last option or the last option's paragraph, or Check again moves it; no_claim=how the panel lays it out.
+  // protects=the reply's own line after its options, its "= " read as the core reads it, is stored as its closing line and stays one, after the options and in no option, through its check, Check again and the Note it is added to, where it is a paragraph of its own, in English and Chinese; fails_when=it goes into the last option or the last option's paragraph, Check again moves it, or the field isn't stored; no_claim=how the panel lays it out.
   test.each(["English", "Chinese"] as const)(
     "in %s, the closing line stays after the options, through Check again and into the Note",
     async (language) => {
@@ -1253,6 +1253,7 @@ describe("the evaluation's switch for the form whose facts stand apart (#2847)",
       const again = await answerJudged(core, ids.conversationId, ids.answerId);
 
       for (const answer of [after, again]) {
+        expect(answer.steps?.closingLine).toBe(true);
         expect(answer.text.endsWith(`\n\n${closing}`)).toBe(true);
         expect(closingOf(answer)).toEqual({ closing: [closing], inOptions: [] });
         expect(marks(answer)).toEqual([{ marker: 1, check: "found", passed: true }]);
@@ -1264,7 +1265,7 @@ describe("the evaluation's switch for the form whose facts stand apart (#2847)",
     },
   );
 
-  // protects=a reply stopped while its closing line was written keeps what it wrote of that line as its closing line, after the options, and Check the rest then judges its facts, the closing line left where it was, in English and Chinese; fails_when=the line written so far goes into the last option, or Check the rest moves it; no_claim=what Stop does to a reply in today's form.
+  // protects=a reply stopped while its closing line was written keeps what it wrote of that line as its closing line, stored as one, after the options as it showed just before Stop, and Check the rest then judges its facts, the closing line left where it was, in English and Chinese; fails_when=the line written so far goes into the last option, moves at Stop, or Check the rest moves it; no_claim=what Stop does to a reply in today's form.
   test.each(["English", "Chinese"] as const)(
     "in %s, a reply stopped in its closing line keeps it after the options, and Check the rest leaves it there",
     async (language) => {
@@ -1280,9 +1281,12 @@ describe("the evaluation's switch for the form whose facts stand apart (#2847)",
       const asked = await core.askMeetingHelp({ meetingId: meeting.id, kind: "answer" });
       if (!asked.asked) throw new Error("Not asked.");
       const ids = { conversationId: asked.conversation.id, answerId: asked.answerId };
+      let before: ConversationAnswer | null = null;
       await vi.waitFor(
-        async () =>
-          expect((await answerOf(core, ids.conversationId, ids.answerId)).text).toContain(begun),
+        async () => {
+          before = await answerOf(core, ids.conversationId, ids.answerId);
+          expect(before.text).toContain(begun);
+        },
         { timeout: 20_000, interval: 5 },
       );
       await core.stopConversationAnswer(ids);
@@ -1294,11 +1298,75 @@ describe("the evaluation's switch for the form whose facts stand apart (#2847)",
       // As far as the reply got: its words stop wherever the model's last piece ended.
       const written = stopped.text.split("\n").at(-1)?.trim() ?? "";
       expect(written.startsWith(begun) && closing.startsWith(written)).toBe(true);
+      const shown = before as ConversationAnswer | null;
+      if (!shown) throw new Error("Never written.");
+      expect(closingOf(shown)).toEqual({ closing: [written], inOptions: [] });
       for (const answer of [stopped, checked]) {
+        expect(answer.steps?.closingLine).toBe(true);
         expect(closingOf(answer)).toEqual({ closing: [written], inOptions: [] });
         expect(answer.text.trimEnd().endsWith(`\n\n${written}`)).toBe(true);
       }
       expect(marks(checked)).toEqual([{ marker: 1, check: "found", passed: true }]);
+    },
+  );
+
+  // protects=Check again sends the lines the first check sent, for a reply with a closing line that ended and one stopped in it (its Check the rest the first), the closing line staying where it was, in English and Chinese; fails_when=Check again sends other lines, or the closing line moves; no_claim=what the model replies.
+  test.each([
+    { language: "English", stop: false },
+    { language: "Chinese", stop: false },
+    { language: "English", stop: true },
+    { language: "Chinese", stop: true },
+  ] as const)(
+    "in $language, stopped $stop: Check again sends the same lines",
+    async ({ language, stop }) => {
+      const { reply, begun } = CLOSING[language];
+      let reachable = false;
+      const { core, meeting, batches } = await setUp(
+        {
+          reply,
+          ...(stop && {
+            pause: { after: reply.indexOf(begun) + begun.length, until: new Promise(() => {}) },
+          }),
+          judge: (_call, judged) =>
+            reachable ? judged : { error: { status: 500, message: "Not reachable." } },
+        },
+        undefined,
+        undefined,
+        "fact lines",
+      );
+      let ids: { conversationId: string; answerId: string };
+      if (stop) {
+        const asked = await core.askMeetingHelp({ meetingId: meeting.id, kind: "answer" });
+        if (!asked.asked) throw new Error("Not asked.");
+        const pressedIds = { conversationId: asked.conversation.id, answerId: asked.answerId };
+        ids = pressedIds;
+        await vi.waitFor(
+          async () =>
+            expect(
+              (await answerOf(core, pressedIds.conversationId, pressedIds.answerId)).text,
+            ).toContain(begun),
+          { timeout: 20_000, interval: 5 },
+        );
+        await core.stopConversationAnswer(ids);
+        await answerJudged(core, ids.conversationId, ids.answerId);
+        await core.checkAnswerAgain(ids);
+      } else ids = (await pressed(core, meeting, "answer")).ids;
+      const first = await answerJudged(core, ids.conversationId, ids.answerId);
+      const sent = batches.length;
+      reachable = true;
+      await core.checkAnswerAgain(ids);
+      const again = await answerJudged(core, ids.conversationId, ids.answerId);
+
+      expect(marks(first)).toEqual([{ marker: 1, check: "not-checked", passed: false }]);
+      expect(sent).toBeGreaterThan(0);
+      expect(batches.length).toBeGreaterThan(sent);
+      expect(batches.at(-1)?.prompt).toBe(batches[0]?.prompt);
+      expect(marks(again)).toEqual([{ marker: 1, check: "found", passed: true }]);
+      for (const answer of [first, again]) {
+        expect(answer.steps?.closingLine).toBe(true);
+        expect(closingOf(answer).inOptions).toEqual([]);
+        expect(closingOf(answer).closing).toHaveLength(1);
+      }
     },
   );
 
@@ -1367,7 +1435,7 @@ describe("the evaluation's switch for the form whose facts stand apart (#2847)",
     return { says: options.map((item) => words(item.lead)), closing: closing.map(words) };
   };
 
-  // protects=what Stop does to a last option stopped before its "→" line, in English and Chinese: with nothing that cites, it shows as an option while written and, once stopped, as the reply's closing line after the options, its words kept (the text kept has no marks to tell it from one); with a fact line that cites, it stays an option; fails_when=either reads otherwise, or its words change; no_claim=whether that is what the User should see, which is the product side's to decide.
+  // protects=a last option stopped before its "→" line stays the option it was while written, nothing moving at Stop, in English and Chinese: with nothing that cites, the line to say written so far, its words kept, and no closing line, since only a "= " makes one; with a fact line that cites, the same; fails_when=Stop turns it into the closing line or moves a line, or its words change; no_claim=how often a reply is stopped there.
   test.each(["English", "Chinese"] as const)(
     "in %s, a last option stopped before its → line",
     async (language) => {
@@ -1408,17 +1476,15 @@ describe("the evaluation's switch for the form whose facts stand apart (#2847)",
         shownFirst,
       );
 
-      // Nothing cites in it: an option while written, the closing line once stopped, its words kept.
+      // Nothing cites in it: the option written so far, before Stop and after it alike.
       const whileWritten = optionsAndClosing(bare.before);
       const half = whileWritten.says[1] ?? "";
       expect(half.length > 0 && say.startsWith(half) && half !== say).toBe(true);
       expect(whileWritten.closing).toEqual([]);
       expect(bare.after.status).toBe("stopped");
-      expect(optionsAndClosing(bare.after)).toEqual({
-        says: [whileWritten.says[0]],
-        closing: [half],
-      });
-      // A fact line cites: it stays an option.
+      expect(bare.after.steps?.closingLine).toBeUndefined();
+      expect(optionsAndClosing(bare.after)).toEqual(whileWritten);
+      // A fact line cites: it stays an option too.
       for (const answer of [cited.before, cited.after]) {
         expect(optionsAndClosing(answer)).toEqual({
           says: [whileWritten.says[0], say],
@@ -1426,6 +1492,90 @@ describe("the evaluation's switch for the form whose facts stand apart (#2847)",
         });
       }
       expect(cited.after.status).toBe("stopped");
+    },
+  );
+
+  /** What the panel shows of a reply in the form: its opening, options' lines and closing line. */
+  const panelAt = (answer: ConversationAnswer) => {
+    const { opening, options, closing } = helpParts(answer, "answer", "fact lines");
+    return {
+      opening: opening.map(words),
+      options: options.map((item) => [
+        words(item.lead),
+        ...item.notes.map(words),
+        ...(item.effect ? [`→ ${words(item.effect)}`] : []),
+        ...item.after.map((line) => `after: ${words(line)}`),
+      ]),
+      closing: closing.map(words),
+    };
+  };
+
+  const STOPPED_EARLY = {
+    English: {
+      // Its marker mid-line, so the model's text, which stops after a word, can stop right after it.
+      starred: "★ Yes, Enterprise is $45 a seat [^1] with single sign-on",
+      // No "★": a first line that cites is the one that could be read as a fact line before options.
+      plain: "Yes, Enterprise is $45 a seat [^1] with single sign-on",
+      rest: "\n→ answers at once\n\nI'll send the price sheet today\n→ buys time",
+      arrow: "★ Yes, Enterprise is $45 a seat\n→ answers at once\n",
+      fact: "> Enterprise is $45 per seat a month, with single sign-on [^1]",
+      cut: " per seat",
+    },
+    Chinese: {
+      starred: "★ 是的，企业版每个席位 45 美元 [^1] 含单点登录",
+      plain: "是的，企业版每个席位 45 美元 [^1] 含单点登录",
+      rest: "\n→ 直接回答\n\n先确认 45 美元是否含关税，今天再回复你\n→ 争取时间",
+      arrow: "★ 是的，企业版每个席位 45 美元\n→ 直接回答\n",
+      fact: "＞ 企业版每个席位每月 45 美元，含单点登录 [^1]",
+      cut: " 45 美元",
+    },
+  };
+
+  /** Presses Answer on a model writing `reply`, and stops it once it has written `shown`. */
+  async function stoppedIn(reply: string, upTo: number, shown: string) {
+    const stop = pausedAfter(upTo);
+    const { core, meeting } = await setUp(
+      { reply, records: [{ marker: 1, from: "sheet" }], pause: stop.pause },
+      undefined,
+      undefined,
+      "fact lines",
+    );
+    return stoppedAt(core, meeting, stop.isReached, shown);
+  }
+
+  // protects=Stop moves nothing in three more places, in English and Chinese: a first option stopped in its first line right after its marker stays the option it was, never a fact line before the options; a first line with no "★" stopped there stays held back as the model's notes, as while written (#2526), never a fact line before the options; stopped with a fact line half-written right after an option's "→" line, that line stays the option's, under its "→", and no option or closing line comes of it; fails_when=any reads otherwise once stopped than just before, or becomes the opening or the closing line; no_claim=how often a reply is stopped there.
+  test.each(["English", "Chinese"] as const)(
+    "in %s, Stop in a first line with its marker, and in a fact line after a → line",
+    async (language) => {
+      const { starred, plain, rest, arrow, fact, cut } = STOPPED_EARLY[language];
+      const markerEnd = (line: string) => line.indexOf("[^1]") + "[^1]".length;
+      const lead = (line: string) => line.slice(0, line.indexOf(" [^1]")).replace(/^★ /, "");
+      const inStarred = await stoppedIn(`${starred}${rest}`, markerEnd(starred), lead(starred));
+      const inPlain = await stoppedIn(`${plain}${rest}`, markerEnd(plain), lead(plain));
+      const half = fact.slice(0, fact.indexOf(cut));
+      const inFact = await stoppedIn(
+        `${arrow}${fact}`,
+        `${arrow}${half}`.length,
+        half.replace(/^[>＞]\s*/u, ""),
+      );
+
+      for (const { before, after } of [inStarred, inPlain, inFact]) {
+        expect(after.status).toBe("stopped");
+        expect(after.steps?.closingLine).toBeUndefined();
+        for (const answer of [before, after]) {
+          expect(panelAt(answer).opening).toEqual([]);
+          expect(panelAt(answer).closing).toEqual([]);
+        }
+        expect(panelAt(after).options.map((lines) => lines[0])).toEqual(
+          panelAt(before).options.map((lines) => lines[0]),
+        );
+      }
+      expect(panelAt(inStarred.after).options.map((lines) => lines[0])).toEqual([lead(starred)]);
+      expect(panelAt(inPlain.after).options).toEqual([]);
+      const [option] = panelAt(inFact.after).options;
+      expect(panelAt(inFact.after).options).toHaveLength(1);
+      expect(option?.at(-1)).toBe(`after: ${half.replace(/^[>＞]\s*/u, "")}`);
+      expect(panelAt(inFact.before).options[0]?.at(-1)).toBe(option?.at(-1));
     },
   );
 

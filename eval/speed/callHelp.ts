@@ -620,6 +620,7 @@ function item(each: CallHelpCase, set: CallHelpSet): PairedGroup["items"][number
         leadIn: answer.steps?.textBehind === true,
         streaming: false,
         ...(form && { form }),
+        ...(answer.steps?.closingLine === true && { closingLine: true }),
       });
       const shown = [...kept.lead, ...kept.options];
       const numbers = citationNumbers(shown, (marker) =>

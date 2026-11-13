@@ -8482,6 +8482,12 @@ export interface AnswerSteps {
    * presses were kept.
    */
   pressed?: string;
+  /**
+   * In call help's form whose facts stand apart (#2847), the reply's last paragraph is its closing
+   * line, as its "= " mark said while it was written: the text kept has no marks. Absent: no
+   * closing line, another form, or a reply kept before this was.
+   */
+  closingLine?: true;
 }
 
 /**

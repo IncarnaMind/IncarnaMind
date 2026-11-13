@@ -1513,6 +1513,8 @@ export function createAnswers(options: AnswersOptions) {
     let heard: LiveTranscript | null = null;
     /** Help asked while its Meeting's live text was behind (#1366). */
     let textBehind = false;
+    /** The kept reply's last paragraph is its closing line, as its "= " said (#2847). */
+    let closingLine = false;
     /** The Documents whose whole text went with the Question; null until the assistant's request is built. */
     let sentDocuments: Set<string> | null = null;
     /** The Documents the live transcript came from: the "listened" step names them. */
@@ -1671,6 +1673,7 @@ export function createAnswers(options: AnswersOptions) {
         ...(shownCoverage && { coverage: shownCoverage }),
         ...(writtenFrom && wroteNewText() && { writtenFrom }),
         ...(textBehind && { textBehind: true as const }),
+        ...(closingLine && { closingLine: true as const }),
         ...(reading && { stillReading: reading }),
         ...(sentDocuments && {
           sent: {
@@ -2015,7 +2018,9 @@ export function createAnswers(options: AnswersOptions) {
           const citation = session.streamingCitation(marker);
           return citation && !isTranscriptLocation(citation.location) ? citation.quote : null;
         };
-        markdown = helpReplyRead(markdown, { ...layout, quoteOf }).text;
+        const kept = helpReplyRead(markdown, { ...layout, quoteOf });
+        markdown = kept.text;
+        closingLine = kept.closing.length > 0;
       }
       // The check runs once, now; its results are stored with each Citation, and each figure's input.
       try {

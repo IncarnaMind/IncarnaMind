@@ -171,8 +171,10 @@ const answerOf = (
   id: string,
   text: string,
   status: ConversationAnswer["status"],
+  steps?: { closingLine: true },
 ): ConversationAnswer =>
   ({
+    ...(steps && { steps }),
     kind: "answer",
     id,
     conversationId: "help-chat",
@@ -716,11 +718,13 @@ describe("a reply whose facts stand apart, in a test build's panel (#2847)", () 
         closing.slice(0, 8),
       );
     }
-    const kept = helpReplyRead(
+    const settled = helpReplyRead(
       reply,
       helpLayout("answer", { status: "done", textBehind: false, form: "fact lines" }),
-    ).text;
-    await written(answerOf("answer-form", kept, "done"));
+    );
+    expect(settled.closing).toHaveLength(1);
+    const kept = settled.text;
+    await written(answerOf("answer-form", kept, "done", { closingLine: true }));
 
     const lines = drawn();
     expect(lines[0]).toMatch(new RegExp(`^help-opening: ${fact}\\s*1$`));
@@ -730,7 +734,7 @@ describe("a reply whose facts stand apart, in a test build's panel (#2847)", () 
       container.querySelectorAll('[data-testid="help-citation"][data-passed="true"]'),
     ).toHaveLength(1);
 
-    await addToNote([answerOf("answer-form", kept, "done")]);
+    await addToNote([answerOf("answer-form", kept, "done", { closingLine: true })]);
     const paragraphs = (
       JSON.parse(fake.added.at(-1) ?? "[]") as { content?: { text?: string }[] }[]
     ).map((block) =>

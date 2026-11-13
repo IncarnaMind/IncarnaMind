@@ -42,7 +42,7 @@ export function quoted(lead: readonly ReplyPiece[]): ReplyPiece[] {
 type HelpAnswer = {
   text: string;
   status: AnswerStatus;
-  steps?: { textBehind?: true } | null;
+  steps?: { textBehind?: true; closingLine?: true } | null;
   citations?: readonly Pick<MarkedCitation, "marker" | "quote" | "location">[];
 };
 
@@ -65,6 +65,7 @@ export function helpParts(
       status: answer.status,
       textBehind: answer.steps?.textBehind === true,
       ...(form && { form }),
+      closingLine: answer.steps?.closingLine === true,
     }),
     quoteOf,
   });

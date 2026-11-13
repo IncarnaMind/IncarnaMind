@@ -89,6 +89,8 @@ export interface HelpLayout {
    * left on a line to say or a "→" line shows as a fact line of its own (#2847).
    */
   quoteOf?: (marker: number) => string | null;
+  /** The text kept's last paragraph is the reply's closing line (`AnswerSteps.closingLine`). */
+  closingLine?: boolean;
 }
 
 /**
@@ -98,7 +100,12 @@ export interface HelpLayout {
  */
 export const helpLayout = (
   kind: MeetingHelpKind,
-  { status, textBehind, form }: { status: AnswerStatus; textBehind: boolean; form?: CallHelpForm },
+  {
+    status,
+    textBehind,
+    form,
+    closingLine,
+  }: { status: AnswerStatus; textBehind: boolean; form?: CallHelpForm; closingLine?: boolean },
 ): HelpLayout => {
   const read = helpFormOf(kind, form);
   return {
@@ -107,6 +114,7 @@ export const helpLayout = (
     streaming: status === "streaming" || status === "stopped",
     ended: status !== "streaming",
     ...(read && { form: read }),
+    ...(closingLine && { closingLine }),
   };
 };
 

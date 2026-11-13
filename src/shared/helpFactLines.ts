@@ -10,11 +10,10 @@
  * - between an option's line to say and its "→" line, a fact or own line of that option;
  * - right after a "→" line, with no blank line between, a fact or own line of the option above;
  * - before the first line to say, in a paragraph of its own whose every line cites, a fact line of
- *   the reply's own, no option's;
- * - once the reply has ended, in the last paragraph after the last option with nothing that cites,
- *   the reply's closing line. While it is written, the closing line is known by its "= ".
- * So the text read reads the same way again, and a reply whose last option never had its "→" line
- * reads that line as its closing line once it ends.
+ *   the reply's own, no option's.
+ * The reply's closing line is known by its "= " after the last option while it is written, and in
+ * the text kept by what was stored when it ended (`closingLine`): which line closes is never read
+ * back by place.
  */
 import { MARKER, withoutMarkerRuns } from "./answerSentences";
 import { EFFECT_MARK, LINE_MARK, plainLine, RECOMMENDED_MARK } from "./meetingHelp";
@@ -77,6 +76,8 @@ interface FactLinesLayout {
   ended: boolean;
   /** A recorded Document Citation's quote, by marker; nothing for a line of a call (#2847). */
   quoteOf?: (marker: number) => string | null;
+  /** The text kept's last paragraph is the reply's closing line. */
+  closingLine?: boolean;
 }
 
 /**
@@ -143,17 +144,22 @@ function optionsText(
     }
     return end < last && later(end + 1).length > 0;
   };
-  /** The last paragraph, once the reply has ended: nothing in it or after it cites or is an option. */
-  const closes = (at: number) =>
-    layout.ended &&
-    later(at).every((line) => !arrow(line) && !star(line) && !fact(line) && !cites(line));
+  let closingFrom = Number.POSITIVE_INFINITY;
+  if (layout.closingLine) {
+    const lastWords = later(0).at(-1);
+    if (lastWords !== undefined) {
+      closingFrom = lastWords;
+      while (closingFrom > 0 && !blank(closingFrom - 1)) closingFrom--;
+    }
+  }
 
   const roles: (FactLineRole | null)[] = [];
-  let phase: "before" | "open" | "closed" | "closing" = "before";
+  let phase: "before" | "open" | "closed" = "before";
   let leadDone = !layout.leadIn;
   for (let at = 0; at <= last; at++) {
     if (dropped(at)) roles.push(null);
     else if (!words(at)) roles.push("other");
+    else if (at >= closingFrom) roles.push("closing");
     else if (arrow(at)) {
       roles.push("effect");
       phase = "closed";
@@ -169,15 +175,11 @@ function optionsText(
         leadDone = true;
       }
     } else if (phase === "open") roles.push(star(at) ? "say" : "inner");
-    else if (phase === "closing") roles.push("closing");
     else if (star(at)) {
       roles.push("say");
       phase = "open";
     } else if (fact(at) || own(at) || roles[at - 1] === "effect" || roles[at - 1] === "after") {
       roles.push("after");
-    } else if (closes(at)) {
-      roles.push("closing");
-      phase = "closing";
     } else {
       roles.push("say");
       phase = "open";
@@ -202,19 +204,19 @@ function optionsText(
     return own(at) ? withoutCitations(line) : line;
   });
 
-  // The reply's own lines at its end, after its last option's "→" line, are its closing line.
+  // Its "= " lines at its end, after its last option's "→" line, are the reply's closing line.
   const lastArrow = roles.lastIndexOf("effect");
   if (lastArrow !== -1 && !roles.slice(lastArrow).some((role) => role === "say")) {
     for (let at = last; at > lastArrow; at--) {
       const role = roles[at];
       if (role === "other" || role === null || role === "closing") continue;
-      if (role !== "after" || CITES.test(read[at] ?? "")) break;
+      if (role !== "after" || !own(at) || CITES.test(read[at] ?? "")) break;
       roles[at] = "closing";
     }
   }
 
   const turned = layout.quoteOf
-    ? turnedLines(written, roles, read, layout.quoteOf, layout.streaming)
+    ? turnedLines(written, roles, read, layout.quoteOf, layout.streaming && !layout.ended)
     : new Map();
   const out: { line: string; origin: number; role: FactLineRole; offset?: number }[] = [];
   const blankBefore = (origin: number) => {

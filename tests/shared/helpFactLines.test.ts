@@ -133,10 +133,16 @@ const wholeOf = (reading: ReturnType<typeof read>) => [
   ...reading.closing.map((line) => `closing: ${textOf(line)}`),
 ];
 
-/** Reads `reply` again from the text kept, as every later reader does, and expects it read the same. */
+/**
+ * Reads `reply` again from the text kept, with what the core stores beside it (whether it has a
+ * closing line), as every later reader does, and expects it read the same.
+ */
 function readsTheSameAgain(kind: MeetingHelpKind, reply: string, status: AnswerStatus = "done") {
   const reading = read(kind, reply, status);
-  const again = read(kind, reading.text, status);
+  const again = helpReplyRead(reading.text, {
+    ...layoutOf(kind, status),
+    closingLine: reading.closing.length > 0,
+  });
   expect(again.text).toBe(reading.text);
   expect(again.kinds).toEqual(reading.kinds);
   expect(wholeOf(again)).toEqual(wholeOf(reading));
@@ -339,15 +345,24 @@ describe("the text kept keeps the model's order (#2847)", () => {
     },
   );
 
-  // protects=a reply whose last option never had its "→" line reads that line, once the reply has ended or stopped, as the reply's closing line, as its text kept can only read again; while written it is an option still coming; fails_when=it reads otherwise the second time; no_claim=how often a model leaves out a "→" line.
-  test("a last option with no → line is the closing line once the reply ends", () => {
-    const reply =
-      "★ We can add a free sandbox\n→ keeps the deal moving\n\nLet me check with the team";
-    expect(read("answer", reply, "streaming").options).toHaveLength(2);
-    for (const status of ["done", "stopped"] as const) {
+  // protects=only a "= " makes a closing line: a last option that never had its "→" line stays an option while written, once the reply has ended or stopped, and read again from the text kept, in English and Chinese; fails_when=its place after the options makes it the closing line; no_claim=how often a model leaves out a "→" line.
+  test.each([
+    {
+      language: "English",
+      reply: "★ We can add a free sandbox\n→ keeps the deal moving\n\nLet me check with the team",
+      last: "Let me check with the team",
+    },
+    {
+      language: "Chinese",
+      reply: "★ 可以免费开一个沙盒\n→ 推进成交\n\n我跟团队确认一下",
+      last: "我跟团队确认一下",
+    },
+  ])("in $language, a last option with no → line stays an option", ({ reply, last }) => {
+    for (const status of ["streaming", "done", "stopped"] as const) {
       const reading = readsTheSameAgain("answer", reply, status);
-      expect(reading.options).toHaveLength(1);
-      expect(reading.closing.map(textOf)).toEqual(["Let me check with the team"]);
+      expect(reading.options).toHaveLength(2);
+      expect(reading.options.map((item) => textOf(item.lead)).at(-1)).toBe(last);
+      expect(reading.closing).toEqual([]);
     }
   });
 });
