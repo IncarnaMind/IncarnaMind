@@ -235,10 +235,14 @@ export interface SentRequest {
   messages: string;
 }
 
-/** A sentence check's reply as the run read it: how many sentences it was asked, how many it read. */
+/**
+ * A sentence check's reply as the run read it: how many sentences it was asked, how many it read,
+ * and, when it read fewer, the reply as the model wrote it.
+ */
 export interface CheckReply {
   sentences: number;
   read: number;
+  reply?: string;
 }
 
 /** The sentence check's reply to `params`, read as the check reads it; null when it isn't one. */
@@ -246,7 +250,8 @@ function checkReplyOf(params: LanguageModelV4CallOptions, text: string): CheckRe
   const system = params.prompt.find((message) => message.role === "system");
   if (!system || !isSentenceBatch(system.content)) return null;
   const sentences = JSON.stringify(params.prompt).match(/<sentence number=/g)?.length ?? 0;
-  return { sentences, read: readBatch(replyJson(text), sentences)?.size ?? 0 };
+  const read = readBatch(replyJson(text), sentences)?.size ?? 0;
+  return { sentences, read, ...(read < sentences && { reply: text }) };
 }
 
 /** The chat models and Answer paths of a core, as the arm it runs has them. */
