@@ -53,7 +53,7 @@ import {
   projectedContent,
   sliceInlineText,
 } from "../../../shared/inlineText";
-import { readProposalRef } from "../../../shared/proposals";
+import { readProposalAttribute, readProposalRef } from "../../../shared/proposals";
 import { INLINE_NODE, isClaim, onlyNamesItsTable, sentenceSpans } from "../../../shared/sentences";
 import { judgesUnreliably } from "../../../shared/smallModel";
 import {
@@ -140,6 +140,8 @@ export interface CheckWrittenInput {
   blocks: readonly NodeJSON[];
   /** The ids of the top-level Blocks they were written as, in their order. */
   ids: readonly string[];
+  /** The request the write's waiting changes belong to (`ProposalRef.request`). */
+  change: string;
   prepared: PreparedChatModel;
   signal: AbortSignal;
   /**
@@ -531,6 +533,8 @@ type Landing =
       sentence: Sentence;
       /** The cut, in place of the sentence's own words; null: they stay. */
       nodes: NodeJSON[] | null;
+      /** What the cut takes out. */
+      uncovered?: string;
       /** Its mark, made where it lands: a figure's result is footed against the table it is in. */
       mark(blocks: Y.XmlFragment): ClaimCheckAttributes;
       /** The Passages its check found that its Citations don't hold, each to cite after its part. */
@@ -571,27 +575,50 @@ function foundCitations(
   });
 }
 
+/** The insert of the write's change that `node` is still in, waiting for the User; null: none. */
+function waitingInsert(node: NodeJSON | undefined, change: string) {
+  const inserted = (node?.marks ?? []).find((mark) => mark.type === PROPOSAL_INSERT_MARK);
+  const ref = readProposalRef(inserted?.attrs);
+  return ref?.request === change ? ref : null;
+}
+
+/** Whether the paragraph is still a whole Block the write's change adds, waiting for the User. */
+function waitingBlock(element: Y.XmlElement, change: string): boolean {
+  for (let at: Y.XmlElement | Y.XmlFragment | null = element; at instanceof Y.XmlElement; ) {
+    const proposal = readProposalAttribute(at.getAttribute(PROPOSAL_ATTRIBUTE));
+    if (proposal?.kind === "insert" && proposal.request === change) return true;
+    at = at.parent instanceof Y.XmlElement ? at.parent : null;
+  }
+  return false;
+}
+
 /**
  * The sentence `from`..`to` of a paragraph's content as the Note holds it, each found Passage's
- * Citation after its part's words (`at`, in the paragraph's offsets). Inside a change still
- * waiting, the Citation is part of that change, as the words beside it are.
+ * Citation after its part's words (`at`, in the paragraph's offsets), and how many went in. One
+ * goes in only inside the write's change while it still waits, as part of it: after words that
+ * change inserts (the nearest words before it, past any Citation), or in a Block it adds. After
+ * words the User accepted, or their own, a check writes nothing (#3019); the sentence reads found
+ * elsewhere, with Add as Citation on its card.
  */
 function withFound(
   content: readonly NodeJSON[],
   from: number,
   to: number,
   found: readonly { at: number; citation: CitationAttributes }[],
-): NodeJSON[] {
+  change: { request: string; block: boolean },
+): { nodes: NodeJSON[]; added: number } {
   const out: NodeJSON[] = [];
+  let added = 0;
   const cited = new Set<number>();
   const points = new Set(found.map((each) => each.at));
   let before: NodeJSON | undefined;
   const cite = (at: number, beside = before) => {
     if (!points.has(at) || cited.has(at)) return;
     cited.add(at);
-    const inserted = (beside?.marks ?? []).find((mark) => mark.type === PROPOSAL_INSERT_MARK);
-    const ref = readProposalRef(inserted?.attrs);
+    const ref = waitingInsert(beside, change.request);
+    if (!ref && !change.block) return;
     for (const each of found.filter((one) => one.at === at)) {
+      added++;
       out.push({
         type: CITATION_NODE,
         attrs: {
@@ -610,7 +637,6 @@ function withFound(
       if (start < from || start >= to) continue;
       cite(start);
       out.push(node);
-      before = undefined;
       continue;
     }
     const text = node.text ?? "";
@@ -631,7 +657,7 @@ function withFound(
     cite(end);
   }
   cite(to);
-  return out;
+  return { nodes: out, added };
 }
 
 const withMark = (nodes: readonly NodeJSON[], mark: ClaimCheckAttributes): NodeJSON[] =>
@@ -739,45 +765,51 @@ function placeOf(
 }
 
 /**
- * Lands one sentence in the Mind: cut or marked while it reads as it was
- * written; once the User has changed it, only marked, so its words stay and
- * its check shows it needs doing again.
+ * Lands one sentence in the Mind: cut, or given the Passages its check found, while it reads as
+ * it was written and the write's change still waits there for the User; otherwise only marked.
+ * Once the User has accepted, rejected or changed it, its words are theirs and a check writes
+ * nothing into them (#3019); an edit shows the check needs doing again. Null once it's gone.
  */
-function land(blocks: Y.XmlFragment, ids: readonly string[], landing: Landing): void {
+function land(
+  blocks: Y.XmlFragment,
+  ids: readonly string[],
+  change: string,
+  landing: Landing,
+): "cut" | "marked" | null {
   const { sentence } = landing;
   const element = paragraphIn(blocks, ids, sentence.path);
   const place = element ? placeOf(element, sentence) : null;
-  if (!element || !place) return;
+  if (!element || !place) return null;
   if ("opinion" in landing) {
     const blockId = element.getAttribute(BLOCK_ID_ATTRIBUTE);
-    if (!place.same || typeof blockId !== "string" || landing.opinion.length === 0) return;
+    if (!place.same || typeof blockId !== "string" || landing.opinion.length === 0) return null;
     const now = sentenceOf(element, blockId, place, figuresByBlock(blocks));
     recordOpinions(blocks, [{ ...now, parts: landing.opinion }]);
-    return;
+    return null;
   }
   const mark = landing.mark(blocks);
-  if (place.same && landing.nodes) {
-    syncContent(
-      element,
-      replaced(inlineOf(element), place.from, place.to, withMark(landing.nodes, mark)),
+  const content = inlineOf(element);
+  const block = waitingBlock(element, change);
+  // A cut puts new words in place of the whole sentence, so every word of it must still wait.
+  const waiting =
+    block ||
+    inlineLayout(content).every(
+      ({ node, start }) =>
+        node.type !== "text" ||
+        start >= place.to ||
+        start + (node.text ?? "").length <= place.from ||
+        waitingInsert(node, change) !== null,
     );
-    return;
+  if (place.same && waiting && landing.nodes) {
+    syncContent(element, replaced(content, place.from, place.to, withMark(landing.nodes, mark)));
+    return "cut";
   }
   const found = place.same ? foundPlaces(blocks, element, place, landing.found ?? []) : [];
-  if (found.length > 0) {
-    const content = inlineOf(element);
-    syncContent(
-      element,
-      replaced(
-        content,
-        place.from,
-        place.to,
-        withMark(withFound(content, place.from, place.to, found), mark),
-      ),
-    );
-    return;
-  }
-  markSentence(element, place.from, place.to, mark);
+  const cited = withFound(content, place.from, place.to, found, { request: change, block });
+  if (cited.added > 0)
+    syncContent(element, replaced(content, place.from, place.to, withMark(cited.nodes, mark)));
+  else markSentence(element, place.from, place.to, mark);
+  return "marked";
 }
 
 /**
@@ -991,12 +1023,23 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     // A Note a newer version wrote refuses every edit, so once one is refused the rest aren't tried.
     let refused = false;
     const landedSentences = new Set<Sentence>();
+    const cuts: { index: number; uncovered: string }[] = [];
     const landAll = (landings: readonly Landing[]) => {
       if (landings.length === 0 || refused) return;
+      const outcomes = new Map<Landing, ReturnType<typeof land>>();
       input.edit((note) => {
-        for (const landing of landings) land(note, input.ids, landing);
+        for (const landing of landings)
+          outcomes.set(landing, land(note, input.ids, input.change, landing));
       });
-      for (const landing of landings) landedSentences.add(landing.sentence);
+      for (const landing of landings) {
+        landedSentences.add(landing.sentence);
+        const uncovered = "uncovered" in landing ? landing.uncovered : undefined;
+        if (uncovered === undefined) continue;
+        // A cut kept out of words the User took or changed meanwhile leaves the sentence unsupported.
+        if (outcomes.get(landing) === "cut")
+          cuts.push({ index: sending.indexOf(landing.sentence), uncovered });
+        else if (outcomes.get(landing) === "marked") done.unsupported++;
+      }
       options.retainEvidence(mindId);
     };
     const couldNotLand = (error: unknown) =>
@@ -1019,7 +1062,6 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
         held.push({ index: sending.indexOf(sentence), landing });
       else landAll([landing]);
     };
-    const cuts: { index: number; uncovered: string }[] = [];
     const markOf = (
       sentence: Sentence,
       by: PreparedChatModel = prepared,
@@ -1115,8 +1157,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
         return;
       }
       if (nodes && uncovered) {
-        cuts.push({ index: sending.indexOf(sentence), uncovered });
-        landNow({ sentence, nodes, mark });
+        landNow({ sentence, nodes, uncovered, mark });
         return;
       }
       done[result.verdict]++;

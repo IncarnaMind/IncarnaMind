@@ -29,8 +29,8 @@ export function headlessEditor(extensions = editorExtensions()): Editor {
  * editor, applies the changes the core pushes, and writes the editor's own
  * changes back to Yjs, which the client sends to the core.
  */
-export function boundEditor(client: MindClient): Editor {
-  return boundEditorTo(client.doc);
+export function boundEditor(client: MindClient, extra: Extensions = []): Editor {
+  return boundEditorTo(client.doc, extra);
 }
 
 /**
@@ -38,9 +38,10 @@ export function boundEditor(client: MindClient): Editor {
  * module graph's note extensions, so a test with two windows can give each its own
  * store and lock, and the document a window's own copy holds.
  */
-export function boundEditorTo(doc: Y.Doc): Editor {
+export function boundEditorTo(doc: Y.Doc, extra: Extensions = []): Editor {
   const editor = headlessEditor([
     ...editorExtensions(),
+    ...extra,
     Collaboration.configure({ document: doc, field: MIND_CONTENT_FIELD }),
   ]);
   const sync = editor.state.plugins.find((plugin) => plugin.spec.key === ySyncPluginKey);

@@ -2103,6 +2103,7 @@ export function mindTools(options: MindToolsOptions): {
         mindId,
         blocks,
         ids,
+        change: written.change.request,
         prepared: options.prepared,
         signal,
         ...(answerFailed && { answerFailed }),

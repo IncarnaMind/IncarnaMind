@@ -1418,6 +1418,55 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
     ]);
   });
 
+  // protects=a sentence whose change the User accepts while its check runs is theirs: the cut doesn't go in, it stays as they accepted it, marked unsupported, and the model hears it is still unsupported, not that a part was taken out, in English and Chinese (#3019); fails_when=the check cuts the accepted words, or the model is told of a cut that didn't happen; no_claim=none beyond protects.
+  test.each([
+    {
+      language: "en",
+      content: `${OVERSTATED} [^1].`,
+      cut: undefined,
+      written: asChecked(OVERSTATED),
+      check: undefined,
+    },
+    {
+      language: "zh-CN",
+      content: `${OVERSTATED_ZH}[^1]。`,
+      cut: "大潮出现在新月和满月时[1]。",
+      written: asCheckedZh(OVERSTATED_ZH),
+      check: englishEvidence(`大潮出现在新月和满月时${INLINE_NODE}。`),
+    },
+  ])(
+    "a sentence the User accepts while its check runs isn't cut, and lands marked unsupported ($language)",
+    async ({ content, cut, written, check }) => {
+      let client: MindClient | null = null;
+      const { core, model } = await write(
+        {
+          content,
+          into: true,
+          cut,
+          check,
+          during: async () => {
+            if (!client) return;
+            await client.settled();
+            await resolveChanges(client, "accept");
+          },
+        },
+        ({ client: connected }) => {
+          client = connected;
+        },
+      );
+      const page = client as MindClient | null;
+      if (!page) throw new Error("No client.");
+      await page.settled();
+
+      expect(shownWithChanges(page).filter((line) => line.startsWith("+"))).toEqual([]);
+      expect(paragraphText(page, 2)).toBe(written);
+      const marks = await marksIn(core, page);
+      expect(marks.map(({ shown }) => shown.state)).toEqual(["unsupported"]);
+      expect(lastResult(model)).toContain("1 sentence is still not supported by its Citations");
+      expect(lastResult(model)).not.toContain("was taken out");
+    },
+  );
+
   // protects=a sentence with a Citation is checked even when it is too short to make a claim (#1909), as "€12 million" in a table; fails_when=isClaim leaves it unchecked; no_claim=the verdict.
   test("a short sentence with a Citation is checked", async () => {
     const { core, change, client } = await write({ content: "## Tides\n\n€12 million [^1]." });
