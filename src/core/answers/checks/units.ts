@@ -19,7 +19,7 @@ import {
   unsaidDollars,
   writesMeasure,
 } from "../../../shared/figures";
-import { INTEGER_WORDS, wholeNumberWords } from "../../../shared/numberWords";
+import { INTEGER_WORDS, NUMBER_WORD, SCALES, wholeNumberWords } from "../../../shared/numberWords";
 import { documentFigureContext } from "../calculations";
 
 export type UnitNotStated =
@@ -90,13 +90,29 @@ const SHARE_IN_WORDS = new RegExp(
 // to cover", "he raised three points") (#2997).
 const CHANGE_BEFORE =
   /\b(?:rise|rises|rising|risen|rose|fall|falls|falling|fallen|fell|up|down|by|gain|gains|gained|lose|loses|lost|drop|drops|dropped|climb|climbs|climbed|increase|increases|increased|decrease|decreases|decreased)(?: by| of)? $/iu;
+// A number said in words is read whole or not at all: "a hundred and five percentage points" is
+// no 5, and the "point" of "two point five" is no unit (#2997).
+const DECIMAL_WORD = `${DIGIT_WORDS.join("|")}|oh`;
+const REST_BEFORE = new RegExp(
+  `(?:\\b(?:hundred|${[...SCALES.keys()].join("|")})(?:[ -]and)?[ -]|(?:\\d|\\b(?:${NUMBER_WORD}|oh)) point(?: (?:${DECIMAL_WORD}))* )$`,
+  "iu",
+);
+const REST_AFTER = new RegExp(`^ (?:\\d|(?:${NUMBER_WORD}|oh)\\b)`, "iu");
+/** Longer than any words read beside a number. */
+const NEAR = 24;
 const CN_CHANGE_BEFORE =
   /(?:上升|上涨|下降|下跌|提高|降低|增加|减少|回落|反弹|攀升|下滑|涨|跌|升|降)了?\s*$/u;
 
 function sharesInWords(text: string): Figure[] {
   return [...text.matchAll(SHARE_IN_WORDS)].flatMap((match) => {
     const [said, whole = "", places = "", unit = ""] = match;
-    if (/^points?$/iu.test(unit) && !CHANGE_BEFORE.test(text.slice(0, match.index))) return [];
+    const end = match.index + said.length;
+    const before = text.slice(Math.max(0, match.index - NEAR), match.index);
+    if (REST_BEFORE.test(before)) return [];
+    if (/^points?$/iu.test(unit)) {
+      if (!CHANGE_BEFORE.test(before)) return [];
+      if (/^point$/iu.test(unit) && REST_AFTER.test(text.slice(end, end + NEAR))) return [];
+    }
     const value = wholeNumberWords(whole);
     if (value === null) return [];
     const decimals = places
@@ -106,7 +122,7 @@ function sharesInWords(text: string): Figure[] {
       .join("");
     const [figure] = readFigures(`${value}${decimals ? `.${decimals}` : ""} ${unit}`);
     if (!figure) return [];
-    return [{ ...figure, start: match.index, end: match.index + said.length, chars: said }];
+    return [{ ...figure, start: match.index, end, chars: said }];
   });
 }
 

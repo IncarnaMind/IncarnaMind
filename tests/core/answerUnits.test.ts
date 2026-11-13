@@ -510,6 +510,65 @@ describe("A label that reaches a number outranks another table's caption (#2997)
   });
 });
 
+describe("A number said in words is read whole or not at all (#2997)", {
+  timeout: 60_000,
+}, () => {
+  // protects=words that are part of a longer number said aloud are never read as a share of their own: the "point" of a spoken decimal is no unit ("two point five", "two point 5", "one point fifty"), and the last words of a number are not its figure ("a hundred and five percentage points", "two point fifty percentage points", "two point oh five percentage points"), so the sentence stays Not checked with no unit line, as on main, in an Answer and in Check against Documents, in English and Chinese; fails_when=any of them reads Unsupported with a line that names part of the number ("The Document gives two point, not 2%."); no_claim=a range ("five or six percentage points"), read at its last end as one in digits is.
+  test.each([
+    ["It rose 2%.", "It rose by two point five"],
+    ["It rose 2%.", "It rose by two point 5"],
+    ["It rose 1%.", "It rose by one point fifty"],
+    ["It rose 5%.", "It rose a hundred and five percentage points"],
+    ["It rose 5%.", "It rose one-hundred-and-five percentage points"],
+    ["It rose 50%.", "It rose two point fifty percentage points"],
+    ["It rose 5%.", "It rose two point oh five percentage points"],
+    ["It rose 5%.", "It rose 2 point five percentage points"],
+  ])("%s citing “%s” has no unit line", async (sentence, quote) => {
+    for (const language of ["en", "zh-CN"] as const) {
+      expect(await judged(sentence, quote, rates(`${quote}.`), language), language).toEqual({
+        answer: { check: "not-checked", verdict: null },
+        document: { verdict: "not-checked", reason: null },
+      });
+    }
+  });
+
+  // protects=a number said whole is still read beside those: a hundred and five with its "one", a decimal with its unit, one point after a rise, and a number after a "point" that is no decimal's ("at that point six percentage points"), each Unsupported with the whole number's line in both checks and both languages; fails_when=any of them loses its line or names fewer words than the number has; no_claim=which words a Transcript's engine writes as digits.
+  test.each([
+    [
+      "It rose 105%.",
+      "It rose one hundred and five percentage points",
+      "one hundred and five percentage points",
+      "105%",
+    ],
+    [
+      "It rose 2.5%.",
+      "It rose two point five percentage points",
+      "two point five percentage points",
+      "2.5%",
+    ],
+    ["The index rose 1%.", "The index rose one point", "one point", "1%"],
+    [
+      "At that point 6% separated them.",
+      "At that point six percentage points separated them",
+      "six percentage points",
+      "6%",
+    ],
+  ])(
+    "%s citing “%s” is Unsupported for the whole number",
+    async (sentence, quote, said, figure) => {
+      for (const [language, reason] of [
+        ["en", `The Document gives ${said}, not ${figure}.`],
+        ["zh-CN", `文档写的是 ${said}，不是 ${figure}。`],
+      ] as const) {
+        expect(await judged(sentence, quote, rates(`${quote}.`), language), language).toEqual({
+          answer: { check: "unsupported", verdict: reason },
+          document: { verdict: "unsupported", reason },
+        });
+      }
+    },
+  );
+});
+
 describe("A check reply that corrects itself, and the unit gate (#2997, #3029)", {
   timeout: 60_000,
 }, () => {
