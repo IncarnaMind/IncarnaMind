@@ -53,7 +53,7 @@ export function recordSearches() {
 export function shownPassages(result: string): ShownPassage[] {
   const passages: ShownPassage[] = [];
   const pattern =
-    /<passage id="([^"]+)" document="([^"]*)"(?: ((?:date|file-created|file-modified)="[^"]+"))?(?: pages="([^"]+)")?(?: location="([^"]+)")?(?: formulas="[^"]+")?(?: cite="never")?>\n([\s\S]*?)\n<\/passage>/g;
+    /<passage id="([^"]+)" document="([^"]*)"(?: ((?:date|file-created|file-modified)="[^"]+"))?(?: pages="([^"]+)")?(?: location="([^"]+)")?(?: call="[^"]+"(?: note="[^"]*")? started="[^"]*")?(?: formulas="[^"]+")?(?: cite="never")?>\n([\s\S]*?)\n<\/passage>/g;
   for (const match of result.matchAll(pattern)) {
     passages.push({
       id: match[1] as string,

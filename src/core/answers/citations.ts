@@ -29,6 +29,7 @@
 import { markersIn, shownRanges } from "../../shared/answerBlocks";
 import { citationNode, type NodeJSON } from "../../shared/blockJson";
 import { parseQuotedWords } from "../../shared/citations";
+import { formatFullDateTime } from "../../shared/dates";
 import { FIGURE_MARKER } from "../../shared/figureMarkers";
 import {
   englishPlace,
@@ -44,6 +45,7 @@ import {
   withoutArea,
 } from "../../shared/locations";
 import { citesSource, type NamedSource } from "../../shared/namedSources";
+import { cleanQuote } from "../../shared/quotedSpans";
 import {
   findQuote,
   lostLigatures,
@@ -130,15 +132,8 @@ export const WRITE_NOW = " Write the Answer now if you haven't yet; don't repeat
 /** Whether what `cite` told the model asks it to fix records, which the Tool loop must not end before. */
 export const asksForFixes = (told: string): boolean => told.includes(FIX_THESE);
 
-/**
- * Where a new Unit starts inside a Passage given to the model ("[p. 4]",
- * "[slide 4]", "[§ 2.1 Sensitivity]", "[Revenue, rows 2–41]", "[lines 51–100]"),
- * where a slide's speaker notes start ("[speaker notes]"), where a Word
- * comment starts ("[comment by Reviewer]"), and a row the file sets aside
- * ("[row 4, struck through]", ./sheetRows).
- */
-const LOCATION_MARK =
-  /\[(?:p\.\s*\d+(?:[–-]\d+)?|slides?\s+\d+(?:[–-]\d+)?|(?:[^\]\n]{1,100},\s*)?rows?\s+\d+(?:[–-]\d+)?(?:, (?:struck through|hidden))*|lines?\s+\d+(?:[–-]\d+)?|§[^\]\n]{0,200}|speaker notes|comment(?: by [^\]\n]{1,100})?|\d{1,2}:\d{2}(?::\d{2})?(?: [^\]\n]{1,60})?)\]/gi;
+// The quote check and call help's reader read a quote by one rule (shared/quotedSpans).
+export { cleanQuote };
 
 /** Marks where a slide's speaker notes start, inside a Passage given to the model. */
 const NOTES_MARK = "[speaker notes]";
@@ -146,38 +141,6 @@ const NOTES_MARK = "[speaker notes]";
 /** Marks where a Word comment starts, inside a Passage given to the model, with its author if known (#76). */
 const commentMark = (author: string | null) =>
   author ? `[comment by ${author.replace(/[\]\n]+/g, " ")}]` : "[comment]";
-
-export const QUOTE_PAIRS: readonly (readonly [string, string])[] = [
-  ['"', '"'],
-  ["'", "'"],
-  ["“", "”"],
-  ["‘", "’"],
-  ["「", "」"],
-  ["『", "』"],
-  ["«", "»"],
-];
-
-/**
- * The quote as the model meant it: without location marks, without the
- * ellipses and quotation marks models put around a quote. Its words are left alone.
- */
-export function cleanQuote(raw: string): string {
-  // The marks of a scan's unsure words (#535) are the Passage's, never the quote's.
-  let quote = raw.replace(/[⟦⟧]/gu, "").replace(LOCATION_MARK, " ").trim();
-  for (;;) {
-    const before = quote;
-    quote = quote
-      .replace(/^(?:\.{3}|…)\s*/u, "")
-      .replace(/\s*(?:\.{3}|…)$/u, "")
-      .trim();
-    for (const [open, close] of QUOTE_PAIRS) {
-      if (quote.length > 1 && quote.startsWith(open) && quote.endsWith(close)) {
-        quote = quote.slice(open.length, -close.length).trim();
-      }
-    }
-    if (quote === before) return quote;
-  }
-}
 
 /** How a Document's text is matched: whether it lost its f-ligatures (see `lostLigatures`). */
 export type Matching = Pick<MatchOptions, "lostLigatures">;
@@ -646,6 +609,12 @@ export function checkCitation(input: {
   return unsure.length > 0 ? { check: "cant-check", checkReason: "unsure-word", unsure } : FOUND;
 }
 
+/** A recorded call, as its Transcript's Passages name it: its Note's current name, and its start (ISO 8601). */
+export interface TranscriptCall {
+  note: string;
+  startedAt: string;
+}
+
 /** What the core needs from Documents for an Answer: search, and what Citations point to. */
 export interface AnswerDocuments {
   /** How many live Documents have Passages to search. */
@@ -670,6 +639,8 @@ export interface AnswerDocuments {
   documentDate(documentId: string): DocumentDate | null;
   /** Who's who in a Transcript (#138), so its lines read by the names the User gave; null for none. */
   speakers?(documentId: string): TranscriptSpeakers | null;
+  /** The call a Transcript records (#3005); null for any other Document. */
+  callOf?(documentId: string): TranscriptCall | null;
   /** The id of the Document to search named `name`, as the instructions list it; null for none. */
   documentNamed?(name: string): string | null;
   /** The User's highlights and notes that hold the words (#327), as lines for the model; "" for none. */
@@ -1830,12 +1801,26 @@ interface ShownPassage {
   notCited: boolean;
   /** A workbook's rows whose figures its formulas work out, which the text doesn't show (#2372). */
   formulas: string | null;
+  /** The call a Transcript Passage is from, when the Answer is asked during one (#3005). */
+  call: (TranscriptCall & { thisCall: boolean }) | null;
+}
+
+/**
+ * A call Transcript's attributes: this call's, or an earlier one's by its Note, each with its start
+ * in words, so two Transcripts named for the same day are told apart (#3005).
+ */
+function callAttributes(call: ShownPassage["call"]): string {
+  if (!call) return "";
+  const started = ` started="${attribute(formatFullDateTime(call.startedAt, "en"))}"`;
+  return call.thisCall
+    ? ` call="this"${started}`
+    : ` call="earlier" note="${attribute(call.note)}"${started}`;
 }
 
 /** Passages as the model sees them, each with its short id, Document, its date, and pages or Location. */
 function formatPassages(passages: readonly ShownPassage[], also: readonly PromptTag[]): string {
   return passages
-    .map(({ id, documentName, date, range, location, text, notCited, formulas }) => {
+    .map(({ id, documentName, date, range, location, text, notCited, formulas, call }) => {
       const pages = pagesLabel(range);
       const where = location
         ? ` location="${attribute(location)}"`
@@ -1850,7 +1835,7 @@ function formatPassages(passages: readonly ShownPassage[], also: readonly Prompt
       return tagged(
         "passage",
         text,
-        ` id="${id}" document="${attribute(documentName)}"${dated}${where}${worked}${never}`,
+        ` id="${id}" document="${attribute(documentName)}"${dated}${where}${callAttributes(call)}${worked}${never}`,
         also,
       );
     })
@@ -1954,6 +1939,11 @@ export interface CitationSessionEvents {
    * quotes as given. A check's own evidence keeps its quote.
    */
   quotesStateClaims?(): boolean;
+  /**
+   * Whether a Document is the Transcript of the call the Answer is asked during (#3005); undefined
+   * when it is asked during none, so no Passage is marked with its call.
+   */
+  thisCall?(documentId: string): boolean | undefined;
 }
 
 /**
@@ -2602,6 +2592,15 @@ export function createCitationSession(
       if (!dates.has(documentId)) dates.set(documentId, documents.documentDate(documentId));
       return dates.get(documentId) ?? null;
     };
+    const calls = new Map<string, ShownPassage["call"]>();
+    const callOf = (documentId: string) => {
+      if (!calls.has(documentId)) {
+        const thisCall = events.thisCall?.(documentId);
+        const call = thisCall === undefined ? null : documents.callOf?.(documentId);
+        calls.set(documentId, call ? { ...call, thisCall: thisCall === true } : null);
+      }
+      return calls.get(documentId) ?? null;
+    };
     const formatted = found.map((passage): ShownPassage => {
       const range = { pageFrom: passage.pageFrom, pageTo: passage.pageTo };
       const units =
@@ -2660,6 +2659,7 @@ export function createCitationSession(
         text,
         notCited,
         formulas: events.marksFormulas?.() ? formulaRows(units) : null,
+        call: callOf(passage.documentId),
       };
     });
     return formatPassages(formatted, events.defuses ?? []);

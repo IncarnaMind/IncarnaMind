@@ -33,6 +33,7 @@ const fake = vi.hoisted(() => {
     keyboard: [] as boolean[],
     /** The unsent line the core holds for the Meeting, as a panel opening asks for it (#2925). */
     held: null as null | { text: string; atMs: number | null },
+    language: "en" as "en" | "zh-CN",
     emit(name: string, payload: unknown) {
       for (const listener of listeners.get(name) ?? []) listener(payload);
     },
@@ -71,9 +72,9 @@ vi.mock("../../src/renderer/src/core", () => ({
   files: { onMenuCommand: () => () => undefined, setEditMenu: () => undefined },
 }));
 vi.mock("../../src/renderer/src/i18n", () => ({
-  useT: () => (key: MessageKey, params?: MessageParams) => translate("en", key, params),
-  translateNow: (key: MessageKey, params?: MessageParams) => translate("en", key, params),
-  useLanguage: () => "en",
+  useT: () => (key: MessageKey, params?: MessageParams) => translate(fake.language, key, params),
+  translateNow: (key: MessageKey, params?: MessageParams) => translate(fake.language, key, params),
+  useLanguage: () => fake.language,
 }));
 vi.mock("../../src/renderer/src/store", async () => {
   const { create } = await import("zustand");
@@ -127,7 +128,7 @@ const panelBridge = {
 };
 
 const WANT =
-  "★ They want the rollout finished before their June audit [^1]\n→ Confirm the June date first";
+  "★ They want the rollout finished before their June audit\n6:00 “before our audit in June” [^1]\n→ Confirm the June date first";
 const SUM = "- Their audit is in June\n- They asked for a fixed monthly price";
 
 const helpOf = (kind: MeetingHelpKind, answerId: string): MeetingHelp => ({
@@ -218,6 +219,7 @@ beforeEach(async () => {
   fake.reported.length = 0;
   fake.keyboard.length = 0;
   fake.held = null;
+  fake.language = "en";
   container = document.createElement("div", {});
   document.body.append(container);
   root = createRoot(container);
@@ -590,4 +592,62 @@ describe("A panel opening again (#2925)", () => {
     const field = container.querySelector<HTMLTextAreaElement>('[data-testid="quick-note-field"]');
     expect(field?.value).toBe("");
   });
+});
+
+describe("A Citation of an earlier call in a reply (#3005)", () => {
+  // protects=#3005: the number's tooltip names the Transcript, its place and its call's start, joined as the interface language joins a Citation's source; fails_when=the parts are joined with an English comma in Chinese; no_claim=the place's own wording.
+  test.each([
+    {
+      language: "en" as const,
+      name: "Transcript · Meeting, 7 November",
+      shape: /^Transcript · Meeting, 7 November, \S.*, started \S.*$/,
+      foreign: "，",
+    },
+    {
+      language: "zh-CN" as const,
+      name: "转写稿 · 会议，11月7日",
+      shape: /^转写稿 · 会议，11月7日，\S.*，开始于 \S.*$/,
+      foreign: ", ",
+    },
+  ])(
+    "names its source and its call's start ($language)",
+    async ({ language, name, shape, foreign }) => {
+      fake.language = language;
+      const earlierCall = {
+        id: "meeting-0",
+        mindId: "note-0",
+        kind: "meeting",
+        status: "ready",
+        startedAt: "2026-11-07T15:00:00.000Z",
+        transcript: { documentId: "earlier-transcript" },
+        help: null,
+        helpTemplate: null,
+      } as unknown as Meeting;
+      const answer = {
+        ...answerOf("answer-want", WANT, "done"),
+        citations: [
+          {
+            marker: 1,
+            documentId: "earlier-transcript",
+            documentName: name,
+            quote: "Rollout before the June audit",
+            location: { kind: "time", from: 1942, to: 4012, speaker: "Them" },
+            check: "not-checked",
+            checkReason: null,
+          },
+        ],
+      } as unknown as ConversationAnswer;
+      await changed(null);
+      await press("want");
+      await replied(0, "answer-want");
+      await run(() =>
+        fake.emit("meetings.changed", [meetingWith(helpOf("want", "answer-want")), earlierCall]),
+      );
+      await loaded([answer]);
+
+      const title = all("help-citation")[0]?.getAttribute("title") ?? "";
+      expect(title).toMatch(shape);
+      expect(title).not.toContain(foreign);
+    },
+  );
 });

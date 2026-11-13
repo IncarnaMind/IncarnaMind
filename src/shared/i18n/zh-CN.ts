@@ -1484,6 +1484,7 @@ export const zhCN = {
     "不显示结论：模型给出的引文出自另一份文档，不是这句话所说的那份。",
   "claim.reason.found-elsewhere":
     "不显示结论：支持这句话的引文不在它现有的引用里。请把它添加为引用，然后重新核对。",
+  "claim.reason.assistant-conclusion": "引用的事实有依据。其余是助手自己的结论，未核对。",
   "claim.reason.kept-inside": "仅在“{detail}”内使用",
   "claim.reason.read-budget": "已停止 · 已花费{spent}",
   "claim.reason.read-budget.unknown": "已停止：已达到这次读取最多可花的费用。",
@@ -4428,6 +4429,7 @@ export const zhCN = {
   "citation.reason.monthly-limit-unfinished": "未核对：{model} 还没核对完这句，就已达每月上限。",
   "citation.reason.monthly-limit-unfinished.unnamed": "未核对：这句还没核对完，就已达每月上限。",
   "citation.reason.notChecked": "未能核对引文是否支持这句话。",
+  "citation.reason.otherCall": "引文出自另一场会议。通话助手的回复只对照这场会议和你的文档核对。",
   "citation.reason.small-model": "这台电脑上的模型太小，无法核对引文是否支持这句话。",
   "citation.where": "{document}，{location}",
   "citation.where.scan": "{document}（扫描件），{location}",
@@ -7116,6 +7118,7 @@ export const zhCN = {
   "meetings.help.youSaid": "你说：“{text}”",
   "meetings.help.said": "“{text}”",
   "meetings.help.readFrom": "根据对方说的话推断",
+  "meetings.help.started": "开始于 {time}",
   "meetings.help.pin": "固定",
   "meetings.help.unpin": "取消固定",
   "meetings.help.addToNotes": "加入笔记",

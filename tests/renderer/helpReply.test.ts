@@ -4,17 +4,27 @@
  * and short lines, while it streams too.
  */
 import { describe, expect, test } from "vitest";
+import type { Language } from "../../src/core/language";
 import {
+  callStarts,
   citationNumbers,
   helpItems,
   helpParts,
   helpToKeep,
   quoted,
   sentencePassed,
+  startedLabel,
   uncheckedReason,
 } from "../../src/renderer/src/helpReply";
 import { citedSentences } from "../../src/shared/citedSentences";
-import { readHelpReply, shownItems } from "../../src/shared/helpReplyRead";
+import {
+  helpLayout,
+  helpReplyRead,
+  readHelpReply,
+  shownItems,
+} from "../../src/shared/helpReplyRead";
+import { translate } from "../../src/shared/i18n";
+import type { Translate } from "../../src/shared/locations";
 import type { MeetingHelpKind } from "../../src/shared/meetingHelp";
 
 const textOf = (pieces: ReturnType<typeof readHelpReply>[number]["lead"]) =>
@@ -375,23 +385,103 @@ describe("A help reply", () => {
   });
 });
 
+describe("The sources under a help reply (#3005)", () => {
+  const said = { kind: "time" as const, from: 1750, to: 4000, speaker: "Me" };
+  const named = (documentId: string, documentName = "Transcript · Meeting, 6 October") => ({
+    documentId,
+    documentName,
+    location: said,
+  });
+  const meetings = [
+    {
+      kind: "meeting" as const,
+      startedAt: "2026-10-06T12:00:09.000Z",
+      transcript: { documentId: "this-call" },
+    },
+    {
+      kind: "meeting" as const,
+      startedAt: "2026-10-06T09:00:00.000Z",
+      transcript: { documentId: "earlier-call" },
+    },
+    {
+      kind: "memo" as const,
+      startedAt: "2026-10-06T08:00:00.000Z",
+      transcript: { documentId: "memo" },
+    },
+  ];
+
+  test("two cited Transcripts with the same name each show when their call started", () => {
+    expect(callStarts([named("this-call"), named("earlier-call")], meetings, "this-call")).toEqual(
+      new Map([
+        ["this-call", "2026-10-06T12:00:09.000Z"],
+        ["earlier-call", "2026-10-06T09:00:00.000Z"],
+      ]),
+    );
+  });
+
+  test("this call's Transcript alone shows no start; an earlier call's alone shows its own", () => {
+    expect(callStarts([named("this-call")], meetings, "this-call")).toEqual(new Map());
+    expect(
+      callStarts([named("this-call"), named("guide", "Interview guide")], meetings, "this-call"),
+    ).toEqual(new Map());
+    expect(callStarts([named("earlier-call")], meetings, "this-call")).toEqual(
+      new Map([["earlier-call", "2026-10-06T09:00:00.000Z"]]),
+    );
+  });
+
+  test("a Document that isn't a call's Transcript shows none: a page, a voice memo's, one no Meeting made", () => {
+    const page = { ...named("earlier-call"), location: { kind: "page" as const, from: 2, to: 2 } };
+    expect(callStarts([page, named("memo"), named("added.vtt")], meetings, "this-call")).toEqual(
+      new Map(),
+    );
+  });
+
+  test("the start reads in the User's language, as the day's time or with its day", () => {
+    const options = { timeZone: "UTC", twelveHour: false, now: new Date("2026-10-06T15:00:00Z") };
+    const t =
+      (language: Language): Translate =>
+      (key, params) =>
+        translate(language, key, params);
+    expect(startedLabel("2026-10-06T09:00:00.000Z", t("en"), "en", options)).toBe("started 09:00");
+    expect(startedLabel("2026-10-06T09:00:00.000Z", t("zh-CN"), "zh-CN", options)).toBe(
+      "开始于 09:00",
+    );
+    const nextDay = { ...options, now: new Date("2026-10-07T15:00:00Z") };
+    expect(startedLabel("2026-10-06T09:00:00.000Z", t("en"), "en", nextDay)).toBe(
+      "started 6 Oct, 09:00",
+    );
+    expect(startedLabel("2026-10-06T09:00:00.000Z", t("zh-CN"), "zh-CN", nextDay)).toBe(
+      "开始于 10月6日 09:00",
+    );
+  });
+});
+
 describe("An option the model wrapped in its own quotation marks (#2925)", () => {
-  // protects=the panel shows an option the model wrapped in its own quotation marks in one pair of the panel's own, each chip at its marker's place, the place its check's verdict names; fails_when=the panel shows two pairs of marks, or a chip's place differs from the check's; no_claim=how the chip looks.
+  // protects=the panel shows an option the model wrapped in its own quotation marks in one pair of the panel's own, each chip at its marker's place, the place its check's verdict names, and no chip on a "→" line (#2847); fails_when=the panel shows two pairs of marks, a "→" line shows a chip, or a chip's place differs from the check's; no_claim=how the chip looks.
   test("shows in one pair of the panel's own, its chips where the check counts them", () => {
     const reply =
       '★ "We can extend the pilot to 60 days [^1]"\n→ keeps the deal moving [^2]\n\n“Let me check with the team” [^3]\n→ buys time';
+    const chipsOf = (text: string) =>
+      helpItems({ text, status: "done" }, "say").flatMap((item) =>
+        [item.lead, item.effect ?? []]
+          .flat()
+          .flatMap((piece) => (piece.kind === "citation" ? [piece.at] : [])),
+      );
     const items = helpItems({ text: reply, status: "done" }, "say");
     expect(items.map((item) => textOf(quoted(item.lead)))).toEqual([
       "“We can extend the pilot to 60 days”[1]",
       "“Let me check with the team”[3]",
     ]);
-    const chips = items.flatMap((item) =>
-      [item.lead, item.effect ?? []]
-        .flat()
-        .flatMap((piece) => (piece.kind === "citation" ? [piece.at] : [])),
-    );
-    expect(chips).toEqual(citedSentences(reply).flatMap((sentence) => sentence.at));
-    expect(chips).toEqual([0, 1, 2]);
+    expect(items[0]?.effect?.some((piece) => piece.kind === "citation")).toBe(false);
+    // As written, each chip keeps its place; as kept, the "→" line holds none, and the places are
+    // those the check counts in the text it reads.
+    expect(chipsOf(reply)).toEqual([0, 2]);
+    const kept = helpReplyRead(
+      reply,
+      helpLayout("say", { status: "done", textBehind: false }),
+    ).text;
+    expect(chipsOf(kept)).toEqual(citedSentences(kept).flatMap((sentence) => sentence.at));
+    expect(chipsOf(kept)).toEqual([0, 1]);
   });
 
   // protects=a reading and a short line are no options to say: they show as written, the model's marks kept; fails_when=a reading's moment or a quoted short line loses its marks, or shows in the panel's; no_claim=what the check finds.

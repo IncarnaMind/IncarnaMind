@@ -7300,6 +7300,9 @@ export type ClaimVerdict = "supported" | "unsupported" | "contradicted";
  * - "sentence-figures-not-read": the figures in the sentence itself couldn't be read.
  * - "library-unsettled": a sentence about the Library that its facts can't settle, such as a
  *   reading of its Documents' names (#2525). No check can change that.
+ * - "assistant-conclusion": every part the check judged is supported, but the assistant wrote the
+ *   sentence and it holds a part left out as an opinion: the assistant's own conclusion, which no
+ *   Document states (#3019). Only the sentence reads so; its parts keep their own results.
  */
 export type ClaimCheckFailure =
   | "refused"
@@ -7352,7 +7355,8 @@ export type ClaimCheckFailure =
    * An Analysis's figure the claim judge didn't read as named by its sentence, or whose own clause
    * also names another group, a negation or a comparison; its detail is the figure's label (#2378).
    */
-  | "analysis-unnamed";
+  | "analysis-unnamed"
+  | "assistant-conclusion";
 
 /** Why a sentence was found unsupported, as the check gave it. */
 export interface UnsupportedReason {
@@ -7474,6 +7478,12 @@ export interface ClaimCheckPart
     Partial<Pick<ClaimCheckBasis, "checkedAt" | "providerId" | "modelId">> {
   verdict: ClaimVerdict | "not-checked" | "checking" | null;
   kept?: true;
+  /**
+   * An opinion part left out of a sentence the assistant wrote, as the Note held it when its check
+   * landed (#3019): it counts as not checked, so the sentence never reads Supported. Its own row
+   * still reads left out, and Check anyway judges it as any part.
+   */
+  byAssistant?: true;
   figures?: ClaimPartFigure[];
   remainder?: ClaimPartJudgment | null;
   evidence: CitationAttributes[];
@@ -8484,6 +8494,13 @@ export interface AnswerSteps {
    * isn't a help Answer.
    */
   textBehind?: true;
+  /**
+   * The call help button the Question was asked with (#3005), from the Answer's first save: its
+   * kind, as this version or another names it. A later check of the reply reads what the press
+   * read, without other calls' Transcripts. Absent: a typed Question, or a reply written before
+   * presses were kept.
+   */
+  pressed?: string;
 }
 
 /**

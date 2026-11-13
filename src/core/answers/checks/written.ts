@@ -35,7 +35,7 @@ import * as Y from "yjs";
 import { citationAttributesOf, citationClosingLength } from "../../../shared/citations";
 import { restsElsewhere } from "../../../shared/citedNow";
 import { readClaimCheck } from "../../../shared/claimChecks";
-import { planOf } from "../../../shared/claimParts";
+import { partsWrittenBy, planOf } from "../../../shared/claimParts";
 import { beginFigureCheck } from "../../../shared/figureChecks";
 import { readTableBinding } from "../../../shared/figureRuns";
 import {
@@ -106,6 +106,7 @@ import {
   markSentence,
   sentenceOf,
   unmarkSentence,
+  writtenByAssistant,
 } from "./sentences";
 import type { CheckScope } from "./verify";
 
@@ -365,8 +366,11 @@ type Outcome = "checked" | "unsupported" | "contradicted" | "failed" | "opinion"
 type Landing =
   | {
       sentence: Sentence;
-      /** Its mark, made where it lands: a figure's result is footed against the table it is in. */
-      mark(blocks: Y.XmlFragment): ClaimCheckAttributes;
+      /**
+       * Its mark, made where it lands: a figure's result is footed against the table it is in, and
+       * `assistant` says whether its words there are the assistant's (`writtenByAssistant`, #3019).
+       */
+      mark(blocks: Y.XmlFragment, assistant: boolean): ClaimCheckAttributes;
       /** The Passages its check found that its Citations don't hold, each to cite after its part. */
       found?: readonly FoundCitation[];
     }
@@ -620,7 +624,10 @@ function land(
     recordOpinions(blocks, [{ ...now, parts: landing.opinion }]);
     return true;
   }
-  const mark = landing.mark(blocks);
+  const mark = landing.mark(
+    blocks,
+    writtenByAssistant(blocks, { element, from: place.from, to: place.to }),
+  );
   const found = place.same ? foundPlaces(blocks, element, place, landing.found ?? []) : [];
   if (found.length > 0) {
     const content = inlineOf(element);
@@ -1264,10 +1271,10 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
         failed(sentence, result.reason, result.detail);
         return;
       }
-      const mark = (note: Y.XmlFragment) =>
+      const mark = (note: Y.XmlFragment, assistant: boolean) =>
         options.withResult(
           begun(sentence, by),
-          result,
+          result.parts ? { ...result, parts: partsWrittenBy(result.parts, assistant) } : result,
           at,
           note,
           mindId,

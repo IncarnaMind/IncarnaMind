@@ -1534,6 +1534,8 @@ export const en = {
     "Verdict hidden: the quote the model gave is from another Document than the one the sentence is about.",
   "claim.reason.found-elsewhere":
     "Verdict hidden: the quote that backs this sentence isn’t among its Citations. Add it as a Citation, then check again.",
+  "claim.reason.assistant-conclusion":
+    "The cited fact is supported. The rest is the assistant’s own conclusion and wasn’t checked.",
   "claim.reason.kept-inside": "Kept inside {detail}",
   "claim.reason.read-budget": "Stopped · {spent} spent",
   "claim.reason.read-budget.unknown": "Stopped at the most this read may spend.",
@@ -4632,6 +4634,8 @@ export const en = {
   "citation.reason.monthly-limit-unfinished.unnamed":
     "Not checked: your monthly limit was reached before this sentence’s check finished.",
   "citation.reason.notChecked": "Whether the quote supports this sentence couldn’t be checked.",
+  "citation.reason.otherCall":
+    "The quote is from another call. A call help reply is checked against its own call and your Documents.",
   "citation.reason.small-model":
     "This model on this computer is too small to judge whether the quote supports the sentence.",
   "citation.where": "{document}, {location}",
@@ -7513,6 +7517,7 @@ export const en = {
   "meetings.help.youSaid": "You said: “{text}”",
   "meetings.help.said": "“{text}”",
   "meetings.help.readFrom": "Read from what they said",
+  "meetings.help.started": "started {time}",
   "meetings.help.pin": "Pin",
   "meetings.help.unpin": "Unpin",
   "meetings.help.addToNotes": "Add to note",
