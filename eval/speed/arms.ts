@@ -41,6 +41,8 @@ export interface Arm {
   quotesAsGiven?: boolean;
   /** Whether call help's ✓ comes from a found quote alone, its sentences not judged (#2847); unset: judged. */
   helpMarksQuoteOnly?: boolean;
+  /** Whether call help writes a cited fact and its own conclusion in one sentence, as before #2847's rule. */
+  callHelpWritingAsBefore?: boolean;
 }
 
 /** The most of the live transcript `newest-stretch` keeps: some three minutes of talk. */
@@ -191,6 +193,12 @@ export const ARMS: readonly Arm[] = [
     helpMarksQuoteOnly: true,
   },
   {
+    id: "call-help-writing-as-before",
+    label:
+      "call help writes a cited fact and the User's own advice, conclusion or \"no\" in one sentence, as before #2847's own-sentence rule",
+    callHelpWritingAsBefore: true,
+  },
+  {
     id: "retrieve-first",
     label:
       "the Question searched before the first call, answered from those Passages unless it needs more (#1633)",
@@ -257,6 +265,7 @@ export function armSwitch() {
     helpFormJudged: () => current?.helpFormJudged,
     quotesAsGiven: () => current?.quotesAsGiven,
     helpMarksQuoteOnly: () => current?.helpMarksQuoteOnly,
+    callHelpWritingAsBefore: () => current?.callHelpWritingAsBefore,
     /** The requests sent since it was last asked, oldest first. */
     takeSent: (): SentRequest[] => sent.splice(0),
     use(arm: Arm): void {

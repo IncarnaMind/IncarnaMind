@@ -86,6 +86,7 @@ function groupsOf(set: SetId, cacheDir: string): PairedGroup[] {
     case "call-help-checks":
     case "call-help-marks":
     case "call-help-marks-3":
+    case "call-help-marks-4":
       return callHelpSet(set);
     case "meeting-notes":
       return meetingNotesSet();
@@ -204,6 +205,7 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
       helpFormJudged: switches[which].helpFormJudged,
       quotesAsGiven: switches[which].quotesAsGiven,
       helpMarksQuoteOnly: switches[which].helpMarksQuoteOnly,
+      callHelpWritingAsBefore: switches[which].callHelpWritingAsBefore,
     }));
     const spentInCores = async () =>
       (await spentUsd(opened[0].library.core)) + (await spentUsd(opened[1].library.core));

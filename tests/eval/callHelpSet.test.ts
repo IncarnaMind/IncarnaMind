@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { MockLanguageModelV4 } from "ai/test";
 import { afterEach, describe, expect, test } from "vitest";
 import { armSwitch, newestStretch } from "../../eval/speed/arms";
-import { callHelpSet } from "../../eval/speed/callHelp";
+import { callHelpSet, judgePlacesAlone } from "../../eval/speed/callHelp";
 import { CALL_HELP_CASES, callOf, TRANSCRIPT } from "../../eval/speed/callHelpCases";
 import { openLedger } from "../../eval/speed/ledger";
 import { runOnArm } from "../../eval/speed/paired";
@@ -216,6 +216,58 @@ describe("A press during the call", { timeout: 120_000 }, () => {
     ).toHaveLength(2);
     expect(judged[0]).toContain("★ Yes, Enterprise is $45 a seat with single sign-on [1]");
     expect(judged[0]).toContain(`[1] Price sheet 2026: “${ENTERPRISE}” (found)`);
+  });
+
+  test("a press records each place: its sentence, every quote that sentence cites, and the mark the panel shows there", async () => {
+    const { run } = await pressed("en-answer-sso", ENTERPRISE, { grade: "right", unstated: [] });
+
+    expect(run.places).toEqual([
+      {
+        id: "p1",
+        number: 1,
+        marker: 1,
+        at: 0,
+        sentence: "★ Yes, Enterprise is $45 a seat with single sign-on",
+        quotes: [`Price sheet 2026: “${ENTERPRISE}”`],
+        found: true,
+        shown: true,
+        unbacked: null,
+      },
+    ]);
+  });
+
+  test("the judge asked per place lists only the places it was shown, and asks again once when it can't be read", async () => {
+    const place = (id: string) => ({
+      id,
+      number: 1,
+      marker: 1,
+      at: 0,
+      sentence: "Enterprise is $45 a seat",
+      quotes: [`“${ENTERPRISE}”`],
+      found: true,
+      shown: true,
+      unbacked: null,
+    });
+    const replying = (...texts: string[]) =>
+      new MockLanguageModelV4({
+        doGenerate: async () => ({
+          content: [{ type: "text", text: texts.shift() ?? "" }],
+          finishReason: { unified: "stop", raw: undefined },
+          usage: {
+            inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
+            outputTokens: { total: 1, text: 1, reasoning: 0 },
+          },
+          warnings: [],
+        }),
+      });
+
+    expect(
+      await judgePlacesAlone(replying('{"unbacked": ["p2", "p9", 3]}'), [place("p1"), place("p2")]),
+    ).toEqual(["p2"]);
+    expect(await judgePlacesAlone(replying("Prose.", '{"unbacked": []}'), [place("p1")])).toEqual(
+      [],
+    );
+    expect(await judgePlacesAlone(replying("Prose.", "Prose."), [place("p1")])).toBeNull();
   });
 
   test("a found Citation of another line than the case rests on isn't cited; a sentence the judge says its quote doesn't state is a false Supported on a quote-only ✓, and the sentence check withholds it", async () => {

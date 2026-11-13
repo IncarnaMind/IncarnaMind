@@ -130,6 +130,8 @@ export interface LibraryOptions {
   quotesAsGiven?: CoreAdapters["quotesAsGiven"];
   /** Whether call help's ✓ comes from a found quote alone, for an arm that decides it. */
   helpMarksQuoteOnly?: CoreAdapters["helpMarksQuoteOnly"];
+  /** Whether call help writes as before #2847's own-sentence rule, for an arm that decides it. */
+  callHelpWritingAsBefore?: CoreAdapters["callHelpWritingAsBefore"];
 }
 
 export interface EvalWebPage {
@@ -336,6 +338,9 @@ export async function openLibrary(options: LibraryOptions): Promise<Library> {
     ...(options.helpFormJudged && { helpFormJudged: options.helpFormJudged }),
     ...(options.quotesAsGiven && { quotesAsGiven: options.quotesAsGiven }),
     ...(options.helpMarksQuoteOnly && { helpMarksQuoteOnly: options.helpMarksQuoteOnly }),
+    ...(options.callHelpWritingAsBefore && {
+      callHelpWritingAsBefore: options.callHelpWritingAsBefore,
+    }),
   });
   const close = async () => {
     core.close();
