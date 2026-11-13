@@ -230,42 +230,55 @@ async function wavSamples(path: string): Promise<Int16Array> {
   throw new Error(`${path} has no audio.`);
 }
 
+/**
+ * The speech model's files in a new data folder, downloaded and checked when they aren't there
+ * yet: no streaming model, and one thread, as the run shares the computer.
+ */
+async function engineFiles() {
+  for (const { folder, source } of [QWEN3_ASR_0_6B, SILERO_VAD]) {
+    await downloadModel({
+      directory: join(MODELS, folder),
+      source,
+      signal: new AbortController().signal,
+      onProgress: () => {},
+    });
+  }
+  const dataDir = await createTempDataFolder();
+  await symlink(MODELS, join(dataDir, "models"));
+  const all = transcriptionModelFiles(dataDir, QWEN3_ASR_0_6B);
+  return { engine: all.engine, files: all.files, vad: all.vad, threads: 1 };
+}
+
+/** A listener that keeps each stream's final lines. */
+function finalLines() {
+  const heard = new Map<string, string[]>();
+  const listener: TranscriberListener = {
+    segment: (segment) => {
+      if (segment.final)
+        heard.set(segment.stream, [...(heard.get(segment.stream) ?? []), segment.text]);
+    },
+    progress: () => {},
+    failed: () => {},
+    stopped: () => {},
+    unloaded: () => {},
+    switched: () => {},
+    lost: () => {},
+    opened: () => {},
+  };
+  return { heard, listener };
+}
+
 describe.runIf(process.env.INCARNAMIND_LIVE_TRANSCRIPTS === "1")(
   "The real engine behind the app's channel",
   { timeout: 15 * 60_000 },
   () => {
     // protects=the real engine, served as the app's process serves it, closed with a finish out: that finish fails as closed on purpose, and loading again starts the engine afresh and transcribes (#2957); fails_when=the finish waits for ever, or the engine can't load again after a close; no_claim=the utility process's own stop, which needs Electron.
     test("closed with a finish out, the finish fails as closed, and the engine loads again and transcribes", async () => {
-      for (const { folder, source } of [QWEN3_ASR_0_6B, SILERO_VAD]) {
-        await downloadModel({
-          directory: join(MODELS, folder),
-          source,
-          signal: new AbortController().signal,
-          onProgress: () => {},
-        });
-      }
-      const dataDir = await createTempDataFolder();
-      await symlink(MODELS, join(dataDir, "models"));
-      const all = transcriptionModelFiles(dataDir, QWEN3_ASR_0_6B);
-      // No streaming model, and one thread: the run shares the computer.
-      const files = { engine: all.engine, files: all.files, vad: all.vad, threads: 1 };
+      const files = await engineFiles();
       const speechSamples = await wavSamples(
         join(import.meta.dirname, "../fixtures/speech/gettysburg.wav"),
       );
-      const heard = new Map<string, string[]>();
-      const listener: TranscriberListener = {
-        segment: (segment) => {
-          if (segment.final)
-            heard.set(segment.stream, [...(heard.get(segment.stream) ?? []), segment.text]);
-        },
-        progress: () => {},
-        failed: () => {},
-        stopped: () => {},
-        unloaded: () => {},
-        switched: () => {},
-        lost: () => {},
-        opened: () => {},
-      };
+      const { heard, listener } = finalLines();
       const host = inProcessTranscriber({}, createSherpaEngine);
       const { transcriber } = host;
       transcriber.listen(listener);
@@ -287,5 +300,38 @@ describe.runIf(process.env.INCARNAMIND_LIVE_TRANSCRIPTS === "1")(
       expect(await said("after")).toMatch(/fathers/i);
       transcriber.close();
     });
+
+    // protects=the real engine, served as the app's process serves it, reads a stretch that reaches its token limit again in two parts and keeps both parts' words, in English and Chinese, with none of its words in the log (#1031); fails_when=the words past the limit are lost, the parts aren't read, or a word shows in the log; no_claim=the limit of 128, which these fixtures don't reach: one value lowers the model's own limit and the check together, and the one stretch of the meeting set seen to reach 128 is a local proof.
+    // At these limits one reading of a stretch stops in its first half, before "liberty" or "万元".
+    test.each([
+      ["en", "gettysburg.wav", 12, /^Four score.*liberty/i],
+      ["zh-CN", "short-first-words-zh.wav", 8, /总价.*万元.*寄出去了/],
+    ])(
+      "%s: a stretch that reaches the token limit is read again in two parts, and keeps their words",
+      async (_language, fixture, newTokens, both) => {
+        const files = await engineFiles();
+        const speechSamples = await wavSamples(
+          join(import.meta.dirname, "../fixtures/speech", fixture),
+        );
+        const { heard, listener } = finalLines();
+        const warned = vi.spyOn(console, "warn").mockImplementation(() => {});
+        const host = inProcessTranscriber({}, (model) => createSherpaEngine(model, { newTokens }));
+        host.transcriber.listen(listener);
+        await host.transcriber.load(files);
+        host.transcriber.push("limited", speechSamples);
+        await host.transcriber.finish("limited");
+        host.transcriber.close();
+        const text = (heard.get("limited") ?? []).join(" ");
+        const messages = warned.mock.calls.map(([message]) => message);
+        const logged = JSON.stringify(warned.mock.calls);
+        warned.mockRestore();
+
+        expect(messages).toContain("The stretch was read again in two parts.");
+        expect(text).toMatch(both);
+        for (const word of text.match(/\p{Script=Han}|\p{L}{6,}/gu) ?? []) {
+          expect(logged).not.toContain(word);
+        }
+      },
+    );
   },
 );

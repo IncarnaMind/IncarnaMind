@@ -7,11 +7,12 @@
  * sherpa-onnx has no asynchronous call for it. The desktop app runs it in a
  * utility process (src/main/transcriberProcess.ts), never on the core's thread.
  */
+import { gap } from "../../shared/i18n/join";
 import type { TranscriptionModelFiles } from "../adapters";
 import { MEETING_SAMPLE_RATE } from "../adapters";
 import { engineModule, exportsOf } from "../engineModules";
 import { contextWords, echoes, hotwordsOf, mayMend, toldTokens, withToldWords } from "./context";
-import type { LiveReading, SpeechEngine, VoiceDetector } from "./speech";
+import { type LiveReading, quietestCut, type SpeechEngine, type VoiceDetector } from "./speech";
 import { onlyPromptWord, resultOf, textOfResult, untilEndOfText, wordsOnly } from "./speechText";
 import {
   borrowedInto,
@@ -44,6 +45,14 @@ const AUDIO_TOKENS_PER_SECOND = 13;
  * read better than 12 s, whose extra cuts cost context (#1031).
  */
 const LONGEST_READING_MS = 15_000;
+/**
+ * A plain reading that reaches a limit anyway is read again in two parts, cut at the quietest
+ * moment between these shares of it, its middle fifth. Read as the app reads it, the meeting set
+ * reached none; the one stretch of it seen to reach one was the model writing the same words over
+ * and over, and its two parts read what was said (#1031).
+ */
+const SECOND_PART_FROM = 0.4;
+const SECOND_PART_BY = 0.6;
 /**
  * Qwen3-ASR guesses a reading's language from its audio, and with under about 3 s of it guesses
  * wrong: a short English "yeah" comes back as "对。", a Mandarin "那就这样" as Cantonese (#1031).
@@ -242,28 +251,39 @@ async function liveReadingsOrNone(
 }
 
 /**
- * Says in the log when a reading reached one of Qwen3-ASR's limits, its words cut short: counted
- * from the `tokens` its words took and the audio it read, erring high. None of its words are logged.
+ * Whether a reading reached one of Qwen3-ASR's limits, its words cut short, and says so in the log:
+ * counted from the `tokens` its words took and the audio it read, erring high. None of its words
+ * are logged.
  */
-function sayIfAtLimit(samples: Float32Array, words: readonly string[], tokens: number): void {
+function atLimit(
+  samples: Float32Array,
+  words: readonly string[],
+  tokens: number,
+  newTokens: number,
+): boolean {
   const written = tokens + HEADER_TOKENS;
   const seconds = samples.length / MEETING_SAMPLE_RATE;
   const total =
     PROMPT_TOKENS + toldTokens(words) + Math.ceil(seconds * AUDIO_TOKENS_PER_SECOND) + written;
-  if (written < MAX_NEW_TOKENS && total < MAX_TOTAL_TOKENS) return;
+  if (written < newTokens && total < MAX_TOTAL_TOKENS) return false;
   // The process has no logger of its own: its output goes to the app's log.
   console.warn(
     "A reading of the speech model reached its token limit; its words may be cut short.",
     {
-      limit: written >= MAX_NEW_TOKENS ? MAX_NEW_TOKENS : MAX_TOTAL_TOKENS,
+      limit: written >= newTokens ? newTokens : MAX_TOTAL_TOKENS,
       seconds: Math.round(seconds * 10) / 10,
       written,
       total,
     },
   );
+  return true;
 }
 
-export async function createSherpaEngine(model: TranscriptionModelFiles): Promise<SpeechEngine> {
+/** `newTokens`: the most tokens one reading writes, its header among them; `MAX_NEW_TOKENS` unless given. */
+export async function createSherpaEngine(
+  model: TranscriptionModelFiles,
+  { newTokens = MAX_NEW_TOKENS }: { newTokens?: number } = {},
+): Promise<SpeechEngine> {
   if (model.engine !== QWEN3_ASR)
     throw new Error(`Unknown speech-to-text engine "${model.engine}".`);
   const sherpa = await SHERPA.load();
@@ -282,7 +302,7 @@ export async function createSherpaEngine(model: TranscriptionModelFiles): Promis
         decoder: required("decoder"),
         tokenizer: required("tokenizer"),
         hotwords: "",
-        maxNewTokens: MAX_NEW_TOKENS,
+        maxNewTokens: newTokens,
         maxTotalLen: MAX_TOTAL_TOKENS,
       },
       tokens: "",
@@ -315,11 +335,11 @@ export async function createSherpaEngine(model: TranscriptionModelFiles): Promis
     heard.set(stream, [...(heard.get(stream) ?? []), shown].slice(-LATEST));
   }
 
-  async function read(
+  async function reading(
     samples: Float32Array,
     words: readonly string[],
     language?: string,
-  ): Promise<string> {
+  ): Promise<{ text: string; atLimit: boolean }> {
     const stream = recognizer.createStream();
     if (words.length > 0) stream.setOption("hotwords", hotwordsOf(words));
     if (language) stream.setOption("language", language);
@@ -339,8 +359,46 @@ export async function createSherpaEngine(model: TranscriptionModelFiles): Promis
         "The speech model wrote on after a stretch's words; what it wrote after them is left out.",
       );
     }
-    sayIfAtLimit(samples, words, said.tokens);
-    return writtenNumbers(wordsOnly(said.text));
+    return {
+      text: writtenNumbers(wordsOnly(said.text)),
+      atLimit: atLimit(samples, words, said.tokens, newTokens),
+    };
+  }
+
+  const read = async (samples: Float32Array, words: readonly string[], language?: string) =>
+    (await reading(samples, words, language)).text;
+
+  /**
+   * The reading whose words the stretch keeps. One that reaches a limit is read again in two parts,
+   * whose words are kept in its place; a part that reaches it too keeps what it wrote (#1031).
+   */
+  async function plainReading(samples: Float32Array, language?: string): Promise<string> {
+    const whole = await reading(samples, [], language);
+    if (!whole.atLimit) return whole.text;
+    const cut = quietestCut(
+      samples,
+      Math.round(samples.length * SECOND_PART_FROM),
+      Math.round(samples.length * SECOND_PART_BY),
+    );
+    let parts: [string, string];
+    try {
+      parts = [
+        await read(samples.subarray(0, cut), [], language),
+        await read(samples.subarray(cut), [], language),
+      ];
+    } catch (error) {
+      console.warn(
+        "The speech model couldn't read a stretch again in two parts; it keeps its first reading.",
+        error instanceof Error ? error.name : typeof error,
+      );
+      return whole.text;
+    }
+    console.warn("The stretch was read again in two parts.", {
+      seconds: Math.round((samples.length / MEETING_SAMPLE_RATE) * 10) / 10,
+      cutAt: Math.round((cut / MEETING_SAMPLE_RATE) * 10) / 10,
+    });
+    const [first, second] = parts;
+    return first + gap("zh-CN", first, second) + second;
   }
 
   return {
@@ -352,7 +410,7 @@ export async function createSherpaEngine(model: TranscriptionModelFiles): Promis
         const words = contextWords(given);
         const short = samples.length < (TOLD_LANGUAGE_UNDER_MS * MEETING_SAMPLE_RATE) / 1000;
         const language = short ? languageOf(name) : undefined;
-        const plain = await read(samples, [], language);
+        const plain = await plainReading(samples, language);
         // A stream not yet known to be English counts as not English: a word left out is the
         // smaller harm than one written that nobody said (#1031).
         if (onlyPromptWord(plain) && languageOf(name) !== "English") return "";

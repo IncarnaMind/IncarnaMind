@@ -8,6 +8,8 @@ import { MEETING_SAMPLE_RATE } from "../../src/core/adapters";
 type Options = Record<string, string>;
 /** What the model writes for audio this many seconds long, told these options. */
 let answer: (seconds: number, options: Options) => string = () => "";
+/** How many tokens the model takes to write that answer. */
+let tokensOf: (seconds: number) => number = () => 0;
 /** Each reading's options, in order. */
 const READINGS: Options[] = [];
 
@@ -34,7 +36,8 @@ vi.mock("sherpa-onnx-node", () => ({
         decodeAsync: async (stream: { reading: { seconds: number; options: Options } }) => {
           const { seconds, options } = stream.reading;
           READINGS.push(options);
-          return { lang: "", text: answer(seconds, options), tokens: [] };
+          const tokens = Array.from({ length: tokensOf(seconds) }, () => "▁");
+          return { lang: "", text: answer(seconds, options), tokens };
         },
       }),
     },
@@ -215,6 +218,59 @@ describe("A short stretch read on this computer (#1031)", () => {
     await read(5);
 
     await expect(read(1)).rejects.toThrow("The model stopped.");
+  });
+
+  // protects=the most readings one stretch costs, every one at the token limit: its plain reading and the two parts it is read again in, the untold reading that checks a doubted short one, and the reading told its words, five; the check and the told reading are read whole, and the parts once; fails_when=the check or the told reading is read in parts too, or a part is read in parts; no_claim=how often a stretch reaches the limit, which no reading of the meeting set did read as the app reads it (#1031).
+  test("costs at most five readings when every one reaches the token limit", async () => {
+    // At 6 tokens, a reading of 3 words reaches the limit, the header taking 3.
+    const engine = await createSherpaEngine(model, { newTokens: 6 });
+    // Told Chinese, the short stretch reads in Latin letters, so an untold reading checks it.
+    answer = (seconds, options) => {
+      if (seconds >= 4) return CHINESE;
+      if (options.hotwords) return "Priya Raman, hello.";
+      if (seconds >= 2 || !options.language) return "Priyaman, hello.";
+      return seconds >= 1 ? "Priyaman," : "hello.";
+    };
+    tokensOf = (seconds) => (seconds < 4 ? 3 : 0);
+    const warned = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const read = (seconds: number, words: string[] = []) =>
+      engine.recognizer.decode(audio(seconds), "meeting-9:mic", words);
+    await read(5);
+    await read(5);
+    READINGS.length = 0;
+
+    expect(await read(2, ["Priya Raman"])).toBe("Priya Raman, hello.");
+    expect(READINGS.map((options) => Object.keys(options).sort().join("+"))).toEqual([
+      "language",
+      "language",
+      "language",
+      "",
+      "hotwords+language",
+    ]);
+    warned.mockRestore();
+    tokensOf = () => 0;
+  });
+
+  // protects=a stretch whose two parts can't be read keeps its first reading, cut short as it is, and the log says why with none of its words; fails_when=the stretch is lost for a part that failed, or the failure is hidden; no_claim=why the model failed.
+  test("keeps its first reading when its two parts can't be read", async () => {
+    const engine = await createSherpaEngine(model, { newTokens: 6 });
+    answer = (seconds) => {
+      if (seconds < 5) throw new Error("The model stopped.");
+      return "Secret words, cut short";
+    };
+    tokensOf = () => 3;
+    const warned = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    expect(await engine.recognizer.decode(audio(5), "meeting-10:mic", [])).toBe(
+      "Secret words, cut short",
+    );
+    expect(warned.mock.calls.map(([message]) => message)).toEqual([
+      "A reading of the speech model reached its token limit; its words may be cut short.",
+      "The speech model couldn't read a stretch again in two parts; it keeps its first reading.",
+    ]);
+    expect(JSON.stringify(warned.mock.calls)).not.toMatch(/Secret/);
+    warned.mockRestore();
+    tokensOf = () => 0;
   });
 
   // protects=a reading that is only the model's header ("language Chinese", "language None", "<asr_text>") is no line in any stream, an English one included, as it is what the model writes for a short or quiet stretch instead of words; fails_when="language Chinese" shows as something said in the Transcript; no_claim=a header in the middle of words, which tests/core/speechText.test.ts covers.
