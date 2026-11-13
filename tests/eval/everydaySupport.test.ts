@@ -180,9 +180,9 @@ const part = (
 
 const evidence = (quote: string): CitationAttributes => ({
   passageId: "passage-1",
-  documentId: "doc-2",
-  documentName: "Weighted Keys Shorter Paths",
-  contentHash: "hash-2",
+  documentId: "doc-3",
+  documentName: "Demonstrations Not Weights",
+  contentHash: "hash-3",
   pageFrom: 6,
   pageTo: 6,
   location: null,
@@ -229,7 +229,7 @@ const recordingCheck = (input: CheckClaimInput): ClaimCheckResult => {
 };
 
 describe("The record of each cited sentence's check", () => {
-  // protects=the record keeps each sentence's own quotes, the check's Not checked reason and detail, its Unsupported reason, and each part's words, verdict, reason and the quotes the check gave; fails_when=the record keeps the verdict alone, a part's words are cut at the wrong place, or a quote the check gave is lost; no_claim=why the check ruled so.
+  // protects=the record keeps each sentence's own quotes with their Documents, the check's Not checked reason and detail, its Unsupported reason, and each part's words, verdict, reason and the quotes the check gave with theirs; fails_when=the record keeps the verdict alone, a part's words are cut at the wrong place, or a quote or its Document is lost; no_claim=why the check ruled so.
   test("each sentence keeps what it cites, the check's reason and each part it judged", async () => {
     const [table, later] = await checkCitedSentences(
       { checkClaim: async (input) => recordingCheck(input) },
@@ -241,7 +241,7 @@ describe("The record of each cited sentence's check", () => {
       reason: "no-evidence",
       detail: null,
       unsupported: null,
-      quotes: ["O(n^2 · d)"],
+      cites: [{ documentName: "Weighted Keys Shorter Paths", quote: "O(n^2 · d)" }],
       parts: [
         {
           text: "Its Table 1 lists weighted keys as O(n² d) per layer.",
@@ -250,12 +250,24 @@ describe("The record of each cited sentence's check", () => {
           reason: "no-evidence",
           detail: null,
           unsupported: null,
-          evidence: [{ quote: "O(n2 d)", check: "not-found", checkReason: "quote-not-on-pages" }],
+          evidence: [
+            {
+              documentName: "Demonstrations Not Weights",
+              quote: "O(n2 d)",
+              check: "not-found",
+              checkReason: "quote-not-on-pages",
+            },
+          ],
           figures: [],
         },
       ],
     });
-    expect(later?.quotes).toEqual(["self-attention layers are faster than recurrent layers"]);
+    expect(later?.cites).toEqual([
+      {
+        documentName: "Weighted Keys Shorter Paths",
+        quote: "self-attention layers are faster than recurrent layers",
+      },
+    ]);
     expect(later?.unsupported).toEqual(LATER_WORK);
     expect(later?.parts.map((each) => [each.text, each.kind, each.verdict])).toEqual([
       ["It leaves local lookups for long inputs to later work", "fact", "unsupported"],
@@ -289,9 +301,9 @@ describe("The record of each cited sentence's check", () => {
       "| Unsupported: a Passage about it doesn't back it | 1 | 0 |",
     ]);
     expect(lines).toContain("### Not checked: no-evidence (2)");
-    expect(lines).toContain("  - cites “O(n^2 · d)”");
+    expect(lines).toContain("  - cites “O(n^2 · d)” (Weighted Keys Shorter Paths)");
     expect(lines).toContain(
-      "  - part “Its Table 1 lists weighted keys as O(n² d) per layer.” (fact): not-checked; reason: no-evidence; the check's quote “O(n2 d)” not-found (quote-not-on-pages)",
+      "  - part “Its Table 1 lists weighted keys as O(n² d) per layer.” (fact): not-checked; reason: no-evidence; the check's quote “O(n2 d)” (Demonstrations Not Weights) not-found (quote-not-on-pages)",
     );
     expect(lines).toContain(
       "  - why: No Passage says the paper leaves local lookups to later work.; covered: the local lookups; uncovered: that they are later work",

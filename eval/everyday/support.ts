@@ -42,15 +42,15 @@ export interface CheckedPart extends CheckReason {
   kind: ClaimCheckPart["kind"];
   verdict: ClaimCheckPart["verdict"];
   /** The quotes the check gave for it, as the Citation check found them. */
-  evidence: Pick<CitationAttributes, "quote" | "check" | "checkReason">[];
+  evidence: Pick<CitationAttributes, "documentName" | "quote" | "check" | "checkReason">[];
   figures: (CheckReason & { verdict: ClaimPartJudgment["verdict"] })[];
 }
 
 export interface SentenceSupport extends CheckReason {
   sentence: string;
   verdict: ClaimCheckResult["verdict"];
-  /** The quotes its own markers cite. */
-  quotes: string[];
+  /** What its own markers cite. */
+  cites: Pick<CitedQuote, "documentName" | "quote">[];
   /** The parts the check split it into: a Not checked sentence's reason is one of theirs. */
   parts: CheckedPart[];
 }
@@ -71,7 +71,12 @@ function partOf(sentence: string, part: ClaimCheckPart): CheckedPart {
     reason: part.reason,
     detail: part.detail,
     unsupported: part.unsupported,
-    evidence: part.evidence.map(({ quote, check, checkReason }) => ({ quote, check, checkReason })),
+    evidence: part.evidence.map(({ documentName, quote, check, checkReason }) => ({
+      documentName,
+      quote,
+      check,
+      checkReason,
+    })),
     figures: (part.figures ?? []).map((figure) => ({
       verdict: figure.result.verdict,
       ...reasonOf(figure.result),
@@ -88,7 +93,7 @@ export function sentenceSupport(
     sentence: checked.sentence,
     verdict: result.verdict,
     ...reasonOf(result),
-    quotes: checked.cited.map((each) => each.quote),
+    cites: checked.cited.map(({ documentName, quote }) => ({ documentName, quote })),
     parts: (result.parts ?? []).map((part) => partOf(checked.sentence, part)),
   };
 }
@@ -233,6 +238,9 @@ export function withoutSupportByReason<T extends SentenceSupport>(
 const quoted = (text: string | null) =>
   text === null ? "(no quote)" : `“${text.replace(/\s+/g, " ").trim()}”`;
 
+const quotedIn = (cited: { documentName: string | null; quote: string | null }) =>
+  `${quoted(cited.quote)} (${cited.documentName ?? "no Document named"})`;
+
 function whyLines(why: CheckReason): string[] {
   return [
     ...(why.reason ? [`reason: ${why.reason}`] : []),
@@ -277,7 +285,7 @@ export function withoutSupportLines(
       "",
       ...group.sentences.flatMap((each) => [
         `- ${each.id} (${each.model}), ${each.verdict}: ${each.sentence}`,
-        `  - cites ${each.quotes.map(quoted).join(" · ")}`,
+        `  - cites ${each.cites.map(quotedIn).join(" · ")}`,
         ...whyLines(each).map((line) => `  - ${line}`),
         ...each.parts.map((part) =>
           [
@@ -285,7 +293,7 @@ export function withoutSupportLines(
             ...whyLines(part),
             ...part.evidence.map(
               (citation) =>
-                `the check's quote ${quoted(citation.quote)} ${citation.check}${citation.checkReason ? ` (${citation.checkReason})` : ""}`,
+                `the check's quote ${quotedIn(citation)} ${citation.check}${citation.checkReason ? ` (${citation.checkReason})` : ""}`,
             ),
             ...part.figures.map((figure) =>
               [`a figure ${figure.verdict}`, ...whyLines(figure)].join(", "),
