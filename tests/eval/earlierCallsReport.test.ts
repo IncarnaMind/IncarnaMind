@@ -8,6 +8,7 @@ import {
   citedOfPlaces,
   earlierCallsSection,
   earlierStartedOf,
+  rejudgeCounts,
 } from "../../eval/speed/earlierCallsReport";
 import type { ArmRun, RequestTiming } from "../../eval/speed/paired";
 import type { PairedRow } from "../../eval/speed/pairedReport";
@@ -357,5 +358,16 @@ describe("A saved reply judged again", () => {
     };
     expect(earlierStartedOf([shown], "en-b-then-a")).toBe("09:12");
     expect(earlierStartedOf([shown], "zh-a-then-b")).toBe("");
+  });
+});
+
+describe("Judging the saved replies again", () => {
+  test("counts only when every saved reply and positive was judged and read, and no positive was counted", () => {
+    const clean = { refused: 0, unread: 0, skipped: 0, controlsFailed: 0 };
+    expect(rejudgeCounts(clean)).toBe(true);
+    expect(rejudgeCounts({ ...clean, refused: 1 })).toBe(false);
+    expect(rejudgeCounts({ ...clean, unread: 1 })).toBe(false);
+    expect(rejudgeCounts({ ...clean, skipped: 1 })).toBe(false);
+    expect(rejudgeCounts({ ...clean, controlsFailed: 1 })).toBe(false);
   });
 });

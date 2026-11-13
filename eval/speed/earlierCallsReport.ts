@@ -250,6 +250,22 @@ export function earlierStartedOf(rows: readonly PairedRow[], caseId: string): st
   return "";
 }
 
+/** What a judging again of saved replies left undone or wrong, counted apart. */
+export interface RejudgeTally {
+  /** Judge requests the provider refused or that failed. */
+  refused: number;
+  /** Readings that couldn't be read. */
+  unread: number;
+  /** Saved replies and hand-written positives the stop kept from being judged. */
+  skipped: number;
+  /** Hand-written positives the judge counted. */
+  controlsFailed: number;
+}
+
+/** A judging again counts only when every saved reply and positive was judged and read, and none counted. */
+export const rejudgeCounts = (tally: RejudgeTally): boolean =>
+  tally.refused === 0 && tally.unread === 0 && tally.skipped === 0 && tally.controlsFailed === 0;
+
 /** The gate's sections of a paired run's report, one a round's set it holds, or null when it holds neither. */
 export function earlierCallsSection(
   all: readonly PairedRow[],

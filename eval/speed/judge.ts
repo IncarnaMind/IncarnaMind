@@ -91,7 +91,9 @@ export const NO_JUDGE: LanguageModelV4 = {
 
 /** The judge, never a model under test, with what it has cost from the catalog's price. */
 export function judgeOf(models: readonly SaveChatProviderInput[]) {
-  if (env("JUDGE") === "none") return { name: "none", model: NO_JUDGE, spent: () => 0 };
+  if (env("JUDGE") === "none") {
+    return { name: "none", model: NO_JUDGE, spent: () => 0, priced: true };
+  }
   const sonnet = models.some((each) => each.modelId === "claude-sonnet-5-5");
   const named = modelNamed(
     env("JUDGE") ?? `anthropic/${sonnet ? "claude-opus-5-5" : "claude-sonnet-5-5"}`,
@@ -134,5 +136,11 @@ export function judgeOf(models: readonly SaveChatProviderInput[]) {
     }),
     middleware: counting,
   });
-  return { name: `${named.kind}/${named.modelId}`, model, spent: () => spent };
+  // `priced`: false when the catalog has no price for it, so `spent` stays 0 whatever it costs.
+  return {
+    name: `${named.kind}/${named.modelId}`,
+    model,
+    spent: () => spent,
+    priced: price !== undefined,
+  };
 }

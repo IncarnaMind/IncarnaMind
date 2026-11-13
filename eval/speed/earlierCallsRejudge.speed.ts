@@ -14,7 +14,7 @@ import { type LanguageModelMiddleware, wrapLanguageModel } from "ai";
 import { test } from "vitest";
 import { EARLIER_CALL_CASES } from "./callHelpEarlierCalls";
 import { judge } from "./earlierCalls";
-import { citedOfPlaces, earlierStartedOf } from "./earlierCallsReport";
+import { citedOfPlaces, earlierStartedOf, rejudgeCounts } from "./earlierCallsReport";
 import { judgeOf } from "./judge";
 import { openLedger } from "./ledger";
 import type { PairedRow } from "./pairedReport";
@@ -47,13 +47,19 @@ test.skipIf(env("REJUDGE") === null)(
     const rows = read.rows.filter((row) => row.set === "call-help-earlier-calls");
     const stopUsd = Number(env("STOP_USD") ?? "1.50");
     const startedAt = new Date().toISOString();
-    const ledger = await openLedger(env("LEDGER"), `${startedAt} re-judge of ${path}`);
     const judged = judgeOf([]);
+    if (!judged.priced) {
+      throw new Error(
+        `The judge ${judged.name} has no price in the catalog, so the stop of $${stopUsd} can't be kept: nothing was sent.`,
+      );
+    }
+    const ledger = await openLedger(env("LEDGER"), `${startedAt} re-judge of ${path}`);
     let attempts = 0;
     const refused: string[] = [];
-    /** Replies the judge's answers couldn't be read for, and hand-written positives it counted. */
     let unread = 0;
+    let skipped = 0;
     let controlsFailed = 0;
+    const atStop = () => ledger.before + judged.spent() >= stopUsd;
     const counting: LanguageModelMiddleware = {
       specificationVersion: "v4",
       wrapGenerate: async ({ doGenerate }) => {
@@ -79,7 +85,8 @@ test.skipIf(env("REJUDGE") === null)(
         ["second", row.candidate],
       ] as const) {
         number++;
-        if (ledger.before + judged.spent() >= stopUsd) {
+        if (atStop()) {
+          skipped++;
           lines.push(`#${number} not judged: the stop of $${stopUsd} is reached`);
           continue;
         }
@@ -109,6 +116,11 @@ test.skipIf(env("REJUDGE") === null)(
       number++;
       const each = EARLIER_CALL_CASES.find((known) => known.id === positive.caseId);
       if (!each) throw new Error(`No case ${positive.caseId}.`);
+      if (atStop()) {
+        skipped++;
+        lines.push(`#${number} ${positive.id} not judged: the stop of $${stopUsd} is reached`);
+        continue;
+      }
       try {
         const reading = await judge(
           model,
@@ -138,18 +150,18 @@ test.skipIf(env("REJUDGE") === null)(
     );
     await mkdir(out, { recursive: true });
     const changed = lines.filter((line) => line.endsWith("CHANGED")).length;
-    const counts = refused.length === 0 && unread === 0 && controlsFailed === 0;
+    const counts = rejudgeCounts({ refused: refused.length, unread, skipped, controlsFailed });
     const summary = [
       `# The earlier-call set's replies judged again`,
       "",
-      `${startedAt} · ${path} · judge ${judged.name}. ${number} replies; ${attempts} judge requests, ${refused.length} refused or failed${refused.length ? ` (${refused.join("; ")})` : ""}; ${unread} readings unread; ${controlsFailed} positives counted: the re-judging ${counts ? "counts" : "is void"}. Changed: ${changed}. Spent $${judged.spent().toFixed(3)}; with the runs before it $${(ledger.before + judged.spent()).toFixed(3)} of $${stopUsd}.`,
+      `${startedAt} · ${path} · judge ${judged.name}. ${number} replies; ${attempts} judge requests, ${refused.length} refused or failed${refused.length ? ` (${refused.join("; ")})` : ""}; ${unread} readings unread; ${skipped} not judged at the stop; ${controlsFailed} positives counted: the re-judging ${counts ? "counts" : "is void"}. Changed: ${changed}. Spent $${judged.spent().toFixed(3)}; with the runs before it $${(ledger.before + judged.spent()).toFixed(3)} of $${stopUsd}.`,
       "",
       ...lines,
     ].join("\n");
     await writeFile(join(out, "rejudge.md"), `${summary}\n`);
     await writeFile(
       join(out, "rejudge.json"),
-      `${JSON.stringify({ attempts, refused, unread, controlsFailed, counts, results }, null, 2)}\n`,
+      `${JSON.stringify({ attempts, refused, unread, skipped, controlsFailed, counts, results }, null, 2)}\n`,
     );
     console.log(summary);
   },
