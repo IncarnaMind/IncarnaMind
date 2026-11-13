@@ -346,6 +346,106 @@ describe("Choosing a live route", () => {
     ).toBe(true);
   });
 
+  describe("with Local mode on when its key moves to another place (#2999)", () => {
+    const cloudflare =
+      "https://api.cloudflare.com/client/v4/accounts/0f0e0d/ai/run/@cf/deepgram/nova-3";
+
+    const accepted = async (core: Core, id: string) =>
+      (await core.listDataFlows()).some(
+        (each) =>
+          each.flow.id === "transcription" &&
+          each.flow.service.id === id &&
+          each.consent === "accepted",
+      );
+    const listed = async (core: Core, route: CloudTranscriptionRoute) =>
+      (await core.listTranscriptionServices()).services.find((each) => each.route === route);
+
+    test("Deepgram's server: set back all the same, no audio goes there, and it is chosen again only once Local mode is off", async () => {
+      const dataDir = await createTempDataFolder();
+      const service = watched();
+      const { core, record } = await transcribingCore(dataDir, { cloud: service.connect });
+      await choose(core, "deepgram");
+      await core.setLocalOnly(true);
+      await core.setTranscriptionKey({
+        route: "deepgram",
+        apiKey: "cf-test-token-0123456789",
+        server: cloudflare,
+      });
+      expect(await listed(core, "deepgram")).toMatchObject({
+        recipient: { en: "Cloudflare", zh: "Cloudflare" },
+        chooseAgain: true,
+      });
+      expect((await core.getSettings()).device.transcriptionRoute).toBe("local");
+
+      // What a line asking to choose it again would ask for is refused while Local mode is on.
+      await expect(
+        core.updateSettings({ device: { transcriptionRoute: "deepgram" } }),
+      ).rejects.toThrow(InvalidInputError);
+      expect((await core.getSettings()).device.transcriptionRoute).toBe("local");
+      expect(await accepted(core, "https://api.cloudflare.com")).toBe(false);
+
+      // Local mode off is the moment the line may ask; nothing has gone to the new server yet.
+      await core.setLocalOnly(false);
+      expect(await listed(core, "deepgram")).toMatchObject({ chooseAgain: true });
+      const meeting = await core.createMeeting();
+      await core.startMeeting({ meetingId: meeting.id });
+      record(4 * SECOND);
+      await until(core, meeting.id, (transcript) => transcript.lines >= 2);
+      expect(service.opened).toEqual([]);
+      await core.stopMeeting(meeting.id);
+
+      await core.updateSettings({ device: { transcriptionRoute: "deepgram" } });
+      expect(await accepted(core, "https://api.cloudflare.com")).toBe(true);
+      expect(await listed(core, "deepgram")).toMatchObject({ chooseAgain: false });
+      const next = await core.createMeeting();
+      await core.startMeeting({ meetingId: next.id });
+      record(4 * SECOND);
+      await vi.waitFor(() => expect(service.opened.length).toBeGreaterThan(0), WAIT);
+      expect(service.opened.every((each) => each.url.startsWith("wss://api.cloudflare.com/"))).toBe(
+        true,
+      );
+    });
+
+    test("Qwen's chat key for another region: set back all the same, and it is chosen again only once Local mode is off", async () => {
+      const dataDir = await createTempDataFolder();
+      const service = watched();
+      const { core, record } = await transcribingCore(dataDir, { cloud: service.connect });
+      await choose(core, "qwen");
+      await core.setLocalOnly(true);
+      const beijing = (await core.listChatProviders()).find((each) => each.kind === "qwen")?.id;
+      await core.saveChatProvider({
+        kind: "qwen",
+        endpoint: "intl",
+        apiKey: "sk-qwen-intl-test",
+        modelId: "qwen3.7-plus",
+      });
+      await core.deleteChatProvider(beijing ?? "");
+      expect(await listed(core, "qwen")).toMatchObject({
+        region: { en: "International (Singapore)", zh: "国际（新加坡）" },
+        chooseAgain: true,
+      });
+      expect((await core.getSettings()).device.transcriptionRoute).toBe("local");
+
+      await expect(core.updateSettings({ device: { transcriptionRoute: "qwen" } })).rejects.toThrow(
+        InvalidInputError,
+      );
+      expect(await accepted(core, "https://dashscope-intl.aliyuncs.com")).toBe(false);
+
+      await core.setLocalOnly(false);
+      expect(await listed(core, "qwen")).toMatchObject({ chooseAgain: true });
+      const meeting = await core.createMeeting();
+      await core.startMeeting({ meetingId: meeting.id });
+      record(4 * SECOND);
+      await until(core, meeting.id, (transcript) => transcript.lines >= 2);
+      expect(service.opened).toEqual([]);
+      await core.stopMeeting(meeting.id);
+
+      await core.updateSettings({ device: { transcriptionRoute: "qwen" } });
+      expect(await accepted(core, "https://dashscope-intl.aliyuncs.com")).toBe(true);
+      expect(await listed(core, "qwen")).toMatchObject({ chooseAgain: false });
+    });
+  });
+
   test("Deepgram on the User's own server here takes no key and costs nothing counted; one elsewhere must be encrypted", async () => {
     const dataDir = await createTempDataFolder();
     const { core } = await transcribingCore(dataDir);

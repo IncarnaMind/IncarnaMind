@@ -86,6 +86,11 @@ const PERCENT_END = new RegExp(` (?:${PERCENT})$`, "i");
 // Six percentage points is no percent, and the calculation check reads "6 percentage points" as 6%
 // too, so a number before them stays as said.
 const PERCENT_POINTS_AFTER = new RegExp(`^ (?:${PERCENT})[ -]points?\\b`, "i");
+// For the number rule only (#3022): a number said before points states them, and "at one point"
+// is a moment, however it is spaced.
+const POINTS_AFTER = new RegExp(`^\\s+(?:(?:${PERCENT})[ -]|basis )?points?\\b`, "i");
+const AT_BEFORE = /\bat\s+$/i;
+const POINT_AFTER = /^\s+point\b(?!s)/i;
 // A percent ends its number, so what is said after it is a row of its own: "twenty percent and one
 // of the reasons", "twenty percent and fifty to sixty thousand users". After "or" or "to" the words
 // can't tell a pair ("about five percent to six") from two things unless the numbers after it count
@@ -176,7 +181,7 @@ const wordsOf = (integer: string) =>
     .filter((each) => each !== "and");
 
 /** A run as digits, or null when it stays as said. */
-function runToDigits(run: string, after: string): string | null {
+function runToDigits(run: string, after: string, points: boolean): string | null {
   if (word(run) === A_HUNDRED_PERCENT) return "100%";
   let text = run;
   let percent = false;
@@ -199,11 +204,17 @@ function runToDigits(run: string, after: string): string | null {
           .map((each) => UNITS.get(word(each)) ?? 0)
           .join("");
   const money = MONEY.test(word(/^ +([A-Za-z]+)/.exec(after)?.[1] ?? ""));
+  const counted = points && POINTS_AFTER.test(after);
   const written = figures.map((figure, at) => {
     const last = at === figures.length - 1;
     const places = last && decimals !== "" ? `.${decimals}` : "";
     const isFigure =
-      figure.value >= 10 || places !== "" || figure.scaled || (last && percent) || (last && money);
+      figure.value >= 10 ||
+      places !== "" ||
+      figure.scaled ||
+      (last && percent) ||
+      (last && money) ||
+      (last && counted);
     if (!isFigure) return null;
     if (last && scaleWord !== undefined) {
       return `${figure.value}${places} ${word(scaleWord)}`;
@@ -297,24 +308,28 @@ function rowsOf(text: string, list: string, at: number): string[] {
 }
 
 /** A range of `text`, which starts at `at`, as digits at every end, or as said. */
-function writtenRange(text: string, range: string, at: number): string {
+function writtenRange(text: string, range: string, at: number, points: boolean): string {
   const before = text.slice(Math.max(0, at - NEAR), at);
   const after = text.slice(at + range.length, at + range.length + NEAR);
   // Beside a digit it is part of a figure the engine already wrote.
   if (/\d\s*$/.test(before) || /^\s*\d/.test(after)) return range;
   if (MORE_BEFORE.test(before) || MORE_AFTER.test(after)) return range;
-  if (PERCENT_POINTS_AFTER.test(after)) return range;
+  if (!points && PERCENT_POINTS_AFTER.test(after)) return range;
+  if (points && AT_BEFORE.test(before) && word(range) === "one" && POINT_AFTER.test(after))
+    return range;
   if (ENDS_IN_TENS.test(range) && UNIT_AFTER.test(after)) return range;
   if (ENDS_IN_SCALE.test(range) && ORDINAL_AFTER.test(after)) return range;
   const runs = range.match(EACH_RUN) ?? [];
-  const written = runs.map((run, each) => runToDigits(run, each === runs.length - 1 ? after : ""));
+  const written = runs.map((run, each) =>
+    runToDigits(run, each === runs.length - 1 ? after : "", points),
+  );
   if (written.includes(null)) return range;
   let next = 0;
   return range.replace(EACH_RUN, () => written[next++] ?? "");
 }
 
 /** English: number words as digits; see the module's note on which. */
-function englishNumbers(text: string): string {
+function englishNumbers(text: string, points: boolean): string {
   const dated = text
     .replace(YEAR, (_whole, century: string, rest: string) => yearOf(century, rest))
     .replace(/(\d)(?: per cent| percent)\b(?!-)/gi, "$1%")
@@ -332,7 +347,7 @@ function englishNumbers(text: string): string {
         return staysAsSaid(row)
           ? row
           : row.replace(RANGE, (range: string, offset: number) =>
-              writtenRange(dated, range, start + offset),
+              writtenRange(dated, range, start + offset, points),
             );
       })
       .join("");
@@ -583,7 +598,14 @@ function chineseNumbers(text: string): string {
   });
 }
 
-/** What an engine said, with its numbers written as digits where they are figures. */
-export function writtenNumbers(text: string): string {
-  return chineseNumbers(englishNumbers(text));
+/**
+ * What an engine said, with its numbers written as digits where they are figures. `points` also
+ * writes a number said before points ("six percentage points", "three points"), for the check of
+ * whether a quote holds a sentence's figure; elsewhere they stay as said.
+ */
+export function writtenNumbers(
+  text: string,
+  { points = false }: { points?: boolean } = {},
+): string {
+  return chineseNumbers(englishNumbers(text, points));
 }
