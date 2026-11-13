@@ -96,6 +96,11 @@ export function TableMenu({ editor }: { editor: Editor }) {
           event.preventDefault();
         }
       }}
+      // Pressed from the keyboard, the button has the focus; the menu gives it back to the cell.
+      onClickCapture={(event) => {
+        if (!event.nativeEvent.isTrusted || !(event.target instanceof Element)) return;
+        if (event.target.closest("[data-object-menu]")) editor.commands.focus();
+      }}
     >
       {block !== null && spot !== null && (
         <ObjectMenu

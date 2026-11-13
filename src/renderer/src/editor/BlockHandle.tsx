@@ -157,7 +157,10 @@ function enter(
   const to = from + (cell ? (cell.nodeAfter?.nodeSize ?? 0) : block.node.nodeSize);
   let held = selection.from > from && selection.to < to;
   if (selection instanceof CellSelection) {
-    held = cell === null;
+    held =
+      cell === null &&
+      selection.from >= block.pos &&
+      selection.to <= block.pos + block.node.nodeSize;
     selection.forEachCell((_cell, pos) => {
       if (cell && pos === cell.pos) held = true;
     });
