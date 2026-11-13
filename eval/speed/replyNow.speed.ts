@@ -23,15 +23,8 @@ import { join, resolve } from "node:path";
 import { generateText } from "ai";
 import { test } from "vitest";
 import * as Y from "yjs";
-import {
-  BLOCK_ID_ATTRIBUTE,
-  CITATION_NODE,
-  type ConversationAnswer,
-  type Core,
-} from "../../src/core";
+import { BLOCK_ID_ATTRIBUTE, type ConversationAnswer, type Core } from "../../src/core";
 import { createAiSdkChatModel } from "../../src/core/providers/models";
-import { countingCheckOf } from "../../src/shared/markKeys";
-import { INLINE_NODE, isClaim, sentenceSpans } from "../../src/shared/sentences";
 import { connectToMind } from "../../tests/helpers/mindClient";
 import { note, writeMind } from "../../tests/helpers/minds";
 import { reports } from "../everyday/asking";
@@ -41,6 +34,7 @@ import { createWorkerEmbedder } from "../lib/embedder";
 import { openLibrary } from "../lib/library";
 import { createLog } from "../lib/log";
 import { createWorkerCrossEncoder } from "../lib/rerank";
+import { writtenSentences } from "../lib/writtenSentences";
 import { EIGHT_PARAGRAPHS, REPLY_NOW_CASES, type ReplyNowCase } from "./replyNowCases";
 import { env, list, modelNamed, modelsAsked, spentUsd } from "./settings";
 
@@ -49,8 +43,6 @@ const ANSWER_LIMIT_MS = 15 * 60_000;
 const CHECK_LIMIT_MS = 20 * 60_000;
 const POLL_MS = 500;
 const MIND_TOOLS = new Set(["create_mind", "add_to_mind", "edit_mind"]);
-const UNCOUNTED = new Set(["heading", "question", "codeBlock", "blockMath"]);
-
 const NOTE_LINE = { en: "Notes for Monday's meeting.", "zh-CN": "周一会议的笔记。" };
 const NOTE_TITLE = { en: "Notes", "zh-CN": "笔记" };
 
@@ -80,62 +72,15 @@ interface Run {
   error: string | null;
 }
 
-/** The text of a paragraph as a check reads it, each inline node as U+FFFC, with what each character carries. */
-function lineOf(paragraph: Y.XmlElement) {
-  let text = "";
-  const marks: (string | null)[] = [];
-  const cited: number[] = [];
-  for (const child of paragraph.toArray()) {
-    if (child instanceof Y.XmlText) {
-      for (const run of child.toDelta() as {
-        insert: unknown;
-        attributes?: Record<string, unknown>;
-      }[]) {
-        if (typeof run.insert !== "string") continue;
-        const check = countingCheckOf(run.attributes)?.attrs as { state?: unknown } | undefined;
-        const state = typeof check?.state === "string" ? check.state : null;
-        text += run.insert;
-        for (let at = 0; at < run.insert.length; at++) marks.push(state);
-      }
-    } else if (child instanceof Y.XmlElement) {
-      if (child.nodeName === CITATION_NODE) cited.push(text.length);
-      text += child.nodeName === "hardBreak" ? "\n" : INLINE_NODE;
-      marks.push(null);
-    }
-  }
-  return { text, marks, cited };
-}
-
 /** The write's sentences a check reads, and the state each one's mark says. */
 function sentencesIn(blocks: Y.XmlFragment, ids: ReadonlySet<string>): Sentences {
   const counted: Sentences = { written: 0, verdict: 0, notChecked: 0, checking: 0, unmarked: 0 };
-  const visit = (element: Y.XmlElement, inHeader: boolean) => {
-    if (UNCOUNTED.has(element.nodeName)) return;
-    if (element.nodeName !== "paragraph") {
-      for (const child of element.toArray())
-        if (child instanceof Y.XmlElement)
-          visit(child, inHeader || element.nodeName === "tableHeader");
-      return;
-    }
-    if (inHeader) return;
-    const { text, marks, cited } = lineOf(element);
-    for (const span of sentenceSpans(text)) {
-      const words = text.slice(span.from, span.to);
-      const hasCitation = cited.some((at) => at >= span.from && at < span.to);
-      if (!hasCitation && !isClaim(words.replaceAll(INLINE_NODE, ""))) continue;
-      counted.written++;
-      const states = marks.slice(span.from, span.to).filter((each) => each !== null);
-      const state = states[0] ?? null;
-      if (state === null) counted.unmarked++;
-      else if (state === "checking") counted.checking++;
-      else if (state === "not-checked") counted.notChecked++;
-      else counted.verdict++;
-    }
-  };
-  for (const block of blocks.toArray()) {
-    if (!(block instanceof Y.XmlElement)) continue;
-    const id = block.getAttribute(BLOCK_ID_ATTRIBUTE);
-    if (typeof id === "string" && ids.has(id)) visit(block, false);
+  for (const { state } of writtenSentences(blocks, ids)) {
+    counted.written++;
+    if (state === null) counted.unmarked++;
+    else if (state === "checking") counted.checking++;
+    else if (state === "not-checked") counted.notChecked++;
+    else counted.verdict++;
   }
   return counted;
 }
