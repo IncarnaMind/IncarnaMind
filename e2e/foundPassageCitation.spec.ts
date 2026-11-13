@@ -242,6 +242,7 @@ for (const [language, width] of [
     await screenshot(window, `${language}-card`);
     await pointAndClick(window, card.getByTestId("claim-add-citation"));
     await expect(marks(window).nth(0)).toHaveAttribute("data-check", "supported");
+    await expect(window.getByTestId("viewer")).toHaveCount(0);
     await expect(lines.nth(0).getByTestId("citation")).toHaveCount(2);
     expect((await noteText(window))[0]).toBe(`${NEAP.slice(0, -1)}[${SPRING}][${NEAP}].`);
     await screenshot(window, `${language}-added`);
