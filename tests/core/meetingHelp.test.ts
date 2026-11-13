@@ -244,8 +244,8 @@ describe("Help during the call", { timeout: 60_000 }, () => {
     {
       name: "one option in Chinese",
       kind: "answer" as const,
-      reply: "★ 是的，企业版每个席位每月 $45，含单点登录 [^1]\n→ 直接回答，推进通话",
-      kept: "★ 是的，企业版每个席位每月 $45，含单点登录 [^1]\n→ 直接回答，推进通话",
+      reply: "★ 是的，企业版每个席位每月 45 美元，含单点登录 [^1]\n→ 直接回答，推进通话",
+      kept: "★ 是的，企业版每个席位每月 45 美元，含单点登录 [^1]\n→ 直接回答，推进通话",
       judged: [],
     },
     {
@@ -268,8 +268,8 @@ describe("Help during the call", { timeout: 60_000 }, () => {
       name: "notes between two options, in Chinese",
       kind: "answer" as const,
       reply:
-        "★ 是的，企业版每个席位每月 $45 [^1]\n→ 直接回答\n\n我先再核对一下价格表，再写第二个选项。\n\n我今天就把价格表发给你 [^1]\n→ 争取时间",
-      kept: "★ 是的，企业版每个席位每月 $45 [^1]\n→ 直接回答\n\n我今天就把价格表发给你 [^1]\n→ 争取时间",
+        "★ 是的，企业版每个席位每月 45 美元 [^1]\n→ 直接回答\n\n我先再核对一下价格表，再写第二个选项。\n\n我今天就把价格表发给你 [^1]\n→ 争取时间",
+      kept: "★ 是的，企业版每个席位每月 45 美元 [^1]\n→ 直接回答\n\n我今天就把价格表发给你 [^1]\n→ 争取时间",
       judged: [["我先再核对一下价格表，再写第二个选项。"]],
     },
     {
@@ -283,8 +283,9 @@ describe("Help during the call", { timeout: 60_000 }, () => {
     {
       name: "options with no star, the first uncited, in Chinese",
       kind: "answer" as const,
-      reply: "我们周一就能开始试用\n→ 显出速度\n\n是的，企业版每个席位每月 $45 [^1]\n→ 直接回答",
-      kept: "我们周一就能开始试用\n→ 显出速度\n\n是的，企业版每个席位每月 $45 [^1]\n→ 直接回答",
+      reply:
+        "我们周一就能开始试用\n→ 显出速度\n\n是的，企业版每个席位每月 45 美元 [^1]\n→ 直接回答",
+      kept: "我们周一就能开始试用\n→ 显出速度\n\n是的，企业版每个席位每月 45 美元 [^1]\n→ 直接回答",
       judged: [],
     },
     {
@@ -327,8 +328,8 @@ describe("Help during the call", { timeout: 60_000 }, () => {
       name: "notes between short lines, in Chinese",
       kind: "facts" as const,
       reply:
-        "- 企业版每个席位每月 $45 [^1]\n\n我先核对一下单点登录的条款，再写下一行。\n\n- 含单点登录 [^1]",
-      kept: "- 企业版每个席位每月 $45 [^1]\n\n- 含单点登录 [^1]",
+        "- 企业版每个席位每月 45 美元 [^1]\n\n我先核对一下单点登录的条款，再写下一行。\n\n- 含单点登录 [^1]",
+      kept: "- 企业版每个席位每月 45 美元 [^1]\n\n- 含单点登录 [^1]",
       judged: [["我先核对一下单点登录的条款，再写下一行。"]],
     },
     {
@@ -342,8 +343,8 @@ describe("Help during the call", { timeout: 60_000 }, () => {
     {
       name: "a numbered plan before short lines, in Chinese",
       kind: "facts" as const,
-      reply: "1. 找到价格\n2. 引用价目表\n\n- 企业版每个席位每月 $45 [^1]",
-      kept: "- 企业版每个席位每月 $45 [^1]",
+      reply: "1. 找到价格\n2. 引用价目表\n\n- 企业版每个席位每月 45 美元 [^1]",
+      kept: "- 企业版每个席位每月 45 美元 [^1]",
       judged: [["1. 找到价格\n2. 引用价目表"]],
     },
   ])(
@@ -371,7 +372,7 @@ describe("Help during the call", { timeout: 60_000 }, () => {
   // protects=the evaluation's switch to main's rule judges a reply's own lines as before #2778, so a paired run compares the two rules and nothing else; fails_when=the switch leaves the form unjudged; no_claim=which rule is right (#2778).
   test("with the form judged as before, its last → line is asked about and taken back", async () => {
     const asked: string[][] = [];
-    const reply = "★ 是的，企业版每个席位每月 $45，含单点登录 [^1]\n→ 直接回答，推进通话";
+    const reply = "★ 是的，企业版每个席位每月 45 美元，含单点登录 [^1]\n→ 直接回答，推进通话";
     const { core, meeting } = await setUp(
       addPriceSheet,
       {},
@@ -382,7 +383,7 @@ describe("Help during the call", { timeout: 60_000 }, () => {
     const { answer } = await press(core, meeting, "answer");
 
     expect(asked).toEqual([["→ 直接回答，推进通话"]]);
-    expect(answer.text).toBe("★ 是的，企业版每个席位每月 $45，含单点登录 [^1]");
+    expect(answer.text).toBe("★ 是的，企业版每个席位每月 45 美元，含单点登录 [^1]");
   });
 
   // protects=a button pressed while the live text is behind and has no line yet is answered with one plain line saying so, in the User's language, without asking the model; fails_when=the model is asked and may tell the User to retype what was said; no_claim=the panel's drawing of it (the smoke test) (#1366).

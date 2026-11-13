@@ -416,32 +416,75 @@ describe("An Answer's Unsupported settles without looking further in its scope (
   });
 });
 
-describe("A contradicted reply gives way to a unit line that decides (#2997)", {
+describe("An Answer leaves a dollar or ¥ its Document doesn't say to Check against Documents for now (#2997)", {
   timeout: 60_000,
 }, () => {
   const LEASE = { name: "Lease.txt", contents: "Lease\nThe rent is $54,000 a year.\n" };
   const QUOTE = "The rent is $54,000 a year";
   const CONTRADICTED = { check: "contradicted", verdict: CONTRADICTS };
+  const FOUND = { check: "found", verdict: null };
 
-  // protects=a sentence naming a dollar its Document's bare $ doesn't say, which the model calls contradicted, ends Unsupported with the line Check against Documents gives, as there, while a figure that itself differs stays Contradicted with the model's reason, in English and Chinese; fails_when="The rent is A$54,000." stays Contradicted, or "The rent is A$60,000." ends anything but Contradicted; no_claim=what a real model calls either.
+  // protects=a contradicted reply stays Contradicted in an Answer, whether the sentence names a dollar the lease's bare $ doesn't say or gives another amount, in English and Chinese; fails_when="The rent is A$54,000." or "The rent is A$60,000." ends anything but Contradicted; no_claim=what a real model calls either.
+  test.each(["The rent is A$54,000.", "The rent is A$60,000."])(
+    "%s citing the lease's $54,000 stays Contradicted",
+    async (sentence) => {
+      for (const language of ["en", "zh-CN"] as const) {
+        const model = contradictingModel(sentence, QUOTE);
+        const { answer } = await answered(sentence, QUOTE, LEASE, language, model);
+        expect(shownOf(answer.citations[0]), language).toEqual(CONTRADICTED);
+      }
+    },
+  );
+
+  // protects=a sentence naming the dollar a bare "$" leaves unsaid, or 日元 for a Chinese Document's ¥, keeps the ✓ in an Answer as before, while Check against Documents reads it Unsupported with its line, in English and Chinese; fails_when=the Answer takes the ✓ for either reading, or Check against Documents stops reading them; no_claim=what the assistant should write instead (#3030).
   test.each([
     {
-      sentence: "The rent is A$54,000.",
-      en: {
-        check: "unsupported",
-        verdict: "“Lease” gives “$54,000” without saying which currency",
-      },
-      zh: { check: "unsupported", verdict: "“Lease”写的是“$54,000”，没有注明币种" },
+      sentence: "Vantrell 的目标是超过 1.4 万亿美元。",
+      quote: "The target is more than $1.4 trillion",
+      file: { name: "Targets.txt", contents: "Targets\nThe target is more than $1.4 trillion.\n" },
+      en: "“Targets” gives “$1.4 trillion” without saying which currency",
+      zh: "“Targets”写的是“$1.4 trillion”，没有注明币种",
     },
-    { sentence: "The rent is A$60,000.", en: CONTRADICTED, zh: CONTRADICTED },
-  ])("$sentence citing the lease's $54,000", async ({ sentence, en, zh }) => {
-    for (const [language, shown] of [
+    {
+      sentence: "The fee is US$54,000.",
+      quote: "The fee is $54,000",
+      file: { name: "Invoice.txt", contents: "Invoice\nThe fee is $54,000.\n" },
+      en: "“Invoice” gives “$54,000” without saying which currency",
+      zh: "“Invoice”写的是“$54,000”，没有注明币种",
+    },
+    {
+      sentence: "服务费用为54,000日元。",
+      quote: "服务费用为¥54,000",
+      file: { name: "费用.txt", contents: "费用\n服务费用为¥54,000。\n" },
+      en: "“费用” gives “¥54,000”, and in Chinese text ¥ means 人民币",
+      zh: "“费用”写的是“¥54,000”，中文里 ¥ 指人民币",
+    },
+  ])("$sentence citing $quote", async ({ sentence, quote, file, en, zh }) => {
+    for (const [language, reason] of [
       ["en", en],
       ["zh-CN", zh],
     ] as const) {
-      const model = contradictingModel(sentence, QUOTE);
-      const { answer } = await answered(sentence, QUOTE, LEASE, language, model);
-      expect(shownOf(answer.citations[0]), language).toEqual(shown);
+      expect(await judged(sentence, quote, file, language), language).toEqual({
+        answer: FOUND,
+        document: { verdict: "unsupported", reason },
+      });
+    }
+  });
+
+  // protects=leaving the dollar out of an Answer's check leaves the other readings of the same sentence in: a named dollar beside a bare "$" and 6% beside "6 percentage points" in one sentence is Unsupported with the percent's line, in English and Chinese; fails_when=the sentence keeps its ✓ because the dollar is read first; no_claim=Check against Documents, which gives the dollar's line first.
+  test("a sentence with a dollar left out and a percent beside points is Unsupported for the percent", async () => {
+    const sentence = "The fee is US$54,000 and the margin rose 6%.";
+    const quote = "The fee is $54,000 and the margin rose 6 percentage points";
+    const file = {
+      name: "Invoice.txt",
+      contents: `Invoice\n${quote}.\n`,
+    };
+    for (const [language, reason] of [
+      ["en", "The Document gives 6 percentage points, not 6%."],
+      ["zh-CN", "文档写的是 6 percentage points，不是 6%。"],
+    ] as const) {
+      const { answer } = await judged(sentence, quote, file, language);
+      expect(answer, language).toEqual({ check: "unsupported", verdict: reason });
     }
   });
 });

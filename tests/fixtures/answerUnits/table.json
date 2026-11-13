@@ -1838,6 +1838,134 @@
     "845f92cb371b": {
       "name": "jiangcheng-n3-night-line.html",
       "path": "eval/checks/web/jiangcheng-n3-night-line.html"
+    },
+    "ee59684215cd": {
+      "name": "Notes.txt",
+      "text": "Notes\nThere are three points to cover.\n"
+    },
+    "b6c74fd2d197": {
+      "name": "Notes.txt",
+      "text": "Notes\nThere are two points on the agenda.\n"
+    },
+    "c042a1e72b71": {
+      "name": "Notes.txt",
+      "text": "Notes\nHe raised 3 points in the meeting.\n"
+    },
+    "3797a816bd80": {
+      "name": "Notes.txt",
+      "text": "Notes\nHe raised three points in the meeting.\n"
+    },
+    "45d7b25e3d41": {
+      "name": "Notes.txt",
+      "text": "Notes\nWe have a 3-point plan.\n"
+    },
+    "88ac2a2c48a4": {
+      "name": "Notes.txt",
+      "text": "Notes\nAnswers use a 5-point scale.\n"
+    },
+    "d7f4f0c39d3c": {
+      "name": "Notes.txt",
+      "text": "Notes\nThey finished 10 points clear at the top of the table.\n"
+    },
+    "0b115af220d4": {
+      "name": "Notes.txt",
+      "text": "Notes\nThe index rose twenty points.\n"
+    },
+    "19b66937db12": {
+      "name": "Notes.txt",
+      "text": "Notes\nThe index fell five points.\n"
+    },
+    "33ffd58c4be5": {
+      "name": "Notes.txt",
+      "text": "Notes\n我们提出了3点意见。\n"
+    },
+    "b2202a3ad3c7": {
+      "name": "Notes.txt",
+      "text": "Notes\n客户有2点要求。\n"
+    },
+    "54ccb7ba7153": {
+      "name": "Notes.txt",
+      "text": "Notes\n我们有三点建议。\n"
+    },
+    "5d1e642a76b6": {
+      "name": "Notes.txt",
+      "text": "Notes\n会议3点钟开始。\n"
+    },
+    "552d97c648ad": {
+      "name": "Notes.txt",
+      "text": "Notes\n第3点是成本。\n"
+    },
+    "754ef72d4c81": {
+      "name": "Notes.txt",
+      "text": "Notes\n利润率提高了0.5个点。\n"
+    },
+    "a95633add35a": {
+      "name": "Notes.txt",
+      "text": "Notes\n利差扩大了50个基点。\n"
+    },
+    "772ca99dc661": {
+      "name": "Notes.txt",
+      "text": "Notes\n指数下降了0.5点。\n"
+    },
+    "4df1ddaa9215": {
+      "name": "Notes.txt",
+      "text": "Notes\n指数上升3点。\n"
+    },
+    "80bd5bcd9b32": {
+      "name": "Rates.txt",
+      "text": "Rates\n各月充电量（万千瓦时）\n7月: 118\n8月: 126\n9月: 131\n"
+    },
+    "0628f88897c5": {
+      "name": "Rates.txt",
+      "text": "Rates\n各月收入（万元）\n7月: 20\n8月: 22\n"
+    },
+    "5ab3b71ad976": {
+      "name": "Rates.txt",
+      "text": "Costs\nCosts (USD thousands)\nCapex: 800\nOpex: 1,200\n"
+    },
+    "0721263ebc5d": {
+      "name": "Rates.txt",
+      "text": "Rates\n2024年各月充电量（万千瓦时）\n7月: 118\n8月: 126\n"
+    },
+    "5dfde1c972cd": {
+      "name": "Rates.txt",
+      "text": "Rates\n各月收入（万元）\n7月: 20\n8月: 22\n各月用电（万千瓦时）\n7月: 118\n8月: 126\n"
+    },
+    "baf1edd77d53": {
+      "name": "Rates.txt",
+      "text": "Rates\n各月充电量（万千瓦时）\n7月: 118\n\n8月: 126\n"
+    },
+    "f58c08da721a": {
+      "name": "Rates.txt",
+      "text": "Rates\n各月充电量（万千瓦时）\n7月: 118（预计）\n8月: 126\n"
+    },
+    "10ed40de71fc": {
+      "name": "Rates.txt",
+      "text": "Rates\nRevenue (USD millions)\nAugust: 120\nUse\nAugust: 126\n"
+    },
+    "7b357263c1d2": {
+      "name": "Rates.txt",
+      "text": "Rates\nRevenue (USD millions)\nQ1: 50\nQ2: 54\nQ3: 61\n"
+    },
+    "3e50462fd971": {
+      "name": "Notes.txt",
+      "text": "Notes\nShe made three points about churn, and it fell.\n"
+    },
+    "9b699b41b51d": {
+      "name": "Notes.txt",
+      "text": "Notes\n他提了3点意见，投诉率有所下降。\n"
+    },
+    "703ff39e3e54": {
+      "name": "Data.txt",
+      "text": "Data\n月份\t充电量（万千瓦时）\t发电量（亿千瓦时）\n8月\t126\t3\n"
+    },
+    "87e9a88a47ab": {
+      "name": "Data.txt",
+      "text": "Data\n项目\t收入（亿元）\n本月\t（万元）54\n"
+    },
+    "33db0b3674e0": {
+      "name": "Rates.txt",
+      "text": "Rates\n单位：千瓦时\n\n各月充电量（万千瓦时）\n8月: 126\n"
     }
   },
   "rows": [
@@ -2889,8 +3017,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "“Cited 1” gives “$54,000” without saying which currency"
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -2921,8 +3049,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "“Cited 1” gives “$54,000” without saying which currency"
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -2953,8 +3081,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "“Cited 1” gives “$54,000” without saying which currency"
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -3147,8 +3275,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "“Cited 1” gives “¥54,000”, and in Chinese text ¥ means 人民币"
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -3179,8 +3307,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "“Cited 1” gives “¥54,000”, and in Chinese text ¥ means 人民币"
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -3371,8 +3499,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "“Cited 1” gives “$54m” without saying which currency"
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -3403,8 +3531,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "“Cited 1” gives “$54m” without saying which currency"
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -3435,8 +3563,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "“Cited 1” gives “$54,000” without saying which currency"
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -3467,8 +3595,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "“Cited 1” gives “54,000 ($)” without saying which currency"
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -3499,8 +3627,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "“Cited 1” gives “54,000 ($)” without saying which currency"
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -3531,8 +3659,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "“Cited 1” gives “54 ($m)” without saying which currency"
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -3563,8 +3691,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "“Cited 1” gives “54 ($m)” without saying which currency"
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -3595,8 +3723,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "“Cited 1” gives “54,000 ($)” without saying which currency"
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -3627,8 +3755,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "“Cited 1” gives “＄54,000” without saying which currency"
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -3659,8 +3787,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "“Cited 1” gives “￥54,000”, and in Chinese text ¥ means 人民币"
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -3691,8 +3819,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "“Cited 1” gives “￥54,000”, and in Chinese text ¥ means 人民币"
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -3947,8 +4075,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "“Cited 1” gives “¥54,000”, and in Chinese text ¥ means 人民币"
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -4139,8 +4267,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "“Cited 1” gives “$54m” without saying which currency"
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -4171,8 +4299,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "“Cited 1” gives “$54m” without saying which currency"
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -4331,8 +4459,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "“Cited 1” gives “$54,000” without saying which currency"
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -4363,8 +4491,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "“Cited 1” gives “$54,000” without saying which currency"
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -4395,8 +4523,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "“Cited 1” gives “74,000” without saying which currency"
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -4427,8 +4555,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "“Cited 1” gives “54,000” without saying which currency"
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -4459,8 +4587,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "“Cited 1” gives “54,000” without saying which currency"
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -4491,8 +4619,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "“Cited 1” gives “64,000” without saying which currency"
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -4523,8 +4651,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "“Cited 1” gives “54 ($m)” without saying which currency"
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -13904,8 +14032,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "“Lease” gives “$54,000” without saying which currency"
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -13936,8 +14064,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "“租赁合同” gives “$74,000” without saying which currency"
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -13968,8 +14096,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "“费用” gives “¥54,000”, and in Chinese text ¥ means 人民币"
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -14320,8 +14448,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "“Rent table” gives “54,000 ($)” without saying which currency"
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -14480,8 +14608,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "“Annual report” gives “$54m” without saying which currency"
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -14512,8 +14640,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "“租金表” gives “64,000 ($)” without saying which currency"
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -14544,8 +14672,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "“费用” gives “￥54,000”, and in Chinese text ¥ means 人民币"
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -14960,8 +15088,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "“Bare invoice” gives “$64,000” without saying which currency"
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -14992,8 +15120,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "“Table” gives “74,000” without saying which currency"
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -15024,8 +15152,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "“Rent” gives “54,000” without saying which currency"
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -15056,8 +15184,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "“Bond” gives “64,000” without saying which currency"
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -15088,8 +15216,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "“State sales” gives “$64m” without saying which currency"
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -23166,8 +23294,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "“Lease” gives “$54,000” without saying which currency"
+            "check": "contradicted",
+            "verdict": "The Document says so."
           }
         ],
         "document": {
@@ -23199,8 +23327,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "“Lease”写的是“$54,000”，没有注明币种"
+            "check": "contradicted",
+            "verdict": "The Document says so."
           }
         ],
         "document": {
@@ -27427,6 +27555,4678 @@
         "answer": [
           {
             "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-count-points-words-twin-en",
+      "source": "points › count-points-words-twin",
+      "language": "en",
+      "sentence": "There are three points to cover.",
+      "quotes": ["There are three points to cover"],
+      "files": ["ee59684215cd"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-count-points-words-twin-zh-CN",
+      "source": "points › count-points-words-twin",
+      "language": "zh-CN",
+      "sentence": "There are three points to cover.",
+      "quotes": ["There are three points to cover"],
+      "files": ["ee59684215cd"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-count-points-words-vs-percent-en",
+      "source": "points › count-points-words-vs-percent",
+      "language": "en",
+      "sentence": "Turnout rose 3%.",
+      "quotes": ["There are three points to cover"],
+      "files": ["ee59684215cd"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "not-checked",
+          "reason": "no-evidence"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "not-checked",
+          "reason": "no-evidence"
+        }
+      }
+    },
+    {
+      "id": "e-count-points-words-vs-percent-zh-CN",
+      "source": "points › count-points-words-vs-percent",
+      "language": "zh-CN",
+      "sentence": "Turnout rose 3%.",
+      "quotes": ["There are three points to cover"],
+      "files": ["ee59684215cd"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "not-checked",
+          "reason": "no-evidence"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "not-checked",
+          "reason": "no-evidence"
+        }
+      }
+    },
+    {
+      "id": "e-count-points-words-vs-digits-en",
+      "source": "points › count-points-words-vs-digits",
+      "language": "en",
+      "sentence": "There are 3 points to cover.",
+      "quotes": ["There are three points to cover"],
+      "files": ["ee59684215cd"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-count-points-words-vs-digits-zh-CN",
+      "source": "points › count-points-words-vs-digits",
+      "language": "zh-CN",
+      "sentence": "There are 3 points to cover.",
+      "quotes": ["There are three points to cover"],
+      "files": ["ee59684215cd"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-agenda-points-twin-en",
+      "source": "points › agenda-points-twin",
+      "language": "en",
+      "sentence": "There are two points on the agenda.",
+      "quotes": ["There are two points on the agenda"],
+      "files": ["b6c74fd2d197"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-agenda-points-twin-zh-CN",
+      "source": "points › agenda-points-twin",
+      "language": "zh-CN",
+      "sentence": "There are two points on the agenda.",
+      "quotes": ["There are two points on the agenda"],
+      "files": ["b6c74fd2d197"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-agenda-points-vs-percent-en",
+      "source": "points › agenda-points-vs-percent",
+      "language": "en",
+      "sentence": "Costs fell 2%.",
+      "quotes": ["There are two points on the agenda"],
+      "files": ["b6c74fd2d197"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "not-checked",
+          "reason": "no-evidence"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "not-checked",
+          "reason": "no-evidence"
+        }
+      }
+    },
+    {
+      "id": "e-agenda-points-vs-percent-zh-CN",
+      "source": "points › agenda-points-vs-percent",
+      "language": "zh-CN",
+      "sentence": "Costs fell 2%.",
+      "quotes": ["There are two points on the agenda"],
+      "files": ["b6c74fd2d197"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "not-checked",
+          "reason": "no-evidence"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "not-checked",
+          "reason": "no-evidence"
+        }
+      }
+    },
+    {
+      "id": "e-raised-points-twin-en",
+      "source": "points › raised-points-twin",
+      "language": "en",
+      "sentence": "He raised 3 points.",
+      "quotes": ["He raised 3 points in the meeting"],
+      "files": ["c042a1e72b71"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-raised-points-twin-zh-CN",
+      "source": "points › raised-points-twin",
+      "language": "zh-CN",
+      "sentence": "He raised 3 points.",
+      "quotes": ["He raised 3 points in the meeting"],
+      "files": ["c042a1e72b71"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-raised-points-vs-percent-en",
+      "source": "points › raised-points-vs-percent",
+      "language": "en",
+      "sentence": "It rose 3%.",
+      "quotes": ["He raised 3 points in the meeting"],
+      "files": ["c042a1e72b71"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 3 points, not 3%."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "The Document gives 3 points, not 3%."
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 3 points, not 3%."
+        }
+      }
+    },
+    {
+      "id": "e-raised-points-vs-percent-zh-CN",
+      "source": "points › raised-points-vs-percent",
+      "language": "zh-CN",
+      "sentence": "It rose 3%.",
+      "quotes": ["He raised 3 points in the meeting"],
+      "files": ["c042a1e72b71"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 3 points，不是 3%。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "文档写的是 3 points，不是 3%。"
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 3 points，不是 3%。"
+        }
+      }
+    },
+    {
+      "id": "e-raised-points-words-twin-en",
+      "source": "points › raised-points-words-twin",
+      "language": "en",
+      "sentence": "He raised three points.",
+      "quotes": ["He raised three points in the meeting"],
+      "files": ["3797a816bd80"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-raised-points-words-twin-zh-CN",
+      "source": "points › raised-points-words-twin",
+      "language": "zh-CN",
+      "sentence": "He raised three points.",
+      "quotes": ["He raised three points in the meeting"],
+      "files": ["3797a816bd80"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-raised-points-words-vs-percent-en",
+      "source": "points › raised-points-words-vs-percent",
+      "language": "en",
+      "sentence": "It rose 3%.",
+      "quotes": ["He raised three points in the meeting"],
+      "files": ["3797a816bd80"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "not-checked",
+          "reason": "no-evidence"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "not-checked",
+          "reason": "no-evidence"
+        }
+      }
+    },
+    {
+      "id": "e-raised-points-words-vs-percent-zh-CN",
+      "source": "points › raised-points-words-vs-percent",
+      "language": "zh-CN",
+      "sentence": "It rose 3%.",
+      "quotes": ["He raised three points in the meeting"],
+      "files": ["3797a816bd80"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "not-checked",
+          "reason": "no-evidence"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "not-checked",
+          "reason": "no-evidence"
+        }
+      }
+    },
+    {
+      "id": "e-point-plan-twin-en",
+      "source": "points › point-plan-twin",
+      "language": "en",
+      "sentence": "We have a 3-point plan.",
+      "quotes": ["We have a 3-point plan"],
+      "files": ["45d7b25e3d41"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-point-plan-twin-zh-CN",
+      "source": "points › point-plan-twin",
+      "language": "zh-CN",
+      "sentence": "We have a 3-point plan.",
+      "quotes": ["We have a 3-point plan"],
+      "files": ["45d7b25e3d41"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-point-plan-vs-percent-en",
+      "source": "points › point-plan-vs-percent",
+      "language": "en",
+      "sentence": "Support rose 3%.",
+      "quotes": ["We have a 3-point plan"],
+      "files": ["45d7b25e3d41"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-point-plan-vs-percent-zh-CN",
+      "source": "points › point-plan-vs-percent",
+      "language": "zh-CN",
+      "sentence": "Support rose 3%.",
+      "quotes": ["We have a 3-point plan"],
+      "files": ["45d7b25e3d41"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-point-scale-twin-en",
+      "source": "points › point-scale-twin",
+      "language": "en",
+      "sentence": "Answers use a 5-point scale.",
+      "quotes": ["Answers use a 5-point scale"],
+      "files": ["88ac2a2c48a4"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-point-scale-twin-zh-CN",
+      "source": "points › point-scale-twin",
+      "language": "zh-CN",
+      "sentence": "Answers use a 5-point scale.",
+      "quotes": ["Answers use a 5-point scale"],
+      "files": ["88ac2a2c48a4"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-point-scale-vs-percent-en",
+      "source": "points › point-scale-vs-percent",
+      "language": "en",
+      "sentence": "Satisfaction rose 5%.",
+      "quotes": ["Answers use a 5-point scale"],
+      "files": ["88ac2a2c48a4"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-point-scale-vs-percent-zh-CN",
+      "source": "points › point-scale-vs-percent",
+      "language": "zh-CN",
+      "sentence": "Satisfaction rose 5%.",
+      "quotes": ["Answers use a 5-point scale"],
+      "files": ["88ac2a2c48a4"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-points-clear-twin-en",
+      "source": "points › points-clear-twin",
+      "language": "en",
+      "sentence": "They finished 10 points clear.",
+      "quotes": ["They finished 10 points clear at the top of the table"],
+      "files": ["d7f4f0c39d3c"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-points-clear-twin-zh-CN",
+      "source": "points › points-clear-twin",
+      "language": "zh-CN",
+      "sentence": "They finished 10 points clear.",
+      "quotes": ["They finished 10 points clear at the top of the table"],
+      "files": ["d7f4f0c39d3c"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-points-clear-vs-percent-en",
+      "source": "points › points-clear-vs-percent",
+      "language": "en",
+      "sentence": "Sales rose 10%.",
+      "quotes": ["They finished 10 points clear at the top of the table"],
+      "files": ["d7f4f0c39d3c"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 10 points, not 10%."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "The Document gives 10 points, not 10%."
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 10 points, not 10%."
+        }
+      }
+    },
+    {
+      "id": "e-points-clear-vs-percent-zh-CN",
+      "source": "points › points-clear-vs-percent",
+      "language": "zh-CN",
+      "sentence": "Sales rose 10%.",
+      "quotes": ["They finished 10 points clear at the top of the table"],
+      "files": ["d7f4f0c39d3c"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 10 points，不是 10%。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "文档写的是 10 points，不是 10%。"
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 10 points，不是 10%。"
+        }
+      }
+    },
+    {
+      "id": "e-index-points-words-vs-percent-en",
+      "source": "points › index-points-words-vs-percent",
+      "language": "en",
+      "sentence": "The index rose 20%.",
+      "quotes": ["The index rose twenty points"],
+      "files": ["0b115af220d4"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "The Document gives twenty points, not 20%."
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives twenty points, not 20%."
+        }
+      }
+    },
+    {
+      "id": "e-index-points-words-vs-percent-zh-CN",
+      "source": "points › index-points-words-vs-percent",
+      "language": "zh-CN",
+      "sentence": "The index rose 20%.",
+      "quotes": ["The index rose twenty points"],
+      "files": ["0b115af220d4"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "文档写的是 twenty points，不是 20%。"
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 twenty points，不是 20%。"
+        }
+      }
+    },
+    {
+      "id": "e-index-points-words-twin-en",
+      "source": "points › index-points-words-twin",
+      "language": "en",
+      "sentence": "The index rose 20 points.",
+      "quotes": ["The index rose twenty points"],
+      "files": ["0b115af220d4"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-index-points-words-twin-zh-CN",
+      "source": "points › index-points-words-twin",
+      "language": "zh-CN",
+      "sentence": "The index rose 20 points.",
+      "quotes": ["The index rose twenty points"],
+      "files": ["0b115af220d4"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-index-fell-points-words-vs-percent-en",
+      "source": "points › index-fell-points-words-vs-percent",
+      "language": "en",
+      "sentence": "The index fell 5%.",
+      "quotes": ["The index fell five points"],
+      "files": ["19b66937db12"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "The Document gives five points, not 5%."
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives five points, not 5%."
+        }
+      }
+    },
+    {
+      "id": "e-index-fell-points-words-vs-percent-zh-CN",
+      "source": "points › index-fell-points-words-vs-percent",
+      "language": "zh-CN",
+      "sentence": "The index fell 5%.",
+      "quotes": ["The index fell five points"],
+      "files": ["19b66937db12"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "文档写的是 five points，不是 5%。"
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 five points，不是 5%。"
+        }
+      }
+    },
+    {
+      "id": "e-zh-counter-words-twin-en",
+      "source": "points › zh-counter-words-twin",
+      "language": "en",
+      "sentence": "我们提出了三点意见。",
+      "quotes": ["提出了3点意见"],
+      "files": ["33ffd58c4be5"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-zh-counter-words-twin-zh-CN",
+      "source": "points › zh-counter-words-twin",
+      "language": "zh-CN",
+      "sentence": "我们提出了三点意见。",
+      "quotes": ["提出了3点意见"],
+      "files": ["33ffd58c4be5"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-zh-counter-vs-percent-en",
+      "source": "points › zh-counter-vs-percent",
+      "language": "en",
+      "sentence": "上升了3%。",
+      "quotes": ["提出了3点意见"],
+      "files": ["33ffd58c4be5"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 3, not 3%."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "The Document gives 3, not 3%."
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 3, not 3%."
+        }
+      }
+    },
+    {
+      "id": "e-zh-counter-vs-percent-zh-CN",
+      "source": "points › zh-counter-vs-percent",
+      "language": "zh-CN",
+      "sentence": "上升了3%。",
+      "quotes": ["提出了3点意见"],
+      "files": ["33ffd58c4be5"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 3，不是 3%。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "文档写的是 3，不是 3%。"
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 3，不是 3%。"
+        }
+      }
+    },
+    {
+      "id": "e-zh-counter-digits-twin-en",
+      "source": "points › zh-counter-digits-twin",
+      "language": "en",
+      "sentence": "我们提出了3点意见。",
+      "quotes": ["提出了3点意见"],
+      "files": ["33ffd58c4be5"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-zh-counter-digits-twin-zh-CN",
+      "source": "points › zh-counter-digits-twin",
+      "language": "zh-CN",
+      "sentence": "我们提出了3点意见。",
+      "quotes": ["提出了3点意见"],
+      "files": ["33ffd58c4be5"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-zh-counter-demands-twin-en",
+      "source": "points › zh-counter-demands-twin",
+      "language": "en",
+      "sentence": "有2点要求。",
+      "quotes": ["有2点要求"],
+      "files": ["b2202a3ad3c7"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-zh-counter-demands-twin-zh-CN",
+      "source": "points › zh-counter-demands-twin",
+      "language": "zh-CN",
+      "sentence": "有2点要求。",
+      "quotes": ["有2点要求"],
+      "files": ["b2202a3ad3c7"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-zh-counter-demands-vs-percent-en",
+      "source": "points › zh-counter-demands-vs-percent",
+      "language": "en",
+      "sentence": "成本下降了2%。",
+      "quotes": ["有2点要求"],
+      "files": ["b2202a3ad3c7"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 2, not 2%."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "The Document gives 2, not 2%."
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 2, not 2%."
+        }
+      }
+    },
+    {
+      "id": "e-zh-counter-demands-vs-percent-zh-CN",
+      "source": "points › zh-counter-demands-vs-percent",
+      "language": "zh-CN",
+      "sentence": "成本下降了2%。",
+      "quotes": ["有2点要求"],
+      "files": ["b2202a3ad3c7"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 2，不是 2%。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "文档写的是 2，不是 2%。"
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 2，不是 2%。"
+        }
+      }
+    },
+    {
+      "id": "e-zh-counter-advice-words-twin-en",
+      "source": "points › zh-counter-advice-words-twin",
+      "language": "en",
+      "sentence": "我们有三点建议。",
+      "quotes": ["我们有三点建议"],
+      "files": ["54ccb7ba7153"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-zh-counter-advice-words-twin-zh-CN",
+      "source": "points › zh-counter-advice-words-twin",
+      "language": "zh-CN",
+      "sentence": "我们有三点建议。",
+      "quotes": ["我们有三点建议"],
+      "files": ["54ccb7ba7153"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-zh-counter-advice-words-vs-percent-en",
+      "source": "points › zh-counter-advice-words-vs-percent",
+      "language": "en",
+      "sentence": "满意度上升了3%。",
+      "quotes": ["我们有三点建议"],
+      "files": ["54ccb7ba7153"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "not-checked",
+          "reason": "no-evidence"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "not-checked",
+          "reason": "no-evidence"
+        }
+      }
+    },
+    {
+      "id": "e-zh-counter-advice-words-vs-percent-zh-CN",
+      "source": "points › zh-counter-advice-words-vs-percent",
+      "language": "zh-CN",
+      "sentence": "满意度上升了3%。",
+      "quotes": ["我们有三点建议"],
+      "files": ["54ccb7ba7153"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "not-checked",
+          "reason": "no-evidence"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "not-checked",
+          "reason": "no-evidence"
+        }
+      }
+    },
+    {
+      "id": "e-zh-clock-twin-en",
+      "source": "points › zh-clock-twin",
+      "language": "en",
+      "sentence": "会议3点钟开始。",
+      "quotes": ["会议3点钟开始"],
+      "files": ["5d1e642a76b6"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-zh-clock-twin-zh-CN",
+      "source": "points › zh-clock-twin",
+      "language": "zh-CN",
+      "sentence": "会议3点钟开始。",
+      "quotes": ["会议3点钟开始"],
+      "files": ["5d1e642a76b6"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-zh-clock-vs-percent-en",
+      "source": "points › zh-clock-vs-percent",
+      "language": "en",
+      "sentence": "利率上升了3%。",
+      "quotes": ["会议3点钟开始"],
+      "files": ["5d1e642a76b6"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-zh-clock-vs-percent-zh-CN",
+      "source": "points › zh-clock-vs-percent",
+      "language": "zh-CN",
+      "sentence": "利率上升了3%。",
+      "quotes": ["会议3点钟开始"],
+      "files": ["5d1e642a76b6"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-zh-ordinal-twin-en",
+      "source": "points › zh-ordinal-twin",
+      "language": "en",
+      "sentence": "第3点是成本。",
+      "quotes": ["第3点是成本"],
+      "files": ["552d97c648ad"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-zh-ordinal-twin-zh-CN",
+      "source": "points › zh-ordinal-twin",
+      "language": "zh-CN",
+      "sentence": "第3点是成本。",
+      "quotes": ["第3点是成本"],
+      "files": ["552d97c648ad"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-zh-ordinal-vs-percent-en",
+      "source": "points › zh-ordinal-vs-percent",
+      "language": "en",
+      "sentence": "成本上升了3%。",
+      "quotes": ["第3点是成本"],
+      "files": ["552d97c648ad"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-zh-ordinal-vs-percent-zh-CN",
+      "source": "points › zh-ordinal-vs-percent",
+      "language": "zh-CN",
+      "sentence": "成本上升了3%。",
+      "quotes": ["第3点是成本"],
+      "files": ["552d97c648ad"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-zh-half-point-twin-en",
+      "source": "points › zh-half-point-twin",
+      "language": "en",
+      "sentence": "利润率提高了0.5个点。",
+      "quotes": ["利润率提高了0.5个点"],
+      "files": ["754ef72d4c81"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-zh-half-point-twin-zh-CN",
+      "source": "points › zh-half-point-twin",
+      "language": "zh-CN",
+      "sentence": "利润率提高了0.5个点。",
+      "quotes": ["利润率提高了0.5个点"],
+      "files": ["754ef72d4c81"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-zh-half-point-vs-percent-en",
+      "source": "points › zh-half-point-vs-percent",
+      "language": "en",
+      "sentence": "利润率提高了0.5%。",
+      "quotes": ["利润率提高了0.5个点"],
+      "files": ["754ef72d4c81"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 0.5个点, not 0.5%."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "The Document gives 0.5个点, not 0.5%."
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 0.5个点, not 0.5%."
+        }
+      }
+    },
+    {
+      "id": "e-zh-half-point-vs-percent-zh-CN",
+      "source": "points › zh-half-point-vs-percent",
+      "language": "zh-CN",
+      "sentence": "利润率提高了0.5%。",
+      "quotes": ["利润率提高了0.5个点"],
+      "files": ["754ef72d4c81"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 0.5个点，不是 0.5%。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "文档写的是 0.5个点，不是 0.5%。"
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 0.5个点，不是 0.5%。"
+        }
+      }
+    },
+    {
+      "id": "e-zh-basis-points-twin-en",
+      "source": "points › zh-basis-points-twin",
+      "language": "en",
+      "sentence": "利差扩大了50个基点。",
+      "quotes": ["利差扩大了50个基点"],
+      "files": ["a95633add35a"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-zh-basis-points-twin-zh-CN",
+      "source": "points › zh-basis-points-twin",
+      "language": "zh-CN",
+      "sentence": "利差扩大了50个基点。",
+      "quotes": ["利差扩大了50个基点"],
+      "files": ["a95633add35a"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-zh-basis-points-vs-percent-en",
+      "source": "points › zh-basis-points-vs-percent",
+      "language": "en",
+      "sentence": "利差扩大了50%。",
+      "quotes": ["利差扩大了50个基点"],
+      "files": ["a95633add35a"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-zh-basis-points-vs-percent-zh-CN",
+      "source": "points › zh-basis-points-vs-percent",
+      "language": "zh-CN",
+      "sentence": "利差扩大了50%。",
+      "quotes": ["利差扩大了50个基点"],
+      "files": ["a95633add35a"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-zh-fell-points-twin-en",
+      "source": "points › zh-fell-points-twin",
+      "language": "en",
+      "sentence": "指数下降了0.5点。",
+      "quotes": ["指数下降了0.5点"],
+      "files": ["772ca99dc661"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-zh-fell-points-twin-zh-CN",
+      "source": "points › zh-fell-points-twin",
+      "language": "zh-CN",
+      "sentence": "指数下降了0.5点。",
+      "quotes": ["指数下降了0.5点"],
+      "files": ["772ca99dc661"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-zh-fell-points-vs-percent-en",
+      "source": "points › zh-fell-points-vs-percent",
+      "language": "en",
+      "sentence": "指数下降了0.5%。",
+      "quotes": ["指数下降了0.5点"],
+      "files": ["772ca99dc661"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 0.5, not 0.5%."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "The Document gives 0.5点, not 0.5%."
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 0.5点, not 0.5%."
+        }
+      }
+    },
+    {
+      "id": "e-zh-fell-points-vs-percent-zh-CN",
+      "source": "points › zh-fell-points-vs-percent",
+      "language": "zh-CN",
+      "sentence": "指数下降了0.5%。",
+      "quotes": ["指数下降了0.5点"],
+      "files": ["772ca99dc661"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 0.5，不是 0.5%。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "文档写的是 0.5点，不是 0.5%。"
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 0.5点，不是 0.5%。"
+        }
+      }
+    },
+    {
+      "id": "e-zh-rose-points-vs-percent-en",
+      "source": "points › zh-rose-points-vs-percent",
+      "language": "en",
+      "sentence": "指数上升3%。",
+      "quotes": ["指数上升3点"],
+      "files": ["4df1ddaa9215"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 3, not 3%."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "The Document gives 3点, not 3%."
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 3点, not 3%."
+        }
+      }
+    },
+    {
+      "id": "e-zh-rose-points-vs-percent-zh-CN",
+      "source": "points › zh-rose-points-vs-percent",
+      "language": "zh-CN",
+      "sentence": "指数上升3%。",
+      "quotes": ["指数上升3点"],
+      "files": ["4df1ddaa9215"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 3，不是 3%。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "文档写的是 3点，不是 3%。"
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 3点，不是 3%。"
+        }
+      }
+    },
+    {
+      "id": "e-heading-rows-row1-right-en",
+      "source": "heading › heading-rows-row1-right",
+      "language": "en",
+      "sentence": "7月充电量为118万千瓦时。",
+      "quotes": ["7月: 118"],
+      "files": ["80bd5bcd9b32"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 118, not 118万千瓦时."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-heading-rows-row1-right-zh-CN",
+      "source": "heading › heading-rows-row1-right",
+      "language": "zh-CN",
+      "sentence": "7月充电量为118万千瓦时。",
+      "quotes": ["7月: 118"],
+      "files": ["80bd5bcd9b32"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 118，不是 118万千瓦时。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-heading-rows-row1-wrong-en",
+      "source": "heading › heading-rows-row1-wrong",
+      "language": "en",
+      "sentence": "7月充电量为118千瓦时。",
+      "quotes": ["7月: 118"],
+      "files": ["80bd5bcd9b32"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "The Document gives 118（万千瓦时）, not 118千瓦时."
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 118（万千瓦时）, not 118千瓦时."
+        }
+      }
+    },
+    {
+      "id": "e-heading-rows-row1-wrong-zh-CN",
+      "source": "heading › heading-rows-row1-wrong",
+      "language": "zh-CN",
+      "sentence": "7月充电量为118千瓦时。",
+      "quotes": ["7月: 118"],
+      "files": ["80bd5bcd9b32"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "文档写的是 118（万千瓦时），不是 118千瓦时。"
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 118（万千瓦时），不是 118千瓦时。"
+        }
+      }
+    },
+    {
+      "id": "e-heading-rows-row2-right-en",
+      "source": "heading › heading-rows-row2-right",
+      "language": "en",
+      "sentence": "8月充电量为126万千瓦时。",
+      "quotes": ["8月: 126"],
+      "files": ["80bd5bcd9b32"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 126, not 126万千瓦时."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-heading-rows-row2-right-zh-CN",
+      "source": "heading › heading-rows-row2-right",
+      "language": "zh-CN",
+      "sentence": "8月充电量为126万千瓦时。",
+      "quotes": ["8月: 126"],
+      "files": ["80bd5bcd9b32"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 126，不是 126万千瓦时。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-heading-rows-row2-wrong-en",
+      "source": "heading › heading-rows-row2-wrong",
+      "language": "en",
+      "sentence": "8月充电量为126千瓦时。",
+      "quotes": ["8月: 126"],
+      "files": ["80bd5bcd9b32"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "The Document gives 126（万千瓦时）, not 126千瓦时."
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 126（万千瓦时）, not 126千瓦时."
+        }
+      }
+    },
+    {
+      "id": "e-heading-rows-row2-wrong-zh-CN",
+      "source": "heading › heading-rows-row2-wrong",
+      "language": "zh-CN",
+      "sentence": "8月充电量为126千瓦时。",
+      "quotes": ["8月: 126"],
+      "files": ["80bd5bcd9b32"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "文档写的是 126（万千瓦时），不是 126千瓦时。"
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 126（万千瓦时），不是 126千瓦时。"
+        }
+      }
+    },
+    {
+      "id": "e-heading-rows-row3-right-en",
+      "source": "heading › heading-rows-row3-right",
+      "language": "en",
+      "sentence": "9月充电量为131万千瓦时。",
+      "quotes": ["9月: 131"],
+      "files": ["80bd5bcd9b32"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 131, not 131万千瓦时."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-heading-rows-row3-right-zh-CN",
+      "source": "heading › heading-rows-row3-right",
+      "language": "zh-CN",
+      "sentence": "9月充电量为131万千瓦时。",
+      "quotes": ["9月: 131"],
+      "files": ["80bd5bcd9b32"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 131，不是 131万千瓦时。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-heading-rows-row3-wrong-en",
+      "source": "heading › heading-rows-row3-wrong",
+      "language": "en",
+      "sentence": "9月充电量为131千瓦时。",
+      "quotes": ["9月: 131"],
+      "files": ["80bd5bcd9b32"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "The Document gives 131（万千瓦时）, not 131千瓦时."
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 131（万千瓦时）, not 131千瓦时."
+        }
+      }
+    },
+    {
+      "id": "e-heading-rows-row3-wrong-zh-CN",
+      "source": "heading › heading-rows-row3-wrong",
+      "language": "zh-CN",
+      "sentence": "9月充电量为131千瓦时。",
+      "quotes": ["9月: 131"],
+      "files": ["80bd5bcd9b32"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "文档写的是 131（万千瓦时），不是 131千瓦时。"
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 131（万千瓦时），不是 131千瓦时。"
+        }
+      }
+    },
+    {
+      "id": "e-heading-yuan-row2-right-en",
+      "source": "heading › heading-yuan-row2-right",
+      "language": "en",
+      "sentence": "8月收入为22万元。",
+      "quotes": ["8月: 22"],
+      "files": ["0628f88897c5"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-heading-yuan-row2-right-zh-CN",
+      "source": "heading › heading-yuan-row2-right",
+      "language": "zh-CN",
+      "sentence": "8月收入为22万元。",
+      "quotes": ["8月: 22"],
+      "files": ["0628f88897c5"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-heading-yuan-row2-wrong-en",
+      "source": "heading › heading-yuan-row2-wrong",
+      "language": "en",
+      "sentence": "8月收入为22元。",
+      "quotes": ["8月: 22"],
+      "files": ["0628f88897c5"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "The Document gives 22（万元）, not 22元."
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 22（万元）, not 22元."
+        }
+      }
+    },
+    {
+      "id": "e-heading-yuan-row2-wrong-zh-CN",
+      "source": "heading › heading-yuan-row2-wrong",
+      "language": "zh-CN",
+      "sentence": "8月收入为22元。",
+      "quotes": ["8月: 22"],
+      "files": ["0628f88897c5"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "文档写的是 22（万元），不是 22元。"
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 22（万元），不是 22元。"
+        }
+      }
+    },
+    {
+      "id": "e-heading-en-row1-wrong-en",
+      "source": "heading › heading-en-row1-wrong",
+      "language": "en",
+      "sentence": "Capex was $800.",
+      "quotes": ["Capex: 800"],
+      "files": ["5ab3b71ad976"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "The Document gives 800 (USD thousands), not $800."
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 800 (USD thousands), not $800."
+        }
+      }
+    },
+    {
+      "id": "e-heading-en-row1-wrong-zh-CN",
+      "source": "heading › heading-en-row1-wrong",
+      "language": "zh-CN",
+      "sentence": "Capex was $800.",
+      "quotes": ["Capex: 800"],
+      "files": ["5ab3b71ad976"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "文档写的是 800 (USD thousands)，不是 $800。"
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 800 (USD thousands)，不是 $800。"
+        }
+      }
+    },
+    {
+      "id": "e-heading-en-row2-right-en",
+      "source": "heading › heading-en-row2-right",
+      "language": "en",
+      "sentence": "Opex was $1.2m.",
+      "quotes": ["Opex: 1,200"],
+      "files": ["5ab3b71ad976"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-heading-en-row2-right-zh-CN",
+      "source": "heading › heading-en-row2-right",
+      "language": "zh-CN",
+      "sentence": "Opex was $1.2m.",
+      "quotes": ["Opex: 1,200"],
+      "files": ["5ab3b71ad976"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-heading-en-row2-wrong-en",
+      "source": "heading › heading-en-row2-wrong",
+      "language": "en",
+      "sentence": "Opex was $1,200.",
+      "quotes": ["Opex: 1,200"],
+      "files": ["5ab3b71ad976"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "The Document gives 1,200 (USD thousands), not $1,200."
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 1,200 (USD thousands), not $1,200."
+        }
+      }
+    },
+    {
+      "id": "e-heading-en-row2-wrong-zh-CN",
+      "source": "heading › heading-en-row2-wrong",
+      "language": "zh-CN",
+      "sentence": "Opex was $1,200.",
+      "quotes": ["Opex: 1,200"],
+      "files": ["5ab3b71ad976"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "文档写的是 1,200 (USD thousands)，不是 $1,200。"
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 1,200 (USD thousands)，不是 $1,200。"
+        }
+      }
+    },
+    {
+      "id": "e-heading-year-row1-right-en",
+      "source": "heading › heading-year-row1-right",
+      "language": "en",
+      "sentence": "7月充电量为118万千瓦时。",
+      "quotes": ["7月: 118"],
+      "files": ["0721263ebc5d"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 118, not 118万千瓦时."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-heading-year-row1-right-zh-CN",
+      "source": "heading › heading-year-row1-right",
+      "language": "zh-CN",
+      "sentence": "7月充电量为118万千瓦时。",
+      "quotes": ["7月: 118"],
+      "files": ["0721263ebc5d"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 118，不是 118万千瓦时。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-heading-year-row1-wrong-en",
+      "source": "heading › heading-year-row1-wrong",
+      "language": "en",
+      "sentence": "7月充电量为118千瓦时。",
+      "quotes": ["7月: 118"],
+      "files": ["0721263ebc5d"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "The Document gives 118（万千瓦时）, not 118千瓦时."
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 118（万千瓦时）, not 118千瓦时."
+        }
+      }
+    },
+    {
+      "id": "e-heading-year-row1-wrong-zh-CN",
+      "source": "heading › heading-year-row1-wrong",
+      "language": "zh-CN",
+      "sentence": "7月充电量为118千瓦时。",
+      "quotes": ["7月: 118"],
+      "files": ["0721263ebc5d"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "文档写的是 118（万千瓦时），不是 118千瓦时。"
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 118（万千瓦时），不是 118千瓦时。"
+        }
+      }
+    },
+    {
+      "id": "e-heading-year-row2-right-en",
+      "source": "heading › heading-year-row2-right",
+      "language": "en",
+      "sentence": "8月充电量为126万千瓦时。",
+      "quotes": ["8月: 126"],
+      "files": ["0721263ebc5d"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 126, not 126万千瓦时."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-heading-year-row2-right-zh-CN",
+      "source": "heading › heading-year-row2-right",
+      "language": "zh-CN",
+      "sentence": "8月充电量为126万千瓦时。",
+      "quotes": ["8月: 126"],
+      "files": ["0721263ebc5d"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 126，不是 126万千瓦时。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-heading-year-row2-wrong-en",
+      "source": "heading › heading-year-row2-wrong",
+      "language": "en",
+      "sentence": "8月充电量为126千瓦时。",
+      "quotes": ["8月: 126"],
+      "files": ["0721263ebc5d"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "The Document gives 126（万千瓦时）, not 126千瓦时."
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 126（万千瓦时）, not 126千瓦时."
+        }
+      }
+    },
+    {
+      "id": "e-heading-year-row2-wrong-zh-CN",
+      "source": "heading › heading-year-row2-wrong",
+      "language": "zh-CN",
+      "sentence": "8月充电量为126千瓦时。",
+      "quotes": ["8月: 126"],
+      "files": ["0721263ebc5d"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "文档写的是 126（万千瓦时），不是 126千瓦时。"
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 126（万千瓦时），不是 126千瓦时。"
+        }
+      }
+    },
+    {
+      "id": "e-heading-second-rows-row1-wrong-en",
+      "source": "heading › heading-second-rows-row1-wrong",
+      "language": "en",
+      "sentence": "7月用电为118千瓦时。",
+      "quotes": ["7月: 118"],
+      "files": ["5dfde1c972cd"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "The Document gives 118（万千瓦时）, not 118千瓦时."
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 118（万千瓦时）, not 118千瓦时."
+        }
+      }
+    },
+    {
+      "id": "e-heading-second-rows-row1-wrong-zh-CN",
+      "source": "heading › heading-second-rows-row1-wrong",
+      "language": "zh-CN",
+      "sentence": "7月用电为118千瓦时。",
+      "quotes": ["7月: 118"],
+      "files": ["5dfde1c972cd"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "文档写的是 118（万千瓦时），不是 118千瓦时。"
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 118（万千瓦时），不是 118千瓦时。"
+        }
+      }
+    },
+    {
+      "id": "e-heading-second-rows-row2-right-en",
+      "source": "heading › heading-second-rows-row2-right",
+      "language": "en",
+      "sentence": "8月用电为126万千瓦时。",
+      "quotes": ["8月: 126"],
+      "files": ["5dfde1c972cd"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-heading-second-rows-row2-right-zh-CN",
+      "source": "heading › heading-second-rows-row2-right",
+      "language": "zh-CN",
+      "sentence": "8月用电为126万千瓦时。",
+      "quotes": ["8月: 126"],
+      "files": ["5dfde1c972cd"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-heading-second-rows-row2-wrong-en",
+      "source": "heading › heading-second-rows-row2-wrong",
+      "language": "en",
+      "sentence": "8月用电为126千瓦时。",
+      "quotes": ["8月: 126"],
+      "files": ["5dfde1c972cd"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "The Document gives 126（万千瓦时）, not 126千瓦时."
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 126（万千瓦时）, not 126千瓦时."
+        }
+      }
+    },
+    {
+      "id": "e-heading-second-rows-row2-wrong-zh-CN",
+      "source": "heading › heading-second-rows-row2-wrong",
+      "language": "zh-CN",
+      "sentence": "8月用电为126千瓦时。",
+      "quotes": ["8月: 126"],
+      "files": ["5dfde1c972cd"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "文档写的是 126（万千瓦时），不是 126千瓦时。"
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 126（万千瓦时），不是 126千瓦时。"
+        }
+      }
+    },
+    {
+      "id": "e-heading-second-rows-first-row2-right-en",
+      "source": "heading › heading-second-rows-first-row2-right",
+      "language": "en",
+      "sentence": "8月收入为22万元。",
+      "quotes": ["8月: 22"],
+      "files": ["5dfde1c972cd"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-heading-second-rows-first-row2-right-zh-CN",
+      "source": "heading › heading-second-rows-first-row2-right",
+      "language": "zh-CN",
+      "sentence": "8月收入为22万元。",
+      "quotes": ["8月: 22"],
+      "files": ["5dfde1c972cd"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-heading-blank-after-row-right-en",
+      "source": "heading › heading-blank-after-row-right",
+      "language": "en",
+      "sentence": "8月充电量为126万千瓦时。",
+      "quotes": ["8月: 126"],
+      "files": ["baf1edd77d53"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 126, not 126万千瓦时."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "The Document gives 126, not 126万千瓦时."
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 126, not 126万千瓦时."
+        }
+      }
+    },
+    {
+      "id": "e-heading-blank-after-row-right-zh-CN",
+      "source": "heading › heading-blank-after-row-right",
+      "language": "zh-CN",
+      "sentence": "8月充电量为126万千瓦时。",
+      "quotes": ["8月: 126"],
+      "files": ["baf1edd77d53"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 126，不是 126万千瓦时。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "文档写的是 126，不是 126万千瓦时。"
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 126，不是 126万千瓦时。"
+        }
+      }
+    },
+    {
+      "id": "e-heading-blank-after-row-wrong-en",
+      "source": "heading › heading-blank-after-row-wrong",
+      "language": "en",
+      "sentence": "8月充电量为126千瓦时。",
+      "quotes": ["8月: 126"],
+      "files": ["baf1edd77d53"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-heading-blank-after-row-wrong-zh-CN",
+      "source": "heading › heading-blank-after-row-wrong",
+      "language": "zh-CN",
+      "sentence": "8月充电量为126千瓦时。",
+      "quotes": ["8月: 126"],
+      "files": ["baf1edd77d53"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-heading-bracket-row-own-en",
+      "source": "heading › heading-bracket-row-own",
+      "language": "en",
+      "sentence": "7月充电量预计为118万千瓦时。",
+      "quotes": ["7月: 118（预计）"],
+      "files": ["f58c08da721a"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 118, not 118万千瓦时."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-heading-bracket-row-own-zh-CN",
+      "source": "heading › heading-bracket-row-own",
+      "language": "zh-CN",
+      "sentence": "7月充电量预计为118万千瓦时。",
+      "quotes": ["7月: 118（预计）"],
+      "files": ["f58c08da721a"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 118，不是 118万千瓦时。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-heading-bracket-row-row2-right-en",
+      "source": "heading › heading-bracket-row-row2-right",
+      "language": "en",
+      "sentence": "8月充电量为126万千瓦时。",
+      "quotes": ["8月: 126"],
+      "files": ["f58c08da721a"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 126, not 126万千瓦时."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-heading-bracket-row-row2-right-zh-CN",
+      "source": "heading › heading-bracket-row-row2-right",
+      "language": "zh-CN",
+      "sentence": "8月充电量为126万千瓦时。",
+      "quotes": ["8月: 126"],
+      "files": ["f58c08da721a"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 126，不是 126万千瓦时。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-heading-bracket-row-row2-wrong-en",
+      "source": "heading › heading-bracket-row-row2-wrong",
+      "language": "en",
+      "sentence": "8月充电量为126千瓦时。",
+      "quotes": ["8月: 126"],
+      "files": ["f58c08da721a"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "The Document gives 126（万千瓦时）, not 126千瓦时."
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 126（万千瓦时）, not 126千瓦时."
+        }
+      }
+    },
+    {
+      "id": "e-heading-bracket-row-row2-wrong-zh-CN",
+      "source": "heading › heading-bracket-row-row2-wrong",
+      "language": "zh-CN",
+      "sentence": "8月充电量为126千瓦时。",
+      "quotes": ["8月: 126"],
+      "files": ["f58c08da721a"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "文档写的是 126（万千瓦时），不是 126千瓦时。"
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 126（万千瓦时），不是 126千瓦时。"
+        }
+      }
+    },
+    {
+      "id": "e-heading-text-line-stops-en",
+      "source": "heading › heading-text-line-stops",
+      "language": "en",
+      "sentence": "August use was $126m.",
+      "quotes": ["August: 126"],
+      "files": ["10ed40de71fc"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-heading-text-line-stops-zh-CN",
+      "source": "heading › heading-text-line-stops",
+      "language": "zh-CN",
+      "sentence": "August use was $126m.",
+      "quotes": ["August: 126"],
+      "files": ["10ed40de71fc"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-heading-en-rows-row3-right-en",
+      "source": "heading › heading-en-rows-row3-right",
+      "language": "en",
+      "sentence": "Q3 revenue was $61m.",
+      "quotes": ["Q3: 61"],
+      "files": ["7b357263c1d2"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-heading-en-rows-row3-right-zh-CN",
+      "source": "heading › heading-en-rows-row3-right",
+      "language": "zh-CN",
+      "sentence": "Q3 revenue was $61m.",
+      "quotes": ["Q3: 61"],
+      "files": ["7b357263c1d2"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-heading-en-rows-row3-wrong-en",
+      "source": "heading › heading-en-rows-row3-wrong",
+      "language": "en",
+      "sentence": "Q3 revenue was $61.",
+      "quotes": ["Q3: 61"],
+      "files": ["7b357263c1d2"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "The Document gives 61 (USD millions), not $61."
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 61 (USD millions), not $61."
+        }
+      }
+    },
+    {
+      "id": "e-heading-en-rows-row3-wrong-zh-CN",
+      "source": "heading › heading-en-rows-row3-wrong",
+      "language": "zh-CN",
+      "sentence": "Q3 revenue was $61.",
+      "quotes": ["Q3: 61"],
+      "files": ["7b357263c1d2"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "文档写的是 61 (USD millions)，不是 $61。"
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 61 (USD millions)，不是 $61。"
+        }
+      }
+    },
+    {
+      "id": "e-count-churn-points-vs-percent-en",
+      "source": "points › count-churn-points-vs-percent",
+      "language": "en",
+      "sentence": "Churn fell 3%.",
+      "quotes": ["She made three points about churn, and it fell."],
+      "files": ["3e50462fd971"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-count-churn-points-vs-percent-zh-CN",
+      "source": "points › count-churn-points-vs-percent",
+      "language": "zh-CN",
+      "sentence": "Churn fell 3%.",
+      "quotes": ["She made three points about churn, and it fell."],
+      "files": ["3e50462fd971"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-count-churn-points-twin-en",
+      "source": "points › count-churn-points-twin",
+      "language": "en",
+      "sentence": "She made three points about churn.",
+      "quotes": ["She made three points about churn, and it fell."],
+      "files": ["3e50462fd971"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-count-churn-points-twin-zh-CN",
+      "source": "points › count-churn-points-twin",
+      "language": "zh-CN",
+      "sentence": "She made three points about churn.",
+      "quotes": ["She made three points about churn, and it fell."],
+      "files": ["3e50462fd971"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-zh-counter-complaints-vs-percent-en",
+      "source": "points › zh-counter-complaints-vs-percent",
+      "language": "en",
+      "sentence": "投诉率下降了3%。",
+      "quotes": ["他提了3点意见，投诉率有所下降。"],
+      "files": ["9b699b41b51d"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 3, not 3%."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "The Document gives 3, not 3%."
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 3, not 3%."
+        }
+      }
+    },
+    {
+      "id": "e-zh-counter-complaints-vs-percent-zh-CN",
+      "source": "points › zh-counter-complaints-vs-percent",
+      "language": "zh-CN",
+      "sentence": "投诉率下降了3%。",
+      "quotes": ["他提了3点意见，投诉率有所下降。"],
+      "files": ["9b699b41b51d"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 3，不是 3%。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "文档写的是 3，不是 3%。"
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 3，不是 3%。"
+        }
+      }
+    },
+    {
+      "id": "e-zh-counter-complaints-twin-en",
+      "source": "points › zh-counter-complaints-twin",
+      "language": "en",
+      "sentence": "他提了3点意见。",
+      "quotes": ["他提了3点意见，投诉率有所下降。"],
+      "files": ["9b699b41b51d"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-zh-counter-complaints-twin-zh-CN",
+      "source": "points › zh-counter-complaints-twin",
+      "language": "zh-CN",
+      "sentence": "他提了3点意见。",
+      "quotes": ["他提了3点意见，投诉率有所下降。"],
+      "files": ["9b699b41b51d"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-column-heading-other-column-wrong-en",
+      "source": "heading › column-heading-other-column-wrong",
+      "language": "en",
+      "sentence": "8月充电量为126亿千瓦时。",
+      "quotes": ["8月\t126\t3"],
+      "files": ["703ff39e3e54"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 126, not 126亿千瓦时."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "The Document gives 126, not 126亿千瓦时."
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 126, not 126亿千瓦时."
+        }
+      }
+    },
+    {
+      "id": "e-column-heading-other-column-wrong-zh-CN",
+      "source": "heading › column-heading-other-column-wrong",
+      "language": "zh-CN",
+      "sentence": "8月充电量为126亿千瓦时。",
+      "quotes": ["8月\t126\t3"],
+      "files": ["703ff39e3e54"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 126，不是 126亿千瓦时。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "文档写的是 126，不是 126亿千瓦时。"
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 126，不是 126亿千瓦时。"
+        }
+      }
+    },
+    {
+      "id": "e-column-heading-other-column-right-en",
+      "source": "heading › column-heading-other-column-right",
+      "language": "en",
+      "sentence": "8月充电量为126万千瓦时。",
+      "quotes": ["8月\t126\t3"],
+      "files": ["703ff39e3e54"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 126, not 126万千瓦时."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-column-heading-other-column-right-zh-CN",
+      "source": "heading › column-heading-other-column-right",
+      "language": "zh-CN",
+      "sentence": "8月充电量为126万千瓦时。",
+      "quotes": ["8月\t126\t3"],
+      "files": ["703ff39e3e54"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 126，不是 126万千瓦时。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-cell-label-over-column-wrong-en",
+      "source": "heading › cell-label-over-column-wrong",
+      "language": "en",
+      "sentence": "本月收入为54亿元。",
+      "quotes": ["本月\t（万元）54"],
+      "files": ["87e9a88a47ab"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-cell-label-over-column-wrong-zh-CN",
+      "source": "heading › cell-label-over-column-wrong",
+      "language": "zh-CN",
+      "sentence": "本月收入为54亿元。",
+      "quotes": ["本月\t（万元）54"],
+      "files": ["87e9a88a47ab"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-cell-label-over-column-right-en",
+      "source": "heading › cell-label-over-column-right",
+      "language": "en",
+      "sentence": "本月收入为54万元。",
+      "quotes": ["本月\t（万元）54"],
+      "files": ["87e9a88a47ab"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-cell-label-over-column-right-zh-CN",
+      "source": "heading › cell-label-over-column-right",
+      "language": "zh-CN",
+      "sentence": "本月收入为54万元。",
+      "quotes": ["本月\t（万元）54"],
+      "files": ["87e9a88a47ab"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-label-over-document-line-wrong-en",
+      "source": "heading › label-over-document-line-wrong",
+      "language": "en",
+      "sentence": "8月充电量为126千瓦时。",
+      "quotes": ["8月: 126"],
+      "files": ["33db0b3674e0"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "The Document gives 126（万千瓦时）, not 126千瓦时."
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 126（万千瓦时）, not 126千瓦时."
+        }
+      }
+    },
+    {
+      "id": "e-label-over-document-line-wrong-zh-CN",
+      "source": "heading › label-over-document-line-wrong",
+      "language": "zh-CN",
+      "sentence": "8月充电量为126千瓦时。",
+      "quotes": ["8月: 126"],
+      "files": ["33db0b3674e0"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "文档写的是 126（万千瓦时），不是 126千瓦时。"
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 126（万千瓦时），不是 126千瓦时。"
+        }
+      }
+    },
+    {
+      "id": "e-label-over-document-line-right-en",
+      "source": "heading › label-over-document-line-right",
+      "language": "en",
+      "sentence": "8月充电量为126万千瓦时。",
+      "quotes": ["8月: 126"],
+      "files": ["33db0b3674e0"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 126, not 126万千瓦时."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-label-over-document-line-right-zh-CN",
+      "source": "heading › label-over-document-line-right",
+      "language": "zh-CN",
+      "sentence": "8月充电量为126万千瓦时。",
+      "quotes": ["8月: 126"],
+      "files": ["33db0b3674e0"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 126，不是 126万千瓦时。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
             "verdict": null
           }
         ],

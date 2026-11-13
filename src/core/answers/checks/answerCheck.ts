@@ -184,14 +184,7 @@ async function supportOf(
   // A sentence sorted as all opinion is left unjudged, never supported: the sort is a model's, and
   // a fact sorted as opinion must not show the green check.
   if (!verdict || verdict.kind === "opinion") return null;
-  // A Document that doesn't say which currency neither backs nor contradicts one: its line stands
-  // over a contradiction, as in Check against Documents (#2226).
-  if (verdict.verdict === "contradicted") {
-    const unit = unstatedUnit(sentence.found, sentence.sentence);
-    return unit?.decides
-      ? { check: "unsupported", verdict: unit.why.reason }
-      : { check: "contradicted", verdict: verdict.says };
-  }
+  if (verdict.verdict === "contradicted") return { check: "contradicted", verdict: verdict.says };
   // Who does it, and whether it has happened, as Roles and Time do in a sentence's own check (#1668).
   if (
     verdict.verdict === "unsupported" ||

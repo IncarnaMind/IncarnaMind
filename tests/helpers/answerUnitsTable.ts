@@ -68,6 +68,8 @@ export const PARTS = {
   units: ["figureUnits"],
   labels: ["labels"],
   edges: ["issue", "edge"],
+  points: ["points"],
+  headings: ["heading"],
 } as const;
 
 export const rowsOf = (part: keyof typeof PARTS) =>

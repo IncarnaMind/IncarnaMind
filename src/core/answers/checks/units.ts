@@ -85,10 +85,17 @@ const SHARE_IN_WORDS = new RegExp(
   `\\b(${INTEGER_WORDS})((?: point(?: (?:${DIGIT_WORDS.join("|")}))+)?) (percent|per cent|percentage points?|basis points?|points?)\\b`,
   "gi",
 );
+// Bare points are a share only as a change ("rose six points"), never as a count ("three points
+// to cover", "he raised three points") (#2997).
+const CHANGE_BEFORE =
+  /\b(?:rise|rises|rising|risen|rose|fall|falls|falling|fallen|fell|up|down|by|gain|gains|gained|lose|loses|lost|drop|drops|dropped|climb|climbs|climbed|increase|increases|increased|decrease|decreases|decreased)(?: by| of)? $/iu;
+const CN_CHANGE_BEFORE =
+  /(?:上升|上涨|下降|下跌|提高|降低|增加|减少|回落|反弹|攀升|下滑|涨|跌|升|降)了?$/u;
 
 function sharesInWords(text: string): Figure[] {
   return [...text.matchAll(SHARE_IN_WORDS)].flatMap((match) => {
     const [said, whole = "", places = "", unit = ""] = match;
+    if (/^points?$/iu.test(unit) && !CHANGE_BEFORE.test(text.slice(0, match.index))) return [];
     const value = wholeNumberWords(whole);
     if (value === null) return [];
     const decimals = places
@@ -103,15 +110,16 @@ function sharesInWords(text: string): Figure[] {
 }
 
 /**
- * A plain number before 点 may be an index's points, which a percent isn't: "指数上涨了20点" gives
- * 20点 against "20%". A time ("下午3点", "3点半") and a decimal in words ("三点五") are read whole
- * already (#2997).
+ * A plain number before 点 after a rise or fall may be an index's points, which a percent isn't:
+ * "指数上涨了20点" gives 20点 against "20%". Elsewhere 点 counts ("提出了3点意见") or tells the
+ * time; a time ("下午3点", "3点半") and a decimal in words ("三点五") are read whole already (#2997).
  */
 function withPointsAfter(text: string) {
   return (figure: Figure): Figure => {
     if (
       figure.unit.kind !== "plain" ||
-      !/^点(?![\d０-９〇零一二两三四五六七八九十])/u.test(text.slice(figure.end))
+      !/^点(?![\d０-９〇零一二两三四五六七八九十])/u.test(text.slice(figure.end)) ||
+      !CN_CHANGE_BEFORE.test(text.slice(0, figure.start))
     )
       return figure;
     const [points] = readFigures(`${figure.value} percentage points`);
@@ -326,7 +334,8 @@ function givenAs(number: Figure, reading: Reading): string {
 function givenOtherwise(
   figure: Figure,
   read: readonly Read[],
-  bound?: readonly BoundNumber[],
+  bound: readonly BoundNumber[] | undefined,
+  unsaid: boolean,
 ): UnitNotStated | null {
   const valued = (value: number) =>
     read.flatMap((each) =>
@@ -389,9 +398,9 @@ function givenOtherwise(
     if (judged.some(({ as }) => as === "agrees")) return null;
     const of = (as: string) => judged.filter((each) => each.as === as).map(({ found }) => found);
     return (
-      given(of("yuan sign"), "yuan sign") ??
-      given(of("which dollar"), "which dollar") ??
-      given(of("differs"))
+      (unsaid
+        ? (given(of("yuan sign"), "yuan sign") ?? given(of("which dollar"), "which dollar"))
+        : null) ?? given(of("differs"))
     );
   }
   const measure = measureOf(figure.unit);
@@ -423,46 +432,89 @@ const SCALED = /亿|万|千(?!瓦|克|米)|百万|thousand|million|billion|trill
 
 /**
  * What the label and headings of the plain number at `start` state of its unit (#2997): the last
- * unit in brackets before it in its own sentence (in a table, its own cell); else on the heading
- * lines, holding no number, just above its line ("各月充电量（万千瓦时）" over "8月: 126"), as far as a
- * blank line or a line of numbers; and, in a table of tab-separated rows, each cell above it in its
- * own column, as far as the table goes ("亿美元" over each month's figure).
+ * unit in brackets before it in its own sentence (in a table, its own cell); else the heading it
+ * stands under ("各月充电量（万千瓦时）" over "7月: 118" and "8月: 126"); and, in a table of
+ * tab-separated rows, each cell above it in its own column, as far as the table goes ("亿美元" over
+ * each month's figure).
+ *
+ * Out of a table, the rows above it are passed over up to a blank line or a heading: a line with no
+ * value of its own ("2024年各月充电量（万千瓦时）": a year isn't one) whose last bracket states a
+ * unit. A row that gives a value is never a heading, whatever its brackets ("7月: 118（预计）"). A
+ * line of words with no unit ("充电量") may sit under the heading, but rows above it belong to
+ * another heading. In a table the cells above are its column's; heading lines count only just
+ * above it.
  */
-function labelled(text: string, start: number, context: FigureContext): StatedUnit[] {
+function labelled(text: string, start: number, context: FigureContext): Label[] {
   const from = text.lastIndexOf("\n", start - 1) + 1;
   const end = text.indexOf("\n", start);
   const inTable = text.slice(from, end < 0 ? undefined : end).includes("\t");
   const before = text.slice(from, start);
-  const own = inTable ? (before.split("\t").at(-1) ?? "") : before;
-  let label = bracketedUnits(own.split(SENTENCE_END).at(-1) ?? "", context).slice(-1);
-  const above = text.slice(0, Math.max(0, from - 1)).split("\n");
-  for (let at = above.length - 1; label.length === 0 && at >= 0; at--) {
-    const line = above[at] ?? "";
-    if (line.trim() === "" || /\p{N}/u.test(line)) break;
-    label = bracketedUnits(line, context).slice(-1);
-  }
-  if (!inTable) return label;
   const column = before.split("\t").length - 1;
+  const own = inTable ? (before.split("\t").at(-1) ?? "") : before;
+  const ownWords = own.split(SENTENCE_END).at(-1) ?? "";
+  const ownLabel = bracketedUnits(ownWords, context).slice(-1);
+  let label: StatedUnit[] = [];
+  let labelLine = "";
+  const above = text.slice(0, Math.max(0, from - 1)).split("\n");
+  let named = false;
+  for (let at = above.length - 1; ownLabel.length === 0 && label.length === 0 && at >= 0; at--) {
+    const line = above[at] ?? "";
+    if (line.trim() === "") break;
+    if (inTable) {
+      if (/\p{N}/u.test(line)) break;
+      // A heading row of cells states only its own column's unit.
+      labelLine = line.includes("\t") ? (line.split("\t")[column] ?? "") : line;
+      label = bracketedUnits(labelLine, context).slice(-1);
+      continue;
+    }
+    if (readFigures(line, context).length > 0) {
+      if (named) break;
+      continue;
+    }
+    label = bracketedUnits(line, context).slice(-1);
+    labelLine = line;
+    named = true;
+  }
+  const mine = [
+    ...ownLabel.map((statement) => ({ ...statement, own: true, line: ownWords })),
+    ...label.map((statement) => ({ ...statement, own: false, line: labelLine })),
+  ];
+  if (!inTable) return mine;
   const cells: string[] = [];
   for (let at = above.length - 1; at >= 0 && above[at]?.includes("\t"); at--) {
     const cell = above[at]?.split("\t")[column]?.trim();
     if (cell) cells.push(cell);
   }
   return [
-    ...label,
+    ...mine,
     // A merged heading over columns of two units ("亿美元 / 亿SDR") states neither.
     ...cells
       .filter((cell) => cell.split(/[/／、]/u).filter((part) => SCALED.test(part)).length < 2)
       // A heading cell is read as its own unit line too: "亿SDR" states 亿 though SDR is unread.
-      .flatMap((cell) => [
-        ...readStatedUnits(cell, context),
-        ...readStatedUnits(`单位：${cell}`, context).map((statement) => ({
-          ...statement,
-          chars: cell,
-        })),
-        ...bracketedUnits(cell, context),
-      ]),
+      .flatMap((cell) =>
+        [
+          ...readStatedUnits(cell, context),
+          ...readStatedUnits(`单位：${cell}`, context).map((statement) => ({
+            ...statement,
+            chars: cell,
+          })),
+          ...bracketedUnits(cell, context),
+        ].map((statement) => ({ ...statement, own: false, line: cell })),
+      ),
   ];
+}
+
+/**
+ * A unit a number's label or heading states; `own` when its own cell or sentence states it, with
+ * the words (`line`) that hold it.
+ */
+type Label = StatedUnit & { own: boolean; line: string };
+
+/** The labels `keep` takes, a number's own first: its cell's "（万元）" outranks its column's "亿元". */
+function ownFirst(labels: readonly Label[], keep: (label: Label) => boolean): Label[] {
+  const kept = labels.filter(keep);
+  const own = kept.filter((label) => label.own);
+  return own.length > 0 ? own : kept;
 }
 
 /** A number a figure was compared with: as its quote writes it, in its unit and scale. */
@@ -488,6 +540,8 @@ export function unitNotStated(
   citations: readonly CheckedText[],
   bound?: readonly BoundNumber[],
   worked: readonly Pick<Figure, "start" | "end">[] = [],
+  /** Whether a dollar or ¥ the Document leaves unsaid is read ("which dollar", "yuan sign"). */
+  unsaid = true,
 ): UnitNotStated | null {
   const own = documentFigureContext([{ text: claim }]);
   if (citations.length === 0 || !readFigures(claim, own).some(hasUnit)) return null;
@@ -522,7 +576,11 @@ export function unitNotStated(
       );
     const sameWritten = read.flatMap(({ text, context, figures }) =>
       figures.flatMap((each) => {
-        if (each.ambiguous.some(({ kind }) => kind !== "scale")) return [];
+        // Read as its context reads it, "1,200" is the same written number as the sentence's
+        // "$1,200" (#2997); the calculation gate leaves it unsettled.
+        const settled = (kind: string) =>
+          kind === "scale" || (text.gateReads === true && kind === "separator");
+        if (each.ambiguous.some(({ kind }) => !settled(kind))) return [];
         if (!isAmount(each.unit)) return [];
         if (bound && !bound.some(({ chars }) => chars === each.chars)) return [];
         const readings = [
@@ -567,7 +625,7 @@ export function unitNotStated(
         .flatMap(({ text, context }, at) => {
           const own = labels[at] ?? [];
           return own.length > 0
-            ? own.filter(ofItsMeasure)
+            ? ownFirst(own, ofItsMeasure)
             : readStatedUnits(text.document(), context);
         })
         .some(
@@ -586,6 +644,7 @@ export function unitNotStated(
       // column headed "亿美元" names it.
       const code = figure.unit.kind === "currency" ? figure.unit.code : null;
       if (
+        unsaid &&
         code !== null &&
         isDollar(code) &&
         !bareDollar(figure) &&
@@ -612,12 +671,16 @@ export function unitNotStated(
         ? undefined
         : sameWritten.flatMap(({ text, start, context, chars, scale, plain }) => {
             if (!text.gateReads || !plain || scale !== figure.scale) return [];
-            const labels = labelled(text.cited(), start, context).filter(ofItsKind);
+            const labels = ownFirst(labelled(text.cited(), start, context), ofItsKind);
             if (labels.length === 0 || labels.some((label) => label.scale === figure.scale))
               return [];
+            // A unit line that holds the label ("单位：吨（万吨）") leaves the scale open; one
+            // elsewhere in the Document doesn't outrank the label.
             if (
-              readStatedUnits(text.document(), context).some(
-                (each) => ofItsKind(each) && each.scale === figure.scale,
+              labels.some((label) =>
+                readStatedUnits(label.line, context).some(
+                  (each) => ofItsKind(each) && each.scale === figure.scale,
+                ),
               )
             )
               return [];
@@ -629,7 +692,7 @@ export function unitNotStated(
       return { kind: "scale", figure: figure.chars, amount, matches: matchesOf([misread]) };
     }
     const decided = worked.some(({ start, end }) => start < figure.end && figure.start < end);
-    const otherwise = decided ? null : givenOtherwise(figure, read, bound);
+    const otherwise = decided ? null : givenOtherwise(figure, read, bound, unsaid);
     if (otherwise) return otherwise;
     if (same.length === 0) continue;
     if (isShare(figure.unit)) {
@@ -650,8 +713,10 @@ export function unitNotStated(
     if (read.some((each) => plainSays(figure, each, codes) === "agrees")) continue;
     const amount = same[0]?.chars ?? figure.chars;
     const matches = matchesOf(same);
-    if (read.some((each) => plainSays(figure, each, codes) === "which dollar"))
+    if (read.some((each) => plainSays(figure, each, codes) === "which dollar")) {
+      if (!unsaid) continue;
       return { kind: "which dollar", amount, matches };
+    }
     return { kind: "currency", currency: figure.currency ?? [...codes][0] ?? "", amount, matches };
   }
   return null;

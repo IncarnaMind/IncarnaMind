@@ -1735,7 +1735,7 @@ export function createChecks(options: ChecksOptions) {
       ),
     units: (citation) =>
       options.documents.pageTexts(citation.documentId, citation.contentHash, null, null),
-    unstatedUnit: unitGate(options, options.documents, figureContextIn(options.documents)),
+    unstatedUnit: unitGate(options, options.documents, figureContextIn(options.documents), false),
     claimTimeLimitMs: options.claimTimeLimitMs ?? CLAIM_TIME_LIMIT_MS,
     mostOf: (model, request) => {
       const estimate = options.estimateRead(model, { likely: [request], most: [request] });

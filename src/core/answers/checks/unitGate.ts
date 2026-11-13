@@ -31,6 +31,11 @@ export function unitGate(
   deps: Pick<ClaimCheckDependencies, "language">,
   documents: Pick<AnswerDocuments, "pageTexts">,
   figureContext: (citation: Citation) => FigureContext,
+  /**
+   * Whether it reads a dollar or ¥ the Document leaves unsaid. An Answer's check doesn't yet: its
+   * Chinese replies write 美元 for a bare "$" (#3030).
+   */
+  unsaid = true,
 ) {
   return (
     citations: readonly Citation[],
@@ -42,7 +47,7 @@ export function unitGate(
       citation,
       ...checkedTextOf(citation, documents.pageTexts),
     }));
-    const found = unitNotStated(claim, checked, bound, worked);
+    const found = unitNotStated(claim, checked, bound, worked, unsaid);
     if (!found) return null;
     const t = (key: MessageKey, params?: MessageParams) => translate(deps.language(), key, params);
     const { amount } = found;
