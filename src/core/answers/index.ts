@@ -664,8 +664,11 @@ export interface AnswersOptions {
    * records or is paused: its text is the button's name. Null for any other Question.
    */
   meetingHelp?(mindId: string, question: string): MeetingHelpKind | null;
-  /** The Transcripts of every call but a Mind's own, which its help buttons never read (#3005). */
-  otherCallTranscripts?(mindId: string): readonly string[];
+  /**
+   * The Transcripts of every call but a Mind's own, which its help buttons never read (#3005);
+   * with `mindId` null, every call's.
+   */
+  otherCallTranscripts?(mindId: string | null): readonly string[];
   /** See `CoreAdapters.helpFormJudged`. */
   helpFormJudged?(): boolean;
   /** See `CoreAdapters.quotesAsGiven`. */
@@ -1189,7 +1192,11 @@ export function createAnswers(options: AnswersOptions) {
       ALL_HELP.some((kind) =>
         LANGUAGES.some((language) => translate(language, helpLabel(kind)) === question.text),
       );
-    return mindId !== null && pressed ? pressScope(documentIds, mindId) : documentIds;
+    // A reply outlives its Note in the conversation; with the Note gone no call is its own.
+    const from = question.askedFrom;
+    return from && pressed
+      ? pressScope(documentIds, from.deleted ? null : from.mindId)
+      : documentIds;
   };
 
   /** The judgements of Answers' sentences running, by Answer (#2311): stopping one ends it. */
@@ -4246,10 +4253,11 @@ export function createAnswers(options: AnswersOptions) {
 
   /**
    * A help button's Search scope (#3005): its Note's, without another call's Transcript, since a
-   * press is about the call in progress. A typed question keeps them, each marked with its call.
-   * With the evaluation's `callsUnmarked`, a press reads them as before.
+   * press is about the call in progress; `mindId` null (its Note is gone), without any call's. A
+   * typed question keeps them, each marked with its call. With the evaluation's `callsUnmarked`,
+   * a press reads them as before.
    */
-  const pressScope = (scope: string[] | null, mindId: string): string[] | null => {
+  const pressScope = (scope: string[] | null, mindId: string | null): string[] | null => {
     if (options.callsUnmarked?.()) return scope;
     const others = new Set(options.otherCallTranscripts?.(mindId) ?? []);
     if (others.size === 0) return scope;

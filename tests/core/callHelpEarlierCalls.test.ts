@@ -290,8 +290,8 @@ async function folderCore(
     if (!document) throw new Error(`${terms.name} wasn't added.`);
     await core.moveToFolder({ documentIds: [document.id], folderId: folder.id });
   }
-  /** Records a call in the Folder, or in `folderId`, until eight of its lines are heard. */
-  const call = async (folderId = folder.id) => {
+  /** Records a call in the Folder, or in `folderId` (null: none), until eight of its lines are heard. */
+  const call = async (folderId: string | null = folder.id) => {
     const meeting = await core.createMeeting({ folderId });
     await core.startMeeting({ meetingId: meeting.id, systemAudio: true });
     await until(core, meeting.id, (transcript) => transcript.state === "live");
@@ -590,7 +590,12 @@ for (const language of ["en", "zh-CN"] as const) {
   });
 
   describe(`${language}: a press's reply checked again`, { timeout: 180_000 }, () => {
-    test("after the call stops, Check again and its estimate read the Folder without the earlier call's Transcript, though it holds the sentence's words; a typed Question's Answer still reads it", async () => {
+    /**
+     * A press's reply and a typed Question's Answer in the live call's Note, each with one sentence
+     * saying the earlier call's line again, cited to that line and not checked; then the call
+     * stops. The press reaches the line by a Citation the User kept in the Note.
+     */
+    const pressedThenStopped = async () => {
       const said = EARLIER_SAID[language];
       const batches: GenerateCall[] = [];
       const judging = { now: false };
@@ -690,21 +695,123 @@ for (const language of ["en", "zh-CN"] as const) {
           "failed",
         ),
       );
+      return { core, said, batches, judging, live, pressIds, typedIds, answerOf };
+    };
 
-      // The estimate reads the scope Check again reads: for the press, the earlier call is out of
-      // it, so there is nothing to judge; the typed Question's Answer still has it.
-      expect(await core.estimateAnswerCheck(pressIds)).toBeNull();
-      expect(await core.estimateAnswerCheck(typedIds)).not.toBeNull();
-
+    /** Check again on the press's reply sends none of the earlier call's line and passes nothing. */
+    const checkedWithoutIt = async (setup: Awaited<ReturnType<typeof pressedThenStopped>>) => {
+      const { core, said, batches, judging, pressIds, answerOf } = setup;
       judging.now = true;
       await core.checkAnswerAgain(pressIds);
       expect(batches.filter((batch) => batch.prompt.includes(said.line))).toEqual([]);
       const rechecked = await answerOf(pressIds);
       expect(rechecked.citations.map((citation) => citation.check)).toEqual(["not-checked"]);
       expect(rechecked.citations.flatMap((citation) => citation.passedAt ?? [])).toEqual([]);
+    };
 
+    test("after the call stops, Check again and its estimate read the Folder without the earlier call's Transcript, though it holds the sentence's words; a typed Question's Answer still reads it", async () => {
+      const setup = await pressedThenStopped();
+      const { core, said, batches, pressIds, typedIds } = setup;
+
+      // The estimate reads the scope Check again reads: for the press, the earlier call is out of
+      // it, so there is nothing to judge; the typed Question's Answer still has it.
+      expect(await core.estimateAnswerCheck(pressIds)).toBeNull();
+      expect(await core.estimateAnswerCheck(typedIds)).not.toBeNull();
+
+      await checkedWithoutIt(setup);
       await core.checkAnswerAgain(typedIds);
       expect(batches.some((batch) => batch.prompt.includes(said.line))).toBe(true);
     });
+
+    test("with its Note deleted too, the press's reply is still checked again without the earlier call's Transcript, and its estimate counts the same scope", async () => {
+      const setup = await pressedThenStopped();
+      const { core, live, pressIds } = setup;
+      await core.deleteMind(live.mindId);
+
+      expect(await core.estimateAnswerCheck(pressIds)).toBeNull();
+      await checkedWithoutIt(setup);
+    });
   });
 }
+
+describe("A Folder that keeps its work inside it", { timeout: 180_000 }, () => {
+  const MATTER = {
+    name: "Matter terms.md",
+    text: "# Matter terms\n\nThe retainer for this matter is billed monthly at nine thousand.\n",
+    sentence: "The retainer for this matter is billed monthly at nine thousand.",
+  };
+
+  /** A core whose Library also holds a walled Folder with one Document of its own. */
+  const walledCore = async () => {
+    const setup = await folderCore("en");
+    const { core } = setup;
+    const created = await core.createLibraryGroup({ name: "Matter A", description: "" });
+    const walled = await core.updateLibraryGroup(created.id, {
+      name: created.name,
+      description: created.description,
+      keepInside: true,
+    });
+    const [document] = await addAndProcess(core, [
+      await writeSourceFile(await createTempDataFolder(), MATTER.name, MATTER.text),
+    ]);
+    if (!document) throw new Error(`${MATTER.name} wasn't added.`);
+    await core.moveToFolder({ documentIds: [document.id], folderId: walled.id });
+    return { ...setup, walled };
+  };
+
+  /** The earlier call in `earlierIn`, stopped, then the live call in `liveIn`: one press on each arm. */
+  const pressedBothWays = async (
+    earlierIn: (folders: { walled: string; open: string }) => string,
+    liveIn: (folders: { walled: string; open: string }) => string | null,
+  ) => {
+    const setup = await walledCore();
+    const { core, dataDir, clock, calls } = setup;
+    const folders = { walled: setup.walled.id, open: setup.folder.id };
+    const earlier = await setup.call(earlierIn(folders));
+    const stopped = await stoppedMeeting(core, dataDir, earlier.meeting.id);
+    clock.advance(3 * HOUR);
+    await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+    const { meeting: live, heard } = await setup.call(liveIn(folders));
+    await transcriptRead(core, dataDir, live.id, heard.documentId ?? "");
+    const earlierText = await textOf(core, stopped.document.id);
+    const branch = await press(core, calls, live.id, "say");
+    setup.unmark(true);
+    const main = await press(core, calls, live.id, "say");
+    const holdsEarlier = (sent: readonly string[]) =>
+      sent.some((each) =>
+        transcriptPassages(each, stopped.document.name).some((passage) =>
+          passage.lines.some((line) => earlierText.includes(line)),
+        ),
+      );
+    const holds = (sent: readonly string[], words: string) =>
+      sent.some((each) => each.includes(words));
+    return { branch, main, holdsEarlier, holds };
+  };
+
+  test("a press from a Note outside it, with no Search scope, reads nothing inside it and not the other call: what main's press reads, but the other call", async () => {
+    const { branch, main, holdsEarlier, holds } = await pressedBothWays(
+      ({ open }) => open,
+      () => null,
+    );
+
+    expect(holds(branch, MATTER.sentence)).toBe(false);
+    expect(holds(main, MATTER.sentence)).toBe(false);
+    expect(holds(branch, TERMS.en.sentence)).toBe(true);
+    expect(holds(main, TERMS.en.sentence)).toBe(true);
+    expect(holdsEarlier(main)).toBe(true);
+    expect(holdsEarlier(branch)).toBe(false);
+  });
+
+  test("a press made inside it reads its Folder and not the other call kept inside it too", async () => {
+    const { branch, main, holdsEarlier, holds } = await pressedBothWays(
+      ({ walled }) => walled,
+      ({ walled }) => walled,
+    );
+
+    expect(holds(branch, MATTER.sentence)).toBe(true);
+    expect(holds(main, MATTER.sentence)).toBe(true);
+    expect(holds(branch, TERMS.en.sentence)).toBe(false);
+    expect(holdsEarlier(main)).toBe(true);
+    expect(holdsEarlier(branch)).toBe(false);
+  });
+});

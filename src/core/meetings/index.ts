@@ -273,15 +273,16 @@ export function callOfTranscript(
 }
 
 /**
- * The Transcripts of every call but the one in Note `mindId` (a Note holds one Meeting): what a
- * help button's press made in that Note never reads, then or when its reply is checked later
- * (#3005). A voice memo's Transcript isn't a call's, and is read as a Document.
+ * The Transcripts of every call but the one in Note `mindId` (a Note holds one Meeting), every
+ * call's with `mindId` null: what a help button's press made in that Note never reads, then or
+ * when its reply is checked later (#3005). A voice memo's Transcript isn't a call's, and is read
+ * as a Document.
  */
-export function otherCallTranscripts(db: Database, mindId: string): string[] {
+export function otherCallTranscripts(db: Database, mindId: string | null): string[] {
   return db
     .all<Pick<MeetingRow, "transcript_document_id">>(
-      "SELECT transcript_document_id FROM meetings WHERE kind = 'meeting' AND transcript_document_id IS NOT NULL AND mind_id != ?",
-      [mindId],
+      `SELECT transcript_document_id FROM meetings WHERE kind = 'meeting' AND transcript_document_id IS NOT NULL${mindId === null ? "" : " AND mind_id != ?"}`,
+      mindId === null ? [] : [mindId],
     )
     .flatMap((row) => (row.transcript_document_id ? [row.transcript_document_id] : []));
 }
