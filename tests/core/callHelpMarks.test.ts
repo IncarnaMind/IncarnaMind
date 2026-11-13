@@ -1516,7 +1516,7 @@ describe("the evaluation's switch for the form whose facts stand apart (#2847)",
 
   const STOPPED_EARLY = {
     English: {
-      // Its marker mid-line, so the model's text, which stops after a word, can stop right after it.
+      // Its marker mid-line, so the reply can stop just after it.
       starred: "★ Yes, Enterprise is $45 a seat [^1] with single sign-on",
       // No "★": a first line that cites is the one that could be read as a fact line before options.
       plain: "Yes, Enterprise is $45 a seat [^1] with single sign-on",
@@ -1547,7 +1547,7 @@ describe("the evaluation's switch for the form whose facts stand apart (#2847)",
     return stoppedAt(core, meeting, stop.isReached, shown);
   }
 
-  // protects=Stop moves nothing in three more places, in English and Chinese: a first option stopped in its first line right after its marker stays the option it was, never a fact line before the options; a first line with no "★" stopped there stays held back as the model's notes, as while written (#2526), never a fact line before the options; stopped with a fact line half-written right after an option's "→" line, that line stays the option's, under its "→", and no option or closing line comes of it; fails_when=any reads otherwise once stopped than just before, or becomes the opening or the closing line; no_claim=how often a reply is stopped there.
+  // protects=Stop moves nothing in three more places, in English and Chinese: a first option stopped in its first line just after its marker stays the option it was, never a fact line before the options; a first line with no "★" stopped there stays held back as the model's notes, as while written (#2526), never a fact line before the options; stopped with a fact line half-written right after an option's "→" line, that line stays the option's, under its "→", and no option or closing line comes of it; fails_when=any reads otherwise once stopped than just before, or becomes the opening or the closing line; no_claim=how often a reply is stopped there.
   test.each(["English", "Chinese"] as const)(
     "in %s, Stop in a first line with its marker, and in a fact line after a → line",
     async (language) => {
@@ -1574,12 +1574,20 @@ describe("the evaluation's switch for the form whose facts stand apart (#2847)",
           panelAt(before).options.map((lines) => lines[0]),
         );
       }
-      expect(panelAt(inStarred.after).options.map((lines) => lines[0])).toEqual([lead(starred)]);
+      // A line shows as it is written (#2526), so the reply stops partway through the model's
+      // last piece of text, a few characters on from the pause.
+      const said = (line: string) => line.replace(/^[★>＞]\s*/u, "").replace(" [^1]", "");
+      const startedFrom = (shown: string | undefined, upTo: string, line: string) =>
+        shown !== undefined && shown.startsWith(upTo) && line.startsWith(shown);
+      const starredLeads = panelAt(inStarred.after).options.map((lines) => lines[0]);
+      expect(starredLeads).toHaveLength(1);
+      expect(startedFrom(starredLeads[0], lead(starred), said(starred))).toBe(true);
       expect(panelAt(inPlain.after).options).toEqual([]);
       const [option] = panelAt(inFact.after).options;
       expect(panelAt(inFact.after).options).toHaveLength(1);
-      expect(option?.at(-1)).toBe(`after: ${half.replace(/^[>＞]\s*/u, "")}`);
-      expect(panelAt(inFact.before).options[0]?.at(-1)).toBe(option?.at(-1));
+      const factShown = option?.at(-1);
+      expect(startedFrom(factShown, `after: ${said(half)}`, `after: ${said(fact)}`)).toBe(true);
+      expect(panelAt(inFact.before).options[0]?.at(-1)).toBe(factShown);
     },
   );
 
