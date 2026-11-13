@@ -2,7 +2,9 @@
  * A Built-in Skill's name, description and one-line summary in the interface's
  * language. Pure, with no bridge, so a unit test reads it without a window.
  */
+import type { Language } from "../../core/language";
 import type { MessageKey, MessageParams } from "../../shared/i18n";
+import { unitsOf } from "../../shared/i18n/join";
 
 /** The Built-in Skills described in the interface's language (see `skillDescription`). */
 const BUILT_IN_DESCRIPTIONS: Readonly<Record<string, MessageKey>> = {
@@ -37,6 +39,19 @@ export function skillTitle(
   const key = BUILT_IN_TITLES[name];
   return key ? t(key) : name;
 }
+
+/** The Built-in Skills the User removed, by title, as the button that restores them lists them. */
+export const removedBuiltInsLine = (
+  names: readonly string[],
+  t: (key: MessageKey, params?: MessageParams) => string,
+  language: Language,
+): string =>
+  t("skills.settings.restoreBuiltIns.hint", {
+    names: unitsOf(
+      names.map((name) => skillTitle(name, t)),
+      language,
+    ),
+  });
 
 const BUILT_IN_SHORT_LINES: Readonly<Record<string, MessageKey>> = {
   chronology: "skills.builtIn.chronology.short",

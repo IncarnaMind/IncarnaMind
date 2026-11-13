@@ -1,8 +1,8 @@
 import { useRef } from "react";
 import type { Document, DocumentTag, Tag } from "../../../../core/api";
-import { useT } from "../../i18n";
+import { useLanguage, useT } from "../../i18n";
 import { useAppStore } from "../../store";
-import { chipsOf } from "../../tagEditing";
+import { chipsOf, hiddenTagsLine } from "../../tagEditing";
 import { DocumentTagFooter } from "../DocumentTags";
 import { CloseLineIcon, PlusLineIcon, SparkLineIcon } from "../lineIcons";
 import { tagChipColour } from "../TagColour";
@@ -28,6 +28,7 @@ const VISIBLE_CHIPS = 3;
  */
 export function RowTags({ document }: { document: Document }) {
   const t = useT();
+  const language = useLanguage();
   const tags = useAppStore((state) => state.tags);
   const cell = useRef<HTMLDivElement>(null);
   const popover = useTagPopover({ cover: () => cell.current });
@@ -60,10 +61,7 @@ export function RowTags({ document }: { document: Document }) {
       {hidden.length > 0 && (
         <span
           data-testid="tag-chip-more"
-          title={t("tags.chip.more", {
-            count: hidden.length,
-            names: hidden.map(({ tag }) => tag.name).join(", "),
-          })}
+          title={hiddenTagsLine(t, language, hidden)}
           className="shrink-0 text-[12px] text-ink-meta"
         >
           +{hidden.length}

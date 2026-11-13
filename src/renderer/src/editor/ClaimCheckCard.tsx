@@ -114,6 +114,7 @@ import { Popover } from "./Popover";
 import { PropertySource } from "./PropertySource";
 import { isQuietFocus } from "./quietFocus";
 import { RecordCiteResults } from "./RecordCiteResults";
+import { readDocumentsText } from "./readDocumentsText";
 import { CitationChip, OpenCitation, UnsupportedCited } from "./UnsupportedCited";
 
 /** How long a pointer rests on a mark before its card shows, and how long it may leave before it goes. */
@@ -801,13 +802,7 @@ export function ClaimCard({
     where !== null;
   const looked = useScopeName(checkedScope(check.scope));
   const lookedIn = looked?.name ?? t("composer.scope.all");
-  const wholeRead = (check.readDocuments ?? [])
-    .map((document) => {
-      const name = shownDocumentName(document, documents) || document.documentName;
-      const places = document.locations.map((location) => formatLocation(location, t)).join(", ");
-      return places ? `${name} (${places})` : name;
-    })
-    .join(t("claim.readDocuments.separator"));
+  const wholeRead = readDocumentsText(check.readDocuments ?? [], documents, t, language);
   const evidenceDocument = evidence
     ? documents.find((each) => each.id === evidence.documentId)
     : undefined;
