@@ -10,12 +10,8 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { test } from "vitest";
 import type { ConversationAnswer, Core, MeetingHelpKind } from "../../src/core";
-import {
-  helpItems,
-  type ReplyItem,
-  type ReplyPiece,
-  readHelpReply,
-} from "../../src/renderer/src/helpReply";
+import { helpItems } from "../../src/renderer/src/helpReply";
+import { type ReplyItem, type ReplyPiece, readHelpReply } from "../../src/shared/helpReplyRead";
 import { answerEnded } from "../../tests/helpers/citations";
 import { commitOf } from "../lib/commit";
 import { readConfig } from "../lib/config";

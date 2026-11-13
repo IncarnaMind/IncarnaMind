@@ -6,8 +6,9 @@ import type {
   MeetingHelpKind,
 } from "../../../../core/api";
 import { citedLocation } from "../../../../shared/citations";
+import type { ReplyItem, ReplyPiece } from "../../../../shared/helpReplyRead";
 import { isTranscriptLocation } from "../../../../shared/locations";
-import { HELP_SHAPE, helpLabel } from "../../../../shared/meetingHelp";
+import { helpLabel } from "../../../../shared/meetingHelp";
 import { isTheirs, SPEAKER_ME } from "../../../../shared/speakers";
 import { useAnswers } from "../../answers";
 import { core } from "../../core";
@@ -15,8 +16,6 @@ import {
   citationNumbers,
   helpParts,
   quoted,
-  type ReplyItem,
-  type ReplyPiece,
   sentencePassed,
   uncheckedReason,
 } from "../../helpReply";
@@ -142,13 +141,10 @@ function Item({
   item,
   answer,
   numbers,
-  said,
 }: {
   item: ReplyItem;
   answer: ConversationAnswer;
   numbers: ReadonlyMap<number, number>;
-  /** It is an option to say: its sentence shows in quotation marks. */
-  said: boolean;
 }) {
   const t = useT();
   return (
@@ -165,7 +161,11 @@ function Item({
         )}
       </span>
       <span data-testid="help-option-say" className="help-option-say">
-        <Pieces pieces={said ? quoted(item.lead) : item.lead} answer={answer} numbers={numbers} />
+        <Pieces
+          pieces={item.said ? quoted(item.lead) : item.lead}
+          answer={answer}
+          numbers={numbers}
+        />
       </span>
       {item.notes.map((note, index) => (
         // biome-ignore lint/suspicious/noArrayIndexKey: a reading's notes are in the order written.
@@ -350,7 +350,6 @@ export function HelpSuggestion({
           item={item}
           answer={answer}
           numbers={numbers}
-          said={HELP_SHAPE[help.kind] === "options" && item.effect !== null}
         />
       ))}
       {streaming && items.length < 2 && <HelpOutline count={items.length === 0 ? 2 : 1} />}
