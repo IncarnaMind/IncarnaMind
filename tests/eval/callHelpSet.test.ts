@@ -250,6 +250,16 @@ describe("The typed question's cases (#2925)", () => {
     expect(shown("We reuse 60% of our rinse water [^1]", "en-typed-say")).toEqual([
       "form-not-options",
     ]);
+    // Its "→" line is read as the panel shows it, for its length and its language.
+    expect(
+      shown(`★ We reuse 60% of our rinse water [^1]\n→ ${"word ".repeat(40)}`, "en-typed-say"),
+    ).toEqual(["form-too-long"]);
+    expect(
+      shown(
+        "★ 我们 60% 的漂洗水循环再用 [^1]\n→ it answers their worry at once, with a figure",
+        "zh-typed-say",
+      ),
+    ).toEqual(["language"]);
     expect(shown("- Bed linen €1.20 [^1]\n- Towels €1.50 [^2]", "en-typed-list")).toEqual([
       "form-list-short",
     ]);

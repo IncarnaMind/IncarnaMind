@@ -99,6 +99,32 @@ export function Thread({
   const newest = useRef<HTMLDivElement>(null);
   const atFoot = useRef(true);
   const pointed = usePointed();
+  // Kept here, by Answer, so a reply closed to its line and opened again within its time still
+  // offers Undo for what it added.
+  const [added, setAdded] = useState<ReadonlyMap<string, readonly string[]>>(new Map());
+  const addedTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  useEffect(() => {
+    const timers = addedTimers.current;
+    return () => {
+      for (const timer of timers.values()) clearTimeout(timer);
+    };
+  }, []);
+  const markAdded = (answerId: string, blockIds: readonly string[] | null) => {
+    clearTimeout(addedTimers.current.get(answerId));
+    addedTimers.current.delete(answerId);
+    setAdded((now) => {
+      const next = new Map(now);
+      if (blockIds) next.set(answerId, blockIds);
+      else next.delete(answerId);
+      return next;
+    });
+    if (blockIds) {
+      addedTimers.current.set(
+        answerId,
+        setTimeout(() => markAdded(answerId, null), ADDED_MS),
+      );
+    }
+  };
 
   // A new ask opens: one made here, which comes into view, or one from the app's window, which
   // does when the pointer isn't on the panel. A help that arrives for an ask made here is that ask,
@@ -153,6 +179,8 @@ export function Thread({
         help={help}
         pinned={pinned.includes(help.answerId)}
         onPin={onPin}
+        added={added.get(help.answerId) ?? null}
+        onAdded={(blockIds) => markAdded(help.answerId, blockIds)}
         holder={at === "newest" ? newest : undefined}
       />
     ) : (
@@ -235,7 +263,7 @@ function EarlierLine({
   const t = useT();
   const answer = useHelpAnswer(help);
   const first = answer ? helpItems(answer, help.kind)[0] : undefined;
-  const start = first ? piecesText(first.lead) : "";
+  const start = answer && first ? piecesText(first.lead, answer.figures) : "";
   const said = first !== undefined && saysAloud(help.kind, first);
   return (
     <div ref={holder} className="help-earlier-row">
@@ -273,17 +301,21 @@ function Suggestion({
   help,
   pinned,
   onPin,
+  added,
+  onAdded,
   holder,
 }: {
   meeting: Meeting;
   help: MeetingHelp;
   pinned: boolean;
   onPin(help: MeetingHelp): void;
+  /** The Blocks its Add to note added, while its Undo is offered; null: none. */
+  added: readonly string[] | null;
+  onAdded(blockIds: readonly string[] | null): void;
   holder?: RefObject<HTMLDivElement | null> | undefined;
 }) {
   const t = useT();
   const answer = useHelpAnswer(help);
-  const [added, setAdded] = useState<{ blockIds: string[] } | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const shown = useRef(true);
   useEffect(() => {
@@ -297,11 +329,6 @@ function Suggestion({
     if (shown.current) setProblem(errorMessage(error, translateNow));
     else useAppStore.getState().reportError(error);
   };
-  useEffect(() => {
-    if (!added) return;
-    const timer = setTimeout(() => setAdded(null), ADDED_MS);
-    return () => clearTimeout(timer);
-  }, [added]);
   if (!answer) {
     return (
       <div ref={holder} className="panel-suggestion">
@@ -315,14 +342,14 @@ function Suggestion({
     setProblem(null);
     try {
       const { blockIds } = await addHelpToNotes(meeting, help);
-      setAdded({ blockIds });
+      onAdded(blockIds);
     } catch (error) {
       failed(error);
     }
   };
-  const undoAdd = (blockIds: string[]) => {
-    setAdded(null);
-    core.undoAddToNote({ mindId: meeting.mindId, blockIds }).catch(failed);
+  const undoAdd = (blockIds: readonly string[]) => {
+    onAdded(null);
+    core.undoAddToNote({ mindId: meeting.mindId, blockIds: [...blockIds] }).catch(failed);
   };
   const typed = help.kind === "question";
   return (
@@ -346,11 +373,7 @@ function Suggestion({
               <p role="status" data-testid="help-added" className="panel-line">
                 {t("meetings.help.added")}
                 <span aria-hidden="true"> · </span>
-                <button
-                  type="button"
-                  onClick={() => undoAdd(added.blockIds)}
-                  className="panel-link"
-                >
+                <button type="button" onClick={() => undoAdd(added)} className="panel-link">
                   {t("move.undo")}
                 </button>
               </p>

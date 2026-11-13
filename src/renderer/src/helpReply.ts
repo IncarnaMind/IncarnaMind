@@ -4,7 +4,12 @@
  * or readings, the recommended first after "★", each followed by "→" and what
  * it leads to; or up to three short lines. It reads a part still streaming.
  */
-import type { AnswerStatus, CitationCheckReason, MarkedCitation } from "../../core/api";
+import type {
+  AnswerStatus,
+  CitationCheckReason,
+  MarkedCitation,
+  MarkedFigure,
+} from "../../core/api";
 import {
   type CallHelpKind,
   EFFECT_MARK,
@@ -77,10 +82,19 @@ export function pieces(text: string, first: number): ReplyPiece[] {
   return found;
 }
 
-/** The text a reply's pieces show, without its Citations, for a line that names it. */
-export const piecesText = (shown: readonly ReplyPiece[]): string =>
+/** The text a reply's pieces show, its figures as worked out, without its Citations, for a line that names it. */
+export const piecesText = (
+  shown: readonly ReplyPiece[],
+  figures: readonly Pick<MarkedFigure, "marker" | "shown">[],
+): string =>
   shown
-    .flatMap((piece) => (piece.kind === "text" ? [piece.text] : []))
+    .flatMap((piece) =>
+      piece.kind === "text"
+        ? [piece.text]
+        : piece.kind === "figure"
+          ? [figures.find((each) => each.marker === piece.marker)?.shown ?? ""]
+          : [],
+    )
     .join("")
     .replace(/\s+/g, " ")
     .trim();

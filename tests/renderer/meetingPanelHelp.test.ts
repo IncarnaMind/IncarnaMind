@@ -685,6 +685,22 @@ describe("The Meeting's thread (#2925)", () => {
     expect(lines()).toHaveLength(2);
   });
 
+  // protects=Add to note's Undo stays with its reply for its time, though the reply closes to its line and opens again; fails_when=the reply opened again offers Add to note while what it added is in the Note; no_claim=how long Undo stays.
+  test("a reply added to the Note, closed to its line and opened again, still offers its Undo", async () => {
+    await helped(["want", "answer-want"], ["sum", "answer-sum"]);
+    await addToNote(replies);
+    expect(all("help-added")).toHaveLength(1);
+    await click(all("help-earlier")[0]);
+    await loaded(replies);
+    expect(headings()).toEqual([expect.stringContaining("What do they want?")]);
+    expect(all("help-added")).toHaveLength(0);
+    await click(all("help-earlier")[0]);
+    await loaded(replies);
+    expect(headings()).toEqual(["Sum up so far"]);
+    expect(all("help-added")).toHaveLength(1);
+    expect(all("help-add")).toHaveLength(0);
+  });
+
   // protects=while a reply is written nothing is drawn under the line being written, so nothing below it moves as it grows: the outline holds the place only until the first line, and the sources come once it ends (#2925); fails_when=an outline or the sources sit under a line still growing; no_claim=how fast it is written.
   test("while a reply is written, nothing is drawn under its newest line: no outline after the first line, and the sources once it ends", async () => {
     await changed(helpOf("want", "answer-want"));

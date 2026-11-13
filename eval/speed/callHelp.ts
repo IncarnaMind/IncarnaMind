@@ -597,8 +597,12 @@ const LONGEST_HAN = 80;
 export function formFailures(each: CallHelpCase, shown: readonly ReplyItem[]): string[] {
   const { typed } = each;
   if (!typed) return [];
+  // All the panel shows of an item: its sentence, its notes and its "→" line.
   const words = (item: ReplyItem) =>
-    item.lead.flatMap((piece) => (piece.kind === "text" ? [piece.text] : [])).join("");
+    [item.lead, ...item.notes, item.effect ?? []]
+      .flat()
+      .flatMap((piece) => (piece.kind === "text" ? [piece.text] : []))
+      .join(" ");
   const tooLong = shown.some((item) => {
     const text = words(item);
     const han = text.match(/\p{Script=Han}/gu)?.length ?? 0;

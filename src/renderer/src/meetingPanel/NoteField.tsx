@@ -31,7 +31,8 @@ export interface FieldList {
  * The panel's field (#2925), with Note | Ask at its left. In Note, Enter adds what it holds to the
  * end of the Meeting's Note, with the Meeting's time when typing began, and for 3 s its placeholder
  * says it went in, with Undo at its right, so nothing under it moves. In Ask, Enter asks it about
- * the call (`onQuestion`); a question that couldn't be asked comes back into an empty field. Either
+ * the call (`onQuestion`); a question that couldn't be asked comes back into an empty field still in
+ * Ask, though it was collapsed meanwhile. Either
  * way the cursor stays for the next line; Shift-Enter starts a new line, and the field grows to
  * three, then scrolls. Keys a list over it wants come to `listKeys` first, and no key that ends an
  * input method's composition is acted on. A press in it is what takes the keyboard
@@ -78,6 +79,11 @@ export function NoteField({
     return () => clearTimeout(timer);
   }, [added]);
 
+  const modeNow = useRef(mode);
+  useEffect(() => {
+    modeNow.current = mode;
+  }, [mode]);
+
   // Only a change: a field just shown, empty, must not tell the core to forget a line it holds.
   // A change of mode too, as a question is never kept for the Note.
   const keptAs = useRef(mode);
@@ -117,8 +123,10 @@ export function NoteField({
     onText("");
     notes.keep({ text: "", began: null }, false);
     void onQuestion(typed.trim()).then((asked) => {
-      if (asked || notes.draft().text) return;
-      began.current = null;
+      // Never into Note, where it would be kept as a note; through `notes`, so a field collapsed
+      // meanwhile shows it again.
+      if (asked || notes.draft().text || modeNow.current !== "ask") return;
+      notes.keep({ text: typed, began: null }, false);
       onText(typed);
     });
   };

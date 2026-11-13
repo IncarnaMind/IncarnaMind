@@ -9,6 +9,7 @@ import {
   helpItems,
   helpParts,
   helpToKeep,
+  piecesText,
   quoted,
   readHelpReply,
   sentencePassed,
@@ -351,6 +352,14 @@ describe("A help reply", () => {
       { kind: "text", text: "We " },
       { kind: "text", text: "can't go" },
     ]);
+  });
+
+  // protects=an earlier line's start keeps a worked-out figure as the reply shows it, and leaves its Citations out (#2925); fails_when=the line reads "is ." where the figure was, or a Citation's number shows; no_claim=how the line is cut short.
+  test("the text a line names a reply by keeps its figures as worked out, without its Citations", () => {
+    const [item] = readHelpReply("Net debt is [=1] [^2] within the  covenant");
+    expect(piecesText(item?.lead ?? [], [{ marker: 1, shown: "£310 million" }])).toBe(
+      "Net debt is £310 million within the covenant",
+    );
   });
 
   // protects=the call help panel numbers its Citations from 1 in the order the reply cites them, a figure's input's ("[^9001]") included, as the assistant does (#1831); fails_when=a chip or source row reads "9001"; no_claim=how a chip looks.

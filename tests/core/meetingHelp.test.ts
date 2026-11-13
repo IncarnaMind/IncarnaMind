@@ -550,6 +550,25 @@ describe("Help during the call", { timeout: 60_000 }, () => {
     expect(latest?.helps.map(({ kind }) => kind)).toEqual(["question", "say", "question", "say"]);
   });
 
+  // protects=a press and a question asked at once, before either has its conversation, go on in one conversation, the second reading the first, in the order asked (#2925); fails_when=each starts a conversation of its own, or the Meeting lists them out of order; no_claim=how long the second waits.
+  test("a press and a question asked at once go on in one conversation, in the order asked (#2925)", async () => {
+    const { core, meeting } = await setUp(addPriceSheet);
+    const [pressed, typed] = await Promise.all([
+      core.askMeetingHelp({ meetingId: meeting.id, kind: "say" }),
+      core.askMeetingQuestion({ meetingId: meeting.id, text: "How much is Enterprise per seat?" }),
+    ]);
+    if (!pressed.asked || !typed.asked) throw new Error("Not asked.");
+    await Promise.all([answerEnded(core, pressed.answerId), answerEnded(core, typed.answerId)]);
+    expect(typed.conversation.id).toBe(pressed.conversation.id);
+    const { messages } = await core.getConversation(pressed.conversation.id);
+    expect(messages.filter((each) => each.kind === "question").map((each) => each.text)).toEqual([
+      "What should I say?",
+      "How much is Enterprise per seat?",
+    ]);
+    const latest = (await core.listMeetings()).find((each) => each.id === meeting.id);
+    expect(latest?.helps.map(({ kind }) => kind)).toEqual(["say", "question"]);
+  });
+
   test("a blank question, or one after Stop, is refused (#2925)", async () => {
     const { core, meeting } = await setUp();
     await expect(core.askMeetingQuestion({ meetingId: meeting.id, text: "  " })).rejects.toThrow(

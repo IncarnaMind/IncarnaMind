@@ -5211,15 +5211,33 @@ export function createCore(adapters: CoreAdapters): Core {
     }
     return meeting;
   };
+  interface CallAsk {
+    conversationId?: unknown;
+    typed?: boolean;
+  }
+  /** Each live Meeting's ask under way, which the next waits for: so it goes on in its conversation. */
+  const asking = new Map<string, Promise<unknown>>();
   /**
    * Asks `text` from a live call's Mind, in `conversationId`, or where its help went last (a new
    * conversation if that one was deleted), which the next ask goes on in; `typed`, as a question
-   * typed in its panel.
+   * typed in its panel. Once the Meeting's ask before it has begun its Answer, and only while the
+   * call is still live.
    */
-  const askInCall = async (
+  const askInCall = (meeting: Meeting, text: string, how: CallAsk = {}) => {
+    const ask = (asking.get(meeting.id) ?? Promise.resolve()).then(() =>
+      askNow(liveCall(meeting.id), text, how),
+    );
+    // A failed ask is its caller's to tell; the next one goes on.
+    asking.set(
+      meeting.id,
+      ask.catch(() => undefined),
+    );
+    return ask;
+  };
+  const askNow = async (
     meeting: Meeting,
     text: string,
-    { conversationId, typed = false }: { conversationId?: unknown; typed?: boolean } = {},
+    { conversationId, typed = false }: CallAsk,
   ): Promise<ConversationAskResult> => {
     const { folderId } = minds.get(meeting.mindId);
     const kept = (questionId: string) => {

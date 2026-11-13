@@ -759,6 +759,33 @@ describe("the field's Note | Ask (#2925)", () => {
     expect(field().value).toBe("Another");
   });
 
+  // protects=a question refused after the field went to Note never lands in it, where it would be kept to go into the Note; fails_when=it comes back into the Note field or is sent to the core as a note; no_claim=the thread's line for why.
+  test("a question refused after the field went to Note doesn't come back into it, nor is kept for the Note", async () => {
+    const refused = Promise.withResolvers<boolean>();
+    onQuestion.mockReturnValueOnce(refused.promise);
+    await show(null, KEYS, { mode: "ask" });
+    await type("Who signs the order form?");
+    await press("Enter");
+    await show(null, KEYS, { mode: "note" });
+    await act(async () => refused.resolve(false));
+    expect(field().value).toBe("");
+    expect(sentToCore()).not.toContain("Who signs the order form?");
+  });
+
+  // protects=a question refused while the panel was collapsed comes back when the bar shows again, in Ask, and is never kept for the Note; fails_when=it is lost, or is sent to the core as a note; no_claim=a collapse and a new ask at once.
+  test("a question refused while the panel was collapsed comes back in Ask when the bar shows again, never kept for the Note", async () => {
+    const refused = Promise.withResolvers<boolean>();
+    onQuestion.mockReturnValueOnce(refused.promise);
+    await show(null, KEYS, { mode: "ask" });
+    await type("Who signs the order form?");
+    await press("Enter");
+    await act(async () => root?.render(null));
+    await act(async () => refused.resolve(false));
+    await show(null, KEYS, { mode: "ask" });
+    expect(field().value).toBe("Who signs the order form?");
+    expect(sentToCore()).not.toContain("Who signs the order form?");
+  });
+
   // protects=a line typed in Note and then switched to Ask stays in the field but is no longer kept for the Note, and switched back it is again; fails_when=switching clears the field, or a question goes into the Note on Stop; no_claim=the panel's own memory of the mode.
   test("a line typed in Note stays in the field in Ask, kept for the Note only while in Note", async () => {
     await show();
