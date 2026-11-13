@@ -76,7 +76,7 @@ const writer = (quote: string, more: Partial<CitationAttributes> = {}): HeldCita
 });
 
 describe("A ✓ resting on a Passage the check found", () => {
-  // protects=a sentence's ✓ shows when its Passage is one of its Citations, on the same words or within them, and reads found elsewhere beside a Citation of other words, one on another page, one whose own check says it doesn't hold, or one a part of a clause the sentence says more of; a mark from before parts were kept reads the same, its Passage on a row of its own; fails_when=a ✓ stands beside a Citation whose words don't say it, or one held by the Passage hides; no_claim=what the card offers for each, which tests/renderer/alreadyCited.test.ts holds.
+  // protects=a sentence's ✓ shows when its Passage is one of its Citations, on the same words or within them, beside a part of the clause too, and reads found elsewhere beside a Citation of other words, one on another page, one whose own check says it doesn't hold, or only a part of a clause the sentence says more of; a mark from before parts were kept reads the same, its Passage on a row of its own; fails_when=a ✓ stands beside a Citation whose words don't say it, or one held by the Passage hides; no_claim=what the card offers for each, which tests/renderer/alreadyCited.test.ts holds.
   test.each<[string, HeldCitation[], string]>([
     ["the same words", [writer(FOUND, { passageId: "passage-1" })], "supported"],
     [
@@ -95,6 +95,11 @@ describe("A ✓ resting on a Passage the check found", () => {
       "a part of a clause the sentence says more of",
       [writer("Spring tides come twice a month")],
       "not-checked found-elsewhere",
+    ],
+    [
+      "that part and a Citation of the same words",
+      [writer("Spring tides come twice a month"), writer(FOUND, { passageId: "passage-1" })],
+      "supported",
     ],
     [
       "only a Citation the check found",

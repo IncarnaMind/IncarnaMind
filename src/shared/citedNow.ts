@@ -38,20 +38,22 @@ const placeOf = (citation: HeldCitation): CitedPlace => ({
 });
 
 /**
- * Whether the sentence's Citations hold the Passage a check found, as its card says "Already
- * cited" (#1620): one that holds is on the same words, and none of them is a part of a clause the
- * sentence says more of, which the card widens instead.
+ * Whether the sentence's Citations hold the Passage a check found, by the card's "Already cited"
+ * rule (#1620): one that holds is on the same words, the same clause or a wider one, and not only
+ * a part of a clause the sentence says more of, which the card widens.
  */
 export function citesPassage(
   citations: readonly HeldCitation[],
   found: CitedPlace,
   sentence: string,
 ): boolean {
-  const on = citations
+  return citations
     .filter((citation) => !citation.check || !DOESNT_HOLD.has(citation.check))
     .map(placeOf)
-    .filter((citation) => overlapsCitation(citation, found));
-  return on.length > 0 && !on.some((citation) => continuesCitation(citation, found, sentence));
+    .some(
+      (citation) =>
+        overlapsCitation(citation, found) && !continuesCitation(citation, found, sentence),
+    );
 }
 
 type Judged = Pick<
