@@ -279,14 +279,18 @@ describe("Check against Documents", () => {
     },
   );
 
-  // protects=a reply that gives two verdicts that differ is read as neither: Not checked, never the last one's (#2817); fails_when=its last verdict is taken.
-  test("a reply that changes its verdict is Not checked", async () => {
-    const reply =
-      "Verdict: contradicted\nP1 is about another harbour, so it doesn't bear on this.\nVerdict: unsupported";
+  // protects=a reply that changes its verdict to Supported is read as neither, Not checked (#2817), and one that lowers it reads as its later whole block (#3029, #3019); fails_when=a later Supported is taken after a block that said otherwise, or a later lowering is lost; no_claim=none beyond protects.
+  test.each([
+    ["Verdict: contradicted", "Verdict: unsupported", "unsupported"],
+    ["Verdict: contradicted", "Verdict: supported", "not-checked"],
+    ["结论：contradicted", "结论：unsupported", "unsupported"],
+    ["结论：contradicted", "结论：supported", "not-checked"],
+  ])("a reply that changes %s to %s reads as %s", async (earlier, later, state) => {
+    const reply = `${earlier}\nP1 is about another harbour, so it doesn't bear on this.\n${later}`;
     const plans = { [UNSUPPORTED]: { reply: { text: reply } } };
     const { core, client, check } = await mindWith([UNSUPPORTED], checkingModel(plans));
     await check();
-    expect((await shownChecks(core, client))[0]?.shown).toMatchObject({ state: "not-checked" });
+    expect((await shownChecks(core, client))[0]?.shown).toMatchObject({ state });
   });
 
   test("a sentence holding a change still waiting is left out and counted; with only such sentences, nothing is sent", async () => {
@@ -1355,7 +1359,7 @@ describe("A figure the Documents don't state, worked out (#707)", () => {
     const { core } = await calculatingCheck(checkingModel(plans));
     expect(await core.checkClaim({ claim })).toMatchObject({
       verdict: "not-checked",
-      reason: "no-evidence",
+      reason: "number-not-worked-out",
     });
   });
 
@@ -3802,7 +3806,7 @@ describe("A quote that starts with a figure (#1969)", () => {
     if (scopeQuote) {
       expect(result).toMatchObject({ verdict: "supported", calculation: { agrees: true } });
     } else {
-      expect(result).toMatchObject({ verdict: "not-checked", reason: "no-evidence" });
+      expect(result).toMatchObject({ verdict: "not-checked", reason: "number-not-worked-out" });
     }
   });
 

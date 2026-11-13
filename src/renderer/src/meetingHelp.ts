@@ -29,6 +29,9 @@ import { windowKeysOf } from "./windowKeys";
 
 const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
 
+/** Whether the call-help panel has its field for quick notes on this system: not on Linux (`helpShortcutsOn`). */
+export const quickNotesHere = (): boolean => !/linux/i.test(navigator.platform);
+
 interface HelpState {
   /** The button pressed, by Meeting, until its Answer is the Meeting's `help`. */
   pending: Readonly<Record<string, MeetingHelpKind>>;

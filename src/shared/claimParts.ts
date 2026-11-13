@@ -42,6 +42,8 @@ const FAILURES: Record<ClaimCheckFailure, true> = {
   malformed: true,
   empty: true,
   "no-evidence": true,
+  "number-unquoted": true,
+  "number-not-worked-out": true,
   unread: true,
   "rate-limit": true,
   "cost-cap": true,
@@ -61,6 +63,7 @@ const FAILURES: Record<ClaimCheckFailure, true> = {
   "absence-read-limit": true,
   "absence-unconfirmed": true,
   "absence-other-document": true,
+  "found-elsewhere": true,
   "cut-short": true,
   "read-budget": true,
   "workbook-changed": true,
@@ -81,6 +84,20 @@ const FAILURES: Record<ClaimCheckFailure, true> = {
 export const CLAIM_CHECK_FAILURES: readonly ClaimCheckFailure[] = Object.keys(FAILURES).filter(
   (key): key is ClaimCheckFailure => Object.hasOwn(FAILURES, key),
 );
+// A part the model answered that the check couldn't take: a limit or a stop on another part of the
+// sentence is its reason instead, so the run waits it out or stops (#3022). Among these, a number
+// no quote gives, or a quote the sentence's Citations don't hold (#3019), says what the User can
+// do, which "no-evidence" doesn't.
+const SAYS_WHAT_TO_DO: ReadonlySet<ClaimCheckFailure> = new Set([
+  "number-unquoted",
+  "number-not-worked-out",
+  "found-elsewhere",
+]);
+const ANSWERED: ReadonlySet<ClaimCheckFailure> = new Set([
+  ...SAYS_WHAT_TO_DO,
+  "no-evidence",
+  "malformed",
+]);
 const EXCLUSIONS: readonly EvidenceExclusion[] = [
   "own-file",
   "own-workings",
@@ -1180,7 +1197,8 @@ export function resultFromParts(parts: readonly ClaimCheckPart[]): ClaimCheckRes
     checked.find(({ part }) => part.verdict === "unsupported");
   const failures = checked.filter(({ part }) => part.verdict === "not-checked");
   const failure =
-    failures.find(({ part }) => part.reason !== "no-evidence" && part.reason !== "malformed") ??
+    failures.find(({ part }) => !part.reason || !ANSWERED.has(part.reason)) ??
+    failures.find(({ part }) => part.reason && SAYS_WHAT_TO_DO.has(part.reason)) ??
     failures[0];
   if (!adverse && failure) return failed(failure.part.reason ?? "failed", failure.part.detail);
   const outcome = adverse ?? checked[0];

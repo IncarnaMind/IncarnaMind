@@ -13,6 +13,7 @@ import { randomUUID } from "node:crypto";
 import * as Y from "yjs";
 import { asGenerated } from "../shared/aiText";
 import { parseOrigin, removeOrigins, setOrigins } from "../shared/blockOrigins";
+import { setBlockTimes } from "../shared/blockTimes";
 import { installFigureRuns, readFigureRunClosure } from "../shared/figureRuns";
 import { carryAnswerScope, uncarryAnswerScope } from "../shared/mindScope";
 import {
@@ -64,6 +65,12 @@ export interface NoteAddingOptions {
 
 const isEmptyLine = (block: Y.XmlElement | undefined) =>
   block?.nodeName === "paragraph" && block.length === 0;
+
+/** A line with no words, as the editor leaves one: the cursor of an open copy may wait in it. */
+const isBlankLine = (block: Y.XmlElement | Y.XmlText | undefined) =>
+  block instanceof Y.XmlElement &&
+  block.nodeName === "paragraph" &&
+  block.toArray().every((child) => child instanceof Y.XmlText && child.length === 0);
 
 /** A Block as a Proposal of `request` that adds it whole. */
 const proposed = (block: NodeJSON, request: string): NodeJSON => ({
@@ -216,6 +223,33 @@ export function createNoteAdding(options: NoteAddingOptions) {
         if (note.doc) recordProposalRequest(note.doc, request, made);
         return proposalsOf(note, request) ?? { proposalId: "", changes: 0 };
       });
+    },
+
+    /**
+     * The User's own lines at the end of a Mind's note (#2925), one paragraph each, the first
+     * taking the Meeting's time `atMs` (null: none). They go after the last line that holds
+     * anything, so a blank line at the end, where an open copy's cursor may be typing, is neither
+     * replaced nor moved: that typing and these lines both stay. Undo takes them out as it does
+     * an Add to note's.
+     */
+    addLines(mindId: string, lines: readonly string[], atMs: number | null): AddedToNote {
+      const id = options.requireMind(mindId);
+      const blockIds = content.edit(id, (note) => {
+        let at = note.length;
+        while (at > 0 && isBlankLine(note.get(at - 1))) at--;
+        const elements = lines.map((line) =>
+          createElement({ type: "paragraph", content: [{ type: "text", text: line }] }),
+        );
+        note.insert(at, elements);
+        const ids = elements.map((element) => textAttribute(element, BLOCK_ID_ATTRIBUTE) ?? "");
+        for (const [index, element] of elements.entries()) {
+          written.set(ids[index] ?? "", contentHash(element));
+        }
+        const [first] = ids;
+        if (atMs !== null && first && note.doc) setBlockTimes(note.doc, [first], atMs);
+        return ids;
+      });
+      return { mindId: id, blockIds };
     },
 
     /** A request's changes in a Mind, once it has proposed there; null before. */

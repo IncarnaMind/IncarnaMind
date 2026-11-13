@@ -58,7 +58,7 @@ const CHINESE = /\p{Script=Han}/u;
 const LETTER = /\p{L}/u;
 const FULL_STOP = /[.!?。！？]/u;
 const CHINESE_FULL_STOP = /[。！？]/u;
-const ENGLISH_STOP_AT_END = /[.!?][^\p{L}\p{N}\n。！？]*$/u;
+const ENGLISH_STOP_AT_END = /[.!?][^.!?\p{L}\p{N}\n。！？]*$/u;
 const PAIRED_MARKS = new Map([
   ["“", "”"],
   ['"', '"'],
@@ -72,9 +72,32 @@ const PAIRED_MARKS = new Map([
 const CHINESE_MARKS = new Set(["「", "『", "（", "《"]);
 // Chinese puts a sentence's own full stop outside the brackets or title marks inside it.
 const NEVER_END_A_SENTENCE = new Set(["（", "(", "《"]);
+const ENGLISH_MARKS = new Set(["“", '"', "‘", "("]);
+const WORD_CHARACTER = /[\p{L}\p{N}]/u;
 
 interface Enclosed extends SentenceSpan {
   lastStopEndsSentence: boolean;
+  /** Its last sentence has a Citation of its own inside it: so has each before it that has one. */
+  citesItsSentences: boolean;
+}
+
+const STOP = /[.!?。！？]/u;
+
+/** Whether a Citation's marker stands right before or right after the stop at `at`. */
+const citedAt = (text: string, at: number) =>
+  text.charAt(at - 1) === INLINE_NODE || text.charAt(at + 1) === INLINE_NODE;
+
+/**
+ * Whether the quotation or bracket from `from` to `to` (its closing mark) ends its last
+ * sentence with a Citation of its own, inside it: "(Revenue rose[^1]. Costs fell[^2].)".
+ */
+function citesItsSentences(text: string, from: number, to: number): boolean {
+  for (let at = to - 1; at > from; at--) {
+    const char = text.charAt(at);
+    if (STOP.test(char)) return citedAt(text, at);
+    if (char !== INLINE_NODE && !isSpace(char)) return false;
+  }
+  return false;
 }
 
 function inChineseSentence(text: string, open: number, close: number | null): boolean {
@@ -103,11 +126,29 @@ function spaceBeforeNextWord(text: string, at: number): boolean {
   return false;
 }
 
+/** An apostrophe between two letters of a word ("didn’t") closes no quotation; Chinese has none. */
+const apostrophe = (text: string, at: number) =>
+  [text.charAt(at - 1), text.charAt(at + 1)].every(
+    (char) => LETTER.test(char) && !CHINESE.test(char),
+  );
+
+/** Whether a space comes after `at` and then anything more: a new sentence, whatever it opens with. */
+function spaceBeforeMore(text: string, at: number): boolean {
+  let spaced = false;
+  for (let next = at; next < text.length; next++) {
+    const char = text.charAt(next);
+    if (isSpace(char)) spaced = true;
+    else if (char !== INLINE_NODE) return spaced;
+  }
+  return false;
+}
+
 function closingMark(text: string, at: number, close: string, end: number): number | null {
   const open = text.charAt(at);
   let depth = 0;
   for (let next = at + 1; next < end; next++) {
     const char = text.charAt(next);
+    if (char === close && (close === "’" || close === "'") && apostrophe(text, next)) continue;
     if (char === close) {
       if (depth === 0) return next;
       depth--;
@@ -116,8 +157,20 @@ function closingMark(text: string, at: number, close: string, end: number): numb
   return null;
 }
 
-function enclosedInChinese(text: string): Enclosed[] {
-  if (!CHINESE.test(text)) return [];
+/**
+ * Whether a straight double quote at `open` and one at `close` open and close a quotation: the
+ * first stands before a word and the second after one. A straight mark closed nowhere on its
+ * line, or one that starts another quotation, leaves the plain split.
+ */
+function quotesAPair(text: string, open: number, close: number): boolean {
+  if (text.charAt(open) !== '"') return true;
+  const before = text.charAt(open - 1);
+  const after = text.charAt(close + 1);
+  return !WORD_CHARACTER.test(before) && !WORD_CHARACTER.test(after);
+}
+
+function enclosedQuotations(text: string): Enclosed[] {
+  const chinese = CHINESE.test(text);
   const sentenceEnds = /[。！？\n]/gu;
   const found: Enclosed[] = [];
   let sentenceEnd = -1;
@@ -132,14 +185,37 @@ function enclosedInChinese(text: string): Enclosed[] {
     // A mark not closed before its sentence's own full stop or line break quotes up to it: a
     // straight mark would otherwise pair with the next sentence's.
     const close = closingMark(text, at, mark, sentenceEnd);
-    if (inChineseSentence(text, at, close)) {
+    if (chinese && inChineseSentence(text, at, close)) {
       // "…six weeks.” 我们同意…": Chinese leaves no space inside a sentence, so one after a
       // quoted sentence starts the next.
       const lastStopEndsSentence =
         close !== null && !NEVER_END_A_SENTENCE.has(open) && spaceBeforeNextWord(text, close + 1);
-      found.push({ from: at, to: close ?? sentenceEnd, lastStopEndsSentence });
+      const to = close ?? sentenceEnd;
+      found.push({
+        from: at,
+        to,
+        lastStopEndsSentence,
+        citesItsSentences: citesItsSentences(text, at, to),
+      });
       at = close ?? sentenceEnd;
-    } else if (close !== null) at = close;
+    } else if (
+      close !== null &&
+      ENGLISH_MARKS.has(open) &&
+      quotesAPair(text, at, close) &&
+      // A single mark before a word ("‘90s", "‘Twas") stands for an apostrophe, and one after a
+      // plural ("tenants’") closes nothing: a quoted sentence ends at a stop inside its marks.
+      (open !== "‘" || !WORD_CHARACTER.test(text.charAt(close - 1)))
+    ) {
+      // English closes a quoted sentence inside its marks, so the stop that is the quotation's
+      // last character ends its sentence when a space comes before the next word (#3019).
+      found.push({
+        from: at,
+        to: close,
+        lastStopEndsSentence: spaceBeforeMore(text, close + 1),
+        citesItsSentences: citesItsSentences(text, at, close),
+      });
+      at = close;
+    } else if (close !== null && !(open === '"' && ENGLISH_MARKS.has(open))) at = close;
   }
   return found;
 }
@@ -154,7 +230,10 @@ function enclosedInChinese(text: string): Enclosed[] {
  * belongs to the sentence before it, the one it supports (#1709). A Chinese
  * sentence that quotes English, in quotation marks, brackets or a title, ends
  * at its own 。, not at a full stop inside them; a quoted sentence that a
- * space follows ends it, as “…six weeks.” 我们同意… does (#3009).
+ * space follows ends it, as “…six weeks.” 我们同意… does (#3009). An English
+ * sentence that quotes two sentences, in quotation marks or brackets, is one
+ * sentence too: a stop inside a closed quotation ends nothing, and the one
+ * that is its last character ends it when a space comes next (#3019).
  */
 export function sentenceSpans(text: string, figures: readonly number[] = []): SentenceSpan[] {
   if (figures.length > 0) {
@@ -177,12 +256,14 @@ export function sentenceSpans(text: string, figures: readonly number[] = []): Se
     const citation = unbrokenCitations[citationAt];
     return citation !== undefined && citation.from < previousTo;
   };
-  const enclosures = enclosedInChinese(text);
+  const enclosures = enclosedQuotations(text);
   let enclosedAt = 0;
   const goesOnPast = (stop: number): boolean => {
     while ((enclosures[enclosedAt]?.to ?? Number.POSITIVE_INFINITY) <= stop) enclosedAt++;
     const enclosed = enclosures[enclosedAt];
     if (enclosed === undefined || enclosed.from >= stop) return false;
+    // Each quoted sentence with a Citation of its own is a sentence (#3019).
+    if (enclosed.citesItsSentences && citedAt(text, stop)) return false;
     return !enclosed.lastStopEndsSentence || hasWords(text.slice(stop, enclosed.to));
   };
   let englishStop: number | null = null;

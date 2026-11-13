@@ -5,12 +5,20 @@
  */
 import type {
   ChatModelChoice,
+  CitationAttributes,
   CitedQuote,
+  ClaimCheckFailure,
+  ClaimCheckPart,
+  ClaimCheckResult,
+  ClaimPartJudgment,
   Core,
   MarkedCitation,
   MarkedFigure,
+  UnsupportedReason,
 } from "../../src/core";
 import { citedSentences as markedSentences } from "../../src/shared/citedSentences";
+import type { Hear } from "../lib/tokens";
+import { type HeardCheck, heardChecks } from "./checkRequests";
 
 export interface CitedSentence {
   /** The sentence without its Citation markers. */
@@ -21,9 +29,80 @@ export interface CitedSentence {
   cited: CitedQuote[];
 }
 
-export interface SentenceSupport {
+/** Why the check ruled as it did, on a sentence, one of its parts or one of their figures. */
+export interface CheckReason {
+  /** Not checked: why. */
+  reason: ClaimCheckFailure | null;
+  detail: string | null;
+  /** Unsupported: what the check said no Passage states. */
+  unsupported: UnsupportedReason | null;
+}
+
+export interface CheckedPart extends CheckReason {
+  /** The part's own words in the sentence. */
+  text: string;
+  kind: ClaimCheckPart["kind"];
+  verdict: ClaimCheckPart["verdict"];
+  /** The quotes the check gave for it, as the Citation check found them. */
+  evidence: Pick<CitationAttributes, "documentName" | "quote" | "check" | "checkReason">[];
+  figures: (CheckReason & { verdict: ClaimPartJudgment["verdict"] })[];
+}
+
+export interface SentenceSupport extends CheckReason {
   sentence: string;
-  verdict: "supported" | "unsupported" | "contradicted" | "not-checked";
+  verdict: ClaimCheckResult["verdict"];
+  /** What its own markers cite. */
+  cites: Pick<CitedQuote, "documentName" | "quote">[];
+  /** The parts the check split it into: a Not checked sentence's reason is one of theirs. */
+  parts: CheckedPart[];
+  /**
+   * What the check's model quoted, and the Citation check's answer, for each run; a sentence that
+   * isn't Supported keeps each run's replies too. Absent when the check's requests weren't heard.
+   */
+  checks?: HeardCheck[];
+}
+
+function reasonOf(judgment: ClaimPartJudgment): CheckReason {
+  if (judgment.verdict === "not-checked") {
+    return { reason: judgment.reason, detail: judgment.detail, unsupported: null };
+  }
+  if (judgment.verdict === "checking") return { reason: null, detail: null, unsupported: null };
+  return { reason: null, detail: null, unsupported: judgment.unsupported };
+}
+
+function partOf(sentence: string, part: ClaimCheckPart): CheckedPart {
+  return {
+    text: sentence.slice(part.span.start, part.span.end),
+    kind: part.kind,
+    verdict: part.verdict,
+    reason: part.reason,
+    detail: part.detail,
+    unsupported: part.unsupported,
+    evidence: part.evidence.map(({ documentName, quote, check, checkReason }) => ({
+      documentName,
+      quote,
+      check,
+      checkReason,
+    })),
+    figures: (part.figures ?? []).map((figure) => ({
+      verdict: figure.result.verdict,
+      ...reasonOf(figure.result),
+    })),
+  };
+}
+
+/** A sentence's verdict as the record keeps it: what it cites and why the check ruled so. */
+export function sentenceSupport(
+  checked: Pick<CitedSentence, "sentence" | "cited">,
+  result: ClaimCheckResult,
+): SentenceSupport {
+  return {
+    sentence: checked.sentence,
+    verdict: result.verdict,
+    ...reasonOf(result),
+    cites: checked.cited.map(({ documentName, quote }) => ({ documentName, quote })),
+    parts: (result.parts ?? []).map((part) => partOf(checked.sentence, part)),
+  };
 }
 
 /** The share of the research requests' cited sentences the check must judge supported (#1073). */
@@ -58,7 +137,8 @@ export function citedSentences(
 
 /**
  * Each cited sentence of an Answer, checked against the Documents as Check against Documents
- * does, on `model` (the default chat model when null).
+ * does, on `model` (the default chat model when null). With `hear`, the record keeps what each
+ * check asked its model and was told.
  */
 export async function checkCitedSentences(
   core: Pick<Core, "checkClaim">,
@@ -68,16 +148,21 @@ export async function checkCitedSentences(
     figures?: Parameters<typeof citedSentences>[2];
   },
   model: ChatModelChoice | null = null,
+  hear?: Hear,
 ): Promise<SentenceSupport[]> {
   const results: SentenceSupport[] = [];
   for (const each of citedSentences(answer.text, answer.citations, answer.figures)) {
-    const result = await core.checkClaim({
-      claim: each.sentence,
-      context: each.context,
-      cited: each.cited,
-      model,
-    });
-    results.push({ sentence: each.sentence, verdict: result.verdict });
+    const check = () =>
+      core.checkClaim({ claim: each.sentence, context: each.context, cited: each.cited, model });
+    if (!hear) {
+      results.push(sentenceSupport(each, await check()));
+      continue;
+    }
+    const { result, requests } = await hear(check);
+    const checks = heardChecks(requests).map((run) =>
+      result.verdict === "supported" ? { ...run, replies: [] } : run,
+    );
+    results.push({ ...sentenceSupport(each, result), checks });
   }
   return results;
 }
@@ -86,17 +171,40 @@ export interface SupportRate {
   model: string;
   language: "en" | "zh-CN";
   supported: number;
+  /** Of the supported, those backed by a Passage the check found rather than the sentence's own Citations. */
+  backedByFound: number;
   /** The sentences the check gave a verdict for. */
   judged: number;
   notChecked: number;
 }
+
+type Counted = Pick<SentenceSupport, "sentence" | "verdict"> &
+  Partial<Pick<SentenceSupport, "reason" | "parts">>;
+
+/**
+ * Whether the check backed the sentence with a Passage its own Citations don't quote: shown with
+ * no ✓ until that Passage is its Citation, and counted Supported, listed apart (#3019).
+ */
+export function backedByFound(sentence: Counted): boolean {
+  if (sentence.verdict !== "not-checked") return false;
+  const parts = (sentence.parts ?? []).filter(
+    (part) => part.verdict !== null && part.verdict !== "supported",
+  );
+  return parts.length > 0
+    ? parts.every((part) => part.reason === "found-elsewhere")
+    : sentence.reason === "found-elsewhere";
+}
+
+/** The verdict the evaluation counts: one backed by a Passage the check found is Supported. */
+export const countedVerdict = (sentence: Counted): SentenceSupport["verdict"] =>
+  backedByFound(sentence) ? "supported" : sentence.verdict;
 
 /** Supported, judged and not-checked sentences, per model and language. */
 export function supportRates(
   runs: readonly {
     model: string;
     language: "en" | "zh-CN";
-    support: readonly SentenceSupport[];
+    support: readonly Counted[];
   }[],
 ): SupportRate[] {
   const groups = new Map<string, SupportRate>();
@@ -106,13 +214,16 @@ export function supportRates(
       model: run.model,
       language: run.language,
       supported: 0,
+      backedByFound: 0,
       judged: 0,
       notChecked: 0,
     };
     for (const each of run.support) {
-      if (each.verdict === "not-checked") group.notChecked++;
+      const verdict = countedVerdict(each);
+      if (verdict === "not-checked") group.notChecked++;
       else group.judged++;
-      if (each.verdict === "supported") group.supported++;
+      if (verdict === "supported") group.supported++;
+      if (backedByFound(each)) group.backedByFound++;
     }
     groups.set(key, group);
   }
@@ -120,8 +231,148 @@ export function supportRates(
 }
 
 /** The share of the sentences the check gave a verdict for that it judged supported, from 0 to 1; 1 when it judged none. */
-export function supportedShare(sentences: readonly SentenceSupport[]): number {
-  const judged = sentences.filter((each) => each.verdict !== "not-checked");
+export function supportedShare(sentences: readonly Counted[]): number {
+  const judged = sentences.map(countedVerdict).filter((verdict) => verdict !== "not-checked");
   if (judged.length === 0) return 1;
-  return judged.filter((each) => each.verdict === "supported").length / judged.length;
+  return judged.filter((verdict) => verdict === "supported").length / judged.length;
+}
+
+/** The check's reason for a sentence it didn't judge Supported, as the report groups them. */
+export function reasonOfSentence(sentence: SentenceSupport): string {
+  switch (sentence.verdict) {
+    case "supported":
+      return "Supported";
+    case "contradicted":
+      return "Contradicted";
+    case "not-checked":
+      return `Not checked: ${sentence.reason ?? "no reason given"}`;
+    case "unsupported": {
+      const why = sentence.unsupported;
+      if (!why) return "Unsupported: no reason given";
+      if (why.kind) return `Unsupported: ${why.kind}`;
+      return why.found ? "Unsupported: a Passage about it doesn't back it" : "Not found";
+    }
+  }
+}
+
+/** The sentences not judged Supported, grouped by the check's reason, the largest group first. */
+export function withoutSupportByReason<T extends SentenceSupport>(
+  sentences: readonly T[],
+): { reason: string; sentences: T[] }[] {
+  const groups = new Map<string, T[]>();
+  for (const each of sentences) {
+    if (countedVerdict(each) === "supported") continue;
+    const reason = reasonOfSentence(each);
+    groups.set(reason, [...(groups.get(reason) ?? []), each]);
+  }
+  return [...groups]
+    .map(([reason, members]) => ({ reason, sentences: members }))
+    .sort((a, b) => b.sentences.length - a.sentences.length);
+}
+
+const quoted = (text: string | null) =>
+  text === null ? "(no quote)" : `“${text.replace(/\s+/g, " ").trim()}”`;
+
+const quotedIn = (cited: { documentName: string | null; quote: string | null }) =>
+  `${quoted(cited.quote)} (${cited.documentName ?? "no Document named"})`;
+
+function whyLines(why: CheckReason): string[] {
+  return [
+    ...(why.reason ? [`reason: ${why.reason}`] : []),
+    ...(why.detail ? [`detail: ${why.detail.replace(/\s+/g, " ")}`] : []),
+    ...(why.unsupported
+      ? [
+          [
+            `why${why.unsupported.kind ? ` (${why.unsupported.kind})` : ""}: ${why.unsupported.reason ?? "none given"}`,
+            why.unsupported.covered && `covered: ${why.unsupported.covered}`,
+            why.unsupported.uncovered && `uncovered: ${why.unsupported.uncovered}`,
+            why.unsupported.quoted && `quoted ${quoted(why.unsupported.quoted.quote)}`,
+          ]
+            .filter(Boolean)
+            .join("; "),
+        ]
+      : []),
+  ];
+}
+
+/**
+ * The report's lines for the sentences not judged Supported: a count of each reason by language,
+ * then each sentence under its reason with what it cites and each part the check judged.
+ */
+export function withoutSupportLines(
+  sentences: readonly (SentenceSupport & { id: string; model: string; language: string })[],
+): string[] {
+  const groups = withoutSupportByReason(sentences);
+  if (groups.length === 0) return [];
+  const count = (group: (typeof groups)[number], language: string) =>
+    group.sentences.filter((each) => each.language === language).length;
+  return [
+    "Not Supported, by the check's reason:",
+    "",
+    "| Reason | English | Chinese |",
+    "|---|---|---|",
+    ...groups.map(
+      (group) => `| ${group.reason} | ${count(group, "en")} | ${count(group, "zh-CN")} |`,
+    ),
+    "",
+    ...groups.flatMap((group) => [
+      `### ${group.reason} (${group.sentences.length})`,
+      "",
+      ...group.sentences.flatMap((each) => [
+        `- ${each.id} (${each.model}), ${each.verdict}: ${each.sentence}`,
+        `  - cites ${each.cites.map(quotedIn).join(" · ")}`,
+        ...whyLines(each).map((line) => `  - ${line}`),
+        ...each.parts.map((part) =>
+          [
+            `  - part ${quoted(part.text)} (${part.kind}): ${part.verdict ?? "set aside"}`,
+            ...whyLines(part),
+            ...part.evidence.map(
+              (citation) =>
+                `the check's quote ${quotedIn(citation)} ${citation.check}${citation.checkReason ? ` (${citation.checkReason})` : ""}`,
+            ),
+            ...part.figures.map((figure) =>
+              [`a figure ${figure.verdict}`, ...whyLines(figure)].join(", "),
+            ),
+          ].join("; "),
+        ),
+        ...(each.checks ?? []).flatMap((run) => [
+          `  - the check of ${run.claim === null ? "another request" : quoted(run.claim)}: ${
+            run.quotes.length === 0
+              ? "quoted nothing"
+              : run.quotes
+                  .map(
+                    (typed) =>
+                      `typed ${quoted(typed.quote)} for [^${typed.marker ?? "?"}], ${typed.found ? "found" : `not found: ${quoted(typed.answer)}`}`,
+                  )
+                  .join("; ")
+          }`,
+          ...run.replies.map((reply) => `    - it replied ${quoted(reply)}`),
+        ]),
+      ]),
+      "",
+    ]),
+  ];
+}
+
+/** The report's list of the sentences counted Supported on a Passage the check found. */
+export function backedByFoundLines(
+  sentences: readonly (SentenceSupport & { id: string; model: string })[],
+): string[] {
+  const backed = sentences.filter(backedByFound);
+  if (backed.length === 0) return [];
+  return [
+    "Backed by a Passage the check found (counted Supported; shown with no ✓ until that Passage is the sentence's Citation):",
+    "",
+    ...backed.flatMap((each) => [
+      `- ${each.id} (${each.model}): ${each.sentence}`,
+      `  - cites ${each.cites.map(quotedIn).join(" · ")}`,
+      ...each.parts
+        .filter((part) => part.reason === "found-elsewhere")
+        .map(
+          (part) =>
+            `  - part ${quoted(part.text)}: the check's Passage ${part.evidence.map(quotedIn).join(" · ")}`,
+        ),
+    ]),
+    "",
+  ];
 }

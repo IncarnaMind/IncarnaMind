@@ -20,7 +20,7 @@ import {
   readRecordJudgement,
 } from "../../src/core/answers/checks/prompt";
 import { readRewrite } from "../../src/core/answers/checks/rewrite";
-import { readBatch } from "../../src/core/answers/checks/sentenceBatch";
+import { readBatchText } from "../../src/core/answers/checks/sentenceBatch";
 import { claimsReply, requestReply } from "../../src/core/answers/claimedChanges";
 import { FIGURES_REPLY } from "../../src/core/answers/figureRetry";
 import {
@@ -79,7 +79,7 @@ const QUESTIONS: Record<
   { reply: JudgeReply<unknown>; right: string; read: unknown; unreadable: string; stream?: true }
 > = {
   "sentence-batch": {
-    reply: json((value) => readBatch(value, 1)),
+    reply: lines((text) => readBatchText(text, 1)),
     right:
       '{"sentences":[{"number":1,"kind":"fact","verdict":"supported","roles":"same","time":"same","quoted":"states","says":"The lease says so."}]}',
     read: new Map([
