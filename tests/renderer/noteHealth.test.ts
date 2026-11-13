@@ -465,6 +465,7 @@ describe("A Mind's health", () => {
         look: { claims: 3, contradicted: 1, unsupported: 1, notFound: 1 },
         toCheck: 1,
         noCitation: 1,
+        notYetCited: 0,
       },
     });
     expect(checkRows(health).map(({ row, places }) => [row, places.length])).toEqual([

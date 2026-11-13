@@ -136,7 +136,7 @@ export function PartMark({ part }: { part: BadgeMark }) {
     case "notChecked":
       return <ClaimMarkIcon state="not-checked" className="mind-health-icon" />;
     case "notYetCited":
-      return <NotYetCitedIcon className="mind-health-icon" />;
+      return <NotYetCitedIcon className="mind-health-icon mind-health-icon--wide" />;
   }
 }
 
@@ -207,7 +207,7 @@ function RowMark({ row }: { row: CheckRow }) {
     case "ownNotes":
       return <ClaimMarkIcon state="supported" ownNoteOnly className="mind-health-icon" />;
     case "notYetCited":
-      return <NotYetCitedIcon className="mind-health-icon" />;
+      return <NotYetCitedIcon className="mind-health-icon mind-health-icon--wide" />;
     case "checking":
       return <ClaimMarkIcon state="checking" className="mind-health-icon" />;
     case "toCheck":
@@ -274,8 +274,8 @@ export function HealthCard({
   const rows = checkRows(health);
   const placesOf = (row: CheckRow): readonly number[] =>
     rows.find((each) => each.row === row)?.places ?? [];
-  // The card keeps the height it opened with while a check runs (#2313): the row the check's end
-  // brings can land below it, and is scrolled into view where it lands (#3019).
+  // The card fits its rows again as a check ends; where they need more room than the window has,
+  // the row the check's end brings is scrolled into view (#3019).
   const notYetCitedRow = useRef<HTMLDivElement>(null);
   const waitingShown = running === undefined && placesOf("notYetCited").length > 0;
   useEffect(() => {

@@ -152,12 +152,15 @@ const Ring = (props: IconProps) => (
   </Stroke>
 );
 
-/** The grey ring with a "+": Supported, not yet cited, as its margin mark shows it with its "+" (#3019). */
+/**
+ * The grey ring and a "+" beside it, half as wide again as the other marks: Supported, not yet
+ * cited, as its margin mark shows it (#3019).
+ */
 export const NotYetCitedIcon = (props: IconProps) => (
-  <Stroke weight={2.5} {...props}>
-    <circle cx="12" cy="12" r="6.5" />
-    <path d="M12 9.5v5" />
-    <path d="M9.5 12h5" />
+  <Stroke weight={2.5} viewBox="0 0 36 24" {...props}>
+    <circle cx="11" cy="12" r="6.5" />
+    <path d="M28 7.5v9" />
+    <path d="M23.5 12h9" />
   </Stroke>
 );
 

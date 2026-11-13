@@ -4,11 +4,12 @@ import { describe, expect, test } from "vitest";
 import {
   CITATION_NODE,
   type CitationAttributes,
+  CLAIM_CHECK_MARK,
   type Core,
   type Document,
   GENERATED_MARK,
 } from "../../src/core";
-import { claimsOf } from "../../src/renderer/src/editor/claimChecks";
+import { claimsOf, foundElsewhere } from "../../src/renderer/src/editor/claimChecks";
 import { pendingProposals } from "../../src/shared/proposals";
 import { askAssistant } from "../helpers/assistant";
 import { checkingModel, checkReply, isCheckRun, type Plan } from "../helpers/checks";
@@ -16,7 +17,7 @@ import { setUpWithDocuments, shownPassages } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
-import { readMind, resolveChanges, writeMind } from "../helpers/minds";
+import { editMind, readMind, resolveChanges, writeMind } from "../helpers/minds";
 import { judgesNothing, type ModelCall, scriptedModel, scriptedModels } from "../helpers/models";
 
 /*
@@ -151,7 +152,64 @@ describe("A check of a sentence in the Note writes nothing into it", { timeout: 
     expect(plan.kind).toBe("unchanged");
     expect(calls.length).toBe(asked);
   });
+
+  // protects=a mark an older version stored as Not checked, found elsewhere, holds no verdict an Add could bring back, so it is no dead end: it reads Not checked, not Supported, not yet cited, and Check this Note checks it again, after which it reads Supported, not yet cited, with the Passage to add (#3019); fails_when=it reads as waiting on an Add, or Check this Note holds it as checked and never asks again; no_claim=the card's look.
+  test("a mark an older version stored as Not checked, found elsewhere, is checked again", async () => {
+    const calls: ModelCall[] = [];
+    const { core, client, mind, documents } = await setUpWithDocuments(
+      checkingModel(PLANS, calls),
+      [TIDES],
+    );
+    const [tides] = documents;
+    if (!tides) throw new Error("Tides.md wasn't added.");
+    writeMind(client, [cited("s", SENTENCE, citationOf(tides, OTHER))]);
+    await client.settled();
+    await checkParagraph(core, mind.id, "s", SENTENCE.length + 1);
+    await client.settled();
+    editMind(client, (blocks) => blocks.map(storedAsBefore));
+    await client.settled();
+    const [legacy] = shownIn(client);
+    expect(legacy?.check.state).toBe("not-checked");
+    expect(legacy?.shown).toEqual({ state: "not-checked", reason: "found-elsewhere" });
+    expect(legacy && foundElsewhere(legacy)).toBe(false);
+    const asked = calls.length;
+
+    await core.checkMind({ requestId: crypto.randomUUID(), mindId: mind.id, mode: "all" });
+    await client.settled();
+    expect(calls.length).toBeGreaterThan(asked);
+    const [now] = shownIn(client);
+    expect(now?.check.state).toBe("supported");
+    expect(now && foundElsewhere(now)).toBe(true);
+  });
 });
+
+/** A paragraph's check as an older version stored it: Not checked, found elsewhere, its verdict gone. */
+function storedAsBefore(block: JSONContent): JSONContent {
+  return {
+    ...block,
+    content: block.content?.map((child) => ({
+      ...child,
+      ...(child.marks && {
+        marks: child.marks.map((mark) =>
+          mark.type === CLAIM_CHECK_MARK
+            ? {
+                ...mark,
+                attrs: {
+                  ...mark.attrs,
+                  state: "not-checked",
+                  reason: "found-elsewhere",
+                  detail: null,
+                  evidence: null,
+                  says: null,
+                  parts: null,
+                },
+              }
+            : mark,
+        ),
+      }),
+    })),
+  };
+}
 
 /** A model that answers by writing `SENTENCE` into the Note with a Citation of `OTHER`, and checks as `PLANS` say. */
 function writingModel() {

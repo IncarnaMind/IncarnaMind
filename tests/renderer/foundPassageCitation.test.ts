@@ -20,7 +20,9 @@ import {
 } from "../../src/core";
 import { CitationNumbers } from "../../src/renderer/src/editor/citationNumbers";
 import { ClaimChecks, claimsOf, shownClaims } from "../../src/renderer/src/editor/claimChecks";
+import { checkRows, noteHealth } from "../../src/renderer/src/editor/healthCounts";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
+import { translate } from "../../src/shared/i18n";
 import { checkingModel, type Plan } from "../helpers/checks";
 import { setUpWithDocuments } from "../helpers/citations";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
@@ -37,6 +39,8 @@ vi.mock("../../src/renderer/src/store", () => ({
 const { addAsCitation, addFoundCitations, foundCitationInserts } = await import(
   "../../src/renderer/src/checks"
 );
+const { checkStateKey } = await import("../../src/renderer/src/unsupportedFixes");
+const { noteStateOf, noteStateParts } = await import("../../src/renderer/src/noteState");
 
 const cleanup: (() => void)[] = [];
 afterEach(() => {
@@ -359,5 +363,47 @@ describe("All together from the check's result line", { timeout: 30_000 }, () =>
     expect(foundCitationInserts(editor.state).flatMap((each) => each.citations).length).toBe(4);
     await client.settled();
     expect(calls.length).toBe(asked);
+  });
+});
+
+describe("Supported, not yet cited, in its own words and counted apart", {
+  timeout: 30_000,
+}, () => {
+  // protects=a sentence whose ✓ waits on its Passage reads "Supported, not yet cited" on its mark and card, has a row of its own in the check card, is never among the supported nor among those to check, and makes the Note's state "1 not yet cited", never Not checked nor the green Checked, in English and Chinese; once added, it is supported and the Note is Checked (#3019); fails_when=it is worded or counted as Not checked or as supported, or the Note shows Checked while it waits; no_claim=the row's look.
+  test.each([
+    ["en", "Supported, not yet cited", "1 supported, not yet cited", "1 not yet cited"],
+    ["zh-CN", "有依据，尚未引用", "1 句有依据，尚未引用", "1 句尚未引用"],
+  ] as const)("%s", async (language, heading, row, badge) => {
+    const { editor } = await checked(
+      (tides) => [
+        cited("cited", SENTENCE, citationOf(tides, LINE)),
+        cited("waiting", SENTENCE, citationOf(tides, OTHER)),
+      ],
+      ["cited", "waiting"],
+    );
+    const health = () =>
+      noteHealth(editor.state.doc, {
+        claims: shownClaims(editor.state),
+        citationCheck: () => "found",
+      });
+    const waiting = shownClaims(editor.state).find((each) => each.place?.blockId === "waiting");
+    if (!waiting) throw new Error("The sentence has no check.");
+    expect(translate(language, checkStateKey(editor, waiting))).toBe(heading);
+    expect(health()).toMatchObject({ supported: 1, toCheck: [], notYetCited: [waiting.from] });
+    const rows = checkRows(health());
+    expect(rows.map((each) => [each.row, each.places.length])).toEqual([
+      ["supported", 1],
+      ["notYetCited", 1],
+    ]);
+    expect(translate(language, "checks.row.notYetCited.one")).toBe(row);
+    const state = noteStateOf(health());
+    expect(state?.kind).toBe("not-yet-cited");
+    expect(
+      state && noteStateParts(state, (key, params) => translate(language, key, params), language),
+    ).toEqual([badge]);
+
+    expect(addFoundCitations(editor)).toBe(1);
+    expect(health()).toMatchObject({ supported: 2, notYetCited: [] });
+    expect(noteStateOf(health())?.kind).toBe("checked");
   });
 });

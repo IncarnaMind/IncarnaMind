@@ -46,6 +46,7 @@ import { ContradictionAsk, ContradictionLine } from "./ContradictionLine";
 import { checkTitle, useCheckEstimate, useCheckThisMindPlan } from "./changedSentences";
 import { type CheckEstimateView, checkPressOf } from "./checkEstimateState";
 import { useCardPlace } from "./checkPlace";
+import { checkRows } from "./healthCounts";
 import { CheckMarkIcon, ClaimMarkIcon, NotYetCitedIcon } from "./icons";
 import { MindCheckAsk, MindUnchanged, RunningText } from "./MindCheckLine";
 import { HealthCard, PartMark, partLabel, useHealth } from "./NoteHealth";
@@ -171,6 +172,13 @@ function MindBadge({
       ask={input.asking || problem}
       running={running && <RunningText editor={editor} mindId={mindId} />}
       onStop={() => stopCheck(mindId)}
+      refit={
+        running
+          ? "running"
+          : checkRows(health)
+              .map(({ row }) => row)
+              .join(" ")
+      }
       actions={
         <CheckActions
           editor={editor}
@@ -434,6 +442,7 @@ function BadgeFrame({
   onStop,
   foot,
   actions,
+  refit,
   children,
 }: {
   mindId: string;
@@ -444,6 +453,8 @@ function BadgeFrame({
   running: ReactNode;
   onStop(): void;
   foot?: ReactNode;
+  /** What the card's rows are: a change fits its height to them again. */
+  refit?: string;
   /** The card's press and its price line, in a fixed foot the held, scrolling body never hides. */
   actions?: ReactNode;
   children: ReactNode;
@@ -459,9 +470,17 @@ function BadgeFrame({
   const open = useChecks((state) => state.cardOpen[place] === true);
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   // The card takes its first paint's height, so what lands later never moves what is above it;
-  // content beyond that room scrolls, and the next open fits the result (#2313).
+  // content beyond that room scrolls, and the next open fits the result (#2313). A change of
+  // `refit` fits it again where it is: the rows a check's end brings show without opening the card
+  // again (#3019).
   const [heldHeight, setHeldHeight] = useState<number | null>(null);
   const body = useRef<HTMLDivElement>(null);
+  const fittedTo = useRef(refit);
+  useLayoutEffect(() => {
+    if (fittedTo.current === refit) return;
+    fittedTo.current = refit;
+    setHeldHeight(null);
+  }, [refit]);
   useLayoutEffect(() => {
     if (!open) {
       setHeldHeight(null);
@@ -593,7 +612,7 @@ function StateMark({ state }: { state: NoteState }) {
     case "notChecked":
       return <ClaimMarkIcon state="not-checked" className="mind-health-icon" />;
     case "notYetCited":
-      return <NotYetCitedIcon className="mind-health-icon" />;
+      return <NotYetCitedIcon className="mind-health-icon mind-health-icon--wide" />;
   }
 }
 

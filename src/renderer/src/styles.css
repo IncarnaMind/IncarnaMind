@@ -1358,6 +1358,10 @@
     padding: 1px;
     border-radius: 3px;
   }
+  /* The ring and its "+" (#3019). */
+  .mind-health-icon--wide {
+    width: 18px;
+  }
   :is(.check-row, .check-badge-mark):is([data-part="found"], [data-part="supported"])
     .mind-health-icon {
     padding: 0;

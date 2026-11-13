@@ -49,7 +49,7 @@ export function NotYetCitedRow({
         onClick={onNext}
       />
       <span className="check-row-mark">
-        <NotYetCitedIcon className="mind-health-icon" />
+        <NotYetCitedIcon className="mind-health-icon mind-health-icon--wide" />
       </span>
       <span className="check-row-text">{children}</span>
       <button

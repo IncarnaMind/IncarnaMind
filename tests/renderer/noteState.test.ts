@@ -146,6 +146,7 @@ describe("A note's state (D266)", () => {
       cantCheck: 0,
       notRecalculated: 0,
       needsCheck: 0,
+      notYetCited: 0,
     });
   });
 
