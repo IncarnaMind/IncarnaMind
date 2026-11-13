@@ -29,7 +29,7 @@ import { type DecisionProvider, decide, forcing } from "./decisions";
 import { writeFilingDocuments } from "./filings";
 import { languageRates, type RequestRun, rowRates } from "./rates";
 import { watchReasks } from "./reasks";
-import { SUPPORTED_TARGET, supportedShare, supportRates } from "./support";
+import { SUPPORTED_TARGET, supportedShare, supportRates, withoutSupportLines } from "./support";
 
 const ROOT = resolve(__dirname, "../..");
 
@@ -262,7 +262,12 @@ function report(
   const summaries = answered.flatMap((each) => (each.claims ? [each] : []));
   const covering = answered.filter((each) => each.covered !== undefined);
   const checked = researched.flatMap((each) =>
-    (each.support ?? []).map((sentence) => ({ id: each.id, model: each.model, ...sentence })),
+    (each.support ?? []).map((sentence) => ({
+      id: each.id,
+      model: each.model,
+      language: each.language,
+      ...sentence,
+    })),
   );
   return [
     "# Everyday requests",
@@ -286,16 +291,7 @@ function report(
               `| ${group.model} | ${group.language} | ${group.supported} of ${group.judged}${group.judged > 0 ? ` (${percent(group.supported, group.judged)})` : ""} | ${group.notChecked} |`,
           ),
           "",
-          ...(checked.some((each) => each.verdict !== "supported")
-            ? [
-                "Not Supported:",
-                "",
-                ...checked
-                  .filter((each) => each.verdict !== "supported")
-                  .map((each) => `- ${each.id} (${each.model}), ${each.verdict}: ${each.sentence}`),
-                "",
-              ]
-            : []),
+          ...withoutSupportLines(checked),
         ]
       : []),
     ...(dated.length > 0
