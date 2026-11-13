@@ -181,12 +181,18 @@ test.each([
     expect(named).not.toContain("Me is I");
     expect(named).not.toContain("Me is 我");
     expect(named).toContain("a named person is never the other side, 对方 or they");
+    expect(named).toContain(
+      "Anyone else never named is written with their mark's word in the language you write in, Them's only on a call between two sides: in English Them is the other side",
+    );
 
     const unnamed = JSON.stringify(context(false).messages);
     expect(unnamed).toContain(
       "in the first person (I, my; 我 in Chinese), even when the call gave their name",
     );
     expect(unnamed).toContain("in English Me is I, Them is the other side");
+    expect(unnamed).toContain(
+      "Someone never named is written with their mark's word in the language you write in, Them's only on a call between two sides: in English Me is I",
+    );
     expect(unnamed).toContain("in Simplified Chinese Me is 我");
     expect(unnamed).not.toContain("{{me}}");
   },

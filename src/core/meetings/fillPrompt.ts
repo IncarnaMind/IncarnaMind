@@ -103,8 +103,8 @@ const rules = (spoken: CallLanguage | null, named: boolean) => [
     ? `- Write in ${spoken}, the language of the call.`
     : "- Write in the language of the call.",
   named
-    ? `- The transcript's marks are not names. Me is always ${USER_TOKEN}. Anyone else never named is written with their mark's word in the language you write in: in English Them is the other side, and a numbered voice keeps its mark (Speaker 2); ${speakerWords(true).join("; ")}. Never call the User "the User" or 用户.`
-    : `- The transcript's marks are not names. Someone never named is written with their mark's word in the language you write in: in English Me is I, Them is the other side, and a numbered voice keeps its mark (Speaker 2); ${speakerWords(false).join("; ")}. Never call the User "the User" or 用户.`,
+    ? `- The transcript's marks are not names. Me is always ${USER_TOKEN}. Anyone else never named is written with their mark's word in the language you write in, Them's only on a call between two sides: in English Them is the other side, and a numbered voice keeps its mark (Speaker 2); ${speakerWords(true).join("; ")}. Never call the User "the User" or 用户.`
+    : `- The transcript's marks are not names. Someone never named is written with their mark's word in the language you write in, Them's only on a call between two sides: in English Me is I, Them is the other side, and a numbered voice keeps its mark (Speaker 2); ${speakerWords(false).join("; ")}. Never call the User "the User" or 用户.`,
   "- The other side (对方) is only for a call between two sides: someone across who was never named, or a line from across that cannot be put on one person. On a call among the User's own team, or where it is not clear the call has two sides or which side a line came from, nobody is the other side: a line nobody can place has no speaker.",
 ];
 
