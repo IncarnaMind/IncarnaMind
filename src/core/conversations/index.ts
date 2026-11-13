@@ -676,6 +676,19 @@ const readColumns = (read: AnswerRead | null): [string | null, string | null, nu
 
 /** A call whose window's command was still going on: it didn't finish. */
 function unfinished(call: AnswerToolCall): AnswerToolCall {
+  const check = call.mindChange?.selfCheck;
+  // Its sentences still being checked were marked stopped as their Note opened (#2830).
+  if (call.mindChange && check?.running) {
+    const { running: _running, ...ended } = check;
+    const checkable = check.checkable ?? check.cited;
+    return {
+      ...call,
+      mindChange: {
+        ...call.mindChange,
+        selfCheck: { ...ended, failed: checkable - check.checked - (check.leftOut ?? 0) },
+      },
+    };
+  }
   const done = call.command;
   if (!done?.window?.running) return call;
   const { command: _done, ...rest } = call;
@@ -901,7 +914,8 @@ export function createConversations(db: Database, now: () => string) {
 
   /**
    * A window's command still going on when an earlier run of the app ended, a Check for one,
-   * never says how it ended (#1421): its call says it didn't finish.
+   * never says how it ended (#1421): its call says it didn't finish. A check of what a call wrote
+   * says what it hadn't checked.
    */
   db.transaction(() => {
     for (const row of db.all<{ id: string; tool_calls: string }>(

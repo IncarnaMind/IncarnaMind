@@ -459,7 +459,9 @@ describe("Use all, where the text went (#1171 review)", { timeout: 60_000 }, () 
     const [change] = changesIn(rewritten);
     expect(change).toMatchObject({ mindId: made?.mindId, created: false });
     expect(change?.selfCheck).toMatchObject({ cited: 7, sent: 7, failed: 0 });
-    expect(lastResult(model)).toContain("with Citations were checked against them.");
+    expect(lastResult(model)).toContain(
+      "IncarnaMind checks these sentences against the Documents itself",
+    );
   });
 
   // protects=text the User typed in since isn't taken away at once by Use all: the rewrite waits for them, as changes that would remove their words wait (#880), and the model is told it waits; fails_when=the rewrite applies at once over their words; no_claim=the window's line, which shows what waits.

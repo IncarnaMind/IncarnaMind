@@ -31,6 +31,7 @@ import { appliedAsAsked } from "../../src/shared/askedChanges";
 import { namesOneOf, sourcesAsText } from "../../src/shared/namedSources";
 import { mindName } from "../../src/shared/naming";
 import { resolveProposals } from "../../src/shared/proposals";
+import { queryDatabase } from "../../tests/helpers/core";
 import { connectToMind } from "../../tests/helpers/mindClient";
 import { heading, note, writeMind } from "../../tests/helpers/minds";
 import { paragraph, wordFile } from "../../tests/helpers/word";
@@ -41,6 +42,7 @@ import type { EvalDocument } from "../lib/evaluationSet";
 import type { Library } from "../lib/library";
 import type { Log } from "../lib/log";
 import type { Hear } from "../lib/tokens";
+import { type WrittenSentence, writtenSentences } from "../lib/writtenSentences";
 import type { EverydayCase } from "./cases";
 import {
   documentsCovered,
@@ -178,6 +180,25 @@ export interface CaseResult {
   seconds: number;
   /** From the start to the last Answer's end, before it is checked. */
   answeredSeconds: number;
+  /** From the request to its Answer's end, with no wait for any check: null when it was never asked. */
+  repliedSeconds: number | null;
+  /**
+   * From the request to the end of the last request a check of what its Answer wrote sent, the
+   * same on main and on a head that checks after the reply: null when nothing it wrote was checked.
+   */
+  checkEndedSeconds: number | null;
+  /** From the request to its check's first request, as `checkEndedSeconds` reads them: null when none. */
+  checkStartedSeconds: number | null;
+  /** From the request to when what it wrote landed in the Note the User was in: null when nothing did. */
+  landedSeconds: number | null;
+  /**
+   * Each sentence its writes added, in the Note's order, and what its check's mark says, with when
+   * the mark was set in seconds from the request: the same on main and on a head that checks after
+   * the reply.
+   */
+  written: (Omit<WrittenSentence, "checkedAt"> & { markedSeconds: number | null })[];
+  /** Each request a check of what it wrote sent, in seconds from the request. */
+  checkRequests: CheckRequest[];
   error: string | null;
   /** The Answers' tokens, its earlier requests' included (not Edit with AI's or the judge's). */
   usage: AnswerUsage;
@@ -212,7 +233,11 @@ export async function ask(
     onScreen?: string[];
     quotes?: AskedQuote[];
   },
-  { choose, stopped }: { choose?: string; stopped?: () => void } = {},
+  {
+    choose,
+    stopped,
+    replied,
+  }: { choose?: string; stopped?: () => void; replied?: (at: number) => void } = {},
 ): Promise<ConversationAnswer> {
   const asked = await core.askInConversation(input);
   if (!asked.asked) throw new Error(`Not asked: ${JSON.stringify(asked)}`);
@@ -241,7 +266,7 @@ export async function ask(
     });
   });
   try {
-    return await answerOf(core, asked.conversation.id, asked.answerId);
+    return await answerOf(core, asked.conversation.id, asked.answerId, replied);
   } finally {
     answering();
   }
@@ -251,6 +276,7 @@ async function answerOf(
   core: Core,
   conversationId: string,
   answerId: string,
+  replied?: (at: number) => void,
 ): Promise<ConversationAnswer> {
   const ended = await new Promise<boolean>((done) => {
     const timer = setTimeout(() => end(false), ANSWER_TIMEOUT_MS);
@@ -261,6 +287,7 @@ async function answerOf(
     function end(inTime: boolean) {
       clearTimeout(timer);
       for (const stop of stops) stop();
+      if (inTime) replied?.(Date.now());
       done(inTime);
     }
   });
@@ -271,7 +298,91 @@ async function answerOf(
   const { messages } = await core.getConversation(conversationId);
   const answer = messages.find((message) => message.id === answerId);
   if (answer?.kind !== "answer") throw new Error("No Answer was kept.");
-  return answer;
+  // What it wrote is checked after the reply (#2830): the request is over once that check is, so the
+  // next one never runs beside it, and what is read of the Note is what the check left.
+  const waiting = Date.now();
+  const checked = await vi.waitFor(
+    async () => {
+      const { messages: now } = await core.getConversation(conversationId);
+      const found = now.find((message) => message.id === answerId);
+      if (found?.kind !== "answer") throw new Error("No Answer was kept.");
+      if (found.toolCalls.some((call) => call.mindChange?.selfCheck?.running))
+        throw new Error("What it wrote is still being checked.");
+      return found;
+    },
+    { timeout: ANSWER_TIMEOUT_MS, interval: 200 },
+  );
+  console.log(
+    `  waited ${((Date.now() - waiting) / 1000).toFixed(1)} s for what it wrote to be checked`,
+  );
+  return checked;
+}
+
+interface CheckRequest {
+  startSeconds: number;
+  endSeconds: number;
+  model: string;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  outcome: string;
+}
+
+/**
+ * The requests a check of what an Answer wrote sent since `since`, in seconds after it, from the
+ * timings the core keeps (its `written-check` step on both arms), in the order they started.
+ */
+function checkRequestsSince(dataDir: string, since: number): CheckRequest[] {
+  const rows = queryDatabase<{
+    started_at: string;
+    end_ms: number;
+    model_id: string;
+    input_tokens: number | null;
+    output_tokens: number | null;
+    outcome: string;
+  }>(
+    dataDir,
+    "SELECT started_at, end_ms, model_id, input_tokens, output_tokens, outcome FROM ai_timings WHERE kind = 'model' AND step = 'written-check' AND started_at >= ? ORDER BY started_at",
+    [new Date(since).toISOString()],
+  );
+  return rows.map((row) => {
+    const start = Date.parse(row.started_at);
+    return {
+      startSeconds: (start - since) / 1000,
+      endSeconds: (start + row.end_ms - since) / 1000,
+      model: row.model_id,
+      inputTokens: row.input_tokens,
+      outputTokens: row.output_tokens,
+      outcome: row.outcome,
+    };
+  });
+}
+
+/**
+ * When a write first lands from now on, in ms since the epoch: the text of the Note in front
+ * changes, or a Note none of `known` names appears. Null until one does.
+ */
+function landing(
+  core: Core,
+  doc: Y.Doc | null,
+  known: ReadonlySet<string>,
+): { at(): number | null; stop(): void } {
+  const blocks = doc?.getXmlFragment(MIND_CONTENT_FIELD);
+  const before = blocks?.toString();
+  let at: number | null = null;
+  const heard = () => {
+    if (at === null && blocks && blocks.toString() !== before) at = Date.now();
+  };
+  doc?.on("update", heard);
+  const made = core.on("minds.changed", (minds) => {
+    if (at === null && minds.some((each) => !known.has(each.id))) at = Date.now();
+  });
+  return {
+    at: () => at,
+    stop: () => {
+      doc?.off("update", heard);
+      made();
+    },
+  };
 }
 
 /**
@@ -589,6 +700,10 @@ export async function runCase(
   await decideFirst(each.request);
   const stoppedAtAsk = { last: false };
   asking?.();
+  const known = new Set((await core.listMinds()).map((each) => each.id));
+  const askedAt = Date.now();
+  const landed = landing(core, client?.doc ?? null, known);
+  let repliedAt: number | null = null;
   const answer = await ask(
     core,
     {
@@ -599,9 +714,26 @@ export async function runCase(
       onScreen,
       ...(quoted && { quotes: [quoted] }),
     },
-    { choose: each.answerAsk, stopped: () => (stoppedAtAsk.last = true) },
+    {
+      choose: each.answerAsk,
+      stopped: () => (stoppedAtAsk.last = true),
+      replied: (at) => {
+        repliedAt = at;
+      },
+    },
   );
   const answeredSeconds = (Date.now() - started) / 1000;
+  landed.stop();
+  const since = (at: number | null) => (at === null ? null : (at - askedAt) / 1000);
+  const repliedSeconds = since(repliedAt);
+  const landedSeconds = since(landed.at());
+  const checkRequests = checkRequestsSince(library.dataDir, askedAt);
+  const checkStartedSeconds = checkRequests[0]?.startSeconds ?? null;
+  const checkEndedSeconds =
+    checkRequests.length > 0 ? Math.max(...checkRequests.map((each) => each.endSeconds)) : null;
+  console.log(
+    `  landed at ${landedSeconds?.toFixed(1) ?? "-"} s, replied in ${repliedSeconds?.toFixed(1) ?? "-"} s; what it wrote was checked from ${checkStartedSeconds?.toFixed(1) ?? "-"} s to ${checkEndedSeconds?.toFixed(1) ?? "-"} s`,
+  );
   const asks = watch ? { ...watch.end() } : { again: 0, coverage: 0, citations: 0 };
   const watched = citing?.end();
   const forced = deciding ? deciding.forcing.end() : 0;
@@ -624,6 +756,7 @@ export async function runCase(
   const citedInMinds: string[] = [];
   const sourcesAsTextIn: string[] = [];
   const writtenInMinds: string[] = [];
+  const sentencesWritten: CaseResult["written"] = [];
   const mindDocs = new Map<string, Y.Doc>();
   const documentNames = scoped.map((document) => document.name);
   for (const mindId of changed) {
@@ -632,11 +765,25 @@ export async function runCase(
     mindDocs.set(mindId, written.doc);
     citedInMinds.push(...citedDocuments(written.doc));
     const was = mindId === mind?.id ? before : new Map<string, string>();
+    const writtenIds = new Set<string>();
     for (const [id, text] of acceptedTexts(written.doc, requests)) {
       sourcesAsTextIn.push(
         ...sourcesAsText(text, (source) => namesOneOf(source.name, documentNames)),
       );
-      if (was.get(id) !== text) writtenInMinds.push(text);
+      if (was.get(id) !== text) {
+        writtenInMinds.push(text);
+        writtenIds.add(id);
+      }
+    }
+    for (const { checkedAt, ...sentence } of writtenSentences(
+      written.doc.getXmlFragment(MIND_CONTENT_FIELD),
+      writtenIds,
+    )) {
+      sentencesWritten.push({
+        ...sentence,
+        place: sentencesWritten.length,
+        markedSeconds: since(checkedAt === null ? null : Date.parse(checkedAt)),
+      });
     }
   }
   // The judge reads the record as the app's own claim check does: what the window applies at once.
@@ -746,6 +893,12 @@ export async function runCase(
     changes,
     seconds: (Date.now() - started) / 1000,
     answeredSeconds,
+    repliedSeconds,
+    checkEndedSeconds,
+    checkStartedSeconds,
+    landedSeconds,
+    written: sentencesWritten,
+    checkRequests,
     error: answer.status === "failed" ? `${answer.errorKind}: ${answer.errorMessage}` : null,
     usage,
     droppedMarkers,

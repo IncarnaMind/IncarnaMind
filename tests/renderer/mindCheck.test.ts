@@ -575,6 +575,18 @@ describe("A Check another window runs or plans", () => {
     expect(setCheckCardOpen).toHaveBeenCalledWith("tab", true);
   });
 
+  // protects=a Check pressed while a check runs in the Note, such as one of what the assistant wrote, opens the card that shows it with Stop (#2830); fails_when=the press does nothing the User can see, or starts a second run; no_claim=what the card shows.
+  test("a Check pressed while the Note's check runs opens its card and starts nothing", async () => {
+    running.current.mind = { requestId: "write", action: "whole-mind" };
+    const { startCheckAsking } = await import("../../src/renderer/src/mindCheck");
+    const { setCheckCardOpen } = await import("../../src/renderer/src/checks");
+
+    expect(await startCheckAsking("mind")).toEqual({ kind: "running" });
+    expect(setCheckCardOpen).toHaveBeenCalledWith("tab", true);
+    expect(bridge.holdMindCheck).not.toHaveBeenCalled();
+    expect(bridge.checkMind).not.toHaveBeenCalled();
+  });
+
   test("the core's running result is handed back, so a window's card never says Done", async () => {
     bridge.checkMind.mockResolvedValue({ kind: "running" });
     const { startCheck } = await import("../../src/renderer/src/mindCheck");

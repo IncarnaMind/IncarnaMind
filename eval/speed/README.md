@@ -111,7 +111,9 @@ Each kind's effort in the catalog (`RequestQuirks.effort`) is chosen against the
 `INCARNAMIND_EVAL_SPEED_CHECK_TIMES=note,write,answer` times each kind of check from the User's action instead of the flows above (`checkTimes.speed.ts`), in a Library of an employment agreement, membership rules and the example's Documents:
 
 - `note`: Check this Note on a Note of 10 sentences (`eval/repeats`' `en` and `en-paraphrases`, or their Chinese twins), the claims named first as the app names them.
-- `write`: the assistant writes 30 cited paragraphs into a new Note, and the first of them its check reads are checked before they land. Its times are from the ask; the scripted write lands at 0.1–0.3 s.
+- `write`: the assistant writes 30 cited paragraphs into a new Note, which are checked once they land, the reply not waiting (#2830). Its times are from the ask, and its end is its check's; the scripted write lands at 0.1–0.3 s.
+- `write-mixed`: the same with 20 paragraphs, the last 10 with no Citation, so the claims sort runs beside the cited sentences' checks (#2830).
+- `writes`: three new Notes of 10 cited paragraphs each in one turn, whose checks run one after another (#2830).
 - `answer`: an Answer of 30 cited sentences, judged in batches once it ends (#2311).
 - `asked`: the gating set's Questions (`eval/retrieval`), the `run`th of each language, each answered by the model under test and judged once it ends: how its check fares on its own Answers (#2951).
 
