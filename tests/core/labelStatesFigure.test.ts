@@ -486,7 +486,7 @@ describe("A table's own heading lines and labels give its rows their unit (#2997
 });
 
 describe("Wrong sentences the check doesn't catch yet (#2997)", { timeout: 120_000 }, () => {
-  // protects=known wrong ✓, pinned at what they read so the next change that touches them shows it: a number of a count column or another row given the unit a caption, a unit line or a heading states for the table ("二厂产量为31千克。" citing the 31 under 人数, "2024年产量为31千克。" citing the 员工人数 row), the same with no column or row named, or with the count column named in that unit; another row's number under labelled lines; 度 as a temperature, an angle or against kilowatt-hours; and two that main's own heading rule ticks (a column heading of a table glued above, the other of two labelled columns). They are wrong sentences the check doesn't catch yet (#2997); fails_when=any reads otherwise without its kind being fixed and this list changed; no_claim=that they are right.
+  // protects=known wrong ✓, pinned at what they read so the next change that touches them shows it: a number of a count column or another row given the unit a caption, a unit line, a heading or prose directly over the table states for it ("二厂产量为31千克。" citing the 31 under 人数, "2024年产量为31千克。" citing the 员工人数 row), the same with no column or row named, or with the count column named in that unit; another row's number under labelled lines or under a caption over a column-wise table ("二厂产量为54吨。" citing 一厂's 54); 度 as a temperature, an angle or against kilowatt-hours; and two that main's own heading rule ticks (a column heading of a table glued above, the other of two labelled columns). They are wrong sentences the check doesn't catch yet (#2997); fails_when=any reads otherwise without its kind being fixed and this list changed; no_claim=that they are right.
   test("known wrong ✓", async () => {
     await readsAsWanted([
       [
@@ -576,6 +576,18 @@ describe("Wrong sentences the check doesn't catch yet (#2997)", { timeout: 120_0
       [
         "Table 3. Sites (USD millions)\nSite\tRevenue\tStaff\nA\t54\t77\nB\t62\t31",
         "B\t62\t31",
+        "Site B's revenue was $31 million.",
+        TICK,
+      ],
+      [
+        "本报告金额以万元计。\n厂区\t产值\t人数\n一厂\t54\t12\n二厂\t57\t31",
+        "二厂\t57\t31",
+        "二厂产值为31万元。",
+        TICK,
+      ],
+      [
+        "All amounts are in USD millions.\nSite\tRevenue\tStaff\nA\t54\t12\nB\t57\t31",
+        "B\t57\t31",
         "Site B's revenue was $31 million.",
         TICK,
       ],
@@ -712,6 +724,13 @@ describe("Wrong sentences the check doesn't catch yet (#2997)", { timeout: 120_0
         TICK,
       ],
       ["一厂产量（吨）: 54\n二厂产量（吨）: 62", "一厂产量（吨）: 54", "二厂产量为54吨。", TICK],
+      ["表3 各厂产量（吨）\n厂区\t产量\n一厂\t54\n二厂\t31", "一厂\t54", "二厂产量为54吨。", TICK],
+      [
+        "Table 3. Output by site (tonnes)\nSite\tOutput\nA\t54\nB\t31",
+        "A\t54",
+        "Site B's output was 54 tonnes.",
+        TICK,
+      ],
       ["室温：26度\n用电：60度", "室温：26度", "室内用电为26千瓦时。", TICK],
       ["用电：26千瓦时\n室温：22度", "用电：26千瓦时", "室温为26度。", TICK],
       ["夹角：30度\n用电：60度", "夹角：30度", "用电为30千瓦时。", TICK],
