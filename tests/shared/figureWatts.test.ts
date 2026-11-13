@@ -49,3 +49,30 @@ describe("the watt and the watt-hour by themselves (#2997)", () => {
     expect(writesMeasure("屋顶用了31瓦片。", "power", unit("瓦"))).toBe(false);
   });
 });
+
+describe("an English W before a capital or a number (#2997)", () => {
+  // protects=a W after a number is watts before a capitalised word or a number too, where the words after it are no address, so "It draws 60 W. The case is steel." and "a 60 W LED" give 60 W; fails_when=either reads a plain 60; no_claim=a W before a lower-case word, which reads as before.
+  test.each([
+    ["It draws 60 W. The case is steel.", [["60 W", "W"]]],
+    ["The lamp is a 60 W LED.", [["60 W", "W"]]],
+    ["Its 60 W Philips bulb is dim.", [["60 W", "W"]]],
+    [
+      "Lamps of 60 W 230 V",
+      [
+        ["60 W", "W"],
+        ["230", "plain"],
+      ],
+    ],
+  ])("%s reads watts", (text, figures) => {
+    expect(read(text)).toEqual(figures);
+  });
+
+  // protects=a W before a street's name and type, with or without its dot or an ordinal, is West, so the number is a plain house number; fails_when="100 W 42nd Street" reads 100 watts; no_claim=a street written without its type ("31 W Main").
+  test.each([
+    ["The office is at 100 W 42nd Street.", [["100", "plain"]]],
+    ["The office is at 31 W. Main St.", [["31", "plain"]]],
+    ["The office is at 31 W Lake Shore Drive.", [["31", "plain"]]],
+  ])("%s reads no watts", (text, figures) => {
+    expect(read(text)).toEqual(figures);
+  });
+});
