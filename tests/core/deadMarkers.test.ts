@@ -167,9 +167,9 @@ describe("A Citation marker never shows without a Citation behind it", { timeout
 
       expect(requests).toBe(0);
       expect(answer.text).toBe(written);
-      expect(answer.citations.map(({ marker, quote }) => [marker, quote])).toEqual([
-        [1, lines[0]],
-        [2, lines[1]],
+      expect(answer.citations.map(({ marker, quote, check }) => [marker, quote, check])).toEqual([
+        [1, lines[0], "found"],
+        [2, lines[1], "found"],
       ]);
       expect(markersWithoutCitation(answer)).toEqual([]);
     },
@@ -312,7 +312,9 @@ describe("A Citation marker never shows without a Citation behind it", { timeout
 
       expect(requests).toBe(1);
       expect(answer.text).toBe(text);
-      expect(answer.citations.map(({ marker, quote }) => [marker, quote])).toEqual([[2, line]]);
+      expect(answer.citations.map(({ marker, quote, check }) => [marker, quote, check])).toEqual([
+        [2, line, "found"],
+      ]);
       expect(markersWithoutCitation(answer)).toEqual([]);
     },
   );
