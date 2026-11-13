@@ -235,14 +235,14 @@ const wordsOf = (text: string) =>
     .replace(/[^\p{L}\p{N}]+/gu, " ")
     .trim();
 
-/** Whether `evidence` gives words of `cited`, a Citation the sentence has, from its Document. */
+/** Whether `cited`, a Citation the sentence has, holds the words `evidence` gives, from its Document. */
 function quotesItsCitation(cited: CheckedCitation, evidence: Citation): boolean {
   const sameDocument = cited.passageId
     ? cited.passageId === evidence.passageId
     : wordsOf(cited.documentName) === wordsOf(evidence.documentName);
   const given = wordsOf(cited.quote);
   const found = wordsOf(evidence.quote);
-  return sameDocument && found !== "" && (given.includes(found) || found.includes(given));
+  return sameDocument && found !== "" && given.includes(found);
 }
 
 /**

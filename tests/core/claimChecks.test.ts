@@ -281,10 +281,12 @@ describe("Check against Documents", () => {
 
   // protects=a reply that changes its verdict to Supported is read as neither, Not checked (#2817), and one that lowers it reads as its later whole block (#3029, #3019); fails_when=a later Supported is taken after a block that said otherwise, or a later lowering is lost; no_claim=none beyond protects.
   test.each([
-    ["Verdict: unsupported", "unsupported"],
-    ["Verdict: supported", "not-checked"],
-  ])("a reply that changes its verdict to %s reads as %s", async (later, state) => {
-    const reply = `Verdict: contradicted\nP1 is about another harbour, so it doesn't bear on this.\n${later}`;
+    ["Verdict: contradicted", "Verdict: unsupported", "unsupported"],
+    ["Verdict: contradicted", "Verdict: supported", "not-checked"],
+    ["结论：contradicted", "结论：unsupported", "unsupported"],
+    ["结论：contradicted", "结论：supported", "not-checked"],
+  ])("a reply that changes %s to %s reads as %s", async (earlier, later, state) => {
+    const reply = `${earlier}\nP1 is about another harbour, so it doesn't bear on this.\n${later}`;
     const plans = { [UNSUPPORTED]: { reply: { text: reply } } };
     const { core, client, check } = await mindWith([UNSUPPORTED], checkingModel(plans));
     await check();

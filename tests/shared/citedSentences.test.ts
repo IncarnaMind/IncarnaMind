@@ -244,6 +244,20 @@ describe("An English sentence that quotes two sentences is one sentence (#3019)"
     expect(split(answer).map(([sentence]) => sentence)).toEqual(sentences);
   });
 
+  // protects=a straight mark that closes nothing (an inch mark) leaves the next quotation to be read, and a Chinese closing mark between Han characters closes its quotation; fails_when=the real quotation is skipped, or a Chinese closing mark is taken for an apostrophe and joins the next English sentence; no_claim=none beyond protects.
+  test.each<[string, string[]]>([
+    [
+      'The display is 15 inches wide (15")[^1]. The report says "Costs fell. Revenue rose."[^2]',
+      ['The display is 15 inches wide (15").', 'The report says "Costs fell. Revenue rose."'],
+    ],
+    [
+      "报告称‘收入增长’但没有给出数据[^1]. Costs fell sharply in May[^2]. Revenue held up in June[^3].",
+      ["报告称‘收入增长’但没有给出数据.", "Costs fell sharply in May.", "Revenue held up in June."],
+    ],
+  ])("a mark that closes nothing, or a Chinese one, is read as it is: %s", (answer, sentences) => {
+    expect(split(answer).map(([sentence]) => sentence)).toEqual(sentences);
+  });
+
   test.each([
     [
       'He wrote "Stop here[^1]. Go on with the next step[^2].',

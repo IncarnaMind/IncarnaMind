@@ -34,6 +34,7 @@ describe("A check reply's own record lines", () => {
       "Citation 6 (Mamba, p. 1): “linear scaling in sequence length”",
       '- marker 7: passage P1, location "p. 4", quote "Weighted keys O(n2 d) O(1) O(1)" and "Recurrent O(n d2) O(n) O(n)"',
       'Cite: <invoke name="cite"> <parameter name="citations">[{"marker":8,"passage":"P6","location":"p. 14","quote":"a shorter route between positions is our explanation"}]</parameter> </invoke>',
+      '{"citations":[{"marker":9,"passage":"P2","pageFrom":4,"pageTo":5,"quote":"Recurrent O(n d2) O(n) O(n)"}]}',
     ].join("\n");
     expect(writtenRecords(reply)).toEqual([
       {
@@ -84,6 +85,13 @@ describe("A check reply's own record lines", () => {
         document: null,
         location: "p. 14",
         quote: "a shorter route between positions is our explanation",
+      },
+      {
+        marker: 9,
+        passage: "P2",
+        document: null,
+        location: "pp. 4–5",
+        quote: "Recurrent O(n d2) O(n) O(n)",
       },
     ]);
   });
@@ -204,5 +212,19 @@ describe("A Supported part its check recorded through cite", () => {
       ],
     });
     expect(result.verdict).toBe("supported");
+  });
+});
+
+describe("A Citation that holds fewer words than the quote that backs the part", () => {
+  // protects=a Citation that quotes only part of the words the check's record gives ("The tide turns" for "The tide turns twice a day.") isn't the part's own Citation, so the part reads Not checked, "found-elsewhere"; fails_when=shared words alone count as the sentence's own Citation and it reads Supported; no_claim=none beyond protects.
+  test("reads Not checked, found elsewhere", async () => {
+    const result = await checked(
+      "Tides turn twice in a day here.",
+      `[^1]: Tides, “${LINE}”`,
+      "The tide turns",
+    );
+    expect(result.verdict).toBe("not-checked");
+    if (result.verdict !== "not-checked") return;
+    expect(result.reason).toBe("found-elsewhere");
   });
 });

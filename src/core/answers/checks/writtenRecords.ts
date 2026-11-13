@@ -46,6 +46,9 @@ const loose = (text: string) =>
     .replace(/[^\p{L}\p{N}]+/gu, " ")
     .trim();
 
+const pages = (from: string | undefined, to: string | undefined) =>
+  to ? `pp. ${from}–${to}` : `p. ${from}`;
+
 function fromLine(line: string): WrittenRecord[] {
   let text = line.replace(LINE_START, "");
   for (let heading = HEADING.exec(text); heading; heading = HEADING.exec(text))
@@ -81,9 +84,7 @@ function fromLine(line: string): WrittenRecord[] {
             marker,
             passage,
             document: passage === null && named ? named : null,
-            location: page
-              ? `p${page[2] ? "p" : ""}. ${page[1]}${page[2] ? `–${page[2]}` : ""}`
-              : null,
+            location: page ? pages(page[1], page[2]) : null,
             quote,
           },
         ];
@@ -100,18 +101,20 @@ function fromJson(reply: string): WrittenRecord[] {
     }
     return (Array.isArray(given) ? given : []).flatMap((each): WrittenRecord[] => {
       if (!isRecord(each)) return [];
-      const { marker, passage, location, quote } = each;
+      const { marker, passage, location, quote, pageFrom, pageTo } = each;
       if (typeof marker !== "number" || typeof quote !== "string" || quote.trim() === "") return [];
       const id =
         typeof passage === "string" ? PASSAGE.exec(passage)?.[1]?.toUpperCase() : undefined;
       if (!id) return [];
       const page = typeof location === "string" ? PAGE.exec(location) : null;
+      const from = typeof pageFrom === "number" ? String(pageFrom) : undefined;
+      const to = typeof pageTo === "number" && pageTo !== pageFrom ? String(pageTo) : undefined;
       return [
         {
           marker,
           passage: id,
           document: null,
-          location: page ? `p. ${page[1]}` : null,
+          location: page ? pages(page[1], page[2]) : from ? pages(from, to) : null,
           quote: quote.trim(),
         },
       ];

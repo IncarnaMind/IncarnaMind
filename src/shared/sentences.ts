@@ -105,9 +105,11 @@ function spaceBeforeNextWord(text: string, at: number): boolean {
   return false;
 }
 
-/** An apostrophe between two letters ("didn’t") closes no quotation. */
+/** An apostrophe between two letters of a word ("didn’t") closes no quotation; Chinese has none. */
 const apostrophe = (text: string, at: number) =>
-  LETTER.test(text.charAt(at - 1)) && LETTER.test(text.charAt(at + 1));
+  [text.charAt(at - 1), text.charAt(at + 1)].every(
+    (char) => LETTER.test(char) && !CHINESE.test(char),
+  );
 
 /** Whether a space comes after `at` and then anything more: a new sentence, whatever it opens with. */
 function spaceBeforeMore(text: string, at: number): boolean {
@@ -178,7 +180,7 @@ function enclosedQuotations(text: string): Enclosed[] {
         lastStopEndsSentence: spaceBeforeMore(text, close + 1),
       });
       at = close;
-    } else if (close !== null) at = close;
+    } else if (close !== null && !(open === '"' && ENGLISH_MARKS.has(open))) at = close;
   }
   return found;
 }
