@@ -289,7 +289,7 @@ describe("A press during the call", { timeout: 120_000 }, () => {
     expect(branch.marks).toMatchObject({ listed: 1, listedChecked: 0 });
   });
 
-  // protects=a gate counts each sentence check reply the check couldn't read, though its request finished: two answers in one reply read none of its sentences, a whole one reads them all; fails_when=the switch reads a reply otherwise than the check does, or keeps a reply that isn't the check's; no_claim=how often a model writes two answers.
+  // protects=a gate counts each sentence check reply the check couldn't read, though its request finished, reading it as the check does: a corrected second answer reads its sentences (#3029), a correction cut short reads none, a whole one reads them all; fails_when=the switch reads a reply otherwise than the check does, or keeps a reply that isn't the check's; no_claim=how often a model writes two answers.
   test("the arm switch keeps each check reply as the check reads it", async () => {
     const entry = (number: number) =>
       `{"number":${number},"kind":"fact","verdict":"supported","roles":"same","time":"same","quoted":"states","says":"So."}`;
@@ -300,6 +300,10 @@ describe("A press during the call", { timeout: 120_000 }, () => {
       [
         sentenceBatchInstructions("en"),
         `{"sentences":[${entry(1)}]}\n\nWait, both sentences:\n\n${whole}`,
+      ],
+      [
+        sentenceBatchInstructions("en"),
+        `{"sentences":[${entry(1)}]}\n\nWait, both sentences:\n\n{"sentences":[${entry(1)},`,
       ],
       ["You answer the User's Question.", whole],
     ];
@@ -336,7 +340,8 @@ describe("A press during the call", { timeout: 120_000 }, () => {
 
     expect(switches.takeChecks()).toEqual([
       { sentences: 2, read: 2 },
-      { sentences: 2, read: 0, reply: replies[1]?.[1] },
+      { sentences: 2, read: 2 },
+      { sentences: 2, read: 0, reply: replies[2]?.[1] },
     ]);
   });
 
