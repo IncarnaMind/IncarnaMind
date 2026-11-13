@@ -339,6 +339,7 @@ describe("The count over run files", () => {
       listNumbers: {
         differing: { citations: 0, judged: 0, passed: 0 },
         oneSided: { citations: 0, judged: 0, passed: 0 },
+        sharesLine: { citations: 0, judged: 0, passed: 0 },
         unplaced: 0,
       },
     };
