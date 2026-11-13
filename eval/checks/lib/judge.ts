@@ -80,6 +80,8 @@ export function causeOf(
   judge: readonly JudgeRequest[] | undefined,
 ): NotCheckedCause {
   if (code === "malformed") return "malformed";
+  // The core names a number no quote gives itself (#3022).
+  if (code === "number-unquoted" || code === "number-not-worked-out") return "calculation-not-made";
   if (code !== "no-evidence") return "other";
   const replies = judge ?? [];
   return !quoteTurnedAway(replies) && calculationOwed(replies)

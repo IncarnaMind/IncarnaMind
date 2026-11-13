@@ -1415,7 +1415,7 @@ describe("literal sentence parts", () => {
     const unsolved = await run(claim);
     expect(unsolved.result.parts?.[1]).toMatchObject({
       verdict: "not-checked",
-      reason: "no-evidence",
+      reason: "number-not-worked-out",
     });
     // Paired: with every quantity it states settled, the part stands on its working.
     const settled = await run("The leverage was 3.25x.");
@@ -1898,7 +1898,7 @@ describe("literal sentence parts", () => {
         expect(replies.find((reply) => reply.tool === "calculate")?.text).toMatch(
           /^Recorded \[=1\] = /,
         );
-        expect(result).toMatchObject({ verdict: "not-checked", reason: "no-evidence" });
+        expect(result).toMatchObject({ verdict: "not-checked", reason: "number-not-worked-out" });
         expect(result.parts?.[0]?.calculation).toBeNull();
       },
     );
@@ -2012,7 +2012,7 @@ describe("literal sentence parts", () => {
         expect(
           calls.flatMap((call) => call.results).find((reply) => reply.tool === "calculate")?.text,
         ).toMatch(/^Recorded \[=1\] = /);
-        expect(result).toMatchObject({ verdict: "not-checked", reason: "no-evidence" });
+        expect(result).toMatchObject({ verdict: "not-checked", reason: "number-not-worked-out" });
         expect(result.parts?.[0]?.calculation).toBeNull();
       },
     );

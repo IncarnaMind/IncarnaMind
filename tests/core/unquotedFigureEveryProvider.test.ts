@@ -194,7 +194,12 @@ describe.each(Object.entries(PROVIDERS))("%s", (_, { input, calculates }) => {
       Object.fromEntries(rows.map((row) => [row.claim, checked.get(row.claim)?.ended]));
 
     expect(ended(WRONG)).toEqual(
-      Object.fromEntries(WRONG.map((row) => [row.claim, "not-checked: no-evidence"])),
+      Object.fromEntries(
+        WRONG.map((row) => [
+          row.claim,
+          `not-checked: ${calculates ? "number-not-worked-out" : "number-unquoted"}`,
+        ]),
+      ),
     );
     expect(ended(KEPT)).toEqual(Object.fromEntries(KEPT.map((row) => [row.claim, "supported"])));
 
@@ -292,13 +297,13 @@ describe("On the model on this computer, which the check doesn't offer calculate
     ["Revenue grew 15% year on year.", GROWTH, "Revenue\t12"],
     ["Seventeen deals worth £880k were at the proposal stage.", PIPELINE, "Proposal\t17\t830"],
   ])("no cell holds %s: it is Not checked", async (claim, contents, quote) => {
-    expect(await ended(claim, contents, quote)).toBe("not-checked: no-evidence");
+    expect(await ended(claim, contents, quote)).toBe("not-checked: number-unquoted");
   });
 
   test.each([
     ["Growth was 2–3%.", "supported"],
-    ["Growth was 2–9%.", "not-checked: no-evidence"],
-    ["增长率为2%至9%。", "not-checked: no-evidence"],
+    ["Growth was 2–9%.", "not-checked: number-unquoted"],
+    ["增长率为2%至9%。", "not-checked: number-unquoted"],
   ])("a range is held only with both its ends: %s", async (claim, verdict) => {
     const line = "Growth was 2–3%.";
     expect(await ended(claim, `Growth\n${line}\n`, line)).toBe(verdict);

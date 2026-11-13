@@ -1448,6 +1448,10 @@ export const zhCN = {
   "claim.reason.empty": "模型的回复是空的。",
   "claim.reason.cut-short": "模型的回复达到长度上限，已截断。",
   "claim.reason.no-evidence": "不显示结论：模型给出的引文不在那个文档中。",
+  "claim.reason.number-unquoted":
+    "不显示结论：找到的引文都没有给出这个数字，当前模型也无法用文档里的数字算出它。请对照文档核实。",
+  "claim.reason.number-not-worked-out":
+    "不显示结论：找到的引文都没有给出这个数字，也没能用文档里的数字算出它。请对照文档核实。",
   "claim.reason.unread": "不显示结论：模型没有读取你的文档。",
   "claim.reason.other-cell": "不显示结论：模型给这个数字写的是文档表格中另一行或另一列的名称。",
   "claim.reason.analysis": "来自数据分析 · 未重新计算",

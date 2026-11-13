@@ -1494,6 +1494,10 @@ export const en = {
   "claim.reason.empty": "The model gave an empty reply.",
   "claim.reason.cut-short": "The model’s reply reached its length limit and was cut short.",
   "claim.reason.no-evidence": "Verdict hidden: the model’s quote isn’t in that Document.",
+  "claim.reason.number-unquoted":
+    "Verdict hidden: no quote found gives this number, and this model can’t work it out from the Documents’ numbers. Compare it with your Document.",
+  "claim.reason.number-not-worked-out":
+    "Verdict hidden: no quote found gives this number, and it couldn’t be worked out from the Documents’ numbers. Compare it with your Document.",
   "claim.reason.unread": "Verdict hidden: the model didn’t read your Documents.",
   "claim.reason.other-cell":
     "Verdict hidden: the model named another row or column of the Document’s table for this number.",

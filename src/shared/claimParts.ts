@@ -42,6 +42,8 @@ const FAILURES: Record<ClaimCheckFailure, true> = {
   malformed: true,
   empty: true,
   "no-evidence": true,
+  "number-unquoted": true,
+  "number-not-worked-out": true,
   unread: true,
   "rate-limit": true,
   "cost-cap": true,

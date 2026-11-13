@@ -1213,7 +1213,7 @@ describe("Checking a figure in another currency or unit", { timeout: 30_000 }, (
     // the check doesn't offer calculate: no quote states £42,000 (#3022).
     expect(await check("The annual salary is $54,000 (about £42,000).")).toMatchObject({
       verdict: "not-checked",
-      reason: "no-evidence",
+      reason: "number-unquoted",
     });
 
     await core.updateSettings({ user: { language: "zh-CN" } });
