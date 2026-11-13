@@ -874,6 +874,8 @@ for (const language of ["en", "zh-CN"] as const) {
 
     test("a press kept with a button this version doesn't know is still a press: Check again's estimate reads without the earlier call's Transcript", async () => {
       const { core, dataDir, pressIds } = await pressedBeforeFirstLine(language);
+      // No operation of this version writes a button it doesn't have: the record of a button
+      // renamed or removed later, or written by another version, is made in storage.
       queryDatabase(
         dataDir,
         "UPDATE conversation_messages SET steps = json_set(steps, '$.pressed', ?) WHERE id = ? RETURNING id",
@@ -939,6 +941,134 @@ for (const language of ["en", "zh-CN"] as const) {
       judging.now = true;
       await core.checkAnswerAgain(ids);
       expect(batches.some((batch) => batch.prompt.includes(said.line))).toBe(true);
+    });
+  });
+
+  describe(`${language}: another call's Transcript with no Passages at the press`, {
+    timeout: 180_000,
+  }, () => {
+    /**
+     * The live call's Transcript text once some of it is read. Not `transcriptRead`: with another
+     * call's Note deleted, the live Transcript's Document isn't read again to the file's last line.
+     */
+    const heardSome = (core: Core, documentId: string) =>
+      vi.waitFor(
+        async () => {
+          const text = await textOf(core, documentId);
+          expect(text.trim()).not.toBe("");
+          return text;
+        },
+        { timeout: 20_000 },
+      );
+
+    test("its Note brought back while the press's reply is written: the press's search finds nothing of it", async () => {
+      let reached = () => {};
+      const paused = new Promise<void>((resolve) => {
+        reached = resolve;
+      });
+      let release = () => {};
+      const heldUntil = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const setup = await folderCore(language, {
+        model: (calls) =>
+          scriptedModel((call) => {
+            calls.push(call);
+            if (
+              call.tools.includes("search_documents") &&
+              !call.results.some((result) => result.tool === "search_documents")
+            ) {
+              return {
+                calls: [
+                  {
+                    tool: "search_documents",
+                    input: { query: LINES[language].query },
+                    streamInput: true,
+                  },
+                ],
+                pause: { after: 1, until: heldUntil, reached },
+              };
+            }
+            return { text: "★ Let me check the hosting options\n→ keeps it moving" };
+          }),
+      });
+      const { core, dataDir, clock, calls } = setup;
+      const earlier = await setup.call();
+      const stopped = await stoppedMeeting(core, dataDir, earlier.meeting.id);
+      const earlierText = await textOf(core, stopped.document.id);
+      await core.deleteMind(earlier.meeting.mindId);
+      clock.advance(3 * HOUR);
+      await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+      // A Note in no Folder: the press has no Search scope.
+      const { meeting: live, heard } = await setup.call(null);
+      const liveText = await heardSome(core, heard.documentId ?? "");
+      const earlierOnly = (line: string) => earlierText.includes(line) && !liveText.includes(line);
+
+      const from = calls.length;
+      const pressed = await core.askMeetingHelp({
+        meetingId: live.id,
+        kind: "say",
+        conversationId: null,
+      });
+      if (!pressed.asked) throw new Error("Not pressed.");
+      await paused;
+      await core.restore([{ kind: "mind", id: earlier.meeting.mindId }]);
+      await vi.waitFor(async () => {
+        const found = await core.findPassages({
+          text: LINES[language].query,
+          mindId: null,
+          scope: null,
+        });
+        expect(found.some((each) => each.documentId === stopped.document.id)).toBe(true);
+      });
+      release();
+      await answerEnded(core, pressed.answerId);
+
+      const sent = calls.slice(from).map(sentBy);
+      expect(sent.length).toBeGreaterThan(1);
+      for (const each of sent) {
+        expect(
+          transcriptPassages(each, stopped.document.name).filter((passage) =>
+            passage.lines.some(earlierOnly),
+          ),
+        ).toEqual([]);
+      }
+      const { answer } = await turnOf(core, {
+        conversationId: pressed.conversation.id,
+        answerId: pressed.answerId,
+      });
+      expect(answer.citations.filter((each) => each.documentId === stopped.document.id)).toEqual(
+        [],
+      );
+    });
+
+    test("with nothing else to search, a press is sent what main's is, before the call's first line and after it", async () => {
+      const setup = await folderCore(language, { only: 4, terms: false });
+      const { core, dataDir, calls } = setup;
+      const earlier = await setup.call();
+      await stoppedMeeting(core, dataDir, earlier.meeting.id);
+      await core.deleteMind(earlier.meeting.mindId);
+      await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+      const live = await core.createMeeting({ folderId: null });
+      await core.startMeeting({ meetingId: live.id, systemAudio: true });
+      await until(core, live.id, (transcript) => transcript.state === "live");
+
+      const bothWays = async () => {
+        setup.unmark(false);
+        const branch = await press(core, calls, live.id, "say");
+        setup.unmark(true);
+        const main = await press(core, calls, live.id, "say");
+        setup.unmark(false);
+        return { branch, main };
+      };
+      const before = await bothWays();
+      expect(before.branch).toEqual(before.main);
+
+      setup.record(9 * SECOND);
+      const heard = await until(core, live.id, (transcript) => transcript.lines >= 8);
+      await heardSome(core, heard.documentId ?? "");
+      const after = await bothWays();
+      expect(after.branch).toEqual(after.main);
     });
   });
 }

@@ -4275,8 +4275,13 @@ export function createAnswers(options: AnswersOptions) {
     if (options.callsUnmarked?.()) return scope;
     const others = new Set(options.otherCallTranscripts?.(mindId) ?? []);
     if (others.size === 0) return scope;
-    const within = scope ?? options.documents.searchableBySize(null).map((each) => each.id);
-    return within.some((id) => others.has(id)) ? within.filter((id) => !others.has(id)) : scope;
+    // Every Document, listed now: another call's Transcript whose Passages come later stays out.
+    if (scope === null) {
+      return options.documents
+        .searchableBySize(null)
+        .flatMap((each) => (others.has(each.id) ? [] : [each.id]));
+    }
+    return scope.some((id) => others.has(id)) ? scope.filter((id) => !others.has(id)) : scope;
   };
 
   /**
@@ -4304,8 +4309,9 @@ export function createAnswers(options: AnswersOptions) {
     const { conversation, question, answer } = turn;
     const callOnly = help !== null && HELP_DOCUMENTS[help] === null;
     const documentIds = help && mind ? pressScope(scope, mind.mindId) : scope;
+    // With no Search scope there is no chosen scope to be empty, listed or not.
     const emptyScope =
-      documentIds === scope
+      documentIds === scope || scope === null
         ? scopeEmpty
         : documentIds !== null && options.documents.searchableCount(documentIds) === 0;
     // Each press of a help button stands alone: an earlier suggestion would only steer this one.
