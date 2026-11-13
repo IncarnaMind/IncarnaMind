@@ -4634,6 +4634,8 @@ export const en = {
   "citation.reason.monthly-limit-unfinished.unnamed":
     "Not checked: your monthly limit was reached before this sentence’s check finished.",
   "citation.reason.notChecked": "Whether the quote supports this sentence couldn’t be checked.",
+  "citation.reason.otherCall":
+    "The quote is from another call. A call help reply is checked against its own call and your Documents.",
   "citation.reason.small-model":
     "This model on this computer is too small to judge whether the quote supports the sentence.",
   "citation.where": "{document}, {location}",
@@ -7515,6 +7517,7 @@ export const en = {
   "meetings.help.youSaid": "You said: “{text}”",
   "meetings.help.said": "“{text}”",
   "meetings.help.readFrom": "Read from what they said",
+  "meetings.help.started": "started {time}",
   "meetings.help.pin": "Pin",
   "meetings.help.unpin": "Unpin",
   "meetings.help.addToNotes": "Add to note",

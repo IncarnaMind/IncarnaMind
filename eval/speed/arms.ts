@@ -41,6 +41,8 @@ export interface Arm {
   quotesAsGiven?: boolean;
   /** Whether call help's ✓ comes from a found quote alone, its sentences not judged (#2847); unset: judged. */
   helpMarksQuoteOnly?: boolean;
+  /** Whether an earlier call's Transcript is sent and shown unmarked, as before #3005; unset: marked. */
+  callsUnmarked?: boolean;
 }
 
 /** The most of the live transcript `newest-stretch` keeps: some three minutes of talk. */
@@ -191,6 +193,11 @@ export const ARMS: readonly Arm[] = [
     helpMarksQuoteOnly: true,
   },
   {
+    id: "calls-unmarked",
+    label: "an earlier call's Transcript sent and shown like this call's, as before #3005",
+    callsUnmarked: true,
+  },
+  {
     id: "retrieve-first",
     label:
       "the Question searched before the first call, answered from those Passages unless it needs more (#1633)",
@@ -257,6 +264,7 @@ export function armSwitch() {
     helpFormJudged: () => current?.helpFormJudged,
     quotesAsGiven: () => current?.quotesAsGiven,
     helpMarksQuoteOnly: () => current?.helpMarksQuoteOnly,
+    callsUnmarked: () => current?.callsUnmarked,
     /** The requests sent since it was last asked, oldest first. */
     takeSent: (): SentRequest[] => sent.splice(0),
     use(arm: Arm): void {

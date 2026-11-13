@@ -6076,6 +6076,10 @@
   .citation-card-source--scan {
     white-space: normal;
   }
+  /* A call's start in full: it tells two calls named for the same day apart (#3005). */
+  .citation-card-source--call {
+    white-space: normal;
+  }
   .citation-card-quote {
     margin: 0;
     padding-left: 22px;

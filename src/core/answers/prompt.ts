@@ -405,8 +405,10 @@ export function emptyMindNote(offered: boolean, empty: boolean): string {
 /**
  * A Question asked while the meeting the User is in records (#144): the live transcript goes
  * with it (see ./liveTranscript), and is what Questions about the call are answered from.
+ * `unmarked`: Transcript Passages aren't marked with their call (#3005): a help button's press,
+ * which reads no other call, or the evaluation's `CoreAdapters.callsUnmarked`.
  */
-export function meetingInstructions(listening: boolean): string {
+export function meetingInstructions(listening: boolean, unmarked = false): string {
   if (!listening) return "";
   return [
     "The User is in a meeting that is being recorded, and asks this during the call.",
@@ -414,6 +416,11 @@ export function meetingInstructions(listening: boolean): string {
     "- Answer what they ask about the call from it, and cite its lines as you cite any Passage, by its id.",
     "- A recap or summary of this call uses only what was said in it, plus the written notes when asked. Do not add facts or unrequested checks from other Documents, including earlier replies. An empty <live-transcript> means no call content is available yet: say so rather than summarizing Library Documents.",
     '- A line\'s mark names who said it: "Me" is the User, from their microphone; "Them" is the other side of the call. "Speaker ?" means the call\'s sound wasn\'t heard, so it isn\'t known who spoke: never guess whether it was the User or the other side. "What did they say" means the lines marked Them. Say who said it in the User\'s language, as "you" and "they", not by the mark.',
+    ...(unmarked
+      ? []
+      : [
+          '- A Transcript Passage marked call="this" is this call\'s: say they or you said something only from call="this" lines. A Transcript Passage marked call="earlier" is another call, named by its note and started: nothing in it was said in this call. Give its line only as said in that call, saying in the sentence itself who said it and when (the day that call started, or its time when it started the same day as this one), as in "When we spoke on Monday, you said …", and cite it; a sentence that can\'t say so leaves the line out.',
+        ]),
     '- "Just now", "the last few minutes" and "what was just said" mean its newest Passages.',
     "- Search the User's Documents too when the Question needs them, for instance to check what was said against them.",
   ].join("\n");
