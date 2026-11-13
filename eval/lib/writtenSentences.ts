@@ -1,5 +1,8 @@
 import * as Y from "yjs";
-import { BLOCK_ID_ATTRIBUTE, CITATION_NODE } from "../../src/core";
+import { BLOCK_ID_ATTRIBUTE, CITATION_NODE, type CitationAttributes } from "../../src/core";
+import { citationAttributesOf } from "../../src/shared/citations";
+import { asCitedNow } from "../../src/shared/citedNow";
+import { readClaimCheck } from "../../src/shared/claimChecks";
 import { countingCheckOf } from "../../src/shared/markKeys";
 import { INLINE_NODE, isClaim, sentenceSpans } from "../../src/shared/sentences";
 
@@ -9,7 +12,7 @@ export interface WrittenSentence {
   place: number;
   text: string;
   cited: boolean;
-  /** Its mark's state; null: it has no mark. */
+  /** Its mark's state as the Note reads it against the sentence's Citations; null: it has no mark. */
   state: string | null;
   reason: string | null;
   /** When its mark was set, as the mark says. */
@@ -27,7 +30,7 @@ const field = (value: unknown, name: string): string | null => {
 function lineOf(paragraph: Y.XmlElement) {
   let text = "";
   const marks: unknown[] = [];
-  const cited: number[] = [];
+  const cited: { at: number; citation: Partial<CitationAttributes> }[] = [];
   for (const child of paragraph.toArray()) {
     if (child instanceof Y.XmlText) {
       for (const run of child.toDelta() as {
@@ -40,7 +43,8 @@ function lineOf(paragraph: Y.XmlElement) {
         for (let at = 0; at < run.insert.length; at++) marks.push(mark);
       }
     } else if (child instanceof Y.XmlElement) {
-      if (child.nodeName === CITATION_NODE) cited.push(text.length);
+      if (child.nodeName === CITATION_NODE)
+        cited.push({ at: text.length, citation: citationAttributesOf(child.getAttributes()) });
       text += child.nodeName === "hardBreak" ? "\n" : INLINE_NODE;
       marks.push(null);
     }
@@ -69,15 +73,20 @@ export function writtenSentences(
     const { text, marks, cited } = lineOf(element);
     for (const span of sentenceSpans(text)) {
       const words = text.slice(span.from, span.to);
-      const hasCitation = cited.some((at) => at >= span.from && at < span.to);
-      if (!hasCitation && !isClaim(words.replaceAll(INLINE_NODE, ""))) continue;
+      const held = cited.flatMap(({ at, citation }) =>
+        at >= span.from && at < span.to ? [citation] : [],
+      );
+      const sentence = words.replaceAll(INLINE_NODE, "").trim();
+      if (held.length === 0 && !isClaim(sentence)) continue;
       const mark = marks.slice(span.from, span.to).find((each) => each !== null) ?? null;
+      const check = readClaimCheck(mark);
+      const read = check && asCitedNow(check, held, sentence);
       found.push({
         place: found.length,
-        text: words.replaceAll(INLINE_NODE, "").trim(),
-        cited: hasCitation,
-        state: field(mark, "state"),
-        reason: field(mark, "reason"),
+        text: sentence,
+        cited: held.length > 0,
+        state: read?.state ?? null,
+        reason: read?.reason ?? null,
         checkedAt: field(mark, "checkedAt"),
       });
     }
