@@ -231,7 +231,10 @@ describe("A short scope's whole text, given with the Question", { timeout: 60_00
     );
   });
 
-  // protects=where the model's window is small, less goes up front: a Document that fits the budget of a large window isn't given to a model with a 16k window, and nothing says it was; fails_when=the block or its claim is sent; no_claim=the exact share of the window.
+  // protects=what an Answer ends with on a model with a 16k window today: its instructions and Tools alone fill the window's budget, so it fails as too long and nothing is sent (#3045); fails_when=the Answer is sent, or ends otherwise; no_claim=that this is right, which #3045 settles.
+  // When #3045 gives a 16k window room, this fails. Put back its first assertions then: a Document
+  // that fits the budget of a large window isn't given up front to this model, and nothing says it
+  // was (`prompts[0]` holds neither "<document-text>" nor "The whole text of").
   test("is fitted to the model's window", async () => {
     const { core, prompts, sources } = await startWithModel({ numCtx: 16_384 });
     const handbook = await writeSourceFile(
@@ -241,9 +244,9 @@ describe("A short scope's whole text, given with the Question", { timeout: 60_00
     );
     await addAndProcess(core, [handbook]);
 
-    await askAssistant(core, { text: "What does the handbook say?" });
+    const answer = await askAssistant(core, { text: "What does the handbook say?" }, "failed");
 
-    expect(prompts[0]).not.toContain("<document-text>");
-    expect(prompts[0]).not.toContain("The whole text of");
+    expect(answer.errorKind).toBe("too-long");
+    expect(prompts).toEqual([]);
   });
 });
