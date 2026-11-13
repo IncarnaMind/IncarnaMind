@@ -493,9 +493,10 @@ describe("Help during the call", { timeout: 60_000 }, () => {
     expect(helps[1]?.heard).toBeNull();
   });
 
-  test("a typed question written again is still the call's: Try again keeps its form, while one typed in the assistant is an ordinary Question (#2925)", async () => {
+  test("a typed question written again is still the call's: Try again keeps its form, while the same words asked in the assistant or from the Note are an ordinary Question (#2925)", async () => {
     const { core, meeting, calls } = await setUp(addPriceSheet);
-    const typed = await ask(core, meeting, "How much is Enterprise per seat?");
+    const words = "How much is Enterprise per seat?";
+    const typed = await ask(core, meeting, words);
     if (!typed.result.asked) throw new Error("Not asked.");
     const before = calls.length;
     const again = await core.regenerateConversationAnswer({
@@ -505,10 +506,48 @@ describe("Help during the call", { timeout: 60_000 }, () => {
     if (again.asked) await answerEnded(core, again.answerId);
     expect(calls[before]?.prompt).toContain("typed a question about it");
 
-    const elsewhere = calls.length;
-    const asked = await core.askInConversation({ mindId: meeting.mindId, text: "Who joined?" });
-    if (asked.asked) await answerEnded(core, asked.answerId);
-    expect(calls[elsewhere]?.prompt).not.toContain("typed a question about it");
+    const ordinary = async (conversationId?: string) => {
+      const at = calls.length;
+      const asked = await core.askInConversation({
+        mindId: meeting.mindId,
+        text: words,
+        ...(conversationId && { conversationId }),
+      });
+      if (!asked.asked) throw new Error("Not asked.");
+      await answerEnded(core, asked.answerId);
+      return calls[at]?.prompt ?? "";
+    };
+    for (const prompt of [await ordinary(typed.result.conversation.id), await ordinary()]) {
+      expect(prompt).toContain(words);
+      expect(prompt).not.toContain("typed a question about it");
+      expect(prompt).not.toContain("pressed a button for help");
+    }
+    const latest = (await core.listMeetings()).find((each) => each.id === meeting.id);
+    expect(latest?.helps.map(({ kind }) => kind)).toEqual(["question"]);
+  });
+
+  test("a press is the button's, whatever was typed before: its own name typed in the panel first is a typed question, then the press is the button, in English and Chinese (#2925)", async () => {
+    const { core, meeting, calls } = await setUp();
+    const form = (prompt = "") =>
+      prompt.includes("typed a question about it")
+        ? "typed"
+        : prompt.includes("pressed a button for help")
+          ? "button"
+          : "ordinary";
+    const typedThenPressed = async (name: string) => {
+      const typedAt = calls.length;
+      await ask(core, meeting, name);
+      const pressedAt = calls.length;
+      const pressed = await press(core, meeting, "say");
+      expect(pressed.messages.at(-2)).toMatchObject({ kind: "question", text: name });
+      return [form(calls[typedAt]?.prompt), form(calls[pressedAt]?.prompt)];
+    };
+
+    expect(await typedThenPressed("What should I say?")).toEqual(["typed", "button"]);
+    await core.updateSettings({ user: { language: "zh-CN" } });
+    expect(await typedThenPressed("我该怎么说？")).toEqual(["typed", "button"]);
+    const latest = (await core.listMeetings()).find((each) => each.id === meeting.id);
+    expect(latest?.helps.map(({ kind }) => kind)).toEqual(["question", "say", "question", "say"]);
   });
 
   test("a blank question, or one after Stop, is refused (#2925)", async () => {

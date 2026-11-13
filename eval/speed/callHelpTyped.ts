@@ -1,13 +1,15 @@
 /**
  * The typed question's slice of call-help cases (#2925): written and committed on 2026-11-13,
- * before any run on it and before the first run of `gates/call-help-typed-question.md`. Seven
+ * before any run on it and before the first run of `gates/call-help-typed-question.md`. Nine
  * English cases, each with a Chinese twin of the same call, Documents and answer, about a
  * commercial laundry's offer to a hotel group. In each, a button is pressed first, as in a call,
  * and once its reply ends the User types a question in the panel's field: the question's reply is
  * the one measured. A fact from a Document, a line said earlier, a limit the terms set, a fact no
- * Document holds, a list asked for and what to say. Every case has Documents of its own, which no
- * other case reads, and its own Meeting and Note; no Document, line or question is in a set before
- * it or in a prompt's examples. Short calls only. Every name, figure and Document is made up.
+ * Document holds, a list asked for, what to say, a follow-up that needs the question typed before
+ * it, and a question that points at what the other side just said without naming it. Every case
+ * has Documents of its own, which no other case reads, and its own Meeting and Note; no Document,
+ * line or question is in a set before it or in a prompt's examples. Short calls only. Every name,
+ * figure and Document is made up.
  */
 import { type CallDocument, type CallHelpCase, line, said } from "./callHelpCases";
 
@@ -46,6 +48,16 @@ const CONTRACT_EN = doc("Contract basics.md", "Contract basics", [
   "Contracts run for 24 months.",
   "Prices are fixed for the first 12 months.",
 ]);
+const FURNISHINGS_EN = doc("Furnishings service.md", "Furnishings service", [
+  "Rugs are cleaned at €6 per square metre.",
+  "Rugs are returned within ten working days.",
+  "Curtains are cleaned at €4.80 per kilo.",
+  "Curtains are returned within five working days.",
+]);
+const DELICATES_EN = doc("Delicates.md", "Delicates", [
+  "Silk and other delicates are hand-washed at our partner workshop.",
+  "Delicates take seven working days.",
+]);
 
 const PRICES_ZH = doc("洗涤价格.md", "洗涤价格", [
   "床品洗涤每公斤 9 元。",
@@ -74,6 +86,16 @@ const WATER_ZH = doc("用水和洗涤剂.md", "用水和洗涤剂", [
   "洗涤剂有环保认证，不含磷。",
 ]);
 const CONTRACT_ZH = doc("合同要点.md", "合同要点", ["合同期为 24 个月。", "前 12 个月价格不变。"]);
+const FURNISHINGS_ZH = doc("软装清洗.md", "软装清洗", [
+  "地毯清洗每平方米 45 元。",
+  "地毯十个工作日内送回。",
+  "窗帘洗涤每公斤 35 元。",
+  "窗帘五个工作日内送回。",
+]);
+const DELICATES_ZH = doc("精细织物.md", "精细织物", [
+  "真丝等精细织物在合作工坊手洗。",
+  "精细织物需要七个工作日。",
+]);
 
 const START_EN = "We need you to start before the first of March, when our current contract ends.";
 const START_ZH = "我们需要你们在 3 月 1 日前开始，那天现在的合同就到期了。";
@@ -208,6 +230,46 @@ const ENGLISH: readonly CallHelpCase[] = [
     avoid: "a figure the Document doesn't give, such as litres saved",
     typed: { question: "How should I answer their worry about water use?", form: "options" },
   },
+  {
+    id: "en-typed-followup",
+    language: "en",
+    kind: "sum",
+    needs: "newest",
+    long: false,
+    turns: [
+      { who: "them", text: "We're opening a new wing in the spring." },
+      { who: "them", text: "It will have curtains in every room and large rugs in the lobby." },
+    ],
+    documents: [FURNISHINGS_EN],
+    answer: "Rugs are returned within ten working days.",
+    rests: [[line(FURNISHINGS_EN, "Rugs are returned")]],
+    avoid: "the curtains' five working days given as the answer, or as the rugs'",
+    typed: {
+      follows: "What do we charge to clean rugs?",
+      question: "And how long does it take?",
+      form: "short",
+    },
+  },
+  {
+    id: "en-typed-pointing",
+    language: "en",
+    kind: "want",
+    needs: "newest",
+    long: false,
+    turns: [
+      { who: "me", text: "We already work with two spa hotels in the region." },
+      {
+        who: "them",
+        text: "Our spa uses silk robes, and our last laundry ruined a whole batch of them.",
+      },
+    ],
+    documents: [DELICATES_EN],
+    answer:
+      "Yes: silk and other delicates are hand-washed at the partner workshop, and take seven working days.",
+    rests: [[line(DELICATES_EN, "hand-washed")]],
+    avoid: "saying silk can't be washed, or that it goes through the plant's machines",
+    typed: { question: "Can we take those?", form: "short" },
+  },
 ];
 
 const CHINESE: readonly CallHelpCase[] = [
@@ -328,6 +390,38 @@ const CHINESE: readonly CallHelpCase[] = [
     rests: [[line(WATER_ZH, "60%")]],
     avoid: "文档没有的数字，比如节省了多少升水",
     typed: { question: "他们担心用水，我该怎么回答？", form: "options" },
+  },
+  {
+    id: "zh-typed-followup",
+    language: "zh-CN",
+    kind: "sum",
+    needs: "newest",
+    long: false,
+    turns: [
+      { who: "them", text: "我们春天要开一栋新楼。" },
+      { who: "them", text: "每间客房都有窗帘，大堂还铺了大块地毯。" },
+    ],
+    documents: [FURNISHINGS_ZH],
+    answer: "地毯十个工作日内送回。",
+    rests: [[line(FURNISHINGS_ZH, "地毯十个")]],
+    avoid: "把窗帘的五个工作日当作答案，或说成地毯的",
+    typed: { follows: "地毯清洗我们怎么收费？", question: "那要多久？", form: "short" },
+  },
+  {
+    id: "zh-typed-pointing",
+    language: "zh-CN",
+    kind: "want",
+    needs: "newest",
+    long: false,
+    turns: [
+      { who: "me", text: "我们已经在服务本地两家水疗酒店。" },
+      { who: "them", text: "我们水疗中心用真丝浴袍，上一家洗衣厂洗坏了一整批。" },
+    ],
+    documents: [DELICATES_ZH],
+    answer: "能：真丝等精细织物在合作工坊手洗，需要七个工作日。",
+    rests: [[line(DELICATES_ZH, "手洗")]],
+    avoid: "说真丝不能洗，或说用工厂的机器洗",
+    typed: { question: "这个我们能接吗？", form: "short" },
   },
 ];
 

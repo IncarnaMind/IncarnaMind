@@ -48,6 +48,7 @@ import {
   seconds,
   sentPair,
   timeTable,
+  typedTable,
   wentFirst,
   wentFirstByCell,
 } from "./pairedReport";
@@ -330,6 +331,9 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
       "",
       ...(group.rows.some((row) => row.baseline.requests)
         ? ["Where the time went:", "", timeTable(group.rows, names), ""]
+        : []),
+      ...(group.rows.some((row) => row.baseline.pressedFirst)
+        ? ["A typed question beside its button:", "", typedTable(group.rows, names), ""]
         : []),
       ...(languages.length > 1
         ? languages.flatMap((language) => {

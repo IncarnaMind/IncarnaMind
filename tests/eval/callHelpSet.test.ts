@@ -194,22 +194,28 @@ describe("The call-help cases", () => {
 });
 
 describe("The typed question's cases (#2925)", () => {
-  test("7 cases a language, the Chinese the English's twins, each a button then a question, resting on lines of its own Documents or call", () => {
-    expect(new Set(CALL_HELP_TYPED.map((each) => each.id)).size).toBe(14);
+  test("9 cases a language, the Chinese the English's twins, each a button then a question, resting on lines of its own Documents or call", () => {
+    expect(new Set(CALL_HELP_TYPED.map((each) => each.id)).size).toBe(18);
     const english = CALL_HELP_TYPED.filter((each) => each.language === "en");
     const chinese = CALL_HELP_TYPED.filter((each) => each.language === "zh-CN");
-    expect(english).toHaveLength(7);
+    expect(english).toHaveLength(9);
     expect(chinese.map((each) => each.id)).toEqual(
       english.map((each) => each.id.replace(/^en-/, "zh-")),
     );
     for (const [index, each] of english.entries()) {
       const twin = chinese[index];
-      expect([twin?.kind, twin?.typed?.form, twin?.rests.length], each.id).toEqual([
+      expect(
+        [twin?.kind, twin?.typed?.form, twin?.rests.length, twin?.typed?.follows === undefined],
+        each.id,
+      ).toEqual([
         each.kind,
         each.typed?.form,
         each.rests.length,
+        each.typed?.follows === undefined,
       ]);
     }
+    const documents = CALL_HELP_TYPED.flatMap((each) => each.documents.map((one) => one.file));
+    expect(new Set(documents).size).toBe(documents.length);
     for (const each of CALL_HELP_TYPED) {
       expect(each.typed?.question, each.id).toEqual(expect.any(String));
       const said = callOf(each).map((turn) => turn.text);
@@ -276,6 +282,29 @@ describe("A question typed during the call (#2925)", { timeout: 120_000 }, () =>
     expect(run.grade).toBe("right");
     expect(judged[0]).toContain("<question>How much are towels per kilo?</question>");
     expect(judged[0]).not.toContain("<button>");
+    expect(run.pressedFirst?.firstWordsMs).toEqual(expect.any(Number));
+    expect(run.pressedFirst?.doneMs).toBeGreaterThanOrEqual(run.pressedFirst?.firstWordsMs ?? 0);
+  });
+
+  test("a follow-up is asked after the question it follows up, which its reply reads and the judge is shown", async () => {
+    const { run, calls, judged } = await pressed(
+      "en-typed-followup",
+      "Rugs are returned within ten working days.",
+      { grade: "right", unstated: [] },
+      "today",
+      undefined,
+      "call-help-typed",
+    );
+    expect(run.status).toBe("done");
+    const typed = calls.filter((call) => call.prompt.includes("typed a question about it"));
+    const last = typed.at(-1)?.prompt ?? "";
+    expect(typed[0]?.prompt).toContain("What do we charge to clean rugs?");
+    expect(typed[0]?.prompt).not.toContain("And how long does it take?");
+    expect(last).toContain("What do we charge to clean rugs?");
+    expect(last).toContain("And how long does it take?");
+    expect(judged).toHaveLength(1);
+    expect(judged[0]).toContain("<typed-before>What do we charge to clean rugs?</typed-before>");
+    expect(judged[0]).toContain("<question>And how long does it take?</question>");
   });
 });
 

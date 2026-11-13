@@ -12,7 +12,13 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { generateText, type LanguageModel } from "ai";
-import type { ConversationAnswer, Core, CoreAdapters, MeetingHelpKind } from "../../src/core";
+import type {
+  ConversationAnswer,
+  ConversationAskResult,
+  Core,
+  CoreAdapters,
+  MeetingHelpKind,
+} from "../../src/core";
 import { toolTextIn } from "../../src/core/answers/toolText";
 import { createFakeCapture, type FakeCapture } from "../../src/core/meetings/fakeCapture";
 import type { TimingOutcome } from "../../src/core/timing/timings";
@@ -236,6 +242,7 @@ const JUDGE = [
 /** For a question the User typed during the call (#2925), which <question> holds. */
 const JUDGE_TYPED = [
   "You grade a reply that helps the User during a live call: they typed the question in <question> and read the reply in a second or two while the call goes on.",
+  "<typed-before>, when there is one, is the question they typed just before it, which <question> follows up.",
   ...JUDGE_LINES,
 ].join("\n");
 
@@ -272,6 +279,7 @@ async function judge(
 ): Promise<Judged> {
   const instructions = each.typed ? JUDGE_TYPED : JUDGE;
   const prompt = [
+    ...(each.typed?.follows ? [`<typed-before>${each.typed.follows}</typed-before>`] : []),
     each.typed ? `<question>${each.typed.question}</question>` : `<button>${each.kind}</button>`,
     "<call>",
     ...newest.map((turn) => `${turn.who === "me" ? "The User" : "The other side"}: ${turn.text}`),
@@ -383,7 +391,9 @@ function wholeShown(shape: HelpShape, shown: readonly ReplyItem[], streaming: bo
 
 /**
  * Presses the case's button and reads what the panel showed, and when. For a typed question, the
- * button's reply is waited for to its marks first, as in a call, and the question's is the one read.
+ * button's reply is waited for to its marks first, as in a call, its first words and end kept to
+ * set beside the question's; then the question it follows up, if any, and the question's reply is
+ * the one read.
  */
 async function press(
   core: Core,
@@ -395,32 +405,44 @@ async function press(
   firstWordsMs: number | null;
   firstOptionMs: number | null;
   settledMs: number | null;
+  pressedFirst?: NonNullable<Measured["pressedFirst"]>;
 }> {
   let stopPhase: () => void = () => undefined;
   let answerId: string | null = null;
-  let pressedFirst: string | null = null;
   let finishedAt: number | null = null;
   let settledAt: number | null = null;
+  let buttonId: string | null = null;
+  let buttonAt = 0;
+  let buttonEndAt: number | null = null;
   const stopFinished = core.on("answer.finished", (event) => {
     if (event.answerId === answerId) finishedAt ??= performance.now();
+    if (event.answerId === buttonId) buttonEndAt ??= performance.now();
   });
   let snapshotting = false;
   let beforeCheck: string | null = null;
   const shape = shapeOf(each);
-  const seen = new Map<string, { firstWordsMs: number | null; firstOptionMs: number | null }>();
+  /** When each reply first showed words and a whole item, on this computer's clock. */
+  const seen = new Map<string, { wordsAt: number | null; optionAt: number | null }>();
   let start = 0;
   let latestText = "";
   const stop = core.on("conversation.message", (message) => {
-    if (message.kind !== "answer" || message.id === pressedFirst) return;
-    latestText = message.text;
-    if (snapshotting) beforeCheck = message.text;
-    const at = performance.now() - start;
+    if (message.kind !== "answer") return;
+    if (message.id === answerId) {
+      latestText = message.text;
+      if (snapshotting) beforeCheck = message.text;
+    }
+    const at = performance.now();
     const streaming = message.status === "streaming";
-    const shown = shownItems(readHelpReply(message.text), { shape, leadIn: false, streaming });
-    const times = seen.get(message.id) ?? { firstWordsMs: null, firstOptionMs: null };
+    const itsShape = message.id === buttonId ? HELP_SHAPE[each.kind] : shape;
+    const shown = shownItems(readHelpReply(message.text), {
+      shape: itsShape,
+      leadIn: false,
+      streaming,
+    });
+    const times = seen.get(message.id) ?? { wordsAt: null, optionAt: null };
     if (shown.some((item) => item.lead.some((piece) => piece.kind === "text" && piece.text.trim())))
-      times.firstWordsMs ??= at;
-    if (wholeShown(shape, shown, streaming)) times.firstOptionMs ??= at;
+      times.wordsAt ??= at;
+    if (wholeShown(itsShape, shown, streaming)) times.optionAt ??= at;
     seen.set(message.id, times);
     // Its marks have settled once it has ended and no Citation still waits for its check.
     if (
@@ -432,21 +454,30 @@ async function press(
       settledAt ??= performance.now();
     }
   });
+  const waited = async (asked: ConversationAskResult, what: string) => {
+    if (!asked.asked) throw new Error(`Not asked: ${JSON.stringify(asked)}`);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const late = new Promise<"late">((resolve) => {
+      timer = setTimeout(() => resolve("late"), ANSWER_TIMEOUT_MS);
+    });
+    const ended = await Promise.race([
+      replyEnded(core, asked.conversation.id, asked.answerId),
+      late,
+    ]).finally(() => clearTimeout(timer));
+    if (ended !== "finished") throw new Error(`${what} before the question: ${ended}.`);
+  };
   try {
     if (each.typed) {
+      buttonAt = performance.now();
       const button = await core.askMeetingHelp({ meetingId, kind: each.kind as MeetingHelpKind });
-      if (!button.asked) throw new Error(`Not asked: ${JSON.stringify(button)}`);
-      pressedFirst = button.answerId;
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      const late = new Promise<"late">((resolve) => {
-        timer = setTimeout(() => resolve("late"), ANSWER_TIMEOUT_MS);
-      });
-      const ended = await Promise.race([
-        replyEnded(core, button.conversation.id, button.answerId),
-        late,
-      ]).finally(() => clearTimeout(timer));
-      if (ended !== "finished")
-        throw new Error(`The button's reply before the question: ${ended}.`);
+      if (button.asked) buttonId = button.answerId;
+      await waited(button, "The button's reply");
+      if (each.typed.follows) {
+        await waited(
+          await core.askMeetingQuestion({ meetingId, text: each.typed.follows }),
+          "The question it follows up",
+        );
+      }
     }
     begin();
     start = performance.now();
@@ -489,13 +520,27 @@ async function press(
     const { messages } = await core.getConversation(asked.conversation.id);
     const answer = messages.find((message) => message.id === asked.answerId);
     if (answer?.kind !== "answer") throw new Error("No reply.");
-    const times = seen.get(answer.id) ?? { firstWordsMs: null, firstOptionMs: null };
+    const since = (at: number | null | undefined, from: number) =>
+      at === null || at === undefined ? null : at - from;
+    const times = seen.get(answer.id);
+    const button = buttonId === null ? undefined : seen.get(buttonId);
     if (beforeCheck !== null && answer.text !== beforeCheck)
       rewrittenReplies.push({ item: each.id, before: beforeCheck, after: answer.text });
     // `replyEnded` waits for the marks: none waited when they had settled as the reply ended.
     const settledMs =
       finishedAt === null ? null : settledAt === null ? 0 : Math.max(0, settledAt - finishedAt);
-    return { answer, ...times, settledMs };
+    return {
+      answer,
+      firstWordsMs: since(times?.wordsAt, start),
+      firstOptionMs: since(times?.optionAt, start),
+      settledMs,
+      ...(buttonId !== null && {
+        pressedFirst: {
+          firstWordsMs: since(button?.wordsAt, buttonAt),
+          doneMs: since(buttonEndAt, buttonAt),
+        },
+      }),
+    };
   } finally {
     stop();
     stopPhase();
@@ -607,7 +652,7 @@ function item(each: CallHelpCase, set: CallHelpSet): PairedGroup["items"][number
       } catch (error) {
         return failed(error instanceof Error ? error.message : String(error));
       }
-      const { answer, firstWordsMs, firstOptionMs, settledMs } = pressed;
+      const { answer, firstWordsMs, firstOptionMs, settledMs, pressedFirst } = pressed;
       const requests = requestsSince(library.dataDir, since);
       const done = answer.status === "done";
       const shown = shownItems(readHelpReply(answer.text), {
@@ -702,6 +747,7 @@ function item(each: CallHelpCase, set: CallHelpSet): PairedGroup["items"][number
         ],
         firstWordsMs,
         firstOptionMs,
+        ...(pressedFirst && { pressedFirst }),
         requests,
         ...(read &&
           judged && {

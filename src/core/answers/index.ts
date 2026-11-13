@@ -662,9 +662,12 @@ export interface AnswersOptions {
   /**
    * The help a Question in a conversation is, asked from a Mind whose Meeting records or is
    * paused: a button, whose name its text is, or "question", one the User typed in the call-help
-   * panel (#2925). Null for any other Question.
+   * panel (#2925), known by its id. Null for any other Question.
    */
-  meetingHelp?(mindId: string, question: string): CallHelpKind | null;
+  meetingHelp?(
+    mindId: string,
+    question: Pick<ConversationQuestion, "id" | "text">,
+  ): CallHelpKind | null;
   /** See `CoreAdapters.helpFormJudged`. */
   helpFormJudged?(): boolean;
   /** See `CoreAdapters.quotesAsGiven`. */
@@ -4241,7 +4244,7 @@ export function createAnswers(options: AnswersOptions) {
     namedScope: SearchScope | null = null,
   ): ConversationAskResult {
     const { conversation, question, answer } = turn;
-    const help = mind ? (options.meetingHelp?.(mind.mindId, question.text) ?? null) : null;
+    const help = mind ? (options.meetingHelp?.(mind.mindId, question) ?? null) : null;
     const callOnly = help !== null && HELP_DOCUMENTS[help] === null;
     // Each press of a help button stands alone: an earlier suggestion would only steer this one. A
     // typed question may follow up on one, so it reads the turns before it.
@@ -4795,6 +4798,7 @@ export function createAnswers(options: AnswersOptions) {
         },
       );
       const { turn } = added;
+      question.kept?.(turn.question.id);
       let published = false;
       try {
         const ready = await readyModel(question.model, question.forcedSkill);

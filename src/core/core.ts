@@ -4927,7 +4927,10 @@ export function createCore(adapters: CoreAdapters): Core {
   // Transcripts (#136): a Meeting is transcribed on this computer as it records, where this copy can.
   let listMeetings: (() => Meeting[]) | undefined;
   /** See `AnswersOptions.meetingHelp`; set once Meetings are. */
-  let meetingHelpOf = (_mindId: string, _question: string): CallHelpKind | null => null;
+  let meetingHelpOf = (
+    _mindId: string,
+    _question: { id: string; text: string },
+  ): CallHelpKind | null => null;
   /** See `AnswersOptions.liveTranscript`; set once Meetings are. */
   let liveTranscriptOf = async (_mindId: string): Promise<LiveTranscript | null> => null;
   let transcriptSaved = (_meetingId: string) => {};
@@ -5179,15 +5182,19 @@ export function createCore(adapters: CoreAdapters): Core {
     }
   });
   transcriptionGateChanged = () => transcripts?.recheckCloud() ?? Promise.resolve();
-  /** The questions typed in each live Meeting's panel (#2925): asked again, they are its help still. */
+  /**
+   * The Questions typed in each live Meeting's panel (#2925), by id, not words: written again they
+   * are its help still, while the same words asked anywhere else, or a button's name pressed after
+   * it was typed, are not.
+   */
   const typedQuestions = new Map<string, Set<string>>();
   meetingHelpOf = (mindId, question) => {
     const meeting = meetings.liveOf(mindId);
     if (!meeting) return null;
-    if (typedQuestions.get(meeting.id)?.has(question)) return "question";
+    if (typedQuestions.get(meeting.id)?.has(question.id)) return "question";
     return (
       helpKindsFor(meeting.helpTemplate).find((kind) =>
-        LANGUAGES.some((language) => translate(language, helpLabel(kind)) === question),
+        LANGUAGES.some((language) => translate(language, helpLabel(kind)) === question.text),
       ) ?? null
     );
   };
@@ -5206,22 +5213,28 @@ export function createCore(adapters: CoreAdapters): Core {
   };
   /**
    * Asks `text` from a live call's Mind, in `conversationId`, or where its help went last (a new
-   * conversation if that one was deleted), which the next ask goes on in.
+   * conversation if that one was deleted), which the next ask goes on in; `typed`, as a question
+   * typed in its panel.
    */
   const askInCall = async (
     meeting: Meeting,
     text: string,
-    conversationId?: unknown,
+    { conversationId, typed = false }: { conversationId?: unknown; typed?: boolean } = {},
   ): Promise<ConversationAskResult> => {
     const { folderId } = minds.get(meeting.mindId);
-    const question = (id: unknown) =>
-      conversations.parseQuestion({
+    const kept = (questionId: string) => {
+      typedQuestions.set(meeting.id, new Set(typedQuestions.get(meeting.id)).add(questionId));
+    };
+    const question = (id: unknown): QuestionInput => ({
+      ...conversations.parseQuestion({
         conversationId: id,
         text,
         mindId: meeting.mindId,
         scope: folderId ? { folderIds: [folderId], tagIds: [], documentIds: [] } : null,
         model: modelInUseIn(meeting.mindId),
-      });
+      }),
+      ...(typed && { kept }),
+    });
     let asked: QuestionInput;
     if (conversationId !== undefined) asked = question(conversationId);
     else {
@@ -5244,11 +5257,9 @@ export function createCore(adapters: CoreAdapters): Core {
     if (!isMeetingHelpKind(kind) || !helpKindsFor(meeting.helpTemplate).includes(kind)) {
       throw new InvalidInputError({ key: "error.meeting.helpButton" });
     }
-    const result = await askInCall(
-      meeting,
-      translate(settings.get().language, helpLabel(kind)),
-      input.conversationId,
-    );
+    const result = await askInCall(meeting, translate(settings.get().language, helpLabel(kind)), {
+      conversationId: input.conversationId,
+    });
     if (result.asked) {
       const from = HEARD_FROM[kind];
       const newest = (speaker?: string) => transcripts?.newestLine(meeting.id, speaker) ?? null;
@@ -5272,8 +5283,7 @@ export function createCore(adapters: CoreAdapters): Core {
     const meeting = liveCall(input.meetingId);
     const text = typeof input.text === "string" ? input.text.trim() : "";
     if (text === "") throw new InvalidInputError({ key: "error.meeting.questionEmpty" });
-    typedQuestions.set(meeting.id, new Set(typedQuestions.get(meeting.id)).add(text));
-    const result = await askInCall(meeting, text);
+    const result = await askInCall(meeting, text, { typed: true });
     if (result.asked) {
       meetings.helped(meeting.id, {
         kind: "question",

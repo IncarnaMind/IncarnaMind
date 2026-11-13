@@ -75,7 +75,8 @@ const retry = (meeting: Meeting, help: Pick<MeetingHelp, "kind" | "question">) =
  * or the one the User opened, which closes the one open before; each other is one line with its
  * time, what was asked and the start of its reply: the three before the newest, then "Show
  * earlier". A pinned one stays whole. A new ask opens below and comes into view; the thread
- * follows a reply that grows only from its foot, and never scrolls while the pointer is over it.
+ * follows a reply as it grows, its start kept in view, and never by itself while the pointer is on
+ * the panel.
  */
 export function Thread({
   meeting,

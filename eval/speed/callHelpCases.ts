@@ -49,6 +49,8 @@ export interface CallHelpCase {
     question: string;
     /** The form its reply keeps: a sentence or two, one or two options to say, or a list it asked for. */
     form: "short" | "options" | "list";
+    /** A question typed just before it, which it follows up: asked and waited for, not measured. */
+    follows?: string;
   };
 }
 
