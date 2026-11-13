@@ -4002,6 +4002,14 @@ export function createAnswers(options: AnswersOptions) {
               writeSoon();
             }
             break;
+          case "made-anew":
+            session.anew();
+            figures.anew();
+            recordedFigures.clear();
+            if (calculated) toolCalls.splice(toolCalls.indexOf(calculated), 1);
+            calculated = null;
+            writeSoon();
+            break;
           case "finished":
             outcome = { status: "done" };
             break;

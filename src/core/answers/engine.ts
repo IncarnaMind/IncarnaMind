@@ -672,6 +672,11 @@ export type AnswerEngineEvent =
     }
   /** The reply said these Tools ran, and none had: the model was asked once more (#1796). */
   | { type: "asked-again"; tools: readonly ClaimedTool[] }
+  /**
+   * The reply is made anew from the same request (`AnswerRequest.asksAnew`): nothing the first
+   * reply recorded or worked out may back the new one, whose events follow.
+   */
+  | { type: "made-anew" }
   /** The Answer is complete. Nothing follows. */
   | { type: "finished" }
   /** The model or its provider failed. Nothing follows. */
@@ -1555,8 +1560,9 @@ export function createAiSdkAnswerEngine(options: AiSdkAnswerEngineOptions = {}):
  * A request made anew once when its first line asks for it (`AnswerRequest.asksAnew`). The first
  * reply's text shows as it streams; once its first line is whole, or it writes no more text, that
  * line decides, and what came after the text began waits for it. Made anew, the first reply is
- * stopped and the same request made again, and its text stays until the new reply's first words
- * replace it, so the reply is never empty meanwhile.
+ * stopped, the runner told ("made-anew") so nothing it recorded backs the new one, and the same
+ * request made again; its text stays until the new reply's first words replace it, so the reply
+ * is never empty meanwhile.
  */
 async function* madeAnewOnce(
   writer: AnswerEngine,
@@ -1601,6 +1607,7 @@ async function* madeAnewOnce(
     }
   }
   if (!anew) return;
+  yield { type: "made-anew" };
   let shown = text.length;
   for await (const event of writer.generate(request)) {
     if (shown > 0 && event.type === "text-delta" && event.text !== "") {

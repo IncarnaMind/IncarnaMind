@@ -2954,6 +2954,16 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     calculate,
 
     /**
+     * The reply is made anew from the same request (#2925): the figures it worked out, and the
+     * calls it made, are forgotten, so none of the new reply's figure markers is the first reply's.
+     */
+    anew(): void {
+      recorded.clear();
+      failed.clear();
+      calls = 0;
+    },
+
+    /**
      * A number in a quote, read as an input of `calculate` is, for an
      * Analysis (#447): checked now, as the Analysis runs on it now. A number
      * with no unit of its own where its page states one needs that line as

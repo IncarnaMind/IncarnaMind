@@ -54,6 +54,11 @@ describe("A typed reply in another language than its question and call, made ane
     expect(events[retracted + 1]).toEqual({ type: "text-delta", text: "电池质保十年。" });
     expect(texts.slice(0, retracted).every((each, at) => at === 0 || each !== "")).toBe(true);
     expect(events.filter((event) => event.type === "finished")).toHaveLength(1);
+    // The runner is told before the new reply's first event, so none of it meets the first's records.
+    const anew = events.findIndex((event) => event.type === "made-anew");
+    expect(events.filter((event) => event.type === "made-anew")).toHaveLength(1);
+    expect(anew).toBeGreaterThan(texts.findIndex((each) => each.startsWith("The battery")));
+    expect(anew).toBeLessThan(retracted);
   });
 
   // protects=a reply of one line, which ends before any second line comes, is decided at its end, and its end isn't announced before the new reply's; fails_when=the first reply ends the Answer; no_claim=none beyond protects.
@@ -79,7 +84,9 @@ describe("A typed reply in another language than its question and call, made ane
 
   // protects=a reply in its question's language, or a reply whose request doesn't ask for it, is never made anew and pays no wait; fails_when=it is asked twice; no_claim=none beyond protects.
   test("a reply in its question's language, or any other reply, is written once", async () => {
-    expect((await written(["电池质保十年。\n可以问他们型号。"], latin)).calls).toHaveLength(1);
+    const kept = await written(["电池质保十年。\n可以问他们型号。"], latin);
+    expect(kept.calls).toHaveLength(1);
+    expect(kept.events.some((event) => event.type === "made-anew")).toBe(false);
     expect((await written(["The battery is covered for ten years."])).calls).toHaveLength(1);
   });
 });

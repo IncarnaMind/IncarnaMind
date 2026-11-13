@@ -10,7 +10,7 @@ import type { Core, Meeting, MeetingHelpKind } from "../../src/core";
 import { helpOwnLines, meetingHelpInstructions } from "../../src/core/answers/meetingHelp";
 import { CITE_RETRY_INSTRUCTIONS } from "../../src/core/answers/prompt";
 import { setMindModel } from "../../src/shared/mindModel";
-import { answerEnded, shownPassages } from "../helpers/citations";
+import { answerEnded, answerJudged, shownPassages } from "../helpers/citations";
 import { createTempDataFolder } from "../helpers/core";
 import { createSourceFolder, waitForProcessing, writeSourceFile } from "../helpers/documents";
 import { connectToMind } from "../helpers/mindClient";
@@ -684,6 +684,77 @@ describe("Help during the call", { timeout: 60_000 }, () => {
     expect(typedCalls(english.calls)).toHaveLength(1);
     expect(across.answer.text).toBe("The Team plan is twenty-five dollars a seat.");
   });
+
+  // protects=a typed reply made anew starts from none of the first reply's Citations, from a model that records before it writes, in English and Chinese: a marker the new reply writes without recording it is taken out, and one it records again has the new reply's quote; fails_when=a record of the first reply backs a marker of the new one, or shows or is checked as one of the Answer's Citations; no_claim=what a real model records the second time.
+  test.each([
+    {
+      language: "Chinese",
+      // Four lines a side, each said once, so a quote is in one place.
+      said: {
+        lines: ["我们先看一下报价。", "团队版每个席位二十五美元。", "企业版贵一些。", "下周再定。"],
+        theirLines: ["企业版能便宜吗？", "四十个席位多少钱？", "含单点登录吗？", "能签两年吗？"],
+      },
+      question: "我们先看什么？",
+      first: "We look at the price sheet first [^1]\nThen the questions [^2]",
+      second: "我们先看报价 [^1]\n然后再谈 [^2]",
+      quotes: { first: ["我们先看一下", "看一下报价"], second: "先看一下报价" },
+    },
+    {
+      language: "English",
+      said: {},
+      question: "What do we start with?",
+      first: "我们先看上线日期 [^1]\n然后再谈 [^2]",
+      second: "We start with the launch date [^1]\nThen the rest [^2]",
+      quotes: { first: ["Let's start", "the launch date"], second: "start with the launch" },
+    },
+  ])(
+    "made anew, a typed reply keeps none of the first reply's Citations, in $language (#2925)",
+    async ({ said, question, first, second, quotes }) => {
+      const answering = (calls: ModelCall[]) =>
+        scriptedModel(
+          (call) => {
+            calls.push(call);
+            if (call.json) return { text: JSON.stringify({ citations: [] }) };
+            const typed = calls.filter(
+              (each) => each.prompt.includes("typed a question about it") && !each.json,
+            );
+            const attempt = typed.filter((each) => each.results.length === 0).length;
+            if (call.results.some((result) => result.tool === "cite")) {
+              return { text: attempt === 1 ? first : second };
+            }
+            const [heard] = shownPassages(block(call.prompt, "live-transcript") ?? "");
+            if (!heard) return { text: "" };
+            const records =
+              attempt === 1
+                ? quotes.first.map((quote, index) => ({
+                    marker: index + 1,
+                    passage: heard.id,
+                    quote,
+                  }))
+                : [{ marker: 1, passage: heard.id, quote: quotes.second }];
+            return { calls: [{ tool: "cite", input: { citations: records } }] };
+          },
+          { judgesItsAnswers: true },
+        );
+      const { core, meeting, calls } = await setUp(undefined, said, answering);
+
+      const { answer } = await ask(core, meeting, question);
+      const judged = await answerJudged(core, answer.conversationId, answer.id);
+
+      const asked = calls.filter(
+        (call) =>
+          call.prompt.includes("typed a question about it") &&
+          !call.json &&
+          call.results.length === 0,
+      );
+      expect(asked).toHaveLength(2);
+      expect(judged.text).toContain("[^1]");
+      expect(judged.text).not.toContain("[^2]");
+      expect(judged.citations.map(({ marker, quote }) => ({ marker, quote }))).toEqual([
+        { marker: 1, quote: quotes.second },
+      ]);
+    },
+  );
 
   test("a blank question, or one after Stop, is refused (#2925)", async () => {
     const { core, meeting } = await setUp();
