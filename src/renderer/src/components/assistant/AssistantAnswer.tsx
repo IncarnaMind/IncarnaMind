@@ -9,7 +9,12 @@ import { citedBy } from "../../answerSteps";
 import { useAnswers } from "../../answers";
 import { useAnswerWait } from "../../answerWait";
 import { useApprovals, waitingFor } from "../../approvals";
-import { CallStartsContext, useCallStarts } from "../../callStarts";
+import {
+  CallStartsContext,
+  OtherCallsContext,
+  useCallStarts,
+  useOtherCalls,
+} from "../../callStarts";
 import { repliesOnlyRefusals } from "../../commandFacts";
 import { regenerateAnswer } from "../../conversations";
 import {
@@ -64,13 +69,16 @@ export interface AnswerKeeping {
 /**
  * An Answer in the assistant, its cited Transcripts with when their call started where two calls
  * would read alike (#3005): to its Citations and the sources under its steps (`useCallStarts`).
+ * A help button's reply also tells its Citations which other calls its check leaves out.
  */
 export function AssistantAnswer(props: Parameters<typeof AnswerArticle>[0]) {
   const { citations, toolCalls } = props.answer;
   const cited = useMemo(() => citedBy({ citations, toolCalls }), [citations, toolCalls]);
   return (
     <CallStartsContext.Provider value={useCallStarts(cited)}>
-      <AnswerArticle {...props} />
+      <OtherCallsContext.Provider value={useOtherCalls(props.question, props.answer)}>
+        <AnswerArticle {...props} />
+      </OtherCallsContext.Provider>
     </CallStartsContext.Provider>
   );
 }

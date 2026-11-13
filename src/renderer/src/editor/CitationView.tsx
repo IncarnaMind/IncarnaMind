@@ -48,7 +48,7 @@ import {
 } from "../../../shared/locations";
 import { checkedByMe } from "../../../shared/signOffs";
 import { useAnswers } from "../answers";
-import { CallStartsContext, useTranscriptStart } from "../callStarts";
+import { CallStartsContext, OtherCallsContext, useTranscriptStart } from "../callStarts";
 import { type MindFormatting, useMindFormatting } from "../citationFormatting";
 import { followNewVersion } from "../citationUpdate";
 import { useCitationRecheck } from "../citationVersion";
@@ -929,6 +929,7 @@ function CitationCard({
     ? modelNames(judgedAnswer.model.modelId, judgedAnswer.model.providerId).name
     : null;
   const limited = limitReason(t, state.reason, limit, judgedBy);
+  const otherCall = useContext(OtherCallsContext).has(state.documentId ?? "");
   const reason =
     state.check === "checking"
       ? t("citation.reason.checking")
@@ -936,7 +937,7 @@ function CitationCard({
         (state.reason === "small-model"
           ? t("citation.reason.small-model")
           : state.check === "not-checked"
-            ? t("citation.reason.notChecked")
+            ? t(otherCall ? "citation.reason.otherCall" : "citation.reason.notChecked")
             : state.reason === "unsure-word"
               ? // The line under it says which words may be misread.
                 null

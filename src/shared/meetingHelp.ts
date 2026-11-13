@@ -3,7 +3,9 @@
  * at the top of the assistant, each a short Question about the call whose
  * Answer is one or two options to say.
  */
-import type { MessageKey } from "./i18n";
+import type { AnswerSteps, ConversationQuestion } from "../core/api";
+import { LANGUAGES } from "../core/language";
+import { type MessageKey, translate } from "./i18n";
 
 /** The buttons every meeting has, in the order of their shortcuts (1 to 7). */
 export const GENERAL_HELP = ["say", "answer", "want", "sum", "no", "ask", "check"] as const;
@@ -94,6 +96,22 @@ export const ALL_HELP: readonly MeetingHelpKind[] = [
 
 export const isMeetingHelpKind = (value: unknown): value is MeetingHelpKind =>
   ALL_HELP.some((kind) => kind === value);
+
+/**
+ * The button a turn was pressed with, or null when its Question was typed: a press's Question is
+ * the button's name, in either language, and the call's live text went with its Answer (#3005).
+ */
+export function pressedHelp(
+  question: Pick<ConversationQuestion, "text">,
+  answer: { steps: Pick<AnswerSteps, "sent"> | null },
+): MeetingHelpKind | null {
+  if (answer.steps?.sent?.transcript !== true) return null;
+  return (
+    ALL_HELP.find((kind) =>
+      LANGUAGES.some((language) => translate(language, helpLabel(kind)) === question.text),
+    ) ?? null
+  );
+}
 
 /**
  * The global shortcuts during a call, in Settings' order: Call help's, which shows or hides the

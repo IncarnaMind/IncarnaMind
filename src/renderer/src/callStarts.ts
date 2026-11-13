@@ -1,7 +1,7 @@
 import { createContext, useMemo } from "react";
-import type { MarkedCitation } from "../../core/api";
+import type { AnswerSteps, ConversationQuestion, MarkedCitation } from "../../core/api";
 import { transcriptsNamedAlike } from "./documentPlaces";
-import { callStarts, startedLabel } from "./helpReply";
+import { callStarts, otherCallsOf, startedLabel } from "./helpReply";
 import { useLanguage, useT } from "./i18n";
 import { isLive, useMeetings } from "./meetings";
 import { useAppStore } from "./store";
@@ -33,6 +33,22 @@ export function useCallStarts(
  * an Answer, where a Citation goes by `useTranscriptStart`.
  */
 export const CallStartsContext = createContext<ReadonlyMap<string, string> | null>(null);
+
+/** The other calls' Transcripts the Answer in the assistant is checked without (`otherCallsOf`). */
+export function useOtherCalls(
+  question: Pick<ConversationQuestion, "text" | "askedFrom"> | undefined,
+  answer: { steps: Pick<AnswerSteps, "sent"> | null },
+): ReadonlySet<string> {
+  const meetings = useMeetings((state) => state.meetings);
+  const { steps } = answer;
+  return useMemo(() => otherCallsOf(question, { steps }, meetings), [question, steps, meetings]);
+}
+
+/**
+ * The Transcripts the Answer in the assistant a Citation is drawn in is checked without
+ * (`useOtherCalls`): a Citation of one is left unchecked on purpose. Empty outside an Answer.
+ */
+export const OtherCallsContext = createContext<ReadonlySet<string>>(new Set());
 
 /**
  * When a Meeting's Transcript's call started, as a Citation of it shows it wherever another

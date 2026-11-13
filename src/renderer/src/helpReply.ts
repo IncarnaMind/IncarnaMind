@@ -4,7 +4,14 @@
  * or readings, the recommended first after "★", each followed by "→" and what
  * it leads to; or up to three short lines. It reads a part still streaming.
  */
-import type { AnswerStatus, CitationCheckReason, MarkedCitation, Meeting } from "../../core/api";
+import type {
+  AnswerStatus,
+  AnswerSteps,
+  CitationCheckReason,
+  ConversationQuestion,
+  MarkedCitation,
+  Meeting,
+} from "../../core/api";
 import type { Language } from "../../core/language";
 import { type DateOptions, formatDateTime } from "../../shared/dates";
 import { isTranscriptLocation, type Translate } from "../../shared/locations";
@@ -15,6 +22,7 @@ import {
   LINE_MARK,
   type MeetingHelpKind,
   plainLine,
+  pressedHelp,
   RECOMMENDED_MARK,
 } from "../../shared/meetingHelp";
 
@@ -236,6 +244,32 @@ export function callStarts(
     if (citation.documentId !== thisCall || sameName) starts.set(citation.documentId, startedAt);
   }
   return starts;
+}
+
+const NO_CALLS: ReadonlySet<string> = new Set();
+
+/**
+ * The Transcripts a help button's reply is checked without (#3005), as its check reads them: every
+ * call's but the one of the Note it was pressed in, and every call's once that Note is gone. None
+ * for any other Answer.
+ */
+export function otherCallsOf(
+  question: Pick<ConversationQuestion, "text" | "askedFrom"> | undefined,
+  answer: { steps: Pick<AnswerSteps, "sent"> | null },
+  meetings: readonly (Pick<Meeting, "kind" | "mindId"> & {
+    transcript: { documentId: string | null } | null;
+  })[],
+): ReadonlySet<string> {
+  if (!question || pressedHelp(question, answer) === null) return NO_CALLS;
+  const from = question.askedFrom;
+  const own = from && !from.deleted ? from.mindId : null;
+  return new Set(
+    meetings.flatMap((meeting) =>
+      meeting.kind === "meeting" && meeting.mindId !== own && meeting.transcript?.documentId
+        ? [meeting.transcript.documentId]
+        : [],
+    ),
+  );
 }
 
 /** A call's start as a cited Transcript shows it: "started 09:00", "开始于 09:00". */
