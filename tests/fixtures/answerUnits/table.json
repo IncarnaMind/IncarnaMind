@@ -2082,6 +2082,46 @@
     "c29f4785266a": {
       "name": "Notes.txt",
       "text": "Report\nTable 4 Population by city (thousand people)\nCity\tPeople\nA\t812\nB\t455\n"
+    },
+    "7b518a270cc9": {
+      "name": "Notes.txt",
+      "text": "Report\n表5 各厂能源消费量（万吨标准煤）\n工厂\t数值\n一厂\t54\n二厂\t31\n"
+    },
+    "9c490130cf21": {
+      "name": "Notes.txt",
+      "text": "Report\n表5 各厂能源消费量\n工厂\t消费量（万吨标准煤）\n一厂\t54\n二厂\t31\n"
+    },
+    "b1f861e4c58a": {
+      "name": "Notes.txt",
+      "text": "Report\n表5 各厂能源消费量\n工厂\t万吨标准煤\n一厂\t54\n二厂\t31\n"
+    },
+    "770a7fa9f86d": {
+      "name": "Notes.txt",
+      "text": "Rates\n各月能耗（万吨标准煤）\n7月: 118\n8月: 126\n"
+    },
+    "a367e952795e": {
+      "name": "Notes.txt",
+      "text": "Rates\n能耗（万吨标准煤）126。\n"
+    },
+    "91634bad0cee": {
+      "name": "Notes.txt",
+      "text": "Report\n表6 各厂排放量（万吨二氧化碳当量）\n工厂\t数值\n一厂\t54\n二厂\t31\n"
+    },
+    "d082e4d64273": {
+      "name": "Notes.txt",
+      "text": "Report\n表7 各厂产值（亿元人民币）\n工厂\t数值\n一厂\t54\n二厂\t31\n"
+    },
+    "ab8c448e13da": {
+      "name": "Notes.txt",
+      "text": "Report\n表8 各厂产值\n工厂\t产值（万元人民币）\n一厂\t54\n二厂\t31\n"
+    },
+    "2fc053593103": {
+      "name": "Notes.txt",
+      "text": "Rates\n各月收入（万元人民币）\n7月: 20\n8月: 22\n"
+    },
+    "4070aba8a24b": {
+      "name": "Notes.txt",
+      "text": "Report\n表5 各厂能耗（吨标准煤）\n工厂\t数值\n一厂\t54\n二厂\t31\n"
     }
   },
   "rows": [
@@ -35165,6 +35205,1350 @@
         "document": {
           "verdict": "unsupported",
           "reason": "文档写的是 455，不是 455 thousand people。"
+        }
+      }
+    },
+    {
+      "id": "e-qualified-caption-coal-right-en",
+      "source": "heading › qualified-caption-coal-right",
+      "language": "en",
+      "sentence": "二厂能源消费量为31万吨标准煤。",
+      "quotes": ["二厂\t31"],
+      "files": ["7b518a270cc9"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 31, not 31万吨."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-qualified-caption-coal-right-zh-CN",
+      "source": "heading › qualified-caption-coal-right",
+      "language": "zh-CN",
+      "sentence": "二厂能源消费量为31万吨标准煤。",
+      "quotes": ["二厂\t31"],
+      "files": ["7b518a270cc9"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 31，不是 31万吨。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-qualified-caption-coal-plain-wrong-en",
+      "source": "heading › qualified-caption-coal-plain-wrong",
+      "language": "en",
+      "sentence": "二厂能源消费量为31吨标准煤。",
+      "quotes": ["二厂\t31"],
+      "files": ["7b518a270cc9"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-qualified-caption-coal-plain-wrong-zh-CN",
+      "source": "heading › qualified-caption-coal-plain-wrong",
+      "language": "zh-CN",
+      "sentence": "二厂能源消费量为31吨标准煤。",
+      "quotes": ["二厂\t31"],
+      "files": ["7b518a270cc9"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-qualified-caption-coal-yi-en",
+      "source": "heading › qualified-caption-coal-yi",
+      "language": "en",
+      "sentence": "二厂能源消费量为31亿吨标准煤。",
+      "quotes": ["二厂\t31"],
+      "files": ["7b518a270cc9"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 31, not 31亿吨."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "The Document gives 31, not 31亿吨."
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 31, not 31亿吨."
+        }
+      }
+    },
+    {
+      "id": "e-qualified-caption-coal-yi-zh-CN",
+      "source": "heading › qualified-caption-coal-yi",
+      "language": "zh-CN",
+      "sentence": "二厂能源消费量为31亿吨标准煤。",
+      "quotes": ["二厂\t31"],
+      "files": ["7b518a270cc9"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 31，不是 31亿吨。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "文档写的是 31，不是 31亿吨。"
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 31，不是 31亿吨。"
+        }
+      }
+    },
+    {
+      "id": "e-qualified-column-coal-right-en",
+      "source": "heading › qualified-column-coal-right",
+      "language": "en",
+      "sentence": "二厂能源消费量为31万吨标准煤。",
+      "quotes": ["二厂\t31"],
+      "files": ["9c490130cf21"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 31, not 31万吨."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-qualified-column-coal-right-zh-CN",
+      "source": "heading › qualified-column-coal-right",
+      "language": "zh-CN",
+      "sentence": "二厂能源消费量为31万吨标准煤。",
+      "quotes": ["二厂\t31"],
+      "files": ["9c490130cf21"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 31，不是 31万吨。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-qualified-column-coal-plain-wrong-en",
+      "source": "heading › qualified-column-coal-plain-wrong",
+      "language": "en",
+      "sentence": "二厂能源消费量为31吨标准煤。",
+      "quotes": ["二厂\t31"],
+      "files": ["9c490130cf21"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "The Document gives 31（万吨标准煤）, not 31吨."
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 31（万吨标准煤）, not 31吨."
+        }
+      }
+    },
+    {
+      "id": "e-qualified-column-coal-plain-wrong-zh-CN",
+      "source": "heading › qualified-column-coal-plain-wrong",
+      "language": "zh-CN",
+      "sentence": "二厂能源消费量为31吨标准煤。",
+      "quotes": ["二厂\t31"],
+      "files": ["9c490130cf21"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "文档写的是 31（万吨标准煤），不是 31吨。"
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 31（万吨标准煤），不是 31吨。"
+        }
+      }
+    },
+    {
+      "id": "e-qualified-bare-cell-coal-right-en",
+      "source": "heading › qualified-bare-cell-coal-right",
+      "language": "en",
+      "sentence": "二厂能源消费量为31万吨标准煤。",
+      "quotes": ["二厂\t31"],
+      "files": ["b1f861e4c58a"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 31, not 31万吨."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-qualified-bare-cell-coal-right-zh-CN",
+      "source": "heading › qualified-bare-cell-coal-right",
+      "language": "zh-CN",
+      "sentence": "二厂能源消费量为31万吨标准煤。",
+      "quotes": ["二厂\t31"],
+      "files": ["b1f861e4c58a"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 31，不是 31万吨。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-qualified-heading-coal-right-en",
+      "source": "heading › qualified-heading-coal-right",
+      "language": "en",
+      "sentence": "8月能耗为126万吨标准煤。",
+      "quotes": ["8月: 126"],
+      "files": ["770a7fa9f86d"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 126, not 126万吨."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-qualified-heading-coal-right-zh-CN",
+      "source": "heading › qualified-heading-coal-right",
+      "language": "zh-CN",
+      "sentence": "8月能耗为126万吨标准煤。",
+      "quotes": ["8月: 126"],
+      "files": ["770a7fa9f86d"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 126，不是 126万吨。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-qualified-heading-coal-plain-wrong-en",
+      "source": "heading › qualified-heading-coal-plain-wrong",
+      "language": "en",
+      "sentence": "8月能耗为126吨标准煤。",
+      "quotes": ["8月: 126"],
+      "files": ["770a7fa9f86d"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "The Document gives 126（万吨标准煤）, not 126吨."
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 126（万吨标准煤）, not 126吨."
+        }
+      }
+    },
+    {
+      "id": "e-qualified-heading-coal-plain-wrong-zh-CN",
+      "source": "heading › qualified-heading-coal-plain-wrong",
+      "language": "zh-CN",
+      "sentence": "8月能耗为126吨标准煤。",
+      "quotes": ["8月: 126"],
+      "files": ["770a7fa9f86d"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "文档写的是 126（万吨标准煤），不是 126吨。"
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 126（万吨标准煤），不是 126吨。"
+        }
+      }
+    },
+    {
+      "id": "e-qualified-own-label-coal-right-en",
+      "source": "heading › qualified-own-label-coal-right",
+      "language": "en",
+      "sentence": "能耗为126万吨标准煤。",
+      "quotes": ["能耗（万吨标准煤）126"],
+      "files": ["a367e952795e"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 126, not 126万吨."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-qualified-own-label-coal-right-zh-CN",
+      "source": "heading › qualified-own-label-coal-right",
+      "language": "zh-CN",
+      "sentence": "能耗为126万吨标准煤。",
+      "quotes": ["能耗（万吨标准煤）126"],
+      "files": ["a367e952795e"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 126，不是 126万吨。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-qualified-own-label-coal-plain-wrong-en",
+      "source": "heading › qualified-own-label-coal-plain-wrong",
+      "language": "en",
+      "sentence": "能耗为126吨标准煤。",
+      "quotes": ["能耗（万吨标准煤）126"],
+      "files": ["a367e952795e"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "The Document gives 126（万吨标准煤）, not 126吨."
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 126（万吨标准煤）, not 126吨."
+        }
+      }
+    },
+    {
+      "id": "e-qualified-own-label-coal-plain-wrong-zh-CN",
+      "source": "heading › qualified-own-label-coal-plain-wrong",
+      "language": "zh-CN",
+      "sentence": "能耗为126吨标准煤。",
+      "quotes": ["能耗（万吨标准煤）126"],
+      "files": ["a367e952795e"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "文档写的是 126（万吨标准煤），不是 126吨。"
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 126（万吨标准煤），不是 126吨。"
+        }
+      }
+    },
+    {
+      "id": "e-qualified-caption-co2-right-en",
+      "source": "heading › qualified-caption-co2-right",
+      "language": "en",
+      "sentence": "二厂排放量为31万吨二氧化碳当量。",
+      "quotes": ["二厂\t31"],
+      "files": ["91634bad0cee"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 31, not 31万吨."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-qualified-caption-co2-right-zh-CN",
+      "source": "heading › qualified-caption-co2-right",
+      "language": "zh-CN",
+      "sentence": "二厂排放量为31万吨二氧化碳当量。",
+      "quotes": ["二厂\t31"],
+      "files": ["91634bad0cee"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 31，不是 31万吨。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-qualified-caption-co2-plain-wrong-en",
+      "source": "heading › qualified-caption-co2-plain-wrong",
+      "language": "en",
+      "sentence": "二厂排放量为31吨二氧化碳当量。",
+      "quotes": ["二厂\t31"],
+      "files": ["91634bad0cee"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-qualified-caption-co2-plain-wrong-zh-CN",
+      "source": "heading › qualified-caption-co2-plain-wrong",
+      "language": "zh-CN",
+      "sentence": "二厂排放量为31吨二氧化碳当量。",
+      "quotes": ["二厂\t31"],
+      "files": ["91634bad0cee"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-qualified-caption-rmb-yi-right-en",
+      "source": "heading › qualified-caption-rmb-yi-right",
+      "language": "en",
+      "sentence": "二厂产值为31亿元。",
+      "quotes": ["二厂\t31"],
+      "files": ["d082e4d64273"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 31, not 31亿元."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-qualified-caption-rmb-yi-right-zh-CN",
+      "source": "heading › qualified-caption-rmb-yi-right",
+      "language": "zh-CN",
+      "sentence": "二厂产值为31亿元。",
+      "quotes": ["二厂\t31"],
+      "files": ["d082e4d64273"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 31，不是 31亿元。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-qualified-caption-rmb-yi-full-right-en",
+      "source": "heading › qualified-caption-rmb-yi-full-right",
+      "language": "en",
+      "sentence": "二厂产值为31亿元人民币。",
+      "quotes": ["二厂\t31"],
+      "files": ["d082e4d64273"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 31, not 31亿元人民币."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-qualified-caption-rmb-yi-full-right-zh-CN",
+      "source": "heading › qualified-caption-rmb-yi-full-right",
+      "language": "zh-CN",
+      "sentence": "二厂产值为31亿元人民币。",
+      "quotes": ["二厂\t31"],
+      "files": ["d082e4d64273"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 31，不是 31亿元人民币。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-qualified-caption-rmb-plain-wrong-en",
+      "source": "heading › qualified-caption-rmb-plain-wrong",
+      "language": "en",
+      "sentence": "二厂产值为31元。",
+      "quotes": ["二厂\t31"],
+      "files": ["d082e4d64273"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-qualified-caption-rmb-plain-wrong-zh-CN",
+      "source": "heading › qualified-caption-rmb-plain-wrong",
+      "language": "zh-CN",
+      "sentence": "二厂产值为31元。",
+      "quotes": ["二厂\t31"],
+      "files": ["d082e4d64273"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-qualified-column-rmb-right-en",
+      "source": "heading › qualified-column-rmb-right",
+      "language": "en",
+      "sentence": "二厂产值为31万元。",
+      "quotes": ["二厂\t31"],
+      "files": ["ab8c448e13da"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 31, not 31万元."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-qualified-column-rmb-right-zh-CN",
+      "source": "heading › qualified-column-rmb-right",
+      "language": "zh-CN",
+      "sentence": "二厂产值为31万元。",
+      "quotes": ["二厂\t31"],
+      "files": ["ab8c448e13da"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 31，不是 31万元。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-qualified-column-rmb-plain-wrong-en",
+      "source": "heading › qualified-column-rmb-plain-wrong",
+      "language": "en",
+      "sentence": "二厂产值为31元。",
+      "quotes": ["二厂\t31"],
+      "files": ["ab8c448e13da"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "The Document gives 31（万元人民币）, not 31元."
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 31（万元人民币）, not 31元."
+        }
+      }
+    },
+    {
+      "id": "e-qualified-column-rmb-plain-wrong-zh-CN",
+      "source": "heading › qualified-column-rmb-plain-wrong",
+      "language": "zh-CN",
+      "sentence": "二厂产值为31元。",
+      "quotes": ["二厂\t31"],
+      "files": ["ab8c448e13da"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "文档写的是 31（万元人民币），不是 31元。"
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 31（万元人民币），不是 31元。"
+        }
+      }
+    },
+    {
+      "id": "e-qualified-heading-rmb-right-en",
+      "source": "heading › qualified-heading-rmb-right",
+      "language": "en",
+      "sentence": "8月收入为22万元。",
+      "quotes": ["8月: 22"],
+      "files": ["2fc053593103"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 22, not 22万元."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-qualified-heading-rmb-right-zh-CN",
+      "source": "heading › qualified-heading-rmb-right",
+      "language": "zh-CN",
+      "sentence": "8月收入为22万元。",
+      "quotes": ["8月: 22"],
+      "files": ["2fc053593103"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 22，不是 22万元。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      }
+    },
+    {
+      "id": "e-qualified-heading-rmb-plain-wrong-en",
+      "source": "heading › qualified-heading-rmb-plain-wrong",
+      "language": "en",
+      "sentence": "8月收入为22元。",
+      "quotes": ["8月: 22"],
+      "files": ["2fc053593103"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "The Document gives 22（万元人民币）, not 22元."
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 22（万元人民币）, not 22元."
+        }
+      }
+    },
+    {
+      "id": "e-qualified-heading-rmb-plain-wrong-zh-CN",
+      "source": "heading › qualified-heading-rmb-plain-wrong",
+      "language": "zh-CN",
+      "sentence": "8月收入为22元。",
+      "quotes": ["8月: 22"],
+      "files": ["2fc053593103"],
+      "main": {
+        "answer": [
+          {
+            "check": "not-checked",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "supported",
+          "reason": null
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "文档写的是 22（万元人民币），不是 22元。"
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 22（万元人民币），不是 22元。"
+        }
+      }
+    },
+    {
+      "id": "e-qualified-bare-unit-coal-right-en",
+      "source": "heading › qualified-bare-unit-coal-right",
+      "language": "en",
+      "sentence": "二厂能耗为31吨标准煤。",
+      "quotes": ["二厂\t31"],
+      "files": ["4070aba8a24b"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 31, not 31吨."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "The Document gives 31, not 31吨."
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 31, not 31吨."
+        }
+      }
+    },
+    {
+      "id": "e-qualified-bare-unit-coal-right-zh-CN",
+      "source": "heading › qualified-bare-unit-coal-right",
+      "language": "zh-CN",
+      "sentence": "二厂能耗为31吨标准煤。",
+      "quotes": ["二厂\t31"],
+      "files": ["4070aba8a24b"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 31，不是 31吨。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "文档写的是 31，不是 31吨。"
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 31，不是 31吨。"
+        }
+      }
+    },
+    {
+      "id": "e-qualified-bare-unit-coal-wan-en",
+      "source": "heading › qualified-bare-unit-coal-wan",
+      "language": "en",
+      "sentence": "二厂能耗为31万吨标准煤。",
+      "quotes": ["二厂\t31"],
+      "files": ["4070aba8a24b"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 31, not 31万吨."
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "The Document gives 31, not 31万吨."
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "The Document gives 31, not 31万吨."
+        }
+      }
+    },
+    {
+      "id": "e-qualified-bare-unit-coal-wan-zh-CN",
+      "source": "heading › qualified-bare-unit-coal-wan",
+      "language": "zh-CN",
+      "sentence": "二厂能耗为31万吨标准煤。",
+      "quotes": ["二厂\t31"],
+      "files": ["4070aba8a24b"],
+      "main": {
+        "answer": [
+          {
+            "check": "found",
+            "verdict": null
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 31，不是 31万吨。"
+        }
+      },
+      "here": {
+        "answer": [
+          {
+            "check": "unsupported",
+            "verdict": "文档写的是 31，不是 31万吨。"
+          }
+        ],
+        "document": {
+          "verdict": "unsupported",
+          "reason": "文档写的是 31，不是 31万吨。"
         }
       }
     }

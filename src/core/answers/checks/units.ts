@@ -417,14 +417,18 @@ function givenOtherwise(
 }
 
 /**
- * A piece of a heading read as its own unit line ("万千瓦时" as "单位：万千瓦时"). One that goes on
- * with more of a word after its unit ("人口", "吨位", "人口普查") states nothing; a scale word before a
- * unit the reader doesn't know ("亿SDR") still states its scale (#2997).
+ * A piece of a heading read as its own unit line ("万千瓦时" as "单位：万千瓦时"). A bare unit word
+ * that goes on with more of a word ("人口", "吨位", "人口普查") is another word and states nothing;
+ * a piece with a scale word states its unit, whatever follows ("万吨标准煤", "亿元人民币"), and a
+ * scale word before a unit the reader doesn't know ("亿SDR") still states its scale (#2997).
  */
 function asUnitLine(piece: string, context: FigureContext): StatedUnit[] {
   const line = `单位：${piece}`;
   return readStatedUnits(line, context).filter(
-    (statement) => statement.unit.kind === "plain" || !/^\p{L}/u.test(line.slice(statement.end)),
+    (statement) =>
+      statement.unit.kind === "plain" ||
+      statement.scaleWord !== null ||
+      !/^\p{L}/u.test(line.slice(statement.end)),
   );
 }
 
