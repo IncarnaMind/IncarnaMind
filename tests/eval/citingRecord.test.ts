@@ -336,6 +336,11 @@ describe("The count over run files", () => {
         "app-unmarked": { citations: 1, judged: 1, passed: 1 },
         figure: { citations: 0, judged: 0, passed: 0 },
       },
+      listNumbers: {
+        differing: { citations: 0, judged: 0, passed: 0 },
+        oneSided: { citations: 0, judged: 0, passed: 0 },
+        unplaced: 0,
+      },
     };
     expect(counts).toEqual([
       { model: "ollama/local-model", language: "en", ...each },
