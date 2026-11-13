@@ -1,4 +1,4 @@
-import { DOMParser } from "linkedom";
+import { DOMParser, NodeFilter } from "linkedom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { vi } from "vitest";
@@ -61,6 +61,20 @@ export function mountViewerDom(
     },
   );
   Object.assign(window, { incarnamind: bridge, incarnamindFiles: bridge });
+  // Nothing is laid out here: every element has no size, which is where a mark finds a line.
+  Object.assign(window.Element.prototype, {
+    getClientRects: () => [],
+    getBoundingClientRect: () => ({
+      x: 0,
+      y: 0,
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      width: 0,
+      height: 0,
+    }),
+  });
   const globals: Record<string, unknown> = {
     document: dom,
     window,
@@ -68,6 +82,7 @@ export function mountViewerDom(
     Element: window.Element,
     Event: window.Event,
     Node: window.Node,
+    NodeFilter,
     MutationObserver: window.MutationObserver,
     requestAnimationFrame: (run: () => void) => {
       run();

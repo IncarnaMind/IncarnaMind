@@ -23,6 +23,7 @@ import type { ViewerTarget } from "../store";
 import { AnnotationNoteLayer } from "./AnnotationNoteLayer";
 import { type AnnotationRange, annotationRangesIn } from "./annotationMarks";
 import { type CitedArea, useCitedArea, useCitedAreaFailure } from "./citedArea";
+import { citedPlaceGone } from "./citedPlace";
 import { loadDocumentBytes, MissingDocumentError, TooLargeDocumentError } from "./documentBytes";
 import { MarkdownBlocks, MarkdownDocumentContext, Slice } from "./MarkdownBlocks";
 import { parseMarkdown } from "./markdown";
@@ -149,6 +150,7 @@ export function TextView({ document, target }: { document: Document; target: Vie
             <OutlineButton open={outlineOpen} onToggle={() => setOutlineOpen((open) => !open)} />
           )
         }
+        placeGone={loaded.kind === "ready" && citedPlaceGone(target, units.length)}
       >
         {written && loaded.kind === "ready" && (
           <button

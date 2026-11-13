@@ -20,6 +20,7 @@ import { useAppStore, type ViewerTarget } from "../store";
 import { useRename } from "../useRename";
 import { pageDate } from "../webPages";
 import { AreaModeContext } from "./areaSelection";
+import { citedPlaceGoneLine } from "./citedPlace";
 import { AreaIcon, OpenExternallyIcon } from "./icons";
 import { canOpenExternally, useOpenExternally } from "./openExternally";
 
@@ -63,6 +64,7 @@ export function ViewerHeader({
   openable = true,
   onRetry,
   showingCited = false,
+  placeGone = false,
 }: {
   leading?: ReactNode;
   children?: ReactNode;
@@ -78,6 +80,11 @@ export function ViewerHeader({
    * does, and a saved page's date is the cited version's.
    */
   showingCited?: boolean;
+  /**
+   * The Units the Citation opened the page at aren't in the Document (`citedPlaceGone`): the
+   * line under the toolbar says so, after the one that says the Document changed.
+   */
+  placeGone?: boolean;
 }) {
   const t = useT();
   const language = useLanguage();
@@ -136,6 +143,11 @@ export function ViewerHeader({
           t,
         ).note
       : null;
+  const gone = placeGone && target ? citedPlaceGoneLine(target, t, documents) : null;
+  const notice = [changed?.notice, changed?.quote, gone].reduce<string>(
+    (text, line) => (line ? `${text}${text ? gap(text, line) : ""}${line}` : text),
+    "",
+  );
   // A saved page's date is the shown version's: the cited one while it is shown (#2159).
   const fetchedAt =
     showingCited && document?.web
@@ -304,10 +316,9 @@ ${sourceOf(document)}`
           {problem.message}
         </ProblemLine>
       )}
-      {changed && (
+      {notice && (
         <ProblemLine role="status" testId="viewer-citation-changed" className="shrink-0 px-4 py-2">
-          {changed.notice}
-          {changed.quote && `${gap(changed.notice, changed.quote)}${changed.quote}`}
+          {notice}
         </ProblemLine>
       )}
       {document && leftOut && (
