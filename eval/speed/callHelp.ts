@@ -40,7 +40,7 @@ import {
 } from "../../tests/helpers/transcription";
 import type { EvalDocument } from "../lib/evaluationSet";
 import { openLibrary } from "../lib/library";
-import { armNamed } from "./arms";
+import { armNamed, citationsAsked } from "./arms";
 import {
   CALL_HELP_CASES,
   type CallHelpCase,
@@ -442,6 +442,8 @@ async function press(
   drafts: string[];
   /** The conversation's Answers before the reply, oldest first, as they stand: what it could repeat. */
   earlier: string[];
+  /** What each one request for Citations made while the reply was written replied. */
+  citationsReplies: string[];
 }> {
   let stopPhase: () => void = () => undefined;
   const drafts: string[] = [];
@@ -521,6 +523,7 @@ async function press(
       }
     }
     begin();
+    const askedFrom = citationsAsked.length;
     start = performance.now();
     const asked = each.typed
       ? await core.askMeetingQuestion({ meetingId, text: each.typed.question })
@@ -579,6 +582,7 @@ async function press(
       earlier: messages.flatMap((message) =>
         message.kind === "answer" && message.id !== answer.id ? [message.text] : [],
       ),
+      citationsReplies: citationsAsked.slice(askedFrom),
       ...(buttonId !== null && {
         pressedFirst: {
           firstWordsMs: since(button?.wordsAt, buttonAt),
@@ -701,8 +705,16 @@ function item(each: CallHelpCase, set: CallHelpSet): PairedGroup["items"][number
       } catch (error) {
         return failed(error instanceof Error ? error.message : String(error));
       }
-      const { answer, firstWordsMs, firstOptionMs, settledMs, pressedFirst, drafts, earlier } =
-        pressed;
+      const {
+        answer,
+        firstWordsMs,
+        firstOptionMs,
+        settledMs,
+        pressedFirst,
+        drafts,
+        earlier,
+        citationsReplies,
+      } = pressed;
       const requests = requestsSince(library.dataDir, since);
       const done = answer.status === "done";
       const shown = shownItems(readHelpReply(answer.text), {
@@ -881,6 +893,9 @@ function item(each: CallHelpCase, set: CallHelpSet): PairedGroup["items"][number
                       `[uncited] ${shownReply(answer, [shownItem], () => "").replace(/\n/g, " ")}`,
                   ),
                 ...earlier.map((text) => `[earlier answer] ${text.replace(/\n+/g, " ")}`),
+                ...citationsReplies.map(
+                  (reply) => `[citations asked] ${reply.replace(/\n+/g, " ")}`,
+                ),
               ]
             : []),
         ].join("\n"),

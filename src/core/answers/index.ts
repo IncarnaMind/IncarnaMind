@@ -342,6 +342,7 @@ import type {
   GatedCall,
   ToolSet,
 } from "./engine";
+import { helpAskedLines } from "./helpCitations";
 import { countingJudges } from "./judge";
 import {
   type LiveTranscript,
@@ -3719,6 +3720,7 @@ export function createAnswers(options: AnswersOptions) {
         toolSet: input.toolSet ?? (help ? "documents" : undefined),
         ...(help &&
           !options.helpFormJudged?.() && { ownLines: (text: string) => helpOwnLines(help, text) }),
+        ...(help === "question" && { askedLines: helpAskedLines }),
         ...(input.outputKind && { outputKind: input.outputKind }),
         ...(keepsQuestionsLanguage && {
           languageNote: () => (skillNamesNoLanguage ? skillLanguageNote(language) : null),

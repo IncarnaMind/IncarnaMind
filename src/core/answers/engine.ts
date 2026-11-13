@@ -121,6 +121,7 @@ import { calculationsSchema, checkCalculationsSchema } from "./calculationsSchem
 import { asksForFixes, WRITE_NOW } from "./citations";
 import { type AskedPicture, earlierContext, type RequestMind, withLineBefore } from "./context";
 import { retryFigures } from "./figureRetry";
+import type { AskedLine } from "./helpCitations";
 import { withJsonFencesClosed } from "./jsonFences";
 import { replyJson } from "./judge";
 import {
@@ -538,6 +539,16 @@ export interface AnswerRequest {
    * that are its own lines, which are never judged the model's working.
    */
   ownLines?(text: string): readonly { from: number; to: number }[];
+  /**
+   * The lines of the reply the one request for its Citations is asked about, and taken on, in
+   * place of the whole reply (a typed call-help question's, #2925); `recorded`, whether a marker
+   * has a record. Absent: the request is asked about the whole reply, as for any Answer.
+   */
+  askedLines?(
+    text: string,
+    passages: readonly { id: string; text: string }[],
+    recorded: (marker: number) => boolean,
+  ): readonly AskedLine[];
   /**
    * Told what the first model call wrote once its Tools have returned, before any further call:
    * a Run it stops there makes none.

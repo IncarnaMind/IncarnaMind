@@ -107,12 +107,14 @@ async function pressed(
   /** The arm switch a paired run sends through, to read the requests as it records them. */
   through?: ReturnType<typeof armSwitch>,
   set: "call-help" | "call-help-typed" | "call-help-typed-fresh" = "call-help",
+  /** The model answering; `helping`'s by default. */
+  answering: (quote: string, calls: ModelCall[]) => ReturnType<typeof helping> = helping,
 ) {
   const group = callHelpSet(set).find((each) => each.name === `${set}-${id}`);
   const item = group?.items[0];
   if (!group || !item) throw new Error(`No case ${id}.`);
   const calls: ModelCall[] = [];
-  const model = helping(quote, calls);
+  const model = answering(quote, calls);
   // The press answers on an Ollama choice; the model is scripted, so the server is always here.
   const ollamaModels: CoreAdapters["ollamaModels"] = {
     describe: async () => null,
@@ -342,6 +344,35 @@ describe("The typed question's fresh cases (#2925)", () => {
     expect(typed[0]?.prompt).toContain("How much is a van charger?");
     expect(typed.at(-1)?.prompt).toContain("And how long to fit?");
     expect(judged[0]).toContain("<typed-before>How much is a van charger?</typed-before>");
+  }, 120_000);
+
+  // protects=a run keeps what the one request for a typed reply's Citations replied, so a Citation it gave and that wasn't taken can be read afterwards (#2925); fails_when=the request's reply isn't in the run's record; no_claim=what a real model replies.
+  test("a typed reply's one request for Citations is kept in the run's record, as it replied", async () => {
+    const asked =
+      '{"citations": [{"sentence": "A 100 kWh battery costs £38,500.", "passage": "P9", "quote": "Not there."}]}';
+    const uncited = (_quote: string, calls: ModelCall[]) =>
+      scriptedModel(
+        (call) => {
+          calls.push(call);
+          if (call.json) return { text: asked };
+          if (call.prompt.includes("typed a question about it"))
+            // Worded apart from the price list, so only the request can cite it.
+            return { text: "The hundred kilowatt-hour one comes to £38,500 fitted." };
+          return { text: "- They want a battery for the night shift" };
+        },
+        { judgesItsAnswers: true },
+      );
+    const { run } = await pressed(
+      "en-fresh-price",
+      "",
+      { grade: "right", unstated: [] },
+      "today",
+      armSwitch(),
+      "call-help-typed-fresh",
+      uncited,
+    );
+    expect(run.status).toBe("done");
+    expect(run.text).toContain(`[citations asked] ${asked}`);
   }, 120_000);
 });
 

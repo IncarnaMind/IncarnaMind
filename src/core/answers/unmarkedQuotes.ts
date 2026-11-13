@@ -42,6 +42,7 @@ import { sentenceSpans } from "../../shared/sentences";
 import { detectLanguage, LANGUAGE_SAMPLE } from "../documents/textLanguage";
 import { outputTokens } from "../providers/outputLimits";
 import type { AnswerEngineEvent, AnswerRequest, AnswerTools } from "./engine";
+import type { AskedLine } from "./helpCitations";
 import { fieldsOf, judge, list, structured } from "./judge";
 import {
   answerTableUnits,
@@ -125,7 +126,13 @@ interface Match extends MarkerRecord {
  * record behind it, which the Citation takes, if it is the first sentence
  * to hold that marker.
  */
-type Found = Omit<Match, "marker"> & { marker?: number; start?: number; end?: number };
+type Found = Omit<Match, "marker"> & {
+  marker?: number;
+  start?: number;
+  end?: number;
+  /** A Citation its line shares with other list items, which this one replaces there (#2925). */
+  replaces?: number;
+};
 
 /** A number as written, without the separators between its groups of three: "£739,800" is "739800". */
 const LATIN_NUMBER = /\d+(?:[.,\s]\d+)*/g;
@@ -302,6 +309,76 @@ function takingMarkers(
     taken.add(orphan);
     return [{ ...match, marker: orphan, start: own.start, end: own.end }];
   });
+}
+
+/** A sentence without its markers, punctuation and spaces, to tell whether one holds another. */
+const plainOf = (text: string) =>
+  text
+    .replace(MARKER, "")
+    .replace(/[\p{P}\p{S}\s]+/gu, "")
+    .toLowerCase();
+
+/**
+ * What the one request gave, taken on the lines it was asked about (#2925) and nowhere else: each
+ * Citation on the line its sentence is worded like, or is part of (a clause of a Chinese line).
+ * A line's marker with no record is the one its first Citation takes; a Citation the line shares
+ * with other list items is replaced, on that line alone, by the first it is given.
+ */
+function onLines(
+  asked: readonly Omit<Match, "marker">[],
+  lines: readonly AskedLine[],
+  recorded: (marker: number) => boolean,
+): Found[] {
+  const units = lines.map((line) => ({
+    line,
+    words: wordsOf(line.text),
+    plain: plainOf(line.text),
+  }));
+  const taken = new Set<number>();
+  const replaced = new Set<number>();
+  return asked.flatMap((match): Found[] => {
+    const words = wordsOf(match.sentence);
+    const plain = plainOf(match.sentence);
+    let own: AskedLine | undefined;
+    let best = 0;
+    for (const unit of units) {
+      const { score } = likeness(words, unit.words);
+      const alike = plain !== "" && unit.plain.includes(plain) ? 1 : score;
+      if (alike >= MIN_SIMILARITY && alike > best) {
+        best = alike;
+        own = unit.line;
+      }
+    }
+    if (!own) return [];
+    const placed = { ...match, sentence: own.text, start: own.start, end: own.end };
+    const orphan = [...own.text.matchAll(MARKER)]
+      .map((each) => Number(each[1]))
+      .find((marker) => !recorded(marker) && !taken.has(marker));
+    if (orphan !== undefined) {
+      taken.add(orphan);
+      return [{ ...placed, marker: orphan }];
+    }
+    if (own.replaces !== undefined && !replaced.has(own.start)) {
+      replaced.add(own.start);
+      return [{ ...placed, replaces: own.replaces }];
+    }
+    return [placed];
+  });
+}
+
+/** A shared Citation replaced, on each line an answer was taken on for it, by that line's own. */
+function replaceShared(text: string, records: readonly (Found & { marker: number })[]): string {
+  let out = text;
+  for (const record of records) {
+    if (record.replaces === undefined) continue;
+    const at = out.indexOf(record.sentence);
+    if (at === -1) continue;
+    const line = out
+      .slice(at, at + record.sentence.length)
+      .replace(`[^${record.replaces}]`, `[^${record.marker}]`);
+    out = out.slice(0, at) + line + out.slice(at + record.sentence.length);
+  }
+  return out;
 }
 
 const languageOf = (text: string) => detectLanguage(text.slice(0, LANGUAGE_SAMPLE));
@@ -518,7 +595,7 @@ async function askForCitations(
  * nothing for an Answer that read no Passages. Returns the text.
  */
 export async function* citeUnmarked(
-  request: Pick<AnswerRequest, "model" | "quickModel" | "documents" | "signal">,
+  request: Pick<AnswerRequest, "model" | "quickModel" | "documents" | "signal" | "askedLines">,
   answer: string,
   temperature: number | undefined,
   budget?: WindowBudget | null,
@@ -533,22 +610,37 @@ export async function* citeUnmarked(
   const recorded = (marker: number) => documents.hasRecord?.(marker) ?? false;
   let matches = matchUnmarked(answer, passages, found, recorded);
   let asked = false;
-  const cited = [...answer.matchAll(MARKER)].some((each) => recorded(Number(each[1])));
-  const matchedMarkers = new Set(matches.map((match) => match.marker));
-  const unbacked = markedUnits(answer).some(
-    ({ markers }) =>
-      markers.length > 0 &&
-      !markers.some((marker) => recorded(marker) || matchedMarkers.has(marker)),
-  );
-  if (unbacked || (matches.length === 0 && !cited && mayDrawOn(answer, passages))) {
-    const toAsk = passagesToAsk(answer, passages, budget);
+  const lines = request.askedLines?.(answer, passages, recorded);
+  if (lines) {
+    const open = lines.filter((line) => !matches.some((match) => match.start === line.start));
+    const asking = open.map((line) => line.text).join("\n");
+    const toAsk = open.length > 0 ? passagesToAsk(asking, passages, budget) : [];
     if (toAsk.length > 0 && mayAsk()) {
       asked = true;
       yield { type: "phase", phase: "checking-quotes" };
-      const given = await askForCitations(request, answer, toAsk, temperature);
+      const given = await askForCitations(request, asking, toAsk, temperature);
       if (signal.aborted) return answer;
-      const asking = given.filter((each) => found(each.passage, each.quote));
-      matches = capped([...matches, ...takingMarkers(asking, answer, recorded, matches)]);
+      const taken = given.filter((each) => found(each.passage, each.quote));
+      matches = capped([...matches, ...onLines(taken, open, recorded)]);
+    }
+  } else {
+    const cited = [...answer.matchAll(MARKER)].some((each) => recorded(Number(each[1])));
+    const matchedMarkers = new Set(matches.map((match) => match.marker));
+    const unbacked = markedUnits(answer).some(
+      ({ markers }) =>
+        markers.length > 0 &&
+        !markers.some((marker) => recorded(marker) || matchedMarkers.has(marker)),
+    );
+    if (unbacked || (matches.length === 0 && !cited && mayDrawOn(answer, passages))) {
+      const toAsk = passagesToAsk(answer, passages, budget);
+      if (toAsk.length > 0 && mayAsk()) {
+        asked = true;
+        yield { type: "phase", phase: "checking-quotes" };
+        const given = await askForCitations(request, answer, toAsk, temperature);
+        if (signal.aborted) return answer;
+        const asking = given.filter((each) => found(each.passage, each.quote));
+        matches = capped([...matches, ...takingMarkers(asking, answer, recorded, matches)]);
+      }
     }
   }
   if (matches.length === 0) {
@@ -577,7 +669,7 @@ export async function* citeUnmarked(
     return answer;
   }
   const { text } = withMissingMarkers(
-    settleOrphans(answer, records),
+    replaceShared(settleOrphans(answer, records), records),
     records,
     (marker) => documents.hasRecord?.(marker) ?? false,
   );
