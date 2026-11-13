@@ -22,6 +22,7 @@ import {
 import { INTEGER_WORDS, NUMBER_WORD, SCALES, wholeNumberWords } from "../../../shared/numberWords";
 import type { TextRange } from "../../../shared/quoteMatch";
 import { documentFigureContext } from "../calculations";
+import { isRow, tableAt } from "./figureMeasures";
 
 export type UnitNotStated =
   /** `currency` as the sentence writes it ("£", "英镑"), `amount` as the Document does ("54,000"). */
@@ -170,7 +171,6 @@ interface Read {
   which: Set<string> | null;
   whichInDocument: Set<string> | null;
   language: string | null;
-  byLine: ReturnType<typeof unitsByLine> | null;
 }
 
 const namedInCited = (each: Read) =>
@@ -452,7 +452,7 @@ function givenOtherwise(
   );
   if (written) return null;
   // A label that reaches one of them names the unit: under a column headed "瓦" a 31 is 31瓦. With
-  // none, another line may say it: "本报告产量以瓦计。".
+  // none, a line that heads its rows may say it: "本报告产量以瓦计。" over its table.
   const labelNamesIt = plain.some(({ each, number }) => {
     const labels = labelsOf(each.text, number.start, each.context);
     if (labels.length > 0)
@@ -460,8 +460,7 @@ function givenOtherwise(
         (label) => ofOneUnit(label.unit, figure.unit) && atOneScale(label, figure) === true,
       );
     if (each.text.gateReads !== true) return false;
-    each.byLine ??= unitsByLine(each.text.document(), each.context);
-    return statedElsewhere(each.byLine, lineAt(each.cited, number.start)).some((statement) =>
+    return headingUnits(each.cited, number.start, each.context).some((statement) =>
       namesFigure(statement, figure, after),
     );
   });
@@ -765,70 +764,48 @@ const bracketNamesTwo = (words: string, context: FigureContext) =>
   );
 
 /**
- * What a line of the Document that gives no value states of its figures' units: a unit line's unit
- * ("单位：千克"), or the units its words state, in brackets or a clause of prose; none where it
- * names two. A heading row of a table states only its columns' units, which its cells give.
+ * What a line of words states of its figures' units: a unit line's unit ("单位：千克"), or the
+ * units its words state, in brackets or a clause of prose; none where it names two.
  */
-function unitsOnLine(line: string, stated: StatedUnit[], context: FigureContext): StatedUnit[] {
+function unitsOnLine(line: string, context: FigureContext): StatedUnit[] {
   const piece = UNIT_LINE.exec(line)?.[1];
-  if (piece === undefined) {
-    if (line.includes("\t")) return [];
-    if (stated.length === 0 && !/[(（]/u.test(line) && line.search(UNIT_SAID) < 0) return [];
-  }
-  if (readFigures(line, context).length > 0) return [];
   if (piece !== undefined) return bracketNamesTwo(piece, context) ? [] : asUnitLine(piece, context);
   if (bracketNamesTwo(line, context)) return [];
   const units = [
-    ...stated,
+    ...readStatedUnits(line, context),
     ...bracketedUnits(line, context),
     ...[...line.matchAll(UNIT_SAID)].flatMap(([, said = ""]) => asUnitLine(said, context)),
   ];
   return namesTwoUnits(units) ? [] : units;
 }
 
-// One pass of the shared reader over the Document, not one a line: a long Document has thousands.
-function unitsByLine(document: string, context: FigureContext) {
-  const shared = readStatedUnits(document, context);
-  let from = 0;
-  return document.split("\n").map((line) => {
-    const to = from + line.length;
-    const stated = shared.filter((each) => each.start >= from && each.end <= to);
-    from = to + 1;
-    return { line: line.trim(), units: unitsOnLine(line, stated, context) };
-  });
-}
-
-const statedElsewhere = (byLine: ReturnType<typeof unitsByLine>, itsLine: string) =>
-  byLine.filter(({ line }) => line !== itsLine).flatMap(({ units }) => units);
-
 /**
- * What the lines that head the rows of the number at `start` state of its unit: the run of lines
- * giving no value directly above its rows (above a tab table's first row), up to a blank line. A
- * line that heads other rows, or stands apart from them, states nothing for this number (#2997).
+ * What the lines that head the rows of the number at `start` state of its unit: the lines giving
+ * no value directly above its own table (its rows and heading rows, `tableAt`), or above the lines
+ * of a list that give a value, up to a blank line or a row that gives a value, which is another
+ * table's (#2997). A line that heads other rows, or stands apart from them, states nothing here.
  */
 function headingUnits(text: string, start: number, context: FigureContext): StatedUnit[] {
-  const from = text.lastIndexOf("\n", start - 1) + 1;
-  const end = text.indexOf("\n", start);
-  const inTable = text.slice(from, end < 0 ? undefined : end).includes("\t");
-  const above = text.slice(0, Math.max(0, from - 1)).split("\n");
+  const lines = text.split("\n");
   const givesValue = (line: string) => readFigures(line, context).length > 0;
-  const isRow = (line: string) => (inTable ? line.includes("\t") : givesValue(line));
-  let at = above.length - 1;
-  while (at >= 0 && above[at]?.trim() !== "" && isRow(above[at] ?? "")) at--;
+  const table = tableAt(text, start);
+  let at = table ? table.head - 1 : text.slice(0, start).split("\n").length - 2;
+  if (!table)
+    while (
+      at >= 0 &&
+      lines[at]?.trim() !== "" &&
+      !isRow(lines[at] ?? "") &&
+      givesValue(lines[at] ?? "")
+    )
+      at--;
   const units: StatedUnit[] = [];
   for (; at >= 0; at--) {
-    const line = above[at] ?? "";
-    if (line.trim() === "" || line.includes("\t") || givesValue(line)) break;
-    units.push(...unitsOnLine(line, readStatedUnits(line, context), context));
+    const line = lines[at] ?? "";
+    if (line.trim() === "" || isRow(line) || givesValue(line)) break;
+    units.push(...unitsOnLine(line, context));
   }
   return units;
 }
-
-const lineAt = (text: string, start: number) =>
-  text
-    .slice(text.lastIndexOf("\n", start - 1) + 1)
-    .split("\n")[0]
-    ?.trim() ?? "";
 
 // A rate after a unit: "万吨/年" is 万吨 a year, and "barrels per day" barrels a day.
 const RATE = /(?:[/／][ \u00a0]*([^\s/／，,。；;:：.()（）]+)|\bper[ \u00a0]+(\p{L}+))/u;
@@ -939,7 +916,12 @@ export function statesFigure(
   return (
     numbers.length > 0 &&
     numbers.every((start) => {
-      const labels = labelled(text, start, context);
+      // A table's labels are its own: a heading cell of a table glued above heads other rows.
+      const table = tableAt(text, start);
+      const from = table
+        ? table.lines.slice(0, table.head).reduce((sum, line) => sum + line.length + 1, 0)
+        : 0;
+      const labels = labelled(text.slice(from), start - from, context);
       if (labels.length > 0) {
         const own = ownFirst(labels, kind);
         return (
@@ -1000,7 +982,6 @@ export function unitNotStated(
       which: null,
       whichInDocument: null,
       language: null,
-      byLine: null,
     };
   });
   const [first] = read;

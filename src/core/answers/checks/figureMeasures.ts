@@ -55,7 +55,7 @@ function inOrder(all: readonly string[], part: readonly string[]): boolean {
 const holds = (text: string, words: string): boolean => inOrder(wordsOf(text), wordsOf(words));
 
 /** `text` with its figures and stated units taken out: what is left says what they are. */
-function withoutNumbers(text: string): string {
+export function withoutNumbers(text: string): string {
   const spans = [
     ...readFigures(text, { dates: true, midLine: true }),
     ...readStatedUnits(text),
@@ -69,7 +69,7 @@ function withoutNumbers(text: string): string {
 export const namesSomething = (text: string): boolean => /\p{L}/u.test(withoutNumbers(text));
 
 /** A table's row: its cells apart by tabs or bars. */
-const isRow = (line: string): boolean => line.includes("\t") || /\S\s*\|\s*\S/.test(line);
+export const isRow = (line: string): boolean => line.includes("\t") || /\S\s*\|\s*\S/.test(line);
 const isRule = (line: string): boolean => /^[\s|:-]+$/.test(line) && line.includes("-");
 
 /** Width, case and runs of spaces aside; a sheet's tabs and every line break stay. */
@@ -129,31 +129,31 @@ const cellsOf = (line: string): string[] => line.split(line.includes("\t") ? "\t
 /** Which cell of `line` holds offset `at`. */
 const cellAt = (line: string, at: number): number => cellsOf(line.slice(0, at)).length - 1;
 
+// Read without dates, a period ("Q3 2026", "2025年") is no number.
+const holdsNumber = (cell: string | undefined) =>
+  cell !== undefined && readFigures(cell, { midLine: true }).length > 0;
+
 /**
- * The names of the cell that holds `quote`'s number in `text`'s table, once `text` holds the
- * quote once: its own (the nearest named cell to the number's left, and the heading of its own
- * column) and those of the table's other numbers (the heading of another column that holds a
- * number in this row, the label of another row of its table that holds a number in this column). Null
- * when the number isn't in a table's row, its row has no label, or `text` doesn't hold the quote
- * just once.
+ * The table whose row holds offset `at` of `text`: its lines, the row's index and column, the run
+ * of rows that hold a number around it (`top` to `end`), and above them its heading rows (from
+ * `head`). Null when `at` isn't in a table's row.
  */
-function cellOf(
+export function tableAt(
   text: string,
-  quote: string,
-  bound: BoundNumber,
-): { own: string[]; others: string[] } | null {
-  const all = flat(text);
-  const [found, more] = placesOf(all, quote);
-  if (!found || more) return null;
-  const at = boundAt(all, found, quote, bound);
-  const lineStart = all.lastIndexOf("\n", at - 1) + 1;
-  const lines = all.split("\n");
-  const index = all.slice(0, lineStart).split("\n").length - 1;
+  at: number,
+): {
+  lines: string[];
+  index: number;
+  column: number;
+  top: number;
+  head: number;
+  end: number;
+} | null {
+  const lineStart = text.lastIndexOf("\n", at - 1) + 1;
+  const lines = text.split("\n");
+  const index = text.slice(0, lineStart).split("\n").length - 1;
   const line = lines[index] ?? "";
   if (!isRow(line)) return null;
-  // Read without dates, a period ("Q3 2026", "2025年") is no number.
-  const holdsNumber = (cell: string | undefined) =>
-    cell !== undefined && readFigures(cell, { midLine: true }).length > 0;
   // A reader writes no line for a blank row, so two tables can run on as one: a row with no
   // number (a heading, a rule, a caption) starts the number's own table, and the rows of no number
   // just above it are its headings.
@@ -165,9 +165,30 @@ function cellOf(
   while (head > 0 && isRow(lines[head - 1] ?? "") && !numbered(lines[head - 1])) head--;
   let end = index;
   while (numbered(lines[end + 1])) end++;
+  return { lines, index, column: cellAt(line, at - lineStart), top, head, end };
+}
+
+/**
+ * The names of a table's cell (`tableAt`), by axis: its row's label (the nearest named cell to the
+ * number's left) and the labels of the other rows of its table that hold a number in its column;
+ * the headings of its column and of the other columns that hold a number in its row. Null when its
+ * row has no label.
+ */
+export function cellNames({
+  lines,
+  index,
+  column,
+  top,
+  head,
+  end,
+}: NonNullable<ReturnType<typeof tableAt>>): {
+  label: string;
+  labels: string[];
+  headings: string[];
+  otherHeadings: string[];
+} | null {
   const headings = lines.slice(head, top).filter((heading) => !isRule(heading));
-  const cells = cellsOf(line);
-  const column = cellAt(line, at - lineStart);
+  const cells = cellsOf(lines[index] ?? "");
   // In side-by-side panels ("| Revenue | 12% | Operating margin | 94% |") the first cell
   // labels another number: the label is the nearest named cell to the left, never one with a
   // digit, a value the figure reader may leave unread ("6.1p", "2.6 days").
@@ -183,23 +204,43 @@ function cellOf(
   // A heading row that doesn't line up with the row (a reader that drops a blank corner cell,
   // a merged heading written once) can't say which heading is the number's, or whose another is.
   const aligned = headings.filter((heading) => cellsOf(heading).length === cells.length);
-  const own = [label, ...aligned.map((heading) => cellsOf(heading)[column] ?? "")];
   // Only another number's own names name it: a heading over the labels ("Revenue (£m)"), a
   // section row or a units column names no other number.
-  const others = [
-    ...aligned.flatMap((heading) =>
-      cellsOf(heading).filter((_, place) => place !== column && holdsNumber(cells[place])),
-    ),
-    ...lines
+  return {
+    label,
+    labels: lines
       .slice(top, end + 1)
       .filter((_, place) => place + top !== index)
       .map(cellsOf)
       .filter((row) => holdsNumber(row[column]))
       .map((row) => labelOf(row) ?? ""),
-  ];
+    headings: aligned.map((heading) => cellsOf(heading)[column] ?? ""),
+    otherHeadings: aligned.flatMap((heading) =>
+      cellsOf(heading).filter((_, place) => place !== column && holdsNumber(cells[place])),
+    ),
+  };
+}
+
+/**
+ * The names of the cell that holds `quote`'s number in `text`'s table, once `text` holds the
+ * quote once: its own (its row's label and its column's headings) and those of the table's other
+ * numbers (`cellNames`). Null when the number isn't in a table's row, its row has no label, or
+ * `text` doesn't hold the quote just once.
+ */
+function cellOf(
+  text: string,
+  quote: string,
+  bound: BoundNumber,
+): { own: string[]; others: string[] } | null {
+  const all = flat(text);
+  const [found, more] = placesOf(all, quote);
+  if (!found || more) return null;
+  const table = tableAt(all, boundAt(all, found, quote, bound));
+  const names = table && cellNames(table);
+  if (!names) return null;
   return {
-    own: own.filter(namesSomething),
-    others: others.filter(namesSomething),
+    own: [names.label, ...names.headings].filter(namesSomething),
+    others: [...names.otherHeadings, ...names.labels].filter(namesSomething),
   };
 }
 
@@ -207,7 +248,7 @@ function cellOf(
 const named = (text: string): string[] => wordsOf(text).filter((word) => !/^\p{N}+$/u.test(word));
 
 /** Whether `text` holds the measure's `words`, their digits left out of both. */
-const namedIn = (text: string, words: string): boolean => inOrder(named(text), named(words));
+export const namedIn = (text: string, words: string): boolean => inOrder(named(text), named(words));
 
 /** Whether `text` names just what `words` do: "Revenue" isn't "Revenue per store". */
 const namedAs = (text: string, words: string): boolean =>
