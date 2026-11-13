@@ -141,3 +141,23 @@ Before any paid request:
   - Of the borderline replies, en-a-then-b-say (second) is now counted, and en-a-then-b-answer (second) and en-c-then-d-check (second) are not. zh-c-then-d-say (second) is now uncounted.
   - The judge's count is 29 of 48.
 - **So, as this file says, bar 1 counts the hand reading blind to the arm.** A second reader reads the gate run's button replies, written to a file with both arms shuffled together and no arm labels, the key kept apart. The judge's count is reported beside it, in all and by order. The judge is not tuned further.
+
+### The gate run on Claude Haiku 5.5, 2026-11-13 03:47–04:01 UTC (commit 4f353babd): failed
+
+- **It counts.** 255 model requests, none refused, failed or timed out. Spent $0.223, the judge $0.13 of it, so $0.467 of $1.50 with the runs before it. The allowance was 99.9% before and after; the 15-minute load was 8.09 at the start and 5.75 at the end.
+- **Bar 1, never this call's: fails.** Two readers read the 48 button replies by hand, both arms shuffled together without arm labels, and agree on 46. Where the second reader's count differs, it is in brackets.
+  - Main 15 of 24 (16), the branch 5 of 24 (6). The bar needs none on the branch.
+  - The earlier call brings the changes: main 10 of 12 (11), the branch 0 of 12. The earlier call said it first: main 5 of 12, the branch 5 of 12 (6).
+  - English: main 8, the branch 3 (4). Chinese: main 7 (8), the branch 2.
+  - The judge, beside them: main 13, the branch 4. By order: main 12 of 12 and 1 of 12, the branch 1 of 12 and 3 of 12. English: main 7, the branch 2; Chinese: main 6, the branch 2.
+  - The branch's five: en-a-then-b-say, en-a-then-b-answer, zh-a-then-b-answer, zh-c-then-d-say and en-c-then-d-answer. The second reader's sixth, en-a-then-b-check, gives the budget as rising "from twelve thousand to fifteen thousand"; the first reader takes "from" as marking the earlier figure. Borderline.
+  - Six replies put an earlier call's content on "the Documents" rather than on the earlier call: main 4, the branch 2. Listed, not counted.
+- **Bar 2, last time still answered: fails on the judge.** Main 3, the branch 5 of 8, and at least 6 are needed. The earlier call brings the changes: main 0, the branch 2 of 4. Said it first: main 3, the branch 3 of 4. English: main 2, the branch 4; Chinese: 1 and 1.
+  - Read by hand, no reply on either arm says when the earlier call was. This set records the two calls seconds apart, so they share their date, their start to the minute and their Note's name. Four replies say they can't tell the calls apart by date.
+  - Leaving when aside, main 3 and the branch 7 of 8 give the earlier call's words as said then, and cite them. The branch's one miss is zh-b-then-a: it gives this call's lines as the most recent and cites this call.
+- **Bar 3, no worse on this call: holds.** Button replies graded right: main 6, the branch 14 of 24 (right, partly, wrong: main 6, 9, 9; the branch 14, 10, 0). The earlier call brings the changes: 0 and 11 of 12. Said it first: 6 and 3 of 12. English: 2 and 8; Chinese: 4 and 6.
+- **Bar 4, no new false Supported: fails.** Items with a false Supported: main 3, the branch 1. The earlier call brings the changes: main 3, the branch 0. Said it first: main 0, the branch 1. English: main 2, the branch 1; Chinese: main 1, the branch 0.
+  - The branch's one is new: en-c-then-d-last-time. Read by hand, two of its sentences show ✓ over a quote that doesn't say them, each reusing another sentence's Citation number. "They wanted a two-year contract, no longer" sits over the warehouse line. "The earlier call's record gives the same start time as this one, … so I can't confirm its date separately" sits over the contract line.
+- **Bar 5, no more items failing: holds.** None failed on either arm.
+- **Reported.** A ✓ beside an earlier call's line, in a sentence saying the other side said, asked or wants it in this call: main 2 places, the branch 0.
+- **The gate has failed:** bar 1 by the reading, bars 2 and 4 on the judge. The Claude Sonnet 5.5 guard doesn't run, and the branch doesn't ship as it is. This change has now seen the 8 cases, so they no longer count as proof.
