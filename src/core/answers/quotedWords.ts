@@ -4,12 +4,14 @@
  * them too, by the one rule here (#2712). This reads the Answer's Markdown:
  * each span in the quotation marks `cleanQuote` knows (but not the
  * apostrophe's "'", which "the firm's partners' vote" would pair), long enough
- * to be a quote and not a term or a name, and the Citation markers of the
- * sentence it is in. `quotedWordsVerdict` then decides whether the words are
- * on the pages their Citations cite.
+ * to be a quote and not a term or a name (shared/quotedSpans, which call
+ * help's reader asks too), and the Citation markers of the sentence it is in.
+ * `quotedWordsVerdict` then decides whether the words are on the pages their
+ * Citations cite.
  */
 import { ADDABLE_EXTENSIONS } from "../../shared/addFilesAction";
 import { joinUnits, quoteInUnits } from "../../shared/locations";
+import { isQuote, type Span, spansOf, spanWords } from "../../shared/quotedSpans";
 import { documentWordingIn } from "../../shared/quoteMarks";
 import { findQuote, type TextRange } from "../../shared/quoteMatch";
 import { INLINE_NODE, sentenceSpans } from "../../shared/sentences";
@@ -18,23 +20,10 @@ import type { QuotedWords } from "../api";
 import { holdsFigure } from "../documents/formats/grid";
 import type { PageText } from "../documents/passages";
 import { writtenInCjk } from "../documents/textLanguage";
-import { cleanQuote, type Matching, QUOTE_PAIRS } from "./citations";
+import type { Matching } from "./citations";
 import { closestWords } from "./closestWords";
 
-/** A span counts as a quote with at least this many words... */
-const MIN_WORDS = 4;
-/** ...or, in Chinese or Japanese, this many characters. */
-const MIN_CJK_CHARACTERS = 6;
-
-/** The longest a quoted span may be, in characters: a longer one is a stray mark paired with a far one. */
-const MAX_SPAN = 400;
-
-const CJK = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/gu;
-const WORD = /\p{N}+(?:[.,]\p{N}+)*|[\p{L}\p{N}]+(?:['’]\p{L}+)?/gu;
-const LETTER_OR_DIGIT = /[\p{L}\p{N}]/u;
 const MARKER = /\[\^(\d{1,4})\]/g;
-/** The comma or full stop that US and Chinese typography put inside the closing mark: not the Document's words. */
-const TRAILING_PUNCTUATION = /[\s,.;:!?，。；：！？、]+$/u;
 
 /** Words quoted in a sentence, and the Citation markers that sentence has. */
 export interface QuotedSentence {
@@ -42,63 +31,6 @@ export interface QuotedSentence {
   words: string;
   /** The Citations' markers in the sentence, in order. */
   markers: number[];
-}
-
-/** Whether words are long enough to be a quote. */
-function isQuote(words: string): boolean {
-  const spaced = words.replace(CJK, " ");
-  return (
-    (spaced.match(WORD)?.length ?? 0) >= MIN_WORDS ||
-    (words.match(CJK)?.length ?? 0) >= MIN_CJK_CHARACTERS
-  );
-}
-
-interface Span {
-  start: number;
-  /** After the closing mark. */
-  end: number;
-}
-
-/** Where a quotation mark opens at `at`: an ASCII one needs a space or punctuation before it, and a word after. */
-function opensAt(text: string, at: number, open: string, close: string): boolean {
-  if (open !== close && open !== "‘") return true;
-  const before = text[at - 1];
-  const after = text[at + 1];
-  return (
-    (before === undefined || !LETTER_OR_DIGIT.test(before)) &&
-    after !== undefined &&
-    !/\s/u.test(after)
-  );
-}
-
-/** The index of the mark that closes one opened before `from`, or -1. */
-function closingFrom(text: string, from: number, open: string, close: string): number {
-  const limit = Math.min(text.length, from + MAX_SPAN);
-  for (let at = from; at < limit; at++) {
-    if (text[at] !== close) continue;
-    const next = text[at + 1];
-    // A closing ’ is not an apostrophe in a word ("firm’s"); a closing " follows its words, not a space.
-    if (open === "‘" && next !== undefined && LETTER_OR_DIGIT.test(next)) continue;
-    if (open === close && /\s/u.test(text[at - 1] ?? "")) continue;
-    return at;
-  }
-  return -1;
-}
-
-/** The quoted spans of a block of text, in order. */
-function spansOf(text: string): Span[] {
-  const pairs = new Map(QUOTE_PAIRS.filter(([open]) => open !== "'"));
-  const spans: Span[] = [];
-  for (let at = 0; at < text.length; at++) {
-    const open = text[at] as string;
-    const close = pairs.get(open);
-    if (close === undefined || !opensAt(text, at, open, close)) continue;
-    const end = closingFrom(text, at + 1, open, close);
-    if (end === -1) continue;
-    spans.push({ start: at, end: end + 1 });
-    at = end;
-  }
-  return spans;
 }
 
 /** What may stand between a quote's closing mark and the end of its sentence: closing marks and brackets, emphasis, spaces and Citations. */
@@ -185,14 +117,7 @@ function quotedSpansIn(text: string): QuotedSpan[] {
     if (markers.length === 0) continue;
     for (const span of spans) {
       if (span.start < sentence.start || span.end > sentence.end) continue;
-      const words = cleanQuote(
-        text
-          .slice(span.start + 1, span.end - 1)
-          .replace(MARKER, "")
-          .replace(/[*`]+/g, ""),
-      )
-        .replace(/\s+/g, " ")
-        .replace(TRAILING_PUNCTUATION, "");
+      const words = spanWords(text, span);
       if (isQuote(words)) found.push({ words, markers, span });
     }
   }
