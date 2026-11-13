@@ -185,6 +185,9 @@ export async function judgeStated(
   return statedIn(text, sentences.length);
 }
 
+/** How `statedIn` starts the words of a sentence the judge's reply has no line for. */
+export const UNREAD_BY_JUDGE = "(the judge's reply doesn't read for it";
+
 /** Each sentence's line in a reply to `judgeStated`: its last one, since a judge may correct itself. */
 export function statedIn(text: string, count: number): (string | null)[] {
   const lines = new Map<number, string | null>();
@@ -199,7 +202,7 @@ export function statedIn(text: string, count: number): (string | null)[] {
   return Array.from({ length: count }, (_, index) =>
     lines.has(index + 1)
       ? (lines.get(index + 1) ?? null)
-      : `(the judge's reply doesn't read for it: ${text.slice(0, 200)})`,
+      : `${UNREAD_BY_JUDGE}: ${text.slice(0, 200)})`,
   );
 }
 

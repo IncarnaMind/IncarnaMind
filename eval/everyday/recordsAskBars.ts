@@ -5,6 +5,7 @@
  */
 import { createHash } from "node:crypto";
 import type { EvidenceAsk } from "./checkRequests";
+import { UNREAD_BY_JUDGE } from "./judge";
 import {
   ARMS,
   type Arm,
@@ -353,20 +354,34 @@ export function toJudge(records: readonly ItemRecord[]): Omit<JudgedSentence, "u
 export interface Bar3Research {
   main: number;
   branch: number;
-  /** ✓ sentences the judge's record has no line for: the bar isn't read while there is one. */
+  /**
+   * ✓ sentences the judge's record has no line for, or whose line the judge's reply didn't give:
+   * the bar isn't read while there is one.
+   */
   unjudged: number;
   reading: Reading | "not judged";
+}
+
+/** What the judge said of a sentence: the words it found unstated, null for stated, or unread. */
+function judgementOf(
+  lines: ReadonlyMap<string, string | null>,
+  sentence: SentenceSupport,
+): string | null | "unread" {
+  const line = lines.get(judgeKey(sentence));
+  if (line === undefined || line?.startsWith(UNREAD_BY_JUDGE)) return "unread";
+  return line;
 }
 
 /** Bar 3 on the research Answers: the branch has no more ✓ the judge finds unstated than `main`. */
 export function bar3Research(read: Scored["read"], judged: Judged | null): Bar3Research {
   const lines = new Map((judged?.sentences ?? []).map((each) => [each.key, each.unstated]));
   const unstated = (arm: Arm) =>
-    researchTicks(read[arm]).filter(
-      ({ sentence }) => typeof lines.get(judgeKey(sentence)) === "string",
-    ).length;
+    researchTicks(read[arm]).filter(({ sentence }) => {
+      const said = judgementOf(lines, sentence);
+      return said !== null && said !== "unread";
+    }).length;
   const unjudged = ARMS.flatMap((arm) => researchTicks(read[arm])).filter(
-    ({ sentence }) => !lines.has(judgeKey(sentence)),
+    ({ sentence }) => judgementOf(lines, sentence) === "unread",
   ).length;
   const main = unstated("main");
   const branch = unstated("branch");
@@ -670,10 +685,12 @@ export function readBars(input: {
     ...ARMS.flatMap((arm) => {
       const lines = new Map((judged?.sentences ?? []).map((each) => [each.key, each.unstated]));
       return researchTicks(scored.read[arm]).flatMap(({ record, sentence }) => {
-        const words = lines.get(judgeKey(sentence));
-        return typeof words === "string"
-          ? [`- ${arm}, ${record.key}: ${oneLine(sentence.sentence)} — unstated: ${words}`]
-          : [];
+        const said = judgementOf(lines, sentence);
+        return said === null
+          ? []
+          : [
+              `- ${arm}, ${record.key}: ${oneLine(sentence.sentence)} — ${said === "unread" ? "not judged" : `unstated: ${said}`}`,
+            ];
       });
     }),
     "",

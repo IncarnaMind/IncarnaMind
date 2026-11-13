@@ -138,8 +138,9 @@ export function heardChecks(requests: readonly HeardRequest[]): HeardCheck[] {
     claim,
     quotes: quotesIn(asked.map((request) => request.prompt)),
     replies: asked.flatMap(({ text }) => (text.trim() === "" ? [] : [text.slice(0, MOST_REPLY)])),
+    // Kept whole: the records ask's gate counts every quote of the reply.
     asks: asked.flatMap(({ prompt, text }) =>
-      asksForEvidence(prompt) ? [{ text: userText(prompt), reply: text.slice(0, MOST_REPLY) }] : [],
+      asksForEvidence(prompt) ? [{ text: userText(prompt), reply: text }] : [],
     ),
   }));
 }

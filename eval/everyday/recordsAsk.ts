@@ -221,6 +221,25 @@ export function voidReasons(
   ];
 }
 
+/** The plan's stop in US dollars, the pilot and one rerun of a void try included. */
+export const STOP_DOLLARS = 2.5;
+
+/**
+ * Whether the next try may run under the plan's stop: what the gate spent before this run, with
+ * every try of this run on both arms and its judge, leaves room for the most one has cost so far.
+ * Null when a cost isn't known, so the stop can't be kept.
+ */
+export function underTheStop(
+  before: number,
+  costs: readonly (number | null)[],
+): { spent: number; most: number; within: boolean } | null {
+  const known = costs.filter((cost): cost is number => cost !== null);
+  if (known.length < costs.length) return null;
+  const spent = before + known.reduce((total, cost) => total + cost, 0);
+  const most = Math.max(0, ...known);
+  return { spent, most, within: spent + most <= STOP_DOLLARS };
+}
+
 /** The file an arm writes an item's try to, so the other arm can see its turn has come. */
 export const recordFile = (key: string, attempt: number) =>
   `${key.replace(/[^a-z0-9-]+/giu, "_")}.${attempt}.json`;

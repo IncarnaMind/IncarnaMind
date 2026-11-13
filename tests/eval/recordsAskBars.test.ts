@@ -8,16 +8,23 @@
 import { describe, expect, test } from "vitest";
 import type { EvidenceAsk } from "../../eval/everyday/checkRequests";
 import { statedIn } from "../../eval/everyday/judge";
-import { type Arm, type ItemRecord, voidReasons } from "../../eval/everyday/recordsAsk";
+import {
+  type Arm,
+  type ItemRecord,
+  underTheStop,
+  voidReasons,
+} from "../../eval/everyday/recordsAsk";
 import {
   type ArmInfo,
   answeredWithReferences,
   bar1,
   bar2,
   bar3Pairs,
+  bar3Research,
   cellsOf,
   emptyCells,
   halfOfMain,
+  judgeKey,
   readBars,
   scoreOf,
   twoQuotesUnderOneMarker,
@@ -292,5 +299,50 @@ describe("The records ask's bars", () => {
       expect.stringContaining("the judge's reply doesn't read for it"),
     ]);
     expect(statedIn("1. stated\n2) Stated", 2)).toEqual([null, null]);
+  });
+
+  // protects=bar 3 on the research Answers reads "not judged" while a ✓ has no judge's line, or a line the judge's reply didn't give, and counts only the unstated lines the judge gave; fails_when=an unread line counts as unstated on both arms and the bar reads as holding; no_claim=how well the judge reads.
+  test("bar 3 on the research Answers is not judged while a ✓ is unread", () => {
+    const ticked = sentence(RIGHT, "supported");
+    const read = scoreOf(fullRun()).read;
+    const judged = (unstated: string | null) => ({
+      model: "judge",
+      failedTries: [],
+      sentences: [ticked, sentence("表 1 显示……", "supported")].map((each) => ({
+        key: judgeKey(each),
+        sentence: each.sentence,
+        cites: each.cites,
+        unstated,
+      })),
+    });
+    expect(bar3Research(read, judged(null))).toEqual({
+      main: 0,
+      branch: 0,
+      unjudged: 0,
+      reading: "holds",
+    });
+    const unread = judged(statedIn("", 1)[0] ?? null);
+    expect(bar3Research(read, unread)).toEqual({
+      main: 0,
+      branch: 0,
+      unjudged: 4,
+      reading: "not judged",
+    });
+    expect(bar3Research(read, judged("“only”"))).toEqual({
+      main: 2,
+      branch: 2,
+      unjudged: 0,
+      reading: "holds",
+    });
+  });
+
+  // protects=the plan's stop of US$2.50 holds what was spent before, every try of the run and the most one try has cost so far, and a try whose cost isn't known stops the run; fails_when=a try that could pass the stop runs, or an unpriced try is counted as free; no_claim=what the provider bills.
+  test("the stop leaves room for the most one try has cost", () => {
+    const kept = underTheStop(0.1, [0.5, 0.25, 0.5]);
+    expect(kept?.spent).toBeCloseTo(1.35);
+    expect(kept).toMatchObject({ most: 0.5, within: true });
+    expect(underTheStop(0.5, [0.8, 0.8])?.within).toBe(false);
+    expect(underTheStop(0, [0.01, null])).toBeNull();
+    expect(underTheStop(0, [])).toEqual({ spent: 0, most: 0, within: true });
   });
 });

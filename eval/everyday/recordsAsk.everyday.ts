@@ -13,7 +13,7 @@
  */
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import type { LanguageModelV4 } from "@ai-sdk/provider";
 import { test } from "vitest";
@@ -47,7 +47,9 @@ import {
   type Requests,
   recordFile,
   runItems,
+  STOP_DOLLARS,
   sentenceOf,
+  underTheStop,
   voidReasons,
 } from "./recordsAsk";
 import {
@@ -385,7 +387,10 @@ test.skipIf(MODE !== "records-ask")("the records ask's gate: one arm, item by it
   const fetched = DRY ? noProvider() : null;
   const run = runFolder();
   const arm = armOf();
+  const before = spentBefore();
   const folder = join(run, arm);
+  if (existsSync(folder) && (await readdir(folder)).length > 0)
+    throw new Error(`${folder} holds an earlier run: start each run in a folder of its own.`);
   await mkdir(folder, { recursive: true });
   const log = createLog();
   const items =
@@ -404,7 +409,7 @@ test.skipIf(MODE !== "records-ask")("the records ask's gate: one arm, item by it
     startedAt: new Date().toISOString(),
     endedAt: null,
   };
-  await writeFile(join(folder, "arm.json"), JSON.stringify(info, null, 2));
+  await writeWhole(join(folder, "arm.json"), JSON.stringify(info, null, 2));
   const watches: Watches = {
     tokens: watchTokens(),
     judgeTokens: watchTokens(),
@@ -425,6 +430,7 @@ test.skipIf(MODE !== "records-ask")("the records ask's gate: one arm, item by it
           log(`${arm} · ${item.key}: left out, void twice on main`);
         } else {
           for (let attempt = 1; attempt <= 2; attempt++) {
+            await keepTheStop(run, before);
             log(`${arm} · ${item.key}, try ${attempt}`);
             const record = await runItem(library, judge, watches, arm, item, attempt);
             await writeFile(
@@ -448,7 +454,7 @@ test.skipIf(MODE !== "records-ask")("the records ask's gate: one arm, item by it
     await writeFile(join(folder, "stopped"), message(error));
     throw error;
   }
-  await writeFile(
+  await writeWhole(
     join(folder, "arm.json"),
     JSON.stringify(
       { ...info, fetchCalls: fetched?.calls() ?? 0, endedAt: new Date().toISOString() },
@@ -462,41 +468,88 @@ async function allRecords(run: string): Promise<ItemRecord[]> {
   return (await Promise.all(ARMS.map((arm) => armRecords(run, arm)))).flat();
 }
 
+/** What the gate spent before this run, in US dollars: the pilot's, for the run. */
+function spentBefore(): number {
+  const raw = process.env.INCARNAMIND_EVAL_RECORDS_ASK_SPENT_BEFORE?.trim();
+  if (!raw && DRY) return 0;
+  const value = Number(raw);
+  if (!raw || !Number.isFinite(value) || value < 0)
+    throw new Error(
+      "Set INCARNAMIND_EVAL_RECORDS_ASK_SPENT_BEFORE to what the gate spent before this run, in US dollars: 0 for the pilot, the pilot's bars.md for the run.",
+    );
+  return value;
+}
+
+/**
+ * Stops the arm before a try that could take the gate past the plan's stop: both arms' tries in
+ * the run folder, the judge's spend and what was spent before are added up, as the arms take turns.
+ */
+async function keepTheStop(run: string, before: number, extra: readonly (number | null)[] = []) {
+  const costs = [...(await allRecords(run)).map((record) => record.requests.dollars), ...extra];
+  const kept = underTheStop(before, costs);
+  if (!kept) throw new Error("A try's cost isn't known, so the plan's stop can't be kept.");
+  if (!kept.within)
+    throw new Error(
+      `The plan's stop: US$${kept.spent.toFixed(4)} spent, and the next try may cost up to US$${kept.most.toFixed(4)}, past US$${STOP_DOLLARS.toFixed(2)}.`,
+    );
+}
+
+/** Writes a file another process reads while this one runs: whole, or not at all. */
+async function writeWhole(path: string, text: string): Promise<void> {
+  await writeFile(`${path}.partial`, text);
+  await rename(`${path}.partial`, path);
+}
+
 test.skipIf(MODE !== "records-ask-judge")(
   "the records ask's gate: the judge, told no arm",
   async () => {
     refuseOtherModels();
     const fetched = DRY ? noProvider() : null;
     const run = runFolder();
+    const before = spentBefore();
+    if (existsSync(join(run, "judged.json")))
+      throw new Error(`The judge has read this run: ${join(run, "judged.json")} is kept.`);
     const { read } = scoreOf(await allRecords(run));
     const sentences = toJudge([...read.main, ...read.branch]);
     const watch = watchTokens();
     const model = judgeModel(watch);
     const judged: Judged["sentences"] = [];
+    const batches: Requests[] = [];
     for (let at = 0; at < sentences.length; at += JUDGE_BATCH) {
+      await keepTheStop(
+        run,
+        before,
+        batches.map((each) => each.dollars),
+      );
       const batch = sentences.slice(at, at + JUDGE_BATCH);
       const unstated = await judgeStated(model, batch);
       judged.push(...batch.map((each, index) => ({ ...each, unstated: unstated[index] ?? null })));
+      batches.push(
+        requestsOf([{ requests: watch.take(), failed: watch.takeFailures(), modelId: GATE_JUDGE }]),
+      );
     }
-    const requests = requestsOf([
-      { requests: watch.take(), failed: watch.takeFailures(), modelId: GATE_JUDGE },
-    ]);
     if (fetched && fetched.calls() > 0)
       throw new Error(`The dry run's judge called fetch ${fetched.calls()} times.`);
+    const dollars = batches.reduce<number | null>(
+      (total, each) => (total === null || each.dollars === null ? null : total + each.dollars),
+      0,
+    );
     await writeFile(
       join(run, "judged.json"),
       JSON.stringify(
         {
           model: `anthropic/${GATE_JUDGE}`,
           sentences: judged,
-          failedTries: requests.failed,
-          dollars: requests.dollars,
+          failedTries: batches.flatMap((each) => each.failed),
+          dollars,
         },
         null,
         2,
       ),
     );
-    console.log(`The judge read ${judged.length} ✓ sentences in ${requests.answered} requests.`);
+    console.log(
+      `The judge read ${judged.length} ✓ sentences in ${batches.reduce((total, each) => total + each.answered, 0)} requests.`,
+    );
   },
 );
 

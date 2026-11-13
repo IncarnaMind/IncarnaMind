@@ -167,7 +167,10 @@ const TOLD_WHAT_FOR = "They are the markers of your verdict's own lines.";
 function evidenceReply(call: GenerateCall): string {
   const sentence = /<sentence>\n([\s\S]*?)\n<\/sentence>/u.exec(call.prompt)?.[1]?.trim() ?? "";
   const passages = passagesIn(call.prompt);
-  const markers: number[] = JSON.parse(ASKED_MARKERS.exec(call.prompt)?.[1] ?? "[1]");
+  const asked: unknown = JSON.parse(ASKED_MARKERS.exec(call.prompt)?.[1] ?? "[1]");
+  const markers = Array.isArray(asked)
+    ? asked.filter((marker): marker is number => typeof marker === "number")
+    : [1];
   const rows = twinOf(sentence)?.pair.cites ?? [];
   const references = passages.flatMap((passage) =>
     passage.text
