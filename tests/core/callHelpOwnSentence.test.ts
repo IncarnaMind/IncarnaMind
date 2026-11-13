@@ -48,6 +48,28 @@ describe("an option, and a short line, gives what it cites in a sentence of its 
   );
 });
 
+describe("a check line gives its verdict a sentence of its own, then the Documents' fact cited", () => {
+  // protects=the check button's lines start with "Right." or "Wrong." as a sentence with no Citation and give the Documents' fact in a sentence of its own with its Citation, or say in one uncited sentence that the Documents don't speak to the claim, in both languages; fails_when=a check example cites its verdict, joins it to the fact, or cites a line the Documents don't speak to; no_claim=how often a model writes it so.
+  test.each(["English", "Chinese"])("in %s", (callLanguage) => {
+    const text = meetingHelpInstructions("check", { found: true, language: "en", callLanguage });
+    expect(text).toContain('Each line starts with the verdict, "Right." or "Wrong."');
+    const lines = examples("check", callLanguage).map((line) =>
+      plainLine(line).replace(/^-\s*/, ""),
+    );
+    expect(lines).toHaveLength(3);
+    for (const line of lines.filter((each) => each.includes("[^"))) {
+      const [verdict, fact] = sentenceSpans(line).map(({ from, to }) => line.slice(from, to));
+      expect(verdict).toMatch(/^(?:Right|Wrong|对|不对)[.。]$/);
+      expect(citedSentences(line).map((each) => each.sentence)).toEqual([
+        citedSentences(fact ?? "")[0]?.sentence,
+      ]);
+    }
+    const unsaid = lines.filter((each) => !each.includes("[^"));
+    expect(unsaid).toHaveLength(1);
+    expect(sentenceSpans(unsaid[0] ?? "")).toHaveLength(1);
+  });
+});
+
 describe("the evaluation's switch asks as main did", () => {
   // protects=a paired gate's arms differ only in what call help writes: under `callHelpWritingAsBefore` every button's instructions are main's at 61615612f, byte for byte, in every language and with or without Passages found ahead; fails_when=the switch's text differs from main's by one byte; no_claim=what a model writes under either.
   test("every button, language and found ahead", () => {

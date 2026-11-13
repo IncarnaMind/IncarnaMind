@@ -27,7 +27,7 @@ const TASKS: Readonly<Record<MeetingHelpKind, string>> = {
   no: "Decline what was just asked of the User, politely, keeping the relationship; the option you recommend keeps things moving.",
   ask: "What should the User ask next, to move the call forward? Each option is a question.",
   check:
-    "Check the newest claims in the transcript against the User's Documents: each line gives a claim as it was said, cited to the transcript, then what the Documents say about it, cited to them, or that they don't say.",
+    'Check the newest claims in the transcript against the User\'s Documents. Each line starts with the verdict, "Right." or "Wrong." (in Chinese "对。" or "不对。"), a sentence of its own with no Citation; then what the Documents say, in a sentence of its own with its Citation. Where the Documents don\'t speak to the claim, the line says so in one sentence with no Citation ("The Documents don\'t say …"; in Chinese "文档没有提到…") and cites nothing. Restate the claim only as far as the line needs.',
   objection: "Answer the other side's newest objection.",
   nextStep:
     "Propose a concrete next step that fits where the call is: a meeting, a trial, something to send.",
@@ -170,6 +170,16 @@ const AS_BEFORE: {
   },
 };
 
+/** The check button's lines: its verdict a sentence of its own, as an option's "no" is (#2847). */
+const CHECK_EXAMPLES: Readonly<Record<"en" | "zh", readonly string[]>> = {
+  en: [
+    "- Wrong. The terms give the pilot 60 days [^1]",
+    "- Right. The contract renews each January [^1]",
+    "- The Documents don't say anything about training",
+  ],
+  zh: ["- 不对。条款写的是试用期 60 天 [^1]", "- 对。合同每年一月续签 [^1]", "- 文档没有提到培训"],
+};
+
 /** A short line's own mark: a list's, as the form asks for, never a numbered step. */
 const SHORT_LINE = /^[-*•]\s+/;
 
@@ -289,7 +299,7 @@ export function meetingHelpInstructions(
   const shape = HELP_SHAPE[kind];
   const task = asBefore && kind === "check" ? AS_BEFORE.check : TASKS[kind];
   const documents = HELP_DOCUMENTS[kind];
-  const examples = EXAMPLES[callLanguage === "Chinese" ? "zh" : "en"];
+  const inLanguage = callLanguage === "Chinese" ? "zh" : "en";
   const before = shape === "readings" || !asBefore ? null : shape;
   return [
     "The User is in a call and pressed a button for help: the Question is the button's name. They will read your reply in a second or two while the call goes on.",
@@ -298,8 +308,10 @@ export function meetingHelpInstructions(
     ...(before ? AS_BEFORE.shapes[before] : SHAPES[shape]),
     "For example:",
     ...(before
-      ? AS_BEFORE.examples[callLanguage === "Chinese" ? "zh" : "en"][before]
-      : examples[shape]),
+      ? AS_BEFORE.examples[inLanguage][before]
+      : kind === "check"
+        ? CHECK_EXAMPLES[inLanguage]
+        : EXAMPLES[inLanguage][shape]),
     "- Base it on the newest lines of <live-transcript>: what was said last matters most.",
     "- Never say what you can't read or which button this is.",
     "- When the other side names a price or a figure, it is what they ask for, never the User's: don't repeat it as the User's price or offer.",
