@@ -21,7 +21,7 @@ export interface HeardCheck {
   /** What the run was asked to check, the sentence or one of its parts; null for a request that names none. */
   claim: string | null;
   quotes: TypedQuote[];
-  /** The run's replies with text, in order: its verdict, and any ask after it; none kept for a Supported sentence. */
+  /** The run's replies with text, in order: its verdict, and any ask after it. */
   replies: string[];
 }
 
