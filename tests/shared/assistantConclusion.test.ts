@@ -277,12 +277,11 @@ describe("An opinion left out of a sentence the assistant wrote", () => {
   test("beside a fact backed by a Passage the sentence doesn't cite yet", () => {
     const { text, parts } = sentenceOf("en");
     const check = checkOf(text, partsWrittenBy(parts, true));
-    const elsewhere: HeldCitation = {
-      ...passage("The harbour closes at dusk."),
+    const elsewhere: HeldCitation = passage("The harbour closes at dusk.", {
       passageId: "passage-2",
       pageFrom: 5,
       pageTo: 5,
-    };
+    });
     expect(asCitedNow(check, [elsewhere], text)).toMatchObject({
       state: "not-checked",
       reason: "found-elsewhere",
