@@ -9,9 +9,10 @@
  * core keeps the reply as read here once it ends. Its check, the assistant, Check again, a pinned
  * reply and the note it is added to then all read the words the panel shows. A Citation marker on an
  * option's or a reading's "→" line, or on a reading's first line, comes off too (#2847): those lines
- * are the reply's own, so no Document's words can back them. Nothing else comes off: a reading's
- * moment of the call and a short-lines reply, a "→" line in it included, are read as written, in
- * their quotation marks.
+ * are the reply's own, so no Document's words can back them. Nothing else comes off: such a line
+ * that puts words in quotation marks the quote check reads (./quotedSpans), a reading's first line
+ * that is only its quoted moment, a reading's moment of the call and a short-lines reply, a "→" line
+ * in it included, are read as written, in their quotation marks.
  */
 import type { AnswerStatus } from "../core/api";
 import { MARKER } from "./answerSentences";
@@ -25,6 +26,7 @@ import {
   plainLine,
   RECOMMENDED_MARK,
 } from "./meetingHelp";
+import { holdsQuote } from "./quotedSpans";
 
 /**
  * A run of text, a Citation's marker ("[^2]") or a calculated figure's ("[=1]"). A Citation's `at`
@@ -314,10 +316,12 @@ export function helpReplyRead(markdown: string, layout: HelpLayout): HelpReplyRe
   const { said } = laidOut(items, layout);
   const read = lines.map((line, index) => {
     const lead = written.find((each) => each.line === index)?.item;
-    // A short-lines reply is asked for no "→" line, so what a model writes on one is read as written.
+    // A short-lines reply is asked for no "→" line, so what a model writes on one is read as written;
+    // so is a line that quotes, whose quote the quote check reads only beside its marker.
     const own =
-      (layout.shape !== "lines" && EFFECT_MARK.test(plainLine(line))) ||
-      (layout.shape === "readings" && lead !== undefined && readingItself(lead, line));
+      !holdsQuote(line) &&
+      ((layout.shape !== "lines" && EFFECT_MARK.test(plainLine(line))) ||
+        (layout.shape === "readings" && lead !== undefined && readingItself(lead, line)));
     const words = lead && said.includes(lead) ? optionRead(line) : line;
     return own ? withoutCitations(words) : words;
   });
