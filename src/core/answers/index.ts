@@ -1192,11 +1192,8 @@ export function createAnswers(options: AnswersOptions) {
       ALL_HELP.some((kind) =>
         LANGUAGES.some((language) => translate(language, helpLabel(kind)) === question.text),
       );
-    // A reply outlives its Note in the conversation; with the Note gone no call is its own.
-    const from = question.askedFrom;
-    return from && pressed
-      ? pressScope(documentIds, from.deleted ? null : from.mindId)
-      : documentIds;
+    // A reply outlives its Note in the conversation; with no Note of its own no call is its own.
+    return pressed ? pressScope(documentIds, mindId) : documentIds;
   };
 
   /** The judgements of Answers' sentences running, by Answer (#2311): stopping one ends it. */

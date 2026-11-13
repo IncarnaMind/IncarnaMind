@@ -5,7 +5,7 @@ import type {
   MeetingHelp,
   MeetingHelpKind,
 } from "../../../../core/api";
-import { citedLocation } from "../../../../shared/citations";
+import { citationSource, citedLocation } from "../../../../shared/citations";
 import { isTranscriptLocation } from "../../../../shared/locations";
 import { HELP_SHAPE, helpLabel } from "../../../../shared/meetingHelp";
 import { isTheirs, SPEAKER_ME } from "../../../../shared/speakers";
@@ -81,7 +81,9 @@ function CitationChip({
 }) {
   const t = useT();
   const limit = useJudgementLimit();
-  const where = citation ? citedLocation(citation, t) : null;
+  const source = citation ? citationSource(citation, t).text : null;
+  const pointsTo =
+    source && started ? t("citation.where", { document: source, location: started }) : source;
   const passed = citation !== undefined && sentencePassed(citation, at);
   const reason = citation ? uncheckedReason(citation) : null;
   const unchecked =
@@ -95,13 +97,7 @@ function CitationChip({
       data-marker={citation?.marker}
       data-passed={passed}
       data-at={at}
-      title={
-        citation
-          ? [[citation.documentName, where, started].filter(Boolean).join(", "), unchecked]
-              .filter(Boolean)
-              .join("\n")
-          : undefined
-      }
+      title={pointsTo ? [pointsTo, unchecked].filter(Boolean).join("\n") : undefined}
       className="help-citation"
     >
       {number}
