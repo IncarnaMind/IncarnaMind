@@ -163,7 +163,7 @@ function enter(
     });
   }
   if (!held) {
-    const at = over && cell ? over.pos : block.pos + 1;
+    const at = over ? over.pos : block.pos + 1;
     editor.view.dispatch(editor.state.tr.setSelection(Selection.near(doc.resolve(at))));
   }
   editor.view.focus();
