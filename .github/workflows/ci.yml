@@ -89,6 +89,12 @@ jobs:
             && git diff --name-only HEAD^1 HEAD | grep -qE '^(src/renderer/|e2e/audit/)'; then
             npm test -- tests/scripts/auditTestIds.test.ts
           fi
+          # And this one reads all of src and eval as text, for a check, comment or assistant's
+          # change read by the mark's bare name (#3024).
+          if [ "$EVENT" = pull_request ] && [ "${{ matrix.shard }}" = 1 ] \
+            && git diff --name-only HEAD^1 HEAD | grep -qE '^(src|eval)/'; then
+            npm test -- tests/shared/keyedMarkReaders.test.ts
+          fi
 
   # A pull request's own specs (scripts/smoke-shard.mjs); every spec when the nightly run or a
   # release calls this file.
