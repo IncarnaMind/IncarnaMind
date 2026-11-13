@@ -346,6 +346,12 @@ describe("On the model on this computer, which the check doesn't offer calculate
     ["There are 3 points to cover.", "There are three points to cover."],
     ["It rose 1 point.", "It rose one point."],
     ["They agreed on 1 point.", "They agreed on one point."],
+    ["The spread stood at 25 basis points.", "It stood at twenty-five basis points."],
+    ["Growth was 105 basis points.", "It came in at one hundred and five basis points."],
+    ["It stood at 6 percentage points.", "It stood at six percentage points."],
+    ["It peaked at 3 points.", "It peaked at three points."],
+    ["The cap is 2.3 percentage points.", "It was capped at two point three percentage points."],
+    ["At 6 percentage points, the gap is wide.", "At six percentage points, the gap is wide."],
   ])("%s beside “%s” keeps its ✓", async (claim, quote) => {
     expect(await ended(claim, `Figures\n${quote}\n`, quote)).toBe("supported");
   });
@@ -363,6 +369,8 @@ describe("On the model on this computer, which the check doesn't offer calculate
     ["There are 4 points to cover.", "There are three points to cover."],
     ["The index rose 1 point.", "At one point in 2023 the index rose sharply."],
     ["It rose 1%.", "At one point it rose."],
+    ["The gap was 3 percentage points.", "It was capped at two point three percentage points."],
+    ["Growth was 5 basis points.", "It came in at one hundred and five basis points."],
   ])("%s beside “%s” is Not checked", async (claim, quote) => {
     expect(await ended(claim, `Figures\n${quote}\n`, quote)).toBe("not-checked: number-unquoted");
   });
