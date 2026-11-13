@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { createAiSdkAnswerEngine } from "../../src/core/answers/engine";
+import { wordsOf } from "../../src/core/answers/markerPlacement";
 import {
   matchUnmarked,
   mayDrawOn,
@@ -507,11 +508,48 @@ describe("a sentence's numbers are read without its markers (#3059)", { timeout:
     },
   );
 
-  // protects=a quotation with a marker written inside its quotation marks is looked for on the page without the marker, and takes its Citation, found; fails_when=the marker's text is looked for with the quoted words, so the quote isn't found; no_claim=how often a model writes a marker inside quotation marks.
-  test("a quotation with a marker inside its marks is looked for without it", async () => {
+  // protects=a quotation with a marker written inside its quotation marks, among enough of the Answer's own words that only the quotation can match, is looked for and recorded as the Document's words: the marker goes with no space the words didn't have, before the full stop (spaced or glued), after it, or mid-line, in English and Chinese; fails_when=the marker's text, or a space it leaves, is looked for or recorded with the quoted words; no_claim=how often a model writes a marker inside quotation marks.
+  test.each([
+    ["en", "before the full stop", (line: string) => marked(line, " [^1]")],
+    ["en", "glued before the full stop", (line: string) => marked(line, "[^1]")],
+    ["en", "after the full stop", (line: string) => `${line} [^1]`],
+    ["en", "mid-line", (line: string) => line.replace("survey is", "survey [^1] is")],
+    ["zh", "before the full stop", (line: string) => marked(line, " [^1]")],
+    ["zh", "glued before the full stop", (line: string) => marked(line, "[^1]")],
+    ["zh", "after the full stop", (line: string) => `${line}[^1]`],
+    ["zh", "mid-line", (line: string) => line.replace("费用由", "费用[^1]由")],
+  ] as const)(
+    "in %s, a quotation with its marker %s is recorded as the Document's line",
+    async (language, _where, withMarker) => {
+      const { year } = SUPPLIER[language].lines;
+      const quoted = withMarker(year);
+      expect(quoted).toContain("[^1]");
+      const answer =
+        language === "en"
+          ? `Before anyone signed, Dana read the clause aloud to the whole room and underlined it twice: "${quoted}" Everyone nodded, and the meeting moved on to the schedule.`
+          : `签约之前，达娜在会上把这一条大声读给所有人听，还在下面划了两道线：“${quoted}”大家都点了头，会议接着讨论了进度安排。`;
+      const { quotes } = await answered(language, answer);
+      expect(quotes).toEqual([[year, "found"]]);
+    },
+  );
+
+  // protects=a sentence that is its Document's line with a figure's marker and no Citation marker takes that line's Citation, and one that leaves its number out matches nothing though its figure's marker holds that number, in English and Chinese (#3059); fails_when=a figure marker's digits are read as the sentence's number; no_claim=how often a model writes a figure's marker on a Document's line.
+  test.each(["en", "zh"] as const)(
+    "in %s, a figure's marker is no number of the sentence",
+    async (language) => {
+      const { year } = SUPPLIER[language].lines;
+      const same = await answered(language, marked(year, " [=1]"));
+      expect(same.quotes).toEqual([[year, "found"]]);
+      const leftOut = await answered(language, marked(yearsLeftOut[language], " [=2]"));
+      expect(leftOut.quotes).toEqual([]);
+    },
+  );
+
+  // protects=the words a sentence is compared by hold none for a figure's marker, as none for a Citation's, in English and Chinese; fails_when=a figure marker's digits come back as a word; no_claim=none beyond protects.
+  test("a figure's marker gives no word", () => {
     const { year } = SUPPLIER.en.lines;
-    const { quotes } = await answered("en", `The terms say "${marked(year, " [^1]")}" for now.`);
-    expect(quotes).toEqual([[year, "found"]]);
+    expect(wordsOf(marked(year, " [=12]"))).toEqual(wordsOf(year));
+    expect(wordsOf(marked(yearsLeftOut.zh, "[=2]"))).toEqual(wordsOf(yearsLeftOut.zh));
   });
 
   // protects=whether an uncited Answer in another language may draw on the Passages reads its figures without its markers' digits, so a marker [^12] doesn't share "12" with a Passage; fails_when=a marker's digits count as the Answer's figure; no_claim=none beyond protects.

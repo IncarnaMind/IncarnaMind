@@ -37,7 +37,8 @@
  * loop the ask is one of the end-of-turn checks' (see ./turnChecks): `mayAsk`.
  */
 import { jsonSchema } from "ai";
-import { answerSentences } from "../../shared/answerSentences";
+import { answerSentences, MARKER, withoutMarkerRuns } from "../../shared/answerSentences";
+import { FIGURE_MARKER } from "../../shared/figureMarkers";
 import { sentenceSpans } from "../../shared/sentences";
 import { detectLanguage, LANGUAGE_SAMPLE } from "../documents/textLanguage";
 import { outputTokens } from "../providers/outputLimits";
@@ -107,7 +108,6 @@ const MAX_ASKED_CHARACTERS = 3000;
 
 /** Text in quotation marks. */
 const QUOTATION = /["“「『]([^"“”「」『』\n]+)["”」』]/gu;
-const MARKER = /\[\^(\d{1,4})\]/g;
 
 interface ShownPassage {
   id: string;
@@ -174,17 +174,20 @@ function passageSentences(text: string): string[] {
     .filter((sentence) => sentence !== "");
 }
 
+/** A Citation's marker or a figure's, neither of them a Document's words. */
+const ANY_MARKER = new RegExp(`${MARKER.source}|${FIGURE_MARKER.source}`);
+
 /**
  * The quotations in `answer` that say enough to match, each with where it
- * starts: a quotation may run past a sentence's end ("“…drink.” So…").
+ * starts: a quotation may run past a sentence's end ("“…drink.” So…"). A
+ * marker written inside the quotation marks is no part of the words looked
+ * for (#3059).
  */
 function quotationsIn(answer: string): { at: number; quote: string }[] {
   return [...answer.matchAll(QUOTATION)]
     .map((found) => ({
       at: found.index,
-      quote: withoutMarkers(found[1] as string)
-        .replace(/\s+/g, " ")
-        .trim(),
+      quote: withoutMarkerRuns(found[1] as string, ANY_MARKER).trim(),
     }))
     .filter(({ quote }) => wordsOf(quote).size >= MIN_QUOTED_WORDS);
 }

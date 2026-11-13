@@ -1,6 +1,21 @@
 export const MARKER = /\[\^(\d{1,4})\]/g;
 
 /**
+ * `text` without its runs of `markers` side by side (Citation markers unless told otherwise). The
+ * space before a run stays only when a word or a number follows it, so "keep [^2][^3]moving" reads
+ * "keep moving", "year [^1]." reads "year." and "元[^3]对方" reads "元对方".
+ */
+export function withoutMarkerRuns(text: string, markers: RegExp = MARKER): string {
+  const runs = new RegExp(`[ \\t]*(?:${markers.source})+`, "g");
+  return text.replace(runs, (found: string, ...rest: unknown[]) => {
+    const at = rest.find((each) => typeof each === "number") ?? 0;
+    return /^[\p{L}\p{N}]/u.test(text.charAt(at + found.length))
+      ? (/^[ \t]*/.exec(found)?.[0] ?? "")
+      : "";
+  });
+}
+
+/**
  * A sentence ends at one of these, with any markers right after it, followed
  * by a space or the end of its line. CJK ones need no space.
  */
