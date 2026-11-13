@@ -202,7 +202,7 @@ export function ClaimMark({
     useContext(ConversationIdContext),
   );
   const decision =
-    state === "supported" && claim.kind !== "chart"
+    (state === "supported" || awaiting) && claim.kind !== "chart"
       ? citationDecision(editor.state, claim, onPage)
       : NO_DECISION;
   const rows = claimPartRows(claim.reads);
@@ -746,7 +746,14 @@ export function ClaimCard({
     state === "unsupported" && !differs && !fixes && !decisionMissing && !ownWorkings
       ? coveredPart(check.unsupported)
       : null;
-  const evidence = (decided && fromPassage) || differs ? check.evidence : (covers?.quoted ?? null);
+  // A ✓ waiting on the Passage its check found shows that Passage, to add it (#3019).
+  const awaiting = foundElsewhere(claim);
+  const evidence =
+    (decided && fromPassage) || differs
+      ? check.evidence
+      : awaiting
+        ? claim.check.evidence
+        : (covers?.quoted ?? null);
   // A figure's Contradicted is a comparison with the number it is bound to, not a reading of
   // what a passage says: the card shows that number and where it is, to check at a glance.
   const mismatched =
@@ -810,7 +817,7 @@ export function ClaimCard({
   const pickRead = check.action === "check-against-document" ? check.read : null;
   const findSourcesOffered = offersFindSources(editor, claim);
   const objectMenu = useObjectMenu({ kind: "check", id: check.id });
-  const checkedIn = decided || state === "unsupported";
+  const checkedIn = decided || awaiting || state === "unsupported";
   const cuttable = fixes && uncoveredOf(claim) !== null;
   const pastCap = shown.state === "not-checked" && shown.reason === "too-many";
   // Review… is the Check, which asks the User to allow what checks send now (#2525); allowed

@@ -533,7 +533,6 @@ export function showsPartRows(check: Pick<ClaimCheckAttributes, "parts">): boole
         check.parts.some(
           (part) =>
             part.kind === "opinion" ||
-            part.reason === "found-elsewhere" ||
             part.coverage ||
             part.evidence.length > 1 ||
             part.unsupported?.kind,

@@ -120,7 +120,7 @@ export function asCitedNow(
       ...(check.readDocuments && { readDocuments: check.readDocuments }),
     };
     if (!evidence || !restsElsewhere(whole, citations, sentence)) return check;
-    // A mark made before parts were kept shows its Passage on a row of its own, with Add as Citation.
+    // A mark made before parts were kept: its one part holds the Passage the result line adds.
     const part: ClaimCheckPart = {
       span: { start: 0, end: check.text.length },
       kind: "fact",

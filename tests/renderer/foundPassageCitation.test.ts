@@ -34,7 +34,7 @@ vi.mock("../../src/renderer/src/store", () => ({
   useAppStore: { getState: () => ({ documents: [], minds: [], settings: { language: "en" } }) },
 }));
 
-const { addFoundCitations, addPartCitations, foundCitationInserts } = await import(
+const { addAsCitation, addFoundCitations, foundCitationInserts } = await import(
   "../../src/renderer/src/checks"
 );
 
@@ -166,7 +166,7 @@ async function checked(paragraphs: (tides: Document) => JSONContent[], ids: read
 }
 
 describe("Add as Citation on the card", { timeout: 30_000 }, () => {
-  // protects=adding the found Passage on its row shows the ✓ at once and sends no request, its Citation says the check found it, Undo brings found elsewhere back, and the Note opened again reads each the same, in English and Chinese (#3019); fails_when=the ✓ waits on a new check, stays after Undo, or reads otherwise once the Note is opened again; no_claim=how the row is drawn.
+  // protects=Add as Citation on the card keeps the check's mark and shows the ✓ at once and sends no request, its Citation says the check found it, Undo brings found elsewhere back, and the Note opened again reads each the same, in English and Chinese (#3019); fails_when=the ✓ waits on a new check, stays after Undo, or reads otherwise once the Note is opened again; no_claim=how the row is drawn.
   test.each([
     [SENTENCE, OTHER, LINE],
     [SENTENCE_ZH, OTHER_ZH, LINE_ZH],
@@ -180,7 +180,7 @@ describe("Add as Citation on the card", { timeout: 30_000 }, () => {
     expect(claim.shown).toEqual({ state: "not-checked", reason: "found-elsewhere" });
     const asked = calls.length;
 
-    expect(addPartCitations(editor, claim, claim.reads.parts ?? [])).toBe("added");
+    expect(addAsCitation(editor, claim)).toBe(true);
     expect(shownClaims(editor.state)[0]?.shown).toEqual({ state: "supported" });
     expect(citationsIn(editor).map((each) => [each.quote, each.foundByCheck ?? null])).toEqual([
       [writerQuote, null],

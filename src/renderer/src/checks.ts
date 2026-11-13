@@ -28,7 +28,13 @@ import { parseQuotedWords, type QuotedWordsOnPage, quotedWordsAt } from "../../s
 import { core } from "./core";
 import { citationDecision, partDecisions } from "./editor/alreadyCited";
 import type { NumberedCitation } from "./editor/citationNumbers";
-import { claimSpans, placeInSentence, type ShownClaim, shownClaims } from "./editor/claimChecks";
+import {
+  claimSpans,
+  foundElsewhere,
+  placeInSentence,
+  type ShownClaim,
+  shownClaims,
+} from "./editor/claimChecks";
 import { asOneStep } from "./editor/editorUndo";
 import { selectionForEdit } from "./editor/editSelection";
 import { type BlockPlace, pendingIn, placeOnAccept, positionOf } from "./editor/proposalReview";
@@ -492,9 +498,11 @@ export const citationClosingLength = (words: string): number =>
 
 /**
  * Adds the Passage a check found as the sentence's Citation, at its end,
- * before its closing punctuation, and takes the check's mark off: the
- * Citation's own check stands for it now. One step for ⌘Z. Only when the card
- * offers it, so a sentence already citing those words gets no second Citation.
+ * before its closing punctuation. A sentence with no Citation of its writer's
+ * loses the check's mark, as the Citation's own check stands for it now; one
+ * whose ✓ waited on that Passage keeps it, and shows it at once (#3019). One
+ * step for ⌘Z. Only when the card offers it, so a sentence already citing
+ * those words gets no second Citation.
  */
 export function addAsCitation(
   editor: Editor,
@@ -511,7 +519,8 @@ export function addAsCitation(
   const words = state.doc.textBetween(claim.sentence.from, claim.sentence.to, "\n", "￼");
   const closing = citationClosingLength(words);
   const at = claim.sentence.to - closing;
-  const tr = state.tr.removeMark(claim.from, claim.to, mark);
+  const tr = state.tr;
+  if (!foundElsewhere(claim)) tr.removeMark(claim.from, claim.to, mark);
   tr.insert(at, type.create(foundCitation(evidence)));
   editor.view.dispatch(tr);
   return true;
