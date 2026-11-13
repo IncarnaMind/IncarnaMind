@@ -1490,6 +1490,23 @@ export function readVerdict(reply: string): ReadVerdict | null {
 }
 
 /**
+ * A sentence check's reply, read as `readVerdict` reads it, except a reply that corrects itself
+ * with a later whole Verdict block (#3029): that block alone is read, never a mix of the two. A
+ * later Supported after a block that said otherwise, or one that doesn't read, stays unread: a ✓
+ * never rests on a reply that judged otherwise a moment before. A later lowering stands.
+ */
+export function readCheckReply(reply: string): ReadVerdict | null {
+  const read = readVerdict(reply);
+  if (read !== null || !changesItsMind(reply)) return read;
+  const lines = verdictLines(reply);
+  const last = lines.findLastIndex((line) => LABELLED.test(line));
+  const first = BARE.test(lines[0] ?? "") ? 0 : lines.findIndex((line) => LABELLED.test(line));
+  if (last <= 0 || first < 0 || first === last) return null;
+  const later = readVerdict(lines.slice(last).join("\n"));
+  return later !== null && later.verdict !== "supported" ? later : null;
+}
+
+/**
  * A reply to `recheckInstructions`: its verdict and every field line the request's form asks
  * for, Scope, Topic, Roles, Time, Duty and Condition, each given once; null when one is missing
  * or given twice with two values (#2817).

@@ -1472,6 +1472,8 @@ export const zhCN = {
   "claim.reason.absence-unconfirmed": "不显示结论：模型给出的引文并没有写到这句话说不存在的内容。",
   "claim.reason.absence-other-document":
     "不显示结论：模型给出的引文出自另一份文档，不是这句话所说的那份。",
+  "claim.reason.found-elsewhere":
+    "不显示结论：支持这句话的段落不是它的引用所引的那段。请把这段添加为引用，再检查一次。",
   "claim.reason.kept-inside": "仅在“{detail}”内使用",
   "claim.reason.read-budget": "已停止 · 已花费{spent}",
   "claim.reason.read-budget.unknown": "已停止：已达到这次读取最多可花的费用。",

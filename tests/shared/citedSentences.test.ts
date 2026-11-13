@@ -132,6 +132,84 @@ describe("A cited sentence ends where its own sentence ends (#3009)", () => {
   });
 });
 
+describe("An English sentence that quotes two sentences is one sentence (#3019)", () => {
+  // The split before this rule is the second column: each quotation was cut at its first full stop.
+  test.each([
+    [
+      'The report\'s first page says "Prepared for software testing[^4]. The text is fictional."[^3] So it may not describe a real model[^5].',
+      [
+        'The report\'s first page says "Prepared for software testing. The text is fictional."',
+        "So it may not describe a real model.",
+      ],
+      [
+        "The report's first page says \"Prepared for software testing.",
+        'The text is fictional."',
+        "So it may not describe a real model.",
+      ],
+    ],
+    [
+      "The appendix reads “Loss falls more smoothly. Fewer steps are needed.”[^1] That is its whole account[^2].",
+      [
+        "The appendix reads “Loss falls more smoothly. Fewer steps are needed.”",
+        "That is its whole account.",
+      ],
+      [
+        "The appendix reads “Loss falls more smoothly.",
+        "Fewer steps are needed.”",
+        "That is its whole account.",
+      ],
+    ],
+    [
+      "The memo calls it ‘a draft. Not final.’[^1] in its last line.",
+      ["The memo calls it ‘a draft. Not final.’ in its last line."],
+      ["The memo calls it ‘a draft.", "Not final.’ in its last line."],
+    ],
+    [
+      "Table 1 (Work per layer. Three ways compared.)[^1] lists recurrent layers first.",
+      ["Table 1 (Work per layer. Three ways compared.) lists recurrent layers first."],
+      ["Table 1 (Work per layer.", "Three ways compared.) lists recurrent layers first."],
+    ],
+    [
+      'It says "may carry over to sequences longer than those in training"[^1], and nothing else.',
+      ['It says "may carry over to sequences longer than those in training", and nothing else.'],
+      ['It says "may carry over to sequences longer than those in training", and nothing else.'],
+    ],
+  ])("%s", (answer, now) => {
+    expect(split(answer).map(([sentence]) => sentence)).toEqual(now);
+  });
+
+  test("the quotation's markers stay with the sentence that holds it", () => {
+    expect(
+      split(
+        'The report\'s first page says "Prepared for software testing[^4]. The text is fictional."[^3] So it may not describe a real model[^5].',
+      ),
+    ).toEqual([
+      [
+        'The report\'s first page says "Prepared for software testing. The text is fictional."',
+        [4, 3],
+      ],
+      ["So it may not describe a real model.", [5]],
+    ]);
+  });
+
+  test.each([
+    [
+      'He wrote "Stop here[^1]. Go on with the next step[^2].',
+      ['He wrote "Stop here.', "Go on with the next step."],
+    ],
+    [
+      'He wrote "Stop here[^1]. Then she said "go" twice[^2].',
+      ['He wrote "Stop here.', 'Then she said "go" twice.'],
+    ],
+    [
+      "Prices rose in the first quarter[^1]. Wages fell in the second[^2].",
+      ["Prices rose in the first quarter.", "Wages fell in the second."],
+    ],
+  ])("a quotation never closed, or none at all, keeps the plain split: %s", (answer, sentences) => {
+    expect(split(answer).map(([sentence]) => sentence)).toEqual(sentences);
+  });
+});
+
 const ENGLISH = [
   "Prepared for software testing",
   "The text is fictional",

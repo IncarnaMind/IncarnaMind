@@ -61,6 +61,7 @@ const FAILURES: Record<ClaimCheckFailure, true> = {
   "absence-read-limit": true,
   "absence-unconfirmed": true,
   "absence-other-document": true,
+  "found-elsewhere": true,
   "cut-short": true,
   "read-budget": true,
   "workbook-changed": true,
