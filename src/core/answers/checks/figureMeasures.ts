@@ -189,6 +189,26 @@ const alignedHeadings = ({ lines, index, top, head }: Table): string[] =>
         !isRule(heading) && cellsOf(heading).length === cellsOf(lines[index] ?? "").length,
     );
 
+/**
+ * The cells that may name `table`'s number in its row: from the nearest named cell to its left,
+ * each named cell up to its label or to a cell that names nothing (another panel's value). One
+ * that holds a digit is a value or a label with a note number ("Earnings per share (note 7)"), and
+ * nothing in the cell says which: the label rule leaves it out, and a reader that must not miss a
+ * name reads it too.
+ */
+export function possibleLabels(table: Table): string[] {
+  const left = cellsOf(table.lines[table.index] ?? "")
+    .slice(0, table.column)
+    .reverse();
+  const names: string[] = [];
+  for (const cell of left.slice(Math.max(left.findIndex(namesSomething), 0))) {
+    if (!namesSomething(cell)) break;
+    names.push(cell);
+    if (!/\p{Nd}/u.test(cell)) break;
+  }
+  return names;
+}
+
 /** The names `table` gives its number: the nearest named cell to its left and the heading of its own column. */
 export const ownNames = (table: Table): string[] =>
   [

@@ -722,8 +722,212 @@ describe("A heading's own exception leaves out the numbers it names (#2997)", {
     ]);
   });
 
-  // protects=the clause is read by the calculation rule's own test of a label, which takes a label that begins "Basic" or "Diluted" for a per-share row: a right sentence about such a row reads Not checked, as on main; fails_when=it reads otherwise without that test having changed; no_claim=that the row is a per-share row.
-  test("a row whose label begins Basic reads as on main under such a heading", async () => {
+  // protects=a label that holds a digit is still read for the clause: a note number in any form ("(note 7)", "(Note 7)", a bare 7, （附注7）, （注7）, 注7, "(1)"), a period before the name ("Q4 earnings per share", 第4季度每股收益) or after it ("EPS (FY2024)"), in a row, beside a Note column and in side-by-side panels; the per-share figure given the heading's scale reads Not checked, as on main, and in plain dollars or 元 no worse than on main; the revenue beside it keeps its ✓ with a note number of its own, as "Tier 1 capital" does; fails_when=a per-share row whose label holds a digit takes the scale the heading excepts it from, or a row that is no per-share row loses its ✓; no_claim=that a cell with a digit is a label: it may be a value, and the measure rule still reads none as one.
+  test("a per-share row whose label holds a note number or a period takes no scale from a heading that excepts it", async () => {
+    await readsAsWanted([
+      [
+        "(USD millions, except per share data)\nItem\t2023\t2024\nRevenue\t540\t620\nEarnings per share (note 7)\t1.50\t2.00",
+        "Earnings per share (note 7)\t1.50\t2.00",
+        "Earnings per share were $2.00 million in 2024.",
+        UNJUDGED,
+      ],
+      [
+        "(USD millions, except per share data)\nItem\t2023\t2024\nRevenue\t540\t620\nEarnings per share (note 7)\t1.50\t2.00",
+        "Earnings per share (note 7)\t1.50\t2.00",
+        "Earnings per share were $2.00 in 2024.",
+        UNJUDGED,
+      ],
+      [
+        "(USD millions, except per share data)\nItem\t2023\t2024\nRevenue\t540\t620\nEarnings per share (Note 7)\t1.50\t2.00",
+        "Earnings per share (Note 7)\t1.50\t2.00",
+        "Earnings per share were $2.00 million in 2024.",
+        UNJUDGED,
+      ],
+      [
+        "(USD millions, except per share data)\nItem\t2023\t2024\nRevenue\t540\t620\nEarnings per share (Note 7)\t1.50\t2.00",
+        "Earnings per share (Note 7)\t1.50\t2.00",
+        "Earnings per share were $2.00 in 2024.",
+        UNJUDGED,
+      ],
+      [
+        "(USD millions, except per share data)\nItem\t2023\t2024\nRevenue\t540\t620\nEarnings per share 7\t1.50\t2.00",
+        "Earnings per share 7\t1.50\t2.00",
+        "Earnings per share were $2.00 million in 2024.",
+        UNJUDGED,
+      ],
+      [
+        "(USD millions, except per share data)\nItem\t2023\t2024\nRevenue\t540\t620\nEarnings per share 7\t1.50\t2.00",
+        "Earnings per share 7\t1.50\t2.00",
+        "Earnings per share were $2.00 in 2024.",
+        UNJUDGED,
+      ],
+      [
+        "(USD millions, except per share data)\nItem\t2023\t2024\nRevenue\t540\t620\nQ4 earnings per share\t1.50\t2.00",
+        "Q4 earnings per share\t1.50\t2.00",
+        "Q4 earnings per share were $2.00 million in 2024.",
+        UNJUDGED,
+      ],
+      [
+        "(USD millions, except per share data)\nItem\t2023\t2024\nRevenue\t540\t620\nQ4 earnings per share\t1.50\t2.00",
+        "Q4 earnings per share\t1.50\t2.00",
+        "Q4 earnings per share were $2.00 in 2024.",
+        UNJUDGED,
+      ],
+      [
+        "(USD millions, except per share data)\nItem\t2023\t2024\nRevenue\t540\t620\nEPS (FY2024)\t1.50\t2.00",
+        "EPS (FY2024)\t1.50\t2.00",
+        "EPS was $2.00 million in 2024.",
+        UNJUDGED,
+      ],
+      [
+        "(USD millions, except per share data)\nItem\t2023\t2024\nRevenue\t540\t620\nEPS (FY2024)\t1.50\t2.00",
+        "EPS (FY2024)\t1.50\t2.00",
+        "EPS was $2.00 in 2024.",
+        UNJUDGED,
+      ],
+      [
+        "单位：百万元（每股数据除外）\n项目\t2023年\t2024年\n营业收入\t540\t620\n每股收益（附注7）\t1.50\t2.00",
+        "每股收益（附注7）\t1.50\t2.00",
+        "2024年每股收益为2.00百万元。",
+        UNJUDGED,
+      ],
+      [
+        "单位：百万元（每股数据除外）\n项目\t2023年\t2024年\n营业收入\t540\t620\n每股收益（附注7）\t1.50\t2.00",
+        "每股收益（附注7）\t1.50\t2.00",
+        "2024年每股收益为2.00元。",
+        UNJUDGED,
+      ],
+      [
+        "单位：百万元（每股数据除外）\n项目\t2023年\t2024年\n营业收入\t540\t620\n每股收益（注7）\t1.50\t2.00",
+        "每股收益（注7）\t1.50\t2.00",
+        "2024年每股收益为2.00百万元。",
+        UNJUDGED,
+      ],
+      [
+        "单位：百万元（每股数据除外）\n项目\t2023年\t2024年\n营业收入\t540\t620\n每股收益（注7）\t1.50\t2.00",
+        "每股收益（注7）\t1.50\t2.00",
+        "2024年每股收益为2.00元。",
+        UNJUDGED,
+      ],
+      [
+        "单位：百万元（每股数据除外）\n项目\t2023年\t2024年\n营业收入\t540\t620\n每股收益 注7\t1.50\t2.00",
+        "每股收益 注7\t1.50\t2.00",
+        "2024年每股收益为2.00百万元。",
+        UNJUDGED,
+      ],
+      [
+        "单位：百万元（每股数据除外）\n项目\t2023年\t2024年\n营业收入\t540\t620\n每股收益 注7\t1.50\t2.00",
+        "每股收益 注7\t1.50\t2.00",
+        "2024年每股收益为2.00元。",
+        UNJUDGED,
+      ],
+      [
+        "单位：百万元（每股数据除外）\n项目\t2023年\t2024年\n营业收入\t540\t620\n每股收益(1)\t1.50\t2.00",
+        "每股收益(1)\t1.50\t2.00",
+        "2024年每股收益为2.00百万元。",
+        UNJUDGED,
+      ],
+      [
+        "单位：百万元（每股数据除外）\n项目\t2023年\t2024年\n营业收入\t540\t620\n每股收益(1)\t1.50\t2.00",
+        "每股收益(1)\t1.50\t2.00",
+        "2024年每股收益为2.00元。",
+        UNJUDGED,
+      ],
+      [
+        "单位：百万元（每股数据除外）\n项目\t2023年\t2024年\n营业收入\t540\t620\n第4季度每股收益\t1.50\t2.00",
+        "第4季度每股收益\t1.50\t2.00",
+        "2024年第4季度每股收益为2.00百万元。",
+        UNJUDGED,
+      ],
+      [
+        "单位：百万元（每股数据除外）\n项目\t2023年\t2024年\n营业收入\t540\t620\n第4季度每股收益\t1.50\t2.00",
+        "第4季度每股收益\t1.50\t2.00",
+        "2024年第4季度每股收益为2.00元。",
+        UNJUDGED,
+      ],
+      [
+        "(USD millions, except per share data)\nItem\t2023\t2024\nRevenue (note 3)\t540\t620\nEarnings per share (note 7)\t1.50\t2.00",
+        "Revenue (note 3)\t540\t620",
+        "Revenue was $620 million in 2024.",
+        TICK,
+      ],
+      [
+        "(USD millions, except per share data)\nItem\t2023\t2024\nRevenue (note 3)\t540\t620\nEarnings per share (note 7)\t1.50\t2.00",
+        "Revenue (note 3)\t540\t620",
+        "Revenue was $620 billion in 2024.",
+        caught("620", "$620 billion"),
+      ],
+      [
+        "(USD millions, except per share data)\nItem\t2023\t2024\nTier 1 capital\t540\t620\nEarnings per share\t1.50\t2.00",
+        "Tier 1 capital\t540\t620",
+        "Tier 1 capital was $620 million in 2024.",
+        TICK,
+      ],
+      [
+        "单位：百万元（每股数据除外）\n项目\t2023年\t2024年\n营业收入（附注3）\t540\t620\n每股收益（附注7）\t1.50\t2.00",
+        "营业收入（附注3）\t540\t620",
+        "2024年营业收入为620百万元。",
+        TICK,
+      ],
+      [
+        "单位：百万元（每股数据除外）\n项目\t2023年\t2024年\n营业收入（附注3）\t540\t620\n每股收益（附注7）\t1.50\t2.00",
+        "营业收入（附注3）\t540\t620",
+        "2024年营业收入为620万元。",
+        caught("620", "620万元"),
+      ],
+      [
+        "(USD millions, except per share data)\nItem\tNote\t2023\t2024\nRevenue\t3\t540\t620\nEarnings per share\t7\t1.50\t2.00",
+        "Earnings per share\t7\t1.50\t2.00",
+        "Earnings per share were $2.00 million in 2024.",
+        UNJUDGED,
+      ],
+      [
+        "(USD millions, except per share data)\nItem\tNote\t2023\t2024\nRevenue\t3\t540\t620\nEarnings per share\t7\t1.50\t2.00",
+        "Revenue\t3\t540\t620",
+        "Revenue was $620 million in 2024.",
+        TICK,
+      ],
+      [
+        "单位：百万元（每股数据除外）\n项目\t附注\t2023年\t2024年\n营业收入\t3\t540\t620\n每股收益\t7\t1.50\t2.00",
+        "每股收益\t7\t1.50\t2.00",
+        "2024年每股收益为2.00百万元。",
+        UNJUDGED,
+      ],
+      [
+        "单位：百万元（每股数据除外）\n项目\t附注\t2023年\t2024年\n营业收入\t3\t540\t620\n每股收益\t7\t1.50\t2.00",
+        "营业收入\t3\t540\t620",
+        "2024年营业收入为620百万元。",
+        TICK,
+      ],
+      [
+        "(USD millions, except per share data)\nEPS (note 7)\t2.00\tRevenue (note 3)\t620",
+        "EPS (note 7)\t2.00\tRevenue (note 3)\t620",
+        "Revenue was $620 million.",
+        TICK,
+      ],
+      [
+        "(USD millions, except per share data)\nEPS (note 7)\t2.00\tRevenue (note 3)\t620",
+        "EPS (note 7)\t2.00\tRevenue (note 3)\t620",
+        "EPS was $2.00 million.",
+        UNJUDGED,
+      ],
+      [
+        "(USD millions, except per share data)\nRevenue (note 3)\t620\tEPS (note 7)\t2.00",
+        "Revenue (note 3)\t620\tEPS (note 7)\t2.00",
+        "EPS was $2.00 million.",
+        UNJUDGED,
+      ],
+      [
+        "(USD millions, except per share data)\nRevenue (note 3)\t620\tEPS (note 7)\t2.00",
+        "Revenue (note 3)\t620\tEPS (note 7)\t2.00",
+        "Revenue was $620 million.",
+        TICK,
+      ],
+    ]);
+  });
+
+  // protects=the clause is read by the calculation rule's own test of a label, which takes an English label that begins "Basic" or "Diluted" for a per-share row, as under "Earnings per share:", and reads 每股 in Chinese: a right sentence about "Basic materials revenue" or "Diluted net income" under such a heading reads Not checked, as on main, where a row named Basic or Diluted alone takes no scale from it either; its wrong twins read as on main in both checks (no scale: Not checked, and no guard of Check against Documents objects; another scale: Unsupported in both); a Chinese label that begins 基本 or 稀释 is no per-share row to that test, so 基本材料收入 keeps its ✓; fails_when=any reads otherwise without that test having changed; no_claim=that "Basic materials revenue" is a per-share row, or that the sentence with no scale is right.
+  test("a row whose label begins Basic or Diluted reads as on main under such a heading, and its wrong twins as on main", async () => {
     await readsAsWanted([
       [
         "(USD millions, except per share data)\nItem\t2023\t2024\nBasic materials revenue\t540\t620\nEarnings per share\t1.50\t2.00",
@@ -731,12 +935,102 @@ describe("A heading's own exception leaves out the numbers it names (#2997)", {
         "Basic materials revenue was $620 million in 2024.",
         UNJUDGED,
       ],
+      [
+        "(USD millions, except per share data)\nItem\t2023\t2024\nBasic materials revenue\t540\t620\nEarnings per share\t1.50\t2.00",
+        "Basic materials revenue\t540\t620",
+        "Basic materials revenue was $620 in 2024.",
+        UNJUDGED,
+      ],
+      [
+        "(USD millions, except per share data)\nItem\t2023\t2024\nBasic materials revenue\t540\t620\nEarnings per share\t1.50\t2.00",
+        "Basic materials revenue\t540\t620",
+        "Basic materials revenue was $620 thousand in 2024.",
+        caught("620", "$620 thousand"),
+      ],
+      [
+        "(USD millions, except per share data)\nItem\t2023\t2024\nDiluted net income\t540\t620\nEarnings per share\t1.50\t2.00",
+        "Diluted net income\t540\t620",
+        "Diluted net income was $620 million in 2024.",
+        UNJUDGED,
+      ],
+      [
+        "(USD millions, except per share data)\nItem\t2023\t2024\nDiluted net income\t540\t620\nEarnings per share\t1.50\t2.00",
+        "Diluted net income\t540\t620",
+        "Diluted net income was $620 thousand in 2024.",
+        caught("620", "$620 thousand"),
+      ],
+      [
+        "(USD millions, except per share data)\nItem\t2023\t2024\nRevenue\t540\t620\nBasic\t1.50\t2.00\nDiluted\t1.45\t1.95",
+        "Diluted\t1.45\t1.95",
+        "Diluted earnings per share were $1.95 million in 2024.",
+        UNJUDGED,
+      ],
+      [
+        "(USD millions, except per share data)\nItem\t2023\t2024\nRevenue\t540\t620\nBasic\t1.50\t2.00\nDiluted\t1.45\t1.95",
+        "Basic\t1.50\t2.00",
+        "Basic earnings per share were $2.00 million in 2024.",
+        UNJUDGED,
+      ],
+      [
+        "(USD millions, except per share data)\nItem\t2023\t2024\nRevenue\t540\t620\nBasic\t1.50\t2.00\nDiluted\t1.45\t1.95",
+        "Diluted\t1.45\t1.95",
+        "Diluted earnings per share were $1.95 in 2024.",
+        UNJUDGED,
+      ],
+      [
+        "单位：百万元（除每股数据外）\n项目\t2023年\t2024年\n基本材料收入\t540\t620\n每股收益\t1.50\t2.00",
+        "基本材料收入\t540\t620",
+        "2024年基本材料收入为620百万元。",
+        TICK,
+      ],
+      [
+        "单位：百万元（除每股数据外）\n项目\t2023年\t2024年\n基本材料收入\t540\t620\n每股收益\t1.50\t2.00",
+        "基本材料收入\t540\t620",
+        "2024年基本材料收入为620元。",
+        UNJUDGED,
+      ],
+      [
+        "单位：百万元（除每股数据外）\n项目\t2023年\t2024年\n基本材料收入\t540\t620\n每股收益\t1.50\t2.00",
+        "基本材料收入\t540\t620",
+        "2024年基本材料收入为620万元。",
+        caught("620", "620万元"),
+      ],
+      [
+        "单位：百万元（除每股数据外）\n项目\t2023年\t2024年\n稀释后净利润\t540\t620\n每股收益\t1.50\t2.00",
+        "稀释后净利润\t540\t620",
+        "2024年稀释后净利润为620百万元。",
+        TICK,
+      ],
+      [
+        "单位：百万元（除每股数据外）\n项目\t2023年\t2024年\n稀释后净利润\t540\t620\n每股收益\t1.50\t2.00",
+        "稀释后净利润\t540\t620",
+        "2024年稀释后净利润为620元。",
+        UNJUDGED,
+      ],
+      [
+        "单位：百万元（除每股数据外）\n项目\t2023年\t2024年\n营业收入\t540\t620\n基本每股收益\t1.50\t2.00\n稀释每股收益\t1.45\t1.95",
+        "基本每股收益\t1.50\t2.00",
+        "2024年基本每股收益为2.00百万元。",
+        UNJUDGED,
+      ],
+      [
+        "单位：百万元（除每股数据外）\n项目\t2023年\t2024年\n营业收入\t540\t620\n基本每股收益\t1.50\t2.00\n稀释每股收益\t1.45\t1.95",
+        "稀释每股收益\t1.45\t1.95",
+        "2024年稀释每股收益为1.95百万元。",
+        UNJUDGED,
+      ],
+      [
+        "单位：百万元（除每股数据外）\n项目\t2023年\t2024年\n营业收入\t540\t620\n基本每股收益\t1.50\t2.00\n稀释每股收益\t1.45\t1.95",
+        "基本每股收益\t1.50\t2.00",
+        "2024年基本每股收益为2.00元。",
+        UNJUDGED,
+      ],
     ]);
   });
 });
 
 describe("Wrong sentences the check doesn't catch yet (#2997)", { timeout: 120_000 }, () => {
-  // protects=known wrong ✓, pinned at what they read so the next change that touches them shows it: a number of a count column or another row given the unit a caption, a unit line, a heading or prose directly over the table states for it ("二厂产量为31千克。" citing the 31 under 人数, "2024年产量为31千克。" citing the 员工人数 row), the same with no column or row named, or with the count column named in that unit; another row's number under labelled lines or under a caption over a column-wise table ("二厂产量为54吨。" citing 一厂's 54); a per-share row under a heading that states a scale and excepts nothing ("Earnings per share in 2024 were $2.00 million." under "(USD millions)"); 度 as a temperature, an angle or against kilowatt-hours; and two that main's own heading rule ticks (a column heading of a table glued above, the other of two labelled columns). They are wrong sentences the check doesn't catch yet (#2997); fails_when=any reads otherwise without its kind being fixed and this list changed; no_claim=that they are right.
+  // protects=known wrong ✓, pinned at what they read so the next change that touches them shows it: a number of a count column or another row given the unit a caption, a unit line, a heading or prose directly over the table states for it ("二厂产量为31千克。" citing the 31 under 人数, "2024年产量为31千克。" citing the 员工人数 row), the same with no column or row named, or with the count column named in that unit; another row's number under labelled lines or under a caption over a column-wise table ("二厂产量为54吨。" citing 一厂's 54); a per-share row under a heading that states a scale and excepts nothing ("Earnings per share in 2024 were $2.00 million." under "(USD millions)"), or named 基本 or 稀释 alone under one that excepts per-share data, a label the clause's test reads in English only ("2024年稀释每股收益为1.95百万元。" citing the 稀释 row); 度 as a temperature, an angle or against kilowatt-hours; and two that main's own heading rule ticks (a column heading of a table glued above, the other of two labelled columns). They are wrong sentences the check doesn't catch yet (#2997); fails_when=any reads otherwise without its kind being fixed and this list changed; no_claim=that they are right.
   test("known wrong ✓", async () => {
     await readsAsWanted([
       [
@@ -991,6 +1285,30 @@ describe("Wrong sentences the check doesn't catch yet (#2997)", { timeout: 120_0
         "单位：百万元\n项目\t2023年\t2024年\n营业收入\t540\t620\n每股收益\t1.50\t2.00",
         "每股收益\t1.50\t2.00",
         "2024年每股收益为2.00百万元。",
+        TICK,
+      ],
+      [
+        "(USD millions)\nItem\t2023\t2024\nRevenue\t540\t620\nEarnings per share (note 7)\t1.50\t2.00",
+        "Earnings per share (note 7)\t1.50\t2.00",
+        "Earnings per share were $2.00 million in 2024.",
+        TICK,
+      ],
+      [
+        "单位：百万元\n项目\t2023年\t2024年\n营业收入\t540\t620\n每股收益（附注7）\t1.50\t2.00",
+        "每股收益（附注7）\t1.50\t2.00",
+        "2024年每股收益为2.00百万元。",
+        TICK,
+      ],
+      [
+        "单位：百万元（除每股数据外）\n项目\t2023年\t2024年\n营业收入\t540\t620\n基本\t1.50\t2.00\n稀释\t1.45\t1.95",
+        "稀释\t1.45\t1.95",
+        "2024年稀释每股收益为1.95百万元。",
+        TICK,
+      ],
+      [
+        "单位：百万元（除每股数据外）\n项目\t2023年\t2024年\n营业收入\t540\t620\n基本\t1.50\t2.00\n稀释\t1.45\t1.95",
+        "基本\t1.50\t2.00",
+        "2024年基本每股收益为2.00百万元。",
         TICK,
       ],
       ["室温：26度\n用电：60度", "室温：26度", "室内用电为26千瓦时。", TICK],

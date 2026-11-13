@@ -22,7 +22,7 @@ import {
 import { INTEGER_WORDS, NUMBER_WORD, SCALES, wholeNumberWords } from "../../../shared/numberWords";
 import type { TextRange } from "../../../shared/quoteMatch";
 import { documentFigureContext, mayLeaveOut } from "../calculations";
-import { isRow, ownNames, tableAt } from "./figureMeasures";
+import { isRow, ownNames, possibleLabels, tableAt } from "./figureMeasures";
 
 export type UnitNotStated =
   /** `currency` as the sentence writes it ("£", "英镑"), `amount` as the Document does ("54,000"). */
@@ -792,8 +792,9 @@ function unitsOnLine(line: string, context: FigureContext): StatedUnit[] {
 
 /**
  * Whether a statement's own exception leaves out the number at `start` ("in millions, except per
- * share data" over an "Earnings per share" row), by the names its table gives it or its line's
- * words before it, as the calculation rule reads the clause (#2997).
+ * share data" over an "Earnings per share" row), by the names its table gives it, a cell that may
+ * be its label among them, or its line's words before it, as the calculation rule reads the clause
+ * (#2997).
  */
 function leavesOut(
   statement: StatedUnit,
@@ -803,7 +804,7 @@ function leavesOut(
 ): boolean {
   if (statement.except === undefined) return false;
   const names = table
-    ? ownNames(table)
+    ? [...possibleLabels(table), ...ownNames(table)]
     : [text.slice(text.lastIndexOf("\n", start - 1) + 1, start)];
   return names.some((name) => mayLeaveOut(statement, name));
 }
