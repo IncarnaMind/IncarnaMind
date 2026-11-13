@@ -186,10 +186,14 @@ function searchingModel(calls: ModelCall[], query: string) {
 }
 
 /**
- * A core with one Folder holding the ordinary Document, and a way to record a call in it. `only`:
- * the engine says the first so many lines of each side and no more, so a call's text stops there.
+ * A core with one Folder holding the ordinary Document (none with `terms` false), and a way to
+ * record a call in it or in another Folder. `only`: the engine says the first so many lines of
+ * each side and no more, so a call's text stops there.
  */
-async function folderCore(language: Language, only?: number) {
+async function folderCore(
+  language: Language,
+  { only, terms: withTerms = true }: { only?: number; terms?: boolean } = {},
+) {
   const lines = LINES[language];
   const calls: ModelCall[] = [];
   let unmarked = false;
@@ -201,15 +205,17 @@ async function folderCore(language: Language, only?: number) {
   });
   await core.updateSettings({ user: { language } });
   const folder = await core.createLibraryGroup({ name: "Tallowmere Freight", description: "" });
-  const terms = TERMS[language];
-  const [document] = await addAndProcess(core, [
-    await writeSourceFile(await createTempDataFolder(), terms.name, terms.text),
-  ]);
-  if (!document) throw new Error(`${terms.name} wasn't added.`);
-  await core.moveToFolder({ documentIds: [document.id], folderId: folder.id });
-  /** Records a call in the Folder until eight of its lines are heard. */
-  const call = async () => {
-    const meeting = await core.createMeeting({ folderId: folder.id });
+  if (withTerms) {
+    const terms = TERMS[language];
+    const [document] = await addAndProcess(core, [
+      await writeSourceFile(await createTempDataFolder(), terms.name, terms.text),
+    ]);
+    if (!document) throw new Error(`${terms.name} wasn't added.`);
+    await core.moveToFolder({ documentIds: [document.id], folderId: folder.id });
+  }
+  /** Records a call in the Folder, or in `folderId`, until eight of its lines are heard. */
+  const call = async (folderId = folder.id) => {
+    const meeting = await core.createMeeting({ folderId });
     await core.startMeeting({ meetingId: meeting.id, systemAudio: true });
     await until(core, meeting.id, (transcript) => transcript.state === "live");
     record(9 * SECOND);
@@ -221,6 +227,7 @@ async function folderCore(language: Language, only?: number) {
     calls,
     clock,
     dataDir,
+    folder,
     call,
     unmark: (on: boolean) => {
       unmarked = on;
@@ -268,6 +275,23 @@ async function press(core: Core, calls: ModelCall[], meetingId: string, kind: Me
   if (!result.asked) throw new Error(`Not asked: ${JSON.stringify(result)}`);
   await answerEnded(core, result.answerId);
   return calls.slice(from).map(sentBy);
+}
+
+/** One press of a help button, in a new conversation: its requests and the Answer it gave. */
+async function pressAnswered(
+  core: Core,
+  calls: ModelCall[],
+  meetingId: string,
+  kind: MeetingHelpKind,
+) {
+  const from = calls.length;
+  const result = await core.askMeetingHelp({ meetingId, kind, conversationId: null });
+  if (!result.asked) throw new Error(`Not asked: ${JSON.stringify(result)}`);
+  await answerEnded(core, result.answerId);
+  const { messages } = await core.getConversation(result.conversation.id);
+  const answer = messages.find((message) => message.id === result.answerId);
+  if (answer?.kind !== "answer") throw new Error(`${kind} gave no Answer.`);
+  return { sent: calls.slice(from).map(sentBy), answer };
 }
 
 /** The requests of a Question typed in the call's Note, in a new conversation. */
@@ -407,7 +431,7 @@ for (const language of ["en", "zh-CN"] as const) {
 
   describe(`${language}: a Folder with no other call`, { timeout: 180_000 }, () => {
     test("each button's press is main's request to the byte but for the marks: the system's line on calls, the buttons' line on an earlier call's line, and this call's Passages' call and start", async () => {
-      const setup = await folderCore(language, 4);
+      const setup = await folderCore(language, { only: 4 });
       const { core, calls } = setup;
       await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
       // The engine says eight lines and no more, so the call's text holds still for both arms.
@@ -429,6 +453,70 @@ for (const language of ["en", "zh-CN"] as const) {
           expect(each, kind).not.toMatch(/ call="(?:this|earlier)"/);
           expect(each, kind).not.toContain(INSTRUCTION);
         }
+      }
+    });
+  });
+
+  describe(`${language}: a Folder that holds only calls`, { timeout: 180_000 }, () => {
+    test("with the earlier call left out, a press reads this call alone and is answered: as main's press in a Folder with this one call, but for the marks", async () => {
+      /**
+       * The earlier call, stopped, then the live one three hours later, with no other Document.
+       * `apart`: the earlier call is in another Folder, so the live call's Folder holds it alone.
+       */
+      const callsOnly = async (apart: boolean) => {
+        const setup = await folderCore(language, { only: 8, terms: false });
+        const { core, dataDir, clock } = setup;
+        const elsewhere = apart
+          ? (await core.createLibraryGroup({ name: "Archive", description: "" })).id
+          : setup.folder.id;
+        const earlier = await setup.call(elsewhere);
+        const stopped = await stoppedMeeting(core, dataDir, earlier.meeting.id);
+        clock.advance(3 * HOUR);
+        await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+        const { meeting: live, heard } = await setup.call();
+        await transcriptRead(core, dataDir, live.id, heard.documentId ?? "");
+        return {
+          ...setup,
+          live,
+          earlierName: stopped.document.name,
+          earlierText: await textOf(core, stopped.document.id),
+          liveText: await textOf(core, heard.documentId ?? ""),
+        };
+      };
+      const branch = await callsOnly(false);
+      const main = await callsOnly(true);
+      main.unmark(true);
+
+      for (const kind of ["say", "want"] as const) {
+        const pressed = await pressAnswered(branch.core, branch.calls, branch.live.id, kind);
+        const mains = await pressAnswered(main.core, main.calls, main.live.id, kind);
+
+        for (const { answer } of [pressed, mains]) {
+          expect(answer.status, kind).toBe("done");
+          expect(answer.text, kind).toContain("Let me check the hosting options");
+        }
+        expect(pressed.sent.length, kind).toBeGreaterThan(0);
+        for (const each of pressed.sent) {
+          expect(each, kind).not.toContain("holds no Documents, so there is nothing to search");
+          // The engine's eight lines a side come round again in the live call, so the call a
+          // Passage is from is read from its mark, which the branch gives every Transcript Passage.
+          expect(each, kind).not.toMatch(EARLIER_PASSAGE);
+          for (const passage of transcriptPassages(each, branch.earlierName)) {
+            expect(passage.attributes, kind).toContain(' call="this"');
+          }
+        }
+        const heard =
+          /<live-transcript>\n([\s\S]*?)\n<\/live-transcript>/.exec(pressed.sent[0] ?? "")?.[1] ??
+          "";
+        const thisCall = transcriptPassages(heard, branch.earlierName);
+        expect(thisCall.length, kind).toBeGreaterThan(0);
+        for (const passage of thisCall) {
+          expect(
+            passage.lines.every((line) => branch.liveText.includes(line)),
+            kind,
+          ).toBe(true);
+        }
+        expect(pressed.sent.map(withoutMarks), kind).toEqual(mains.sent);
       }
     });
   });

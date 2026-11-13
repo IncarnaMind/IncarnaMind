@@ -4247,7 +4247,7 @@ export function createAnswers(options: AnswersOptions) {
     turn: Turn,
     ready: { model: ChatModelChoice; consentNeeded: boolean },
     scope: string[] | null,
-    emptyScope: boolean,
+    scopeEmpty: boolean,
     mind: MindToRead | null,
     onScreen: readonly string[],
     {
@@ -4264,6 +4264,10 @@ export function createAnswers(options: AnswersOptions) {
     const help = mind ? (options.meetingHelp?.(mind.mindId, question.text) ?? null) : null;
     const callOnly = help !== null && HELP_DOCUMENTS[help] === null;
     const documentIds = help && mind ? pressScope(scope, mind.mindId) : scope;
+    const emptyScope =
+      documentIds === scope
+        ? scopeEmpty
+        : documentIds !== null && options.documents.searchableCount(documentIds) === 0;
     // Each press of a help button stands alone: an earlier suggestion would only steer this one.
     // With no Note, the Folder in front (the Library's) is the turn's Folder: its wall is the one read.
     const wallId = mind
