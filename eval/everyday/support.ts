@@ -17,6 +17,8 @@ import type {
   UnsupportedReason,
 } from "../../src/core";
 import { citedSentences as markedSentences } from "../../src/shared/citedSentences";
+import type { Hear } from "../lib/tokens";
+import { type HeardCheck, heardChecks } from "./checkRequests";
 
 export interface CitedSentence {
   /** The sentence without its Citation markers. */
@@ -53,6 +55,11 @@ export interface SentenceSupport extends CheckReason {
   cites: Pick<CitedQuote, "documentName" | "quote">[];
   /** The parts the check split it into: a Not checked sentence's reason is one of theirs. */
   parts: CheckedPart[];
+  /**
+   * What the check's model quoted, and the Citation check's answer, for each run; a sentence that
+   * isn't Supported keeps each run's replies too. Absent when the check's requests weren't heard.
+   */
+  checks?: HeardCheck[];
 }
 
 function reasonOf(judgment: ClaimPartJudgment): CheckReason {
@@ -130,7 +137,8 @@ export function citedSentences(
 
 /**
  * Each cited sentence of an Answer, checked against the Documents as Check against Documents
- * does, on `model` (the default chat model when null).
+ * does, on `model` (the default chat model when null). With `hear`, the record keeps what each
+ * check asked its model and was told.
  */
 export async function checkCitedSentences(
   core: Pick<Core, "checkClaim">,
@@ -140,16 +148,21 @@ export async function checkCitedSentences(
     figures?: Parameters<typeof citedSentences>[2];
   },
   model: ChatModelChoice | null = null,
+  hear?: Hear,
 ): Promise<SentenceSupport[]> {
   const results: SentenceSupport[] = [];
   for (const each of citedSentences(answer.text, answer.citations, answer.figures)) {
-    const result = await core.checkClaim({
-      claim: each.sentence,
-      context: each.context,
-      cited: each.cited,
-      model,
-    });
-    results.push(sentenceSupport(each, result));
+    const check = () =>
+      core.checkClaim({ claim: each.sentence, context: each.context, cited: each.cited, model });
+    if (!hear) {
+      results.push(sentenceSupport(each, await check()));
+      continue;
+    }
+    const { result, requests } = await hear(check);
+    const checks = heardChecks(requests).map((run) =>
+      result.verdict === "supported" ? { ...run, replies: [] } : run,
+    );
+    results.push({ ...sentenceSupport(each, result), checks });
   }
   return results;
 }
@@ -298,6 +311,19 @@ export function withoutSupportLines(
             ),
           ].join("; "),
         ),
+        ...(each.checks ?? []).flatMap((run) => [
+          `  - the check of ${run.claim === null ? "another request" : quoted(run.claim)}: ${
+            run.quotes.length === 0
+              ? "quoted nothing"
+              : run.quotes
+                  .map(
+                    (typed) =>
+                      `typed ${quoted(typed.quote)} for [^${typed.marker ?? "?"}], ${typed.found ? "found" : `not found: ${quoted(typed.answer)}`}`,
+                  )
+                  .join("; ")
+          }`,
+          ...run.replies.map((reply) => `    - it replied ${quoted(reply)}`),
+        ]),
       ]),
       "",
     ]),
