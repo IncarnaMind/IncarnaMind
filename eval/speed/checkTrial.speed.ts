@@ -4,11 +4,13 @@
  * only the check's requests go to a real model, under the rule before #3003 and under today's, the
  * order turning per item. Each place's sentence and mark are read from the app, with the check's
  * tokens, its time and what each field it copied held. With `INCARNAMIND_EVAL_SPEED_REJUDGE`, the
- * saved replies are judged again per place instead, and nothing is pressed.
+ * saved replies' places are judged again, each on its sentence and quotes alone, one request a
+ * press with no grade, and nothing is pressed.
  *
  *   INCARNAMIND_EVAL_SPEED_TRIAL: saved report.json files, comma-separated (the dev trial), or
  *   INCARNAMIND_EVAL_SPEED_CASES: a held-out cases' JSON file, with INCARNAMIND_EVAL_SPEED_RUNS;
- *   INCARNAMIND_EVAL_SPEED_OUT: the folder the records go in; the key, ledger and stop as eval:speed's.
+ *   INCARNAMIND_EVAL_SPEED_OUT: the folder the records go in; the key, ledger and stop as eval:speed's;
+ *   INCARNAMIND_EVAL_SPEED_LEDGER_RUN: this run's name in the ledger, which holds each name once.
  */
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -21,7 +23,7 @@ import { createFakeEmbedder } from "../../src/core/embedding/fake";
 import type { ChatLanguageModel } from "../../src/core/providers/models";
 import { readHelpReply } from "../../src/renderer/src/helpReply";
 import { citedSentences } from "../../src/shared/citedSentences";
-import { type CallHelpSet, callHelpCaseOf, callHelpGroup, judgeCallHelp } from "./callHelp";
+import { type CallHelpSet, callHelpCaseOf, callHelpGroup, judgePlacesAlone } from "./callHelp";
 import type { CallDocument, CallHelpCase, CallTurn } from "./callHelpCases";
 import { judgeOf } from "./judge";
 import { openLedger } from "./ledger";
@@ -297,10 +299,10 @@ function routed(
   return wrapLanguageModel({ model: real, middleware });
 }
 
-const judging = () =>
+const judging = (text = '{"grade": "right", "unstated": []}') =>
   new MockLanguageModelV4({
     doGenerate: async () => ({
-      content: [{ type: "text", text: '{"grade": "right", "unstated": []}' }],
+      content: [{ type: "text", text }],
       finishReason: { unified: "stop", raw: undefined },
       usage: USAGE,
       warnings: [],
@@ -324,7 +326,7 @@ async function pressAll(items: readonly Item[], out: string): Promise<Pressed[]>
   const stopUsd = Number(env("STOP_USD") ?? "0");
   if (!(stopUsd > 0))
     throw new Error("INCARNAMIND_EVAL_SPEED_STOP_USD is needed for a run that pays.");
-  const ledger = await openLedger(env("LEDGER"), "check trial");
+  const ledger = await openLedger(env("LEDGER"), env("LEDGER_RUN") ?? "check trial");
   const pressed: Pressed[] = [];
   let spentBefore = 0;
   const groups = [...new Set(items.map((item) => item.group.name))];
@@ -417,6 +419,8 @@ async function pressAll(items: readonly Item[], out: string): Promise<Pressed[]>
       await Promise.all(opened.map((each) => each.close()));
     }
   }
+  // The last press's spend too: the loop records only what came before each press.
+  await ledger.record(spentBefore);
   return pressed;
 }
 
@@ -427,12 +431,14 @@ async function rejudge(rows: readonly SavedRow[], out: string) {
   const stopUsd = Number(env("STOP_USD") ?? "0");
   if (!(stopUsd > 0))
     throw new Error("INCARNAMIND_EVAL_SPEED_STOP_USD is needed for a run that pays.");
-  const ledger = await openLedger(env("LEDGER"), "judge's sample");
+  const ledger = await openLedger(env("LEDGER"), env("LEDGER_RUN") ?? "judge's sample");
   const judge = judgeOf([]);
   // Each request to the judge is counted: a second one for a press is a reply it couldn't read.
   let asked = 0;
+  // A dry run lists no place, so nothing is sent anywhere.
+  const asking = env("DRY") ? judging('{"unbacked": []}') : (judge.model as ChatLanguageModel);
   const counted = wrapLanguageModel({
-    model: judge.model as ChatLanguageModel,
+    model: asking,
     middleware: {
       specificationVersion: "v4",
       wrapGenerate: async ({ doGenerate }) => {
@@ -470,23 +476,16 @@ async function rejudge(rows: readonly SavedRow[], out: string) {
           unbacked: null,
         };
       });
-    const reply = raw.replace(/\[\^(\d+)\]/g, "[$1]");
     const before = asked;
-    const read = await judgeCallHelp(
-      counted,
-      known,
-      [...(known.before ?? []), ...known.turns],
-      reply,
-      [],
-      places,
-    );
-    const unbacked = read.unbacked ?? [];
+    const read = await judgePlacesAlone(counted, places);
+    const unbacked = read ?? [];
     judged.push({
       set: row.set,
       id: row.id,
       model: row.model,
       run: row.run,
-      grade: read.grade,
+      read: read !== null,
+      places: places.map(({ id, sentence, quotes }) => ({ id, sentence, quotes })),
       unbacked,
       byNumber: [
         ...new Set(
@@ -497,6 +496,7 @@ async function rejudge(rows: readonly SavedRow[], out: string) {
       requests: asked - before,
     });
   }
+  await ledger.record(judge.spent());
   await writeFile(
     join(out, "rejudged.json"),
     JSON.stringify({ judge: judge.name, spent: judge.spent(), judged }, null, 1),
