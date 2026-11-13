@@ -18,8 +18,10 @@ import {
   isCheckRun,
   type Plan,
   SAME_DETAIL,
+  sentenceOf,
 } from "../helpers/checks";
 import { setUpWithDocuments, shownPassages } from "../helpers/citations";
+import { checkClock } from "../helpers/heldClock";
 import { readMind, writeMind } from "../helpers/minds";
 import { type ModelCall, type ScriptedReply, scriptedModel } from "../helpers/models";
 
@@ -309,6 +311,13 @@ describe("On the model on this computer, which the check doesn't offer calculate
     expect(await ended(claim, `Growth\n${line}\n`, line)).toBe(verdict);
   });
 
+  test("a quote's dash range holds both its ends for a sentence that gives them in words", async () => {
+    const line = "10–20 staff will move.";
+    expect(await ended("Between 10 and 20 staff will move.", `Moves\n${line}\n`, line)).toBe(
+      "supported",
+    );
+  });
+
   test.each([
     ["In 2024, revenue was $54m.", "Revenue was $54m."],
     ["Q3 sales rose 12%.", "Sales rose 12%."],
@@ -349,5 +358,125 @@ describe("On the model on this computer, which the check doesn't offer calculate
     ]);
 
     expect((await core.checkClaim({ claim })).verdict).toBe("supported");
+  });
+});
+
+describe("Beside a limit on another part of the sentence (#3022)", () => {
+  const NUMBER = "Revenue was $55m";
+  const LEASE = "the lease has a break clause";
+  const PLANS: Record<string, Plan> = {
+    [NUMBER]: { verdict: "supported", quote: "Revenue was $54m.", says: "Revenue was $54m." },
+    [LEASE]: {
+      verdict: "supported",
+      quote: "The lease has a break clause.",
+      says: "The lease has a break clause.",
+    },
+  };
+  const FILES = [
+    { name: "Revenue.txt", contents: "Revenue\nRevenue was $54m.\n" },
+    { name: "Lease.txt", contents: "Lease\nThe lease has a break clause.\n" },
+  ];
+
+  /**
+   * `claim`, named in the parts `parts`, checked on `input`'s provider; `lease` decides what each
+   * request of the lease part's check gets, by its count from 1.
+   */
+  async function checked(
+    input: SaveChatProviderInput | null,
+    claim: string,
+    parts: readonly string[],
+    lease: (reply: ScriptedReply, asked: number, core: Core) => ScriptedReply,
+    plans: Record<string, Plan> = PLANS,
+    numbered?: (call: ModelCall, reply: ScriptedReply, core: Core) => void,
+  ) {
+    let asked = 0;
+    let started: Core | null = null;
+    const model = scriptedModel(
+      (call) => {
+        const reply = checkReply(call, plans);
+        if (
+          !call.results.some((result) => result.tool === "search_documents") &&
+          call.system.includes("Parts:")
+        )
+          return {
+            ...reply,
+            text: `Parts: ${JSON.stringify(parts.map((text) => ({ kind: "fact", text })))}`,
+          };
+        if (started && sentenceOf(call) === LEASE) return lease(reply, ++asked, started);
+        if (started && sentenceOf(call) === NUMBER) numbered?.(call, reply, started);
+        return reply;
+      },
+      { generate: checkGenerate(plans) },
+    );
+    // A rate limit is waited out and the sentence sent again (#2897): its pauses end at once here.
+    const { core } = await setUpWithDocuments(model, FILES, { paceTimers: checkClock().timers });
+    await onProvider(core, input);
+    started = core;
+    const result = await core.checkClaim({ claim });
+    const verdicts = (result.parts ?? []).map((part) =>
+      part.verdict === "not-checked" ? `not-checked: ${part.reason}` : part.verdict,
+    );
+    return { result, verdicts, asked };
+  }
+
+  describe.each([
+    ["DeepSeek, DeepSeek V4.1 Flash", "number-unquoted"],
+    ["Anthropic, Claude Haiku 5.5", "number-not-worked-out"],
+  ])("on %s", (name, number) => {
+    const input = PROVIDERS[name]?.input ?? null;
+    const claim = `${NUMBER}, and ${LEASE}.`;
+
+    test("a rate limit on the other part is waited out, and the sentence checked again", async () => {
+      const { result, verdicts, asked } = await checked(
+        input,
+        claim,
+        [NUMBER, LEASE],
+        (reply, n) => (n === 1 ? { error: { status: 429, message: "Too many requests." } } : reply),
+      );
+
+      expect(asked).toBeGreaterThan(1);
+      expect(verdicts).toEqual([`not-checked: ${number}`, "supported"]);
+      expect(result).toMatchObject({ verdict: "not-checked", reason: number });
+    });
+
+    test("the monthly cap reached after the number's part, before the other's, ends the check on the cap", async () => {
+      // The cap comes with the number part's last request: its verdict, or on a model offered
+      // calculate, its verdict once sent back to calculate. The other part waits for it.
+      let release = () => {};
+      const reached = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const calculates = PROVIDERS[name]?.calculates ?? false;
+      const { result } = await checked(
+        input,
+        claim,
+        [NUMBER, LEASE],
+        (reply, n) => (n === 1 ? { ...reply, pause: { after: 0, until: reached } } : reply),
+        PLANS,
+        (call, reply, core) => {
+          const verdict = "text" in reply && /^Verdict:/m.test(reply.text ?? "");
+          if (verdict && (!calculates || call.prompt.includes(NOTE)))
+            void core
+              .updateSettings({ user: { monthlyCap: { amount: 0, currency: "USD" } } })
+              .then(release);
+        },
+      );
+
+      // The run stops at the cap and leaves the sentence Not checked for it, its parts not kept.
+      expect(result).toMatchObject({ verdict: "not-checked", reason: "cost-cap" });
+    });
+
+    test("beside a part whose quote isn't found, listed first, the number's own reason shows", async () => {
+      const { result, verdicts } = await checked(
+        input,
+        `${LEASE}, and ${NUMBER}.`,
+        [LEASE, NUMBER],
+        (reply) => reply,
+        { ...PLANS, [LEASE]: { verdict: "supported", quote: "The lease has no break clause." } },
+      );
+
+      expect(verdicts).toEqual(["not-checked: no-evidence", `not-checked: ${number}`]);
+      expect(result).toMatchObject({ verdict: "not-checked", reason: number });
+    });
   });
 });

@@ -83,6 +83,14 @@ const FAILURES: Record<ClaimCheckFailure, true> = {
 export const CLAIM_CHECK_FAILURES: readonly ClaimCheckFailure[] = Object.keys(FAILURES).filter(
   (key): key is ClaimCheckFailure => Object.hasOwn(FAILURES, key),
 );
+// A part the model answered that the check couldn't take: a limit or a stop on another part of the
+// sentence is its reason instead, so the run waits it out or stops (#3022). Among these, a number
+// no quote gives says what the User can do, which "no-evidence" doesn't.
+const NUMBERS: ReadonlySet<ClaimCheckFailure> = new Set([
+  "number-unquoted",
+  "number-not-worked-out",
+]);
+const ANSWERED: ReadonlySet<ClaimCheckFailure> = new Set([...NUMBERS, "no-evidence", "malformed"]);
 const EXCLUSIONS: readonly EvidenceExclusion[] = [
   "own-file",
   "own-workings",
@@ -1182,7 +1190,8 @@ export function resultFromParts(parts: readonly ClaimCheckPart[]): ClaimCheckRes
     checked.find(({ part }) => part.verdict === "unsupported");
   const failures = checked.filter(({ part }) => part.verdict === "not-checked");
   const failure =
-    failures.find(({ part }) => part.reason !== "no-evidence" && part.reason !== "malformed") ??
+    failures.find(({ part }) => !part.reason || !ANSWERED.has(part.reason)) ??
+    failures.find(({ part }) => part.reason && NUMBERS.has(part.reason)) ??
     failures[0];
   if (!adverse && failure) return failed(failure.part.reason ?? "failed", failure.part.detail);
   const outcome = adverse ?? checked[0];
