@@ -694,11 +694,62 @@ describe("an Answer's steps", () => {
     expect(zh("steps.check.answerLimit", { checked: 12, total: 40, limit: "$0.25" })).toBe(
       "已核对 40 句中的 12 句 · 已达本回答 $0.25 的核对上限",
     );
-    expect(en("steps.check.monthlyLimit", { checked: 12, total: 40, cap: "$20.00" })).toBe(
-      "12 of 40 sentences checked · Your monthly limit of $20.00 reached",
+    expect(en("steps.check.monthlyLimit", { checked: 12, total: 40 })).toBe(
+      "12 of 40 sentences checked · Your monthly limit reached",
     );
-    expect(zh("steps.check.monthlyLimit", { checked: 12, total: 40, cap: "$20.00" })).toBe(
-      "已核对 40 句中的 12 句 · 已达每月上限 $20.00",
+    expect(zh("steps.check.monthlyLimit", { checked: 12, total: 40 })).toBe(
+      "已核对 40 句中的 12 句 · 已达每月上限",
+    );
+  });
+
+  test("a batch a limit kept too short to finish: the line names that limit as a stop does, and the card says the model didn't finish, in English and Chinese (#2962)", () => {
+    const text = "Spring tides follow the new moon [^1]. They are the highest [^2].";
+    const cutBy = (reason: "answer-limit-unfinished" | "monthly-limit-unfinished") =>
+      stepRows(
+        input({
+          text,
+          citations: [
+            { ...citation(1, "a", "d1", 4), quote: "Spring tides" },
+            {
+              ...citation(2, "a", "d1", 4),
+              quote: "Full moon",
+              check: "not-checked",
+              checkReason: reason,
+            },
+          ],
+        }),
+      ).at(-1);
+
+    expect(cutBy("answer-limit-unfinished")).toMatchObject({
+      notChecked: 1,
+      stopped: { by: "answer-limit", checked: 1, total: 2 },
+    });
+    expect(cutBy("monthly-limit-unfinished")).toMatchObject({
+      stopped: { by: "monthly-limit", checked: 1, total: 2 },
+    });
+    const limit = { limit: "$0.25", model: "Claude Fable 5" };
+    expect(en("citation.reason.answer-limit-unfinished", limit)).toBe(
+      "Not checked: this Answer’s $0.25 checking limit was reached before Claude Fable 5 finished checking this sentence.",
+    );
+    expect(zh("citation.reason.answer-limit-unfinished", limit)).toBe(
+      "未核对：Claude Fable 5 还没核对完这句，就已达本回答 $0.25 的核对上限。",
+    );
+    const model = { model: "Claude Fable 5" };
+    expect(en("citation.reason.monthly-limit-unfinished", model)).toBe(
+      "Not checked: your monthly limit was reached before Claude Fable 5 finished checking this sentence.",
+    );
+    expect(zh("citation.reason.monthly-limit-unfinished", model)).toBe(
+      "未核对：Claude Fable 5 还没核对完这句，就已达每月上限。",
+    );
+    // In a Note, whose card has no Answer to name the model by.
+    expect(en("citation.reason.answer-limit-unfinished.unnamed", { limit: "$0.25" })).toBe(
+      "Not checked: this Answer’s $0.25 checking limit was reached before this sentence’s check finished.",
+    );
+    expect(zh("citation.reason.answer-limit-unfinished.unnamed", { limit: "$0.25" })).toBe(
+      "未核对：这句还没核对完，就已达本回答 $0.25 的核对上限。",
+    );
+    expect(zh("citation.reason.monthly-limit-unfinished.unnamed")).toBe(
+      "未核对：这句还没核对完，就已达每月上限。",
     );
   });
 

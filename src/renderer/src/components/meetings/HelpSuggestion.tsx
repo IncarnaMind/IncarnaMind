@@ -22,11 +22,15 @@ import {
 } from "../../helpReply";
 import { useT } from "../../i18n";
 import { useJudgementLimit } from "../../judgementLimit";
+import { limitReason } from "../../limitWords";
 import { useModelNames, useServiceName } from "../../modelNames";
 import { answerProblem } from "../../problems";
 import { CheckLineIcon, DocumentLineIcon } from "../lineIcons";
 
-/** A help Answer, as the core writes it: loaded once, then each write as it streams. */
+/**
+ * A help Answer, as the core writes it: loaded once, then each write as it streams. Only this
+ * help's: never the Answer of a help before it, for which a load may still come back (#3005).
+ */
 export function useHelpAnswer(
   help: { conversationId: string; answerId: string } | null,
 ): ConversationAnswer | null {
@@ -34,7 +38,6 @@ export function useHelpAnswer(
   const conversationId = help?.conversationId;
   const answerId = help?.answerId;
   useEffect(() => {
-    setAnswer(null);
     if (!conversationId || !answerId) return;
     let live = true;
     const stop = core.on("conversation.message", (message) => {
@@ -43,7 +46,9 @@ export function useHelpAnswer(
     core.getConversation(conversationId).then(
       ({ messages }) => {
         const found = messages.find((message) => message.id === answerId);
-        if (found?.kind === "answer") setAnswer((now) => now ?? found);
+        if (live && found?.kind === "answer") {
+          setAnswer((now) => (now?.id === answerId ? now : found));
+        }
       },
       // Deleted meanwhile: the panel shows no suggestion.
       () => undefined,
@@ -53,7 +58,7 @@ export function useHelpAnswer(
       stop();
     };
   }, [conversationId, answerId]);
-  return answer;
+  return answer !== null && answer.id === answerId ? answer : null;
 }
 
 /**
@@ -71,18 +76,14 @@ function CitationChip({
   at: number;
 }) {
   const t = useT();
-  const limits = useJudgementLimit();
+  const limit = useJudgementLimit();
   const where = citation ? citedLocation(citation, t) : null;
   const passed = citation !== undefined && sentencePassed(citation, at);
   const reason = citation ? uncheckedReason(citation) : null;
   const unchecked =
-    reason === "answer-limit"
-      ? t("citation.reason.answer-limit", { limit: limits.limit })
-      : reason === "monthly-limit"
-        ? t("citation.reason.monthly-limit", { cap: limits.cap })
-        : reason === "small-model"
-          ? t("citation.reason.small-model")
-          : null;
+    reason === "small-model"
+      ? t("citation.reason.small-model")
+      : limitReason(t, reason, limit, null);
   return (
     <span
       data-testid="help-citation"

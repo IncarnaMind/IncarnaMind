@@ -192,18 +192,20 @@ function shownCitations({ text, citations }: Pick<StepsInput["answer"], "text" |
 const JUDGED = new Set(["found", "unsupported", "contradicted", "not-checked"]);
 
 /**
- * The limit that stopped judging an Answer's sentences, if one did (#2311), and how many of the
- * sentences it judges were checked: those none of whose Citations is left not checked.
+ * The limit that stopped judging an Answer's sentences (#2311), or kept a batch's reply too short to
+ * finish (#2962), if one did, and how many of the sentences it judges were checked: those none of
+ * whose Citations is left not checked.
  */
 function stoppedJudgement(
   answer: StepsInput["answer"],
 ): Extract<StepRow, { kind: "check" }>["stopped"] | null {
   const limits = answer.citations.map((citation) => citation.checkReason);
-  const by = limits.includes("answer-limit")
-    ? "answer-limit"
-    : limits.includes("monthly-limit")
-      ? "monthly-limit"
-      : null;
+  const by =
+    limits.includes("answer-limit") || limits.includes("answer-limit-unfinished")
+      ? "answer-limit"
+      : limits.includes("monthly-limit") || limits.includes("monthly-limit-unfinished")
+        ? "monthly-limit"
+        : null;
   if (!by) return null;
   const cited = new Map(answer.citations.map((citation) => [citation.marker, citation]));
   const judged = citedSentences(answer.text, answer.figures ?? [])

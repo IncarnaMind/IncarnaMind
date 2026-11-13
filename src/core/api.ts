@@ -414,8 +414,12 @@ export interface CreateMindInput {
  *   checks as not checked. Older content is version 56 content as it is: the
  *   core moves these marks to their own keys when it opens the Note, or
  *   restores a Checkpoint of it.
+ * - 58: where a figure couldn't be calculated, the text holds a `missingNumber`
+ *   mark (#2577). An older editor would drop the node and leave the sentence
+ *   without its number, saying nothing, so it opens these Notes read-only.
+ *   Older content is version 57 content as it is: it holds no mark.
  */
-export const CONTENT_SCHEMA_VERSION = 57;
+export const CONTENT_SCHEMA_VERSION = 58;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
@@ -1554,6 +1558,12 @@ export interface RemovedParagraphs {
   start: string;
 }
 
+/** Figure markers a Note's text marks as missing, for lack of a figure: how many, and which of the Analyses' figures got no marker (#2577). */
+export interface FiguresLeftOut {
+  count: number;
+  labels: string[];
+}
+
 /**
  * What a call of a Minds' Tool did (#202): the changes it proposed in one
  * Mind, which wait there for the User to accept or reject them.
@@ -1590,6 +1600,8 @@ export interface MindChange {
   droppedSources?: number;
   /** Cells beyond its tables' columns, their text kept in their row's last cell. Absent: none. */
   extraCells?: number;
+  /** Figure markers its text marks as missing because no figure was recorded for them (#2577). Absent: none. */
+  figuresLeftOut?: FiguresLeftOut;
   /**
    * It revised the assistant's own changes still waiting there: they
    * are gone, and its request holds the new text and the rest of them.
@@ -1686,6 +1698,13 @@ export interface SkillScriptRun {
 export const CITATION_NODE = "citation";
 
 export const CALCULATED_FIGURE_NODE = "calculatedFigure";
+
+/**
+ * Where a figure that couldn't be calculated would be (#2577): an inline mark with no attributes,
+ * read as "[number missing]" in the language the figure footnotes use, never as a number or a
+ * figure marker, and with no number in the one series.
+ */
+export const MISSING_NUMBER_NODE = "missingNumber";
 
 /**
  * A table an Analysis gave is one calculated object (#2378): its table Block holds
@@ -2320,6 +2339,13 @@ export type CitationCheckReason =
   /** Not checked: judging the Answer's sentences reached the monthly cap before this one's (#2311). */
   | "monthly-limit"
   /**
+   * Not checked: the Answer's own limit kept this sentence's batch below the room the model needed
+   * to finish it, and its reply was cut short (#2962).
+   */
+  | "answer-limit-unfinished"
+  /** Not checked: the monthly cap kept this sentence's batch below that room, as above (#2962). */
+  | "monthly-limit-unfinished"
+  /**
    * Not checked: the model that wrote the Answer runs on this computer and is too small to judge
    * its sentences, so their check never ran (#2375).
    */
@@ -2339,6 +2365,8 @@ export const CITATION_CHECK_REASONS = [
   "document-removed",
   "answer-limit",
   "monthly-limit",
+  "answer-limit-unfinished",
+  "monthly-limit-unfinished",
   "small-model",
 ] as const satisfies readonly CitationCheckReason[];
 
@@ -7069,6 +7097,8 @@ export interface RegenerateProposalInput {
  *   no words for it, so which paragraph it replaces can't be told (#2356).
  * - "typed-tag": it rewrote a paragraph without a <removed> tag the User typed there, which would
  *   take their words out (#2356).
+ * - "missing-number": it took out the mark where a figure couldn't be calculated, with no
+ *   calculated figure in its place (#2577).
  * - "no-table": it wrote lines that read as a table's rows but make no table (#961).
  * - "unplaced": it marked text to take out that isn't there word for word in one place (#2180).
  */
@@ -7076,6 +7106,7 @@ export const changeRefusals = [
   "not-placed",
   "misnamed",
   "typed-tag",
+  "missing-number",
   "no-table",
   "unplaced",
 ] as const;
@@ -11661,6 +11692,15 @@ export interface SetMeetingMicrophoneInput {
   paused: boolean;
 }
 
+/** A line or a few typed in the call-help panel's field (#2925). */
+export interface AddQuickNoteInput {
+  meetingId: string;
+  /** One paragraph a line, the spaces at either end of each trimmed; lines left empty are left out. */
+  text: string;
+  /** The Meeting's time, in ms, when typing began; null when it wasn't recording then. */
+  atMs: number | null;
+}
+
 /** How loud each source of a recording Meeting is now, from 0 (silence) to 1. */
 export interface MeetingLevel {
   meetingId: string;
@@ -14460,6 +14500,28 @@ export interface CoreApi {
    * marks the stretch; the computer's sound goes on. Every Meeting starts with its microphone on.
    */
   setMeetingMicrophone(input: SetMeetingMicrophoneInput): Promise<Meeting>;
+  /**
+   * A quick note from the call-help panel (#2925), while the Meeting records or is paused: each
+   * line a paragraph of the User's own text at the end of its Note, after the last line that holds
+   * anything, the first with `atMs` as its time, capped at the Meeting's time now. It reaches an
+   * open copy of the Note as the core's change, not as a step of that editor's Undo:
+   * `undoAddToNote` takes it back. InvalidInputError for no text or a Meeting not live.
+   */
+  addQuickNote(input: AddQuickNoteInput): Promise<AddedToNote>;
+  /**
+   * Keeps the line typed in the call-help panel's field but not sent (#2925), in memory only: a
+   * line that is blank, a "/" search, or for a Meeting not live is forgotten instead. Stopping the
+   * Meeting, a call's end and quitting add it as a quick note first, and `addQuickNoteDraft` does
+   * when the panel closes. `addQuickNote` forgets it.
+   */
+  setQuickNoteDraft(input: AddQuickNoteInput): Promise<void>;
+  /**
+   * Adds the Meeting's kept unsent line as a quick note (`setQuickNoteDraft`); null with none. A
+   * Note that refuses it leaves it kept.
+   */
+  addQuickNoteDraft(meetingId: string): Promise<AddedToNote | null>;
+  /** The live Meeting's kept unsent line, for a panel that opens again to show it; null with none. */
+  getQuickNoteDraft(meetingId: string): Promise<{ text: string; atMs: number | null } | null>;
   /** The offer to take notes in a call, and a call's end waiting to stop its Meeting (#208). */
   getMeetingOffers(): Promise<MeetingOffers>;
   /**
@@ -15221,6 +15283,10 @@ const methods: Record<CoreApiMethod, true> = {
   askMeetingHelp: true,
   setMeetingTemplate: true,
   setMeetingMicrophone: true,
+  addQuickNote: true,
+  setQuickNoteDraft: true,
+  addQuickNoteDraft: true,
+  getQuickNoteDraft: true,
   getMeetingOffers: true,
   takeMeetingOffer: true,
   declineMeetingOffer: true,

@@ -38,6 +38,8 @@
  * "Retell the summary" (重述总结) gives edit_mind the whole new text of the summary page, three
  * paragraphs for the two, as a model does to make it longer (#1335).
  * "Say you added the risks" (说你加了风险部分) claims a write and makes none.
+ * "Write the growth note" (写增长笔记) makes a Note whose sentence, list item and table cell each
+ * place a figure marker no figure was recorded for, and answers with the sentence too (#2577).
  * "Write the tide report" (写一份潮汐报告) makes a report of eight paragraphs, and "Make the tide
  * report longer" (把潮汐报告写长一点) gives edit_mind its whole new text, four paragraphs changed and
  * one added, as a model does (#1488). "Write the packing list" makes a bulleted list, and "Update
@@ -110,6 +112,21 @@ export function mindRead(prompt: Prompt): string | null {
 const SUMMARY_PAGE =
   /\bwrite a summary page\b|写一个总结页面|\bwrite a summary of my documents\b|根据我现有的文件帮我写一份summary/i;
 const LONGER = /\blonger\b|长一点|更长/i;
+const GROWTH_NOTE = /\bwrite the growth note\b|写增长笔记/i;
+const GROWTH = {
+  en: {
+    title: "Growth",
+    content:
+      "Harbour's average monthly loan growth was [=1].\n\n- Loans in March rose to [=2].\n\n| Branch | Growth |\n| --- | --- |\n| Harbour | [=3] |",
+    reply: "I wrote “Growth”: Harbour's average monthly loan growth was [=1].",
+  },
+  "zh-CN": {
+    title: "增长",
+    content:
+      "港湾分馆的月均借阅增长率为 [=1]。\n\n- 三月借阅量增至 [=2]。\n\n| 分馆 | 增长率 |\n| --- | --- |\n| 港湾 | [=3] |",
+    reply: "我写了“增长”：港湾分馆的月均借阅增长率为 [=1]。",
+  },
+} as const;
 /** "Delete the second paragraph of the note" (删除笔记的第二段): asked only to take text out (#2356). */
 const DELETES_SECOND = /^delete the second paragraph of the note|^删除笔记的第二段/i;
 const LONGER_TWICE = /\bmake it longer twice\b/i;
@@ -312,6 +329,12 @@ export function mindsReply(prompt: Prompt, asked: string, names: readonly string
     const added = lastResult(prompt, "add_to_mind");
     if (added === undefined) return { tool: "add_to_mind", input: { content: SUMMARY } };
     return { text: firstSentence(added) };
+  }
+  if (GROWTH_NOTE.test(question)) {
+    const growth = GROWTH[/\p{Script=Han}/u.test(question) ? "zh-CN" : "en"];
+    if (lastResult(prompt, "create_mind") === undefined)
+      return { tool: "create_mind", input: { title: growth.title, content: growth.content } };
+    return { text: growth.reply };
   }
   if (SUMMARY_PAGE.test(question)) {
     const made = lastResult(prompt, "create_mind");

@@ -644,9 +644,11 @@ describe("Usage data: a week's model spend (#1993)", { timeout: 30_000 }, () => 
       generate: (call) =>
         call.question === "claimed-changes"
           ? { text: '{"claims":[]}' }
-          : call.question
-            ? unscripted(call.question, call.system)
-            : { text: "OK" },
+          : call.question === "request-done"
+            ? { text: '{"asks_change":"no","request":"none"}' }
+            : call.question
+              ? unscripted(call.question, call.system)
+              : { text: "OK" },
       judgesItsAnswers: true,
     });
 

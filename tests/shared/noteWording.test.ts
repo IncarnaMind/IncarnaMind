@@ -133,6 +133,8 @@ const ANOTHER_NOTE: readonly MessageKey[] = [
   "location.section.notes",
   "meetings.notice.background.mac",
   "meetings.notice.background.other",
+  "meetings.quickNote",
+  "meetings.quickNote.placeholder",
   "meetings.record.keywords",
   "offers.take",
   "offers.turnOn.line",

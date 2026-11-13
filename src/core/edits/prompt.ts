@@ -36,6 +36,22 @@ export const EDIT_INSTRUCTIONS = [
 ].join("\n");
 
 /**
+ * The instructions for a passage that holds the mark where a figure couldn't be calculated (#2577):
+ * one more line, after the one on Citation markers, so a translation keeps its words. Only such a
+ * passage is sent it, so every other request stays as it was.
+ */
+export const withMissingNumber = (instructions: string): string => {
+  const lines = instructions.split("\n");
+  const markers = lines.findIndex((line) => line.startsWith("- Keep every Citation marker"));
+  lines.splice(
+    markers + 1,
+    0,
+    '- The bracketed words "[number missing]" and "[缺少数字]" stand for a number that is missing: keep them exactly as written, in their place, also when translating.',
+  );
+  return lines.join("\n");
+};
+
+/**
  * A request in the User's words shows each paragraph of the passage with a name, and the reply
  * names the paragraph each of its own replaces, so no paragraph is paired by guess (#2356).
  */

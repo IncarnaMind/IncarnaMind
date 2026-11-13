@@ -37,6 +37,8 @@ export const OUTPUT_LIMITS = {
   subfolders: { most: 4_000, each: 80 },
   "find-claims": { most: 4_000 },
   "claimed-changes": { most: 2_048 },
+  // One word, after the thinking of a model that thinks first, as "quick-check" has room for.
+  "request-done": { most: 2_048 },
   // A record for each sentence it cites: a Meeting's notes ask for dozens at once (#2306).
   "unmarked-quotes": { most: 8_000, each: 150 },
   "quote-retry": { most: 600, each: 100 },
@@ -59,8 +61,9 @@ export const OUTPUT_LIMITS = {
   // thinks first, which comes once a request whatever its size: DeepSeek V4.1 Flash thought up to
   // 6,234 tokens before the records of 6 sentences, Claude Haiku 5.5 up to 1,579 (#2951).
   "sentence-batch": { most: 7_400, each: 300, base: 5_000 },
-  // A batch's records alone: the least room a batch gets, and its room where the room above can't
-  // be set aside beside the batches still to come under the Answer's limit or the monthly cap (#2951).
+  // A batch's records alone: the least room a batch gets (#2951). Where the room above can't be set
+  // aside beside the batches still to come under the Answer's limit or the monthly cap, a batch has
+  // this and an equal part of what those limits leave (#2962).
   "sentence-batch-records": { most: 2_400, each: 300 },
   // Room for a model that thinks whatever it is asked, before its plan.
   "research-plan": { most: 4_096 },

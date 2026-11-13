@@ -61,6 +61,20 @@ export interface SupportResult {
  */
 export type JudgementStop = "answer-limit" | "monthly-limit" | "small-model";
 
+/**
+ * Why a sentence's batch was cut short where a limit had kept its room below the room for
+ * thinking (#2962): the batches after it still go.
+ */
+export type JudgementCut = "answer-limit-unfinished" | "monthly-limit-unfinished";
+
+const UNFINISHED = {
+  "answer-limit": "answer-limit-unfinished",
+  "monthly-limit": "monthly-limit-unfinished",
+} as const satisfies Record<string, JudgementCut>;
+
+/** A limit that can keep a batch below its room for thinking. */
+type HeldBy = keyof typeof UNFINISHED;
+
 export interface AnswerCheckInput {
   text: string;
   citations: readonly MarkedCitation[];
@@ -77,7 +91,11 @@ export interface AnswerCheckInput {
    * Each waiting marker's result once every sentence it is cited in is judged; null when one
    * couldn't be, with the limit that stopped it, if one did.
    */
-  onJudged?(marker: number, result: SupportResult | null, stop: JudgementStop | null): void;
+  onJudged?(
+    marker: number,
+    result: SupportResult | null,
+    stop: JudgementStop | JudgementCut | null,
+  ): void;
   /**
    * Each sentence's own result as it is judged, before its markers' (`onJudged`), which are their
    * sentences' worst; null when it couldn't be judged. `read`: the model answered about it, even
@@ -252,6 +270,22 @@ const batchRoom = (sentences: number, own: OwnRoom): number =>
   );
 
 /**
+ * The extra tokens each batch gets when `spare` tokens are shared in equal parts among batches
+ * that each want up to `wanted` more (#2962): every batch the same, none past what it wants, and
+ * what one can't use goes to the others. Infinity when every batch has all it wants.
+ */
+export function equalShare(spare: number, wanted: readonly number[]): number {
+  let left = Math.max(0, spare);
+  const sorted = [...wanted].sort((a, b) => a - b);
+  for (const [at, want] of sorted.entries()) {
+    const share = left / (sorted.length - at);
+    if (want > share) return share;
+    left -= want;
+  }
+  return Number.POSITIVE_INFINITY;
+}
+
+/**
  * A batch's request at its most, as the meter reserves it: its prompt counted as the meter counts
  * one, and all the reply may write, so a limit of their sum lets every batch through (#1554).
  */
@@ -336,12 +370,12 @@ export function createAnswerCheck(options: AnswerCheckOptions) {
       left.set(marker, (left.get(marker) ?? 0) + 1);
     }
     const worst = new Map<number, SupportResult>();
-    const unjudged = new Map<number, JudgementStop | null>();
+    const unjudged = new Map<number, JudgementStop | JudgementCut | null>();
     const results = new Map<number, SupportResult>();
     const settle = (
       sentence: (typeof judged)[number],
       support: SupportResult | null,
-      stop: JudgementStop | null,
+      stop: JudgementStop | JudgementCut | null,
       read = false,
     ) => {
       input.onSentence?.(sentence, support, read);
@@ -374,11 +408,14 @@ export function createAnswerCheck(options: AnswerCheckOptions) {
       open === 0 ? Promise.resolve() : new Promise<void>((resolve) => waiting.push(resolve));
     let sent = 0;
 
-    /** One request for a batch: its verdicts, or the limit that refused it, or null when it failed. */
+    /**
+     * One request for a batch: its verdicts, the limit that refused it, the limit that held its
+     * room when its reply was cut short at that room, or null when it failed.
+     */
     const send = async (
       batch: (typeof judged)[number][],
-      { most, room }: { most: number; room: number },
-    ): Promise<Map<number, BatchVerdict> | JudgementStop | null> => {
+      { most, room, held }: { most: number; room: number; held: HeldBy | null },
+    ): Promise<Map<number, BatchVerdict> | JudgementStop | JudgementCut | null> => {
       const id = ++sent;
       open++;
       try {
@@ -402,6 +439,7 @@ export function createAnswerCheck(options: AnswerCheckOptions) {
           );
           return new Map();
         }
+        if (judged.reason === "cut-short" && held) return UNFINISHED[held];
         return judged.error ? stopOf(judged.error) : null;
       } finally {
         outMost -= most;
@@ -456,51 +494,79 @@ export function createAnswerCheck(options: AnswerCheckOptions) {
     /** The batches of this check not admitted yet, in the order they go. */
     let unadmitted: (typeof judged)[number][][] = [];
     /**
-     * Whether all of `wanted` can be set aside now, open together and none settled, beside the
-     * batches out. The monthly cap counts a batch out twice, as `passes` does once it is sent:
-     * what the meter set aside for it and what `outMost` holds.
+     * What each limit leaves beyond the records' rooms of every batch not yet sent, open together
+     * beside the batches out, in its own currency. The monthly cap counts a batch out twice, as
+     * `passes` does once it is sent: what the meter set aside for it and what `outMost` holds.
      */
-    const together = (wanted: readonly (Money | null)[]): boolean => {
-      const asked = wanted.filter((each): each is Money => each !== null);
-      // A model with no price sets nothing aside, so no limit is at stake, even past the cap.
-      if (asked.length === 0) return true;
+    const spareUnder = (atRecords: readonly Money[]) => {
       const total = (currency: Currency) =>
-        asked.reduce((sum, each) => sum + inCurrency(each.amount, each.currency, currency), 0);
-      const cap = options.capLeft();
+        atRecords.reduce((sum, each) => sum + inCurrency(each.amount, each.currency, currency), 0);
       const out = (currency: Currency) =>
         limit ? inCurrency(outMost, limit.currency, currency) : 0;
-      if (cap && 2 * (out(cap.currency) + total(cap.currency)) > cap.amount) return false;
-      if (!task || !limit) return true;
-      return (
-        options.spent(task.id, limit.currency) + outMost + total(limit.currency) <= limit.amount
-      );
+      const spare: {
+        stop: HeldBy;
+        amount: number;
+        currency: Currency;
+      }[] = [];
+      const cap = options.capLeft();
+      if (cap) {
+        spare.push({
+          stop: "monthly-limit",
+          amount: cap.amount / 2 - out(cap.currency) - total(cap.currency),
+          currency: cap.currency,
+        });
+      }
+      if (task && limit) {
+        spare.push({
+          stop: "answer-limit",
+          amount:
+            limit.amount - options.spent(task.id, limit.currency) - outMost - total(limit.currency),
+          currency: limit.currency,
+        });
+      }
+      return spare;
     };
     /**
-     * The room for thinking goes to a batch only where every batch still to come keeps the room it
-     * would go with anyway, so it never makes one wait or be refused. The fewest sentences first:
-     * the thinking comes once a request, and a batch of one has the least room beyond its records.
+     * A batch's room (#2962): its records' room, and its equal part of what the limits leave once
+     * every batch not yet sent is set aside at its records' room, so none of them waits or is
+     * refused for it, up to its room for thinking. `held`: the limit that kept it below that room.
      */
     const roomFor = (batch: (typeof judged)[number][], atRecords: Money | null) => {
       const room = batchRoom(batch.length, own);
-      const records = { room: recordsRoom(batch), reserved: atRecords };
-      if (room <= records.room) return records;
-      const ranked = [batch, ...unadmitted.filter((each) => each !== batch)].sort(
-        (a, b) => a.length - b.length,
-      );
-      const roomy = ranked.slice(0, ranked.indexOf(batch) + 1);
-      const rest = ranked.slice(ranked.indexOf(batch) + 1);
-      const reserved = reservedAt(batch, room);
-      const wanted = [
-        ...roomy.map((each) =>
-          each === batch ? reserved : reservedAt(each, batchRoom(each.length, own)),
-        ),
-        ...rest.map((each) => reservedAt(each, recordsRoom(each))),
-      ];
-      return together(wanted) ? { room, reserved } : records;
+      const records = recordsRoom(batch);
+      if (room <= records) return { room: records, reserved: atRecords, held: null };
+      const roomy = reservedAt(batch, room);
+      // A model with no price sets nothing aside, so no limit is at stake, even past the cap.
+      if (!atRecords || !roomy) return { room, reserved: roomy, held: null };
+      const unsent = [batch, ...unadmitted.filter((each) => each !== batch)];
+      const old = unsent.flatMap((each) => {
+        const reserved = each === batch ? atRecords : reservedAt(each, recordsRoom(each));
+        return reserved ? [reserved] : [];
+      });
+      const perToken = (roomy.amount - atRecords.amount) / (room - records);
+      const tightest = spareUnder(old)
+        .map((each) => ({
+          stop: each.stop,
+          tokens: each.amount / inCurrency(perToken, atRecords.currency, each.currency),
+        }))
+        .reduce<{ stop: HeldBy; tokens: number } | null>(
+          (least, each) => (least && least.tokens <= each.tokens ? least : each),
+          null,
+        );
+      if (!tightest) return { room, reserved: roomy, held: null };
+      const wanted = unsent.map((each) => batchRoom(each.length, own) - recordsRoom(each));
+      // Within a millionth of a token: a limit set to the sum of the rooms gives each its whole.
+      const share = Math.floor(equalShare(tightest.tokens, wanted) + 1e-6);
+      const given = Math.min(room, records + share);
+      return {
+        room: given,
+        reserved: given === room ? roomy : reservedAt(batch, given),
+        held: given < room ? tightest.stop : null,
+      };
     };
     const admit = (
       batch: (typeof judged)[number][],
-    ): Promise<{ most: number; room: number } | JudgementStop | null> => {
+    ): Promise<{ most: number; room: number; held: HeldBy | null } | JudgementStop | null> => {
       const turn = admitted.then(async () => {
         try {
           if (input.signal.aborted) return null;
@@ -512,11 +578,11 @@ export function createAnswerCheck(options: AnswerCheckOptions) {
           }
           const stop = passes(atRecords);
           if (stop) return stop;
-          const { room, reserved } = roomFor(batch, atRecords);
+          const { room, reserved, held } = roomFor(batch, atRecords);
           const most =
             reserved && limit ? inCurrency(reserved.amount, reserved.currency, limit.currency) : 0;
           outMost += most;
-          return { most, room };
+          return { most, room, held };
         } finally {
           unadmitted = unadmitted.filter((each) => each !== batch);
         }
@@ -534,7 +600,7 @@ export function createAnswerCheck(options: AnswerCheckOptions) {
       }
       const reply = await send(batch, admission);
       if (reply === null || typeof reply === "string") {
-        if (reply) stopped ??= reply;
+        if (reply === "answer-limit" || reply === "monthly-limit") stopped ??= reply;
         for (const sentence of batch) settle(sentence, null, reply);
         return;
       }

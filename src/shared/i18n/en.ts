@@ -1853,6 +1853,8 @@ export const en = {
   "edit.problem.unchanged.said": "Nothing changed. The AI said: “{said}”",
   "edit.problem.typed-tag":
     "The AI’s rewrite left out a <removed> tag you typed, so nothing changed. Try again.",
+  "edit.problem.missing-number":
+    "The AI’s rewrite left out [number missing], so nothing changed. Try again.",
   "edit.problem.not-placed":
     "The AI’s rewrite would have added or edited a Citation, footnote or figure, so nothing changed. Try again.",
   "edit.problem.misnamed":
@@ -3198,7 +3200,7 @@ export const en = {
   "providers.sendsLine":
     "What you ask, edit or check, with the notes and the parts of your Documents it needs, goes to {provider}.",
   "providers.sends.chat":
-    "your Questions, earlier Questions and Answers, the note you’re in or one you name, the names of up to 30 of your most recently changed notes, noting which an Answer wrote, matching passages with their Document names and pages, the names, Folders and Tags of the Documents and notes a Question or a command finds (up to 50), a Meeting’s Transcript, a picture you select in a note to ask about, the names and descriptions of Skills that are on and the instructions and files of Skills an Answer loads, and the capped reports of Analyses it runs; and, for a quick-tasks model that finds the quotes behind an Answer’s Citations, the Answer and its passages",
+    "your Questions, earlier Questions and Answers, the note you’re in or one you name, the names of up to 30 of your most recently changed notes, noting which an Answer wrote, matching passages with their Document names and pages, the names, Folders and Tags of the Documents and notes a Question or a command finds (up to 50), a Meeting’s Transcript, a picture you select in a note to ask about, the names and descriptions of Skills that are on and the instructions and files of Skills an Answer loads, and the capped reports of Analyses it runs; and, for a quick-tasks model that finds the quotes behind an Answer’s Citations, the Answer and its passages, or that checks what the assistant’s reply says it changed, the reply, the Question it answers and the record of what its Tools did",
   "providers.sends.checks":
     "each sentence you check, with its paragraph and figures, and the passages it’s checked against with their Document names, pages or locations and which of a workbook’s rows hold values its formulas worked out; every sentence of a note or file you check whole, to find its claims; whole Documents in the scope, up to 40 pages, for a sentence that says something is absent; a file’s name, dates, author, page count and size, for a sentence about the file; the heading above a sentence the assistant wrote; after a new version of a Document, the cited sentences of the notes in its Folder; and for a sentence about your Library, its counts, the name of the Folder, Tag or Document the note searches with how many more items its search has, and the names, kinds and counts of the Documents, Folders and Tags, and the names of notes, that match the sentence’s words, with how many more matched",
   "providers.sends.suggestions":
@@ -3954,7 +3956,8 @@ export const en = {
   "ai.jobs.answers.tip":
     "New notes use this, as do notes and conversations with no model of their own.",
   "ai.jobs.quick": "Quick tasks",
-  "ai.jobs.quick.line": "Titles, Tag suggestions, search wording",
+  "ai.jobs.quick.line":
+    "Titles, Tag suggestions, search wording, Citation quotes and checking replies",
   "ai.jobs.images": "Reading images",
   "ai.jobs.images.line": "Scans and a selected area",
   "ai.jobs.follows": "Follows Answers · {model}",
@@ -4602,7 +4605,15 @@ export const en = {
   "citation.reason.answer-limit":
     "Not checked: this Answer’s {limit} checking limit was reached before this sentence.",
   "citation.reason.monthly-limit":
-    "Not checked: your monthly limit of {cap} was reached before this sentence.",
+    "Not checked: your monthly limit was reached before this sentence.",
+  "citation.reason.answer-limit-unfinished":
+    "Not checked: this Answer’s {limit} checking limit was reached before {model} finished checking this sentence.",
+  "citation.reason.answer-limit-unfinished.unnamed":
+    "Not checked: this Answer’s {limit} checking limit was reached before this sentence’s check finished.",
+  "citation.reason.monthly-limit-unfinished":
+    "Not checked: your monthly limit was reached before {model} finished checking this sentence.",
+  "citation.reason.monthly-limit-unfinished.unnamed":
+    "Not checked: your monthly limit was reached before this sentence’s check finished.",
   "citation.reason.notChecked": "Whether the quote supports this sentence couldn’t be checked.",
   "citation.reason.small-model":
     "This model on this computer is too small to judge whether the quote supports the sentence.",
@@ -4623,6 +4634,9 @@ export const en = {
   "uncheckedFigure.mark": "Not checked: a word a scan may have misread",
   "uncheckedFigure.why":
     "It comes from “{word}”, which was read from a scan and may be misread. Check it on the page.",
+  "missingNumber.words": "[number missing]",
+  "missingNumber.tip":
+    "IncarnaMind couldn’t calculate the figure that belongs here, so no number was written.",
   "citation.quote": "The quote:",
   "citation.quoted.answer": "In the Answer",
   "citation.closest.on": "Closest words on {location}",
@@ -6121,6 +6135,8 @@ export const en = {
   "error.meeting.notRecording": "That Meeting isn’t recording.",
   "error.meeting.notPaused": "That Meeting isn’t paused.",
   "error.meeting.notBeingRecorded": "That Meeting isn’t being recorded.",
+  "error.meeting.quickNoteEmpty": "Type something to add to notes.",
+  "error.meeting.quickNoteTime": "That isn’t a time in the meeting.",
   "error.meetingOffer.gone": "That call has ended.",
   "error.openAtLogin.unsupported": "This copy of IncarnaMind can’t open at login.",
   "error.meeting.helpButton": "This meeting doesn’t have that kind of help.",
@@ -7454,6 +7470,18 @@ export const en = {
   "meetings.help.disagree": "Where we disagree",
   "meetings.help.button": "{name} ({shortcut})",
   "meetings.help.more": "More…",
+  "meetings.help.keywords.say": "suggest reply respond",
+  "meetings.help.keywords.answer": "reply respond",
+  "meetings.help.keywords.want": "intent need goal",
+  "meetings.help.keywords.sum": "summary recap",
+  "meetings.help.keywords.no": "decline refuse",
+  "meetings.help.keywords.ask": "question follow-up",
+  "meetings.help.keywords.check": "verify fact",
+  "meetings.quickNote": "Quick note",
+  "meetings.quickNote.placeholder": "Note for this meeting…",
+  "meetings.quickNote.add": "Add to notes",
+  "meetings.quickNote.added": "Added to notes at {time}",
+  "meetings.quickNote.addedNoTime": "Added to notes",
   "meetings.help.setUp": "Choose an AI model to get help during the call",
   "meetings.help.failed": "No help this time: {message}",
   "meetings.help.nothing": "the Answer had nothing to suggest",
@@ -7598,8 +7626,7 @@ export const en = {
   "steps.check.needALook.one": "1 needs a look",
   "steps.check.answerLimit":
     "{checked} of {total} sentences checked · This Answer’s {limit} checking limit reached",
-  "steps.check.monthlyLimit":
-    "{checked} of {total} sentences checked · Your monthly limit of {cap} reached",
+  "steps.check.monthlyLimit": "{checked} of {total} sentences checked · Your monthly limit reached",
   "steps.check.checkTheRest": "Check the rest",
   "steps.check.checkTheRest.go": "Check",
   "steps.check.checkTheRest.cancel": "Cancel",
@@ -7796,6 +7823,18 @@ export const en = {
   "mindChanges.dropped.one": "· 1 source couldn’t be matched, so it was left out",
   "mindChanges.extraCells": "· {count} extra cells were kept as text",
   "mindChanges.extraCells.one": "· 1 extra cell was kept as text",
+  "mindChanges.missingNumberRefused.one":
+    "· 1 change wasn’t made: it left out [number missing] without calculating the figure",
+  "mindChanges.missingNumberRefused":
+    "· {count} changes weren’t made: they left out [number missing] without calculating the figure",
+  "mindChanges.figuresLeft.one":
+    "· 1 figure couldn’t be calculated, so the text says [number missing]",
+  "mindChanges.figuresLeft.one.named":
+    "· 1 figure couldn’t be calculated, so the text says [number missing]: {figures}",
+  "mindChanges.figuresLeft":
+    "· {count} figures couldn’t be calculated, so the text says [number missing]",
+  "mindChanges.figuresLeft.named":
+    "· {count} figures couldn’t be calculated, so the text says [number missing]: {figures}",
   "mindCall.failed.localMode": "Couldn’t change “{mind}”: “Keep everything on this computer” is on",
   "mindCall.failed.notReady": "Couldn’t change “{mind}”: the model can’t be used now",
   "mindCall.failed.model": "Couldn’t change “{mind}”: the model failed",
@@ -7805,7 +7844,7 @@ export const en = {
   "answer.notWritten": "Nothing was written: {reason}",
   "answer.notWritten.noCall": "the assistant didn’t run the write",
   "answer.notWritten.retry": "Try again",
-  "answer.notAllDone": "The assistant didn’t make every change this reply describes",
+  "answer.notAllDone": "The assistant didn’t do everything this reply says",
   "answer.notCalculated":
     "No calculation ran: IncarnaMind didn’t calculate the figures worked out in this reply, so they’re unchecked",
   "answer.notCalculated.unavailable":
@@ -7944,6 +7983,8 @@ export const en = {
     "In {name}, a Citation sits where it can’t stay one, such as in a formula or a link’s address: write it after the words it cites.",
   "agents.propose.unplaced":
     "These changes would add a Citation, footnote or figure IncarnaMind didn’t place, so nothing was written. Cite only with [cite:…] tokens.",
+  "agents.propose.missingNumber":
+    "The text for {name} leaves out [number missing], which marks a number that couldn’t be calculated, so nothing was written. Keep [number missing] exactly as the paragraph has it.",
   "agents.propose.typedTag":
     "The text for {name} leaves out a <removed> tag the User typed there, which would take their words out, so nothing was written. Keep each tag as the paragraph has it.",
   "agents.propose.misnamed":
