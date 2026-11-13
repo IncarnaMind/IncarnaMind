@@ -139,6 +139,33 @@ describe("An export written again (#110, #2927)", () => {
     );
   });
 
+  // protects=a Change refused because its copy can't be saved keeps no Undo step, so the Change before it is still the file's newest and can be taken back; fails_when=the refused Change leaves a step above the first one's, so Undo of the first is refused as changed; no_claim=Windows and root, where the mode means something else.
+  test.skipIf(windowsOrRoot)(
+    "a Change refused for want of a copy keeps no Undo step, so the one before it can still be taken back",
+    async () => {
+      const { ledger, folder, save, holds } = await ledgerIn();
+      const saved = await save("first");
+      const one = await ledger.rewrite(saved.known(), bytes("second"), null);
+      await chmod(saved.path, 0o444);
+      await chmod(folder, 0o555);
+
+      const refused = ledger
+        .rewrite(saved.known(), bytes("third"), null)
+        .finally(() => chmod(folder, 0o755));
+      await expect(refused).rejects.toMatchObject({
+        wording: { key: "error.export.rewrite.locked", values: { name: "Tides.docx" } },
+      });
+      expect(await holds(saved.path)).toBe("second");
+
+      await chmod(saved.path, 0o644);
+      expect(await ledger.restore(saved.path, one.step)).toEqual({
+        mindId: "note-1",
+        comments: null,
+      });
+      expect(await holds(saved.path)).toBe("first");
+    },
+  );
+
   // protects=a Change is only for the export this Note saved at that path in that format; fails_when=another Note's export, another format's, or a path IncarnaMind never saved is taken; no_claim=what the window then shows.
   test("only this Note's export, in this format, is known at a path", async () => {
     const { ledger, folder, save } = await ledgerIn();

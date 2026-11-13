@@ -133,22 +133,59 @@ const LATIN_NUMBER = /\d+(?:[.,\s]\d+)*/g;
 const CHINESE_NUMBER = /[零〇一二两三四五六七八九十百千万亿]+/gu;
 const NEGATION = /\b(?:not|no|never)\b|n't\b|[不没未无非]/giu;
 
-/** The numbers in a text, sorted, so two texts' can be compared as a multiset. */
+/**
+ * A list's number as it starts a sentence: "**1.**", "(1)", "1)", "1、", "1.Then", "（一）", "一、".
+ * Not what both sides see: a Passage's sentences (src/shared/sentences.ts) have already lost a
+ * "1. ", a "1." with no space, a "1．" and a bold "**1.**", so of these only an Answer's sentence
+ * can still start with "**1.**" or "1.Then"; an Answer's sentence loses only "1. " first.
+ */
+const LIST_MARK =
+  /\*\*\d{1,2}[.)]\*\*|\(\d{1,2}\)|（(?:\d{1,2}|[一二三四五六七八九十]{1,3})）|\d{1,2}[)）]|(?:\d{1,2}|[一二三四五六七八九十]{1,3})、|\d{1,2}\.(?=[^\s\d.])/u;
+const LIST_START = new RegExp(`^\\s*(?:[-*+•]\\s+)?(?:${LIST_MARK.source})`, "u");
+/**
+ * Another list mark anywhere in the rest of the sentence, however it is joined to the first ("1) and
+ * 2)", "1) through 2)", "1）至 2）"): the first is then one of the sentence's own numbers.
+ */
+const LIST_AGAIN = new RegExp(LIST_MARK.source, "u");
+const NUMERAL_FIRST = /^\s*[\d零〇一二两三四五六七八九十百千万亿]/u;
+
+/**
+ * The list's number `sentence` starts with, and the rest of it (#3059): "1) 3 trucks arrived" is
+ * list 1 and says 3. None for an enumeration or a range that starts it, whose numbers are what it
+ * says: "1) and 2) apply", "1) through 2) apply", "1、2 号楼", "一、二层".
+ */
+function listStart(sentence: string): { number: string; rest: string } | null {
+  const found = LIST_START.exec(sentence);
+  if (!found) return null;
+  const rest = sentence.slice(found[0].length);
+  if (LIST_AGAIN.test(rest) || (found[0].endsWith("、") && NUMERAL_FIRST.test(rest))) return null;
+  return { number: /\d+|[一二三四五六七八九十]+/u.exec(found[0])?.[0] ?? "", rest };
+}
+
+/**
+ * The numbers a sentence states, sorted, so two sentences' can be compared as a multiset: not its
+ * markers' digits, nor the list's number it starts with.
+ */
 function numbersOf(text: string): string[] {
   const read = withoutMarkers(text);
-  const latin = [...read.matchAll(LATIN_NUMBER)].map((found) =>
+  const said = listStart(read)?.rest ?? read;
+  const latin = [...said.matchAll(LATIN_NUMBER)].map((found) =>
     found[0].replace(/[,\s](?=\d{3}(?!\d))/g, ""),
   );
-  const chinese = [...read.matchAll(CHINESE_NUMBER)].map((found) => found[0]);
+  const chinese = [...said.matchAll(CHINESE_NUMBER)].map((found) => found[0]);
   return [...latin, ...chinese].sort();
 }
 
 /**
  * Whether a near-duplicate says the same as a Passage's sentence: the same
  * numbers, and as many negations. Shared words alone don't tell "£739,800"
- * from "£793,800", or "is not" from "is".
+ * from "£793,800", or "is not" from "is". Two sentences that each start with
+ * a list's number say the same only under the same one: in a contract, "(3)"
+ * and "(2)" are different clauses, and a list's mark can be a code's ("(86)").
  */
 function saysTheSame(a: string, b: string): boolean {
+  const [ourList, theirList] = [a, b].map((each) => listStart(withoutMarkers(each))?.number);
+  if (ourList !== undefined && theirList !== undefined && ourList !== theirList) return false;
   const ours = numbersOf(a);
   const theirs = numbersOf(b);
   return (
