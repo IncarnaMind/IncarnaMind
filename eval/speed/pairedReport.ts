@@ -23,6 +23,11 @@ export interface PairedRow {
   sameSetup?: boolean;
   /** Where their messages differed, ids and times aside: both sides around it; null when they didn't. */
   messageDifference?: string | null;
+  /**
+   * Their messages were the same but for a button's instructions, the `<help>` block: an arm that
+   * changes only what call help is asked to write differs there alone (#2847).
+   */
+  sameOutsideHelp?: boolean;
   baseline: ArmRun;
   candidate: ArmRun;
 }
@@ -434,6 +439,9 @@ export function timeTable(rows: readonly PairedRow[], names: [string, string]): 
   ].join("\n");
 }
 
+/** A request's messages without a button's instructions. */
+const outsideHelp = (messages: string) => messages.replace(/<help>[\s\S]*?<\/help>/g, "<help/>");
+
 /** What a pair's first requests share: the whole prompt, the setup apart, and where the messages differ. */
 export function sentPair(baseline: SentRequest | null, candidate: SentRequest | null) {
   return {
@@ -443,5 +451,9 @@ export function sentPair(baseline: SentRequest | null, candidate: SentRequest | 
       baseline && candidate
         ? messageDifference(baseline.messages, candidate.messages)
         : "a request missing",
+    sameOutsideHelp:
+      !!baseline &&
+      !!candidate &&
+      sameRequestOf(outsideHelp(baseline.messages), outsideHelp(candidate.messages)),
   };
 }
