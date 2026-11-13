@@ -1395,6 +1395,12 @@ export interface CoreAdapters {
    */
   helpMarksQuoteOnly?: () => boolean | undefined;
   /**
+   * Whether call help is asked to write as before #2847's own-sentence rule, a cited fact and the
+   * User's own advice, conclusion or "no" in one sentence; unset, they are sentences of their own.
+   * Only tests and the evaluation pass one.
+   */
+  callHelpWritingAsBefore?: () => boolean | undefined;
+  /**
    * Tunes and watches the search Tool for Answers' searches (reranking depth,
    * Passages handed, a callback with each search's timings). Only the
    * evaluation passes one.

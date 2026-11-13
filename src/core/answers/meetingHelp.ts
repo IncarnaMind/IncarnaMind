@@ -27,7 +27,7 @@ const TASKS: Readonly<Record<MeetingHelpKind, string>> = {
   no: "Decline what was just asked of the User, politely, keeping the relationship; the option you recommend keeps things moving.",
   ask: "What should the User ask next, to move the call forward? Each option is a question.",
   check:
-    "Check the newest claims in the transcript against the User's Documents: each line is a claim, then whether the Documents support it, contradict it or don't say.",
+    "Check the newest claims in the transcript against the User's Documents: each line gives a claim as it was said, cited to the transcript, then what the Documents say about it, cited to them, or that they don't say.",
   objection: "Answer the other side's newest objection.",
   nextStep:
     "Propose a concrete next step that fits where the call is: a meeting, a trial, something to send.",
@@ -61,17 +61,26 @@ export const HELP_DOCUMENTS: Readonly<Record<MeetingHelpKind, string | null>> = 
   disagree: null,
 };
 
+/**
+ * What a cited sentence may hold (#2847): the check passes a sentence only when its quotes say all of
+ * it, and can't judge the User's own advice, conclusion or "no", so that part is a sentence of its own.
+ */
+const OWN_SENTENCE =
+  'What the Documents or the call say goes in a sentence of its own, its Citation markers at that sentence\'s end. What is the User\'s own (advice, a conclusion, a "no", an offer or a plan the Documents don\'t state) goes in another sentence with no Citation marker. Never join the two with "so", "and", "but" or a comma, in any language.';
+
 const SHAPES: Readonly<Record<HelpShape, readonly string[]>> = {
   options: [
     '- One or two options, never more. The one you recommend comes first, its line starting with "★ ".',
-    '- Each option is two lines: what the User could say, as they would say it aloud, one sentence of at most 25 words with no quotation marks around it (the panel shows it as a quote), its Citation markers at its end; then a line starting with "→ " and what saying it leads to, in at most eight words, with no Citation marker.',
+    '- Each option is two lines: what the User could say, as they would say it aloud, at most two short sentences and 25 words in all, with no quotation marks around it (the panel shows it as a quote); then a line starting with "→ " and what saying it leads to, in at most eight words, with no Citation marker.',
+    `- ${OWN_SENTENCE}`,
   ],
   readings: [
     '- One or two readings, never more. The likeliest comes first, its line starting with "★ ".',
     '- Each reading is three lines: what they want, in one sentence, as a reading of what they said and never as a fact; then the moment of the transcript it rests on: its time and a few words they said in quotation marks, with no punctuation before the closing mark, then its Citation marker; then a line starting with "→ " and the move it suggests, in at most ten words.',
   ],
   lines: [
-    '- At most three short lines, each starting with "- ", each one sentence of at most 20 words, its Citation markers at its end.',
+    '- At most three short lines, each starting with "- ", each at most two short sentences and 20 words in all.',
+    `- ${OWN_SENTENCE}`,
   ],
 };
 
@@ -79,7 +88,7 @@ const SHAPES: Readonly<Record<HelpShape, readonly string[]>> = {
 const EXAMPLES: Readonly<Record<"en" | "zh", Readonly<Record<HelpShape, readonly string[]>>>> = {
   en: {
     options: [
-      "★ We can't go below list for Enterprise, but we can extend the pilot to 60 days [^1]",
+      "★ We can't go below list for Enterprise. We can extend the pilot to 60 days [^1]",
       "→ keeps the deal moving; protects the margin",
       "",
       "Let me check with our team and come back to you by Friday",
@@ -90,11 +99,14 @@ const EXAMPLES: Readonly<Record<"en" | "zh", Readonly<Record<HelpShape, readonly
       "12:04 “our budget stops at ten thousand” [^1]",
       "→ give the tiered price, then ask about their budget cycle",
     ],
-    lines: ["- The launch moves to 18 November [^1]", "- Dana confirms the date with the provider"],
+    lines: [
+      "- The launch moves to 18 November [^1]. Support should hear this week",
+      "- Dana confirms the date with the provider",
+    ],
   },
   zh: {
     options: [
-      "★ 企业版价格没法低于标价，但我们可以把试用延长到 60 天 [^1]",
+      "★ 企业版价格没法低于标价。我们可以把试用延长到 60 天 [^1]",
       "→ 推进成交，守住利润",
       "",
       "我跟团队确认一下，周五前给你答复",
@@ -105,7 +117,56 @@ const EXAMPLES: Readonly<Record<"en" | "zh", Readonly<Record<HelpShape, readonly
       "12:04 “我们的预算上限是一万” [^1]",
       "→ 先给阶梯价，再问他们的预算周期",
     ],
-    lines: ["- 上线推迟到 11 月 18 日 [^1]", "- Dana 跟服务商确认日期"],
+    lines: ["- 上线推迟到 11 月 18 日 [^1]。这周要通知客服", "- Dana 跟服务商确认日期"],
+  },
+};
+
+/**
+ * What call help wrote before #2847's own-sentence rule, byte for byte: the evaluation's switch
+ * `callHelpWritingAsBefore` sends it, so a paired gate compares the two writings and nothing else.
+ */
+const AS_BEFORE: {
+  check: string;
+  shapes: Pick<Record<HelpShape, readonly string[]>, "options" | "lines">;
+  examples: Readonly<
+    Record<"en" | "zh", Pick<Record<HelpShape, readonly string[]>, "options" | "lines">>
+  >;
+} = {
+  check:
+    "Check the newest claims in the transcript against the User's Documents: each line is a claim, then whether the Documents support it, contradict it or don't say.",
+  shapes: {
+    options: [
+      '- One or two options, never more. The one you recommend comes first, its line starting with "★ ".',
+      '- Each option is two lines: what the User could say, as they would say it aloud, one sentence of at most 25 words with no quotation marks around it (the panel shows it as a quote), its Citation markers at its end; then a line starting with "→ " and what saying it leads to, in at most eight words, with no Citation marker.',
+    ],
+    lines: [
+      '- At most three short lines, each starting with "- ", each one sentence of at most 20 words, its Citation markers at its end.',
+    ],
+  },
+  examples: {
+    en: {
+      options: [
+        "★ We can't go below list for Enterprise, but we can extend the pilot to 60 days [^1]",
+        "→ keeps the deal moving; protects the margin",
+        "",
+        "Let me check with our team and come back to you by Friday",
+        "→ buys time; momentum may drop",
+      ],
+      lines: [
+        "- The launch moves to 18 November [^1]",
+        "- Dana confirms the date with the provider",
+      ],
+    },
+    zh: {
+      options: [
+        "★ 企业版价格没法低于标价，但我们可以把试用延长到 60 天 [^1]",
+        "→ 推进成交，守住利润",
+        "",
+        "我跟团队确认一下，周五前给你答复",
+        "→ 争取时间，但可能冷场",
+      ],
+      lines: ["- 上线推迟到 11 月 18 日 [^1]", "- Dana 跟服务商确认日期"],
+    },
   },
 };
 
@@ -214,6 +275,7 @@ export const LIVE_TEXT_BEHIND_NOTE =
  * What the model is told for a button's Question during a call. `found`: Passages of the User's
  * Documents were found ahead for the newest lines. `callLanguage`: the language the call's newest
  * lines are in, which the reply is written in; `language`, the interface's, when it can't be told.
+ * `asBefore`: call help's writing before #2847's own-sentence rule, for the evaluation alone.
  */
 export function meetingHelpInstructions(
   kind: MeetingHelpKind,
@@ -221,18 +283,23 @@ export function meetingHelpInstructions(
     found,
     language,
     callLanguage,
-  }: { found: boolean; language: Language; callLanguage: string | null },
+    asBefore = false,
+  }: { found: boolean; language: Language; callLanguage: string | null; asBefore?: boolean },
 ): string {
   const shape = HELP_SHAPE[kind];
-  const task = TASKS[kind];
+  const task = asBefore && kind === "check" ? AS_BEFORE.check : TASKS[kind];
   const documents = HELP_DOCUMENTS[kind];
+  const examples = EXAMPLES[callLanguage === "Chinese" ? "zh" : "en"];
+  const before = shape === "readings" || !asBefore ? null : shape;
   return [
     "The User is in a call and pressed a button for help: the Question is the button's name. They will read your reply in a second or two while the call goes on.",
     `What they need: ${task}`,
     "Reply in exactly this form, with nothing before or after it: start with its first line, and add no heading, introduction, plan, remark on the transcript or closing line.",
-    ...SHAPES[shape],
+    ...(before ? AS_BEFORE.shapes[before] : SHAPES[shape]),
     "For example:",
-    ...EXAMPLES[callLanguage === "Chinese" ? "zh" : "en"][shape],
+    ...(before
+      ? AS_BEFORE.examples[callLanguage === "Chinese" ? "zh" : "en"][before]
+      : examples[shape]),
     "- Base it on the newest lines of <live-transcript>: what was said last matters most.",
     "- Never say what you can't read or which button this is.",
     "- When the other side names a price or a figure, it is what they ask for, never the User's: don't repeat it as the User's price or offer.",

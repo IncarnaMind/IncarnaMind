@@ -2346,6 +2346,7 @@ export function createCore(adapters: CoreAdapters): Core {
     helpFormJudged: () => adapters.helpFormJudged?.() ?? false,
     quotesAsGiven: () => adapters.quotesAsGiven?.() ?? false,
     helpMarksQuoteOnly: () => adapters.helpMarksQuoteOnly?.() ?? false,
+    callHelpWritingAsBefore: () => adapters.callHelpWritingAsBefore?.() ?? false,
     providerExists: (providerId) => chat.exists(providerId),
     checkAnswer: (input) => checks.checkAnswer(input),
     estimateAnswerCheck: (input) => checks.estimateAnswerCheck(input),

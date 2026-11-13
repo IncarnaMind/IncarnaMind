@@ -119,7 +119,12 @@ function markingModel(given: Marking, calls: ModelCall[], batches: GenerateCall[
  * A meeting recording, with the price sheet in its Library, its help answered by `given`, on a
  * model in Ollama unless `cloud` names an Anthropic one.
  */
-async function setUp(given: Marking, quoteOnly?: () => boolean, cloud?: string) {
+async function setUp(
+  given: Marking,
+  quoteOnly?: () => boolean,
+  cloud?: string,
+  writingAsBefore?: () => boolean,
+) {
   const calls: ModelCall[] = [];
   const batches: GenerateCall[] = [];
   const dataDir = await createTempDataFolder();
@@ -127,6 +132,7 @@ async function setUp(given: Marking, quoteOnly?: () => boolean, cloud?: string) 
   const { core, record } = await transcribingCore(dataDir, {
     createChatModel: models.createChatModel,
     ...(quoteOnly && { helpMarksQuoteOnly: quoteOnly }),
+    ...(writingAsBefore && { callHelpWritingAsBefore: writingAsBefore }),
   });
   const saved = await core.saveChatProvider(
     cloud
@@ -215,6 +221,60 @@ function holdingFirst() {
 
 const ENGLISH = "★ Yes, Enterprise is $45 a seat with single sign-on [^1]\n→ answers at once";
 const CHINESE = "★ 是的，企业版每个席位每月 45 美元，含单点登录 [^1]\n→ 直接回答，推进通话";
+
+describe("an option's own part is a sentence of its own, which the check never reads (#2847)", {
+  timeout: 60_000,
+}, () => {
+  // protects=call help is asked to give what it cites in a sentence of its own and the User's own conclusion or "no" in another, so the check reads only the cited sentence and its ✓ sits there; the evaluation's switch asks as main did; fails_when=the request asks for one sentence again, the switch's request differs, or the check is sent the uncited sentence; no_claim=how often a model writes it so, which the gate on fresh presses measures.
+  test.each([
+    {
+      language: "English",
+      reply:
+        "★ That's our list price. Enterprise is $45 a seat with single sign-on [^1]\n→ holds the price",
+      own: "That's our list price",
+    },
+    {
+      language: "Chinese",
+      reply: "★ 这是我们的标价。企业版每个席位每月 45 美元，含单点登录 [^1]\n→ 守住价格",
+      own: "这是我们的标价",
+    },
+  ])(
+    "in $language, only the cited sentence goes to the check, and its ✓ shows",
+    async ({ reply, own }) => {
+      const { core, meeting, calls, batches } = await setUp({ reply });
+
+      const after = await (await pressed(core, meeting, "answer")).judged();
+
+      expect(block(calls[0]?.prompt ?? "", "help")).toContain(
+        "What the Documents or the call say goes in a sentence of its own",
+      );
+      // It is shown the whole line as the sentence's paragraph, and judges the cited sentence alone.
+      const sent = [
+        ...(batches[0]?.prompt ?? "").matchAll(
+          /<sentence number="\d+">\n([\s\S]*?)\n<\/sentence>/g,
+        ),
+      ].map(([, sentence]) => sentence);
+      expect(sent).toHaveLength(1);
+      expect(sent[0]).not.toContain(own);
+      expect(marks(after)).toEqual([{ marker: 1, check: "found", passed: true }]);
+    },
+  );
+
+  test("with the evaluation's switch, the press asks for one sentence as main did", async () => {
+    const { core, meeting, calls } = await setUp(
+      { reply: ENGLISH },
+      undefined,
+      undefined,
+      () => true,
+    );
+
+    await (await pressed(core, meeting, "answer")).judged();
+
+    const help = block(calls[0]?.prompt ?? "", "help");
+    expect(help).toContain("one sentence of at most 25 words");
+    expect(help).not.toContain("goes in a sentence of its own");
+  });
+});
 
 describe("call help's ✓ comes only from the sentence check", { timeout: 60_000 }, () => {
   test.each([

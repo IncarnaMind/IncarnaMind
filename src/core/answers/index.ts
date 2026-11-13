@@ -670,6 +670,8 @@ export interface AnswersOptions {
   quotesAsGiven?(): boolean;
   /** See `CoreAdapters.helpMarksQuoteOnly`. */
   helpMarksQuoteOnly?(): boolean;
+  /** See `CoreAdapters.callHelpWritingAsBefore`. */
+  callHelpWritingAsBefore?(): boolean;
   providerExists(providerId: string): boolean;
   /**
    * An Answer's sentences with Citations, checked against what they cite before it ends (#2311):
@@ -3682,6 +3684,7 @@ export function createAnswers(options: AnswersOptions) {
                   found: foundAhead,
                   language: options.interfaceLanguage(),
                   callLanguage,
+                  asBefore: options.callHelpWritingAsBefore?.() ?? false,
                 }),
                 ...(textBehind ? [LIVE_TEXT_BEHIND_NOTE] : []),
               ].join("\n\n"),
