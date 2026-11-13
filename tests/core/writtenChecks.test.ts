@@ -1014,6 +1014,98 @@ describe("What the assistant writes is checked once it lands, the reply not wait
     }
   });
 
+  const QUAY = "The quay is busy in summer.";
+  /** The sort of the write's sentence with no Citation answered: it states a fact. */
+  const quayIsFact = (call: GenerateCall) =>
+    isSort(call) && call.prompt.includes(QUAY)
+      ? {
+          text: JSON.stringify({
+            sentences: [{ number: 1, parts: [{ kind: "fact", text: QUAY }] }],
+          }),
+        }
+      : null;
+
+  // protects=the sentences with a Citation are checked first, in the Note's order, and the sort and the sentences with none only once their checks are over, so the marks main's check gives land first (#2830); fails_when=the claims sort or a sentence with no Citation is sent while a cited sentence's check is still out; no_claim=how long each check takes.
+  test("the sentences with a Citation are checked first, in the Note's order, and those with none after them", async () => {
+    const sent: string[] = [];
+    const progress: WrittenCheckProgress[] = [];
+    const { core, client } = await write(
+      {
+        content: `${QUAY} ${MOON.slice(0, -1)} [^1]. ${UNBACKED} [^1].`,
+        into: true,
+        cloud: { kind: "anthropic", modelId: "claude-haiku-5-5" },
+        check: (call) => {
+          sent.push(`check: ${sentenceOf(call)}`);
+          return null;
+        },
+        generate: (call) => {
+          if (isSort(call) && call.prompt.includes(QUAY)) sent.push("sort");
+          return quayIsFact(call);
+        },
+      },
+      ({ core: started }) => {
+        started.on("writtenCheck.progress", (event) => progress.push(event));
+      },
+    );
+
+    expect(await checkEnds(progress)).toMatchObject({ done: 3, total: 3 });
+    const checks = (words: string) =>
+      sent.flatMap((each, at) => (each.includes(words) ? [at] : []));
+    const [moon, neap, quay] = [MOON.slice(0, -1), UNBACKED, QUAY.slice(0, -1)].map(checks);
+    expect(moon?.length && neap?.length && quay?.length).toBeTruthy();
+    expect(moon?.[0]).toBeLessThan(neap?.[0] ?? -1);
+    expect(sent.indexOf("sort")).toBeGreaterThan(Math.max(...(moon ?? []), ...(neap ?? [])));
+    expect(quay?.[0]).toBeGreaterThan(sent.indexOf("sort"));
+    expect((await marksIn(core, client)).map(({ check }) => check.state)).toEqual([
+      "unsupported",
+      "supported",
+      "unsupported",
+    ]);
+  });
+
+  // protects=a spending cap the cited sentences' checks reach stops the sentences with none too, for that reason, with nothing sent for them, the claims sort included (#2830); fails_when=the sort or their checks are still sent past the cap, or they land unmarked; no_claim=the line's words.
+  test("the spending cap reached on the cited sentences leaves those with none not checked, with nothing sent for them", async () => {
+    let finished: Promise<void> = Promise.resolve();
+    let capped: Promise<void> | null = null;
+    const sorted: string[] = [];
+    const { core, change, client } = await write(
+      {
+        content: `## Tides\n\n${QUAY} ${UNBACKED} [^1].`,
+        cloud: { kind: "anthropic", modelId: "claude-haiku-5-5" },
+        check: (call, started) => {
+          capped ??= finished
+            .then(() =>
+              started.updateSettings({ user: { monthlyCap: { amount: 0, currency: "USD" } } }),
+            )
+            .then(() => undefined);
+          return call.results.length === 0
+            ? { ...checkReply(call, PLANS), pause: { after: 0, until: capped } }
+            : null;
+        },
+        generate: (call) => {
+          if (isSort(call) && call.prompt.includes(QUAY)) sorted.push(call.prompt);
+          return quayIsFact(call);
+        },
+      },
+      ({ core: started }) => {
+        finished = new Promise<void>((resolve) => {
+          const stop = started.on("answer.finished", () => {
+            stop();
+            resolve();
+          });
+        });
+      },
+    );
+
+    const marks = await marksIn(core, client);
+    expect(marks.map(({ sentence, check }) => [sentence, check.state, check.reason])).toEqual([
+      [QUAY, "not-checked", "cost-cap"],
+      [`${UNBACKED} .`, "not-checked", "cost-cap"],
+    ]);
+    expect(sorted).toEqual([]);
+    expect(change?.selfCheck).toMatchObject({ cited: 1, checked: 0, stop: { reason: "cost-cap" } });
+  });
+
   // protects=a written sentence's mark lands as its own check ends, while another sentence of the write is still being checked (#2532); fails_when=the marks wait for the last check and land together; no_claim=the order in which the checks end.
   test("a sentence's mark lands as soon as its check ends, while another is still checked", async () => {
     let page: MindClient | null = null;

@@ -1206,6 +1206,19 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
       }
       return claims;
     };
+    /** Not checked for the stop the cited sentences met, with nothing sent: it would stop these too. */
+    const stoppedBy = (items: readonly Sentence[], stop: RunStop) => {
+      let outcomeError: { error: unknown } | null = null;
+      for (const sentence of items) {
+        try {
+          landed(sentence, { failure: "stop", reason: stop.reason, detail: null, stop });
+        } catch (error) {
+          if (error instanceof MindReadOnlyError) refused = true;
+          outcomeError ??= { error };
+        }
+      }
+      return { stop, outcomeError };
+    };
     const checkThem = async () => {
       try {
         // Its turn, or a Stop, an Undo, a reject or quitting first, which ends it with nothing sent.
@@ -1235,11 +1248,13 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
           return;
         }
         scope = ready.check;
-        // The cited sentences go at once; those with none, once the sort has named the claims.
-        const [cited, uncited] = await Promise.all([
-          checkAll(sentences.filter((sentence) => sentence.cited.length > 0)),
-          claimsOf(sentences.filter((sentence) => sentence.cited.length === 0)).then(checkAll),
-        ]);
+        // The cited sentences first, in the Note's order, so the marks main's check gives land
+        // first (#2830); those with none after them, once the sort has named their claims.
+        const cited = await checkAll(sentences.filter((sentence) => sentence.cited.length > 0));
+        const rest = sentences.filter((sentence) => sentence.cited.length === 0);
+        const uncited = cited.stop
+          ? stoppedBy(rest, cited.stop)
+          : await checkAll(await claimsOf(rest));
         done.stop = cited.stop ?? uncited.stop;
         const outcomeError = cited.outcomeError ?? uncited.outcomeError;
         if (outcomeError !== null) throw outcomeError.error;
