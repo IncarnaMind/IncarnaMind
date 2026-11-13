@@ -18,6 +18,7 @@ export function checkedTextOf(
     cited: () =>
       citation.pageFrom === null ? citation.quote : text(citation.pageFrom, citation.pageTo),
     document: () => text(null, null),
+    gateReads: true,
   };
 }
 

@@ -214,7 +214,7 @@ function holdingFirst() {
 }
 
 const ENGLISH = "★ Yes, Enterprise is $45 a seat with single sign-on [^1]\n→ answers at once";
-const CHINESE = "★ 是的，企业版每个席位每月 45 美元，含单点登录 [^1]\n→ 直接回答，推进通话";
+const CHINESE = "★ 是的，企业版每个席位每月 $45，含单点登录 [^1]\n→ 直接回答，推进通话";
 
 describe("call help's ✓ comes only from the sentence check", { timeout: 60_000 }, () => {
   test.each([
@@ -239,6 +239,34 @@ describe("call help's ✓ comes only from the sentence check", { timeout: 60_000
       expect(after.citations[0]?.judgedAt).toEqual(expect.any(String));
       // The check reads the sentence the User would say, with what it quotes.
       expect(batches[0]?.prompt).toContain(PRICE);
+    },
+  );
+
+  // protects=a reply's sentence giving a currency its quote gives otherwise, or naming a dollar the sheet's bare "$" doesn't, is Unsupported with the line Check against Documents gives, so it shows its number alone though the model called it supported (#2997); fails_when="£45" or "45 美元" citing the sheet's "$45" shows ✓; no_claim=what a real model replies.
+  test.each([
+    {
+      language: "English",
+      reply: "★ Yes, Enterprise is £45 a seat with single sign-on [^1]\n→ answers at once",
+      line: "The Document gives $45, not £45.",
+    },
+    {
+      language: "Chinese",
+      reply: "★ 是的，企业版每个席位每月 45 英镑，含单点登录 [^1]\n→ 直接回答，推进通话",
+      line: "The Document gives $45, not 45 英镑.",
+    },
+    {
+      language: "Chinese, naming the dollar the sheet's bare $ doesn't",
+      reply: "★ 是的，企业版每个席位每月 45 美元，含单点登录 [^1]\n→ 直接回答，推进通话",
+      line: "“Price sheet” gives “$45” without saying which currency",
+    },
+  ])(
+    "in $language, a sentence whose quote gives another currency shows its number alone",
+    async ({ reply, line }) => {
+      const { core, meeting } = await setUp({ reply });
+      const after = await (await pressed(core, meeting, "answer")).judged();
+
+      expect(marks(after)).toEqual([{ marker: 1, check: "unsupported", passed: false }]);
+      expect(after.citations[0]?.verdict).toBe(line);
     },
   );
 
