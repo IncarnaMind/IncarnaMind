@@ -350,18 +350,32 @@ function checkRequestsSince(dataDir: string, since: number): CheckRequest[] {
   });
 }
 
-/** When the text of a Note first changes from now on, in ms since the epoch: null until it does. */
-function landing(doc: Y.Doc): { at(): number | null; stop(): void } {
-  const blocks = doc.getXmlFragment(MIND_CONTENT_FIELD);
-  const before = blocks.toString();
+/**
+ * When a write first lands from now on, in ms since the epoch: the text of the Note in front
+ * changes, or a Note none of `known` names appears. Null until one does.
+ */
+function landing(
+  core: Core,
+  doc: Y.Doc | null,
+  known: ReadonlySet<string>,
+): { at(): number | null; stop(): void } {
+  const blocks = doc?.getXmlFragment(MIND_CONTENT_FIELD);
+  const before = blocks?.toString();
   let at: number | null = null;
   const heard = () => {
-    if (at !== null || blocks.toString() === before) return;
-    at = Date.now();
-    doc.off("update", heard);
+    if (at === null && blocks && blocks.toString() !== before) at = Date.now();
   };
-  doc.on("update", heard);
-  return { at: () => at, stop: () => doc.off("update", heard) };
+  doc?.on("update", heard);
+  const made = core.on("minds.changed", (minds) => {
+    if (at === null && minds.some((each) => !known.has(each.id))) at = Date.now();
+  });
+  return {
+    at: () => at,
+    stop: () => {
+      doc?.off("update", heard);
+      made();
+    },
+  };
 }
 
 async function askExample(core: Core, language: "en" | "zh-CN") {
@@ -634,8 +648,9 @@ export async function runCase(
   await decideFirst(each.request);
   const stoppedAtAsk = { last: false };
   asking?.();
+  const known = new Set((await core.listMinds()).map((each) => each.id));
   const askedAt = Date.now();
-  const landed = client ? landing(client.doc) : null;
+  const landed = landing(core, client?.doc ?? null, known);
   let repliedAt: number | null = null;
   const answer = await ask(
     core,
@@ -656,10 +671,10 @@ export async function runCase(
     },
   );
   const answeredSeconds = (Date.now() - started) / 1000;
-  landed?.stop();
+  landed.stop();
   const since = (at: number | null) => (at === null ? null : (at - askedAt) / 1000);
   const repliedSeconds = since(repliedAt);
-  const landedSeconds = since(landed?.at() ?? null);
+  const landedSeconds = since(landed.at());
   const checkRequests = checkRequestsSince(library.dataDir, askedAt);
   const checkStartedSeconds = checkRequests[0]?.startSeconds ?? null;
   const checkEndedSeconds =
