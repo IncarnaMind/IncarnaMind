@@ -56,6 +56,7 @@ import { CALL_HELP_MARKS } from "./callHelpMarks";
 import { CALL_HELP_MARKS_3 } from "./callHelpMarks3";
 import { JUDGE_FAILED } from "./callHelpMarksReport";
 import { CALL_HELP_TYPED } from "./callHelpTyped";
+import { CALL_HELP_TYPED_FRESH } from "./callHelpTypedFresh";
 import {
   type GroupOptions,
   type Measured,
@@ -439,6 +440,8 @@ async function press(
   pressedFirst?: NonNullable<Measured["pressedFirst"]>;
   /** What the reply showed before it was written again, oldest first: its text as it last stood. */
   drafts: string[];
+  /** The conversation's Answers before the reply, oldest first, as they stand: what it could repeat. */
+  earlier: string[];
 }> {
   let stopPhase: () => void = () => undefined;
   const drafts: string[] = [];
@@ -573,6 +576,9 @@ async function press(
       firstOptionMs: since(times?.optionAt, start),
       settledMs,
       drafts,
+      earlier: messages.flatMap((message) =>
+        message.kind === "answer" && message.id !== answer.id ? [message.text] : [],
+      ),
       ...(buttonId !== null && {
         pressedFirst: {
           firstWordsMs: since(button?.wordsAt, buttonAt),
@@ -695,7 +701,8 @@ function item(each: CallHelpCase, set: CallHelpSet): PairedGroup["items"][number
       } catch (error) {
         return failed(error instanceof Error ? error.message : String(error));
       }
-      const { answer, firstWordsMs, firstOptionMs, settledMs, pressedFirst, drafts } = pressed;
+      const { answer, firstWordsMs, firstOptionMs, settledMs, pressedFirst, drafts, earlier } =
+        pressed;
       const requests = requestsSince(library.dataDir, since);
       const done = answer.status === "done";
       const shown = shownItems(readHelpReply(answer.text), {
@@ -858,6 +865,24 @@ function item(each: CallHelpCase, set: CallHelpSet): PairedGroup["items"][number
               ]
             : []),
           ...drafts.map((draft) => `[written before] ${draft}`),
+          // A typed reply's lines with no Citation, beside the Answers before it, to count the
+          // ones that repeat an earlier Answer's fact uncited (#2925).
+          ...(each.typed
+            ? [
+                ...shown
+                  .filter(
+                    (shownItem) =>
+                      ![shownItem.lead, ...shownItem.notes, shownItem.effect ?? []]
+                        .flat()
+                        .some((piece) => piece.kind === "citation"),
+                  )
+                  .map(
+                    (shownItem) =>
+                      `[uncited] ${shownReply(answer, [shownItem], () => "").replace(/\n/g, " ")}`,
+                  ),
+                ...earlier.map((text) => `[earlier answer] ${text.replace(/\n+/g, " ")}`),
+              ]
+            : []),
         ].join("\n"),
       } satisfies Measured;
     },
@@ -918,7 +943,8 @@ type CallHelpSet =
   | "call-help-checks"
   | "call-help-marks"
   | "call-help-marks-3"
-  | "call-help-typed";
+  | "call-help-typed"
+  | "call-help-typed-fresh";
 
 const CASES: Readonly<Record<CallHelpSet, readonly CallHelpCase[]>> = {
   "call-help": CALL_HELP_CASES,
@@ -929,6 +955,7 @@ const CASES: Readonly<Record<CallHelpSet, readonly CallHelpCase[]>> = {
   "call-help-marks": CALL_HELP_MARKS,
   "call-help-marks-3": CALL_HELP_MARKS_3,
   "call-help-typed": CALL_HELP_TYPED,
+  "call-help-typed-fresh": CALL_HELP_TYPED_FRESH,
 };
 
 /** One group a case: its own Library, its own Meeting heard before the press. */

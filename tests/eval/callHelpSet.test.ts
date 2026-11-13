@@ -12,6 +12,7 @@ import { armSwitch, newestStretch } from "../../eval/speed/arms";
 import { callHelpSet, formFailures, placedReply, unstatedChecked } from "../../eval/speed/callHelp";
 import { CALL_HELP_CASES, callOf, TRANSCRIPT } from "../../eval/speed/callHelpCases";
 import { CALL_HELP_TYPED } from "../../eval/speed/callHelpTyped";
+import { CALL_HELP_TYPED_FRESH } from "../../eval/speed/callHelpTypedFresh";
 import { openLedger } from "../../eval/speed/ledger";
 import { runOnArm } from "../../eval/speed/paired";
 import { sentPair } from "../../eval/speed/pairedReport";
@@ -105,7 +106,7 @@ async function pressed(
   arm: "today" | "help-marks-quote-only" = "today",
   /** The arm switch a paired run sends through, to read the requests as it records them. */
   through?: ReturnType<typeof armSwitch>,
-  set: "call-help" | "call-help-typed" = "call-help",
+  set: "call-help" | "call-help-typed" | "call-help-typed-fresh" = "call-help",
 ) {
   const group = callHelpSet(set).find((each) => each.name === `${set}-${id}`);
   const item = group?.items[0];
@@ -273,6 +274,77 @@ describe("The typed question's cases (#2925)", () => {
   });
 });
 
+describe("The typed question's fresh cases (#2925)", () => {
+  // protects=the second round's slice has its ten kinds a language, the Chinese the English's twins, Documents of its own that no other case or earlier slice has and others beside them in each Library, and every line it rests on in its Documents or call; fails_when=a case is missing, a twin differs, a Library holds only the Document it rests on, or a Document is shared; no_claim=what a model replies.
+  test("10 cases a language, twins, each Library with Documents the question isn't about, resting on lines of its own Documents or call", () => {
+    const english = CALL_HELP_TYPED_FRESH.filter((each) => each.language === "en");
+    const chinese = CALL_HELP_TYPED_FRESH.filter((each) => each.language === "zh-CN");
+    const kinds = [
+      "price",
+      "included",
+      "said",
+      "limit",
+      "unknown",
+      "list",
+      "say",
+      "followup",
+      "pointing",
+      "unknown-say",
+    ];
+    expect(english.map((each) => each.id)).toEqual(kinds.map((kind) => `en-fresh-${kind}`));
+    expect(chinese.map((each) => each.id)).toEqual(kinds.map((kind) => `zh-fresh-${kind}`));
+    for (const [index, each] of english.entries()) {
+      const twin = chinese[index];
+      expect(
+        [twin?.kind, twin?.typed?.form, twin?.rests.length, twin?.typed?.follows === undefined],
+        each.id,
+      ).toEqual([
+        each.kind,
+        each.typed?.form,
+        each.rests.length,
+        each.typed?.follows === undefined,
+      ]);
+    }
+    const files = CALL_HELP_TYPED_FRESH.flatMap((each) => each.documents.map((one) => one.file));
+    expect(new Set(files).size).toBe(files.length);
+    const earlier = new Set(
+      [...CALL_HELP_TYPED, ...CALL_HELP_CASES].flatMap((each) =>
+        each.documents.map((one) => one.file),
+      ),
+    );
+    expect(files.filter((file) => earlier.has(file))).toEqual([]);
+    for (const each of CALL_HELP_TYPED_FRESH) {
+      expect(each.typed?.question, each.id).toEqual(expect.any(String));
+      expect(each.documents.length, each.id).toBeGreaterThanOrEqual(3);
+      const said = callOf(each).map((turn) => turn.text);
+      for (const rest of each.rests.flat()) {
+        if (rest.in === TRANSCRIPT) expect(said, each.id).toContain(rest.line);
+        else expect(each.documents.find((one) => one.file === rest.in)?.text).toContain(rest.line);
+      }
+    }
+    const of = (id: string) => CALL_HELP_TYPED_FRESH.find((each) => each.id === id);
+    expect(of("en-fresh-unknown-say")?.typed?.form).toBe("options");
+    expect(of("en-fresh-unknown-say")?.rests).toEqual([]);
+    expect(of("en-fresh-followup")?.typed?.follows).toEqual(expect.any(String));
+  });
+
+  test("a fresh follow-up is asked after the question it follows up, whose reply cites, and the judge is shown it", async () => {
+    const { run, calls, judged } = await pressed(
+      "en-fresh-followup",
+      "A van charger takes half a day to fit.",
+      { grade: "right", unstated: [] },
+      "today",
+      undefined,
+      "call-help-typed-fresh",
+    );
+    expect(run.status).toBe("done");
+    const typed = calls.filter((call) => call.prompt.includes("typed a question about it"));
+    expect(typed[0]?.prompt).toContain("How much is a van charger?");
+    expect(typed.at(-1)?.prompt).toContain("And how long to fit?");
+    expect(judged[0]).toContain("<typed-before>How much is a van charger?</typed-before>");
+  }, 120_000);
+});
+
 describe("A typed reply's ✓ the judge finds unstated (#2925)", () => {
   // protects=a typed reply's ✓ is counted against it only beside the very sentence the judge finds unstated, each place a Citation shows numbered on its own for the judge; fails_when=a ✓ beside one sentence counts for another sentence carrying the same Citation, as it did when the judge read Citations by number; no_claim=what the judge lists.
   test("is counted by the sentence the judge lists, not by the Citation it carries", () => {
@@ -316,6 +388,8 @@ describe("A question typed during the call (#2925)", { timeout: 120_000 }, () =>
     expect(judged[0]).not.toContain("<button>");
     expect(run.pressedFirst?.firstWordsMs).toEqual(expect.any(Number));
     expect(run.pressedFirst?.doneMs).toBeGreaterThanOrEqual(run.pressedFirst?.firstWordsMs ?? 0);
+    // The button's reply before it is kept beside it, to count a fact repeated uncited.
+    expect(run.text).toMatch(/\[earlier answer\] ★ Yes, Enterprise is \$45 a seat/);
   });
 
   test("a follow-up is asked after the question it follows up, which its reply reads and the judge is shown", async () => {
