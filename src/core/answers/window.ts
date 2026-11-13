@@ -39,8 +39,8 @@ import {
   fitQuestionContext,
   head,
   holdsDocumentText,
+  keptWhole,
   type RequestMind,
-  turnBeforeTokens,
 } from "./context";
 import type { AnswerMessage } from "./engine";
 
@@ -169,6 +169,19 @@ export function createWindowBudget(
     };
   };
 
+  /** The selection can't go whole beside three Passages at the floor, though the Question alone would. */
+  const selectionTooLong = (fixed: number, question: number, selection: number): ProviderError => {
+    console.warn(
+      `A selection didn't fit the model's context window: window ${window.tokens}, instructions and Tools about ${fixed}, Question about ${question}, selection about ${selection}, output at least ${floor}.`,
+    );
+    return {
+      kind: "too-long",
+      message:
+        "The selected text is too long to go with the Question in the model's context window.",
+      tooLong: "selection",
+    };
+  };
+
   /**
    * Sizes the output cap for a request of `fixed` tokens and a Question of `question`, which must
    * leave `need` tokens free and would like `wanted`: the cap gives way only as far as `wanted`
@@ -269,27 +282,37 @@ export function createWindowBudget(
           )
         : size(fixed, question, 0, 0);
       if (error) return { ok: false, error };
-      // At a small window the turn just before is kept, whole or not at all: the room to write
-      // gives way for it, then Passages beyond three. Where it is sent anyway, nothing moves.
-      const turnText = request.reads
-        ? turnBeforeTokens(request.messages, request.question, request.mind)
-        : 0;
-      const turn = turnText > 0 ? Math.ceil(turnText * current) + 2 * MESSAGE_TOKENS : 0;
+      // At a small window the selection goes with the Question, whole, then the turn just before is
+      // kept, whole or not at all: the room to write gives way for them, then Passages beyond three.
+      // Where they are sent anyway, nothing moves.
+      const held = keptWhole(request.messages, request.question, request.mind);
+      const selection =
+        request.reads && held.selection > 0
+          ? Math.ceil((held.selection + held.asked - estimateTokens(request.question)) * current)
+          : 0;
+      const turn =
+        request.reads && held.turn > 0 ? Math.ceil(held.turn * current) + 2 * MESSAGE_TOKENS : 0;
+      const today = limit() - fixed - (request.reserve ?? 0);
+      const besideThree = (ahead: number) =>
+        window.tokens - MARGIN_TOKENS - floor - fixed - question - ahead >=
+        MIN_PASSAGES * onePassage() + STEP_OUTPUT_TOKENS;
+      const selectionLeftOut = selection > 0 && today < question + selection;
+      if (selectionLeftOut && !besideThree(selection)) {
+        return { ok: false, error: selectionTooLong(fixed, question, selection) };
+      }
       const keepsTurn =
-        turn > 0 &&
-        limit() - fixed - (request.reserve ?? 0) < question + turn &&
-        window.tokens - MARGIN_TOKENS - floor - fixed - question - turn >=
-          MIN_PASSAGES * onePassage() + STEP_OUTPUT_TOKENS;
-      if (keepsTurn) {
-        const room = window.tokens - MARGIN_TOKENS - fixed - question - turn;
+        turn > 0 && today < question + selection + turn && besideThree(selection + turn);
+      const keepsSelection = selection > 0 && (selectionLeftOut || keepsTurn);
+      const ahead = (keepsSelection ? selection : 0) + (keepsTurn ? turn : 0);
+      if (ahead > 0) {
+        const room = window.tokens - MARGIN_TOKENS - fixed - question - ahead;
         output = Math.max(
           floor,
           Math.min(window.outputTokens, room - FIRST_SEARCH_PASSAGES * onePassage()),
         );
       }
       const room = limit() - fixed;
-      const kept = question + (keepsTurn ? turn : 0);
-      const forContext = Math.max(kept, room - (request.reserve ?? 0));
+      const forContext = Math.max(question + ahead, room - (request.reserve ?? 0));
       const overhead = MESSAGE_TOKENS * request.messages.length;
       let mindCut: number | undefined;
       const messages = fitQuestionContext(
@@ -299,13 +322,13 @@ export function createWindowBudget(
         // earlier ones it drops must not leave too little for the Question itself (#3045).
         Math.max(
           Math.floor((forContext - overhead) / current),
-          estimateTokens(request.question) + (keepsTurn ? turnText : 0),
+          held.asked + (keepsSelection ? held.selection : 0) + (keepsTurn ? held.turn : 0),
         ),
         request.mind,
         (kept) => {
           mindCut = kept.text ? kept.share : 0;
         },
-        keepsTurn,
+        { selection: keepsSelection, turn: keepsTurn },
       );
       if (!messages) return { ok: false, error: tooLong(fixed + question + output) };
       return {

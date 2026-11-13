@@ -4441,7 +4441,7 @@ export function createAnswers(options: AnswersOptions) {
       text: kept.text,
       selection: kept.selection,
       ...(kept.pictures?.length && { pictures: kept.pictures }),
-      cut: (tokens) => reading.section(tokens, asking),
+      cut: (tokens, withSelection) => reading.section(tokens, asking, withSelection),
     });
     start({
       ...(scopeText && { scopeLine: scopeText }),

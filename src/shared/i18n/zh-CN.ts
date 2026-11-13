@@ -4008,6 +4008,10 @@ export const zhCN = {
   "answer.error.ollama-not-running": "Ollama 没有在这台电脑上运行",
   "answer.error.too-long": "这个问题太长，超出了模型的上限。请缩短问题。",
   "answer.error.too-long.hosted": "内容太长，超出了 {model} 的上限",
+  "answer.error.too-long.selection":
+    "选中的文字太长，在这台电脑上 {model} 放不下。请少选一些，或换一个模型。",
+  "answer.error.too-long.selection.hosted":
+    "选中的文字太长，{model} 放不下。请少选一些，或换一个模型。",
   "answer.error.window-too-small.assistant":
     "在这台电脑上，{model} 的上下文窗口太小，助手用不了它，问题再短也不行。",
   "answer.error.window-too-small.assistant.hosted":

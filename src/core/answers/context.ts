@@ -350,9 +350,10 @@ export interface MindReading {
   /**
    * What of it fits in about `tokens` tokens (`estimateTokens`), the Blocks
    * that match `question` first once it doesn't fit whole; by default, as much
-   * as a Question context in a Mind holds.
+   * as a Question context in a Mind holds. Without the selection when `withSelection` is false:
+   * it goes with the Question then.
    */
-  section(tokens?: number, question?: string): MindSection;
+  section(tokens?: number, question?: string, withSelection?: boolean): MindSection;
 }
 
 /** Where a Block was left out of a cut Mind, as the model reads it. */
@@ -449,13 +450,13 @@ export function readMind(
     .slice(0, 22);
   return {
     version,
-    section: (tokens = QUESTION_CONTEXT_TOKEN_BUDGET, question = "") =>
+    section: (tokens = QUESTION_CONTEXT_TOKEN_BUDGET, question = "", withSelection = true) =>
       cutMind(
         {
           name,
           read,
           focused,
-          selection,
+          selection: withSelection ? selection : "",
           ...(pictures.length > 0 && { pictures }),
         },
         tokens,
@@ -916,7 +917,8 @@ function asMessages(
  * it, to about `tokens` tokens by the Mind's own rules (see `MindReading`).
  */
 export interface RequestMind extends MindParts {
-  cut(tokens: number): MindCut;
+  /** Cut by the Mind's own rules (`MindReading.section`), without the selection when `withSelection` is false. */
+  cut(tokens: number, withSelection?: boolean): MindCut;
 }
 
 /**
@@ -927,7 +929,10 @@ export interface RequestMind extends MindParts {
  * `conversationContext` puts it) comes before the rest, cut by its own rules
  * if it doesn't fit whole; `onCut` hears what was kept of it then. For a
  * model whose context window is known only once the model is ready (see
- * ./window). Null when the Question alone is over the budget.
+ * ./window). `keep`: what a small window keeps whole ahead of the Mind, where
+ * the caller saw it fit, the selection with the Question, then the turn just
+ * before it (#3045). Null when the Question alone, or what `keep` holds, is
+ * over the budget.
  */
 export function fitQuestionContext(
   messages: readonly AnswerMessage[],
@@ -935,31 +940,32 @@ export function fitQuestionContext(
   budget: number,
   mind?: RequestMind,
   onCut?: (kept: MindCut) => void,
-  keepTurn = false,
+  keep: { selection?: boolean; turn?: boolean } = {},
 ): AnswerMessage[] | null {
   const parts = questionParts(messages, question, mind);
   const { above, withText, pictures } = parts;
   let { asked } = parts;
+  const withQuestion = keep.selection === true && parts.selected && mind !== undefined;
+  if (withQuestion) asked = `${mind.selection}\n\n${asked}`;
   let remaining = budget - estimateTokens(asked);
   if (remaining < 0) return null;
-  // At a small window the turn just before is kept whole, ahead of the Mind and older content,
-  // where the caller saw it fit (#3045).
-  const range = keepTurn ? turnRange(above) : null;
+  const range = keep.turn ? turnRange(above) : null;
   const turn = range ? above.slice(range[0], range[1]) : [];
   const turnCost = turn.reduce((sum, piece) => sum + pieceCost(piece), 0);
   if (turnCost > remaining) return null;
   remaining -= turnCost;
   let mindText = "";
-  if (mind && (withText || parts.selected)) {
+  const selected = parts.selected && !withQuestion;
+  if (mind && (withText || selected)) {
     const given = {
       text: withText ? mind.text : "",
-      selection: parts.selected ? mind.selection : "",
+      selection: selected ? mind.selection : "",
     };
     // Less two for the blank lines after the Mind and the selection.
     const needed = estimateTokens(given.text) + estimateTokens(given.selection) + 2;
     let kept: Pick<MindCut, "text" | "selection"> = given;
     if (needed >= remaining) {
-      const cut = mind.cut(remaining - 2);
+      const cut = mind.cut(remaining - 2, !withQuestion);
       onCut?.(cut);
       kept = cut;
     }
@@ -998,16 +1004,21 @@ function questionParts(
     if (rest) first.text = rest;
     else above.shift();
   }
-  // The last message ends with the Question, after whatever Notes (or the selection) come right
-  // before it; if it doesn't, it is kept whole as the Question.
+  // The last message ends with the Question, after whatever Notes (or the selection) come before
+  // it; if it doesn't, it is kept whole as the Question.
   let asked = question;
   let selected = false;
   const last = above.pop();
   if (last?.role === "user" && last.text.endsWith(question)) {
     let before = last.text.slice(0, last.text.length - question.length).trim();
-    if (mind?.selection && before.endsWith(mind.selection)) {
+    const at = mind?.selection ? before.lastIndexOf(mind.selection) : -1;
+    if (mind && at >= 0) {
       selected = true;
-      before = before.slice(0, before.length - mind.selection.length).trim();
+      // What `askedText` puts between the selection and the Question (the Search scope) stays with
+      // the Question, in its place (#3045).
+      const between = before.slice(at + mind.selection.length).trim();
+      if (between) asked = `${between}\n\n${question}`;
+      before = before.slice(0, at).trim();
     }
     if (before) above.push({ role: "user", text: before });
   } else if (last?.role === "user") {
@@ -1038,17 +1049,26 @@ function turnRange(above: readonly Piece[]): [number, number] | null {
 }
 
 /**
- * The estimated tokens of the turn just before the Question (#3045): the newest earlier Question,
- * its Answer and that Answer's records, as `fitQuestionContext` keeps them; 0 with none.
+ * What `fitQuestionContext` always keeps, and what a small window keeps whole ahead of the Mind
+ * (#3045), in estimated tokens: the Question as asked (with the Search scope after a selection);
+ * what the selection adds to it; and the turn just before the Question (the newest earlier
+ * Question, its Answer and that Answer's records). 0 for either of the last two with none.
  */
-export function turnBeforeTokens(
+export function keptWhole(
   messages: readonly AnswerMessage[],
   question: string,
   mind?: RequestMind,
-): number {
-  const { above } = questionParts(messages, question, mind);
+): { asked: number; selection: number; turn: number } {
+  const { above, asked, selected } = questionParts(messages, question, mind);
   const range = turnRange(above);
-  return range ? above.slice(...range).reduce((sum, piece) => sum + pieceCost(piece), 0) : 0;
+  return {
+    asked: estimateTokens(asked),
+    selection:
+      selected && mind
+        ? estimateTokens(`${mind.selection}\n\n${asked}`) - estimateTokens(asked)
+        : 0,
+    turn: range ? above.slice(...range).reduce((sum, piece) => sum + pieceCost(piece), 0) : 0,
+  };
 }
 
 /** Messages as pieces, the records of earlier Answers' Tool calls and a Document's whole text apart from the messages that hold them. */

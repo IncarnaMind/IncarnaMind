@@ -6165,6 +6165,8 @@ export interface ProviderError {
   resetsAt?: string;
   /** A sign-in route's request (a Claude account, Copilot): which of its problems it is, for its own line. */
   signInRoute?: SignInRouteProblem;
+  /** "too-long": the part too long for the window, when it isn't the Question: the selection (#3045). */
+  tooLong?: "selection";
   /**
    * "cost-cap" from a Run's own budget rather than the monthly cap (#1554): that budget, and what
    * the Run had spent when it stopped.

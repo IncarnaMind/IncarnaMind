@@ -1,4 +1,9 @@
-import type { ChatProviderKind, ProviderErrorKind, SignInRouteProblem } from "../../core/api";
+import type {
+  ChatProviderKind,
+  ProviderError,
+  ProviderErrorKind,
+  SignInRouteProblem,
+} from "../../core/api";
 import { OLLAMA_USAGE_URL } from "../../core/providers/catalog/billing";
 import {
   isSignInRoute,
@@ -133,6 +138,8 @@ export interface FailureWhere {
    * Question of the User's, or with none (a call-help press, a check). "none" when left out.
    */
   asked?: AskedWhere;
+  /** "too-long": the part too long, when it isn't the Question (`ProviderError.tooLong`). */
+  tooLong?: ProviderError["tooLong"];
 }
 
 export type AskedWhere = "assistant" | "question" | "none";
@@ -151,6 +158,15 @@ export function answerProblem(
 ): AnswerProblem {
   if (where.local && (kind === "out-of-credit" || kind === "region")) {
     return ANSWER_PROBLEMS.refused;
+  }
+  if (kind === "too-long" && where.tooLong === "selection") {
+    return {
+      line:
+        where.local === false
+          ? "answer.error.too-long.selection.hosted"
+          : "answer.error.too-long.selection",
+      fix: chooseModel,
+    };
   }
   // A hosted model's window is filled by more than the Question (its context, the Passages), so
   // shortening the Question is not what helps.
