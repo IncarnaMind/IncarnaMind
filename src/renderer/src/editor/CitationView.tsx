@@ -48,6 +48,7 @@ import {
 } from "../../../shared/locations";
 import { checkedByMe } from "../../../shared/signOffs";
 import { useAnswers } from "../answers";
+import { CallStartsContext, OtherCallsContext, useTranscriptStart } from "../callStarts";
 import { type MindFormatting, useMindFormatting } from "../citationFormatting";
 import { followNewVersion } from "../citationUpdate";
 import { useCitationRecheck, useQuoteLook } from "../citationVersion";
@@ -207,6 +208,9 @@ export function CitationView({
   /** The Mind's group: the Document opens in the group to its right. */
   const place = useTabPlace();
   const state = citationState(attributes, documents, kept, keptInside);
+  // A help reply's check never reads another call's Transcript, so Check again can't change it.
+  const otherCall =
+    useContext(OtherCallsContext).has(state.documentId ?? "") && state.check === "not-checked";
   const liveVersion = useAppStore(
     (store) => store.documents.find((each) => each.id === state.documentId)?.contentHash,
   );
@@ -250,7 +254,11 @@ export function CitationView({
   // In a footnote's text it is part of the footnote: it shows where it points, not a number.
   const footnoteId = useContext(InFootnoteContext);
   const inFootnote = footnoteId !== null;
-  const pointsTo = citationSource(shown, t, language, documents).text;
+  const ownStart = useTranscriptStart(attributes.documentId ?? null);
+  const answerStarts = useContext(CallStartsContext);
+  const started = answerStarts ? (answerStarts.get(attributes.documentId ?? "") ?? null) : ownStart;
+  const source = citationSource(shown, t, language, documents).text;
+  const pointsTo = started ? t("citation.where", { document: source, location: started }) : source;
   /** Clicked: the card stays until it is dismissed. */
   const [pinned, setPinned] = useState(false);
   /** Hovered or focused, with the card, the marker or its mark. */
@@ -674,13 +682,15 @@ export function CitationView({
               recheck={recheck}
               recheckAsked={recheckAsked}
               badgeText={badgeText}
+              started={started}
               onOpen={openFromCard}
               onUpdate={choices.update}
               onKeep={choices.keepOld}
               onPageChecked={choices.pageChecked}
               onUseDocumentWording={choices.useDocumentWording}
+              otherCall={otherCall}
               checkAgainOf={
-                state.check === "not-checked" && state.reason !== "small-model"
+                state.check === "not-checked" && state.reason !== "small-model" && !otherCall
                   ? judgedAnswer
                   : null
               }
@@ -828,6 +838,7 @@ function CitationCard({
   recheck,
   recheckAsked,
   badgeText,
+  started,
   inAnswer,
   note,
   onOpen,
@@ -835,6 +846,7 @@ function CitationCard({
   onKeep,
   onPageChecked,
   onUseDocumentWording,
+  otherCall,
   checkAgainOf,
   onRemove,
   onRegenerate,
@@ -855,6 +867,8 @@ function CitationCard({
   recheck: CitationRecheck | "failed" | null;
   recheckAsked: boolean;
   badgeText: string;
+  /** When its call started, beside its name (`CallStartsContext`, `useTranscriptStart`). */
+  started: string | null;
   inAnswer: boolean;
   /** In a note style, the note the Citation is written in, as an export will write it. */
   note: readonly StyledRun[] | null;
@@ -866,6 +880,8 @@ function CitationCard({
   onPageChecked: (() => void) | null;
   /** Use the Document's wording: null where the quote differs in more than its marks, or can't be changed. */
   onUseDocumentWording: (() => void) | null;
+  /** Left unchecked as another call's, which a help reply's check never reads (#3005). */
+  otherCall: boolean;
   /** An Answer's Citation not checked: the Answer whose sentences Check again judges (#2311). */
   checkAgainOf: { id: string; conversationId: string } | null;
   /** Null where the text can't be changed, such as an Answer in the assistant. */
@@ -903,7 +919,7 @@ function CitationCard({
       : null;
   // Once checked, the state line names the place, or the Document if it names none; a page line
   // under the name says the place, so the name stands alone.
-  const source =
+  const named =
     scanWhere ??
     (checked || withPdfPage
       ? where || place
@@ -912,6 +928,7 @@ function CitationCard({
       : where
         ? citationSource(attributes, t, language, lives).text
         : name);
+  const source = named && started ? `${named} · ${started}` : named;
   const limit = useJudgementLimit();
   const modelNames = useModelNames();
   const judgedAnswer = useContext(JudgedAnswerContext);
@@ -919,22 +936,25 @@ function CitationCard({
     ? modelNames(judgedAnswer.model.modelId, judgedAnswer.model.providerId).name
     : null;
   const limited = limitReason(t, state.reason, limit, judgedBy);
+  // Another call's quote is left out whatever a limit or the model allows: that is its reason.
   const reason =
     state.check === "checking"
       ? t("citation.reason.checking")
-      : (limited ??
-        (state.reason === "small-model"
-          ? t("citation.reason.small-model")
-          : state.check === "not-checked"
-            ? t("citation.reason.notChecked")
-            : state.reason === "unsure-word"
-              ? // The line under it says which words may be misread.
-                null
-              : state.reason === "document-removed" && attributes.yourNoteAt
-                ? t("citation.reason.source-removed")
-                : state.reason
-                  ? t(`citation.reason.${state.reason}`)
-                  : null));
+      : otherCall
+        ? t("citation.reason.otherCall")
+        : (limited ??
+          (state.reason === "small-model"
+            ? t("citation.reason.small-model")
+            : state.check === "not-checked"
+              ? t("citation.reason.notChecked")
+              : state.reason === "unsure-word"
+                ? // The line under it says which words may be misread.
+                  null
+                : state.reason === "document-removed" && attributes.yourNoteAt
+                  ? t("citation.reason.source-removed")
+                  : state.reason
+                    ? t(`citation.reason.${state.reason}`)
+                    : null));
   const removed = state.reason === "document-removed";
   const quotedWords = state.check === "not-found" && parseQuotedWords(attributes.quotedWords);
   const runOn = quotedWordsRunOnTo(attributes.quotedWords);
@@ -992,7 +1012,7 @@ function CitationCard({
             data-testid="citation-source"
             title={source}
             // A scan's name and place wrap: the place must show, whatever the name's length (#535).
-            className={`citation-card-source${scanWhere ? " citation-card-source--scan" : ""}`}
+            className={`citation-card-source${scanWhere ? " citation-card-source--scan" : ""}${started ? " citation-card-source--call" : ""}`}
           >
             {source}
           </p>

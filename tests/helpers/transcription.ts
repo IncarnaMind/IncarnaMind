@@ -197,6 +197,7 @@ export async function transcribingCore(
     helpFormJudged,
     helpMarksQuoteOnly,
     callHelpForm,
+    callsUnmarked,
     examples,
     serving,
     engineFactory,
@@ -238,6 +239,7 @@ export async function transcribingCore(
     helpFormJudged?: CoreAdapters["helpFormJudged"];
     helpMarksQuoteOnly?: CoreAdapters["helpMarksQuoteOnly"];
     callHelpForm?: CoreAdapters["callHelpForm"];
+    callsUnmarked?: CoreAdapters["callsUnmarked"];
     /** The shipped examples' folder, for a core that makes them. */
     examples?: string;
     /** The Mac's calendars, for a Meeting started from a calendar event (#190). */
@@ -276,6 +278,7 @@ export async function transcribingCore(
     ...(helpFormJudged && { helpFormJudged }),
     ...(helpMarksQuoteOnly && { helpMarksQuoteOnly }),
     ...(callHelpForm && { callHelpForm }),
+    ...(callsUnmarked && { callsUnmarked }),
     ...(examples && { paths: { dataDir, examples } }),
     ...(systemCalendar && { systemCalendar }),
   });

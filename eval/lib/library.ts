@@ -132,6 +132,10 @@ export interface LibraryOptions {
   helpMarksQuoteOnly?: CoreAdapters["helpMarksQuoteOnly"];
   /** The form call help is asked and read in, for an arm that decides it. */
   callHelpForm?: CoreAdapters["callHelpForm"];
+  /** See `CoreAdapters.callsUnmarked`. */
+  callsUnmarked?: CoreAdapters["callsUnmarked"];
+  /** The core's clock, for a run that records a call on another day than today. */
+  now?: CoreAdapters["now"];
 }
 
 export interface EvalWebPage {
@@ -339,6 +343,8 @@ export async function openLibrary(options: LibraryOptions): Promise<Library> {
     ...(options.quotesAsGiven && { quotesAsGiven: options.quotesAsGiven }),
     ...(options.helpMarksQuoteOnly && { helpMarksQuoteOnly: options.helpMarksQuoteOnly }),
     ...(options.callHelpForm && { callHelpForm: options.callHelpForm }),
+    ...(options.callsUnmarked && { callsUnmarked: options.callsUnmarked }),
+    ...(options.now && { now: options.now }),
   });
   const close = async () => {
     core.close();

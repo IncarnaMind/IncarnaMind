@@ -1401,6 +1401,11 @@ export interface CoreAdapters {
    */
   callHelpForm?: () => CallHelpForm | undefined;
   /**
+   * Whether an earlier call's Transcript is sent and shown as before #3005, unmarked; only tests
+   * and the evaluation pass one.
+   */
+  callsUnmarked?: () => boolean | undefined;
+  /**
    * Tunes and watches the search Tool for Answers' searches (reranking depth,
    * Passages handed, a callback with each search's timings). Only the
    * evaluation passes one.

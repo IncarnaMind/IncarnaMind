@@ -45,6 +45,8 @@ export interface Arm {
   helpMarksQuoteOnly?: boolean;
   /** The form call help is asked and read in (#2847); unset: today's. */
   callHelpForm?: CallHelpForm;
+  /** Whether an earlier call's Transcript is sent and shown unmarked, as before #3005; unset: marked. */
+  callsUnmarked?: boolean;
 }
 
 /** The most of the live transcript `newest-stretch` keeps: some three minutes of talk. */
@@ -207,6 +209,11 @@ export const ARMS: readonly Arm[] = [
     callHelpForm: "fact lines",
   },
   {
+    id: "calls-unmarked",
+    label: "an earlier call's Transcript sent and shown like this call's, as before #3005",
+    callsUnmarked: true,
+  },
+  {
     id: "retrieve-first",
     label:
       "the Question searched before the first call, answered from those Passages unless it needs more (#1633)",
@@ -331,6 +338,7 @@ export function armSwitch() {
     quotesAsGiven: () => current?.quotesAsGiven,
     helpMarksQuoteOnly: () => current?.helpMarksQuoteOnly,
     callHelpForm: () => current?.callHelpForm,
+    callsUnmarked: () => current?.callsUnmarked,
     /** The requests sent since it was last asked, oldest first. */
     takeSent: (): SentRequest[] => sent.splice(0),
     /** The sentence check's replies since it was last asked, oldest first. */

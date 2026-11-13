@@ -19,6 +19,8 @@ import type { TimingRecorder } from "../lib/timing";
 import { armNamed, armSwitch, type SentRequest } from "./arms";
 import { callHelpSet, rewrittenReplies } from "./callHelp";
 import { marksSection } from "./callHelpMarksReport";
+import { earlierCallsSet } from "./earlierCalls";
+import { earlierCallsSection } from "./earlierCallsReport";
 import { gradeAnswer, judgeOf } from "./judge";
 import { openLedger } from "./ledger";
 import { meetingNotesSet } from "./meetingNotes";
@@ -88,6 +90,10 @@ function groupsOf(set: SetId, cacheDir: string): PairedGroup[] {
     case "call-help-marks-3":
     case "call-help-marks-4":
       return callHelpSet(set);
+    case "call-help-earlier-calls":
+    case "call-help-earlier-calls-2":
+    case "call-help-earlier-calls-3":
+      return earlierCallsSet(set);
     case "meeting-notes":
       return meetingNotesSet();
   }
@@ -243,6 +249,7 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
       quotesAsGiven: switches[which].quotesAsGiven,
       helpMarksQuoteOnly: switches[which].helpMarksQuoteOnly,
       callHelpForm: switches[which].callHelpForm,
+      callsUnmarked: switches[which].callsUnmarked,
     }));
     const spentInCores = async () =>
       (await spentUsd(opened[0].library.core)) + (await spentUsd(opened[1].library.core));
@@ -396,6 +403,7 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
     "",
   ]);
   const marks = marksSection(rows);
+  const earlierCalls = earlierCallsSection(rows, [arms[0].id, arms[1].id]);
   const report = [
     `# Paired run: ${arms[0].id} against ${arms[1].id}`,
     "",
@@ -419,6 +427,7 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
     "",
     ...sections,
     ...(marks ? [marks, ""] : []),
+    ...(earlierCalls ? [earlierCalls, ""] : []),
     "## Item by item",
     "",
     ...items,

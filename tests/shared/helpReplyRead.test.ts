@@ -341,7 +341,7 @@ describe("A call-help reply reads alike in its panel and its check (#2925)", () 
     ]);
   });
 
-  // protects=a Citation marker on a "→" line comes off, whichever arrow, bold or language the model wrote it in, and before a full stop or a word, while every other marker stays and the chips count places as the reply was written; fails_when=a "→" line keeps its chip or goes to the check, another line loses a marker, a space is left before a full stop, or a chip's place moves; no_claim=what the check finds.
+  // protects=a Citation marker on a "→" line comes off, whichever arrow, bold or language the model wrote it in, before a full stop, a word or a number, and a run of markers side by side comes off together, leaving the words apart as written; fails_when=a "→" line keeps its chip or goes to the check, another line loses a marker, a space is left before a full stop, two words or a word and a number run together, a Chinese line gains a space, or a chip's place moves; no_claim=what the check finds.
   test.each([
     [
       "★ We can do 60 days [^1]\n→ keeps it moving [^2]",
@@ -363,7 +363,13 @@ describe("A call-help reply reads alike in its panel and its check (#2925)", () 
       "★ We can do 60 days [^1]\n→ keeps [^2] it moving",
       "★ We can do 60 days [^1]\n→ keeps it moving",
     ],
+    ["★ We can do 60 days [^1]\n→ keep [^2][^3]moving", "★ We can do 60 days [^1]\n→ keep moving"],
+    ["★ We can do 60 days [^1]\n→ allow [^2]60 days", "★ We can do 60 days [^1]\n→ allow 60 days"],
     ["★ 我们可以延长到 60 天 [^1]\n→ 推进成交 [^2]", "★ 我们可以延长到 60 天 [^1]\n→ 推进成交"],
+    [
+      "★ 我们可以延长到 60 天 [^1]\n→ 先报 45 万元[^2]对方更容易接受",
+      "★ 我们可以延长到 60 天 [^1]\n→ 先报 45 万元对方更容易接受",
+    ],
   ])("a → line's marker comes off: %s", (reply, kept) => {
     const read = helpReplyRead(reply, helpLayout("say", { status: "done", textBehind: false }));
     expect(read.text).toBe(kept);
@@ -372,6 +378,54 @@ describe("A call-help reply reads alike in its panel and its check (#2925)", () 
     expect(option?.lead.flatMap((piece) => (piece.kind === "citation" ? [piece.at] : []))).toEqual([
       0,
     ]);
+  });
+
+  // protects=a "→" line that puts words in quotation marks the quote check reads (four words or more, or six Chinese characters) keeps its marker and its place, so its words are checked; one that quotes fewer loses it as any "→" line; fails_when=a quoting "→" line loses its chip or place, or a short quote keeps one; no_claim=how a model quotes.
+  test.each([
+    [
+      '★ We can do 60 days [^1]\n→ they said "we must sign by Friday" [^2]',
+      '★ We can do 60 days [^1]\n→ they said "we must sign by Friday" [^2]',
+      [[2, 1]],
+    ],
+    [
+      "★ 我们可以延长到 60 天 [^1]\n→ 对方说“这个月之内必须签约” [^2]",
+      "★ 我们可以延长到 60 天 [^1]\n→ 对方说“这个月之内必须签约” [^2]",
+      [[2, 1]],
+    ],
+    [
+      '★ We can do 60 days [^1]\n→ keeps the "gold" tier [^2]',
+      '★ We can do 60 days [^1]\n→ keeps the "gold" tier',
+      [],
+    ],
+  ])("a → line that quotes keeps its marker: %s", (reply, kept, places) => {
+    const read = helpReplyRead(reply, helpLayout("say", { status: "done", textBehind: false }));
+    expect(read.text).toBe(kept);
+    expect(
+      read.options.flatMap((item) =>
+        (item.effect ?? []).flatMap((piece) =>
+          piece.kind === "citation" ? [[piece.marker, piece.at]] : [],
+        ),
+      ),
+    ).toEqual(places);
+  });
+
+  // protects=while a reply streams, a "→" line whose quotation is still being written never shows a chip that then goes: its chip comes once the quotation is whole and its marker written, and stays; fails_when=the chip shows and then goes, or goes and then comes back; no_claim=how long the reply takes.
+  test("while it streams, a → line that quotes never shows a chip that then goes", () => {
+    const reply =
+      '★ We can do 60 days [^1]\n→ they said "we must sign by Friday [^2] or lose the slot"';
+    const shown: boolean[] = [];
+    for (let end = 1; end <= reply.length; end++) {
+      const { options } = helpReplyRead(
+        reply.slice(0, end),
+        helpLayout("say", { status: end < reply.length ? "streaming" : "done", textBehind: false }),
+      );
+      shown.push(
+        options.some((item) => (item.effect ?? []).some((piece) => piece.kind === "citation")),
+      );
+    }
+    const first = shown.indexOf(true);
+    expect(first).toBe(reply.length - 1);
+    expect(shown.slice(first).every(Boolean)).toBe(true);
   });
 
   // protects=a reply kept before the "→" rule, a marker still on its "→" line, shows each other chip at the place its check gave it, so no ✓ moves to another chip; fails_when=the second option's chip counts its place without the "→" line's marker; no_claim=how such a reply was written.
@@ -403,7 +457,7 @@ describe("A call-help reply reads alike in its panel and its check (#2925)", () 
     ).toEqual([0, 1]);
   });
 
-  // protects=a reading's first line, the reply's own reading, loses its marker in English and Chinese, while its moment keeps its own and its quotation marks; a reading written only as its moment keeps its marker; nothing comes off a short line; fails_when=a reading's first line keeps a chip, its moment loses one, a reading that is only its moment loses its Citation of the call, or a short line changes; no_claim=how the model words a reading.
+  // protects=a reading's first line, the reply's own reading, loses its marker in English and Chinese, a word or two it quotes inside it included, while its moment keeps its own and its quotation marks; one that quotes as many words as the quote check reads (four, or six Chinese characters) keeps its marker, so its words are checked; one that is nothing but its quoted moment, however short, with or without its time, keeps its marker; fails_when=a reading's first line keeps a chip because it quotes a word, loses one while it quotes words the check would read, its moment loses one, or a short moment loses its Citation of the call; no_claim=how the model words a reading.
   test.each([
     [
       "★ They want the total [^1]\n12:04 “our budget stops at ten” [^2]\n→ give the tier [^3]",
@@ -421,6 +475,28 @@ describe("A call-help reply reads alike in its panel and its check (#2925)", () 
       "★ “We can't go above forty” [^1]\n→ they want a lower price",
       "★ “We can't go above forty” [^1]\n→ they want a lower price",
     ],
+    [
+      "★ 12:04 “We can't go above forty” [^1]\n→ they want a lower price",
+      "★ 12:04 “We can't go above forty” [^1]\n→ they want a lower price",
+    ],
+    [
+      "★ They want the “gold” bundle [^1]\n→ ask how many seats",
+      "★ They want the “gold” bundle\n→ ask how many seats",
+    ],
+    ["★ 对方想要“金卡”套餐 [^1]\n→ 问清席位数", "★ 对方想要“金卡”套餐\n→ 问清席位数"],
+    [
+      '★ They call the price "far too steep for a pilot" [^1]\n→ offer the two-year term',
+      '★ They call the price "far too steep for a pilot" [^1]\n→ offer the two-year term',
+    ],
+    [
+      "★ 对方想压价：“今年我们最多只能出四十美元” [^1]\n→ 先给阶梯价",
+      "★ 对方想压价：“今年我们最多只能出四十美元” [^1]\n→ 先给阶梯价",
+    ],
+    [
+      "★ “too expensive” [^1]\n→ they want a lower price",
+      "★ “too expensive” [^1]\n→ they want a lower price",
+    ],
+    ["★ “太贵了” [^1]\n→ 他们想要更低的价格", "★ “太贵了” [^1]\n→ 他们想要更低的价格"],
   ])("a reading's first line loses its marker, its moment keeps its own: %s", (reply, kept) => {
     const layout = helpLayout("want", { status: "done", textBehind: false });
     const read = helpReplyRead(reply, layout);
@@ -428,12 +504,32 @@ describe("A call-help reply reads alike in its panel and its check (#2925)", () 
     expect(helpReplyRead(read.text, layout).text).toBe(read.text);
   });
 
-  test("nothing comes off a short line", () => {
-    const reply = "- The roof isn't drilled [^1]\n- 上线推迟到 11 月 18 日 [^2]";
-    expect(
-      helpReplyRead(reply, helpLayout("sum", { status: "done", textBehind: false })).text,
-    ).toBe(reply);
-  });
+  // protects=a short-lines reply is read as written, a "→" line in it included: its markers, chips and places stay as on main, in English and Chinese, since short lines are asked for no "→" line; fails_when=a short line or a short-lines reply's "→" line loses a marker, a chip or its place; no_claim=what the check finds on that line.
+  test.each([
+    [
+      "check",
+      "- They said the panels are cleaned once a year [^1]\n- Supported: the sheet says once a year [^2]\n→ You can confirm it; the plan costs €600 a year [^3]",
+    ],
+    [
+      "check",
+      "- 对方说组件每年清洗一次 [^1]\n- 文档支持：每年清洗一次 [^2]\n→ 可以直接确认；套餐每年 4,500 元 [^3]",
+    ],
+    ["sum", "- The roof isn't drilled [^1]\n- 上线推迟到 11 月 18 日 [^2]"],
+  ] as const)(
+    "nothing comes off a short-lines reply, its → line included: %s %s",
+    (kind, reply) => {
+      const read = helpReplyRead(reply, helpLayout(kind, { status: "done", textBehind: false }));
+      expect(read.text).toBe(reply);
+      const places = read.options.flatMap((item) =>
+        [item.lead, ...item.notes, item.effect ?? []]
+          .flat()
+          .flatMap((piece) => (piece.kind === "citation" ? [[piece.marker, piece.at]] : [])),
+      );
+      expect(places).toEqual(
+        [...reply.matchAll(/\[\^(\d+)\]/g)].map((match, at) => [Number(match[1]), at]),
+      );
+    },
+  );
 
   // protects=while a reply streams the panel never draws a "→" line's marker, so no chip shows that its end would take away; fails_when=a chip shows on a "→" line before the reply ends; no_claim=how long the reply takes.
   test("while it streams, a → line's marker is never drawn", () => {

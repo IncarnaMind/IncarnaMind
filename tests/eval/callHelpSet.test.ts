@@ -228,7 +228,7 @@ describe("A press during the call", { timeout: 120_000 }, () => {
   test("a press records each place: its sentence, every quote that sentence cites, and the mark the panel shows there", async () => {
     const { run } = await pressed("en-answer-sso", ENTERPRISE, { grade: "right", unstated: [] });
 
-    expect(run.places).toEqual([
+    expect(run.markPlaces).toEqual([
       {
         id: "p1",
         number: 1,
@@ -269,7 +269,7 @@ describe("A press during the call", { timeout: 120_000 }, () => {
       expect(run.help?.written).toBe(reply);
       expect(run.help?.stored.map((line) => line.kind)).toEqual(kinds);
       expect(through.takeCites().map((cite) => cite.marker)).toEqual([1, 2]);
-      expect(run.places?.map((place) => place.marker)).toEqual(places);
+      expect(run.markPlaces?.map((place) => place.marker)).toEqual(places);
     },
   );
 

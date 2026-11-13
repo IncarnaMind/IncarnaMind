@@ -277,7 +277,14 @@ import { createPlanPace, type Plan } from "./library/planPace";
 import { createTagging } from "./library/tagging";
 import type { LibrarySettings, TaggingClassifier } from "./library/types";
 import { keyMarks } from "./markKeys";
-import { createMeetings, isMemo, linkTranscript, meetingRecord } from "./meetings";
+import {
+  callOfTranscript,
+  createMeetings,
+  isMemo,
+  linkTranscript,
+  meetingRecord,
+  otherCallTranscripts,
+} from "./meetings";
 import { listParts, meetingFolder } from "./meetings/audioFiles";
 import { createMeetingFill } from "./meetings/fill";
 import { createCaptureHealth } from "./meetings/health";
@@ -2343,11 +2350,14 @@ export function createCore(adapters: CoreAdapters): Core {
     mindExists,
     readableMindName,
     liveTranscript: (mindId) => liveTranscriptOf(mindId),
+    noteCall: (mindId) => noteCallOf(mindId),
     meetingHelp: (mindId, question) => meetingHelpOf(mindId, question),
+    otherCallTranscripts: (mindId) => otherCallTranscripts(db, mindId),
     helpFormJudged: () => adapters.helpFormJudged?.() ?? false,
     quotesAsGiven: () => adapters.quotesAsGiven?.() ?? false,
     helpMarksQuoteOnly: () => adapters.helpMarksQuoteOnly?.() ?? false,
     callHelpForm: () => adapters.callHelpForm?.(),
+    callsUnmarked: () => adapters.callsUnmarked?.() ?? false,
     providerExists: (providerId) => chat.exists(providerId),
     checkAnswer: (input) => checks.checkAnswer(input),
     estimateAnswerCheck: (input) => checks.estimateAnswerCheck(input),
@@ -2439,6 +2449,17 @@ export function createCore(adapters: CoreAdapters): Core {
         documents.pageTexts(documentId, contentHash, from, to),
       documentDate: (documentId) => documents.documentDate(documentId),
       speakers: (documentId) => documents.speakersOf(documentId),
+      callOf: (documentId) => {
+        const call = callOfTranscript(db, documentId);
+        return (
+          call && {
+            note:
+              minds.locate(call.mindId)?.name ||
+              translate(settings.get().language, "mind.untitled"),
+            startedAt: call.startedAt,
+          }
+        );
+      },
     },
     toolProviders: [
       {
@@ -2581,8 +2602,8 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     // Every window hears of each message as it is added or written.
     conversations: {
-      add: (input, answerModel, read, emit = true, askedIn) => {
-        const added = conversations.add(input, answerModel, read, askedIn);
+      add: (input, answerModel, read, emit = true, askedIn, pressed) => {
+        const added = conversations.add(input, answerModel, read, askedIn, pressed);
         if (emit) publishConversation(added.turn);
         return added;
       },
@@ -2599,8 +2620,8 @@ export function createCore(adapters: CoreAdapters): Core {
         if (question) events.emit("conversation.message", question);
         return question;
       },
-      restartAnswer: (answerId, answerModel, read, emit = true, origin) => {
-        const turn = conversations.restartAnswer(answerId, answerModel, read, origin);
+      restartAnswer: (answerId, answerModel, read, emit = true, origin, pressed) => {
+        const turn = conversations.restartAnswer(answerId, answerModel, read, origin, pressed);
         if (emit) {
           // An origin and the Answer it resets were written together: both changed at once.
           if (origin) events.emit("conversation.message", turn.question);
@@ -4933,6 +4954,8 @@ export function createCore(adapters: CoreAdapters): Core {
   let meetingHelpOf = (_mindId: string, _question: string): MeetingHelpKind | null => null;
   /** See `AnswersOptions.liveTranscript`; set once Meetings are. */
   let liveTranscriptOf = async (_mindId: string): Promise<LiveTranscript | null> => null;
+  /** See `AnswersOptions.noteCall`; set once Meetings are. */
+  let noteCallOf = (_mindId: string): { live: boolean; transcript: string | null } | null => null;
   let transcriptSaved = (_meetingId: string) => {};
   // A pass run again at start, by the Meetings' sweep, begins before the notes can hear of it.
   const writtenAtStart: string[] = [];
@@ -5542,6 +5565,17 @@ export function createCore(adapters: CoreAdapters): Core {
   const loginItemState = (): OpenAtLogin =>
     adapters.loginItem?.get() ?? { supported: false, on: false, needsApproval: false };
 
+  noteCallOf = (mindId) => {
+    const meeting = meetings
+      .list()
+      .find((each) => each.kind === "meeting" && each.mindId === mindId);
+    return meeting
+      ? {
+          live: meeting.status === "recording" || meeting.status === "paused",
+          transcript: meeting.transcript?.documentId ?? null,
+        }
+      : null;
+  };
   liveTranscriptOf = async (mindId) => {
     // A voice memo's speech isn't a call's: no Question listens to it (#1568).
     const meeting = meetings

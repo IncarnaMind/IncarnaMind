@@ -71,7 +71,8 @@ function batchOf(call: GenerateCall, verdicts: readonly [string, Verdict][]): { 
 }
 
 interface Marking {
-  reply: string;
+  /** The reply, or the reply given the call's newest line, which a "call" record quotes. */
+  reply: string | ((heard: string) => string);
   /** What each marker quotes: the price line found ahead, or the call's newest line. */
   records?: readonly { marker: number; from: "sheet" | "call" }[];
   verdicts?: readonly [string, Verdict][];
@@ -86,23 +87,25 @@ function markingModel(given: Marking, calls: ModelCall[], batches: GenerateCall[
   return scriptedModel(
     (call) => {
       calls.push(call);
-      if (call.results.some((result) => result.tool === "cite")) {
-        return { text: given.reply, ...(given.pause && { pause: given.pause }) };
-      }
       const [sheet] = shownPassages(block(call.prompt, "found-in-documents"));
       const heard = shownPassages(block(call.prompt, "live-transcript")).at(-1);
+      const newest = (heard?.text.split("\n").at(-1) ?? "").replace(/^\[[^\]]*\]\s*/, "");
+      const text = typeof given.reply === "function" ? given.reply(newest) : given.reply;
+      if (call.results.some((result) => result.tool === "cite")) {
+        return { text, ...(given.pause && { pause: given.pause }) };
+      }
       const citations = (given.records ?? [{ marker: 1, from: "sheet" }]).flatMap((record) => {
         const passage = record.from === "sheet" ? sheet : heard;
         if (!passage) return [];
-        const quote =
-          record.from === "sheet"
-            ? PRICE
-            : (passage.text.split("\n").at(-1) ?? "").replace(/^\[[^\]]*\]\s*/, "");
-        return [{ marker: record.marker, passage: passage.id, quote }];
+        return [
+          {
+            marker: record.marker,
+            passage: passage.id,
+            quote: record.from === "sheet" ? PRICE : newest,
+          },
+        ];
       });
-      return citations.length > 0
-        ? { calls: [{ tool: "cite", input: { citations } }] }
-        : { text: given.reply };
+      return citations.length > 0 ? { calls: [{ tool: "cite", input: { citations } }] } : { text };
     },
     {
       generate: (call) => {
@@ -394,6 +397,33 @@ describe("call help's ✓ comes only from the sentence check", { timeout: 60_000
     ]);
     expect(after.citations[0]?.passedAt).toEqual([0]);
   });
+
+  // protects=a short-lines reply's "→" line is kept as written: a Check reply as main writes one keeps the marker on its "→" line, its Citation and its chip at its place, in English and Chinese, since short lines are asked for no "→" line; fails_when=the core's kept text loses that marker, its Citation goes, or the chip's place moves; no_claim=what the check decides about that line.
+  test.each([
+    "- They said the panels are cleaned once a year [^1]\n- Supported: the sheet says once a year [^2]\n→ You can confirm it; Enterprise is $45 a seat [^3]",
+    "- 对方说组件每年清洗一次 [^1]\n- 文档支持：每年清洗一次 [^2]\n→ 可以直接确认；企业版每个席位 45 美元 [^3]",
+  ])(
+    "a Check reply's → line keeps its marker, its Citation and its chip's place: %s",
+    async (reply) => {
+      const { core, meeting } = await setUp({
+        reply,
+        records: [
+          { marker: 1, from: "call" },
+          { marker: 2, from: "sheet" },
+          { marker: 3, from: "sheet" },
+        ],
+      });
+
+      const after = await (await pressed(core, meeting, "check")).judged();
+
+      expect(after.text).toBe(reply);
+      expect(after.citations.map((citation) => citation.marker).sort()).toEqual([1, 2, 3]);
+      const arrow = readHelpReply(after.text)
+        .flatMap((item) => item.effect ?? [])
+        .flatMap((piece) => (piece.kind === "citation" ? [[piece.marker, piece.at]] : []));
+      expect(arrow).toEqual([[3, 2]]);
+    },
+  );
 
   test("a sentence with a calculated figure's marker is the figure check's, not the sentence check's: its Citation stays plain", async () => {
     const reply = "★ Enterprise is [=1] a seat a month [^1]\n→ answers at once";
@@ -927,6 +957,84 @@ describe("a reply is kept, checked and read again as the panel shows it (#2925)"
     );
     expect(after.citations.map((citation) => citation.check)).toEqual(["not-found"]);
   });
+
+  // protects=a reading's first line or an option's "→" line that puts words in quotation marks keeps its marker, so the quote check reads those words as on main: words the call never had leave the Citation not found, and a reply's own line quoting them never shows them with nothing beside it; fails_when=the marker comes off such a line, so its Citation goes and its words stay in quotation marks unchecked; no_claim=how a model quotes.
+  test.each([
+    {
+      kind: "want",
+      reply:
+        '★ They want a lower price: "We cannot go above forty dollars this year" [^1]\n→ offer the two-year term',
+      records: [{ marker: 1, from: "call" }],
+      not: 1,
+    },
+    {
+      kind: "want",
+      reply: '★ They call the price "far too steep for a pilot" [^1]\n→ offer the two-year term',
+      records: [{ marker: 1, from: "call" }],
+      not: 1,
+    },
+    {
+      kind: "answer",
+      reply:
+        '★ Yes, Enterprise is $45 a seat with single sign-on [^1]\n→ they said "we must sign by Friday", so this answers it [^2]',
+      records: [
+        { marker: 1, from: "sheet" },
+        { marker: 2, from: "call" },
+      ],
+      not: 2,
+    },
+  ] as const)(
+    "a line that quotes words the call never had keeps its marker, its Citation not found: $reply",
+    async ({ kind, reply, records, not }) => {
+      const { core, meeting } = await setUp({ reply, records });
+      const after = await (await pressed(core, meeting, kind)).judged();
+      expect(after.text).toBe(reply);
+      expect(after.citations.find((citation) => citation.marker === not)?.check).toBe("not-found");
+    },
+  );
+
+  // protects=a Chinese reading's first line quoting the other side keeps its marker, so the quote check reads the words and, on an English call, takes their marks off as a translation, as on main; fails_when=the marker comes off and the words stay in quotation marks with no Citation beside them; no_claim=how a model translates.
+  test("a Chinese reading that quotes the other side keeps its marker, and the quote check reads it", async () => {
+    const reply = "★ 对方想压价：“今年我们最多只能出四十美元” [^1]\n→ 先给阶梯价";
+    const { core, meeting } = await setUp({ reply, records: [{ marker: 1, from: "call" }] });
+    const after = await (await pressed(core, meeting, "want")).judged();
+    expect(after.text).toBe("★ 对方想压价：今年我们最多只能出四十美元 [^1]\n→ 先给阶梯价");
+    expect(after.citations.map((citation) => citation.marker)).toEqual([1]);
+  });
+
+  // protects=a reading's first line or an option's "→" line that quotes words the call did have keeps its marker and its Citation, found by the quote check; fails_when=the marker comes off such a line or the words aren't looked for on the call; no_claim=how a model quotes.
+  test.each([
+    {
+      kind: "want",
+      reply: (heard: string) => `★ They asked: "${heard}" [^1]\n→ answer it first`,
+      records: [{ marker: 1, from: "call" }],
+      marker: 1,
+    },
+    {
+      kind: "want",
+      reply: (heard: string) => `★ They put it as "${heard}" [^1]\n→ answer it first`,
+      records: [{ marker: 1, from: "call" }],
+      marker: 1,
+    },
+    {
+      kind: "answer",
+      reply: (heard: string) =>
+        `★ Yes, Enterprise is $45 a seat with single sign-on [^1]\n→ they asked "${heard}", so this answers it [^2]`,
+      records: [
+        { marker: 1, from: "sheet" },
+        { marker: 2, from: "call" },
+      ],
+      marker: 2,
+    },
+  ] as const)(
+    "a line that quotes words the call did have keeps its Citation, found ($kind, [^$marker])",
+    async ({ kind, reply, records, marker }) => {
+      const { core, meeting } = await setUp({ reply, records });
+      const after = await (await pressed(core, meeting, kind)).judged();
+      expect(after.text).toContain(`[^${marker}]`);
+      expect(after.citations.find((citation) => citation.marker === marker)?.check).toBe("found");
+    },
+  );
 
   // protects=words quoted inside an option, not on the cited page, still read as a quotation and leave its Citation not found, in English and Chinese marks; fails_when=the option's own marks taken off hide a quotation inside it; no_claim=what a model quotes.
   test.each([

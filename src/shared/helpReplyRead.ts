@@ -7,10 +7,12 @@
  * It is also what an option is, for every reader (#2925): the panel shows an option to say in
  * quotation marks of its own, so a pair the model wrapped the whole option in comes off, and the
  * core keeps the reply as read here once it ends. Its check, the assistant, Check again, a pinned
- * reply and the note it is added to then all read the words the panel shows. A Citation marker on a
- * "→" line or on a reading's first line comes off too (#2847): those lines are the reply's own, so no
- * Document's words can back them. Nothing else comes off: a reading's moment of the call and a short
- * line are read as written, in their quotation marks.
+ * reply and the note it is added to then all read the words the panel shows. A Citation marker on an
+ * option's or a reading's "→" line, or on a reading's first line, comes off too (#2847): those lines
+ * are the reply's own, so no Document's words can back them. Nothing else comes off: such a line
+ * that puts words in quotation marks the quote check reads (./quotedSpans), a reading's first line
+ * that is only its quoted moment, a reading's moment of the call and a short-lines reply, a "→" line
+ * in it included, are read as written, in their quotation marks.
  */
 import type { AnswerStatus } from "../core/api";
 import { MARKER } from "./answerSentences";
@@ -27,6 +29,7 @@ import {
   plainLine,
   RECOMMENDED_MARK,
 } from "./meetingHelp";
+import { holdsQuote } from "./quotedSpans";
 
 /**
  * A run of text, a Citation's marker ("[^2]") or a calculated figure's ("[=1]"). A Citation's `at`
@@ -324,12 +327,28 @@ export interface HelpReplyRead {
   options: ReplyItem[];
 }
 
+/** A reading's line that is only its moment of the call: its time, its quotation and its markers. */
+function onlyMoment(line: string): boolean {
+  const rest = plainLine(line)
+    .replace(RECOMMENDED_MARK, "")
+    .replace(LINE_MARK, "")
+    .replace(MARKER, "")
+    .replace(/^\d{1,2}:\d{2}(?::\d{2})?\s*/, "")
+    .trim();
+  return PAIRS.some(
+    ([open = "", close = ""]) =>
+      rest.length > 2 &&
+      rest.startsWith(open) &&
+      rest.endsWith(close) &&
+      !rest.slice(1, -1).includes(close),
+  );
+}
+
 /**
  * A reading's first line, which is the reply's own reading of what they said, unless the reading is
- * only its moment: a line in quotation marks and no moment of its own below it.
+ * only its moment: a line that is nothing but its quoted moment, and no moment of its own below it.
  */
-const readingItself = (item: ReplyItem, line: string) =>
-  item.notes.length > 0 || !PAIRS.some((pair) => line.includes(pair[0] ?? ""));
+const readingItself = (item: ReplyItem, line: string) => item.notes.length > 0 || !onlyMoment(line);
 
 /** What each of `count` lines is, from the items read off them. */
 function kindsOf(
@@ -356,12 +375,12 @@ function kindsOf(
 
 /**
  * A reply as its panel shows it and its check reads it, in its button's `layout`: each option to
- * say, shown or not, is read without a pair of quotation marks the model wrapped it in whole, and a
- * "→" line and a reading's first line without their Citation markers. In the form whose facts stand
- * apart, the marks of its lines come off too, and so do the markers on a line to say and an own line
- * (helpFactLines.ts). Every other marker is kept, and the items give each the place it has as
- * `markdown` was written, which is where a reply kept before this was read had its check's verdicts.
- * Reading the text read gives it again.
+ * say, shown or not, is read without a pair of quotation marks the model wrapped it in whole, and an
+ * option's or a reading's "→" line and a reading's first line without their Citation markers. In the
+ * form whose facts stand apart, the marks of its lines come off too, and so do the markers on a line
+ * to say and an own line (helpFactLines.ts). Every other marker is kept, and the items give each the
+ * place it has as `markdown` was written, which is where a reply kept before this was read had its
+ * check's verdicts. Reading the text read gives it again.
  */
 export function helpReplyRead(markdown: string, layout: HelpLayout): HelpReplyRead {
   const lines = markdown.split("\n");
@@ -377,9 +396,12 @@ export function helpReplyRead(markdown: string, layout: HelpLayout): HelpReplyRe
       : {
           lines: lines.map((line, index) => {
             const lead = written.find((each) => each.line === index)?.item;
+            // A short-lines reply is asked for no "→" line, so what a model writes on one is read as
+            // written; so is a line that quotes, whose quote the quote check reads only beside its marker.
             const own =
               layout.form !== "as before" &&
-              (EFFECT_MARK.test(plainLine(line)) ||
+              !holdsQuote(line) &&
+              ((shape !== "lines" && EFFECT_MARK.test(plainLine(line))) ||
                 (shape === "readings" && lead !== undefined && readingItself(lead, line)));
             const words = lead && said.includes(lead) ? optionRead(line) : line;
             return own ? withoutCitations(words) : words;

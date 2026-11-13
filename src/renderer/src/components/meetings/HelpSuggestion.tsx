@@ -5,12 +5,13 @@ import type {
   MeetingHelp,
   MeetingHelpKind,
 } from "../../../../core/api";
-import { citedLocation } from "../../../../shared/citations";
+import { citationSource, citedLocation } from "../../../../shared/citations";
 import type { ReplyItem, ReplyPiece } from "../../../../shared/helpReplyRead";
 import { isTranscriptLocation } from "../../../../shared/locations";
 import { helpLabel } from "../../../../shared/meetingHelp";
 import { isTheirs, SPEAKER_ME } from "../../../../shared/speakers";
 import { useAnswers } from "../../answers";
+import { useCallStarts } from "../../callStarts";
 import { core } from "../../core";
 import {
   citationNumbers,
@@ -69,14 +70,19 @@ function CitationChip({
   citation,
   number,
   at,
+  started,
 }: {
   citation?: MarkedCitation;
   number: number;
   at: number;
+  /** When its call started, where the sources show it (`callStarts`). */
+  started: string | null;
 }) {
   const t = useT();
   const limit = useJudgementLimit();
-  const where = citation ? citedLocation(citation, t) : null;
+  const source = citation ? citationSource(citation, t).text : null;
+  const pointsTo =
+    source && started ? t("citation.where", { document: source, location: started }) : source;
   const passed = citation !== undefined && sentencePassed(citation, at);
   const reason = citation ? uncheckedReason(citation) : null;
   const unchecked =
@@ -90,13 +96,7 @@ function CitationChip({
       data-marker={citation?.marker}
       data-passed={passed}
       data-at={at}
-      title={
-        citation
-          ? [[citation.documentName, where].filter(Boolean).join(", "), unchecked]
-              .filter(Boolean)
-              .join("\n")
-          : undefined
-      }
+      title={pointsTo ? [pointsTo, unchecked].filter(Boolean).join("\n") : undefined}
       className="help-citation"
     >
       {number}
@@ -113,10 +113,12 @@ function Pieces({
   pieces,
   answer,
   numbers,
+  starts,
 }: {
   pieces: readonly ReplyPiece[];
   answer: ConversationAnswer;
   numbers: ReadonlyMap<number, number>;
+  starts: ReadonlyMap<string, string>;
 }) {
   return (
     <>
@@ -131,7 +133,15 @@ function Pieces({
         const number = numbers.get(piece.marker);
         // A marker with no Citation is left out, as the assistant shows an Answer.
         if (number === undefined) return null;
-        return <CitationChip key={key} citation={citation} number={number} at={piece.at} />;
+        return (
+          <CitationChip
+            key={key}
+            citation={citation}
+            number={number}
+            at={piece.at}
+            started={(citation && starts.get(citation.documentId)) ?? null}
+          />
+        );
       })}
     </>
   );
@@ -141,10 +151,12 @@ function Item({
   item,
   answer,
   numbers,
+  starts,
 }: {
   item: ReplyItem;
   answer: ConversationAnswer;
   numbers: ReadonlyMap<number, number>;
+  starts: ReadonlyMap<string, string>;
 }) {
   const t = useT();
   return (
@@ -165,23 +177,24 @@ function Item({
           pieces={item.said ? quoted(item.lead) : item.lead}
           answer={answer}
           numbers={numbers}
+          starts={starts}
         />
       </span>
       {item.notes.map((note, index) => (
         // biome-ignore lint/suspicious/noArrayIndexKey: a reading's notes are in the order written.
         <span key={index} data-testid="help-option-note" className="help-option-note">
-          <Pieces pieces={note} answer={answer} numbers={numbers} />
+          <Pieces pieces={note} answer={answer} numbers={numbers} starts={starts} />
         </span>
       ))}
       {item.own.map((line, index) => (
         // biome-ignore lint/suspicious/noArrayIndexKey: an option's own lines are in the order written.
         <span key={index} data-testid="help-option-own" className="help-option-effect">
-          <Pieces pieces={line} answer={answer} numbers={numbers} />
+          <Pieces pieces={line} answer={answer} numbers={numbers} starts={starts} />
         </span>
       ))}
       {item.effect && (
         <span data-testid="help-option-effect" className="help-option-effect">
-          → <Pieces pieces={item.effect} answer={answer} numbers={numbers} />
+          → <Pieces pieces={item.effect} answer={answer} numbers={numbers} starts={starts} />
         </span>
       )}
     </div>
@@ -242,18 +255,24 @@ export function HelpHeading({
   );
 }
 
-function Sources({
-  answer,
-  numbers,
-}: {
-  answer: ConversationAnswer;
-  numbers: ReadonlyMap<number, number>;
-}) {
-  const t = useT();
-  const cited = [...numbers].flatMap(([marker, number]) => {
+/** The Citations the sources list, each with the number it shows. */
+const citedIn = (answer: ConversationAnswer, numbers: ReadonlyMap<number, number>) =>
+  [...numbers].flatMap(([marker, number]) => {
     const citation = answer.citations.find((each) => each.marker === marker);
     return citation ? [{ citation, number }] : [];
   });
+
+function Sources({
+  answer,
+  numbers,
+  starts,
+}: {
+  answer: ConversationAnswer;
+  numbers: ReadonlyMap<number, number>;
+  starts: ReadonlyMap<string, string>;
+}) {
+  const t = useT();
+  const cited = citedIn(answer, numbers);
   if (cited.length === 0) return null;
   return (
     <ul data-testid="help-sources" className="help-sources">
@@ -266,7 +285,9 @@ function Sources({
               className="size-[13px] shrink-0"
             />
             <span className="truncate">
-              {[String(number), citation.documentName, where].filter(Boolean).join(" · ")}
+              {[String(number), citation.documentName, where, starts.get(citation.documentId)]
+                .filter(Boolean)
+                .join(" · ")}
             </span>
           </li>
         );
@@ -341,6 +362,7 @@ export function HelpSuggestion({
     items,
     (marker) => streaming || answer.citations.some((each) => each.marker === marker),
   );
+  const starts = useCallStarts(citedIn(answer, numbers).map(({ citation }) => citation));
   return (
     <div
       data-testid="help-suggestion"
@@ -356,6 +378,7 @@ export function HelpSuggestion({
           item={item}
           answer={answer}
           numbers={numbers}
+          starts={starts}
         />
       ))}
       {streaming && items.length < 2 && <HelpOutline count={items.length === 0 ? 2 : 1} />}
@@ -368,7 +391,7 @@ export function HelpSuggestion({
       {answer.status === "stopped" && options.length === 0 && (
         <NoHelp testId="help-stopped" message={t("answer.status.stopped")} onRetry={onRetry} />
       )}
-      <Sources answer={answer} numbers={numbers} />
+      <Sources answer={answer} numbers={numbers} starts={starts} />
     </div>
   );
 }
