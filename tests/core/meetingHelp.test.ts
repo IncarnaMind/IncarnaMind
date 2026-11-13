@@ -5,7 +5,7 @@
  * Meeting names its latest help, the line it answers and the conversation it went to; the
  * template adds its buttons.
  */
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import type { Core, Meeting, MeetingHelpKind } from "../../src/core";
 import { helpOwnLines, meetingHelpInstructions } from "../../src/core/answers/meetingHelp";
 import { CITE_RETRY_INSTRUCTIONS } from "../../src/core/answers/prompt";
@@ -581,8 +581,27 @@ describe("Help during the call", { timeout: 60_000 }, () => {
         },
       );
     const { core, meeting, calls } = await setUp(addPriceSheet, {}, marking);
+    // A press reads the call's Transcript as indexed when it is pressed, waiting only a moment for
+    // that, and the two presses below are compared byte for byte. So one press comes first, and the
+    // Transcript then holds every line of the nine seconds recorded, four a side, before them: both
+    // read the same call.
+    const { documentId } = await until(
+      core,
+      meeting.id,
+      (each) => each.lines >= 8 && each.documentId !== null,
+    );
+    if (!documentId) throw new Error("No Transcript.");
     await press(core, meeting, "say");
-    const before = calls.find((call) => call.prompt.includes("pressed a button for help"));
+    await vi.waitFor(
+      async () => {
+        const { pages } = await core.readDocumentText(documentId);
+        expect(pages.flatMap((page) => page.text.split("\n"))).toHaveLength(8);
+      },
+      { timeout: 20_000, interval: 20 },
+    );
+    const firstAt = calls.length;
+    await press(core, meeting, "say");
+    const before = calls[firstAt];
     const typedAt = calls.length;
     const typed = await ask(core, meeting, "How much is Enterprise per seat?");
     const sent = calls[typedAt]?.prompt ?? "";
