@@ -2600,8 +2600,8 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     // Every window hears of each message as it is added or written.
     conversations: {
-      add: (input, answerModel, read, emit = true, askedIn) => {
-        const added = conversations.add(input, answerModel, read, askedIn);
+      add: (input, answerModel, read, emit = true, askedIn, pressed) => {
+        const added = conversations.add(input, answerModel, read, askedIn, pressed);
         if (emit) publishConversation(added.turn);
         return added;
       },
@@ -2618,8 +2618,8 @@ export function createCore(adapters: CoreAdapters): Core {
         if (question) events.emit("conversation.message", question);
         return question;
       },
-      restartAnswer: (answerId, answerModel, read, emit = true, origin) => {
-        const turn = conversations.restartAnswer(answerId, answerModel, read, origin);
+      restartAnswer: (answerId, answerModel, read, emit = true, origin, pressed) => {
+        const turn = conversations.restartAnswer(answerId, answerModel, read, origin, pressed);
         if (emit) {
           // An origin and the Answer it resets were written together: both changed at once.
           if (origin) events.emit("conversation.message", turn.question);

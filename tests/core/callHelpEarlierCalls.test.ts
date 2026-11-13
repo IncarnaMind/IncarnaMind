@@ -11,15 +11,17 @@ import { describe, expect, test, vi } from "vitest";
 import type { Core } from "../../src/core";
 import type { Language } from "../../src/core/language";
 import { formatFullDateTime } from "../../src/shared/dates";
+import { translate } from "../../src/shared/i18n";
 import {
   GENERAL_HELP,
+  helpLabel,
   type MeetingHelpKind,
   type MeetingHelpTemplate,
   TEMPLATE_HELP,
 } from "../../src/shared/meetingHelp";
 import { mindName } from "../../src/shared/naming";
 import { answerEnded, shownPassages } from "../helpers/citations";
-import { createTempDataFolder } from "../helpers/core";
+import { createTempDataFolder, queryDatabase } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { pressedBeforeFirstLine, turnOf } from "../helpers/earlierCallPress";
 import { connectToMind } from "../helpers/mindClient";
@@ -868,6 +870,75 @@ for (const language of ["en", "zh-CN"] as const) {
       const rechecked = (await turnOf(core, pressIds)).answer;
       expect.soft(rechecked.citations.map((citation) => citation.check)).toEqual(["not-checked"]);
       expect.soft(rechecked.citations.flatMap((citation) => citation.passedAt ?? [])).toEqual([]);
+    });
+
+    test("a press kept with a button this version doesn't know is still a press: Check again's estimate reads without the earlier call's Transcript", async () => {
+      const { core, dataDir, pressIds } = await pressedBeforeFirstLine(language);
+      queryDatabase(
+        dataDir,
+        "UPDATE conversation_messages SET steps = json_set(steps, '$.pressed', ?) WHERE id = ? RETURNING id",
+        ["steer", pressIds.answerId],
+      );
+
+      expect((await turnOf(core, pressIds)).answer.steps?.pressed).toBe("steer");
+      expect(await core.estimateAnswerCheck(pressIds)).toBeNull();
+    });
+
+    test("a press stopped before its reply is written is kept as a press", async () => {
+      let reached = () => {};
+      const writing = new Promise<void>((resolve) => {
+        reached = resolve;
+      });
+      let release = () => {};
+      const held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const setup = await folderCore(language, {
+        model: (calls) =>
+          scriptedModel((call) => {
+            calls.push(call);
+            return {
+              text: "★ Let me check the hosting options\n→ keeps it moving",
+              pause: { after: 1, until: held, reached },
+            };
+          }),
+      });
+      const { core } = setup;
+      const { meeting } = await setup.call();
+      await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+      const pressed = await core.askMeetingHelp({
+        meetingId: meeting.id,
+        kind: "say",
+        conversationId: null,
+      });
+      if (!pressed.asked) throw new Error("Not pressed.");
+      const ids = { conversationId: pressed.conversation.id, answerId: pressed.answerId };
+      await writing;
+      expect((await turnOf(core, ids)).answer.steps?.pressed).toBe("say");
+
+      const stopping = core.stopConversationAnswer(ids);
+      release();
+      await stopping;
+      await vi.waitFor(async () => expect((await turnOf(core, ids)).answer.status).toBe("stopped"));
+      expect((await turnOf(core, ids)).answer.steps?.pressed).toBe("say");
+    });
+
+    test("a Question typed after Stop with a button's words is not a press: Check again reads the earlier call's Transcript", async () => {
+      const setup = await pressedThenStopped();
+      const { core, said, batches, judging, live } = setup;
+      const asked = await core.askInConversation({
+        mindId: live.mindId,
+        text: translate(language, helpLabel("say")),
+      });
+      if (!asked.asked) throw new Error("Not asked.");
+      await answerEnded(core, asked.answerId);
+      const ids = { conversationId: asked.conversation.id, answerId: asked.answerId };
+      const { answer } = await turnOf(core, ids);
+
+      expect(answer.steps?.pressed).toBeUndefined();
+      judging.now = true;
+      await core.checkAnswerAgain(ids);
+      expect(batches.some((batch) => batch.prompt.includes(said.line))).toBe(true);
     });
   });
 }

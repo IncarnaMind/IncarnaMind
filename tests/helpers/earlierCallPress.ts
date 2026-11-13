@@ -167,7 +167,7 @@ export async function pressedBeforeFirstLine(language: Language) {
   if (!pressed.asked) throw new Error("Not pressed.");
   await answerEnded(core, pressed.answerId);
   const pressIds = { conversationId: pressed.conversation.id, answerId: pressed.answerId };
-  return { core, line, batches, pressIds, earlier: stopped.document.id };
+  return { core, dataDir, line, batches, pressIds, earlier: stopped.document.id };
 }
 
 /** The press's Question and Answer, as the conversation holds them. */

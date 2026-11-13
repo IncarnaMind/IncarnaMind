@@ -8440,6 +8440,13 @@ export interface AnswerSteps {
    * isn't a help Answer.
    */
   textBehind?: true;
+  /**
+   * The call help button the Question was asked with (#3005), from the Answer's first save: its
+   * kind, as this version or another names it. A later check of the reply reads what the press
+   * read, without other calls' Transcripts. Absent: a typed Question, or a reply written before
+   * presses were kept.
+   */
+  pressed?: string;
 }
 
 /**

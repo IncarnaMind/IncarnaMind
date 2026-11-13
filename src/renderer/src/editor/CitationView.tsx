@@ -936,22 +936,25 @@ function CitationCard({
     ? modelNames(judgedAnswer.model.modelId, judgedAnswer.model.providerId).name
     : null;
   const limited = limitReason(t, state.reason, limit, judgedBy);
+  // Another call's quote is left out whatever a limit or the model allows: that is its reason.
   const reason =
     state.check === "checking"
       ? t("citation.reason.checking")
-      : (limited ??
-        (state.reason === "small-model"
-          ? t("citation.reason.small-model")
-          : state.check === "not-checked"
-            ? t(otherCall ? "citation.reason.otherCall" : "citation.reason.notChecked")
-            : state.reason === "unsure-word"
-              ? // The line under it says which words may be misread.
-                null
-              : state.reason === "document-removed" && attributes.yourNoteAt
-                ? t("citation.reason.source-removed")
-                : state.reason
-                  ? t(`citation.reason.${state.reason}`)
-                  : null));
+      : otherCall
+        ? t("citation.reason.otherCall")
+        : (limited ??
+          (state.reason === "small-model"
+            ? t("citation.reason.small-model")
+            : state.check === "not-checked"
+              ? t("citation.reason.notChecked")
+              : state.reason === "unsure-word"
+                ? // The line under it says which words may be misread.
+                  null
+                : state.reason === "document-removed" && attributes.yourNoteAt
+                  ? t("citation.reason.source-removed")
+                  : state.reason
+                    ? t(`citation.reason.${state.reason}`)
+                    : null));
   const removed = state.reason === "document-removed";
   const quotedWords = state.check === "not-found" && parseQuotedWords(attributes.quotedWords);
   const runOn = quotedWordsRunOnTo(attributes.quotedWords);

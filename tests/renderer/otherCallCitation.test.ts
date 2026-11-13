@@ -177,7 +177,8 @@ const questionOf = (text: string, deleted = false): ConversationQuestion =>
     askedFrom: { mindId: "note-this", name: "Meeting", deleted },
   }) as unknown as ConversationQuestion;
 
-const answerCiting = (citation: MarkedCitation, withTheCall: boolean): ConversationAnswer =>
+/** An Answer citing `citation`, its record naming the button it was pressed with, if any. */
+const answerCiting = (citation: MarkedCitation, pressed: string | null): ConversationAnswer =>
   ({
     kind: "answer",
     id: "answer",
@@ -189,7 +190,7 @@ const answerCiting = (citation: MarkedCitation, withTheCall: boolean): Conversat
     analyses: [],
     model: { providerId: "scripted", modelId: "scripted-model" },
     status: "done",
-    steps: { sent: { documents: [], ...(withTheCall && { transcript: true }) } },
+    steps: { sent: { documents: [], transcript: true }, ...(pressed !== null && { pressed }) },
   }) as unknown as ConversationAnswer;
 
 /** The Citation's card as the User opens it: its badge and its reason line. */
@@ -226,7 +227,7 @@ for (const language of ["en", "zh-CN"] as const) {
     // protects=#3005: a press's reply's Citation of another call says it was left out on purpose, and offers no Check again, which can never check it; fails_when=its card gives the general "couldn't be checked" line, or offers Check again; no_claim=the panel's chip.
     test("on a press's reply, of another call's Transcript: Not checked, as the quote is from another call, with no Check again", async () => {
       setLanguage(language);
-      const card = await cardOf(questionOf(press), answerCiting(notChecked("earlier"), true));
+      const card = await cardOf(questionOf(press), answerCiting(notChecked("earlier"), "say"));
 
       expect(card.badge).toContain(t("citation.badge.notChecked"));
       expect(card.reason).toBe(OTHER_CALL);
@@ -237,24 +238,49 @@ for (const language of ["en", "zh-CN"] as const) {
 
     test("on a press's reply whose Note is gone, of any call's Transcript: the same", async () => {
       setLanguage(language);
-      const card = await cardOf(questionOf(press, true), answerCiting(notChecked("this"), true));
+      const card = await cardOf(questionOf(press, true), answerCiting(notChecked("this"), "say"));
 
       expect(card.reason).toBe(OTHER_CALL);
       expect(card.checkAgain).toBe(false);
       expect(card.primary).toBe("citation-open");
     });
 
-    // protects=#3005: only a Citation the press's check leaves out takes the line; fails_when=a typed Question's, this call's, or a press sent without the call's text takes it; no_claim=why those were left unchecked.
-    test("any other: a typed Question's, this call's on a press's reply, or a button's name sent without the call keeps the general line", async () => {
+    // protects=#3005: a press recorded with a button this version doesn't have is still a press; fails_when=renaming or removing a button turns its presses into typed Questions; no_claim=what the button was.
+    test("on a press recorded with a button this version doesn't know: the same", async () => {
+      setLanguage(language);
+      const card = await cardOf(
+        questionOf("Steer the call"),
+        answerCiting(notChecked("earlier"), "steer"),
+      );
+
+      expect(card.reason).toBe(OTHER_CALL);
+      expect(card.checkAgain).toBe(false);
+    });
+
+    // protects=#3005: a limit reached or a model too small to check never stands in for the reason another call's quote isn't checked; fails_when=the card gives the limit's or the model's line for it; no_claim=those lines elsewhere.
+    test("on a press's reply, of another call's Transcript, also stopped by a limit or a small model: the other call's line", async () => {
+      setLanguage(language);
+      for (const checkReason of ["answer-limit", "monthly-limit", "small-model"] as const) {
+        const card = await cardOf(
+          questionOf(press),
+          answerCiting({ ...notChecked("earlier"), checkReason }, "say"),
+        );
+        expect(card.reason, checkReason).toBe(OTHER_CALL);
+        expect(card.checkAgain, checkReason).toBe(false);
+      }
+    });
+
+    // protects=#3005: only a Citation the press's check leaves out takes the line; fails_when=a typed Question's, this call's, or a Question with a button's words but no press recorded takes it; no_claim=why those were left unchecked.
+    test("any other: a typed Question's, this call's on a press's reply, or a button's words with no press recorded keeps the general line", async () => {
       setLanguage(language);
       const general = t("citation.reason.notChecked");
       const cases = [
-        { question: questionOf("What did they say last time?"), cited: "earlier", sent: true },
-        { question: questionOf(press), cited: "this", sent: true },
-        { question: questionOf(press), cited: "earlier", sent: false },
+        { question: questionOf("What did they say last time?"), cited: "earlier", pressed: null },
+        { question: questionOf(press), cited: "this", pressed: "say" },
+        { question: questionOf(press), cited: "earlier", pressed: null },
       ];
-      for (const { question, cited, sent } of cases) {
-        const card = await cardOf(question, answerCiting(notChecked(cited), sent));
+      for (const { question, cited, pressed } of cases) {
+        const card = await cardOf(question, answerCiting(notChecked(cited), pressed));
         expect(card.badge).toContain(t("citation.badge.notChecked"));
         expect(card.reason).toBe(general);
         expect(card.checkAgain).toBe(true);

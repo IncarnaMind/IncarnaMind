@@ -19,7 +19,7 @@ import {
   type ReplyPiece,
 } from "../../shared/helpReplyRead";
 import { isTranscriptLocation, type Translate } from "../../shared/locations";
-import { type MeetingHelpKind, pressedHelp } from "../../shared/meetingHelp";
+import type { MeetingHelpKind } from "../../shared/meetingHelp";
 
 /**
  * An option's sentence as the User would say it, in quotation marks of the panel's own: its reader
@@ -158,13 +158,13 @@ const NO_CALLS: ReadonlySet<string> = new Set();
  * for any other Answer.
  */
 export function otherCallsOf(
-  question: Pick<ConversationQuestion, "text" | "askedFrom"> | undefined,
-  answer: { steps: Pick<AnswerSteps, "sent"> | null },
+  question: Pick<ConversationQuestion, "askedFrom"> | undefined,
+  answer: { steps: Pick<AnswerSteps, "pressed"> | null },
   meetings: readonly (Pick<Meeting, "kind" | "mindId"> & {
     transcript: { documentId: string | null } | null;
   })[],
 ): ReadonlySet<string> {
-  if (!question || pressedHelp(question, answer) === null) return NO_CALLS;
+  if (!question || answer.steps?.pressed === undefined) return NO_CALLS;
   const from = question.askedFrom;
   const own = from && !from.deleted ? from.mindId : null;
   return new Set(

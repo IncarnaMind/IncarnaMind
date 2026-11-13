@@ -36,8 +36,8 @@ export const CallStartsContext = createContext<ReadonlyMap<string, string> | nul
 
 /** The other calls' Transcripts the Answer in the assistant is checked without (`otherCallsOf`). */
 export function useOtherCalls(
-  question: Pick<ConversationQuestion, "text" | "askedFrom"> | undefined,
-  answer: { steps: Pick<AnswerSteps, "sent"> | null },
+  question: Pick<ConversationQuestion, "askedFrom"> | undefined,
+  answer: { steps: Pick<AnswerSteps, "pressed"> | null },
 ): ReadonlySet<string> {
   const meetings = useMeetings((state) => state.meetings);
   const { steps } = answer;

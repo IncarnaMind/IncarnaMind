@@ -78,7 +78,7 @@ import {
 import { holdsNothing, madeByAnswer } from "../../shared/madeMind";
 import { linkTableSources } from "../../shared/markdownTables";
 import { escapeMarkdownText } from "../../shared/markdownText";
-import { type MeetingHelpKind, pressedHelp } from "../../shared/meetingHelp";
+import type { MeetingHelpKind } from "../../shared/meetingHelp";
 import {
   MISSING_NUMBER_REFUSED,
   missingNumberWords,
@@ -512,6 +512,7 @@ export interface AnswerConversations {
     read: AnswerRead | null,
     emit?: boolean,
     askedIn?: (conversationFolderId: string | null) => string,
+    pressed?: MeetingHelpKind | null,
   ): AddedTurn;
   /** Emits a turn added with `emit: false`, once its Question can be asked. */
   publish(turn: Turn): void;
@@ -541,6 +542,7 @@ export interface AnswerConversations {
     read: AnswerRead | null,
     emit?: boolean,
     origin?: RetryOrigin,
+    pressed?: MeetingHelpKind | null,
   ): Turn;
   /** Writes an Answer as it stands; false when it is gone: its conversation was deleted. */
   writeAnswer(answerId: string, write: AnswerWrite): boolean;
@@ -1193,7 +1195,7 @@ export function createAnswers(options: AnswersOptions) {
       readsMind ? null : wallOfTurn(question),
     );
     // A reply outlives its Note in the conversation; with no Note of its own no call is its own.
-    return pressedHelp(question, answer) !== null ? pressScope(documentIds, mindId) : documentIds;
+    return answer.steps?.pressed !== undefined ? pressScope(documentIds, mindId) : documentIds;
   };
 
   /** The judgements of Answers' sentences running, by Answer (#2311): stopping one ends it. */
@@ -1671,6 +1673,7 @@ export function createAnswers(options: AnswersOptions) {
             ...(heard && transcripts.size > 0 && { transcript: true as const }),
           },
         }),
+        ...(help !== undefined && { pressed: help }),
       };
     };
     let skills: SkillSession | null = null;
@@ -4286,6 +4289,7 @@ export function createAnswers(options: AnswersOptions) {
     scope: string[] | null,
     scopeEmpty: boolean,
     mind: MindToRead | null,
+    help: MeetingHelpKind | null,
     onScreen: readonly string[],
     {
       quoted,
@@ -4298,7 +4302,6 @@ export function createAnswers(options: AnswersOptions) {
     namedScope: SearchScope | null = null,
   ): ConversationAskResult {
     const { conversation, question, answer } = turn;
-    const help = mind ? (options.meetingHelp?.(mind.mindId, question.text) ?? null) : null;
     const callOnly = help !== null && HELP_DOCUMENTS[help] === null;
     const documentIds = help && mind ? pressScope(scope, mind.mindId) : scope;
     const emptyScope =
@@ -4839,6 +4842,7 @@ export function createAnswers(options: AnswersOptions) {
         answerModel,
       );
       const quotes = checkQuotes(question.quotes, question.mind?.id ?? null);
+      const pressed = mind ? (options.meetingHelp?.(mind.mindId, question.text) ?? null) : null;
       const added = options.conversations.add(
         { ...question, scope, quotes: storedQuotes(quotes) },
         answerModel,
@@ -4854,6 +4858,7 @@ export function createAnswers(options: AnswersOptions) {
             ? (scope.folderIds[0] ?? "")
             : "";
         },
+        pressed,
       );
       const { turn } = added;
       let published = false;
@@ -4880,11 +4885,14 @@ export function createAnswers(options: AnswersOptions) {
           question.mind?.id ?? null,
           readyMind ? null : wallOfTurn(added.turn.question),
         );
+        const help = readyMind ? pressed : null;
         const readyTurn = options.conversations.restartAnswer(
           turn.answer.id,
           ready.model,
           readOf(readyMind),
           false,
+          undefined,
+          help,
         );
         options.conversations.publish(readyTurn);
         published = true;
@@ -4894,6 +4902,7 @@ export function createAnswers(options: AnswersOptions) {
           documentIds,
           emptyScope,
           readyMind,
+          help,
           question.onScreen,
           checked,
           question.commands,
@@ -4954,12 +4963,14 @@ export function createAnswers(options: AnswersOptions) {
       } else if (front !== null) {
         origin = { folderId: front, scope: folderScope(front) };
       }
+      const help = mind ? (options.meetingHelp?.(mind.mindId, question.text) ?? null) : null;
       const turn = options.conversations.restartAnswer(
         answerId,
         ready.model,
         readOf(mind),
         true,
         origin,
+        help,
       );
       const wall =
         mindId !== null
@@ -4975,6 +4986,7 @@ export function createAnswers(options: AnswersOptions) {
         documentIds,
         emptyScope,
         mind,
+        help,
         onScreen,
         checkQuotes(question.quotes, mindId, wall),
         commands,
