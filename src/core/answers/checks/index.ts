@@ -129,6 +129,7 @@ import { currentTask } from "../../runs/current";
 import { parseSearchScope } from "../../scope";
 import type { AnswerEngine } from "../engine";
 import { type AnswerCheckInput, createAnswerCheck } from "./answerCheck";
+import { figureContextIn } from "./calculationLedger";
 import { checkRunStart } from "./checkRun";
 import {
   type AtomicClaimCheckResult,
@@ -175,6 +176,7 @@ import {
   selectedSentences,
   updateCheck,
 } from "./sentences";
+import { unitGate } from "./unitGate";
 import { createVerify, type NoDocuments, type VerifyOptions } from "./verify";
 import { createContradictionWatch, type WatchOptions } from "./watch";
 import {
@@ -1739,6 +1741,7 @@ export function createChecks(options: ChecksOptions) {
       ),
     units: (citation) =>
       options.documents.pageTexts(citation.documentId, citation.contentHash, null, null),
+    unstatedUnit: unitGate(options, options.documents, figureContextIn(options.documents), false),
     claimTimeLimitMs: options.claimTimeLimitMs ?? CLAIM_TIME_LIMIT_MS,
     mostOf: (model, request) => {
       const estimate = options.estimateRead(model, { likely: [request], most: [request] });
