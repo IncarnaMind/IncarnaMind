@@ -124,16 +124,13 @@ export interface ArmRun {
   failures: string[];
   /** The Answer or reply, to read a difference by hand. */
   text: string;
+  /**
+   * A help reply as the model wrote it, its last text before it ended, where the text kept differs:
+   * its reader takes off what the panel never draws, as a marker on a line to say (#2847).
+   */
+  written?: string;
   /** Each request and local step, for an item that reads them (a help reply). */
   requests?: RequestTiming[];
-  /**
-   * A help reply's marks (#2847), read once every mark settled. Of the Citations it shows whose
-   * quote was found and whose sentence the judge says their quoted words hold (`held`): how many
-   * show ✓, how many the check gave a verdict (passed it, or found it unsupported or
-   * contradicted), and why each of the rest shows none, by its check and reason. Of those whose
-   * quote was found and which the judge lists (`listed`): how many show ✓. And how long after the
-   * reply's end the last mark settled. Absent: not a help reply, or one that didn't end.
-   */
   /**
    * Each place a Citation number sits in the reply (#2847's yardstick by place): its sentence, the
    * quotes that sentence cites, and the mark the app showed there; `unbacked` is the judge's answer
@@ -145,6 +142,14 @@ export interface ArmRun {
    * fewer sentences than it was asked leaves them Not checked though its request finished.
    */
   checkReplies?: CheckReply[];
+  /**
+   * A help reply's marks (#2847), read once every mark settled. Of the Citations it shows whose
+   * quote was found and whose sentence the judge says their quoted words hold (`held`): how many
+   * show ✓, how many the check gave a verdict (passed it, or found it unsupported or
+   * contradicted), and why each of the rest shows none, by its check and reason. Of those whose
+   * quote was found and which the judge lists (`listed`): how many show ✓. And how long after the
+   * reply's end the last mark settled. Absent: not a help reply, or one that didn't end.
+   */
   marks?: {
     held: number;
     checked: number;

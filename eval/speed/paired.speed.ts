@@ -192,12 +192,31 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
     if (missing.length > 0) {
       throw new Error(`INCARNAMIND_EVAL_SPEED_ITEMS: no item ${missing.join(", ")}.`);
     }
+    // Which arm goes first in each pair, in the order the run presses them.
+    const planned = armTurns();
+    const firsts = models.map((model) => {
+      const name = `${model.kind}/${model.modelId}`;
+      const order = bySet.flat().flatMap((group) =>
+        group.items
+          .filter((item) => asked.has(item))
+          .flatMap((item) =>
+            Array.from({ length: runs }, () => {
+              const [first] = planned(
+                cellOf({ model: name, set: item.set, language: item.language }),
+              );
+              return `${item.id} ${arms[first].id}`;
+            }),
+          ),
+      );
+      return `First on ${name}: ${order.join(", ")}.`;
+    });
     log(
       [
         `Plan, nothing sent: ${arms[0].id} against ${arms[1].id}; models ${models.map((model) => `${model.kind}/${model.modelId}`).join(", ")}; judge ${judge.name}.`,
         `Sets ${sets.join(", ")}; languages ${languages?.join(", ") ?? "all"}; ${each === null ? "every kind" : `at most ${each} of a kind`}; ${asked.size} items, ${runs} run${runs === 1 ? "" : "s"}: ${[...asked].map((item) => item.id).join(", ")}.`,
         `False Supported ${falseSupportedCounted ? "counted over the set" : "stops the run at the first"}; the same first request ${sameRequest ? "recorded" : "not recorded"}.`,
         `Stop $${stopUsd.toFixed(2)}; $${ledger.before.toFixed(3)} spent before it on the ledger, so $${Math.max(0, stopUsd - ledger.before).toFixed(3)} may still be spent.`,
+        ...firsts,
       ].join("\n"),
     );
     return;

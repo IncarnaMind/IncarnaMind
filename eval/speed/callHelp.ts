@@ -431,6 +431,8 @@ async function press(
   begin: () => void,
 ): Promise<{
   answer: ConversationAnswer;
+  /** Its last text while it was written, before its end read it. */
+  written: string | null;
   firstWordsMs: number | null;
   firstOptionMs: number | null;
   settledMs: number | null;
@@ -448,9 +450,11 @@ async function press(
   const seen = new Map<string, { firstWordsMs: number | null; firstOptionMs: number | null }>();
   let start = 0;
   let latestText = "";
+  const written = new Map<string, string>();
   const stop = core.on("conversation.message", (message) => {
     if (message.kind !== "answer") return;
     latestText = message.text;
+    if (message.status === "streaming") written.set(message.id, message.text);
     if (snapshotting) beforeCheck = message.text;
     const at = performance.now() - start;
     const shown = shownItems(readHelpReply(message.text), {
@@ -525,7 +529,7 @@ async function press(
     // `replyEnded` waits for the marks: none waited when they had settled as the reply ended.
     const settledMs =
       finishedAt === null ? null : settledAt === null ? 0 : Math.max(0, settledAt - finishedAt);
-    return { answer, ...times, settledMs };
+    return { answer, written: written.get(answer.id) ?? null, ...times, settledMs };
   } finally {
     stop();
     stopPhase();
@@ -598,7 +602,7 @@ function item(each: CallHelpCase, set: CallHelpSet): PairedGroup["items"][number
       } catch (error) {
         return failed(error instanceof Error ? error.message : String(error));
       }
-      const { answer, firstWordsMs, firstOptionMs, settledMs } = pressed;
+      const { answer, written, firstWordsMs, firstOptionMs, settledMs } = pressed;
       const requests = requestsSince(library.dataDir, since);
       const done = answer.status === "done";
       const shown = shownItems(readHelpReply(answer.text), {
@@ -741,6 +745,7 @@ function item(each: CallHelpCase, set: CallHelpSet): PairedGroup["items"][number
         firstOptionMs,
         requests,
         places: placeMarks,
+        ...(written !== null && written !== answer.text && { written }),
         ...(read &&
           judged && {
             marks: {
