@@ -129,14 +129,6 @@ export function serveMeetingPanel(core: Core, options: MeetingPanelOptions): voi
   function choose(shown: boolean): void {
     const meeting = liveMeeting();
     if (!meeting) return;
-    // A line left unsent in the field goes into the Note before the window goes, with its page.
-    if (!shown && panel) {
-      core.addQuickNoteDraft(meeting.id).catch((error: unknown) =>
-        options.log.error("meeting.quickNoteDraftFailed", {
-          message: error instanceof Error ? error.message : String(error),
-        }),
-      );
-    }
     choice = { meetingId: meeting.id, shown };
     sync();
   }
@@ -323,6 +315,16 @@ export function serveMeetingPanel(core: Core, options: MeetingPanelOptions): voi
     // The User clicked into another app: the next click on a prompt mustn't take the keys back.
     window.on("blur", () => giveKeyboardBack(window));
     window.on("closed", () => {
+      // However it went (its close, ⌘K, the setting, the system), a line left unsent in its field
+      // goes into the Note. A Note that refuses it leaves it kept, for the field to show again.
+      const live = liveMeeting();
+      if (live) {
+        core.addQuickNoteDraft(live.id).catch((error: unknown) =>
+          options.log.error("meeting.quickNoteDraftFailed", {
+            message: error instanceof Error ? error.message : String(error),
+          }),
+        );
+      }
       if (panel === window) {
         panel = null;
         tellShown();

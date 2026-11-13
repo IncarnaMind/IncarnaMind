@@ -571,7 +571,7 @@ describe("the field, for quick notes (#2925)", () => {
       expect(kept()).toEqual({ text: line, began: { ms: 257_000 } });
       await press("Enter");
       expect(kept()).toEqual({ text: "", began: null });
-      expect(keptTexts()).toEqual(["", first, line, ""]);
+      expect(keptTexts()).toEqual([first, line, ""]);
     },
   );
 
@@ -588,6 +588,12 @@ describe("the field, for quick notes (#2925)", () => {
       expect(added()).toEqual([[line, 200_000]]);
     },
   );
+
+  test("a bar shown with an empty field never tells the core to forget a line it holds", async () => {
+    await show();
+    await show("sales");
+    expect(quickCore.setQuickNoteDraft).not.toHaveBeenCalled();
+  });
 
   test("a note refused while the panel was collapsed comes back when the bar shows again", async () => {
     const refused = Promise.withResolvers<AddedToNote>();

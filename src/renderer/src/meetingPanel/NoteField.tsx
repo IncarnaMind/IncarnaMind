@@ -65,8 +65,10 @@ export function NoteField({
     return () => clearTimeout(timer);
   }, [added]);
 
+  // Only a change: a field just shown, empty, must not tell the core to forget a line it holds.
   useEffect(() => {
-    if (!composing.current) notes.keep({ text, began: began.current });
+    if (!composing.current && text !== notes.draft().text)
+      notes.keep({ text, began: began.current });
   }, [text, notes]);
 
   const change = (value: string) => {

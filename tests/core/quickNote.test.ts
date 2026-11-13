@@ -329,6 +329,23 @@ describe("A line left unsent in the call-help panel's field (#2925)", () => {
     core.close();
   });
 
+  test("is read back for a panel that opens again, and is gone once in the Note or once the Meeting stopped", async () => {
+    const { core, meeting } = await recording();
+    expect(await core.getQuickNoteDraft(meeting.id)).toBeNull();
+    await core.setQuickNoteDraft({ meetingId: meeting.id, text: "记一笔：周五", atMs: 2 * SECOND });
+    expect(await core.getQuickNoteDraft(meeting.id)).toEqual({
+      text: "记一笔：周五",
+      atMs: 2 * SECOND,
+    });
+    await core.addQuickNoteDraft(meeting.id);
+    expect(await core.getQuickNoteDraft(meeting.id)).toBeNull();
+
+    await core.setQuickNoteDraft({ meetingId: meeting.id, text: "Left", atMs: null });
+    await core.stopMeeting(meeting.id);
+    expect(await core.getQuickNoteDraft(meeting.id)).toBeNull();
+    core.close();
+  });
+
   test("a line already sent isn't added again, and a line emptied since adds nothing", async () => {
     const { core, meeting, client } = await recording();
     await core.setQuickNoteDraft({ meetingId: meeting.id, text: "Sent", atMs: 1 * SECOND });

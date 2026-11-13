@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
+import type { Core } from "../../src/core";
 import { createFakeCapture } from "../../src/core/meetings/fakeCapture";
 import { FILES_CHANNELS } from "../../src/shared/bridge";
 import type { HelpKeys } from "../../src/shared/meetingHelp";
@@ -133,6 +134,9 @@ beforeEach(() => {
   electron.made.length = 0;
 });
 
+/** What the panel logged, for the test that just served it. */
+let recorded = recordingLog();
+
 const press = (kind: string) =>
   (
     globalThis as unknown as { incarnamindPressHelpKeys(kind: string): void }
@@ -158,13 +162,14 @@ async function recording(
       meetingHelpKeys: { note: "Ctrl+Alt+N", say: "Ctrl+Alt+1", ...keys },
     },
   });
+  recorded = recordingLog();
   serveMeetingPanel(core, {
     rendererUrl: undefined,
     appWindows: () => [],
     trusted: () => true,
     mac,
     linux,
-    log: recordingLog().log,
+    log: recorded.log,
     testHooks: true,
   });
   const { id } = await core.createMeeting();
@@ -319,16 +324,22 @@ describe("The call-help panel and the keyboard (#2925)", () => {
 });
 
 describe("A line left unsent in the panel's field when it closes (#2925)", () => {
-  const ways = [
+  const ways: { way: string; close(panel: Window, core: Core): unknown }[] = [
     {
       way: "its close button",
-      close: (panel: Window) => fromPage(panel, MEETING_PANEL_CHANNELS.close),
+      close: (panel) => fromPage(panel, MEETING_PANEL_CHANNELS.close),
     },
     {
       way: "⌘K or Call help in the app's window",
       close: () => electron.listeners.get(FILES_CHANNELS.showMeetingPanel)?.({}, false),
     },
     { way: "⌃⌥H", close: () => press("panel") },
+    {
+      way: "the panel turned off in Settings › Meetings",
+      close: (_panel, core) => core.updateSettings({ device: { meetingPanel: false } }),
+    },
+    // The system closing the window, with none of the panel's own controls.
+    { way: "the system", close: (panel) => panel.destroy() },
   ];
 
   test.each(
@@ -346,10 +357,36 @@ describe("A line left unsent in the panel's field when it closes (#2925)", () =>
       const client = await connectToMind(core, meeting.mindId);
       await core.setQuickNoteDraft({ meetingId, text: line, atMs: 1000 });
 
-      close(panel);
+      await close(panel, core);
 
-      expect(panel.destroyed).toBe(true);
+      await vi.waitFor(() => expect(panel.destroyed).toBe(true));
       await vi.waitFor(() => expect(readMind(client).textContent).toContain(line));
+      expect(await core.getQuickNoteDraft(meetingId)).toBeNull();
     },
   );
+
+  test("a Note that refuses the line leaves it held, for the panel to show again", async () => {
+    const { core, meetingId } = await recording(true);
+    const panel = await shownPanel();
+    const meeting = (await core.listMeetings()).find((each) => each.id === meetingId);
+    if (!meeting) throw new Error("No meeting.");
+    const client = await connectToMind(core, meeting.mindId);
+    // A newer version wrote the Note since: this one may only read it.
+    client.doc.getMap("settings").set("schemaVersion", 999);
+    await client.settled();
+    await core.setQuickNoteDraft({ meetingId, text: "Kept for the field", atMs: 1000 });
+
+    fromPage(panel, MEETING_PANEL_CHANNELS.close);
+
+    await vi.waitFor(() => expect(panel.destroyed).toBe(true));
+    await vi.waitFor(() =>
+      expect(recorded.entries.map((entry) => entry.event)).toContain(
+        "meeting.quickNoteDraftFailed",
+      ),
+    );
+    expect(await core.getQuickNoteDraft(meetingId)).toEqual({
+      text: "Kept for the field",
+      atMs: 1000,
+    });
+  });
 });

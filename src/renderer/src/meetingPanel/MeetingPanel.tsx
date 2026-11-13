@@ -92,6 +92,24 @@ export function MeetingPanel() {
         : null,
     [meetingId],
   );
+  // A panel opening again shows the line the core still holds, one its Note refused, unless
+  // something is typed already; the bar shows it once it is shown again (`restored`).
+  const [restored, setRestored] = useState(0);
+  useEffect(() => {
+    if (!meetingId || !quickNotesHere()) return;
+    let current = true;
+    core.getQuickNoteDraft(meetingId).then(
+      (held) => {
+        if (!current || !held || drafts.current.get(meetingId)?.text) return;
+        drafts.current.set(meetingId, { text: held.text, began: { ms: held.atMs } });
+        setRestored((now) => now + 1);
+      },
+      (error: unknown) => useAppStore.getState().reportError(error),
+    );
+    return () => {
+      current = false;
+    };
+  }, [meetingId]);
 
   useEffect(() => {
     // The innermost thing open took its Esc already; one left over gives the keyboard back.
@@ -193,6 +211,7 @@ export function MeetingPanel() {
           noteWanted={noteWanted}
           onNoteTaken={noteTaken}
           notes={notes}
+          restored={restored}
           onPin={togglePin}
           onFold={() => setFolded(true)}
         />
@@ -286,6 +305,7 @@ function Panel({
   noteWanted,
   onNoteTaken,
   notes,
+  restored,
   onPin,
   onFold,
 }: {
@@ -296,6 +316,7 @@ function Panel({
   noteWanted: boolean;
   onNoteTaken(): void;
   notes: QuickNotes | null;
+  restored: number;
   onPin(help: MeetingHelp): void;
   onFold(): void;
 }) {
@@ -391,8 +412,8 @@ function Panel({
         </p>
       )}
       <AskBar
-        // Another Meeting's field holds that Meeting's own line.
-        key={meeting.id}
+        // Another Meeting's field holds that Meeting's own line, and a line restored shows anew.
+        key={`${meeting.id}-${restored}`}
         meeting={meeting}
         keys={keys}
         noteWanted={noteWanted}

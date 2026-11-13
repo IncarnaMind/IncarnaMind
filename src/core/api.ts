@@ -14515,8 +14515,13 @@ export interface CoreApi {
    * when the panel closes. `addQuickNote` forgets it.
    */
   setQuickNoteDraft(input: AddQuickNoteInput): Promise<void>;
-  /** Adds the Meeting's kept unsent line as a quick note (`setQuickNoteDraft`); null with none. */
+  /**
+   * Adds the Meeting's kept unsent line as a quick note (`setQuickNoteDraft`); null with none. A
+   * Note that refuses it leaves it kept.
+   */
   addQuickNoteDraft(meetingId: string): Promise<AddedToNote | null>;
+  /** The live Meeting's kept unsent line, for a panel that opens again to show it; null with none. */
+  getQuickNoteDraft(meetingId: string): Promise<{ text: string; atMs: number | null } | null>;
   /** The offer to take notes in a call, and a call's end waiting to stop its Meeting (#208). */
   getMeetingOffers(): Promise<MeetingOffers>;
   /**
@@ -15281,6 +15286,7 @@ const methods: Record<CoreApiMethod, true> = {
   addQuickNote: true,
   setQuickNoteDraft: true,
   addQuickNoteDraft: true,
+  getQuickNoteDraft: true,
   getMeetingOffers: true,
   takeMeetingOffer: true,
   declineMeetingOffer: true,

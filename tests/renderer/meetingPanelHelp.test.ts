@@ -31,6 +31,8 @@ const fake = vi.hoisted(() => {
     command: null as null | ((command: string) => void),
     /** What the panel asked of the keyboard, in order: true takes it, false gives it back (#2925). */
     keyboard: [] as boolean[],
+    /** The unsent line the core holds for the Meeting, as a panel opening asks for it (#2925). */
+    held: null as null | { text: string; atMs: number | null },
     emit(name: string, payload: unknown) {
       for (const listener of listeners.get(name) ?? []) listener(payload);
     },
@@ -64,6 +66,7 @@ vi.mock("../../src/renderer/src/core", () => ({
     },
     undoAddToNote: () => Promise.resolve(),
     setQuickNoteDraft: () => Promise.resolve(),
+    getQuickNoteDraft: () => Promise.resolve(fake.held),
   },
   files: { onMenuCommand: () => () => undefined, setEditMenu: () => undefined },
 }));
@@ -214,6 +217,7 @@ beforeEach(async () => {
   fake.holdAdding = false;
   fake.reported.length = 0;
   fake.keyboard.length = 0;
+  fake.held = null;
   container = document.createElement("div", {});
   document.body.append(container);
   root = createRoot(container);
@@ -560,5 +564,30 @@ describe("the keyboard (#2925)", () => {
     used.preventDefault();
     await run(() => window.dispatchEvent(used));
     expect(fake.keyboard).toEqual([]);
+  });
+});
+
+describe("A panel opening again (#2925)", () => {
+  test.each([
+    { language: "English", line: "Kept for the field" },
+    { language: "Chinese", line: "留在输入框里" },
+  ])(
+    "shows the unsent line the core still holds, one its Note refused ($language)",
+    async ({ line }) => {
+      fake.held = { text: line, atMs: 3000 };
+      await changed(null);
+      await run(() => undefined);
+      const field = container.querySelector<HTMLTextAreaElement>(
+        '[data-testid="quick-note-field"]',
+      );
+      expect(field?.value).toBe(line);
+    },
+  );
+
+  test("with nothing held, its field is empty", async () => {
+    await changed(null);
+    await run(() => undefined);
+    const field = container.querySelector<HTMLTextAreaElement>('[data-testid="quick-note-field"]');
+    expect(field?.value).toBe("");
   });
 });

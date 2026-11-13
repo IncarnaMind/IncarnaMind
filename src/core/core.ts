@@ -7781,6 +7781,11 @@ export function createCore(adapters: CoreAdapters): Core {
       else quickNoteDrafts.delete(meeting.id);
     },
     addQuickNoteDraft: async (meetingId) => addQuickNoteDraft(meetings.get(meetingId).id),
+    getQuickNoteDraft: async (meetingId) => {
+      const meeting = meetings.get(meetingId);
+      const draft = quickNoteDrafts.get(meeting.id);
+      return draft && recordsOrPaused(meeting) ? { ...draft } : null;
+    },
     getMeetingOffers: async () => meetingOffers.get(),
     takeMeetingOffer: async (offerId) => meetings.get(meetingOffers.take(String(offerId))),
     declineMeetingOffer: async (input) => {
