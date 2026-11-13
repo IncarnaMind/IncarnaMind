@@ -79,7 +79,7 @@ interface Marking {
   /** The batch's reply instead of `verdicts`', given theirs: an error, or one held. */
   judge?(call: GenerateCall, judged: { text: string }): GeneratedReply;
   /** The reply's text stops after this many characters until `until` resolves. */
-  pause?: { after: number; until: Promise<void> };
+  pause?: { after: number; until: Promise<void>; reached?: () => void };
 }
 
 /** A model that records its Citations, writes `reply`, and judges its sentences as `given` says. */
@@ -1298,6 +1298,133 @@ describe("the evaluation's switch for the form whose facts stand apart (#2847)",
         expect(answer.text.trimEnd().endsWith(`\n\n${written}`)).toBe(true);
       }
       expect(marks(checked)).toEqual([{ marker: 1, check: "found", passed: true }]);
+    },
+  );
+
+  const LAST_OPTION = {
+    English: {
+      first: [
+        "★ Yes, Enterprise is $45 a seat",
+        "> Enterprise is $45 per seat a month, with single sign-on [^1]",
+        "→ answers at once",
+        "",
+        "",
+      ].join("\n"),
+      say: "Let me check whether the price includes customs duty and come back to you today",
+      fact: "> Enterprise is $45 per seat a month, with single sign-on [^2]",
+    },
+    Chinese: {
+      first: [
+        "★ 是的，企业版每个席位 45 美元",
+        "＞ 企业版每个席位每月 45 美元，含单点登录 [^1]",
+        "→ 直接回答",
+        "",
+        "",
+      ].join("\n"),
+      // Its spaces let the model's text stop partway through the line, as a real reply's can. It
+      // doesn't start with 我: the app holds back a line that could claim it did something.
+      say: "先确认 45 美元是否含关税，今天再回复你",
+      fact: "＞ 企业版每个席位每月 45 美元，含单点登录 [^2]",
+    },
+  };
+
+  /** A pause in the reply's text after `after` characters, and when the model has reached it. */
+  const pausedAfter = (after: number) => {
+    let reached = () => {};
+    const isReached = new Promise<void>((resolve) => {
+      reached = resolve;
+    });
+    return { pause: { after, until: new Promise<void>(() => {}), reached }, isReached };
+  };
+
+  /**
+   * Presses Answer; once the model has paused and the reply shows `shown`, gives what it shows then,
+   * stops it, and gives it as kept.
+   */
+  async function stoppedAt(core: Core, meeting: Meeting, isReached: Promise<void>, shown: string) {
+    const asked = await core.askMeetingHelp({ meetingId: meeting.id, kind: "answer" });
+    if (!asked.asked) throw new Error("Not asked.");
+    const ids = { conversationId: asked.conversation.id, answerId: asked.answerId };
+    await isReached;
+    let before: ConversationAnswer | null = null;
+    await vi.waitFor(
+      async () => {
+        before = await answerOf(core, ids.conversationId, ids.answerId);
+        expect(before.text).toContain(shown);
+      },
+      { timeout: 20_000, interval: 5 },
+    );
+    await core.stopConversationAnswer(ids);
+    const after = await answerJudged(core, ids.conversationId, ids.answerId);
+    if (!before) throw new Error("Never written.");
+    return { before: before as ConversationAnswer, after };
+  }
+
+  /** The options' lines to say and the closing line, as the panel shows them. */
+  const optionsAndClosing = (answer: ConversationAnswer) => {
+    const { options, closing } = helpParts(answer, "answer", "fact lines");
+    return { says: options.map((item) => words(item.lead)), closing: closing.map(words) };
+  };
+
+  // protects=what Stop does to a last option stopped before its "→" line, in English and Chinese: with nothing that cites, it shows as an option while written and, once stopped, as the reply's closing line after the options, its words kept (the text kept has no marks to tell it from one); with a fact line that cites, it stays an option; fails_when=either reads otherwise, or its words change; no_claim=whether that is what the User should see, which is the product side's to decide.
+  test.each(["English", "Chinese"] as const)(
+    "in %s, a last option stopped before its → line",
+    async (language) => {
+      const { first, say, fact } = LAST_OPTION[language];
+      const shownFirst = first.trim().split("\n").at(-1) ?? "";
+      const bareStop = pausedAfter(first.length + say.indexOf(" "));
+      const plain = await setUp(
+        { reply: `${first}${say}\n→ buys time`, pause: bareStop.pause },
+        undefined,
+        undefined,
+        "fact lines",
+      );
+      const bare = await stoppedAt(
+        plain.core,
+        plain.meeting,
+        bareStop.isReached,
+        say.slice(0, say.indexOf(" ")),
+      );
+
+      const factStop = pausedAfter(`${first}${say}\n${fact}`.length);
+      const withFact = await setUp(
+        {
+          reply: `${first}${say}\n${fact}\n→ buys time`,
+          records: [
+            { marker: 1, from: "sheet" },
+            { marker: 2, from: "sheet" },
+          ],
+          pause: factStop.pause,
+        },
+        undefined,
+        undefined,
+        "fact lines",
+      );
+      const cited = await stoppedAt(
+        withFact.core,
+        withFact.meeting,
+        factStop.isReached,
+        shownFirst,
+      );
+
+      // Nothing cites in it: an option while written, the closing line once stopped, its words kept.
+      const whileWritten = optionsAndClosing(bare.before);
+      const half = whileWritten.says[1] ?? "";
+      expect(half.length > 0 && say.startsWith(half) && half !== say).toBe(true);
+      expect(whileWritten.closing).toEqual([]);
+      expect(bare.after.status).toBe("stopped");
+      expect(optionsAndClosing(bare.after)).toEqual({
+        says: [whileWritten.says[0]],
+        closing: [half],
+      });
+      // A fact line cites: it stays an option.
+      for (const answer of [cited.before, cited.after]) {
+        expect(optionsAndClosing(answer)).toEqual({
+          says: [whileWritten.says[0], say],
+          closing: [],
+        });
+      }
+      expect(cited.after.status).toBe("stopped");
     },
   );
 
