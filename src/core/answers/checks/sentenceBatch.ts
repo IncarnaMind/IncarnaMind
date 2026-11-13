@@ -14,7 +14,9 @@ import {
   type JudgePart,
   judgePrompt,
   list,
+  parseJson,
   replyJson,
+  replyText,
   textOrNull,
   whole,
   word,
@@ -56,6 +58,18 @@ export interface BatchVerdict {
   quoted: "states" | "other";
   says: string | null;
 }
+
+/**
+ * Whether a verdict passes its sentence as far as the reply says: the Answer check's last gate
+ * before a figure's own (`supportOf`), and what a corrected answer can't give a sentence an earlier
+ * answer judged otherwise (#3029).
+ */
+export const passesSentence = (verdict: BatchVerdict): boolean =>
+  verdict.kind === "fact" &&
+  verdict.verdict === "supported" &&
+  verdict.roles === "same" &&
+  verdict.time === "same" &&
+  verdict.quoted === "states";
 
 /**
  * The same, byte for byte, for every request in one interface language. A sentence's says is shown
@@ -155,9 +169,93 @@ export function readBatch(value: unknown, count: number): Map<number, BatchVerdi
   return read;
 }
 
+/** Where the object opening at `from` closes, its strings' braces aside; -1 when it doesn't. */
+function objectEnd(text: string, from: number): number {
+  let depth = 0;
+  let inString = false;
+  for (let at = from; at < text.length; at++) {
+    const character = text.charAt(at);
+    if (inString) {
+      if (character === "\\") at++;
+      else if (character === '"') inString = false;
+    } else if (character === '"') inString = true;
+    else if (character === "{") depth++;
+    else if (character === "}" && --depth === 0) return at;
+  }
+  return -1;
+}
+
+/**
+ * The JSON objects in `text` that parse whole, outermost first, in order, and whether one opens
+ * after the last of them that doesn't: a later answer cut short or broken.
+ */
+function jsonObjects(text: string): { objects: unknown[]; broken: boolean } {
+  const objects: unknown[] = [];
+  let broken = false;
+  let at = text.indexOf("{");
+  while (at !== -1) {
+    const end = objectEnd(text, at);
+    const parsed = end === -1 ? null : parseJson(text.slice(at, end + 1));
+    if (parsed) objects.push(parsed.value);
+    broken = !parsed;
+    at = text.indexOf("{", parsed ? end + 1 : at + 1);
+  }
+  return { objects, broken };
+}
+
+/** Whether two answers judged a sentence alike: every field of an entry but what it says. */
+const alike = (one: Pick<BatchVerdict, keyof typeof ENTRY>, other: BatchVerdict) =>
+  (Object.keys(ENTRY) as (keyof typeof ENTRY)[]).every(
+    (field) => field === "says" || one[field] === other[field],
+  );
+
+/**
+ * What an earlier answer said of each sentence it gave an entry: its entry, or null where that
+ * entry doesn't read whole or the sentence has two. Null as a whole when nothing it said can be
+ * placed: it isn't a batch, or an entry's number can't be read, so it might be any sentence's.
+ */
+function saidOf(value: unknown): Map<number, Pick<BatchVerdict, keyof typeof ENTRY> | null> | null {
+  const reply = fieldsOf(value, { sentences: list });
+  if (!reply) return null;
+  const said = new Map<number, Pick<BatchVerdict, keyof typeof ENTRY> | null>();
+  for (const entry of reply.sentences) {
+    const number = isRecord(entry) ? whole(entry.number) : undefined;
+    if (number === undefined) return null;
+    said.set(number, said.has(number) ? null : (fieldsOf(entry, ENTRY) ?? null));
+  }
+  return said;
+}
+
+/**
+ * A batch's reply as the Answer check reads it; null when it can't be read. A model that corrects
+ * itself writes a second answer after its first (#3029): the later one is read when it is a whole
+ * batch, never a mix of the two. A sentence it passes stays unjudged unless everything before it
+ * agrees, as a ✓ can't rest on a reply that said otherwise a moment before: an earlier answer
+ * that gave the sentence no entry said nothing of it, and one whose entry differs, can't be read
+ * whole, or can't be placed doesn't agree. A verdict it lowers stands.
+ */
+export function readBatchText(reply: string, count: number): Map<number, BatchVerdict> | null {
+  const { objects: answers, broken } = jsonObjects(replyText(reply));
+  if (answers.length > 0 && broken) return null;
+  const later = answers.length > 1 ? readBatch(answers.at(-1), count) : null;
+  if (!later) return readBatch(replyJson(reply), count);
+  const earlier = answers.slice(0, -1).map(saidOf);
+  for (const [number, verdict] of later) {
+    if (!passesSentence(verdict)) continue;
+    const agrees = earlier.every((said) => {
+      if (said === null) return false;
+      if (!said.has(number)) return true;
+      const before = said.get(number);
+      return before ? alike(before, verdict) : false;
+    });
+    if (!agrees) later.delete(number);
+  }
+  return later;
+}
+
 /** A batch's reply as the Answer check reads it: no sentence of one it can't read is judged. */
 export const readBatchReply = (reply: string, count: number): Map<number, BatchVerdict> =>
-  readBatch(replyJson(reply), count) ?? new Map();
+  readBatchText(reply, count) ?? new Map();
 
 /**
  * Sentences in batches, in their order: a batch closes at `BATCH_SENTENCES` sentences, or before a

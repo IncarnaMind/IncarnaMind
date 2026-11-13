@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { citedSentences } from "../../src/shared/citedSentences";
+import { sentenceSpans } from "../../src/shared/sentences";
 import { random } from "../helpers/random";
 
 const MARKER = /\[\^\d+\]/g;
@@ -132,6 +133,150 @@ describe("A cited sentence ends where its own sentence ends (#3009)", () => {
   });
 });
 
+describe("An English sentence that quotes two sentences is one sentence (#3019)", () => {
+  // The split before this rule is the second column: each quotation was cut at its first full stop.
+  test.each([
+    [
+      'The report\'s first page says "Prepared for software testing[^4]. The text is fictional."[^3] So it may not describe a real model[^5].',
+      [
+        'The report\'s first page says "Prepared for software testing. The text is fictional."',
+        "So it may not describe a real model.",
+      ],
+      [
+        "The report's first page says \"Prepared for software testing.",
+        'The text is fictional."',
+        "So it may not describe a real model.",
+      ],
+    ],
+    [
+      "The appendix reads “Loss falls more smoothly. Fewer steps are needed.”[^1] That is its whole account[^2].",
+      [
+        "The appendix reads “Loss falls more smoothly. Fewer steps are needed.”",
+        "That is its whole account.",
+      ],
+      [
+        "The appendix reads “Loss falls more smoothly.",
+        "Fewer steps are needed.”",
+        "That is its whole account.",
+      ],
+    ],
+    [
+      "The memo calls it ‘a draft. Not final.’[^1] in its last line.",
+      ["The memo calls it ‘a draft. Not final.’ in its last line."],
+      ["The memo calls it ‘a draft.", "Not final.’ in its last line."],
+    ],
+    [
+      "Table 1 (Work per layer. Three ways compared.)[^1] lists recurrent layers first.",
+      ["Table 1 (Work per layer. Three ways compared.) lists recurrent layers first."],
+      ["Table 1 (Work per layer.", "Three ways compared.) lists recurrent layers first."],
+    ],
+    [
+      'It says "may carry over to sequences longer than those in training"[^1], and nothing else.',
+      ['It says "may carry over to sequences longer than those in training", and nothing else.'],
+      ['It says "may carry over to sequences longer than those in training", and nothing else.'],
+    ],
+  ])("%s", (answer, now) => {
+    expect(split(answer).map(([sentence]) => sentence)).toEqual(now);
+  });
+
+  test("the quotation's markers stay with the sentence that holds it", () => {
+    expect(
+      split(
+        'The report\'s first page says "Prepared for software testing[^4]. The text is fictional."[^3] So it may not describe a real model[^5].',
+      ),
+    ).toEqual([
+      [
+        'The report\'s first page says "Prepared for software testing. The text is fictional."',
+        [4, 3],
+      ],
+      ["So it may not describe a real model.", [5]],
+    ]);
+  });
+
+  // From a second read of #3019's English rule: each reads as on main, two sentences, and its twin
+  // that quotes two sentences still joins.
+  test.each<[string, string[]]>([
+    [
+      'The lease says "Rent is due monthly."[^1] "Late rent bears interest," it adds[^2].',
+      ['The lease says "Rent is due monthly."', '"Late rent bears interest," it adds.'],
+    ],
+    [
+      'The lease says "Rent is due monthly."[^1] (Clause 4 says when.)[^2] The tenant agreed to it[^3].',
+      [
+        'The lease says "Rent is due monthly."',
+        "(Clause 4 says when.)",
+        "The tenant agreed to it.",
+      ],
+    ],
+    [
+      "The lease says “Rent is due monthly.”[^1] ‘Later’ payments bear interest[^2].",
+      ["The lease says “Rent is due monthly.”", "‘Later’ payments bear interest."],
+    ],
+    [
+      "The memo says (Rent is due monthly.)[^1] “Late rent bears interest,” it adds[^2].",
+      ["The memo says (Rent is due monthly.)", "“Late rent bears interest,” it adds."],
+    ],
+    ...["£500", "$500", "¥500", "— 500 pounds", "…500 pounds"].map(
+      (opening): [string, string[]] => [
+        `He asked "Why is it late?"[^1] ${opening} is due now[^2].`,
+        ['He asked "Why is it late?"', `${opening} is due now.`],
+      ],
+    ),
+    [
+      'She cried "Stop the sale!"[^1] $500 was paid anyway[^2].',
+      ['She cried "Stop the sale!"', "$500 was paid anyway."],
+    ],
+    [
+      "Did he say it (twice. Loudly.)?[^1] Yes, he said it twice[^2].",
+      ["Did he say it (twice. Loudly.)?", "Yes, he said it twice."],
+    ],
+    [
+      "In the ‘90s sales rose[^1]. In the 2000s they didn’t[^2].",
+      ["In the ‘90s sales rose.", "In the 2000s they didn’t."],
+    ],
+    [
+      'The lease says "Rent is due monthly. Late rent bears interest."[^1] The tenant agreed to it[^2].',
+      [
+        'The lease says "Rent is due monthly. Late rent bears interest."',
+        "The tenant agreed to it.",
+      ],
+    ],
+  ])("a quotation that ends its sentence leaves the next one apart: %s", (answer, sentences) => {
+    expect(split(answer).map(([sentence]) => sentence)).toEqual(sentences);
+  });
+
+  // protects=a straight mark that closes nothing (an inch mark) leaves the next quotation to be read, and a Chinese closing mark between Han characters closes its quotation; fails_when=the real quotation is skipped, or a Chinese closing mark is taken for an apostrophe and joins the next English sentence; no_claim=none beyond protects.
+  test.each<[string, string[]]>([
+    [
+      'The display is 15 inches wide (15")[^1]. The report says "Costs fell. Revenue rose."[^2]',
+      ['The display is 15 inches wide (15").', 'The report says "Costs fell. Revenue rose."'],
+    ],
+    [
+      "报告称‘收入增长’但没有给出数据[^1]. Costs fell sharply in May[^2]. Revenue held up in June[^3].",
+      ["报告称‘收入增长’但没有给出数据.", "Costs fell sharply in May.", "Revenue held up in June."],
+    ],
+  ])("a mark that closes nothing, or a Chinese one, is read as it is: %s", (answer, sentences) => {
+    expect(split(answer).map(([sentence]) => sentence)).toEqual(sentences);
+  });
+
+  test.each([
+    [
+      'He wrote "Stop here[^1]. Go on with the next step[^2].',
+      ['He wrote "Stop here.', "Go on with the next step."],
+    ],
+    [
+      'He wrote "Stop here[^1]. Then she said "go" twice[^2].',
+      ['He wrote "Stop here.', 'Then she said "go" twice.'],
+    ],
+    [
+      "Prices rose in the first quarter[^1]. Wages fell in the second[^2].",
+      ["Prices rose in the first quarter.", "Wages fell in the second."],
+    ],
+  ])("a quotation never closed, or none at all, keeps the plain split: %s", (answer, sentences) => {
+    expect(split(answer).map(([sentence]) => sentence)).toEqual(sentences);
+  });
+});
+
 const ENGLISH = [
   "Prepared for software testing",
   "The text is fictional",
@@ -208,5 +353,119 @@ describe("The cited sentences of an Answer", () => {
       const answer = generatedAnswer(seed);
       expect(wordsReturned(answer), answer).toEqual(wordsOf(answer));
     }
+  });
+});
+
+describe("Quoted sentences with Citations of their own, and single marks for apostrophes (#3019)", () => {
+  // protects=each sentence inside a quotation or bracket that carries a Citation of its own is a sentence, as on main, with its marker before or after its stop, while a quotation cited as a whole stays one; fails_when=two quoted sentences with their own Citations are judged as one; no_claim=none beyond protects.
+  test.each<[string, string[]]>([
+    [
+      "(Revenue rose five percent[^1]. Costs fell three percent[^2].) The board agreed with both[^3].",
+      ["(Revenue rose five percent.", "Costs fell three percent.)", "The board agreed with both."],
+    ],
+    [
+      'The report says "Revenue rose five percent[^1]. Costs fell three percent[^2]." The board agreed[^3].',
+      [
+        'The report says "Revenue rose five percent.',
+        'Costs fell three percent."',
+        "The board agreed.",
+      ],
+    ],
+    // As on main: a marker after the stop leaves the closing mark with the next sentence.
+    [
+      "The report says “Revenue rose five percent.[^1] Costs fell three percent.[^2]” The board agreed[^3].",
+      [
+        "The report says “Revenue rose five percent.",
+        "Costs fell three percent.",
+        "” The board agreed.",
+      ],
+    ],
+    [
+      "Revenue rose (see the first table[^1]. The second table gives costs[^2].) in every region[^3].",
+      ["Revenue rose (see the first table.", "The second table gives costs.) in every region."],
+    ],
+    [
+      'The report says "Revenue rose five percent. Costs fell three percent."[^1] The board agreed[^2].',
+      [
+        'The report says "Revenue rose five percent. Costs fell three percent."',
+        "The board agreed.",
+      ],
+    ],
+    [
+      "(Revenue rose five percent. Costs fell three percent.)[^1] The board agreed[^2].",
+      ["(Revenue rose five percent. Costs fell three percent.)", "The board agreed."],
+    ],
+    [
+      'The report says "Prepared for software testing. The text is fictional[^1]."',
+      ['The report says "Prepared for software testing. The text is fictional."'],
+    ],
+    [
+      'The report says "Prepared for software testing[^4]. The text is fictional."[^3] So it may not be real[^5].',
+      [
+        'The report says "Prepared for software testing. The text is fictional."',
+        "So it may not be real.",
+      ],
+    ],
+    [
+      "He wrote ‘It’s done. They’re gone.’[^1] She agreed with him[^2].",
+      ["He wrote ‘It’s done. They’re gone.’", "She agreed with him."],
+    ],
+    [
+      "The lease (clause 4. See also clause 9.) binds both[^1].",
+      ["The lease (clause 4. See also clause 9.) binds both."],
+    ],
+  ])("%s", (answer, sentences) => {
+    expect(split(answer).map(([sentence]) => sentence)).toEqual(sentences);
+  });
+
+  const APOSTROPHES: [string, string[]][] = [
+    [
+      "In the ‘90s rents rose[^1]. The tenants’ costs fell[^2].",
+      ["In the ‘90s rents rose.", "The tenants’ costs fell."],
+    ],
+    [
+      "In the ‘90s rents rose[^1]. Costs fell in the 2000s[^2]. The tenants’ view differed[^3].",
+      ["In the ‘90s rents rose.", "Costs fell in the 2000s.", "The tenants’ view differed."],
+    ],
+    [
+      "‘Twas a hard year for the firm[^1]. The owners’ losses grew[^2].",
+      ["‘Twas a hard year for the firm.", "The owners’ losses grew."],
+    ],
+    [
+      "Get ‘em signed by Friday[^1]. The partners’ shares follow[^2].",
+      ["Get ‘em signed by Friday.", "The partners’ shares follow."],
+    ],
+    [
+      "In the ’90s rents rose[^1]. The tenants’ costs fell[^2].",
+      ["In the ’90s rents rose.", "The tenants’ costs fell."],
+    ],
+    [
+      "In the ‘90s rents rose[^1]. The memo called it ‘final’ in May[^2].",
+      ["In the ‘90s rents rose.", "The memo called it ‘final’ in May."],
+    ],
+  ];
+
+  // protects=a single mark that stands for an apostrophe ("‘90s", "‘Twas", "tenants’") opens and closes no quotation, with Citations and in plain text, as the Note's own editor writes them; fails_when=two or three sentences join into one; no_claim=none beyond protects.
+  test.each(APOSTROPHES)("%s", (answer, sentences) => {
+    expect(split(answer).map(([sentence]) => sentence)).toEqual(sentences);
+  });
+
+  test.each(APOSTROPHES.slice(0, 4))("as plain text: %s", (answer, sentences) => {
+    const plain = answer.replaceAll(/\[\^\d+\]/g, "");
+    expect(sentenceSpans(plain).map(({ from, to }) => plain.slice(from, to))).toEqual(sentences);
+  });
+
+  // protects=the Chinese twins of the cited quoted sentences stay apart, as on main; fails_when=the rule for Citations inside quotations changes Chinese; no_claim=none beyond protects.
+  test.each<[string, string[]]>([
+    [
+      "报告写明“收入增长了百分之五[^1]。成本下降了百分之三[^2]。”董事会都同意[^3]。",
+      ["报告写明“收入增长了百分之五。", "成本下降了百分之三。”", "董事会都同意。"],
+    ],
+    [
+      "（收入增长了百分之五[^1]。成本下降了百分之三[^2]。）董事会都同意[^3]。",
+      ["（收入增长了百分之五。", "成本下降了百分之三。）", "董事会都同意。"],
+    ],
+  ])("%s", (answer, sentences) => {
+    expect(split(answer).map(([sentence]) => sentence)).toEqual(sentences);
   });
 });

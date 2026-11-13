@@ -81,7 +81,9 @@ const ofProperties = (evidence: CitationAttributes) => {
 
 /**
  * What a supported part's row offers for each Passage its check found, by the
- * sentence's rules (#2002): a part worked out by a calculation offers none.
+ * sentence's rules (#2002): a part worked out by a calculation offers none. A part
+ * backed by a Passage its Citations don't quote offers it the same way: adding it
+ * is how that part gets its ✓ (#3019).
  */
 export function partDecisions(
   state: EditorState,
@@ -89,7 +91,10 @@ export function partDecisions(
   part: ClaimCheckPart,
   onPage?: QuotedWordsOnPage,
 ): { evidence: CitationAttributes; decision: CitationDecision }[] {
-  if (part.verdict !== "supported" || part.calculation) return [];
+  const backed =
+    part.verdict === "supported" ||
+    (part.verdict === "not-checked" && part.reason === "found-elsewhere");
+  if (!backed || part.calculation) return [];
   return part.evidence
     .filter((evidence) => evidence.check === "found" && !ofProperties(evidence))
     .map((evidence) => ({ evidence, decision: decisionFor(state, claim, evidence, onPage) }));
