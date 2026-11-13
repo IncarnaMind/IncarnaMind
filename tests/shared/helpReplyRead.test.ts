@@ -10,6 +10,7 @@ describe("A call-help reply as its panel shows it and its check reads it (#2925)
     ["★ “We can extend the pilot [^1].”", "★ We can extend the pilot [^1]."],
     ["「我们可以延长试用期」[^1]", "我们可以延长试用期[^1]"],
     ['**★ "We can extend the pilot" [^1]**', "**★ We can extend the pilot [^1]**"],
+    ['★ **"We can extend the pilot" [^1]**', "★ **We can extend the pilot [^1]**"],
   ])("an option wrapped in its own marks is read without them: %s", (option, read) => {
     expect(helpReplyRead(`${option}\n→ keeps it moving`).text).toBe(`${read}\n→ keeps it moving`);
   });
@@ -24,6 +25,14 @@ describe("A call-help reply as its panel shows it and its check reads it (#2925)
     ['★ "We can" and "we will" [^1]\n→ keeps it moving', "a pair another mark of its kind breaks"],
     ['★ "" [^1]\n→ keeps it moving', "an empty pair"],
     ['★ We can extend the pilot [^1]\n→ "keeps it moving"', "a → line"],
+    [
+      '★ They want the total under ten thousand\n"our budget stops at ten thousand" [^1]\n→ give the tiered price',
+      "a reading's moment with no time, in English marks",
+    ],
+    [
+      "★ 对方想要总价不超过一万\n“我们的预算上限是一万” [^1]\n→ 先给阶梯价",
+      "a reading's moment with no time, in Chinese marks",
+    ],
   ])("%s is read as written (%s)", (reply) => {
     expect(helpReplyRead(reply).text).toBe(reply);
   });

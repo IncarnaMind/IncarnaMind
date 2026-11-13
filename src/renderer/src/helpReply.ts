@@ -5,7 +5,7 @@
  * it leads to; or up to three short lines. It reads a part still streaming.
  */
 import type { AnswerStatus, CitationCheckReason, MarkedCitation } from "../../core/api";
-import { helpReplyRead } from "../../shared/helpReplyRead";
+import { HELP_MARKER, helpReplyRead } from "../../shared/helpReplyRead";
 import {
   EFFECT_MARK,
   HELP_SHAPE,
@@ -44,7 +44,8 @@ export function pieces(text: string, first: number): ReplyPiece[] {
   const found: ReplyPiece[] = [];
   let from = 0;
   let cited = first;
-  for (const match of text.matchAll(/\[\^(\d+)\]|\[=(\d+)\]/g)) {
+  // Citation markers as the reply's reader counts them (`HELP_MARKER`).
+  for (const match of text.matchAll(/\[\^(\d{1,4})\]|\[=(\d+)\]/g)) {
     const before = text.slice(from, match.index);
     if (before) found.push({ kind: "text", text: before });
     found.push(
@@ -207,8 +208,6 @@ export function uncheckedReason(
   return ACTIONABLE.find((each) => each === citation.checkReason) ?? null;
 }
 
-const CITATION_MARKER = /\[\^\d+\]/g;
-
 /** A help reply's items, read as its check reads it (see `helpReplyRead`). */
 export function readHelpReply(markdown: string): ReplyItem[] {
   const read = helpReplyRead(markdown);
@@ -216,7 +215,7 @@ export function readHelpReply(markdown: string): ReplyItem[] {
   let cited = 0;
   for (const raw of read.text.split("\n")) {
     const first = cited;
-    cited += raw.match(CITATION_MARKER)?.length ?? 0;
+    cited += raw.match(HELP_MARKER)?.length ?? 0;
     const line = plainLine(raw);
     if (line === "" || DEFINITION.test(line) || /^#+\s/.test(line)) continue;
     const current = items.at(-1);

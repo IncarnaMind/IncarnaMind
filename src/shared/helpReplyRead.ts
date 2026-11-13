@@ -4,10 +4,12 @@
  * here too, with where each sits: its place among the reply's markers as written (`at`), by which
  * the check's verdicts are matched to the panel's chips, so none moves to another.
  *
- * An option (a line followed directly by its "→" line) that the model wrapped whole in its own
+ * An option, known by its form (a line that starts its item, first in the reply or after a blank
+ * line or a "→" line, followed directly by its "→" line), that the model wrapped whole in its own
  * quotation marks is read without them: the panel shows every option in quotation marks of its own,
  * and with the model's left on, the check would look for the option's own words on the cited page.
- * A quotation inside an option is still one.
+ * A quotation inside an option is still one, and so is a reading's moment, which comes after the
+ * line its item starts with, with or without its time.
  */
 
 export interface HelpReplyRead {
@@ -17,11 +19,12 @@ export interface HelpReplyRead {
   at: readonly number[];
 }
 
-const MARKER = /\[\^\d{1,4}\]/g;
+/** A Citation marker as a reply's panel and check count them. */
+export const HELP_MARKER = /\[\^\d{1,4}\]/g;
 const EFFECT_LINE = /^\s*(?:\*\*|__)?\s*→/;
 /** A line's mark and bold before its words, the words in a pair of quotation marks, then its markers. */
 const WRAPPED =
-  /^(\s*(?:\*\*|__)?\s*(?:★\s*)?)(["“「])(.*)(["”」])((?:\s*\[\^\d{1,4}\])*\s*(?:\*\*|__)?\s*)$/u;
+  /^(\s*(?:\*\*|__)?\s*(?:★\s*)?(?:\*\*|__)?\s*)(["“「])(.*)(["”」])((?:\s*\[\^\d{1,4}\])*\s*(?:\*\*|__)?\s*)$/u;
 /** Each opening mark's closing one, and the marks of its kind that may not stand inside the pair. */
 const PAIRS: Readonly<Record<string, { closing: string; kind: RegExp }>> = {
   '"': { closing: '"', kind: /"/u },
@@ -42,13 +45,25 @@ function unwrapped(line: string): string {
 
 export function helpReplyRead(markdown: string): HelpReplyRead {
   const lines = markdown.split("\n");
+  const startsItem = (index: number) => {
+    const before = lines.slice(0, index);
+    const last = before.at(-1);
+    return (
+      before.every((line) => line.trim() === "") ||
+      last?.trim() === "" ||
+      EFFECT_LINE.test(last ?? "")
+    );
+  };
   const text = lines
     .map((line, index) => {
       const next = lines[index + 1];
-      return next !== undefined && EFFECT_LINE.test(next) && !EFFECT_LINE.test(line)
-        ? unwrapped(line)
-        : line;
+      const option =
+        next !== undefined &&
+        EFFECT_LINE.test(next) &&
+        !EFFECT_LINE.test(line) &&
+        startsItem(index);
+      return option ? unwrapped(line) : line;
     })
     .join("\n");
-  return { text, at: [...text.matchAll(MARKER)].map((_, place) => place) };
+  return { text, at: [...text.matchAll(HELP_MARKER)].map((_, place) => place) };
 }

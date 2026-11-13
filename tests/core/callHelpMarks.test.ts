@@ -799,11 +799,55 @@ describe("an option is checked as the panel shows it (#2925)", { timeout: 60_000
       form: "Chinese marks",
       reply: "★ “是的，企业版每个席位每月 45 美元，含单点登录 [^1]”\n→ 直接回答，推进通话",
     },
+    {
+      form: "bold after its star",
+      reply: '★ **"Yes, Enterprise is $45 a seat with single sign-on" [^1]**\n→ answers at once',
+    },
   ])("an option wrapped in its own quotation marks, $form, takes ✓", async ({ reply }) => {
     const { core, meeting } = await setUp({ reply });
     const after = await (await pressed(core, meeting, "answer")).judged();
     expect(after.text).toBe(reply);
     expect(marks(after)).toEqual([{ marker: 1, check: "found", passed: true }]);
+  });
+
+  // protects=Check the rest, from the assistant's view of a call-help reply, judges a wrapped option as the panel shows it, as the reply's end did, and every place the first check passed stays where it was; fails_when=the option goes to the judge in its own quotation marks, or a passed place moves or is lost; no_claim=a reply checked again after its call has stopped.
+  test("Check the rest judges a wrapped option as the panel shows it, and keeps every passed place", async () => {
+    let round = 0;
+    const reply = [
+      '★ "Yes, Enterprise is $45 a seat with single sign-on [^1]"',
+      "→ answers at once",
+      "",
+      '"I\'ll confirm the Team plan price in writing today [^2]"',
+      "→ buys time",
+    ].join("\n");
+    const { core, meeting, batches } = await setUp({
+      reply,
+      records: [
+        { marker: 1, from: "sheet" },
+        { marker: 2, from: "sheet" },
+      ],
+      judge: (call) =>
+        ++round === 1
+          ? batchOf(call, [["in writing", { verdict: "supported", kind: "opinion" }]])
+          : batchOf(call, []),
+    });
+    const first = await (await pressed(core, meeting, "answer")).judged();
+    expect(marks(first)).toEqual([
+      { marker: 1, check: "found", passed: true },
+      { marker: 2, check: "not-checked", passed: false },
+    ]);
+
+    await core.checkAnswerAgain({ conversationId: first.conversationId, answerId: first.id });
+    const after = await answerJudged(core, first.conversationId, first.id);
+
+    expect(batches).toHaveLength(2);
+    expect(batches[1]?.prompt).toContain("I'll confirm the Team plan price in writing today");
+    expect(batches[1]?.prompt).not.toContain("\"I'll confirm");
+    expect(marks(after)).toEqual([
+      { marker: 1, check: "found", passed: true },
+      { marker: 2, check: "found", passed: true },
+    ]);
+    expect(after.citations.map((citation) => citation.passedAt)).toEqual([[0], [1]]);
   });
 
   // protects=words quoted inside an option, not on the cited page, still read as a quotation and leave its Citation not found, in English and Chinese marks; fails_when=the option's own marks taken off hide a quotation inside it; no_claim=what a model quotes.

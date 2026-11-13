@@ -4955,15 +4955,21 @@ export function createAnswers(options: AnswersOptions) {
       if (!answer.citations.some((each) => each.check === "not-checked")) return;
       const limit = isRecord(input) ? moneyOf(input.limit) : null;
       const documentIds = judgedScope(question);
+      const mindId = judgedMind(question);
+      // Call help's reply is judged again as its panel shows it, as it was at its end; its kind is
+      // known as its turn knew it, while its call goes on.
+      const help =
+        mindId !== null && (options.meetingHelp?.(mindId, question.text) ?? null) !== null;
+      const asShown = help ? helpReplyRead(answer.text) : null;
       // The sentences judged again lose the ✓ an earlier check gave them, on every Citation they
       // cite, until this judgement passes them again (#2847).
       const again = new Set(
         answer.citations.filter((each) => each.check === "not-checked").map((each) => each.marker),
       );
       const rejudged = new Set(
-        citedSentences(answer.text, answer.figures)
+        citedSentences(asShown?.text ?? answer.text, answer.figures)
           .filter((each) => !each.calculated && each.markers.some((marker) => again.has(marker)))
-          .flatMap((each) => each.at),
+          .flatMap((each) => each.at.map((at) => asShown?.at[at] ?? at)),
       );
       const taken = new Map<number, number[]>();
       const waiting = answer.citations.map((citation): MarkedCitation => {
@@ -4980,10 +4986,11 @@ export function createAnswers(options: AnswersOptions) {
       if (!options.conversations.writeCitations(answerId, answer.text, waiting)) return;
       await judgeAnswer(
         { ...answer, citations: waiting },
-        judgedMind(question),
+        mindId,
         documentIds,
         limit ?? undefined,
         taken,
+        help,
       );
     },
 
