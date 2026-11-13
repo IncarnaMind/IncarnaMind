@@ -13,7 +13,7 @@ import { writtenNumbers } from "../../transcription/spokenNumbers";
 import { documentFigureContext } from "../calculations";
 import { figuresInClaim, statedFigure } from "./calculated";
 import type { ReadVerdict } from "./prompt";
-import { sameValue, unitNotStated } from "./units";
+import { sameValue, unitNotStated, writtenShare } from "./units";
 
 const spaced = (text: string) => text.replace(/\s+/gu, " ").trim().toLowerCase();
 
@@ -97,11 +97,11 @@ function wordsState(figure: Figure, quote: string, context: FigureContext): bool
   });
 }
 
-/** A number as it is written: its scale word left off, a percent or points in hundredths. */
-const asWritten = (reading: Reading) =>
-  (reading.unit.kind === "percent" || reading.unit.kind === "points"
-    ? reading.value * 100
-    : reading.value) / reading.scale;
+/** A figure's number as it is written: its scale word left off, a share in its own notation. */
+const writtenOf = (figure: Figure) =>
+  figure.unit.kind === "percent" || figure.unit.kind === "points"
+    ? writtenShare(figure)
+    : figure.value / figure.scale;
 
 /**
  * Whether the quotes hold every number of `claim`, at its value or as it is written, in digits or
@@ -126,13 +126,15 @@ export function quotesHoldNumbers(
   const cites = recordCiteSpans(claim);
   return figuresInClaim(claim, own.language ? own : { ...context, header: null })
     .filter((figure) => !cites.some((cite) => figure.start < cite.to && figure.end > cite.from))
-    .every((figure) =>
-      readingsOf(figure).some((reading) =>
+    .every(
+      (figure) =>
+        readingsOf(figure).some((reading) =>
+          held.some((each) => sameValue(each.value, reading.value)),
+        ) ||
         held.some(
           (each) =>
-            sameValue(each.value, reading.value) || sameValue(asWritten(each), asWritten(reading)),
+            each.unit.kind === "plain" && sameValue(each.value / each.scale, writtenOf(figure)),
         ),
-      ),
     );
 }
 

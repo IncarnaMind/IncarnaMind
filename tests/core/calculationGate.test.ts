@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { needsCalculation } from "../../src/core/answers/checks/calculationGate";
+import { needsCalculation, quotesHoldNumbers } from "../../src/core/answers/checks/calculationGate";
 import { STRICT_INSTRUCTIONS } from "../../src/core/answers/checks/prompt";
 import type { Citation } from "../../src/core/api";
 import { checkGenerate, SAME_DETAIL } from "../helpers/checks";
@@ -608,20 +608,20 @@ describe("a check cannot substitute a model verdict for derived arithmetic", () 
   );
 });
 
-describe("a count of periods in a sentence the Answer check judges (#2943, #2953)", () => {
-  const citing = (quote: string): Citation => ({
-    passageId: "passage-1",
-    documentId: "document-1",
-    documentName: "Invented ledger.md",
-    contentHash: "hash-1",
-    pageFrom: null,
-    pageTo: null,
-    location: null,
-    quote,
-    check: "found",
-    checkReason: null,
-  });
+const citing = (quote: string): Citation => ({
+  passageId: "passage-1",
+  documentId: "document-1",
+  documentName: "Invented ledger.md",
+  contentHash: "hash-1",
+  pageFrom: null,
+  pageTo: null,
+  location: null,
+  quote,
+  check: "found",
+  checkReason: null,
+});
 
+describe("a count of periods in a sentence the Answer check judges (#2943, #2953)", () => {
   /** Whether the Answer check leaves `claim` not judged, citing `quote`, as `supportOf` asks the gate. */
   const leftNotJudged = (claim: string, quote: string) =>
     needsCalculation({
@@ -1126,4 +1126,40 @@ describe("a count of periods in a sentence the Answer check judges (#2943, #2953
       expect(await leftNotJudged(claim, quote)).toBe(false);
     },
   );
+});
+
+describe("whether the quotes hold a sentence's numbers, on a model the check doesn't offer calculate (#3022)", () => {
+  const holds = (claim: string, quote: string, page = quote) =>
+    quotesHoldNumbers(claim, [{ citation: citing(quote), units: [{ text: page }] }]);
+
+  test.each<[claim: string, quote: string, page?: string]>([
+    ["The spread widened 230 bps.", "The spread widened 2.3 percentage points."],
+    ["The spread widened 230 bps.", "230", "Spread (bps)\n230"],
+    ["The levy is 5‰.", "5", "Levy (‰)\n5"],
+    ["Revenue grew 12% year on year.", "Revenue\t12", "Metric\tYoY%\nRevenue\t12"],
+    ["Seventeen deals worth £830k were at the proposal stage.", "Proposal\t17\t830"],
+    ["利润率上升了6个百分点。", "利润率上升了6个百分点。"],
+    [
+      "The supplier quoted £39,500.",
+      "The supplier quoted thirty-nine thousand five hundred pounds.",
+    ],
+    ["The witness agreed (Smith Dep. 45:3–12).", "The witness agreed."],
+    ["The lease has a break clause.", "The lease has a break clause."],
+  ])("held, whatever unit the quote gives it: %s citing %j", (claim, quote, page) => {
+    expect(holds(claim, quote, page)).toBe(true);
+  });
+
+  test.each([
+    ["It rose 7%.", "It rose 6 percentage points."],
+    ["It rose 7 percentage points.", "It rose 6 percentage points."],
+    ["Revenue was $55m.", "Revenue was $54m."],
+    ["收入为5500万美元。", "收入为5400万美元。"],
+    ["The fee is 5%.", "The fee is 50 bps."],
+    [
+      "The supplier quoted £45,500.",
+      "The supplier quoted thirty-nine thousand five hundred pounds.",
+    ],
+  ])("not held: %s citing %s", (claim, quote) => {
+    expect(holds(claim, quote)).toBe(false);
+  });
 });
