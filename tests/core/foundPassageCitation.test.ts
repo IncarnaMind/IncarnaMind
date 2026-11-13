@@ -174,7 +174,9 @@ describe("A check of a sentence in the Note writes nothing into it", { timeout: 
     expect(legacy && foundElsewhere(legacy)).toBe(false);
     const asked = calls.length;
 
-    await core.checkMind({ requestId: crypto.randomUUID(), mindId: mind.id, mode: "all" });
+    // Check this Note's own press, which checks only what isn't held as checked.
+    expect((await core.planMindCheck(mind.id, "changed")).kind).not.toBe("unchanged");
+    await core.checkMind({ requestId: crypto.randomUUID(), mindId: mind.id, mode: "changed" });
     await client.settled();
     expect(calls.length).toBeGreaterThan(asked);
     const [now] = shownIn(client);
