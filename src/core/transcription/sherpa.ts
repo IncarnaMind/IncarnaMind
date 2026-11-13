@@ -47,9 +47,8 @@ const AUDIO_TOKENS_PER_SECOND = 13;
 const LONGEST_READING_MS = 15_000;
 /**
  * A plain reading that reaches a limit anyway is read again in two parts, cut at the quietest
- * moment between these shares of it, its middle fifth. Read as the app reads it, the meeting set
- * reached none; the one stretch of it seen to reach one was the model writing the same words over
- * and over, and its two parts read what was said (#1031).
+ * moment between these shares of it, its middle fifth: the parts are of like size, so neither is
+ * likely to reach the limit again, and a fifth leaves room to find a quiet moment (#1031).
  */
 const SECOND_PART_FROM = 0.4;
 const SECOND_PART_BY = 0.6;
@@ -368,36 +367,71 @@ export async function createSherpaEngine(
   const read = async (samples: Float32Array, words: readonly string[], language?: string) =>
     (await reading(samples, words, language)).text;
 
+  /** The language a stretch is told: its stream's, once known, when it is short. */
+  const toldLanguage = (samples: Float32Array, stream: string) =>
+    samples.length < (TOLD_LANGUAGE_UNDER_MS * MEETING_SAMPLE_RATE) / 1000
+      ? languageOf(stream)
+      : undefined;
+
   /**
-   * The reading whose words the stretch keeps. One that reaches a limit is read again in two parts,
-   * whose words are kept in its place; a part that reaches it too keeps what it wrote (#1031).
+   * A stretch read plainly, as long as it is: told its stream's language when short, learned from
+   * when long, left out when its words are doubted. `inParts`: a reading that reaches a limit is
+   * read again in two parts, each read plainly as a stretch of its length is, and their words are
+   * kept in its place; a part isn't read in parts again (#1031).
    */
-  async function plainReading(samples: Float32Array, language?: string): Promise<string> {
-    const whole = await reading(samples, [], language);
-    if (!whole.atLimit) return whole.text;
+  async function plainly(samples: Float32Array, stream: string, inParts: boolean): Promise<string> {
+    const language = toldLanguage(samples, stream);
+    const first = await reading(samples, [], language);
+    if (inParts && first.atLimit) {
+      const parts = await partsOf(samples, stream);
+      if (parts !== null) return parts;
+    }
+    const plain = first.text;
+    // A stream not yet known to be English counts as not English: a word left out is the
+    // smaller harm than one written that nobody said (#1031).
+    if (onlyPromptWord(plain) && languageOf(stream) !== "English") return "";
+    if (samples.length >= (LANGUAGE_FROM_MS * MEETING_SAMPLE_RATE) / 1000) learn(stream, plain);
+    const outside = language && writtenOutside(plain, language) && !borrowedInto(plain, language);
+    if (outside || (language && onlyPromptWord(plain))) {
+      // Told the call's language, it still wrote another, or wrote only "system", as it also
+      // does told English for a stretch it can't read. Kept only if its own guess agrees, as
+      // a word said alone (a name, a one-word answer) reads the same both ways. If that
+      // second reading fails, so does the stretch: the host notes it as not transcribed,
+      // rather than keeping words this check doubts.
+      if (!shareAWord(plain, await read(samples, []))) {
+        console.warn(
+          "The speech model read a short stretch one way told its call's language and another way untold; it is left out.",
+          { language },
+        );
+        return "";
+      }
+    }
+    return plain;
+  }
+
+  /** `samples` read plainly in two parts, cut in their middle fifth; null when a part can't be read. */
+  async function partsOf(samples: Float32Array, stream: string): Promise<string | null> {
     const cut = quietestCut(
       samples,
       Math.round(samples.length * SECOND_PART_FROM),
       Math.round(samples.length * SECOND_PART_BY),
     );
-    let parts: [string, string];
+    let first: string;
+    let second: string;
     try {
-      parts = [
-        await read(samples.subarray(0, cut), [], language),
-        await read(samples.subarray(cut), [], language),
-      ];
+      first = await plainly(samples.subarray(0, cut), stream, false);
+      second = await plainly(samples.subarray(cut), stream, false);
     } catch (error) {
       console.warn(
         "The speech model couldn't read a stretch again in two parts; it keeps its first reading.",
         error instanceof Error ? error.name : typeof error,
       );
-      return whole.text;
+      return null;
     }
     console.warn("The stretch was read again in two parts.", {
       seconds: Math.round((samples.length / MEETING_SAMPLE_RATE) * 10) / 10,
       cutAt: Math.round((cut / MEETING_SAMPLE_RATE) * 10) / 10,
     });
-    const [first, second] = parts;
     return first + gap("zh-CN", first, second) + second;
   }
 
@@ -408,29 +442,8 @@ export async function createSherpaEngine(
     recognizer: {
       async decode(samples, name, given) {
         const words = contextWords(given);
-        const short = samples.length < (TOLD_LANGUAGE_UNDER_MS * MEETING_SAMPLE_RATE) / 1000;
-        const language = short ? languageOf(name) : undefined;
-        const plain = await plainReading(samples, language);
-        // A stream not yet known to be English counts as not English: a word left out is the
-        // smaller harm than one written that nobody said (#1031).
-        if (onlyPromptWord(plain) && languageOf(name) !== "English") return "";
-        if (samples.length >= (LANGUAGE_FROM_MS * MEETING_SAMPLE_RATE) / 1000) learn(name, plain);
-        const outside =
-          language && writtenOutside(plain, language) && !borrowedInto(plain, language);
-        if (outside || (language && onlyPromptWord(plain))) {
-          // Told the call's language, it still wrote another, or wrote only "system", as it also
-          // does told English for a stretch it can't read. Kept only if its own guess agrees, as
-          // a word said alone (a name, a one-word answer) reads the same both ways. If that
-          // second reading fails, so does the stretch: the host notes it as not transcribed,
-          // rather than keeping words this check doubts.
-          if (!shareAWord(plain, await read(samples, []))) {
-            console.warn(
-              "The speech model read a short stretch one way told its call's language and another way untold; it is left out.",
-              { language },
-            );
-            return "";
-          }
-        }
+        const language = toldLanguage(samples, name);
+        const plain = await plainly(samples, name, true);
         if (!mayMend(plain, words)) return plain;
         let told: string;
         try {
