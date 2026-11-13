@@ -48,6 +48,7 @@ import {
   findQuote,
   lostLigatures,
   type MatchOptions,
+  quoteParts,
   type TextRange,
 } from "../../shared/quoteMatch";
 import { readableQuote, readableQuoteText } from "../../shared/readableQuote";
@@ -1178,40 +1179,35 @@ const LOOK_WINDOW = 30_000;
 const nextTurn = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
 /**
- * Consecutive runs of Units, each about `LOOK_WINDOW` long and at least two Units, each starting
- * within the one before by at least `overlap` characters and one Unit: two Units side by side are
- * always in one run together, and so is any match shorter than `overlap`.
+ * Windows over a version's text (its Units joined, see `joinUnits`), each about `LOOK_WINDOW` long
+ * and cut after a line break where one is near, each starting at least `overlap` characters before
+ * the one before ends: any stretch of the text shorter than `overlap` is whole in one of them, over
+ * Units of any length. A cut inside a line is only for a line longer than a window.
  */
-function* windowsOf(units: readonly PageText[], overlap: number) {
-  const length = (index: number) => (units[index] as PageText).text.length;
-  let from = 0;
-  let end = -1;
-  while (from < units.length) {
-    let to = from;
-    let size = length(from);
-    while (to + 1 < units.length && (size < LOOK_WINDOW || to === from || to <= end)) {
-      to++;
-      size += 1 + length(to);
+export function* windowsOf(text: string, overlap: number): Generator<TextRange> {
+  const size = Math.max(LOOK_WINDOW, overlap * 2);
+  let start = 0;
+  while (start < text.length) {
+    let end = Math.min(text.length, start + size);
+    if (end < text.length) {
+      const cut = text.lastIndexOf("\n", end - 1) + 1;
+      if (cut > start + overlap) end = cut;
     }
-    yield { from, to };
-    if (to === units.length - 1) return;
-    let next = to;
-    for (let tail = length(to); next - 1 > from && tail < overlap; ) {
-      next--;
-      tail += 1 + length(next);
-    }
-    end = to;
-    from = next;
+    yield { start, end };
+    if (end === text.length) return;
+    const next = text.lastIndexOf("\n", end - overlap - 1) + 1;
+    start = next > start ? next : end - overlap;
   }
 }
 
 /**
- * Where the whole quote stands in a version, as `locateQuote` and `quoteInUnits` over all its Units
- * would say, read a window of Units at a time with a turn of the event loop between (#3041), so a
- * long Document never holds the app up: at one place a Citation could cite, its Location; in more
- * than one, or across more Units than a Citation cites, no Location; nowhere, null. Each window is
- * matched in the readings `findQuote` tries, in its order, and a later reading is tried only when
- * no window had the quote in the one before, as one match over the whole text does.
+ * Where the whole quote stands in a version, matched by the check's own `findQuote` a window at a
+ * time with a turn of the event loop between (#3041), so a long Document never holds the app up.
+ * At one place a Citation could cite, one Unit or two that run on: its Location. In more than one
+ * place, or across more Units than a Citation cites: no Location. A quote with an ellipsis whose
+ * parts each still stand, though no window holds them together: no Location. Nowhere: null. The
+ * readings `findQuote` tries are tried in its order, a later one only when no window had the quote
+ * in the one before.
  */
 export async function quoteElsewhere(
   documents: RecheckDocuments,
@@ -1231,12 +1227,20 @@ export async function quoteElsewhere(
   );
   // As `placesOf` has it: room for the quote and the spacing matching passes over.
   const overlap = quote.length * 2 + 200;
+  const standsIn = async (wanted: string) => {
+    for (const reading of readings) {
+      for (const { start, end } of windowsOf(text, overlap)) {
+        await nextTurn();
+        if (findQuote(text.slice(start, end), wanted, reading)) return true;
+      }
+    }
+    return false;
+  };
   const places: TextRange[][] = [];
   for (const reading of readings) {
-    for (const { from, to } of windowsOf(units, overlap)) {
+    for (const { start, end } of windowsOf(text, overlap)) {
       await nextTurn();
-      const start = starts[from] ?? 0;
-      const window = text.slice(start, (starts[to] ?? 0) + (units[to] as PageText).text.length);
+      const window = text.slice(start, end);
       const found = findQuote(window, quote, reading);
       if (!found) continue;
       if (!findQuote(window, quote, { ...reading, unique: true })) return { location: null };
@@ -1247,7 +1251,13 @@ export async function quoteElsewhere(
     if (places.length > 0) break;
   }
   const [place] = places;
-  if (!place) return null;
+  if (!place) {
+    // Its parts can stand further apart than a window: each is looked for on its own.
+    const parts = quoteParts(quote);
+    if (parts.length === 0) return null;
+    for (const part of parts) if (!(await standsIn(part))) return null;
+    return { location: null };
+  }
   const covered = units.filter((unit, index) => {
     const at = starts[index] ?? 0;
     return place.some((range) => range.start < at + unit.text.length && range.end > at);

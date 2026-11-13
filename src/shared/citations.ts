@@ -339,21 +339,29 @@ export function quoteNotAtItsPlace(
 /**
  * Where a Citation's quote stands in the version `recheck` read, as the card and the viewer say
  * it (#3041): at its cited place; "moved" to another, with its Location (null when none names it);
- * or "gone" from that version. A quote the re-check found away from its cited Units (`elsewhere`)
- * is moved here, yet stays not found at its place: Needs re-check and every action read
- * `quoteStanding`.
+ * or "gone" from that version, only once a look through it (`elsewhere`) found it nowhere. Null
+ * while that is unknown: not checked, can't be checked, or not at its cited Units with no look
+ * answered. A quote found away from its cited Units stays not found at its place: Needs re-check
+ * and every action read `quoteStanding`.
  */
 export function whereQuoteStands(
   cited: Partial<Pick<CitationAttributes, "pageFrom" | "pageTo" | "location">>,
   recheck: CitationRecheck | null,
 ): { standing: QuoteStanding; location: CitationLocation | null } | null {
-  const standing = quoteStanding(cited, recheck);
-  if (standing === null || recheck === null) return null;
-  if (standing === "moved") return { standing, location: recheck.location };
-  if (standing === "gone" && recheck.elsewhere) {
-    return { standing: "moved", location: recheck.elsewhere.location };
-  }
-  return { standing, location: null };
+  if (recheck === null) return null;
+  // The re-check gives this reason only to a quote it found: the place it carries is the quote's.
+  const read: CitationRecheck =
+    recheck.checkReason === "quoted-words-not-on-pages"
+      ? { ...recheck, check: "found", checkReason: null }
+      : recheck;
+  const standing = quoteStanding(cited, read);
+  if (standing === null) return null;
+  if (standing === "moved") return { standing, location: read.location };
+  if (standing === "found") return { standing, location: null };
+  if (recheck.elsewhere === undefined) return null;
+  return recheck.elsewhere === null
+    ? { standing: "gone", location: null }
+    : { standing: "moved", location: recheck.elsewhere.location };
 }
 
 /**

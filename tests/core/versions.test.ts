@@ -239,7 +239,7 @@ describe("Versions of a Document", { timeout: 30_000 }, () => {
     ] as const) {
       expect(await lineOf(pageFrom, contentHash)).toEqual({
         elsewhere: { location: { kind: "page", from: 3, to: 3 } },
-        lines: ["Its quote is now at p. 3.", "引文已移到第 3 页。"],
+        lines: ["Its quote is now at p. 3.", "引文已移到新位置（第 3 页）。"],
       });
     }
     // At the page that holds it, it is still here, and nothing more is looked for.

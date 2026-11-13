@@ -299,7 +299,7 @@ describe("A Citation whose quote is in another place in the new version (#3041)"
       const line = (language: Language) =>
         changedSourceLines(true, citation, after, live, language, in_(language)).note?.quote;
       expect(line("en"), kind.label).toBe(`Its quote is now at ${kind.en}.`);
-      expect(line("zh-CN"), kind.label).toBe(`引文已移到${kind.zh}。`);
+      expect(line("zh-CN"), kind.label).toBe(`引文已移到新位置（${kind.zh}）。`);
     }
   });
 });

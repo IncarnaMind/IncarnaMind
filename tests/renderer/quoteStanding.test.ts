@@ -55,7 +55,7 @@ const ROWS: {
     name: "in one other place",
     first: NOT_HERE,
     looked: { ...NOT_HERE, elsewhere: { location: { kind: "section", heading: "Elsewhere" } } },
-    line: { en: "Its quote is now at § Elsewhere.", "zh-CN": "引文已移到§ Elsewhere。" },
+    line: { en: "Its quote is now at § Elsewhere.", "zh-CN": "引文已移到新位置（§ Elsewhere）。" },
   },
   {
     name: "in several other places, or one no Location names",

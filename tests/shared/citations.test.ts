@@ -786,13 +786,19 @@ describe("A Citation whose Document changed after it was cited", () => {
       note({ pageFrom: 14, pageTo: 14, location: { kind: "section", heading: "Budget" } }, "zh-CN"),
     ).toEqual({
       notice: "此文档在被引用后有改动。",
-      quote: "引文已移到§ Budget。",
+      quote: "引文已移到新位置（§ Budget）。",
     });
-    expect(note({ check: "not-found", checkReason: "quote-not-on-pages" }, "en")).toEqual({
+    // Looked for through the new version, and found nowhere in it (#3041).
+    const nowhere = {
+      check: "not-found",
+      checkReason: "quote-not-on-pages",
+      elsewhere: null,
+    } as const;
+    expect(note(nowhere, "en")).toEqual({
       notice: "The Document changed after this was cited.",
       quote: "Its quote is no longer in the new version.",
     });
-    expect(note({ check: "not-found", checkReason: "quote-not-on-pages" }, "zh-CN")).toEqual({
+    expect(note(nowhere, "zh-CN")).toEqual({
       notice: "此文档在被引用后有改动。",
       quote: "新版本中已找不到这条引文。",
     });
@@ -886,12 +892,12 @@ describe("A Citation whose Document changed after it was cited", () => {
       [
         { location: { kind: "page", from: 14, to: 14 } },
         "Its quote is now at p. 14.",
-        "引文已移到第 14 页。",
+        "引文已移到新位置（第 14 页）。",
       ],
       [
         { location: { kind: "section", heading: "Budget" } },
         "Its quote is now at § Budget.",
-        "引文已移到§ Budget。",
+        "引文已移到新位置（§ Budget）。",
       ],
       [
         { location: null },
@@ -910,6 +916,61 @@ describe("A Citation whose Document changed after it was cited", () => {
       expect(needsRecheck(state, found, recheck)).toBe(true);
       expect(newVersionCitation(found, recheck)).toEqual(newVersionCitation(found, notHere));
     }
+  });
+
+  // protects=a re-check that found the quote isn't at its cited place, with no look through the new version answered, says nothing about the quote, only that the Document changed: "no longer in the new version" needs a look that found it nowhere; fails_when=the line says the quote is gone from a version nobody looked through; no_claim=when the look is asked (tests/renderer/quoteStanding.test.ts).
+  test("says nothing of the quote until a look through the new version has answered (#3041)", () => {
+    const notHere = rechecked({ check: "not-found", checkReason: "quote-not-on-pages" });
+    for (const language of ["en", "zh-CN"] as const) {
+      expect(changedSourceNote(true, found, notHere, in_(language))?.quote).toBeNull();
+      expect(changedSourceNote(true, found, notHere, in_(language))?.notice).toBe(
+        language === "en"
+          ? "The Document changed after this was cited."
+          : "此文档在被引用后有改动。",
+      );
+    }
+    expect(whereQuoteStands(found, notHere)).toBeNull();
+    expect(whereQuoteStands(found, { ...notHere, elsewhere: null })).toEqual({
+      standing: "gone",
+      location: null,
+    });
+    // Needs re-check and the actions read the check, as before.
+    expect(needsRecheck({ changedAfterCited: true }, found, notHere)).toBe(true);
+    expect(quoteStanding(found, notHere)).toBe("gone");
+  });
+
+  // protects=a quote still at its cited place whose sentence's quoted words aren't there reads where the quote is, by the same comparison as a found one, in English and Chinese: still here at its place, the moved line at other rows of the same Unit; Needs re-check and every action read the check as before; fails_when=it says the quote is no longer in the new version while it is on the cited page; no_claim=the check of the quoted words (tests/core/quotedWordsOneRule.test.ts).
+  test("a quote at its place whose quoted words aren't there says where the quote is", () => {
+    const words = rechecked({ check: "not-found", checkReason: "quoted-words-not-on-pages" });
+    expect(changedSourceNote(true, found, words, in_("en"))?.quote).toBe(
+      "The quote is still here.",
+    );
+    expect(changedSourceNote(true, found, words, in_("zh-CN"))?.quote).toBe("引文仍在原处。");
+    const rows = {
+      ...found,
+      pageFrom: 2,
+      pageTo: 2,
+      location: { kind: "rows" as const, sheet: "Revenue", from: 12, to: 14 },
+    };
+    const otherRows = rechecked({
+      check: "not-found",
+      checkReason: "quoted-words-not-on-pages",
+      pageFrom: 2,
+      pageTo: 2,
+      location: { kind: "rows", sheet: "Revenue", from: 20, to: 21 },
+    });
+    expect(changedSourceNote(true, rows, otherRows, in_("en"))?.quote).toBe(
+      "Its quote is now at Revenue, rows 20–21.",
+    );
+    expect(changedSourceNote(true, rows, otherRows, in_("zh-CN"))?.quote).toBe(
+      "引文已移到新位置（Revenue，第 20–21 行）。",
+    );
+    // What the check and the actions read stays as it was.
+    const state = { changedAfterCited: true };
+    expect(quoteStanding(found, words)).toBe("gone");
+    expect(needsRecheck(state, found, words)).toBe(true);
+    expect(needsRecheck(state, rows, otherRows)).toBe(true);
+    expect(newVersionCitation(found, words)).toBeNull();
   });
 
   test("says the Document changed at once, and says nothing while it is unchanged", () => {

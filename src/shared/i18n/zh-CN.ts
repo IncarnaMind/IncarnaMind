@@ -4474,7 +4474,7 @@ export const zhCN = {
   "citation.changed.on": "此文档已于 {date} 更新。",
   "citation.changed.still": "引文仍在原处。",
   "citation.changed.gone": "新版本中已找不到这条引文。",
-  "citation.changed.moved": "引文已移到{location}。",
+  "citation.changed.moved": "引文已移到新位置（{location}）。",
   "citation.changed.moved.anywhere": "引文在新版本中换了位置。",
   "citation.placeGone": "引用的位置（{location}）已不在此文档中。",
   "citation.placeGone.named": "引用的位置（{location}）已不在原处。",
