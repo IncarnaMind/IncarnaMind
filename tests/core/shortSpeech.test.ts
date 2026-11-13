@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { MEETING_SAMPLE_RATE } from "../../src/core/adapters";
 
 /*
@@ -8,6 +8,8 @@ import { MEETING_SAMPLE_RATE } from "../../src/core/adapters";
 type Options = Record<string, string>;
 /** What the model writes for audio this many seconds long, told these options. */
 let answer: (seconds: number, options: Options) => string = () => "";
+/** How many tokens the model takes to write that answer. */
+let tokensOf: (seconds: number) => number = () => 0;
 /** Each reading's options, in order. */
 const READINGS: Options[] = [];
 
@@ -34,7 +36,8 @@ vi.mock("sherpa-onnx-node", () => ({
         decodeAsync: async (stream: { reading: { seconds: number; options: Options } }) => {
           const { seconds, options } = stream.reading;
           READINGS.push(options);
-          return { lang: "", text: answer(seconds, options), tokens: [] };
+          const tokens = Array.from({ length: tokensOf(seconds) }, () => "▁");
+          return { lang: "", text: answer(seconds, options), tokens };
         },
       }),
     },
@@ -215,6 +218,202 @@ describe("A short stretch read on this computer (#1031)", () => {
     await read(5);
 
     await expect(read(1)).rejects.toThrow("The model stopped.");
+  });
+
+  // protects=the most readings one stretch costs, every one at the token limit: its plain reading, then each of the two parts it is read again in with the untold reading that checks it, as a short stretch is checked, then the reading told its words, six; the whole's own check isn't read, its words being replaced, and the told reading is read whole; fails_when=a part goes unchecked, the whole is checked too, the told reading is read in parts, or a part is read in parts; no_claim=how often a stretch reaches the limit, which no reading of the meeting set did read as the app reads it (#1031).
+  test("costs at most six readings when every one reaches the token limit", async () => {
+    // At 6 tokens, a reading of 3 words reaches the limit, the header taking 3.
+    const engine = await createSherpaEngine(model, { newTokens: 6 });
+    // Told Chinese, the short stretch and its parts read in Latin letters, so untold readings check them.
+    answer = (seconds, options) => {
+      if (seconds >= 4) return CHINESE;
+      if (options.hotwords) return "Priya Raman, Lumen Foods.";
+      if (seconds >= 2 || !options.language) return "Priyaman, Lumen Foods.";
+      return seconds >= 1 ? "Priyaman," : "Lumen Foods.";
+    };
+    tokensOf = (seconds) => (seconds < 4 ? 3 : 0);
+    const warned = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const read = (seconds: number, words: string[] = []) =>
+      engine.recognizer.decode(audio(seconds), "meeting-9:mic", words);
+    await read(5);
+    await read(5);
+    READINGS.length = 0;
+
+    expect(await read(2, ["Priya Raman"])).toBe("Priya Raman, Lumen Foods.");
+    expect(READINGS.map((options) => Object.keys(options).sort().join("+"))).toEqual([
+      "language",
+      "language",
+      "",
+      "language",
+      "",
+      "hotwords+language",
+    ]);
+    warned.mockRestore();
+    tokensOf = () => 0;
+  });
+
+  describe("A stretch read again in two parts reads each as a stretch of its length is read (#1031)", () => {
+    /** What one reading writes, told its stream's language and untold. */
+    type Said = { told: string; untold: string };
+    const either = (text: string): Said => ({ told: text, untold: text });
+    /**
+     * A stream whose language two long readings of `long` tell, none when null, and an engine at a
+     * 6-token limit that a 5 s stretch reaches: its parts (2.95 s and 2.05 s, cut at the end of the
+     * silent middle fifth) write `first` and `second`, and a 1 s stretch after it `after`.
+     */
+    async function stretchAtLimit(long: string | null, first: Said, second: Said, after: Said) {
+      const engine = await createSherpaEngine(model, { newTokens: 6 });
+      answer = (seconds, options) => {
+        if (seconds >= 6) return long ?? "";
+        if (seconds >= 5) return "是。嗯，是。";
+        const said = seconds > 2.5 ? first : seconds > 1.5 ? second : after;
+        return options.language ? said.told : said.untold;
+      };
+      tokensOf = (seconds) => (seconds === 5 ? 3 : 0);
+      const read = (seconds: number) =>
+        engine.recognizer.decode(audio(seconds), "meeting-11:mic", []);
+      if (long !== null) {
+        await read(6);
+        await read(6);
+      }
+      return read;
+    }
+
+    // protects=a part that is only the model's prompt word goes by the rule a stretch that reads only that word goes by: no words on a stream not known to be English, the other part's words staying; on an English stream, where "system" can be someone's answer, kept when its untold reading reads it too; fails_when="system" stands beside the other part's words on a stream not known to be English, or an English answer "system" is lost; no_claim=an English "system" its untold reading doesn't repeat, which the doubted-part row leaves out.
+    test.each([
+      ["en", "a new", null, either("system"), either("Yeah, okay."), "Yeah, okay."],
+      ["en", "an English", ENGLISH, either("system"), either("Yeah, okay."), "system Yeah, okay."],
+      ["zh-CN", "a new", null, either("好的。"), either("System."), "好的。"],
+      ["zh-CN", "a Chinese", CHINESE, either("system"), either("好的。"), "好的。"],
+    ])(
+      "%s, on %s stream: a part that is only the prompt word goes by the rule a stretch of it does",
+      async (_language, _stream, long, first, second, line) => {
+        const warned = vi.spyOn(console, "warn").mockImplementation(() => {});
+        const read = await stretchAtLimit(long, first, second, either(""));
+        expect(await read(5)).toBe(line);
+        warned.mockRestore();
+      },
+    );
+
+    // protects=a short part told its stream's language that its untold reading doubts is left out as a short stretch is, the other part's words staying, with none of its words in the log; fails_when=the doubted part's words stand in the line, or the whole line goes with it; no_claim=parts that aren't short, which aren't told a language.
+    test.each([
+      ["en", ENGLISH, { told: "system", untold: "Um." }, either("Yeah, okay."), "Yeah, okay."],
+      ["zh-CN", CHINESE, { told: "shit。", untold: "system" }, either("好的。"), "好的。"],
+    ])(
+      "%s: a part its check doubts is left out, the other part kept",
+      async (_language, long, first, second, line) => {
+        const warned = vi.spyOn(console, "warn").mockImplementation(() => {});
+        const read = await stretchAtLimit(long, first, second, either(""));
+        expect(await read(5)).toBe(line);
+        expect(warned.mock.calls.map(([message]) => message)).toContain(
+          "The speech model read a short stretch one way told its call's language and another way untold; it is left out.",
+        );
+        expect(JSON.stringify(warned.mock.calls)).not.toMatch(/shit|system|Um\./);
+        warned.mockRestore();
+      },
+    );
+
+    // protects=short parts on a stream whose language is known are told it, as a short stretch is, and the stream knows its language after: parts under 4 s and the reading at the limit aren't learned from, so the next short stretch is told it too; fails_when=the parts are read untold ("对。" for an English "Yeah.") and the line is learned from, so the stream's next short stretches go untold; no_claim=parts of 4 s or more, which are learned from as a stretch of their length is.
+    test.each([
+      ["en", ENGLISH, { told: "Yeah.", untold: "对。" }, "Yeah. Yeah.", "Yeah."],
+      ["zh-CN", CHINESE, { told: "对。", untold: "Yeah." }, "对。对。", "对。"],
+    ])(
+      "%s: short parts are told the stream's language, and the stream still knows it after",
+      async (_language, long, said, line, next) => {
+        const warned = vi.spyOn(console, "warn").mockImplementation(() => {});
+        const read = await stretchAtLimit(long, said, said, said);
+        READINGS.length = 0;
+
+        expect(await read(5)).toBe(line);
+        expect(READINGS.map((options) => options.language ?? "untold")).toEqual([
+          "untold",
+          long === ENGLISH ? "English" : "Chinese",
+          long === ENGLISH ? "English" : "Chinese",
+        ]);
+        expect(await read(1)).toBe(next);
+        warned.mockRestore();
+      },
+    );
+
+    // protects=what a stretch read in parts teaches its stream: each part of 4 s or more, as a stretch of its length does, never the reading at the limit, which can be the model writing the same words over and over in another language; fails_when=the reading at the limit is learned from, so a call's short stretches go untold after it; no_claim=parts under 4 s, which teach nothing.
+    test.each([
+      ["en", ENGLISH, "是。嗯，是。嗯，是。嗯，是。", "Yeah.", "对。"],
+      ["zh-CN", CHINESE, "Yeah. Yeah. Yeah. Yeah.", "对。", "Yeah."],
+    ])(
+      "%s: parts of 4 s or more are learned from, the reading at the limit never",
+      async (_language, long, loop, told, untold) => {
+        const engine = await createSherpaEngine(model, { newTokens: 6 });
+        // 10 s at the limit, its parts 5.95 s and 4.05 s; the stream told by readings of 8 s.
+        answer = (seconds, options) => {
+          if (seconds >= 10) return loop;
+          if (seconds >= 4) return long;
+          return options.language ? told : untold;
+        };
+        tokensOf = (seconds) => (seconds === 10 ? 3 : 0);
+        const warned = vi.spyOn(console, "warn").mockImplementation(() => {});
+        const read = (seconds: number) =>
+          engine.recognizer.decode(audio(seconds), `meeting-learn-${_language}:mic`, []);
+        await read(8);
+        await read(8);
+
+        expect(await read(10)).toBe(`${long}${long === ENGLISH ? " " : ""}${long}`);
+        expect(await read(1)).toBe(told);
+        warned.mockRestore();
+      },
+    );
+
+    // protects=when a part can't be read, the stretch keeps its first reading and the stream is taught by that reading alone, not also by a part read before the failure; fails_when=an abandoned part's language stays among the stream's latest readings, so its next short stretch goes untold; no_claim=why the model failed.
+    test.each([
+      ["en", ENGLISH, CHINESE, "Yeah.", "对。"],
+      ["zh-CN", CHINESE, ENGLISH, "对。", "Yeah."],
+    ])(
+      "%s: a part that can't be read leaves the stream knowing what its first reading taught",
+      async (_language, long, other, told, untold) => {
+        const engine = await createSherpaEngine(model, { newTokens: 6 });
+        // 10 s at the limit, read in the stream's language; its parts 5.95 s, read in the other, and 4.05 s, which fails.
+        answer = (seconds, options) => {
+          if (seconds >= 8) return long;
+          if (seconds >= 5) return other;
+          if (seconds >= 4) throw new Error("The model stopped.");
+          return options.language ? told : untold;
+        };
+        tokensOf = (seconds) => (seconds === 10 ? 3 : 0);
+        const warned = vi.spyOn(console, "warn").mockImplementation(() => {});
+        const read = (seconds: number) =>
+          engine.recognizer.decode(audio(seconds), `meeting-failed-${_language}:mic`, []);
+        await read(8);
+
+        expect(await read(10)).toBe(long);
+        expect(await read(1)).toBe(told);
+        warned.mockRestore();
+      },
+    );
+
+    afterEach(() => {
+      tokensOf = () => 0;
+    });
+  });
+
+  // protects=a stretch whose two parts can't be read keeps its first reading, cut short as it is, and the log says why with none of its words; fails_when=the stretch is lost for a part that failed, or the failure is hidden; no_claim=why the model failed.
+  test("keeps its first reading when its two parts can't be read", async () => {
+    const engine = await createSherpaEngine(model, { newTokens: 6 });
+    answer = (seconds) => {
+      if (seconds < 5) throw new Error("The model stopped.");
+      return "Secret words, cut short";
+    };
+    tokensOf = () => 3;
+    const warned = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    expect(await engine.recognizer.decode(audio(5), "meeting-10:mic", [])).toBe(
+      "Secret words, cut short",
+    );
+    expect(warned.mock.calls.map(([message]) => message)).toEqual([
+      "A reading of the speech model reached its token limit; its words may be cut short.",
+      "The speech model couldn't read a stretch again in two parts; it keeps its first reading.",
+    ]);
+    expect(JSON.stringify(warned.mock.calls)).not.toMatch(/Secret/);
+    warned.mockRestore();
+    tokensOf = () => 0;
   });
 
   // protects=a reading that is only the model's header ("language Chinese", "language None", "<asr_text>") is no line in any stream, an English one included, as it is what the model writes for a short or quiet stretch instead of words; fails_when="language Chinese" shows as something said in the Transcript; no_claim=a header in the middle of words, which tests/core/speechText.test.ts covers.
