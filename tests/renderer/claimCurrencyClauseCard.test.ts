@@ -159,6 +159,7 @@ async function card(language: string, sentence: string, clause: string) {
   const check = checkOf(sentence, clause);
   const claim = {
     check,
+    reads: check,
     from: 0,
     to: sentence.length,
     sentence: { from: 0, to: sentence.length, text: sentence },

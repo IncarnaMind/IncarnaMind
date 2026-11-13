@@ -418,8 +418,12 @@ export interface CreateMindInput {
  *   mark (#2577). An older editor would drop the node and leave the sentence
  *   without its number, saying nothing, so it opens these Notes read-only.
  *   Older content is version 57 content as it is: it holds no mark.
+ * - 59: a Citation whose Passage a check of its sentence found keeps `foundByCheck` (#3019), so its
+ *   card says so. An older editor would delete the attribute on save and the Citation would read as
+ *   the writer's own, so it opens these Notes read-only. Older content is version 58 content as it
+ *   is: a Citation without it is the writer's.
  */
-export const CONTENT_SCHEMA_VERSION = 58;
+export const CONTENT_SCHEMA_VERSION = 59;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
@@ -2450,6 +2454,12 @@ export interface RecheckCitationInput extends CitationToRecheck {
    * or in a Document's viewer.
    */
   conversationId?: string | null;
+  /**
+   * Also where the quote stands in the current version when it isn't at its cited Units
+   * (`CitationRecheck.elsewhere`, #3041). That reads the whole version, so only what shows the
+   * line asks: a Citation's card that is open, or the viewer. The answer comes once it is read.
+   */
+  lookElsewhere?: boolean;
 }
 
 /**
@@ -2484,6 +2494,14 @@ export interface CitationRecheck {
    * when nothing there is like them any more.
    */
   changed?: ChangedQuote | null;
+  /**
+   * Its quote isn't at its cited Units in the current version: where the whole quote stands in
+   * that version instead (#3041), matched as the check matches it. `location` is null when it
+   * stands in more than one place, or in one wider than a Citation's Units. Null when it is
+   * nowhere in it. Beside the check, never in place of it: the check stays not found, and the
+   * Citation keeps its Units.
+   */
+  elsewhere?: { location: CitationLocation | null } | null;
 }
 
 /** A Citation's quote as its words changed in its Document's current version (#99). */
@@ -2968,6 +2986,12 @@ export interface CitationAttributes {
    * as the text around it changes. A copy pasted beside it has none.
    */
   id?: string | null;
+  /**
+   * A check of its sentence found its Passage, and it became a Citation by the User's Add as
+   * Citation or inside the assistant's own change (#3019): its card says so, so a reader can tell
+   * it from what the writer cited.
+   */
+  foundByCheck?: true | null;
 }
 
 /** A Citation, as the Answer event stream reports it. */
@@ -7254,8 +7278,9 @@ export type ClaimVerdict = "supported" | "unsupported" | "contradicted";
  * - "kept-inside": the existing Citation is outside this wall, so it was not read again.
  * - "absence-unconfirmed": a whole read said what the sentence calls absent is there, but a look
  *   at its quote found it doesn't state that (#1554, #1443).
- * - "found-elsewhere": the check backed the sentence with a Passage its own Citations don't quote:
- *   no ✓ beside a Citation whose words don't say it, until that Passage is its Citation (#3019).
+ * - "found-elsewhere": the check backed the sentence with a Passage its Citations, as the Note holds
+ *   them now, don't hold: no ✓ beside a Citation whose words don't say it, until that Passage is one
+ *   of them (#3019). It is how a Supported part reads (`asCitedNow`), never what a mark stores.
  * - "absence-other-document": a whole read's quote states what the sentence calls absent, but in
  *   another Document than the one the sentence is about (#1443).
  * - "read-budget": a whole read reached the most it may spend before this part was judged, so

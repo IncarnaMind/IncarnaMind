@@ -32,7 +32,8 @@
  */
 import { randomUUID } from "node:crypto";
 import * as Y from "yjs";
-import { citationAttributesOf } from "../../../shared/citations";
+import { citationAttributesOf, citationClosingLength } from "../../../shared/citations";
+import { restsElsewhere } from "../../../shared/citedNow";
 import { readClaimCheck } from "../../../shared/claimChecks";
 import { planOf } from "../../../shared/claimParts";
 import { beginFigureCheck } from "../../../shared/figureChecks";
@@ -40,6 +41,7 @@ import { readTableBinding } from "../../../shared/figureRuns";
 import {
   type InlineTextProjection,
   inlineLayout,
+  inlineRange,
   inlineSpan,
   projectedContent,
   sliceInlineText,
@@ -67,6 +69,7 @@ import {
   type ClaimCheckFailure,
   type ClaimCheckResult,
   type ClaimPartPlan,
+  type ClaimPartSpan,
   PROPOSAL_ATTRIBUTE,
   PROPOSAL_INSERT_MARK,
   type RunStop,
@@ -80,7 +83,7 @@ import type { RepliesOut } from "../../runs/replies";
 import { type Slots, slots } from "../../runs/stop";
 import { realTimers } from "../../sources/pace";
 import { inStep } from "../../timing/flows";
-import { marksOfRun, type NodeJSON, topLevelBlocks } from "../blocks";
+import { marksOfRun, type NodeJSON, syncContent, topLevelBlocks } from "../blocks";
 import type { CheckedCitation, ClaimCheckRequest } from "./claimCheck";
 import { type FirstLook, type FirstLookResult, quickLook } from "./fastPaths";
 import { claimsAmong } from "./findClaims";
@@ -364,9 +367,172 @@ type Landing =
       sentence: Sentence;
       /** Its mark, made where it lands: a figure's result is footed against the table it is in. */
       mark(blocks: Y.XmlFragment): ClaimCheckAttributes;
+      /** The Passages its check found that its Citations don't hold, each to cite after its part. */
+      found?: readonly FoundCitation[];
     }
   /** A sentence with no fact: no mark, and its opinion is left out as Check this Note leaves it. */
   | { sentence: Sentence; opinion: readonly ClaimPartPlan[] };
+
+/** A Passage the check found for a part, in the words it checked (`claim`, indexed by `span`). */
+interface FoundCitation {
+  claim: string;
+  span: ClaimPartSpan;
+  citation: CitationAttributes;
+}
+
+/**
+ * The Passages a check of a sentence the assistant wrote found for its Supported parts that its
+ * Citations don't hold (#3019): each becomes that part's Citation inside the assistant's own change,
+ * in its number series, accepted or rejected with the rest. The verdict stays the model's.
+ */
+function foundCitations(
+  sentence: Sentence,
+  claim: string,
+  result: ClaimCheckResult,
+): FoundCitation[] {
+  return (result.parts ?? []).flatMap((part) => {
+    if (!restsElsewhere(part, sentence.citations, claim)) return [];
+    const evidence = part.evidence[part.decidingEvidence ?? 0];
+    return evidence
+      ? [
+          {
+            claim,
+            span: part.span,
+            citation: { ...evidence, check: "found", checkReason: null, foundByCheck: true },
+          },
+        ]
+      : [];
+  });
+}
+
+/** The insert of the write's change that `node` is still in, waiting for the User; null: none. */
+function waitingInsert(node: NodeJSON | undefined, change: string) {
+  const inserted = (node?.marks ?? []).find((mark) => mark.type === PROPOSAL_INSERT_MARK);
+  const ref = readProposalRef(inserted?.attrs);
+  return ref?.request === change ? ref : null;
+}
+
+/** Whether the paragraph is still a whole Block the write's change adds, waiting for the User. */
+function waitingBlock(element: Y.XmlElement, change: string): boolean {
+  for (let at: Y.XmlElement | Y.XmlFragment | null = element; at instanceof Y.XmlElement; ) {
+    const proposal = readProposalAttribute(at.getAttribute(PROPOSAL_ATTRIBUTE));
+    if (proposal?.kind === "insert" && proposal.request === change) return true;
+    at = at.parent instanceof Y.XmlElement ? at.parent : null;
+  }
+  return false;
+}
+
+/**
+ * The sentence `from`..`to` of a paragraph's content as the Note holds it, each found Passage's
+ * Citation after its part's words (`at`, in the paragraph's offsets), and how many went in. One
+ * goes in only inside the write's change while it still waits, as part of it: after words that
+ * change inserts (the nearest words before it, past any Citation), or in a Block it adds. After
+ * words the User accepted, or their own, a check writes nothing (#3019); the sentence reads found
+ * elsewhere, with Add as Citation on its card.
+ */
+function withFound(
+  content: readonly NodeJSON[],
+  from: number,
+  to: number,
+  found: readonly { at: number; citation: CitationAttributes }[],
+  change: { request: string; block: boolean },
+): { nodes: NodeJSON[]; added: number } {
+  const out: NodeJSON[] = [];
+  let added = 0;
+  const cited = new Set<number>();
+  const points = new Set(found.map((each) => each.at));
+  let before: NodeJSON | undefined;
+  const cite = (at: number, beside = before) => {
+    if (!points.has(at) || cited.has(at)) return;
+    cited.add(at);
+    const ref = waitingInsert(beside, change.request);
+    if (!ref && !change.block) return;
+    for (const each of found.filter((one) => one.at === at)) {
+      added++;
+      out.push({
+        type: CITATION_NODE,
+        attrs: {
+          ...Object.fromEntries(
+            Object.entries(each.citation).filter(
+              ([, value]) => value !== null && value !== undefined,
+            ),
+          ),
+          ...(ref && { [PROPOSAL_ATTRIBUTE]: { ...ref, kind: "insert" } }),
+        },
+      });
+    }
+  };
+  for (const { node, start } of inlineLayout(content)) {
+    if (node.type !== "text") {
+      if (start < from || start >= to) continue;
+      cite(start);
+      out.push(node);
+      continue;
+    }
+    const text = node.text ?? "";
+    const end = Math.min(to, start + text.length);
+    let at = Math.max(from, start);
+    if (at >= end) continue;
+    cite(at, before ?? node);
+    for (const cut of [...points]
+      .filter((point) => point > at && point < end)
+      .sort((a, b) => a - b)) {
+      before = { ...node, text: text.slice(at - start, cut - start) };
+      out.push(before);
+      cite(cut);
+      at = cut;
+    }
+    before = { ...node, text: text.slice(at - start, end - start) };
+    out.push(before);
+    cite(end);
+  }
+  cite(to);
+  return { nodes: out, added };
+}
+
+const withMark = (nodes: readonly NodeJSON[], mark: ClaimCheckAttributes): NodeJSON[] =>
+  nodes.map((node) =>
+    node.type === "text"
+      ? {
+          ...node,
+          marks: [
+            ...(node.marks ?? []).filter((each) => each.type !== CLAIM_CHECK_MARK),
+            { type: CLAIM_CHECK_MARK, attrs: { ...mark } },
+          ],
+        }
+      : node,
+  );
+
+/** A paragraph's content with the sentence `from`..`to` in it put as `nodes`. */
+function replaced(
+  content: readonly NodeJSON[],
+  from: number,
+  to: number,
+  nodes: readonly NodeJSON[],
+): NodeJSON[] {
+  const out: NodeJSON[] = [];
+  let placed = false;
+  const place = () => {
+    if (placed) return;
+    placed = true;
+    out.push(...nodes);
+  };
+  for (const { node, start } of inlineLayout(content)) {
+    if (node.type !== "text") {
+      if (start >= from && start < to) place();
+      else out.push(node);
+      continue;
+    }
+    const text = node.text ?? "";
+    const before = text.slice(0, Math.max(0, from - start));
+    const after = text.slice(Math.max(0, to - start));
+    if (before) out.push({ ...node, text: before });
+    if (start + text.length > from && start < to) place();
+    if (after && start + text.length > to) out.push({ ...node, text: after });
+  }
+  place();
+  return out;
+}
 
 /** A paragraph's inline content as it is in the Mind now. */
 function inlineOf(parent: Y.XmlElement): NodeJSON[] {
@@ -430,10 +596,18 @@ function placeOf(
 
 /**
  * Lands one sentence in the Mind: marked where it is, its words as they are; once the User has
- * changed them, its mark shows its check needs doing again. A sentence of opinion only loses
- * the mark it was checked under. False when the sentence is gone from the Mind.
+ * changed them, its mark shows its check needs doing again. The Passages its check found go in as
+ * its parts' Citations only inside the write's change `change` while it still waits there for the
+ * User; once they accepted, rejected or changed it, its words are theirs and a check writes nothing
+ * into them (#3019). A sentence of opinion only loses the mark it was checked under. False when
+ * the sentence is gone from the Mind.
  */
-function land(blocks: Y.XmlFragment, ids: readonly string[], landing: Landing): boolean {
+function land(
+  blocks: Y.XmlFragment,
+  ids: readonly string[],
+  change: string,
+  landing: Landing,
+): boolean {
   const { sentence } = landing;
   const element = paragraphIn(blocks, ids, sentence.path);
   const place = element ? placeOf(element, sentence) : null;
@@ -446,8 +620,44 @@ function land(blocks: Y.XmlFragment, ids: readonly string[], landing: Landing): 
     recordOpinions(blocks, [{ ...now, parts: landing.opinion }]);
     return true;
   }
-  markSentence(element, place.from, place.to, landing.mark(blocks));
+  const mark = landing.mark(blocks);
+  const found = place.same ? foundPlaces(blocks, element, place, landing.found ?? []) : [];
+  if (found.length > 0) {
+    const content = inlineOf(element);
+    const cited = withFound(content, place.from, place.to, found, {
+      request: change,
+      block: waitingBlock(element, change),
+    });
+    if (cited.added > 0) {
+      syncContent(element, replaced(content, place.from, place.to, withMark(cited.nodes, mark)));
+      return true;
+    }
+  }
+  markSentence(element, place.from, place.to, mark);
   return true;
+}
+
+/**
+ * Where each found Passage's Citation goes in the paragraph: after its part's words, as read now,
+ * before the stop a part that ends the sentence takes with it.
+ */
+function foundPlaces(
+  blocks: Y.XmlFragment,
+  element: Y.XmlElement,
+  place: { from: number; to: number },
+  found: readonly FoundCitation[],
+): { at: number; citation: CitationAttributes }[] {
+  const blockId = element.getAttribute(BLOCK_ID_ATTRIBUTE);
+  if (found.length === 0 || typeof blockId !== "string") return [];
+  const now = checkText(sentenceOf(element, blockId, place, figuresByBlock(blocks)));
+  if (!now.projection) return [];
+  const { projection } = now;
+  const text = paragraphText(inlineOf(element));
+  return found.flatMap(({ claim, span, citation }) => {
+    const end = claim === now.claim ? inlineRange(projection, span.start, span.end)?.to : undefined;
+    if (end === undefined) return [];
+    return [{ at: end - citationClosingLength(text.slice(place.from, end)), citation }];
+  });
 }
 
 interface Run {
@@ -806,7 +1016,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
       if (landings.length === 0 || refused) return;
       const found: boolean[] = [];
       input.edit((note) => {
-        for (const { landing } of landings) found.push(land(note, input.ids, landing));
+        for (const { landing } of landings) found.push(land(note, input.ids, input.write, landing));
       });
       let outcomes = 0;
       for (const [index, { landing, outcome }] of landings.entries()) {
@@ -1063,8 +1273,9 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
           mindId,
           reads.get(sentence)?.claim,
         );
+      const found = foundCitations(sentence, reads.get(sentence)?.claim ?? sentence.text, result);
       landNow(
-        { sentence, mark },
+        { sentence, mark, found },
         result.verdict === "unsupported" || result.verdict === "contradicted"
           ? result.verdict
           : "checked",

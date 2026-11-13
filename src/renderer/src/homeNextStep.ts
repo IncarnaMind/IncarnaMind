@@ -119,5 +119,7 @@ export function chooseHomeNextStep({
   if (note.state.needsCheck > 0) {
     return { kind: "check", note, count: note.state.needsCheck };
   }
+  // Not ready to send while a sentence is Supported, not yet cited: its Add is in the Note (#3019).
+  if (note.state.kind === "not-yet-cited") return null;
   return exported ? null : { kind: "export", note, count: 0 };
 }

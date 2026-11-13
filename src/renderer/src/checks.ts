@@ -6,7 +6,7 @@
  * Citation.
  */
 import type { Editor } from "@tiptap/core";
-import { TextSelection } from "@tiptap/pm/state";
+import { type EditorState, TextSelection } from "@tiptap/pm/state";
 import type * as Y from "yjs";
 import { create } from "zustand";
 import {
@@ -24,11 +24,23 @@ import {
   type SearchScope,
 } from "../../core/api";
 import { overlapsCitation } from "../../shared/citationOverlap";
-import { parseQuotedWords, type QuotedWordsOnPage, quotedWordsAt } from "../../shared/citations";
+import {
+  citationClosingLength,
+  parseQuotedWords,
+  type QuotedWordsOnPage,
+  quotedWordsAt,
+} from "../../shared/citations";
 import { core } from "./core";
 import { citationDecision, partDecisions } from "./editor/alreadyCited";
 import type { NumberedCitation } from "./editor/citationNumbers";
-import { claimSpans, placeInSentence, type ShownClaim } from "./editor/claimChecks";
+import {
+  claimSpans,
+  foundElsewhere,
+  placeInSentence,
+  type ShownClaim,
+  shownClaims,
+  waitingParts,
+} from "./editor/claimChecks";
 import { asOneStep } from "./editor/editorUndo";
 import { selectionForEdit } from "./editor/editSelection";
 import { type BlockPlace, pendingIn, placeOnAccept, positionOf } from "./editor/proposalReview";
@@ -525,16 +537,13 @@ export function removeClaimMark(editor: Editor, claim: ShownClaim): void {
   editor.view.dispatch(editor.state.tr.removeMark(claim.from, claim.to, mark));
 }
 
-/** Closing punctuation a Citation goes before: "…in the quarter[1]." */
-const CLOSING = /[\s.!?。！？…;；:："'”’)）\]】」』]+$/u;
-export const citationClosingLength = (words: string): number =>
-  CLOSING.exec(words)?.[0].length ?? 0;
-
 /**
  * Adds the Passage a check found as the sentence's Citation, at its end,
- * before its closing punctuation, and takes the check's mark off: the
- * Citation's own check stands for it now. One step for ⌘Z. Only when the card
- * offers it, so a sentence already citing those words gets no second Citation.
+ * before its closing punctuation. A sentence with no Citation of its writer's
+ * loses the check's mark, as the Citation's own check stands for it now; one
+ * whose ✓ waited on that Passage keeps it, and shows it at once (#3019). One
+ * step for ⌘Z. Only when the card offers it, so a sentence already citing
+ * those words gets no second Citation.
  */
 export function addAsCitation(
   editor: Editor,
@@ -551,31 +560,36 @@ export function addAsCitation(
   const words = state.doc.textBetween(claim.sentence.from, claim.sentence.to, "\n", "￼");
   const closing = citationClosingLength(words);
   const at = claim.sentence.to - closing;
-  const citation = type.create({ ...evidence, check: "found", checkReason: null });
-  const tr = state.tr.removeMark(claim.from, claim.to, mark);
-  tr.insert(at, citation);
+  const tr = state.tr;
+  if (!foundElsewhere(claim)) tr.removeMark(claim.from, claim.to, mark);
+  tr.insert(at, type.create(foundCitation(evidence)));
   editor.view.dispatch(tr);
   return true;
 }
 
+/** A Passage a check found, as the Citation the User adds: its card says the check found it (#3019). */
+const foundCitation = (evidence: CitationAttributes): CitationAttributes => ({
+  ...evidence,
+  check: "found",
+  checkReason: null,
+  foundByCheck: true,
+});
+
+type CitationInserts = { at: number; citations: CitationAttributes[] }[];
+
 /**
- * Adds each part's Passages that the sentence doesn't cite yet as Citations
- * right after that part's words, never on the whole sentence (#2002), as one
- * step of Undo. The sentence keeps its check: a Citation isn't part of the
- * words a check reads, so its parts stay where they were. "changed" when the
- * sentence no longer reads as the card showed it, and nothing was added.
+ * Where each part's Passages that the sentence doesn't cite yet go: right after that part's words,
+ * before the stop a part that ends the sentence takes with it, never on the whole sentence
+ * (#2002). "changed" when the sentence no longer reads as its card showed it.
  */
-export function addPartCitations(
-  editor: Editor,
+function partCitationInserts(
+  state: EditorState,
   claim: ShownClaim,
   parts: readonly ClaimCheckPart[],
   onPage?: QuotedWordsOnPage,
-): "added" | "nothing" | "changed" {
-  const { state } = editor;
-  const type = state.schema.nodes[CITATION_NODE];
-  if (!type) return "nothing";
+): CitationInserts | "changed" {
   const added: CitationAttributes[] = [];
-  const inserts: { at: number; citations: CitationAttributes[] }[] = [];
+  const inserts: CitationInserts = [];
   for (const part of parts) {
     // A Passage cited after one part is already cited for the next, as a second add would find.
     const citations = partDecisions(state, claim, part, onPage).flatMap(({ evidence, decision }) =>
@@ -590,18 +604,70 @@ export function addPartCitations(
     const place = placeInSentence(state, claim, { from: part.span.start, to: part.span.end });
     if (!place) return "changed";
     added.push(...citations);
-    inserts.push({ at: place.to, citations });
+    const words = state.doc.textBetween(place.from, place.to, "\n", "￼");
+    inserts.push({ at: place.to - citationClosingLength(words), citations });
   }
-  if (inserts.length === 0) return "nothing";
+  return inserts;
+}
+
+function insertCitations(editor: Editor, inserts: CitationInserts): void {
+  const { state } = editor;
+  const type = state.schema.nodes[CITATION_NODE];
+  if (!type) return;
   const tr = state.tr;
   for (const { at, citations } of inserts.toSorted((a, b) => b.at - a.at)) {
     tr.insert(
       at,
-      citations.map((citation) => type.create({ ...citation, check: "found", checkReason: null })),
+      citations.map((citation) => type.create(foundCitation(citation))),
     );
   }
   asOneStep(editor, () => editor.view.dispatch(tr));
+}
+
+/**
+ * Adds each part's Passages that the sentence doesn't cite yet as Citations
+ * right after that part's words, never on the whole sentence (#2002), as one
+ * step of Undo. The sentence keeps its check: a Citation isn't part of the
+ * words a check reads, so its parts stay where they were, and a part whose ✓
+ * waited on its Passage shows it at once (#3019). "changed" when the sentence
+ * no longer reads as the card showed it, and nothing was added.
+ */
+export function addPartCitations(
+  editor: Editor,
+  claim: ShownClaim,
+  parts: readonly ClaimCheckPart[],
+  onPage?: QuotedWordsOnPage,
+): "added" | "nothing" | "changed" {
+  if (!editor.state.schema.nodes[CITATION_NODE]) return "nothing";
+  const inserts = partCitationInserts(editor.state, claim, parts, onPage);
+  if (inserts === "changed") return "changed";
+  if (inserts.length === 0) return "nothing";
+  insertCitations(editor, inserts);
   return "added";
+}
+
+/**
+ * The Passages of the Note's sentences that are Supported, not yet cited, each where its part's row
+ * would add it: what the panel's row adds all together (#3019).
+ */
+export function foundCitationInserts(state: EditorState): CitationInserts {
+  return shownClaims(state).flatMap((claim) => {
+    if (claim.kind === "chart" || !foundElsewhere(claim)) return [];
+    const inserts = partCitationInserts(state, claim, [...waitingParts(claim)]);
+    return inserts === "changed" ? [] : inserts;
+  });
+}
+
+/**
+ * Adds every Passage of the Note's sentences that are Supported, not yet cited, as one step of Undo
+ * (#3019): their ✓ shows at once, with no new request. A sentence edited since its check reads
+ * needs re-check, so it is left as it is; one deleted has no mark.
+ */
+export function addFoundCitations(editor: Editor): number {
+  const inserts = foundCitationInserts(editor.state);
+  if (inserts.length === 0) return 0;
+  insertCitations(editor, inserts);
+  return inserts.reduce((count, each) => count + each.citations.length, 0);
 }
 
 function rewriteCitation(

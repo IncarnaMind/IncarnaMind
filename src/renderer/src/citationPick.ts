@@ -17,7 +17,8 @@ import {
   type TabItem,
   type WindowLayout,
 } from "../../core/api";
-import { checkAgain, citationClosingLength, fixesFree, restoreCheck } from "./checks";
+import { citationClosingLength } from "../../shared/citations";
+import { checkAgain, fixesFree, restoreCheck } from "./checks";
 import { citationAttributesOf } from "./citedSelection";
 import { type ShownClaim, shownClaims } from "./editor/claimChecks";
 import { asOneStep, offerEditorUndo } from "./editor/editorUndo";

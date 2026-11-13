@@ -18,6 +18,7 @@ export function checkedTextOf(
     cited: () =>
       citation.pageFrom === null ? citation.quote : text(citation.pageFrom, citation.pageTo),
     document: () => text(null, null),
+    gateReads: true,
   };
 }
 
@@ -30,6 +31,13 @@ export function unitGate(
   deps: Pick<ClaimCheckDependencies, "language">,
   documents: Pick<AnswerDocuments, "pageTexts">,
   figureContext: (citation: Citation) => FigureContext,
+  /**
+   * Whether it reads what the Document leaves unsaid: which dollar a bare "$" is, the yuan sign,
+   * and a unit, currency or scale stated nowhere for the figure. An Answer's check doesn't: its
+   * Chinese replies write 美元 for a bare "$" (#3030), and "not found" in a table is no evidence
+   * that the Document doesn't say it (#2997).
+   */
+  unsaid = true,
 ) {
   return (
     citations: readonly Citation[],
@@ -41,7 +49,7 @@ export function unitGate(
       citation,
       ...checkedTextOf(citation, documents.pageTexts),
     }));
-    const found = unitNotStated(claim, checked, bound, worked);
+    const found = unitNotStated(claim, checked, bound, worked, unsaid);
     if (!found) return null;
     const t = (key: MessageKey, params?: MessageParams) => translate(deps.language(), key, params);
     const { amount } = found;

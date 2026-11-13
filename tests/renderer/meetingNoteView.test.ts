@@ -126,7 +126,10 @@ vi.mock("../../src/renderer/src/components/MindEditor", async () => {
     },
   };
 });
-vi.mock("../../src/renderer/src/citationVersion", () => ({ useCitationRecheck: () => null }));
+vi.mock("../../src/renderer/src/citationVersion", () => ({
+  useCitationRecheck: () => null,
+  useQuoteLook: () => null,
+}));
 vi.mock("../../src/renderer/src/evidence", () => ({ useLeftOutOfEvidence: () => false }));
 vi.mock("../../src/renderer/src/components/ObjectMenu", () => ({
   useObjectMenu: () => ({ rowProps: {} }),

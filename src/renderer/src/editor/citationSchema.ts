@@ -142,6 +142,13 @@ export const Citation = Node.create<CitationOptions>({
       },
       // Only Keep citing the old version sets it (#99), so a Citation without one stores nothing.
       keptOver: { ...dataAttribute("keptOver"), default: undefined },
+      foundByCheck: {
+        default: undefined,
+        parseHTML: (element: HTMLElement) =>
+          element.getAttribute("data-found-by-check") === "true" ? true : undefined,
+        renderHTML: (attributes: Record<string, unknown>) =>
+          attributes.foundByCheck === true ? { "data-found-by-check": "true" } : {},
+      },
       // What "Checked by me" names it by (#1933), given as it is written (`citationIds`). A copy
       // pasted where the Citation still is gets a new one (`withoutRepeatedIds`).
       id: {
