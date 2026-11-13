@@ -647,14 +647,11 @@ export function unitNotStated(
             ? text
                 .document()
                 .split("\n")
-                .filter(
-                  (line) =>
-                    !line.includes("\t") &&
-                    line.trim() !== itsLine &&
-                    readFigures(line, context).length === 0,
-                )
-                .flatMap((line) => bracketedUnits(line, context))
-                .filter(sameUnit)
+                .filter((line) => !line.includes("\t") && line.trim() !== itsLine)
+                .flatMap((line) => {
+                  const units = bracketedUnits(line, context).filter(sameUnit);
+                  return units.length > 0 && readFigures(line, context).length === 0 ? units : [];
+                })
             : [];
           return [...readStatedUnits(text.document(), context), ...bracketed];
         })
