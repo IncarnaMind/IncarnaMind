@@ -54,7 +54,8 @@ export interface CheckedText {
   gateReads?: boolean;
 }
 
-const sameValue = (a: number, b: number) => Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(a));
+export const sameValue = (a: number, b: number) =>
+  Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(a));
 
 const isShare = (unit: FigureUnit) => unit.kind === "percent" || unit.kind === "points";
 
@@ -309,7 +310,7 @@ function matchesOf(found: readonly { text: CheckedText | null; start: number }[]
 }
 
 // "12%" is the plain 12 a table cell shows, "5‰" 5 and "50 bps" 50.
-const writtenShare = (figure: Figure) =>
+export const writtenShare = (figure: Figure) =>
   figure.value *
   10 ** (/‰/.test(figure.chars) ? 3 : /基点|bps?\b|basis/i.test(figure.chars) ? 4 : 2);
 

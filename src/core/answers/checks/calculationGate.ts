@@ -8,11 +8,12 @@ import {
   readStatedUnits,
 } from "../../../shared/figures";
 import type { Citation, InputNumber } from "../../api";
+import { recordCiteSpans } from "../../recordCites/parser";
 import { writtenNumbers } from "../../transcription/spokenNumbers";
 import { documentFigureContext } from "../calculations";
 import { figuresInClaim, statedFigure } from "./calculated";
 import type { ReadVerdict } from "./prompt";
-import { unitNotStated } from "./units";
+import { sameValue, unitNotStated, writtenShare } from "./units";
 
 const spaced = (text: string) => text.replace(/\s+/gu, " ").trim().toLowerCase();
 
@@ -94,6 +95,57 @@ function wordsState(figure: Figure, quote: string, context: FigureContext): bool
       figure.unit.kind === "currency" && named !== null && currencyNamed(named) === figure.unit.code
     );
   });
+}
+
+/** A figure's number as it is written: its scale word left off, a share in its own notation. */
+const writtenOf = (figure: Figure) =>
+  figure.unit.kind === "percent" || figure.unit.kind === "points"
+    ? writtenShare(figure)
+    : figure.value / figure.scale;
+
+/**
+ * Whether the quotes hold every number of `claim`, at its value or as it is written, in digits or
+ * in words, whatever unit they give it: "54,000 tonnes" in a row under "Output (t)", "12%" in a
+ * cell under "YoY%". Whether its unit is the sentence's is the unit gate's to judge (./units), and
+ * a record cite's numbers say where, not how much. A number none holds is one no quote states
+ * (#3022).
+ */
+export function quotesHoldNumbers(
+  claim: string,
+  citations: readonly { citation: Citation; units: readonly { text: string }[] }[],
+): boolean {
+  const context = documentFigureContext(citations.flatMap((citation) => citation.units));
+  const own = documentFigureContext([{ text: claim }]);
+  const held = citations.flatMap(({ citation, units }) => {
+    const words = writtenNumbers(citation.quote);
+    return [
+      ...figureReadings(citation.quote, units).flat(),
+      ...(words === citation.quote ? [] : figuresInClaim(words, context).flatMap(readingsOf)),
+    ];
+  });
+  // A range's second end is a number of its own: "2–3%" holds 3% as well as 2%.
+  const ends = (each: Reading) => [
+    each.value,
+    ...("rangeTo" in each && typeof each.rangeTo === "number" ? [each.rangeTo] : []),
+  ];
+  const values = held.flatMap(ends);
+  const plain = held.flatMap((each) =>
+    each.unit.kind === "plain" ? ends(each).map((value) => value / each.scale) : [],
+  );
+  const holds = (readings: readonly Reading[], written: number) =>
+    readings.some((reading) => values.some((value) => sameValue(value, reading.value))) ||
+    plain.some((value) => sameValue(value, written));
+  const cites = recordCiteSpans(claim);
+  return figuresInClaim(claim, own.language ? own : { ...context, header: null })
+    .filter((figure) => !cites.some((cite) => figure.start < cite.to && figure.end > cite.from))
+    .every((figure) => {
+      const second = figure.ambiguous.find((each) => each.kind === "range")?.readings[1];
+      const first = readingsOf(figure).filter((reading) => reading !== second);
+      return (
+        holds(first, writtenOf(figure)) &&
+        (second === undefined || holds([second], writtenOf({ ...figure, value: second.value })))
+      );
+    });
 }
 
 export async function needsCalculation({

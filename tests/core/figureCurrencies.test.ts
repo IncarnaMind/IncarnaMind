@@ -1171,7 +1171,7 @@ describe("Checking a figure in another currency or unit", { timeout: 30_000 }, (
     "The annual salary is $54,000 (about £42,000).": supported("The annual salary is $54,000"),
   };
 
-  // protects=through the core, with the model calling every sentence supported: another currency on the same amount and a unit the Document doesn't state are Unsupported, naming what the Document gives, in English and Chinese, while the same currency written another way, a unit its table heading states and a stated conversion stay supported (#1452); fails_when=any of these checks the other way, or the reason names something else; no_claim=a real model's verdict.
+  // protects=through the core, with the model calling every sentence supported: another currency on the same amount and a unit the Document doesn't state are Unsupported, naming what the Document gives, in English and Chinese, while the same currency written another way and a unit its table heading states stay supported (#1452), and a stated conversion is no other currency but, given in no quote, is Not checked on this model, which isn't offered calculate (#3022); fails_when=any of these checks the other way, or the reason names something else; no_claim=a real model's verdict.
   test("is Unsupported for another currency or an unstated unit, naming what the Document gives", async () => {
     const { core } = await setUpWithDocuments(checkingModel(PLANS), [
       LETTER,
@@ -1206,10 +1206,15 @@ describe("Checking a figure in another currency or unit", { timeout: 30_000 }, (
       "The annual salary is US$54,000.",
       "The mill's output was 54,000 tonnes in 2025.",
       "The mill's margin was 12% in 2025.",
-      "The annual salary is $54,000 (about £42,000).",
     ]) {
       expect(await check(claim), claim).toMatchObject({ verdict: "supported" });
     }
+    // A conversion no quote gives is no other currency for the amount, and no ✓ either on a model
+    // the check doesn't offer calculate: no quote states £42,000 (#3022).
+    expect(await check("The annual salary is $54,000 (about £42,000).")).toMatchObject({
+      verdict: "not-checked",
+      reason: "number-unquoted",
+    });
 
     await core.updateSettings({ user: { language: "zh-CN" } });
     expect(await check("The annual salary is £54,000.")).toMatchObject({

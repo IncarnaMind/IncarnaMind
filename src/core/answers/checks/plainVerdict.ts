@@ -33,6 +33,7 @@ import {
   askForEvidence,
   compare,
   confirmContradiction,
+  EVIDENCE_MARKER,
   isFailed,
   lateQuotesJudged,
   nearestDifferent,
@@ -44,11 +45,12 @@ import {
   ownDetailDiffers,
   ownDetailUnread,
   type ReadVerdict,
+  readCheckReply,
   readRecheck,
   readsAsRefusal,
-  readVerdict,
 } from "./prompt";
 import type { UnitGate } from "./unitGate";
+import { takeWrittenRecords } from "./writtenRecords";
 
 interface PlainVerdictCheck {
   transcript: RunTranscript;
@@ -56,7 +58,12 @@ interface PlainVerdictCheck {
   session: ReturnType<typeof createCitationSession>;
   ledger: Pick<
     CalculationLedger,
-    "confirmationFailure" | "invalidInput" | "pending" | "worked" | "requiresCalculation"
+    | "confirmationFailure"
+    | "invalidInput"
+    | "pending"
+    | "worked"
+    | "requiresCalculation"
+    | "unquotedFigure"
   >;
   results: CheckResults;
   court: CourtDecisions;
@@ -78,8 +85,18 @@ export async function plainVerdict(
   check: PlainVerdictCheck,
 ): Promise<AtomicClaimCheckResult> {
   const late = new Set<string>();
-  const result = await verdictOf(deps, request, check, late);
-  return lateQuotesJudged(result, late, request, check.session, request.signal, check.results);
+  const taken = new Set<string>();
+  const result = await verdictOf(deps, request, check, late, taken);
+  const judged = await lateQuotesJudged(
+    result,
+    late,
+    request,
+    check.session,
+    request.signal,
+    check.results,
+  );
+  if (check.ledger.unquotedFigure(judged)) return check.results.notChecked("number-unquoted");
+  return taken.size > 0 ? { ...judged, writtenQuotes: taken } : judged;
 }
 
 /** The verdict, with each quote given only when asked for after it added to `givenAfter`. */
@@ -88,6 +105,7 @@ async function verdictOf(
   request: PlainVerdictRequest,
   check: PlainVerdictCheck,
   givenAfter: Set<string>,
+  taken: Set<string>,
 ): Promise<AtomicClaimCheckResult> {
   const { signal } = request;
   const { transcript, looked, session, ledger, results, court } = check;
@@ -111,7 +129,7 @@ async function verdictOf(
   );
   // A sentence the reply's Roles line gives to someone its Passages don't name is no sentence of
   // theirs: no figure worked out from their numbers backs or contradicts it (#1766).
-  const elsewhere = readVerdict(transcript.written())?.roles === "other";
+  const elsewhere = readCheckReply(transcript.written())?.roles === "other";
   const worked = elsewhere
     ? null
     : (checked.find(({ calculation }) => !calculation.agrees) ?? checked[0] ?? null);
@@ -130,7 +148,7 @@ async function verdictOf(
   }
   if (!finished || reply.trim() === "") return notChecked("empty");
   const refused = readsAsRefusal(reply);
-  let verdict = readVerdict(transcript.written());
+  let verdict = readCheckReply(transcript.written());
   if (!verdict) return notChecked(refused ? "refused" : "malformed");
   if (!looked()) return notChecked("unread");
   // Whatever its verdict line says: a contradiction's judgements compared only the figures
@@ -164,8 +182,18 @@ async function verdictOf(
       return (citation !== null || rejectedMarkers.has(marker)) && citation?.check !== "found";
     })
   ) {
-    const recovered = await askForEvidence(request, verdict, session, signal, null, missing);
-    if (isFailed(recovered)) failed = recovered.failed;
+    const written = takeWrittenRecords(
+      transcript.written(),
+      missing,
+      request.claim,
+      session,
+      EVIDENCE_MARKER,
+    );
+    if (written) for (const citation of written) taken.add(citationKey(citation));
+    else {
+      const recovered = await askForEvidence(request, verdict, session, signal, null, missing);
+      if (isFailed(recovered)) failed = recovered.failed;
+    }
     for (const citation of missing.map((marker) => session.finalCitation(marker)))
       if (citation) givenAfter.add(citationKey(citation));
   }
@@ -216,14 +244,14 @@ async function verdictOf(
   if (absence) return absence;
   if (await ledger.requiresCalculation(verdict)) {
     unconfirmed = ledger.confirmationFailure();
-    return unconfirmed ? unjudged(unconfirmed) : notChecked("no-evidence");
+    return unconfirmed ? unjudged(unconfirmed) : notChecked("number-not-worked-out");
   }
   // A worked figure settles its number alone: never Supported over a reply that records another
   // duty or a dropped condition, or gives neither line (#1766, #1708).
   const byCalculation: ClaimCheckResult | null =
     worked && !ownDetailDiffers(verdict) && !ownDetailUnread(verdict)
       ? (await ledger.requiresCalculation({ ...verdict, verdict: "supported" }))
-        ? notChecked("no-evidence")
+        ? notChecked("number-not-worked-out")
         : {
             verdict: "supported",
             evidence: worked.evidence,
@@ -358,7 +386,12 @@ async function verdictOf(
       ...((verdict.topic === "found" || parts) && { found: true }),
     });
   }
-  const cited = namedEvidence[0] ?? (await askForEvidence(request, verdict, session, signal));
+  const fromReply = namedEvidence[0]
+    ? undefined
+    : takeWrittenRecords(transcript.written(), [], request.claim, session, EVIDENCE_MARKER)?.[0];
+  if (fromReply) taken.add(citationKey(fromReply));
+  const cited =
+    namedEvidence[0] ?? fromReply ?? (await askForEvidence(request, verdict, session, signal));
   if (cited && !isFailed(cited) && namedEvidence.length === 0) givenAfter.add(citationKey(cited));
   const evidence = cited ?? worked?.evidence ?? null;
   const onlyCalculation = cited === null && worked?.evidence != null;
