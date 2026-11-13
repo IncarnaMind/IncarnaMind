@@ -1,9 +1,14 @@
 /**
  * What a cited sentence's check asked its model and was told, read from the requests it made
- * (#3019): each quote the model gave the cite Tool with the Citation check's answer, and each
- * run's replies. A sentence the check splits into parts has a run for each part.
+ * (#3019): each quote the model gave the cite Tool with the Citation check's answer, each run's
+ * replies, and each time it was asked again for its evidence. A sentence the check splits into
+ * parts has a run for each part.
  */
 import type { LanguageModelV4Prompt } from "@ai-sdk/provider";
+import {
+  COVERED_EVIDENCE_INSTRUCTIONS,
+  EVIDENCE_INSTRUCTIONS,
+} from "../../src/core/answers/checks/prompt";
 import { DOCUMENT_TOOLS } from "../../src/core/tools";
 import type { HeardRequest } from "../lib/tokens";
 
@@ -17,12 +22,21 @@ export interface TypedQuote {
   answer: string;
 }
 
+/** The check's ask for the records its verdict named but didn't give (`askForEvidence`), and its reply. */
+export interface EvidenceAsk {
+  /** What the ask told the model, all but its instructions. */
+  text: string;
+  reply: string;
+}
+
 export interface HeardCheck {
   /** What the run was asked to check, the sentence or one of its parts; null for a request that names none. */
   claim: string | null;
   quotes: TypedQuote[];
   /** The run's replies with text, in order: its verdict, and any ask after it. */
   replies: string[];
+  /** Each ask for its evidence, in order; absent in records made before they were kept. */
+  asks?: EvidenceAsk[];
 }
 
 const MOST_ANSWER = 800;
@@ -30,12 +44,29 @@ const MOST_REPLY = 3000;
 
 const SENTENCE = /<sentence>\n([\s\S]*?)\n<\/sentence>/;
 
+const userText = (prompt: LanguageModelV4Prompt) =>
+  prompt
+    .flatMap((message) =>
+      message.role === "user"
+        ? [message.content.map((part) => (part.type === "text" ? part.text : "")).join("")]
+        : [],
+    )
+    .join("\n\n");
+
 function claimOf(prompt: LanguageModelV4Prompt): string | null {
   const first = prompt.find((message) => message.role === "user");
   if (!first) return null;
   const text = first.content.map((part) => (part.type === "text" ? part.text : "")).join("");
   return SENTENCE.exec(text)?.[1]?.trim() ?? null;
 }
+
+const asksForEvidence = (prompt: LanguageModelV4Prompt) =>
+  prompt.some(
+    (message) =>
+      message.role === "system" &&
+      (message.content.startsWith(EVIDENCE_INSTRUCTIONS) ||
+        message.content.startsWith(COVERED_EVIDENCE_INSTRUCTIONS)),
+  );
 
 function asRecord(value: unknown): Record<string, unknown> {
   return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
@@ -107,5 +138,8 @@ export function heardChecks(requests: readonly HeardRequest[]): HeardCheck[] {
     claim,
     quotes: quotesIn(asked.map((request) => request.prompt)),
     replies: asked.flatMap(({ text }) => (text.trim() === "" ? [] : [text.slice(0, MOST_REPLY)])),
+    asks: asked.flatMap(({ prompt, text }) =>
+      asksForEvidence(prompt) ? [{ text: userText(prompt), reply: text.slice(0, MOST_REPLY) }] : [],
+    ),
   }));
 }

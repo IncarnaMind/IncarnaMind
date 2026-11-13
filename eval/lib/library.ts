@@ -75,6 +75,8 @@ export interface LibraryOptions {
   webPages?: readonly EvalWebPage[];
   /** Looks up models in Ollama instead of the app's own lookup (see `evalOllamaModels`). */
   ollamaModels?: OllamaModels;
+  /** Lists the local models instead of asking Ollama on this computer, as a run that may reach nothing does. */
+  localModels?: CoreAdapters["localModels"];
   /** Keep the data folder afterwards, also when opening fails. */
   keep: boolean;
   log: Log;
@@ -308,6 +310,7 @@ export async function openLibrary(options: LibraryOptions): Promise<Library> {
     embedder: options.embedder,
     ...(options.textRecognizer && { textRecognizer: options.textRecognizer }),
     ...(options.ollamaModels && { ollamaModels: options.ollamaModels }),
+    ...(options.localModels && { localModels: options.localModels }),
     ...(options.agents && { agents: options.agents }),
     ...(options.analysisRuntime && { analysisRuntime: options.analysisRuntime }),
     ...(options.executor && { executor: options.executor }),
