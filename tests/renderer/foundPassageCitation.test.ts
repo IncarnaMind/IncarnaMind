@@ -332,12 +332,19 @@ describe("All together from the check's result line", { timeout: 30_000 }, () =>
       ["two", "supported"],
       ["edited", "needs-recheck"],
     ]);
-    const two = editor.state.doc.child(2);
-    const order: string[] = [];
-    two.forEach((node) => {
-      order.push(node.isText ? (node.text ?? "") : `[${String(node.attrs.quote)}]`);
-    });
-    expect(order).toEqual([
+    const pieces = (index: number) => {
+      const found: string[] = [];
+      editor.state.doc.child(index).forEach((node) => {
+        found.push(node.isText ? (node.text ?? "") : `[${String(node.attrs.quote)}]`);
+      });
+      return found;
+    };
+    // Each before its sentence's stop, as Add as Citation puts one.
+    expect(pieces(0).at(-1)).toBe(".");
+    expect(pieces(0).filter((each) => each.startsWith("["))).toHaveLength(2);
+    expect(pieces(1).at(-1)).toBe("。");
+    expect(pieces(1).filter((each) => each.startsWith("["))).toHaveLength(2);
+    expect(pieces(2)).toEqual([
       "The tide turns twice a day",
       `[${LINE}]`,
       " and boats leave at dawn",

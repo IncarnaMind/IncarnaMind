@@ -39,7 +39,7 @@
  */
 import { randomUUID } from "node:crypto";
 import * as Y from "yjs";
-import { citationAttributesOf } from "../../../shared/citations";
+import { citationAttributesOf, citationClosingLength } from "../../../shared/citations";
 import { restsElsewhere } from "../../../shared/citedNow";
 import { SENTENCES_CHECKED_AT_MOST } from "../../../shared/claimChecks";
 import { planOf } from "../../../shared/claimParts";
@@ -574,7 +574,7 @@ function foundCitations(
 /**
  * The sentence `from`..`to` of a paragraph's content as the Note holds it, each found Passage's
  * Citation after its part's words (`at`, in the paragraph's offsets). Inside a change still
- * waiting, the Citation is part of that change, as the words before it are.
+ * waiting, the Citation is part of that change, as the words beside it are.
  */
 function withFound(
   content: readonly NodeJSON[],
@@ -586,10 +586,10 @@ function withFound(
   const cited = new Set<number>();
   const points = new Set(found.map((each) => each.at));
   let before: NodeJSON | undefined;
-  const cite = (at: number) => {
+  const cite = (at: number, beside = before) => {
     if (!points.has(at) || cited.has(at)) return;
     cited.add(at);
-    const inserted = (before?.marks ?? []).find((mark) => mark.type === PROPOSAL_INSERT_MARK);
+    const inserted = (beside?.marks ?? []).find((mark) => mark.type === PROPOSAL_INSERT_MARK);
     const ref = readProposalRef(inserted?.attrs);
     for (const each of found.filter((one) => one.at === at)) {
       out.push({
@@ -617,6 +617,7 @@ function withFound(
     const end = Math.min(to, start + text.length);
     let at = Math.max(from, start);
     if (at >= end) continue;
+    cite(at, before ?? node);
     for (const cut of [...points]
       .filter((point) => point > at && point < end)
       .sort((a, b) => a - b)) {
@@ -779,7 +780,10 @@ function land(blocks: Y.XmlFragment, ids: readonly string[], landing: Landing): 
   markSentence(element, place.from, place.to, mark);
 }
 
-/** Where each found Passage's Citation goes in the paragraph: after its part's words, as read now. */
+/**
+ * Where each found Passage's Citation goes in the paragraph: after its part's words, as read now,
+ * before the stop a part that ends the sentence takes with it.
+ */
 function foundPlaces(
   blocks: Y.XmlFragment,
   element: Y.XmlElement,
@@ -791,9 +795,11 @@ function foundPlaces(
   const now = checkText(sentenceOf(element, blockId, place, figuresByBlock(blocks)));
   if (!now.projection) return [];
   const { projection } = now;
+  const text = paragraphText(inlineOf(element));
   return found.flatMap(({ claim, span, citation }) => {
-    const at = claim === now.claim ? inlineRange(projection, span.start, span.end)?.to : undefined;
-    return at === undefined ? [] : [{ at, citation }];
+    const end = claim === now.claim ? inlineRange(projection, span.start, span.end)?.to : undefined;
+    if (end === undefined) return [];
+    return [{ at: end - citationClosingLength(text.slice(place.from, end)), citation }];
   });
 }
 

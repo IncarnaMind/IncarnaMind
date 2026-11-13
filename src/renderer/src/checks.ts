@@ -24,7 +24,12 @@ import {
   type SearchScope,
 } from "../../core/api";
 import { overlapsCitation } from "../../shared/citationOverlap";
-import { parseQuotedWords, type QuotedWordsOnPage, quotedWordsAt } from "../../shared/citations";
+import {
+  citationClosingLength,
+  parseQuotedWords,
+  type QuotedWordsOnPage,
+  quotedWordsAt,
+} from "../../shared/citations";
 import { core } from "./core";
 import { citationDecision, partDecisions } from "./editor/alreadyCited";
 import type { NumberedCitation } from "./editor/citationNumbers";
@@ -491,11 +496,6 @@ export function removeClaimMark(editor: Editor, claim: ShownClaim): void {
   editor.view.dispatch(editor.state.tr.removeMark(claim.from, claim.to, mark));
 }
 
-/** Closing punctuation a Citation goes before: "…in the quarter[1]." */
-const CLOSING = /[\s.!?。！？…;；:："'”’)）\]】」』]+$/u;
-export const citationClosingLength = (words: string): number =>
-  CLOSING.exec(words)?.[0].length ?? 0;
-
 /**
  * Adds the Passage a check found as the sentence's Citation, at its end,
  * before its closing punctuation. A sentence with no Citation of its writer's
@@ -538,8 +538,8 @@ type CitationInserts = { at: number; citations: CitationAttributes[] }[];
 
 /**
  * Where each part's Passages that the sentence doesn't cite yet go: right after that part's words,
- * never on the whole sentence (#2002). "changed" when the sentence no longer reads as its card
- * showed it.
+ * before the stop a part that ends the sentence takes with it, never on the whole sentence
+ * (#2002). "changed" when the sentence no longer reads as its card showed it.
  */
 function partCitationInserts(
   state: EditorState,
@@ -563,7 +563,8 @@ function partCitationInserts(
     const place = placeInSentence(state, claim, { from: part.span.start, to: part.span.end });
     if (!place) return "changed";
     added.push(...citations);
-    inserts.push({ at: place.to, citations });
+    const words = state.doc.textBetween(place.from, place.to, "\n", "￼");
+    inserts.push({ at: place.to - citationClosingLength(words), citations });
   }
   return inserts;
 }

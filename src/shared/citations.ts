@@ -46,6 +46,11 @@ const CITATION_CHECKS: readonly CitationCheck[] = [
   "contradicted",
 ];
 
+/** Closing punctuation a Citation goes before: "…in the quarter[1]." */
+const CLOSING = /[\s.!?。！？…;；:："'”’)）\]】」』]+$/u;
+export const citationClosingLength = (words: string): number =>
+  CLOSING.exec(words)?.[0].length ?? 0;
+
 /** A Citation's attributes as a node holds them; what is missing or isn't the right type is left out. */
 export function citationAttributesOf(node: Record<string, unknown>): Partial<CitationAttributes> {
   const text = (value: unknown) => (typeof value === "string" ? value : null);

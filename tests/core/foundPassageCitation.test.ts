@@ -220,6 +220,10 @@ describe("Inside the assistant's own change", { timeout: 30_000 }, () => {
       [OTHER, null],
       [expect.stringContaining(LINE), true],
     ]);
+    // Before the sentence's stop, as the writer's own Citation is.
+    expect(textOf(readMind(client))[0]).toMatch(
+      /^Tides turn twice in a day here\[[^\]]+\]\[[^\]]+\]\.$/,
+    );
     expect(shownIn(client)[0]?.shown).toEqual({ state: "supported" });
 
     await resolveChanges(client, outcome);

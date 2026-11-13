@@ -23,10 +23,11 @@ import {
   type RecordAiUseInput,
 } from "../../core/api";
 import { overlapsCitation } from "../../shared/citationOverlap";
+import { citationClosingLength } from "../../shared/citations";
 import { checkedCitation } from "../../shared/claimParts";
 import { readProposalAttribute } from "../../shared/proposals";
 import { INLINE_NODE } from "../../shared/sentences";
-import { checkAgain, citationClosingLength, fixesFree, restoreCheck } from "./checks";
+import { checkAgain, fixesFree, restoreCheck } from "./checks";
 import { core } from "./core";
 import { citationsOf } from "./editor/alreadyCited";
 import { claimSpans, placeInSentence, type ShownClaim, shownClaims } from "./editor/claimChecks";
