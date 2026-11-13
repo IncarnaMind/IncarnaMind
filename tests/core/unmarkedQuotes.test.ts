@@ -740,6 +740,13 @@ const PHONE = {
   zh: (code: string) => `（${code}）10 5550 1234 是北京办公室处理延迟交货的电话号码。`,
 };
 const ZH_NUMBER: Record<string, string> = { "2": "二", "3": "三" };
+const INSURE = {
+  en: {
+    landlord: "The landlord shall insure the building against fire and flood.",
+    tenant: "The tenant shall insure the contents of the flat against fire and theft.",
+  },
+  zh: { landlord: "房东须为房屋投保火灾和水灾险。", tenant: "租户须为屋内物品投保火灾和盗窃险。" },
+};
 
 /** Each row: what it is, the Document's lines, an Answer's sentence and the line it matches, or null. */
 const NUMBERED_PAIRS: {
@@ -808,6 +815,29 @@ const NUMBERED_PAIRS: {
       document: [clause("2"), clause("3")],
       sentence: clause("2").replace(/^(?:\(\d+\) |（.）)/u, ""),
       matches: clause("2"),
+    },
+    // Known, as the app has always read it: a plain "2. " is cut off as a place in a list before
+    // the comparison, so a differing number in that form isn't caught. A count decides (#3059).
+    {
+      what: "known: a plain list number is a place in a list, so a Document's plain 2. matches (3)",
+      language,
+      document: [`1. ${INSURE[language].landlord}`, `2. ${INSURE[language].tenant}`],
+      sentence: `${language === "en" ? "(3) " : "（三）"}${INSURE[language].tenant}`,
+      matches: INSURE[language].tenant,
+    },
+    {
+      what: "known: a plain list number is a place in a list, so the Answer's plain 3. matches (2)",
+      language,
+      document: [clause("2")],
+      sentence: `3. ${clause("2").replace(/^(?:\(\d+\) |（.）)/u, "")}`,
+      matches: clause("2"),
+    },
+    {
+      what: "known: a plain list number is a place in a list, so plain 3. matches plain 2.",
+      language,
+      document: [`2. ${INSURE[language].tenant}`],
+      sentence: `3. ${INSURE[language].tenant}`,
+      matches: INSURE[language].tenant,
     },
   ];
 });
