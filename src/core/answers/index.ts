@@ -67,7 +67,7 @@ import { sameWords, yoursLine } from "../../shared/commands";
 import { FIGURE_MARKER, withFigures, withFigureText } from "../../shared/figureMarkers";
 import { figureRunsOfAnswer, installFigureRuns } from "../../shared/figureRuns";
 import { readFigures } from "../../shared/figures";
-import { helpReplyRead } from "../../shared/helpReplyRead";
+import { helpLayout, helpReplyRead } from "../../shared/helpReplyRead";
 import { type MessageKey, type MessageParams, translate } from "../../shared/i18n";
 import {
   citationLocation,
@@ -1196,12 +1196,7 @@ export function createAnswers(options: AnswersOptions) {
     limit: Money = ANSWER_CHECKING_LIMIT,
     /** By marker, the places of passed sentences Check again took off to judge them anew. */
     taken: ReadonlyMap<number, readonly number[]> = new Map(),
-    /** Call help's reply, which is judged as its panel shows it (`helpReplyRead`). */
-    help = false,
   ) {
-    const asShown = help ? helpReplyRead(answer.text) : null;
-    /** A place the check gives, as a place among the reply's markers as written. */
-    const asWritten = (at: number) => asShown?.at[at] ?? at;
     const waiting = new Set(
       answer.citations.filter((each) => each.check === "checking").map((each) => each.marker),
     );
@@ -1223,11 +1218,10 @@ export function createAnswers(options: AnswersOptions) {
     /** The places of sentences the model answered about, passed or not. */
     const settled = new Set<number>();
     const passed = (sentence: CitedSentence, result: SupportResult | null, read: boolean) => {
-      if (read) for (const at of sentence.at) settled.add(asWritten(at));
+      if (read) for (const at of sentence.at) settled.add(at);
       if (result?.check !== "found") return;
       for (const [index, marker] of sentence.markers.entries()) {
-        const shown = sentence.at[index];
-        const at = shown === undefined ? undefined : asWritten(shown);
+        const at = sentence.at[index];
         if (at !== undefined && (waiting.has(marker) || judgedBefore.has(marker)))
           passedAt.set(marker, [...(passedAt.get(marker) ?? []), at]);
       }
@@ -1291,7 +1285,7 @@ export function createAnswers(options: AnswersOptions) {
         // Every request of the judgement counts toward its limit, which the meter never passes.
         await currentTask.run({ id: randomUUID(), budget: limit }, () =>
           checkAnswer({
-            text: asShown?.text ?? answer.text,
+            text: answer.text,
             citations: answer.citations,
             figures: answer.figures,
             waiting,
@@ -1952,17 +1946,22 @@ export function createAnswers(options: AnswersOptions) {
     /** Call help's own model while it writes the reply; null: the model it was asked of (#2526). */
     let writtenBy: ChatModelChoice | null = null;
     let settled = false;
-    /** The text as it ends: each quote checked, once, and the markers no Citation backs taken out. */
-    const settle = () => {
+    /**
+     * The text as it ends: each quote checked, once, and the markers no Citation backs taken out.
+     * Call help's reply is kept as its panel reads it (#2925), so every later reader of it reads the
+     * words its check read.
+     */
+    const settle = (status: Outcome["status"]) => {
       if (settled) return;
       settled = true;
       markdown = session.citeWrittenIds(markdown, notKept);
+      if (help) markdown = helpReplyRead(markdown, helpLayout(help, { status, textBehind })).text;
       // The check runs once, now; its results are stored with each Citation, and each figure's input.
       try {
         session.check();
         figures.check();
         const translated = session.checkQuotedWords(
-          quotedWordsIn(withoutFootnoteDefinitions(help ? helpReplyRead(markdown).text : markdown)),
+          quotedWordsIn(withoutFootnoteDefinitions(markdown)),
         );
         if (translated.length > 0) markdown = withoutQuotationMarks(markdown, new Set(translated));
       } catch (error) {
@@ -2023,7 +2022,7 @@ export function createAnswers(options: AnswersOptions) {
         );
         if (cut) input.onCall?.({ ...call });
       }
-      settle();
+      settle(outcome.status);
       const judging = judgesItsSentences() && outcome.status !== "failed";
       if (judging) {
         // A stopped Answer's sentences aren't judged: they wait for the User's Check again.
@@ -2074,16 +2073,7 @@ export function createAnswers(options: AnswersOptions) {
       }
       if (judging && written && waitingAs === "checking" && waiting.size > 0) {
         const stored = options.conversations.answer(answerId);
-        if (stored) {
-          void judgeAnswer(
-            stored,
-            place.mindId,
-            input.documentIds,
-            undefined,
-            undefined,
-            help !== undefined,
-          );
-        }
+        if (stored) void judgeAnswer(stored, place.mindId, input.documentIds);
       }
     };
 
@@ -4955,21 +4945,15 @@ export function createAnswers(options: AnswersOptions) {
       if (!answer.citations.some((each) => each.check === "not-checked")) return;
       const limit = isRecord(input) ? moneyOf(input.limit) : null;
       const documentIds = judgedScope(question);
-      const mindId = judgedMind(question);
-      // Call help's reply is judged again as its panel shows it, as it was at its end; its kind is
-      // known as its turn knew it, while its call goes on.
-      const help =
-        mindId !== null && (options.meetingHelp?.(mindId, question.text) ?? null) !== null;
-      const asShown = help ? helpReplyRead(answer.text) : null;
       // The sentences judged again lose the ✓ an earlier check gave them, on every Citation they
       // cite, until this judgement passes them again (#2847).
       const again = new Set(
         answer.citations.filter((each) => each.check === "not-checked").map((each) => each.marker),
       );
       const rejudged = new Set(
-        citedSentences(asShown?.text ?? answer.text, answer.figures)
+        citedSentences(answer.text, answer.figures)
           .filter((each) => !each.calculated && each.markers.some((marker) => again.has(marker)))
-          .flatMap((each) => each.at.map((at) => asShown?.at[at] ?? at)),
+          .flatMap((each) => each.at),
       );
       const taken = new Map<number, number[]>();
       const waiting = answer.citations.map((citation): MarkedCitation => {
@@ -4986,11 +4970,10 @@ export function createAnswers(options: AnswersOptions) {
       if (!options.conversations.writeCitations(answerId, answer.text, waiting)) return;
       await judgeAnswer(
         { ...answer, citations: waiting },
-        mindId,
+        judgedMind(question),
         documentIds,
         limit ?? undefined,
         taken,
-        help,
       );
     },
 

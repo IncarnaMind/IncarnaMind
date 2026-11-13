@@ -10,6 +10,7 @@ import {
   launchApp,
   panelOf,
   panelOpen,
+  pointAndClick,
   pressHelp,
   recordMeeting,
   removeDataFolder,
@@ -182,3 +183,63 @@ for (const call of CALLS) {
     await app.close();
   });
 }
+
+// protects=an option the model wrapped in its own quotation marks shows in the panel in one pair of the panel's own and takes its ✓, and the assistant shows the reply as its check read it, without the model's marks (#2925); fails_when=the panel shows two pairs, the Citation misses its ✓, or the assistant shows marks the check didn't read; no_claim=how often a model wraps an option.
+test("call help: an option the model wrapped in quotation marks shows in one pair with its ✓, and the assistant shows it as it was checked", async () => {
+  const [call] = CALLS;
+  if (!call) throw new Error("No call.");
+  const { app, window } = await launchApp(dataDir, {
+    fakeChat: true,
+    transcriber: { theirLines: call.buyer },
+  });
+  await setWindowSize(app, window, 1440, 900);
+  await dismissChatSetup(window);
+  await setMeetingKeys(window);
+  await useLocalChatModel(window, "fake-model-options-quoted");
+  const sheet = join(sources, "Price sheet.txt");
+  await writeFile(sheet, call.sheet);
+  const bridge = await window.evaluateHandle(
+    () => (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind,
+  );
+  await bridge.evaluate((core, path) => core.addDocuments([path]), sheet);
+  await expect
+    .poll(() =>
+      bridge.evaluate(async (core) =>
+        (await core.listDocuments()).map((document) => document.status),
+      ),
+    )
+    .toEqual(["ready"]);
+  await startRecording(window, await recordMeeting(window), { notice: true });
+  await firstTranscriptLine(window);
+  const panel = await panelOf(app);
+
+  const answer = await pressHelp(panel, call.answer);
+  await expect(answer.getByTestId("help-option-say").first()).toHaveText(
+    /^“Yes: Enterprise plan: \$45 per seat a month, single sign-on included”\s*1$/,
+  );
+  expect((await expectMarksAsChecked(window, answer))[0]).toMatchObject({
+    passed: true,
+    check: "found",
+  });
+  await shot(panel, "call-help-quoted-option-panel-en");
+
+  // The panel closed, the buttons sit at the top of the assistant, which shows the help asked there.
+  const close = panel.getByTestId("panel-close");
+  await close.hover();
+  // The window goes as the click lands, which a click Playwright waits on would call a failure.
+  await close.evaluate((button) => setTimeout(() => (button as HTMLElement).click(), 0));
+  await expect.poll(() => panelOpen(app)).toBe(false);
+  await pointAndClick(
+    window,
+    window.getByTestId("help-strip").getByTestId("help-button").filter({ hasText: call.answer }),
+  );
+  const reply = window.getByTestId("assistant-answer").last();
+  await expect(reply).toHaveAttribute("data-status", "done", { timeout: 20_000 });
+  await expect(reply).toContainText("Yes: Enterprise plan: $45 per seat a month");
+  await expect(reply).not.toContainText('"');
+  await expect(reply.getByTestId("citation-chip").first()).toHaveAttribute("data-check", "found", {
+    timeout: 20_000,
+  });
+  await shot(window, "call-help-quoted-option-assistant-en");
+  await app.close();
+});

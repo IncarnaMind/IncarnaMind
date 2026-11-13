@@ -10,12 +10,11 @@ import {
   helpParts,
   helpToKeep,
   quoted,
-  readHelpReply,
   sentencePassed,
-  shownItems,
   uncheckedReason,
 } from "../../src/renderer/src/helpReply";
 import { citedSentences } from "../../src/shared/citedSentences";
+import { readHelpReply, shownItems } from "../../src/shared/helpReplyRead";
 import type { MeetingHelpKind } from "../../src/shared/meetingHelp";
 
 const textOf = (pieces: ReturnType<typeof readHelpReply>[number]["lead"]) =>
@@ -36,10 +35,16 @@ describe("A help reply", () => {
     expect(textOf(items[1]?.effect ?? [])).toBe("buys time");
   });
 
-  test("an option shows in quotation marks, the model's own taken off, its Citation after them", () => {
-    const [item] = readHelpReply('★ "Yes, Enterprise is $45 a seat" [^1]\n→ answers at once');
+  test("an option shows in quotation marks of the panel's own, the model's own read off, its Citation after them", () => {
+    const [item] = helpItems(
+      { text: '★ "Yes, Enterprise is $45 a seat" [^1]\n→ answers at once', status: "done" },
+      "answer",
+    );
     expect(textOf(quoted(item?.lead ?? []))).toBe("“Yes, Enterprise is $45 a seat”[1]");
-    const [chinese] = readHelpReply("★ 是的，企业版每席位每月 $45。[^2]\n→ 直接回答");
+    const [chinese] = helpItems(
+      { text: "★ 是的，企业版每席位每月 $45。[^2]\n→ 直接回答", status: "done" },
+      "answer",
+    );
     expect(textOf(quoted(chinese?.lead ?? []))).toBe("“是的，企业版每席位每月 $45。”[2]");
   });
 
@@ -371,16 +376,15 @@ describe("A help reply", () => {
 });
 
 describe("An option the model wrapped in its own quotation marks (#2925)", () => {
-  // protects=the panel reads an option the model wrapped in its own quotation marks as its check does, without them, and shows it in one pair of its own, each chip at its marker's place as written, the place its check's verdict names; fails_when=the panel shows two pairs of marks, or a chip's place differs from the check's; no_claim=how the chip looks.
-  test("is read without them, shown in one pair of its own, its chips at their places as written", () => {
+  // protects=the panel shows an option the model wrapped in its own quotation marks in one pair of the panel's own, each chip at its marker's place, the place its check's verdict names; fails_when=the panel shows two pairs of marks, or a chip's place differs from the check's; no_claim=how the chip looks.
+  test("shows in one pair of the panel's own, its chips where the check counts them", () => {
     const reply =
       '★ "We can extend the pilot to 60 days [^1]"\n→ keeps the deal moving [^2]\n\n“Let me check with the team” [^3]\n→ buys time';
-    const items = readHelpReply(reply);
-    expect(items.map((item) => textOf(item.lead))).toEqual([
-      "We can extend the pilot to 60 days [1]",
-      "Let me check with the team [3]",
+    const items = helpItems({ text: reply, status: "done" }, "say");
+    expect(items.map((item) => textOf(quoted(item.lead)))).toEqual([
+      "“We can extend the pilot to 60 days”[1]",
+      "“Let me check with the team”[3]",
     ]);
-    expect(textOf(quoted(items[0]?.lead ?? []))).toBe("“We can extend the pilot to 60 days”[1]");
     const chips = items.flatMap((item) =>
       [item.lead, item.effect ?? []]
         .flat()
@@ -388,5 +392,21 @@ describe("An option the model wrapped in its own quotation marks (#2925)", () =>
     );
     expect(chips).toEqual(citedSentences(reply).flatMap((sentence) => sentence.at));
     expect(chips).toEqual([0, 1, 2]);
+  });
+
+  // protects=a reading and a short line are no options to say: they show as written, the model's marks kept; fails_when=a reading's moment or a quoted short line loses its marks, or shows in the panel's; no_claim=what the check finds.
+  test("a reading and a short line keep the model's marks", () => {
+    const [reading] = helpItems(
+      { text: '★ "We can\'t go above forty" [^1]\n→ offer the two-year term', status: "done" },
+      "want",
+    );
+    expect(reading?.said).toBe(false);
+    expect(textOf(reading?.lead ?? [])).toBe('"We can\'t go above forty" [1]');
+    const [line] = helpItems(
+      { text: '- "nothing is drilled through the roof" [^1]', status: "done" },
+      "sum",
+    );
+    expect(line?.said).toBe(false);
+    expect(textOf(line?.lead ?? [])).toBe('"nothing is drilled through the roof" [1]');
   });
 });

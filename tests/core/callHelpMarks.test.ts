@@ -12,9 +12,10 @@ import {
   type Meeting,
   type MeetingHelpKind,
 } from "../../src/core";
-import { readHelpReply, sentencePassed } from "../../src/renderer/src/helpReply";
+import { sentencePassed } from "../../src/renderer/src/helpReply";
 import { pageBlocks, withAnswerChecks } from "../../src/shared/answerBlocks";
 import type { NodeJSON } from "../../src/shared/blockJson";
+import { readHelpReply } from "../../src/shared/helpReplyRead";
 import { isTranscriptLocation } from "../../src/shared/locations";
 import { answerJudged, shownPassages } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
@@ -784,34 +785,47 @@ describe("call help's ✓ comes only from the sentence check", { timeout: 60_000
   });
 });
 
-describe("an option is checked as the panel shows it (#2925)", { timeout: 60_000 }, () => {
-  // protects=an option the model wrapped whole in its own quotation marks, its marker inside the marks or after them, in English and Chinese marks, is checked on its Citation's quote as the panel shows it, so its Citation can take ✓ as a bare option's does; fails_when=the check reads the option's own words as the Document's and shows its Citation not found; no_claim=how often a model wraps an option.
+/** The text of a note's Blocks, in order. */
+const textIn = (nodes: readonly NodeJSON[]): string =>
+  nodes.map((node) => `${node.text ?? ""}${textIn(node.content ?? [])}`).join("");
+
+describe("a reply is kept, checked and read again as the panel shows it (#2925)", {
+  timeout: 60_000,
+}, () => {
+  // protects=an option the model wrapped whole in its own quotation marks, its marker inside the marks or after them, in English and Chinese marks, is kept and checked as the panel shows it, so its Citation can take ✓ as a bare option's does; fails_when=the check reads the option's own words as the Document's and shows its Citation not found, or the reply is kept with the marks the panel doesn't show; no_claim=how often a model wraps an option.
   test.each([
     {
       form: "its marker inside the marks",
       reply: '★ "Yes, Enterprise is $45 a seat with single sign-on [^1]"\n→ answers at once',
+      kept: ENGLISH,
     },
     {
       form: "its marker after the marks",
       reply: '★ "Yes, Enterprise is $45 a seat with single sign-on" [^1]\n→ answers at once',
+      kept: ENGLISH,
     },
     {
       form: "Chinese marks",
       reply: "★ “是的，企业版每个席位每月 45 美元，含单点登录 [^1]”\n→ 直接回答，推进通话",
+      kept: CHINESE,
     },
     {
       form: "bold after its star",
       reply: '★ **"Yes, Enterprise is $45 a seat with single sign-on" [^1]**\n→ answers at once',
+      kept: "★ **Yes, Enterprise is $45 a seat with single sign-on [^1]**\n→ answers at once",
     },
-  ])("an option wrapped in its own quotation marks, $form, takes ✓", async ({ reply }) => {
-    const { core, meeting } = await setUp({ reply });
-    const after = await (await pressed(core, meeting, "answer")).judged();
-    expect(after.text).toBe(reply);
-    expect(marks(after)).toEqual([{ marker: 1, check: "found", passed: true }]);
-  });
+  ])(
+    "an option wrapped in its own quotation marks, $form, is kept as shown and takes ✓",
+    async ({ reply, kept }) => {
+      const { core, meeting } = await setUp({ reply });
+      const after = await (await pressed(core, meeting, "answer")).judged();
+      expect(after.text).toBe(kept);
+      expect(marks(after)).toEqual([{ marker: 1, check: "found", passed: true }]);
+    },
+  );
 
-  // protects=Check the rest, from the assistant's view of a call-help reply, judges a wrapped option as the panel shows it, as the reply's end did, and every place the first check passed stays where it was; fails_when=the option goes to the judge in its own quotation marks, or a passed place moves or is lost; no_claim=a reply checked again after its call has stopped.
-  test("Check the rest judges a wrapped option as the panel shows it, and keeps every passed place", async () => {
+  // protects=after the call has stopped, Check the rest judges a wrapped option in the words its first check read, every place that check passed stays where it was, and the note it is then added to holds those words; fails_when=the option goes to the judge or into the note in the model's quotation marks, or a passed place moves or is lost; no_claim=which verdict the judge gives.
+  test("after the call stops, Check the rest and the note read the option as it was checked, every passed place kept", async () => {
     let round = 0;
     const reply = [
       '★ "Yes, Enterprise is $45 a seat with single sign-on [^1]"',
@@ -836,6 +850,7 @@ describe("an option is checked as the panel shows it (#2925)", { timeout: 60_000
       { marker: 1, check: "found", passed: true },
       { marker: 2, check: "not-checked", passed: false },
     ]);
+    await core.stopMeeting(meeting.id);
 
     await core.checkAnswerAgain({ conversationId: first.conversationId, answerId: first.id });
     const after = await answerJudged(core, first.conversationId, first.id);
@@ -848,6 +863,19 @@ describe("an option is checked as the panel shows it (#2925)", { timeout: 60_000
       { marker: 2, check: "found", passed: true },
     ]);
     expect(after.citations.map((citation) => citation.passedAt)).toEqual([[0], [1]]);
+    const note = textIn(pageBlocks(after, "Answer their question"));
+    expect(note).toContain("I'll confirm the Team plan price in writing today");
+    expect(note).not.toMatch(/["“”]/);
+  });
+
+  // protects=a reading's moment of the call keeps its quotation marks, after a blank line too, and its words are looked for on the call it cites; fails_when=the moment is kept or checked without its marks, so words the call never had pass; no_claim=how a model words a reading.
+  test("a reading's moment after a blank line keeps its marks, and words the call never had leave it not found", async () => {
+    const reply =
+      '★ They want a lower price for the whole team [^1]\n\n"We cannot go above forty dollars this year" [^1]\n→ offer the two-year term';
+    const { core, meeting } = await setUp({ reply, records: [{ marker: 1, from: "call" }] });
+    const after = await (await pressed(core, meeting, "want")).judged();
+    expect(after.text).toBe(reply);
+    expect(after.citations.map((citation) => citation.check)).toEqual(["not-found"]);
   });
 
   // protects=words quoted inside an option, not on the cited page, still read as a quotation and leave its Citation not found, in English and Chinese marks; fails_when=the option's own marks taken off hide a quotation inside it; no_claim=what a model quotes.
