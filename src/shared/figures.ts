@@ -1300,11 +1300,12 @@ const CN_COUNTS =
   "人次 岁 度 户 人 名 家 个 辆 台 套 件 只 头 股 手 张 份 项 座 所 架 艘 部 位 款 条 片 块 箱 次 例 床 间 栋 单元 室 层 楼 章".split(
     " ",
   );
-const CN_MEASURE_AFTER = new RegExp(CN_MEASURES.join("|"), "y");
+// "31瓦" is watts; "31瓦片" counts tiles.
+const CN_MEASURE_AFTER = new RegExp(CN_MEASURES.join("|").replace(/瓦$/u, "瓦(?!片)"), "y");
 // "所" counts schools ("3所学校"), but "表3所示" is "as table 3 shows".
 const CN_COUNT_AFTER = new RegExp(CN_COUNTS.join("|").replace("所", "所(?![示述列载有以在])"), "y");
 const EN_UNIT_AFTER =
-  /[ \n]?(?:users?|customers?|clients?|subscribers?|members?|employees?|staff|people|persons?|patients?|students?|visitors?|households?|homes?|stores?|outlets?|branches|branch|restaurants?|vehicles?|cars?|units?|shares?|tonnes?|tons?|kt|Mt|kg|mg|lbs?|ounces?|oz|barrels?|bbl|boe|bcf|tcf|km\/h|km2|km|m2|m3|sq ft|square (?:feet|foot|metres?|meters?)|(?:kilo|centi|milli)?(?:metres?|meters?)|miles?|feet|foot|inches|mph|acres?|hectares?|(?:mega|kilo|giga)watt[- ]hours?|(?:mega|kilo|giga)watts?|MWh|GWh|kWh|TWh|MW|GW|kW|mAh|litres?|liters?|MtCO2e|ktCO2e|tCO2e|tCO2|°C|°F| t)(?![A-Za-z0-9])/y;
+  /[ \n]?(?:users?|customers?|clients?|subscribers?|members?|employees?|staff|people|persons?|patients?|students?|visitors?|households?|homes?|stores?|outlets?|branches|branch|restaurants?|vehicles?|cars?|units?|shares?|tonnes?|tons?|kt|Mt|kg|mg|lbs?|ounces?|oz|barrels?|bbl|boe|bcf|tcf|km\/h|km2|km|m2|m3|sq ft|square (?:feet|foot|metres?|meters?)|(?:kilo|centi|milli)?(?:metres?|meters?)|miles?|feet|foot|inches|mph|acres?|hectares?|(?:mega|kilo|giga)?watt[- ]hours?|(?:mega|kilo|giga)?watts?|MWh|GWh|kWh|TWh|Wh|MW|GW|kW|W(?!-|\.? [A-Z0-9])|mAh|litres?|liters?|MtCO2e|ktCO2e|tCO2e|tCO2|°C|°F| t)(?![A-Za-z0-9])/y;
 // Tonnes written against the number ("54,000t", "1.2t", "5万t"), but only after a number written
 // as an amount, and none of money, whose "t" is trillions ("$1.5t"): a bare "78t" is as often a
 // section ("15 U.S.C. 78t").
@@ -3996,11 +3997,18 @@ const MEASURES: Readonly<Record<string, { symbols: string; words: string }>> = {
     symbols: "l|升|桶",
     words: "m3|m³|cubic met(?:re|er)s?|lit(?:re|er)s?|barrels?|bbl|立方米",
   },
-  power: { symbols: "W|瓦", words: "kW|MW|GW|(?:kilo|mega|giga)?watts?|千瓦|兆瓦|吉瓦" },
-  energy: {
-    symbols: "",
-    words: "Wh|kWh|MWh|GWh|TWh|(?:kilo|mega|giga)?watt[- ]hours?|千瓦时|兆瓦时|瓦时",
-  },
+  power: { symbols: "", words: "kW|MW|GW|(?:kilo|mega|giga)watts?|千瓦|兆瓦|吉瓦" },
+  energy: { symbols: "", words: "kWh|MWh|GWh|TWh|(?:kilo|mega|giga)watt[- ]hours?|千瓦时|兆瓦时" },
+};
+
+/**
+ * The watt and the watt-hour by themselves: units of power and of energy, which a Document writes
+ * for a figure in them. For a figure in kilowatts a Document that writes only watts writes none of
+ * its measure, so "31千瓦" isn't backed by a plain 31 under "（瓦）" (#2997). 瓦 before 片 is tiles.
+ */
+const BARE_WATTS: typeof MEASURES = {
+  power: { symbols: "W|瓦(?!片)", words: "watts?" },
+  energy: { symbols: "", words: "Wh|watt[- ]hours?|瓦时" },
 };
 
 // A symbol states its measure only where it is a unit, never as a letter or a character inside a word ("don't", e.g., T-shirt, 克服, 单位：克林工厂, 27m3).
@@ -4055,6 +4063,10 @@ const measureRule = ({ symbols, words }: { symbols: string; words: string }) => 
   return new RegExp([word, ...latin, ...han].join("|"), "iu");
 };
 
+const WRITES_BARE_WATTS: Readonly<Record<string, RegExp>> = Object.fromEntries(
+  Object.entries(BARE_WATTS).map(([name, units]) => [name, measureRule(units)]),
+);
+
 // The sign counts after letters ("YoY%", "Chgpp"); a word only where no letter runs into it ("apps").
 const WRITES: Readonly<Record<string, RegExp>> = {
   percent: /[%‰]|(?<![A-Za-z])(?:per[ \n]?cent|percent|pcts?)(?![A-Za-z])|百分之|百分比/i,
@@ -4065,24 +4077,34 @@ const WRITES: Readonly<Record<string, RegExp>> = {
   ),
 };
 
+const measureIn = (measures: typeof MEASURES, unit: FigureUnit) =>
+  unit.kind === "other"
+    ? Object.entries(measures).find(([, { symbols, words }]) =>
+        new RegExp(`^(?:${[symbols, words].filter(Boolean).join("|")})$`, "i").test(unit.word),
+      )?.[0]
+    : undefined;
+
 /** What `unit` measures: "percent", "points", or a standard unit's kind ("mass", "area"); null for a count. */
 export function measureOf(unit: FigureUnit): string | null {
   if (unit.kind === "percent" || unit.kind === "points") return unit.kind;
-  if (unit.kind !== "other") return null;
-  const found = Object.entries(MEASURES).find(([, { symbols, words }]) =>
-    new RegExp(`^(?:${[symbols, words].filter(Boolean).join("|")})$`, "i").test(unit.word),
-  );
-  return found?.[0] ?? null;
+  return measureIn(MEASURES, unit) ?? measureIn(BARE_WATTS, unit) ?? null;
 }
 
 /**
  * Whether `text` writes any unit of `measure`: a word ("tonnes"), a Latin symbol that stands alone
  * ("54,000 t", "540 €/t", "(t, 2024)"), or, in Chinese, a symbol that names the unit after a figure,
  * a slash, a lone numeral or a unit line ("54,000吨", "元/吨", "一吨", "单位：吨"). Converting one
- * unit into another isn't attempted.
+ * unit into another isn't attempted. The watt and the watt-hour by themselves count only for a
+ * figure in them, whose unit is `of`.
  */
-export function writesMeasure(text: string, measure: string): boolean {
-  return WRITES[measure]?.test(text.normalize("NFKC")) ?? false;
+export function writesMeasure(text: string, measure: string, of?: FigureUnit): boolean {
+  const written = text.normalize("NFKC");
+  if (WRITES[measure]?.test(written)) return true;
+  return (
+    of !== undefined &&
+    measureIn(BARE_WATTS, of) === measure &&
+    (WRITES_BARE_WATTS[measure]?.test(written) ?? false)
+  );
 }
 
 // A bare "$" or "dollars" says a dollar, not which one, in every language (#2226).
