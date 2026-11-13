@@ -1699,6 +1699,8 @@ export function mindTools(options: MindToolsOptions): {
     {
       writer: Writer | null;
       created: boolean;
+      /** The Note's name as the call gave it when its content began to go in; null: none. */
+      named: string | null;
       breaks: number;
       copy: Repeat | null;
       /** It writes sources as text: nothing more goes in until all of it is in, as it may be refused. */
@@ -1728,18 +1730,23 @@ export function mindTools(options: MindToolsOptions): {
   };
 
   /**
-   * The Note a call that names one means: the one its content began to stream into, while it is
-   * still there, as the name meant it then; the call's own first line may have renamed it since,
-   * as an empty Note named "Untitled" takes its first line's name (#2830). Else as `targetOf` reads it.
+   * The Note a call means: when it names the Note by the name its content began to stream in
+   * under, the one that name meant then, while it is still there. The call's own first line may
+   * have renamed it since, as an empty Note named "Untitled" takes its first line's name (#2830).
+   * Else as `targetOf` reads it.
    */
   const meantBy = (
     toolCallId: string,
     input: Record<string, unknown>,
   ): ChangeableMind | Refusal => {
-    const streamed = streams.get(toolCallId)?.writer?.mind;
+    const stream = streams.get(toolCallId);
+    const streamed = stream?.writer?.mind;
+    const wanted = optional(input.mind);
     if (
       streamed &&
-      optional(input.mind) !== null &&
+      wanted !== null &&
+      stream.named !== null &&
+      nameKey(stream.named) === nameKey(wanted) &&
       minds.list().some((each) => each.id === streamed.id)
     )
       return streamed;
@@ -1769,7 +1776,14 @@ export function mindTools(options: MindToolsOptions): {
     if (!content) return;
     let stream = streams.get(toolCallId);
     if (!stream) {
-      stream = { writer: null, created: false, breaks: 0, copy: null, uncited: false };
+      stream = {
+        writer: null,
+        created: false,
+        named: null,
+        breaks: 0,
+        copy: null,
+        uncited: false,
+      };
       streams.set(toolCallId, stream);
     }
     // Only once a paragraph has ended is there a Block more to write.
@@ -1781,6 +1795,7 @@ export function mindTools(options: MindToolsOptions): {
       if (!opened) return;
       stream.writer = opened.writer;
       stream.created = opened.created;
+      stream.named = optional(fields.get("mind")?.value);
     }
     const { writer } = stream;
     if (stream.copy !== null || stream.uncited) return;
