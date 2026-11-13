@@ -31,6 +31,7 @@ import { languageRates, type RequestRun, rowRates } from "./rates";
 import { watchReasks } from "./reasks";
 import {
   backedByFoundLines,
+  disagreementLines,
   SUPPORTED_TARGET,
   supportedShare,
   supportRates,
@@ -299,6 +300,7 @@ function report(
           ),
           "",
           ...backedByFoundLines(checked),
+          ...disagreementLines(checked),
           ...withoutSupportLines(checked),
         ]
       : []),

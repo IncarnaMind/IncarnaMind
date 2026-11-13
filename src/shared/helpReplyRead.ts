@@ -15,7 +15,7 @@
  * in it included, are read as written, in their quotation marks.
  */
 import type { AnswerStatus } from "../core/api";
-import { MARKER } from "./answerSentences";
+import { MARKER, withoutMarkerRuns } from "./answerSentences";
 import { FIGURE_MARKER } from "./figureMarkers";
 import {
   EFFECT_MARK,
@@ -263,21 +263,6 @@ export interface HelpReplyRead {
   options: ReplyItem[];
 }
 
-/** A run of Citation markers side by side, with the space before it. */
-const CITATIONS_ON_LINE = new RegExp(`[ \\t]*(?:${MARKER.source})+`, "g");
-
-/**
- * `line` without its Citation markers. The space before a run of them stays only when a word or a
- * number follows it, so "keep [^2][^3]moving" reads "keep moving" and "元[^3]对方" reads "元对方".
- */
-const withoutCitations = (line: string) =>
-  line.replace(CITATIONS_ON_LINE, (found: string, ...rest: unknown[]) => {
-    const at = rest.find((each) => typeof each === "number") ?? 0;
-    return /^[\p{L}\p{N}]/u.test(line.charAt(at + found.length))
-      ? (/^[ \t]*/.exec(found)?.[0] ?? "")
-      : "";
-  });
-
 /** A reading's line that is only its moment of the call: its time, its quotation and its markers. */
 function onlyMoment(line: string): boolean {
   const rest = plainLine(line)
@@ -323,7 +308,7 @@ export function helpReplyRead(markdown: string, layout: HelpLayout): HelpReplyRe
       ((layout.shape !== "lines" && EFFECT_MARK.test(plainLine(line))) ||
         (layout.shape === "readings" && lead !== undefined && readingItself(lead, line)));
     const words = lead && said.includes(lead) ? optionRead(line) : line;
-    return own ? withoutCitations(words) : words;
+    return own ? withoutMarkerRuns(words) : words;
   });
   return {
     text: read.join("\n"),
