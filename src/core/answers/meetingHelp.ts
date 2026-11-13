@@ -66,7 +66,7 @@ export const HELP_DOCUMENTS: Readonly<Record<MeetingHelpKind, string | null>> = 
  * it, and can't judge the User's own advice, conclusion or "no", so that part is a sentence of its own.
  */
 const OWN_SENTENCE =
-  'What the Documents or the call say goes in a sentence of its own, its Citation markers at that sentence\'s end. What is the User\'s own (advice, a conclusion, a "no", an offer or a plan the Documents don\'t state) goes in another sentence with no Citation marker. Never join the two with "so", "and", "but" or a comma, in any language.';
+  'What the Documents or the call say goes in a sentence of its own, its Citation markers at that sentence\'s end. Every fact in that sentence is in the words it cites: a second fact gets a Citation of its own, to the words that state it. What is the User\'s own (advice, a conclusion, a "no", an offer or a plan the Documents don\'t state) goes in another sentence with no Citation marker: it cites neither the question it answers nor the rule it rests on, and that rule is a cited sentence of its own. End the cited sentence with "." or "。" before the User\'s own part: joined by anything else (", so", ", but", "，", a dash, a semicolon) it is still the cited sentence. A "→" line never has a Citation marker.';
 
 const SHAPES: Readonly<Record<HelpShape, readonly string[]>> = {
   options: [

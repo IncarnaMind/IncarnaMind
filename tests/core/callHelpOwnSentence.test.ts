@@ -11,7 +11,9 @@ import { HELP_SHAPE, type MeetingHelpKind, plainLine } from "../../src/shared/me
 import { sentenceSpans } from "../../src/shared/sentences";
 
 const KINDS = Object.keys(HELP_SHAPE) as MeetingHelpKind[];
-const RULE = "What the Documents or the call say goes in a sentence of its own";
+// The rule as frozen after the development trial (#2847): its gate measures these words alone.
+const RULE =
+  'What the Documents or the call say goes in a sentence of its own, its Citation markers at that sentence\'s end. Every fact in that sentence is in the words it cites: a second fact gets a Citation of its own, to the words that state it. What is the User\'s own (advice, a conclusion, a "no", an offer or a plan the Documents don\'t state) goes in another sentence with no Citation marker: it cites neither the question it answers nor the rule it rests on, and that rule is a cited sentence of its own. End the cited sentence with "." or "。" before the User\'s own part: joined by anything else (", so", ", but", "，", a dash, a semicolon) it is still the cited sentence. A "→" line never has a Citation marker.';
 
 /** The example lines a button's instructions give, between "For example:" and the next rule. */
 function examples(kind: MeetingHelpKind, callLanguage: string): string[] {
