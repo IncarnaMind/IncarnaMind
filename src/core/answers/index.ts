@@ -3149,7 +3149,7 @@ export function createAnswers(options: AnswersOptions) {
                   options.conversations.writeToolCalls(answerId, toolCalls);
               },
               failed: (toolCallId, problem) => {
-                mindProblems.set(toolCallId, problem);
+                if (problem) mindProblems.set(toolCallId, problem);
                 // Whatever it wrote as its input came in was taken back: nothing of it counts.
                 mindChanges.delete(toolCallId);
                 const call = toolCalls.find((each) => each.id === toolCallId);

@@ -1,9 +1,14 @@
 import * as Y from "yjs";
-import { BLOCK_ID_ATTRIBUTE, CITATION_NODE, type CitationAttributes } from "../../src/core";
+import {
+  BLOCK_ID_ATTRIBUTE,
+  CITATION_NODE,
+  type CitationAttributes,
+  PROPOSAL_DELETE_MARK,
+} from "../../src/core";
 import { citationAttributesOf } from "../../src/shared/citations";
 import { asCitedNow } from "../../src/shared/citedNow";
 import { readClaimCheck } from "../../src/shared/claimChecks";
-import { countingCheckOf } from "../../src/shared/markKeys";
+import { countingCheckOf, hasMarkIn } from "../../src/shared/markKeys";
 import { INLINE_NODE, isClaim, sentenceSpans } from "../../src/shared/sentences";
 
 /** A sentence a write added, as a check reads it, with what its check's mark says. */
@@ -37,7 +42,9 @@ function lineOf(paragraph: Y.XmlElement) {
         insert: unknown;
         attributes?: Record<string, unknown>;
       }[]) {
-        if (typeof run.insert !== "string") continue;
+        // Words a waiting change takes out aren't the write's sentence.
+        if (typeof run.insert !== "string" || hasMarkIn(PROPOSAL_DELETE_MARK, run.attributes))
+          continue;
         const mark = countingCheckOf(run.attributes)?.attrs ?? null;
         text += run.insert;
         for (let at = 0; at < run.insert.length; at++) marks.push(mark);

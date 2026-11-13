@@ -348,8 +348,11 @@ export interface MindToolsOptions {
    * Answer: its card says so then, and what is stored of it says what the Note shows.
    */
   checkRecorded(toolCallId: string, change: MindChange): void;
-  /** A call changed nothing, and whatever it wrote as its input came was taken back. */
-  failed(toolCallId: string, problem: MindProblem): void;
+  /**
+   * A call changed nothing, and whatever it wrote as its input came was taken back: `problem` says
+   * why on its card; null when the call's result says why itself.
+   */
+  failed(toolCallId: string, problem: MindProblem | null): void;
   /** The Answer's: once it aborts, calls still writing stop. */
   signal: AbortSignal;
   now(): Date;
@@ -3113,7 +3116,7 @@ export function mindTools(options: MindToolsOptions): {
         given !== null && typeof given !== "string" ? given.folderId : options.folderId,
       );
       if (filed === null) {
-        takeBackStream(toolCallId);
+        if (takeBackStream(toolCallId)) options.failed(toolCallId, null);
         options.notFiled();
         return NOT_FILED;
       }

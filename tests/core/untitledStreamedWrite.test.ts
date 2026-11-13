@@ -6,6 +6,7 @@ import {
   PROPOSAL_ATTRIBUTE,
   PROPOSAL_INSERT_MARK,
 } from "../../src/core";
+import { translate } from "../../src/shared/i18n";
 import { markValueOf } from "../../src/shared/markKeys";
 import { readProposalAttribute, readProposalRef } from "../../src/shared/proposals";
 import { askAssistant, changesIn, mindCalls } from "../helpers/assistant";
@@ -111,8 +112,37 @@ async function emptyNote(model: ReturnType<typeof writesToUntitled>) {
   return {
     core,
     mind,
+    folder,
     ask: { ...ask, scope: { folderIds: [folder.id], tagIds: [], documentIds: [] } },
   };
+}
+
+const MADE = { title: "Tide summary", content: CONTENT };
+
+/** A new Note of the summary, its input streamed in, stopped once its first paragraph is whole. */
+function makesNote(pause: { until: Promise<void>; reached: () => void }) {
+  return scriptedModel((call): ScriptedReply => {
+    const { results } = call;
+    const search = results.find((result) => result.tool === "search_documents");
+    if (!search) return { calls: [{ tool: "search_documents", input: { query: "tides" } }] };
+    if (!results.some((result) => result.tool === "cite")) {
+      const [passage] = shownPassages(search.text);
+      return {
+        calls: [
+          {
+            tool: "cite",
+            input: { citations: [{ marker: 1, passage: passage?.id, quote: MOON }] },
+          },
+        ],
+      };
+    }
+    if (!results.some((result) => result.tool === "create_mind"))
+      return {
+        calls: [{ tool: "create_mind", input: MADE, streamInput: true }],
+        pause: { after: JSON.stringify(MADE).indexOf("Neap"), ...pause },
+      };
+    return { text: "Done." };
+  });
 }
 
 const addResults = (calls: readonly ModelCall[]) => [
@@ -183,5 +213,33 @@ describe("A write into the empty Note in front, named as the model reads it whil
     const back = await connectToMind(core, mind.id);
     await back.settled();
     expect(blocksOf(back.doc)).toEqual([]);
+  });
+
+  // protects=a new Note whose text began to stream in, refused when its call ends because its Folder can't be found now, is taken back, and its call's card holds no change, as when nothing streamed: only the Answer's line says why; fails_when=the card still shows a Note made that is gone, or the Note stays; no_claim=how often a Folder goes while a Note is written.
+  test("a new Note whose Folder is gone before its call ends leaves no Note, and its card no change", async () => {
+    let release = () => {};
+    const until = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let reached = () => {};
+    const paused = new Promise<void>((resolve) => {
+      reached = resolve;
+    });
+    const { core, folder, ask } = await emptyNote(makesNote({ until, reached }));
+    const answering = askAssistant(core, ask);
+    await paused;
+    await vi.waitFor(
+      async () => expect((await core.listMinds()).map((each) => each.title)).toContain(MADE.title),
+      { timeout: 20_000, interval: 10 },
+    );
+    await core.deleteLibraryGroup(folder.id);
+    release();
+    const answer = await answering;
+
+    expect(mindCalls(answer).map((call) => [call.tool, call.mindChange ?? null])).toEqual([
+      ["create_mind", null],
+    ]);
+    expect(answer.text).toContain(translate("en", "folder.wall.notFiled"));
+    expect((await core.listMinds()).map((each) => each.title)).not.toContain(MADE.title);
   });
 });

@@ -242,8 +242,14 @@ async function runCase(
     const count = () => {
       const total: Sentences = { written: 0, verdict: 0, notChecked: 0, checking: 0, unmarked: 0 };
       for (const { client, mindId } of clients) {
+        // The Blocks each write's check names, an existing one it rewrote among them.
+        const named = answer.toolCalls.flatMap((call) =>
+          call.mindChange?.mindId === mindId ? (call.mindChange.selfCheck?.blocks ?? []) : [],
+        );
         const ids = new Set(
-          topIds(client.blocks).filter((id) => mindId !== mind.id || !before.has(id)),
+          named.length > 0
+            ? named
+            : topIds(client.blocks).filter((id) => mindId !== mind.id || !before.has(id)),
         );
         const each = sentencesIn(client.blocks, ids);
         for (const key of Object.keys(total) as (keyof Sentences)[]) total[key] += each[key];

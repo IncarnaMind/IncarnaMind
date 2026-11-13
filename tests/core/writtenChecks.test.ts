@@ -1,6 +1,7 @@
 import { describe, expect, test, vi } from "vitest";
 import * as Y from "yjs";
 import {
+  BLOCK_ID_ATTRIBUTE,
   CONTENT_SCHEMA_VERSION,
   CONTENT_SCHEMA_VERSION_KEY,
   type Core,
@@ -129,6 +130,8 @@ interface Writing {
   citesAfter?: "beside" | "next-step";
   /** Its closing reply fails, so the Answer does. */
   replyFails?: boolean;
+  /** Its closing reply's stream stays open until `until`; `reached` hears it open. */
+  replyHeld?: { until: Promise<void>; reached: () => void };
   /** Into a Note with no title and no text yet, which takes its name from what lands. */
   untitled?: boolean;
   /** A request that isn't streamed answered as this says; null: as `PLANS` says. */
@@ -163,6 +166,7 @@ function writingModel(
     evidence,
     citesAfter,
     replyFails = false,
+    replyHeld,
     writes,
   }: Writing,
   calls: ModelCall[],
@@ -209,7 +213,8 @@ function writingModel(
         return { calls: [{ tool, input }] };
       }
       if (replyFails) return { error: { status: 500, message: "The service broke." } };
-      return { text: "Wrote it from your Documents." };
+      const text = "Wrote it from your Documents.";
+      return replyHeld ? { text, pause: { after: 0, ...replyHeld } } : { text };
     },
     record || generated || generate
       ? {
@@ -1373,22 +1378,75 @@ describe("What the assistant writes is checked once it lands, the reply not wait
     ]);
   });
 
-  // protects=Stop on the Answer once its write has landed doesn't stop the check of what it wrote: only Stop before the write lands does (#2830); fails_when=the Answer's Stop takes the check with it and the sentences stay unmarked or stopped; no_claim=what the Answer says once stopped.
+  // protects=Stop on the Answer once its write has landed, while its closing reply still streams, doesn't stop the check of what it wrote: only Stop before the write lands does (#2830); fails_when=the Answer's Stop takes the check with it and the sentences stay unmarked or stopped; no_claim=what the Answer says once stopped.
   test("Stop on the Answer after its write landed leaves the check to finish", async () => {
     const calls: ModelCall[] = [];
-    let started: Core | null = null;
-    let answer: { conversationId: string; answerId: string } | null = null;
+    let replying = () => {};
+    const reached = new Promise<void>((resolve) => {
+      replying = resolve;
+    });
     const progress: WrittenCheckProgress[] = [];
     const model = writingModel(
       {
         content: `Spring tides come at new and full moon [^1]. ${UNBACKED} [^1].`,
         into: true,
-        check: (call, core) => {
-          if (sentenceOf(call) !== `${UNBACKED} .` || call.results.length > 0) return null;
-          const stopped = vi
-            .waitFor(() => expect(answer).not.toBeNull(), { timeout: 20_000, interval: 5 })
-            .then(() => (answer ? core.stopConversationAnswer(answer) : undefined));
-          return { ...checkReply(call, PLANS), pause: { after: 0, until: stopped } };
+        replyHeld: { until: new Promise(() => undefined), reached: () => replying() },
+      },
+      calls,
+      () => null,
+    );
+    const { core, folderId, mindId, client } = await harbour(
+      model,
+      { kind: "anthropic", modelId: "claude-haiku-5-5" },
+      undefined,
+    );
+    core.on("writtenCheck.progress", (event) => progress.push(event));
+
+    const asked = await core.askInConversation({
+      text: ASK.into,
+      mindId,
+      scope: { folderIds: [folderId], tagIds: [], documentIds: [] },
+    });
+    if (!asked.asked) throw new Error("Not asked.");
+    await reached;
+    // The write has landed and its check waits behind the reply: nothing of it is sent yet.
+    expect(calls.filter(isCheckRun)).toEqual([]);
+    await core.stopConversationAnswer({
+      conversationId: asked.conversation.id,
+      answerId: asked.answerId,
+    });
+
+    expect(await checkEnds(progress)).toMatchObject({ done: 2, total: 2 });
+    const marks = await marksIn(core, client);
+    expect(marks.map(({ sentence, check }) => [sentence, check.state])).toEqual([
+      ["Spring tides come at new and full moon .", "supported"],
+      ["Neap tides are twice as strong .", "unsupported"],
+    ]);
+  });
+
+  // protects=a sentence the User checks themselves, once they accepted the write, while the write's check of it is still out keeps their check's mark and result when that older check ends, and the write's count leaves it (#2830); fails_when=the older verdict lands over the User's check, or the write still counts the sentence as its own; no_claim=which verdict either check gives.
+  test("the User's own check of a sentence while the write's check is out keeps its mark", async () => {
+    const calls: ModelCall[] = [];
+    let started: Core | null = null;
+    let release = () => {};
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let holding = () => {};
+    const held = new Promise<void>((resolve) => {
+      holding = resolve;
+    });
+    let heldOnce = false;
+    const progress: WrittenCheckProgress[] = [];
+    const model = writingModel(
+      {
+        content: `Spring tides come at new and full moon [^1]. ${UNBACKED} [^1].`,
+        into: true,
+        check: (call) => {
+          if (heldOnce || sentenceOf(call) !== `${UNBACKED} .`) return null;
+          heldOnce = true;
+          holding();
+          return { ...checkReply(call, PLANS), pause: { after: 0, until: released } };
         },
       },
       calls,
@@ -1408,13 +1466,42 @@ describe("What the assistant writes is checked once it lands, the reply not wait
       scope: { folderIds: [folderId], tagIds: [], documentIds: [] },
     });
     if (!asked.asked) throw new Error("Not asked.");
-    answer = { conversationId: asked.conversation.id, answerId: asked.answerId };
+    await held;
+    await resolveChanges(client, "accept");
+    const index = client.blocks
+      .toArray()
+      .findIndex((block) => block instanceof Y.XmlElement && block.toString().includes("Neap"));
+    const block = client.blocks.get(index);
+    const blockId = block instanceof Y.XmlElement ? block.getAttribute(BLOCK_ID_ATTRIBUTE) : null;
+    if (typeof blockId !== "string") throw new Error("The write has no paragraph.");
+    const text = paragraphText(client, index);
+    await core.checkSentences({
+      requestId: "users-check",
+      mindId,
+      action: "check-against-documents",
+      from: { blockId, offset: text.indexOf("Neap") },
+      to: { blockId, offset: text.length },
+    });
+    const ownCheck = async () =>
+      (await marksIn(core, client)).find(({ sentence }) => sentence.startsWith("Neap"))?.check;
+    await vi.waitFor(
+      async () => {
+        expect((await ownCheck())?.request).toBe("users-check");
+        expect((await ownCheck())?.state).not.toBe("checking");
+      },
+      { timeout: 20_000, interval: 10 },
+    );
+    release();
 
-    expect(await checkEnds(progress)).toMatchObject({ done: 2, total: 2 });
+    expect(await checkEnds(progress)).toMatchObject({ done: 1, total: 1 });
     const marks = await marksIn(core, client);
-    expect(marks.map(({ sentence, check }) => [sentence, check.state])).toEqual([
-      ["Spring tides come at new and full moon .", "supported"],
-      ["Neap tides are twice as strong .", "unsupported"],
+    expect(marks.map(({ sentence, check }) => [sentence, check.request, check.state])).toEqual([
+      [
+        "Spring tides come at new and full moon .",
+        expect.not.stringMatching("users-check"),
+        "supported",
+      ],
+      ["Neap tides are twice as strong .", "users-check", "unsupported"],
     ]);
   });
 
@@ -2153,6 +2240,57 @@ describe("What the assistant writes is checked once it lands, the reply not wait
     } finally {
       errors.mockRestore();
     }
+  });
+
+  // protects=an older check whose sentences with no Citation a newer write took over while it waited sends no claims sort for them (#2830); fails_when=a request still names sentences no longer the older write's; no_claim=what the newer check sorts.
+  test("an older check sends no sort for sentences a newer write took over while it waited", async () => {
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let paused = false;
+    const sorted: string[] = [];
+    const calls: ModelCall[] = [];
+    const model = rewritingModel(
+      {
+        first: `## Tides\n\n${MOON.slice(0, -1)} [^1]. The harbour is quiet in winter.`,
+        longer: `## Tides\n\n${MOON.slice(0, -1)} [^1]. Neap tide 1 is twice as strong [^1].`,
+        // The first write's cited sentence is checked first, and waits: its sort comes after.
+        check: (call) => {
+          if (paused || call.results.length > 0) return null;
+          paused = true;
+          return { ...checkReply(call, PLANS), pause: { after: 0, until: held } };
+        },
+        generate: (call) => {
+          if (isSort(call)) sorted.push(call.prompt);
+          return null;
+        },
+      },
+      calls,
+    );
+    const { core, folderId, mindId, client } = await harbour(
+      model,
+      { kind: "anthropic", modelId: "claude-haiku-5-5" },
+      undefined,
+    );
+    const progress: WrittenCheckProgress[] = [];
+    core.on("writtenCheck.progress", (event) => progress.push(event));
+    const scope = { folderIds: [folderId], tagIds: [], documentIds: [] };
+    const first = await askAndEnd(core, { text: ASK.into, mindId, scope });
+    const older = progress[0]?.request ?? "";
+    await vi.waitFor(() => expect(paused).toBe(true), { timeout: 20_000 });
+    await resolveChanges(client, "accept");
+    await client.settled();
+
+    await askAndEnd(core, { text: LONGER, mindId, scope, conversationId: first.conversationId });
+    const newer = progress.find((event) => event.request !== older)?.request ?? "";
+    release();
+    expect(await checkEnds(progress, older)).toMatchObject({ running: false });
+    expect(await checkEnds(progress, newer)).toMatchObject({ running: false });
+
+    expect(sorted.filter((prompt) => prompt.includes("The harbour is quiet in winter"))).toEqual(
+      [],
+    );
   });
 
   // protects=a verdict that comes back while the window writes one Block of a write again, the write's other Blocks staying, lands once that Block is back, its table's verdicts too (#2378, #2830); fails_when=the sentence's verdict is dropped because its Block alone was away, and it ends Not checked; no_claim=how often a window writes a Block again.

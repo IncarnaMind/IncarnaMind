@@ -1,7 +1,12 @@
 import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
 import { writtenSentences } from "../../eval/lib/writtenSentences";
-import { BLOCK_ID_ATTRIBUTE, CITATION_NODE, CLAIM_CHECK_MARK } from "../../src/core";
+import {
+  BLOCK_ID_ATTRIBUTE,
+  CITATION_NODE,
+  CLAIM_CHECK_MARK,
+  PROPOSAL_DELETE_MARK,
+} from "../../src/core";
 import { keyedFormats } from "../../src/shared/markKeys";
 
 /** A paragraph Block `id` of `parts`: text, a Citation, or text under a check's mark. */
@@ -13,6 +18,7 @@ function paragraph(
     | "citation"
     | { citation: Record<string, string> }
     | { text: string; mark: Record<string, unknown> }
+    | { removed: string }
   )[],
 ) {
   const element = new Y.XmlElement("paragraph");
@@ -31,7 +37,11 @@ function paragraph(
     const text = new Y.XmlText();
     element.push([text]);
     if (typeof part === "string") text.insert(0, part);
-    else {
+    else if ("removed" in part) {
+      text.insert(0, part.removed);
+      const change = { id: "change-1", request: "write-1" };
+      text.format(0, part.removed.length, keyedFormats(text, PROPOSAL_DELETE_MARK, change));
+    } else {
       text.insert(0, part.text);
       text.format(0, part.text.length, keyedFormats(text, CLAIM_CHECK_MARK, part.mark));
     }
@@ -98,6 +108,17 @@ describe("the sentences a write added, as the everyday evaluation records them",
         reason: null,
         checkedAt: null,
       },
+    ]);
+  });
+
+  // protects=words a waiting change takes out of a sentence the write rewrote aren't recorded as the write's, so its sentence reads as accepting the change leaves it (#2830); fails_when=the removed words join the sentence's text; no_claim=how the change is cut into words.
+  test("the words a waiting change takes out are left out", () => {
+    const doc = new Y.Doc();
+    const blocks = doc.getXmlFragment("content");
+    paragraph(blocks, "written", ["The quay is ", { removed: "quiet" }, "busy", " in summer."]);
+
+    expect(writtenSentences(blocks, new Set(["written"])).map((each) => each.text)).toEqual([
+      "The quay is busy in summer.",
     ]);
   });
 });

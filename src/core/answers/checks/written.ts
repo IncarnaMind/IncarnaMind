@@ -603,19 +603,26 @@ function placeOf(
  * changed them, its mark shows its check needs doing again. The Passages its check found go in as
  * its parts' Citations only inside the write's change `change` while it still waits there for the
  * User; once they accepted, rejected or changed it, its words are theirs and a check writes nothing
- * into them (#3019). A sentence of opinion only loses the mark it was checked under. False when
- * the sentence is gone from the Mind.
+ * into them (#3019). A sentence of opinion only loses the mark it was checked under. With `owner`,
+ * the check's request, it lands only while that check's mark is still the sentence's: a newer
+ * check of it the User asked for keeps its own. False when the sentence is gone from the Mind or
+ * another check has it.
  */
 function land(
   blocks: Y.XmlFragment,
   ids: readonly string[],
   change: string,
   landing: Landing,
+  owner: string | null,
 ): boolean {
   const { sentence } = landing;
   const element = paragraphIn(blocks, ids, sentence.path);
   const place = element ? placeOf(element, sentence) : null;
   if (!element || !place) return false;
+  if (owner !== null) {
+    const now = markAt(element, place);
+    if (now && now.request !== owner) return false;
+  }
   if ("opinion" in landing) {
     unmarkSentence(element, place.from, place.to, "check-against-documents");
     const blockId = element.getAttribute(BLOCK_ID_ATTRIBUTE);
@@ -752,10 +759,18 @@ function markOn(
   const element = paragraphIn(blocks, ids, sentence.path);
   const place = element ? placeOf(element, sentence) : null;
   if (!element || !place?.same) return undefined;
+  return markAt(element, place);
+}
+
+/** The check's mark on the words `from`..`to` of a paragraph; null for none. */
+function markAt(
+  element: Y.XmlElement,
+  { from, to }: { from: number; to: number },
+): ClaimCheckAttributes | null {
   let at = 0;
   for (const node of inlineOf(element)) {
     const size = node.type === "text" ? (node.text?.length ?? 0) : 1;
-    if (node.type === "text" && at < place.to && at + size > place.from) {
+    if (node.type === "text" && at < to && at + size > from) {
       const mark = node.marks?.find((each) => each.type === CLAIM_CHECK_MARK);
       if (mark) return readClaimCheck(mark.attrs);
     }
@@ -1023,7 +1038,8 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
       if (landings.length === 0 || refused) return;
       const found: boolean[] = [];
       input.edit((note) => {
-        for (const { landing } of landings) found.push(land(note, input.ids, input.write, landing));
+        for (const { landing, outcome } of landings)
+          found.push(land(note, input.ids, input.write, landing, outcome ? request : null));
       });
       let outcomes = 0;
       for (const [index, { landing, outcome }] of landings.entries()) {
@@ -1383,10 +1399,13 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
      * left undecided is a claim, as Check this Note keeps it. A sort that fails, or takes longer
      * than one sentence's check may, leaves each to its own check, which names its parts too.
      */
-    const claimsOf = async (uncited: readonly Sentence[]): Promise<readonly Sentence[]> => {
-      if (uncited.length === 0) return [];
+    const claimsOf = async (waiting: readonly Sentence[]): Promise<readonly Sentence[]> => {
+      if (waiting.length === 0) return [];
       await behind.before(sending, signal);
       if (signal.aborted) return [];
+      // A newer write may have taken some over while the sort waited behind a reply.
+      const uncited = waiting.filter((sentence) => !left.has(sentence));
+      if (uncited.length === 0) return [];
       const timedOut =
         options.sortTimeLimit?.() ??
         behind.timeout(options.claimTimeLimitMs ?? CLAIM_TIME_LIMIT_MS, signal);

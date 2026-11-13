@@ -28,7 +28,7 @@ import { ClaimChecks, shownClaims } from "../../src/renderer/src/editor/claimChe
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
 import { pendingProposals } from "../../src/shared/proposals";
 import { checkReply, isCheckRun, type Plan } from "../helpers/checks";
-import { answerEnded, shownPassages } from "../helpers/citations";
+import { answerEnded, answerJudged, shownPassages } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
@@ -221,6 +221,7 @@ async function writtenThenApplied(takesOut: boolean) {
   const [all] = applications;
   if (!all) throw new Error("The Answer's changes were never applied.");
   const held = (await all).map((each) => each?.held ?? null);
+  await answerJudged(core, asked.conversation.id, asked.answerId);
   await client.settled();
   return { client, held, editor: editorOf(client) };
 }
