@@ -5494,5 +5494,4374 @@
       { "name": "排期", "pattern": "排期|排队|分两天|日程|时间|预约|安排" },
       { "name": "合同与名单", "pattern": "合同|名单|资料" }
     ]
+  },
+  {
+    "id": "reserved-en-structured-team-own-1",
+    "language": "en",
+    "requireSections": true,
+    "openQuestions": false,
+    "notes": [
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "Walk-in cooler"
+          }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "Winter menu"
+          }
+        ]
+      }
+    ],
+    "turns": [
+      {
+        "side": "me",
+        "text": "Right, before service: the walk-in, the menu and the fish. Callum, Rhiannon, Odalys, good, you're all here. Callum, you were in when the engineer came?"
+      },
+      {
+        "side": "them",
+        "text": "I was. He says the compressor's finished. A new one is nineteen hundred pounds fitted, and he can't do it before the 20th."
+      },
+      {
+        "side": "them",
+        "text": "We could hire a chiller trailer for the gap. The yard place wants eighty-five a day."
+      },
+      {
+        "side": "me",
+        "text": "Eighty-five a day beats binning the dairy. Let's hire the trailer until the new compressor is in."
+      },
+      {
+        "side": "them",
+        "text": "Does the winter menu still start on the first of November, then? I need to know when to order the quince."
+      },
+      {
+        "side": "me",
+        "text": "Yes, the winter menu still starts on the first of November, we're not moving it. Callum, can you ring the yard place today and book the trailer from Monday?"
+      },
+      {
+        "side": "them",
+        "text": "Sure, I'll ring them this afternoon and book the trailer from Monday."
+      },
+      {
+        "side": "them",
+        "text": "Fish order's still Friday morning, yeah? I had eighteen kilos of hake pencilled in."
+      },
+      {
+        "side": "me",
+        "text": "Friday, yes. But the new dish will fly, so I'd go heavier on the hake."
+      },
+      {
+        "side": "them",
+        "text": "Then let's say twenty kilos of hake."
+      },
+      {
+        "side": "me",
+        "text": "Fine, twenty kilos of hake it is. Odalys, can you put the whole fish order in by Thursday night?"
+      },
+      {
+        "side": "them",
+        "text": "Yes, I'll have the order in by Thursday night."
+      }
+    ],
+    "facts": [
+      {
+        "name": "Compressor price",
+        "kind": "figure",
+        "pattern": [
+          "compressor|replacement|new (one|unit)|fitted",
+          "(?:(?<![\\d.,])(?:1[,.]?900)(?!\\d)|nineteen hundred|1\\.9k)"
+        ],
+        "subject": "compressor|replacement|fitted",
+        "said": [1],
+        "stated": true,
+        "owner": "Callum",
+        "forbid": "\\bthe other side\\b|\\bthey\\b"
+      },
+      {
+        "name": "Earliest fitting date",
+        "kind": "figure",
+        "pattern": [
+          "fit|install|engineer|compressor|replac",
+          "(?:(?<![\\d.,])(?:20(th)?)(?!\\d)|twentieth)"
+        ],
+        "subject": "engineer|fitting|earliest|installation",
+        "said": [1],
+        "stated": true,
+        "owner": "Callum",
+        "forbid": "\\bthe other side\\b|\\bthey\\b"
+      },
+      {
+        "name": "Chiller trailer cost",
+        "kind": "figure",
+        "pattern": [
+          "chiller|trailer|hire|rent|yard",
+          "(?:(?<![\\d.,])(?:85)(?!\\d)|eighty[- ]five)"
+        ],
+        "subject": "chiller|trailer|yard place",
+        "said": [2, 3],
+        "confirmed": true,
+        "notBy": "Callum|Rhiannon"
+      },
+      {
+        "name": "Hire the trailer",
+        "kind": "decision",
+        "pattern": [
+          "chiller|trailer",
+          "decid|agree|settl|chose|choos|go(ing)? (with|ahead)|went with|(let'?s|we'?ll|we will|will|to|going to|gonna) (hire|rent|take)|hir(ed|ing)|rent(ed|ing)"
+        ],
+        "subject": "chiller|trailer",
+        "said": [3],
+        "underLine": "Walk-in cooler"
+      },
+      {
+        "name": "Winter menu start",
+        "kind": "figure",
+        "pattern": [
+          "menu|winter",
+          "(?<!\\d)1(st)?\\s*(of\\s+)?nov(ember)?|nov(ember)?\\.?\\s*1(st)?(?!\\d)|first of nov(ember)?|(?<!\\d)1/11(?!\\d)|11/1(?!\\d)"
+        ],
+        "subject": "menu|winter",
+        "said": [4, 5],
+        "underLine": "Winter menu",
+        "confirmed": true,
+        "notBy": "Callum|Odalys"
+      },
+      {
+        "name": "Callum books the trailer",
+        "kind": "action",
+        "pattern": [
+          "Callum",
+          "\\bbook|\\bring(ing)?\\b|\\bcall|phone|reserve|trailer|chiller|yard",
+          "monday|mon\\b"
+        ],
+        "subject": "book|\\bring\\b|yard|trailer",
+        "said": [5, 6],
+        "owner": "Callum",
+        "forbid": "\\bthe other side\\b|\\bthey\\b"
+      },
+      {
+        "name": "Hake 18 kg",
+        "kind": "figure",
+        "pattern": ["hake", "(?:(?<![\\d.,])(?:18)(?!\\d)|eighteen)"],
+        "subject": "hake|fish",
+        "said": [7],
+        "notBy": "Callum|Odalys"
+      },
+      {
+        "name": "Hake 20 kg",
+        "kind": "figure",
+        "pattern": ["hake", "(?:(?<![\\d.,])(?:20)(?!\\d)|twenty)"],
+        "subject": "hake|fish",
+        "said": [9, 10],
+        "accepted": "(?=.*(?:\\b[Aa]gree|\\b[Aa]ccept|\\b[Ff]ine\\b|\\b[Oo]kay\\b|\\b[Oo]k\\b|\\b[Dd]eal\\b|\\b[Ss]ettled|\\b[Ww]ent with|\\b[Ww]orks for|\\b[Ii]t is\\b|\\b[Tt]ake it|\\b[Tt]hat'?s good|\\b[Tt]hat'?s fine|\\b[Ss]ure\\b|\\b[Gg]o(ing)? with))(?=.*(?:(?<![\\d.,])(?:20)(?!\\d)|twenty))",
+        "notBy": "Callum|Odalys"
+      },
+      {
+        "name": "Odalys places the fish order",
+        "kind": "action",
+        "pattern": ["Odalys", "order|put (it )?in|place|fish|supplier", "thursday|thu\\b"],
+        "subject": "fish order|supplier|order",
+        "said": [10, 11],
+        "owner": "Odalys",
+        "forbid": "\\bthe other side\\b|\\bthey\\b"
+      }
+    ]
+  },
+  {
+    "id": "reserved-en-structured-team-own-2",
+    "language": "en",
+    "requireSections": true,
+    "openQuestions": true,
+    "notes": [],
+    "turns": [
+      {
+        "side": "me",
+        "text": "Imogen, Dmitri, Farah, thanks for making time. Release 4.2: we said Thursday the 14th. Imogen, where's QA at?"
+      },
+      {
+        "side": "them",
+        "text": "Not great. Nine of the regression tests are failing, most of them in checkout."
+      },
+      {
+        "side": "them",
+        "text": "It's a rounding bug in the discount code, so it only hits carts with a voucher."
+      },
+      {
+        "side": "me",
+        "text": "Then we can't ship on the 14th. Dmitri, can you get the discount-code fix to staging by Friday?"
+      },
+      {
+        "side": "them",
+        "text": "Yes, if nothing else turns up. I'll push the fix to staging by end of Friday."
+      },
+      {
+        "side": "them",
+        "text": "If it lands Friday, we could ship on Monday afternoon, the 18th."
+      },
+      {
+        "side": "me",
+        "text": "Okay, so we ship on the 18th instead. Imogen, rerun the full regression suite on Monday morning, please."
+      },
+      {
+        "side": "them",
+        "text": "Will do. Full suite on Monday morning, and I'll post the result in the channel by noon."
+      },
+      {
+        "side": "them",
+        "text": "Dark mode isn't ready either. The last build had it flickering on older Android versions."
+      },
+      {
+        "side": "me",
+        "text": "Then dark mode waits for 4.3. Farah, can you tell the beta testers by Friday?"
+      },
+      {
+        "side": "them",
+        "text": "Sure, I'll message the beta group by Friday. Has anyone told support about the new date?"
+      }
+    ],
+    "facts": [
+      {
+        "name": "Nine regression tests failing",
+        "kind": "figure",
+        "pattern": ["regression|tests?|suite", "(?:(?<![\\d.,])(?:9)(?!\\d)|nine)", "fail"],
+        "subject": "regression|tests?|failing",
+        "said": [1],
+        "stated": true,
+        "owner": "Imogen",
+        "forbid": "\\bthe other side\\b|\\bthey\\b"
+      },
+      {
+        "name": "Bug only hits voucher carts",
+        "kind": "figure",
+        "pattern": [
+          "voucher|discount|promo",
+          "only|just|limited|affect|hits?|restricted",
+          "bug|rounding|issue|problem|fail|cart|checkout"
+        ],
+        "subject": "voucher|discount|rounding",
+        "said": [2],
+        "stated": true,
+        "notBy": "Imogen|Dmitri"
+      },
+      {
+        "name": "Original release date",
+        "kind": "figure",
+        "pattern": [
+          "releas|ship|launch|plan|original|schedul|said|due",
+          "(?:(?<![\\d.,])(?:14(th)?)(?!\\d)|fourteenth)"
+        ],
+        "subject": "release|ship|launch",
+        "said": [0, 3],
+        "notBy": "Imogen|Dmitri|Farah"
+      },
+      {
+        "name": "Ship on the 18th",
+        "kind": "decision",
+        "pattern": [
+          "(?:(?<![\\d.,])(?:18(th)?)(?!\\d)|eighteenth)",
+          "releas|ship|launch|go(ing)? live",
+          "decid|agree|settl|mov|push|instead|new date|chose|set for|go(ing)? (with|ahead)"
+        ],
+        "subject": "release|ship|launch",
+        "said": [6]
+      },
+      {
+        "name": "Dark mode waits for 4.3",
+        "kind": "decision",
+        "pattern": [
+          "dark mode",
+          "wait|drop|push|postpon|defer|move|4\\.3|decid|agree|not (in|ship)|out of|pull|cut"
+        ],
+        "subject": "dark mode",
+        "said": [9]
+      },
+      {
+        "name": "Dmitri pushes the fix",
+        "kind": "action",
+        "pattern": ["Dmitri", "fix|patch|rounding|discount|checkout|staging|push", "friday|fri\\b"],
+        "subject": "fix|patch|staging|rounding|discount",
+        "said": [3, 4],
+        "owner": "Dmitri",
+        "forbid": "\\bthe other side\\b|\\bthey\\b"
+      },
+      {
+        "name": "Imogen reruns the suite",
+        "kind": "action",
+        "pattern": [
+          "Imogen",
+          "rerun|re-run|\\brun\\b|regression|suite|QA|test",
+          "monday|mon\\b|noon"
+        ],
+        "subject": "rerun|regression|suite|QA",
+        "said": [6, 7],
+        "owner": "Imogen",
+        "forbid": "\\bthe other side\\b|\\bthey\\b"
+      },
+      {
+        "name": "Farah tells the beta testers",
+        "kind": "action",
+        "pattern": ["Farah", "beta|tester|message|tell|told|notify|inform", "friday|fri\\b"],
+        "subject": "beta|tester",
+        "said": [9, 10],
+        "owner": "Farah",
+        "forbid": "\\bthe other side\\b|\\bthey\\b"
+      },
+      {
+        "name": "Dark mode flickers on Android",
+        "kind": "figure",
+        "pattern": ["flicker|dark mode", "android"],
+        "subject": "dark mode|android",
+        "said": [8],
+        "stated": true,
+        "notBy": "Imogen|Farah"
+      }
+    ],
+    "topics": [
+      {
+        "name": "Release date",
+        "pattern": "release|ship|date|14th|18th|Thursday|Monday"
+      },
+      {
+        "name": "Checkout bug",
+        "pattern": "checkout|voucher|discount|rounding|regression|fix"
+      },
+      {
+        "name": "Dark mode",
+        "pattern": "dark mode|Android|4\\.3"
+      },
+      {
+        "name": "Support",
+        "pattern": "support|beta|told|tell"
+      }
+    ]
+  },
+  {
+    "id": "reserved-en-structured-team-own-3",
+    "language": "en",
+    "requireSections": true,
+    "openQuestions": false,
+    "notes": [
+      {
+        "type": "heading",
+        "attrs": {
+          "level": 2
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "Concrete pour"
+          }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "Scaffold tag"
+          }
+        ]
+      }
+    ],
+    "turns": [
+      {
+        "side": "me",
+        "text": "Right, first-floor slab. Shreya, Brendan, Lukas, thanks for coming over. Shreya, are the levels signed off?"
+      },
+      {
+        "side": "them",
+        "text": "Yes, the engineer signed them yesterday. We need thirty-eight cubes for the whole slab."
+      },
+      {
+        "side": "them",
+        "text": "Ready-mix wants a hundred and twelve pounds a cube, and the pump is four hundred and twenty a visit."
+      },
+      {
+        "side": "me",
+        "text": "A hundred and twelve, that's better than last time. Pour on Thursday the 21st, or wait for the weekend?"
+      },
+      {
+        "side": "them",
+        "text": "Thursday's better. The forecast is dry until Saturday."
+      },
+      {
+        "side": "me",
+        "text": "Okay, we pour on Thursday the 21st. Brendan, are you happy to use the pump instead of barrows?"
+      },
+      {
+        "side": "them",
+        "text": "Pump, definitely. Barrowing that much would take us all day and half the next one."
+      },
+      {
+        "side": "me",
+        "text": "Then it's the pump. Lukas, can you book the scaffold inspection and tag by Wednesday?"
+      },
+      {
+        "side": "them",
+        "text": "Yes, I'll book the inspector for Wednesday morning and send you a photo of the tag."
+      },
+      {
+        "side": "them",
+        "text": "The truck window is seven to ten, so the first load lands at seven sharp."
+      },
+      {
+        "side": "me",
+        "text": "Fine. Shreya, can you order the concrete today so it's confirmed for the 21st?"
+      },
+      {
+        "side": "them",
+        "text": "Yes, I'll place the order today and confirm the pump booking as well."
+      }
+    ],
+    "facts": [
+      {
+        "name": "Slab needs 38 cubic metres",
+        "kind": "figure",
+        "pattern": [
+          "slab|concrete|cube|m3|m³|cubic|volume",
+          "(?:(?<![\\d.,])(?:38)(?!\\d)|thirty[- ]eight)"
+        ],
+        "subject": "slab|volume|cubic|cubes",
+        "said": [1],
+        "stated": true,
+        "owner": "Shreya",
+        "forbid": "\\bthe other side\\b|\\bthey\\b"
+      },
+      {
+        "name": "Concrete price per cube",
+        "kind": "figure",
+        "pattern": [
+          "cube|m3|m³|cubic|concrete|ready[- ]mix|per metre|a metre",
+          "(?:(?<![\\d.,])(?:112)(?!\\d)|a hundred and twelve|one hundred (and )?twelve|hundred twelve)"
+        ],
+        "subject": "price|cost|ready[- ]mix|per cube|a cube",
+        "said": [2, 3],
+        "confirmed": true,
+        "notBy": "Shreya|Brendan"
+      },
+      {
+        "name": "Pump hire cost",
+        "kind": "figure",
+        "pattern": [
+          "pump",
+          "(?:(?<![\\d.,])(?:420)(?!\\d)|four[- ]twenty|four hundred (and )?twenty)"
+        ],
+        "subject": "pump",
+        "said": [2],
+        "stated": true,
+        "notBy": "Shreya|Brendan"
+      },
+      {
+        "name": "Delivery window",
+        "kind": "figure",
+        "pattern": [
+          "window|deliver|truck|load|lorry",
+          "(?<![\\d.,])(7|seven)(?!\\d)|7\\s?am",
+          "(?<![\\d.,])(10|ten)(?!\\d)|10\\s?am"
+        ],
+        "subject": "window|deliver|truck|load",
+        "said": [9],
+        "stated": true,
+        "notBy": "Shreya|Lukas"
+      },
+      {
+        "name": "Pour on the 21st",
+        "kind": "decision",
+        "pattern": [
+          "pour|slab",
+          "(?:(?<![\\d.,])(?:21(st)?)(?!\\d)|twenty[- ]first)",
+          "decid|agree|settl|chos|go(ing)? ahead|went with|set for|fixed|confirm|we pour on|we'?ll pour on|we will pour on|pour is on|will pour on|to pour on"
+        ],
+        "subject": "pour|slab",
+        "said": [5],
+        "underLine": "Concrete pour"
+      },
+      {
+        "name": "Use the pump",
+        "kind": "decision",
+        "pattern": [
+          "pump|barrow",
+          "decid|agree|settl|chos|go(ing)? (with|ahead)|went with|(we'?ll|we will|will|to|let'?s|going to) use|using|instead of|rather than"
+        ],
+        "subject": "pump|barrow",
+        "said": [5, 7]
+      },
+      {
+        "name": "Lukas books the scaffold inspection",
+        "kind": "action",
+        "pattern": ["Lukas", "scaffold|inspect|tag", "wednesday|wed\\b"],
+        "subject": "scaffold|inspect|tag",
+        "said": [7, 8],
+        "underLine": "Scaffold tag",
+        "owner": "Lukas",
+        "forbid": "\\bthe other side\\b|\\bthey\\b"
+      },
+      {
+        "name": "Shreya orders the concrete",
+        "kind": "action",
+        "pattern": [
+          "Shreya",
+          "order|book|confirm|concrete|pump",
+          "today|tonight|this afternoon|end of day"
+        ],
+        "subject": "order|concrete",
+        "said": [10, 11],
+        "owner": "Shreya",
+        "forbid": "\\bthe other side\\b|\\bthey\\b"
+      }
+    ],
+    "documents": [
+      {
+        "name": "concrete-quote.txt",
+        "text": "Harlow Ready-Mix: quote for first-floor slab\nConcrete C32/40: £118 per m3 delivered\nPump hire: £420 per visit\nDelivery window: 7am to 10am\nMinimum load: 6 m3"
+      }
+    ],
+    "claims": {
+      "listed": ["Concrete price per cube"],
+      "kept": ["Pump hire cost", "Delivery window"]
+    }
+  },
+  {
+    "id": "reserved-en-structured-team-own-4",
+    "language": "en",
+    "requireSections": true,
+    "openQuestions": false,
+    "notes": [],
+    "turns": [
+      {
+        "side": "me",
+        "text": "Right, the Year 9 trip to the Peak District. Hamza, Beatrice, Colin, thanks for staying behind. Beatrice, did the coach company get back to you?"
+      },
+      {
+        "side": "them",
+        "text": "They did. Their first quote was seven hundred and twenty pounds for the day."
+      },
+      {
+        "side": "them",
+        "text": "Fifty-eight pupils have signed up, so we do need the big coach."
+      },
+      {
+        "side": "me",
+        "text": "Seven-twenty is too much. Beatrice, can you ring them back and ask for a better price?"
+      },
+      {
+        "side": "them",
+        "text": "Already did, actually. They've come down to six hundred and fifty, with the seat-belt check included."
+      },
+      {
+        "side": "me",
+        "text": "Six-fifty is fine. Hamza, are we still on for Wednesday the 11th?"
+      },
+      {
+        "side": "them",
+        "text": "Yes, Wednesday the 11th works for the field centre too. They've held the slot for us."
+      },
+      {
+        "side": "me",
+        "text": "Good, the trip is on Wednesday the 11th. And lunch: the café at the centre, or packed lunches?"
+      },
+      {
+        "side": "them",
+        "text": "Packed lunches. The café only seats forty and we'd be queueing for an hour."
+      },
+      {
+        "side": "me",
+        "text": "Packed lunches it is, then. Hamza, can you finish the risk assessment by the 3rd?"
+      },
+      {
+        "side": "them",
+        "text": "Yes, I'll finish the risk assessment by the 3rd."
+      },
+      {
+        "side": "me",
+        "text": "Colin, you'll check the first-aid kit this week?"
+      },
+      {
+        "side": "them",
+        "text": "Yep, I'll check the first-aid kit this week."
+      },
+      {
+        "side": "them",
+        "text": "And don't forget the staff ratio. School policy is one adult for every ten pupils."
+      }
+    ],
+    "facts": [
+      {
+        "name": "First coach quote",
+        "kind": "figure",
+        "pattern": [
+          "coach|quote|price|cost|fee",
+          "(?:(?<![\\d.,])(?:720)(?!\\d)|seven[- ]twenty|seven hundred( and)? twenty)"
+        ],
+        "subject": "coach|quote",
+        "said": [1],
+        "owner": "Beatrice",
+        "forbid": "\\bthe other side\\b|\\bthey\\b"
+      },
+      {
+        "name": "Coach price after negotiation",
+        "kind": "figure",
+        "pattern": [
+          "coach|quote|price|cost|fee|seat-belt",
+          "(?:(?<![\\d.,])(?:650)(?!\\d)|six[- ]fifty|six hundred( and)? fifty)"
+        ],
+        "subject": "coach|quote|price",
+        "said": [4, 5],
+        "confirmed": true,
+        "owner": "Beatrice",
+        "forbid": "\\bthe other side\\b|\\bthey\\b"
+      },
+      {
+        "name": "58 pupils signed up",
+        "kind": "figure",
+        "pattern": [
+          "pupil|student|kids|children|signed up|going",
+          "(?:(?<![\\d.,])(?:58)(?!\\d)|fifty[- ]eight)"
+        ],
+        "subject": "pupil|signed up|going",
+        "said": [2],
+        "stated": true,
+        "notBy": "Beatrice|Colin"
+      },
+      {
+        "name": "Trip on the 11th",
+        "kind": "decision",
+        "pattern": [
+          "trip|coach|field|centre|visit|slot",
+          "(?:(?<![\\d.,])(?:11(th)?)(?!\\d)|eleventh)",
+          "decid|agree|settl|chos|book|confirm|go(ing)? (on|ahead)|set for|fixed|held|is on|will be on|works|still on|it is"
+        ],
+        "subject": "trip|visit|field centre",
+        "said": [6, 7]
+      },
+      {
+        "name": "Packed lunches",
+        "kind": "decision",
+        "pattern": [
+          "packed lunch",
+          "decid|agree|settl|chos|go(ing)? with|went with|instead|rather than|it is|we'?ll (have|do|take)|will (have|be)"
+        ],
+        "subject": "lunch|café|cafe",
+        "said": [9]
+      },
+      {
+        "name": "Café seats forty",
+        "kind": "figure",
+        "pattern": ["caf[eé]", "(?:(?<![\\d.,])(?:40)(?!\\d)|forty)", "seat|sit|hold|capacity|fit"],
+        "subject": "caf[eé]",
+        "said": [8],
+        "stated": true,
+        "notBy": "Hamza|Beatrice"
+      },
+      {
+        "name": "Hamza does the risk assessment",
+        "kind": "action",
+        "pattern": ["Hamza", "risk", "(?:(?<![\\d.,])(?:3(rd)?)(?!\\d)|third)"],
+        "subject": "risk",
+        "said": [9, 10],
+        "owner": "Hamza",
+        "forbid": "\\bthe other side\\b|\\bthey\\b"
+      },
+      {
+        "name": "Colin checks the first-aid kit",
+        "kind": "action",
+        "pattern": ["Colin", "first[- ]aid|kit", "this week|week|by (friday|the end of)"],
+        "subject": "first[- ]aid|kit",
+        "said": [11, 12],
+        "owner": "Colin",
+        "forbid": "\\bthe other side\\b|\\bthey\\b"
+      },
+      {
+        "name": "Staff ratio one to ten",
+        "kind": "figure",
+        "pattern": [
+          "ratio|adult|staff|policy",
+          "one adult|1 adult|1:10|1 to 10|1 per 10|one (to|per|for every|in) ten|every ten|ten pupils|10 pupils|1 (for|per) every 10"
+        ],
+        "subject": "ratio|policy|adult|staff",
+        "said": [13],
+        "stated": true,
+        "notBy": "Hamza|Colin"
+      }
+    ],
+    "topics": [
+      {
+        "name": "Coach",
+        "pattern": "coach|quote|price|£|pounds"
+      },
+      {
+        "name": "Date",
+        "pattern": "Wednesday|11th|slot"
+      },
+      {
+        "name": "Lunch",
+        "pattern": "lunch|café|cafe"
+      },
+      {
+        "name": "Paperwork",
+        "pattern": "risk|first[- ]aid|ratio|policy"
+      }
+    ]
+  },
+  {
+    "id": "reserved-en-structured-sides-anon-1",
+    "language": "en",
+    "requireSections": true,
+    "openQuestions": false,
+    "notes": [],
+    "turns": [
+      {
+        "side": "me",
+        "text": "Morning, it's Marcus at Pelham's Pet Supplies. I'd like to put in a stock order before the weekend."
+      },
+      {
+        "side": "them",
+        "text": "Morning. Go ahead, what do you need?"
+      },
+      {
+        "side": "me",
+        "text": "Forty bags of the fifteen-kilo dog kibble, and twelve bags of the cat litter."
+      },
+      {
+        "side": "them",
+        "text": "Forty and twelve, got it. The kibble is fourteen twenty a bag at the moment."
+      },
+      {
+        "side": "me",
+        "text": "Fourteen twenty is steep, I was paying thirteen fifty last quarter. Could you do thirteen fifty for forty bags?"
+      },
+      {
+        "side": "them",
+        "text": "I can't go that low. Thirteen eighty a bag is the best I can do on forty."
+      },
+      {
+        "side": "me",
+        "text": "Fine, thirteen eighty a bag it is."
+      },
+      {
+        "side": "them",
+        "text": "Lovely. Free delivery kicks in over three hundred pounds, and you're well past that, so it comes free."
+      },
+      {
+        "side": "me",
+        "text": "Great. Can you deliver on Thursday morning? We're closed to customers until ten."
+      },
+      {
+        "side": "them",
+        "text": "Thursday morning works. We'll have the driver there before ten."
+      },
+      {
+        "side": "me",
+        "text": "Perfect, delivery on Thursday morning it is. And could you email me the order confirmation today?"
+      },
+      {
+        "side": "them",
+        "text": "Will do, I'll email the order confirmation this afternoon."
+      },
+      {
+        "side": "me",
+        "text": "Thanks. I'll send our account number across by email after lunch."
+      },
+      {
+        "side": "them",
+        "text": "Brilliant, thanks for the order."
+      }
+    ],
+    "facts": [
+      {
+        "name": "40 bags of kibble",
+        "kind": "figure",
+        "pattern": ["kibble|dog food|dog", "(?:(?<![\\d.,])(?:40)(?!\\d)|forty)", "bag|sack"],
+        "subject": "kibble|dog food",
+        "said": [2],
+        "confirmed": true
+      },
+      {
+        "name": "12 bags of cat litter",
+        "kind": "figure",
+        "pattern": ["litter", "(?:(?<![\\d.,])(?:12)(?!\\d)|twelve|a dozen)"],
+        "subject": "litter",
+        "said": [2],
+        "confirmed": true
+      },
+      {
+        "name": "Quoted list price",
+        "kind": "figure",
+        "pattern": [
+          "kibble|bag|price|list|quote|per",
+          "(?:(?<![\\d.,])(?:14\\.20?)(?!\\d)|fourteen[- ]twenty|fourteen pounds twenty)"
+        ],
+        "subject": "price|list|kibble|per bag",
+        "said": [3],
+        "notBy": "Marcus"
+      },
+      {
+        "name": "Agreed price per bag",
+        "kind": "figure",
+        "pattern": [
+          "kibble|bag|price|per|each|best",
+          "(?:(?<![\\d.,])(?:13\\.80?)(?!\\d)|thirteen[- ]eighty|thirteen pounds eighty)"
+        ],
+        "subject": "price|per bag|a bag|kibble",
+        "said": [5, 6],
+        "accepted": "(?=.*(?:\\b[Aa]gree|\\b[Aa]ccept|\\b[Ff]ine\\b|\\b[Oo]kay\\b|\\b[Oo]k\\b|\\b[Dd]eal\\b|\\b[Ss]ettled|\\b[Ww]ent with|\\b[Ww]orks for|\\b[Ii]t is\\b|\\b[Tt]ake it|\\b[Tt]hat'?s good|\\b[Tt]hat'?s fine|\\b[Ss]ure\\b|\\b[Gg]o(ing)? with))(?=.*(?:(?<![\\d.,])(?:13\\.80?)(?!\\d)|thirteen[- ]eighty|thirteen pounds eighty))",
+        "notBy": "Marcus"
+      },
+      {
+        "name": "Free delivery threshold",
+        "kind": "figure",
+        "pattern": [
+          "deliver|free|shipping|carriage",
+          "(?:(?<![\\d.,])(?:300)(?!\\d)|three hundred)"
+        ],
+        "subject": "free delivery|delivery (fee|charge|threshold)",
+        "said": [7],
+        "stated": true,
+        "notBy": "Marcus"
+      },
+      {
+        "name": "Thursday morning delivery",
+        "kind": "decision",
+        "pattern": [
+          "deliver|driver|arriv",
+          "thursday|thu\\b",
+          "decid|agree|settl|chos|confirm|book|works|set for|it is|before (10|ten)|scheduled|going to (arrive|come)"
+        ],
+        "subject": "deliver|driver",
+        "said": [10]
+      },
+      {
+        "name": "Rep emails the order confirmation",
+        "kind": "action",
+        "pattern": ["email|send|e-mail", "confirmation", "today|this afternoon|afternoon"],
+        "subject": "confirmation|email",
+        "said": [10, 11],
+        "notBy": "Marcus"
+      },
+      {
+        "name": "Marcus sends the account number",
+        "kind": "action",
+        "pattern": [
+          "Marcus|\\bI\\b|shop|Pelham",
+          "account",
+          "email|send|across",
+          "lunch|today|this afternoon|afternoon"
+        ],
+        "subject": "account",
+        "said": [12]
+      }
+    ],
+    "topics": [
+      {
+        "name": "Order",
+        "pattern": "order|bags|kibble|litter|stock"
+      },
+      {
+        "name": "Price",
+        "pattern": "price|£|per bag|thirteen|fourteen|list"
+      },
+      {
+        "name": "Delivery",
+        "pattern": "deliver|driver|Thursday|free"
+      },
+      {
+        "name": "Paperwork",
+        "pattern": "email|confirmation|account"
+      }
+    ],
+    "documents": [
+      {
+        "name": "wholesale-price-list.txt",
+        "text": "Hartwell Pet Wholesale: trade price list\nDog kibble 15 kg: £14.20 per bag\nCat litter 10 kg: £5.40 per bag\nFree delivery on orders over £250, otherwise £12 delivery charge"
+      }
+    ],
+    "claims": {
+      "listed": ["Agreed price per bag", "Free delivery threshold"],
+      "kept": ["Quoted list price"]
+    }
+  },
+  {
+    "id": "reserved-en-structured-sides-anon-2",
+    "language": "en",
+    "requireSections": true,
+    "openQuestions": false,
+    "notes": [
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "Tyres, 14 vans"
+          }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "Saturday fitting at depot"
+          }
+        ]
+      }
+    ],
+    "turns": [
+      {
+        "side": "me",
+        "text": "Hello, it's Joanne from Brightside Couriers. I need to sort out tyres for our vans before the cold weather."
+      },
+      {
+        "side": "them",
+        "text": "Hi there. How many vehicles are we talking about?"
+      },
+      {
+        "side": "me",
+        "text": "Fourteen vans, all the same size, so fifty-six tyres in total."
+      },
+      {
+        "side": "them",
+        "text": "Fifty-six, okay. For that quantity I can do ninety-six pounds a tyre, fitted."
+      },
+      {
+        "side": "me",
+        "text": "Ninety-six fitted is fine. Does that include balancing?"
+      },
+      {
+        "side": "them",
+        "text": "Yes, balancing and disposal of the old tyres are both included."
+      },
+      {
+        "side": "me",
+        "text": "Can your fitters come to our depot? We can't take all fourteen vans off the road on a weekday."
+      },
+      {
+        "side": "them",
+        "text": "We can send a mobile crew on a Saturday. They manage about seven vans a day."
+      },
+      {
+        "side": "me",
+        "text": "Then let's book the mobile crew at our depot on Saturdays, the 23rd and the 30th."
+      },
+      {
+        "side": "them",
+        "text": "Both are free. I'll email you the fitting schedule by noon tomorrow."
+      },
+      {
+        "side": "me",
+        "text": "Thanks. I'll send you the vans' registration numbers by Friday."
+      },
+      {
+        "side": "them",
+        "text": "Perfect, that's all I need for now."
+      }
+    ],
+    "facts": [
+      {
+        "name": "14 vans",
+        "kind": "figure",
+        "pattern": ["van|vehicle|fleet", "(?:(?<![\\d.,])(?:14)(?!\\d)|fourteen)"],
+        "subject": "van|vehicle|fleet",
+        "said": [2, 6],
+        "underLine": "Tyres, 14 vans",
+        "stated": true
+      },
+      {
+        "name": "56 tyres",
+        "kind": "figure",
+        "pattern": ["tyre|tire", "(?:(?<![\\d.,])(?:56)(?!\\d)|fifty[- ]six)"],
+        "subject": "tyre|tire",
+        "said": [2],
+        "confirmed": true
+      },
+      {
+        "name": "Price per tyre fitted",
+        "kind": "figure",
+        "pattern": [
+          "tyre|tire|fitted|price|each|per",
+          "(?:(?<![\\d.,])(?:96)(?!\\d)|ninety[- ]six)"
+        ],
+        "subject": "price|cost|per tyre|each",
+        "said": [3, 4],
+        "confirmed": true,
+        "notBy": "Joanne"
+      },
+      {
+        "name": "Balancing and disposal included",
+        "kind": "figure",
+        "pattern": ["balanc", "dispos|old tyres?|included|includes"],
+        "subject": "balanc|dispos",
+        "said": [5],
+        "stated": true,
+        "notBy": "Joanne"
+      },
+      {
+        "name": "Crew fits seven vans a day",
+        "kind": "figure",
+        "pattern": [
+          "crew|fitters?|vans? a day|per day|a day",
+          "(?:(?<![\\d.,])(?:7)(?!\\d)|seven)",
+          "van"
+        ],
+        "subject": "crew|fitters?",
+        "said": [7],
+        "stated": true,
+        "notBy": "Joanne"
+      },
+      {
+        "name": "Mobile crew at the depot",
+        "kind": "decision",
+        "pattern": [
+          "crew|fitters?|fitting",
+          "depot",
+          "decid|agree|settl|chos|go(ing)? with|went with|let'?s|will (come|be)|book|saturdays?"
+        ],
+        "subject": "crew|fitters?|depot",
+        "said": [8],
+        "underLine": "Saturday fitting at depot"
+      },
+      {
+        "name": "Fitting on the 23rd and 30th",
+        "kind": "decision",
+        "pattern": [
+          "fit|crew|saturday|day|depot|tyre",
+          "(?:(?<![\\d.,])(?:23(rd)?)(?!\\d)|twenty[- ]third)",
+          "(?:(?<![\\d.,])(?:30(th)?)(?!\\d)|thirtieth)",
+          "decid|agree|settl|book|set|fixed|confirm|schedul|let'?s|go(ing)? (with|for)|will (be|come)"
+        ],
+        "subject": "fitting|schedule|saturday",
+        "said": [8]
+      },
+      {
+        "name": "Rep emails the fitting schedule",
+        "kind": "action",
+        "pattern": ["email|send|sent|e-mail", "schedule", "noon|tomorrow"],
+        "subject": "schedule",
+        "said": [9],
+        "notBy": "Joanne"
+      },
+      {
+        "name": "Joanne sends the registration numbers",
+        "kind": "action",
+        "pattern": [
+          "Joanne|\\bI\\b",
+          "registration|reg(s| numbers?)|plates?",
+          "email|send|over",
+          "friday|fri\\b"
+        ],
+        "subject": "registration|plates?",
+        "said": [10]
+      }
+    ]
+  },
+  {
+    "id": "reserved-en-structured-sides-named-1",
+    "language": "en",
+    "requireSections": true,
+    "openQuestions": false,
+    "notes": [
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "Siobhan, Lumen Hire"
+          }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "Camera package"
+          }
+        ]
+      }
+    ],
+    "turns": [
+      {
+        "side": "me",
+        "text": "Hi, is that Shavon? We spoke last week about a camera package for our shoot."
+      },
+      {
+        "side": "them",
+        "text": "Yes, Shavon here at Lumen Hire. I've got your enquiry in front of me. It's the cinema camera, three lenses and the tripod."
+      },
+      {
+        "side": "me",
+        "text": "That's the one. What's the day rate?"
+      },
+      {
+        "side": "them",
+        "text": "Eleven fifty a day for the full package."
+      },
+      {
+        "side": "me",
+        "text": "We need it for five days, from the 9th. Is there a discount for a five-day hire?"
+      },
+      {
+        "side": "them",
+        "text": "For five days I can take it down to nine fifty a day."
+      },
+      {
+        "side": "me",
+        "text": "Fine, nine fifty a day it is."
+      },
+      {
+        "side": "them",
+        "text": "Good. The deposit is a thousand pounds, taken on collection."
+      },
+      {
+        "side": "me",
+        "text": "Can we collect on the 8th, in the afternoon, so we can test everything?"
+      },
+      {
+        "side": "them",
+        "text": "Collecting on the 8th is fine, any time after two."
+      },
+      {
+        "side": "me",
+        "text": "Perfect, we'll collect on the 8th then. Shavon, can you email me the written quote by this evening?"
+      },
+      {
+        "side": "them",
+        "text": "Yes, I'll email the written quote tonight."
+      },
+      {
+        "side": "me",
+        "text": "Great. I'll send the insurance certificate across before we collect."
+      },
+      {
+        "side": "them",
+        "text": "Brilliant, that's all I need. Speak soon."
+      }
+    ],
+    "facts": [
+      {
+        "name": "Opening day rate",
+        "kind": "figure",
+        "pattern": [
+          "rate|price|day|package|camera|cost",
+          "(?:(?<![\\d.,])(?:1[,.]?150)(?!\\d)|eleven fifty|eleven hundred (and )?fifty|1\\.15k)"
+        ],
+        "subject": "day rate|rate|price|package",
+        "said": [3],
+        "underLine": "Camera package",
+        "owner": "Siobhan",
+        "misheard": "Shavon",
+        "forbid": "Shavon|\\bthe other side\\b|\\bthey\\b"
+      },
+      {
+        "name": "Agreed day rate",
+        "kind": "figure",
+        "pattern": [
+          "rate|price|day|package",
+          "(?:(?<![\\d.,])(?:950)(?!\\d)|nine[- ]fifty|nine hundred (and )?fifty)"
+        ],
+        "subject": "day rate|rate|price",
+        "said": [5, 6],
+        "accepted": "(?=.*(?:\\b[Aa]gree|\\b[Aa]ccept|\\b[Ff]ine\\b|\\b[Oo]kay\\b|\\b[Oo]k\\b|\\b[Dd]eal\\b|\\b[Ss]ettled|\\b[Ww]ent with|\\b[Ww]orks for|\\b[Ii]t is\\b|\\b[Tt]ake it|\\b[Tt]hat'?s good|\\b[Tt]hat'?s fine|\\b[Ss]ure\\b|\\b[Gg]o(ing)? with))(?=.*(?:(?<![\\d.,])(?:950)(?!\\d)|nine[- ]fifty|nine hundred (and )?fifty))",
+        "owner": "Siobhan",
+        "misheard": "Shavon",
+        "forbid": "Shavon|\\bthe other side\\b|\\bthey\\b"
+      },
+      {
+        "name": "Package includes three lenses",
+        "kind": "figure",
+        "pattern": ["lenses?", "(?:(?<![\\d.,])(?:3)(?!\\d)|three)"],
+        "subject": "package|lenses?|tripod",
+        "said": [1, 2],
+        "confirmed": true,
+        "owner": "Siobhan",
+        "misheard": "Shavon",
+        "forbid": "Shavon|\\bthe other side\\b|\\bthey\\b"
+      },
+      {
+        "name": "Hire length five days",
+        "kind": "figure",
+        "pattern": ["hire|need|rent|book|package|camera|shoot", "(?<![\\d.,])(5|five)[ -]days?\\b"],
+        "subject": "hire|rental|duration|how long",
+        "said": [4],
+        "confirmed": true,
+        "notBy": "Siobhan|Shavon"
+      },
+      {
+        "name": "Hire starts on the 9th",
+        "kind": "figure",
+        "pattern": [
+          "hire|start|from|begin|need|shoot|package",
+          "(?:(?<![\\d.,])(?:9(th)?)(?!\\d)|ninth)"
+        ],
+        "subject": "hire|start|begin",
+        "said": [4],
+        "stated": true,
+        "notBy": "Siobhan|Shavon"
+      },
+      {
+        "name": "Deposit",
+        "kind": "figure",
+        "pattern": ["deposit", "(?:(?<![\\d.,])(?:1[,.]?000)(?!\\d)|a thousand|one thousand|1k)"],
+        "subject": "deposit",
+        "said": [7],
+        "stated": true,
+        "owner": "Siobhan",
+        "misheard": "Shavon",
+        "forbid": "Shavon|\\bthe other side\\b|\\bthey\\b"
+      },
+      {
+        "name": "Collect on the 8th",
+        "kind": "decision",
+        "pattern": [
+          "collect|pick[- ]?up",
+          "(?:(?<![\\d.,])(?:8(th)?)(?!\\d)|eighth)",
+          "decid|agree|settl|set for|fixed|confirm|book|we'?ll collect|will collect|is fine|works"
+        ],
+        "subject": "collect|pick[- ]?up",
+        "said": [9, 10]
+      },
+      {
+        "name": "Siobhan emails the written quote",
+        "kind": "action",
+        "pattern": [
+          "Siobhan|Shavon|Shivon",
+          "quote|email|send",
+          "tonight|this evening|today|by (this )?evening"
+        ],
+        "subject": "quote",
+        "said": [10, 11],
+        "owner": "Siobhan",
+        "misheard": "Shavon",
+        "forbid": "Shavon|\\bthe other side\\b|\\bthey\\b"
+      },
+      {
+        "name": "Insurance certificate sent",
+        "kind": "action",
+        "pattern": [
+          "insurance",
+          "certificate|cert",
+          "send|sent|email|across|over|forward",
+          "before|ahead|prior|collect"
+        ],
+        "subject": "insurance",
+        "said": [12],
+        "notBy": "Siobhan|Shavon"
+      }
+    ],
+    "documents": [
+      {
+        "name": "lumen-rate-card.txt",
+        "text": "Lumen Hire: rate card\nCinema camera package (camera, 3 lenses, tripod): £1,150 per day\nDeposit: £1,200, refunded on safe return\nRenter must show insurance cover before collection"
+      }
+    ],
+    "claims": {
+      "listed": ["Agreed day rate", "Deposit"],
+      "kept": ["Opening day rate", "Package includes three lenses"]
+    }
+  },
+  {
+    "id": "reserved-en-structured-sides-named-2",
+    "language": "en",
+    "requireSections": true,
+    "openQuestions": true,
+    "notes": [],
+    "turns": [
+      {
+        "side": "me",
+        "text": "Hi Hamid, thanks for calling back. It's the HPLC in our lab, the pump keeps losing pressure."
+      },
+      {
+        "side": "them",
+        "text": "Hi. That's usually the pump seals. How old is the unit?"
+      },
+      {
+        "side": "me",
+        "text": "The unit's about six years old. The last service was two years ago."
+      },
+      {
+        "side": "them",
+        "text": "Then I'd replace both seals now. The seal kit is three hundred and forty pounds, and my call-out is one eighty."
+      },
+      {
+        "side": "me",
+        "text": "One eighty is fine. Let's replace the seals now, and keep the full service for March."
+      },
+      {
+        "side": "them",
+        "text": "I can be there Thursday morning. I'll bring the seal kit, so the pump will be back the same day."
+      },
+      {
+        "side": "me",
+        "text": "Thursday morning works for the visit. We'll have the lab cleared by nine."
+      },
+      {
+        "side": "them",
+        "text": "Good. Could you send me the serial number tonight, so I can check the parts?"
+      },
+      {
+        "side": "me",
+        "text": "Sure, I'll send you the serial number tonight."
+      },
+      {
+        "side": "them",
+        "text": "And I'll email you a written quote by Monday. The March service will be six hundred and ten pounds, lamp included."
+      },
+      {
+        "side": "me",
+        "text": "One more thing: does the warranty cover the detector lamp?"
+      }
+    ],
+    "facts": [
+      {
+        "name": "HPLC is six years old",
+        "kind": "figure",
+        "pattern": [
+          "unit|HPLC|instrument|machine|pump",
+          "(?:(?<![\\d.,])(?:6)(?!\\d)|six)",
+          "years?|old|age"
+        ],
+        "subject": "HPLC|instrument|age",
+        "said": [2],
+        "stated": true,
+        "notBy": "Hamid"
+      },
+      {
+        "name": "Last serviced two years ago",
+        "kind": "figure",
+        "pattern": ["service|serviced", "two years?|2 years?"],
+        "subject": "service|serviced",
+        "said": [2],
+        "stated": true,
+        "notBy": "Hamid"
+      },
+      {
+        "name": "Seal kit price",
+        "kind": "figure",
+        "pattern": [
+          "seal|kit|part",
+          "(?:(?<![\\d.,])(?:340)(?!\\d)|three hundred and forty|three hundred forty|three[- ]forty)"
+        ],
+        "subject": "seal|kit|part",
+        "said": [3],
+        "stated": true,
+        "owner": "Hamid",
+        "forbid": "\\bthe other side\\b|\\bthey\\b"
+      },
+      {
+        "name": "Call-out fee",
+        "kind": "figure",
+        "pattern": [
+          "call[- ]?out|visit|fee|attendance|engineer",
+          "(?:(?<![\\d.,])(?:180)(?!\\d)|one eighty|(a |one )?hundred and eighty|one hundred eighty)"
+        ],
+        "subject": "call[- ]?out|visit|fee",
+        "said": [3, 4],
+        "confirmed": true,
+        "owner": "Hamid",
+        "forbid": "\\bthe other side\\b|\\bthey\\b"
+      },
+      {
+        "name": "Replace the seals now",
+        "kind": "decision",
+        "pattern": [
+          "seals?",
+          "replac",
+          "decid|agree|settl|let'?s|go(ing)? (with|ahead)|chose|will be replaced|to replace|we'?ll replace"
+        ],
+        "subject": "seals?",
+        "said": [4]
+      },
+      {
+        "name": "Full service in March",
+        "kind": "decision",
+        "pattern": [
+          "service",
+          "march",
+          "decid|agree|settl|let'?s|keep|book|set for|fixed|go(ing)? (with|ahead)|chose|schedul"
+        ],
+        "subject": "service",
+        "said": [4]
+      },
+      {
+        "name": "Visit on Thursday morning",
+        "kind": "decision",
+        "pattern": [
+          "thursday|thu\\b",
+          "visit|come|be there|attend|call-out|engineer|Hamid|seal|repair|fix",
+          "decid|agree|settl|works|confirm|book|set|fixed|is on|will (come|be)"
+        ],
+        "subject": "thursday|visit",
+        "said": [6]
+      },
+      {
+        "name": "March service price",
+        "kind": "figure",
+        "pattern": [
+          "service|lamp",
+          "(?:(?<![\\d.,])(?:610)(?!\\d)|six hundred and ten|six hundred ten|six[- ]ten)"
+        ],
+        "subject": "service|lamp",
+        "said": [9],
+        "stated": true,
+        "owner": "Hamid",
+        "forbid": "\\bthe other side\\b|\\bthey\\b"
+      },
+      {
+        "name": "Serial number sent tonight",
+        "kind": "action",
+        "pattern": [
+          "serial",
+          "send|sent|email|forward|over",
+          "tonight|today|this evening",
+          "I'll|we'?ll|\\bwe will|will (be )?(send|sent|email)|to be sent|to send|promised|agreed to|going to"
+        ],
+        "subject": "serial",
+        "said": [8],
+        "notBy": "Hamid"
+      },
+      {
+        "name": "Hamid emails the written quote",
+        "kind": "action",
+        "pattern": [
+          "Hamid|engineer|supplier|manufacturer|\\bhe\\b|\\bI\\b",
+          "quote|email|send",
+          "monday|mon\\b"
+        ],
+        "subject": "quote",
+        "said": [9],
+        "owner": "Hamid",
+        "forbid": "\\bthe other side\\b|\\bthey\\b"
+      }
+    ],
+    "topics": [
+      {
+        "name": "Pump problem",
+        "pattern": "pump|pressure|seal"
+      },
+      {
+        "name": "Visit",
+        "pattern": "Thursday|visit|call-out|come"
+      },
+      {
+        "name": "Service",
+        "pattern": "service|March|lamp"
+      },
+      {
+        "name": "Warranty",
+        "pattern": "warranty|detector"
+      }
+    ]
+  },
+  {
+    "id": "reserved-en-structured-sides-group-1",
+    "language": "en",
+    "requireSections": true,
+    "openQuestions": false,
+    "notes": [
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "Niamh Doherty"
+          }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "Village hall car park"
+          }
+        ]
+      }
+    ],
+    "turns": [
+      {
+        "side": "me",
+        "text": "Thanks for coming out. So this is the village hall car park. Neve, you've got your people with you?"
+      },
+      {
+        "side": "them",
+        "text": "Yes. I'm Neve Dorrity from Hillside Paving, and this is our surveyor and our estimator."
+      },
+      {
+        "side": "them",
+        "text": "I'm the surveyor, I walked the site on Monday. It needs a full dig-out, about four hundred square metres."
+      },
+      {
+        "side": "me",
+        "text": "Neve, what's the price?"
+      },
+      {
+        "side": "them",
+        "text": "For the full dig-out and resurface we're quoting fourteen thousand five hundred pounds."
+      },
+      {
+        "side": "me",
+        "text": "That's more than the committee budgeted. Can you get closer to fourteen thousand?"
+      },
+      {
+        "side": "them",
+        "text": "If we can start on the 15th of December, we could do thirteen thousand eight hundred."
+      },
+      {
+        "side": "me",
+        "text": "Fine, thirteen thousand eight hundred it is. And starting on the 15th of December suits us, the hall is shut that week."
+      },
+      {
+        "side": "them",
+        "text": "Good. I'll send you the written quote by Friday."
+      },
+      {
+        "side": "them",
+        "text": "We'll come back on Tuesday to mark out the area with paint, so the committee can check the edges."
+      },
+      {
+        "side": "me",
+        "text": "Good. We'll put cones out on Tuesday morning so nobody parks in the way."
+      },
+      {
+        "side": "them",
+        "text": "On payment, we ask for thirty percent up front and the rest on completion."
+      },
+      {
+        "side": "me",
+        "text": "Understood, I'll take that to the committee."
+      }
+    ],
+    "facts": [
+      {
+        "name": "Area about 400 square metres",
+        "kind": "figure",
+        "pattern": [
+          "area|site|car park|surface|dig[- ]out",
+          "(?:(?<![\\d.,])(?:400)(?!\\d)|four hundred)",
+          "square|m2|m²|sq"
+        ],
+        "subject": "area|site|dig[- ]out|surface",
+        "said": [2],
+        "stated": true,
+        "notBy": "Niamh|Neve"
+      },
+      {
+        "name": "First quote",
+        "kind": "figure",
+        "pattern": [
+          "quote|price|cost|dig|resurfac|total|pounds|£|could do|can do|offer",
+          "(?:(?<![\\d.,])(?:14[,.]?500)(?!\\d)|fourteen thousand,? five hundred|14\\.5k|fourteen and a half thousand)"
+        ],
+        "subject": "quote|price|cost|resurfac",
+        "said": [4],
+        "owner": "Niamh|Niamh Doherty",
+        "misheard": "Neve|Neve Dorrity",
+        "forbid": "Neve|Neve Dorrity|\\bthe other side\\b|\\bthey\\b"
+      },
+      {
+        "name": "Agreed price",
+        "kind": "figure",
+        "pattern": [
+          "quote|price|cost|dig|resurfac|total|pounds|£|could do|can do|offer",
+          "(?:(?<![\\d.,])(?:13[,.]?800)(?!\\d)|thirteen thousand,? eight hundred|13\\.8k)"
+        ],
+        "subject": "quote|price|cost|resurfac",
+        "said": [6, 7],
+        "underLine": "Village hall car park",
+        "accepted": "(?=.*(?:\\b[Aa]gree|\\b[Aa]ccept|\\b[Ff]ine\\b|\\b[Oo]kay\\b|\\b[Oo]k\\b|\\b[Dd]eal\\b|\\b[Ss]ettled|\\b[Ww]ent with|\\b[Ww]orks for|\\b[Ii]t is\\b|\\b[Tt]ake it|\\b[Tt]hat'?s good|\\b[Tt]hat'?s fine|\\b[Ss]ure\\b|\\b[Gg]o(ing)? with))(?=.*(?:(?<![\\d.,])(?:13[,.]?800)(?!\\d)|thirteen thousand,? eight hundred|13\\.8k))",
+        "notBy": "Niamh|Neve"
+      },
+      {
+        "name": "Work starts on 15 December",
+        "kind": "decision",
+        "pattern": [
+          "start|begin|work|resurfac|dig",
+          "(?:(?<![\\d.,])(?:15(th)?)(?!\\d)|fifteenth)",
+          "dec|/12(?!\\d)|(?<!\\d)12/",
+          "decid|agree|settl|suits|confirm|book|set|go(ing)? (with|ahead)|works|will (start|begin)|to (start|begin)|starting on"
+        ],
+        "subject": "start|begin",
+        "said": [7]
+      },
+      {
+        "name": "Niamh sends the written quote",
+        "kind": "action",
+        "pattern": ["Niamh|Neve|\\bI\\b|contractor|Hillside", "quote|send|email", "friday|fri\\b"],
+        "subject": "quote|written",
+        "said": [8],
+        "owner": "Niamh|Niamh Doherty",
+        "misheard": "Neve|Neve Dorrity",
+        "forbid": "Neve|Neve Dorrity|\\bthe other side\\b|\\bthey\\b"
+      },
+      {
+        "name": "Surveyor marks out the area",
+        "kind": "action",
+        "pattern": [
+          "survey|contractor|Hillside|\\bwe\\b|they",
+          "mark|paint|measure|stake",
+          "tuesday|tue\\b"
+        ],
+        "subject": "mark|paint|survey",
+        "said": [9],
+        "notBy": "Niamh|Neve"
+      },
+      {
+        "name": "Committee puts out cones",
+        "kind": "action",
+        "pattern": ["cones?", "tuesday|tue\\b"],
+        "subject": "cones?|parking|park",
+        "said": [10],
+        "notBy": "Niamh|Neve"
+      },
+      {
+        "name": "Thirty percent up front",
+        "kind": "figure",
+        "pattern": ["up ?front|deposit|payment|advance", "(?<![\\d.,])30(?!\\d)|thirty"],
+        "subject": "payment|deposit|up ?front",
+        "said": [11],
+        "stated": true,
+        "notBy": "Niamh|Neve"
+      }
+    ]
+  },
+  {
+    "id": "reserved-en-structured-sides-group-2",
+    "language": "en",
+    "requireSections": true,
+    "openQuestions": false,
+    "notes": [],
+    "turns": [
+      {
+        "side": "me",
+        "text": "Thanks for coming in. Devon, you said you'd bring your team?"
+      },
+      {
+        "side": "them",
+        "text": "I did. I've got our implementation specialist here and our finance contact."
+      },
+      {
+        "side": "me",
+        "text": "Good. Let's start with cost. What does the booking system come to?"
+      },
+      {
+        "side": "them",
+        "text": "The licence is two hundred and sixty pounds a month for up to eight users."
+      },
+      {
+        "side": "me",
+        "text": "Devon, and the set-up?"
+      },
+      {
+        "side": "them",
+        "text": "Set-up and importing your patient records is fifteen hundred pounds, one-off."
+      },
+      {
+        "side": "me",
+        "text": "How long until we're live?"
+      },
+      {
+        "side": "them",
+        "text": "From signing the contract, it takes about eight weeks to go live."
+      },
+      {
+        "side": "me",
+        "text": "Devon, then let's sign by the end of the month and go live in January."
+      },
+      {
+        "side": "them",
+        "text": "That works for us. For training we can do half a day on site, or two hours online."
+      },
+      {
+        "side": "me",
+        "text": "Let's do the training on site. Half a day suits the whole team."
+      },
+      {
+        "side": "them",
+        "text": "Fine. I'll send the contract over by Friday."
+      },
+      {
+        "side": "me",
+        "text": "And I'll send you the staff list by Wednesday, so you can set up the logins."
+      },
+      {
+        "side": "them",
+        "text": "Perfect. I'll visit the clinic next week to check your network and printers."
+      }
+    ],
+    "facts": [
+      {
+        "name": "Licence cost",
+        "kind": "figure",
+        "pattern": [
+          "licen[cs]e|subscription|monthly|per month|a month|system|booking",
+          "(?:(?<![\\d.,])(?:260)(?!\\d)|two hundred and sixty|two hundred sixty|two[- ]sixty)"
+        ],
+        "subject": "licen[cs]e|subscription|monthly",
+        "said": [3],
+        "stated": true,
+        "notBy": "Devon"
+      },
+      {
+        "name": "Licence covers eight users",
+        "kind": "figure",
+        "pattern": [
+          "licen[cs]e|users?|seats?|logins?",
+          "(?:(?<![\\d.,])(?:8)(?!\\d)|eight)",
+          "users?|seats?|people|staff"
+        ],
+        "subject": "licen[cs]e|users?|seats?",
+        "said": [3],
+        "stated": true,
+        "notBy": "Devon"
+      },
+      {
+        "name": "Set-up cost",
+        "kind": "figure",
+        "pattern": [
+          "set[- ]?up|import|data|migration|onboarding",
+          "(?:(?<![\\d.,])(?:1[,.]?500)(?!\\d)|fifteen hundred|1\\.5k|one thousand,? five hundred)"
+        ],
+        "subject": "set[- ]?up|import",
+        "said": [5],
+        "stated": true,
+        "owner": "Devon",
+        "forbid": "\\bthe other side\\b|\\bthey\\b"
+      },
+      {
+        "name": "Go-live time",
+        "kind": "figure",
+        "pattern": [
+          "live|go[- ]live|launch|roll[- ]?out|implementation|ready",
+          "(?:(?<![\\d.,])(?:8)(?!\\d)|eight)",
+          "weeks?"
+        ],
+        "subject": "live|go[- ]live|launch",
+        "said": [7],
+        "stated": true,
+        "notBy": "Devon"
+      },
+      {
+        "name": "Training length",
+        "kind": "figure",
+        "pattern": ["train", "half a day|half[- ]day|four hours|4 hours"],
+        "subject": "train",
+        "said": [9, 10],
+        "confirmed": true,
+        "owner": "Devon",
+        "forbid": "\\bthe other side\\b|\\bthey\\b"
+      },
+      {
+        "name": "Go live in January",
+        "kind": "decision",
+        "pattern": [
+          "live|go[- ]live|launch|start|sign",
+          "jan",
+          "decid|agree|settl|let'?s|aim|go(ing)? (with|for|live)|plan|target|chose|sign"
+        ],
+        "subject": "live|go[- ]live|launch",
+        "said": [8]
+      },
+      {
+        "name": "Training on site",
+        "kind": "decision",
+        "pattern": [
+          "train",
+          "on[- ]?site|in person|at the clinic|on premises|face[- ]to[- ]face",
+          "decid|agree|settl|chos|go(ing)? (with|for)|let'?s|prefer|want|book|will"
+        ],
+        "subject": "train",
+        "said": [10]
+      },
+      {
+        "name": "Finance sends the contract",
+        "kind": "action",
+        "pattern": ["contract", "send|email|sent|over|forward|draft", "friday|fri\\b"],
+        "subject": "contract",
+        "said": [11],
+        "notBy": "Devon"
+      },
+      {
+        "name": "Clinic sends the staff list",
+        "kind": "action",
+        "pattern": ["staff", "list|names|logins", "send|email|over|forward", "wednesday|wed\\b"],
+        "subject": "staff list|logins",
+        "said": [12],
+        "notBy": "Devon"
+      },
+      {
+        "name": "Specialist visits the clinic",
+        "kind": "action",
+        "pattern": ["visit|come|check|site", "network|printers?|clinic|premises", "next week"],
+        "subject": "network|printers?|visit",
+        "said": [13],
+        "notBy": "Devon"
+      }
+    ],
+    "topics": [
+      {
+        "name": "Cost",
+        "pattern": "licen[cs]e|set[- ]?up|£|pounds|price|cost"
+      },
+      {
+        "name": "Timing",
+        "pattern": "live|weeks?|January|sign"
+      },
+      {
+        "name": "Training",
+        "pattern": "train|on[- ]?site|online"
+      },
+      {
+        "name": "Next steps",
+        "pattern": "contract|staff list|visit|network|logins"
+      }
+    ],
+    "documents": [
+      {
+        "name": "vendor-quote.md",
+        "text": "# ClinicBook: quote for the clinic\n\n- Licence: £260 per month for up to 8 users\n- Set-up and data import: £1,200 one-off\n- Staff training: half a day on site\n- Go-live: 6 weeks after the signed contract"
+      }
+    ],
+    "claims": {
+      "listed": ["Set-up cost", "Go-live time"],
+      "kept": ["Licence cost", "Licence covers eight users", "Training length"]
+    }
+  },
+  {
+    "id": "reserved-en-structured-unclear-1",
+    "language": "en",
+    "requireSections": true,
+    "openQuestions": false,
+    "notes": [
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "Coat drive"
+          }
+        ]
+      }
+    ],
+    "turns": [
+      {
+        "side": "me",
+        "text": "Right, the winter coat drive. Ruth, can you give me the numbers so far?"
+      },
+      {
+        "side": "them",
+        "text": "About three hundred and forty coats have been handed in. The target is six hundred."
+      },
+      {
+        "side": "them",
+        "text": "The three libraries are the busiest collection points. Eastgate library alone gave ninety coats."
+      },
+      {
+        "side": "me",
+        "text": "We need to fix the last collection day. Saturday the 6th or the 13th?"
+      },
+      {
+        "side": "them",
+        "text": "The 6th is better. The schools break up the week after, so there will be fewer donations."
+      },
+      {
+        "side": "me",
+        "text": "Then we'll set the final collection day for the 6th. Now the van: do we hire one or borrow the church's minibus?"
+      },
+      {
+        "side": "them",
+        "text": "The hire place wants sixty-five pounds a day. The minibus is free but only seats nine."
+      },
+      {
+        "side": "me",
+        "text": "Free is better. Let's borrow the minibus. Ruth, can you ask the vicar tomorrow if we can have it on the 6th?"
+      },
+      {
+        "side": "them",
+        "text": "Yes, I'll ask the vicar tomorrow."
+      },
+      {
+        "side": "me",
+        "text": "And the sorting: the community centre hall, or the library basement?"
+      },
+      {
+        "side": "them",
+        "text": "The community centre. It has long tables and the heating works."
+      },
+      {
+        "side": "me",
+        "text": "Sorting at the community centre it is. Who can put the posters up at the libraries by Thursday?"
+      },
+      {
+        "side": "them",
+        "text": "I'll put the posters up at the libraries by Thursday."
+      }
+    ],
+    "facts": [
+      {
+        "name": "340 coats so far",
+        "kind": "figure",
+        "pattern": [
+          "coats?|donat|handed in|collected|so far",
+          "(?:(?<![\\d.,])(?:340)(?!\\d)|three hundred and forty|three hundred forty|three[- ]forty)"
+        ],
+        "subject": "coats?|donat|handed in",
+        "said": [1],
+        "stated": true,
+        "owner": "Ruth",
+        "forbid": "\\bthe other side\\b|\\bthey\\b"
+      },
+      {
+        "name": "Target 600 coats",
+        "kind": "figure",
+        "pattern": ["target|goal|aim|need|hope", "(?:(?<![\\d.,])(?:600)(?!\\d)|six hundred)"],
+        "subject": "target|goal|aim",
+        "said": [1],
+        "underLine": "Coat drive",
+        "stated": true,
+        "owner": "Ruth",
+        "forbid": "\\bthe other side\\b|\\bthey\\b"
+      },
+      {
+        "name": "Eastgate gave 90 coats",
+        "kind": "figure",
+        "pattern": [
+          "eastgate|library|libraries",
+          "(?:(?<![\\d.,])(?:90)(?!\\d)|ninety)",
+          "coats?|donat|gave|given|handed"
+        ],
+        "subject": "eastgate|librar",
+        "said": [2],
+        "stated": true,
+        "notBy": "Ruth"
+      },
+      {
+        "name": "Final collection day the 6th",
+        "kind": "decision",
+        "pattern": [
+          "collect|drive|donat|day",
+          "(?:(?<![\\d.,])(?:6(th)?)(?!\\d)|sixth)",
+          "decid|agree|settl|chos|go(ing)? with|went with|it is|set|fixed|better|confirm|book"
+        ],
+        "subject": "collect|drive|day",
+        "said": [5]
+      },
+      {
+        "name": "Van hire £65 a day",
+        "kind": "figure",
+        "pattern": ["van|hire|minibus", "(?:(?<![\\d.,])(?:65)(?!\\d)|sixty[- ]five)"],
+        "subject": "van|hire",
+        "said": [6],
+        "stated": true,
+        "notBy": "Ruth"
+      },
+      {
+        "name": "Minibus seats nine",
+        "kind": "figure",
+        "pattern": ["minibus", "(?:(?<![\\d.,])(?:9)(?!\\d)|nine)", "seat|sit|hold|fit|capacity"],
+        "subject": "minibus",
+        "said": [6],
+        "stated": true,
+        "notBy": "Ruth"
+      },
+      {
+        "name": "Borrow the minibus",
+        "kind": "decision",
+        "pattern": [
+          "minibus",
+          "decid|agree|settl|chos|go(ing)? (with|for)|let'?s borrow|we'?ll borrow|will borrow|to borrow|borrowing the"
+        ],
+        "subject": "minibus",
+        "said": [7]
+      },
+      {
+        "name": "Sort at the community centre",
+        "kind": "decision",
+        "pattern": [
+          "sort",
+          "community cent(re|er)|centre",
+          "decid|agree|settl|chos|go(ing)? (with|for)|let'?s|it is|use|at the"
+        ],
+        "subject": "sort",
+        "said": [11]
+      },
+      {
+        "name": "Ruth asks the vicar",
+        "kind": "action",
+        "pattern": ["Ruth", "vicar|minibus|church", "tomorrow"],
+        "subject": "vicar|church",
+        "said": [7, 8],
+        "owner": "Ruth",
+        "forbid": "\\bthe other side\\b|\\bthey\\b"
+      },
+      {
+        "name": "Posters at the libraries",
+        "kind": "action",
+        "pattern": ["poster|flyer|notice", "librar", "thursday|thu\\b"],
+        "subject": "poster|flyer",
+        "said": [11, 12],
+        "notBy": "Ruth"
+      }
+    ]
+  },
+  {
+    "id": "reserved-en-structured-unclear-2",
+    "language": "en",
+    "requireSections": true,
+    "openQuestions": true,
+    "notes": [],
+    "turns": [
+      {
+        "side": "me",
+        "text": "Okay, the winter haul-out. Gareth, how many boats are on the list?"
+      },
+      {
+        "side": "them",
+        "text": "Twenty-two boats so far, and a couple more are likely."
+      },
+      {
+        "side": "them",
+        "text": "The crane can do about six lifts a day, so we're looking at four days."
+      },
+      {
+        "side": "me",
+        "text": "Which week? The tides are best at the start of the month, but the week after is quieter."
+      },
+      {
+        "side": "them",
+        "text": "The big spring tides run from the 3rd to the 6th. After that the water drops too far for the deep-keel boats."
+      },
+      {
+        "side": "me",
+        "text": "Then we start the haul-out on the 3rd."
+      },
+      {
+        "side": "them",
+        "text": "The storage price is forty pounds a metre this year, cradle included."
+      },
+      {
+        "side": "me",
+        "text": "Do the smaller boats go on trailers, or everything on cradles?"
+      },
+      {
+        "side": "them",
+        "text": "Cradles for everything. Trailers sink into the mud on that side of the yard."
+      },
+      {
+        "side": "me",
+        "text": "Then we'll put everything on cradles, no trailers. Gareth, can you check the crane's inspection certificate before the 3rd?"
+      },
+      {
+        "side": "them",
+        "text": "Yes, I'll check the certificate before the 3rd."
+      },
+      {
+        "side": "them",
+        "text": "Who's going to tell the owners about the storage price?"
+      }
+    ],
+    "facts": [
+      {
+        "name": "22 boats on the list",
+        "kind": "figure",
+        "pattern": ["boats?|vessels?|list|haul", "(?:(?<![\\d.,])(?:22)(?!\\d)|twenty[- ]two)"],
+        "subject": "boats?|list",
+        "said": [1],
+        "stated": true,
+        "owner": "Gareth",
+        "forbid": "\\bthe other side\\b|\\bthey\\b"
+      },
+      {
+        "name": "Crane does six lifts a day",
+        "kind": "figure",
+        "pattern": ["crane|lifts?", "(?:(?<![\\d.,])(?:6)(?!\\d)|six)", "lifts?|a day|per day"],
+        "subject": "crane|lifts?",
+        "said": [2],
+        "stated": true,
+        "notBy": "Gareth"
+      },
+      {
+        "name": "Haul-out takes four days",
+        "kind": "figure",
+        "pattern": ["haul|lift|crane|boats?", "(?:(?<![\\d.,])(?:4)(?!\\d)|four)", "days?"],
+        "subject": "haul|lift|crane",
+        "said": [2],
+        "stated": true,
+        "notBy": "Gareth"
+      },
+      {
+        "name": "Spring tides 3rd to 6th",
+        "kind": "figure",
+        "pattern": [
+          "tides?",
+          "(?:(?<![\\d.,])(?:3(rd)?)(?!\\d)|third)",
+          "(?:(?<![\\d.,])(?:6(th)?)(?!\\d)|sixth)"
+        ],
+        "subject": "tides?|water",
+        "said": [4],
+        "stated": true,
+        "notBy": "Gareth"
+      },
+      {
+        "name": "Storage £40 a metre",
+        "kind": "figure",
+        "pattern": [
+          "storage|price|cost|fee|cradle|per metre|a metre",
+          "(?:(?<![\\d.,])(?:40)(?!\\d)|forty)"
+        ],
+        "subject": "storage|price|cradle",
+        "said": [6],
+        "stated": true,
+        "notBy": "Gareth"
+      },
+      {
+        "name": "Start the haul-out on the 3rd",
+        "kind": "decision",
+        "pattern": [
+          "haul[- ]?out|haulout|lifting",
+          "(?:(?<![\\d.,])(?:3(rd)?)(?!\\d)|third)",
+          "decid|agree|settl|chos|go(ing)? (with|for)|let'?s|we start|we'?ll start|starts?|begin"
+        ],
+        "subject": "haul[- ]?out|haulout|lifting",
+        "said": [5]
+      },
+      {
+        "name": "Everything on cradles",
+        "kind": "decision",
+        "pattern": [
+          "cradles?",
+          "all|every|everything|no trailers?|instead of trailers?",
+          "decid|agree|settl|chos|go(ing)? (with|for)|let'?s|we'?ll|will|then"
+        ],
+        "subject": "cradles?|trailers?",
+        "said": [9]
+      },
+      {
+        "name": "Gareth checks the crane certificate",
+        "kind": "action",
+        "pattern": ["Gareth", "certificate|crane|inspection", "(?<![\\d.,])3(rd)?(?!\\d)|third"],
+        "subject": "certificate|inspection",
+        "said": [9, 10],
+        "owner": "Gareth",
+        "forbid": "\\bthe other side\\b|\\bthey\\b"
+      }
+    ],
+    "topics": [
+      {
+        "name": "Boats",
+        "pattern": "boats?|list|keel"
+      },
+      {
+        "name": "Crane and tides",
+        "pattern": "crane|lifts?|tides?|water"
+      },
+      {
+        "name": "Storage",
+        "pattern": "storage|cradles?|trailers?|metre"
+      },
+      {
+        "name": "Checks",
+        "pattern": "certificate|inspection|owners?"
+      }
+    ]
+  },
+  {
+    "id": "reserved-zh-structured-team-own-1",
+    "language": "zh-CN",
+    "requireSections": true,
+    "openQuestions": false,
+    "notes": [
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "双十二排期"
+          }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "羽绒服"
+          }
+        ]
+      }
+    ],
+    "turns": [
+      {
+        "side": "me",
+        "text": "好，咱们过一下双十二那场直播。小周、老马、阿琳都在，先说排期。老马，平台回你了吗？"
+      },
+      {
+        "side": "them",
+        "text": "回了，给我们排在12月10号晚上8点，一共三个小时。"
+      },
+      {
+        "side": "me",
+        "text": "那就把直播定在12月10号晚上8点。主推哪个款？"
+      },
+      {
+        "side": "them",
+        "text": "我建议主推羽绒服，这个价位转化最好。"
+      },
+      {
+        "side": "them",
+        "text": "羽绒服仓库现在有800件，再多就得追加了。"
+      },
+      {
+        "side": "me",
+        "text": "800件够了。那就主推羽绒服。价格上，原来说299，直播间能做到多少？"
+      },
+      {
+        "side": "them",
+        "text": "供货价是128，直播间做259的话，毛利还行。"
+      },
+      {
+        "side": "me",
+        "text": "行，直播间就259。阿琳，客服话术12月8号前能出来吗？"
+      },
+      {
+        "side": "them",
+        "text": "能，我12月8号前把客服话术整理好发给大家。"
+      },
+      {
+        "side": "me",
+        "text": "老马，仓库那边你再确认一下库存，周五前给我准信。"
+      },
+      {
+        "side": "them",
+        "text": "好，我周五前跟仓库确认库存，给你回话。"
+      },
+      {
+        "side": "them",
+        "text": "还有，开播前一天我想彩排一次，大概一个小时。"
+      }
+    ],
+    "facts": [
+      {
+        "name": "直播定在12月10号",
+        "kind": "decision",
+        "pattern": [
+          "直播|开播|档期|排期|场",
+          "12月10[号日]|十二月十[号日]|12[./-]10(?!\\d)",
+          "定|决定|敲定|确定|就|排在|安排"
+        ],
+        "subject": "直播|开播|档期|排期",
+        "said": [2],
+        "underLine": "双十二排期"
+      },
+      {
+        "name": "直播时长三小时",
+        "kind": "figure",
+        "pattern": ["直播|时长|一共|开播", "三个小时|3个小时|三小时|3小时|三个钟头|180分钟"],
+        "subject": "直播|时长|开播",
+        "said": [1],
+        "stated": true,
+        "owner": "老马",
+        "forbid": "对方"
+      },
+      {
+        "name": "羽绒服库存",
+        "kind": "figure",
+        "pattern": ["库存|仓库|现货|备货|羽绒服", "(?:(?<![\\d.,])(?:800)(?!\\d)|八百)", "件"],
+        "subject": "库存|仓库|现货",
+        "said": [4],
+        "confirmed": true,
+        "notBy": "小周|老马"
+      },
+      {
+        "name": "原定价",
+        "kind": "figure",
+        "pattern": [
+          "价|价格|售价|原价|标价|定价|元|块",
+          "(?:(?<![\\d.,])(?:299)(?!\\d)|二百九十九|两百九十九|二九九)"
+        ],
+        "subject": "价|价格|售价",
+        "said": [5],
+        "notBy": "小周|老马|阿琳"
+      },
+      {
+        "name": "直播间价格",
+        "kind": "figure",
+        "pattern": [
+          "价|价格|售价|直播间|做|元|块",
+          "(?:(?<![\\d.,])(?:259)(?!\\d)|二百五十九|两百五十九|二五九)"
+        ],
+        "subject": "价|价格|售价|直播间",
+        "said": [6, 7],
+        "accepted": "(?=.*(?:同意|接受|可以|成交|没问题|定了|谈妥|答应|那就|就按|就这么|好吧|好的|行吧|行，|好，|按.*来))(?=.*(?:(?<![\\d.,])(?:259)(?!\\d)|二百五十九|两百五十九|二五九))",
+        "notBy": "小周|阿琳"
+      },
+      {
+        "name": "供货价",
+        "kind": "figure",
+        "pattern": ["供货|进货|成本|拿货", "(?:(?<![\\d.,])(?:128)(?!\\d)|一百二十八)"],
+        "subject": "供货|进货|成本",
+        "said": [6],
+        "stated": true,
+        "notBy": "小周|阿琳"
+      },
+      {
+        "name": "主推羽绒服",
+        "kind": "decision",
+        "pattern": ["羽绒服", "主推|主打|推", "定|决定|就|选|敲定|确定"],
+        "subject": "主推|主打|爆款",
+        "said": [5],
+        "underLine": "羽绒服"
+      },
+      {
+        "name": "阿琳整理客服话术",
+        "kind": "action",
+        "pattern": ["阿琳", "话术|客服", "12月8[号日]|十二月八[号日]|12[./-]8(?!\\d)"],
+        "subject": "话术|客服",
+        "said": [7, 8],
+        "owner": "阿琳",
+        "forbid": "对方"
+      },
+      {
+        "name": "老马确认库存",
+        "kind": "action",
+        "pattern": ["老马", "库存|仓库|确认", "周五|星期五|礼拜五"],
+        "subject": "库存|仓库|确认",
+        "said": [9, 10],
+        "owner": "老马",
+        "forbid": "对方"
+      },
+      {
+        "name": "开播前彩排一小时",
+        "kind": "figure",
+        "pattern": ["彩排|排练|试播", "一个小时|1个小时|一小时|1小时|一个钟头"],
+        "subject": "彩排|排练|试播",
+        "said": [11],
+        "stated": true,
+        "notBy": "老马|阿琳"
+      }
+    ],
+    "documents": [
+      {
+        "name": "供货价格表.txt",
+        "text": "羽绒服（男女同款）\n供货价：128 元/件\n建议零售价：299 元\n现货库存：1200 件"
+      }
+    ],
+    "claims": {
+      "listed": ["羽绒服库存", "直播间价格"],
+      "kept": ["供货价", "原定价"]
+    }
+  },
+  {
+    "id": "reserved-zh-structured-team-own-2",
+    "language": "zh-CN",
+    "requireSections": true,
+    "openQuestions": true,
+    "notes": [],
+    "turns": [
+      {
+        "side": "me",
+        "text": "咱们开个短会，聊聊春节的安排。阿芳、老罗、小齐，都在。阿芳，订单现在怎么样？"
+      },
+      {
+        "side": "them",
+        "text": "春节七天，8间房已经订出去6间了。现在每间每晚挂的是480。"
+      },
+      {
+        "side": "me",
+        "text": "480太低了，别家都卖到600左右。我想涨到580，大家觉得呢？"
+      },
+      {
+        "side": "them",
+        "text": "可以涨，但热水器得先弄好。上个月就有客人说水不热。"
+      },
+      {
+        "side": "them",
+        "text": "热水器修一次要400，可是已经修过三回了，换个新的要1800。"
+      },
+      {
+        "side": "me",
+        "text": "那就把热水器换新的，别再修了。房价也定580。老罗，你明天联系师傅，周三前把热水器装好。"
+      },
+      {
+        "side": "them",
+        "text": "行，我明天就联系师傅，周三前装好。"
+      },
+      {
+        "side": "them",
+        "text": "保洁这边春节要加人，我想请两个临时工。"
+      },
+      {
+        "side": "me",
+        "text": "行，那就请两个临时保洁。一天多少钱？"
+      },
+      {
+        "side": "them",
+        "text": "去年是120一天。"
+      },
+      {
+        "side": "them",
+        "text": "现在行情不一样了，150才请得到人。"
+      },
+      {
+        "side": "me",
+        "text": "那就150，按你说的来。对了，除夕的年夜饭，要不要给住客准备？"
+      }
+    ],
+    "facts": [
+      {
+        "name": "春节订出6间",
+        "kind": "figure",
+        "pattern": ["订", "(?:(?<![\\d.,])(?:6)(?!\\d)|六)", "间"],
+        "subject": "订|订单|预订",
+        "said": [1],
+        "stated": true,
+        "owner": "阿芳",
+        "forbid": "对方"
+      },
+      {
+        "name": "当前房价480",
+        "kind": "figure",
+        "pattern": [
+          "价|报价|房价|挂|每晚|一晚|晚",
+          "(?:(?<![\\d.,])(?:480)(?!\\d)|四百八十|四百八)"
+        ],
+        "subject": "价|房价|报价",
+        "said": [1],
+        "owner": "阿芳",
+        "forbid": "对方"
+      },
+      {
+        "name": "房价定580",
+        "kind": "decision",
+        "pattern": [
+          "价|房价|报价|每晚|一晚",
+          "(?:(?<![\\d.,])(?:580)(?!\\d)|五百八十|五百八)",
+          "定|决定|涨到|改到|调到|就|敲定|同意|按"
+        ],
+        "subject": "价|房价|报价",
+        "said": [5]
+      },
+      {
+        "name": "热水器换新",
+        "kind": "decision",
+        "pattern": [
+          "热水器",
+          "换新|换个新|换成新|换一个|换掉|更换|买新",
+          "定|决定|就|同意|敲定|别再修|按"
+        ],
+        "subject": "热水器",
+        "said": [5]
+      },
+      {
+        "name": "热水器修一次400",
+        "kind": "figure",
+        "pattern": ["修", "(?:(?<![\\d.,])(?:400)(?!\\d)|四百)"],
+        "subject": "热水器|修",
+        "said": [4],
+        "stated": true,
+        "notBy": "老罗|小齐"
+      },
+      {
+        "name": "热水器换新1800",
+        "kind": "figure",
+        "pattern": ["换|新", "(?:(?<![\\d.,])(?:1800)(?!\\d)|一千八百|一千八)"],
+        "subject": "热水器|换新",
+        "said": [4],
+        "stated": true,
+        "notBy": "老罗|小齐"
+      },
+      {
+        "name": "老罗周三前装热水器",
+        "kind": "action",
+        "pattern": ["老罗", "热水器|师傅|装|联系", "周三|星期三|礼拜三"],
+        "subject": "热水器|师傅",
+        "said": [5, 6],
+        "owner": "老罗",
+        "forbid": "对方"
+      },
+      {
+        "name": "请两个临时保洁",
+        "kind": "decision",
+        "pattern": [
+          "临时",
+          "保洁|工|阿姨",
+          "决定.{0,6}[请招]两个|同意.{0,6}[请招]两个|就请两个|那就请两个|定了请两个"
+        ],
+        "subject": "临时|保洁",
+        "said": [8]
+      },
+      {
+        "name": "去年日薪120",
+        "kind": "figure",
+        "pattern": [
+          "保洁|临时|日薪|一天|每天|工钱",
+          "(?:(?<![\\d.,])(?:120)(?!\\d)|一百二十|一百二)"
+        ],
+        "subject": "保洁|日薪|一天",
+        "said": [9],
+        "notBy": "老罗|小齐"
+      },
+      {
+        "name": "临时保洁日薪150",
+        "kind": "figure",
+        "pattern": [
+          "保洁|临时|日薪|一天|每天|工钱|行情",
+          "(?:(?<![\\d.,])(?:150)(?!\\d)|一百五十|一百五)"
+        ],
+        "subject": "保洁|日薪|一天",
+        "said": [10, 11],
+        "accepted": "(?=.*(?:同意|接受|可以|成交|没问题|定了|谈妥|答应|那就|就按|就这么|好吧|好的|行吧|行，|好，|按.*来))(?=.*(?:(?<![\\d.,])(?:150)(?!\\d)|一百五十|一百五))",
+        "notBy": "阿芳|老罗"
+      }
+    ],
+    "topics": [
+      {
+        "name": "房价",
+        "pattern": "房价|价|480|580"
+      },
+      {
+        "name": "热水器",
+        "pattern": "热水器|修|换"
+      },
+      {
+        "name": "保洁",
+        "pattern": "保洁|临时|日薪|一天"
+      },
+      {
+        "name": "年夜饭",
+        "pattern": "年夜饭|除夕"
+      }
+    ]
+  },
+  {
+    "id": "reserved-zh-structured-team-own-3",
+    "language": "zh-CN",
+    "requireSections": true,
+    "openQuestions": false,
+    "notes": [],
+    "turns": [
+      {
+        "side": "me",
+        "text": "今天说一下那批2万个塑料壳的订单。老钱、小薛、阿俊，都在。阿俊，客户那边交期怎么说？"
+      },
+      {
+        "side": "them",
+        "text": "原来说12月15号交货，不过客户刚发消息，可以推到12月20号。"
+      },
+      {
+        "side": "me",
+        "text": "那就按12月20号交货。模具现在什么状态？老钱，你说说。"
+      },
+      {
+        "side": "them",
+        "text": "主模具磨损得有点厉害，换一套新的要4个小时，我建议这周六换。"
+      },
+      {
+        "side": "them",
+        "text": "废品率上周是3.5%，要是模具不换，肯定还得涨。"
+      },
+      {
+        "side": "me",
+        "text": "好，那就周六换模。废品率我想压到2%以内。"
+      },
+      {
+        "side": "them",
+        "text": "周六换模的话，夜班可以不用开，白班加两个人就够。"
+      },
+      {
+        "side": "me",
+        "text": "那就白班加两个人，不开夜班。阿俊，你把周六的排班表今天发到群里。"
+      },
+      {
+        "side": "them",
+        "text": "好，今天下班前发到群里。"
+      },
+      {
+        "side": "me",
+        "text": "小薛，换完模以后头一个小时，每10分钟抽检一次。"
+      },
+      {
+        "side": "them",
+        "text": "明白，换模后第一个小时我每10分钟抽检一次。"
+      },
+      {
+        "side": "them",
+        "text": "对了，原料现在只够做1万5，剩下的5千个得明天再订。"
+      }
+    ],
+    "facts": [
+      {
+        "name": "订单2万个",
+        "kind": "figure",
+        "pattern": ["订单|塑料壳|订量|数量", "2万|两万|(?<![\\d.,])20,?000(?!\\d)"],
+        "subject": "订单|塑料壳|订量",
+        "said": [0],
+        "stated": true,
+        "notBy": "老钱|小薛|阿俊"
+      },
+      {
+        "name": "原定交期12月15号",
+        "kind": "figure",
+        "pattern": ["交期|交货|交付|出货", "12月15[号日]|十二月十五[号日]|12[./-]15(?!\\d)"],
+        "subject": "交期|交货|交付|出货",
+        "said": [1],
+        "owner": "阿俊",
+        "forbid": "对方"
+      },
+      {
+        "name": "交货改到12月20号",
+        "kind": "decision",
+        "pattern": [
+          "交期|交货|交付|出货",
+          "12月20[号日]|十二月二十[号日]|12[./-]20(?!\\d)",
+          "定|决定|按|敲定|同意|确定"
+        ],
+        "subject": "交期|交货|交付|出货",
+        "said": [2]
+      },
+      {
+        "name": "换模要4小时",
+        "kind": "figure",
+        "pattern": [
+          "换模|换一套|新模具|换.*模具",
+          "4个小时|四个小时|4小时|四小时|4个钟头|四个钟头"
+        ],
+        "subject": "换模|模具",
+        "said": [3],
+        "stated": true,
+        "owner": "老钱",
+        "forbid": "对方"
+      },
+      {
+        "name": "上周废品率3.5%",
+        "kind": "figure",
+        "pattern": ["废品|不良|次品", "(?<![\\d.])3\\.5(?!\\d)|三点五"],
+        "subject": "废品|不良|次品",
+        "said": [4],
+        "stated": true,
+        "notBy": "老钱|小薛"
+      },
+      {
+        "name": "目标废品率2%",
+        "kind": "figure",
+        "pattern": [
+          "废品|不良|次品",
+          "(?<![\\d.])2(?![\\d.])\\s*%|百分之二|2个点|两个点|两个百分点",
+          "压|降|控制|目标|以内|以下|要求|希望"
+        ],
+        "subject": "废品|不良|次品",
+        "said": [5],
+        "stated": true,
+        "notBy": "老钱|小薛|阿俊"
+      },
+      {
+        "name": "周六换模",
+        "kind": "decision",
+        "pattern": [
+          "换模|换.*模具|新模具",
+          "周六|星期六|礼拜六",
+          "决定|同意|敲定|安排在|就换|那就|按"
+        ],
+        "subject": "换模|模具",
+        "said": [5]
+      },
+      {
+        "name": "白班加两个人不开夜班",
+        "kind": "decision",
+        "pattern": [
+          "白班",
+          "加两个人|加2个人|加两人|加2人|多加",
+          "决定|同意|敲定|那就|按|不开夜班"
+        ],
+        "subject": "白班|夜班|排班",
+        "said": [7]
+      },
+      {
+        "name": "阿俊发排班表",
+        "kind": "action",
+        "pattern": ["阿俊", "排班", "今天|下班前|今晚"],
+        "subject": "排班",
+        "said": [7, 8],
+        "owner": "阿俊",
+        "forbid": "对方"
+      },
+      {
+        "name": "小薛每10分钟抽检",
+        "kind": "action",
+        "pattern": ["小薛", "抽检|抽查|检查|质检", "10分钟|十分钟"],
+        "subject": "抽检|抽查|质检",
+        "said": [9, 10],
+        "owner": "小薛",
+        "forbid": "对方"
+      },
+      {
+        "name": "原料够1万5",
+        "kind": "figure",
+        "pattern": [
+          "原料|料|材料",
+          "1万5|一万五|1\\.5万|(?<![\\d.,])15,?000(?!\\d)",
+          "够|只够|够做|够用"
+        ],
+        "subject": "原料|材料",
+        "said": [11],
+        "stated": true,
+        "notBy": "小薛|阿俊"
+      }
+    ],
+    "topics": [
+      {
+        "name": "交期",
+        "pattern": "交期|交货|12月"
+      },
+      {
+        "name": "模具",
+        "pattern": "模具|换模|磨损"
+      },
+      {
+        "name": "废品率",
+        "pattern": "废品|抽检"
+      },
+      {
+        "name": "排班",
+        "pattern": "白班|夜班|排班"
+      }
+    ]
+  },
+  {
+    "id": "reserved-zh-structured-team-own-4",
+    "language": "zh-CN",
+    "requireSections": true,
+    "openQuestions": false,
+    "notes": [
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "排班"
+          }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "护理床"
+          }
+        ]
+      }
+    ],
+    "turns": [
+      {
+        "side": "me",
+        "text": "今天三件事：夜班排班、买护理床、过年的菜单。周姐、老彭、小郑，先说夜班。周姐，你那边怎么看？"
+      },
+      {
+        "side": "them",
+        "text": "现在夜班两个人，一晚要照顾28位老人，确实忙不过来。我想夜班再加一个人。"
+      },
+      {
+        "side": "me",
+        "text": "同意，夜班加一个人，下个月就开始。"
+      },
+      {
+        "side": "them",
+        "text": "那我这边夜宵也得跟着备一份，每晚大概多做三份。"
+      },
+      {
+        "side": "me",
+        "text": "可以。再说床。上次问的护理床，小郑，供应商报价了吗？"
+      },
+      {
+        "side": "them",
+        "text": "报了，一张3500，他们说买两张的话可以谈。"
+      },
+      {
+        "side": "me",
+        "text": "那两张的话，能不能便宜一点？"
+      },
+      {
+        "side": "them",
+        "text": "我上周也问过他们，两张的话可以按3200一张。"
+      },
+      {
+        "side": "me",
+        "text": "好，护理床就3200一张，买两张。小郑，下周二前把床的验收标准写好给我。"
+      },
+      {
+        "side": "them",
+        "text": "好，下周二前我把验收标准写出来给你。"
+      },
+      {
+        "side": "them",
+        "text": "过年的话，我想定在腊月二十八做团圆饭，一共五十多位，包括家属。"
+      },
+      {
+        "side": "me",
+        "text": "团圆饭就定在腊月二十八。老彭，菜单下周五前给我看看。"
+      },
+      {
+        "side": "them",
+        "text": "好，我下周五前把菜单拿给你。"
+      }
+    ],
+    "facts": [
+      {
+        "name": "夜班照顾28位老人",
+        "kind": "figure",
+        "pattern": ["老人|住户|入住|护理|夜班", "(?:(?<![\\d.,])(?:28)(?!\\d)|二十八)", "位|个|名"],
+        "subject": "老人|住户|入住",
+        "said": [1],
+        "stated": true,
+        "owner": "周姐",
+        "forbid": "对方"
+      },
+      {
+        "name": "夜班加一个人",
+        "kind": "decision",
+        "pattern": [
+          "夜班",
+          "加一个人|加1个人|加一人|加1人|多一个人|增加一人|增加一个人",
+          "定|决定|同意|就|敲定|按|开始"
+        ],
+        "subject": "夜班",
+        "said": [2],
+        "underLine": "排班"
+      },
+      {
+        "name": "夜宵每晚多做3份",
+        "kind": "figure",
+        "pattern": ["夜宵|宵夜|加餐", "(?:(?<![\\d.,])(?:3)(?!\\d)|三)", "份"],
+        "subject": "夜宵|宵夜|加餐",
+        "said": [3],
+        "confirmed": true,
+        "notBy": "周姐|小郑"
+      },
+      {
+        "name": "护理床原报价",
+        "kind": "figure",
+        "pattern": ["床|报价|价格|一张|单价", "(?:(?<![\\d.,])(?:3500)(?!\\d)|三千五|三千五百)"],
+        "subject": "床|报价|价格",
+        "said": [5],
+        "owner": "小郑",
+        "forbid": "对方"
+      },
+      {
+        "name": "护理床成交价",
+        "kind": "figure",
+        "pattern": ["床|价|一张|单价|报价", "(?:(?<![\\d.,])(?:3200)(?!\\d)|三千二百|三千二)"],
+        "subject": "床|价|报价",
+        "said": [7, 8],
+        "accepted": "(?=.*(?:同意|接受|可以|成交|没问题|定了|谈妥|答应|那就|就按|就这么|好吧|好的|行吧|行，|好，|按.*来))(?=.*(?:(?<![\\d.,])(?:3200)(?!\\d)|三千二百|三千二))",
+        "notBy": "老彭|小郑"
+      },
+      {
+        "name": "买两张护理床",
+        "kind": "decision",
+        "pattern": ["床", "两张|2张|二张", "买|订|采购|定|决定|同意|就"],
+        "subject": "床",
+        "said": [8],
+        "underLine": "护理床"
+      },
+      {
+        "name": "小郑写验收标准",
+        "kind": "action",
+        "pattern": ["小郑", "验收|标准", "下周二|下星期二|下礼拜二|周二|星期二"],
+        "subject": "验收|标准",
+        "said": [8, 9],
+        "owner": "小郑",
+        "forbid": "对方"
+      },
+      {
+        "name": "团圆饭定在腊月二十八",
+        "kind": "decision",
+        "pattern": [
+          "团圆饭|年夜饭|聚餐",
+          "腊月二十八|腊月28|农历十二月二十八",
+          "决定|同意|敲定|就定|那就|定为|(?<!想)定在"
+        ],
+        "subject": "团圆饭|年夜饭|聚餐",
+        "said": [11]
+      },
+      {
+        "name": "团圆饭五十多位",
+        "kind": "figure",
+        "pattern": ["团圆饭|年夜饭|聚餐|客人|人数|家属", "五十多|50多|五十几|50几"],
+        "subject": "团圆饭|年夜饭|聚餐",
+        "said": [10],
+        "stated": true,
+        "notBy": "老彭|小郑"
+      },
+      {
+        "name": "老彭出菜单",
+        "kind": "action",
+        "pattern": ["老彭", "菜单", "下周五|下星期五|下礼拜五|周五|星期五"],
+        "subject": "菜单",
+        "said": [11, 12],
+        "owner": "老彭",
+        "forbid": "对方"
+      }
+    ]
+  },
+  {
+    "id": "reserved-zh-structured-sides-anon-1",
+    "language": "zh-CN",
+    "requireSections": true,
+    "openQuestions": false,
+    "notes": [],
+    "turns": [
+      {
+        "side": "me",
+        "text": "喂，您好，我是春天里花店的方琳，想订一批花，月底前要到货。"
+      },
+      {
+        "side": "them",
+        "text": "您好，您说，要什么品种？"
+      },
+      {
+        "side": "me",
+        "text": "玫瑰要300枝，百合100枝，都要品质好一点的。"
+      },
+      {
+        "side": "them",
+        "text": "玫瑰300，百合100，好的。玫瑰现在报价是3块5一枝，百合是8块一枝。"
+      },
+      {
+        "side": "me",
+        "text": "玫瑰3块5有点贵，我上次拿的是3块2。能不能按3块2给我？"
+      },
+      {
+        "side": "them",
+        "text": "玫瑰3块2不行，3块3吧，这已经是量大的价钱了。"
+      },
+      {
+        "side": "me",
+        "text": "好吧，那就玫瑰3块3。"
+      },
+      {
+        "side": "them",
+        "text": "好。运费方面，满1000元包邮，您这单一共差不多1100，所以不用付运费。"
+      },
+      {
+        "side": "me",
+        "text": "能不能25号发货，让26号到？"
+      },
+      {
+        "side": "them",
+        "text": "可以，25号发货，26号下午到。"
+      },
+      {
+        "side": "me",
+        "text": "那就25号发货。麻烦您今天把订单确认单发到我微信上。"
+      },
+      {
+        "side": "them",
+        "text": "没问题，我今天下午发给您。"
+      },
+      {
+        "side": "me",
+        "text": "谢谢。我这边明天上午把定金转过去。"
+      },
+      {
+        "side": "them",
+        "text": "好的，谢谢您的订单。"
+      }
+    ],
+    "facts": [
+      {
+        "name": "玫瑰300枝",
+        "kind": "figure",
+        "pattern": ["玫瑰", "(?:(?<![\\d.,])(?:300)(?!\\d)|三百)", "枝|支|朵"],
+        "subject": "玫瑰",
+        "said": [2],
+        "confirmed": true
+      },
+      {
+        "name": "百合100枝",
+        "kind": "figure",
+        "pattern": ["百合", "(?:(?<![\\d.,])(?:100)(?!\\d)|一百)", "枝|支|朵"],
+        "subject": "百合",
+        "said": [2],
+        "confirmed": true
+      },
+      {
+        "name": "玫瑰报价",
+        "kind": "figure",
+        "pattern": [
+          "玫瑰",
+          "(?<![\\d.])3块5|(?<![\\d.])3\\.5(?!\\d)|三块五|三块半|3元5",
+          "价|报价|一枝|每枝"
+        ],
+        "subject": "玫瑰",
+        "said": [3],
+        "notBy": "方琳"
+      },
+      {
+        "name": "百合报价",
+        "kind": "figure",
+        "pattern": ["百合", "(?<![\\d.])8\\s*[块元]|八块|八元"],
+        "subject": "百合",
+        "said": [3],
+        "stated": true,
+        "notBy": "方琳"
+      },
+      {
+        "name": "玫瑰成交价",
+        "kind": "figure",
+        "pattern": [
+          "玫瑰",
+          "(?<![\\d.])3块3|(?<![\\d.])3\\.3(?!\\d)|三块三|3元3",
+          "价|报价|一枝|每枝|元|块"
+        ],
+        "subject": "玫瑰|价",
+        "said": [5, 6],
+        "accepted": "(?=.*(?:同意|接受|可以|成交|没问题|定了|谈妥|答应|那就|就按|就这么|好吧|好的|行吧|行，|好，|按.*来))(?=.*(?<![\\d.])3块3|(?<![\\d.])3\\.3(?!\\d)|三块三|3元3)",
+        "notBy": "方琳"
+      },
+      {
+        "name": "订单总额约1100",
+        "kind": "figure",
+        "pattern": [
+          "订单|一共|总额|总价|金额|合计",
+          "(?:(?<![\\d.,])(?:1100)(?!\\d)|一千一百|一千一)"
+        ],
+        "subject": "订单|总额|总价|金额",
+        "said": [7],
+        "stated": true,
+        "notBy": "方琳"
+      },
+      {
+        "name": "包邮门槛",
+        "kind": "figure",
+        "pattern": ["运费|包邮|邮费|免运费", "(?:(?<![\\d.,])(?:1000)(?!\\d)|一千)"],
+        "subject": "运费|包邮|邮费",
+        "said": [7],
+        "stated": true,
+        "notBy": "方琳"
+      },
+      {
+        "name": "26号下午到货",
+        "kind": "figure",
+        "pattern": [
+          "到货|送到|到达|送达|到",
+          "(?:(?<![\\d.,])(?:26)(?!\\d)|二十六)",
+          "号|日",
+          "下午|午后"
+        ],
+        "subject": "到货|送达|到达",
+        "said": [9],
+        "stated": true,
+        "notBy": "方琳"
+      },
+      {
+        "name": "25号发货",
+        "kind": "decision",
+        "pattern": [
+          "发货|出货|发出",
+          "(?:(?<![\\d.,])(?:25)(?!\\d)|二十五)",
+          "号|日",
+          "定|决定|就|同意|没问题|可以|敲定|安排"
+        ],
+        "subject": "发货|出货",
+        "said": [9, 10]
+      },
+      {
+        "name": "供应商发订单确认单",
+        "kind": "action",
+        "pattern": ["确认单|订单确认|确认函", "发|发送|发给|微信", "今天|下午|今天下午"],
+        "subject": "确认单|订单确认",
+        "said": [10, 11],
+        "notBy": "方琳"
+      },
+      {
+        "name": "方琳转定金",
+        "kind": "action",
+        "pattern": ["定金|订金|预付", "转|付|汇|支付", "明天上午|明早|明天早上|明天"],
+        "subject": "定金|订金",
+        "said": [12]
+      }
+    ],
+    "topics": [
+      {
+        "name": "订货",
+        "pattern": "订|枝|玫瑰|百合|品种"
+      },
+      {
+        "name": "价格",
+        "pattern": "价|块|元|枝"
+      },
+      {
+        "name": "运费",
+        "pattern": "运费|包邮|发货|到货"
+      },
+      {
+        "name": "付款",
+        "pattern": "定金|确认单|微信"
+      }
+    ],
+    "documents": [
+      {
+        "name": "花卉批发报价单.txt",
+        "text": "斗南花卉批发报价单\n玫瑰（A级）：3.5 元/枝\n百合（A级）：8 元/枝\n订单满 800 元包邮，不足 800 元运费 60 元"
+      }
+    ],
+    "claims": {
+      "listed": ["玫瑰成交价", "包邮门槛"],
+      "kept": ["玫瑰报价", "百合报价"]
+    }
+  },
+  {
+    "id": "reserved-zh-structured-sides-anon-2",
+    "language": "zh-CN",
+    "requireSections": true,
+    "openQuestions": false,
+    "notes": [
+      {
+        "type": "heading",
+        "attrs": {
+          "level": 2
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "瓷砖"
+          }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "老城区那套"
+          }
+        ]
+      }
+    ],
+    "turns": [
+      {
+        "side": "me",
+        "text": "你好，我是装修队的老赵，上周来看过那款800的地砖。我想订货。"
+      },
+      {
+        "side": "them",
+        "text": "老赵您好，记得。您要多少？"
+      },
+      {
+        "side": "me",
+        "text": "那套房子一共要120个平方，再加5%的损耗，您帮我算算。"
+      },
+      {
+        "side": "them",
+        "text": "120加5%，一共要订126平方。这款现在是每平方68块。"
+      },
+      {
+        "side": "me",
+        "text": "68可以。送货包不包上楼？"
+      },
+      {
+        "side": "them",
+        "text": "送到小区门口免费，上楼的话每平方加5块。"
+      },
+      {
+        "side": "me",
+        "text": "上楼我们自己搬，您送到门口就行。"
+      },
+      {
+        "side": "them",
+        "text": "行。您想哪天到货？"
+      },
+      {
+        "side": "me",
+        "text": "28号上午能到吗？"
+      },
+      {
+        "side": "them",
+        "text": "28号上午可以，司机会提前一天给您打电话。"
+      },
+      {
+        "side": "me",
+        "text": "好，那就定28号上午到货。我下午把定金500块转给您。"
+      },
+      {
+        "side": "them",
+        "text": "好的，收到定金我就安排备货，也把订单发给您。"
+      },
+      {
+        "side": "me",
+        "text": "行，麻烦您了。"
+      }
+    ],
+    "facts": [
+      {
+        "name": "房子要120平方",
+        "kind": "figure",
+        "pattern": [
+          "面积|房子|房间|铺|需要|用量|总共",
+          "(?:(?<![\\d.,])(?:120)(?!\\d)|一百二十(?!六))",
+          "平"
+        ],
+        "subject": "平方|平米|面积",
+        "said": [2],
+        "underLine": "老城区那套",
+        "confirmed": true
+      },
+      {
+        "name": "损耗5%",
+        "kind": "figure",
+        "pattern": ["损耗|耗损|余量", "5\\s*%|百分之五|五个点|5个点"],
+        "subject": "损耗|耗损|余量",
+        "said": [2],
+        "confirmed": true
+      },
+      {
+        "name": "订126平方",
+        "kind": "figure",
+        "pattern": ["订|共|一共|总共|需要|合计", "(?:(?<![\\d.,])(?:126)(?!\\d)|一百二十六)", "平"],
+        "subject": "订货|总量|平方|平米",
+        "said": [3],
+        "stated": true,
+        "notBy": "老赵"
+      },
+      {
+        "name": "每平方68块",
+        "kind": "figure",
+        "pattern": ["单价|每平|一平|每平方|价|报价|块", "(?:(?<![\\d.,])(?:68)(?!\\d)|六十八)"],
+        "subject": "单价|价格|报价|每平",
+        "said": [3, 4],
+        "underLine": "瓷砖",
+        "confirmed": true,
+        "notBy": "老赵"
+      },
+      {
+        "name": "上楼每平方加5块",
+        "kind": "figure",
+        "pattern": ["上楼|搬运|搬上|送上楼", "(?:(?<![\\d.,])(?:5)(?!\\d)|五)", "块|元"],
+        "subject": "上楼|搬运|搬上",
+        "said": [5],
+        "notBy": "老赵"
+      },
+      {
+        "name": "送到门口免费",
+        "kind": "figure",
+        "pattern": ["送货|送到|配送|运费|小区门口|门口", "免费|不收费|不用钱|不收钱|包邮|包含"],
+        "subject": "送货|配送|运费|门口",
+        "said": [5],
+        "stated": true,
+        "notBy": "老赵"
+      },
+      {
+        "name": "自己搬上楼",
+        "kind": "decision",
+        "pattern": ["上楼|搬", "自己|自行", "定|决定|就|同意|不用|行"],
+        "subject": "上楼|搬",
+        "said": [6]
+      },
+      {
+        "name": "28号上午到货",
+        "kind": "decision",
+        "pattern": [
+          "到货|送到|到达|送货|到",
+          "(?:(?<![\\d.,])(?:28)(?!\\d)|二十八)",
+          "号|日",
+          "上午|早上",
+          "定|决定|就|同意|可以|安排"
+        ],
+        "subject": "到货|送货|到达",
+        "said": [10]
+      },
+      {
+        "name": "司机提前一天打电话",
+        "kind": "action",
+        "pattern": ["司机|师傅|送货", "电话|打电话|联系|通知", "提前一天|前一天|提前"],
+        "subject": "司机|师傅",
+        "said": [9],
+        "notBy": "老赵"
+      },
+      {
+        "name": "老赵转定金",
+        "kind": "action",
+        "pattern": ["老赵|我", "定金|订金", "转|付|汇|支付", "下午|今天"],
+        "subject": "定金|订金",
+        "said": [10]
+      },
+      {
+        "name": "定金500块",
+        "kind": "figure",
+        "pattern": ["定金|订金", "(?:(?<![\\d.,])(?:500)(?!\\d)|五百)"],
+        "subject": "定金|订金",
+        "said": [10],
+        "stated": true
+      },
+      {
+        "name": "供应商收款后备货",
+        "kind": "action",
+        "pattern": ["备货|订单", "收到定金|定金到账|收到款|收款|到账"],
+        "subject": "备货|订单",
+        "said": [11],
+        "notBy": "老赵"
+      }
+    ]
+  },
+  {
+    "id": "reserved-zh-structured-sides-named-1",
+    "language": "zh-CN",
+    "requireSections": true,
+    "openQuestions": false,
+    "notes": [
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "唐婉清，校服厂"
+          }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "校服订单"
+          }
+        ]
+      }
+    ],
+    "turns": [
+      {
+        "side": "me",
+        "text": "汤经理您好，我是实验小学后勤的，想跟您聊聊冬季校服的订单。"
+      },
+      {
+        "side": "them",
+        "text": "您好您好，我是汤婉清，您上次说要订冬季校服，对吧？"
+      },
+      {
+        "side": "me",
+        "text": "对，三到六年级，一共480套。"
+      },
+      {
+        "side": "them",
+        "text": "480套的话，冬季校服外套加裤子，一套198元。"
+      },
+      {
+        "side": "me",
+        "text": "我们量比较大，能不能给个折扣？"
+      },
+      {
+        "side": "them",
+        "text": "500套以上才有9折，480套差一点。这样吧，您凑到500套，我按9折算，一套178元。"
+      },
+      {
+        "side": "me",
+        "text": "好，那我们凑到500套，按178一套。"
+      },
+      {
+        "side": "them",
+        "text": "好的。定金是30%，下单时付，交期是下单后25天。"
+      },
+      {
+        "side": "me",
+        "text": "25天来得及，我们元旦前要用，周五前我下单。"
+      },
+      {
+        "side": "them",
+        "text": "好，那我下周三前先把样衣寄到学校，您看看面料和颜色。"
+      },
+      {
+        "side": "me",
+        "text": "好，各年级的尺码表，我周四发给您。"
+      },
+      {
+        "side": "them",
+        "text": "行，有问题随时联系我。"
+      }
+    ],
+    "facts": [
+      {
+        "name": "订480套",
+        "kind": "figure",
+        "pattern": ["订|一共|共|需要", "(?:(?<![\\d.,])(?:480)(?!\\d)|四百八十)", "套|件"],
+        "subject": "校服|订单|年级",
+        "said": [2],
+        "confirmed": true,
+        "notBy": "唐婉清|汤婉清|汤经理"
+      },
+      {
+        "name": "原报价",
+        "kind": "figure",
+        "pattern": ["单价|一套|每套|报价|价|元|块", "(?:(?<![\\d.,])(?:198)(?!\\d)|一百九十八)"],
+        "subject": "校服|报价|价",
+        "said": [3],
+        "owner": "唐婉清|唐经理",
+        "misheard": "汤婉清|汤经理",
+        "forbid": "汤婉清|汤经理|对方"
+      },
+      {
+        "name": "九折条件",
+        "kind": "figure",
+        "pattern": ["9折|九折|90%|打九折", "(?:(?<![\\d.,])(?:500)(?!\\d)|五百)"],
+        "subject": "折|折扣|9折|九折",
+        "said": [5],
+        "confirmed": true,
+        "owner": "唐婉清|唐经理",
+        "misheard": "汤婉清|汤经理",
+        "forbid": "汤婉清|汤经理|对方"
+      },
+      {
+        "name": "成交价",
+        "kind": "figure",
+        "pattern": ["单价|一套|每套|价|元|块|折", "(?:(?<![\\d.,])(?:178)(?!\\d)|一百七十八)"],
+        "subject": "校服|价|报价",
+        "said": [5, 6],
+        "accepted": "(?=.*(?:同意|接受|可以|成交|没问题|定了|谈妥|答应|那就|就按|就这么|好吧|好的|行吧|行，|好，|按.*来))(?=.*(?:(?<![\\d.,])(?:178)(?!\\d)|一百七十八))",
+        "owner": "唐婉清|唐经理",
+        "misheard": "汤婉清|汤经理",
+        "forbid": "汤婉清|汤经理|对方"
+      },
+      {
+        "name": "凑到500套",
+        "kind": "decision",
+        "pattern": [
+          "校服|套",
+          "(?:(?<![\\d.,])(?:500)(?!\\d)|五百)",
+          "决定|同意|就订|我们凑到|(?<!您)凑到|订够"
+        ],
+        "subject": "订单|数量|套",
+        "said": [6],
+        "underLine": "校服订单"
+      },
+      {
+        "name": "定金比例",
+        "kind": "figure",
+        "pattern": ["定金|订金|预付", "30\\s*%|百分之三十|三成|3成"],
+        "subject": "定金|订金|预付",
+        "said": [7],
+        "stated": true,
+        "owner": "唐婉清|唐经理",
+        "misheard": "汤婉清|汤经理",
+        "forbid": "汤婉清|汤经理|对方"
+      },
+      {
+        "name": "交期",
+        "kind": "figure",
+        "pattern": ["交期|交货|出货|生产|工期", "(?:(?<![\\d.,])(?:25)(?!\\d)|二十五)", "天|日"],
+        "subject": "交期|交货|工期",
+        "said": [7],
+        "confirmed": true,
+        "owner": "唐婉清|唐经理",
+        "misheard": "汤婉清|汤经理",
+        "forbid": "汤婉清|汤经理|对方"
+      },
+      {
+        "name": "学校周五前下单",
+        "kind": "action",
+        "pattern": ["下单|订货|订单", "周五|星期五|礼拜五", "学校|我|我们|后勤"],
+        "subject": "下单|订货|订单",
+        "said": [8],
+        "notBy": "唐婉清|汤婉清|汤经理"
+      },
+      {
+        "name": "唐经理寄样衣",
+        "kind": "action",
+        "pattern": ["唐|汤|经理|我|供应商|厂家", "样衣|样品|寄|样", "下周三|下星期三|周三|星期三"],
+        "subject": "样衣|样品",
+        "said": [9],
+        "owner": "唐婉清|唐经理",
+        "misheard": "汤婉清|汤经理",
+        "forbid": "汤婉清|汤经理|对方"
+      },
+      {
+        "name": "学校发尺码表",
+        "kind": "action",
+        "pattern": ["尺码", "发|发给|发送|传", "周四|星期四|礼拜四"],
+        "subject": "尺码",
+        "said": [10],
+        "notBy": "唐婉清|汤婉清|汤经理"
+      }
+    ],
+    "documents": [
+      {
+        "name": "校服报价单.txt",
+        "text": "实验小学冬季校服报价（外套+裤子）\n单价：198 元/套\n订购 500 套以上享 9 折\n定金：30%，下单时支付\n交期：下单后 30 天"
+      }
+    ],
+    "claims": {
+      "listed": ["成交价", "交期"],
+      "kept": ["原报价", "九折条件", "定金比例"]
+    }
+  },
+  {
+    "id": "reserved-zh-structured-sides-named-2",
+    "language": "zh-CN",
+    "requireSections": true,
+    "openQuestions": true,
+    "notes": [],
+    "turns": [
+      {
+        "side": "me",
+        "text": "周姐，您好，我是合作社的。上次说的砂糖橘，今天想把供货的事定一下。"
+      },
+      {
+        "side": "them",
+        "text": "好的，我是周芳，您说。我们超市这边每周需要多少？"
+      },
+      {
+        "side": "me",
+        "text": "合作社每周能供3吨，从12月初开始。"
+      },
+      {
+        "side": "them",
+        "text": "3吨可以。收购价的话，我们这边每斤3块2，要求单果直径在4.5厘米以上。"
+      },
+      {
+        "side": "me",
+        "text": "3块2有点低，去年我们都卖3块6。您能不能给到3块5？"
+      },
+      {
+        "side": "them",
+        "text": "每斤3块5有点难，3块4吧，而且我们按月结算，30天账期。"
+      },
+      {
+        "side": "me",
+        "text": "每斤3块4可以。账期30天我回去跟社员们说一下。"
+      },
+      {
+        "side": "them",
+        "text": "好。第一批，我们想12月5号收货，您那边来得及吗？"
+      },
+      {
+        "side": "me",
+        "text": "来得及，那就定12月5号第一批。"
+      },
+      {
+        "side": "them",
+        "text": "好。另外，每批到货我们要做抽检，农残检测报告得随货带着。"
+      },
+      {
+        "side": "me",
+        "text": "没问题，我们每批都做检测。"
+      },
+      {
+        "side": "them",
+        "text": "好，那我把供货协议的草稿周五前发给您。"
+      },
+      {
+        "side": "me",
+        "text": "好的。对了周姐，砂糖橘要是赶上下雨，你们那边收货时间能不能顺延？"
+      }
+    ],
+    "facts": [
+      {
+        "name": "每周供3吨",
+        "kind": "figure",
+        "pattern": ["供|供货|供应|每周|一周", "(?:(?<![\\d.,])(?:3)(?!\\d)|三)", "吨"],
+        "subject": "供货|供应|每周|吨",
+        "said": [2],
+        "confirmed": true,
+        "notBy": "周芳|周姐"
+      },
+      {
+        "name": "首次收购价3块2",
+        "kind": "figure",
+        "pattern": [
+          "收购价|价|价格|一斤|每斤|斤",
+          "(?<![\\d.])3块2|(?<![\\d.])3\\.2(?!\\d)|三块二|3元2"
+        ],
+        "subject": "收购价|价格|斤",
+        "said": [3],
+        "owner": "周芳|周姐",
+        "forbid": "对方"
+      },
+      {
+        "name": "单果直径4.5厘米",
+        "kind": "figure",
+        "pattern": ["直径|大小|果径|规格|单果", "4\\.5|四点五", "厘米|cm|公分"],
+        "subject": "直径|果径|大小|规格",
+        "said": [3],
+        "stated": true,
+        "owner": "周芳|周姐",
+        "forbid": "对方"
+      },
+      {
+        "name": "成交收购价3块4",
+        "kind": "figure",
+        "pattern": [
+          "收购价|价|价格|一斤|每斤|斤",
+          "(?<![\\d.])3块4|(?<![\\d.])3\\.4(?!\\d)|三块四|3元4"
+        ],
+        "subject": "收购价|价格|斤",
+        "said": [5, 6],
+        "accepted": "(?=.*(?:同意|接受|可以|成交|没问题|定了|谈妥|答应|那就|就按|就这么|好吧|好的|行吧|行，|好，|按.*来))(?=.*(?<![\\d.])3块4|(?<![\\d.])3\\.4(?!\\d)|三块四|3元4)",
+        "owner": "周芳|周姐",
+        "forbid": "对方"
+      },
+      {
+        "name": "账期30天",
+        "kind": "figure",
+        "pattern": ["账期|结算|付款|回款|月结", "30天|三十天|30日|一个月|1个月"],
+        "subject": "账期|结算|付款|回款",
+        "said": [5, 6],
+        "confirmed": true,
+        "owner": "周芳|周姐",
+        "forbid": "对方"
+      },
+      {
+        "name": "第一批12月5号",
+        "kind": "decision",
+        "pattern": [
+          "第一批|首批|开始供货|收货|供货",
+          "12月5[号日]|十二月五[号日]|12[./-]5(?!\\d)",
+          "定|决定|就|同意|敲定"
+        ],
+        "subject": "第一批|首批|收货",
+        "said": [8]
+      },
+      {
+        "name": "每批附农残检测报告",
+        "kind": "figure",
+        "pattern": ["检测|抽检|农残", "报告|随货|随车|带"],
+        "subject": "检测|抽检|农残",
+        "said": [9],
+        "confirmed": true,
+        "owner": "周芳|周姐",
+        "forbid": "对方"
+      },
+      {
+        "name": "周芳发协议草稿",
+        "kind": "action",
+        "pattern": ["周芳|周姐|我|超市", "协议|草稿|合同", "周五|星期五|礼拜五"],
+        "subject": "协议|草稿|合同",
+        "said": [11],
+        "owner": "周芳|周姐",
+        "forbid": "对方"
+      }
+    ],
+    "topics": [
+      {
+        "name": "供货量与价格",
+        "pattern": "供|吨|价|斤"
+      },
+      {
+        "name": "规格与检测",
+        "pattern": "直径|检测|农残|抽检"
+      },
+      {
+        "name": "结算",
+        "pattern": "账期|结算|协议"
+      },
+      {
+        "name": "天气",
+        "pattern": "下雨|顺延"
+      }
+    ]
+  },
+  {
+    "id": "reserved-zh-structured-sides-group-1",
+    "language": "zh-CN",
+    "requireSections": true,
+    "openQuestions": false,
+    "notes": [
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "蒋志明"
+          }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "3号楼电梯"
+          }
+        ]
+      }
+    ],
+    "turns": [
+      {
+        "side": "me",
+        "text": "各位好，今天是业委会跟电梯公司谈3号楼电梯更换的事。姜工，您带了同事来是吧？"
+      },
+      {
+        "side": "them",
+        "text": "对，我是姜志明，这位是我们的销售，这位是安装队的队长。"
+      },
+      {
+        "side": "them",
+        "text": "我们先介绍一下情况，3号楼的电梯已经用了20年，建议整体更换。"
+      },
+      {
+        "side": "me",
+        "text": "20年了确实该换。姜工，整体更换大概多少钱？"
+      },
+      {
+        "side": "them",
+        "text": "整套更换，我们报价38万。"
+      },
+      {
+        "side": "me",
+        "text": "太高了，业主们筹的钱只有35万左右。"
+      },
+      {
+        "side": "them",
+        "text": "35万的话，我们可以去掉轿厢里的大屏广告机，整套做到35万。"
+      },
+      {
+        "side": "me",
+        "text": "好，整套就按35万，不要广告屏。"
+      },
+      {
+        "side": "them",
+        "text": "那工期的话，我们估计45天，期间3号楼的电梯要停用。"
+      },
+      {
+        "side": "me",
+        "text": "45天……可以。那什么时候开工？"
+      },
+      {
+        "side": "them",
+        "text": "我们建议12月15号开工，这样春节前能装完。"
+      },
+      {
+        "side": "me",
+        "text": "行，那就12月15号开工。姜工，正式方案和合同周五前能发给我们吗？"
+      },
+      {
+        "side": "them",
+        "text": "可以，周五前发给你们。"
+      },
+      {
+        "side": "them",
+        "text": "我们周三先上门去量一下井道的尺寸。"
+      }
+    ],
+    "facts": [
+      {
+        "name": "电梯用了20年",
+        "kind": "figure",
+        "pattern": ["电梯|3号楼|梯", "(?:(?<![\\d.,])(?:20)(?!\\d)|二十)", "年"],
+        "subject": "电梯|3号楼",
+        "said": [2],
+        "confirmed": true,
+        "notBy": "蒋志明|姜志明|姜工"
+      },
+      {
+        "name": "首次报价38万",
+        "kind": "figure",
+        "pattern": [
+          "报价|价格|造价|总价|整套|整体|费用",
+          "(?:(?<![\\d.,])(?:38)(?!\\d)|三十八)",
+          "万"
+        ],
+        "subject": "报价|价格|造价|总价",
+        "said": [4],
+        "owner": "蒋志明|蒋工",
+        "misheard": "姜志明|姜工",
+        "forbid": "姜志明|姜工|对方"
+      },
+      {
+        "name": "业主筹款35万",
+        "kind": "figure",
+        "pattern": [
+          "业主|筹|预算|筹款|筹到|资金|经费",
+          "(?:(?<![\\d.,])(?:35)(?!\\d)|三十五)",
+          "万"
+        ],
+        "subject": "业主|筹|预算",
+        "said": [5],
+        "confirmed": true,
+        "notBy": "蒋志明|姜志明|姜工"
+      },
+      {
+        "name": "成交价35万",
+        "kind": "figure",
+        "pattern": [
+          "报价|价格|造价|总价|整套|整体|费用|成交|做到|价",
+          "(?:(?<![\\d.,])(?:35)(?!\\d)|三十五)",
+          "万"
+        ],
+        "subject": "报价|价格|造价|总价",
+        "said": [6, 7],
+        "underLine": "3号楼电梯",
+        "accepted": "(?=.*(?:同意|接受|可以|成交|没问题|定了|谈妥|答应|那就|就按|就这么|好吧|好的|行吧|行，|好，|按.*来))(?=.*(?:(?<![\\d.,])(?:35)(?!\\d)|三十五))",
+        "notBy": "蒋志明|姜志明|姜工"
+      },
+      {
+        "name": "不装广告屏",
+        "kind": "decision",
+        "pattern": ["广告", "不要|不装|去掉|取消|不用|不加", "决定|同意|就|好"],
+        "subject": "广告",
+        "said": [7]
+      },
+      {
+        "name": "工期45天",
+        "kind": "figure",
+        "pattern": ["工期|施工|安装|更换|停用|停梯", "(?:(?<![\\d.,])(?:45)(?!\\d)|四十五)", "天"],
+        "subject": "工期|施工|停用|停梯",
+        "said": [8],
+        "confirmed": true,
+        "notBy": "蒋志明|姜志明|姜工"
+      },
+      {
+        "name": "12月15号开工",
+        "kind": "decision",
+        "pattern": [
+          "开工|动工|施工|开始",
+          "12月15[号日]|十二月十五[号日]|12[./-]15(?!\\d)",
+          "定|决定|就|同意|敲定"
+        ],
+        "subject": "开工|动工",
+        "said": [11]
+      },
+      {
+        "name": "蒋工发方案和合同",
+        "kind": "action",
+        "pattern": [
+          "蒋|姜|我|电梯公司|销售",
+          "方案|合同",
+          "发|发给|发送|提供",
+          "周五|星期五|礼拜五"
+        ],
+        "subject": "方案|合同",
+        "said": [11, 12],
+        "owner": "蒋志明|蒋工",
+        "misheard": "姜志明|姜工",
+        "forbid": "姜志明|姜工|对方"
+      },
+      {
+        "name": "队长周三量井道",
+        "kind": "action",
+        "pattern": ["队长|安装|电梯公司|我们", "量|测量|勘测|井道", "周三|星期三|礼拜三"],
+        "subject": "量|测量|井道",
+        "said": [13],
+        "notBy": "蒋志明|姜志明|姜工"
+      }
+    ]
+  },
+  {
+    "id": "reserved-zh-structured-sides-group-2",
+    "language": "zh-CN",
+    "requireSections": true,
+    "openQuestions": false,
+    "notes": [],
+    "turns": [
+      {
+        "side": "me",
+        "text": "陈经理，你好。今天跟你们团队把小程序的细节定一下，你带了设计和测试同事吧？"
+      },
+      {
+        "side": "them",
+        "text": "对，设计师和测试都来了，咱们一起过一遍。"
+      },
+      {
+        "side": "me",
+        "text": "陈经理，先说钱的事，上次报价是多少来着？"
+      },
+      {
+        "side": "them",
+        "text": "18万，包含设计、开发，还有上线后三个月的维护。"
+      },
+      {
+        "side": "me",
+        "text": "工期呢？我们想2月底前上线。"
+      },
+      {
+        "side": "them",
+        "text": "设计稿大概要三周。我们周五前先出首页，你们确认了再继续。"
+      },
+      {
+        "side": "them",
+        "text": "开发是8周，上线前我们留一周做测试。"
+      },
+      {
+        "side": "me",
+        "text": "陈经理，付款怎么分期？"
+      },
+      {
+        "side": "them",
+        "text": "首付50%，上线验收后付尾款。"
+      },
+      {
+        "side": "me",
+        "text": "陈经理，我们现金流有点紧，首付能不能30%？"
+      },
+      {
+        "side": "them",
+        "text": "30%太低，最低40%，这是我们的底线。"
+      },
+      {
+        "side": "me",
+        "text": "好，陈经理，那就首付40%。还有，第一期只做微信小程序，安卓和苹果的应用先不做。"
+      },
+      {
+        "side": "them",
+        "text": "行。我周三前把合同发给你。第一版演示就定12月20号。"
+      },
+      {
+        "side": "me",
+        "text": "可以，那就12月20号演示第一版。"
+      }
+    ],
+    "facts": [
+      {
+        "name": "报价18万",
+        "kind": "figure",
+        "pattern": ["报价|总价|价格|费用|万", "(?:(?<![\\d.,])(?:18)(?!\\d)|十八)", "万"],
+        "subject": "报价|总价|价格",
+        "said": [3],
+        "stated": true,
+        "owner": "陈经理",
+        "forbid": "对方"
+      },
+      {
+        "name": "含三个月维护",
+        "kind": "figure",
+        "pattern": ["维护|运维|保养", "三个月|3个月|三月|90天|一个季度"],
+        "subject": "维护|运维",
+        "said": [3],
+        "stated": true,
+        "owner": "陈经理",
+        "forbid": "对方"
+      },
+      {
+        "name": "目标2月底上线",
+        "kind": "figure",
+        "pattern": ["上线|发布|交付", "2月底|二月底|2月末|二月末|2月28[号日]"],
+        "subject": "上线|发布|交付",
+        "said": [4],
+        "stated": true,
+        "notBy": "陈经理"
+      },
+      {
+        "name": "上线前留一周测试",
+        "kind": "figure",
+        "pattern": ["测试", "一周|1周|一个星期|1个星期|七天|7天"],
+        "subject": "测试",
+        "said": [6],
+        "stated": true,
+        "notBy": "陈经理"
+      },
+      {
+        "name": "设计稿三周",
+        "kind": "figure",
+        "pattern": ["设计稿|设计", "三周|3周|三个星期|3个星期|21天"],
+        "subject": "设计稿|设计",
+        "said": [5],
+        "stated": true,
+        "notBy": "陈经理"
+      },
+      {
+        "name": "开发8周",
+        "kind": "figure",
+        "pattern": ["开发", "8周|八周|八个星期|8个星期"],
+        "subject": "开发|周期",
+        "said": [6],
+        "stated": true,
+        "notBy": "陈经理"
+      },
+      {
+        "name": "首付50%",
+        "kind": "figure",
+        "pattern": ["首付|定金|预付", "50\\s*%|百分之五十|五成|一半|50个点"],
+        "subject": "首付|定金|预付|尾款",
+        "said": [8],
+        "owner": "陈经理",
+        "forbid": "对方"
+      },
+      {
+        "name": "首付40%",
+        "kind": "figure",
+        "pattern": ["首付|定金|预付", "40\\s*%|百分之四十|四成|40个点"],
+        "subject": "首付|定金|预付|尾款",
+        "said": [10, 11],
+        "accepted": "(?=.*(?:同意|接受|可以|成交|没问题|定了|谈妥|答应|那就|就按|就这么|好吧|好的|行吧|行，|好，|按.*来))(?=.*40\\s*%|百分之四十|四成|40个点)",
+        "owner": "陈经理",
+        "forbid": "对方"
+      },
+      {
+        "name": "第一期只做小程序",
+        "kind": "decision",
+        "pattern": ["小程序", "只做|先做|第一期|一期", "决定|同意|就|先|只"],
+        "subject": "小程序",
+        "said": [11]
+      },
+      {
+        "name": "演示定12月20号",
+        "kind": "decision",
+        "pattern": [
+          "演示|第一版|首版",
+          "12月20[号日]|十二月二十[号日]|12[./-]20(?!\\d)",
+          "定|决定|就|同意|敲定|好|可以"
+        ],
+        "subject": "演示|第一版",
+        "said": [12, 13]
+      },
+      {
+        "name": "设计师出首页设计稿",
+        "kind": "action",
+        "pattern": ["设计师|设计|我们", "首页|设计稿", "周五|星期五|礼拜五"],
+        "subject": "首页|设计稿",
+        "said": [5],
+        "notBy": "陈经理"
+      },
+      {
+        "name": "陈经理发合同",
+        "kind": "action",
+        "pattern": ["陈|我", "合同", "发|发给|发送", "周三|星期三|礼拜三"],
+        "subject": "合同",
+        "said": [12],
+        "owner": "陈经理",
+        "forbid": "对方"
+      }
+    ],
+    "topics": [
+      {
+        "name": "报价",
+        "pattern": "报价|万|维护"
+      },
+      {
+        "name": "工期",
+        "pattern": "设计稿|开发|测试|上线"
+      },
+      {
+        "name": "付款",
+        "pattern": "首付|尾款|付款"
+      },
+      {
+        "name": "范围与演示",
+        "pattern": "小程序|演示|合同"
+      }
+    ],
+    "documents": [
+      {
+        "name": "报价合同要点.md",
+        "text": "# 小程序开发报价要点\n\n- 总价：18 万元（含设计、开发、3 个月维护）\n- 付款：首付 40%，上线验收后付 60%\n- 工期：设计稿 2 周，开发 8 周"
+      }
+    ],
+    "claims": {
+      "listed": ["设计稿三周", "首付50%"],
+      "kept": ["报价18万", "含三个月维护", "开发8周", "首付40%"]
+    }
+  },
+  {
+    "id": "reserved-zh-structured-unclear-1",
+    "language": "zh-CN",
+    "requireSections": true,
+    "openQuestions": false,
+    "notes": [
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "云南豆"
+          }
+        ]
+      }
+    ],
+    "turns": [
+      {
+        "side": "me",
+        "text": "好，咱们看看这批云南豆的事。小宋，生豆到了多少？"
+      },
+      {
+        "side": "them",
+        "text": "到了200公斤，是上周三到的货，品质还不错。"
+      },
+      {
+        "side": "them",
+        "text": "含水率测过了，是10.8%，在正常范围内。"
+      },
+      {
+        "side": "me",
+        "text": "这批价格是多少？"
+      },
+      {
+        "side": "them",
+        "text": "每公斤85元，比上一批贵了5块。"
+      },
+      {
+        "side": "me",
+        "text": "可以接受。烘焙度是做浅烘，还是中浅烘？"
+      },
+      {
+        "side": "them",
+        "text": "我建议中浅烘，浅烘的话这批的酸感会太突出。"
+      },
+      {
+        "side": "me",
+        "text": "那就中浅烘。什么时候烘？"
+      },
+      {
+        "side": "them",
+        "text": "下周四比较合适，周三晚上要先预热烘焙机。"
+      },
+      {
+        "side": "me",
+        "text": "好，那就下周四烘。小宋，周三前把烘焙曲线记录表准备好。"
+      },
+      {
+        "side": "them",
+        "text": "好，周三前我把记录表准备好。"
+      },
+      {
+        "side": "them",
+        "text": "还有，样品要不要先寄给客户试喝？我可以寄五包。"
+      },
+      {
+        "side": "me",
+        "text": "好，样品先寄五包，周五之前寄出去。"
+      }
+    ],
+    "facts": [
+      {
+        "name": "到货200公斤",
+        "kind": "figure",
+        "pattern": [
+          "生豆|到货|豆|到了|货",
+          "(?:(?<![\\d.,])(?:200)(?!\\d)|二百|两百)",
+          "公斤|千克"
+        ],
+        "subject": "生豆|到货|到了",
+        "said": [1],
+        "underLine": "云南豆",
+        "stated": true,
+        "owner": "小宋",
+        "forbid": "对方"
+      },
+      {
+        "name": "含水率10.8%",
+        "kind": "figure",
+        "pattern": ["含水|水分|含水率", "10\\.8|十点八"],
+        "subject": "含水|水分",
+        "said": [2],
+        "stated": true,
+        "notBy": "小宋"
+      },
+      {
+        "name": "每公斤85元",
+        "kind": "figure",
+        "pattern": ["每公斤|一公斤|公斤|单价|价", "(?:(?<![\\d.,])(?:85)(?!\\d)|八十五)", "元|块"],
+        "subject": "价格|单价",
+        "said": [4],
+        "confirmed": true,
+        "notBy": "小宋"
+      },
+      {
+        "name": "中浅烘",
+        "kind": "decision",
+        "pattern": ["中浅烘|中浅", "决定|就选|就用|定为|定了|那就|同意|选用"],
+        "subject": "烘焙度|浅烘",
+        "said": [7]
+      },
+      {
+        "name": "下周四烘焙",
+        "kind": "decision",
+        "pattern": ["烘焙|烘", "下周四|下星期四|下礼拜四", "定|决定|就|同意|安排|敲定|好"],
+        "subject": "烘焙|烘",
+        "said": [9]
+      },
+      {
+        "name": "小宋准备记录表",
+        "kind": "action",
+        "pattern": ["小宋", "记录表|曲线|烘焙曲线", "周三|星期三|礼拜三"],
+        "subject": "记录表|曲线",
+        "said": [9, 10],
+        "owner": "小宋",
+        "forbid": "对方"
+      },
+      {
+        "name": "周五前寄样品",
+        "kind": "action",
+        "pattern": ["样品|样", "寄", "周五|星期五|礼拜五"],
+        "subject": "样品",
+        "said": [11, 12],
+        "notBy": "小宋"
+      },
+      {
+        "name": "先寄5包样品",
+        "kind": "decision",
+        "pattern": ["样品|样", "(?<![\\d.])5\\s*包|五包", "定|决定|就|同意|先|好|寄"],
+        "subject": "样品",
+        "said": [12]
+      }
+    ]
+  },
+  {
+    "id": "reserved-zh-structured-unclear-2",
+    "language": "zh-CN",
+    "requireSections": true,
+    "openQuestions": true,
+    "notes": [],
+    "turns": [
+      {
+        "side": "me",
+        "text": "好，说一下那台帕萨特的事。老胡，你检查完了吗？"
+      },
+      {
+        "side": "them",
+        "text": "查完了，变速箱漏油，还有两条刹车盘磨得很薄，要换。"
+      },
+      {
+        "side": "them",
+        "text": "变速箱油封的话，原厂件要680，副厂件260。"
+      },
+      {
+        "side": "me",
+        "text": "副厂的质量靠谱吗？"
+      },
+      {
+        "side": "them",
+        "text": "靠谱，好多修理厂都在用，保修半年。"
+      },
+      {
+        "side": "me",
+        "text": "那就用副厂的油封。刹车盘呢？"
+      },
+      {
+        "side": "them",
+        "text": "刹车盘一对要520，工时费另算，大概150。"
+      },
+      {
+        "side": "me",
+        "text": "刹车盘也换，工时150可以。老胡，明天下班前把车修好。"
+      },
+      {
+        "side": "them",
+        "text": "行，我明天下班前修好。"
+      },
+      {
+        "side": "them",
+        "text": "总价算下来是930。谁来通知车主？"
+      }
+    ],
+    "facts": [
+      {
+        "name": "变速箱漏油",
+        "kind": "figure",
+        "pattern": ["变速箱", "漏油|渗油|漏"],
+        "subject": "变速箱",
+        "said": [1],
+        "stated": true,
+        "owner": "老胡",
+        "forbid": "对方"
+      },
+      {
+        "name": "刹车盘磨薄了",
+        "kind": "figure",
+        "pattern": ["刹车盘", "磨|薄|磨损"],
+        "subject": "刹车盘",
+        "said": [1],
+        "stated": true,
+        "owner": "老胡",
+        "forbid": "对方"
+      },
+      {
+        "name": "原厂油封680",
+        "kind": "figure",
+        "pattern": ["油封|原厂|原厂件", "(?:(?<![\\d.,])(?:680)(?!\\d)|六百八十)"],
+        "subject": "油封|原厂",
+        "said": [2],
+        "stated": true,
+        "notBy": "老胡"
+      },
+      {
+        "name": "副厂油封260",
+        "kind": "figure",
+        "pattern": ["油封|副厂|副厂件", "(?:(?<![\\d.,])(?:260)(?!\\d)|二百六十|两百六十)"],
+        "subject": "油封|副厂",
+        "said": [2],
+        "stated": true,
+        "notBy": "老胡"
+      },
+      {
+        "name": "副厂件保修半年",
+        "kind": "figure",
+        "pattern": ["保修|质保", "半年|6个月|六个月|180天"],
+        "subject": "保修|质保",
+        "said": [4],
+        "stated": true,
+        "notBy": "老胡"
+      },
+      {
+        "name": "油封用副厂件",
+        "kind": "decision",
+        "pattern": ["油封", "副厂", "决定|就用|就选|同意|选用|用副厂|换副厂"],
+        "subject": "油封",
+        "said": [5]
+      },
+      {
+        "name": "刹车盘一起换",
+        "kind": "decision",
+        "pattern": ["刹车盘", "换|更换", "决定|同意|一起|也换|也要换|就换|都换"],
+        "subject": "刹车盘",
+        "said": [7]
+      },
+      {
+        "name": "刹车盘一对520",
+        "kind": "figure",
+        "pattern": ["刹车盘", "(?:(?<![\\d.,])(?:520)(?!\\d)|五百二十)"],
+        "subject": "刹车盘",
+        "said": [6],
+        "stated": true,
+        "notBy": "老胡"
+      },
+      {
+        "name": "工时费150",
+        "kind": "figure",
+        "pattern": ["工时|人工|工钱", "(?:(?<![\\d.,])(?:150)(?!\\d)|一百五十|一百五)"],
+        "subject": "工时|人工",
+        "said": [6, 7],
+        "confirmed": true,
+        "notBy": "老胡"
+      },
+      {
+        "name": "老胡明天修好",
+        "kind": "action",
+        "pattern": ["老胡", "修|修好|修完|车|维修", "明天"],
+        "subject": "老胡",
+        "said": [7, 8],
+        "owner": "老胡",
+        "forbid": "对方"
+      },
+      {
+        "name": "总价930",
+        "kind": "figure",
+        "pattern": ["总价|合计|一共|总共|算下来", "(?:(?<![\\d.,])(?:930)(?!\\d)|九百三十)"],
+        "subject": "总价|合计|一共",
+        "said": [9],
+        "stated": true,
+        "notBy": "老胡"
+      }
+    ],
+    "topics": [
+      {
+        "name": "故障",
+        "pattern": "变速箱|刹车盘|漏油|磨"
+      },
+      {
+        "name": "配件价格",
+        "pattern": "油封|原厂|副厂|520|680|260"
+      },
+      {
+        "name": "工时与总价",
+        "pattern": "工时|总价|一共|算下来"
+      },
+      {
+        "name": "交车",
+        "pattern": "明天|修好|通知|车主"
+      }
+    ]
   }
 ]
