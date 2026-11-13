@@ -1358,6 +1358,10 @@
     padding: 1px;
     border-radius: 3px;
   }
+  /* The ring and its "+" (#3019). */
+  .mind-health-icon--wide {
+    width: 18px;
+  }
   :is(.check-row, .check-badge-mark):is([data-part="found"], [data-part="supported"])
     .mind-health-icon {
     padding: 0;
@@ -1956,6 +1960,30 @@
     color: var(--color-ink-secondary);
   }
   .check-row:is(:hover, :focus-visible) > .check-row-next {
+    background: var(--color-hover);
+    color: var(--color-ink);
+  }
+  /* A row with its own action, Add all (#3019): its Next button lies under the whole row, as the
+     other rows are one button, and the action sits over it, before Next. */
+  .check-row--action {
+    position: relative;
+    grid-template-columns: 16px 1fr auto auto;
+  }
+  .check-row-go {
+    position: absolute;
+    inset: 0;
+    border-radius: 6px;
+    outline: none;
+
+    &:focus-visible {
+      outline: 2px solid var(--color-accent);
+      outline-offset: -2px;
+    }
+  }
+  .check-row-action {
+    position: relative;
+  }
+  .check-row--action:has(> .check-row-go:is(:hover, :focus-visible)) > .check-row-next {
     background: var(--color-hover);
     color: var(--color-ink);
   }
@@ -5900,8 +5928,9 @@
     flex-shrink: 0;
   }
   /* An unchecked sentence has no mark on the page (#1941): its button stays as its card's anchor,
-     keeping its box and place, but draws nothing, takes no pointer or focus, and leaves the tab order. */
-  .margin-check[data-check="not-checked"] {
+     keeping its box and place, but draws nothing, takes no pointer or focus, and leaves the tab order.
+     One whose ✓ waits on the Passage its check found becoming a Citation shows, to add it (#3019). */
+  .margin-check[data-check="not-checked"]:not([data-waiting]) {
     visibility: hidden;
   }
   /* Each check's colours: on its mark, and on its card's state line and quote. */

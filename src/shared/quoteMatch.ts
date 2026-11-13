@@ -508,6 +508,17 @@ export function findQuote(
 }
 
 /**
+ * The parts of a quote with an ellipsis, as `findQuote` reads them when the quote isn't in a text
+ * as it is (see the module comment): none when it has no ellipsis, or a part too short to count.
+ */
+export function quoteParts(quote: string): string[] {
+  const parts = needleOf(quote)
+    .split(ELLIPSIS)
+    .filter((part) => part !== "");
+  return parts.length > 1 && parts.every(longEnough) ? parts : [];
+}
+
+/**
  * Every place `quote` is in `text`, not only the first: a highlight's mark is
  * drawn at the place its selection's words around it fit, which is not always
  * the first of the same words.

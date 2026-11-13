@@ -68,6 +68,7 @@ const STOP_BEFORE =
   "Spring tides come at new and full moon, and they flood the harbour every year.[^1]";
 const COMMA_TAIL = "The harbour floods in spring[^1], in every region.";
 const COMMA_TAIL_ZH = "大潮出现在新月和满月时[^1]，每年如此。";
+const POINTS = "The margin rose 6 percentage points";
 
 /** A sentence as a check reads it: the Citation after its words as U+FFFC. */
 const asChecked = (words: string) => `${words} ${INLINE_NODE}.`;
@@ -145,6 +146,7 @@ const RAW_PLANS: Record<string, Plan> = {
   [asCheckedZh(RECORD_CUT_ZH)]: partly("截止日期", "港口被淹没"),
   [`${RECORD_SOURCE_ZH}。`]: { verdict: "unsupported", judgement: "same" },
   [`${RECORD_NEXT_ZH}。`]: { verdict: "unsupported", judgement: "same" },
+  [asChecked("The margin rose 6%")]: { verdict: "supported", quote: POINTS, says: POINTS },
 };
 
 const PLANS: Record<string, Plan> = Object.fromEntries(
@@ -170,6 +172,8 @@ interface Writing {
   record?: { name: string; contents: string | Uint8Array; quote: string; query: string };
   /** Hears each request that isn't streamed, answered as `PLANS` says. */
   generated?: (call: GenerateCall) => void;
+  /** What a check is told decides a sentence when it asks for the Passage once more; none by default. */
+  evidence?: string;
   /** It writes before it cites: `cite` comes beside the write, after it, or in the step after. */
   citesAfter?: "beside" | "next-step";
   /** Its closing reply fails, so the Answer does. */
@@ -201,6 +205,7 @@ function writingModel(
     cut = "Spring tides come at new and full moon [1].",
     record,
     generated,
+    evidence,
     citesAfter,
     replyFails = false,
   }: Writing,
@@ -255,7 +260,7 @@ function writingModel(
       ? {
           generate: (call: GenerateCall) => {
             generated?.(call);
-            return checkGenerate(PLANS)(call);
+            return checkGenerate(PLANS, evidence)(call);
           },
         }
       : { generate: judgesNothing },
@@ -518,6 +523,29 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
     expect(lastResult(model)).toContain(
       "What their Citations don't support was taken out: “the yearly floods”.",
     );
+  });
+
+  // protects=a written sentence giving a percent where its Citation gives percentage points never lands supported, though the model calls it supported: the written check's figure path leaves a figure bound to a number in another unit not checked (#2997); fails_when="The margin rose 6%." lands supported; no_claim=the line Check against Documents gives on its own path, which #2997's measured table holds.
+  test("a percent its Citation gives as percentage points never lands supported", async () => {
+    const { core, client } = await write({
+      content: "## Margins\n\nThe margin rose 6% [^1].",
+      record: {
+        name: "Margins.md",
+        contents: `# Margins\n\n${POINTS}.\n`,
+        quote: POINTS,
+        query: "margin rose",
+      },
+      evidence: JSON.stringify({ passage: "P1", location: null, quote: POINTS }),
+    });
+
+    const marks = await marksIn(core, client);
+    expect(
+      marks.map(({ sentence, check }) => ({
+        sentence,
+        state: check.state,
+        reason: check.unsupported?.reason ?? null,
+      })),
+    ).toEqual([{ sentence: "The margin rose 6% .", state: "not-checked", reason: null }]);
   });
 
   // protects=a cut keeps each word's own formatting rather than giving all of it the first word's; fails_when=the plain words turn bold; no_claim=none beyond protects.
@@ -1417,6 +1445,55 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
       ["All Neap tides are twice as strong .", "needs-recheck"],
     ]);
   });
+
+  // protects=a sentence whose change the User accepts while its check runs is theirs: the cut doesn't go in, it stays as they accepted it, marked unsupported, and the model hears it is still unsupported, not that a part was taken out, in English and Chinese (#3019); fails_when=the check cuts the accepted words, or the model is told of a cut that didn't happen; no_claim=none beyond protects.
+  test.each([
+    {
+      language: "en",
+      content: `${OVERSTATED} [^1].`,
+      cut: undefined,
+      written: asChecked(OVERSTATED),
+      check: undefined,
+    },
+    {
+      language: "zh-CN",
+      content: `${OVERSTATED_ZH}[^1]。`,
+      cut: "大潮出现在新月和满月时[1]。",
+      written: asCheckedZh(OVERSTATED_ZH),
+      check: englishEvidence(`大潮出现在新月和满月时${INLINE_NODE}。`),
+    },
+  ])(
+    "a sentence the User accepts while its check runs isn't cut, and lands marked unsupported ($language)",
+    async ({ content, cut, written, check }) => {
+      let client: MindClient | null = null;
+      const { core, model } = await write(
+        {
+          content,
+          into: true,
+          cut,
+          check,
+          during: async () => {
+            if (!client) return;
+            await client.settled();
+            await resolveChanges(client, "accept");
+          },
+        },
+        ({ client: connected }) => {
+          client = connected;
+        },
+      );
+      const page = client as MindClient | null;
+      if (!page) throw new Error("No client.");
+      await page.settled();
+
+      expect(shownWithChanges(page).filter((line) => line.startsWith("+"))).toEqual([]);
+      expect(paragraphText(page, 2)).toBe(written);
+      const marks = await marksIn(core, page);
+      expect(marks.map(({ shown }) => shown.state)).toEqual(["unsupported"]);
+      expect(lastResult(model)).toContain("1 sentence is still not supported by its Citations");
+      expect(lastResult(model)).not.toContain("was taken out");
+    },
+  );
 
   // protects=a sentence with a Citation is checked even when it is too short to make a claim (#1909), as "€12 million" in a table; fails_when=isClaim leaves it unchecked; no_claim=the verdict.
   test("a short sentence with a Citation is checked", async () => {

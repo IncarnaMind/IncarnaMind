@@ -49,6 +49,7 @@ import {
   findQuote,
   lostLigatures,
   type MatchOptions,
+  quoteParts,
   type TextRange,
 } from "../../shared/quoteMatch";
 import { readableQuote, readableQuoteText } from "../../shared/readableQuote";
@@ -1179,6 +1180,127 @@ function recheckInCurrent(
     }
   }
   return result({ check: "not-found", checkReason: "quote-not-on-pages" }, cited);
+}
+
+/** About this many characters of a version are matched between yields: some 15 ms of the matcher. */
+const LOOK_WINDOW = 30_000;
+
+const nextTurn = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+/**
+ * Windows over a version's text (its Units joined, see `joinUnits`), each about `LOOK_WINDOW` long
+ * and cut after a line break where one is near, each starting at least `overlap` characters before
+ * the one before ends: any stretch of the text shorter than `overlap` is whole in one of them, over
+ * Units of any length. A cut inside a line is only for a line longer than a window.
+ */
+export function* windowsOf(text: string, overlap: number): Generator<TextRange> {
+  const size = Math.max(LOOK_WINDOW, overlap * 2);
+  let start = 0;
+  while (start < text.length) {
+    let end = Math.min(text.length, start + size);
+    if (end < text.length) {
+      const cut = text.lastIndexOf("\n", end - 1) + 1;
+      if (cut > start + overlap) end = cut;
+    }
+    yield { start, end };
+    if (end === text.length) return;
+    const next = text.lastIndexOf("\n", end - overlap - 1) + 1;
+    start = next > start ? next : end - overlap;
+  }
+}
+
+/**
+ * Where the whole quote stands in a version, matched by the check's own `findQuote` a window at a
+ * time with a turn of the event loop between (#3041), so a long Document never holds the app up.
+ * At one place a Citation could cite, one Unit or two that run on: its Location. In more than one
+ * place, or across more Units than a Citation cites: no Location. A quote with an ellipsis whose
+ * parts each still stand, though no window holds them together: no Location. Nowhere: null. The
+ * readings `findQuote` tries are tried in its order, a later one only when no window had the quote
+ * in the one before.
+ */
+export async function quoteElsewhere(
+  documents: RecheckDocuments,
+  input: Rechecked,
+  contentHash: string,
+): Promise<CitationRecheck["elsewhere"]> {
+  const { units, matching, inRange } = versionOf(documents, input.documentId, contentHash);
+  const quote = cleanQuote(input.quote);
+  if (quote === "") return null;
+  const { text, starts } = joinUnits(units);
+  const numbers = numbersIn(units);
+  const readings = (numbers === "if-needed" ? [false, true] : [numbers === true]).flatMap(
+    (each) => [
+      { numbers: each, lostLigatures: false },
+      ...(matching.lostLigatures ? [{ numbers: each, lostLigatures: true }] : []),
+    ],
+  );
+  // As `placesOf` has it: room for the quote and the spacing matching passes over.
+  const overlap = quote.length * 2 + 200;
+  const standsIn = async (wanted: string) => {
+    for (const reading of readings) {
+      for (const { start, end } of windowsOf(text, overlap)) {
+        await nextTurn();
+        if (findQuote(text.slice(start, end), wanted, reading)) return true;
+      }
+    }
+    return false;
+  };
+  const places: TextRange[][] = [];
+  for (const reading of readings) {
+    for (const { start, end } of windowsOf(text, overlap)) {
+      await nextTurn();
+      const window = text.slice(start, end);
+      const found = findQuote(window, quote, reading);
+      if (!found) continue;
+      if (!findQuote(window, quote, { ...reading, unique: true })) return { location: null };
+      const at = found.map((range) => ({ start: range.start + start, end: range.end + start }));
+      if (!places.some((place) => place[0]?.start === at[0]?.start)) places.push(at);
+      if (places.length > 1) return { location: null };
+    }
+    if (places.length > 0) break;
+  }
+  const [place] = places;
+  if (!place) {
+    // Its parts can stand further apart than a window: each is looked for on its own.
+    const parts = quoteParts(quote);
+    if (parts.length === 0) return null;
+    for (const part of parts) if (!(await standsIn(part))) return null;
+    return { location: null };
+  }
+  const covered = units.filter((unit, index) => {
+    const at = starts[index] ?? 0;
+    return place.some((range) => range.start < at + unit.text.length && range.end > at);
+  });
+  const [first, second] = covered;
+  if (!first || first.page === null || covered.length > 2) return { location: null };
+  if (second && (second.page !== first.page + 1 || !sameRun(first, second))) {
+    return { location: null };
+  }
+  const cited = inRange({ pageFrom: first.page, pageTo: second?.page ?? first.page });
+  return { location: locationOf(cited, quoteInUnits(cited, quote, matching)) };
+}
+
+/**
+ * `quoteElsewhere` for a core: one look for each Citation at a time (#3041), so a card and the
+ * viewer asking while it runs share it. Nothing is kept once it ends.
+ */
+export function sharedQuoteLooks(documents: RecheckDocuments) {
+  const running = new Map<string, Promise<CitationRecheck["elsewhere"]>>();
+  return (input: Rechecked, contentHash: string): Promise<CitationRecheck["elsewhere"]> => {
+    const key = JSON.stringify([
+      input.documentId,
+      contentHash,
+      input.quote,
+      input.pageFrom,
+      input.pageTo,
+      input.location ?? null,
+    ]);
+    const known = running.get(key);
+    if (known) return known;
+    const look = quoteElsewhere(documents, input, contentHash).finally(() => running.delete(key));
+    running.set(key, look);
+    return look;
+  };
 }
 
 // Processing peels running headers and footers off a PDF's stored pages (../documents/boilerplate):

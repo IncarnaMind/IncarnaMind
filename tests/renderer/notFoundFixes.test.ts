@@ -1022,7 +1022,7 @@ describe("Use the Document's wording for one forecast part", () => {
     if (!span) throw new Error("The forecast check was not read.");
     applyDocumentWording(
       editor,
-      { ...span, shown: { state: "unsupported" } },
+      { ...span, shown: { state: "unsupported" }, reads: span.check },
       forecast(sentence.length),
     );
     const retained = claimSpans(editor.state.doc)[0]?.check;

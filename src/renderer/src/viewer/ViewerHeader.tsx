@@ -1,10 +1,10 @@
 import { isMacOS } from "@tiptap/core";
 import { createContext, type ReactNode, useContext, useMemo, useRef } from "react";
 import type { Document } from "../../../core/api";
-import { changedSourceLines, citationState, quoteStanding } from "../../../shared/citations";
+import { changedSourceLines, citationState, whereQuoteStands } from "../../../shared/citations";
 import { displayName, sourceOf } from "../../../shared/documentNames";
 import { useAnnotations } from "../annotations";
-import { useCitationRecheck } from "../citationVersion";
+import { useCitationRecheck, useQuoteLook } from "../citationVersion";
 import { CountItLine } from "../components/CountItLine";
 import { YourNoteLabel } from "../components/DocumentsSection";
 import { InlineName } from "../components/InlineName";
@@ -111,8 +111,8 @@ export function ViewerHeader({
     [cited, target, documents],
   );
   const changedState = citedState?.changedAfterCited ?? false;
-  const recheck = useCitationRecheck(
-    // The cited version's own view says how it stands, not the newer one's.
+  // The cited version's own view says how it stands, not the newer one's.
+  const rechecked =
     !showingCited && cited && target?.quote
       ? {
           documentId: target.documentId,
@@ -122,12 +122,10 @@ export function ViewerHeader({
           quote: target.quote,
           location: cited.location,
         }
-      : null,
-    changedState,
-    document?.contentHash,
-    // The Document's own viewer is browsing, which a Folder wall leaves open (#1934).
-    null,
-  );
+      : null;
+  // The Document's own viewer is browsing, which a Folder wall leaves open (#1934).
+  const checked = useCitationRecheck(rechecked, changedState, document?.contentHash, null);
+  const recheck = useQuoteLook(rechecked, checked, null);
   const citedPlace = {
     pageFrom: cited?.pageFrom ?? target?.pageFrom ?? null,
     pageTo: cited?.pageTo ?? target?.pageTo ?? null,
@@ -140,7 +138,7 @@ export function ViewerHeader({
   const standing =
     recheck === null || recheck === "failed" || "keptInside" in recheck
       ? null
-      : quoteStanding(citedPlace, recheck);
+      : (whereQuoteStands(citedPlace, recheck)?.standing ?? null);
   const gone = placeGone && target ? citedPlaceGoneLine(target, t, documents, standing) : null;
   const notice = [changed?.notice, changed?.quote, gone].reduce<string>(
     (text, line) => (line ? `${text}${text ? gap(text, line) : ""}${line}` : text),

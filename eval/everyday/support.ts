@@ -16,7 +16,9 @@ import type {
   MarkedFigure,
   UnsupportedReason,
 } from "../../src/core";
+import { restsElsewhere } from "../../src/shared/citedNow";
 import { citedSentences as markedSentences } from "../../src/shared/citedSentences";
+import { resultFromParts } from "../../src/shared/claimParts";
 import type { Hear } from "../lib/tokens";
 import { type HeardCheck, heardChecks } from "./checkRequests";
 
@@ -91,11 +93,55 @@ function partOf(sentence: string, part: ClaimCheckPart): CheckedPart {
   };
 }
 
+/**
+ * The check's result as a Note reads it against the sentence's Citations (#3019): a Supported part
+ * resting on a Passage they don't hold reads Not checked, `found-elsewhere`.
+ */
+function asCitedNow(
+  checked: Pick<CitedSentence, "sentence" | "cited">,
+  result: ClaimCheckResult,
+): ClaimCheckResult {
+  const held = checked.cited.map((cited) => ({
+    documentId: cited.documentId ?? null,
+    contentHash: cited.contentHash ?? null,
+    quote: cited.quote,
+  }));
+  const rests = (part: Parameters<typeof restsElsewhere>[0]) =>
+    restsElsewhere(part, held, checked.sentence);
+  if (!result.parts) {
+    if (result.verdict !== "supported" || !result.evidence || result.figures?.length) return result;
+    const whole = {
+      verdict: result.verdict,
+      evidence: [result.evidence],
+      calculation: result.calculation,
+      ...(result.readDocuments && { readDocuments: result.readDocuments }),
+    };
+    return rests(whole)
+      ? {
+          verdict: "not-checked",
+          reason: "found-elsewhere",
+          detail: null,
+          versions: result.versions,
+          excluded: result.excluded,
+        }
+      : result;
+  }
+  if (!result.parts.some(rests)) return result;
+  return resultFromParts(
+    result.parts.map((part) =>
+      rests(part)
+        ? { ...part, verdict: "not-checked", reason: "found-elsewhere", detail: null }
+        : part,
+    ),
+  );
+}
+
 /** A sentence's verdict as the record keeps it: what it cites and why the check ruled so. */
 export function sentenceSupport(
   checked: Pick<CitedSentence, "sentence" | "cited">,
-  result: ClaimCheckResult,
+  checkResult: ClaimCheckResult,
 ): SentenceSupport {
+  const result = asCitedNow(checked, checkResult);
   return {
     sentence: checked.sentence,
     verdict: result.verdict,

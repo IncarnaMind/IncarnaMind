@@ -51,7 +51,7 @@ import { useAnswers } from "../answers";
 import { CallStartsContext, OtherCallsContext, useTranscriptStart } from "../callStarts";
 import { type MindFormatting, useMindFormatting } from "../citationFormatting";
 import { followNewVersion } from "../citationUpdate";
-import { useCitationRecheck } from "../citationVersion";
+import { useCitationRecheck, useQuoteLook } from "../citationVersion";
 import { applyCitationWording, citationWordingFix } from "../citationWording";
 import { citationHandle } from "../commands/handles";
 import { type CommandContext, commands } from "../commands/registry";
@@ -962,10 +962,16 @@ function CitationCard({
   const scanned = useScannedQuote(attributes);
   const scannedText = useScannedText(state.reason === "unsure-word" ? state.documentId : null);
   const quote = useReadableQuote(attributes);
+  const said = useQuoteLook(
+    attributes,
+    recheck,
+    useContext(MindIdContext),
+    useContext(ConversationIdContext),
+  );
   const { note: changed, on } = changedSourceLines(
     state.changedAfterCited,
     attributes,
-    recheck,
+    said,
     live,
     language,
     t,
@@ -1014,6 +1020,11 @@ function CitationCard({
         {attributes.yourNoteAt && (
           <p data-testid="citation-own-record" className="citation-card-note">
             {t("citation.ownRecord")}
+          </p>
+        )}
+        {attributes.foundByCheck && (
+          <p data-testid="citation-found-by-check" className="citation-card-note">
+            {t("citation.foundByCheck")}
           </p>
         )}
         {state.keptInside && (

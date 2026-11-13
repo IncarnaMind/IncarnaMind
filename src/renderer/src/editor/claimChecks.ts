@@ -14,14 +14,18 @@ import {
   type CellFigurePlace,
   CHART_NODE,
   CITATION_NODE,
+  type CitationAttributes,
   CLAIM_CHECK_MARK,
   type ClaimCheckAttributes,
+  type ClaimCheckPart,
   type RetainedFigureAnalysis,
   type SearchScope,
 } from "../../../core/api";
 import type { NoteParagraph, RecordCiteNote } from "../../../core/recordCites/referents";
 import { readCalculatedFigureEvidence } from "../../../shared/calculatedFigures";
 import { chartCheckText, chartPoints, readChart } from "../../../shared/charts";
+import { citationAttributesOf } from "../../../shared/citations";
+import { asCitedNow } from "../../../shared/citedNow";
 import {
   analysisFigureShown,
   type ClaimCheckShown,
@@ -362,6 +366,11 @@ export function figurePlacesOf(
 export interface ShownClaim extends ClaimSpan {
   shown: Exclude<ClaimCheckShown, { state: "kept" }>;
   /**
+   * The check as the sentence's Citations read it now (`asCitedNow`, #3019): what its mark and card
+   * show. `check` is what the mark stores, which every change to the mark starts from.
+   */
+  reads: ClaimCheckAttributes;
+  /**
    * A needs-recheck its sentence's edit made, where the check would still hold with the words it was
    * checked on: what an edit leaves to check only if nothing else moved since (#2313).
    */
@@ -398,6 +407,20 @@ const NO_CONTEXT: ClaimContext = {
   scope: null,
 };
 
+/** The Citations in a sentence's stretch of the document, as its card finds them (`citationsOf`). */
+function citationsWithin(
+  doc: ProseMirrorNode,
+  { from, to }: { from: number; to: number },
+): Partial<CitationAttributes>[] {
+  const found: Partial<CitationAttributes>[] = [];
+  doc.nodesBetween(from, to, (node, pos) => {
+    if (node.type.name === CITATION_NODE && pos >= from && pos < to)
+      found.push(citationAttributesOf(node.attrs));
+    return true;
+  });
+  return found;
+}
+
 /** The checks in a document as they show now, and the sentences the User keeps as their own view. */
 export function claimsOf(
   doc: ProseMirrorNode,
@@ -414,9 +437,11 @@ export function claimsOf(
             ([from, to]) => from >= place.from && to <= place.to,
           )
         : undefined;
+    const citations = span.kind === "chart" ? [] : citationsWithin(doc, span.sentence);
     let shown = claimCheckShown(span.check, {
       ...context,
       text: span.sentence.text,
+      citations,
       ...(figured !== undefined && { figured }),
       ...note(span),
     });
@@ -425,6 +450,7 @@ export function claimsOf(
         ? claimCheckShown(span.check, {
             ...context,
             text: span.check.text,
+            citations,
             ...(figured !== undefined && { figured }),
             ...note(span),
           })
@@ -448,6 +474,7 @@ export function claimsOf(
       claims.push({
         ...span,
         shown,
+        reads: asCitedNow(span.check, citations, span.sentence.text),
         ...(holdsWithItsText !== null && {
           holdsWithItsText:
             holdsWithItsText.state === "supported" ||
@@ -481,7 +508,7 @@ function stateOf(
   // box, exactly its own width plus 4px, so the room never makes a line of its own.
   const roomsOf = inline
     ? claims.flatMap(({ check, sentence, shown }) =>
-        shown.state === "not-checked"
+        shown.state === "not-checked" && !foundElsewhere({ shown, check })
           ? []
           : [
               Decoration.inline(sentence.to - 1, sentence.to, {
@@ -557,6 +584,32 @@ export const sameCoverage = (a: Coverage, b: Coverage | null | undefined): boole
 /** What a check's margin glyph shows (`claimMarkState`). */
 export const markOf = (claim: ShownClaim) => claimMarkState(claim.shown.state, claim.check);
 
+/**
+ * Whether it is Supported, not yet cited (#3019): the model's ✓, which shows once the Passage its
+ * check found is one of the sentence's Citations. Its mark shows, and it is counted apart. A mark an
+ * older version stored as Not checked, found elsewhere, has no verdict to bring back: it is Not
+ * checked, and a check makes it again.
+ */
+export const foundElsewhere = ({ shown, check }: Pick<ShownClaim, "shown" | "check">): boolean =>
+  shown.state === "not-checked" &&
+  shown.reason === "found-elsewhere" &&
+  check.state !== "not-checked";
+
+/** The parts of a check, as its Citations read them now, that are Supported, not yet cited (#3019). */
+export function waitingParts({
+  check,
+  reads,
+}: Pick<ShownClaim, "check" | "reads">): ReadonlySet<ClaimCheckPart> {
+  return new Set(
+    (reads.parts ?? []).filter(
+      (part, index) =>
+        part.verdict === "not-checked" &&
+        part.reason === "found-elsewhere" &&
+        (check.parts?.[index]?.verdict ?? check.state) === "supported",
+    ),
+  );
+}
+
 /** The checks in the editor, as they show now. Empty without `ClaimChecks`. */
 export function shownClaims(state: EditorState): readonly ShownClaim[] {
   return claimsKey.getState(state)?.claims ?? [];
@@ -595,7 +648,11 @@ export function figureShownIn(
         : at < span.sentence.from || at >= span.sentence.to)
     )
       continue;
-    const now = { ...context, text: span.sentence.text };
+    const now = {
+      ...context,
+      text: span.sentence.text,
+      citations: span.kind === "chart" ? [] : citationsWithin(state.doc, span.sentence),
+    };
     const child = span.check.figures?.find((figure) => figure.id === id);
     if (!child) {
       // A whole-sentence check from before figures were checked one by one still says a re-check, a
