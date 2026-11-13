@@ -22,13 +22,8 @@ import type {
 import { toolTextIn } from "../../src/core/answers/toolText";
 import { createFakeCapture, type FakeCapture } from "../../src/core/meetings/fakeCapture";
 import type { TimingOutcome } from "../../src/core/timing/timings";
-import {
-  citationNumbers,
-  type ReplyItem,
-  readHelpReply,
-  sentencePassed,
-  shownItems,
-} from "../../src/renderer/src/helpReply";
+import { citationNumbers, sentencePassed } from "../../src/renderer/src/helpReply";
+import { type ReplyItem, readHelpReply, shownItems } from "../../src/shared/helpReplyRead";
 import { isTranscriptLocation } from "../../src/shared/locations";
 import { HELP_SHAPE, type HelpShape } from "../../src/shared/meetingHelp";
 import { normaliseText } from "../../src/shared/text";

@@ -28,6 +28,7 @@ import { translateNow, useT } from "../i18n";
 import { useAppStore, type ViewerTarget } from "../store";
 import { AnnotationNoteLayer } from "./AnnotationNoteLayer";
 import { noteMarkElement } from "./annotationMarks";
+import { citedPlaceGone } from "./citedPlace";
 import {
   ExpandIcon,
   FitWidthIcon,
@@ -652,12 +653,16 @@ function PdfPages({ document, pdfjs, pdf, firstPage, target, banner }: PdfPagesP
     places.remember({ page: currentPage, zoom: zoom.fit ? null : zoom.zoom });
   }, [places, currentPage, zoom]);
 
+  // A cited page past the end opens at the last page, which isn't the place cited: its text is
+  // not where the quote is looked for.
+  const placeGone = citedPlaceGone(target, pageCount);
+
   // Finds the quote on the pages of the range, for each page's text layer to highlight.
   useEffect(() => {
     const quote = target.quote;
     setHighlights(new Map());
     pendingHighlight.current = null;
-    if (!quote) return;
+    if (!quote || placeGone) return;
     let cancelled = false;
     const from = clamp(target.pageFrom ?? 1, 1, pageCount);
     const to = clamp(target.pageTo ?? from, from, Math.min(pageCount, from + MAX_QUOTE_PAGES - 1));
@@ -705,7 +710,16 @@ function PdfPages({ document, pdfjs, pdf, firstPage, target, banner }: PdfPagesP
     return () => {
       cancelled = true;
     };
-  }, [pdf, pageCount, scanned, target.request, target.quote, target.pageFrom, target.pageTo]);
+  }, [
+    pdf,
+    pageCount,
+    scanned,
+    placeGone,
+    target.request,
+    target.quote,
+    target.pageFrom,
+    target.pageTo,
+  ]);
 
   // The outline, if the PDF has one: its button shows only then.
   useEffect(() => {
@@ -790,6 +804,7 @@ function PdfPages({ document, pdfjs, pdf, firstPage, target, banner }: PdfPagesP
   return (
     <>
       <ViewerHeader
+        placeGone={placeGone}
         leading={
           hasOutline && (
             <OutlineToggle

@@ -1,13 +1,9 @@
 import { useEffect, useState } from "react";
-import type {
-  CallHelpKind,
-  ConversationAnswer,
-  MarkedCitation,
-  MeetingHelp,
-} from "../../../../core/api";
+import type { ConversationAnswer, MarkedCitation, MeetingHelp } from "../../../../core/api";
 import { citedLocation } from "../../../../shared/citations";
+import type { ReplyItem, ReplyPiece } from "../../../../shared/helpReplyRead";
 import { isTranscriptLocation } from "../../../../shared/locations";
-import { HELP_SHAPE, helpLabel } from "../../../../shared/meetingHelp";
+import { helpLabel } from "../../../../shared/meetingHelp";
 import { isTheirs, SPEAKER_ME } from "../../../../shared/speakers";
 import { useAnswers } from "../../answers";
 import { core } from "../../core";
@@ -15,8 +11,6 @@ import {
   citationNumbers,
   helpParts,
   quoted,
-  type ReplyItem,
-  type ReplyPiece,
   sentencePassed,
   uncheckedReason,
 } from "../../helpReply";
@@ -151,13 +145,10 @@ function Item({
   item,
   answer,
   numbers,
-  said,
 }: {
   item: ReplyItem;
   answer: ConversationAnswer;
   numbers: ReadonlyMap<number, number>;
-  /** It is an option to say: its sentence shows in quotation marks. */
-  said: boolean;
 }) {
   const t = useT();
   return (
@@ -174,7 +165,11 @@ function Item({
         )}
       </span>
       <span data-testid="help-option-say" className="help-option-say">
-        <Pieces pieces={said ? quoted(item.lead) : item.lead} answer={answer} numbers={numbers} />
+        <Pieces
+          pieces={item.said ? quoted(item.lead) : item.lead}
+          answer={answer}
+          numbers={numbers}
+        />
       </span>
       {item.notes.map((note, index) => (
         // biome-ignore lint/suspicious/noArrayIndexKey: a reading's notes are in the order written.
@@ -190,12 +185,6 @@ function Item({
     </div>
   );
 }
-
-/** An option to say, which shows in quotation marks: a button's, or a typed question's (#2925). */
-export const saysAloud = (kind: CallHelpKind, item: ReplyItem): boolean => {
-  const shape = HELP_SHAPE[kind];
-  return (shape === "options" || shape === "answer") && item.effect !== null;
-};
 
 /** The outline of options still to come: shown within 100 ms of a press. */
 export function HelpOutline({ count }: { count: number }) {
@@ -377,7 +366,6 @@ export function HelpSuggestion({
           item={item}
           answer={answer}
           numbers={numbers}
-          said={saysAloud(help.kind, item)}
         />
       ))}
       {streaming && items.length === 0 && <HelpOutline count={2} />}

@@ -6,7 +6,6 @@ import {
   HelpHeading,
   HelpOutline,
   HelpSuggestion,
-  saysAloud,
   useHelpAnswer,
 } from "../components/meetings/HelpSuggestion";
 import { ReadinessExplanation } from "../components/providers/ChatReadinessNotice";
@@ -264,7 +263,7 @@ function EarlierLine({
   const answer = useHelpAnswer(help);
   const first = answer ? helpItems(answer, help.kind)[0] : undefined;
   const start = answer && first ? piecesText(first.lead, answer.figures) : "";
-  const said = first !== undefined && saysAloud(help.kind, first);
+  const said = first?.said === true;
   return (
     <div ref={holder} className="help-earlier-row">
       <button

@@ -18,7 +18,7 @@ import { runOnArm } from "../../eval/speed/paired";
 import { sentPair } from "../../eval/speed/pairedReport";
 import type { CoreAdapters } from "../../src/core";
 import { createFakeEmbedder } from "../../src/core/embedding/fake";
-import { readHelpReply, shownItems } from "../../src/renderer/src/helpReply";
+import { readHelpReply, shownItems } from "../../src/shared/helpReplyRead";
 import { shownPassages } from "../helpers/citations";
 import { type ModelCall, scriptedModel } from "../helpers/models";
 

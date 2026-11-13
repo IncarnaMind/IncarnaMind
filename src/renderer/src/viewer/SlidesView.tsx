@@ -25,6 +25,7 @@ import { openDocumentPicture, pictureClickHandlers } from "../pictureViewer";
 import { useAppStore, type ViewerTarget } from "../store";
 import { visiblePartOf } from "./captureRect";
 import { useCitedArea } from "./citedArea";
+import { citedPlaceGone } from "./citedPlace";
 import { FileStates } from "./FileStates";
 import { HighlightedText } from "./highlightedText";
 import {
@@ -444,6 +445,7 @@ function Slides({
             <OutlineButton open={outlineOpen} onToggle={() => setOutlineOpen((open) => !open)} />
           )
         }
+        placeGone={citedPlaceGone(target, slides.length)}
       />
       <div className="flex min-h-0 flex-1">
         {outlineOpen && <UnitOutline entries={outline} current={current} onGo={goTo} />}
