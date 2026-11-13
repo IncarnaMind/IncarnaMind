@@ -23,19 +23,23 @@ import {
 const SECTION = {
   location: { kind: "section", heading: "Elsewhere" } as CitationLocation,
   words: { en: "§ Elsewhere", "zh-CN": "§ Elsewhere" },
+  named: true,
 };
 
 /**
  * Where a Citation points in each format once the Document no longer has that Unit (a Unit
- * numbered 9999), and how its chip words it in each language.
+ * numbered 9999), and how its chip words it in each language. A page and a slide are worded by
+ * their number, so they are gone; the others by a name ("Elsewhere" is a heading or a sheet the
+ * Document still has, under a lower number).
  */
 const GONE_PLACE: Record<
   string,
-  { location: CitationLocation; words: Record<"en" | "zh-CN", string> }
+  { location: CitationLocation; words: Record<"en" | "zh-CN", string>; named: boolean }
 > = {
   pdf: {
     location: { kind: "page", from: 9999, to: 9999 },
     words: { en: "p. 9999", "zh-CN": "第 9999 页" },
+    named: false,
   },
   md: SECTION,
   docx: SECTION,
@@ -43,20 +47,25 @@ const GONE_PLACE: Record<
   pptx: {
     location: { kind: "slide", from: 9999, to: 9999 },
     words: { en: "slide 9999", "zh-CN": "第 9999 张幻灯片" },
+    named: false,
   },
   xlsx: {
     location: { kind: "rows", sheet: "Elsewhere", from: 1, to: 1 },
     words: { en: "Elsewhere, row 1", "zh-CN": "Elsewhere，第 1 行" },
+    named: true,
   },
   web: SECTION,
   vtt: {
     location: { kind: "time", from: 20_000, to: 30_000 },
     words: { en: "0:20", "zh-CN": "0:20" },
+    named: true,
   },
 };
 const GONE_LINE = {
-  en: (place: string) => `The cited place (${place}) is no longer in this Document.`,
-  "zh-CN": (place: string) => `引用的位置（${place}）已不在此文档中。`,
+  en: (place: string, named: boolean) =>
+    `The cited place (${place}) is no longer ${named ? "where it was in" : "in"} this Document.`,
+  "zh-CN": (place: string, named: boolean) =>
+    `引用的位置（${place}）已不在${named ? "原处" : "此文档中"}。`,
 };
 
 for (const language of ["en", "zh-CN"] as const) {
@@ -228,7 +237,13 @@ for (const language of ["en", "zh-CN"] as const) {
           });
         await openCitedAt(9999);
         await expect(highlights).toHaveCount(0);
-        await expect(said).toHaveText(GONE_LINE[language](place.words[language]));
+        await expect(said).toHaveText(GONE_LINE[language](place.words[language], place.named));
+        // What the line names is still there, under a lower number, so it never says it is gone.
+        if (format === "xlsx") {
+          await expect(viewer.getByRole("tab", { name: "Elsewhere", exact: true })).toBeVisible();
+        } else if (format === "md" || format === "docx" || format === "web") {
+          await expect(viewer.getByText("Elsewhere", { exact: true }).first()).toBeVisible();
+        }
         await openCitedAt(last.page);
         await expect(highlights.first()).toBeVisible();
         await expect(said).toHaveCount(0);

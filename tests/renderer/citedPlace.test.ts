@@ -37,6 +37,8 @@ const line = (location: CitationLocation, language: "en" | "zh-CN") =>
   );
 
 describe("the line that says the cited place is gone", () => {
+  // A page or a slide is worded by its number, so it is past the Document's end; any other place is
+  // worded by its name, which the Document may still have under another number.
   test.each<[string, CitationLocation, string, string]>([
     [
       "a PDF page",
@@ -53,30 +55,45 @@ describe("the line that says the cited place is gone", () => {
     [
       "rows of a sheet",
       { kind: "rows", sheet: "Revenue", from: 12, to: 14 },
-      "The cited place (Revenue, rows 12–14) is no longer in this Document.",
-      "引用的位置（Revenue，第 12–14 行）已不在此文档中。",
+      "The cited place (Revenue, rows 12–14) is no longer where it was in this Document.",
+      "引用的位置（Revenue，第 12–14 行）已不在原处。",
     ],
     [
       "a heading's section",
       { kind: "section", heading: "Sensitivity" },
-      "The cited place (§ Sensitivity) is no longer in this Document.",
-      "引用的位置（§ Sensitivity）已不在此文档中。",
+      "The cited place (§ Sensitivity) is no longer where it was in this Document.",
+      "引用的位置（§ Sensitivity）已不在原处。",
     ],
     [
       "lines of a text file",
       { kind: "lines", from: 120, to: 134 },
-      "The cited place (lines 120–134) is no longer in this Document.",
-      "引用的位置（第 120–134 行）已不在此文档中。",
+      "The cited place (lines 120–134) is no longer where it was in this Document.",
+      "引用的位置（第 120–134 行）已不在原处。",
     ],
     [
       "a Transcript's line",
       { kind: "time", from: 723_000, to: 730_000, speaker: "Dana" },
-      "The cited place (Dana · 12:03) is no longer in this Document.",
-      "引用的位置（Dana · 12:03）已不在此文档中。",
+      "The cited place (Dana · 12:03) is no longer where it was in this Document.",
+      "引用的位置（Dana · 12:03）已不在原处。",
     ],
   ])("words %s as the chip does", (_name, location, english, chinese) => {
     expect(line(location, "en")).toBe(english);
     expect(line(location, "zh-CN")).toBe(chinese);
+  });
+
+  test.each([
+    ["its quote is no longer in the new version", "gone", true],
+    ["the new version isn't looked at yet", null, true],
+    ["its quote is now at another place", "moved", false],
+    ["its quote is still at its place", "found", false],
+  ] as const)("where %s, the line is said: %s", (_name, standing, said) => {
+    const place: CitationLocation = { kind: "section", heading: "Conclusion" };
+    const t = (key: Parameters<typeof translate>[1], params?: Record<string, string | number>) =>
+      translate("en", key, params);
+    const line = citedPlaceGoneLine(target({ check: "found", location: place }), t, null, standing);
+    expect(line).toBe(
+      said ? "The cited place (§ Conclusion) is no longer where it was in this Document." : null,
+    );
   });
 
   test("a Citation from before Locations names its page", () => {
