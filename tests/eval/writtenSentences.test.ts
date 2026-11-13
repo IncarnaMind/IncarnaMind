@@ -145,6 +145,35 @@ describe("the sentences a write added, as the everyday evaluation records them",
     ).toEqual([["The quay is busy in summer .", false]]);
   });
 
+  // protects=a Block a waiting change takes out, beside the Block that replaces it or nested in a Block that stays, isn't read as the write's, so its sentences aren't counted (#2830); fails_when=the removed Block's sentences are still recorded; no_claim=how a write replaces a Block.
+  test("a Block a waiting change takes out is left out, at any depth", () => {
+    const doc = new Y.Doc();
+    const blocks = doc.getXmlFragment("content");
+    paragraph(blocks, "old", ["The quay is quiet in summer."]);
+    paragraph(blocks, "new", ["The quay is busy in summer."]);
+    const quote = new Y.XmlElement("blockquote");
+    quote.setAttribute(BLOCK_ID_ATTRIBUTE, "quote");
+    blocks.push([quote]);
+    for (const [line, goes] of [
+      ["Boats leave at dawn.", false],
+      ["Boats leave at noon.", true],
+    ] as const) {
+      const inner = new Y.XmlElement("paragraph");
+      const text = new Y.XmlText();
+      inner.push([text]);
+      text.insert(0, line);
+      quote.push([inner]);
+      if (goes) setProposal(inner, { ...REMOVING, kind: "delete" });
+    }
+    const [old] = blocks.toArray();
+    if (!(old instanceof Y.XmlElement)) throw new Error("The removed Block isn't there.");
+    setProposal(old, { ...REMOVING, kind: "delete" });
+
+    expect(
+      writtenSentences(blocks, new Set(["old", "new", "quote"])).map((each) => each.text),
+    ).toEqual(["The quay is busy in summer.", "Boats leave at dawn."]);
+  });
+
   // protects=the reply-timing evaluation counts the Blocks a write's own waiting change is in, one it added and an existing one it rewrote, whether or not that write's check began, and no Block another change or none touched (#2830); fails_when=a rewritten existing Block is left out, so the write counts no sentence; no_claim=which Blocks a model rewrites.
   test("the Blocks a write's waiting change is in, added or rewritten", () => {
     const doc = new Y.Doc();

@@ -33,6 +33,10 @@ const field = (value: unknown, name: string): string | null => {
   return typeof found === "string" && found !== "" ? found : null;
 };
 
+/** Whether a waiting change takes the node out, a Block at any depth or an inline node. */
+const removed = (node: Y.XmlElement) =>
+  readProposalAttribute(node.getAttribute(PROPOSAL_ATTRIBUTE))?.kind === "delete";
+
 /** A paragraph's text as a check reads it, each inline node as U+FFFC, with the mark each character carries. */
 function lineOf(paragraph: Y.XmlElement) {
   let text = "";
@@ -52,8 +56,7 @@ function lineOf(paragraph: Y.XmlElement) {
         for (let at = 0; at < run.insert.length; at++) marks.push(mark);
       }
     } else if (child instanceof Y.XmlElement) {
-      if (readProposalAttribute(child.getAttribute(PROPOSAL_ATTRIBUTE))?.kind === "delete")
-        continue;
+      if (removed(child)) continue;
       if (child.nodeName === CITATION_NODE)
         cited.push({ at: text.length, citation: citationAttributesOf(child.getAttributes()) });
       text += child.nodeName === "hardBreak" ? "\n" : INLINE_NODE;
@@ -73,7 +76,7 @@ export function writtenSentences(
 ): WrittenSentence[] {
   const found: WrittenSentence[] = [];
   const visit = (element: Y.XmlElement, inHeader: boolean) => {
-    if (UNCHECKED_BLOCKS.has(element.nodeName)) return;
+    if (UNCHECKED_BLOCKS.has(element.nodeName) || removed(element)) return;
     if (element.nodeName !== "paragraph") {
       for (const child of element.toArray())
         if (child instanceof Y.XmlElement)
