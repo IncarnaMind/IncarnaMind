@@ -1,7 +1,7 @@
 /**
  * What the everyday evaluation's record keeps of each cited sentence's check
  * (eval/everyday/checkRequests.ts, #3019): each quote the check's model gave the
- * cite Tool, the Citation check's answer to it, and the run's replies.
+ * cite Tool, the Citation check's answer to it, the run's replies, and each ask for its evidence.
  */
 import type { LanguageModelV4Prompt } from "@ai-sdk/provider";
 import { describe, expect, test } from "vitest";
@@ -9,6 +9,7 @@ import { ask, judgedAnswer } from "../../eval/everyday/asking";
 import { heardChecks } from "../../eval/everyday/checkRequests";
 import { checkCitedSentences } from "../../eval/everyday/support";
 import { watchTokens } from "../../eval/lib/tokens";
+import { EVIDENCE_INSTRUCTIONS } from "../../src/core/answers/checks/prompt";
 import { checkGenerate, checkingModel, checkReply, isCheckRun, type Plan } from "../helpers/checks";
 import { type SourceFile, setUpWithDocuments, shownPassages } from "../helpers/citations";
 import { scriptedModel } from "../helpers/models";
@@ -89,10 +90,34 @@ describe("The record of what a check asked its model and was told", () => {
           },
         ],
         replies: ["Verdict: supported\nEvidence: [1]"],
+        asks: [],
       },
-      { claim: "The paper suggests local lookups.", quotes: [], replies: ["Verdict: unsupported"] },
-      { claim: null, quotes: [], replies: ["same"] },
+      {
+        claim: "The paper suggests local lookups.",
+        quotes: [],
+        replies: ["Verdict: unsupported"],
+        asks: [],
+      },
+      { claim: null, quotes: [], replies: ["same"], asks: [] },
     ]);
+  });
+
+  // protects=the check's ask for the records its verdict named is kept in its run, with what it told the model and the reply, beside the run's replies, and no other request of the run is taken for one; fails_when=the ask or its reply is lost, or the verdict's request reads as an ask; no_claim=what the ask says, which tests/core/evidenceAsk.test.ts holds.
+  test("the ask for the check's evidence is kept with its reply", () => {
+    const ask = `<sentence>\n${TABLE_ROW}\n</sentence>\nMissing Citation markers: [1,2]`;
+    const reply = '{"citations":[{"marker":1,"passage":"P3","quote":"A residual connection [1]"}]}';
+    const [run] = heardChecks([
+      { prompt: [asked(TABLE_ROW)], text: "Verdict: supported\nEvidence: [1, 2]" },
+      {
+        prompt: [
+          { role: "system", content: EVIDENCE_INSTRUCTIONS },
+          { role: "user", content: [{ type: "text", text: ask }] },
+        ],
+        text: reply,
+      },
+    ]);
+    expect(run?.asks).toEqual([{ text: ask, reply }]);
+    expect(run?.replies).toEqual(["Verdict: supported\nEvidence: [1, 2]", reply]);
   });
 
   // protects=a quote recorded beside a problem named for its own marker is not found, and one recorded beside another marker's problem is; fails_when=any problem in the answer marks every quote of the call as not found, or none; no_claim=none beyond protects.

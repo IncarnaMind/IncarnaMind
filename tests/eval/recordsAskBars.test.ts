@@ -7,6 +7,7 @@
  */
 import { describe, expect, test } from "vitest";
 import type { EvidenceAsk } from "../../eval/everyday/checkRequests";
+import { statedIn } from "../../eval/everyday/judge";
 import { type Arm, type ItemRecord, voidReasons } from "../../eval/everyday/recordsAsk";
 import {
   type ArmInfo,
@@ -274,5 +275,22 @@ describe("The records ask's bars", () => {
     ).toBe(false);
     expect(twoQuotesUnderOneMarker(`[^1]: “${ROWS[0]}”\n[^2]: “${ROWS[1]}”`)).toBe(false);
     expect(twoQuotesUnderOneMarker(`The table gives “${ROWS[0]}” and “${ROWS[1]}”.`)).toBe(false);
+  });
+
+  // protects=each numbered line of the judge's reply gives its sentence stated or the words it names, its last line for a number winning, with list marks and bold around the number read; a sentence with no line is counted unstated, saying the reply didn't read for it; fails_when=an unstated line reads as stated, a correction is ignored, or a missing line drops out of the count; no_claim=how well the judge reads.
+  test("the judge's reply is read for each sentence's last line, and one with none as unread", () => {
+    const reply = [
+      "1: stated",
+      "- 2: unstated: “only on short inputs”",
+      "**3**: unstated: “承认”",
+      "1: unstated",
+    ].join("\n");
+    expect(statedIn(reply, 4)).toEqual([
+      "(no words named)",
+      "“only on short inputs”",
+      "“承认”",
+      expect.stringContaining("the judge's reply doesn't read for it"),
+    ]);
+    expect(statedIn("1. stated\n2) Stated", 2)).toEqual([null, null]);
   });
 });
