@@ -362,6 +362,33 @@ describe("A short stretch read on this computer (#1031)", () => {
       },
     );
 
+    // protects=when a part can't be read, the stretch keeps its first reading and the stream is taught by that reading alone, not also by a part read before the failure; fails_when=an abandoned part's language stays among the stream's latest readings, so its next short stretch goes untold; no_claim=why the model failed.
+    test.each([
+      ["en", ENGLISH, CHINESE, "Yeah.", "对。"],
+      ["zh-CN", CHINESE, ENGLISH, "对。", "Yeah."],
+    ])(
+      "%s: a part that can't be read leaves the stream knowing what its first reading taught",
+      async (_language, long, other, told, untold) => {
+        const engine = await createSherpaEngine(model, { newTokens: 6 });
+        // 10 s at the limit, read in the stream's language; its parts 5.95 s, read in the other, and 4.05 s, which fails.
+        answer = (seconds, options) => {
+          if (seconds >= 8) return long;
+          if (seconds >= 5) return other;
+          if (seconds >= 4) throw new Error("The model stopped.");
+          return options.language ? told : untold;
+        };
+        tokensOf = (seconds) => (seconds === 10 ? 3 : 0);
+        const warned = vi.spyOn(console, "warn").mockImplementation(() => {});
+        const read = (seconds: number) =>
+          engine.recognizer.decode(audio(seconds), `meeting-failed-${_language}:mic`, []);
+        await read(8);
+
+        expect(await read(10)).toBe(long);
+        expect(await read(1)).toBe(told);
+        warned.mockRestore();
+      },
+    );
+
     afterEach(() => {
       tokensOf = () => 0;
     });

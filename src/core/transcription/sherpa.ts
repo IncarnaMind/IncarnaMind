@@ -416,12 +416,16 @@ export async function createSherpaEngine(
       Math.round(samples.length * SECOND_PART_FROM),
       Math.round(samples.length * SECOND_PART_BY),
     );
+    const known = heard.get(stream);
     let first: string;
     let second: string;
     try {
       first = await plainly(samples.subarray(0, cut), stream, false);
       second = await plainly(samples.subarray(cut), stream, false);
     } catch (error) {
+      // The first reading is kept in the parts' place: what a part taught the stream is forgotten.
+      if (known === undefined) heard.delete(stream);
+      else heard.set(stream, known);
       console.warn(
         "The speech model couldn't read a stretch again in two parts; it keeps its first reading.",
         error instanceof Error ? error.name : typeof error,
