@@ -50,28 +50,18 @@ describe("the watt and the watt-hour by themselves (#2997)", () => {
   });
 });
 
-describe("an English W before a capital or a number (#2997)", () => {
-  // protects=a W after a number is watts before a capitalised word or a number too, where the words after it are no address, so "It draws 60 W. The case is steel." and "a 60 W LED" give 60 W; fails_when=either reads a plain 60; no_claim=a W before a lower-case word, which reads as before.
+describe("a W before a capitalised word or a number may be West (#2997)", () => {
+  // protects=a W after a number that runs on into a capitalised word or a number stays unread, since it is as often West as watts, so a block, an exit or a house number stays a plain number; fails_when="Block 5 W Wing", "Exit 12 W Toward Katy" or "100 W 42nd Street" reads watts; no_claim="It draws 60 W. The case is steel.", whose 60 reads plain too until a figure carries both readings.
   test.each([
-    ["It draws 60 W. The case is steel.", [["60 W", "W"]]],
-    ["The lamp is a 60 W LED.", [["60 W", "W"]]],
-    ["Its 60 W Philips bulb is dim.", [["60 W", "W"]]],
+    ["The office is in Block 5 W Wing of the campus.", [["5", "plain"]]],
     [
-      "Lamps of 60 W 230 V",
+      "Take Exit 12 W Toward Katy, then 3 miles.",
       [
-        ["60 W", "W"],
-        ["230", "plain"],
+        ["12", "plain"],
+        ["3 miles", "miles"],
       ],
     ],
-  ])("%s reads watts", (text, figures) => {
-    expect(read(text)).toEqual(figures);
-  });
-
-  // protects=a W before a street's name and type, with or without its dot or an ordinal, is West, so the number is a plain house number; fails_when="100 W 42nd Street" reads 100 watts; no_claim=a street written without its type ("31 W Main").
-  test.each([
     ["The office is at 100 W 42nd Street.", [["100", "plain"]]],
-    ["The office is at 31 W. Main St.", [["31", "plain"]]],
-    ["The office is at 31 W Lake Shore Drive.", [["31", "plain"]]],
   ])("%s reads no watts", (text, figures) => {
     expect(read(text)).toEqual(figures);
   });

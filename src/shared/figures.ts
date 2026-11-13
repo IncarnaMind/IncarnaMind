@@ -1304,14 +1304,8 @@ const CN_COUNTS =
 const CN_MEASURE_AFTER = new RegExp(CN_MEASURES.join("|").replace(/瓦$/u, "瓦(?!片)"), "y");
 // "所" counts schools ("3所学校"), but "表3所示" is "as table 3 shows".
 const CN_COUNT_AFTER = new RegExp(CN_COUNTS.join("|").replace("所", "所(?![示述列载有以在])"), "y");
-// "31 W. Main St." and "100 W 42nd Street" are addresses, where a W is West; before any other word
-// or number it is watts ("It draws 60 W. The case is steel.", "a 60 W LED").
-const STREET =
-  /(?:(?:[A-Z][a-z]*|\d+(?:st|nd|rd|th))\.? )+(?:St|Street|Ave|Avenue|Rd|Road|Blvd|Boulevard|Dr|Drive|Ln|Lane|Way|Pl|Place|Ct|Court|Pkwy|Parkway|Hwy|Highway|Sq|Square|Ter|Terrace)(?![A-Za-z])/;
-const EN_UNIT_AFTER = new RegExp(
-  String.raw`[ \n]?(?:users?|customers?|clients?|subscribers?|members?|employees?|staff|people|persons?|patients?|students?|visitors?|households?|homes?|stores?|outlets?|branches|branch|restaurants?|vehicles?|cars?|units?|shares?|tonnes?|tons?|kt|Mt|kg|mg|lbs?|ounces?|oz|barrels?|bbl|boe|bcf|tcf|km\/h|km2|km|m2|m3|sq ft|square (?:feet|foot|metres?|meters?)|(?:kilo|centi|milli)?(?:metres?|meters?)|miles?|feet|foot|inches|mph|acres?|hectares?|(?:mega|kilo|giga)?watt[- ]hours?|(?:mega|kilo|giga)?watts?|MWh|GWh|kWh|TWh|Wh|MW|GW|kW|W(?!-|\.? ${STREET.source})|mAh|litres?|liters?|MtCO2e|ktCO2e|tCO2e|tCO2|°C|°F| t)(?![A-Za-z0-9])`,
-  "y",
-);
+const EN_UNIT_AFTER =
+  /[ \n]?(?:users?|customers?|clients?|subscribers?|members?|employees?|staff|people|persons?|patients?|students?|visitors?|households?|homes?|stores?|outlets?|branches|branch|restaurants?|vehicles?|cars?|units?|shares?|tonnes?|tons?|kt|Mt|kg|mg|lbs?|ounces?|oz|barrels?|bbl|boe|bcf|tcf|km\/h|km2|km|m2|m3|sq ft|square (?:feet|foot|metres?|meters?)|(?:kilo|centi|milli)?(?:metres?|meters?)|miles?|feet|foot|inches|mph|acres?|hectares?|(?:mega|kilo|giga)?watt[- ]hours?|(?:mega|kilo|giga)?watts?|MWh|GWh|kWh|TWh|Wh|MW|GW|kW|W(?!-|\.? [A-Z0-9])|mAh|litres?|liters?|MtCO2e|ktCO2e|tCO2e|tCO2|°C|°F| t)(?![A-Za-z0-9])/y;
 // Tonnes written against the number ("54,000t", "1.2t", "5万t"), but only after a number written
 // as an amount, and none of money, whose "t" is trillions ("$1.5t"): a bare "78t" is as often a
 // section ("15 U.S.C. 78t").

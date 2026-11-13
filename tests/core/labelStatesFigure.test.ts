@@ -1,10 +1,10 @@
 /**
  * A label that gives a figure's unit states the figure for the number rule (#2997): a right
  * sentence whose number the Document gives plain, with its unit in the number's own label, the
- * heading over its rows, its column's heading, a caption, a unit line or a clause of prose, keeps
- * the model's ✓ in an Answer, as does one that writes the quote's unit in another word. A sentence
- * in another unit, scale, rate or notation, beside a twin, or under two units or none, reads as on
- * main. Each row is read in both interface languages, as an Answer's sentence and in Check against
+ * heading over its rows, its column's heading, or a caption, a unit line or a clause of prose that
+ * heads its rows, keeps the model's ✓ in an Answer, as does one that writes the quote's unit in
+ * another word. A sentence in another unit, scale, rate or notation, beside a twin, under two units
+ * or none, or under another table's line, reads as on main. Each row is read in both interface languages, as an Answer's sentence and in Check against
  * Documents.
  */
 import { describe, expect, test } from "vitest";
@@ -239,7 +239,7 @@ describe("The same unit in another word at the number is the figure's unit (#299
 });
 
 describe("A unit said only in a sentence of prose is read (#2997)", { timeout: 120_000 }, () => {
-  // protects=a Document that says in prose what its figures are counted in ("本报告产量以瓦计。", "库存以吨计。") states that unit, so the right sentence keeps its ✓ and reads Supported in Check against Documents, while another unit or scale of the measure, or "以克计划" that goes on as a word, reads as on main; fails_when="二厂产量为31瓦。" there reads Unsupported in Check against Documents, or "二厂产量为31千克。" beside "以吨计" reads Supported there; no_claim=the Answer's ✓ on a wrong unit the Document states nowhere, which is the model's, as on main.
+  // protects=a Document that says in prose, just above the rows it speaks of, what its figures are counted in ("本报告产量以瓦计。", "库存以吨计。") states that unit, so the right sentence keeps its ✓ and reads Supported in Check against Documents, while another unit or scale of the measure, or "以克计划" that goes on as a word, reads as on main; fails_when="二厂产量为31瓦。" there reads Unsupported in Check against Documents, or "二厂产量为31千克。" beside "以吨计" reads Supported there; no_claim=the Answer's ✓ on a wrong unit the Document states nowhere, which is the model's, as on main.
   test("a unit said in prose states it, and states no other", async () => {
     const rows = (prose: string) => `${prose}\n厂区\t产量\n一厂\t54\n二厂\t31`;
     await readsAsWanted([
@@ -262,20 +262,73 @@ describe("A unit said only in a sentence of prose is read (#2997)", { timeout: 1
   });
 });
 
-describe("An English W before a capital or a number is watts where it is no address (#2997)", {
+describe("A unit stated on another line reaches only the rows it heads (#2997)", {
   timeout: 120_000,
 }, () => {
-  // protects=a quote that writes "60 W" before a capitalised word states 60 W, so the right sentence keeps its ✓ and 60 kW is caught in both checks, while a street's "31 W. Main St." and an oil's "5W-30" give no watts; fails_when="It draws 60 W." citing "It draws 60 W. The case is steel." reads Not checked, or "It draws 60 kW." there keeps a ✓.
-  test("the watt before a capital is read, and an address isn't", async () => {
-    const steel = "It draws 60 W. The case is steel.";
-    const lamp = "The lamp is a 60 W LED.";
-    const shop = "The shop is at 31 W. Main St.";
+  // protects=a caption, a unit line or a line of words directly above a table states its unit for that table's rows alone, so in a Document of two tables each right sentence keeps or gains its ✓, while a number of one table never takes the other's unit, a table without a caption of its own takes none, and a caption or prose set apart by a blank line states nothing, in both languages; fails_when="二厂产量为31万吨。" citing the 万元 table, or "研发数值为31千克。" citing the headcount table after a （千克） caption, reads ✓; no_claim=a caption that heads a table across a blank line, which the part after this one reads.
+  test("each table's own heading lines give its rows their unit, and no other's", async () => {
+    const twoCaptions =
+      "表3 各厂产量（万吨）\n厂区\t产量\n一厂\t54\n二厂\t62\n\n表4 各厂收入（万元）\n厂区\t收入\n一厂\t77\n二厂\t31";
+    const twoScales =
+      "表3 各厂产量（万吨）\n厂区\t产量\n一厂\t54\n二厂\t62\n\n表4 各厂库存（吨）\n厂区\t库存\n一厂\t77\n二厂\t31";
+    const twoUnitLines =
+      "单位：万元\n项目\t金额\n收入\t54\n费用\t62\n\n单位：万吨\n厂区\t产量\n一厂\t77\n二厂\t31";
+    const englishCaptions =
+      "Table 3. Output by site (kt)\nSite\tOutput\nA\t54\nB\t62\n\nTable 4. Revenue by site (USD millions)\nSite\tRevenue\nA\t77\nB\t31";
+    const englishUnitLines =
+      "Unit: MW\nSite\tCapacity\nA\t54\nB\t62\n\nUnit: GWh\nSite\tOutput\nA\t77\nB\t31";
     await readsAsWanted([
-      [steel, steel, "It draws 60 W.", TICK],
-      [lamp, lamp, "The lamp draws 60 watts.", TICK],
-      [steel, steel, "It draws 60 kW.", caught("60 W", "60 kW")],
-      [lamp, lamp, "The lamp is a 60 kW lamp.", caught("60 W", "60 kW")],
-      [shop, shop, "The shop draws 31 W.", UNJUDGED],
+      [twoCaptions, "二厂\t62", "二厂产量为62万吨。", TICK],
+      [twoCaptions, "二厂\t31", "二厂收入为31万元。", TICK],
+      [twoCaptions, "二厂\t31", "二厂产量为31万吨。", UNJUDGED],
+      [twoScales, "二厂\t31", "二厂库存为31吨。", TICK],
+      [twoUnitLines, "二厂\t31", "二厂产量为31万吨。", TICK],
+      [twoUnitLines, "二厂\t31", "二厂费用为31万元。", UNJUDGED],
+      [twoUnitLines, "费用\t62", "费用为62万吨。", UNJUDGED],
+      [englishCaptions, "B\t62", "Site B's output was 62 kt.", TICK],
+      [englishCaptions, "B\t31", "Site B's output was 31 kt.", UNJUDGED],
+      [englishUnitLines, "B\t31", "Site B's output was 31 GWh.", TICK],
+      [englishUnitLines, "B\t31", "Site B's capacity was 31 MW.", UNJUDGED],
+    ]);
+  });
+
+  // protects=a table after a captioned one, with a caption of its own or none, takes nothing from the first table's caption, and prose or a caption set apart from its table by a blank line reads as on main, while a line of words between a caption and its table leaves the caption heading it; fails_when="二厂数值为31千克。" or "Site B's value was 31 kg." citing the headcount table reads ✓, or "二厂产量为31千克。" under a caption and a line of words reads Not checked.
+  test("a caption over another table, or set apart by a blank line, gives nothing", async () => {
+    const countAfter =
+      "表3 各厂数值（千克）\n厂区\t数值\n一厂\t54\n二厂\t62\n\n表4 各厂人数\n厂区\t人数\n一厂\t77\n二厂\t31";
+    const countAfterInEnglish =
+      "Table 3. Value by site (kg)\nSite\tValue\nA\t54\nB\t62\n\nTable 4. Headcount by site\nSite\tHeadcount\nA\t77\nB\t31";
+    const proseApart =
+      "本报告数值以千克计。\n\n厂区\t数值\n一厂\t54\n二厂\t62\n\n部门\t人数\n研发\t31\n销售\t77";
+    await readsAsWanted([
+      [countAfter, "二厂\t31", "二厂数值为31千克。", UNJUDGED],
+      [countAfterInEnglish, "B\t31", "Site B's value was 31 kg.", UNJUDGED],
+      [proseApart, "二厂\t62", "二厂数值为62千克。", UNJUDGED],
+      [proseApart, "研发\t31", "研发数值为31千克。", UNJUDGED],
+      [
+        "表3 各厂产量（千克）\n\n厂区\t产量\n一厂\t54\n二厂\t31",
+        "二厂\t31",
+        "二厂产量为31千克。",
+        UNJUDGED,
+      ],
+      [
+        "表3 各厂产量（千克）\n下表列示各厂情况。\n厂区\t产量\n一厂\t54\n二厂\t31",
+        "二厂\t31",
+        "二厂产量为31千克。",
+        TICK,
+      ],
+    ]);
+  });
+});
+
+describe("A W before a capitalised word may be West (#2997)", { timeout: 120_000 }, () => {
+  // protects=a plain number before a W that is West ("Block 5 W Wing", "Exit 12 W Toward Katy") keeps its ✓ in both checks and both languages; fails_when="The office is in Block 5." or "Take Exit 12." citing those words reads Not checked; no_claim="It draws 60 W." citing "It draws 60 W. The case is steel.", which reads Not checked as on main until a figure carries both readings.
+  test("the plain number before it keeps its ✓", async () => {
+    const block = "The office is in Block 5 W Wing of the campus.";
+    const exit = "Take Exit 12 W Toward Katy, then 3 miles.";
+    await readsAsWanted([
+      [block, block, "The office is in Block 5.", TICK],
+      [exit, exit, "Take Exit 12.", TICK],
     ]);
   });
 });

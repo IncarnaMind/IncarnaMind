@@ -801,6 +801,29 @@ function unitsByLine(document: string, context: FigureContext) {
 const statedElsewhere = (byLine: ReturnType<typeof unitsByLine>, itsLine: string) =>
   byLine.filter(({ line }) => line !== itsLine).flatMap(({ units }) => units);
 
+/**
+ * What the lines that head the rows of the number at `start` state of its unit: the run of lines
+ * giving no value directly above its rows (above a tab table's first row), up to a blank line. A
+ * line that heads other rows, or stands apart from them, states nothing for this number (#2997).
+ */
+function headingUnits(text: string, start: number, context: FigureContext): StatedUnit[] {
+  const from = text.lastIndexOf("\n", start - 1) + 1;
+  const end = text.indexOf("\n", start);
+  const inTable = text.slice(from, end < 0 ? undefined : end).includes("\t");
+  const above = text.slice(0, Math.max(0, from - 1)).split("\n");
+  const givesValue = (line: string) => readFigures(line, context).length > 0;
+  const isRow = (line: string) => (inTable ? line.includes("\t") : givesValue(line));
+  let at = above.length - 1;
+  while (at >= 0 && above[at]?.trim() !== "" && isRow(above[at] ?? "")) at--;
+  const units: StatedUnit[] = [];
+  for (; at >= 0; at--) {
+    const line = above[at] ?? "";
+    if (line.trim() === "" || line.includes("\t") || givesValue(line)) break;
+    units.push(...unitsOnLine(line, readStatedUnits(line, context), context));
+  }
+  return units;
+}
+
 const lineAt = (text: string, start: number) =>
   text
     .slice(text.lastIndexOf("\n", start - 1) + 1)
@@ -884,10 +907,10 @@ export const isSameUnit = (a: FigureUnit, b: FigureUnit): boolean =>
 /**
  * Whether the Document states `figure` (followed in its sentence by `after`) at each plain number
  * of its written value that `ranges` of `text` (where a quote stands) hold, as the gate reads what
- * gives a number its unit (#2997): the labels that reach it, its own first, or, where none does,
- * what its Document's other lines state (`statedElsewhere`). Each of the figure's kind gives it: a
- * 31 under "（吨）" states 31吨; one under "（万吨）" doesn't, nor does one beside a twin 31 under
- * "（万吨）" or "同比（%）".
+ * gives a number its unit (#2997): the labels that reach it, its own first, each of the figure's
+ * kind giving it; or, where none does, every unit the lines heading its rows state
+ * (`headingUnits`). A 31 under "（吨）" states 31吨; one under "（万吨）" doesn't, nor does one
+ * beside a twin 31 under "（万吨）" or "同比（%）", nor one under a heading block of two units.
  */
 export function statesFigure(
   figure: Figure,
@@ -913,7 +936,6 @@ export function statesFigure(
   });
   const kind = (statement: StatedUnit) => ofKind(statement, figure);
   const gives = (statement: StatedUnit) => namesFigure(statement, figure, after);
-  let byLine: ReturnType<typeof unitsByLine> | undefined;
   return (
     numbers.length > 0 &&
     numbers.every((start) => {
@@ -925,9 +947,8 @@ export function statesFigure(
           own.every((label) => gives(label) && !bracketNamesTwo(label.line, context))
         );
       }
-      byLine ??= unitsByLine(text, context);
-      const elsewhere = statedElsewhere(byLine, lineAt(text, start)).filter(kind);
-      return elsewhere.length > 0 && elsewhere.every(gives);
+      const heading = headingUnits(text, start, context);
+      return heading.length > 0 && heading.every(gives);
     })
   );
 }
