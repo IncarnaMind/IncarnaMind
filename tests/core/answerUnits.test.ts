@@ -488,3 +488,39 @@ describe("An Answer leaves a dollar or ¥ its Document doesn't say to Check agai
     }
   });
 });
+
+describe("A check reply that corrects itself, and the unit gate (#2997, #3029)", {
+  timeout: 60_000,
+}, () => {
+  const SENTENCE = "It rose 6%.";
+  const QUOTE = "It rose 6 percentage points";
+  const FILE = rates("It rose 6 percentage points.");
+  const entry = (verdict: string) =>
+    `{"sentences":[{"number":1,"kind":"fact","verdict":"${verdict}","roles":"same","time":"same","quoted":"states","says":"${QUOTE}"}]}`;
+
+  // protects=a pass that a reply gives only after an earlier answer judged the sentence otherwise leaves it Not checked, so the unit gate never runs on it, while a clean pass whose quote gives percentage points for a percent is Unsupported with the line, in English and Chinese; fails_when=the corrected pass reads Unsupported or found, or the clean pass keeps its ✓; no_claim=how often a model corrects itself.
+  test.each([
+    {
+      name: "a pass after an earlier answer said unsupported",
+      reply: `${entry("unsupported")}\n\nWait, let me correct that.\n\n${entry("supported")}`,
+      en: { check: "not-checked", verdict: null },
+      zh: { check: "not-checked", verdict: null },
+    },
+    {
+      name: "a clean pass",
+      reply: entry("supported"),
+      en: { check: "unsupported", verdict: "The Document gives 6 percentage points, not 6%." },
+      zh: { check: "unsupported", verdict: "文档写的是 6 percentage points，不是 6%。" },
+    },
+  ])("$name", async ({ reply, en, zh }) => {
+    for (const [language, shown] of [
+      ["en", en],
+      ["zh-CN", zh],
+    ] as const) {
+      const plan: Plan = { verdict: "supported", quote: QUOTE, says: QUOTE };
+      const model = citingModel(SENTENCE, QUOTE, plan, () => reply);
+      const { answer } = await answered(SENTENCE, QUOTE, FILE, language, model);
+      expect(shownOf(answer.citations[0]), language).toEqual(shown);
+    }
+  });
+});
