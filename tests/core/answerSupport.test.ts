@@ -1,5 +1,6 @@
 import { describe, expect, test, vi } from "vitest";
 import { CITATION_NODE, CLAIM_CHECK_MARK, type Core, type MarkedCitation } from "../../src/core";
+import { sentenceBatchInstructions } from "../../src/core/answers/checks/sentenceBatch";
 import { checkableSentences } from "../../src/core/answers/checks/written";
 import { pageBlocks, withAnswerChecks } from "../../src/shared/answerBlocks";
 import type { NodeJSON } from "../../src/shared/blockJson";
@@ -348,6 +349,79 @@ describe("which Answers this batch judges", () => {
 
     expect(batches).toBe(1);
   });
+});
+
+describe("words that claim nothing are never unstated; a claim added to them is (#3003)", () => {
+  // protects=the batch's instructions copy as unstated only words that claim something, so a courtesy, who is speaking or when, a lead-in or a restatement in other words keeps its check, while the same line with a claim added loses it; fails_when=the instructions stop saying so, or the code reads a copy otherwise; no_claim=how often a model keeps to it, which the dev trial measures.
+  test("the instructions say which words are copied, and that they are read for meaning", () => {
+    for (const language of ["en", "zh-CN"] as const) {
+      const lines = sentenceBatchInstructions(language);
+      expect(lines).toContain("Copy only words that claim something; words that claim nothing");
+      expect(lines).toContain("Read for meaning, not for the same words");
+    }
+  });
+
+  test.each([
+    {
+      kind: "a courtesy",
+      backed: "Thanks for asking: two K9 kilns cost £185,000, installed.",
+      claimed:
+        "Thanks for asking: two K9 kilns cost £185,000, installed, and we will match any lower quote.",
+      added: "and we will match any lower quote",
+    },
+    {
+      kind: "who is speaking and when",
+      backed: "As I said a moment ago, two K9 kilns cost £185,000, installed.",
+      claimed:
+        "As I said a moment ago, two K9 kilns cost £185,000, installed, so the budget is settled.",
+      added: "so the budget is settled",
+    },
+    {
+      kind: "a lead-in",
+      backed: "In short, two K9 kilns cost £185,000, installed.",
+      claimed: "In short, two K9 kilns cost £185,000, installed, the lowest price anyone offers.",
+      added: "the lowest price anyone offers",
+    },
+    {
+      kind: "other words",
+      backed: "The pair of K9 kilns comes to £185,000 with installation.",
+      claimed:
+        "The pair of K9 kilns comes to £185,000 with installation, and no other cost will follow.",
+      added: "and no other cost will follow",
+    },
+    {
+      kind: "a courtesy, in Chinese",
+      backed: "感谢您的提问：两台 K9 窑炉含安装费用为 £185,000。",
+      claimed: "感谢您的提问：两台 K9 窑炉含安装费用为 £185,000，我们还会再给您打折。",
+      added: "我们还会再给您打折",
+    },
+    {
+      kind: "other words, in Chinese",
+      backed: "这两台 K9 窑炉连安装一共 £185,000。",
+      claimed: "这两台 K9 窑炉连安装一共 £185,000，之后不会再有其他费用。",
+      added: "之后不会再有其他费用",
+    },
+  ])(
+    "$kind before a backed fact keeps its check; the same line with a claim added doesn't",
+    async ({ backed, claimed, added }) => {
+      const marked = (sentence: string, marker: number) =>
+        `${sentence.slice(0, -1)}[^${marker}]${sentence.slice(-1)}`;
+      const answer = `${marked(backed, 1)} ${marked(claimed, 2)}`;
+      const plans: Record<string, Plan> = {
+        [backed]: { verdict: "supported", says: backed },
+        [claimed]: { verdict: "supported", unstated: added, says: backed },
+      };
+      const { core } = await setUpWithDocuments(
+        answeringModel("kilns cost", answer, [COST, COST], plans),
+        [KILN_DECK],
+      );
+
+      const citations = await citationsOfAnswer(core, "What does the kiln upgrade cost?");
+
+      expect(checkOf(citations, 1)).toMatchObject({ quote: COST, check: "found" });
+      expect(checkOf(citations, 2)).toMatchObject({ quote: COST, check: "unsupported" });
+    },
+  );
 });
 
 describe("a copy that isn't the sentence's own words decides nothing", () => {
