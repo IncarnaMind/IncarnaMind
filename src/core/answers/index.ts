@@ -3439,10 +3439,13 @@ export function createAnswers(options: AnswersOptions) {
             }
             return cut;
           }, text);
+      // Call help is offered no Tool that changes a Note or runs a command, and its reply is lines
+      // for the User to say: a claim of a change can't be the app's, so it isn't checked (#2526).
+      const checksChanges = Boolean(mindsTools || commandsOffered) && !help;
       const heldBack = holdBack(() => mindsListed().map((mind) => mind.name));
       // After a command that was refused, failed or not allowed, the reply shows only once it is
       // checked: what it says of that command could be untrue, and a Stop meanwhile would leave it
-      // unchecked (#2407).
+      // unchecked (#2407). A sentence that may claim a change waits only for a check that runs.
       const shownUpTo = (text: string) =>
         toolCalls.some(
           (call) =>
@@ -3450,7 +3453,9 @@ export function createAnswers(options: AnswersOptions) {
             (call.status === "failed" || call.command?.yours !== undefined),
         )
           ? 0
-          : heldBack(text);
+          : checksChanges
+            ? heldBack(text)
+            : text.length;
       // Asked again inside the turn, the model reads what applied as applied: the window may not
       // have taken it in yet, and told it waits, the model tells the User so.
       const appliedInTurn: ChangeStates = (change) =>
@@ -3482,11 +3487,8 @@ export function createAnswers(options: AnswersOptions) {
       // An Answer the User reads holds its claims of Tools to its calls; a check's, a cell's or a
       // call's help is read by its own flow, which offers no calculate to call.
       const readByUser = !outside && !help && !input.task && input.toolSet !== "check";
-      // Call help is offered no Tool that changes a Note or runs a command, and its reply is lines
-      // for the User to say: a claim of a change can't be the app's, so it isn't checked (#2526).
-      const checksClaims = !help;
       const turnChecks: TurnCheck[] = [
-        ...((mindsTools || commandsOffered) && checksClaims
+        ...(checksChanges
           ? [
               {
                 name: "claimed-change",
