@@ -336,7 +336,7 @@ describe("A press during the call", { timeout: 120_000 }, () => {
 
     expect(switches.takeChecks()).toEqual([
       { sentences: 2, read: 2 },
-      { sentences: 2, read: 0 },
+      { sentences: 2, read: 0, reply: replies[1]?.[1] },
     ]);
   });
 
