@@ -26,7 +26,7 @@ const SECOND = 1000;
 
 const TERMS: Record<
   Language,
-  { name: string; first: string; second: string; loose: string; part: string }
+  { name: string; first: string; second: string; loose: string; part: string; middle: string }
 > = {
   en: {
     name: "Hosting terms.md",
@@ -34,6 +34,7 @@ const TERMS: Record<
     second: "Backups of the pilot's data run every night in the same building.",
     loose: "Hosting stays inside the European Union for the whole pilot",
     part: "kept in our Frankfurt data centre",
+    middle: "Nightly copies are made on site.",
   },
   "zh-CN": {
     name: "托管条款.md",
@@ -41,6 +42,7 @@ const TERMS: Record<
     second: "试点数据的备份每晚在同一栋楼里进行。",
     loose: "整个试点期间托管都留在欧盟境内",
     part: "在我们法兰克福的数据中心",
+    middle: "每天夜里都会在现场做副本。",
   },
 };
 
@@ -54,7 +56,9 @@ type Way =
   | "asked-refused"
   | "model"
   | "app-and-asked"
-  | "app-and-asked-part";
+  | "app-and-asked-part"
+  | "shared-quote"
+  | "shared-quote-middle";
 
 /**
  * A model that searches once, then answers one way:
@@ -66,7 +70,11 @@ type Way =
  * - "model": the first line, with its own record for its marker;
  * - "app-and-asked", "app-and-asked-part": the first line with marker 1, which the app matches,
  *   then a sentence it can't match with marker 2, so the request goes out; its reply cites both, as
- *   a model shown the whole Answer does: the first line (or a part of it) and the second line.
+ *   a model shown the whole Answer does: the first line (or a part of it) and the second line;
+ * - "shared-quote": the second line, which the app matches with no marker, then a sentence it can't
+ *   match with marker 1; the request backs that sentence with the second line too;
+ * - "shared-quote-middle": as "shared-quote" with a sentence between, no marker, that the app can't
+ *   match; the request backs it with the second line, and the last sentence with the first.
  */
 function answering(way: Way, language: Language) {
   const terms = TERMS[language];
@@ -91,7 +99,14 @@ function answering(way: Way, language: Language) {
                   },
                   { ...loose, quote: terms.second },
                 ]
-              : [];
+              : way === "shared-quote"
+                ? [{ ...loose, quote: terms.second }]
+                : way === "shared-quote-middle"
+                  ? [
+                      { sentence: terms.middle, passage: id, quote: terms.second },
+                      { ...loose, quote: terms.first },
+                    ]
+                  : [];
         return { text: JSON.stringify({ citations: given }) };
       }
       const searched = call.results.some((result) => result.tool === "search_documents");
@@ -115,6 +130,10 @@ function answering(way: Way, language: Language) {
       if (way === "model") return { text: `${withoutStop(terms.first)} [^1]${end}` };
       if (way === "app-and-asked" || way === "app-and-asked-part") {
         return { text: `${withoutStop(terms.first)} [^1]${end} ${terms.loose} [^2]${end}` };
+      }
+      if (way === "shared-quote") return { text: `${terms.second} ${terms.loose} [^1]${end}` };
+      if (way === "shared-quote-middle") {
+        return { text: `${terms.second} ${terms.middle} ${terms.loose} [^1]${end}` };
       }
       return { text: `${terms.loose} [^1]${end}` };
     },
@@ -220,6 +239,40 @@ describe.each(LANGUAGES)("%s: the citing record of an Answer", (language) => {
       ]);
     },
   );
+
+  // protects=a Citation the request gave is the request's though its quote is the one an unmarked match of the app's took, told by the sentence its marker is in; fails_when=it is counted as the app's; no_claim=a sentence the later steps reword.
+  test("a request's Citation sharing its quote with the app's own match stays the request's", {
+    timeout: 60_000,
+  }, async () => {
+    const record = await recorded("shared-quote", language);
+    expect(record.unrecorded).toEqual([1]);
+    expect(
+      record.citations
+        .map(({ marker, from, quote }) => ({ marker, from, quote }))
+        .sort((a, b) => a.marker - b.marker),
+    ).toEqual([
+      { marker: 1, from: "request", quote: terms.second },
+      { marker: 2, from: "app-unmarked", quote: terms.second },
+    ]);
+    expect(
+      countCiting([{ model: "ollama/local-model", language, citing: record }])[0],
+    ).toMatchObject({ unrecorded: 1, asked: 1, askedGiven: 1, askedNone: 0 });
+  });
+
+  test("a sentence the app couldn't match, backed by the line the app matched, is the request's", {
+    timeout: 60_000,
+  }, async () => {
+    const record = await recorded("shared-quote-middle", language);
+    expect(
+      record.citations
+        .map(({ marker, from, quote }) => ({ marker, from, quote }))
+        .sort((a, b) => a.marker - b.marker),
+    ).toEqual([
+      { marker: 1, from: "request", quote: terms.first },
+      { marker: 2, from: "app-unmarked", quote: terms.second },
+      { marker: 3, from: "request", quote: terms.second },
+    ]);
+  });
 
   test("the model's own record", { timeout: 60_000 }, async () => {
     const record = await recorded("model", language);
