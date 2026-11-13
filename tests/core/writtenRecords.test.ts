@@ -1,9 +1,8 @@
 /**
  * The records a check's reply writes into its own text instead of calling `cite` (#3019): read
  * only from its record lines, taken only when the Citation check finds each in the Document or
- * Passage it names, and never one that repeats the sentence; a Supported part of a cited sentence
- * rests on its own Citations' words, else it shows no ✓ until the Passage the check found is its
- * Citation.
+ * Passage it names, and never one that repeats the sentence; the model's Supported stands with the
+ * Passage it found, for the Note to read against its Citations.
  */
 import { describe, expect, test } from "vitest";
 import type { ClaimCheckResult } from "../../src/core";
@@ -176,23 +175,19 @@ describe("A record the reply wrote is taken before the check asks for it again",
   });
 });
 
-describe("A cited sentence's Supported rests on its own Citations' words", () => {
-  // protects=a part the check backed with a Passage its Citation doesn't quote reads Not checked, "found-elsewhere", keeping that Passage for its card's Add as Citation, in English and Chinese, never Supported beside the old Citation alone and never Unsupported; fails_when=it reads Supported, Unsupported, or loses the Passage; no_claim=how its card shows it.
+describe("A cited sentence's check backed by a Passage its Citations don't hold", () => {
+  // protects=the check gives the model's own Supported with the Passage it found, from a record the reply wrote or a cite call, in English and Chinese, so the Note can read it against its Citations as they stand (#3019); fails_when=the check stores Not checked in its place, which no Add as Citation could bring back without a new request, or loses the Passage; no_claim=how the Note shows it, which tests/core/foundPassageCitation.test.ts holds.
   test.each([["Tides turn twice in a day here."], ["这里的潮水每天都会涨落。"]])(
-    "%s, citing another line",
+    "%s, a record the reply wrote",
     async (claim) => {
       const result = await checked(claim, `[^1]: Tides, “${LINE}”`, "The harbour closes at dusk.");
-      expect(result.verdict).toBe("not-checked");
-      if (result.verdict !== "not-checked") return;
-      expect(result.reason).toBe("found-elsewhere");
-      expect(result.parts?.[0]?.evidence.map((citation) => citation.quote)).toEqual([LINE]);
+      expect(result.verdict).toBe("supported");
+      if (result.verdict !== "supported") return;
+      expect(result.evidence?.quote).toBe(LINE);
     },
   );
-});
 
-describe("A Supported part its check recorded through cite", () => {
-  // protects=a cited sentence its check backed with another Passage through a cite call reads as on main, Supported with that Passage, until the full display shows the Passage as its Citation; fails_when=the no-✓ rule for records taken from the reply reaches a cite call's Supported; no_claim=whether that ✓ should stand, which the full display decides.
-  test("reads as before", async () => {
+  test("a cite call", async () => {
     const claim = "Tides turn twice in a day here.";
     const { core, documents } = await setUpWithDocuments(
       checkingModel({ [claim]: { verdict: "supported", quote: LINE, judgement: "same" } }),
@@ -212,19 +207,7 @@ describe("A Supported part its check recorded through cite", () => {
       ],
     });
     expect(result.verdict).toBe("supported");
-  });
-});
-
-describe("A Citation that holds fewer words than the quote that backs the part", () => {
-  // protects=a Citation that quotes only part of the words the check's record gives ("The tide turns" for "The tide turns twice a day.") isn't the part's own Citation, so the part reads Not checked, "found-elsewhere"; fails_when=shared words alone count as the sentence's own Citation and it reads Supported; no_claim=none beyond protects.
-  test("reads Not checked, found elsewhere", async () => {
-    const result = await checked(
-      "Tides turn twice in a day here.",
-      `[^1]: Tides, “${LINE}”`,
-      "The tide turns",
-    );
-    expect(result.verdict).toBe("not-checked");
-    if (result.verdict !== "not-checked") return;
-    expect(result.reason).toBe("found-elsewhere");
+    if (result.verdict !== "supported") return;
+    expect(result.evidence?.quote).toBe(LINE);
   });
 });

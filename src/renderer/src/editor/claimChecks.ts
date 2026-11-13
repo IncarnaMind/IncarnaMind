@@ -14,6 +14,7 @@ import {
   type CellFigurePlace,
   CHART_NODE,
   CITATION_NODE,
+  type CitationAttributes,
   CLAIM_CHECK_MARK,
   type ClaimCheckAttributes,
   type RetainedFigureAnalysis,
@@ -22,6 +23,7 @@ import {
 import type { NoteParagraph, RecordCiteNote } from "../../../core/recordCites/referents";
 import { readCalculatedFigureEvidence } from "../../../shared/calculatedFigures";
 import { chartCheckText, chartPoints, readChart } from "../../../shared/charts";
+import { asCitedNow } from "../../../shared/citedNow";
 import {
   analysisFigureShown,
   type ClaimCheckShown,
@@ -362,6 +364,11 @@ export function figurePlacesOf(
 export interface ShownClaim extends ClaimSpan {
   shown: Exclude<ClaimCheckShown, { state: "kept" }>;
   /**
+   * The check as the sentence's Citations read it now (`asCitedNow`, #3019): what its mark and card
+   * show. `check` is what the mark stores, which every change to the mark starts from.
+   */
+  reads: ClaimCheckAttributes;
+  /**
    * A needs-recheck its sentence's edit made, where the check would still hold with the words it was
    * checked on: what an edit leaves to check only if nothing else moved since (#2313).
    */
@@ -398,6 +405,20 @@ const NO_CONTEXT: ClaimContext = {
   scope: null,
 };
 
+/** The Citations in a sentence's stretch of the document, as its card finds them (`citationsOf`). */
+function citationsWithin(
+  doc: ProseMirrorNode,
+  { from, to }: { from: number; to: number },
+): CitationAttributes[] {
+  const found: CitationAttributes[] = [];
+  doc.nodesBetween(from, to, (node, pos) => {
+    if (node.type.name === CITATION_NODE && pos >= from && pos < to)
+      found.push(node.attrs as CitationAttributes);
+    return true;
+  });
+  return found;
+}
+
 /** The checks in a document as they show now, and the sentences the User keeps as their own view. */
 export function claimsOf(
   doc: ProseMirrorNode,
@@ -414,9 +435,11 @@ export function claimsOf(
             ([from, to]) => from >= place.from && to <= place.to,
           )
         : undefined;
+    const citations = span.kind === "chart" ? [] : citationsWithin(doc, span.sentence);
     let shown = claimCheckShown(span.check, {
       ...context,
       text: span.sentence.text,
+      citations,
       ...(figured !== undefined && { figured }),
       ...note(span),
     });
@@ -425,6 +448,7 @@ export function claimsOf(
         ? claimCheckShown(span.check, {
             ...context,
             text: span.check.text,
+            citations,
             ...(figured !== undefined && { figured }),
             ...note(span),
           })
@@ -448,6 +472,7 @@ export function claimsOf(
       claims.push({
         ...span,
         shown,
+        reads: asCitedNow(span.check, citations, span.sentence.text),
         ...(holdsWithItsText !== null && {
           holdsWithItsText:
             holdsWithItsText.state === "supported" ||
@@ -595,7 +620,11 @@ export function figureShownIn(
         : at < span.sentence.from || at >= span.sentence.to)
     )
       continue;
-    const now = { ...context, text: span.sentence.text };
+    const now = {
+      ...context,
+      text: span.sentence.text,
+      citations: span.kind === "chart" ? [] : citationsWithin(state.doc, span.sentence),
+    };
     const child = span.check.figures?.find((figure) => figure.id === id);
     if (!child) {
       // A whole-sentence check from before figures were checked one by one still says a re-check, a

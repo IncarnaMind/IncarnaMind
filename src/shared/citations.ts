@@ -74,6 +74,7 @@ export function citationAttributesOf(node: Record<string, unknown>): Partial<Cit
     ...(node.pageChecked === true && { pageChecked: true }),
     ...(unsure && unsure.length > 0 && { unsure }),
     ...(verdict !== null && { verdict }),
+    ...(node.foundByCheck === true && { foundByCheck: true }),
   };
 }
 

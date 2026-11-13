@@ -1457,6 +1457,10 @@ export const en = {
   "opinions.one": "1 opinion left out",
   "opinions.count": "{count} opinions left out",
   "opinions.show": "Show",
+  "found.notCited": "{count} Passages found, not yet cited",
+  "found.addAll": "Add all",
+  "found.added.one": "Added 1 Citation",
+  "found.added": "Added {count} Citations",
   "opinions.itself.one": "1 sentence about this note left out",
   "opinions.itself": "{count} sentences about this note left out",
   "opinions.both.one.one": "1 opinion and 1 sentence about this note left out",
@@ -1527,7 +1531,7 @@ export const en = {
   "claim.reason.absence-other-document":
     "Verdict hidden: the quote the model gave is from another Document than the one the sentence is about.",
   "claim.reason.found-elsewhere":
-    "Verdict hidden: the quote that backs this sentence isn’t among its Citations. Add it as a Citation, then check again.",
+    "Verdict hidden: the quote that backs this sentence isn’t among its Citations. Add it as a Citation to see the verdict.",
   "claim.reason.kept-inside": "Kept inside {detail}",
   "claim.reason.read-budget": "Stopped · {spent} spent",
   "claim.reason.read-budget.unknown": "Stopped at the most this read may spend.",
@@ -4605,6 +4609,7 @@ export const en = {
   "citation.reason.source-removed": "The source was removed.",
   "citation.yourNote": "Your note: {title}, {date}",
   "citation.ownRecord": "Your own record",
+  "citation.foundByCheck": "Found by a check of this sentence",
   "citation.reason.kept-inside": "Kept inside {folder}",
   "citation.reason.quoted-words-not-on-pages": "The quoted words aren’t in the cited place.",
   "citation.reason.checking": "Checking the quote, and whether it supports this sentence.",

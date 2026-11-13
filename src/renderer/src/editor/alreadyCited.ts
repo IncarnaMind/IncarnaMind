@@ -1,12 +1,8 @@
 import type { EditorState } from "@tiptap/pm/state";
-import type {
-  CitationAttributes,
-  CitationCheck,
-  ClaimCheckPart,
-  QuotedWords,
-} from "../../../core/api";
+import type { CitationAttributes, ClaimCheckPart, QuotedWords } from "../../../core/api";
 import { continuesCitation, overlapsCitation } from "../../../shared/citationOverlap";
 import { parseQuotedWords, type QuotedWordsOnPage, quotedWordsAt } from "../../../shared/citations";
+import { DOESNT_HOLD } from "../../../shared/citedNow";
 import { citationLocation } from "../../../shared/locations";
 import { type NumberedCitation, numberedCitations } from "./citationNumbers";
 import type { ShownClaim } from "./claimChecks";
@@ -38,12 +34,6 @@ export function quotedWordsAsks(
       .map((cited) => ({ words, cited }));
   });
 }
-
-const DOESNT_HOLD: ReadonlySet<CitationCheck> = new Set([
-  "not-found",
-  "unsupported",
-  "contradicted",
-]);
 
 /**
  * What a supported sentence's card offers for the Passage its check found

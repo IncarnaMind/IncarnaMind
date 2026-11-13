@@ -269,13 +269,22 @@ export function readRecord(sources: RecordSources): {
   const sentences: SentenceItem[] = [];
   const recordCites: RecordCiteItem[] = [];
   const requests: string[] = [];
-  for (const { element, from, to, check, sentence, cited, place, noteText } of checkedSentences(
-    fragment,
-  )) {
+  for (const {
+    element,
+    from,
+    to,
+    check,
+    sentence,
+    cited,
+    citations,
+    place,
+    noteText,
+  } of checkedSentences(fragment)) {
     requests.push(check.request);
     const result = sentenceResultOf(
       claimCheckShown(check, {
         text: sentence,
+        citations,
         footing,
         versions,
         folderId,

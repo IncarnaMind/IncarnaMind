@@ -176,7 +176,7 @@ export function ClaimMark({
   const rewritingAny = useChecks((store) => store.rewriting[mindId] !== undefined);
   const mark = reading || rewriting ? "checking" : markOf(claim);
   // Supported by the User's own notes alone: a box, so shape says it as well as colour (#335).
-  const ownNoteOnly = mark === "supported" && supportedByOwnNotesOnly(claim.check);
+  const ownNoteOnly = mark === "supported" && supportedByOwnNotesOnly(claim.reads);
   // A sentence not checked yet has no mark on the page (D276): its button stays, unseen, as its card's anchor (#1941).
   const silent = mark === "not-checked";
   const id = claim.check.id;
@@ -201,7 +201,7 @@ export function ClaimMark({
     state === "supported" && claim.kind !== "chart"
       ? citationDecision(editor.state, claim, onPage)
       : NO_DECISION;
-  const rows = claimPartRows(claim.check);
+  const rows = claimPartRows(claim.reads);
   const plus = rows
     ? state === "supported" && citesMore(editor.state, claim, rows, onPage)
     : decision.kind === "add";
@@ -712,7 +712,7 @@ export function ClaimCard({
   const webSearchOn = useAppStore((store) => store.settings?.user.webSearch === true);
   // Search the web with web search off says why, and where to turn it on, before anything else happens.
   const [webOffShown, setWebOffShown] = useState(false);
-  const { shown, check } = claim;
+  const { shown, reads: check } = claim;
   const state = shown.state;
   const mark = markOf(claim);
   const ownNoteOnly = mark === "supported" && supportedByOwnNotesOnly(check);

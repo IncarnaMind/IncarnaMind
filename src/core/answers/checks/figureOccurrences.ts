@@ -707,6 +707,7 @@ function figuresOfBlock(
             text,
             context: text,
             cited: [],
+            citations: [],
           },
           layouts,
           note,

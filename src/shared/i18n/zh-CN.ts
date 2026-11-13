@@ -1412,6 +1412,10 @@ export const zhCN = {
   "opinions.one": "1 处观点未纳入核对",
   "opinions.count": "{count} 处观点未纳入核对",
   "opinions.show": "查看",
+  "found.notCited": "找到 {count} 个段落，尚未引用",
+  "found.addAll": "全部添加",
+  "found.added.one": "已添加 1 个引用",
+  "found.added": "已添加 {count} 个引用",
   "opinions.itself.one": "1 句关于本笔记的说明未纳入核对",
   "opinions.itself": "{count} 句关于本笔记的说明未纳入核对",
   "opinions.both.one.one": "1 处观点和 1 句关于本笔记的说明未纳入核对",
@@ -1477,7 +1481,7 @@ export const zhCN = {
   "claim.reason.absence-other-document":
     "不显示结论：模型给出的引文出自另一份文档，不是这句话所说的那份。",
   "claim.reason.found-elsewhere":
-    "不显示结论：支持这句话的引文不在它现有的引用里。请把它添加为引用，然后重新核对。",
+    "不显示结论：支持这句话的引文不在它现有的引用里。添加为引用后即可看到结论。",
   "claim.reason.kept-inside": "仅在“{detail}”内使用",
   "claim.reason.read-budget": "已停止 · 已花费{spent}",
   "claim.reason.read-budget.unknown": "已停止：已达到这次读取最多可花的费用。",
@@ -4405,6 +4409,7 @@ export const zhCN = {
   "citation.reason.source-removed": "来源已移除。",
   "citation.yourNote": "你的笔记：{title}，{date}",
   "citation.ownRecord": "你自己的记录",
+  "citation.foundByCheck": "核对这句话时找到",
   "citation.reason.kept-inside": "仅在“{folder}”内使用",
   "citation.reason.quoted-words-not-on-pages": "所引位置没有引号里的文字。",
   "citation.reason.checking": "正在核对引文，以及它是否支持这句话。",

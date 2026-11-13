@@ -27,6 +27,7 @@ import {
 } from "../core/api";
 import { type RecordCiteNote, shortFormsThrough } from "../core/recordCites/referents";
 import { citedInputs } from "./calculatedFigures";
+import { asCitedNow, type HeldCitation } from "./citedNow";
 import {
   CLAIM_CHECK_FAILURES,
   checkWithParts,
@@ -431,6 +432,12 @@ export interface ClaimCheckNow {
   figured?: boolean;
   /** The sentence as it reads now: all of the sentences its marked text is in. */
   text: string;
+  /**
+   * The sentence's Citations as the Note holds them now: a ✓ resting on a Passage the check found
+   * shows only once that Passage is one of them (`asCitedNow`, #3019). Every reading of a sentence
+   * gives them; absent only where a figure's own check is read, which rests on no Passage of its.
+   */
+  citations?: readonly HeldCitation[];
   /** Each live Document's current version, by id; null while they aren't known. */
   versions: ReadonlyMap<string, string> | null;
   /** The Mind's Folder now; null for none. */
@@ -526,6 +533,7 @@ export function showsPartRows(check: Pick<ClaimCheckAttributes, "parts">): boole
         check.parts.some(
           (part) =>
             part.kind === "opinion" ||
+            part.reason === "found-elsewhere" ||
             part.coverage ||
             part.evidence.length > 1 ||
             part.unsupported?.kind,
@@ -744,7 +752,7 @@ export function claimMarkState<State extends ClaimCheckShown["state"]>(
 
 export function claimCheckShown(check: ClaimCheckAttributes, now: ClaimCheckNow): ClaimCheckShown {
   if (!check.figures?.length || check.kept) {
-    const shown = basisShown(check, now);
+    const shown = basisShown(asCitedNow(check, now.citations ?? [], now.text), now);
     // A verdict stored before each figure got its own never read a table cell's row and column,
     // so a right cell could stand as Unsupported (#1459): it is checked again, not kept.
     return now.figured === true &&
@@ -885,7 +893,8 @@ export function figureCheckShown(
 /**
  * Whether Documents added to its scope since could change a check (#993): one
  * found unsupported or not checked. A supported or contradicted one already
- * has its evidence, contradiction watch makes its own checks again, and a
+ * has its evidence, as has one whose ✓ waits on the Passage it found becoming
+ * a Citation (#3019); contradiction watch makes its own checks again, and a
  * whole read covered only the User's pick.
  */
 export const addedCouldChange = (check: ClaimCheckAttributes, shown: ClaimCheckShown): boolean =>
@@ -893,7 +902,7 @@ export const addedCouldChange = (check: ClaimCheckAttributes, shown: ClaimCheckS
   check.action !== "check-against-document" &&
   check.checkedAt !== "" &&
   (shown.state === "unsupported" ||
-    shown.state === "not-checked" ||
+    (shown.state === "not-checked" && shown.reason !== "found-elsewhere") ||
     (shown.state === "supported" && (check.readDocuments?.length ?? 0) > 0));
 
 /**

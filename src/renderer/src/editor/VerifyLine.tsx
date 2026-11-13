@@ -70,7 +70,7 @@ const ROW_OF: Partial<Record<ShownClaim["shown"]["state"], VerifyRow>> = {
 
 /** A claim no model checked stays not checked when it is edited, or "Checked 20 of 24" would count it. */
 const rowOf = (claim: ShownClaim): VerifyRow | undefined =>
-  claim.check.state === "not-checked" ? "notChecked" : ROW_OF[claim.shown.state];
+  claim.reads.state === "not-checked" ? "notChecked" : ROW_OF[claim.shown.state];
 
 /** The checks of the document's sentences: how many there are and are going, and where each state's are. */
 function claimMarks(editor: Editor, verified: (blockId: string) => boolean) {

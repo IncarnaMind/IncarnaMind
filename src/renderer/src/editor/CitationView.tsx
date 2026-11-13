@@ -996,6 +996,11 @@ function CitationCard({
             {t("citation.ownRecord")}
           </p>
         )}
+        {attributes.foundByCheck && (
+          <p data-testid="citation-found-by-check" className="citation-card-note">
+            {t("citation.foundByCheck")}
+          </p>
+        )}
         {state.keptInside && (
           <p data-testid="citation-kept-inside" className="citation-card-source">
             {t("citation.reason.kept-inside", { folder: state.keptInside })}

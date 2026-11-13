@@ -39,6 +39,7 @@ import { AnswerError } from "./AnswerView";
 import type { BadgeMark } from "./badgeState";
 import { useCardPlace } from "./checkPlace";
 import { coverageOf, keptSpans, sameCoverage, shownClaims } from "./claimChecks";
+import { FoundPassagesLine, useFoundPassages } from "./FoundPassagesLine";
 import {
   type CheckRow,
   checkRows,
@@ -242,6 +243,7 @@ export function HealthCard({
   const running = useChecks((state) => state.running[mindId]);
   // The opinions left out show once in the card: on the last check's line when it shows.
   const opinionsHere = opinions.length > 0 && (Boolean(running) || !checkedAll);
+  const foundHere = useFoundPassages(editor) >= 2 && (Boolean(running) || !checkedAll);
   const problem = useChecks((state) => state.problems[mindId]);
   const smallModel = useChecks((state) => state.smallModel[mindId] === true);
   const contradictions = useContradictionLine(doc, mindId);
@@ -369,6 +371,11 @@ export function HealthCard({
             })}
           {health.kept.length > 0 && opinionsHere && " · "}
           {opinionsHere && <OpinionsLine editor={editor} doc={doc} mindId={mindId} className="" />}
+        </p>
+      )}
+      {foundHere && (
+        <p className="mind-health-line">
+          <FoundPassagesLine editor={editor} className="" />
         </p>
       )}
       {health.tableCells.length > 0 && (
