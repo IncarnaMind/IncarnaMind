@@ -12,6 +12,7 @@ import type {
   ChatModelFactory,
   CitationLocation,
   Core,
+  CoreAdapters,
   Meeting,
   MeetingFill,
   SpeakerSeparator,
@@ -202,8 +203,11 @@ async function recorded(
     keychain,
     notesBeforeSpeakers,
     folder,
+    ollamaModels,
   }: {
     speakerSeparator?: SpeakerSeparator;
+    /** What the Ollama on this computer says of its models: none, no window. */
+    ollamaModels?: CoreAdapters["ollamaModels"];
     /** The Folder the Meeting's Note is made in, once `before` has run: none, no Folder. */
     folder?: () => string | undefined;
     /** How Stop is pressed. */
@@ -230,6 +234,7 @@ async function recorded(
     ...(capture && { capture }),
     ...(keychain && { keychain }),
     ...(notesBeforeSpeakers && { notesBeforeSpeakers }),
+    ...(ollamaModels && { ollamaModels }),
   });
   await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
   if (cloud) {
@@ -1210,6 +1215,48 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
         "- «We agreed the enterprise price is 45 dollars a seat »\uFFFC«.»",
       ),
     );
+    core.close();
+  });
+
+  // protects=on a model on this computer at a 16k window, a Transcript part that doesn't fit beside the whole output cap is sent with the cap lowered, never below its floor of 1,024, where main failed it as too long; a reply cut at that cap isn't asked again with more room, which the window can't give, and the fill ends on its own problem, which its line words as "the model couldn't fill in the notes", never a window line, and writes nothing (#3045); fails_when=nothing is sent, the cap isn't lowered or goes below the floor, a second request asks for more room, the problem is of another kind, or the Note changes; no_claim=how often a real model's reply reaches the lowered cap.
+  test("at a 16k window, a fill cut at its lowered cap isn't asked again, and says so in its own line", async () => {
+    const limits: (number | undefined)[] = [];
+    const model = scriptedModel((call) => {
+      if (isCheckRun(call)) return checkReply(call, {});
+      if (!isFill(call)) return { text: "OK" };
+      limits.push(call.options.maxOutputTokens);
+      return { text: "", cutOff: true };
+    });
+    // A Transcript whose one part fits beside the instructions only with the cap lowered.
+    const long = (line: string) =>
+      `${line}, ${"and we went through each of the figures again ".repeat(56)}`.trim();
+    const { core, meeting, client } = await recorded(model, NOTES, undefined, undefined, {
+      lines: { mine: MY_LINES.map(long), theirs: THEIR_LINES.map(long) },
+      // The app's first local pick on a 32 GB computer: a 16k window and an output cap of 4,096.
+      ollamaModels: {
+        describe: async () => ({
+          digest: null,
+          capabilities: ["completion", "tools"],
+          contextLength: 262_144,
+          parameters: null,
+          support: "tools",
+          chat: true,
+          remote: false,
+          settings: { numCtx: 16_384, outputTokens: 4_096, keepAlive: "5m", think: false },
+        }),
+        loaded: async () => true,
+        running: async () => true,
+      },
+    });
+    const before = shown(client);
+
+    const fill = await settledFill(core, meeting);
+
+    expect(fill).toMatchObject({ state: "failed", problem: { kind: "model" } });
+    expect(limits).toHaveLength(1);
+    expect(limits[0]).toBeGreaterThanOrEqual(1_024);
+    expect(limits[0]).toBeLessThan(4_096);
+    expect(shown(client)).toEqual(before);
     core.close();
   });
 
