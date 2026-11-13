@@ -47,6 +47,7 @@ import {
   readBatchText,
   sentenceBatchInstructions,
 } from "./sentenceBatch";
+import type { UnitGate } from "./unitGate";
 
 /** What a checked sentence's result makes of each of its found Citations. */
 export interface SupportResult {
@@ -120,6 +121,8 @@ export interface AnswerCheckOptions {
   passages(cited: readonly CheckedCitation[], scope: EvidenceScope): BatchPassage[];
   /** A cited Document's Units, for whether the quotes state a sentence's numbers. */
   units(citation: Citation): readonly { text: string }[];
+  /** Check against Documents' own gate: whether the quotes back the units the sentence states. */
+  unstatedUnit: UnitGate;
   /** How long one batch may take: a reply may never come. */
   claimTimeLimitMs: number;
   /** The most one request may cost, as the meter reserves it; null for one it doesn't reserve. */
@@ -177,7 +180,7 @@ const WORSE: Record<SupportResult["check"], number> = {
 async function supportOf(
   sentence: CitedSentence & { found: MarkedCitation[] },
   verdict: BatchVerdict | undefined,
-  units: AnswerCheckOptions["units"],
+  { units, unstatedUnit }: Pick<AnswerCheckOptions, "units" | "unstatedUnit">,
 ): Promise<SupportResult | null> {
   // A sentence sorted as all opinion is left unjudged, never supported: the sort is a model's, and
   // a fact sorted as opinion must not show the green check.
@@ -194,6 +197,10 @@ async function supportOf(
   // A Citation shows its words beside the check: a sentence they don't state is never green,
   // whatever another part of the Passage says (#2739).
   if (!passesSentence(verdict)) return null;
+  // A unit, currency or scale its quotes give otherwise is what Check against Documents finds too,
+  // and says so in the same words (#2997).
+  const unit = unstatedUnit(sentence.found, sentence.sentence);
+  if (unit) return { check: "unsupported", verdict: unit.why.reason };
   // A number no quote states is a calculation no one made (ADR-0021): the sentence isn't judged.
   const calculation = await needsCalculation({
     claim: sentence.sentence,
@@ -594,12 +601,7 @@ export function createAnswerCheck(options: AnswerCheckOptions) {
       }
       for (const [index, sentence] of batch.entries()) {
         const verdict = reply.get(index + 1);
-        settle(
-          sentence,
-          await supportOf(sentence, verdict, options.units),
-          null,
-          verdict !== undefined,
-        );
+        settle(sentence, await supportOf(sentence, verdict, options), null, verdict !== undefined);
       }
     };
 
