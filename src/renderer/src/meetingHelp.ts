@@ -41,6 +41,11 @@ export type PendingHelp = Pick<MeetingHelp, "kind" | "question">;
 interface HelpState {
   /** What was asked, by Meeting, until its Answer is the Meeting's `help`. */
   pending: Readonly<Record<string, PendingHelp>>;
+  /**
+   * How many asks this window has made, by Meeting: the panel opens each one and brings it into
+   * view, though a quick reply has come and gone from `pending` before the panel draws (#2925).
+   */
+  asked: Readonly<Record<string, number>>;
   /** Why the last press couldn't be asked, by Meeting: no model ready, or a problem in words. */
   blocked: Readonly<
     Record<string, { readiness: Extract<ChatReadiness, { ready: false }> } | { message: string }>
@@ -50,6 +55,7 @@ interface HelpState {
 
 export const useMeetingHelp = create<HelpState>()(() => ({
   pending: {},
+  asked: {},
   blocked: {},
   panel: { shown: false, folded: false, pinned: false },
 }));
@@ -140,6 +146,7 @@ async function ask(
   const latest = () => presses.get(meeting.id) === press;
   useMeetingHelp.setState((state) => ({
     pending: { ...state.pending, [meeting.id]: asked },
+    asked: { ...state.asked, [meeting.id]: (state.asked[meeting.id] ?? 0) + 1 },
     blocked: Object.fromEntries(
       Object.entries(state.blocked).filter(([meetingId]) => meetingId !== meeting.id),
     ),

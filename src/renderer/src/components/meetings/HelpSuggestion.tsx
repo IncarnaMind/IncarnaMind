@@ -319,7 +319,9 @@ function NoHelp({
 /**
  * A help button's Answer, laid out to be read in a second or two: the options with the
  * recommended first and starred, each with what it leads to; the Citations they rest on.
- * While it streams, the options still to come keep their outline.
+ * Until its first line streams in, its outline holds the place; the Citations' sources show once
+ * it ends. Nothing is drawn under a line still being written, so nothing moves while the User
+ * reads it (#2925).
  */
 export function HelpSuggestion({
   help,
@@ -378,7 +380,7 @@ export function HelpSuggestion({
           said={saysAloud(help.kind, item)}
         />
       ))}
-      {streaming && items.length < 2 && <HelpOutline count={items.length === 0 ? 2 : 1} />}
+      {streaming && items.length === 0 && <HelpOutline count={2} />}
       {answer.status === "failed" && (
         <NoHelp testId="help-failed" message={why} onRetry={onRetry} />
       )}
@@ -388,7 +390,7 @@ export function HelpSuggestion({
       {answer.status === "stopped" && options.length === 0 && (
         <NoHelp testId="help-stopped" message={t("answer.status.stopped")} onRetry={onRetry} />
       )}
-      <Sources answer={answer} numbers={numbers} />
+      {!streaming && <Sources answer={answer} numbers={numbers} />}
     </div>
   );
 }

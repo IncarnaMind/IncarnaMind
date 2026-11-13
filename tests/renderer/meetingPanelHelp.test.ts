@@ -685,6 +685,18 @@ describe("The Meeting's thread (#2925)", () => {
     expect(lines()).toHaveLength(2);
   });
 
+  // protects=while a reply is written nothing is drawn under the line being written, so nothing below it moves as it grows: the outline holds the place only until the first line, and the sources come once it ends (#2925); fails_when=an outline or the sources sit under a line still growing; no_claim=how fast it is written.
+  test("while a reply is written, nothing is drawn under its newest line: no outline after the first line, and the sources once it ends", async () => {
+    await changed(helpOf("want", "answer-want"));
+    await loaded([answerOf("answer-want", "", "streaming")]);
+    expect(all("help-outline")).toHaveLength(2);
+    await written(answerOf("answer-want", "★ They want the rollout finished [^1]", "streaming"));
+    expect(all("help-outline")).toHaveLength(0);
+    expect(all("help-sources")).toHaveLength(0);
+    await written(answerOf("answer-want", WANT, "done"));
+    expect(all("help-sources")).toHaveLength(1);
+  });
+
   // protects=a typed question shows as the question, its own heading, in its pending outline and once answered, with Open in assistant going on in the app's window at that Answer; a line names it by the question; fails_when=it shows under a button's name or none, or Open in assistant opens another conversation; no_claim=the main window's side.
   test("a typed question shows as the question, with Open in assistant, and its earlier line names it", async () => {
     const { askQuestion } = await import("../../src/renderer/src/meetingHelp");

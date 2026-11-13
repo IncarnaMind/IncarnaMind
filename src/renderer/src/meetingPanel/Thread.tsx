@@ -50,6 +50,20 @@ function usePointed(): RefObject<boolean> {
   return over;
 }
 
+/**
+ * Scrolls the thread so the newest item's foot is in view, never past its top: a reply taller than
+ * the thread is read from its start. The thread alone scrolls, never the page around it, whose top
+ * is where the window is anchored.
+ */
+function reveal(box: HTMLElement | null, item: HTMLElement | null): void {
+  if (!box || !item) return;
+  const within = box.getBoundingClientRect();
+  const at = item.getBoundingClientRect();
+  if (at.top < within.top) box.scrollTop -= within.top - at.top;
+  else if (at.bottom > within.bottom)
+    box.scrollTop += Math.min(at.bottom - within.bottom, at.top - within.top);
+}
+
 const retry = (meeting: Meeting, help: Pick<MeetingHelp, "kind" | "question">) =>
   void (help.kind === "question"
     ? askQuestion(meeting, help.question ?? "")
@@ -74,6 +88,7 @@ export function Thread({
 }) {
   const t = useT();
   const pending = useMeetingHelp((state) => state.pending[meeting.id]);
+  const askedHere = useMeetingHelp((state) => state.asked[meeting.id] ?? 0);
   const blocked = useMeetingHelp((state) => state.blocked[meeting.id]);
   const { helps } = meeting;
   const [opened, setOpened] = useState<string | null>(null);
@@ -84,32 +99,30 @@ export function Thread({
   const atFoot = useRef(true);
   const pointed = usePointed();
 
-  // A new ask opens: one pressed here, or asked from the app's window. A press settling into the
-  // Meeting's help is the same ask, and leaves open what the User opened meanwhile.
-  const seen = useRef({ count: helps.length, pending });
-  const [asked, setAsked] = useState(0);
-  useEffect(() => {
-    const before = seen.current;
-    seen.current = { count: helps.length, pending };
-    const fresh =
-      (pending !== undefined && pending !== before.pending) ||
-      (helps.length > before.count && before.pending === undefined);
-    if (!fresh) return;
-    setOpened(null);
-    if (pending !== undefined || !pointed.current) setAsked((now) => now + 1);
-  }, [helps.length, pending, pointed]);
-
-  // The thread alone scrolls, never the page around it: its top is where the window is anchored.
+  // A new ask opens: one made here, which comes into view, or one from the app's window, which
+  // does when the pointer isn't on the panel. A help that arrives for an ask made here is that ask,
+  // and leaves open what the User opened meanwhile. Before the paint, so it is never drawn out of
+  // view first.
+  const seen = useRef({ count: helps.length, askedHere });
+  const awaiting = useRef(0);
+  const [revealed, setRevealed] = useState(0);
   useLayoutEffect(() => {
-    const box = scroller.current;
-    const item = newest.current;
-    if (asked === 0 || !box || !item) return;
-    const within = box.getBoundingClientRect();
-    const at = item.getBoundingClientRect();
-    if (at.top < within.top) box.scrollTop -= within.top - at.top;
-    else if (at.bottom > within.bottom)
-      box.scrollTop += Math.min(at.bottom - within.bottom, at.top - within.top);
-  }, [asked]);
+    const before = seen.current;
+    seen.current = { count: helps.length, askedHere };
+    const here = askedHere - before.askedHere;
+    const grew = Math.max(0, helps.length - before.count);
+    const settled = Math.min(grew, awaiting.current + here);
+    // An ask that won't bring a help (it couldn't be asked, or the call stopped) awaits nothing.
+    awaiting.current = pending ? awaiting.current + here - settled : 0;
+    const elsewhere = grew - settled;
+    if (here === 0 && elsewhere === 0) return;
+    setOpened(null);
+    if (here > 0 || !pointed.current) setRevealed((now) => now + 1);
+  }, [helps.length, askedHere, pending, pointed]);
+
+  useLayoutEffect(() => {
+    if (revealed > 0) reveal(scroller.current, newest.current);
+  }, [revealed]);
 
   const empty = helps.length === 0 && !pending && !blocked;
   useEffect(() => {
@@ -117,7 +130,7 @@ export function Thread({
     const inner = content.current;
     if (empty || !box || !inner) return;
     const follow = () => {
-      if (atFoot.current && !pointed.current) box.scrollTop = box.scrollHeight;
+      if (atFoot.current && !pointed.current) reveal(box, newest.current);
     };
     const observer = new ResizeObserver(follow);
     observer.observe(inner);

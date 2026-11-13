@@ -208,23 +208,24 @@ test("thread: it scrolls inside a panel under 60% of the screen's height, the ne
   const { app, panel } = await recording();
   const tallest = await panel.evaluate(() => Math.round(window.screen.availHeight * 0.6));
   const thread = panel.getByTestId("help-thread");
-  const overflows = () =>
-    thread.evaluate((element) => element.scrollHeight > element.clientHeight + 1);
-  // Pinned, each stays whole, so the thread outgrows the panel, however tall the screen.
-  const prompts = ["What should I say?", "Answer their question", "What do they want?"];
-  for (let pressed = 0; pressed < 15 && !(pressed > 0 && (await overflows())); pressed++) {
-    await pressHelp(panel, prompts[pressed % prompts.length] ?? "");
-    await pointAndClick(panel, panel.getByTestId("help-pin").last());
-  }
-  expect(await overflows()).toBe(true);
+  await pressHelp(panel, "What should I say?");
+  // An answer as tall as the screen, so the thread outgrows the panel whatever the screen.
+  await panel.evaluate(() => {
+    const style = document.createElement("style");
+    style.textContent = `.panel-suggestion { min-height: ${window.screen.availHeight}px; }`;
+    document.head.append(style);
+  });
+  await expect
+    .poll(() => thread.evaluate((element) => element.scrollHeight > element.clientHeight + 1))
+    .toBe(true);
   await expect.poll(() => windowHeight(panel)).toBeLessThanOrEqual(tallest + 1);
   expect(await windowHeight(panel)).toBeGreaterThan(tallest - 40);
+  // Its top in the thread's view: a reply is read from its start.
   const inView = async (target: Locator) => {
     const [box, frame] = await Promise.all([target.boundingBox(), thread.boundingBox()]);
     if (!box || !frame) throw new Error("The thread isn't drawn.");
     return box.y >= frame.y - 1 && box.y < frame.y + frame.height;
   };
-  expect(await inView(newest(panel))).toBe(true);
 
   // The pointer rests on the thread; a key asks again, from the meeting app.
   const frame = await thread.boundingBox();
@@ -242,14 +243,15 @@ test("thread: it scrolls inside a panel under 60% of the screen's height, the ne
       }
     }).observe({ type: "layout-shift" });
   });
+  const before = await thread.evaluate((element) => element.scrollTop);
   await pressHeldKeys(app, "sum");
-  // The ask comes into view at once, in the thread: the page around it never scrolls.
-  const pending = panel.getByTestId("help-pending");
-  await expect(pending).toBeVisible();
-  expect(await inView(pending)).toBe(true);
-  const scrolled = await thread.evaluate((element) => element.scrollTop);
+  // The ask comes into view in the thread, from its start, and then nothing scrolls while it is
+  // written: the pointer is on the panel. The page around the thread never scrolls.
   const asked = newest(panel);
   await expect(asked.getByTestId("help-heading")).toContainText("Sum up so far");
+  expect(await inView(asked)).toBe(true);
+  const scrolled = await thread.evaluate((element) => element.scrollTop);
+  expect(scrolled).toBeGreaterThan(before);
   await expect(asked).toHaveAttribute("data-status", "done", { timeout: 20_000 });
   expect(await inView(asked)).toBe(true);
   expect(await thread.evaluate((element) => element.scrollTop)).toBe(scrolled);

@@ -305,6 +305,8 @@ body {
   flex-shrink: 1;
   min-height: 0;
   overflow-y: auto;
+  /* The thread brings a new ask into view itself: the browser's own anchoring would move it again. */
+  overflow-anchor: none;
   border-top: 1px solid var(--color-rule);
   scrollbar-width: thin;
 
