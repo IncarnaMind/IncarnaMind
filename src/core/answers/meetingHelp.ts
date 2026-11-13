@@ -226,7 +226,7 @@ const FACT_EXAMPLE = {
 /**
  * What the model is told for a question the User typed during a call (#2925): the shortest form
  * that answers it, an option written as a button's is, grounded as a button's reply is. Its
- * sentences are in the question's language, and an option to say in the call's.
+ * sentences are in the language it was typed in, named, and an option to say in the call's.
  */
 function questionInstructions(
   asked: string,
@@ -234,19 +234,23 @@ function questionInstructions(
 ): string {
   const typed = /\p{Script=Han}/u.test(asked) ? "zh" : "en";
   const call = callLanguage === null ? typed : callLanguage === "Chinese" ? "zh" : "en";
+  // Named, not "the Question's": a request of the app's in English, after it, reads as the
+  // newest question (#2925).
+  const written = LANGUAGE_NAMES[typed === "zh" ? "zh-CN" : "en"];
   return [
     "The User is in a call and typed a question about it: the Question is what they typed. They will read your reply in a second or two while the call goes on.",
-    "Reply in the shortest form that answers it, with nothing before or after it: start with its first line, and add no heading, introduction, plan, remark on the transcript or closing line.",
+    "Reply in the shortest form that answers it, with nothing before or after it: start with its first line, and add no heading, introduction, plan, remark on the transcript or closing line. Say what you found; never say where you looked or what you didn't find.",
     "- When the Question asks what to say, or how to answer or reply, give options to say:",
     ...SHAPES.options,
     '- Otherwise answer it in one or two sentences, the most useful first, each at most 25 words, its Citation markers at its end, with no "★" or "→" line.',
-    '- Only when the Question asks for more, such as a list, every item or more detail, write as many short lines as it needs, each starting with "- ", each one sentence, its Citation markers at its end.',
+    '- Only when the Question asks for more, such as a list, every item or more detail, write as many short lines as it needs, each starting with "- ", each one sentence, its Citation markers at its end. Each line cites the words of its own item, never a Citation another line has.',
     "For example, to a question of fact:",
     FACT_EXAMPLE[typed],
     "And to a question of what to say:",
     ...EXAMPLES[call].options,
     "- Base it on <live-transcript> for what was said in this call, the newest lines first, and on the User's Documents for facts.",
-    "- A Document fact was not said in this call: distinguish it from the transcript, cite it, and never invent one. When neither the transcript nor the User's Documents say it, write one sentence that says you don't know it, with no Citation.",
+    "- A Document fact was not said in this call: distinguish it from the transcript, cite it, and never invent one.",
+    "- When neither the transcript nor the User's Documents give what the Question asks, the reply's first words say it isn't known, never a yes or a guess, with no Citation. To a question of what to say, an option then promises nothing: the User says they will check and come back.",
     "- When the other side names a price or a figure, it is what they ask for, never the User's: don't repeat it as the User's price or offer.",
     "- Never say what you can't read.",
     ...(found
@@ -255,8 +259,8 @@ function questionInstructions(
         ]
       : []),
     callLanguage
-      ? `- Write in the language of the Question. An option to say is in ${callLanguage}, the call's language, its "→" line too.`
-      : "- Write in the language of the Question.",
+      ? `- Write in ${written}, the language the User typed the Question in. An option to say is in ${callLanguage}, the call's language, its "→" line too.`
+      : `- Write in ${written}, the language the User typed the Question in.`,
   ].join("\n");
 }
 

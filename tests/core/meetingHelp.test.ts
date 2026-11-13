@@ -734,8 +734,8 @@ test("a typed question's own lines are its options and short lines; a sentence t
   expect(own("Enterprise is $45 a seat [^1]")).toEqual([]);
 });
 
-// protects=a typed question is told how an option is written in the very words a button is, so a change to the options' rule reaches both; its sentences are in the question's language and an option to say in the call's (#2925); fails_when=the question's rule for options drifts from the buttons', or the language rule is the button's; no_claim=how a real model follows them.
-test("a typed question's instructions give an option's rule word for word as a button's, and its language rules", () => {
+// protects=a typed question is told how an option is written in the very words a button is, so a change to the options' rule reaches both; its sentences are in the language it was typed in, named, and an option to say in the call's (#2925); fails_when=the question's rule for options drifts from the buttons', the language is left as "the Question's" (which an English request of the app's after it takes over), or the language rule is the button's; no_claim=how a real model follows them.
+test("a typed question's instructions give an option's rule word for word as a button's, and its language by name", () => {
   const button = meetingHelpInstructions("say", {
     found: true,
     language: "en",
@@ -755,15 +755,51 @@ test("a typed question's instructions give an option's rule word for word as a b
   const english = asked("What should I say about the price?", "English");
   for (const line of rule) expect(english).toContain(line);
   expect(english).toContain(
-    '- Write in the language of the Question. An option to say is in English, the call\'s language, its "→" line too.',
+    '- Write in English, the language the User typed the Question in. An option to say is in English, the call\'s language, its "→" line too.',
   );
   expect(english).toContain("Single sign-on is included in Enterprise at no extra cost [^1]");
   // A question typed in Chinese in an English call: its sentence's example is Chinese, its options' English.
   const chinese = asked("对方问的价格是多少？", "English");
+  expect(chinese).toContain(
+    '- Write in Simplified Chinese, the language the User typed the Question in. An option to say is in English, the call\'s language, its "→" line too.',
+  );
   expect(chinese).toContain("企业版已包含单点登录，不另收费 [^1]");
   const option = button[button.indexOf("For example:") + 1];
   expect(option).toMatch(/^★ We can't/);
   expect(chinese).toContain(option);
-  expect(asked("Who joined?", null)).toContain("- Write in the language of the Question.");
+  expect(asked("Who joined?", null)).toContain(
+    "- Write in English, the language the User typed the Question in.",
+  );
+  expect(asked("Who joined?", null).join("\n")).not.toContain("language of the Question");
   expect(asked("Who joined?", null).join("\n")).not.toContain("pressed a button");
+});
+
+// protects=a typed question's reply says first that it doesn't know what no source gives, promises nothing in an option, cites each list item by its own words, and says what it found rather than where it looked (#2925); fails_when=one of these rules is missing from a typed question's instructions or reaches a button's; no_claim=how a real model follows them.
+test("a typed question is told to open with not knowing, promise nothing, cite each listed item and not say what it didn't find; a button isn't", () => {
+  const typed = meetingHelpInstructions("question", {
+    found: true,
+    language: "en",
+    callLanguage: "English",
+    asked: "Do we insure linen in transit?",
+  });
+  expect(typed).toContain(
+    "the reply's first words say it isn't known, never a yes or a guess, with no Citation",
+  );
+  expect(typed).toContain(
+    "To a question of what to say, an option then promises nothing: the User says they will check and come back.",
+  );
+  expect(typed).toContain(
+    "Each line cites the words of its own item, never a Citation another line has.",
+  );
+  expect(typed).toContain(
+    "Say what you found; never say where you looked or what you didn't find.",
+  );
+  expect(typed).not.toContain("write one sentence that says you don't know it");
+  const button = meetingHelpInstructions("say", {
+    found: true,
+    language: "en",
+    callLanguage: "English",
+  });
+  for (const rule of ["isn't known", "promises nothing", "its own item", "what you didn't find"])
+    expect(button).not.toContain(rule);
 });
