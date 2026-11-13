@@ -11,6 +11,7 @@ import type {
 import type { Language } from "../../src/core/language";
 import { translate } from "../../src/shared/i18n";
 import { helpLabel } from "../../src/shared/meetingHelp";
+import { pressedBeforeFirstLine, turnOf } from "../helpers/earlierCallPress";
 
 /*
  * A help button's reply in the assistant keeps a Citation of another call's Transcript, which its
@@ -260,6 +261,23 @@ for (const language of ["en", "zh-CN"] as const) {
         expect(card.open).toBe(t("citation.open.time"));
         expect(card.primary).toBe("citation-check-again");
       }
+    });
+
+    // protects=#3005: a press made before anyone has spoken is still a press, as the core records it; fails_when=its kept Citation of another call gives the general line or offers Check again; no_claim=how the record marks a press.
+    test("a press made before the call's first line, as the core records it: Not checked, as the quote is from another call, with no Check again", {
+      timeout: 180_000,
+    }, async () => {
+      const { core, pressIds } = await pressedBeforeFirstLine(language);
+      const { question, answer } = await turnOf(core, pressIds);
+      const { useMeetings } = await import("../../src/renderer/src/meetings");
+      useMeetings.setState({ meetings: await core.listMeetings() });
+      const { useAppStore } = await import("../../src/renderer/src/store");
+      useAppStore.setState({ documents: await core.listDocuments() } as never);
+      setLanguage(language);
+
+      const card = await cardOf(question, answer);
+      expect.soft(card.reason).toBe(OTHER_CALL);
+      expect.soft(card.checkAgain).toBe(false);
     });
   });
 }

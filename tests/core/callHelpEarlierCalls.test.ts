@@ -21,6 +21,7 @@ import { mindName } from "../../src/shared/naming";
 import { answerEnded, shownPassages } from "../helpers/citations";
 import { createTempDataFolder } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
+import { pressedBeforeFirstLine, turnOf } from "../helpers/earlierCallPress";
 import { connectToMind } from "../helpers/mindClient";
 import { writeMind } from "../helpers/minds";
 import { type GenerateCall, type ModelCall, scriptedModel, unscripted } from "../helpers/models";
@@ -730,6 +731,23 @@ for (const language of ["en", "zh-CN"] as const) {
 
       expect(await core.estimateAnswerCheck(pressIds)).toBeNull();
       await checkedWithoutIt(setup);
+    });
+
+    test("a press made before the call's first line is heard: Check again and its estimate read the Folder without the earlier call's Transcript, and its kept Citation of it stays not checked", async () => {
+      const { core, line, batches, pressIds, earlier } = await pressedBeforeFirstLine(language);
+      const holdsTheLine = () => batches.filter((batch) => batch.prompt.includes(line));
+      const { answer } = await turnOf(core, pressIds);
+      expect(answer.citations.map((citation) => [citation.documentId, citation.check])).toEqual([
+        [earlier, "not-checked"],
+      ]);
+      expect(holdsTheLine()).toEqual([]);
+
+      expect.soft(await core.estimateAnswerCheck(pressIds)).toBeNull();
+      await core.checkAnswerAgain(pressIds);
+      expect.soft(holdsTheLine()).toEqual([]);
+      const rechecked = (await turnOf(core, pressIds)).answer;
+      expect.soft(rechecked.citations.map((citation) => citation.check)).toEqual(["not-checked"]);
+      expect.soft(rechecked.citations.flatMap((citation) => citation.passedAt ?? [])).toEqual([]);
     });
   });
 }
