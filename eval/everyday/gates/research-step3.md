@@ -73,3 +73,13 @@ It would give 162 right catches a second chance at a ✓, to mend 9, at 9% more 
 - **Struck bars:** bar 2's "Second-look ✓" and "The negative beside I's positives", and bar 6, "What the second look costs". The check's requests, cost and time are still reported for each arm, for the record, and no bar reads them.
 - **Bars 1, 2's "Unstated ✓", 3, 4, 5 and 7 stay as written.** They are read by `eval/everyday/arms.ts`, which also refuses arms that don't hold the same requests, models and languages, and a run with any failed try, a retried one included.
 - **The case stays open on #3019:** a wrong Unsupported whose Not covered belongs to another sentence, 9 here and 3 of the 35 on the two saved runs. Its cause comes first: what the check was given when it named another sentence's gap. A second look comes back only with a trigger counted first on records it hasn't seen.
+
+### 2026-11-13 13:24:05Z, during the run and before its next request: two 503s in one outage
+
+The run stopped at 13:21Z by its own void rule. Round 3's `research-gpt3-energy-zh` on main's arm failed twice, at 13:20:41Z and again at its one rerun at 13:21:01Z. Both times Anthropic answered HTTP 503 to the answering requests, to their retries and to the judge, and the Answer failed. Both folders are kept, struck as void with the reason. A probe at 13:22:42Z showed HTTP 200 and every limit full.
+
+- **Two tries of one slot that both failed with HTTP 503 inside one provider outage (13:20:41Z and 13:21:01Z) count as one void.**
+- **The slot is asked once more** after a probe shows 200 and full limits.
+- **If that try is void too,** the pair is left out on both arms, nothing more of that slot is asked, and the bars are read on what remains.
+- The rule says nothing about results, and it is fixed before the try.
+- After this slot, round 3's branch arm and rounds 4 to 6 run as planned, and any other void follows the plan's own one-rerun rule. The stop stays US$2.00 in all; US$0.5424 has been spent so far.
