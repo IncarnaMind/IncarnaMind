@@ -778,8 +778,17 @@ export function claimCheckShown(check: ClaimCheckAttributes, now: ClaimCheckNow)
         ? basisShown(check.remainder, now)
         : undefined,
   );
-  // Its figures each have their own check, so the sentence's parts don't decide its state here.
-  return shown.state === "supported" && check.parts?.some(leftOutByAssistant)
+  if (shown.state !== "supported") return shown;
+  // Its figures each have their own check, and its remainder holds only its facts: an opinion
+  // Check anyway judged, or the assistant's own left out, still takes its ✓ (#3019).
+  const opinions = (check.parts ?? []).filter((part) => part.kind === "opinion" && !part.itself);
+  const judged = (verdict: ClaimCheckPart["verdict"]) =>
+    opinions.find((part) => part.verdict === verdict);
+  const failed = judged("not-checked");
+  if (judged("contradicted")) return { state: "contradicted" };
+  if (judged("unsupported")) return { state: "unsupported" };
+  if (failed) return { state: "not-checked", reason: failed.reason ?? "failed" };
+  return opinions.some(leftOutByAssistant)
     ? { state: "not-checked", reason: "assistant-conclusion" }
     : shown;
 }
@@ -898,7 +907,8 @@ export function figureCheckShown(
  * Whether Documents added to its scope since could change a check (#993): one
  * found unsupported or not checked. A supported or contradicted one already
  * has its evidence, as have one whose ✓ waits on the Passage it found becoming
- * a Citation and one beside the assistant's own conclusion (#3019);
+ * a Citation and one beside the assistant's own conclusion (#3019), unless an
+ * absence read whole backs it, which a new Document can still disprove;
  * contradiction watch makes its own checks again, and a whole read covered
  * only the User's pick.
  */
@@ -910,7 +920,9 @@ export const addedCouldChange = (check: ClaimCheckAttributes, shown: ClaimCheckS
     (shown.state === "not-checked" &&
       shown.reason !== "found-elsewhere" &&
       shown.reason !== "assistant-conclusion") ||
-    (shown.state === "supported" && (check.readDocuments?.length ?? 0) > 0));
+    ((shown.state === "supported" ||
+      (shown.state === "not-checked" && shown.reason === "assistant-conclusion")) &&
+      (check.readDocuments?.length ?? 0) > 0));
 
 /**
  * A sentence as every surface counts it (#1909): a claim no check covers now

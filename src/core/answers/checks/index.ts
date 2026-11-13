@@ -175,6 +175,7 @@ import {
   type SelectedSentence,
   selectedSentences,
   updateCheck,
+  writtenByAssistant,
 } from "./sentences";
 import { unitGate } from "./unitGate";
 import { createVerify, type NoDocuments, type VerifyOptions } from "./verify";
@@ -1385,11 +1386,19 @@ export function createChecks(options: ChecksOptions) {
           const owner = input.part ? currentPartOwner(blocks, input.part) : null;
           if (input.part && !owner) return false;
           const begun = startCheck(blocks, now, owner, input, prepared, scope, startedAt);
+          // Its mark lands only below, so whose the sentence is is read from its place.
+          const result =
+            "result" in outcome && outcome.result.parts
+              ? {
+                  ...outcome.result,
+                  parts: partsWrittenBy(outcome.result.parts, writtenByAssistant(blocks, now)),
+                }
+              : null;
           const settled =
             "result" in outcome
               ? noteResult(
                   begun.pending,
-                  outcome.result,
+                  result ?? outcome.result,
                   at,
                   blocks,
                   mindId,

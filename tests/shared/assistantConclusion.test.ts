@@ -297,7 +297,7 @@ describe("An opinion left out of a sentence the assistant wrote", () => {
     });
   });
 
-  // protects=such a sentence counts as checked, so it neither holds back the Note's count of what is left to check nor asks Documents added since for a new check; fails_when=Check this Note or Check the rest sends it again, or adding a Document marks it to check; no_claim=the badge's own rows.
+  // protects=such a sentence counts as checked, so it neither holds back the Note's count of what is left to check nor asks Documents added since for a new check, unless an absence read whole backs it, which a new Document can still disprove; fails_when=Check this Note or Check the rest sends it again, adding a Document marks it to check, or an absence read whole stops being checked against new Documents; no_claim=the badge's own rows.
   test("it counts as checked", () => {
     const { text, parts } = sentenceOf("en");
     const check = checkOf(text, partsWrittenBy(parts, true));
@@ -306,6 +306,9 @@ describe("An opinion left out of a sentence the assistant wrote", () => {
       kind: "covered",
     });
     expect(addedCouldChange(check, shown)).toBe(false);
+    // An absence read whole stays open to a Document added since, which could hold it after all.
+    const read = { documentId: "tides", documentName: "Tides", contentHash: "v1", locations: [] };
+    expect(addedCouldChange({ ...check, readDocuments: [read] }, shown)).toBe(true);
   });
 
   // protects=a mark stored before this rule has no flag and keeps its result until its sentence is checked again, whoever wrote it; one stored with the flag reads it back, and the flag stands only on an opinion part; fails_when=a stored result is reread as the assistant's, or the flag is lost or read onto a fact; no_claim=what an older version shows, which reads the parts it knows and so shows today's result.
@@ -355,5 +358,13 @@ describe("An opinion left out of a sentence the assistant wrote", () => {
       state: "not-checked",
       reason: "assistant-conclusion",
     });
+    // Check anyway on the opinion: the sentence takes its result, whoever wrote it.
+    for (const assistant of [true, false]) {
+      const judged = (verdict: ClaimCheckPart["verdict"]) =>
+        reads(withFigures(partsWrittenBy([fact, { ...opinion, verdict }], assistant)), text);
+      expect(judged("unsupported")).toEqual({ state: "unsupported" });
+      expect(judged("contradicted")).toEqual({ state: "contradicted" });
+      expect(judged("supported")).toEqual({ state: "supported" });
+    }
   });
 });

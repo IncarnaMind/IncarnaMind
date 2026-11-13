@@ -12,7 +12,6 @@ import {
   GENERATED_MARK,
   QUESTION_BLOCK,
 } from "../../src/core";
-import { assistantWrote } from "../../src/core/answers/checks/sentences";
 import { failedSentences } from "../../src/core/exports/sentenceChecks";
 import { claimsOf, markOf } from "../../src/renderer/src/editor/claimChecks";
 import { noteHealth } from "../../src/renderer/src/editor/healthCounts";
@@ -28,7 +27,7 @@ import { recordRows } from "../helpers/csv";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { boundEditor, typeText } from "../helpers/editor";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
-import { editMind, readMind, resolveChanges, shownWithAiText, writeMind } from "../helpers/minds";
+import { readMind, resolveChanges, shownWithAiText, writeMind } from "../helpers/minds";
 import { judgesNothing, type ModelCall, scriptedModel, scriptedModels } from "../helpers/models";
 
 /*
@@ -296,6 +295,50 @@ describe("Check against Documents on a Note", { timeout: 30_000 }, () => {
       },
     ]);
   });
+
+  // protects=Check against a Document, which reads the User's pick whole and lands its mark only once it has read it, reads whose the sentence is from its place too: the assistant's conclusion reads Not checked, the User's sentence keeps its ✓; fails_when=a whole read's first mark on AI text shows ✓ beside the assistant's conclusion; no_claim=how a whole read sizes its windows.
+  test("Check against a Document, read whole", async () => {
+    const { core, client, mind, tides } = await setUp();
+    writeMind(client, [
+      written("ai", SENTENCES.en, citationOf(tides, LINE), true),
+      written("mine", SENTENCES.en, citationOf(tides, LINE), false),
+    ]);
+    await client.settled();
+    const pick = { folderIds: [], tagIds: [], documentIds: [tides.id] };
+    for (const id of ["ai", "mine"]) {
+      const place = {
+        from: { blockId: id, offset: 0 },
+        to: { blockId: id, offset: SENTENCES.en.length + 1 },
+      };
+      const plan = await core.planDocumentCheck({ mindId: mind.id, ...place, within: pick });
+      if (plan.kind !== "ready") throw new Error(`The pick can't be read: ${plan.kind}.`);
+      await core.checkSentences({
+        requestId: crypto.randomUUID(),
+        mindId: mind.id,
+        action: "check-against-document",
+        ...place,
+        within: pick,
+        plan: plan.id,
+      });
+    }
+    await client.settled();
+    expect(readsOf(client)).toEqual([
+      {
+        shown: { state: "not-checked", reason: "assistant-conclusion" },
+        parts: [
+          ["fact", "supported", null],
+          ["opinion", null, true],
+        ],
+      },
+      {
+        shown: { state: "supported" },
+        parts: [
+          ["fact", "supported", null],
+          ["opinion", null, null],
+        ],
+      },
+    ]);
+  });
 });
 
 /** A model that writes `SENTENCES.en` into the Note with a Citation of `LINE`, and checks as `PLANS` say. */
@@ -508,35 +551,32 @@ describe("Every reader of a stored result", { timeout: 30_000 }, () => {
   });
 });
 
-/** An Answer whose words are AI text as a whole, as an older one is, holding `sentence`. */
-const olderAnswer = (sentence: JSONContent): JSONContent[] => [
+/** An Answer holding `sentence`: an older one, AI text as a whole, unless `generatedMarks`. */
+const answer = (sentence: JSONContent, generatedMarks = false): JSONContent[] => [
   { type: QUESTION_BLOCK, attrs: { id: "q" }, content: [{ type: "text", text: "Tides?" }] },
-  { type: ANSWER_BLOCK, attrs: { id: "answer", questionId: "q" }, content: [sentence] },
+  {
+    type: ANSWER_BLOCK,
+    attrs: { id: "answer", questionId: "q", ...(generatedMarks && { generatedMarks: true }) },
+    content: [sentence],
+  },
 ];
 
-describe("Whose sentence a mark is on", () => {
-  // protects=an older Answer's words are AI text as a whole, so a sentence in one is the assistant's though its words carry no mark; a mark the Note doesn't hold says nothing either way; fails_when=an older Answer's sentence reads as the User's, or a missing mark is guessed at; no_claim=how Answers mark their words now.
-  test("in an older Answer, and a mark not in the Note", async () => {
-    const { client, tides } = await setUp();
-    const check = storedCheck(tides, false);
-    const sentence = paragraph(
-      "p",
-      [
-        {
-          type: "text",
-          text: SENTENCES.en.slice(0, -1),
-          marks: [{ type: CLAIM_CHECK_MARK, attrs: check }],
-        },
-      ],
-      citationOf(tides, LINE),
-      { type: "text", text: ".", marks: [{ type: CLAIM_CHECK_MARK, attrs: check }] },
+describe("A sentence in an Answer", { timeout: 30_000 }, () => {
+  // protects=a sentence in an older Answer, whose words are AI text as a whole, is the assistant's though its words carry no mark; one in an Answer that read a web page is still the assistant's, its origin being what the Answer read; one in a newer Answer whose words the User typed is theirs; fails_when=an Answer's sentence reads as the User's for its origin or its unmarked older words, or the User's typed words read as the assistant's; no_claim=how Answers mark their words.
+  test.each([
+    ["an older Answer", false, false, null, "not-checked"],
+    ["an Answer that read a web page", true, true, "web-page", "not-checked"],
+    ["the User's words in a newer Answer", true, false, null, "supported"],
+  ] as const)("%s", async (_case, generatedMarks, ai, origin, state) => {
+    const { core, client, mind, tides } = await setUp();
+    writeMind(
+      client,
+      answer(written("p", SENTENCES.en, citationOf(tides, LINE), ai), generatedMarks),
     );
-    writeMind(client, olderAnswer(sentence));
     await client.settled();
-    expect(assistantWrote(client.blocks, check.id)).toBe(true);
-    expect(assistantWrote(client.blocks, "elsewhere")).toBeNull();
-    editMind(client, () => [sentence]);
+    if (origin) setTextOrigin(client.doc, ["answer"], origin);
+    await checkParagraph(core, mind.id, "p", SENTENCES.en.length + 1);
     await client.settled();
-    expect(assistantWrote(client.blocks, check.id)).toBe(false);
+    expect(shownIn(client)[0]?.shown.state).toBe(state);
   });
 });
