@@ -271,33 +271,35 @@ const MOVED: (Kind & { quote?: string; other?: string; query?: string; en: strin
   ];
 
 describe("A Citation whose quote is in another place in the new version (#3041)", {
-  timeout: 60_000,
+  timeout: 120_000,
 }, () => {
   // protects=for each kind of place (lines, a Markdown or Word section, a slide, sheet rows, another sheet, CSV rows) and for a file in Chinese, a quote the new version holds in another place is said, on the card and in the viewer alike, to be at that place in English and Chinese, while its check and every field of the re-check are as they were; fails_when=the line says the quote is no longer in the new version, names the wrong place, or the check changes; no_claim=a PDF page (tests/core/versions.test.ts), how the line is drawn (tests/renderer/quoteStanding.test.ts).
-  test.each(MOVED)("$label: says where the quote is now", async (kind) => {
-    const quote = kind.quote ?? OLD;
-    const other = kind.other ?? OTHER;
-    const { core, document, citation } = await cited(kind, quote, other, kind.query);
-    expect(citation).toMatchObject({ check: "found", quote });
-    await change(core, document, kind.file(other, quote));
+  test("says where the quote is now, for each kind of place", async () => {
+    for (const kind of MOVED) {
+      const quote = kind.quote ?? OLD;
+      const other = kind.other ?? OTHER;
+      const { core, document, citation } = await cited(kind, quote, other, kind.query);
+      expect(citation).toMatchObject({ check: "found", quote });
+      await change(core, document, kind.file(other, quote));
 
-    const asked = {
-      mindId: null,
-      documentId: document.id,
-      quote: citation.quote,
-      pageFrom: citation.pageFrom,
-      pageTo: citation.pageTo,
-      contentHash: citation.contentHash,
-      location: citation.location,
-    };
-    const before = checkedResult(await core.recheckCitation(asked));
-    const after = checkedResult(await core.recheckCitation({ ...asked, lookElsewhere: true }));
-    const { elsewhere: _, ...check } = after;
-    expect(check).toEqual(before);
-    const live = (await core.listDocuments())[0];
-    const line = (language: Language) =>
-      changedSourceLines(true, citation, after, live, language, in_(language)).note?.quote;
-    expect(line("en")).toBe(`Its quote is now at ${kind.en}.`);
-    expect(line("zh-CN")).toBe(`引文已移到${kind.zh}。`);
+      const asked = {
+        mindId: null,
+        documentId: document.id,
+        quote: citation.quote,
+        pageFrom: citation.pageFrom,
+        pageTo: citation.pageTo,
+        contentHash: citation.contentHash,
+        location: citation.location,
+      };
+      const before = checkedResult(await core.recheckCitation(asked));
+      const after = checkedResult(await core.recheckCitation({ ...asked, lookElsewhere: true }));
+      const { elsewhere: _, ...check } = after;
+      expect(check, kind.label).toEqual(before);
+      const live = (await core.listDocuments())[0];
+      const line = (language: Language) =>
+        changedSourceLines(true, citation, after, live, language, in_(language)).note?.quote;
+      expect(line("en"), kind.label).toBe(`Its quote is now at ${kind.en}.`);
+      expect(line("zh-CN"), kind.label).toBe(`引文已移到${kind.zh}。`);
+    }
   });
 });

@@ -278,29 +278,29 @@ const washed = () =>
 const looks = () => calls.filter((each) => each.lookElsewhere === true).length;
 
 describe("what a Citation says of its quote in its Document's new version (#3041)", () => {
-  for (const each of ROWS) {
-    for (const language of ["en", "zh-CN"] as const) {
-      // protects=for each row of the table (the quote at its cited place, in one other place, in several or in one no Location names, nowhere), the Citation's open card in the Note and the viewer say the same line in English and Chinese, the viewer washes nothing at the new place, and only a quote not at its place is looked for; fails_when=the card and the viewer word it apart, a quote the new version holds reads as no longer in it, the new place is washed, or a quote at its place is looked for; no_claim=how the core finds where it stands (tests/core/quoteElsewhere.test.ts).
-      test(`${each.name}, ${language}: the card and the viewer say the same`, async () => {
+  for (const language of ["en", "zh-CN"] as const) {
+    // protects=for each row of the table (the quote at its cited place, in one other place, in several or in one no Location names, nowhere), the Citation's open card in the Note, a sentence's card and the viewer say the same line, the viewer washes nothing at the new place, and only a quote not at its place is looked for; fails_when=the cards and the viewer word it apart, a quote the new version holds reads as no longer in it, the new place is washed, or a quote at its place is looked for; no_claim=how the core finds where it stands (tests/core/quoteElsewhere.test.ts).
+    test(`${language}: the cards and the viewer say the same, row by row`, async () => {
+      for (const each of ROWS) {
         row = each;
+        calls.length = 0;
         await openViewer(language);
         expect(viewerLine()).toBe(
           `${CHANGED[language]}${language === "en" ? " " : ""}${each.line[language]}`,
         );
         expect(washed()).toEqual([]);
-        const viewerLooks = looks();
-        expect(viewerLooks).toBe(each.looked ? 1 : 0);
+        expect(looks()).toBe(each.looked ? 1 : 0);
 
         await showInNote(language, true);
         expect(cardChanged()).toContain(CHANGED[language]);
         expect(cardLine()).toBe(each.line[language]);
-        expect(looks() - viewerLooks).toBe(each.looked ? 1 : 0);
+        expect(looks()).toBe(each.looked ? 2 : 0);
 
         // A sentence's card lists the same Citation with the same line.
         await showSentenceCard(language);
         expect(sentenceNotice()).toEqual([CHANGED[language], each.line[language]]);
-      });
-    }
+      }
+    });
   }
 
   // protects=a Note's Citations ask only the re-check they always asked when the Note opens, and none asks where its quote stands until its card is open; fails_when=opening a Note looks through a changed Document for any Citation; no_claim=the time a look takes (the pull request's timing).
