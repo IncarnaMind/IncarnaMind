@@ -177,7 +177,6 @@ export function ClaimMark({
   const mark = reading || rewriting ? "checking" : markOf(claim);
   // Supported by the User's own notes alone: a box, so shape says it as well as colour (#335).
   const ownNoteOnly = mark === "supported" && supportedByOwnNotesOnly(claim.reads);
-  // A ✓ waiting on the Passage its check found becoming a Citation keeps a mark with its "+" (#3019).
   const awaiting = foundElsewhere(claim);
   // A sentence not checked yet has no mark on the page (D276): its button stays, unseen, as its card's anchor (#1941).
   const silent = mark === "not-checked" && !awaiting;
@@ -747,7 +746,6 @@ export function ClaimCard({
     state === "unsupported" && !differs && !fixes && !decisionMissing && !ownWorkings
       ? coveredPart(check.unsupported)
       : null;
-  // A ✓ waiting on the Passage its check found shows that Passage, to add it (#3019).
   const awaiting = foundElsewhere(claim);
   const evidence =
     (decided && fromPassage) || differs
