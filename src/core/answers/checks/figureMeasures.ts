@@ -69,7 +69,7 @@ function withoutNumbers(text: string): string {
 export const namesSomething = (text: string): boolean => /\p{L}/u.test(withoutNumbers(text));
 
 /** A table's row: its cells apart by tabs or bars. */
-const isRow = (line: string): boolean => line.includes("\t") || /\S\s*\|\s*\S/.test(line);
+export const isRow = (line: string): boolean => line.includes("\t") || /\S\s*\|\s*\S/.test(line);
 const isRule = (line: string): boolean => /^[\s|:-]+$/.test(line) && line.includes("-");
 
 /** Width, case and runs of spaces aside; a sheet's tabs and every line break stay. */
@@ -129,6 +129,93 @@ const cellsOf = (line: string): string[] => line.split(line.includes("\t") ? "\t
 /** Which cell of `line` holds offset `at`. */
 const cellAt = (line: string, at: number): number => cellsOf(line.slice(0, at)).length - 1;
 
+// Read without dates, a period ("Q3 2026", "2025年") is no number.
+const holdsNumber = (cell: string | undefined) =>
+  cell !== undefined && readFigures(cell, { midLine: true }).length > 0;
+
+/**
+ * The table whose row holds offset `at` of `text`: its lines, the row's index and column, the run
+ * of rows that hold a number around it (`top` to `end`), and above them its heading rows (from
+ * `head`). Null when `at` isn't in a table's row.
+ */
+export function tableAt(
+  text: string,
+  at: number,
+): {
+  lines: string[];
+  index: number;
+  column: number;
+  top: number;
+  head: number;
+  end: number;
+} | null {
+  const lineStart = text.lastIndexOf("\n", at - 1) + 1;
+  const lines = text.split("\n");
+  const index = text.slice(0, lineStart).split("\n").length - 1;
+  const line = lines[index] ?? "";
+  if (!isRow(line)) return null;
+  // A reader writes no line for a blank row, so two tables can run on as one: a row with no
+  // number (a heading, a rule, a caption) starts the number's own table, and the rows of no number
+  // just above it are its headings.
+  const numbered = (row: string | undefined) =>
+    row !== undefined && isRow(row) && cellsOf(row).some(holdsNumber);
+  let top = index;
+  while (top > 0 && numbered(lines[top - 1])) top--;
+  let head = top;
+  while (head > 0 && isRow(lines[head - 1] ?? "") && !numbered(lines[head - 1])) head--;
+  let end = index;
+  while (numbered(lines[end + 1])) end++;
+  return { lines, index, column: cellAt(line, at - lineStart), top, head, end };
+}
+
+type Table = NonNullable<ReturnType<typeof tableAt>>;
+
+// In side-by-side panels ("| Revenue | 12% | Operating margin | 94% |") the first cell
+// labels another number: the label is the nearest named cell to the left, never one with a
+// digit, a value the figure reader may leave unread ("6.1p", "2.6 days").
+const labelOf = (row: readonly string[], column: number) =>
+  row
+    .slice(0, column)
+    .reverse()
+    .find((cell) => namesSomething(cell) && !/\p{Nd}/u.test(cell));
+
+// A heading row that doesn't line up with the row (a reader that drops a blank corner cell,
+// a merged heading written once) can't say which heading is the number's, or whose another is.
+const alignedHeadings = ({ lines, index, top, head }: Table): string[] =>
+  lines
+    .slice(head, top)
+    .filter(
+      (heading) =>
+        !isRule(heading) && cellsOf(heading).length === cellsOf(lines[index] ?? "").length,
+    );
+
+/**
+ * The cells that may name `table`'s number in its row: from the nearest named cell to its left,
+ * each named cell up to its label or to a cell that names nothing (another panel's value). One
+ * that holds a digit is a value or a label with a note number ("Earnings per share (note 7)"), and
+ * nothing in the cell says which: the label rule leaves it out, and a reader that must not miss a
+ * name reads it too.
+ */
+export function possibleLabels(table: Table): string[] {
+  const left = cellsOf(table.lines[table.index] ?? "")
+    .slice(0, table.column)
+    .reverse();
+  const names: string[] = [];
+  for (const cell of left.slice(Math.max(left.findIndex(namesSomething), 0))) {
+    if (!namesSomething(cell)) break;
+    names.push(cell);
+    if (!/\p{Nd}/u.test(cell)) break;
+  }
+  return names;
+}
+
+/** The names `table` gives its number: the nearest named cell to its left and the heading of its own column. */
+export const ownNames = (table: Table): string[] =>
+  [
+    labelOf(cellsOf(table.lines[table.index] ?? ""), table.column) ?? "",
+    ...alignedHeadings(table).map((heading) => cellsOf(heading)[table.column] ?? ""),
+  ].filter(namesSomething);
+
 /**
  * The names of the cell that holds `quote`'s number in `text`'s table, once `text` holds the
  * quote once: its own (the nearest named cell to the number's left, and the heading of its own
@@ -145,49 +232,17 @@ function cellOf(
   const all = flat(text);
   const [found, more] = placesOf(all, quote);
   if (!found || more) return null;
-  const at = boundAt(all, found, quote, bound);
-  const lineStart = all.lastIndexOf("\n", at - 1) + 1;
-  const lines = all.split("\n");
-  const index = all.slice(0, lineStart).split("\n").length - 1;
-  const line = lines[index] ?? "";
-  if (!isRow(line)) return null;
-  // Read without dates, a period ("Q3 2026", "2025年") is no number.
-  const holdsNumber = (cell: string | undefined) =>
-    cell !== undefined && readFigures(cell, { midLine: true }).length > 0;
-  // A reader writes no line for a blank row, so two tables can run on as one: a row with no
-  // number (a heading, a rule, a caption) starts the number's own table, and the rows of no number
-  // just above it are its headings.
-  const numbered = (row: string | undefined) =>
-    row !== undefined && isRow(row) && cellsOf(row).some(holdsNumber);
-  let top = index;
-  while (top > 0 && numbered(lines[top - 1])) top--;
-  let head = top;
-  while (head > 0 && isRow(lines[head - 1] ?? "") && !numbered(lines[head - 1])) head--;
-  let end = index;
-  while (numbered(lines[end + 1])) end++;
-  const headings = lines.slice(head, top).filter((heading) => !isRule(heading));
-  const cells = cellsOf(line);
-  const column = cellAt(line, at - lineStart);
-  // In side-by-side panels ("| Revenue | 12% | Operating margin | 94% |") the first cell
-  // labels another number: the label is the nearest named cell to the left, never one with a
-  // digit, a value the figure reader may leave unread ("6.1p", "2.6 days").
-  const labelOf = (row: readonly string[]) =>
-    row
-      .slice(0, column)
-      .reverse()
-      .find((cell) => namesSomething(cell) && !/\p{Nd}/u.test(cell));
-  const label = labelOf(cells);
+  const table = tableAt(all, boundAt(all, found, quote, bound));
+  if (!table) return null;
+  const { lines, index, column, top, end } = table;
+  const cells = cellsOf(lines[index] ?? "");
   // A label merged over several rows is written once, or trimmed away: such a row can't say whose
   // its number is.
-  if (label === undefined) return null;
-  // A heading row that doesn't line up with the row (a reader that drops a blank corner cell,
-  // a merged heading written once) can't say which heading is the number's, or whose another is.
-  const aligned = headings.filter((heading) => cellsOf(heading).length === cells.length);
-  const own = [label, ...aligned.map((heading) => cellsOf(heading)[column] ?? "")];
+  if (labelOf(cells, column) === undefined) return null;
   // Only another number's own names name it: a heading over the labels ("Revenue (£m)"), a
   // section row or a units column names no other number.
   const others = [
-    ...aligned.flatMap((heading) =>
+    ...alignedHeadings(table).flatMap((heading) =>
       cellsOf(heading).filter((_, place) => place !== column && holdsNumber(cells[place])),
     ),
     ...lines
@@ -195,12 +250,9 @@ function cellOf(
       .filter((_, place) => place + top !== index)
       .map(cellsOf)
       .filter((row) => holdsNumber(row[column]))
-      .map((row) => labelOf(row) ?? ""),
+      .map((row) => labelOf(row, column) ?? ""),
   ];
-  return {
-    own: own.filter(namesSomething),
-    others: others.filter(namesSomething),
-  };
+  return { own: ownNames(table), others: others.filter(namesSomething) };
 }
 
 /** A measure's words, their digits left out. */

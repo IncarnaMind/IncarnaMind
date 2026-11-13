@@ -625,12 +625,12 @@ const linesOf = (given: string, figure: string) =>
   ] as const;
 
 describe("A label's unit reads as a sentence writes it (#2997)", { timeout: 120_000 }, () => {
-  // protects=the same characters are the same scale and unit in a label and in a sentence, so a right sentence under a label whose unit begins with 千 (千克, 千米, 千瓦, 千瓦时, 千伏, 千帕), under a rate label (万吨/年, 万桶/日), or in a unit that spells the label's scale (31 kt under "thousand tonnes") reads as on main in an Answer and in Check against Documents, in English and Chinese; fails_when="B重量为31千克。" under 重量（千克） or "一期产能为500万吨/年。" under 产能（万吨/年） reads Unsupported in either check; no_claim=a sentence in another unit of the measure that would need converting (31吨 under 千克, 31 miles under km), which passes as on main.
+  // protects=the same characters are the same scale and unit in a label and in a sentence, so a right sentence under a label whose unit begins with 千 (千克, 千米, 千瓦, 千瓦时, 千伏, 千帕), under a rate label (万吨/年, 万桶/日), in the label's unit in another word (31公斤 or 31kg under 千克), or in a unit that spells the label's scale (31 kt under "thousand tonnes") keeps its ✓ in an Answer and reads Supported in Check against Documents, in English and Chinese (#2997's label reading states it for the number rule); fails_when="B重量为31千克。" under 重量（千克） or "一期产能为500万吨/年。" under 产能（万吨/年） reads Unsupported in either check; no_claim=a sentence in another unit of the measure that would need converting (31吨 under 千克, 31 miles under km), which passes as on main.
   test.each([
     ["重量（千克）", "B重量为31千克。", KILOGRAMS, "B\t31", "found"],
-    ["重量（千克）", "B重量为31公斤。", KILOGRAMS, "B\t31", "not-checked"],
-    ["重量（千克）", "B重量为31kg。", KILOGRAMS, "B\t31", "not-checked"],
-    ["各项数值（千克）", "B的数值为31千克。", KILOGRAM_ROWS, "B: 31", "not-checked"],
+    ["重量（千克）", "B重量为31公斤。", KILOGRAMS, "B\t31", "found"],
+    ["重量（千克）", "B重量为31kg。", KILOGRAMS, "B\t31", "found"],
+    ["各项数值（千克）", "B的数值为31千克。", KILOGRAM_ROWS, "B: 31", "found"],
     ["数值（千米）", "B的数值为31千米。", underOneHeading("千米"), "B\t31", "found"],
     ["数值（千米/小时）", "B的数值为31千米/小时。", underOneHeading("千米/小时"), "B\t31", "found"],
     ["数值（千瓦时）", "B的数值为31千瓦时。", underOneHeading("千瓦时"), "B\t31", "found"],
@@ -643,13 +643,7 @@ describe("A label's unit reads as a sentence writes it (#2997)", { timeout: 120_
     ["产能（万吨/年）", "一期产能为500万吨。", PER_YEAR, "一期\t500", "found"],
     ["数值（万桶/日）", "B的数值为31万桶/日。", underOneHeading("万桶/日"), "B\t31", "found"],
     ["数值（万桶/日）", "B的数值为日均31万桶。", underOneHeading("万桶/日"), "B\t31", "found"],
-    [
-      "Output (thousand tonnes)",
-      "Mill B's output was 31 kt.",
-      THOUSAND_TONNES,
-      "B\t31",
-      "not-checked",
-    ],
+    ["Output (thousand tonnes)", "Mill B's output was 31 kt.", THOUSAND_TONNES, "B\t31", "found"],
     [
       "Output (thousand tonnes)",
       "Mill B's output was 31 thousand tonnes.",
@@ -657,7 +651,7 @@ describe("A label's unit reads as a sentence writes it (#2997)", { timeout: 120_
       "B\t31",
       "found",
     ],
-  ] as const)("under %s, %s reads as on main", async (_, sentence, file, quote, check) => {
+  ] as const)("under %s, %s keeps its ✓", async (_, sentence, file, quote, check) => {
     for (const language of ["en", "zh-CN"] as const) {
       expect(await judged(sentence, quote, file, language), language).toEqual({
         answer: { check, verdict: null },
@@ -929,13 +923,13 @@ describe("A unit that spells no scale states scale one (#2997)", { timeout: 120_
     }
   });
 
-  // protects=the sentence in the label's or the number's own unit reads as on main in both checks and both languages, and so does one in a unit that would need converting or beside a plain number of its value; fails_when="B的数值为31瓦。" under 数值（瓦） or "Its rated power is 1500 W." beside "Rated power: 1500 W" loses its ✓ or reads Unsupported, or "路线长54公里。" beside "路线长54千米。" reads Unsupported; no_claim=a right sentence in W or Wh under a label, which reads Not checked in an Answer as a kW sentence does on main ("B was 31 W." under Power (W)).
+  // protects=the sentence in the label's or the number's own unit, or in that unit in another word (31 tonnes under "(t)", 54公里 beside 54千米), keeps its ✓ in both languages and reads Supported in Check against Documents, and one beside a plain number of its value reads as on main; fails_when="B的数值为31瓦。" under 数值（瓦） or "Its rated power is 1500 W." beside "Rated power: 1500 W" loses its ✓ or reads Unsupported, or "路线长54公里。" beside "路线长54千米。" reads Unsupported; no_claim=a unit that would need converting, which no label gives.
   test.each([
     ["数值（瓦）", "B的数值为31瓦。", underOneHeading("瓦"), "B\t31", "found"],
     ["数值（瓦时）", "B的数值为31瓦时。", underOneHeading("瓦时"), "B\t31", "found"],
     ["数值（克）", "B的数值为31克。", underOneHeading("克"), "B\t31", "found"],
     ["Output (t)", "B was 31 t.", underEnglishHeading("Output (t)"), "B\t31", "found"],
-    ["Output (t)", "B was 31 tonnes.", underEnglishHeading("Output (t)"), "B\t31", "not-checked"],
+    ["Output (t)", "B was 31 tonnes.", underEnglishHeading("Output (t)"), "B\t31", "found"],
     [
       "额定功率：1500瓦",
       "额定功率为1500瓦。",
@@ -950,13 +944,7 @@ describe("A unit that spells no scale states scale one (#2997)", { timeout: 120_
       "Rated power: 1500 W",
       "found",
     ],
-    [
-      "路线长54千米。",
-      "路线长54公里。",
-      report("路线长54千米。\n"),
-      "路线长54千米。",
-      "not-checked",
-    ],
+    ["路线长54千米。", "路线长54公里。", report("路线长54千米。\n"), "路线长54千米。", "found"],
     [
       "今年新增路段54米，路线长54。",
       "路线长54公里。",
@@ -964,14 +952,17 @@ describe("A unit that spells no scale states scale one (#2997)", { timeout: 120_
       "今年新增路段54米，路线长54。",
       "not-checked",
     ],
-  ] as const)("with %s, %s reads as on main", async (_, sentence, file, quote, check) => {
-    for (const language of ["en", "zh-CN"] as const) {
-      expect(await judged(sentence, quote, file, language), language).toEqual({
-        answer: { check, verdict: null },
-        document: { verdict: "supported", reason: null },
-      });
-    }
-  });
+  ] as const)(
+    "with %s, %s reads as the label or the quote gives it",
+    async (_, sentence, file, quote, check) => {
+      for (const language of ["en", "zh-CN"] as const) {
+        expect(await judged(sentence, quote, file, language), language).toEqual({
+          answer: { check, verdict: null },
+          document: { verdict: "supported", reason: null },
+        });
+      }
+    },
+  );
 });
 
 const beside = (first: string, second: string, other = 31) =>
@@ -1201,17 +1192,17 @@ describe("The same unit in another word is one unit at one scale (#2997)", {
     }
   });
 
-  // protects=with no scale word, the other word for the label's unit reads as on main: Not checked in an Answer and Supported in Check against Documents, in both languages; fails_when="B的数值为31千克。" under 数值（公斤） or "B的数值为31度。" under 数值（千瓦时） reads Unsupported.
+  // protects=with no scale word, the other word for the label's unit is the label's unit: the sentence keeps its ✓ in an Answer and reads Supported in Check against Documents, in both languages; fails_when="B的数值为31千克。" under 数值（公斤） or "B的数值为31度。" under 数值（千瓦时） reads Not checked or Unsupported.
   test.each([
     ["公斤", "31千克"],
     ["千瓦时", "31度"],
-  ] as const)("under 数值（%s）, B的数值为%s。 reads as on main", async (unit, figure) => {
+  ] as const)("under 数值（%s）, B的数值为%s。 keeps its ✓", async (unit, figure) => {
     for (const language of ["en", "zh-CN"] as const) {
       expect(
         await judged(`B的数值为${figure}。`, "B\t31", underOneHeading(unit), language),
         language,
       ).toEqual({
-        answer: { check: "not-checked", verdict: null },
+        answer: { check: "found", verdict: null },
         document: { verdict: "supported", reason: null },
       });
     }

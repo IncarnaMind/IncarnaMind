@@ -49,3 +49,20 @@ describe("the watt and the watt-hour by themselves (#2997)", () => {
     expect(writesMeasure("屋顶用了31瓦片。", "power", unit("瓦"))).toBe(false);
   });
 });
+
+describe("a W before a capitalised word or a number may be West (#2997)", () => {
+  // protects=a W after a number that runs on into a capitalised word or a number stays unread, since it is as often West as watts, so a block, an exit or a house number stays a plain number; fails_when="Block 5 W Wing", "Exit 12 W Toward Katy" or "100 W 42nd Street" reads watts; no_claim="It draws 60 W. The case is steel.", whose 60 reads plain too until a figure carries both readings.
+  test.each([
+    ["The office is in Block 5 W Wing of the campus.", [["5", "plain"]]],
+    [
+      "Take Exit 12 W Toward Katy, then 3 miles.",
+      [
+        ["12", "plain"],
+        ["3 miles", "miles"],
+      ],
+    ],
+    ["The office is at 100 W 42nd Street.", [["100", "plain"]]],
+  ])("%s reads no watts", (text, figures) => {
+    expect(read(text)).toEqual(figures);
+  });
+});
