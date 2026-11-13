@@ -7234,6 +7234,10 @@ export type ClaimVerdict = "supported" | "unsupported" | "contradicted";
  * - "malformed": its reply held no verdict that could be read.
  * - "empty": its reply was empty.
  * - "no-evidence": it gave a verdict, but no quote the Citation check finds in the Passage it named.
+ * - "number-unquoted": no quote the check found gives a number of the sentence, and the model, which
+ *   a check doesn't offer the calculation Tool, can't work it out from the Documents' numbers (#3022).
+ * - "number-not-worked-out": no quote the check found gives a number of the sentence, and the model,
+ *   sent back to calculate it, gave no figure worked out from the Documents' numbers (#3022).
  * - "unread": it gave a verdict without searching the Documents, even when asked once more.
  * - "rate-limit": the model's service refused more requests for now.
  * - "cost-cap": it could pass the monthly cap, so nothing was sent.
@@ -7275,6 +7279,8 @@ export type ClaimCheckFailure =
   | "malformed"
   | "empty"
   | "no-evidence"
+  | "number-unquoted"
+  | "number-not-worked-out"
   | "unread"
   | "rate-limit"
   | "cost-cap"
@@ -11711,6 +11717,15 @@ export interface SetMeetingMicrophoneInput {
   paused: boolean;
 }
 
+/** A line or a few typed in the call-help panel's field (#2925). */
+export interface AddQuickNoteInput {
+  meetingId: string;
+  /** One paragraph a line, the spaces at either end of each trimmed; lines left empty are left out. */
+  text: string;
+  /** The Meeting's time, in ms, when typing began; null when it wasn't recording then. */
+  atMs: number | null;
+}
+
 /** How loud each source of a recording Meeting is now, from 0 (silence) to 1. */
 export interface MeetingLevel {
   meetingId: string;
@@ -14510,6 +14525,28 @@ export interface CoreApi {
    * marks the stretch; the computer's sound goes on. Every Meeting starts with its microphone on.
    */
   setMeetingMicrophone(input: SetMeetingMicrophoneInput): Promise<Meeting>;
+  /**
+   * A quick note from the call-help panel (#2925), while the Meeting records or is paused: each
+   * line a paragraph of the User's own text at the end of its Note, after the last line that holds
+   * anything, the first with `atMs` as its time, capped at the Meeting's time now. It reaches an
+   * open copy of the Note as the core's change, not as a step of that editor's Undo:
+   * `undoAddToNote` takes it back. InvalidInputError for no text or a Meeting not live.
+   */
+  addQuickNote(input: AddQuickNoteInput): Promise<AddedToNote>;
+  /**
+   * Keeps the line typed in the call-help panel's field but not sent (#2925), in memory only: a
+   * line that is blank, a "/" search, or for a Meeting not live is forgotten instead. Stopping the
+   * Meeting, a call's end and quitting add it as a quick note first, and `addQuickNoteDraft` does
+   * when the panel closes. `addQuickNote` forgets it.
+   */
+  setQuickNoteDraft(input: AddQuickNoteInput): Promise<void>;
+  /**
+   * Adds the Meeting's kept unsent line as a quick note (`setQuickNoteDraft`); null with none. A
+   * Note that refuses it leaves it kept.
+   */
+  addQuickNoteDraft(meetingId: string): Promise<AddedToNote | null>;
+  /** The live Meeting's kept unsent line, for a panel that opens again to show it; null with none. */
+  getQuickNoteDraft(meetingId: string): Promise<{ text: string; atMs: number | null } | null>;
   /** The offer to take notes in a call, and a call's end waiting to stop its Meeting (#208). */
   getMeetingOffers(): Promise<MeetingOffers>;
   /**
@@ -15273,6 +15310,10 @@ const methods: Record<CoreApiMethod, true> = {
   askMeetingHelp: true,
   setMeetingTemplate: true,
   setMeetingMicrophone: true,
+  addQuickNote: true,
+  setQuickNoteDraft: true,
+  addQuickNoteDraft: true,
+  getQuickNoteDraft: true,
   getMeetingOffers: true,
   takeMeetingOffer: true,
   declineMeetingOffer: true,

@@ -6,6 +6,7 @@
  * none its reply didn't place (`unplacedSince`).
  */
 import * as Y from "yjs";
+import { markValueOf } from "../../shared/markKeys";
 import { readProposalAttribute, readProposalRef } from "../../shared/proposals";
 import {
   ANALYSIS_TABLE_NODE,
@@ -139,8 +140,8 @@ export function paragraphPlaces(
       for (const child of children) {
         if (child instanceof Y.XmlText) {
           for (const run of child.toDelta() as { insert: unknown; attributes?: Attributes }[]) {
-            const added = run.attributes?.[PROPOSAL_INSERT_MARK];
-            const removed = run.attributes?.[PROPOSAL_DELETE_MARK];
+            const added = markValueOf(PROPOSAL_INSERT_MARK, run.attributes);
+            const removed = markValueOf(PROPOSAL_DELETE_MARK, run.attributes);
             if (request !== null && removed !== undefined && ours(removed)) continue;
             if (added !== undefined && !ours(added)) continue;
             if (typeof run.insert === "string") parts.push({ text: run.insert });

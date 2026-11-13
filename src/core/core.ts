@@ -5,6 +5,7 @@ import { basename, dirname, extname, isAbsolute, join } from "node:path";
 import { deflateRawSync } from "node:zlib";
 import * as Y from "yjs";
 import { cleanApiKey } from "../shared/apiKey";
+import { meetingTimeAt } from "../shared/blockTimes";
 import { isCitationStyleId, withRecentStyle } from "../shared/citationStyles";
 import { parseQuotedWords } from "../shared/citations";
 import type { DrawnPage } from "../shared/citedPage";
@@ -110,6 +111,7 @@ import type { LiveTranscript } from "./answers/liveTranscript";
 import { explicitWalledFolderScope } from "./answers/scopeLine";
 import {
   type AddDocumentsResult,
+  type AddedToNote,
   type AnnotationColour,
   type AnswerPlace,
   type ChatModelChoice,
@@ -5441,8 +5443,68 @@ export function createCore(adapters: CoreAdapters): Core {
   transcriptWritten = (meetingId) => meetingFill.transcriptWritten(meetingId);
   for (const meetingId of writtenAtStart.splice(0)) meetingFill.transcriptWritten(meetingId);
   meetingFill.resume();
-  /** Stop: the notes wait for the Transcript, and are filled in from it (#142). */
+  /**
+   * The line typed in the call-help panel's field and not sent, by Meeting (#2925): in memory only,
+   * as the User's half-typed text, so the panel going or the recording stopping never drops it.
+   */
+  const quickNoteDrafts = new Map<string, { text: string; atMs: number | null }>();
+
+  const linesOf = (text: unknown): string[] =>
+    typeof text === "string"
+      ? text
+          .split(/\r?\n/)
+          .map((line) => line.trim())
+          .filter(Boolean)
+      : [];
+
+  const noteTimeOf = (atMs: unknown): number | null => {
+    if (atMs === null) return null;
+    if (typeof atMs !== "number" || !Number.isFinite(atMs) || atMs < 0) {
+      throw new InvalidInputError({ key: "error.meeting.quickNoteTime" });
+    }
+    return atMs;
+  };
+
+  const recordsOrPaused = (meeting: Meeting) =>
+    meeting.status === "recording" || meeting.status === "paused";
+
+  /** A quick note's lines at the end of a live Meeting's Note, its time capped at the Meeting's now. */
+  const writeQuickNote = (meeting: Meeting, lines: readonly string[], atMs: number | null) => {
+    const time = atMs === null ? null : Math.min(atMs, meetingTimeAt(meeting, Date.parse(now())));
+    const added = noteAdding.addLines(meeting.mindId, lines, time);
+    // Forgotten only once it is in: a Note that refused it leaves it for the next try.
+    quickNoteDrafts.delete(meeting.id);
+    return added;
+  };
+
+  /** The Meeting's unsent line, if it has one, into its Note as a quick note; null with none. */
+  const addQuickNoteDraft = (meetingId: string): AddedToNote | null => {
+    const draft = quickNoteDrafts.get(meetingId);
+    if (!draft) return null;
+    const meeting = meetings.get(meetingId);
+    if (recordsOrPaused(meeting)) return writeQuickNote(meeting, linesOf(draft.text), draft.atMs);
+    quickNoteDrafts.delete(meetingId);
+    return null;
+  };
+
+  /** Before a recording ends: a Note that can't take the line doesn't keep the Meeting from stopping. */
+  const keepUnsentLine = (meetingId: string) => {
+    try {
+      addQuickNoteDraft(meetingId);
+    } catch (error) {
+      (adapters.log ?? silentLogger).warn("meeting.quickNoteDraftLost", {
+        meetingId,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  };
+
+  /**
+   * Stop: a line left unsent in the call-help panel goes into the Note first, then the notes wait
+   * for the Transcript, and are filled in from it (#142).
+   */
   const stopMeeting = (meetingId: unknown): Meeting => {
+    if (typeof meetingId === "string") keepUnsentLine(meetingId);
     const stopped = meetings.stop(meetingId);
     meetingFill.stopped(stopped.id);
     return meetings.get(stopped.id);
@@ -7708,6 +7770,32 @@ export function createCore(adapters: CoreAdapters): Core {
       return meetings.setTemplate(meetingId, template);
     },
     setMeetingMicrophone: async (input) => meetings.setMicrophonePaused(input),
+    addQuickNote: async (input) => {
+      const { meetingId, text, atMs } = isRecord(input) ? input : {};
+      const lines = linesOf(text);
+      if (lines.length === 0) throw new InvalidInputError({ key: "error.meeting.quickNoteEmpty" });
+      const time = noteTimeOf(atMs);
+      const meeting = meetings.get(meetingId);
+      if (!recordsOrPaused(meeting)) {
+        throw new InvalidInputError({ key: "error.meeting.notBeingRecorded" });
+      }
+      return writeQuickNote(meeting, lines, time);
+    },
+    setQuickNoteDraft: async (input) => {
+      const { meetingId, text, atMs } = isRecord(input) ? input : {};
+      const time = noteTimeOf(atMs);
+      const meeting = meetings.get(meetingId);
+      // A "/" search is not a line.
+      const line = typeof text === "string" && !text.startsWith("/") && linesOf(text).length > 0;
+      if (line && recordsOrPaused(meeting)) quickNoteDrafts.set(meeting.id, { text, atMs: time });
+      else quickNoteDrafts.delete(meeting.id);
+    },
+    addQuickNoteDraft: async (meetingId) => addQuickNoteDraft(meetings.get(meetingId).id),
+    getQuickNoteDraft: async (meetingId) => {
+      const meeting = meetings.get(meetingId);
+      const draft = quickNoteDrafts.get(meeting.id);
+      return draft && recordsOrPaused(meeting) ? { ...draft } : null;
+    },
     getMeetingOffers: async () => meetingOffers.get(),
     takeMeetingOffer: async (offerId) => meetings.get(meetingOffers.take(String(offerId))),
     declineMeetingOffer: async (input) => {
@@ -7813,7 +7901,8 @@ export function createCore(adapters: CoreAdapters): Core {
     close: () => {
       if (lifetime.signal.aborted) return;
       lifetime.abort();
-      // What a Meeting has captured is saved before anything else stops.
+      // What a Meeting has captured is saved before anything else stops, a line left unsent too.
+      for (const meetingId of [...quickNoteDrafts.keys()]) keepUnsentLine(meetingId);
       meetingOffers.close();
       meetings.close();
       calendars.close();

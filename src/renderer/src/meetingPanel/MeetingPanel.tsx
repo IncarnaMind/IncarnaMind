@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Meeting, MeetingHelp, MeetingHelpKind, MeetingHelpTemplate } from "../../../core/api";
 import type { MessageKey } from "../../../shared/i18n";
 import { GENERAL_HELP, MEETING_TEMPLATES, templateLabel } from "../../../shared/meetingHelp";
@@ -26,15 +26,16 @@ import { LevelBars } from "../components/meetings/LevelBars";
 import { MicrophoneButton } from "../components/meetings/MicrophoneButton";
 import { ProblemLine } from "../components/ProblemLine";
 import { ReadinessExplanation } from "../components/providers/ChatReadinessNotice";
-import { core } from "../core";
+import { core, files } from "../core";
 import { errorMessage } from "../errors";
 import { helpToKeep } from "../helpReply";
 import { translateNow, useT } from "../i18n";
-import { addHelpToNotes, askHelp, useMeetingHelp } from "../meetingHelp";
+import { addHelpToNotes, askHelp, quickNotesHere, useMeetingHelp } from "../meetingHelp";
 import { isLive, isWaitingForPermission, useMeetings, useMeetingTime } from "../meetings";
 import { clockTime } from "../meetingTime";
 import { useAppStore } from "../store";
 import { AskBar } from "./AskBar";
+import { type Draft, type QuickNotes, quickNotesFor } from "./quickNotes";
 
 declare global {
   interface Window {
@@ -61,18 +62,80 @@ function keyLabels(held: HeldKeys) {
   return { labels, run };
 }
 
+/** The keyboard for the field: taken on a press in it, ⌃⌥N or ⌘K, and given back on Esc or collapse. */
+const takeKeyboard = () => bridge.keyboard(true);
+const giveKeyboardBack = () => bridge.keyboard(false);
+
 /**
- * The floating panel during a call: above the meeting app, never taking its focus. Its
+ * The floating panel during a call: above the meeting app, never taking its focus by itself. Its
  * header says the recording and holds the template, collapse and close; then the ask bar with the
- * help prompts, and under it the latest suggestion, which a press replaces unless it is pinned. Collapsed,
- * it is a pill with the level bars, which become Stop when pointed at.
+ * help prompts and the field for quick notes, and under it the latest suggestion, which a press
+ * replaces unless it is pinned. Collapsed, it is a pill with the level bars, which become Stop
+ * when pointed at.
  */
 export function MeetingPanel() {
   const meeting = useMeetings((state) => state.meetings.find((each) => isLive(each)));
   const [folded, setFolded] = useState(false);
   const [pinned, setPinned] = useState<MeetingHelp[]>([]);
   const [held, setHeld] = useState<HeldKeys>({});
+  const [noteWanted, setNoteWanted] = useState(false);
   const root = useRef<HTMLDivElement>(null);
+  // Here, not in the bar, which a collapse unmounts.
+  const drafts = useRef(new Map<string, Draft>());
+  const meetingId = meeting?.id;
+  const notes = useMemo(
+    () =>
+      meetingId && quickNotesHere()
+        ? quickNotesFor(meetingId, core, drafts.current, (error) =>
+            useAppStore.getState().reportError(error),
+          )
+        : null,
+    [meetingId],
+  );
+  // A panel opening again shows the line the core still holds, one its Note refused, unless
+  // something is typed already; the bar shows it once it is shown again (`restored`).
+  const [restored, setRestored] = useState(0);
+  useEffect(() => {
+    if (!meetingId || !quickNotesHere()) return;
+    let current = true;
+    core.getQuickNoteDraft(meetingId).then(
+      (held) => {
+        if (!current || !held || drafts.current.get(meetingId)?.text) return;
+        drafts.current.set(meetingId, { text: held.text, began: { ms: held.atMs } });
+        setRestored((now) => now + 1);
+      },
+      (error: unknown) => useAppStore.getState().reportError(error),
+    );
+    return () => {
+      current = false;
+    };
+  }, [meetingId]);
+
+  useEffect(() => {
+    // The innermost thing open took its Esc already; one left over gives the keyboard back.
+    const onEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !event.defaultPrevented && !event.isComposing)
+        giveKeyboardBack();
+    };
+    // The app's Edit menu acts on the field while the panel has the keyboard.
+    const focused = () => files.setEditMenu({ text: "field", undo: null, redo: null });
+    window.addEventListener("keydown", onEscape);
+    window.addEventListener("focus", focused);
+    const stop = files.onMenuCommand((command) => {
+      if (!(document.activeElement instanceof HTMLTextAreaElement)) return;
+      if (command === "edit.undo") document.execCommand("undo");
+      if (command === "edit.redo") document.execCommand("redo");
+    });
+    return () => {
+      window.removeEventListener("keydown", onEscape);
+      window.removeEventListener("focus", focused);
+      stop();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (folded) giveKeyboardBack();
+  }, [folded]);
 
   useEffect(() => {
     void bridge.keys().then(setHeld);
@@ -101,6 +164,7 @@ export function MeetingPanel() {
       ),
     [],
   );
+  const noteTaken = useCallback(() => setNoteWanted(false), []);
   // While a press waits for its help, the Meeting's help is still the one before, which isn't shown.
   const asking = useMeetingHelp((state) => (meeting ? state.pending[meeting.id] : undefined));
   const latestPinned = !asking && pinned.some((each) => each.answerId === meeting?.help?.answerId);
@@ -118,6 +182,10 @@ export function MeetingPanel() {
       }),
       bridge.onCommand((command) => {
         if (command === "fold") setFolded((now) => !now);
+        if (command === "note") {
+          setFolded(false);
+          setNoteWanted(true);
+        }
         const live = meetingRef.current;
         const waiting = live && useMeetingHelp.getState().pending[live.id];
         if (command === "pin" && live?.help && !waiting) togglePin(live.help);
@@ -140,6 +208,10 @@ export function MeetingPanel() {
           keys={labels}
           microphoneKeys={held.mic ? keysHere(held.mic) : null}
           pinned={pinned}
+          noteWanted={noteWanted}
+          onNoteTaken={noteTaken}
+          notes={notes}
+          restored={restored}
           onPin={togglePin}
           onFold={() => setFolded(true)}
         />
@@ -230,6 +302,10 @@ function Panel({
   keys,
   microphoneKeys,
   pinned,
+  noteWanted,
+  onNoteTaken,
+  notes,
+  restored,
   onPin,
   onFold,
 }: {
@@ -237,6 +313,10 @@ function Panel({
   keys: Partial<Record<MeetingHelpKind, string>>;
   microphoneKeys: string | null;
   pinned: readonly MeetingHelp[];
+  noteWanted: boolean;
+  onNoteTaken(): void;
+  notes: QuickNotes | null;
+  restored: number;
   onPin(help: MeetingHelp): void;
   onFold(): void;
 }) {
@@ -332,10 +412,16 @@ function Panel({
         </p>
       )}
       <AskBar
+        // Another Meeting's field holds that Meeting's own line, and a line restored shows anew.
+        key={`${meeting.id}-${restored}`}
         meeting={meeting}
         keys={keys}
+        noteWanted={noteWanted}
         onAsk={(kind) => void askHelp(meeting, kind)}
         onReach={setReach}
+        onTakeKeyboard={takeKeyboard}
+        onNoteTaken={onNoteTaken}
+        notes={notes}
       />
       {shownPinned.map((each) => (
         <Suggestion key={each.answerId} meeting={meeting} help={each} pinned onPin={onPin} />

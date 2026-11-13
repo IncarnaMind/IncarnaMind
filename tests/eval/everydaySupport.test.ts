@@ -10,8 +10,15 @@ import {
   citedSentences,
   supportedShare,
   supportRates,
+  withoutSupportLines,
 } from "../../eval/everyday/support";
-import type { CheckClaimInput, ClaimCheckResult } from "../../src/core";
+import type {
+  CheckClaimInput,
+  CitationAttributes,
+  ClaimCheckPart,
+  ClaimCheckResult,
+  UnsupportedReason,
+} from "../../src/core";
 
 const citation = (marker: number, quote: string) => ({
   marker,
@@ -26,11 +33,16 @@ const CITATIONS = [
   citation(2, "O(n^2 · d)"),
 ];
 
-const verdict = (kind: "supported" | "unsupported"): ClaimCheckResult => ({
+const verdict = (
+  kind: "supported" | "unsupported",
+  unsupported: UnsupportedReason | null = null,
+  parts?: ClaimCheckPart[],
+): ClaimCheckResult => ({
   verdict: kind,
+  ...(parts && { parts }),
   evidence: null,
   says: null,
-  unsupported: null,
+  unsupported,
   calculation: null,
   citedCaseUnchecked: false,
   citedCaseFound: false,
@@ -112,7 +124,7 @@ describe("Checking the cited sentences", () => {
         citations: CITATIONS,
       },
     );
-    expect(support).toEqual([
+    expect(support.map(({ sentence, verdict }) => ({ sentence, verdict }))).toEqual([
       { sentence: "Cost is quadratic.", verdict: "supported" },
       { sentence: "That makes it a poor fit for books.", verdict: "unsupported" },
     ]);
@@ -144,6 +156,172 @@ describe("Checking the cited sentences", () => {
     await checkCitedSentences(core, answer, checker);
     await checkCitedSentences(core, answer);
     expect(asked.map((input) => input.model)).toEqual([checker, null]);
+  });
+});
+
+const part = (
+  start: number,
+  end: number,
+  judged: Partial<ClaimCheckPart> & Pick<ClaimCheckPart, "kind" | "verdict">,
+): ClaimCheckPart => ({
+  span: { start, end },
+  evidence: [],
+  says: null,
+  unsupported: null,
+  calculation: null,
+  reason: null,
+  detail: null,
+  versions: [],
+  excluded: [],
+  citedCaseUnchecked: false,
+  citedCaseFound: false,
+  ...judged,
+});
+
+const evidence = (quote: string): CitationAttributes => ({
+  passageId: "passage-1",
+  documentId: "doc-3",
+  documentName: "Demonstrations Not Weights",
+  contentHash: "hash-3",
+  pageFrom: 6,
+  pageTo: 6,
+  location: null,
+  quote,
+  check: "not-found",
+  checkReason: "quote-not-on-pages",
+});
+
+const LATER_WORK = {
+  reason: "No Passage says the paper leaves local lookups to later work.",
+  covered: "the local lookups",
+  uncovered: "that they are later work",
+  found: true,
+} as const;
+
+/** A table row restated in notation, and a later-work line, as two Answers' sentences. */
+const RECORDED = {
+  text: "Its Table 1 lists weighted keys as O(n² d) per layer [^2]. It leaves local lookups for long inputs to later work, in my reading [^1].",
+  citations: CITATIONS,
+};
+
+const recordingCheck = (input: CheckClaimInput): ClaimCheckResult => {
+  const opinion = input.claim.indexOf(", in my reading");
+  return input.claim.startsWith("Its Table 1")
+    ? {
+        verdict: "not-checked",
+        reason: "no-evidence",
+        detail: null,
+        versions: [],
+        excluded: [],
+        parts: [
+          part(0, input.claim.length, {
+            kind: "fact",
+            verdict: "not-checked",
+            reason: "no-evidence",
+            evidence: [evidence("O(n2 d)")],
+          }),
+        ],
+      }
+    : verdict("unsupported", LATER_WORK, [
+        part(0, opinion, { kind: "fact", verdict: "unsupported", unsupported: LATER_WORK }),
+        part(opinion + 2, input.claim.length, { kind: "opinion", verdict: null }),
+      ]);
+};
+
+describe("The record of each cited sentence's check", () => {
+  // protects=the record keeps each sentence's own quotes with their Documents, the check's Not checked reason and detail, its Unsupported reason, and each part's words, verdict, reason and the quotes the check gave with theirs; fails_when=the record keeps the verdict alone, a part's words are cut at the wrong place, or a quote or its Document is lost; no_claim=why the check ruled so.
+  test("each sentence keeps what it cites, the check's reason and each part it judged", async () => {
+    const [table, later] = await checkCitedSentences(
+      { checkClaim: async (input) => recordingCheck(input) },
+      RECORDED,
+    );
+    expect(table).toEqual({
+      sentence: "Its Table 1 lists weighted keys as O(n² d) per layer.",
+      verdict: "not-checked",
+      reason: "no-evidence",
+      detail: null,
+      unsupported: null,
+      cites: [{ documentName: "Weighted Keys Shorter Paths", quote: "O(n^2 · d)" }],
+      parts: [
+        {
+          text: "Its Table 1 lists weighted keys as O(n² d) per layer.",
+          kind: "fact",
+          verdict: "not-checked",
+          reason: "no-evidence",
+          detail: null,
+          unsupported: null,
+          evidence: [
+            {
+              documentName: "Demonstrations Not Weights",
+              quote: "O(n2 d)",
+              check: "not-found",
+              checkReason: "quote-not-on-pages",
+            },
+          ],
+          figures: [],
+        },
+      ],
+    });
+    expect(later?.cites).toEqual([
+      {
+        documentName: "Weighted Keys Shorter Paths",
+        quote: "self-attention layers are faster than recurrent layers",
+      },
+    ]);
+    expect(later?.unsupported).toEqual(LATER_WORK);
+    expect(later?.parts.map((each) => [each.text, each.kind, each.verdict])).toEqual([
+      ["It leaves local lookups for long inputs to later work", "fact", "unsupported"],
+      ["in my reading.", "opinion", null],
+    ]);
+  });
+
+  // protects=the report counts the sentences without a ✓ by the check's reason and language, an Unsupported with nothing in scope about it as Not found, and lists each under its reason with its quotes and the parts' reasons; fails_when=a Supported sentence is listed, reasons or languages are summed together, or a sentence's quote or part is left out; no_claim=none beyond protects.
+  test("the report lists the sentences without a ✓ by the check's reason", async () => {
+    const support = await checkCitedSentences(
+      { checkClaim: async (input) => recordingCheck(input) },
+      RECORDED,
+    );
+    const [table, later] = support;
+    if (!table || !later) throw new Error("Both sentences are recorded.");
+    const lines = withoutSupportLines([
+      { id: "research-attention-long", model: "m", language: "en", ...table },
+      { id: "research-attention-long-zh", model: "m", language: "zh-CN", ...table },
+      { id: "research-attention-long", model: "m", language: "en", ...later },
+      {
+        id: "research-attention-long-zh",
+        model: "m",
+        language: "zh-CN",
+        ...later,
+        unsupported: { reason: null, covered: null, uncovered: null },
+      },
+      {
+        id: "research-attention-long",
+        model: "m",
+        language: "en",
+        ...table,
+        verdict: "supported",
+        reason: null,
+      },
+    ]);
+    expect(lines.filter((line) => line.startsWith("| ") && !line.startsWith("| Reason"))).toEqual([
+      "| Not checked: no-evidence | 1 | 1 |",
+      "| Unsupported: a Passage about it doesn't back it | 1 | 0 |",
+      "| Not found | 0 | 1 |",
+    ]);
+    expect(lines).toContain("### Not checked: no-evidence (2)");
+    expect(lines).toContain("  - cites “O(n^2 · d)” (Weighted Keys Shorter Paths)");
+    expect(lines).toContain(
+      "  - part “Its Table 1 lists weighted keys as O(n² d) per layer.” (fact): not-checked; reason: no-evidence; the check's quote “O(n2 d)” (Demonstrations Not Weights) not-found (quote-not-on-pages)",
+    );
+    expect(lines).toContain(
+      "  - why: No Passage says the paper leaves local lookups to later work.; covered: the local lookups; uncovered: that they are later work",
+    );
+    expect(lines).toContain("  - part “in my reading.” (opinion): set aside");
+    expect(
+      withoutSupportLines([
+        { id: "a", model: "m", language: "en", ...table, verdict: "supported" },
+      ]),
+    ).toEqual([]);
   });
 });
 
