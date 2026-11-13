@@ -117,8 +117,15 @@ describe("Versions of a Document", { timeout: 30_000 }, () => {
     expect(await core.searchPassages("happen", { mode: "keyword" })).toEqual([]);
     expect(await core.searchPassages("follow", { mode: "keyword" })).toHaveLength(1);
 
-    // Checked again against the current version, where the quote isn't.
-    const input = { documentId: document.id, quote: SPRING, pageFrom: 2, pageTo: 2 };
+    // Checked again against the current version, where the quote isn't, asked where it stands
+    // now as the card and the viewer ask (#3041): nowhere.
+    const input = {
+      documentId: document.id,
+      quote: SPRING,
+      pageFrom: 2,
+      pageTo: 2,
+      lookElsewhere: true,
+    };
     expect(await core.recheckCitation({ ...input, mindId: null })).toEqual({
       check: "not-found",
       checkReason: "quote-not-on-pages",
@@ -127,9 +134,11 @@ describe("Versions of a Document", { timeout: 30_000 }, () => {
       pageFrom: 2,
       pageTo: 2,
       location: { kind: "page", from: 2, to: 2 },
+      elsewhere: null,
     });
     await changeFile(core, document.id, document.path, V3);
     const rechecked = await core.recheckCitation({ ...input, mindId: null });
+    // Back a page later: still not found at the page it cites, which it keeps, and on page 3.
     expect(rechecked).toEqual({
       check: "not-found",
       checkReason: "quote-not-on-pages",
@@ -138,6 +147,7 @@ describe("Versions of a Document", { timeout: 30_000 }, () => {
       pageFrom: 2,
       pageTo: 2,
       location: { kind: "page", from: 2, to: 2 },
+      elsewhere: { location: { kind: "page", from: 3, to: 3 } },
     });
     // Written onto the Citation, it no longer says the Document changed.
     expect(

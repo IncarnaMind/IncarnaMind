@@ -16,6 +16,7 @@ import {
   closestWordsMessage,
   fetchedAgainOn,
   footnoteSubjectKey,
+  needsRecheck,
   newVersionCitation,
   parseQuotedWords,
   quotedWordsFoundIn,
@@ -23,6 +24,7 @@ import {
   quoteWashedOnOpen,
   shownDocumentName,
   versionMoment,
+  whereQuoteStands,
   withShownName,
 } from "../../src/shared/citations";
 import { formatDate } from "../../src/shared/dates";
@@ -875,6 +877,39 @@ describe("A Citation whose Document changed after it was cited", () => {
     );
     expect(changedOnMessage(false, moment, "en", in_("en"))).toBeNull();
     expect(changedOnMessage(true, null, "en", in_("en"))).toBeNull();
+  });
+
+  // protects=a quote the re-check found away from its cited place is said to be where it stands now, in one place by its Location and in several or in one no Location names as in another place, in English and Chinese, while Needs re-check, Update the sentence… and the check-based standing read it as not found at its place exactly as before; fails_when=the line says the quote is no longer in the new version while it stands elsewhere, guesses one of several places, or anything an action reads changes; no_claim=how the core finds it (tests/core/versions.test.ts).
+  test("a quote standing away from its cited place says where, and stays not found at its place (#3041)", () => {
+    const notHere = rechecked({ check: "not-found", checkReason: "quote-not-on-pages" });
+    const lines: [CitationRecheck["elsewhere"], string, string][] = [
+      [
+        { location: { kind: "page", from: 14, to: 14 } },
+        "Its quote is now at p. 14.",
+        "引文已移到第 14 页。",
+      ],
+      [
+        { location: { kind: "section", heading: "Budget" } },
+        "Its quote is now at § Budget.",
+        "引文已移到§ Budget。",
+      ],
+      [
+        { location: null },
+        "Its quote is in another place in the new version.",
+        "引文在新版本中换了位置。",
+      ],
+      [null, "Its quote is no longer in the new version.", "新版本中已找不到这条引文。"],
+    ];
+    const state = { changedAfterCited: true };
+    for (const [elsewhere, en, zh] of lines) {
+      const recheck = { ...notHere, elsewhere };
+      expect(changedSourceNote(true, found, recheck, in_("en"))?.quote).toBe(en);
+      expect(changedSourceNote(true, found, recheck, in_("zh-CN"))?.quote).toBe(zh);
+      expect(whereQuoteStands(found, recheck)?.standing).toBe(elsewhere ? "moved" : "gone");
+      expect(quoteStanding(found, recheck)).toBe("gone");
+      expect(needsRecheck(state, found, recheck)).toBe(true);
+      expect(newVersionCitation(found, recheck)).toEqual(newVersionCitation(found, notHere));
+    }
   });
 
   test("says the Document changed at once, and says nothing while it is unchanged", () => {

@@ -6378,6 +6378,7 @@ export function createCore(adapters: CoreAdapters): Core {
         contentHash: typeof input.contentHash === "string" ? input.contentHash : null,
         quotedWords: parseQuotedWords(input.quotedWords),
         ...(input.location !== undefined && { location: parseLocation(input.location) }),
+        ...(input.lookElsewhere === true && { lookElsewhere: true }),
         mindId: input.mindId,
         conversationId: input.conversationId ?? null,
       });

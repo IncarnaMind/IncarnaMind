@@ -901,9 +901,9 @@ function withQuotedWords(
  */
 export function recheckCitation(
   documents: RecheckDocuments,
-  input: Rechecked & Pick<CitationToRecheck, "contentHash" | "quotedWords">,
+  input: Rechecked & Pick<CitationToRecheck, "contentHash" | "quotedWords" | "lookElsewhere">,
 ): CitationRecheck {
-  const quoteOnly = recheckInCurrent(documents, input);
+  const quoteOnly = recheckInCurrent(documents, input, input.lookElsewhere === true);
   const now =
     quoteOnly.contentHash === null
       ? quoteOnly
@@ -1122,6 +1122,7 @@ function changedParts(
 function recheckInCurrent(
   documents: RecheckDocuments,
   input: Rechecked & { contentHash?: string | null },
+  lookElsewhere = false,
 ): CitationRecheck {
   const cited = { pageFrom: input.pageFrom, pageTo: input.pageTo };
   const contentHash = documents.currentVersion(input.documentId);
@@ -1169,7 +1170,26 @@ function recheckInCurrent(
       );
     }
   }
-  return result({ check: "not-found", checkReason: "quote-not-on-pages" }, cited);
+  const notFound = result({ check: "not-found", checkReason: "quote-not-on-pages" }, cited);
+  return lookElsewhere && quote !== ""
+    ? { ...notFound, elsewhere: quoteElsewhere(version, quote) }
+    : notFound;
+}
+
+/**
+ * Where the whole quote stands in a version, matched as the check matches it at a Citation's
+ * cited Units, over all of them (#3041): at one place a Citation could cite, its Location; in more
+ * than one, or across more Units than a Citation cites, no Location; nowhere, null.
+ */
+function quoteElsewhere(
+  version: ReturnType<typeof versionOf>,
+  quote: string,
+): CitationRecheck["elsewhere"] {
+  const { units, matching, inRange } = version;
+  const at = locateQuote(units, quote, matching);
+  if (!at) return quoteInUnits(units, quote, matching) ? { location: null } : null;
+  const covered = inRange(at);
+  return { location: locationOf(covered, quoteInUnits(covered, quote, matching)) };
 }
 
 // Processing peels running headers and footers off a PDF's stored pages (../documents/boilerplate):

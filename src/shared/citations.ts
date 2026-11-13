@@ -320,6 +320,26 @@ export function quoteStanding(
 }
 
 /**
+ * Where a Citation's quote stands in the version `recheck` read, as the card and the viewer say
+ * it (#3041): at its cited place; "moved" to another, with its Location (null when none names it);
+ * or "gone" from that version. A quote the re-check found away from its cited Units (`elsewhere`)
+ * is moved here, yet stays not found at its place: Needs re-check and every action read
+ * `quoteStanding`.
+ */
+export function whereQuoteStands(
+  cited: Partial<Pick<CitationAttributes, "pageFrom" | "pageTo" | "location">>,
+  recheck: CitationRecheck | null,
+): { standing: QuoteStanding; location: CitationLocation | null } | null {
+  const standing = quoteStanding(cited, recheck);
+  if (standing === null || recheck === null) return null;
+  if (standing === "moved") return { standing, location: recheck.location };
+  if (standing === "gone" && recheck.elsewhere) {
+    return { standing: "moved", location: recheck.elsewhere.location };
+  }
+  return { standing, location: null };
+}
+
+/**
  * When a Document's current version was made: a web page's fetch of that
  * version, else its file's last change, else when it was indexed.
  */
@@ -422,11 +442,11 @@ export function changedSourceNote(
       : t("citation.changedAfterCited.web", { date: fetchedAgain });
   if (recheck === "failed" || recheck === null) return { notice, quote: null };
   if ("keptInside" in recheck) return null;
-  const standing = quoteStanding(cited, recheck);
-  if (standing === "found") return { notice, quote: t("citation.changed.still") };
-  if (standing === "gone") return { notice, quote: t("citation.changed.gone") };
-  if (standing === null) return { notice, quote: null };
-  const where = recheck.location ? formatLocation(recheck.location, t) : null;
+  const stands = whereQuoteStands(cited, recheck);
+  if (stands === null) return { notice, quote: null };
+  if (stands.standing === "found") return { notice, quote: t("citation.changed.still") };
+  if (stands.standing === "gone") return { notice, quote: t("citation.changed.gone") };
+  const where = stands.location ? formatLocation(stands.location, t) : null;
   return {
     notice,
     quote: where
