@@ -9756,8 +9756,8 @@
           }
         ],
         "document": {
-          "verdict": "not-checked",
-          "reason": "number-unquoted"
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -9768,8 +9768,8 @@
           }
         ],
         "document": {
-          "verdict": "not-checked",
-          "reason": "number-unquoted"
+          "verdict": "supported",
+          "reason": null
         }
       }
     },
@@ -19243,8 +19243,8 @@
           }
         ],
         "document": {
-          "verdict": "not-checked",
-          "reason": "number-unquoted"
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -19255,8 +19255,8 @@
           }
         ],
         "document": {
-          "verdict": "not-checked",
-          "reason": "number-unquoted"
+          "verdict": "supported",
+          "reason": null
         }
       }
     },
@@ -19275,8 +19275,8 @@
           }
         ],
         "document": {
-          "verdict": "not-checked",
-          "reason": "number-unquoted"
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -19287,8 +19287,8 @@
           }
         ],
         "document": {
-          "verdict": "not-checked",
-          "reason": "number-unquoted"
+          "verdict": "supported",
+          "reason": null
         }
       }
     },
@@ -19435,8 +19435,8 @@
           }
         ],
         "document": {
-          "verdict": "not-checked",
-          "reason": "number-unquoted"
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -19447,8 +19447,8 @@
           }
         ],
         "document": {
-          "verdict": "not-checked",
-          "reason": "number-unquoted"
+          "verdict": "supported",
+          "reason": null
         }
       }
     },
@@ -19467,8 +19467,8 @@
           }
         ],
         "document": {
-          "verdict": "not-checked",
-          "reason": "number-unquoted"
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -19479,8 +19479,8 @@
           }
         ],
         "document": {
-          "verdict": "not-checked",
-          "reason": "number-unquoted"
+          "verdict": "supported",
+          "reason": null
         }
       }
     },
@@ -27955,8 +27955,8 @@
           }
         ],
         "document": {
-          "verdict": "not-checked",
-          "reason": "number-unquoted"
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -27967,8 +27967,8 @@
           }
         ],
         "document": {
-          "verdict": "not-checked",
-          "reason": "number-unquoted"
+          "verdict": "supported",
+          "reason": null
         }
       }
     },
@@ -27987,8 +27987,8 @@
           }
         ],
         "document": {
-          "verdict": "not-checked",
-          "reason": "number-unquoted"
+          "verdict": "supported",
+          "reason": null
         }
       },
       "here": {
@@ -27999,8 +27999,8 @@
           }
         ],
         "document": {
-          "verdict": "not-checked",
-          "reason": "number-unquoted"
+          "verdict": "supported",
+          "reason": null
         }
       }
     },
@@ -35263,8 +35263,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "The Document gives 455, not 455 thousand people."
+          "verdict": "supported",
+          "reason": null
         }
       }
     },
@@ -35295,8 +35295,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "文档写的是 455，不是 455 thousand people。"
+          "verdict": "supported",
+          "reason": null
         }
       }
     },

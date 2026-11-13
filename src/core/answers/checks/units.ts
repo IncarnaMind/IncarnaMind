@@ -431,37 +431,117 @@ function givenOtherwise(
       writesMeasure(each.cited, measure) || writesMeasure(each.text.document(), measure),
   );
   if (written) return null;
+  if (unsaid) return given(plain);
   // A plain number whose Document states no unit for it, nor ever writes the measure, states none:
-  // the Answer's reading leaves it to the model (#2997). A share's rival ("Change (pp)" beside a
-  // percent) is stated otherwise.
+  // the Answer's reading leaves it to the model (#2997). A label over one of two numbers written
+  // the same may label another figure, so labels state a unit otherwise only where each has one.
+  // A share's rival ("Change (pp)" beside a percent) is stated otherwise.
+  if (plain.every(({ each, number }) => unitStatedFor(each.text, number.start, each.context)))
+    return given(plain);
   const rival =
     figure.unit.kind === "percent" ? "points" : figure.unit.kind === "points" ? "percent" : null;
-  const statedFor = plain.filter(
-    ({ each, number }) =>
-      unitStatedFor(each.text, number.start, each.context) ||
-      (rival !== null &&
-        (writesMeasure(each.cited, rival) || writesMeasure(each.text.document(), rival))),
+  return given(
+    plain.filter(
+      ({ each }) =>
+        rival !== null &&
+        (writesMeasure(each.cited, rival) || writesMeasure(each.text.document(), rival)),
+    ),
   );
-  return unsaid ? given(plain) : given(statedFor);
+}
+
+// A scale a unit spells before another unit of its measure: 千克 is 克 a thousand times over, and
+// kt is t. A squared or cubed unit scales by its power, so only these measures are read so.
+const SPELLED_SCALES: readonly (readonly [string, number])[] = [
+  ["千", 1e3],
+  ["兆", 1e6],
+  ["吉", 1e9],
+  ["kilo", 1e3],
+  ["mega", 1e6],
+  ["giga", 1e9],
+  ["k", 1e3],
+  ["M", 1e6],
+  ["G", 1e9],
+  ["T", 1e12],
+];
+const SPELLING_MEASURES = new Set(["mass", "length", "power", "energy"]);
+
+/** A reading with the scale its unit spells taken out of the unit: "31千克" is 克 at a thousand. */
+function inFull({ scale, unit }: Pick<Reading, "scale" | "unit">): {
+  scale: number;
+  unit: FigureUnit;
+} {
+  const measure = measureOf(unit);
+  if (unit.kind !== "other" || measure === null || !SPELLING_MEASURES.has(measure))
+    return { scale, unit };
+  for (const [spelled, times] of SPELLED_SCALES) {
+    if (!unit.word.startsWith(spelled)) continue;
+    const base: FigureUnit = { kind: "other", word: unit.word.slice(spelled.length) };
+    if (measureOf(base) === measure) return { scale: scale * times, unit: base };
+  }
+  return { scale, unit };
+}
+
+// One base unit, as English and Chinese write it.
+const BASE_UNITS = [
+  "t|tonnes?|吨",
+  "g|grams?|克",
+  "m|met(?:re|er)s?|米",
+  "W|watts?|瓦",
+  "Wh|watt[- ]hours?|瓦时",
+].map((words) => new RegExp(`^(?:${words})$`, "u"));
+
+const oneUnit = (a: string, b: string) =>
+  a === b || BASE_UNITS.some((unit) => unit.test(a) && unit.test(b));
+
+/**
+ * Whether two readings are at one scale. In one unit, each is read in full: "31千克" is at the
+ * scale of a label's "（千克）" and "31 kt" at that of "(thousand tonnes)", and "31克" at neither.
+ * In two units of a measure their scale words are compared, where both units spell the same scale
+ * or none ("吨" and "tons"). Null where it can't be told without converting one unit into another
+ * ("公斤" under "（千克）", "miles" under "(km)"), which isn't attempted.
+ */
+function atOneScale(
+  a: Pick<Reading, "scale" | "unit">,
+  b: Pick<Reading, "scale" | "unit">,
+): boolean | null {
+  const [one, other] = [inFull(a), inFull(b)];
+  if (one.unit.kind !== "other" || other.unit.kind !== "other") return a.scale === b.scale;
+  if (oneUnit(one.unit.word, other.unit.word)) return sameValue(one.scale, other.scale);
+  return sameValue(one.scale * b.scale, other.scale * a.scale) ? a.scale === b.scale : null;
 }
 
 /**
- * A piece of a heading read as its own unit line ("万千瓦时" as "单位：万千瓦时"). A bare unit word
- * that goes on with more of a word ("人口", "吨位", "人口普查") is another word and states nothing;
- * a piece with a scale word states its unit, whatever follows ("万吨标准煤", "亿元人民币"), and a
- * scale word before a unit the reader doesn't know ("亿SDR") still states its scale (#2997).
+ * What a piece of a heading states, read as a sentence writes it after a number ("万千瓦时" as in
+ * "1万千瓦时"), so the same characters are the same scale and unit in a label and in a sentence:
+ * "千克" is a unit, and "万吨/年" is 万 of 吨 (#2997). A piece no sentence writes so ("人民币万元",
+ * "USD millions") is read as its own unit line ("单位：人民币万元"), and a unit with no scale, in a
+ * word or in its spelling, states one only where a unit line would. A bare unit word that goes on
+ * with more of a word ("人口", "吨位", "人口普查") is another word and states nothing; a piece with
+ * a scale word states its unit, whatever follows ("万吨标准煤", "亿元人民币"), and a scale word
+ * before a unit the reader doesn't know ("亿SDR") still states its scale.
  */
 function asUnitLine(piece: string, context: FigureContext): StatedUnit[] {
   const line = `单位：${piece}`;
-  return readStatedUnits(line, context).filter(
+  const stated = readStatedUnits(line, context).filter(
     (statement) =>
       statement.unit.kind === "plain" ||
       statement.scaleWord !== null ||
       !/^\p{L}/u.test(line.slice(statement.end)),
   );
+  const written = piece.trim();
+  if (!/^[\p{L}%％‰]/u.test(written)) return stated;
+  const after = `1${/^[A-Za-z]/.test(written) ? " " : ""}${written}`;
+  const [said] = readFigures(after, { ...context, header: null, headerRead: null });
+  if (said?.start !== 0 || !sameValue(said.value, said.scale)) return stated;
+  const scaled = said.scaleWord !== null;
+  if (!scaled && (said.unit.kind === "plain" || /^\s*\p{L}/u.test(after.slice(said.end))))
+    return stated;
+  if (!scaled && stated.length === 0 && inFull(said).scale === said.scale) return stated;
+  const { scale, scaleWord, unit } = said;
+  return [{ start: 0, end: piece.length, chars: piece, scale, scaleWord, unit }];
 }
 
-// A unit in brackets is read as its own unit line: "（万千瓦时）" as "单位：万千瓦时"; "（预计）" states none.
+// A unit in brackets states what its words do: "（万千瓦时）" as "万千瓦时"; "（预计）" states none.
 const bracketedUnits = (written: string, context: FigureContext): StatedUnit[] =>
   [...written.matchAll(/[(（]([^()（）\n]{1,24})[)）]/gu)].flatMap(([bracket, inner = ""]) =>
     asUnitLine(inner, context).map((statement) => ({ ...statement, chars: bracket })),
@@ -469,8 +549,6 @@ const bracketedUnits = (written: string, context: FigureContext): StatedUnit[] =
 
 // A sentence's end in either language; "1.20" holds no end.
 const SENTENCE_END = /[。；;！？!?]|\.(?!\d)/u;
-// A scale word, not the 千 of 千瓦时 or 千克.
-const SCALED = /亿|万|千(?!瓦|克|米)|百万|thousand|million|billion|trillion/iu;
 
 /**
  * What the label and headings of the plain number at `start` state of its unit (#2997): the last
@@ -522,6 +600,10 @@ function labelled(text: string, start: number, context: FigureContext): Label[] 
     ...label.map((statement) => ({ ...statement, own: false, line: labelLine })),
   ];
   if (!inTable) return mine;
+  const statesScale = (part: string) =>
+    [...asUnitLine(part, context), ...bracketedUnits(part, context)].some(
+      (statement) => statement.scaleWord !== null,
+    );
   const cells: string[] = [];
   for (let at = above.length - 1; at >= 0 && above[at]?.includes("\t"); at--) {
     const cell = above[at]?.split("\t")[column]?.trim();
@@ -531,7 +613,7 @@ function labelled(text: string, start: number, context: FigureContext): Label[] 
     ...mine,
     // A merged heading over columns of two units ("亿美元 / 亿SDR") states neither.
     ...cells
-      .filter((cell) => cell.split(/[/／、]/u).filter((part) => SCALED.test(part)).length < 2)
+      .filter((cell) => cell.split(/[/／、]/u).filter(statesScale).length < 2)
       // A heading cell is read as its own unit line too: "亿SDR" states 亿 though SDR is unread.
       .flatMap((cell) =>
         [
@@ -709,11 +791,12 @@ export function unitNotStated(
           : measureOf(figure.unit) === null ||
             statement.unit.kind !== "other" ||
             measureOf(statement.unit) === measureOf(figure.unit);
+      const reached = sameWritten.map(({ text, start, context }) =>
+        text.gateReads ? labelled(text.cited(), start, context) : [],
+      );
       // A plain number with a label of its own takes that label's scale, not a Document line's
       // ("各月收入（万元）" over another heading's numbers).
-      const labels = sameWritten.map(({ text, start, context, plain }) =>
-        text.gateReads && plain ? labelled(text.cited(), start, context) : [],
-      );
+      const labels = reached.map((found, at) => (sameWritten[at]?.plain ? found : []));
       const headings = labels.flat();
       // A unit in brackets on a line of words in the Document ("表7 各厂产量（万吨）" over its
       // table) states the scale as a unit line does, for that unit only: "（万千瓦时）" never opens
@@ -736,24 +819,34 @@ export function unitNotStated(
       });
       const stated = statements.some(
         (statement) =>
-          statement.scale === figure.scale &&
+          atOneScale(statement, figure) === true &&
           (figure.unit.kind !== "currency" ||
             (statement.unit.kind === "currency" && statement.unit.code === figure.unit.code) ||
             // "Results ($m)" states a dollar figure's scale, and leaves which dollar to the currency rule.
             (isDollar(figure.unit.code) && bareDollarStatement(statement)) ||
             same.some(({ unit }) => unit.kind === "currency")),
       );
-      // The Document states otherwise when the number writes its own sign or scale, a label reaches
-      // it, or a line states a scale, its currency, or its own unit or measure.
+      // The Document states otherwise when the number writes its own sign or scale, a label for
+      // the figure's kind of unit gives it another scale, or a line states a scale, its currency,
+      // or its own unit or measure at another. A label of another measure, or a share's, may
+      // label another figure ("同比（%）" beside the column the sentence reads): it states
+      // otherwise only where each number written the same has such a label and no other.
       const forItsUnit = (statement: StatedUnit) =>
-        statement.unit.kind === "plain" ||
-        (figure.unit.kind === "currency"
-          ? statement.unit.kind === "currency"
-          : figure.unit.kind === "other" && sameUnit(statement));
+        (statement.unit.kind === "plain" ||
+          (figure.unit.kind === "currency"
+            ? statement.unit.kind === "currency"
+            : figure.unit.kind === "other" && sameUnit(statement))) &&
+        atOneScale(statement, figure) !== null;
+      const labelsIt = (label: StatedUnit) =>
+        label.unit.kind === "plain" || (!isShare(label.unit) && sameUnit(label));
       const statedOtherwise =
         sameWritten.some(
-          ({ says, text, start, context }) => says || unitStatedFor(text, start, context),
-        ) || statements.some(forItsUnit);
+          ({ says }, at) =>
+            says ||
+            reached[at]?.some((label) => labelsIt(label) && atOneScale(label, figure) === false),
+        ) ||
+        reached.every((found) => found.length > 0 && !found.some(labelsIt)) ||
+        statements.some(forItsUnit);
       const amount = sameWritten[0]?.chars ?? figure.chars;
       if (!stated && (unsaid || statedOtherwise))
         return { kind: "scale", figure: figure.chars, amount, matches: matchesOf(sameWritten) };
@@ -783,26 +876,32 @@ export function unitNotStated(
         ? statement.unit.kind === "currency" && statement.unit.code === figure.unit.code
         : measureOf(figure.unit) !== null && measureOf(statement.unit) === measureOf(figure.unit);
     const asWritten = same.some(({ unit }) => JSON.stringify(unit) === JSON.stringify(figure.unit));
-    const misread =
+    const ownLabels =
       isShare(figure.unit) || bound || asWritten
-        ? undefined
+        ? []
         : sameWritten.flatMap(({ text, start, context, chars, scale, plain }) => {
             if (!text.gateReads || !plain || scale !== figure.scale) return [];
             const labels = ownFirst(labelled(text.cited(), start, context), ofItsKind);
-            if (labels.length === 0 || labels.some((label) => label.scale === figure.scale))
-              return [];
             // A unit line that holds the label ("单位：吨（万吨）") leaves the scale open; one
             // elsewhere in the Document doesn't outrank the label.
-            if (
-              labels.some((label) =>
+            const gives = labels.some(
+              (label) =>
+                atOneScale(label, figure) === true ||
                 readStatedUnits(label.line, context).some(
-                  (each) => ofItsKind(each) && each.scale === figure.scale,
+                  (each) => ofItsKind(each) && atOneScale(each, figure) === true,
                 ),
-              )
-            )
-              return [];
-            return labels.map((label) => ({ text, start, label: label.chars, chars }));
-          })[0];
+            );
+            return [{ text, start, chars, labels, gives }];
+          });
+    // Of two numbers written the same the gate can't tell which the sentence reads: where one's
+    // label gives the sentence's scale ("库存（吨）" beside "产量（万吨）"), no label is against it.
+    const misread = ownLabels.some(({ gives }) => gives)
+      ? undefined
+      : ownLabels.flatMap(({ text, start, chars, labels }) =>
+          labels
+            .filter((label) => atOneScale(label, figure) === false)
+            .map((label) => ({ text, start, label: label.chars, chars })),
+        )[0];
     if (misread) {
       const { chars, label } = misread;
       const amount = label.startsWith("（") ? `${chars}${label}` : `${chars} ${label}`;

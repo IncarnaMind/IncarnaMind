@@ -1292,7 +1292,7 @@ const LOOSE_POINTS_AFTER = /个点| (?:points?|pts?)(?![A-Za-z])/y;
 
 /** Measures that make a lone Chinese numeral a quantity: "三吨" is 3 tonnes, while "三个" is "a few". */
 const CN_MEASURES =
-  "平方公里 平方米 立方米 千瓦时 兆瓦时 千克 公斤 公里 千米 千瓦 兆瓦 吉瓦 公顷 盎司 平米 吨 克 米 升 亩 桶".split(
+  "平方公里 平方米 立方米 千瓦时 兆瓦时 瓦时 千克 公斤 公里 千米 千瓦 兆瓦 吉瓦 公顷 盎司 平米 吨 克 米 升 亩 桶 瓦".split(
     " ",
   );
 /** Counting words: a figure's unit after a numeral of two characters or more ("十二家"), not after one. */
@@ -3996,8 +3996,11 @@ const MEASURES: Readonly<Record<string, { symbols: string; words: string }>> = {
     symbols: "l|升|桶",
     words: "m3|m³|cubic met(?:re|er)s?|lit(?:re|er)s?|barrels?|bbl|立方米",
   },
-  power: { symbols: "", words: "kW|MW|GW|(?:kilo|mega|giga)watts?|千瓦|兆瓦|吉瓦" },
-  energy: { symbols: "", words: "kWh|MWh|GWh|TWh|(?:kilo|mega|giga)watt[- ]hours?|千瓦时|兆瓦时" },
+  power: { symbols: "W|瓦", words: "kW|MW|GW|(?:kilo|mega|giga)?watts?|千瓦|兆瓦|吉瓦" },
+  energy: {
+    symbols: "",
+    words: "Wh|kWh|MWh|GWh|TWh|(?:kilo|mega|giga)?watt[- ]hours?|千瓦时|兆瓦时|瓦时",
+  },
 };
 
 // A symbol states its measure only where it is a unit, never as a letter or a character inside a word ("don't", e.g., T-shirt, 克服, 单位：克林工厂, 27m3).

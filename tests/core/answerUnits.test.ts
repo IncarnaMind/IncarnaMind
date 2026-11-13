@@ -604,3 +604,198 @@ describe("A check reply that corrects itself, and the unit gate (#2997, #3029)",
     }
   });
 });
+
+const report = (contents: string): SourceFile => ({ name: "Report.txt", contents });
+const underOneHeading = (unit: string) => report(`项目\t数值（${unit}）\nA\t54\nB\t31\n`);
+const KILOGRAMS = report("项目\t重量（千克）\nA\t54\nB\t31\n");
+const KILOGRAM_ROWS = report("各项数值（千克）\nA: 54\nB: 31\n");
+const PER_YEAR = report("项目\t产能（万吨/年）\n一期\t500\n二期\t300\n");
+const THOUSAND_TONNES = report("Mill\tOutput (thousand tonnes)\nA\t54\nB\t31\n");
+const KILOTONNES = report("Mill\tOutput (kt)\nA\t54\nB\t31\n");
+const BESIDE_A_SHARE = report("厂区\t产量\t同比（%）\n一厂\t54\t12\n二厂\t31\t31\n");
+const BESIDE_A_COUNT = report("厂区\t产量\t人数（人）\n一厂\t54\t12\n二厂\t31\t31\n");
+const BESIDE_A_MARGIN = report("Segment\tRevenue\tMargin (%)\nRetail\t38\t9\nFreight\t12\t12\n");
+const TWO_SCALES = report("厂区\t产量（万吨）\t库存（吨）\n一厂\t54\t12\n二厂\t31\t31\n");
+const TWO_SCALES_APART = report("厂区\t产量（万吨）\t库存（吨）\n一厂\t54\t12\n二厂\t31\t30\n");
+
+const linesOf = (given: string, figure: string) =>
+  [
+    ["en", `The Document gives ${given}, not ${figure}.`],
+    ["zh-CN", `文档写的是 ${given}，不是 ${figure}。`],
+  ] as const;
+
+describe("A label's unit reads as a sentence writes it (#2997)", { timeout: 120_000 }, () => {
+  // protects=the same characters are the same scale and unit in a label and in a sentence, so a right sentence under a label whose unit begins with 千 (千克, 千米, 千瓦, 千瓦时, 千伏, 千帕), under a rate label (万吨/年, 万桶/日), or in a unit that spells the label's scale (31 kt under "thousand tonnes") reads as on main in an Answer and in Check against Documents, in English and Chinese; fails_when="B重量为31千克。" under 重量（千克） or "一期产能为500万吨/年。" under 产能（万吨/年） reads Unsupported in either check; no_claim=a sentence in another unit of the measure that would need converting (31吨 under 千克, 31 miles under km), which passes as on main.
+  test.each([
+    ["重量（千克）", KILOGRAMS, "B重量为31千克。", "B\t31", "found"],
+    ["重量（千克）", KILOGRAMS, "B重量为31公斤。", "B\t31", "not-checked"],
+    ["重量（千克）", KILOGRAMS, "B重量为31kg。", "B\t31", "not-checked"],
+    ["各项数值（千克）", KILOGRAM_ROWS, "B的数值为31千克。", "B: 31", "not-checked"],
+    ["数值（千米）", underOneHeading("千米"), "B的数值为31千米。", "B\t31", "found"],
+    ["数值（千米/小时）", underOneHeading("千米/小时"), "B的数值为31千米/小时。", "B\t31", "found"],
+    ["数值（千瓦时）", underOneHeading("千瓦时"), "B的数值为31千瓦时。", "B\t31", "found"],
+    ["数值（千瓦）", underOneHeading("千瓦"), "B的数值为31千瓦。", "B\t31", "found"],
+    ["数值（千伏）", underOneHeading("千伏"), "B的数值为31千伏。", "B\t31", "found"],
+    ["数值（千帕）", underOneHeading("千帕"), "B的数值为31千帕。", "B\t31", "found"],
+    ["产能（万吨/年）", PER_YEAR, "一期产能为500万吨/年。", "一期\t500", "found"],
+    ["产能（万吨/年）", PER_YEAR, "一期产能为每年500万吨。", "一期\t500", "found"],
+    ["产能（万吨/年）", PER_YEAR, "一期年产能500万吨。", "一期\t500", "found"],
+    ["产能（万吨/年）", PER_YEAR, "一期产能为500万吨。", "一期\t500", "found"],
+    ["数值（万桶/日）", underOneHeading("万桶/日"), "B的数值为31万桶/日。", "B\t31", "found"],
+    ["数值（万桶/日）", underOneHeading("万桶/日"), "B的数值为日均31万桶。", "B\t31", "found"],
+    [
+      "Output (thousand tonnes)",
+      THOUSAND_TONNES,
+      "Mill B's output was 31 kt.",
+      "B\t31",
+      "not-checked",
+    ],
+    [
+      "Output (thousand tonnes)",
+      THOUSAND_TONNES,
+      "Mill B's output was 31 thousand tonnes.",
+      "B\t31",
+      "found",
+    ],
+  ] as const)("under %s, %s reads as on main", async (_, file, sentence, quote, check) => {
+    for (const language of ["en", "zh-CN"] as const) {
+      expect(await judged(sentence, quote, file, language), language).toEqual({
+        answer: { check, verdict: null },
+        document: { verdict: "supported", reason: null },
+      });
+    }
+  });
+
+  // protects=a sentence at another scale than its number's label is Unsupported with the label's line in both checks and both languages, whether the scale is a word (31万千克 under 千克, 500亿吨 under 万吨/年) or spelled in the unit (31克 under 千克, 31瓦时 under 千瓦时, 31千瓦 under 兆瓦, 31 Mt under "thousand tonnes", 31 tonnes under "kt"); fails_when=any of them keeps its ✓ or reads Supported; no_claim=a unit the reader reads no figure in (31帕 under 千帕).
+  test.each([
+    ["重量（千克）", KILOGRAMS, "B重量为31克。", "B\t31", "31（千克）", "31克"],
+    ["重量（千克）", KILOGRAMS, "B重量为31万千克。", "B\t31", "31", "31万千克"],
+    ["各项数值（千克）", KILOGRAM_ROWS, "B的数值为31克。", "B: 31", "31（千克）", "31克"],
+    ["数值（千米）", underOneHeading("千米"), "B的数值为31米。", "B\t31", "31（千米）", "31米"],
+    [
+      "数值（千瓦时）",
+      underOneHeading("千瓦时"),
+      "B的数值为31瓦时。",
+      "B\t31",
+      "31（千瓦时）",
+      "31瓦时",
+    ],
+    [
+      "数值（千瓦时）",
+      underOneHeading("千瓦时"),
+      "B的数值为31万千瓦时。",
+      "B\t31",
+      "31",
+      "31万千瓦时",
+    ],
+    ["数值（千瓦）", underOneHeading("千瓦"), "B的数值为31瓦。", "B\t31", "31（千瓦）", "31瓦"],
+    ["数值（兆瓦）", underOneHeading("兆瓦"), "B的数值为31千瓦。", "B\t31", "31（兆瓦）", "31千瓦"],
+    ["产能（万吨/年）", PER_YEAR, "一期产能为500吨。", "一期\t500", "500（万吨/年）", "500吨"],
+    ["产能（万吨/年）", PER_YEAR, "一期产能为500亿吨。", "一期\t500", "500", "500亿吨"],
+    [
+      "数值（万桶/日）",
+      underOneHeading("万桶/日"),
+      "B的数值为31桶/日。",
+      "B\t31",
+      "31（万桶/日）",
+      "31桶",
+    ],
+    [
+      "Output (thousand tonnes)",
+      THOUSAND_TONNES,
+      "Mill B's output was 31 Mt.",
+      "B\t31",
+      "31 thousand tonnes",
+      "31 Mt",
+    ],
+    ["Output (kt)", KILOTONNES, "Mill B's output was 31 tonnes.", "B\t31", "31 (kt)", "31 tonnes"],
+  ] as const)("under %s, %s is Unsupported", async (_, file, sentence, quote, given, figure) => {
+    for (const [language, reason] of linesOf(given, figure)) {
+      expect(await judged(sentence, quote, file, language), language).toEqual({
+        answer: { check: "unsupported", verdict: reason },
+        document: { verdict: "unsupported", reason },
+      });
+    }
+  });
+});
+
+describe("Of two numbers written the same, a label states a unit only for its own (#2997)", {
+  timeout: 120_000,
+}, () => {
+  // protects=in an Answer a label over another column, of another measure or a share, states nothing for the sentence's figure, so the sentence keeps the model's ✓ while Check against Documents reads it as on main, in English and Chinese; fails_when="二厂产量为31万吨。" loses its ✓ in the Answer because the same 31 stands under 同比（%） or 人数（人）, or "Freight revenue was $12 million." because 12 stands under Margin (%); no_claim=a number whose every like-written number carries such a label, which stays Unsupported (the kilowatt-hour heading above).
+  test.each([
+    [
+      "同比（%） in the next column",
+      BESIDE_A_SHARE,
+      "二厂产量为31万吨。",
+      "二厂\t31\t31",
+      "31",
+      "31万吨",
+    ],
+    [
+      "人数（人） in the next column",
+      BESIDE_A_COUNT,
+      "二厂产量为31万吨。",
+      "二厂\t31\t31",
+      "31",
+      "31万吨",
+    ],
+    [
+      "人数（人） in the next column",
+      BESIDE_A_COUNT,
+      "二厂产量为31吨。",
+      "二厂\t31\t31",
+      "31",
+      "31吨",
+    ],
+    [
+      "Margin (%) in the next column",
+      BESIDE_A_MARGIN,
+      "Freight revenue was $12 million.",
+      "Freight\t12\t12",
+      "12",
+      "$12 million",
+    ],
+  ] as const)(
+    "with %s, %s keeps the model's ✓ in the Answer",
+    async (_, file, sentence, quote, given, figure) => {
+      for (const [language, reason] of linesOf(given, figure)) {
+        expect(await judged(sentence, quote, file, language), language).toEqual({
+          answer: { check: "found", verdict: null },
+          document: { verdict: "unsupported", reason },
+        });
+      }
+    },
+  );
+
+  // protects=a label fixes a scale against the sentence only when no number written the same has a label that gives the sentence's scale, in both checks and both languages; fails_when="二厂库存为31吨。" reads Unsupported for 产量（万吨） though the same 31 stands under 库存（吨）, or "二厂产量为31吨。" keeps its ✓ when the stock column holds 30; no_claim=which of the two numbers a sentence reads, so "二厂库存为31万吨。" passes here.
+  test.each([
+    ["产量（万吨） beside 库存（吨）", TWO_SCALES, "二厂库存为31吨。", "二厂\t31\t31"],
+    [
+      "产量（万吨） beside 库存（吨）",
+      TWO_SCALES,
+      "二厂产量为31万吨，库存为31吨。",
+      "二厂\t31\t31",
+    ],
+    ["产量（万吨） beside 库存（吨）", TWO_SCALES, "二厂产量为31万吨。", "二厂\t31\t31"],
+  ] as const)("under %s, %s keeps its ✓", async (_, file, sentence, quote) => {
+    for (const language of ["en", "zh-CN"] as const) {
+      expect(await judged(sentence, quote, file, language), language).toEqual({
+        answer: { check: "found", verdict: null },
+        document: { verdict: "supported", reason: null },
+      });
+    }
+  });
+
+  test("二厂产量为31吨。 is Unsupported when no other 31 stands under a label in tonnes", async () => {
+    for (const [language, reason] of linesOf("31（万吨）", "31吨")) {
+      expect(
+        await judged("二厂产量为31吨。", "二厂\t31\t30", TWO_SCALES_APART, language),
+        language,
+      ).toEqual({
+        answer: { check: "unsupported", verdict: reason },
+        document: { verdict: "unsupported", reason },
+      });
+    }
+  });
+});
