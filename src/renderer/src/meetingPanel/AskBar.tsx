@@ -59,7 +59,8 @@ export function AskBar({
   const t = useT();
   const { bar, more } = askBarKinds(meeting.helpTemplate);
   const [moreOpen, setMoreOpen] = useState(false);
-  const [text, setText] = useState("");
+  // A collapse unmounts the bar: the line in the field comes back with it.
+  const [text, setText] = useState(() => notes?.draft().text ?? "");
   const [chosen, setChosen] = useState(0);
   const root = useRef<HTMLFieldSetElement>(null);
   const moreAnchor = useRef<HTMLDivElement>(null);

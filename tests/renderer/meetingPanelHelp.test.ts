@@ -63,6 +63,7 @@ vi.mock("../../src/renderer/src/core", () => ({
       });
     },
     undoAddToNote: () => Promise.resolve(),
+    setQuickNoteDraft: () => Promise.resolve(),
   },
   files: { onMenuCommand: () => () => undefined, setEditMenu: () => undefined },
 }));

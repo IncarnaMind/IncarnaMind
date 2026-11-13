@@ -14508,6 +14508,15 @@ export interface CoreApi {
    * `undoAddToNote` takes it back. InvalidInputError for no text or a Meeting not live.
    */
   addQuickNote(input: AddQuickNoteInput): Promise<AddedToNote>;
+  /**
+   * Keeps the line typed in the call-help panel's field but not sent (#2925), in memory only: a
+   * line that is blank, a "/" search, or for a Meeting not live is forgotten instead. Stopping the
+   * Meeting, a call's end and quitting add it as a quick note first, and `addQuickNoteDraft` does
+   * when the panel closes. `addQuickNote` forgets it.
+   */
+  setQuickNoteDraft(input: AddQuickNoteInput): Promise<void>;
+  /** Adds the Meeting's kept unsent line as a quick note (`setQuickNoteDraft`); null with none. */
+  addQuickNoteDraft(meetingId: string): Promise<AddedToNote | null>;
   /** The offer to take notes in a call, and a call's end waiting to stop its Meeting (#208). */
   getMeetingOffers(): Promise<MeetingOffers>;
   /**
@@ -15270,6 +15279,8 @@ const methods: Record<CoreApiMethod, true> = {
   setMeetingTemplate: true,
   setMeetingMicrophone: true,
   addQuickNote: true,
+  setQuickNoteDraft: true,
+  addQuickNoteDraft: true,
   getMeetingOffers: true,
   takeMeetingOffer: true,
   declineMeetingOffer: true,

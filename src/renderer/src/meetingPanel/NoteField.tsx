@@ -11,9 +11,21 @@ import { useT } from "../i18n";
 /** How long the field's placeholder says a quick note went in, with its Undo beside it. */
 const ADDED_MS = 3000;
 
+/** The line in the field, and the Meeting's time when typing it began (null: not recording then). */
+export interface Draft {
+  text: string;
+  began: { ms: number | null } | null;
+}
+
 export interface QuickNotes {
   add(text: string, atMs: number | null): Promise<AddedToNote>;
   undo(added: AddedToNote): Promise<UndoAddToNoteResult>;
+  /**
+   * The line in the field, kept while the panel is collapsed, and in the core, which adds it to
+   * the Note if the recording stops or the panel closes before it is sent.
+   */
+  draft(): Draft;
+  keep(draft: Draft): void;
 }
 
 /** A quick note the field says went in, with the time it took. */
@@ -34,7 +46,9 @@ export interface FieldList {
  * line; Shift-Enter starts a new line, and the field grows to three, then scrolls. For 3 s its
  * placeholder says it went in, with Undo at its right, so nothing under it moves. Keys a list over
  * it wants come to `listKeys` first, and no key that ends an input method's composition is acted
- * on. A press in it is what takes the keyboard (`onTakeKeyboard`).
+ * on. A press in it is what takes the keyboard (`onTakeKeyboard`). What it holds is kept
+ * (`notes.keep`) as it changes, but never while an input method is still composing: text not
+ * committed yet isn't the User's line.
  */
 export function NoteField({
   meeting,
@@ -56,8 +70,8 @@ export function NoteField({
   onTakeKeyboard(): void;
 }) {
   const t = useT();
-  // When typing began, in the Meeting's time: null once a line has begun while it wasn't recording.
-  const began = useRef<{ ms: number | null } | null>(null);
+  const began = useRef(notes.draft().began);
+  const composing = useRef(false);
   const [added, setAdded] = useState<Added | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
 
@@ -66,6 +80,10 @@ export function NoteField({
     const timer = setTimeout(() => setAdded(null), ADDED_MS);
     return () => clearTimeout(timer);
   }, [added]);
+
+  useEffect(() => {
+    if (!composing.current) notes.keep({ text, began: began.current });
+  }, [text, notes]);
 
   const change = (value: string) => {
     onText(value);
@@ -140,6 +158,13 @@ export function NoteField({
           data-testid="quick-note-field"
           onMouseDown={onTakeKeyboard}
           onChange={(event) => change(event.target.value)}
+          onCompositionStart={() => {
+            composing.current = true;
+          }}
+          onCompositionEnd={(event) => {
+            composing.current = false;
+            notes.keep({ text: event.currentTarget.value, began: began.current });
+          }}
           onKeyDown={keyDown}
           className={`${fieldClass} ask-field-text`}
         />

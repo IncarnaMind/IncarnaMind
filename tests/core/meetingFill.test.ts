@@ -895,6 +895,38 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
     core.close();
   });
 
+  // protects=a line typed in the call-help panel's field and not sent when Stop is pressed (#2925) goes into the Note before the write-up reads it, as the User's line; fails_when=Stop drops it, or it lands after the fill or as AI text; no_claim=the panel's own keeping of the line, which tests/renderer/askBar.test.ts covers.
+  test.each([
+    { language: "English", line: "Price for 40 seats?" },
+    { language: "Chinese", line: "40 个席位的价格？" },
+  ])(
+    "a line left unsent in the call-help panel when Stop is pressed is the User's own line, kept as typed and filled in under ($language)",
+    async ({ line }) => {
+      const model = fillingModel(
+        [
+          "HEADINGS: H1=NONE H2=NONE",
+          lineFact("L1", "pricing", "The enterprise price is 45 dollars a seat [^1]."),
+        ].join("\n\n"),
+        { 1: MY_LINES[0] as string },
+      );
+      const { core, meeting, client } = await recorded(model, null, undefined, undefined, {
+        stop: async (core, meetingId) => {
+          await core.setQuickNoteDraft({ meetingId, text: line, atMs: 2 * SECOND });
+          return core.stopMeeting(meetingId);
+        },
+      });
+
+      expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", mode: "notes" });
+      await vi.waitFor(() =>
+        expect(shown(client).filter(Boolean)).toEqual([
+          line,
+          "«The enterprise price is 45 dollars a seat »￼«.»",
+        ]),
+      );
+      core.close();
+    },
+  );
+
   // protects=the fill reaches the window as one update named for its meeting, so the editor showing the Note takes it as one step of its own Undo and ⌘Z there takes back the fill, not the User's earlier typing (#2527); fails_when=the fill's update has no cause, another update carries it, or it comes in more than one; no_claim=the editor's own history, which the window test covers.
   test("the fill comes to the window as one update with its meeting's cause", async () => {
     const model = fillingModel(

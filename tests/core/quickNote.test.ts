@@ -239,3 +239,92 @@ describe("A quick note from the call-help panel (#2925)", () => {
     core.close();
   });
 });
+
+/** The Block holding `text` among the Note's lines, and its time; null when there is none. */
+function lineWith(client: MindClient, text: string): { time: number | null } | null {
+  const index = lines(client).indexOf(text);
+  return index < 0 ? null : { time: blockTimeOf(client.doc, idAt(client, index)) };
+}
+
+const LANGUAGES = [
+  { language: "English", line: "Ask about single sign-on" },
+  { language: "Chinese", line: "问一下单点登录的价格" },
+];
+
+describe("A line left unsent in the call-help panel's field (#2925)", () => {
+  test.each(LANGUAGES)(
+    "goes into the Note as a quick note when the recording stops, with the time typing began ($language)",
+    async ({ line }) => {
+      const { core, meeting, client } = await recording([note("Agenda")]);
+      await core.setQuickNoteDraft({ meetingId: meeting.id, text: line, atMs: 4 * SECOND });
+
+      await core.stopMeeting(meeting.id);
+
+      await expect.poll(() => lineWith(client, line)).toEqual({ time: 4 * SECOND });
+      expect(lines(client).join("\n")).not.toContain("«");
+      core.close();
+    },
+  );
+
+  test.each(LANGUAGES)("goes in when the panel closes, once ($language)", async ({ line }) => {
+    const { core, meeting, client } = await recording();
+    await core.setQuickNoteDraft({ meetingId: meeting.id, text: line, atMs: 2 * SECOND });
+
+    expect(await core.addQuickNoteDraft(meeting.id)).toMatchObject({ mindId: meeting.mindId });
+    expect(await core.addQuickNoteDraft(meeting.id)).toBeNull();
+    await core.stopMeeting(meeting.id);
+
+    await expect.poll(() => lines(client).filter((each) => each === line)).toHaveLength(1);
+    core.close();
+  });
+
+  test.each(LANGUAGES)(
+    "goes in when IncarnaMind quits while it records ($language)",
+    async ({ line }) => {
+      const { core, meeting, client } = await recording();
+      await core.setQuickNoteDraft({ meetingId: meeting.id, text: line, atMs: 3 * SECOND });
+
+      core.close();
+
+      await expect.poll(() => lineWith(client, line)).toEqual({ time: 3 * SECOND });
+    },
+  );
+
+  test("begun while the Meeting was paused, it goes in with no time", async () => {
+    const { core, meeting, client } = await recording();
+    await core.pauseMeeting(meeting.id);
+    await core.setQuickNoteDraft({ meetingId: meeting.id, text: "Side chat", atMs: null });
+
+    await core.stopMeeting(meeting.id);
+
+    await expect.poll(() => lineWith(client, "Side chat")).toEqual({ time: null });
+    core.close();
+  });
+
+  test.each([
+    { case: 'a "/" search', text: "/su" },
+    { case: 'a Chinese "/" search', text: "/zj" },
+    { case: "only spaces", text: "  \n " },
+  ])("adds nothing for $case", async ({ text }) => {
+    const { core, meeting, client } = await recording([note("Agenda")]);
+    await core.setQuickNoteDraft({ meetingId: meeting.id, text, atMs: 1 * SECOND });
+
+    await core.stopMeeting(meeting.id);
+
+    expect(lines(client).filter(Boolean)).toEqual(["Agenda"]);
+    core.close();
+  });
+
+  test("a line already sent isn't added again, and a line emptied since adds nothing", async () => {
+    const { core, meeting, client } = await recording();
+    await core.setQuickNoteDraft({ meetingId: meeting.id, text: "Sent", atMs: 1 * SECOND });
+    await core.addQuickNote({ meetingId: meeting.id, text: "Sent", atMs: 1 * SECOND });
+    await core.setQuickNoteDraft({ meetingId: meeting.id, text: "Typed then deleted", atMs: null });
+    await core.setQuickNoteDraft({ meetingId: meeting.id, text: "", atMs: null });
+
+    await core.stopMeeting(meeting.id);
+
+    await expect.poll(() => lines(client).filter(Boolean)).toEqual(["Sent"]);
+    core.close();
+  });
+});

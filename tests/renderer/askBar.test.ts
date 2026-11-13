@@ -33,6 +33,8 @@ function newPage() {
   );
   Object.assign(document, { oninput: null });
   const window = document.defaultView;
+  // React reads an input method's composition events only when the window has them as it loads.
+  Object.assign(window, { CompositionEvent: window.Event });
   for (const [name, value] of Object.entries({
     document,
     window,
@@ -66,6 +68,8 @@ interface AskBarProps {
   notes: {
     add(text: string, atMs: number | null): Promise<AddedToNote>;
     undo(added: AddedToNote): Promise<UndoAddToNoteResult>;
+    draft(): { text: string; began: { ms: number | null } | null };
+    keep(draft: { text: string; began: { ms: number | null } | null }): void;
   } | null;
 }
 
@@ -97,10 +101,22 @@ const onReach = vi.fn<(reach: number) => void>();
 const onTakeKeyboard = vi.fn<() => void>();
 const onNoteTaken = vi.fn<() => void>();
 const ADDED: AddedToNote = { mindId: "mind-1", blockIds: ["block-1"] };
+type Draft = { text: string; began: { ms: number | null } | null };
+/** As the panel keeps the line: across a collapse, and each committed change told to the core. */
+let kept: Draft = { text: "", began: null };
 const notes = {
   add: vi.fn<(text: string, atMs: number | null) => Promise<AddedToNote>>(),
   undo: vi.fn<(added: AddedToNote) => Promise<UndoAddToNoteResult>>(),
+  draft: () => kept,
+  keep: vi.fn<(draft: Draft) => void>((draft) => {
+    kept = draft;
+  }),
 };
+/** The texts the core was told the field holds, in order, repeats folded. */
+const keptTexts = () =>
+  notes.keep.mock.calls
+    .map(([draft]) => draft.text)
+    .filter((text, index, all) => index === 0 || all[index - 1] !== text);
 
 /** Recording since 12:00:00 with 4 min 7 s already recorded before it, or paused at 4:07. */
 const RECORDING_SINCE = "2026-11-12T12:00:00.000Z";
@@ -120,6 +136,7 @@ beforeEach(async () => {
   vi.clearAllMocks();
   notes.add.mockReset().mockResolvedValue(ADDED);
   notes.undo.mockReset().mockResolvedValue({ kept: 0 });
+  kept = { text: "", began: null };
   state.language.current = "en";
   const document = newPage();
   container = document.createElement("div", {});
@@ -532,6 +549,52 @@ describe("the field, for quick notes (#2925)", () => {
     await fire(one("quick-note-undo"), "click");
     expect(notes.undo.mock.calls).toEqual([[ADDED], [ADDED]]);
     expect(all("quick-note-undo")).toHaveLength(0);
+  });
+
+  test.each([
+    { language: "English", first: "Ask", line: "Ask about SSO" },
+    { language: "Chinese", first: "问一下", line: "问一下单点登录" },
+  ])(
+    "what the field holds is kept as it changes, with when typing began, and Enter forgets it ($language)",
+    async ({ first, line }) => {
+      await show();
+      await type(first);
+      vi.setSystemTime(Date.parse("2026-11-12T12:00:20.000Z"));
+      await type(line);
+      expect(kept).toEqual({ text: line, began: { ms: 257_000 } });
+      await press("Enter");
+      expect(kept).toEqual({ text: "", began: null });
+      expect(keptTexts()).toEqual(["", first, line, ""]);
+    },
+  );
+
+  test.each([
+    { language: "English", line: "Budget is 40k" },
+    { language: "Chinese", line: "预算 4 万" },
+  ])(
+    "the bar shown again after a collapse has the line kept, and sends it with its time ($language)",
+    async ({ line }) => {
+      kept = { text: line, began: { ms: 200_000 } };
+      await show();
+      expect(field().value).toBe(line);
+      await press("Enter");
+      expect(notes.add.mock.calls).toEqual([[line, 200_000]]);
+    },
+  );
+
+  test("while an input method composes, what it hasn't committed isn't kept; what it commits is", async () => {
+    await show();
+    await type("记一笔");
+    await fire(field(), "compositionstart");
+    await type("记一笔jia");
+    expect(kept.text).toBe("记一笔");
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field()), "value")?.set;
+      setter?.call(field(), "记一笔加");
+      field().dispatchEvent(new window.Event("compositionend", { bubbles: true }));
+    });
+    expect(kept.text).toBe("记一笔加");
+    expect(keptTexts()).not.toContain("记一笔jia");
   });
 
   test("an Enter that ends a Chinese input method's composition neither sends nor chooses; the next one does", async () => {

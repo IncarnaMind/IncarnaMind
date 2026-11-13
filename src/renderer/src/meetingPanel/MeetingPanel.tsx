@@ -35,7 +35,7 @@ import { isLive, isWaitingForPermission, useMeetings, useMeetingTime } from "../
 import { clockTime } from "../meetingTime";
 import { useAppStore } from "../store";
 import { AskBar } from "./AskBar";
-import type { QuickNotes } from "./NoteField";
+import type { Draft, QuickNotes } from "./NoteField";
 
 declare global {
   interface Window {
@@ -80,6 +80,26 @@ export function MeetingPanel() {
   const [held, setHeld] = useState<HeldKeys>({});
   const [noteWanted, setNoteWanted] = useState(false);
   const root = useRef<HTMLDivElement>(null);
+  // Here, not in the bar, which a collapse unmounts.
+  const draft = useRef<Draft>({ text: "", began: null });
+  const meetingId = meeting?.id;
+  const notes = useMemo<QuickNotes | null>(
+    () =>
+      meetingId && quickNotesHere()
+        ? {
+            add: (text, atMs) => core.addQuickNote({ meetingId, text, atMs }),
+            undo: (added) => core.undoAddToNote(added),
+            draft: () => draft.current,
+            keep(next) {
+              draft.current = next;
+              core
+                .setQuickNoteDraft({ meetingId, text: next.text, atMs: next.began?.ms ?? null })
+                .catch((error: unknown) => useAppStore.getState().reportError(error));
+            },
+          }
+        : null,
+    [meetingId],
+  );
 
   useEffect(() => {
     // The innermost thing open took its Esc already; one left over gives the keyboard back.
@@ -180,6 +200,7 @@ export function MeetingPanel() {
           pinned={pinned}
           noteWanted={noteWanted}
           onNoteTaken={noteTaken}
+          notes={notes}
           onPin={togglePin}
           onFold={() => setFolded(true)}
         />
@@ -272,6 +293,7 @@ function Panel({
   pinned,
   noteWanted,
   onNoteTaken,
+  notes,
   onPin,
   onFold,
 }: {
@@ -281,21 +303,11 @@ function Panel({
   pinned: readonly MeetingHelp[];
   noteWanted: boolean;
   onNoteTaken(): void;
+  notes: QuickNotes | null;
   onPin(help: MeetingHelp): void;
   onFold(): void;
 }) {
   const t = useT();
-  const meetingId = meeting.id;
-  const notes = useMemo<QuickNotes | null>(
-    () =>
-      quickNotesHere()
-        ? {
-            add: (text, atMs) => core.addQuickNote({ meetingId, text, atMs }),
-            undo: (added) => core.undoAddToNote(added),
-          }
-        : null,
-    [meetingId],
-  );
   const hidden = useAppStore((state) => state.settings?.device.meetingPanelHidden ?? true);
   const [choosing, setChoosing] = useState(false);
   const [reach, setReach] = useState(0);

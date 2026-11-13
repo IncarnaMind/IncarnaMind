@@ -1,9 +1,12 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { createFakeCapture } from "../../src/core/meetings/fakeCapture";
 import { FILES_CHANNELS } from "../../src/shared/bridge";
+import type { HelpKeys } from "../../src/shared/meetingHelp";
 import { MEETING_PANEL_CHANNELS } from "../../src/shared/meetingPanel";
 import { createTempDataFolder, manualClock, startCore } from "../helpers/core";
 import { recordingLog } from "../helpers/log";
+import { connectToMind } from "../helpers/mindClient";
+import { readMind } from "../helpers/minds";
 
 /**
  * The call-help panel's window and the keyboard (#2925): it is made unable to take the keyboard,
@@ -136,7 +139,14 @@ const press = (kind: string) =>
   ).incarnamindPressHelpKeys(kind);
 
 /** A Meeting recording on macOS or elsewhere, its panel shown or not. */
-async function recording(mac: boolean, { shown = true, linux = false } = {}) {
+async function recording(
+  mac: boolean,
+  {
+    shown = true,
+    linux = false,
+    keys = {},
+  }: { shown?: boolean; linux?: boolean; keys?: HelpKeys } = {},
+) {
   const core = startCore(await createTempDataFolder(), {
     audioCapture: createFakeCapture(),
     now: manualClock().now,
@@ -145,7 +155,7 @@ async function recording(mac: boolean, { shown = true, linux = false } = {}) {
     device: {
       meetingNoticeAccepted: true,
       meetingPanel: shown,
-      meetingHelpKeys: { note: "Ctrl+Alt+N", say: "Ctrl+Alt+1" },
+      meetingHelpKeys: { note: "Ctrl+Alt+N", say: "Ctrl+Alt+1", ...keys },
     },
   });
   serveMeetingPanel(core, {
@@ -306,4 +316,40 @@ describe("The call-help panel and the keyboard (#2925)", () => {
     electron.listeners.get(FILES_CHANNELS.meetingPanelCommand)?.({}, "note");
     expect(electron.made).toHaveLength(0);
   });
+});
+
+describe("A line left unsent in the panel's field when it closes (#2925)", () => {
+  const ways = [
+    {
+      way: "its close button",
+      close: (panel: Window) => fromPage(panel, MEETING_PANEL_CHANNELS.close),
+    },
+    {
+      way: "⌘K or Call help in the app's window",
+      close: () => electron.listeners.get(FILES_CHANNELS.showMeetingPanel)?.({}, false),
+    },
+    { way: "⌃⌥H", close: () => press("panel") },
+  ];
+
+  test.each(
+    ways.flatMap((each) => [
+      { ...each, language: "English", line: "Ask about the rollout" },
+      { ...each, language: "Chinese", line: "问一下上线时间" },
+    ]),
+  )(
+    "goes into the Note before the window goes, closed by $way ($language)",
+    async ({ close, line }) => {
+      const { core, meetingId } = await recording(true, { keys: { panel: "Ctrl+Alt+H" } });
+      const panel = await shownPanel();
+      const meeting = (await core.listMeetings()).find((each) => each.id === meetingId);
+      if (!meeting) throw new Error("No meeting.");
+      const client = await connectToMind(core, meeting.mindId);
+      await core.setQuickNoteDraft({ meetingId, text: line, atMs: 1000 });
+
+      close(panel);
+
+      expect(panel.destroyed).toBe(true);
+      await vi.waitFor(() => expect(readMind(client).textContent).toContain(line));
+    },
+  );
 });

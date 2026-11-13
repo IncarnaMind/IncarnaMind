@@ -327,3 +327,43 @@ test("quick note: with the Note open and typed in, a quick note lands at the end
   ]);
   await app.close();
 });
+
+test("quick note: a line left in the field stays across a collapse, and Stop puts it in the Note with the time typing began", async () => {
+  test.setTimeout(90_000);
+  const { app, window, bar, panel } = await recording();
+  const field = fieldOf(panel);
+  await pointAndClick(panel, field);
+  await panel.keyboard.type("Send the contract Friday");
+  await pointAndClick(panel, panel.getByTestId("panel-collapse"));
+  await pointAndClick(panel, panel.getByTestId("panel-expand"));
+  await expect(field).toHaveValue("Send the contract Friday");
+
+  await pointAndClick(window, bar.getByTestId("meeting-stop"));
+
+  await expect
+    .poll(() => noteLines(window))
+    .toContainEqual(["Send the contract Friday", expect.stringMatching(/^\d+:\d{2}$/)]);
+  await app.close();
+});
+
+test('quick note: closing the panel with a line in the field puts it in the Note, in Chinese too; a "/" search left there adds nothing', async () => {
+  test.setTimeout(90_000);
+  const { app, window, bar, panel } = await recording();
+  await pointAndClick(panel, fieldOf(panel));
+  await panel.keyboard.insertText("问一下上线时间");
+  await pointAndClick(panel, panel.getByTestId("panel-close"));
+  await expect
+    .poll(async () => (await noteLines(window)).map(([text]) => text))
+    .toContain("问一下上线时间");
+
+  await window.keyboard.press("ControlOrMeta+k");
+  await window.keyboard.type("Show the call help panel");
+  await window.keyboard.press("Enter");
+  const again = await panelOf(app);
+  await pointAndClick(again, fieldOf(again));
+  await again.keyboard.type("/su");
+  await pointAndClick(window, bar.getByTestId("meeting-stop"));
+  await expect.poll(() => again.isClosed()).toBe(true);
+  expect((await noteLines(window)).map(([text]) => text)).not.toContain("/su");
+  await app.close();
+});

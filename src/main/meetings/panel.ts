@@ -129,6 +129,14 @@ export function serveMeetingPanel(core: Core, options: MeetingPanelOptions): voi
   function choose(shown: boolean): void {
     const meeting = liveMeeting();
     if (!meeting) return;
+    // A line left unsent in the field goes into the Note before the window goes, with its page.
+    if (!shown && panel) {
+      core.addQuickNoteDraft(meeting.id).catch((error: unknown) =>
+        options.log.error("meeting.quickNoteDraftFailed", {
+          message: error instanceof Error ? error.message : String(error),
+        }),
+      );
+    }
     choice = { meetingId: meeting.id, shown };
     sync();
   }
