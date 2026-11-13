@@ -388,6 +388,33 @@ describe("call help's ✓ comes only from the sentence check", { timeout: 60_000
     expect(after.citations[0]?.passedAt).toEqual([0]);
   });
 
+  // protects=a short-lines reply's "→" line is kept as written: a Check reply as main writes one keeps the marker on its "→" line, its Citation and its chip at its place, in English and Chinese, since short lines are asked for no "→" line; fails_when=the core's kept text loses that marker, its Citation goes, or the chip's place moves; no_claim=what the check decides about that line.
+  test.each([
+    "- They said the panels are cleaned once a year [^1]\n- Supported: the sheet says once a year [^2]\n→ You can confirm it; Enterprise is $45 a seat [^3]",
+    "- 对方说组件每年清洗一次 [^1]\n- 文档支持：每年清洗一次 [^2]\n→ 可以直接确认；企业版每个席位 45 美元 [^3]",
+  ])(
+    "a Check reply's → line keeps its marker, its Citation and its chip's place: %s",
+    async (reply) => {
+      const { core, meeting } = await setUp({
+        reply,
+        records: [
+          { marker: 1, from: "call" },
+          { marker: 2, from: "sheet" },
+          { marker: 3, from: "sheet" },
+        ],
+      });
+
+      const after = await (await pressed(core, meeting, "check")).judged();
+
+      expect(after.text).toBe(reply);
+      expect(after.citations.map((citation) => citation.marker).sort()).toEqual([1, 2, 3]);
+      const arrow = readHelpReply(after.text)
+        .flatMap((item) => item.effect ?? [])
+        .flatMap((piece) => (piece.kind === "citation" ? [[piece.marker, piece.at]] : []));
+      expect(arrow).toEqual([[3, 2]]);
+    },
+  );
+
   test("a sentence with a calculated figure's marker is the figure check's, not the sentence check's: its Citation stays plain", async () => {
     const reply = "★ Enterprise is [=1] a seat a month [^1]\n→ answers at once";
     const { core, meeting, batches } = await setUp({ reply });
