@@ -128,7 +128,7 @@ const panelBridge = {
 };
 
 const WANT =
-  "★ They want the rollout finished before their June audit [^1]\n→ Confirm the June date first";
+  "★ They want the rollout finished before their June audit\n6:00 “before our audit in June” [^1]\n→ Confirm the June date first";
 const SUM = "- Their audit is in June\n- They asked for a fixed monthly price";
 
 const helpOf = (kind: MeetingHelpKind, answerId: string): MeetingHelp => ({

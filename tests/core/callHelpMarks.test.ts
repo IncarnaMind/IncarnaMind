@@ -355,29 +355,37 @@ describe("call help's ✓ comes only from the sentence check", { timeout: 60_000
     expect(batch?.prompt).toContain('document="Price sheet"');
   });
 
-  test("a → line given a marker and a promise under one are judged as any sentence; only what passes shows ✓", async () => {
+  // protects=a marker on a "→" line, the reply's own line, is taken off where the reply is kept: not drawn, not sent to the check, its Citation not kept, while a promise under a marker is judged as any sentence and every other place counts in the text kept (#2847); fails_when=the "→" line's sentence goes to the check, its chip shows, or a ✓ lands on another place; no_claim=what the check decides about the promise.
+  test("a → line's marker is taken off, and a promise under one is judged as any sentence; only what passes shows ✓", async () => {
     const reply =
       "★ Yes, Enterprise is $45 a seat with single sign-on [^1]\n→ answers at once [^2]\n\nI'll confirm the price in writing today [^3]\n→ buys time";
-    const { core, meeting } = await setUp({
+    const { core, meeting, batches } = await setUp({
       reply,
       records: [
         { marker: 1, from: "sheet" },
         { marker: 2, from: "sheet" },
         { marker: 3, from: "sheet" },
       ],
-      verdicts: [
-        ["answers at once", { verdict: "supported", kind: "opinion" }],
-        ["in writing", { verdict: "unsupported" }],
-      ],
+      verdicts: [["in writing", { verdict: "unsupported" }]],
     });
 
     const after = await (await pressed(core, meeting, "answer")).judged();
 
+    expect(after.text).toBe(
+      "★ Yes, Enterprise is $45 a seat with single sign-on [^1]\n→ answers at once\n\nI'll confirm the price in writing today [^3]\n→ buys time",
+    );
+    const judgedSentences = batches.flatMap((batch) =>
+      [...batch.prompt.matchAll(/<sentence number="\d+">\n([\s\S]*?)\n<\/sentence>/g)].map(
+        ([, sentence]) => sentence,
+      ),
+    );
+    expect(judgedSentences).toHaveLength(2);
+    expect(judgedSentences.join("\n")).not.toContain("answers at once");
     expect(marks(after)).toEqual([
       { marker: 1, check: "found", passed: true },
-      { marker: 2, check: "not-checked", passed: false },
       { marker: 3, check: "unsupported", passed: false },
     ]);
+    expect(after.citations[0]?.passedAt).toEqual([0]);
   });
 
   test("a sentence with a calculated figure's marker is the figure check's, not the sentence check's: its Citation stays plain", async () => {
@@ -392,7 +400,8 @@ describe("call help's ✓ comes only from the sentence check", { timeout: 60_000
   });
 
   test("a line too short to be judged shows no ✓, whatever its marker earned in the sentence before it", async () => {
-    const reply = "★ Yes, Enterprise is $45 a seat with single sign-on [^1]\n→ Same price [^1]";
+    const reply =
+      "★ Yes, Enterprise is $45 a seat with single sign-on [^1]\n→ answers at once\n\nSame price [^1]\n→ buys time";
     const { core, meeting } = await setUp({ reply });
 
     const after = await (await pressed(core, meeting, "answer")).judged();
@@ -489,7 +498,7 @@ describe("call help's ✓ comes only from the sentence check", { timeout: 60_000
         release = resolve;
       });
       const reply =
-        "★ Yes, Enterprise is $45 a seat with single sign-on [^1][^2]\n→ answers at once [^2]";
+        "★ Yes, Enterprise is $45 a seat with single sign-on [^1][^2]\n→ answers at once\n\nIt answers at once [^2]\n→ buys time";
       const { core, meeting, batches } = await setUp({
         reply,
         records: [
@@ -544,7 +553,7 @@ describe("call help's ✓ comes only from the sentence check", { timeout: 60_000
         release = resolve;
       });
       const reply =
-        "★ Yes, Enterprise is $45 a seat with single sign-on [^1][^2]\n→ answers at once [^2]";
+        "★ Yes, Enterprise is $45 a seat with single sign-on [^1][^2]\n→ answers at once\n\nIt answers at once [^2]\n→ buys time";
       const { core, meeting, batches } = await setUp({
         reply,
         records: [
@@ -589,7 +598,7 @@ describe("call help's ✓ comes only from the sentence check", { timeout: 60_000
   test("Check again passing a sentence again gives its ✓ back to a Citation another sentence left unsupported", async () => {
     let round = 0;
     const reply =
-      "★ Yes, Enterprise is $45 a seat with single sign-on [^1][^2]\n→ answers at once [^2]\n\nI'll confirm the price in writing today [^1]\n→ buys time";
+      "★ Yes, Enterprise is $45 a seat with single sign-on [^1][^2]\n→ answers at once\n\nIt answers at once [^2]\n→ ties it up\n\nI'll confirm the price in writing today [^1]\n→ buys time";
     const { core, meeting, batches } = await setUp({
       reply,
       records: [
@@ -905,7 +914,10 @@ describe("a reply is kept, checked and read again as the panel shows it (#2925)"
       '★ They want a lower price for the whole team [^1]\n\n"We cannot go above forty dollars this year" [^1]\n→ offer the two-year term';
     const { core, meeting } = await setUp({ reply, records: [{ marker: 1, from: "call" }] });
     const after = await (await pressed(core, meeting, "want")).judged();
-    expect(after.text).toBe(reply);
+    // The reading's first line is the reply's own and loses its marker; its moment keeps its own.
+    expect(after.text).toBe(
+      '★ They want a lower price for the whole team\n\n"We cannot go above forty dollars this year" [^1]\n→ offer the two-year term',
+    );
     expect(after.citations.map((citation) => citation.check)).toEqual(["not-found"]);
   });
 
