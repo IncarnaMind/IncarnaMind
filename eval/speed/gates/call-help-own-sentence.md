@@ -17,6 +17,20 @@ Only what call help is asked to write. The sentence check, the panel and the ✓
   - Chinese line: "- 上线推迟到 11 月 18 日 [^1]。这周要通知客服". It was the cited half alone.
 - **A reading** (what they want) is unchanged: it already gives its moment, cited, on a line of its own.
 
+### For a ruling: the check button's line
+
+The committed task line (A) drops the verdict: the line gives the claim and what the Documents say, and the User works out "right" or "wrong". On a live call the User pressed that button to be told which, at a glance. The second wording (B, recommended in review) keeps the verdict as a sentence of its own with no Citation, the same rule as an option's "no". Nothing is changed until the ruling.
+
+| | A, as committed | B, the verdict a sentence of its own |
+|---|---|---|
+| Task line | "Check the newest claims in the transcript against the User's Documents: each line gives a claim as it was said, cited to the transcript, then what the Documents say about it, cited to them, or that they don't say." | "Check the newest claims in the transcript against the User's Documents: each line starts with the verdict, a sentence of its own with no Citation ("Right.", "Wrong." or "The Documents don't say."), then what the Documents say, in a sentence of its own with its Citation. Restate the claim only as far as the line needs." |
+| English example | "- They said the pilot is free for 90 days [^1]. The terms give 60 days [^2]" | "- Wrong. The terms give the pilot 60 days [^1]" |
+| Chinese example | "- 对方说试用期免费 90 天 [^1]。条款写的是 60 天 [^2]" | "- 错。条款写的是试用期 60 天 [^1]" |
+
+- **Under A,** both sentences are cited, and the check reads each against its own quote.
+- **Under B,** only the Documents' sentence is cited. The verdict is never checked, as an option's "no" isn't, so a wrong verdict would show with no mark. "The Documents don't say." is a whole line with no Citation.
+- **B needs the check button's own example lines,** where today every short-line button shares one. That is a change to the examples only, under the same switch.
+
 ### What is sent, against main
 
 For the answer button in an English call, the `<help>` block differs in these lines and no other:
@@ -33,10 +47,15 @@ A short line's button changes its shape line the same way ("each one sentence of
 
 ### Main at the run
 
-- The run's `main` must hold #3005 part 2 (how call help treats an earlier call's lines), which also changes what call help is asked. The branch takes `main` after that merges, and the run names the commit.
+- **The gate's `main` must hold two changes**, and the run names the commit:
+  - #3005 part 2 (how call help treats an earlier call's lines), which also changes what call help is asked;
+  - the fix for a sentence-check reply that corrects itself (#3029), so a reply that holds a corrected answer is read by it on both arms.
+- The branch takes `main` after both merge.
 - Neither change touches an instruction sentence the other does. #3005 part 2 edits "A Document fact was not said in this call…". This change edits the option and line shapes, their examples and the check button's task. Both add a parameter to `meetingHelpInstructions`, a line to its doc comment and a parameter to the test helper, which merge by hand.
-- After the merge, `tests/core/callHelpOwnSentence.test.ts`'s hash of main's instructions is set again from that commit, and every unit test of call help runs again before the run.
-- If the fix for a check reply that holds two answers (its own issue) is on `main` by then, both arms take it.
+- After the merge:
+  - `tests/core/callHelpOwnSentence.test.ts`'s hash of main's instructions is set again from that commit;
+  - the record's reading of each check reply (`checkReplies` in `../arms.ts`) takes the check's own new reader;
+  - every unit test of call help runs again before the run.
 
 ## Arms, models, judge and the runs' rules
 
@@ -51,7 +70,8 @@ A short line's button changes its shape line the same way ("each one sentence of
   - Its count of wrong ✓ goes beside the hand reading's, never instead. On the earlier trial it agreed with the hand reading on 58 of 78 places, and called advice and conclusions backed.
 - **The yardstick for a wrong ✓ is the hand reading by place, blind to the arm.**
   - A script builds the reading file. It holds every place of both arms whose quote was found, shuffled together, unlabelled: the sentence, every quote it cites, and how many of its places show ✓. The same sentence with the same quotes is read once.
-  - The key, which arm, press and place each item is, goes in a folder apart and isn't opened until the reading is sent.
+  - **Two readers fill their own copy** of the same file: the coordinator, and an independent reader who sees only that file. The bars count the coordinator's reading. The two readings' agreement, by label and by side (backed, unbacked, borderline), is reported beside them, with every item they differ on.
+  - The key, which arm, press and place each item is, goes in a folder apart. Neither reader opens it until both readings are sent.
   - The labels are: right; claims nothing or restates; fault; own conclusion; own advice or plan; own no; call claim outside the quoted words; borderline.
   - Unbacked: fault, the three own labels and a call claim. Backed: right and claims nothing. Borderline counts in neither.
 - **Each run:**
@@ -61,10 +81,8 @@ A short line's button changes its shape line the same way ("each one sentence of
   - sends at most four requests at once;
   - runs directly, never through the build queue, with its PID in a file from its start;
   - goes one after another with the other runs.
-- **A run counts only with zero requests refused, failed or timed out, and zero sentence-check replies that couldn't be read.**
-  - The record keeps every check reply as the check read it (`checkReplies`). One that read fewer sentences than it was asked is listed apart with the reply as written, and voids the run.
-  - The judge's requests count too.
-  - A void run is kept and struck with its reasons. It is not run again before those are read.
+- **A run counts only with zero requests refused, failed or timed out**, the judge's included. A void run is kept and struck with its reasons. It is not run again before those are read.
+- **A sentence-check reply the check couldn't read voids nothing.** The record keeps every check reply as the check read it (`checkReplies`). One that read fewer sentences than it was asked is listed apart, with its arm and the reply as written. Its places count as the User sees them: Not checked, with no ✓.
 
 ## Phases, each with its own stop
 
@@ -73,7 +91,8 @@ A short line's button changes its shape line the same way ("each one sentence of
    - **Probes** (main's writing joined a cited fact to the reply's own part on these cases in the earlier gates): `answer-unknown`, `sum`, `no-price`, `say-outage`, `check-wrong`, `say-roof`.
    - **Positives beside them**, where a cited fact alone is the right reply: `answer-price`, `answer-relief`, `answer-two`, `check-right`, `ask-shops`, `answer-earlier`.
    - **What it decides:** the bars below are read and reported, and gate nothing. The instructions may change on what the trial shows. They are then frozen at a commit this file names before the gate, and the gate runs only on a yes.
-   - **Stop $1.40.**
+   - **Before #3005 part 2?** Asked in the ruling. These cases hold no earlier call and the trial gates nothing, so it could run on today's `main`. The gate runs only after both changes above merge.
+   - **Stop $1.40.** Without the judge's per-place request, which gates nothing here, about $0.92: the grade request stays.
 2. **The gate: held-out presses.**
    - **The cases** are written blind to this change by someone else, put into `../callHelpMarks4.ts` at the run, and not opened before it. Its needs are listed below.
    - **Runs:** two of every case, both arms, Haiku and then Sonnet.
@@ -83,7 +102,8 @@ A short line's button changes its shape line the same way ("each one sentence of
 
 - They are call-help presses in `CallHelpCase`'s format, not single sentences: the Documents, the call's turns, the expected answer and the lines it rests on.
 - There are 15 English presses with a Chinese twin each, and at least 12 a language.
-- **Buttons:** at least 8 a language with options (say, answer, no, objection, next step, ask) and at least 4 with short lines (sum, check, facts). A reading (what they want) adds nothing here, so no more than 2.
+- **Buttons:** at least 8 a language with options (say, answer, no, objection, next step, ask), at least 3 with short lines (sum, check, facts), and no more than 2 readings (what they want), which this change leaves alone.
+- **No bar's power rests on the short-line presses.** Bar 2 is read by cell over the probe presses, whatever their shape. G2 is an upper bound over every line of a cell. With 3 short-line presses a language, what the short-line shape does alone (6 presses a cell over two runs) is reported and gates nothing.
 - **Probes of the named kind**, at least 6 a language: a press whose natural reply joins a cited fact to a short conclusion, a "no", advice or a verdict of the reply's own ("…, so …", "…, and they agreed", "…, which the sheet contradicts"). Their ids are given at the run.
 - **Positives**, at least 6 a language: a press whose right reply is a cited fact with nothing of the reply's own.
 
@@ -101,7 +121,9 @@ Counted per model, pooled over both languages and both runs (60 presses an arm i
 The guards, so the writer doesn't meet the rule by saying less:
 
 - **G1, backed facts keep their ✓.** The branch's backed places with ✓ are no fewer than main's writing's, less the ✓'s own noise: at least 2, or main's count times the rate below, rounded up, whichever is larger. The rate is the share of places whose mark changed between two samples of the same check on the same replies: Claude Haiku 5.5, 19 of 264 places (7.2%); Claude Sonnet 5.5, 3 of 162 (1.9%).
-- **G2, at most two short sentences.** In each cell, at most 2 of the branch's option lines or short lines run over two sentences, and at most 2 over 25 words (in Chinese, 50 characters).
+- **G2, at most two short sentences, within the shape's length.** In each cell:
+  - at most 2 of the branch's option lines or short lines run over two sentences;
+  - at most 2 run over their shape's length, as the instructions say: 25 words for an option and 20 for a short line, or in Chinese 50 and 40 characters.
 - **G3, the answer's grade, as #2847's bar 3 says.** In each cell: cited, judged right, and every Citation found. Each is no lower on the branch than on main's writing by more than the allowance:
 
   | Cell | Cited | Judged right | Every Citation found |
@@ -142,8 +164,8 @@ Anthropic's prices don't change by the hour, so the hour's price is the list pri
 
 | Phase | Presses | Requests, Haiku | Requests, Sonnet | Estimate | Stop | Items to read blind |
 |---|---|---|---|---|---|---|
-| Dev trial | 96 | about 100, and 96 the judge's | about 120, and 96 the judge's | $1.00 | $1.40 | about 175 |
-| Gate | 240 | about 250, and 240 the judge's | about 300, and 240 the judge's | $2.55 | $3.20 | about 430 (Haiku's about 215 first) |
+| Dev trial | 96 | about 100, and 96 the judge's | about 120, and 96 the judge's | $1.00 ($0.92 without the per-place request) | $1.40 | about 175, by each of two readers |
+| Gate | 240 | about 250, and 240 the judge's | about 300, and 240 the judge's | $2.55 | $3.20 | about 430 (Haiku's about 215 first), by each of two readers |
 
 - The requests by model count the product's reply and check on the model under test. The judge's requests are all on Claude Sonnet 5.5.
 - The items to read are about 1.8 a press, as on the saved presses.
