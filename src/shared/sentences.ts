@@ -58,7 +58,7 @@ const CHINESE = /\p{Script=Han}/u;
 const LETTER = /\p{L}/u;
 const FULL_STOP = /[.!?。！？]/u;
 const CHINESE_FULL_STOP = /[。！？]/u;
-const ENGLISH_STOP_AT_END = /[.!?][^\p{L}\p{N}\n。！？]*$/u;
+const ENGLISH_STOP_AT_END = /[.!?][^.!?\p{L}\p{N}\n。！？]*$/u;
 const PAIRED_MARKS = new Map([
   ["“", "”"],
   ['"', '"'],
@@ -105,11 +105,27 @@ function spaceBeforeNextWord(text: string, at: number): boolean {
   return false;
 }
 
+/** An apostrophe between two letters ("didn’t") closes no quotation. */
+const apostrophe = (text: string, at: number) =>
+  LETTER.test(text.charAt(at - 1)) && LETTER.test(text.charAt(at + 1));
+
+/** Whether a space comes after `at` and then anything more: a new sentence, whatever it opens with. */
+function spaceBeforeMore(text: string, at: number): boolean {
+  let spaced = false;
+  for (let next = at; next < text.length; next++) {
+    const char = text.charAt(next);
+    if (isSpace(char)) spaced = true;
+    else if (char !== INLINE_NODE) return spaced;
+  }
+  return false;
+}
+
 function closingMark(text: string, at: number, close: string, end: number): number | null {
   const open = text.charAt(at);
   let depth = 0;
   for (let next = at + 1; next < end; next++) {
     const char = text.charAt(next);
+    if (char === close && (close === "’" || close === "'") && apostrophe(text, next)) continue;
     if (char === close) {
       if (depth === 0) return next;
       depth--;
@@ -159,7 +175,7 @@ function enclosedQuotations(text: string): Enclosed[] {
       found.push({
         from: at,
         to: close,
-        lastStopEndsSentence: spaceBeforeNextWord(text, close + 1),
+        lastStopEndsSentence: spaceBeforeMore(text, close + 1),
       });
       at = close;
     } else if (close !== null) at = close;

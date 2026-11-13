@@ -192,6 +192,58 @@ describe("An English sentence that quotes two sentences is one sentence (#3019)"
     ]);
   });
 
+  // From a second read of #3019's English rule: each reads as on main, two sentences, and its twin
+  // that quotes two sentences still joins.
+  test.each<[string, string[]]>([
+    [
+      'The lease says "Rent is due monthly."[^1] "Late rent bears interest," it adds[^2].',
+      ['The lease says "Rent is due monthly."', '"Late rent bears interest," it adds.'],
+    ],
+    [
+      'The lease says "Rent is due monthly."[^1] (Clause 4 says when.)[^2] The tenant agreed to it[^3].',
+      [
+        'The lease says "Rent is due monthly."',
+        "(Clause 4 says when.)",
+        "The tenant agreed to it.",
+      ],
+    ],
+    [
+      "The lease says “Rent is due monthly.”[^1] ‘Later’ payments bear interest[^2].",
+      ["The lease says “Rent is due monthly.”", "‘Later’ payments bear interest."],
+    ],
+    [
+      "The memo says (Rent is due monthly.)[^1] “Late rent bears interest,” it adds[^2].",
+      ["The memo says (Rent is due monthly.)", "“Late rent bears interest,” it adds."],
+    ],
+    ...["£500", "$500", "¥500", "— 500 pounds", "…500 pounds"].map(
+      (opening): [string, string[]] => [
+        `He asked "Why is it late?"[^1] ${opening} is due now[^2].`,
+        ['He asked "Why is it late?"', `${opening} is due now.`],
+      ],
+    ),
+    [
+      'She cried "Stop the sale!"[^1] $500 was paid anyway[^2].',
+      ['She cried "Stop the sale!"', "$500 was paid anyway."],
+    ],
+    [
+      "Did he say it (twice. Loudly.)?[^1] Yes, he said it twice[^2].",
+      ["Did he say it (twice. Loudly.)?", "Yes, he said it twice."],
+    ],
+    [
+      "In the ‘90s sales rose[^1]. In the 2000s they didn’t[^2].",
+      ["In the ‘90s sales rose.", "In the 2000s they didn’t."],
+    ],
+    [
+      'The lease says "Rent is due monthly. Late rent bears interest."[^1] The tenant agreed to it[^2].',
+      [
+        'The lease says "Rent is due monthly. Late rent bears interest."',
+        "The tenant agreed to it.",
+      ],
+    ],
+  ])("a quotation that ends its sentence leaves the next one apart: %s", (answer, sentences) => {
+    expect(split(answer).map(([sentence]) => sentence)).toEqual(sentences);
+  });
+
   test.each([
     [
       'He wrote "Stop here[^1]. Go on with the next step[^2].',
