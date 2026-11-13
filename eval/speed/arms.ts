@@ -13,7 +13,9 @@ import type {
   CheckPathsOverride,
   Core,
 } from "../../src/core";
+import { isSentenceBatch, readBatch } from "../../src/core/answers/checks/sentenceBatch";
 import { estimateTokens } from "../../src/core/answers/context";
+import { replyJson } from "../../src/core/answers/judge";
 import type { ChatModelSpec } from "../../src/core/providers/models";
 import type { CallHelpForm } from "../../src/shared/meetingHelp";
 
@@ -233,12 +235,34 @@ export interface SentRequest {
   messages: string;
 }
 
+/** A sentence check's reply as the run read it: how many sentences it was asked, how many it read. */
+export interface CheckReply {
+  sentences: number;
+  read: number;
+}
+
+/** The sentence check's reply to `params`, read as the check reads it; null when it isn't one. */
+function checkReplyOf(params: LanguageModelV4CallOptions, text: string): CheckReply | null {
+  const system = params.prompt.find((message) => message.role === "system");
+  if (!system || !isSentenceBatch(system.content)) return null;
+  const sentences = JSON.stringify(params.prompt).match(/<sentence number=/g)?.length ?? 0;
+  return { sentences, read: readBatch(replyJson(text), sentences)?.size ?? 0 };
+}
+
 /** The chat models and Answer paths of a core, as the arm it runs has them. */
 export function armSwitch() {
   let current: Arm | null = null;
   const sent: SentRequest[] = [];
+  const checks: CheckReply[] = [];
   const middleware: LanguageModelMiddleware = {
     specificationVersion: "v4",
+    wrapGenerate: async ({ doGenerate, params }) => {
+      const result = await doGenerate();
+      const text = result.content.flatMap((part) => (part.type === "text" ? [part.text] : []));
+      const reply = checkReplyOf(params, text.join(""));
+      if (reply) checks.push(reply);
+      return result;
+    },
     transformParams: async ({ params, model }) => {
       const next = current?.request?.(params) ?? params;
       const { prompt, abortSignal: _signal, headers: _headers, ...rest } = next;
@@ -275,6 +299,8 @@ export function armSwitch() {
     callHelpForm: () => current?.callHelpForm,
     /** The requests sent since it was last asked, oldest first. */
     takeSent: (): SentRequest[] => sent.splice(0),
+    /** The sentence check's replies since it was last asked, oldest first. */
+    takeChecks: (): CheckReply[] => checks.splice(0),
     use(arm: Arm): void {
       current = arm;
     },
