@@ -87,6 +87,7 @@ function setUp(
   example: (typeof CASES)[number],
   citedAtEnd?: CitationAttributes,
   secondEvidence?: CitationAttributes,
+  secondNotChecked?: "found-elsewhere" | "no-evidence",
 ) {
   const document = new DOMParser().parseFromString(
     "<html><head></head><body></body></html>",
@@ -114,9 +115,12 @@ function setUp(
   const { sentence, first, second, quotes } = example;
   const passages = [source("first", quotes[0]), secondEvidence ?? source("second", quotes[1])];
   const at = sentence.indexOf(second);
+  const secondPart = supported(at, at + second.length, passages[1] as CitationAttributes);
   const parts = [
     supported(0, first.length, passages[0] as CitationAttributes),
-    supported(at, at + second.length, passages[1] as CitationAttributes),
+    secondNotChecked
+      ? { ...secondPart, verdict: "not-checked" as const, reason: secondNotChecked }
+      : secondPart,
   ];
   const check: ClaimCheckAttributes = {
     id: "check",
@@ -196,6 +200,15 @@ for (const example of CASES)
     const { sentence, first, second } = example;
     const end = sentence.slice(sentence.indexOf(second) + second.length);
     const between = sentence.slice(first.length, sentence.indexOf(second));
+
+    // protects=a part Not checked because a Passage its Citations don't quote backs it offers that Passage as its Citation, the way to its ✓, while one Not checked for another reason offers none (#3019); fails_when=the found Passage isn't offered, or a Not checked part offers a Citation for its unfound quote; no_claim=how the card lays the button out.
+    test.each([
+      ["found-elsewhere", ["add"]],
+      ["no-evidence", []],
+    ] as const)("a part Not checked, %s, offers %j", (reason, offered) => {
+      const { decisions } = setUp(example, undefined, undefined, reason);
+      expect(decisions()).toEqual([["add"], offered]);
+    });
 
     // protects=a part a file's property backs offers no Citation for the Note, while the part its text backs still does (#2458); fails_when=Add as Citation is offered for the file's properties.
     test("a part backed by a file's property offers no Citation of it", () => {

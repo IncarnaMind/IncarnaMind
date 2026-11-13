@@ -29,7 +29,13 @@ import { type DecisionProvider, decide, forcing } from "./decisions";
 import { writeFilingDocuments } from "./filings";
 import { languageRates, type RequestRun, rowRates } from "./rates";
 import { watchReasks } from "./reasks";
-import { SUPPORTED_TARGET, supportedShare, supportRates, withoutSupportLines } from "./support";
+import {
+  backedByFoundLines,
+  SUPPORTED_TARGET,
+  supportedShare,
+  supportRates,
+  withoutSupportLines,
+} from "./support";
 
 const ROOT = resolve(__dirname, "../..");
 
@@ -291,13 +297,14 @@ function report(
           "",
           `The research questions' Answers, each cited sentence checked against the Documents by the app's own Check against Documents, run by the model asked. The target is ${percent(SUPPORTED_TARGET * 100, 100)} Supported.`,
           "",
-          "| Model | Language | Supported | Not checked |",
-          "|---|---|---|---|",
+          "| Model | Language | Supported | Of them, backed by a Passage the check found | Not checked |",
+          "|---|---|---|---|---|",
           ...supportRates(researched.map((each) => ({ ...each, support: each.support ?? [] }))).map(
             (group) =>
-              `| ${group.model} | ${group.language} | ${group.supported} of ${group.judged}${group.judged > 0 ? ` (${percent(group.supported, group.judged)})` : ""} | ${group.notChecked} |`,
+              `| ${group.model} | ${group.language} | ${group.supported} of ${group.judged}${group.judged > 0 ? ` (${percent(group.supported, group.judged)})` : ""} | ${group.backedByFound} | ${group.notChecked} |`,
           ),
           "",
+          ...backedByFoundLines(checked),
           ...withoutSupportLines(checked),
         ]
       : []),

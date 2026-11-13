@@ -346,7 +346,7 @@ export async function nearestDifferent(
 const NEAREST_MARKER = 98;
 
 /** The marker the record asked for once more is given: apart from any the model gave. */
-const EVIDENCE_MARKER = 99;
+export const EVIDENCE_MARKER = 99;
 
 /**
  * A quote the model gave only when asked for one after its verdict was found on its page, never

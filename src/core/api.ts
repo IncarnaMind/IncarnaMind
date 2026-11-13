@@ -7254,6 +7254,8 @@ export type ClaimVerdict = "supported" | "unsupported" | "contradicted";
  * - "kept-inside": the existing Citation is outside this wall, so it was not read again.
  * - "absence-unconfirmed": a whole read said what the sentence calls absent is there, but a look
  *   at its quote found it doesn't state that (#1554, #1443).
+ * - "found-elsewhere": the check backed the sentence with a Passage its own Citations don't quote:
+ *   no ✓ beside a Citation whose words don't say it, until that Passage is its Citation (#3019).
  * - "absence-other-document": a whole read's quote states what the sentence calls absent, but in
  *   another Document than the one the sentence is about (#1443).
  * - "read-budget": a whole read reached the most it may spend before this part was judged, so
@@ -7298,6 +7300,7 @@ export type ClaimCheckFailure =
   | "absence-read-limit"
   | "absence-unconfirmed"
   | "absence-other-document"
+  | "found-elsewhere"
   | "kept-inside"
   | "cut-short"
   | "read-budget"

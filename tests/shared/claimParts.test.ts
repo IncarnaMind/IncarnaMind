@@ -201,8 +201,8 @@ describe("ordered claim part codec", () => {
     });
   });
 
-  // protects=a number no quote gives on one part never hides a limit or a stop on another: the sentence takes the limit, so the run waits it out or stops, whichever part comes first; alone, or beside "no-evidence", the number's own reason shows (#3022); fails_when=the sentence ends with the number's reason where another part met a limit, or "no-evidence" hides the number's reason; no_claim=how the run pauses, which the core's test covers.
-  describe("a number no quote gives, beside another part's ending (#3022)", () => {
+  // protects=a number no quote gives, or a quote the sentence's Citations don't hold, on one part never hides a limit or a stop on another: the sentence takes the limit, so the run waits it out or stops, whichever part comes first; alone, or beside "no-evidence" or "malformed", its own reason shows (#3022, #3019); fails_when=the sentence ends with that reason where another part met a limit, or "no-evidence" hides it; no_claim=how the run pauses, which the core's test covers.
+  describe("a reason that says what to do, beside another part's ending (#3022, #3019)", () => {
     const second: ClaimPartPlan = { span: { start: 13, end: 25 }, kind: "fact" };
     const ended = (at: ClaimPartPlan, reason: ClaimCheckFailure) =>
       partWithResult(at, {
@@ -212,7 +212,7 @@ describe("ordered claim part codec", () => {
         versions: [],
         excluded: [],
       });
-    const NUMBERS = ["number-unquoted", "number-not-worked-out"] as const;
+    const NUMBERS = ["number-unquoted", "number-not-worked-out", "found-elsewhere"] as const;
 
     test.each(
       NUMBERS.flatMap((number) =>
