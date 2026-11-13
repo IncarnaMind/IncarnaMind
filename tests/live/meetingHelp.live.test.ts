@@ -10,7 +10,7 @@ import { appendFile } from "node:fs/promises";
 import { describe, expect, test } from "vitest";
 import type { Core, Meeting, MeetingHelpKind } from "../../src/core";
 import { createAiSdkChatModel } from "../../src/core/providers/models";
-import { readHelpReply, shownItems } from "../../src/renderer/src/helpReply";
+import { readHelpReply, shownItems } from "../../src/shared/helpReplyRead";
 import { HELP_SHAPE } from "../../src/shared/meetingHelp";
 import { answerEnded } from "../helpers/citations";
 import { createTempDataFolder } from "../helpers/core";
