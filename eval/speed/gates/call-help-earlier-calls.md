@@ -419,7 +419,7 @@ The branch's two, for the reading by hand of whether the change caused them:
 
 As round 2's, read the same way: bar 1 and the kind counted apart by two readers blind to the arm, a third where they differ, the judge's count beside; bar 2 by the two readers; bar 3 by the judge; bar 4 as repaired; bar 5. Main's arm must show at least 4 on bar 1, and the branch none.
 
-**Frozen.** What the branch sends is frozen for round 3 at commit 2973c9996. Later commits change only this gate's files and the evaluation's code.
+**Frozen.** What the branch sends is frozen for round 3 at commit 1adf8ef84. Later commits change only this gate's files and the evaluation's code.
 
 ### Models, judges, keys and spend
 
