@@ -6,6 +6,8 @@
 import type {
   ChatModelChoice,
   CitationAttributes,
+  CitationCheck,
+  CitationCheckReason,
   CitedQuote,
   ClaimCheckAttributes,
   ClaimCheckFailure,
@@ -31,7 +33,44 @@ export interface CitedSentence {
   context: string;
   /** What its markers cite: those the Answer has a Citation for. */
   cited: CitedQuote[];
+  /** How the Answer panel's own check left it; absent when its Citations carry no check. */
+  panel?: PanelResult;
 }
+
+/** One of a sentence's Citations as the Answer panel's own check left it: its chip. */
+export interface PanelCitation {
+  marker: number;
+  check: CitationCheck;
+  reason: CitationCheckReason | null;
+  /** What the check said the Documents say, for a Citation it didn't pass. */
+  verdict: string | null;
+}
+
+/**
+ * A cited sentence as the Answer panel's own check judged it, the sentence whole, after the Answer
+ * ended (#2311).
+ */
+export interface PanelResult {
+  /** What the User sees beside it: its Citations' worst chip, found being the ✓. */
+  shown: PanelCitation;
+  /**
+   * The check passed this sentence itself where each of its markers sits (#2847). A marker another
+   * sentence reuses shows that sentence's result too, so its chip can differ.
+   */
+  passed: boolean;
+  citations: PanelCitation[];
+}
+
+/** The chips from worst to best: a marker shows the worst of the sentences that cite it. */
+const CHIP_ORDER: readonly CitationCheck[] = [
+  "contradicted",
+  "unsupported",
+  "not-found",
+  "cant-check",
+  "not-checked",
+  "checking",
+  "found",
+];
 
 /** Why the check ruled as it did, on a sentence, one of its parts or one of their figures. */
 export interface CheckReason {
@@ -62,10 +101,12 @@ export interface SentenceSupport extends CheckReason {
   /** The parts the check split it into: a Not checked sentence's reason is one of theirs. */
   parts: CheckedPart[];
   /**
-   * What the check's model quoted, and the Citation check's answer, for each run; a sentence that
-   * isn't Supported keeps each run's replies too. Absent when the check's requests weren't heard.
+   * What the check's model quoted, the Citation check's answer and its replies, for each run.
+   * Absent when the check's requests weren't heard.
    */
   checks?: HeardCheck[];
+  /** How the Answer panel's own check left it, beside this part-by-part one; absent in records made before it was kept. */
+  panel?: PanelResult;
 }
 
 function reasonOf(judgment: ClaimPartJudgment): CheckReason {
@@ -167,7 +208,7 @@ export function readAsNote(
 
 /** A sentence's verdict as the record keeps it: what it cites and why the check ruled so. */
 export function sentenceSupport(
-  checked: Pick<CitedSentence, "sentence" | "cited">,
+  checked: Pick<CitedSentence, "sentence" | "cited" | "panel">,
   checkResult: ClaimCheckResult,
 ): SentenceSupport {
   const read = readAsNote(checked, checkResult);
@@ -180,22 +221,60 @@ export function sentenceSupport(
     unsupported: notChecked ? null : read.unsupported,
     cites: checked.cited.map(({ documentName, quote }) => ({ documentName, quote })),
     parts: (read.parts ?? []).map((part) => partOf(checked.sentence, part)),
+    ...(checked.panel && { panel: checked.panel }),
   };
 }
 
 /** The share of the research requests' cited sentences the check must judge supported (#1073). */
 export const SUPPORTED_TARGET = 0.95;
 
+type AnswerCitation = Pick<
+  MarkedCitation,
+  "marker" | "documentName" | "documentId" | "contentHash" | "quote"
+> &
+  Partial<Pick<MarkedCitation, "check" | "checkReason" | "verdict" | "passedAt">>;
+
+/** The sentence at `at` (each marker's place among the text's markers) as the Answer panel's check left it. */
+function panelOf(
+  citations: readonly AnswerCitation[],
+  markers: readonly number[],
+  at: readonly number[],
+): PanelResult | undefined {
+  const marked = markers.flatMap((marker, index) => {
+    const citation = citations.find((each) => each.marker === marker);
+    return citation?.check
+      ? [{ citation: { ...citation, check: citation.check }, at: at[index] }]
+      : [];
+  });
+  const chips = marked.map(
+    ({ citation }): PanelCitation => ({
+      marker: citation.marker,
+      check: citation.check,
+      reason: citation.checkReason ?? null,
+      verdict: citation.verdict ?? null,
+    }),
+  );
+  const [shown] = [...chips].sort(
+    (a, b) => CHIP_ORDER.indexOf(a.check) - CHIP_ORDER.indexOf(b.check),
+  );
+  if (!shown) return undefined;
+  return {
+    shown,
+    passed: marked.every(
+      ({ citation, at: place }) =>
+        place !== undefined && citation.passedAt?.includes(place) === true,
+    ),
+    citations: chips,
+  };
+}
+
 /** The sentences of an Answer's Markdown that cite at least one Citation, with what they cite. */
 export function citedSentences(
   text: string,
-  citations: readonly Pick<
-    MarkedCitation,
-    "marker" | "documentName" | "documentId" | "contentHash" | "quote"
-  >[],
+  citations: readonly AnswerCitation[],
   figures: readonly Pick<MarkedFigure, "marker" | "shown">[] = [],
 ): CitedSentence[] {
-  return markedSentences(text, figures).flatMap(({ sentence, context, markers }) => {
+  return markedSentences(text, figures).flatMap(({ sentence, context, markers, at }) => {
     const cited = markers.flatMap((marker) => {
       const citation = citations.find((each) => each.marker === marker);
       return citation
@@ -209,7 +288,8 @@ export function citedSentences(
           ]
         : [];
     });
-    return cited.length > 0 ? [{ sentence, context, cited }] : [];
+    const panel = panelOf(citations, markers, at);
+    return cited.length > 0 ? [{ sentence, context, cited, ...(panel && { panel }) }] : [];
   });
 }
 
@@ -237,10 +317,7 @@ export async function checkCitedSentences(
       continue;
     }
     const { result, requests } = await hear(check);
-    const checks = heardChecks(requests).map((run) =>
-      result.verdict === "supported" ? { ...run, replies: [] } : run,
-    );
-    results.push({ ...sentenceSupport(each, result), checks });
+    results.push({ ...sentenceSupport(each, result), checks: heardChecks(requests) });
   }
   return results;
 }
@@ -453,6 +530,63 @@ export function backedByFoundLines(
             `  - part ${quoted(part.text)}: the check's Passage ${part.evidence.map(quotedIn).join(" · ")}`,
         ),
     ]),
+    "",
+  ];
+}
+
+/** What the Answer panel shows beside a sentence, as the report names it: ✓, or its worst chip. */
+export function panelShown({ shown }: PanelResult): string {
+  if (shown.check === "found") return "✓";
+  return shown.reason ? `${shown.check} (${shown.reason})` : shown.check;
+}
+
+/**
+ * The sentences whose Answer panel check and part-by-part check disagree on the ✓, by what each
+ * shows, model and language. A sentence recorded without the panel's result isn't counted.
+ */
+export function disagreements(
+  sentences: readonly (SentenceSupport & { model: string; language: string })[],
+): { model: string; language: string; panel: string; parts: string; sentences: number }[] {
+  const groups = new Map<
+    string,
+    { model: string; language: string; panel: string; parts: string; sentences: number }
+  >();
+  for (const each of sentences) {
+    if (!each.panel) continue;
+    const panelTick = each.panel.shown.check === "found";
+    const partsTick = countedVerdict(each) === "supported";
+    if (panelTick === partsTick) continue;
+    const panel = panelShown(each.panel);
+    const parts = partsTick ? "✓" : reasonOfSentence(each);
+    const key = JSON.stringify([each.model, each.language, panel, parts]);
+    const group = groups.get(key) ?? {
+      model: each.model,
+      language: each.language,
+      panel,
+      parts,
+      sentences: 0,
+    };
+    group.sentences++;
+    groups.set(key, group);
+  }
+  return [...groups.values()].sort((a, b) => b.sentences - a.sentences);
+}
+
+/** The report's table of the sentences the two checks disagree on. */
+export function disagreementLines(
+  sentences: readonly (SentenceSupport & { model: string; language: string })[],
+): string[] {
+  const rows = disagreements(sentences);
+  if (rows.length === 0) return [];
+  return [
+    "Where the Answer panel's check, which judges each sentence whole and gives its Citations' chips, and the part-by-part check disagree on the ✓:",
+    "",
+    "| Model | Language | The Answer panel | The part-by-part check | Sentences |",
+    "|---|---|---|---|---|",
+    ...rows.map(
+      (row) =>
+        `| ${row.model} | ${row.language} | ${row.panel} | ${row.parts} | ${row.sentences} |`,
+    ),
     "",
   ];
 }
