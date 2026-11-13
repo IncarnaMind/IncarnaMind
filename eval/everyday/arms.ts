@@ -2,6 +2,7 @@
  * Every bar of #3019 step 3's plan (`gates/research-step3.md`), read against main in the same run
  * from both arms' everyday reports: main's and the branch's, each run's `report.json`. A run with a
  * request the provider refused, failed or let time out is void: the bars aren't read while one is.
+ * The second look's bars are struck, as the plan's changes say.
  */
 import type { CaseResult } from "./asking";
 import {
@@ -11,7 +12,6 @@ import {
   dollars,
   fromReplyLines,
   median,
-  secondLookLines,
   totalCost,
   unstatedLines,
 } from "./checkReport";
@@ -22,12 +22,16 @@ export interface ArmRun {
   /** Where its report was read from, to name it. */
   folder: string;
   results: readonly CaseResult[];
+  /** Each try of a request the provider refused or failed, though a retry then answered it. */
+  failedTries?: readonly string[];
 }
 
 export interface ArmsReading {
   lines: string[];
   /** Each request or check that voids its run; none read when there is one. */
   voided: string[];
+  /** How the arms' Answers differ by request, model or language; none read when they do. */
+  unmatched: string[];
   /** Each bar that failed. */
   failed: string[];
   /** Each bar the reports can't read, or that is read by hand. */
@@ -94,8 +98,11 @@ function answersOf(runs: readonly ArmRun[]): Answer[] {
 
 /** Each request or check of the runs that voids its run, named by its report and request. */
 export function voidReasons(runs: readonly ArmRun[]): string[] {
-  return runs.flatMap(({ folder, results }) =>
-    results.flatMap((each) => {
+  return runs.flatMap(({ folder, results, failedTries = [] }) => [
+    ...failedTries.map(
+      (each) => `${folder}: a request's try failed, though a retry answered: ${each}`,
+    ),
+    ...results.flatMap((each) => {
       const where = `${folder}: ${each.id}`;
       if (each.error) return [`${where}: didn't run: ${each.error}`];
       return (each.support ?? []).flatMap((sentence) =>
@@ -104,7 +111,27 @@ export function voidReasons(runs: readonly ArmRun[]): string[] {
           .map((judged) => `${where}: a check ${judged.reason}: ${sentence.sentence}`),
       );
     }),
-  );
+  ]);
+}
+
+/** How the arms' research Answers differ, each request, model and language with its two counts. */
+export function unmatchedArms(main: readonly ArmRun[], branch: readonly ArmRun[]): string[] {
+  const counts = (runs: readonly ArmRun[]) => {
+    const by = new Map<string, number>();
+    for (const { results } of runs)
+      for (const each of results)
+        if (each.support) {
+          const key = `${each.id}, ${each.model}, ${each.language}`;
+          by.set(key, (by.get(key) ?? 0) + 1);
+        }
+    return by;
+  };
+  const before = counts(main);
+  const after = counts(branch);
+  return [...new Set([...before.keys(), ...after.keys()])]
+    .filter((key) => before.get(key) !== after.get(key))
+    .sort()
+    .map((key) => `${key}: main ${before.get(key) ?? 0}, branch ${after.get(key) ?? 0}`);
 }
 
 const listed = (answers: readonly Answer[]): Listed[] =>
@@ -160,10 +187,17 @@ function firstAnswering(answers: readonly Answer[]): Map<string, number[]> {
   return by;
 }
 
+/** How many answering requests the Answers made, and their mean input tokens. */
+function everyAnswering(answers: readonly Answer[]): string {
+  const tokens = answers.flatMap((each) => each.answering ?? []);
+  const mean = tokens.reduce((sum, each) => sum + each, 0) / (tokens.length || 1);
+  return `${tokens.length} requests of ${Math.round(mean)} input tokens on average`;
+}
+
 function costLine(arm: string, rows: readonly CheckRow[]): string {
   const sum = (pick: (row: CheckRow) => number) => rows.reduce((all, row) => all + pick(row), 0);
   const costs = rows.flatMap((row) => (row.cost === null ? [] : [row.cost]));
-  return `| ${arm} | ${rows.length} | ${sum((row) => row.anew)} (${sum((row) => row.cap)}) | ${rows.filter((row) => row.anew > row.cap).length} | ${sum((row) => row.requests)} | ${median(rows.map((row) => row.requests))} | ${dollars(totalCost(rows))} | ${costs.length === rows.length ? dollars(median(costs)) : "no price"} | ${median(rows.map((row) => row.seconds)).toFixed(1)} s |`;
+  return `| ${arm} | ${rows.length} | ${sum((row) => row.requests)} | ${median(rows.map((row) => row.requests))} | ${dollars(totalCost(rows))} | ${costs.length === rows.length ? dollars(median(costs)) : "unknown"} | ${median(rows.map((row) => row.seconds)).toFixed(1)} s |`;
 }
 
 /** Each bar of the plan, the branch's arm read against main's. */
@@ -194,6 +228,24 @@ export function readArms(
         "",
       ],
       voided,
+      unmatched: [],
+      failed: [],
+      unread: [],
+    };
+  const unmatched = unmatchedArms(main, branch);
+  if (unmatched.length > 0)
+    return {
+      lines: [
+        ...head,
+        "## Not comparable",
+        "",
+        "The arms don't hold the same research Answers by request, model and language, so no bar is read:",
+        "",
+        ...unmatched.map((each) => `- ${each}`),
+        "",
+      ],
+      voided,
+      unmatched,
       failed: [],
       unread: [],
     };
@@ -218,8 +270,6 @@ export function readArms(
   const unstatedHolds =
     judged(before) && judged(after) ? unstatedOf(after) <= unstatedOf(before) : null;
 
-  const looked = listed(after).filter((each) => (each.asked?.anew ?? 0) > 0);
-
   const gaps = { main: joined(before).length, branch: joined(after).length };
   const joinedHolds = gaps.main > 0 ? gaps.branch < JOINED_SHARE * gaps.main : null;
   const said = { main: sayingNotFound(before), branch: sayingNotFound(after) };
@@ -227,10 +277,6 @@ export function readArms(
   const othersMarked = otherMarked(after);
 
   const rows = { main: checkRows(before, priced), branch: checkRows(after, priced) };
-  const recorded = [...rows.main, ...rows.branch].every((row) =>
-    row.each.support.every((sentence) => sentence.asked !== undefined),
-  );
-  const overCap = rows.branch.filter((row) => row.anew > row.cap).length;
 
   const tokens = { main: firstAnswering(before), branch: firstAnswering(after) };
   const differences = [...tokens.branch].flatMap(([id, branchTokens]) => {
@@ -261,17 +307,7 @@ export function readArms(
     "On main:",
     "",
     ...unstatedLines(listed(before)),
-    `Second-look ✓, on the branch: ${bar("2. Second-look ✓, read by hand", looked.length > 0 ? null : true)}.`,
-    "",
-    ...secondLookLines(listed(after)),
-    "The negative beside them, a reply whose Not covered names the part's own words never asked again, is a unit test (`tests/core/unsupportedSecondLook.test.ts`). The branch's Unsupported, each with whether its check asked a look anew:",
-    "",
-    ...listed(after)
-      .filter((each) => each.verdict === "unsupported")
-      .map(
-        (each) =>
-          `- ${each.id}: ${each.sentence} (${(each.asked?.anew ?? 0) > 0 ? "asked anew" : "not asked again"})`,
-      ),
+    "Second-look ✓ and the negative beside them: struck, as the second look is out (the plan's changes).",
     "",
     "## 3. H's seven stay Unsupported",
     "",
@@ -298,12 +334,12 @@ export function readArms(
     ...(othersMarked.length > 0 ? [""] : []),
     "## 6. What the second look costs",
     "",
-    "| Arm | Answers | Second looks (cap) | Answers over the cap | Check requests | Median an Answer | Cost | Median an Answer | Median check time |",
-    "|---|---|---|---|---|---|---|---|---|",
+    "Struck, as the second look is out. What the checks cost on each arm, for the record:",
+    "",
+    "| Arm | Answers | Check requests | Median an Answer | Cost | Median an Answer | Median check time |",
+    "|---|---|---|---|---|---|---|",
     costLine("main", rows.main),
     costLine("branch", rows.branch),
-    "",
-    `${recorded ? "Every sentence's check requests were heard" : "Some sentences' check requests weren't heard, so their requests and cost are missing"}; no Answer over the cap: ${bar("6. Second looks within the cap", recorded ? overCap === 0 : null)}.`,
     "",
     "## 7. The ✓ resting on a record taken from the reply",
     "",
@@ -327,6 +363,8 @@ export function readArms(
           "",
           `A median of ${median(differences.map((each) => each.branch - each.main))} input tokens added to each answering request.`,
           "",
+          `Every answering request: ${everyAnswering(before)} on main, ${everyAnswering(after)} on the branch. Only each Answer's first is paired: its later ones carry Tool results that differ between the arms.`,
+          "",
         ]
       : ["Not recorded: the reports keep no answering request's tokens.", ""]),
     "## Verdict",
@@ -337,5 +375,5 @@ export function readArms(
     "",
     ...(unread.length > 0 ? [`Read by hand or not read: ${unread.join("; ")}.`, ""] : []),
   ];
-  return { lines, voided, failed, unread };
+  return { lines, voided, unmatched, failed, unread };
 }

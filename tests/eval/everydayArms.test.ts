@@ -3,7 +3,7 @@
  * is refused, and each bar is read against main as the plan states it.
  */
 import { describe, expect, test } from "vitest";
-import { type ArmRun, readArms, voidReasons } from "../../eval/everyday/arms";
+import { type ArmRun, readArms, unmatchedArms, voidReasons } from "../../eval/everyday/arms";
 import type { CaseResult } from "../../eval/everyday/asking";
 import type { SentenceSupport } from "../../eval/everyday/support";
 
@@ -25,7 +25,7 @@ const sentence = (
   unsupported: null,
   cites: [{ documentName: "Weighted Keys Shorter Paths", quote: "a shorter route" }],
   parts: [],
-  asked: { requests: [usage], anew: 0 },
+  asked: { requests: [usage] },
   ...(verdict === "supported" && { unstated: null }),
   ...rest,
 });
@@ -106,6 +106,32 @@ describe("A void run", () => {
     expect(reading.voided).toHaveLength(3);
     expect(reading.lines.join("\n")).not.toContain("## 1.");
   });
+
+  // protects=a try the provider refused or failed voids its run though a retry then answered the request, so a run is read only with no failed try at all; fails_when=a retried failure leaves the run read; no_claim=how the provider retries.
+  test("is refused when a try failed, though a retry answered", () => {
+    const runs: ArmRun[] = [
+      { folder: "branch", results: [judged(1, 0)], failedTries: ["APICallError 529"] },
+    ];
+    expect(voidReasons(runs)).toEqual([
+      "branch: a request's try failed, though a retry answered: APICallError 529",
+    ]);
+    expect(readArms(arm("main", [judged(1, 0)]), runs, () => 0).voided).toHaveLength(1);
+  });
+});
+
+describe("Arms that don't hold the same Answers", () => {
+  // protects=the bars are read only when both arms hold the same research Answers by request, model and language, and each difference is named with its two counts; fails_when=an arm with fewer or other requests is read against the other; no_claim=none beyond protects.
+  test("are not compared", () => {
+    const main = [judged(1, 0), judged(1, 0)];
+    const branch = [judged(1, 0), answer([sentence("supported")], { language: "zh-CN" })];
+    expect(unmatchedArms(arm("main", main), arm("branch", branch))).toEqual([
+      "research-attention-long, anthropic/claude-haiku-5-5, en: main 2, branch 1",
+      "research-attention-long, anthropic/claude-haiku-5-5, zh-CN: main 0, branch 1",
+    ]);
+    const reading = read(main, branch);
+    expect(reading.unmatched).toHaveLength(2);
+    expect(reading.lines.join("\n")).not.toContain("## 1.");
+  });
 });
 
 describe("The bars against main", () => {
@@ -115,7 +141,10 @@ describe("The bars against main", () => {
     ["holds at exactly 12 points", judged(25, 0), judged(22, 3), "holds"],
     ["fails beyond them", judged(9, 1), judged(7, 3), "**fails**"],
   ])("Supported share: %s", (_, main, branch, word) => {
-    const reading = read([main, answer([sentence("not-checked")])], [branch]);
+    const reading = read(
+      [main, answer([sentence("not-checked")])],
+      [branch, answer([sentence("not-checked")])],
+    );
     expect(reading.lines.join("\n")).toMatch(
       new RegExp(`less 12 points, [\\d.]+%: ${word.replace(/\*/g, "\\*")}\\.`),
     );
@@ -154,12 +183,17 @@ describe("The bars against main", () => {
       ...Array.from({ length: 10 }, () => saying([joined])),
       ...Array.from({ length: 2 }, () => saying([gap])),
     ];
-    const kept = read(main, [...Array.from({ length: 10 }, () => saying([gap])), saying([])]);
+    const kept = read(main, [
+      ...Array.from({ length: 10 }, () => saying([gap])),
+      saying([]),
+      saying([]),
+    ]);
     expect(kept.failed).toEqual([]);
     const lost = read(main, [
       saying([joined]),
       ...Array.from({ length: 7 }, () => saying([gap])),
       saying([other]),
+      ...Array.from({ length: 3 }, () => saying([])),
     ]);
     expect(lost.failed).toEqual([
       "4. Joined absence",
@@ -168,21 +202,26 @@ describe("The bars against main", () => {
     ]);
   });
 
-  // protects=bar 6 gives each arm's second looks against their cap, requests, cost and time, and fails an Answer over the cap; and the answering requests' added input tokens are read per request against main's; fails_when=an Answer over the cap passes, or the tokens added are read across different requests; no_claim=none beyond protects.
-  test("the second look's cost, its cap, and the input tokens added to each answering request", () => {
-    const looked = sentence("supported", { asked: { requests: [usage, usage], anew: 1 } });
-    const twice = sentence("supported", { asked: { requests: [usage, usage, usage], anew: 2 } });
+  // protects=the checks' cost is given for each arm though its bar is struck, and the answering requests' added input tokens are read per request against main's, every answering request counted apart; fails_when=the tokens added are read across different requests, or a request's cost is left out; no_claim=none beyond protects.
+  test("the checks' cost, and the input tokens added to each answering request", () => {
+    const twice = sentence("supported", { asked: { requests: [usage, usage] } });
     const reading = read(
-      [answer([sentence("supported")], { answering: [1_000, 1_400] })],
       [
-        answer([looked], { answering: [1_090, 1_490] }),
-        answer([twice], {}, "research-gpt3-energy"),
+        answer([sentence("supported")], { answering: [1_000, 1_400] }),
+        answer([sentence("supported")], { answering: [] }, "research-gpt3-energy"),
+      ],
+      [
+        answer([twice], { answering: [1_090, 1_490] }),
+        answer([twice], { answering: [] }, "research-gpt3-energy"),
       ],
     );
     const text = reading.lines.join("\n");
-    expect(text).toContain("| branch | 2 | 3 (2) | 1 | 5 | 2.5 | $5.0000 | $2.5000 | 4.0 s |");
-    expect(reading.failed).toEqual(["6. Second looks within the cap"]);
+    expect(text).toContain("| branch | 2 | 4 | 2 | $4.0000 | $2.0000 | 4.0 s |");
+    expect(reading.failed).toEqual([]);
     expect(text).toContain("| research-attention-long | 1000 | 1090 | 90 |");
     expect(text).toContain("A median of 90 input tokens added to each answering request.");
+    expect(text).toContain(
+      "Every answering request: 2 requests of 1200 input tokens on average on main, 2 requests of 1290 input tokens on average on the branch.",
+    );
   });
 });

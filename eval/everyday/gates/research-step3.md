@@ -53,3 +53,23 @@ A failed bar means nothing ships from this run. The numbers and the list of fail
 - **The negative**: a reply whose Not covered names the part's own words is never asked again. It is a unit test in both languages (`tests/core/unsupportedSecondLook.test.ts`).
 - **The bars are read by one script**, `eval/everyday/arms.ts`, from both arms' report folders. It refuses a void run.
 - **The answering prompt grows** by the line on what wasn't found. The run reports the input tokens added to each answering request, read against main's for the same request.
+
+### 2026-11-13, later, before any request this plan gates: I's second look is taken out
+
+The second reader ruled the look out on a free count the trigger above hadn't been shaped on. The count covered 2,718 saved Unsupported with a Not covered line, from earlier check-quality runs: the duty, condition and role probes, and the contradicted-figures checks. Nearly all came from Claude Haiku 5.5, and 11 from Claude Sonnet 5.5. The trigger was counted with the second reader's script rule in: a phrase in one script is never held to the few words of that script inside a sentence written in another.
+
+| | |
+|---|---|
+| Ask again | 247 of 2,718 (9.1%); 189 distinct sentence-and-phrase pairs, each read by hand |
+| Another script | 0 |
+| Another sentence | 44 |
+| The gap by its kind, or in other words | 145 |
+| On a right verdict | 162 of 189 (154 of them contradicted) |
+| On a wrong Unsupported | 27, of which 9 are the case the look exists for |
+
+It would give 162 right catches a second chance at a ✓, to mend 9, at 9% more check requests.
+
+- **"What changes" item 3 and the entry above are withdrawn.** There is no trigger, no second Run and no switch, and an Unsupported reply is read as on `main`.
+- **Struck bars:** bar 2's "Second-look ✓" and "The negative beside I's positives", and bar 6, "What the second look costs". The check's requests, cost and time are still reported for each arm, for the record, and no bar reads them.
+- **Bars 1, 2's "Unstated ✓", 3, 4, 5 and 7 stay as written.** They are read by `eval/everyday/arms.ts`, which also refuses arms that don't hold the same requests, models and languages, and a run with any failed try, a retried one included.
+- **The case stays open on #3019:** a wrong Unsupported whose Not covered belongs to another sentence, 9 here and 3 of the 35 on the two saved runs. Its cause comes first: what the check was given when it named another sentence's gap. A second look comes back only with a trigger counted first on records it hasn't seen.

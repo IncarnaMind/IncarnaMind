@@ -21,13 +21,7 @@ import type {
 } from "../../src/core";
 import { citedSentences as markedSentences } from "../../src/shared/citedSentences";
 import type { Hear } from "../lib/tokens";
-import {
-  askedAnew,
-  type HeardCheck,
-  heardChecks,
-  quotesTakenFromReplies,
-  takenQuote,
-} from "./checkRequests";
+import { type HeardCheck, heardChecks, quotesTakenFromReplies, takenQuote } from "./checkRequests";
 import { judgeStated } from "./judge";
 
 export interface CitedSentence {
@@ -67,12 +61,11 @@ export interface SentenceSupport extends CheckReason {
   parts: CheckedPart[];
   /**
    * What the check's model quoted, and the Citation check's answer, for each run; a sentence that
-   * isn't Supported, or whose check asked a look anew, keeps each run's replies too. Absent when
-   * the check's requests weren't heard.
+   * isn't Supported keeps each run's replies too. Absent when the check's requests weren't heard.
    */
   checks?: HeardCheck[];
-  /** The check's requests, each by its tokens, and how many were sent word for word again. */
-  asked?: { requests: AnswerUsage[]; anew: number };
+  /** The check's requests, each by its tokens. */
+  asked?: { requests: AnswerUsage[] };
   /** For a ✓: the quotes behind it that its check took from a record its reply wrote (#3032). */
   fromReply?: string[];
   /** For a ✓, as the judge read it against its own Citations' words: what they don't state, or null. */
@@ -176,15 +169,14 @@ export async function checkCitedSentences(
       continue;
     }
     const { result, requests } = await hear(check);
-    const anew = askedAnew(requests);
     const checks = heardChecks(requests).map((run) =>
-      result.verdict === "supported" && anew === 0 ? { ...run, replies: [] } : run,
+      result.verdict === "supported" ? { ...run, replies: [] } : run,
     );
     const fromReply = result.verdict === "supported" ? takenBehind(result, requests) : [];
     results.push({
       ...sentenceSupport(each, result),
       checks,
-      asked: { requests: requests.map((request) => request.usage), anew },
+      asked: { requests: requests.map((request) => request.usage) },
       ...(fromReply.length > 0 && { fromReply }),
     });
   }

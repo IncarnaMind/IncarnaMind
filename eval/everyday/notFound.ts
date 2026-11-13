@@ -34,9 +34,12 @@ const OTHER_DOCUMENTS = [
   ),
 ];
 
-/** Chinese that says the Passages or the search don't give something, past the Answer's opening. */
+/**
+ * Chinese that says the Passages or the search don't give something, past the Answer's opening;
+ * not a plain negative fact about the Document ("该报告没有使用卷积层").
+ */
 const NOT_GIVEN_ZH = new RegExp(
-  `(?:段落|${DOCUMENTS_ZH})[^。！？!?\\n]{0,12}(?:没有|未|并未|并没有)(?:给出|提供|提到|提及|说明|写明|列出|找到)|(?:段落|${DOCUMENTS_ZH})(?:里|中|内)?都?(?:没有|并没有|未|并未)|(?:没有|未)(?:找到|读到|查到)`,
+  `(?:段落|${DOCUMENTS_ZH})[^。！？!?\\n]{0,12}(?:没有|未|并未|并没有)(?:给出|提供|提到|提及|说明|写明|列出|找到|具体|相关|数字|数据|数值|信息)|(?:没有|未)(?:找到|读到|查到)`,
 );
 
 /** The Answer's sentences that say what wasn't found, each with whether it is marked. */

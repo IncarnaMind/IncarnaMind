@@ -1,7 +1,7 @@
 /**
- * The report's lines on the research Answers' checks (#3019): what each Answer's checks cost, with
- * its second looks against their cap, the ✓ the judge finds their own Citations don't state, and
- * the ✓ that rest on a record the check's reply wrote, each listed to read by hand.
+ * The report's lines on the research Answers' checks (#3019): what each Answer's checks cost, the
+ * ✓ the judge finds their own Citations don't state, and the ✓ that rest on a record the check's
+ * reply wrote, each listed to read by hand.
  */
 import type { AnswerUsage, ChatProviderKind } from "../../src/core";
 import { costOf, inCurrency } from "../../src/core/cost/price";
@@ -44,14 +44,9 @@ const quoted = (text: string | null) =>
 const citesLine = (each: SentenceSupport) =>
   `  - cites ${each.cites.map(({ documentName, quote }) => `${quoted(quote)} (${documentName})`).join(" · ")}`;
 
-/** The second looks an Answer may take: one for each part its check judged, a whole sentence being one. */
-export const secondLookCap = (support: readonly SentenceSupport[]): number =>
-  support.reduce(
-    (total, each) => total + Math.max(1, each.parts.filter((part) => part.kind === "fact").length),
-    0,
-  );
-
+/** What an Answer's checks cost; null when the model has no price or a check's requests weren't heard. */
 export function costOfAnswer(support: readonly SentenceSupport[], priced: CostOf): number | null {
+  if (support.some((each) => each.asked === undefined)) return null;
   let dollars = 0;
   for (const usage of support.flatMap((each) => each.asked?.requests ?? [])) {
     const cost = priced(usage);
@@ -70,24 +65,19 @@ export const median = (values: readonly number[]): number => {
 };
 
 export const dollars = (amount: number | null): string =>
-  amount === null ? "no price" : `$${amount.toFixed(4)}`;
+  amount === null ? "unknown" : `$${amount.toFixed(4)}`;
 
 export interface CheckRow {
   each: CheckedAnswer;
-  /** Its looks asked again word for word: the second looks. */
-  anew: number;
-  cap: number;
   requests: number;
   cost: number | null;
   seconds: number;
 }
 
-/** Each research Answer's checks: their second looks and cap, requests, cost and time. */
+/** Each research Answer's checks: their requests, cost and time. */
 export function checkRows(answers: readonly CheckedAnswer[], priced: CostOf): CheckRow[] {
   return answers.map((each) => ({
     each,
-    anew: each.support.reduce((total, sentence) => total + (sentence.asked?.anew ?? 0), 0),
-    cap: secondLookCap(each.support),
     requests: each.support.reduce(
       (total, sentence) => total + (sentence.asked?.requests.length ?? 0),
       0,
@@ -97,54 +87,29 @@ export function checkRows(answers: readonly CheckedAnswer[], priced: CostOf): Ch
   }));
 }
 
-/** The rows' costs added up, or null when one has no price. */
+/** The rows' costs added up, or null when one is unknown. */
 export const totalCost = (rows: readonly CheckRow[]): number | null =>
   rows.every((row) => row.cost !== null)
     ? rows.reduce((sum, row) => sum + (row.cost ?? 0), 0)
     : null;
 
-/** Each research Answer's checks: their second looks against the cap, requests, cost and time. */
+/** Each research Answer's checks: their requests, cost and time. */
 export function checkCostLines(answers: readonly CheckedAnswer[], priced: CostOf): string[] {
   if (answers.length === 0) return [];
   const rows = checkRows(answers, priced);
-  const total = totalCost(rows);
-  const sum = (pick: (row: CheckRow) => number) => rows.reduce((all, row) => all + pick(row), 0);
+  const requests = rows.reduce((all, row) => all + row.requests, 0);
   return [
-    "What each Answer's checks of its cited sentences cost: the looks asked again word for word (a second look), against the cap of one for each part, the check's requests, their cost at the catalog's prices, and the time the checks took.",
+    "What each Answer's checks of its cited sentences cost: the check's requests, their cost at the catalog's prices (unknown where the model has none, or a check's requests weren't heard), and the time the checks took.",
     "",
-    "| Request | Model | Language | Cited sentences | Second looks (cap) | Requests | Cost | Check time |",
-    "|---|---|---|---|---|---|---|---|",
+    "| Request | Model | Language | Cited sentences | Requests | Cost | Check time |",
+    "|---|---|---|---|---|---|---|",
     ...rows.map(
       (row) =>
-        `| ${row.each.id} | ${row.each.model} | ${row.each.language} | ${row.each.support.length} | ${row.anew} (${row.cap})${row.anew > row.cap ? " **over the cap**" : ""} | ${row.requests} | ${dollars(row.cost)} | ${row.seconds.toFixed(1)} s |`,
+        `| ${row.each.id} | ${row.each.model} | ${row.each.language} | ${row.each.support.length} | ${row.requests} | ${dollars(row.cost)} | ${row.seconds.toFixed(1)} s |`,
     ),
     "",
-    `In all, over ${rows.length} Answers: ${sum((row) => row.anew)} second looks (cap ${sum((row) => row.cap)}), ${sum((row) => row.requests)} requests, ${dollars(total)}; a median of ${median(rows.map((row) => row.requests))} requests and ${median(rows.map((row) => row.seconds)).toFixed(1)} s of checks an Answer.`,
+    `In all, over ${rows.length} Answers: ${requests} requests, ${dollars(totalCost(rows))}; a median of ${median(rows.map((row) => row.requests))} requests and ${median(rows.map((row) => row.seconds)).toFixed(1)} s of checks an Answer.`,
     "",
-  ];
-}
-
-/**
- * Each sentence whose check asked a look anew, with its runs' replies (the first look's fields, the
- * second's verdict) and the verdict it ends with, to read by hand: a few in a run are too few for a
- * rate.
- */
-export function secondLookLines(sentences: readonly Listed[]): string[] {
-  const looked = sentences.filter((each) => (each.asked?.anew ?? 0) > 0);
-  return [
-    `The sentences whose check asked a look anew: ${looked.length}${looked.length > 0 ? ", each to read by hand, with whether its ✓ is right:" : "."}`,
-    "",
-    ...looked.flatMap((each) => [
-      `- ${each.id} (${each.model}, ${each.language}), ends ${each.verdict}: ${each.sentence}`,
-      citesLine(each),
-      ...(each.checks ?? []).flatMap((run) =>
-        run.replies.map(
-          (reply, at) =>
-            `  - ${run.claim === null ? "a request" : quoted(run.claim)}, reply ${at + 1}: ${quoted(reply)}`,
-        ),
-      ),
-    ]),
-    ...(looked.length > 0 ? [""] : []),
   ];
 }
 

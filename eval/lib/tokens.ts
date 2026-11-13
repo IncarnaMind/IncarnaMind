@@ -43,9 +43,23 @@ const instructionsOf = (prompt: LanguageModelV4Prompt) =>
     .join("\n")
     .slice(0, 80);
 
+/** A failed try by its error's name and HTTP status: never the provider's own words. */
+function failureOf(error: unknown): string | null {
+  if (!(error instanceof Error)) return "a failure that is no Error";
+  // A stop the app asked for, such as a check's first turn that named its parts, is no failure.
+  if (error.name === "AbortError" || error.name === "ResponseAborted") return null;
+  const status = "statusCode" in error ? error.statusCode : undefined;
+  return typeof status === "number" ? `${error.name} ${status}` : error.name;
+}
+
 /** Counts every request of the models it wraps, so a report can give each one's tokens. */
 export function watchTokens() {
   let requests: RequestTokens[] = [];
+  let failures: string[] = [];
+  const failed = (prompt: LanguageModelV4Prompt, error: unknown) => {
+    const failure = failureOf(error);
+    if (failure) failures.push(`${failure}, asked with “${instructionsOf(prompt)}”`);
+  };
   const hearing = new AsyncLocalStorage<HeardRequest[]>();
   const record = (prompt: LanguageModelV4Prompt, usage: LanguageModelV4Usage, reply: string) => {
     const total = usage.inputTokens.total ?? 0;
@@ -64,7 +78,13 @@ export function watchTokens() {
     specificationVersion: "v4",
     wrapGenerate: async ({ doGenerate, params }) => {
       const heard = hearing.getStore();
-      const result = await doGenerate();
+      let result: Awaited<ReturnType<typeof doGenerate>>;
+      try {
+        result = await doGenerate();
+      } catch (error) {
+        failed(params.prompt, error);
+        throw error;
+      }
       const reply = result.content
         .map((part) =>
           part.type === "text"
@@ -85,13 +105,20 @@ export function watchTokens() {
     wrapStream: async ({ doStream, params }) => {
       // Taken as the request starts: the stream's parts may arrive in another async context.
       const heard = hearing.getStore();
-      const result = await doStream();
+      let result: Awaited<ReturnType<typeof doStream>>;
+      try {
+        result = await doStream();
+      } catch (error) {
+        failed(params.prompt, error);
+        throw error;
+      }
       let reply = "";
       let text = "";
       const stream = result.stream.pipeThrough(
         new TransformStream<LanguageModelV4StreamPart, LanguageModelV4StreamPart>({
           transform(part, controller) {
-            if (part.type === "text-delta") {
+            if (part.type === "error") failed(params.prompt, part.error);
+            else if (part.type === "text-delta") {
               reply += part.delta;
               text += part.delta;
             } else if (part.type === "tool-call") reply += `${part.toolName} ${part.input}`;
@@ -125,6 +152,12 @@ export function watchTokens() {
     take(): RequestTokens[] {
       const taken = requests;
       requests = [];
+      return taken;
+    },
+    /** Each try the provider refused or failed since the last call, a retry's earlier tries included. */
+    takeFailures(): string[] {
+      const taken = failures;
+      failures = [];
       return taken;
     },
   };

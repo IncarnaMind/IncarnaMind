@@ -1,18 +1,14 @@
 /**
- * What the everyday report says of the research Answers' checks (#3019): each Answer's second
- * looks against their cap, its check's requests, cost and time; the ✓ the judge finds their own
- * Citations don't state; the ✓ resting on a record the reply wrote; and the sentences that say
- * what wasn't found, with those that carry a marker.
+ * What the everyday report says of the research Answers' checks (#3019): each Answer's check
+ * requests, cost and time; the ✓ the judge finds their own Citations don't state; the ✓ resting on
+ * a record the reply wrote; and the sentences that say what wasn't found, with those that carry a
+ * marker.
  */
 import { describe, expect, test } from "vitest";
 import { checkCostLines, fromReplyLines, unstatedLines } from "../../eval/everyday/checkReport";
 import { statedIn } from "../../eval/everyday/judge";
 import { notFoundLines, notFoundSentences } from "../../eval/everyday/notFound";
-import {
-  type CheckedPart,
-  type SentenceSupport,
-  withStatedJudged,
-} from "../../eval/everyday/support";
+import { type SentenceSupport, withStatedJudged } from "../../eval/everyday/support";
 import { scriptedModel } from "../helpers/models";
 
 const usage = (inputTokens: number) => ({
@@ -22,28 +18,9 @@ const usage = (inputTokens: number) => ({
   cacheWriteTokens: 0,
 });
 
-const part = (text: string): CheckedPart => ({
-  text,
-  kind: "fact",
-  verdict: "supported",
-  reason: null,
-  detail: null,
-  unsupported: null,
-  evidence: [],
-  figures: [],
-});
-
 const sentence = (
   text: string,
-  {
-    parts = [],
-    requests = 1,
-    anew = 0,
-    ...rest
-  }: Partial<SentenceSupport> & {
-    requests?: number;
-    anew?: number;
-  } = {},
+  { requests = 1, ...rest }: Partial<SentenceSupport> & { requests?: number } = {},
 ): SentenceSupport => ({
   sentence: text,
   verdict: "supported",
@@ -53,45 +30,43 @@ const sentence = (
   cites: [
     { documentName: "Weighted Keys Shorter Paths", quote: "a shorter route between positions" },
   ],
-  parts,
-  asked: { requests: Array.from({ length: requests }, () => usage(1_000)), anew },
+  parts: [],
+  asked: { requests: Array.from({ length: requests }, () => usage(1_000)) },
   ...rest,
 });
 
 const at = { id: "research-attention-long", model: "anthropic/claude-haiku-5-5", language: "en" };
 
 describe("What each research Answer's checks cost", () => {
-  // protects=each Answer's row gives its second looks against a cap of one for each judged part (a whole sentence is one), its check's requests, their cost and the checks' time, and flags a count over the cap; a model the catalog has no price for reads "no price", never $0; fails_when=the cap counts sentences instead of parts, an over-cap count passes unflagged, or a missing price reads as free; no_claim=what a real model's checks cost.
-  test("gives the second looks against their cap, the requests, the cost and the time", () => {
+  // protects=each Answer's row gives its check's requests, their cost and the checks' time, with their sum; a model the catalog has no price for, or a sentence whose check requests weren't heard, reads "unknown", never $0; fails_when=a request is left out of the cost, or a missing price or record reads as free; no_claim=what a real model's checks cost.
+  test("gives the requests, the cost and the time", () => {
     const answers = [
       {
         ...at,
         checkSeconds: 12.34,
         support: [
           sentence("Shorter routes speed training.", { requests: 3 }),
-          sentence("It is faster and cheaper.", {
-            parts: [part("It is faster"), part("cheaper")],
-            requests: 5,
-            anew: 3,
-          }),
+          sentence("It is faster and cheaper.", { requests: 5 }),
         ],
       },
-      { ...at, language: "zh-CN", checkSeconds: 2, support: [sentence("训练更快。", { anew: 1 })] },
+      { ...at, language: "zh-CN", checkSeconds: 2, support: [sentence("训练更快。")] },
     ];
     const lines = checkCostLines(answers, (each) => each.inputTokens / 1_000_000).join("\n");
     expect(lines).toContain(
-      "| research-attention-long | anthropic/claude-haiku-5-5 | en | 2 | 3 (3) | 8 | $0.0080 | 12.3 s |",
+      "| research-attention-long | anthropic/claude-haiku-5-5 | en | 2 | 8 | $0.0080 | 12.3 s |",
     );
     expect(lines).toContain(
-      "| research-attention-long | anthropic/claude-haiku-5-5 | zh-CN | 1 | 1 (1) | 1 | $0.0010 | 2.0 s |",
+      "| research-attention-long | anthropic/claude-haiku-5-5 | zh-CN | 1 | 1 | $0.0010 | 2.0 s |",
     );
-    expect(lines).toContain("In all, over 2 Answers: 4 second looks (cap 4), 9 requests, $0.0090");
+    expect(lines).toContain("In all, over 2 Answers: 9 requests, $0.0090");
 
-    const over = checkCostLines(
-      [{ ...at, support: [sentence("训练更快。", { anew: 2 })] }],
-      () => null,
+    const unpriced = checkCostLines([{ ...at, support: [sentence("训练更快。")] }], () => null);
+    expect(unpriced.join("\n")).toContain("| 1 | 1 | unknown |");
+    const unheard = checkCostLines(
+      [{ ...at, support: [sentence("训练更快。", { asked: undefined })] }],
+      () => 1,
     );
-    expect(over.join("\n")).toContain("| 2 (1) **over the cap** | 1 | no price |");
+    expect(unheard.join("\n")).toContain("| 1 | 0 | unknown |");
   });
 });
 
@@ -184,7 +159,7 @@ describe("The judge's reading of each ✓ against its Citations", () => {
 });
 
 describe("The sentences that say what wasn't found", () => {
-  // protects=a sentence saying what the search didn't find, or what the other Documents don't say, is found in English and Chinese, marked when a Citation marker joins it to a quote, whether the marker sits before or after its stop; a plain cited fact and a footnote line are not found; fails_when=a joined sentence reads unmarked, an unmarked one reads marked, a Chinese one is missed, or a cited fact is counted; no_claim=every wording a model uses, which the report's list is read for by hand.
+  // protects=a sentence saying what the search didn't find, or what the other Documents don't say, is found in English and Chinese, marked when a Citation marker joins it to a quote, whether the marker sits before or after its stop; a plain cited fact, a negative fact about the Document ("该报告没有使用卷积层") and a footnote line are not found; fails_when=a joined sentence reads unmarked, an unmarked one reads marked, a Chinese one is missed, or a cited fact is counted; no_claim=every wording a model uses, which the report's list is read for by hand.
   test("finds them in English and Chinese, and tells the marked ones", () => {
     const reply = [
       "The paper reports the energy used[^1], but the Passages I found don't give the amount.",
@@ -200,6 +175,8 @@ describe("The sentences that say what wasn't found", () => {
       "其他文档里没有找到。",
       "",
       "- Recurrent layers need O(n) sequential steps.[^3]",
+      "",
+      "该报告没有使用卷积层，而是使用自注意力[^1]。",
       "",
       "[^1]: Weighted Keys Shorter Paths, p. 4",
     ].join("\n");

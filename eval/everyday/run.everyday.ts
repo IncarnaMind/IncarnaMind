@@ -28,7 +28,6 @@ import {
   checkCostLines,
   fromReplyLines,
   requestCost,
-  secondLookLines,
   unstatedLines,
 } from "./checkReport";
 import { failureLine, pointsBack, type RequestFailure } from "./checks";
@@ -316,7 +315,6 @@ function report(
             researched.map((each) => ({ ...each, support: each.support ?? [] })),
             priced,
           ),
-          ...secondLookLines(checked),
           ...unstatedLines(checked),
           ...fromReplyLines(checked),
           "## What wasn't found",
@@ -500,20 +498,31 @@ test("everyday requests", async () => {
     `${new Date().toISOString().replace(/[:.]/g, "-")}-everyday`,
   );
   await mkdir(folder, { recursive: true });
+  const failedTries = [...answerTokens.takeFailures(), ...judgeTokens.takeFailures()];
   await writeFile(
     join(folder, "report.md"),
-    report(
-      results,
-      rows,
-      `${judging.kind}/${judging.modelId}`,
-      {
-        answers: tokenLine(answerTokens.take()),
-        judge: tokenLine(judgeTokens.take()),
-      },
-      requestCost(config.chat.kind, config.chat.endpoint, config.chat.modelId),
-    ),
+    [
+      report(
+        results,
+        rows,
+        `${judging.kind}/${judging.modelId}`,
+        {
+          answers: tokenLine(answerTokens.take()),
+          judge: tokenLine(judgeTokens.take()),
+        },
+        requestCost(config.chat.kind, config.chat.endpoint, config.chat.modelId),
+      ),
+      "## Failed tries",
+      "",
+      `${failedTries.length} tries the provider refused or failed, a retry's earlier tries included${failedTries.length > 0 ? ":" : "."}`,
+      ...failedTries.map((each) => `- ${each}`),
+      "",
+    ].join("\n"),
   );
-  await writeFile(join(folder, "report.json"), JSON.stringify({ rows, results }, null, 2));
+  await writeFile(
+    join(folder, "report.json"),
+    JSON.stringify({ rows, results, failedTries }, null, 2),
+  );
   const under = rows.filter((row) => row.under);
   const supported = supportedShare(results.flatMap((each) => each.support ?? []));
   log(

@@ -21,10 +21,10 @@ const foldersOf = (name: string) =>
 async function runsIn(folders: readonly string[]): Promise<ArmRun[]> {
   return Promise.all(
     folders.map(async (folder) => {
-      const report: { results: CaseResult[] } = JSON.parse(
+      const report: { results: CaseResult[]; failedTries?: string[] } = JSON.parse(
         await readFile(join(folder, "report.json"), "utf8"),
       );
-      return { folder, results: report.results };
+      return { folder, results: report.results, failedTries: report.failedTries ?? [] };
     }),
   );
 }
@@ -46,4 +46,6 @@ test.skipIf(process.env.INCARNAMIND_EVAL_EVERYDAY !== "arms")("the two arms' bar
   console.log(`The bars are in ${out}.`);
   if (reading.voided.length > 0)
     throw new Error(`Void: ${reading.voided.length} requests refused, failed or timed out.`);
+  if (reading.unmatched.length > 0)
+    throw new Error(`Not comparable: the arms differ in ${reading.unmatched.length} requests.`);
 });

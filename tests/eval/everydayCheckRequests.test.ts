@@ -5,12 +5,7 @@
  */
 import type { LanguageModelV4Prompt } from "@ai-sdk/provider";
 import { describe, expect, test } from "vitest";
-import {
-  askedAnew,
-  heardChecks,
-  quotesTakenFromReplies,
-  takenQuote,
-} from "../../eval/everyday/checkRequests";
+import { heardChecks, quotesTakenFromReplies, takenQuote } from "../../eval/everyday/checkRequests";
 import { checkCitedSentences } from "../../eval/everyday/support";
 import { type HeardRequest, watchTokens } from "../../eval/lib/tokens";
 import { EVIDENCE_INSTRUCTIONS } from "../../src/core/answers/checks/prompt";
@@ -144,21 +139,6 @@ const written = (sentence: string, quote: string) =>
   );
 
 describe("What the record counts of a check's requests (#3019)", () => {
-  // protects=a request sent word for word as an earlier one counts as a look asked anew, and the steps of one look, which each add to the last, don't; fails_when=a look's later step is counted, or a repeat is missed; no_claim=which code path asked again.
-  test("a request sent word for word again is a look asked anew, and a look's next step isn't", () => {
-    const first = [asked(TABLE_ROW)];
-    const next = [...first, cited("c1", 1, ROW), told("c1", "Recorded [^1].")];
-    expect(askedAnew([heard(first, ""), heard(next, "Verdict: unsupported")])).toBe(0);
-    expect(
-      askedAnew([
-        heard(first, ""),
-        heard(next, "Verdict: unsupported"),
-        heard([asked(ROW_ZH)], ""),
-        heard(first, ""),
-      ]),
-    ).toBe(1);
-  });
-
   // protects=a quote a check's reply wrote as a record line and no cite call of its run typed is taken from the reply, in English and Chinese sentences, matched loosely; one its run also typed through cite, one in running prose, and any in a run that asked for evidence are not; fails_when=a cite call's quote or an ask's structured reply reads as taken from the reply, or a written one is missed; no_claim=whether the core took it, which its Citation check decides.
   test("a record the reply wrote and no cite call typed is taken; one typed, in prose, or beside an ask for evidence isn't", () => {
     const taken = quotesTakenFromReplies([
@@ -238,7 +218,7 @@ describe("Hearing a cited sentence's check through the Library's chat model", ()
     ).toBe(true);
   });
 
-  // protects=through the core's real check, a ✓ whose check took the record its reply wrote is marked with that record's quote, in English and Chinese, and one its check recorded through cite isn't; each sentence keeps a token count for every request its check made, and none was asked anew; fails_when=a cite call's ✓ is listed as taken from the reply, a taken one is missed, or the requests aren't kept; no_claim=how often a real model writes its record instead of calling cite.
+  // protects=through the core's real check, a ✓ whose check took the record its reply wrote is marked with that record's quote, in English and Chinese, and one its check recorded through cite isn't; each sentence keeps a token count for every request its check made; fails_when=a cite call's ✓ is listed as taken from the reply, a taken one is missed, or the requests aren't kept; no_claim=how often a real model writes its record instead of calling cite.
   test("a ✓ resting on a record its reply wrote is marked, and one recorded through cite isn't", async () => {
     const tokens = watchTokens();
     const english = "Tides turn twice in a day here.";
@@ -297,7 +277,6 @@ describe("Hearing a cited sentence's check through the Library's chat model", ()
     ]);
     for (const each of support) {
       expect(each.asked?.requests.length).toBeGreaterThan(0);
-      expect(each.asked?.anew).toBe(0);
     }
   });
 });

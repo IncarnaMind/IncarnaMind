@@ -215,15 +215,23 @@ describe("The Answer instructions", { timeout: 30_000 }, () => {
     },
   );
 
-  // protects=every way of citing tells the model to say what it didn't find, and what the other Documents don't say, in a sentence of its own with no marker, with examples in English and Chinese, and the premise example says the gap and the cited fact in two sentences (#3019); fails_when=a citing mode loses the rule, the way with no Citations is given markers, or an example joins the gap to a cited sentence; no_claim=that a model follows it, which a paid run on a real model measures.
+  // protects=a Question answered each way, as the User asks it, sends the model the rule to say what it didn't find, and what the other Documents don't say, in a sentence of its own with no marker, with examples in English and Chinese, and the premise example saying the gap and the cited fact in two sentences, wherever the Answer cites; fails_when=a citing way loses the rule, the way with no Citations is given markers, or an example joins the gap to a cited sentence; no_claim=that a model follows it, which a paid run on a real model measures.
   test.each([
-    ["tools", true],
-    ["structured-output", true],
-    ["none", false],
+    ["tools", (seen: Seen) => searchingModel(seen), true],
+    ["structured-output", (seen: Seen) => oneSearchModel(seen, true), true],
+    ["none", (seen: Seen) => oneSearchModel(seen, false), false],
   ] as const)(
     "when answering with %s, what wasn't found is a sentence of its own with no marker (#3019)",
-    (mode, cites) => {
-      const text = documentInstructions(mode, { total: 1, names: ["Memo"] }, "");
+    async (mode, modelOf, cites) => {
+      const seen: Seen = { system: [], results: [] };
+      const { core, client, mind } = await setUp(modelOf(seen));
+
+      const { finished } = await askAndFinish(core, client, mind.id, QUESTION);
+
+      expect(finished.citationSupport).toBe(mode);
+      // The way it answers with is the last it was asked: a refused way is asked first.
+      const text =
+        seen.system.findLast((each) => each.includes("If the Documents don't cover")) ?? "";
       const marker = cites ? "[^1]" : "";
 
       expect(

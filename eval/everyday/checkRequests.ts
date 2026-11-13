@@ -110,18 +110,6 @@ function byClaim(requests: readonly HeardRequest[]): Map<string | null, HeardReq
   return runs;
 }
 
-/** How many of the requests were sent word for word as an earlier one: a look asked anew. */
-export function askedAnew(requests: readonly HeardRequest[]): number {
-  const seen = new Set<string>();
-  let again = 0;
-  for (const { prompt } of requests) {
-    const key = JSON.stringify(prompt);
-    if (seen.has(key)) again++;
-    seen.add(key);
-  }
-  return again;
-}
-
 const loose = (text: string) =>
   text
     .normalize("NFKC")
@@ -140,8 +128,8 @@ const asksForEvidence = ({ prompt }: HeardRequest) => {
 
 /**
  * The quotes a check took from the records its replies wrote into their text (#3032): a run's
- * record that no cite call of it typed. A run that asked for evidence is left out, since that
- * ask's reply may give the same quote.
+ * record that no cite call of it typed. A run that asked for evidence is left out: the check asks
+ * only when it took no record, and that ask's reply may give the same quote.
  */
 export function quotesTakenFromReplies(requests: readonly HeardRequest[]): Set<string> {
   const taken = new Set<string>();
