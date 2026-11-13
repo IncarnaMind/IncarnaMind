@@ -12,7 +12,14 @@ import { ClaimMark } from "./ClaimCheckCard";
 import { ClaimOutline } from "./ClaimOutline";
 import { useCardPlace } from "./checkPlace";
 import { textBlockEdited } from "./citationNumbers";
-import { markOf, type ShownClaim, setClaimInline, setClaimRooms, shownClaims } from "./claimChecks";
+import {
+  foundElsewhere,
+  markOf,
+  type ShownClaim,
+  setClaimInline,
+  setClaimRooms,
+  shownClaims,
+} from "./claimChecks";
 import { figurePlace } from "./figurePlaces";
 import { ClaimMarkIcon, type ClaimMarkState } from "./icons";
 import {
@@ -166,7 +173,7 @@ function lineOf(mark: Measured, widths: ReadonlyMap<string, number>): MarkLine {
     middle: mark.middle,
     left: mark.startLeft,
     width: (mark.claim && widths.get(mark.claim.check.id)) ?? PLAIN_MARK_WIDTH,
-    silent: mark.state === "not-checked",
+    silent: mark.state === "not-checked" && !(mark.claim && foundElsewhere(mark.claim)),
   };
 }
 

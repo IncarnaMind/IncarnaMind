@@ -20,7 +20,7 @@ export function useFoundPassages(editor: Editor): number {
 
 /**
  * The check's result line when its checks left more than one Passage the sentences don't cite
- * (#3019): "3 Passages found, not yet cited · Add all", which adds every one as its part's
+ * (#3019): "3 passages found, not yet cited · Add all", which adds every one as its part's
  * Citation, as one Undo. The check itself never writes them into the Note.
  */
 export function FoundPassagesLine({

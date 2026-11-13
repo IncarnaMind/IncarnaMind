@@ -98,7 +98,7 @@ import { useCardPlace } from "./checkPlace";
 import type { NumberedCitation } from "./citationNumbers";
 import { useReadableQuote } from "./citationScan";
 import { badgeCorner, claimCardPlace } from "./claimCardPlace";
-import { claimPartRows, markOf, type ShownClaim } from "./claimChecks";
+import { claimPartRows, foundElsewhere, markOf, type ShownClaim } from "./claimChecks";
 import { DocumentCheckAction } from "./DocumentCheckAction";
 import { ClaimMarkIcon, type ClaimMarkState } from "./icons";
 import { LibrarySource } from "./LibrarySource";
@@ -177,8 +177,10 @@ export function ClaimMark({
   const mark = reading || rewriting ? "checking" : markOf(claim);
   // Supported by the User's own notes alone: a box, so shape says it as well as colour (#335).
   const ownNoteOnly = mark === "supported" && supportedByOwnNotesOnly(claim.reads);
+  // A ✓ waiting on the Passage its check found becoming a Citation keeps a mark with its "+" (#3019).
+  const awaiting = foundElsewhere(claim);
   // A sentence not checked yet has no mark on the page (D276): its button stays, unseen, as its card's anchor (#1941).
-  const silent = mark === "not-checked";
+  const silent = mark === "not-checked" && !awaiting;
   const id = claim.check.id;
   const place = useCardPlace(mindId);
   const [button, setButton] = useState<HTMLButtonElement | null>(null);
@@ -193,7 +195,9 @@ export function ClaimMark({
   const openedByKeyboard = useRef(false);
   const open = claim.kind !== "chart" && (pinned || peeking);
   const onPage = useQuotedWordsOnPage(
-    state === "supported" && claim.kind !== "chart" ? quotedWordsAsks(editor.state, claim) : [],
+    (state === "supported" || awaiting) && claim.kind !== "chart"
+      ? quotedWordsAsks(editor.state, claim)
+      : [],
     mindId,
     useContext(ConversationIdContext),
   );
@@ -203,7 +207,7 @@ export function ClaimMark({
       : NO_DECISION;
   const rows = claimPartRows(claim.reads);
   const plus = rows
-    ? state === "supported" && citesMore(editor.state, claim, rows, onPage)
+    ? (state === "supported" || awaiting) && citesMore(editor.state, claim, rows, onPage)
     : decision.kind === "add";
   const added = useAddedDocuments((store) => store.byMind[mindId]?.[claim.check.id]?.length ?? 0);
   const heading = t(checkStateKey(editor, claim));

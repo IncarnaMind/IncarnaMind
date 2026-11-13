@@ -9,6 +9,10 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
  */
 
 vi.mock("../../src/renderer/src/editor/opinionChecks", () => ({ useOpinionChecks: () => [] }));
+vi.mock("../../src/renderer/src/editor/FoundPassagesLine", () => ({
+  FoundPassagesLine: () => null,
+  useFoundPassages: () => 0,
+}));
 
 let root: Root | null = null;
 let container: HTMLElement;

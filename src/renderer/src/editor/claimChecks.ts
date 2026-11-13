@@ -506,7 +506,7 @@ function stateOf(
   // box, exactly its own width plus 4px, so the room never makes a line of its own.
   const roomsOf = inline
     ? claims.flatMap(({ check, sentence, shown }) =>
-        shown.state === "not-checked"
+        shown.state === "not-checked" && !foundElsewhere({ shown })
           ? []
           : [
               Decoration.inline(sentence.to - 1, sentence.to, {
@@ -581,6 +581,10 @@ export const sameCoverage = (a: Coverage, b: Coverage | null | undefined): boole
 
 /** What a check's margin glyph shows (`claimMarkState`). */
 export const markOf = (claim: ShownClaim) => claimMarkState(claim.shown.state, claim.check);
+
+/** Whether its ✓ waits on the User adding the Passage its check found (#3019): its mark shows. */
+export const foundElsewhere = ({ shown }: Pick<ShownClaim, "shown">): boolean =>
+  shown.state === "not-checked" && shown.reason === "found-elsewhere";
 
 /** The checks in the editor, as they show now. Empty without `ClaimChecks`. */
 export function shownClaims(state: EditorState): readonly ShownClaim[] {

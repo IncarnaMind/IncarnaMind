@@ -1457,7 +1457,7 @@ export const en = {
   "opinions.one": "1 opinion left out",
   "opinions.count": "{count} opinions left out",
   "opinions.show": "Show",
-  "found.notCited": "{count} Passages found, not yet cited",
+  "found.notCited": "{count} passages found, not yet cited",
   "found.addAll": "Add all",
   "found.added.one": "Added 1 Citation",
   "found.added": "Added {count} Citations",
