@@ -64,6 +64,10 @@ function replyOf(help: string, quote: string, newest: string): string {
       "\n",
     );
   }
+  // A Document's Citation on a line to say with no fact line of its own: the form turns it into one.
+  if (form && help.includes("concrete next step")) {
+    return [`★ ${w.say} [^1]`, `→ ${w.effect}`, "", w.second, `→ ${w.after}`].join("\n");
+  }
   if (help.includes("Check the newest claim")) {
     return form
       ? [`= ${w.wrong}`, `> ${w.said} [^1]`, `> ${fact}`].join("\n")

@@ -301,13 +301,18 @@ const SLOTS: readonly Slot[] = [
     template: "sales",
     needs: "newest",
     en: {
-      turns: [{ who: "them", text: "This sounds right for us. What do we do now?" }],
+      turns: [
+        {
+          who: "them",
+          text: "This sounds right for us. If we sign, how soon are the machines delivered?",
+        },
+      ],
       documents: [TERMS_EN],
       answer: "Sign, and the machines are delivered within fifteen working days.",
       rests: [[line(TERMS_EN, "fifteen working days")]],
     },
     zh: {
-      turns: [{ who: "them", text: "听起来挺合适。接下来怎么做？" }],
+      turns: [{ who: "them", text: "听起来挺合适。如果签约，机器多久能送到？" }],
       documents: [TERMS_ZH],
       answer: "签约后十五个工作日内送货。",
       rests: [[line(TERMS_ZH, "十五个工作日")]],
