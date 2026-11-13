@@ -486,7 +486,7 @@ describe("A table's own heading lines and labels give its rows their unit (#2997
 });
 
 describe("Wrong sentences the check doesn't catch yet (#2997)", { timeout: 120_000 }, () => {
-  // protects=known wrong ✓, pinned at what they read so the next change that touches them shows it: a number of a count column or another row given the unit a caption, a unit line or a heading states for the table ("二厂产量为31千克。" citing the 31 under 人数, "2024年产量为31千克。" citing the 员工人数 row), the same with no column or row named; another row's number under labelled lines; 度 as a temperature, an angle or against kilowatt-hours; and two that main's own heading rule ticks (a column heading of a table glued above, the other of two labelled columns). They are wrong sentences the check doesn't catch yet (#2997); fails_when=any reads otherwise without its kind being fixed and this list changed; no_claim=that they are right.
+  // protects=known wrong ✓, pinned at what they read so the next change that touches them shows it: a number of a count column or another row given the unit a caption, a unit line or a heading states for the table ("二厂产量为31千克。" citing the 31 under 人数, "2024年产量为31千克。" citing the 员工人数 row), the same with no column or row named, or with the count column named in that unit; another row's number under labelled lines; 度 as a temperature, an angle or against kilowatt-hours; and two that main's own heading rule ticks (a column heading of a table glued above, the other of two labelled columns). They are wrong sentences the check doesn't catch yet (#2997); fails_when=any reads otherwise without its kind being fixed and this list changed; no_claim=that they are right.
   test("known wrong ✓", async () => {
     await readsAsWanted([
       [
@@ -547,6 +547,42 @@ describe("Wrong sentences the check doesn't catch yet (#2997)", { timeout: 120_0
         "Table 3. Sites (kg)\nSite\tOutput\tStaff\nA\t54\t77\nB\t62\t31",
         "B\t62\t31",
         "Site B had 31 kg.",
+        TICK,
+      ],
+      [
+        "表3 各厂情况（兆瓦）\n厂区\t产量\t人数\n一厂\t54\t77\n二厂\t62\t31",
+        "二厂\t62\t31",
+        "二厂产量为31兆瓦。",
+        TICK,
+      ],
+      [
+        "Table 3. Sites (kt)\nSite\tOutput\tStaff\nA\t54\t77\nB\t62\t31",
+        "B\t62\t31",
+        "Site B's output was 31 kt.",
+        TICK,
+      ],
+      [
+        "单位：万吨\n厂区\t产值\t人数\n一厂\t54\t77\n二厂\t62\t31",
+        "二厂\t62\t31",
+        "二厂产值为31万吨。",
+        TICK,
+      ],
+      [
+        "表3 各厂产值（万元）\n厂区\t产值\t人数\n一厂\t54\t77\n二厂\t62\t31",
+        "二厂\t62\t31",
+        "二厂产值为31万元。",
+        TICK,
+      ],
+      [
+        "(USD millions)\nSite\tRevenue\tStaff\nA\t54\t77\nB\t62\t31",
+        "B\t62\t31",
+        "Site B's revenue was $31 million.",
+        TICK,
+      ],
+      [
+        "表3 各厂情况（千克）\n厂区\t产量\t人数\n一厂\t54\t77\n二厂\t62\t31",
+        "二厂\t62\t31",
+        "二厂人数为31千克。",
         TICK,
       ],
       ["一厂产量（吨）: 54\n二厂产量（吨）: 31", "一厂产量（吨）: 54", "二厂产量为54吨。", TICK],

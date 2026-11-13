@@ -785,10 +785,14 @@ function unitsOnLine(line: string, context: FigureContext): StatedUnit[] {
  * of a list that give a value, up to a blank line or a row that gives a value, which is another
  * table's (#2997). A line that heads other rows, or stands apart from them, states nothing here.
  */
-function headingUnits(text: string, start: number, context: FigureContext): StatedUnit[] {
+function headingUnits(
+  text: string,
+  start: number,
+  context: FigureContext,
+  table = tableAt(text, start),
+): StatedUnit[] {
   const lines = text.split("\n");
   const givesValue = (line: string) => readFigures(line, context).length > 0;
-  const table = tableAt(text, start);
   let at = table ? table.head - 1 : text.slice(0, start).split("\n").length - 2;
   if (!table)
     while (
@@ -929,7 +933,7 @@ export function statesFigure(
           own.every((label) => gives(label) && !bracketNamesTwo(label.line, context))
         );
       }
-      const heading = headingUnits(text, start, context);
+      const heading = headingUnits(text, start, context, table);
       return heading.length > 0 && heading.every(gives);
     })
   );

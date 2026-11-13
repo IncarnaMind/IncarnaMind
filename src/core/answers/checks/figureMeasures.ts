@@ -55,7 +55,7 @@ function inOrder(all: readonly string[], part: readonly string[]): boolean {
 const holds = (text: string, words: string): boolean => inOrder(wordsOf(text), wordsOf(words));
 
 /** `text` with its figures and stated units taken out: what is left says what they are. */
-export function withoutNumbers(text: string): string {
+function withoutNumbers(text: string): string {
   const spans = [
     ...readFigures(text, { dates: true, midLine: true }),
     ...readStatedUnits(text),
@@ -174,7 +174,7 @@ export function tableAt(
  * the headings of its column and of the other columns that hold a number in its row. Null when its
  * row has no label.
  */
-export function cellNames({
+function cellNames({
   lines,
   index,
   column,
@@ -248,7 +248,7 @@ function cellOf(
 const named = (text: string): string[] => wordsOf(text).filter((word) => !/^\p{N}+$/u.test(word));
 
 /** Whether `text` holds the measure's `words`, their digits left out of both. */
-export const namedIn = (text: string, words: string): boolean => inOrder(named(text), named(words));
+const namedIn = (text: string, words: string): boolean => inOrder(named(text), named(words));
 
 /** Whether `text` names just what `words` do: "Revenue" isn't "Revenue per store". */
 const namedAs = (text: string, words: string): boolean =>
