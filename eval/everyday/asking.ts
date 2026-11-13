@@ -105,6 +105,9 @@ const sha256 = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest(
 /** A request whose Answer takes longer is stopped and counted as failed. */
 export const ANSWER_TIMEOUT_MS = 5 * 60_000;
 
+/** How long the Answer panel's check of an Answer's sentences is waited for once the Answer ends. */
+const JUDGEMENT_TIMEOUT_MS = 5 * 60_000;
+
 async function fetchChecked(
   cacheDir: string,
   files: readonly FetchedFile[],
@@ -377,6 +380,44 @@ function landing(
       made();
     },
   };
+}
+
+/**
+ * The Answer once the panel's own check of its cited sentences has ended (#2311): it starts as the
+ * Answer ends, sends nothing the app doesn't send for every Answer, and writes each Citation's
+ * result into the stored Answer. Waited for before the part-by-part checks, so none of its requests
+ * is heard as theirs; past `JUDGEMENT_TIMEOUT_MS` the Answer is read as it stands.
+ */
+export async function judgedAnswer(
+  core: Pick<Core, "on" | "getConversation">,
+  answer: ConversationAnswer,
+): Promise<ConversationAnswer> {
+  const judging = (each: ConversationAnswer) =>
+    each.citations.some((citation) => citation.check === "checking");
+  if (!judging(answer)) return answer;
+  let latest = answer;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let ended = () => {};
+  const done = new Promise<void>((resolve) => {
+    ended = resolve;
+    timer = setTimeout(resolve, JUDGEMENT_TIMEOUT_MS);
+  });
+  const stop = core.on("conversation.message", (message) => {
+    if (message.kind !== "answer" || message.id !== answer.id) return;
+    latest = message;
+    if (!judging(message)) ended();
+  });
+  try {
+    // It may have ended before this listened.
+    const { messages } = await core.getConversation(answer.conversationId);
+    const stored = messages.find((message) => message.id === answer.id);
+    if (stored?.kind === "answer" && judging(latest)) latest = stored;
+    if (judging(latest)) await done;
+  } finally {
+    clearTimeout(timer);
+    stop();
+  }
+  return latest;
 }
 
 async function askExample(core: Core, language: "en" | "zh-CN") {
@@ -696,7 +737,9 @@ export async function runCase(
     const found = minds.find((each) => each.id === id);
     return found ? mindName(found) || null : null;
   };
-  const support = each.research ? await checkCitedSentences(core, answer, checkModel, hear) : null;
+  const support = each.research
+    ? await checkCitedSentences(core, await judgedAnswer(core, answer), checkModel, hear)
+    : null;
   const changed = new Set(
     answer.toolCalls.flatMap((call) => (call.mindChange ? [call.mindChange.mindId] : [])),
   );

@@ -201,6 +201,8 @@ export async function transcribingCore(
     serving,
     engineFactory,
     systemCalendar,
+    linkedFolders,
+    paceTimers,
   }: {
     engine?: FakeTranscriberOptions;
     /** The cloud's connections, to watch them; the pretend service as `engine.cloud` says by default. */
@@ -242,6 +244,10 @@ export async function transcribingCore(
     examples?: string;
     /** The Mac's calendars, for a Meeting started from a calendar event (#190). */
     systemCalendar?: CoreAdapters["systemCalendar"];
+    /** A watcher the test reports changes through, instead of the file system's. */
+    linkedFolders?: CoreAdapters["linkedFolders"];
+    /** The core's waits on a clock the test moves, e.g. between a Transcript's reads. */
+    paceTimers?: CoreAdapters["paceTimers"];
   } = {},
 ) {
   const clock = manualClock();
@@ -278,6 +284,8 @@ export async function transcribingCore(
     ...(callsUnmarked && { callsUnmarked }),
     ...(examples && { paths: { dataDir, examples } }),
     ...(systemCalendar && { systemCalendar }),
+    ...(linkedFolders && { linkedFolders }),
+    ...(paceTimers && { paceTimers }),
   });
   await core.updateSettings({ device: { meetingNoticeAccepted: true } });
   await core.setOutputLocation(join(dataDir, "Documents", "IncarnaMind"));
@@ -347,6 +355,36 @@ export async function transcriptRead(
   const file = join(dataDir, "Transcripts", `${meetingId}.vtt`);
   return vi.waitFor(
     async () => {
+      const document = (await core.listDocuments()).find((each) => each.id === documentId);
+      expect(document).toMatchObject({
+        status: "ready",
+        contentHash: hashBytes(readFileSync(file)),
+      });
+      return document as NonNullable<typeof document>;
+    },
+    { timeout: 20_000, interval: 20 },
+  );
+}
+
+/** The longest a recording call's Transcript goes between reads (src/core/meetings/transcript.ts). */
+const LONGEST_SPACING_MS = 120_000;
+
+/**
+ * Waits until a recording call's Transcript Document holds its file as it is now. Only the call
+ * itself reads it then, at its own spacing (#3055): the core's held clock, `pace`, is moved on
+ * until it has. Use it only while nothing else waits on that clock, such as a check's time limit.
+ */
+export async function liveTranscriptRead(
+  core: Core,
+  dataDir: string,
+  meetingId: string,
+  documentId: string,
+  pace: { advance(ms: number): void },
+) {
+  const file = join(dataDir, "Transcripts", `${meetingId}.vtt`);
+  return vi.waitFor(
+    async () => {
+      pace.advance(LONGEST_SPACING_MS);
       const document = (await core.listDocuments()).find((each) => each.id === documentId);
       expect(document).toMatchObject({
         status: "ready",
