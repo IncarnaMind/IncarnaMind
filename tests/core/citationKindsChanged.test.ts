@@ -1,7 +1,14 @@
 import { writeFile } from "node:fs/promises";
 import { describe, expect, test } from "vitest";
 import type { Core, Document } from "../../src/core";
-import { citationState, needsRecheck, newVersionCitation } from "../../src/shared/citations";
+import type { Language } from "../../src/core/language";
+import {
+  changedSourceLines,
+  citationState,
+  needsRecheck,
+  newVersionCitation,
+} from "../../src/shared/citations";
+import { type MessageKey, type MessageParams, translate } from "../../src/shared/i18n";
 import { answerEnded, checkedResult, citingModel, setUpWithDocuments } from "../helpers/citations";
 import { sha256, waitForProcessing } from "../helpers/documents";
 import { docxOf, xlsxOf } from "../helpers/office";
@@ -84,20 +91,20 @@ const KINDS: Kind[] = [
 ];
 
 /** A core with an Answer citing version 1 of `kind`'s file, and the Citation as it was made. */
-async function cited(kind: Kind) {
+async function cited(kind: Kind, quote = OLD, other = OTHER, query = "notice period") {
   const model = citingModel({
-    query: "notice period",
+    query,
     records: (passages) => [
       {
         marker: 1,
-        passage: passages.find((each) => each.text.includes(OLD.slice(0, 12)))?.id,
-        quote: OLD,
+        passage: passages.find((each) => each.text.includes(quote.slice(0, 12)))?.id,
+        quote,
       },
     ],
     answer: "The Supplier gives notice as the amendment says [^1].",
   });
   const setup = await setUpWithDocuments(model, [
-    { name: kind.name, contents: kind.file(OLD, OTHER) },
+    { name: kind.name, contents: kind.file(quote, other) },
   ]);
   const document = setup.documents[0];
   if (!document?.path) throw new Error("Nothing was added.");
@@ -208,5 +215,91 @@ describe("A Citation to a Document with a new version", { timeout: 60_000 }, () 
     );
     expect(recheck.check).toBe("found");
     expect(recheck.changed ?? null).toBeNull();
+  });
+});
+
+/** Words in a language, as the renderer's `t` gives them. */
+const in_ = (language: Language) => (key: MessageKey, params?: MessageParams) =>
+  translate(language, key, params);
+
+/** A clause in Chinese, for a Note written in Chinese about a Chinese file. */
+const CHINESE = "供应商的通知期为六十（60）天。";
+const CHINESE_OTHER = "任何一方均可书面终止本协议。";
+
+const MOVED: (Kind & { quote?: string; other?: string; query?: string; en: string; zh: string })[] =
+  [
+    { ...(KINDS[0] as Kind), en: "line 5", zh: "第 5 行" },
+    { ...(KINDS[1] as Kind), en: "§ Termination", zh: "§ Termination" },
+    { ...(KINDS[2] as Kind), en: "§ Termination", zh: "§ Termination" },
+    { ...(KINDS[3] as Kind), en: "slide 2", zh: "第 2 张幻灯片" },
+    { ...(KINDS[4] as Kind), en: "Terms, row 3", zh: "Terms，第 3 行" },
+    { ...(KINDS[5] as Kind), en: "row 3", zh: "第 3 行" },
+    {
+      label: "another sheet",
+      name: "Terms.xlsx",
+      file: (clause, elsewhere) =>
+        xlsxOf([
+          {
+            name: "Terms",
+            rows: [
+              ["Clause", "Term"],
+              ["12.2", clause],
+            ],
+          },
+          {
+            name: "Archive",
+            rows: [
+              ["Clause", "Term"],
+              ["12.2", elsewhere],
+            ],
+          },
+        ]),
+      en: "Archive, row 2",
+      zh: "Archive，第 2 行",
+    },
+    {
+      label: "a Markdown section in Chinese",
+      name: "补充协议.md",
+      file: (clause, elsewhere) =>
+        ["# 通知", "", clause, "", "# 终止", "", elsewhere, ""].join("\n"),
+      quote: CHINESE,
+      other: CHINESE_OTHER,
+      query: "通知期",
+      en: "§ 终止",
+      zh: "§ 终止",
+    },
+  ];
+
+describe("A Citation whose quote is in another place in the new version (#3041)", {
+  timeout: 120_000,
+}, () => {
+  // protects=for each kind of place (lines, a Markdown or Word section, a slide, sheet rows, another sheet, CSV rows) and for a file in Chinese, a quote the new version holds in another place is said, on the card and in the viewer alike, to be at that place in English and Chinese, while its check and every field of the re-check are as they were; fails_when=the line says the quote is no longer in the new version, names the wrong place, or the check changes; no_claim=a PDF page (tests/core/versions.test.ts), how the line is drawn (tests/renderer/quoteStanding.test.ts).
+  test("says where the quote is now, for each kind of place", async () => {
+    for (const kind of MOVED) {
+      const quote = kind.quote ?? OLD;
+      const other = kind.other ?? OTHER;
+      const { core, document, citation } = await cited(kind, quote, other, kind.query);
+      expect(citation).toMatchObject({ check: "found", quote });
+      await change(core, document, kind.file(other, quote));
+
+      const asked = {
+        mindId: null,
+        documentId: document.id,
+        quote: citation.quote,
+        pageFrom: citation.pageFrom,
+        pageTo: citation.pageTo,
+        contentHash: citation.contentHash,
+        location: citation.location,
+      };
+      const before = checkedResult(await core.recheckCitation(asked));
+      const after = checkedResult(await core.recheckCitation({ ...asked, lookElsewhere: true }));
+      const { elsewhere: _, ...check } = after;
+      expect(check, kind.label).toEqual(before);
+      const live = (await core.listDocuments())[0];
+      const line = (language: Language) =>
+        changedSourceLines(true, citation, after, live, language, in_(language)).note?.quote;
+      expect(line("en"), kind.label).toBe(`Its quote is now at ${kind.en}.`);
+      expect(line("zh-CN"), kind.label).toBe(`引文已移到新位置（${kind.zh}）。`);
+    }
   });
 });

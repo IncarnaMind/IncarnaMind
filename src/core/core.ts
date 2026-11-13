@@ -7,7 +7,7 @@ import * as Y from "yjs";
 import { cleanApiKey } from "../shared/apiKey";
 import { meetingTimeAt } from "../shared/blockTimes";
 import { isCitationStyleId, withRecentStyle } from "../shared/citationStyles";
-import { parseQuotedWords } from "../shared/citations";
+import { parseQuotedWords, quoteNotAtItsPlace } from "../shared/citations";
 import type { DrawnPage } from "../shared/citedPage";
 import {
   chosenExportMarks,
@@ -93,6 +93,7 @@ import {
   recheckCitation,
   recheckKept,
   recheckWhereSelected,
+  sharedQuoteLooks,
 } from "./answers/citations";
 import {
   addCitedUnit,
@@ -3345,6 +3346,7 @@ export function createCore(adapters: CoreAdapters): Core {
     if (mayRecheckFrom(place, input.documentId)) return recheckCitation(documents, input);
     return { keptInside: walledFolderName(input.documentId) ?? "" };
   };
+  const lookElsewhere = sharedQuoteLooks(documents);
   // "Add to note" into a Mind that isn't open (#201), with its Citations checked where they land.
   const noteAdding = createNoteAdding({
     content,
@@ -6370,7 +6372,7 @@ export function createCore(adapters: CoreAdapters): Core {
       ) {
         throw new InvalidInputError({ key: "error.citation.recheckPlace" });
       }
-      return recheckIn({
+      const asked = {
         documentId: input.documentId,
         quote: typeof input.quote === "string" ? input.quote : "",
         pageFrom: page(input.pageFrom),
@@ -6380,7 +6382,10 @@ export function createCore(adapters: CoreAdapters): Core {
         ...(input.location !== undefined && { location: parseLocation(input.location) }),
         mindId: input.mindId,
         conversationId: input.conversationId ?? null,
-      });
+      };
+      const checked = recheckIn(asked);
+      if (input.lookElsewhere !== true || !quoteNotAtItsPlace(checked)) return checked;
+      return { ...checked, elsewhere: await lookElsewhere(asked, checked.contentHash) };
     },
     citeSelection: async (input) => {
       if (!isRecord(input) || !Array.isArray(input.parts)) {

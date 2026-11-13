@@ -326,6 +326,51 @@ export function quoteStanding(
 }
 
 /**
+ * Whether a re-check found the quote isn't at its cited Units of the version it read: only then is
+ * where it stands in that version looked for (`CitationRecheck.elsewhere`, #3041).
+ */
+export function quoteNotAtItsPlace(
+  recheck: RecheckResult | "failed" | null,
+): recheck is CitationRecheck & { contentHash: string } {
+  return (
+    recheck !== null &&
+    recheck !== "failed" &&
+    !("keptInside" in recheck) &&
+    recheck.check === "not-found" &&
+    recheck.checkReason === "quote-not-on-pages" &&
+    recheck.contentHash !== null
+  );
+}
+
+/**
+ * Where a Citation's quote stands in the version `recheck` read, as the card and the viewer say
+ * it (#3041): at its cited place; "moved" to another, with its Location (null when none names it);
+ * or "gone" from that version, only once a look through it (`elsewhere`) found it nowhere. Null
+ * while that is unknown: not checked, can't be checked, or not at its cited Units with no look
+ * answered. A quote found away from its cited Units stays not found at its place: Needs re-check
+ * and every action read `quoteStanding`.
+ */
+export function whereQuoteStands(
+  cited: Partial<Pick<CitationAttributes, "pageFrom" | "pageTo" | "location">>,
+  recheck: CitationRecheck | null,
+): { standing: QuoteStanding; location: CitationLocation | null } | null {
+  if (recheck === null) return null;
+  // The re-check gives this reason only to a quote it found: the place it carries is the quote's.
+  const read: CitationRecheck =
+    recheck.checkReason === "quoted-words-not-on-pages"
+      ? { ...recheck, check: "found", checkReason: null }
+      : recheck;
+  const standing = quoteStanding(cited, read);
+  if (standing === null) return null;
+  if (standing === "moved") return { standing, location: read.location };
+  if (standing === "found") return { standing, location: null };
+  if (recheck.elsewhere === undefined) return null;
+  return recheck.elsewhere === null
+    ? { standing: "gone", location: null }
+    : { standing: "moved", location: recheck.elsewhere.location };
+}
+
+/**
  * When a Document's current version was made: a web page's fetch of that
  * version, else its file's last change, else when it was indexed.
  */
@@ -428,11 +473,11 @@ export function changedSourceNote(
       : t("citation.changedAfterCited.web", { date: fetchedAgain });
   if (recheck === "failed" || recheck === null) return { notice, quote: null };
   if ("keptInside" in recheck) return null;
-  const standing = quoteStanding(cited, recheck);
-  if (standing === "found") return { notice, quote: t("citation.changed.still") };
-  if (standing === "gone") return { notice, quote: t("citation.changed.gone") };
-  if (standing === null) return { notice, quote: null };
-  const where = recheck.location ? formatLocation(recheck.location, t) : null;
+  const stands = whereQuoteStands(cited, recheck);
+  if (stands === null) return { notice, quote: null };
+  if (stands.standing === "found") return { notice, quote: t("citation.changed.still") };
+  if (stands.standing === "gone") return { notice, quote: t("citation.changed.gone") };
+  const where = stands.location ? formatLocation(stands.location, t) : null;
   return {
     notice,
     quote: where

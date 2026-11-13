@@ -2435,6 +2435,12 @@ export interface RecheckCitationInput extends CitationToRecheck {
    * or in a Document's viewer.
    */
   conversationId?: string | null;
+  /**
+   * Also where the quote stands in the current version when it isn't at its cited Units
+   * (`CitationRecheck.elsewhere`, #3041). That reads the whole version, so only what shows the
+   * line asks: a Citation's card that is open, or the viewer. The answer comes once it is read.
+   */
+  lookElsewhere?: boolean;
 }
 
 /**
@@ -2469,6 +2475,14 @@ export interface CitationRecheck {
    * when nothing there is like them any more.
    */
   changed?: ChangedQuote | null;
+  /**
+   * Its quote isn't at its cited Units in the current version: where the whole quote stands in
+   * that version instead (#3041), matched as the check matches it. `location` is null when it
+   * stands in more than one place, or in one wider than a Citation's Units. Null when it is
+   * nowhere in it. Beside the check, never in place of it: the check stays not found, and the
+   * Citation keeps its Units.
+   */
+  elsewhere?: { location: CitationLocation | null } | null;
 }
 
 /** A Citation's quote as its words changed in its Document's current version (#99). */
