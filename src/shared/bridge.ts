@@ -2,7 +2,7 @@
 import type { AudioSource, CoreApiMethod, UnsavedAtEnd } from "../core/api";
 import type { MenuCommandId } from "./commands";
 import type { GeneralHelpKind } from "./meetingHelp";
-import type { PanelCommand, PanelState } from "./meetingPanel";
+import type { ConversationAt, PanelCommand, PanelState } from "./meetingPanel";
 import type { PanelName } from "./panels";
 import type { GuidePlacement, PermissionGuideState } from "./permissionGuide";
 import type { TitleBar } from "./titleBar";
@@ -193,10 +193,18 @@ export interface FilesBridge {
   showMeetingPanel(shown: boolean): void;
   /** Calls `listener` with the floating panel's state, now and when it changes. Returns how to stop. */
   onMeetingPanel(listener: (state: PanelState) => void): () => void;
-  /** ⌘K: pins the floating panel's latest suggestion, or folds or unfolds the panel. */
+  /**
+   * ⌘K: pins the floating panel's latest suggestion, folds or unfolds the panel, or puts the cursor
+   * in its field.
+   */
   meetingPanelCommand(command: PanelCommand): void;
   /** Calls `listener` when the floating panel's Set up was clicked: the window shows where a model is chosen. */
   onSetUpModel(listener: () => void): () => void;
+  /**
+   * Calls `listener` when the floating panel's Open in assistant was clicked: the window shows that
+   * conversation in its assistant (#2925). Returns how to stop.
+   */
+  onOpenConversation(listener: (at: ConversationAt) => void): () => void;
   /**
    * Shows the guide for a permission the User must add by hand in System Settings (#1105), beside
    * it if the screen has room: where it showed, "none" where this system has no such guide.
@@ -294,6 +302,8 @@ export const FILES_CHANNELS = {
   meetingPanelCommand: "app:meetingPanelCommand",
   /** From the main process: the floating panel's Set up was clicked. */
   setUpModel: "app:setUpModel",
+  /** From the main process: the floating panel's Open in assistant was clicked (`ConversationAt`). */
+  openConversation: "app:openConversation",
   /** From the page: show the guide beside System Settings for a source; the main process answers where. */
   showPermissionGuide: "app:showPermissionGuide",
   closePermissionGuide: "app:closePermissionGuide",

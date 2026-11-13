@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import type {
+  CallHelpKind,
   ConversationAnswer,
   MarkedCitation,
   MeetingHelp,
-  MeetingHelpKind,
 } from "../../../../core/api";
 import { citedLocation } from "../../../../shared/citations";
 import { isTranscriptLocation } from "../../../../shared/locations";
@@ -23,6 +23,7 @@ import {
 import { useT } from "../../i18n";
 import { useJudgementLimit } from "../../judgementLimit";
 import { limitReason } from "../../limitWords";
+import { helpAsked, type PendingHelp } from "../../meetingHelp";
 import { useModelNames, useServiceName } from "../../modelNames";
 import { answerProblem } from "../../problems";
 import { CheckLineIcon, DocumentLineIcon } from "../lineIcons";
@@ -123,7 +124,15 @@ function Pieces({
     <>
       {pieces.map((piece, index) => {
         const key = `${piece.kind}-${index}`;
-        if (piece.kind === "text") return <span key={key}>{piece.text}</span>;
+        if (piece.kind === "text") {
+          return piece.bold ? (
+            <b key={key} className="help-move">
+              {piece.text}
+            </b>
+          ) : (
+            <span key={key}>{piece.text}</span>
+          );
+        }
         if (piece.kind === "figure") {
           const figure = answer.figures.find((each) => each.marker === piece.marker);
           return <span key={key}>{figure?.shown ?? ""}</span>;
@@ -182,6 +191,12 @@ function Item({
   );
 }
 
+/** An option to say, which shows in quotation marks: a button's, or a typed question's (#2925). */
+export const saysAloud = (kind: CallHelpKind, item: ReplyItem): boolean => {
+  const shape = HELP_SHAPE[kind];
+  return (shape === "options" || shape === "answer") && item.effect !== null;
+};
+
 /** The outline of options still to come: shown within 100 ms of a press. */
 export function HelpOutline({ count }: { count: number }) {
   return (
@@ -202,16 +217,26 @@ export function HelpOutline({ count }: { count: number }) {
 
 /**
  * The heading over a suggestion: the button, then the line it answers ("They said: …"), or for
- * "What do they want?" that it is read from what they said.
+ * "What do they want?" that it is read from what they said; for a question the User typed, the
+ * question (#2925).
  */
 export function HelpHeading({
-  kind,
+  asked,
   heard = null,
 }: {
-  kind: MeetingHelpKind;
+  asked: PendingHelp;
   heard?: MeetingHelp["heard"];
 }) {
   const t = useT();
+  const { kind } = asked;
+  if (kind === "question") {
+    const question = helpAsked(asked, t);
+    return (
+      <p data-testid="help-heading" className="help-heading help-heading--question">
+        <b title={question}>{question}</b>
+      </p>
+    );
+  }
   const said = heard
     ? t(
         isTheirs(heard.speaker)
@@ -301,7 +326,7 @@ export function HelpSuggestion({
   answer,
   onRetry,
 }: {
-  help: Pick<MeetingHelp, "kind" | "heard">;
+  help: Pick<MeetingHelp, "kind" | "question" | "heard">;
   answer: ConversationAnswer;
   onRetry(): void;
 }) {
@@ -342,7 +367,7 @@ export function HelpSuggestion({
       aria-busy={streaming}
       className="help-suggestion"
     >
-      <HelpHeading kind={help.kind} heard={help.heard} />
+      <HelpHeading asked={help} heard={help.heard} />
       {items.map((item, index) => (
         <Item
           // biome-ignore lint/suspicious/noArrayIndexKey: the options are in the order written.
@@ -350,7 +375,7 @@ export function HelpSuggestion({
           item={item}
           answer={answer}
           numbers={numbers}
-          said={HELP_SHAPE[help.kind] === "options" && item.effect !== null}
+          said={saysAloud(help.kind, item)}
         />
       ))}
       {streaming && items.length < 2 && <HelpOutline count={items.length === 0 ? 2 : 1} />}

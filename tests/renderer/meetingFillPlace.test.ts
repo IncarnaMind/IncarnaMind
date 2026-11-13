@@ -312,6 +312,7 @@ const meetingOf = (fill: MeetingFill | null): Meeting => ({
   health: { realTimeFactor: null, measuredMs: 0, keepsUp: null, events: [] },
   microphonePausedAtMs: null,
   help: null,
+  helps: [],
   helpTemplate: null,
   fill,
   createdAt: "2026-11-04T10:00:00.000Z",

@@ -102,6 +102,7 @@ const electron = vi.hoisted(() => {
       screen: {
         getCursorScreenPoint: () => ({ x: 0, y: 0 }),
         getDisplayNearestPoint: () => ({ workArea: { x: 0, y: 0, width: 1440, height: 900 } }),
+        getDisplayMatching: () => ({ workArea: { x: 0, y: 0, width: 1440, height: 900 } }),
       },
       ipcMain: {
         on: (channel: string, listener: (event: unknown, ...args: unknown[]) => void) =>
@@ -128,6 +129,37 @@ const { serveMeetingPanel } = await import("../../src/main/meetings/panel");
 
 type Window = (typeof electron.made)[number];
 
+/** The app's window, as far as the panel brings it to the front and tells it something. */
+interface AppWindow {
+  steps: string[];
+  sent: unknown[][];
+  isMinimized(): boolean;
+  isDestroyed(): boolean;
+  isFocused(): boolean;
+  getBounds(): { x: number; y: number; width: number; height: number };
+  restore(): void;
+  show(): void;
+  focus(): void;
+  webContents: { send(...args: unknown[]): void };
+}
+
+function appWindow(): AppWindow {
+  const steps: string[] = [];
+  const sent: unknown[][] = [];
+  return {
+    steps,
+    sent,
+    isMinimized: () => true,
+    isDestroyed: () => false,
+    isFocused: () => false,
+    getBounds: () => ({ x: 0, y: 0, width: 1200, height: 800 }),
+    restore: () => steps.push("restore"),
+    show: () => steps.push("show"),
+    focus: () => steps.push("focus"),
+    webContents: { send: (...args) => sent.push(args) },
+  };
+}
+
 beforeEach(() => {
   electron.listeners.clear();
   electron.registered.clear();
@@ -149,7 +181,8 @@ async function recording(
     shown = true,
     linux = false,
     keys = {},
-  }: { shown?: boolean; linux?: boolean; keys?: HelpKeys } = {},
+    front,
+  }: { shown?: boolean; linux?: boolean; keys?: HelpKeys; front?: AppWindow } = {},
 ) {
   const core = startCore(await createTempDataFolder(), {
     audioCapture: createFakeCapture(),
@@ -165,7 +198,7 @@ async function recording(
   recorded = recordingLog();
   serveMeetingPanel(core, {
     rendererUrl: undefined,
-    appWindows: () => [],
+    appWindows: () => (front ? [front as never] : []),
     trusted: () => true,
     mac,
     linux,
@@ -193,10 +226,11 @@ const keyboard = (panel: Window, take: boolean) =>
 /** The page says its state, as it does once its listeners are in place. */
 const ready = (panel: Window) =>
   fromPage(panel, MEETING_PANEL_CHANNELS.state, { folded: false, pinned: false });
-const notesAsked = (panel: Window) =>
+const fieldAsked = (panel: Window, mode: "note" | "ask") =>
   panel.sent.filter(
-    ([channel, command]) => channel === MEETING_PANEL_CHANNELS.command && command === "note",
+    ([channel, command]) => channel === MEETING_PANEL_CHANNELS.command && command === mode,
   ).length;
+const notesAsked = (panel: Window) => fieldAsked(panel, "note");
 
 describe("The call-help panel and the keyboard (#2925)", () => {
   test.each([
@@ -319,7 +353,41 @@ describe("The call-help panel and the keyboard (#2925)", () => {
     await recording(false, { shown: false, linux: true });
     expect([...electron.registered.keys()]).toEqual(["Ctrl+Alt+1"]);
     electron.listeners.get(FILES_CHANNELS.meetingPanelCommand)?.({}, "note");
+    electron.listeners.get(FILES_CHANNELS.meetingPanelCommand)?.({}, "ask");
     expect(electron.made).toHaveLength(0);
+  });
+
+  test("⌘K's Ask about this call opens a closed panel and asks its page for the field in Ask, once its page is ready", async () => {
+    await recording(true, { shown: false });
+    electron.listeners.get(FILES_CHANNELS.meetingPanelCommand)?.({}, "ask");
+    const panel = await shownPanel();
+    expect(fieldAsked(panel, "ask")).toBe(0);
+    ready(panel);
+    expect(fieldAsked(panel, "ask")).toBe(1);
+    expect(fieldAsked(panel, "note")).toBe(0);
+    electron.listeners.get(FILES_CHANNELS.meetingPanelCommand)?.({}, "ask");
+    expect(fieldAsked(panel, "ask")).toBe(2);
+    expect(panel.focusable).toBe(false);
+  });
+});
+
+describe("Open in assistant, from the panel (#2925)", () => {
+  test("brings the app's window to the front with that conversation; another page, or no conversation, asks nothing", async () => {
+    const front = appWindow();
+    await recording(true, { front });
+    const panel = await shownPanel();
+    const at = { conversationId: "conversation-1", answerId: "answer-1" };
+    const opened = () =>
+      front.sent.filter(([channel]) => channel === FILES_CHANNELS.openConversation);
+
+    electron.listeners.get(MEETING_PANEL_CHANNELS.openConversation)?.({ sender: {} }, at);
+    fromPage(panel, MEETING_PANEL_CHANNELS.openConversation, { conversationId: "conversation-1" });
+    expect(opened()).toEqual([]);
+    expect(front.steps).toEqual([]);
+
+    fromPage(panel, MEETING_PANEL_CHANNELS.openConversation, at);
+    expect(front.steps).toEqual(["restore", "show", "focus"]);
+    expect(opened()).toEqual([[FILES_CHANNELS.openConversation, at]]);
   });
 });
 

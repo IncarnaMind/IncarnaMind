@@ -6,21 +6,22 @@
  */
 import type { AnswerStatus, CitationCheckReason, MarkedCitation } from "../../core/api";
 import {
+  type CallHelpKind,
   EFFECT_MARK,
   HELP_SHAPE,
   type HelpShape,
   LINE_MARK,
-  type MeetingHelpKind,
   plainLine,
   RECOMMENDED_MARK,
 } from "../../shared/meetingHelp";
 
 /**
- * A run of text, a Citation's marker ("[^2]") or a calculated figure's ("[=1]"). A Citation's `at`
- * is its marker's place among the reply's Citation markers, from 0, as the core counts them.
+ * A run of text, in bold where the model marked it ("**…**"), a Citation's marker ("[^2]") or a
+ * calculated figure's ("[=1]"). A Citation's `at` is its marker's place among the reply's Citation
+ * markers, from 0, as the core counts them.
  */
 export type ReplyPiece =
-  | { kind: "text"; text: string }
+  | { kind: "text"; text: string; bold?: true }
   | { kind: "citation"; marker: number; at: number }
   | { kind: "figure"; marker: number };
 
@@ -38,14 +39,33 @@ export interface ReplyItem {
 
 const DEFINITION = /^\[\^\d+\]:/;
 
-/** The pieces of `text`, whose first Citation marker is the reply's `first`. */
+const BOLD_MARK = /\*\*|__/g;
+
+/**
+ * The pieces of `text`, whose first Citation marker is the reply's `first`. A bold run may hold a
+ * Citation; a bold mark left open, as while it streams, is shown as nothing and bolds nothing.
+ */
 export function pieces(text: string, first: number): ReplyPiece[] {
   const found: ReplyPiece[] = [];
+  const marks = text.match(BOLD_MARK)?.length ?? 0;
+  const paired = marks - (marks % 2);
+  let seen = 0;
+  let bold = false;
+  const addText = (run: string) => {
+    let at = 0;
+    for (const mark of run.matchAll(BOLD_MARK)) {
+      const part = run.slice(at, mark.index);
+      if (part) found.push({ kind: "text", text: part, ...(bold && { bold: true }) });
+      if (++seen <= paired) bold = !bold;
+      at = mark.index + mark[0].length;
+    }
+    const rest = run.slice(at);
+    if (rest) found.push({ kind: "text", text: rest, ...(bold && { bold: true }) });
+  };
   let from = 0;
   let cited = first;
   for (const match of text.matchAll(/\[\^(\d+)\]|\[=(\d+)\]/g)) {
-    const before = text.slice(from, match.index);
-    if (before) found.push({ kind: "text", text: before });
+    addText(text.slice(from, match.index));
     found.push(
       match[1] !== undefined
         ? { kind: "citation", marker: Number(match[1]), at: cited++ }
@@ -53,10 +73,17 @@ export function pieces(text: string, first: number): ReplyPiece[] {
     );
     from = match.index + match[0].length;
   }
-  const rest = text.slice(from);
-  if (rest) found.push({ kind: "text", text: rest });
+  addText(text.slice(from));
   return found;
 }
+
+/** The text a reply's pieces show, without its Citations, for a line that names it. */
+export const piecesText = (shown: readonly ReplyPiece[]): string =>
+  shown
+    .flatMap((piece) => (piece.kind === "text" ? [piece.text] : []))
+    .join("")
+    .replace(/\s+/g, " ")
+    .trim();
 
 const OPENING_QUOTES = /^\s*["“「]+/;
 const CLOSING_QUOTES = /["”」]+\s*$/;
@@ -75,7 +102,7 @@ export function quoted(lead: readonly ReplyPiece[]): ReplyPiece[] {
     let text = piece.text;
     if (index === first) text = `“${text.replace(OPENING_QUOTES, "")}`;
     if (index === last) text = `${text.trimEnd().replace(CLOSING_QUOTES, "")}”`;
-    return { kind: "text", text };
+    return { ...piece, text };
   });
 }
 
@@ -99,6 +126,14 @@ function laidOut(
   { shape, leadIn, streaming }: { shape: HelpShape; leadIn: boolean; streaming: boolean },
 ): { lead: ReplyItem[]; options: ReplyItem[] } {
   const [first] = items;
+  if (shape === "answer") {
+    // A typed question's reply is options, laid out as a button's, or what answers it, all of it:
+    // a sentence or two, or as many short lines as it asked for.
+    if (items.some((item) => item.recommended || item.effect !== null)) {
+      return laidOut(items, { shape: "options", leadIn, streaming });
+    }
+    return { lead: [], options: items.flatMap(apart) };
+  }
   if (shape === "lines") {
     const bullets = items.filter((item) => item.bullet);
     const lead = leadIn && first && !first.bullet ? [first] : [];
@@ -123,6 +158,12 @@ function laidOut(
   return { lead, options };
 }
 
+/** An item and the lines the reader took as its notes, each its own: sentences of an answer. */
+const apart = (item: ReplyItem): ReplyItem[] => [
+  { ...item, notes: [] },
+  ...item.notes.map((note) => ({ ...item, recommended: false, lead: note, notes: [] })),
+];
+
 type HelpAnswer = { text: string; status: AnswerStatus; steps?: { textBehind?: true } | null };
 
 /**
@@ -132,7 +173,7 @@ type HelpAnswer = { text: string; status: AnswerStatus; steps?: { textBehind?: t
  */
 export function helpParts(
   answer: HelpAnswer,
-  kind: MeetingHelpKind,
+  kind: CallHelpKind,
 ): { lead: ReplyItem[]; options: ReplyItem[] } {
   return laidOut(readHelpReply(answer.text), {
     shape: HELP_SHAPE[kind],
@@ -141,7 +182,7 @@ export function helpParts(
   });
 }
 
-export function helpItems(answer: HelpAnswer, kind: MeetingHelpKind): ReplyItem[] {
+export function helpItems(answer: HelpAnswer, kind: CallHelpKind): ReplyItem[] {
   const { lead, options } = helpParts(answer, kind);
   return [...lead, ...options];
 }
@@ -151,7 +192,7 @@ export function helpItems(answer: HelpAnswer, kind: MeetingHelpKind): ReplyItem[
  * reading or short line, or with the lead-in of "Am I leading them?", which is its answer; the
  * app's own line that the live text is behind isn't.
  */
-export function helpToKeep(answer: HelpAnswer, kind: MeetingHelpKind): boolean {
+export function helpToKeep(answer: HelpAnswer, kind: CallHelpKind): boolean {
   const { lead, options } = helpParts(answer, kind);
   return (
     answer.status === "done" && (options.length > 0 || (kind === "leading" && lead.length > 0))
@@ -207,6 +248,13 @@ export function uncheckedReason(
 }
 
 const CITATION_MARKER = /\[\^\d+\]/g;
+const OPENING_BOLD = /^(?:\*\*|__)+/;
+
+/** `line` without the `mark` it starts with, keeping a bold mark opened before it ("**★ …**"). */
+function withoutMark(line: string, mark: RegExp): string {
+  const opened = OPENING_BOLD.exec(line)?.[0] ?? "";
+  return opened + line.slice(opened.length).replace(mark, "");
+}
 
 export function readHelpReply(markdown: string): ReplyItem[] {
   const items: ReplyItem[] = [];
@@ -214,18 +262,20 @@ export function readHelpReply(markdown: string): ReplyItem[] {
   for (const raw of markdown.split("\n")) {
     const first = cited;
     cited += raw.match(CITATION_MARKER)?.length ?? 0;
+    // Its marks are read without bold; its text keeps the bold, for the panel to show.
     const line = plainLine(raw);
+    const shown = raw.trim();
     if (line === "" || DEFINITION.test(line) || /^#+\s/.test(line)) continue;
     const current = items.at(-1);
     if (EFFECT_MARK.test(line)) {
-      const effect = pieces(line.replace(EFFECT_MARK, ""), first);
+      const effect = pieces(withoutMark(shown, EFFECT_MARK), first);
       if (current && current.effect === null) current.effect = effect;
       else items.push({ recommended: false, bullet: false, lead: [], notes: [], effect });
       continue;
     }
     const recommended = RECOMMENDED_MARK.test(line);
     const bullet = LINE_MARK.test(line);
-    const text = line.replace(RECOMMENDED_MARK, "").replace(LINE_MARK, "");
+    const text = withoutMark(withoutMark(shown, RECOMMENDED_MARK), LINE_MARK);
     if (!recommended && !bullet && current && current.effect === null && current.lead.length > 0) {
       current.notes.push(pieces(text, first));
       continue;

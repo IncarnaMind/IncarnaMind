@@ -8,6 +8,7 @@ import { describe, expect, test, vi } from "vitest";
 import {
   CLAIM_CHECK_MARK,
   type ConversationAnswer,
+  type ConversationAskResult,
   type Core,
   type Meeting,
   type MeetingHelpKind,
@@ -161,10 +162,17 @@ async function answerOf(core: Core, conversationId: string, answerId: string) {
  * Presses a button: the reply as it ends, before its sentences are judged, and as it is once they
  * are (or once its check ends).
  */
-async function pressed(core: Core, meeting: Meeting, kind: MeetingHelpKind) {
+const pressed = (core: Core, meeting: Meeting, kind: MeetingHelpKind) =>
+  repliedTo(core, () => core.askMeetingHelp({ meetingId: meeting.id, kind }));
+
+/** A question typed in the panel's field (#2925), as `pressed` presses a button. */
+const questioned = (core: Core, meeting: Meeting, text: string) =>
+  repliedTo(core, () => core.askMeetingQuestion({ meetingId: meeting.id, text }));
+
+async function repliedTo(core: Core, ask: () => Promise<ConversationAskResult>) {
   const ended = new Set<string>();
   const stop = core.on("answer.finished", ({ answerId }) => ended.add(answerId));
-  const asked = await core.askMeetingHelp({ meetingId: meeting.id, kind });
+  const asked = await ask();
   if (!asked.asked) throw new Error("Not asked.");
   await vi.waitFor(
     () => {
@@ -781,5 +789,47 @@ describe("call help's ✓ comes only from the sentence check", { timeout: 60_000
     expect(sentAfter.map(asSent)).toEqual(sentBefore.map(asSent));
     expect(deltas.get(after.ids.answerId)).toEqual(deltas.get(before.ids.answerId));
     expect(after.atEnd.text).toBe(before.atEnd.text);
+  });
+});
+
+describe("a question typed during the call (#2925)", { timeout: 60_000 }, () => {
+  test.each([
+    {
+      language: "English",
+      question: "How much is the Enterprise plan per seat?",
+      reply: "The Enterprise plan is $45 per seat a month, with single sign-on [^1]",
+    },
+    {
+      language: "Chinese",
+      question: "Enterprise plan 每个席位多少钱？",
+      reply: "企业版每个席位每月 45 美元，含单点登录 [^1]",
+    },
+  ])(
+    "in $language, its answer cites the Document fact found ahead for the question, and takes ✓ once the check passes its sentence",
+    async ({ question, reply }) => {
+      const { core, meeting, calls, batches } = await setUp({ reply });
+
+      const { atEnd, judged } = await questioned(core, meeting, question);
+      const after = await judged();
+
+      const [first] = calls;
+      expect(first?.prompt).toContain("typed a question about it");
+      expect(block(first?.prompt ?? "", "found-in-documents")).toContain(PRICE);
+      expect(atEnd).toMatchObject({ status: "done", text: reply });
+      expect(marks(after)).toEqual([{ marker: 1, check: "found", passed: true }]);
+      expect(batches[0]?.prompt).toContain(PRICE);
+    },
+  );
+
+  test("a sentence the check doesn't pass keeps its Citation plain", async () => {
+    const reply = "The Enterprise plan is $45 per seat a month, with single sign-on [^1]";
+    const { core, meeting } = await setUp({
+      reply,
+      verdicts: [["Enterprise plan is $45", { verdict: "unsupported" }]],
+    });
+    const after = await (
+      await questioned(core, meeting, "How much is the Enterprise plan per seat?")
+    ).judged();
+    expect(marks(after)).toEqual([{ marker: 1, check: "unsupported", passed: false }]);
   });
 });

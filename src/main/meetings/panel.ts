@@ -5,8 +5,9 @@
  * The panel is a small window above the meeting app, full screen included,
  * that never takes the focus from it by itself: a non-activating panel on macOS, a
  * window that can't be focused elsewhere. Only its field takes the keyboard, while
- * the User writes a quick note in it (#2925): its page asks, on a click there, ⌃⌥N
- * or ⌘K's Quick note, and gives it back on Esc or collapse. It appears when a Meeting starts
+ * the User writes a quick note or a question in it (#2925): its page asks, on a click
+ * there, ⌃⌥N or ⌘K's Quick note and Ask about this call, and gives it back on Esc or
+ * collapse. It appears when a Meeting starts
  * recording, if Settings › Meetings says so, and goes when it stops; the
  * User can close it until the next meeting. It is kept out of the User's
  * own screen share where the system honours content protection (macOS,
@@ -37,6 +38,7 @@ import { FILES_CHANNELS } from "../../shared/bridge";
 import { keysForm } from "../../shared/keyForms";
 import { type HelpShortcut, helpKeysOf, helpShortcutsOn } from "../../shared/meetingHelp";
 import {
+  type FieldMode,
   type HeldKeys,
   MEETING_PANEL_ARGUMENT,
   MEETING_PANEL_CHANNELS,
@@ -117,8 +119,8 @@ export function serveMeetingPanel(core: Core, options: MeetingPanelOptions): voi
   let reported = { folded: false, pinned: false };
   /** The page has said its state, so its listeners are in place; reset when a panel opens. */
   let pageReady = false;
-  /** ⌃⌥N or ⌘K asked for the field while the panel was still opening. */
-  let noteWaiting = false;
+  /** ⌃⌥N or ⌘K asked for the field, in that mode, while the panel was still opening. */
+  let fieldWaiting: FieldMode | null = null;
   const panelState = (): PanelState => ({ shown: !!panel, ...reported });
   const tellShown = () => {
     for (const window of options.appWindows()) {
@@ -148,12 +150,15 @@ export function serveMeetingPanel(core: Core, options: MeetingPanelOptions): voi
       );
   }
 
-  /** Opens the panel if it isn't shown, and asks its page to put the cursor in its field. */
-  function quickNote(): void {
+  /**
+   * Opens the panel if it isn't shown, and asks its page to put the cursor in its field, for a
+   * quick note or a question. On Linux the panel has no field (`helpShortcutsOn`).
+   */
+  function field(mode: FieldMode): void {
     if (!liveMeeting() || !shortcuts.includes("note")) return;
     if (!panel) choose(true);
-    if (panel && pageReady) panel.webContents.send(MEETING_PANEL_CHANNELS.command, "note");
-    else noteWaiting = true;
+    if (panel && pageReady) panel.webContents.send(MEETING_PANEL_CHANNELS.command, mode);
+    else fieldWaiting = mode;
   }
 
   /**
@@ -196,7 +201,7 @@ export function serveMeetingPanel(core: Core, options: MeetingPanelOptions): voi
       return;
     }
     if (kind === "note") {
-      quickNote();
+      field("note");
       return;
     }
     if (panel && !panel.isDestroyed()) {
@@ -298,7 +303,7 @@ export function serveMeetingPanel(core: Core, options: MeetingPanelOptions): voi
     panel = window;
     reported = { folded: false, pinned: false };
     pageReady = false;
-    noteWaiting = false;
+    fieldWaiting = null;
     window.setAlwaysOnTop(true, "screen-saver");
     window.setVisibleOnAllWorkspaces(true, {
       visibleOnFullScreen: true,
@@ -373,14 +378,23 @@ export function serveMeetingPanel(core: Core, options: MeetingPanelOptions): voi
     if (take) takeKeyboard(panel);
     else giveKeyboardBack(panel);
   });
-  ipcMain.on(MEETING_PANEL_CHANNELS.setUp, (event) => {
-    if (!fromPanel(event)) return;
+  /** Brings the app's window to the front, where the panel's click goes on, and tells it what. */
+  const toFront = (channel: string, ...args: unknown[]) => {
     const [front] = options.appWindows();
     if (!front) return;
     if (front.isMinimized()) front.restore();
     front.show();
     front.focus();
-    front.webContents.send(FILES_CHANNELS.setUpModel);
+    front.webContents.send(channel, ...args);
+  };
+  ipcMain.on(MEETING_PANEL_CHANNELS.setUp, (event) => {
+    if (fromPanel(event)) toFront(FILES_CHANNELS.setUpModel);
+  });
+  ipcMain.on(MEETING_PANEL_CHANNELS.openConversation, (event, at: unknown) => {
+    if (!fromPanel(event) || !isRecord(at)) return;
+    const { conversationId, answerId } = at;
+    if (typeof conversationId !== "string" || typeof answerId !== "string") return;
+    toFront(FILES_CHANNELS.openConversation, { conversationId, answerId });
   });
   handle(MEETING_PANEL_CHANNELS.keys, (event) => {
     if (!fromPanel(event)) throw new Error("Refused a call from an unknown page.");
@@ -411,7 +425,7 @@ export function serveMeetingPanel(core: Core, options: MeetingPanelOptions): voi
   });
   ipcMain.on(FILES_CHANNELS.meetingPanelCommand, (event, command: unknown) => {
     if (!options.trusted(event)) return;
-    if (command === "note") quickNote();
+    if (command === "note" || command === "ask") field(command);
     else if ((command === "pin" || command === "fold") && panel && !panel.isDestroyed())
       panel.webContents.send(MEETING_PANEL_CHANNELS.command, command);
   });
@@ -421,9 +435,9 @@ export function serveMeetingPanel(core: Core, options: MeetingPanelOptions): voi
     if (typeof folded !== "boolean" || typeof pinned !== "boolean") return;
     reported = { folded, pinned };
     pageReady = true;
-    if (noteWaiting) {
-      noteWaiting = false;
-      panel.webContents.send(MEETING_PANEL_CHANNELS.command, "note");
+    if (fieldWaiting) {
+      panel.webContents.send(MEETING_PANEL_CHANNELS.command, fieldWaiting);
+      fieldWaiting = null;
     }
     tellShown();
   });

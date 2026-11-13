@@ -77,7 +77,7 @@ import {
 import { holdsNothing, madeByAnswer } from "../../shared/madeMind";
 import { linkTableSources } from "../../shared/markdownTables";
 import { escapeMarkdownText } from "../../shared/markdownText";
-import type { MeetingHelpKind } from "../../shared/meetingHelp";
+import type { CallHelpKind } from "../../shared/meetingHelp";
 import {
   MISSING_NUMBER_REFUSED,
   missingNumberWords,
@@ -660,10 +660,11 @@ export interface AnswersOptions {
    */
   liveTranscript(mindId: string): Promise<LiveTranscript | null>;
   /**
-   * The help button a Question in a conversation is, asked from a Mind whose Meeting
-   * records or is paused: its text is the button's name. Null for any other Question.
+   * The help a Question in a conversation is, asked from a Mind whose Meeting records or is
+   * paused: a button, whose name its text is, or "question", one the User typed in the call-help
+   * panel (#2925). Null for any other Question.
    */
-  meetingHelp?(mindId: string, question: string): MeetingHelpKind | null;
+  meetingHelp?(mindId: string, question: string): CallHelpKind | null;
   /** See `CoreAdapters.helpFormJudged`. */
   helpFormJudged?(): boolean;
   /** See `CoreAdapters.quotesAsGiven`. */
@@ -1386,10 +1387,11 @@ export function createAnswers(options: AnswersOptions) {
     /** Pictures the User picked on pages to ask about (#118): their images go with the Question. */
     pictured?: readonly AskedQuote[];
     /**
-     * One-click help during the call: the button pressed. Its Answer is laid out as
-     * the panel reads it, and is offered the Documents' Tools only.
+     * One-click help during the call: the button pressed, or "question", one the User typed in the
+     * panel (#2925). Its Answer is laid out as the panel reads it, and is offered the Documents'
+     * Tools only.
      */
-    help?: MeetingHelpKind;
+    help?: CallHelpKind;
     /** Written for a Task (#126), which gives way to Answers itself (see ../runs/tasks). */
     task?: boolean;
     /** Offers web search's Tools whatever the Question says: a Research Task's Web source (#130). */
@@ -2668,10 +2670,13 @@ export function createAnswers(options: AnswersOptions) {
           callDocuments?.push(...transcripts);
           if (help) callLanguage = languageSaid(kept);
         }
-        if (help && helpDocuments !== null && kept.length > 0) {
+        // A typed question is searched for itself, said yet or not; a button for the newest lines.
+        const ahead =
+          help === "question" ? context.question : kept.length > 0 ? newestSaid(kept) : null;
+        if (help && helpDocuments !== null && ahead !== null) {
           const transcript = new Set(kept.map((passage) => passage.documentId));
           try {
-            const found = await session.find(newestSaid(kept), controller.signal, {
+            const found = await session.find(ahead, controller.signal, {
               rerank: false,
             });
             const fitting = foundWithin(
@@ -3682,6 +3687,7 @@ export function createAnswers(options: AnswersOptions) {
                   found: foundAhead,
                   language: options.interfaceLanguage(),
                   callLanguage,
+                  asked: context.question,
                 }),
                 ...(textBehind ? [LIVE_TEXT_BEHIND_NOTE] : []),
               ].join("\n\n"),
@@ -4237,7 +4243,8 @@ export function createAnswers(options: AnswersOptions) {
     const { conversation, question, answer } = turn;
     const help = mind ? (options.meetingHelp?.(mind.mindId, question.text) ?? null) : null;
     const callOnly = help !== null && HELP_DOCUMENTS[help] === null;
-    // Each press of a help button stands alone: an earlier suggestion would only steer this one.
+    // Each press of a help button stands alone: an earlier suggestion would only steer this one. A
+    // typed question may follow up on one, so it reads the turns before it.
     // With no Note, the Folder in front (the Library's) is the turn's Folder: its wall is the one read.
     const wallId = mind
       ? options.walledFolder(mind.mindId)
@@ -4272,16 +4279,17 @@ export function createAnswers(options: AnswersOptions) {
       }
       return { message, wall: turnWall };
     });
-    const earlier = help
-      ? []
-      : withWalls
-          .filter(
-            ({ message, wall }) =>
-              wall !== UNKNOWN_WALL &&
-              wall === wallId &&
-              !outsideTurns.has(message.kind === "question" ? message.id : message.questionId),
-          )
-          .map((each) => each.message);
+    const earlier =
+      help !== null && help !== "question"
+        ? []
+        : withWalls
+            .filter(
+              ({ message, wall }) =>
+                wall !== UNKNOWN_WALL &&
+                wall === wallId &&
+                !outsideTurns.has(message.kind === "question" ? message.id : message.questionId),
+            )
+            .map((each) => each.message);
     // A long Mind is cut to what the conversation's Questions are about, the earlier ones too: a
     // follow-up keeps the part the first one found, and so the same start for the prompt cache.
     const asking = [

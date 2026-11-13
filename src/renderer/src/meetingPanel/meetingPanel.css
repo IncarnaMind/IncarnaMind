@@ -30,6 +30,10 @@ body {
   display: flex;
   flex-direction: column;
   width: 408px;
+
+  & > * {
+    flex-shrink: 0;
+  }
 }
 
 .panel-header {
@@ -232,12 +236,20 @@ body {
   gap: 2px;
 }
 
-/* The field for quick notes: one line at rest, a line more at a time to three, then it scrolls; its buttons stay on its first line. */
+/* The field for a quick note or a question: one line at rest, a line more at a time to three, then it scrolls; Note | Ask and its buttons stay on its first line. */
 .ask-field {
   display: flex;
   align-items: flex-start;
   gap: 6px;
   padding: 4px 2px 0;
+}
+
+.ask-field-mode {
+  margin-top: 2px;
+}
+
+.ask-field-segment {
+  height: 26px;
 }
 
 .ask-field-text {
@@ -282,6 +294,100 @@ body {
   align-items: center;
   gap: 4px;
   margin-left: -8px;
+}
+
+.panel-actions-end {
+  margin-left: auto;
+}
+
+/* The Meeting's thread (#2925): it scrolls inside the panel, whose height is capped, and its earlier items are one line each. */
+.panel-thread {
+  flex-shrink: 1;
+  min-height: 0;
+  overflow-y: auto;
+  border-top: 1px solid var(--color-rule);
+  scrollbar-width: thin;
+
+  & .panel-suggestion {
+    border-top: 0;
+  }
+
+  & .panel-suggestion + .panel-suggestion {
+    border-top: 1px solid var(--color-rule);
+  }
+}
+
+.panel-thread-items {
+  display: flex;
+  flex-direction: column;
+  padding-top: 6px;
+}
+
+.help-show-earlier {
+  align-self: flex-start;
+  height: 24px;
+  margin: 0 8px;
+  padding: 0 6px;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--color-ink-meta);
+
+  &:hover {
+    background: var(--color-hover);
+    color: var(--color-ink);
+  }
+}
+
+.help-earlier-row {
+  padding: 0 8px;
+}
+
+.help-earlier {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  height: 26px;
+  padding: 0 6px;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 16px;
+  text-align: left;
+  white-space: nowrap;
+  color: var(--color-ink-meta);
+
+  &:hover {
+    background: var(--color-hover);
+    color: var(--color-ink);
+  }
+}
+
+.help-earlier-time {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.help-earlier-asked {
+  flex-shrink: 0;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 600;
+  color: var(--color-ink-secondary);
+}
+
+.help-earlier-start {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+}
+
+.help-earlier-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .panel-ghost {

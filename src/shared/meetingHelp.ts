@@ -28,10 +28,16 @@ export const helpKindsFor = (template: MeetingHelpTemplate | null): readonly Mee
   ...(template ? TEMPLATE_HELP[template] : []),
 ];
 
-/** How a button's Answer is laid out: options to say, readings of what they want, or short lines. */
-export type HelpShape = "options" | "readings" | "lines";
+/** What a call's help is asked for: a button, or a question the User typed in the panel's field (#2925). */
+export type CallHelpKind = MeetingHelpKind | "question";
 
-export const HELP_SHAPE: Readonly<Record<MeetingHelpKind, HelpShape>> = {
+/** How a button's Answer is laid out: options to say, readings of what they want, or short lines. */
+export type ButtonShape = "options" | "readings" | "lines";
+
+/** How a help Answer is laid out: a button's, or a typed question's, whichever of options, a sentence or two, or short lines answers it. */
+export type HelpShape = ButtonShape | "answer";
+
+export const HELP_SHAPE: Readonly<Record<MeetingHelpKind, ButtonShape> & { question: "answer" }> = {
   say: "options",
   answer: "options",
   want: "readings",
@@ -47,6 +53,7 @@ export const HELP_SHAPE: Readonly<Record<MeetingHelpKind, HelpShape>> = {
   notCovered: "lines",
   decisions: "lines",
   disagree: "lines",
+  question: "answer",
 };
 
 /**
