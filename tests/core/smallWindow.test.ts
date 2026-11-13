@@ -17,6 +17,7 @@ import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import {
   askAndEnd,
   GIB,
+  isAnswer,
   messagesOf,
   QWEN35,
   QWEN35_9B,
@@ -442,6 +443,152 @@ describe("The turn just before, at a small window (#3045)", { timeout: 90_000 },
     const sent = await followUp(64, language, 600);
     expect(sent).toMatchObject({ event: "finished", turn: true, note: true, cap: 4_096 });
   });
+});
+
+/** Text selected in a Note, in `language`, about `words` words long (Chinese: twice as many characters). */
+function selectedText(language: keyof typeof HANDBOOK, words: number): string {
+  if (language === "en") {
+    return Array.from({ length: words }, (_, at) => `berth${at % 9}`).join(" ");
+  }
+  return "引航员把吃水深的船安排在高潮前后通过。"
+    .repeat(Math.ceil((words * 2) / 19))
+    .slice(0, words * 2);
+}
+
+const ASK_ABOUT_SELECTION = { en: "Make this shorter.", "zh-CN": "把这段改短一点。" } as const;
+
+/**
+ * Asks the assistant about `selection`, selected in a Note, on a computer with `memoryGb`: on a
+ * follow-up, after a first Question about the handbook. What its first request held.
+ */
+async function askedAboutSelection(
+  memoryGb: number,
+  language: keyof typeof HANDBOOK,
+  selection: string,
+  { followUp = false, question = ASK_ABOUT_SELECTION[language] as string, model = QWEN35_9B } = {},
+) {
+  const said = HANDBOOK[language];
+  const ollama = await startOllamaServer({
+    models: [model],
+    reply:
+      model === QWEN35_9B
+        ? handbookModel(language, 150)
+        : (body) =>
+            JSON.stringify(body.format ?? "").includes("citations")
+              ? {
+                  content: JSON.stringify({
+                    answer: `${said.quote} [^1].`,
+                    citations: [{ marker: 1, passage: "P1", quote: said.quote }],
+                  }),
+                }
+              : { content: JSON.stringify({ tags: [] }) },
+  });
+  const { core, mind, client } = await setUpLocalModel(ollama, model.name, {
+    memory: memoryGb * GIB,
+    documents: [
+      {
+        name: "Handbook.md",
+        contents: Array.from({ length: 8 }, (_, at) => said.section(at)).join("\n\n"),
+      },
+    ],
+  });
+  const selected = note(selection);
+  writeMind(client, [note(`Notes from the harbour visit. ${said.quote}.`), selected]);
+  await client.settled();
+  let conversationId: string | undefined;
+  if (followUp) {
+    const first = await core.askInConversation({ text: said.first, mindId: mind.id });
+    if (!first.asked) throw new Error("Not asked.");
+    expect((await answerEnded(core, first.answerId)).event).toBe("finished");
+    conversationId = first.conversation.id;
+  }
+  const from = ollama.chats.length;
+  const asked = await core.askInConversation({
+    text: question,
+    mindId: mind.id,
+    focus: { selection, blockIds: [String(selected.attrs?.id)] },
+    ...(conversationId && { conversationId }),
+  });
+  if (!asked.asked) throw new Error("Not asked.");
+  const ended = await answerEnded(core, asked.answerId);
+  // The Answer's own requests, a last step without Tools among them.
+  const sent = ollama.chats.slice(from).filter((chat) => isAnswer(chat.body));
+  const last = messagesOf(sent[0]?.body ?? {}).at(-1)?.content ?? "";
+  const held = (text: string) =>
+    messagesOf(sent[0]?.body ?? {}).some(
+      (message) => message.role !== "system" && message.content.includes(text),
+    );
+  return {
+    ended,
+    sent,
+    last,
+    selection: last.includes(`<selection>\n${selection}\n</selection>`),
+    turn: held(said.first) && held(said.marker),
+    passages: (toolResults(sent[1]?.body ?? {})[0]?.match(/<passage /g) ?? []).length,
+    cap: optionsOf(sent[0]?.body ?? {}).num_predict ?? 0,
+  };
+}
+
+describe("A selection at a small window (#3045)", { timeout: 90_000 }, () => {
+  // protects=at 16k in the assistant, text selected in the Note goes with the Question, whole and marked as the selection, on a first Question and on a follow-up, where the turn just before is kept too, with at least three Passages read and the cap not below its floor; the room to write gives way for it first; fails_when=the selection is left out or sent in part, the turn is left out, fewer than three Passages are read, or the cap goes below 1,024; no_claim=a selection too long to fit, pinned next.
+  test.each([
+    ["en", "a first Question", false],
+    ["en", "a follow-up", true],
+    ["zh-CN", "a first Question", false],
+    ["zh-CN", "a follow-up", true],
+  ] as const)(
+    "%s, %s: a selection of about 60 words is sent whole",
+    async (language, _, followUp) => {
+      const sent = await askedAboutSelection(32, language, selectedText(language, 60), {
+        followUp,
+      });
+      expect(sent.ended.event).toBe("finished");
+      expect(sent.selection).toBe(true);
+      if (followUp) expect(sent.turn).toBe(true);
+      expect(sent.passages).toBeGreaterThanOrEqual(3);
+      expect(sent.cap).toBeGreaterThanOrEqual(1_024);
+    },
+  );
+
+  // protects=a selection too long to go whole beside three Passages at the floor fails as too long before anything is sent, saying the selection is what is too long, where the Question alone would fit; fails_when=a request is sent, the selection is sent in part, or the problem isn't the selection's; no_claim=the line's words, which the renderer's test reads.
+  test.each(["en", "zh-CN"] as const)(
+    "%s: a selection too long fails before anything is sent",
+    async (language) => {
+      const sent = await askedAboutSelection(32, language, selectedText(language, 1_500));
+      expect(sent.ended.event === "failed" && sent.ended.payload.error).toMatchObject({
+        kind: "too-long",
+        tooLong: "selection",
+      });
+      expect(sent.sent).toEqual([]);
+    },
+  );
+
+  // protects=a Question too long on its own keeps today's too-long line, a selection or not: the selection's line is only for a Question that alone would fit; fails_when=it is said to be the selection's; no_claim=the window line, which an empty Question's test decides.
+  test("a Question too long on its own keeps today's line", async () => {
+    const sent = await askedAboutSelection(32, "en", selectedText("en", 60), {
+      question: `${"Why do the harbour pilots wait for the tide? ".repeat(250)}Make this shorter.`,
+    });
+    expect(sent.ended.event === "failed" && sent.ended.payload.error.kind).toBe("too-long");
+    expect(sent.ended.event === "failed" && sent.ended.payload.error.tooLong).toBeUndefined();
+    expect(sent.sent).toEqual([]);
+  });
+
+  // protects=where everything fits, the selection goes as it does on main: at 32k whole, marked, just before the Search scope and the Question; at 8k with the 4B, which reads in one pass, whole too; fails_when=it is moved, cut or left out; no_claim=byte equality with main, which the pull request shows.
+  test.each([
+    ["en", 64, QWEN35_9B],
+    ["zh-CN", 64, QWEN35_9B],
+    ["en", 16, QWEN35],
+    ["zh-CN", 16, QWEN35],
+  ] as const)(
+    "%s at %i GB: the selection goes whole, as on main",
+    async (language, memoryGb, model) => {
+      const selection = selectedText(language, 60);
+      const sent = await askedAboutSelection(memoryGb, language, selection, { model });
+      expect(sent.ended.event).toBe("finished");
+      expect(sent.last).toContain(`<selection>\n${selection}\n</selection>\n\nSearch scope:`);
+      expect(sent.last.endsWith(ASK_ABOUT_SELECTION[language])).toBe(true);
+    },
+  );
 });
 
 describe("Places that keep their own lines (#3045)", () => {

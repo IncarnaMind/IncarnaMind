@@ -229,7 +229,7 @@ describe("a failed Answer's problem line", () => {
     expect(answerProblem("too-long", "ollama")).toBe(ANSWER_PROBLEMS["too-long"]);
   });
 
-  // protects=a window too small says so where it was asked, local or hosted, in both languages, and offers another model, never a shorter Question: the assistant names the assistant, a Question names your Documents and the Question, anywhere else (a press, a check's run, the notes fill, the Models health line) the short-request sentence; fails_when=a line tells the User to shorten the Question, names the wrong place, or offers Retry; no_claim=which places reach it, which the core's tests show.
+  // protects=a window too small says so where it was asked, local or hosted, in both languages, and offers another model, never a shorter Question: the assistant names the assistant, a Question names your Documents and the Question, anywhere else (a press, a check's run, the Models health line) the short-request sentence; fails_when=a line tells the User to shorten the Question, names the wrong place, or offers Retry; no_claim=which places reach it, which the core's tests show.
   test("a window too small: one line for each place it was asked, local and hosted (#3045)", () => {
     const words = (asked: "assistant" | "question" | "none", local: boolean) => {
       const { line, fix } = answerProblem(
@@ -299,6 +299,40 @@ describe("a failed Answer's problem line", () => {
       ANSWER_PROBLEMS["cut-short"],
     );
     expect(ANSWER_PROBLEMS["cut-short"].fix.kind).toBe("retry");
+  });
+
+  // protects=a selection too long to go with the Question at a small window says the selected text is too long and offers another model, local or hosted, in both languages, while a Question too long on its own keeps today's line; fails_when=it tells the User to shorten the Question, offers no action, or today's line changes; no_claim=when it is the selection, which the core's tests show.
+  test("a selection too long: its own line and another model; a Question too long keeps today's (#3045)", () => {
+    const local = answerProblem("too-long", "ollama", false, { local: true, tooLong: "selection" });
+    const hosted = answerProblem("too-long", "openrouter", false, {
+      local: false,
+      tooLong: "selection",
+    });
+    for (const { fix } of [local, hosted]) {
+      expect(fix).toEqual({ kind: "settings", page: "ai", label: "answer.error.chooseModel" });
+    }
+    expect([
+      translate("en", "answer.error.chooseModel"),
+      translate("zh-CN", "answer.error.chooseModel"),
+    ]).toEqual(["Choose another model", "换一个模型"]);
+    const say = (line: MessageKey) =>
+      (["en", "zh-CN"] as const).map((language) =>
+        translate(language, line, { model: "Qwen 3.5 9B" }),
+      );
+    expect(say(local.line)).toEqual([
+      "The selected text is too long for Qwen 3.5 9B on this computer. Select less, or choose another model.",
+      "选中的文字太长，在这台电脑上 Qwen 3.5 9B 放不下。请少选一些，或换一个模型。",
+    ]);
+    expect(say(hosted.line)).toEqual([
+      "The selected text is too long for Qwen 3.5 9B. Select less, or choose another model.",
+      "选中的文字太长，Qwen 3.5 9B 放不下。请少选一些，或换一个模型。",
+    ]);
+    expect(answerProblem("too-long", "ollama", false, { local: true })).toBe(
+      ANSWER_PROBLEMS["too-long"],
+    );
+    expect(answerProblem("too-long", "openrouter", false, { local: false }).line).toBe(
+      "answer.error.too-long.hosted",
+    );
   });
 
   test("what the User can fix in Settings opens the page that fixes it", () => {
