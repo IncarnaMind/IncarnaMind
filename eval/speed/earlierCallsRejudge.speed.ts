@@ -22,6 +22,23 @@ import { env } from "./settings";
 
 const ROOT = resolve(__dirname, "../..");
 
+/**
+ * Replies written by hand that the judge must leave uncounted: an earlier call's words given, in
+ * the reply's own words, as said in that call, with when. The pilot's Chinese replies hold none
+ * (the English one is en-a-then-b-check's first reply). Judged with the saved ones; never a prompt.
+ */
+const POSITIVES = [
+  {
+    id: "zh-a-then-b-say, written by hand",
+    caseId: "zh-a-then-b",
+    kind: "button" as const,
+    text: "★ “上次11月13日那次通话里，你们说过数据必须留在欧洲，这个要求现在还在吗？”[1]\n→ 先确认上次提的要求是否仍然有效",
+    cited: [
+      "[1] 转写稿 · 会议，11月13日 (the earlier call): “我们的数据必须留在欧洲，这是董事会定的” (found)",
+    ],
+  },
+];
+
 test.skipIf(env("REJUDGE") === null)(
   "the earlier-call set's saved replies, judged again",
   async () => {
@@ -81,6 +98,28 @@ test.skipIf(env("REJUDGE") === null)(
           results.push({ number, id: row.id, arm, before, failed: String(error) });
           lines.push(`#${number} ${row.id} ${arm}: the judge failed`);
         }
+      }
+    }
+    for (const positive of POSITIVES) {
+      number++;
+      const each = EARLIER_CALL_CASES.find((known) => known.id === positive.caseId);
+      if (!each) throw new Error(`No case ${positive.caseId}.`);
+      try {
+        const reading = await judge(
+          model,
+          each,
+          positive.kind,
+          earlierStartedOf(rows, positive.caseId),
+          positive.text,
+          positive.cited,
+        );
+        results.push({ number, id: positive.id, positive: true, after: reading });
+        lines.push(
+          `#${number} ${positive.id}: earlierAsThis ${reading.earlierAsThis} (must be false)${reading.earlierAsThis ? "  POSITIVE COUNTED" : ""}`,
+        );
+      } catch (error) {
+        results.push({ number, id: positive.id, positive: true, failed: String(error) });
+        lines.push(`#${number} ${positive.id}: the judge failed`);
       }
     }
     await ledger.record(judged.spent());

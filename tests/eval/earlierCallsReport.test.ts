@@ -219,6 +219,9 @@ describe("The earlier-call gate's section", () => {
     expect(section).toContain(
       "By order: main the earlier call brings the changes: 2 of 2; the earlier call said it first: 1 of 2; the branch the earlier call brings the changes: 0 of 2; the earlier call said it first: 0 of 2.",
     );
+    expect(section).toContain(
+      "Button replies graded right: main 4, the branch 4 (the earlier call brings the changes: main 2, the branch 2; the earlier call said it first: main 2, the branch 2).",
+    );
   });
 });
 

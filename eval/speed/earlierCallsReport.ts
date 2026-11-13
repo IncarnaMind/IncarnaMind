@@ -78,6 +78,16 @@ function byOrder(rows: readonly PairedRow[], arms: readonly ("baseline" | "candi
   }).join("; ");
 }
 
+/** A count on each arm, in all and by order: "main 3, the branch 1 (… : main 3, the branch 0; …)". */
+function armsByOrder(rows: readonly PairedRow[], test: (run: ArmRun) => boolean) {
+  const both = (cell: readonly PairedRow[]) =>
+    `main ${count(cell, "baseline", test)}, the branch ${count(cell, "candidate", test)}`;
+  const orders = ORDERS.map(
+    ([order, pattern]) => `${order}: ${both(rows.filter((row) => pattern.test(row.id)))}`,
+  );
+  return `${both(rows)} (${orders.join("; ")})`;
+}
+
 function pilotSection(rows: readonly PairedRow[], model: string): string[] {
   const presses = rows.filter(isButton);
   const replies = presses.length * 2;
@@ -135,13 +145,13 @@ function gateSection(rows: readonly PairedRow[], model: string): string[] {
     "|---|---|---|",
     ...byButtonAndLanguage(both(buttons), "candidate"),
     "",
-    `**Bar 2, last time still answered, ${model}: ${bar2}.** Of ${asked.length} "last time" questions both arms finished, given as said then, with when, and cited: main ${mainThen}, the branch ${branchThen} (at least ${floor} needed).`,
+    `**Bar 2, last time still answered, ${model}: ${bar2}.** Of ${asked.length} "last time" questions both arms finished, given as said then, with when, and cited: main ${mainThen}, the branch ${branchThen} (at least ${floor} needed). By order: ${armsByOrder(asked, answeredThen)}.`,
     "",
-    `**Bar 3, no worse on this call, ${model}: ${branchRight >= mainRight ? "holds" : "fails"}.** Button replies graded right: main ${mainRight}, the branch ${branchRight}.`,
+    `**Bar 3, no worse on this call, ${model}: ${branchRight >= mainRight ? "holds" : "fails"}.** Button replies graded right: ${armsByOrder(both(buttons), right)}.`,
     "",
-    `**Bar 4, no new false Supported, ${model}: ${newFalse === 0 ? "holds" : "fails"}.** Items with a false Supported on the branch and none on main: ${newFalse}.`,
+    `**Bar 4, no new false Supported, ${model}: ${newFalse === 0 ? "holds" : "fails"}.** Items with a false Supported on the branch and none on main: ${newFalse}. With any false Supported: ${armsByOrder(both(rows), (run) => run.falseSupported > 0)}.`,
     "",
-    `**Bar 5, no more items failing, ${model}: ${failedBranch <= failedMain ? "holds" : "fails"}.** Failed to run: main ${failedMain}, the branch ${failedBranch}.`,
+    `**Bar 5, no more items failing, ${model}: ${failedBranch <= failedMain ? "holds" : "fails"}.** Failed to run: ${armsByOrder(rows, (run) => run.status === "failed")}.`,
     "",
     `**Reported, ${model}: ✓ beside an earlier call's line in a sentence saying the other side said, asked or wants it in this call:** main ${rows.reduce((sum, row) => sum + checkedOnThisCall(row.baseline), 0)} places, the branch ${rows.reduce((sum, row) => sum + checkedOnThisCall(row.candidate), 0)}.`,
     "",

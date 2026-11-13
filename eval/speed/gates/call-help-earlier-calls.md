@@ -59,7 +59,7 @@ The judge reads each reply against both calls' lines and the earlier call's star
 4. **No new false Supported.** No item has a false Supported on the branch and none on main.
 5. **No more items failing to run.**
 
-A bar that fails stops the gate there, and the change doesn't ship as it is.
+A bar that fails stops the gate there, and the change doesn't ship as it is. Every bar's counts are given in all and by the order of the two calls (the earlier call the one that brings the changes, or the one that said it first), since nearly all of main's fault in the pilot is in one order; the report's section prints both.
 
 ## Reported, not gated
 
@@ -118,11 +118,14 @@ Before any paid request:
 - What the branch sends is unchanged, frozen at 85799c87a.
 
 **Judged again (`../earlierCallsRejudge.speed.ts`).** The pilot's 48 saved replies go to the judge alone, Claude Sonnet 5.5, under the first key's judge lease, on the gate's one ledger, for about $0.08.
-- It holds if the judge now lists the four firm misses, en-a-then-b-answer (first), zh-a-then-b-say (second) and zh-a-then-b-answer (both), and changes none of the 40 replies both readings agreed on.
+- **A positive beside the negatives.** In each language at least one reply that gives an earlier call's words and says so in its own words must stay uncounted.
+  - English: en-a-then-b-check (first), which gives the earlier requirement as "the earlier call said…".
+  - Chinese: none of the pilot's replies says so in its own words (they say "the document"), so one is written by hand for zh-a-then-b, as a line to say that gives the earlier call's requirement as said in that call, with its date. It is judged with the saved replies as one extra request, kept in the re-judging tool's own file and never in a prompt.
+- It holds if the judge now lists the four firm misses, en-a-then-b-answer (first), zh-a-then-b-say (second) and zh-a-then-b-answer (both); changes none of the 40 replies both readings agreed on; and leaves each language's positive uncounted.
 - The three borderline replies and zh-c-then-d-say (second) are reported, and either way is accepted.
 - It counts only with no judge request refused or failed. There is one try and no further tuning.
 
-**Which yardstick bar 1 counts.** If the judging again holds, bar 1 counts the judge, on both arms.
+**Which yardstick bar 1 counts.** If the judging again holds, bar 1 counts the judge, on both arms, in all and by order.
 - If it doesn't, bar 1 counts a hand reading of the gate run's button replies by a second reader, blind to the arm. The replies are written to a file without arm labels, with the key kept apart. The judge's count is reported beside it.
 - Bar 1 is also reported by order and by language, as the report's section prints it.
 
