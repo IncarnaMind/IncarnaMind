@@ -20,6 +20,7 @@ import type {
 import { citationAttributesOf } from "../../src/shared/blockJson";
 import { asCitedNow } from "../../src/shared/citedNow";
 import { citedSentences as markedSentences } from "../../src/shared/citedSentences";
+import { leftOutByAssistant, partsWrittenBy, resultFromParts } from "../../src/shared/claimParts";
 import type { Hear } from "../lib/tokens";
 import { type HeardCheck, heardChecks } from "./checkRequests";
 
@@ -49,6 +50,8 @@ export interface CheckedPart extends CheckReason {
   /** The quotes the check gave for it, as the Citation check found them. */
   evidence: Pick<CitationAttributes, "documentName" | "quote" | "check" | "checkReason">[];
   figures: (CheckReason & { verdict: ClaimPartJudgment["verdict"] })[];
+  /** An opinion left out that is the assistant's own conclusion (#3019). */
+  byAssistant?: true;
 }
 
 export interface SentenceSupport extends CheckReason {
@@ -91,6 +94,7 @@ function partOf(sentence: string, part: ClaimCheckPart): CheckedPart {
       verdict: figure.result.verdict,
       ...reasonOf(figure.result),
     })),
+    ...(leftOutByAssistant(part) && { byAssistant: true as const }),
   };
 }
 
@@ -141,7 +145,8 @@ function markOf(sentence: string, result: ClaimCheckResult): ClaimCheckAttribute
 /**
  * The check's result as a Note reads it against the sentence's own Citations (`asCitedNow`,
  * #3019): a Supported part resting on a Passage they don't hold reads Not checked,
- * `found-elsewhere`, so the record never counts a ✓ the Note doesn't show.
+ * `found-elsewhere`, so the record never counts a ✓ the Note doesn't show. An Answer's sentences
+ * are all the assistant's, so an opinion the check left out is its own conclusion, as in a Note.
  */
 export function readAsNote(
   checked: Pick<CitedSentence, "sentence" | "cited">,
@@ -152,7 +157,11 @@ export function readAsNote(
     contentHash: cited.contentHash ?? null,
     quote: cited.quote,
   }));
-  const { state, ...read } = asCitedNow(markOf(checked.sentence, result), held, checked.sentence);
+  const parts = result.parts && partsWrittenBy(result.parts, true);
+  const written = parts?.some(leftOutByAssistant)
+    ? { ...result, ...resultFromParts(parts) }
+    : result;
+  const { state, ...read } = asCitedNow(markOf(checked.sentence, written), held, checked.sentence);
   return { ...read, state: state === "checking" ? "not-checked" : state };
 }
 
@@ -255,7 +264,9 @@ type Counted = Pick<SentenceSupport, "sentence" | "verdict"> &
  * no ✓ until that Passage is its Citation, and counted Supported, listed apart (#3019).
  */
 export function backedByFound(sentence: Counted): boolean {
-  if (sentence.verdict !== "not-checked") return false;
+  // With the assistant's own conclusion in it, it reads Not checked whatever it cites.
+  if (sentence.verdict !== "not-checked" || sentence.parts?.some((part) => part.byAssistant))
+    return false;
   const parts = (sentence.parts ?? []).filter(
     (part) => part.verdict !== null && part.verdict !== "supported",
   );
