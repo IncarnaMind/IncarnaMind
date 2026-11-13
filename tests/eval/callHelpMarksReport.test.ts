@@ -193,8 +193,13 @@ describe("the call-help marks gate's report", () => {
     const otherSetup = sentPair(sent(asked), sent(asked, 1));
     console.log(`The same messages: ${JSON.stringify(alike)}`);
     console.log(`Messages a split line changed: ${JSON.stringify(split)}`);
-    expect(alike).toEqual({ sameRequest: true, sameSetup: true, messageDifference: null });
-    expect(split).toMatchObject({ sameRequest: false, sameSetup: true });
+    expect(alike).toEqual({
+      sameRequest: true,
+      sameSetup: true,
+      messageDifference: null,
+      sameOutsideHelp: true,
+    });
+    expect(split).toMatchObject({ sameRequest: false, sameSetup: true, sameOutsideHelp: false });
     expect(split.messageDifference).toContain("Can we start in June?");
     expect(split.messageDifference).toContain("[0:06 Them] in June?");
     expect(otherSetup).toMatchObject({ sameSetup: false, messageDifference: null });
@@ -202,6 +207,20 @@ describe("the call-help marks gate's report", () => {
       sameRequest: false,
       sameSetup: false,
       messageDifference: "a request missing",
+      sameOutsideHelp: false,
+    });
+    // A pair whose button's instructions alone differ, as an arm that changes call help's writing.
+    const help = (words: string) => ({
+      ...sent(asked),
+      messages: JSON.stringify([
+        {
+          role: "user",
+          content: `<live-transcript>${asked}</live-transcript>\n\n<help>\n${words}\n</help>`,
+        },
+      ]),
+    });
+    expect(sentPair(help("One sentence."), help("Two sentences."))).toMatchObject({
+      sameOutsideHelp: true,
     });
     const difference = split.messageDifference;
 
