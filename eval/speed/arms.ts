@@ -13,9 +13,8 @@ import type {
   CheckPathsOverride,
   Core,
 } from "../../src/core";
-import { isSentenceBatch, readBatch } from "../../src/core/answers/checks/sentenceBatch";
+import { isSentenceBatch, readBatchText } from "../../src/core/answers/checks/sentenceBatch";
 import { estimateTokens } from "../../src/core/answers/context";
-import { replyJson } from "../../src/core/answers/judge";
 import type { ChatModelSpec } from "../../src/core/providers/models";
 
 export interface Arm {
@@ -243,7 +242,7 @@ function checkReplyOf(params: LanguageModelV4CallOptions, text: string): CheckRe
   const system = params.prompt.find((message) => message.role === "system");
   if (!system || !isSentenceBatch(system.content)) return null;
   const sentences = JSON.stringify(params.prompt).match(/<sentence number=/g)?.length ?? 0;
-  const read = readBatch(replyJson(text), sentences)?.size ?? 0;
+  const read = readBatchText(text, sentences)?.size ?? 0;
   return { sentences, read, ...(read < sentences && { reply: text }) };
 }
 
