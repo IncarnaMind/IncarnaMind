@@ -15,9 +15,9 @@
  * in it included, are read as written, in their quotation marks.
  */
 import type { AnswerStatus } from "../core/api";
-import { MARKER } from "./answerSentences";
+import { MARKER, withoutMarkerRuns } from "./answerSentences";
 import { FIGURE_MARKER } from "./figureMarkers";
-import { factLinesText, withoutCitations } from "./helpFactLines";
+import { factLinesText } from "./helpFactLines";
 import {
   type CallHelpForm,
   EFFECT_MARK,
@@ -404,7 +404,7 @@ export function helpReplyRead(markdown: string, layout: HelpLayout): HelpReplyRe
               ((shape !== "lines" && EFFECT_MARK.test(plainLine(line))) ||
                 (shape === "readings" && lead !== undefined && readingItself(lead, line)));
             const words = lead && said.includes(lead) ? optionRead(line) : line;
-            return own ? withoutCitations(words) : words;
+            return own ? withoutMarkerRuns(words) : words;
           }),
           origin: lines.map((_, index) => index),
         };

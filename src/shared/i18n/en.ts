@@ -1534,6 +1534,8 @@ export const en = {
     "Verdict hidden: the quote the model gave is from another Document than the one the sentence is about.",
   "claim.reason.found-elsewhere":
     "Verdict hidden: the quote that backs this sentence isn’t among its Citations. Add it as a Citation, then check again.",
+  "claim.reason.assistant-conclusion":
+    "The cited fact is supported. The rest is the assistant’s own conclusion and wasn’t checked.",
   "claim.reason.kept-inside": "Kept inside {detail}",
   "claim.reason.read-budget": "Stopped · {spent} spent",
   "claim.reason.read-budget.unknown": "Stopped at the most this read may spend.",

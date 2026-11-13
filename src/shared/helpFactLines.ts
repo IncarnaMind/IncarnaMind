@@ -6,7 +6,7 @@
  * or an own line comes off, as one on a "→" line does. A fact or own line the model wrote outside an
  * option goes into the option it belongs to, so the text kept reads the same way again.
  */
-import { MARKER } from "./answerSentences";
+import { withoutMarkerRuns as withoutCitations } from "./answerSentences";
 import { EFFECT_MARK, LINE_MARK, plainLine, RECOMMENDED_MARK } from "./meetingHelp";
 
 export const FACT_MARK = /^(?:>|＞)\s*/;
@@ -15,20 +15,6 @@ export const OWN_MARK = /^(?:=|＝)\s*/;
 const MARK_ONLY = /^(?:[-*•>＞=＝]|\d+[.)]?)$/;
 const SKIPPED = /^(?:\[\^\d{1,4}\]:|#+\s)/;
 const BEFORE_MARK = /^\s*(?:\*\*|__)?\s*/;
-/** A run of Citation markers side by side, with the space before it. */
-const CITATIONS_ON_LINE = new RegExp(`[ \\t]*(?:${MARKER.source})+`, "g");
-
-/**
- * `line` without its Citation markers. The space before a run of them stays only when a word or a
- * number follows it, so "keep [^2][^3]moving" reads "keep moving" and "元[^3]对方" reads "元对方".
- */
-export const withoutCitations = (line: string) =>
-  line.replace(CITATIONS_ON_LINE, (found: string, ...rest: unknown[]) => {
-    const at = rest.find((each) => typeof each === "number") ?? 0;
-    return /^[\p{L}\p{N}]/u.test(line.charAt(at + found.length))
-      ? (/^[ \t]*/.exec(found)?.[0] ?? "")
-      : "";
-  });
 
 /** `line` with `mark` taken off its words, put in place of it, its indent and bold kept. */
 function marked(line: string, mark: RegExp, put = ""): string {

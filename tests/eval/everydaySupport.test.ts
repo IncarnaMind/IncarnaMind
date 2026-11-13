@@ -9,6 +9,8 @@ import {
   backedByFound,
   checkCitedSentences,
   citedSentences,
+  disagreementLines,
+  disagreements,
   supportedShare,
   supportRates,
   withoutSupportLines,
@@ -422,5 +424,143 @@ describe("A sentence backed by a Passage the check found", () => {
     expect([elsewhere?.verdict, elsewhere?.reason]).toEqual(["not-checked", "found-elsewhere"]);
     expect(elsewhere && backedByFound(elsewhere)).toBe(true);
     expect(own?.verdict).toBe("supported");
+  });
+});
+
+describe("An Answer's sentence with a conclusion the check left out", () => {
+  const QUOTE = "self-attention layers are faster than recurrent layers";
+  const FACT = "Self-attention layers are faster than recurrent ones";
+  const cited = {
+    ...evidence(QUOTE),
+    documentId: "doc-1",
+    contentHash: "hash-1",
+    check: "found" as const,
+    checkReason: null,
+  };
+  const fact = part(0, FACT.length, {
+    kind: "fact",
+    verdict: "supported",
+    evidence: [cited],
+    decidingEvidence: 0,
+  });
+  const checked = (claim: string): ClaimCheckResult =>
+    claim === `${FACT}.`
+      ? verdict("supported", null, [fact])
+      : verdict("supported", null, [
+          fact,
+          part(FACT.length + 2, claim.length - 1, { kind: "opinion", verdict: null }),
+        ]);
+
+  // protects=every sentence of an Answer is the assistant's, so the record reads one whose cited fact is supported and whose conclusion the check left out as Not checked for the assistant's own conclusion, as a Note does (#3019), and counts it neither Supported nor backed by a found Passage; one with no opinion part keeps its ✓; fails_when=the record counts a ✓ the Note doesn't show, or takes one from a sentence with nothing left out; no_claim=the check's own verdicts, which stay the model's.
+  test("reads Not checked for the assistant's own conclusion, and one with none keeps its ✓", async () => {
+    const [conclusion, plain] = await checkCitedSentences(
+      { checkClaim: async (input) => checked(input.claim) },
+      {
+        text: `${FACT}, so long books are cheap to read [^1]. ${FACT} [^1].`,
+        citations: CITATIONS,
+      },
+    );
+    expect(conclusion).toMatchObject({ verdict: "not-checked", reason: "assistant-conclusion" });
+    expect(conclusion?.parts.map((each) => [each.kind, each.verdict, each.byAssistant])).toEqual([
+      ["fact", "supported", undefined],
+      ["opinion", null, true],
+    ]);
+    expect(plain).toMatchObject({ verdict: "supported", reason: null });
+    expect(plain?.parts.map((each) => each.byAssistant)).toEqual([undefined]);
+    if (!conclusion || !plain) throw new Error("Both sentences are recorded.");
+    expect(backedByFound(conclusion)).toBe(false);
+    expect(supportRates([{ model: "m", language: "en", support: [conclusion, plain] }])).toEqual([
+      { model: "m", language: "en", supported: 1, backedByFound: 0, judged: 1, notChecked: 1 },
+    ]);
+  });
+});
+
+describe("The Answer panel's own check, kept beside the part-by-part one", () => {
+  const TEXT =
+    "Self-attention layers are faster than recurrent ones [^1]. Cost is quadratic [^2]. It suits short inputs best [^1].";
+  const FASTER = citation(1, "self-attention layers are faster than recurrent layers");
+  const COST = citation(2, "O(n^2 · d)");
+  const LIMITED = { ...COST, check: "not-checked" as const, checkReason: "answer-limit" as const };
+  const judged = [
+    {
+      ...FASTER,
+      check: "unsupported" as const,
+      checkReason: null,
+      verdict: "The paper says nothing of short inputs.",
+      passedAt: [0],
+    },
+    LIMITED,
+  ];
+
+  // protects=each cited sentence keeps how the Answer panel's check left it: the chip the User sees beside it, the worst of its Citations', and whether that check passed the sentence itself where its marker sits, so a marker two sentences share shows the worse one beside both; a sentence whose Citations carry no check keeps none; fails_when=the record loses the panel's result, takes a reused marker's chip as the sentence's own pass, or reads a pass where the panel gave none; no_claim=how the panel judges.
+  test("the chip beside each sentence, and whether its own sentence passed", async () => {
+    const records = await checkCitedSentences(
+      { checkClaim: async () => verdict("supported") },
+      { text: TEXT, citations: judged },
+    );
+    expect(records.map((each) => [each.panel?.shown.check, each.panel?.passed])).toEqual([
+      ["unsupported", true],
+      ["not-checked", false],
+      ["unsupported", false],
+    ]);
+    expect(records[0]?.panel?.shown).toEqual({
+      marker: 1,
+      check: "unsupported",
+      reason: null,
+      verdict: "The paper says nothing of short inputs.",
+    });
+    expect(records[1]?.panel?.shown.reason).toBe("answer-limit");
+    const [unjudged] = await checkCitedSentences(
+      { checkClaim: async () => verdict("supported") },
+      { text: TEXT, citations: CITATIONS },
+    );
+    expect(unjudged?.panel).toBeUndefined();
+  });
+
+  // protects=the report's table counts the sentences where the panel's chip and the part-by-part check disagree on the ✓, by what each shows, model and language, a ✓ backed by a Passage the check found counting as the part check's ✓; sentences they agree on, or recorded without the panel's result, aren't in it; fails_when=agreeing sentences are counted, a disagreement is lost, or languages are summed; no_claim=which check is right.
+  test("the report's table of the sentences the two checks disagree on", async () => {
+    const records = await checkCitedSentences(
+      {
+        checkClaim: async (input) =>
+          input.claim.startsWith("Cost")
+            ? verdict("supported")
+            : verdict("unsupported", {
+                reason: "No Passage says so.",
+                covered: null,
+                uncovered: null,
+              }),
+      },
+      {
+        text: TEXT,
+        citations: [
+          { ...FASTER, check: "found" as const, checkReason: null, passedAt: [0, 2] },
+          LIMITED,
+        ],
+      },
+    );
+    const [first] = records;
+    if (!first) throw new Error("No sentence was recorded.");
+    const { panel: _panel, ...unjudged } = first;
+    const sentences = [
+      ...records.map((each) => ({ ...each, model: "m", language: "en" })),
+      ...records.map((each) => ({ ...each, model: "m", language: "zh-CN" })),
+      { ...unjudged, model: "m", language: "en" },
+    ];
+    expect(disagreements(sentences)).toEqual([
+      { model: "m", language: "en", panel: "✓", parts: "Not found", sentences: 2 },
+      { model: "m", language: "zh-CN", panel: "✓", parts: "Not found", sentences: 2 },
+      { model: "m", language: "en", panel: "not-checked (answer-limit)", parts: "✓", sentences: 1 },
+      {
+        model: "m",
+        language: "zh-CN",
+        panel: "not-checked (answer-limit)",
+        parts: "✓",
+        sentences: 1,
+      },
+    ]);
+    expect(disagreementLines(sentences)).toContain(
+      "| m | en | not-checked (answer-limit) | ✓ | 1 |",
+    );
+    expect(disagreementLines([])).toEqual([]);
   });
 });

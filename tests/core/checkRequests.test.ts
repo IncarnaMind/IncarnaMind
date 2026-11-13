@@ -324,7 +324,7 @@ describe.each(LANGUAGES)("check requests ($language)", (example) => {
     ]);
   });
 
-  // protects=a written sentence with an opinion costs one request more than a plain one, with its fact checked and its opinion left out, and the same parts and result Check this Note gives it in a Note of the User's and on the assistant's own Note (#2002, #1635); fails_when=the opinion is judged as a fact, the two checks disagree, or Check this Note changes the written mark with no edit; no_claim=how a real model splits a sentence.
+  // protects=a written sentence with an opinion costs one request more than a plain one, with its fact checked and its opinion left out, and the same parts Check this Note gives it in a Note of the User's and on the assistant's own Note (#2002, #1635); the assistant's sentence reads Not checked for its own conclusion, the User's typed one Supported (#3019); fails_when=the opinion is judged as a fact, the two checks give other parts, the assistant's sentence shows ✓, or Check this Note changes the written mark with no edit; no_claim=how a real model splits a sentence.
   test("a written sentence with an opinion gets the parts and result Check this Note gives it", async () => {
     const parts = (sentence: string) =>
       partsIn(sentence, [
@@ -345,17 +345,13 @@ describe.each(LANGUAGES)("check requests ($language)", (example) => {
 
     expect(change.selfCheck?.sent).toBe(1);
     expect(checkRequests(model)).toEqual({ sorting: 0, steps: 4, asked: 0 });
-    expect(written).toEqual([
-      {
-        state: "supported",
-        parts: [
-          { text: example.opinion, kind: "opinion", verdict: null },
-          { text: example.fact, kind: "fact", verdict: "supported" },
-        ],
-      },
-    ]);
+    const parted = [
+      { text: example.opinion, kind: "opinion", verdict: null },
+      { text: example.fact, kind: "fact", verdict: "supported" },
+    ];
+    expect(written).toEqual([{ state: "not-checked", parts: parted }]);
 
-    // The same sentence the User types gets the same parts and result from Check this Note.
+    // The same sentence the User types gets the same parts from Check this Note, and its ✓.
     const typed = await core.createMind({ title: "Typed", folderId });
     const own = await connectToMind(core, typed.id);
     const words = example.mixed.replace("[^1]", "");
@@ -368,7 +364,7 @@ describe.each(LANGUAGES)("check requests ($language)", (example) => {
     ).toMatchObject({
       kind: "checked",
     });
-    expect(await marksOf(own)).toEqual(written);
+    expect(await marksOf(own)).toEqual([{ state: "supported", parts: parted }]);
 
     // Check this Note on the assistant's Note, its words accepted, keeps the written parts and result.
     await resolveChanges(client, "accept");
@@ -521,7 +517,7 @@ describe.each(LANGUAGES)("check requests ($language)", (example) => {
     ]);
   });
 
-  // protects=a number inside an opinion is checked as its own fact inside it, in what the assistant writes and in Check this Note, with the same parts and result, and the opinion is left out whole (#1932, #2002); fails_when=the sentence is left out whole as an opinion, its number goes unchecked, or the two checks give it different parts; no_claim=how a real model sorts the sentence.
+  // protects=a number inside an opinion is checked as its own fact inside it, in what the assistant writes and in Check this Note, with the same parts, and the opinion is left out whole (#1932, #2002); the assistant's sentence reads Not checked for its own view, the User's typed one Supported (#3019); fails_when=the sentence is left out whole as an opinion, its number goes unchecked, the two checks give it different parts, or the assistant's sentence shows ✓; no_claim=how a real model sorts the sentence.
   test("a number inside an opinion is checked as its own fact, written or typed", async () => {
     const { figure } = example;
     const opinion = (sentence: string): Part[] => [
@@ -547,15 +543,11 @@ describe.each(LANGUAGES)("check requests ($language)", (example) => {
     );
     const core = await coreWith(model);
     const folderId = await inFolder(core, "Revenue.md", `# Revenue\n\n${figure.source}\n`);
-    const expected = [
-      {
-        state: "supported",
-        parts: [
-          { text: figure.opinion, kind: "opinion", verdict: null },
-          { text: figure.number, kind: "fact", verdict: "supported" },
-        ],
-      },
+    const parts = [
+      { text: figure.opinion, kind: "opinion", verdict: null },
+      { text: figure.number, kind: "fact", verdict: "supported" },
     ];
+    const expected = [{ state: "not-checked", parts }];
 
     const words = figure.written.replace("[^1]", "");
     const { change, client } = await write(core, folderId);
@@ -576,7 +568,7 @@ describe.each(LANGUAGES)("check requests ($language)", (example) => {
     expect(
       await core.checkMind({ requestId: "typed", mindId: typed.id, mode: "all" }),
     ).toMatchObject({ kind: "checked" });
-    expect(await marksOf(own)).toEqual(expected);
+    expect(await marksOf(own)).toEqual([{ state: "supported", parts }]);
     expect(checked).toEqual([words, figure.number, figure.number]);
 
     await resolveChanges(client, "accept");

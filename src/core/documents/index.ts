@@ -585,6 +585,8 @@ export interface DocumentsOptions {
     retryMs: number;
     detectDataless: boolean;
   };
+  /** See `LibraryOptions.readsTimedByWriter`. */
+  readsTimedByWriter(path: string): boolean;
   reportError?: (error: unknown) => void;
   log?: Logger;
   /** Local mode: what arrives now never goes to a cloud service by itself (../tags/held). */
@@ -2076,6 +2078,7 @@ export function createDocuments(options: DocumentsOptions) {
     detectDataless: options.linkedFolders.detectDataless,
     readingSeconds: (files) => reading.seconds(files),
     localOnly: () => options.localOnly?.() ?? false,
+    readsTimedByWriter: options.readsTimedByWriter,
     hooks: {
       process,
       stillQueued: (id) => {

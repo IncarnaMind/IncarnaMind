@@ -388,6 +388,14 @@ export function noteHealth(doc: ProseMirrorNode, input: NoteHealthInput): NoteHe
         if (!lookFor(true)) health.notYetCited.push(from);
         return;
       }
+      // Counted as its opinion left out is (#3019): it neither holds the badge back nor counts
+      // among the supported.
+      if (claim?.shown.state === "not-checked" && claim.shown.reason === "assistant-conclusion") {
+        health.checkable++;
+        checkedAt(claim.check.checkedAt);
+        lookFor(true);
+        return;
+      }
       if (state.kind === "to-check") {
         health.checkable++;
         lookFor(true);

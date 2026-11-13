@@ -1105,11 +1105,14 @@ export function createCore(adapters: CoreAdapters): Core {
   let annotations: ReturnType<typeof createAnnotations>;
   /** Set once created, so a failure after it can close it. */
   let createdDocuments: ReturnType<typeof createDocuments> | undefined;
+  /** The Transcripts module's, once it is made: they are made after the Documents. */
+  let readsTimedByWriter = (_path: string): boolean => false;
   try {
     documents = createdDocuments = createDocuments({
       db,
       dataDir,
       now,
+      readsTimedByWriter: (path) => readsTimedByWriter(path),
       localOnly: () => embedding.localOnly(),
       log: adapters.log ?? silentLogger,
       model: embedding.model,
@@ -5039,6 +5042,7 @@ export function createCore(adapters: CoreAdapters): Core {
       dataDir,
       transcriber,
       model: transcriptionModel,
+      timers: paceTimers,
       cloud: cloudTranscription,
       ...(speakerPass && { speakers: speakerPass }),
       documents: {
@@ -5116,6 +5120,7 @@ export function createCore(adapters: CoreAdapters): Core {
       log: adapters.log ?? silentLogger,
     });
 
+  if (transcripts) readsTimedByWriter = (path) => transcripts.timesReads(path);
   transcripts?.dropPurged();
   // Meetings (#135): while audio is being captured, background model work holds back.
   const meetings = createMeetings({
