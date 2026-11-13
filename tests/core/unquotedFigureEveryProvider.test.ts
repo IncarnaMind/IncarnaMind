@@ -352,6 +352,11 @@ describe("On the model on this computer, which the check doesn't offer calculate
     ["It peaked at 3 points.", "It peaked at three points."],
     ["The cap is 2.3 percentage points.", "It was capped at two point three percentage points."],
     ["At 6 percentage points, the gap is wide.", "At six percentage points, the gap is wide."],
+    ["It rose 2.3%.", "It rose two point three percent."],
+    ["The index rose 1.5 points.", "The index rose one point five points."],
+    ["Revenue was 1.5 million.", "Revenue was one point five million."],
+    ["Costs were 3.2 times the budget.", "Costs were three point two times the budget."],
+    ["The ratio was 0.5.", "The ratio was zero point five."],
   ])("%s beside “%s” keeps its ✓", async (claim, quote) => {
     expect(await ended(claim, `Figures\n${quote}\n`, quote)).toBe("supported");
   });
@@ -374,6 +379,14 @@ describe("On the model on this computer, which the check doesn't offer calculate
     ["Churn fell 3%.", "She made three points about churn, and it fell."],
     ["It rose 3%.", "He raised three points in the meeting, and it rose."],
     ["Costs fell 2%.", "There are two points on the agenda, and costs fell."],
+    ["Turnout rose 23%.", "She made twenty-three points about turnout, and it rose."],
+    ["It rose 2%.", "It rose two point three percent."],
+    ["It rose 0%.", "It rose by zero point five."],
+    ["The index rose 1 point.", "The index rose one point five."],
+    ["Fees rose 5 basis points.", "Fees rose a hundred and five basis points."],
+    ["The index rose 1 point.", "At\u00a0one point the index rose."],
+    ["The index rose 1 point.", "At  one point the index rose."],
+    ["The index rose 1 point.", "The index fell. At\none point it rose."],
   ])("%s beside “%s” is Not checked", async (claim, quote) => {
     expect(await ended(claim, `Figures\n${quote}\n`, quote)).toBe("not-checked: number-unquoted");
   });

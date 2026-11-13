@@ -7,7 +7,6 @@ import {
   readingsOf,
   readStatedUnits,
 } from "../../../shared/figures";
-import { pointsInDigits } from "../../../shared/numberWords";
 import type { Citation, InputNumber } from "../../api";
 import { recordCiteSpans } from "../../recordCites/parser";
 import { writtenNumbers } from "../../transcription/spokenNumbers";
@@ -128,13 +127,14 @@ export function quotesHoldNumbers(
       ...(words === citation.quote ? [] : figuresInClaim(words, context).flatMap(readingsOf)),
     ];
   });
-  // Points said in words hold only a figure in points: "three points about churn" is no 3%.
+  // A quote's points hold only a sentence's figure in points: "three points about churn", or
+  // "twenty-three points", is no 3% or 23%. Said in words they're read for that alone.
   const inPoints = held.concat(
     citations.flatMap(({ citation }) => {
-      const said = pointsInDigits(citation.quote);
+      const said = writtenNumbers(citation.quote, { points: true });
       return said === citation.quote
         ? []
-        : figuresInClaim(writtenNumbers(said), context).flatMap(readingsOf).filter(isPoints);
+        : figuresInClaim(said, context).flatMap(readingsOf).filter(isPoints);
     }),
   );
   // A range's second end is a number of its own: "2–3%" holds 3% as well as 2%.
@@ -151,7 +151,7 @@ export function quotesHoldNumbers(
       claimed.some((reading) => values.some((value) => sameValue(value, reading.value))) ||
       plain.some((value) => sameValue(value, written));
   };
-  const holdsAny = holderOf(held);
+  const holdsAny = holderOf(held.filter((each) => !isPoints(each)));
   const holdsPoints = holderOf(inPoints);
   const cites = recordCiteSpans(claim);
   return figuresInClaim(claim, own.language ? own : { ...context, header: null })
