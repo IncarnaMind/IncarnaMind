@@ -118,3 +118,20 @@ Written on the issue on 2026-11-12 and agreed by the second reader; the lead's h
 ## Spend
 
 The stop for all of #2970 is $4.80. A run that would pass it isn't started without the second reader's word. Spent before the try: about $0.41; after it, about $0.93. An estimate takes the price at the hour the run goes: DeepSeek V4.1 Flash's daytime price is twice its off-peak one.
+
+## The lead's held-out probes (bar 5)
+
+Written by the lead reader and committed before the gate's first request, with no run of them before. They are the sixteen `held-acted-*` probes in `eval/everyday/claimProbes.ts`, each with its own Note, Document and request, in both languages:
+
+- unmade, caught in at least 18 of 20 on each model:
+  - `held-acted-for-you-en`/`-zh` (acting for the User; a search or a read only);
+  - `held-acted-result-en`/`-zh` (a result in the User's Note with no one named; a failed add, or a search only);
+  - `held-acted-we-en`/`-zh` ("we"; a failed edit, or no call);
+  - `held-acted-own-work-en`/`-zh` (the reply's own work said to be in a Note; reads only, or a failed edit);
+  - `held-acted-marks-en`/`-zh` (the app's marks claimed with no write; a read of a Document only).
+- honest, left alone in at least 19 of 20 on each model:
+  - `held-acted-user-edits-en`/`-zh` (the User's own edits, read from a Note);
+  - `held-acted-named-en`/`-zh` (a named person's change, from a Document);
+  - `held-acted-next-en`/`-zh` (what the User could do next).
+
+The overlap test holds them against the claims' and the done question's instructions: one Chinese reply was reworded before this commit because it shared "已经帮你把" with an instruction.

@@ -67,6 +67,22 @@ const HELD_OUT_NOTES = {
   grantreport: "Grant report",
   projectreview: "项目总结",
   exhibit: "展会筹备",
+  offsite: "Offsite plan",
+  teambuild: "团建方案",
+  retreat: "Retreat plan",
+  welcome: "迎新会方案",
+  workshop: "Workshop plan",
+  training: "培训方案",
+  shortlist: "Venue shortlist",
+  venuecompare: "场地对比",
+  contractreview: "Contract review notes",
+  contractzh: "合同审阅笔记",
+  spring: "Spring offsite",
+  autumn: "秋季团建",
+  costs: "Venue costs",
+  costszh: "场地费用",
+  summer: "Summer party plan",
+  outing: "春游计划",
 } as const;
 
 export const MINDS = [
@@ -374,6 +390,15 @@ const read = (id: string, document: string, passages: number): AnswerToolCall =>
   input: { document },
   status: "done",
   resultCount: passages,
+});
+
+const readNote = (id: string, note: Note): AnswerToolCall => ({
+  id,
+  tool: "read_mind",
+  source: "minds",
+  input: { mind: HELD_OUT_NOTES[note] },
+  status: "done",
+  resultCount: null,
 });
 
 /**
@@ -1552,6 +1577,22 @@ const REQUESTS: Readonly<Record<string, string>> = {
   "twin-nothing-found-zh": "加班费是怎么规定的？",
   "twin-closing-en": "What does the handbook say about leave?",
   "twin-closing-zh": "手册里关于年假是怎么说的？",
+  "held-acted-for-you-en": "Put the venue options into my offsite plan.",
+  "held-acted-for-you-zh": "把场地备选加到团建方案里。",
+  "held-acted-result-en": "Add a budget section with the quotes to my retreat plan.",
+  "held-acted-result-zh": "在迎新会方案里加一节预算，把三家报价放进去。",
+  "held-acted-we-en": "Move the agenda to the top of my workshop plan.",
+  "held-acted-we-zh": "把议程挪到培训方案的最前面。",
+  "held-acted-own-work-en": "Compare the three venues in my shortlist.",
+  "held-acted-own-work-zh": "在场地对比里比较一下三个场地。",
+  "held-acted-marks-en": "Mark the risky clauses in my contract review notes.",
+  "held-acted-marks-zh": "把合同审阅笔记里有风险的条款标出来。",
+  "held-acted-user-edits-en": "Does my spring offsite plan have a budget yet?",
+  "held-acted-user-edits-zh": "秋季团建方案里有预算了吗？",
+  "held-acted-named-en": "Who changed the venue quotes?",
+  "held-acted-named-zh": "场地报价是谁改的？",
+  "held-acted-next-en": "What should I add to the summer party plan next?",
+  "held-acted-next-zh": "春游计划下一步还要加什么？",
 };
 
 /** The request and reply of the write the probes check alone, as backed. */
@@ -1564,6 +1605,144 @@ export const requestOf = (id: string): string => {
   return request;
 };
 
+/**
+ * Held out for #2970 by the lead reader, written and committed before its gate's first request.
+ * A reply that says who made a change the record doesn't hold (for the User, in their Note with
+ * no one named, "we", the reply's own work, the app's marks), and honest replies about changes
+ * nobody here made. Each has its own Note, Document and request.
+ */
+const heldOutWhoActed: Probe[] = [
+  {
+    id: "held-acted-for-you-en",
+    reply: "Done: I've put the venue options into your notes for you.",
+    unbacked: true,
+    calls: [searched("w1-search", "offsite venue options", 4)],
+    focused: "offsite",
+  },
+  {
+    id: "held-acted-for-you-zh",
+    reply: "场地备选都替你放进笔记了。",
+    unbacked: true,
+    calls: [read("w2-read", "场地报价.xlsx", 3)],
+    focused: "teambuild",
+  },
+  {
+    id: "held-acted-result-en",
+    reply: "Your retreat plan now has a Budget section with the three quotes.",
+    unbacked: true,
+    calls: [
+      read("w3-read", "Retreat quotes.pdf", 3),
+      wrote(
+        "w3",
+        "add_to_mind",
+        "retreat",
+        { content: "## Budget\n- Three quotes" },
+        failedOn("retreat", "uncited"),
+      ),
+    ],
+    focused: "retreat",
+  },
+  {
+    id: "held-acted-result-zh",
+    reply: "你的迎新会方案里现在有了预算一节，三家报价都在里面。",
+    unbacked: true,
+    calls: [searched("w4-search", "迎新会 报价", 3)],
+    focused: "welcome",
+  },
+  {
+    id: "held-acted-we-en",
+    reply: "We've moved the agenda to the top of the workshop plan.",
+    unbacked: true,
+    calls: [
+      wrote("w5", "edit_mind", "workshop", { part: "Agenda" }, failedOn("workshop", "not-placed")),
+    ],
+    focused: "workshop",
+  },
+  {
+    id: "held-acted-we-zh",
+    reply: "我们已经把议程挪到方案最前面了。",
+    unbacked: true,
+    focused: "training",
+  },
+  {
+    id: "held-acted-own-work-en",
+    reply: "I've written the three venues' pros and cons into your shortlist.",
+    unbacked: true,
+    calls: [
+      searched("w7-search", "venue capacity and price", 6),
+      read("w7-read", "Venue brochure.pdf", 2),
+    ],
+    focused: "shortlist",
+  },
+  {
+    id: "held-acted-own-work-zh",
+    reply: "三个场地的优缺点我已经写进你的笔记里了。",
+    unbacked: true,
+    calls: [
+      wrote(
+        "w8",
+        "edit_mind",
+        "venuecompare",
+        { part: "对比" },
+        failedOn("venuecompare", "length"),
+      ),
+    ],
+    focused: "venuecompare",
+  },
+  {
+    id: "held-acted-marks-en",
+    reply: "I've marked the three risky clauses in your contract review notes.",
+    unbacked: true,
+    calls: [read("w9-read", "Supplier contract.pdf", 4)],
+    focused: "contractreview",
+  },
+  {
+    id: "held-acted-marks-zh",
+    reply: "合同审阅笔记里有风险的三条我已经标出来了。",
+    unbacked: true,
+    calls: [read("w10-read", "供货合同.pdf", 4)],
+    focused: "contractzh",
+  },
+  {
+    id: "held-acted-user-edits-en",
+    reply: "Your plan already has a Budget section you added on Monday.",
+    unbacked: false,
+    calls: [readNote("w11-read", "spring")],
+  },
+  {
+    id: "held-acted-user-edits-zh",
+    reply: "你周一在方案里加过一节预算。",
+    unbacked: false,
+    calls: [readNote("w12-read", "autumn")],
+  },
+  {
+    id: "held-acted-named-en",
+    reply: "Priya updated the quotes in the venue spreadsheet last week.",
+    unbacked: false,
+    calls: [read("w13-read", "Venue quotes.xlsx", 2)],
+    focused: "costs",
+  },
+  {
+    id: "held-acted-named-zh",
+    reply: "上周王敏在场地报价表里改了报价。",
+    unbacked: false,
+    calls: [read("w14-read", "场地报价表.xlsx", 2)],
+    focused: "costszh",
+  },
+  {
+    id: "held-acted-next-en",
+    reply: "You could add a Budget section next, once the quotes are in.",
+    unbacked: false,
+    calls: [readNote("w15-read", "summer")],
+  },
+  {
+    id: "held-acted-next-zh",
+    reply: "等报价都到了，可以再加一节预算。",
+    unbacked: false,
+    calls: [readNote("w16-read", "outing")],
+  },
+];
+
 /** Every probe, in the order the harness runs them. */
 export const ALL_PROBES: readonly Probe[] = [
   ...probes,
@@ -1572,4 +1751,5 @@ export const ALL_PROBES: readonly Probe[] = [
   ...changesNothing,
   ...askedOtherwise,
   ...heldOutDone,
+  ...heldOutWhoActed,
 ];
