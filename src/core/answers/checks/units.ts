@@ -685,7 +685,8 @@ function labelled(text: string, start: number, context: FigureContext): Label[] 
   const cells: string[] = [];
   for (let at = above.length - 1; at >= 0 && above[at]?.includes("\t"); at--) {
     const cell = above[at]?.split("\t")[column]?.trim();
-    if (cell) cells.push(cell);
+    // A cell of digits alone states no unit, and a long table's column is mostly such cells.
+    if (cell && !/^[\d.,，\s+\-−()（）]*$/u.test(cell)) cells.push(cell);
   }
   return [
     ...mine,
@@ -768,23 +769,37 @@ const bracketNamesTwo = (words: string, context: FigureContext) =>
  * ("单位：千克"), or the units its words state, in brackets or a clause of prose; none where it
  * names two. A heading row of a table states only its columns' units, which its cells give.
  */
-function unitsOnLine(line: string, context: FigureContext): StatedUnit[] {
+function unitsOnLine(line: string, stated: StatedUnit[], context: FigureContext): StatedUnit[] {
   const piece = UNIT_LINE.exec(line)?.[1];
-  if (piece === undefined && line.includes("\t")) return [];
+  if (piece === undefined) {
+    if (line.includes("\t")) return [];
+    if (stated.length === 0 && !/[(（]/u.test(line) && line.search(UNIT_SAID) < 0) return [];
+  }
   if (readFigures(line, context).length > 0) return [];
   if (piece !== undefined) return bracketNamesTwo(piece, context) ? [] : asUnitLine(piece, context);
   if (bracketNamesTwo(line, context)) return [];
   const units = [
-    ...readStatedUnits(line, context),
+    ...stated,
     ...bracketedUnits(line, context),
     ...[...line.matchAll(UNIT_SAID)].flatMap(([, said = ""]) => asUnitLine(said, context)),
   ];
   return namesTwoUnits(units) ? [] : units;
 }
 
-/** What each line of `document` states of its figures' units (`unitsOnLine`), read once. */
-const unitsByLine = (document: string, context: FigureContext) =>
-  document.split("\n").map((line) => ({ line: line.trim(), units: unitsOnLine(line, context) }));
+/**
+ * What each line of `document` states of its figures' units (`unitsOnLine`), with what the shared
+ * reader reads of the whole Document placed on its lines.
+ */
+function unitsByLine(document: string, context: FigureContext) {
+  const shared = readStatedUnits(document, context);
+  let from = 0;
+  return document.split("\n").map((line) => {
+    const to = from + line.length;
+    const stated = shared.filter((each) => each.start >= from && each.end <= to);
+    from = to + 1;
+    return { line: line.trim(), units: unitsOnLine(line, stated, context) };
+  });
+}
 
 /**
  * What a cited number's Document states of its unit on lines other than its own (`itsLine`), where
