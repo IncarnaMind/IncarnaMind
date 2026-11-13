@@ -458,14 +458,20 @@ function selectedText(language: keyof typeof HANDBOOK, words: number): string {
 const ASK_ABOUT_SELECTION = { en: "Make this shorter.", "zh-CN": "把这段改短一点。" } as const;
 
 /**
- * Asks the assistant about `selection`, selected in a Note, on a computer with `memoryGb`: on a
- * follow-up, after a first Question about the handbook. What its first request held.
+ * Asks the assistant about `selection`, selected in a Note (none when ""), on a computer with
+ * `memoryGb`: on a follow-up, after a first Question about the handbook; with `onScreen`, the
+ * handbook open on screen. What its first request held.
  */
 async function askedAboutSelection(
   memoryGb: number,
   language: keyof typeof HANDBOOK,
   selection: string,
-  { followUp = false, question = ASK_ABOUT_SELECTION[language] as string, model = QWEN35_9B } = {},
+  {
+    followUp = false,
+    question = ASK_ABOUT_SELECTION[language] as string,
+    model = QWEN35_9B,
+    onScreen = false,
+  } = {},
 ) {
   const said = HANDBOOK[language];
   const ollama = await startOllamaServer({
@@ -495,6 +501,7 @@ async function askedAboutSelection(
   const selected = note(selection);
   writeMind(client, [note(`Notes from the harbour visit. ${said.quote}.`), selected]);
   await client.settled();
+  const [handbook] = await core.listDocuments();
   let conversationId: string | undefined;
   if (followUp) {
     const first = await core.askInConversation({ text: said.first, mindId: mind.id });
@@ -506,7 +513,8 @@ async function askedAboutSelection(
   const asked = await core.askInConversation({
     text: question,
     mindId: mind.id,
-    focus: { selection, blockIds: [String(selected.attrs?.id)] },
+    ...(selection && { focus: { selection, blockIds: [String(selected.attrs?.id)] } }),
+    ...(onScreen && handbook && { onScreen: [handbook.id] }),
     ...(conversationId && { conversationId }),
   });
   if (!asked.asked) throw new Error("Not asked.");
@@ -549,6 +557,41 @@ describe("A selection at a small window (#3045)", { timeout: 90_000 }, () => {
       expect(sent.cap).toBeGreaterThanOrEqual(1_024);
     },
   );
+
+  // protects=at 16k in the assistant the line naming the Documents on screen goes with the Question, so "Summarise this document" reaches the model with the open Document's name, on a first Question and on a follow-up, where the turn just before is kept too, with at least three Passages read and the cap not below its floor; fails_when=the line is left out, the turn is left out, fewer than three Passages are read, or the cap goes below 1,024; no_claim=a Question too long with the line, which tests/core/answerWindow.test.ts pins.
+  test.each([
+    ["en", "a first Question", false],
+    ["en", "a follow-up", true],
+    ["zh-CN", "a first Question", false],
+    ["zh-CN", "a follow-up", true],
+  ] as const)(
+    "%s, %s: the Documents on screen go with the Question",
+    async (language, _, followUp) => {
+      const question = language === "en" ? "Summarise this document." : "总结一下这份文档。";
+      const sent = await askedAboutSelection(32, language, "", {
+        followUp,
+        question,
+        onScreen: true,
+      });
+      expect(sent.ended.event).toBe("finished");
+      expect(sent.last).toMatch(/On screen now: "Handbook[^\n]*"\n\nSearch scope: [^\n]*\n\n/);
+      expect(sent.last.endsWith(question)).toBe(true);
+      if (followUp) expect(sent.turn).toBe(true);
+      expect(sent.passages).toBeGreaterThanOrEqual(3);
+      expect(sent.cap).toBeGreaterThanOrEqual(1_024);
+    },
+  );
+
+  // protects=with a Document on screen and text selected, both go with the Question at 16k, in the order main sends them where everything fits: the on-screen line, the selection, the Search scope, the Question; fails_when=either is left out or they change places; no_claim=the words of each line.
+  test("the Documents on screen and the selection go in their order", async () => {
+    const selection = selectedText("en", 60);
+    const sent = await askedAboutSelection(32, "en", selection, { onScreen: true });
+    expect(sent.ended.event).toBe("finished");
+    expect(sent.last).toMatch(
+      /On screen now: "Handbook[^\n]*"\n\n<selection>\n[^<]*\n<\/selection>\n\nSearch scope: [^\n]*\n\nMake this shorter\.$/,
+    );
+    expect(sent.selection).toBe(true);
+  });
 
   // protects=a selection too long to go whole beside three Passages at the floor fails as too long before anything is sent, saying the selection is what is too long, where the Question alone would fit; fails_when=a request is sent, the selection is sent in part, or the problem isn't the selection's; no_claim=the line's words, which the renderer's test reads.
   test.each(["en", "zh-CN"] as const)(

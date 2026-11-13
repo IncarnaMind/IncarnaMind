@@ -265,6 +265,34 @@ describe("A small window's output cap and its problems (#3045)", () => {
     });
   });
 
+  // protects=where it reads, the line naming the Documents on screen goes with the Question: a window that holds the Question beside a Passage at the floor, but not with that line too, gives today's too-long, never a request without the line; one that holds both sends it in its place before the Question; fails_when=the Question is sent without the line, or the problem says the selection is too long; no_claim=the line's wording.
+  test("the Documents on screen go with the Question, or the Question is too long", () => {
+    const instructions = block("Instructions", 4_000);
+    const question = "Summarise this document.";
+    const shown = 'On screen now: "Harbour handbook"';
+    const budgetAt = (tokens: number) => createWindowBudget({ tokens, outputTokens: 4_096 });
+    const withShown = {
+      ...reading(instructions, question),
+      messages: [{ role: "user" as const, content: `${shown}\n\n${question}` }],
+      onScreen: shown,
+    };
+    // The least window that holds the Question alone beside a Passage at the floor.
+    const edge =
+      fixedOf(instructions) +
+      OUTPUT_FLOOR_TOKENS +
+      MARGIN +
+      ONE_PASSAGE +
+      budgetAt(100_000).tokens(question) +
+      MESSAGE;
+
+    expect(budgetAt(edge).fit(reading(instructions, question))).toMatchObject({ ok: true });
+    const tooLong = budgetAt(edge).fit(withShown);
+    expect(tooLong).toMatchObject({ ok: false, error: { kind: "too-long" } });
+    expect(tooLong.ok === false && tooLong.error.tooLong).toBeUndefined();
+    const sent = budgetAt(edge + 100).fit(withShown);
+    expect(sent.ok && sent.messages.at(-1)?.content).toBe(`${shown}\n\n${question}`);
+  });
+
   // protects=the output cap gives way only as far as the first search's room needs, never below the floor, and not at all where it fits: the cap sent is the one the budget counted with; fails_when=it drops straight to the floor, moves where it fits, or goes below the floor; no_claim=what a model writes at the cap.
   test("the cap gives way as far as the first search's room needs, never below the floor", () => {
     const capOf = (tokens: number, instructionTokens: number) => {
