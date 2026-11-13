@@ -1085,7 +1085,7 @@ function SourceRow({ source }: { source: StepSource }) {
     (state) => shownDocumentName(source, state.documents) || source.documentName,
   );
   const speakers = useAppStore((state) => citedSpeakers(source, state.documents));
-  const started = useContext(CallStartsContext).get(source.documentId) ?? null;
+  const started = useContext(CallStartsContext)?.get(source.documentId) ?? null;
   const location = citationLocation(source);
   const where = location ? formatLocation(location, t, { speakers }) : null;
   const named = where ? t("citation.where", { document: name, location: where }) : name;

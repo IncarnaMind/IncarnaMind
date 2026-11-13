@@ -1,8 +1,10 @@
 import { createContext, useMemo } from "react";
 import type { MarkedCitation } from "../../core/api";
+import { transcriptsNamedAlike } from "./documentPlaces";
 import { callStarts, startedLabel } from "./helpReply";
 import { useLanguage, useT } from "./i18n";
 import { isLive, useMeetings } from "./meetings";
+import { useAppStore } from "./store";
 
 /**
  * When the call of each cited Transcript started, by Document id, for the ones that show it beside
@@ -26,5 +28,29 @@ export function useCallStarts(
   }, [cited, meetings, t, language]);
 }
 
-/** The starts of the Answer in the assistant a Citation is drawn in (`useCallStarts`); none elsewhere. */
-export const CallStartsContext = createContext<ReadonlyMap<string, string>>(new Map());
+/**
+ * The starts of the Answer in the assistant a Citation is drawn in (`useCallStarts`); null outside
+ * an Answer, where a Citation goes by `useTranscriptStart`.
+ */
+export const CallStartsContext = createContext<ReadonlyMap<string, string> | null>(null);
+
+/**
+ * When a Meeting's Transcript's call started, as a Citation of it shows it wherever another
+ * Document shares its name (`transcriptsNamedAlike`), in a note as in an Answer (#3005).
+ */
+export function useTranscriptStart(documentId: string | null): string | null {
+  const t = useT();
+  const language = useLanguage();
+  const alike = useAppStore(
+    (state) =>
+      documentId !== null &&
+      transcriptsNamedAlike(state.documents, state.linkedFolders).has(documentId),
+  );
+  const startedAt = useMeetings((state) =>
+    alike
+      ? (state.meetings.find((each) => each.transcript?.documentId === documentId)?.startedAt ??
+        null)
+      : null,
+  );
+  return startedAt ? startedLabel(startedAt, t, language) : null;
+}

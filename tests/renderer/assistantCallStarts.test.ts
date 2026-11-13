@@ -81,7 +81,10 @@ beforeEach(async () => {
       name: NAME,
       kind: "transcript",
       contentHash: "version",
+      meetingMindId: `note-${id}`,
+      path: `/data/Transcripts/${id}.vtt`,
     })),
+    linkedFolders: [],
     library: null,
     minds: [],
     keptCitationTexts: [],
@@ -276,65 +279,100 @@ for (const language of ["en", "zh-CN"] as const) {
   });
 }
 
-describe("Where a cited Transcript is", () => {
-  // protects=#3005: a Meeting's Transcript that shares its name shows when its call started, not the name of IncarnaMind's own folder it is kept in ("Transcripts (2)", English in every language); fails_when=the card's place is the on-disk folder; no_claim=Documents of the User's, which keep their folders.
+/** Two calls' Transcripts kept in IncarnaMind's one folder, and a Document of the User's with their name. */
+const NAMED_ALIKE = [
+  {
+    id: "earlier",
+    name: NAME,
+    contentHash: "version",
+    kind: "transcript",
+    meetingMindId: "note-earlier",
+    path: "/data/Transcripts/a.vtt",
+  },
+  {
+    id: "this",
+    name: NAME,
+    contentHash: "version",
+    kind: "transcript",
+    meetingMindId: "note-this",
+    path: "/data/Transcripts/b.vtt",
+  },
+  {
+    id: "users",
+    name: NAME,
+    contentHash: "version",
+    kind: "text",
+    meetingMindId: null,
+    path: "/Reports/2025/Transcript.md",
+  },
+  {
+    id: "report-2025",
+    name: "Report",
+    contentHash: "version",
+    kind: "text",
+    meetingMindId: null,
+    path: "/Reports/2025/Report.md",
+  },
+  {
+    id: "report-2026",
+    name: "Report",
+    contentHash: "version",
+    kind: "text",
+    meetingMindId: null,
+    path: "/Reports/2026/Report.md",
+  },
+];
+
+describe("Where a Transcript sharing its name is", () => {
+  // protects=#3005: a Meeting's Transcript never takes IncarnaMind's own folder as its place ("Transcripts (2)", English in every language), wherever places are read; fails_when=placesOf gives it that folder; no_claim=Documents of the User's, which keep their folders.
+  test("it takes no place from the folder IncarnaMind keeps it in; the User's own Documents keep theirs", async () => {
+    const { placesOf, transcriptsNamedAlike } = await import(
+      "../../src/renderer/src/documentPlaces"
+    );
+    const documents = NAMED_ALIKE as never;
+    expect(Object.fromEntries(placesOf(documents, []))).toEqual({
+      users: "2025",
+      "report-2025": "2025",
+      "report-2026": "2026",
+    });
+    expect([...transcriptsNamedAlike(documents, [])].sort()).toEqual(["earlier", "this"]);
+  });
+
+  // protects=#3005: two calls' Transcripts cited in a note, outside an Answer, read apart by their calls' starts; fails_when=a Citation of one shows no start, or a Document of the User's shows one; no_claim=the card's layout.
   test.each(["en", "zh-CN"] as const)(
-    "%s: two calls' Transcripts kept in one folder each show their call's start, and the User's own twins keep their folders",
+    "%s: cited in a note, each call's Transcript shows its call's start and the User's Document none",
     async (language) => {
       setLanguage(language);
       const { useAppStore } = await import("../../src/renderer/src/store");
-      const { useDocumentPlace } = await import("../../src/renderer/src/documentPlaces");
-      useAppStore.setState({
-        documents: [
-          {
-            id: "earlier",
-            name: NAME,
-            kind: "transcript",
-            meetingMindId: "note-earlier",
-            path: "/data/Transcripts/a.vtt",
-          },
-          {
-            id: "this",
-            name: NAME,
-            kind: "transcript",
-            meetingMindId: "note-this",
-            path: "/data/Transcripts/b.vtt",
-          },
-          {
-            id: "report-2025",
-            name: "Report",
-            kind: "text",
-            meetingMindId: null,
-            path: "/Reports/2025/Report.md",
-          },
-          {
-            id: "report-2026",
-            name: "Report",
-            kind: "text",
-            meetingMindId: null,
-            path: "/Reports/2026/Report.md",
-          },
-        ],
-        linkedFolders: [],
-      } as never);
-      const places: Record<string, string | null> = {};
-      function Probe({ id }: { id: string }) {
-        places[id] = useDocumentPlace(id);
-        return null;
-      }
+      useAppStore.setState({ documents: NAMED_ALIKE, linkedFolders: [] } as never);
+      const viewPath = "../../src/renderer/src/editor/CitationView";
+      const { CitationView }: { CitationView: ComponentType<Record<string, unknown>> } =
+        await import(viewPath);
+      const { AssistantFoldedContext } = await import("../../src/renderer/src/editor/mindContext");
       await act(async () =>
         root?.render(
-          ["earlier", "this", "report-2025", "report-2026"].map((id) =>
-            createElement(Probe, { key: id, id }),
+          createElement(
+            AssistantFoldedContext.Provider,
+            { value: false },
+            ...[cited(1, "earlier"), cited(2, "this"), cited(3, "users")].map((citation) =>
+              createElement(CitationView, {
+                key: citation.marker,
+                node: { attrs: citation },
+                editor: { isEditable: false },
+                getPos: () => 0,
+                deleteNode: () => undefined,
+                updateAttributes: () => undefined,
+                decorations: [],
+              }),
+            ),
           ),
         ),
       );
-      expect(places).toEqual({
-        earlier: STARTED[language](EARLIER),
-        this: STARTED[language](THIS),
-        "report-2025": "2025",
-        "report-2026": "2026",
-      });
+      const labels = all("citation-chip").map((chip) => chip.getAttribute("aria-label") ?? "");
+      expect(labels).toHaveLength(3);
+      expect(labels[0]).toContain(STARTED[language](EARLIER));
+      expect(labels[1]).toContain(STARTED[language](THIS));
+      expect(labels[2]).not.toContain(STARTED_WORD[language]);
     },
   );
 });

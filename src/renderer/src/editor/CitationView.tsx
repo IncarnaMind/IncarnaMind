@@ -48,7 +48,7 @@ import {
 } from "../../../shared/locations";
 import { checkedByMe } from "../../../shared/signOffs";
 import { useAnswers } from "../answers";
-import { CallStartsContext } from "../callStarts";
+import { CallStartsContext, useTranscriptStart } from "../callStarts";
 import { type MindFormatting, useMindFormatting } from "../citationFormatting";
 import { followNewVersion } from "../citationUpdate";
 import { useCitationRecheck } from "../citationVersion";
@@ -251,7 +251,9 @@ export function CitationView({
   // In a footnote's text it is part of the footnote: it shows where it points, not a number.
   const footnoteId = useContext(InFootnoteContext);
   const inFootnote = footnoteId !== null;
-  const started = useContext(CallStartsContext).get(attributes.documentId ?? "") ?? null;
+  const ownStart = useTranscriptStart(attributes.documentId ?? null);
+  const answerStarts = useContext(CallStartsContext);
+  const started = answerStarts ? (answerStarts.get(attributes.documentId ?? "") ?? null) : ownStart;
   const source = citationSource(shown, t, language, documents).text;
   const pointsTo = started ? t("citation.where", { document: source, location: started }) : source;
   /** Clicked: the card stays until it is dismissed. */
@@ -860,7 +862,7 @@ function CitationCard({
   recheck: CitationRecheck | "failed" | null;
   recheckAsked: boolean;
   badgeText: string;
-  /** When its call started, beside its name in an Answer in the assistant (`CallStartsContext`). */
+  /** When its call started, beside its name (`CallStartsContext`, `useTranscriptStart`). */
   started: string | null;
   inAnswer: boolean;
   /** In a note style, the note the Citation is written in, as an export will write it. */
@@ -919,8 +921,7 @@ function CitationCard({
       : where
         ? citationSource(attributes, t, language, lives).text
         : name);
-  // A Transcript whose name another shares already shows its start as its place.
-  const source = named && started && started !== place ? `${named} · ${started}` : named;
+  const source = named && started ? `${named} · ${started}` : named;
   const limit = useJudgementLimit();
   const modelNames = useModelNames();
   const judgedAnswer = useContext(JudgedAnswerContext);
