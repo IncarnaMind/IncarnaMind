@@ -44,7 +44,7 @@ describe("the form's gate cases are checked before a run (#2847)", () => {
     expect(problems).toContain(`${first.id}: its answer is empty.`);
     expect(problems).toContain(`${second.id}: “Not in the Document.” isn't in`);
     expect(problems).toContain(`${fifth.id}: its avoid is empty.`);
-    expect(problems).toContain(`${ninth.id}: a objection press needs the sales template.`);
+    expect(problems).toContain(`${ninth.id}: the objection button needs the sales template.`);
     expect(problems).toContain("no case standin-zh-20-answer");
   });
 });

@@ -895,13 +895,10 @@ export async function openCall(
 
 /**
  * The sets judged per place (#2847's yardstick by place, ruled on 2026-11-12): the gate's held-out
- * slice. The dev trial on `call-help-marks-3` gates nothing, so its places are read by hand alone.
+ * slice. The dev trial on `call-help-marks-3` gates nothing, so its places are read by hand alone;
+ * the form's gate is judged once a reply, as its trial was, so its numbers compare with the trial's.
  */
-const PLACE_SETS: ReadonlySet<CallHelpSet> = new Set([
-  "call-help-marks-4",
-  "call-help-fact-lines-4",
-  "call-help-fact-lines-stand-in",
-]);
+const PLACE_SETS: ReadonlySet<CallHelpSet> = new Set(["call-help-marks-4"]);
 
 /**
  * The form's held-out gate and the stand-in its dry run is built on (#2847): their case files are
@@ -1039,7 +1036,7 @@ export function caseProblems(cases: unknown, slots: readonly HelpSlot[]): string
       (kinds as readonly string[]).includes(String(each.kind)),
     )?.[0];
     if (template !== undefined && each.template !== template)
-      problems.push(`${name}: a ${each.kind} press needs the ${template} template.`);
+      problems.push(`${name}: the ${each.kind} button needs the ${template} template.`);
     const slot = typeof each.id === "string" ? marksOf.get(each.id) : undefined;
     if (!slot) problems.push(`${name}: no slot lists it.`);
     else if (
