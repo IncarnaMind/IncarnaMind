@@ -195,8 +195,8 @@ describe("The earlier-call cases", () => {
 });
 
 describe("A case of the earlier-call set", { timeout: 240_000 }, () => {
-  test("records the earlier call and stops it, then the live one, in one Folder; its buttons failing as earlier-as-this and the typed question cited to the earlier call, as the judge and the Citations say", async () => {
-    const { meetings, runs, calls, judged } = await ran("en-a-then-b", "today", {
+  test("records the earlier call and stops it, then the live one, in one Folder; on main's path its buttons are sent the earlier call and fail as earlier-as-this, and the typed question is cited to the earlier call, as the judge and the Citations say", async () => {
+    const { meetings, runs, calls, judged } = await ran("en-a-then-b", "calls-unmarked", {
       earlierAsThis: true,
       thenWithWhen: false,
       grade: "wrong",
@@ -276,12 +276,14 @@ describe("A case of the earlier-call set", { timeout: 240_000 }, () => {
     },
   );
 
-  test("the branch marks the earlier call's Passages as an earlier call's and the live ones as this call's; main's arm sends them as before", async () => {
+  test("the branch gives the typed question the earlier call's Passages marked as an earlier call's, and its buttons none; main's arm sends them to both, as before", async () => {
     const marked = (calls: ModelCall[]) =>
       calls
-        .flatMap((call) => passagesIn(call.prompt))
+        .flatMap((call) => [call.prompt, ...call.results.map((result) => result.text)])
+        .flatMap(passagesIn)
         .filter((each) => each.text.includes(EUROPE))
         .map((each) => each.tag);
+    const pressed = (calls: ModelCall[]) => calls.filter((call) => call.prompt.includes("<help>"));
     const reading = {
       earlierAsThis: false,
       thenWithWhen: true,
@@ -294,8 +296,11 @@ describe("A case of the earlier-call set", { timeout: 240_000 }, () => {
 
     expect(marked(today.calls).length).toBeGreaterThan(0);
     for (const tag of marked(today.calls)) expect(tag).toContain('call="earlier"');
+    expect(pressed(today.calls).length).toBeGreaterThanOrEqual(3);
+    expect(marked(pressed(today.calls))).toEqual([]);
     expect(marked(main.calls).length).toBeGreaterThan(0);
     for (const tag of marked(main.calls)) expect(tag).not.toContain("call=");
+    expect(marked(pressed(main.calls)).length).toBeGreaterThan(0);
   });
 });
 
@@ -347,18 +352,12 @@ describe("An earlier call dated before the live one", { timeout: 240_000 }, () =
       3 * 3_600_000,
     ],
   ] as const)(
-    "%s: the press is sent the earlier call's Note and start, and this call's, as recorded",
+    "%s: the typed question is sent the earlier call's Note and start, and this call's, as recorded",
     async (_, dating, earlierNote, before) => {
       const each = EARLIER_CALL_CASES.find((known) => known.id === "en-a-then-b");
       if (!each) throw new Error("No case en-a-then-b.");
       const calls: ModelCall[] = [];
-      const model = scriptedModel(
-        (call) => {
-          calls.push(call);
-          return { text: "★ Let me check the hosting options\n→ keeps it moving" };
-        },
-        { judgesItsAnswers: true },
-      );
+      const model = answering(calls, EUROPE, each.lastTime);
       const through = armSwitch();
       through.use(armOf("today"));
       const opened = await openEarlierCalls(
@@ -389,7 +388,14 @@ describe("An earlier call dated before the live one", { timeout: 240_000 }, () =
           modelId: "local-model",
         });
         await core.updateSettings({ user: { chatModel: { providerId, modelId: "local-model" } } });
-        const asked = await core.askMeetingHelp({ meetingId: opened.meeting.id, kind: "say" });
+        const recording = (await core.listMeetings()).find(
+          (meeting) => meeting.id === opened.meeting?.id,
+        );
+        if (!recording) throw new Error("The live call is gone.");
+        const asked = await core.askInConversation({
+          mindId: recording.mindId,
+          text: each.lastTime,
+        });
         if (!asked.asked) throw new Error(`Not asked: ${JSON.stringify(asked)}`);
         await answerEnded(core, asked.answerId);
 
@@ -408,29 +414,30 @@ describe("An earlier call dated before the live one", { timeout: 240_000 }, () =
         expect(liveStart - earlierStart).toBeGreaterThanOrEqual(before);
         expect(liveStart - earlierStart).toBeLessThan(before + 120_000);
 
-        const press = calls.find((call) => call.prompt.includes("<help>"));
-        const sent = [...(press?.prompt ?? "").matchAll(TAG)].map(
-          ([, document, call, note, started, time]) => ({
-            document,
-            call,
-            note,
-            started,
-            time,
-          }),
-        );
+        const read = calls
+          .filter((call) => call.prompt.includes(each.lastTime))
+          .flatMap((call) => [call.prompt, ...call.results.map((result) => result.text)])
+          .join("\n\n");
+        const sent = [...read.matchAll(TAG)].map(([, document, call, note, started, time]) => ({
+          document,
+          call,
+          note,
+          started,
+          time,
+        }));
         expect(sent.filter((passage) => passage.call === "earlier")).toContainEqual({
           document: `Transcript · ${earlierNote}`,
           call: "earlier",
           note: earlierNote,
           started: formatFullDateTime(earlier?.startedAt ?? "", "en"),
-          time: "0:00",
+          time: expect.stringMatching(/^0:\d\d$/),
         });
         expect(sent.filter((passage) => passage.call === "this")).toContainEqual({
           document: "Transcript · Meeting, 13 November",
           call: "this",
           note: undefined,
           started: formatFullDateTime(live?.startedAt ?? "", "en"),
-          time: "0:00",
+          time: expect.stringMatching(/^0:\d\d$/),
         });
       } finally {
         await opened.close();

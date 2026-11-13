@@ -185,15 +185,18 @@ function searchingModel(calls: ModelCall[], query: string) {
   });
 }
 
-/** A core with one Folder holding the ordinary Document, and a way to record a call in it. */
-async function folderCore(language: Language) {
+/**
+ * A core with one Folder holding the ordinary Document, and a way to record a call in it. `only`:
+ * the engine says the first so many lines of each side and no more, so a call's text stops there.
+ */
+async function folderCore(language: Language, only?: number) {
   const lines = LINES[language];
   const calls: ModelCall[] = [];
   let unmarked = false;
   const dataDir = await createTempDataFolder();
   const { core, record, clock } = await transcribingCore(dataDir, {
     model: searchingModel(calls, lines.query),
-    engine: { lines: lines.mine, theirLines: lines.theirs },
+    engine: { lines: lines.mine.slice(0, only), theirLines: lines.theirs.slice(0, only) },
     callsUnmarked: () => unmarked,
   });
   await core.updateSettings({ user: { language } });
@@ -343,9 +346,7 @@ for (const language of ["en", "zh-CN"] as const) {
       expect(unmarkedTyped).toEqual(markedTyped.map(withoutMarks));
       // Main's path still gives a press the earlier call, as main does.
       expect(
-        unmarkedPress.some((sent) =>
-          transcriptPassages(sent, setup.earlierName).some(isEarlier),
-        ),
+        unmarkedPress.some((sent) => transcriptPassages(sent, setup.earlierName).some(isEarlier)),
       ).toBe(true);
     });
 
@@ -406,9 +407,10 @@ for (const language of ["en", "zh-CN"] as const) {
 
   describe(`${language}: a Folder with no other call`, { timeout: 180_000 }, () => {
     test("each button's press is main's request to the byte but for the marks: the system's line on calls, the buttons' line on an earlier call's line, and this call's Passages' call and start", async () => {
-      const setup = await folderCore(language);
+      const setup = await folderCore(language, 4);
       const { core, calls } = setup;
       await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+      // The engine says eight lines and no more, so the call's text holds still for both arms.
       const { meeting } = await setup.call();
 
       const branch = await pressEvery(core, calls, meeting.id);
