@@ -4,13 +4,20 @@ import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type {
   AddedToNote,
+  AddQuickNoteInput,
   Meeting,
   MeetingHelpKind,
   MeetingHelpTemplate,
+  UndoAddToNoteInput,
   UndoAddToNoteResult,
 } from "../../src/core/api";
 import type { Language } from "../../src/core/language";
 import { askBarKinds } from "../../src/renderer/src/meetingPanel/askBarKinds";
+import {
+  type Draft,
+  type QuickNotes,
+  quickNotesFor,
+} from "../../src/renderer/src/meetingPanel/quickNotes";
 import { type MessageKey, type MessageParams, translate } from "../../src/shared/i18n";
 
 const state = vi.hoisted(() => ({ language: { current: "en" as Language } }));
@@ -65,12 +72,7 @@ interface AskBarProps {
   onReach(reach: number): void;
   onTakeKeyboard(): void;
   onNoteTaken(): void;
-  notes: {
-    add(text: string, atMs: number | null): Promise<AddedToNote>;
-    undo(added: AddedToNote): Promise<UndoAddToNoteResult>;
-    draft(): { text: string; began: { ms: number | null } | null };
-    keep(draft: { text: string; began: { ms: number | null } | null }): void;
-  } | null;
+  notes: QuickNotes | null;
 }
 
 describe("the ask bar's prompts, in order", () => {
@@ -101,22 +103,23 @@ const onReach = vi.fn<(reach: number) => void>();
 const onTakeKeyboard = vi.fn<() => void>();
 const onNoteTaken = vi.fn<() => void>();
 const ADDED: AddedToNote = { mindId: "mind-1", blockIds: ["block-1"] };
-type Draft = { text: string; began: { ms: number | null } | null };
-/** As the panel keeps the line: across a collapse, and each committed change told to the core. */
-let kept: Draft = { text: "", began: null };
-const notes = {
-  add: vi.fn<(text: string, atMs: number | null) => Promise<AddedToNote>>(),
-  undo: vi.fn<(added: AddedToNote) => Promise<UndoAddToNoteResult>>(),
-  draft: () => kept,
-  keep: vi.fn<(draft: Draft) => void>((draft) => {
-    kept = draft;
-  }),
+/** The core as quick notes reach it: each call recorded, each answer set by the test. */
+const quickCore = {
+  addQuickNote: vi.fn<(input: AddQuickNoteInput) => Promise<AddedToNote>>(),
+  undoAddToNote: vi.fn<(input: UndoAddToNoteInput) => Promise<UndoAddToNoteResult>>(),
+  setQuickNoteDraft: vi.fn<(input: AddQuickNoteInput) => Promise<void>>(),
 };
+/** The panel's lines by Meeting, which outlive the bar as the panel keeps them. */
+let drafts: Map<string, Draft>;
+let notes: QuickNotes;
+const kept = (): Draft => drafts.get("meeting-1") ?? { text: "", began: null };
 /** The texts the core was told the field holds, in order, repeats folded. */
 const keptTexts = () =>
-  notes.keep.mock.calls
-    .map(([draft]) => draft.text)
+  quickCore.setQuickNoteDraft.mock.calls
+    .map(([input]) => input.text)
     .filter((text, index, all) => index === 0 || all[index - 1] !== text);
+/** The quick notes asked for, as [text, atMs]. */
+const added = () => quickCore.addQuickNote.mock.calls.map(([input]) => [input.text, input.atMs]);
 
 /** Recording since 12:00:00 with 4 min 7 s already recorded before it, or paused at 4:07. */
 const RECORDING_SINCE = "2026-11-12T12:00:00.000Z";
@@ -134,9 +137,13 @@ const meetingOf = (
 
 beforeEach(async () => {
   vi.clearAllMocks();
-  notes.add.mockReset().mockResolvedValue(ADDED);
-  notes.undo.mockReset().mockResolvedValue({ kept: 0 });
-  kept = { text: "", began: null };
+  quickCore.addQuickNote.mockReset().mockResolvedValue(ADDED);
+  quickCore.undoAddToNote.mockReset().mockResolvedValue({ kept: 0 });
+  quickCore.setQuickNoteDraft.mockReset().mockResolvedValue(undefined);
+  drafts = new Map();
+  notes = quickNotesFor("meeting-1", quickCore, drafts, (error) => {
+    throw error;
+  });
   state.language.current = "en";
   const document = newPage();
   container = document.createElement("div", {});
@@ -432,7 +439,7 @@ describe("the field, for quick notes (#2925)", () => {
 
     expect(enter.defaultPrevented).toBe(true);
     // 4:07 recorded before, and 10 s of this stretch when the first letter went in.
-    expect(notes.add.mock.calls).toEqual([["Ask about SSO pricing", 257_000]]);
+    expect(added()).toEqual([["Ask about SSO pricing", 257_000]]);
     expect(field().value).toBe("");
     expect(field().getAttribute("placeholder")).toBe("Added to notes at 4:17");
     expect(one("quick-note-undo").textContent).toBe("Undo");
@@ -450,7 +457,7 @@ describe("the field, for quick notes (#2925)", () => {
     vi.setSystemTime(Date.parse("2026-11-12T12:01:00.000Z"));
     await type("Second");
     await press("Enter");
-    expect(notes.add.mock.calls).toEqual([
+    expect(added()).toEqual([
       ["First", 257_000],
       ["Second", 307_000],
     ]);
@@ -461,7 +468,7 @@ describe("the field, for quick notes (#2925)", () => {
     await type("Budget");
     const shiftEnter = await press("Enter", { shift: true });
     expect(shiftEnter.defaultPrevented).toBe(false);
-    expect(notes.add).not.toHaveBeenCalled();
+    expect(quickCore.addQuickNote).not.toHaveBeenCalled();
   });
 
   test("nothing, or only spaces, sends nothing", async () => {
@@ -470,14 +477,14 @@ describe("the field, for quick notes (#2925)", () => {
     await type("   \n ");
     await press("Enter");
     await fire(one("quick-note-send"), "click");
-    expect(notes.add).not.toHaveBeenCalled();
+    expect(quickCore.addQuickNote).not.toHaveBeenCalled();
   });
 
   test("the send button adds it as Enter does", async () => {
     await show();
     await type("Owner is Dana");
     await fire(one("quick-note-send"), "click");
-    expect(notes.add.mock.calls).toEqual([["Owner is Dana", 257_000]]);
+    expect(added()).toEqual([["Owner is Dana", 257_000]]);
     expect(one("quick-note-send").getAttribute("aria-label")).toBe("Add to notes");
   });
 
@@ -485,7 +492,7 @@ describe("the field, for quick notes (#2925)", () => {
     await show(null, KEYS, { meeting: meetingOf(null, "paused") });
     await type("Side chat");
     await press("Enter");
-    expect(notes.add.mock.calls).toEqual([["Side chat", null]]);
+    expect(added()).toEqual([["Side chat", null]]);
     expect(field().getAttribute("placeholder")).toBe("Added to notes");
   });
 
@@ -502,13 +509,13 @@ describe("the field, for quick notes (#2925)", () => {
     await type("Budget 40k");
     await press("Enter");
     await fire(one("quick-note-undo"), "click");
-    expect(notes.undo.mock.calls).toEqual([[ADDED]]);
+    expect(quickCore.undoAddToNote.mock.calls).toEqual([[ADDED]]);
     expect(all("quick-note-undo")).toHaveLength(0);
     expect(field().getAttribute("placeholder")).toBe("Note for this meeting…");
   });
 
   test("Undo says so when the User changed the line since, and it stays", async () => {
-    notes.undo.mockResolvedValue({ kept: 1 });
+    quickCore.undoAddToNote.mockResolvedValue({ kept: 1 });
     await show();
     await type("Budget 40k");
     await press("Enter");
@@ -517,7 +524,7 @@ describe("the field, for quick notes (#2925)", () => {
   });
 
   test("a note that couldn't go in comes back into the field, with why", async () => {
-    notes.add.mockRejectedValue(new Error("The note is read-only."));
+    quickCore.addQuickNote.mockRejectedValue(new Error("The note is read-only."));
     await show();
     await type("Budget 40k");
     await press("Enter");
@@ -528,7 +535,7 @@ describe("the field, for quick notes (#2925)", () => {
 
   test("a note that couldn't go in after the User began the next line comes back before it: neither is lost", async () => {
     const refused = Promise.withResolvers<AddedToNote>();
-    notes.add.mockReturnValueOnce(refused.promise);
+    quickCore.addQuickNote.mockReturnValueOnce(refused.promise);
     await show();
     await type("Budget 40k");
     await press("Enter");
@@ -539,7 +546,7 @@ describe("the field, for quick notes (#2925)", () => {
   });
 
   test("an Undo that couldn't be done says why and offers Undo again", async () => {
-    notes.undo.mockRejectedValueOnce(new Error("The note is read-only."));
+    quickCore.undoAddToNote.mockRejectedValueOnce(new Error("The note is read-only."));
     await show();
     await type("Budget 40k");
     await press("Enter");
@@ -547,7 +554,7 @@ describe("the field, for quick notes (#2925)", () => {
     expect(one("quick-note-problem").textContent).toBe("The note is read-only.");
     expect(field().getAttribute("placeholder")).toBe("Added to notes at 4:17");
     await fire(one("quick-note-undo"), "click");
-    expect(notes.undo.mock.calls).toEqual([[ADDED], [ADDED]]);
+    expect(quickCore.undoAddToNote.mock.calls).toEqual([[ADDED], [ADDED]]);
     expect(all("quick-note-undo")).toHaveLength(0);
   });
 
@@ -561,9 +568,9 @@ describe("the field, for quick notes (#2925)", () => {
       await type(first);
       vi.setSystemTime(Date.parse("2026-11-12T12:00:20.000Z"));
       await type(line);
-      expect(kept).toEqual({ text: line, began: { ms: 257_000 } });
+      expect(kept()).toEqual({ text: line, began: { ms: 257_000 } });
       await press("Enter");
-      expect(kept).toEqual({ text: "", began: null });
+      expect(kept()).toEqual({ text: "", began: null });
       expect(keptTexts()).toEqual(["", first, line, ""]);
     },
   );
@@ -574,26 +581,50 @@ describe("the field, for quick notes (#2925)", () => {
   ])(
     "the bar shown again after a collapse has the line kept, and sends it with its time ($language)",
     async ({ line }) => {
-      kept = { text: line, began: { ms: 200_000 } };
+      drafts.set("meeting-1", { text: line, began: { ms: 200_000 } });
       await show();
       expect(field().value).toBe(line);
       await press("Enter");
-      expect(notes.add.mock.calls).toEqual([[line, 200_000]]);
+      expect(added()).toEqual([[line, 200_000]]);
     },
   );
+
+  test("a note refused while the panel was collapsed comes back when the bar shows again", async () => {
+    const refused = Promise.withResolvers<AddedToNote>();
+    quickCore.addQuickNote.mockReturnValueOnce(refused.promise);
+    await show();
+    await type("Budget 40k");
+    await press("Enter");
+    await act(async () => root?.render(null));
+    await act(async () => refused.reject(new Error("The note is read-only.")));
+    await show();
+    expect(field().value).toBe("Budget 40k");
+    expect(keptTexts().at(-1)).toBe("Budget 40k");
+  });
+
+  test("each Meeting keeps its own line", () => {
+    const other = quickNotesFor("meeting-2", quickCore, drafts, () => undefined);
+    notes.keep({ text: "For the first call", began: null });
+    expect(other.draft()).toEqual({ text: "", began: null });
+    other.keep({ text: "For the second", began: { ms: 5_000 } });
+    expect(notes.draft().text).toBe("For the first call");
+    expect(quickCore.setQuickNoteDraft.mock.calls.at(-1)).toEqual([
+      { meetingId: "meeting-2", text: "For the second", atMs: 5_000 },
+    ]);
+  });
 
   test("while an input method composes, what it hasn't committed isn't kept; what it commits is", async () => {
     await show();
     await type("记一笔");
     await fire(field(), "compositionstart");
     await type("记一笔jia");
-    expect(kept.text).toBe("记一笔");
+    expect(kept().text).toBe("记一笔");
     await act(async () => {
       const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field()), "value")?.set;
       setter?.call(field(), "记一笔加");
       field().dispatchEvent(new window.Event("compositionend", { bubbles: true }));
     });
-    expect(kept.text).toBe("记一笔加");
+    expect(kept().text).toBe("记一笔加");
     expect(keptTexts()).not.toContain("记一笔jia");
   });
 
@@ -602,9 +633,9 @@ describe("the field, for quick notes (#2925)", () => {
     await type("记一笔");
     const composing = await press("Enter", { composing: true });
     expect(composing.defaultPrevented).toBe(false);
-    expect(notes.add).not.toHaveBeenCalled();
+    expect(quickCore.addQuickNote).not.toHaveBeenCalled();
     await press("Enter");
-    expect(notes.add.mock.calls).toEqual([["记一笔", 257_000]]);
+    expect(added()).toEqual([["记一笔", 257_000]]);
 
     await type("/su");
     await press("Enter", { composing: true });
@@ -628,7 +659,7 @@ describe('the "/" list (#2925)', () => {
 
     expect(enter.defaultPrevented).toBe(true);
     expect(onAsk.mock.calls).toEqual([["sum"]]);
-    expect(notes.add).not.toHaveBeenCalled();
+    expect(quickCore.addQuickNote).not.toHaveBeenCalled();
     expect(field().value).toBe("");
     expect(all("help-slash-list")).toHaveLength(0);
   });
@@ -690,9 +721,40 @@ describe('the "/" list (#2925)', () => {
     await type("Price / seat is 45");
     expect(all("help-slash-list")).toHaveLength(0);
     await press("Enter");
-    expect(notes.add.mock.calls.map(([text]) => text)).toEqual(["Price / seat is 45"]);
+    expect(added().map(([text]) => text)).toEqual(["Price / seat is 45"]);
     expect(field().getAttribute("placeholder")).toMatch(/^Added to notes at (\d+:)?\d+:\d{2}$/);
   });
+
+  test.each([
+    {
+      language: "en" as const,
+      first: "Sum up so far",
+      next: "What should I say?",
+      none: "No matches",
+    },
+    {
+      language: "zh-CN" as const,
+      first: "到目前为止的总结",
+      next: "我该怎么说？",
+      none: "没有匹配项",
+    },
+  ])(
+    "a screen reader hears the row Enter will ask as it changes, and that nothing matches ($language)",
+    async ({ language, first, next, none }) => {
+      state.language.current = language;
+      await show();
+      const said = () => one("help-slash-said").textContent;
+      expect(said()).toBe("");
+      await type(language === "en" ? "/su" : "/zj");
+      expect(said()).toBe(first);
+      if (language === "en") {
+        await press("ArrowDown");
+        expect(said()).toBe(next);
+      }
+      await type("/xyz");
+      expect(said()).toBe(none);
+    },
+  );
 
   test("nothing that matches says so, and Enter then does nothing", async () => {
     await show();
@@ -700,7 +762,7 @@ describe('the "/" list (#2925)', () => {
     expect(one("help-slash-none").textContent).toBe("No matches");
     await press("Enter");
     expect(onAsk).not.toHaveBeenCalled();
-    expect(notes.add).not.toHaveBeenCalled();
+    expect(quickCore.addQuickNote).not.toHaveBeenCalled();
     expect(field().value).toBe("/xyz");
   });
 

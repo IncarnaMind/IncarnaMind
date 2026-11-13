@@ -1,5 +1,5 @@
 import { type KeyboardEvent, type RefObject, useEffect, useRef, useState } from "react";
-import type { AddedToNote, Meeting, UndoAddToNoteResult } from "../../../core/api";
+import type { AddedToNote, Meeting } from "../../../core/api";
 import { writingTime } from "../../../shared/blockTimes";
 import { clockTime } from "../../../shared/clock";
 import { TypingTextarea } from "../components/TypingTextarea";
@@ -7,26 +7,10 @@ import { fieldClass } from "../components/ui";
 import { AskArrowIcon } from "../editor/icons";
 import { errorMessage } from "../errors";
 import { useT } from "../i18n";
+import type { QuickNotes } from "./quickNotes";
 
 /** How long the field's placeholder says a quick note went in, with its Undo beside it. */
 const ADDED_MS = 3000;
-
-/** The line in the field, and the Meeting's time when typing it began (null: not recording then). */
-export interface Draft {
-  text: string;
-  began: { ms: number | null } | null;
-}
-
-export interface QuickNotes {
-  add(text: string, atMs: number | null): Promise<AddedToNote>;
-  undo(added: AddedToNote): Promise<UndoAddToNoteResult>;
-  /**
-   * The line in the field, kept while the panel is collapsed, and in the core, which adds it to
-   * the Note if the recording stops or the panel closes before it is sent.
-   */
-  draft(): Draft;
-  keep(draft: Draft): void;
-}
 
 /** A quick note the field says went in, with the time it took. */
 interface Added {
@@ -97,15 +81,17 @@ export function NoteField({
     const atMs = began.current?.ms ?? null;
     began.current = null;
     onText("");
+    // Before the core answers: a refusal puts the line back into what is kept now.
+    notes.keep({ text: "", began: null });
     setProblem(null);
     notes.add(typed, atMs).then(
       (note) => setAdded({ note, atMs }),
       (error: unknown) => {
         setProblem(errorMessage(error, t));
-        // Back in the field, before any line the User has started meanwhile: neither is lost.
-        const since = field.current?.value ?? "";
-        began.current = { ms: atMs };
-        onText(since ? `${typed}\n${since}` : typed);
+        // `notes` put it back, before any line begun since: the field shows what it kept.
+        const back = notes.draft();
+        began.current = back.began;
+        onText(back.text);
       },
     );
   };

@@ -5460,20 +5460,21 @@ export function createCore(adapters: CoreAdapters): Core {
 
   /** A quick note's lines at the end of a live Meeting's Note, its time capped at the Meeting's now. */
   const writeQuickNote = (meeting: Meeting, lines: readonly string[], atMs: number | null) => {
-    quickNoteDrafts.delete(meeting.id);
     const time = atMs === null ? null : Math.min(atMs, meetingTimeAt(meeting, Date.parse(now())));
-    return noteAdding.addLines(meeting.mindId, lines, time);
+    const added = noteAdding.addLines(meeting.mindId, lines, time);
+    // Forgotten only once it is in: a Note that refused it leaves it for the next try.
+    quickNoteDrafts.delete(meeting.id);
+    return added;
   };
 
   /** The Meeting's unsent line, if it has one, into its Note as a quick note; null with none. */
   const addQuickNoteDraft = (meetingId: string): AddedToNote | null => {
     const draft = quickNoteDrafts.get(meetingId);
     if (!draft) return null;
-    quickNoteDrafts.delete(meetingId);
     const meeting = meetings.get(meetingId);
-    return recordsOrPaused(meeting)
-      ? writeQuickNote(meeting, linesOf(draft.text), draft.atMs)
-      : null;
+    if (recordsOrPaused(meeting)) return writeQuickNote(meeting, linesOf(draft.text), draft.atMs);
+    quickNoteDrafts.delete(meetingId);
+    return null;
   };
 
   /** Before a recording ends: a Note that can't take the line doesn't keep the Meeting from stopping. */

@@ -15,7 +15,8 @@ import { useMeetingHelp } from "../meetingHelp";
 import { exit } from "../motion";
 import { askBarKinds } from "./askBarKinds";
 import { rankHelp } from "./helpRank";
-import { NoteField, type QuickNotes } from "./NoteField";
+import { NoteField } from "./NoteField";
+import type { QuickNotes } from "./quickNotes";
 
 /** Between a row and the list under it, and the room the window keeps below the list. */
 const LIST_GAP = 2;
@@ -262,6 +263,14 @@ export function AskBar({
             notes={notes}
             onTakeKeyboard={onTakeKeyboard}
           />
+          {/* The field stays a text box, so the row Enter will ask is said here as it changes. */}
+          <span role="status" data-testid="help-slash-said" className="sr-only">
+            {typed === null
+              ? ""
+              : found[shownChosen]
+                ? t(helpLabel(found[shownChosen]))
+                : t("editor.slash.empty")}
+          </span>
           {typed !== null && (
             <div
               ref={slashList}

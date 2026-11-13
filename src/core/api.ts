@@ -11695,7 +11695,7 @@ export interface SetMeetingMicrophoneInput {
 /** A line or a few typed in the call-help panel's field (#2925). */
 export interface AddQuickNoteInput {
   meetingId: string;
-  /** One paragraph a line; lines that hold only spaces are left out. */
+  /** One paragraph a line, the spaces at either end of each trimmed; lines left empty are left out. */
   text: string;
   /** The Meeting's time, in ms, when typing began; null when it wasn't recording then. */
   atMs: number | null;

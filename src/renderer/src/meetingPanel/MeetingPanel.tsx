@@ -35,7 +35,7 @@ import { isLive, isWaitingForPermission, useMeetings, useMeetingTime } from "../
 import { clockTime } from "../meetingTime";
 import { useAppStore } from "../store";
 import { AskBar } from "./AskBar";
-import type { Draft, QuickNotes } from "./NoteField";
+import { type Draft, type QuickNotes, quickNotesFor } from "./quickNotes";
 
 declare global {
   interface Window {
@@ -81,22 +81,14 @@ export function MeetingPanel() {
   const [noteWanted, setNoteWanted] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   // Here, not in the bar, which a collapse unmounts.
-  const draft = useRef<Draft>({ text: "", began: null });
+  const drafts = useRef(new Map<string, Draft>());
   const meetingId = meeting?.id;
-  const notes = useMemo<QuickNotes | null>(
+  const notes = useMemo(
     () =>
       meetingId && quickNotesHere()
-        ? {
-            add: (text, atMs) => core.addQuickNote({ meetingId, text, atMs }),
-            undo: (added) => core.undoAddToNote(added),
-            draft: () => draft.current,
-            keep(next) {
-              draft.current = next;
-              core
-                .setQuickNoteDraft({ meetingId, text: next.text, atMs: next.began?.ms ?? null })
-                .catch((error: unknown) => useAppStore.getState().reportError(error));
-            },
-          }
+        ? quickNotesFor(meetingId, core, drafts.current, (error) =>
+            useAppStore.getState().reportError(error),
+          )
         : null,
     [meetingId],
   );
@@ -399,6 +391,8 @@ function Panel({
         </p>
       )}
       <AskBar
+        // Another Meeting's field holds that Meeting's own line.
+        key={meeting.id}
         meeting={meeting}
         keys={keys}
         noteWanted={noteWanted}

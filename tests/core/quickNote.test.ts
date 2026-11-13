@@ -6,7 +6,7 @@
  */
 import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
-import { type Core, type Meeting, MIND_BLOCK_TIMES_FIELD } from "../../src/core";
+import { type Core, type Meeting, MIND_BLOCK_TIMES_FIELD, MindReadOnlyError } from "../../src/core";
 import { blockTimeOf } from "../../src/shared/blockTimes";
 import { createTempDataFolder } from "../helpers/core";
 import { connectToMind, type MindClient, typeInto } from "../helpers/mindClient";
@@ -311,6 +311,20 @@ describe("A line left unsent in the call-help panel's field (#2925)", () => {
 
     await core.stopMeeting(meeting.id);
 
+    expect(lines(client).filter(Boolean)).toEqual(["Agenda"]);
+    core.close();
+  });
+
+  test("a Note that refuses the line keeps it for the next try, and Stop still stops the recording", async () => {
+    const { core, meeting, client } = await recording([note("Agenda")]);
+    await core.setQuickNoteDraft({ meetingId: meeting.id, text: "Kept for later", atMs: null });
+    // A newer version wrote the Note since: this one may only read it.
+    client.doc.getMap("settings").set("schemaVersion", 999);
+    await client.settled();
+
+    await expect(core.addQuickNoteDraft(meeting.id)).rejects.toThrow(MindReadOnlyError);
+    await expect(core.addQuickNoteDraft(meeting.id)).rejects.toThrow(MindReadOnlyError);
+    expect((await core.stopMeeting(meeting.id)).status).toBe("stopped");
     expect(lines(client).filter(Boolean)).toEqual(["Agenda"]);
     core.close();
   });
