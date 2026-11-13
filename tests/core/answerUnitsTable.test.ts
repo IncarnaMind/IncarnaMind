@@ -8,11 +8,31 @@ import { describe, expect, test } from "vitest";
 import { PARTS, rowsOf, shows, TABLE } from "../helpers/answerUnitsTable";
 
 describe("#2997's measured table", () => {
-  // protects=the table itself: no row reads ✓ here that didn't on main, no row Check against Documents calls Supported on main loses the Answer's ✓, and every twin keeps the ✓ it had; fails_when=a row of the table is changed to say otherwise; no_claim=what the code reads, which the part files run.
-  test("takes a ✓ only away, never from a sentence Check against Documents calls Supported", () => {
+  // protects=the table itself: the rows that read ✓ here and not on main are exactly the right sentences a label, a unit line or the quote's unit in another word now states (#2997), no row Check against Documents calls Supported on main loses the Answer's ✓, and every twin keeps the ✓ it had; fails_when=another row gains a ✓, one of these loses it, or a row of the table is changed to say otherwise; no_claim=what the code reads, which the part files run.
+  test("gives a ✓ only to the listed right sentences, and never takes one from a sentence Check against Documents calls Supported", () => {
     expect(
       TABLE.rows.filter((row) => shows(row.here) && !shows(row.main)).map(({ id }) => id),
-    ).toEqual([]);
+    ).toEqual([
+      "u120",
+      "u125",
+      "u201",
+      "u205",
+      "u235",
+      "u251",
+      "u252",
+      "c417",
+      "c418",
+      "c420",
+      "e-heading-second-label-en",
+      "e-heading-second-label-zh-CN",
+      "e-heading-en-second-label-en",
+      "e-heading-en-second-label-zh-CN",
+      "l-fs-038",
+      "e-heading-second-rows-row2-right-en",
+      "e-heading-second-rows-row2-right-zh-CN",
+      "e-cell-label-over-column-right-en",
+      "e-cell-label-over-column-right-zh-CN",
+    ]);
     expect(
       TABLE.rows
         .filter(
