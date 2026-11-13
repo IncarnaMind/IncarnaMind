@@ -159,6 +159,80 @@ Each arm is a tree of its own, built with `git archive`. Its code is that commit
 - Where each sentence was filed is reported for every probe on each arm, and the unmade marks probes are shown caught whatever value they get.
 - `reply-self-zh` and its miss on DeepSeek V4.1 Flash stay recorded as in the try's result.
 
+### The gate's DeepSeek V4.1 Flash half (2026-11-13, written before its first request)
+
+Its terms are the Haiku half's, with this model's own hour, price, key and numbers. The bars are per model and read together.
+
+**The arms.** The two trees the Haiku half ran, each built from `git archive`, so its code is that commit's byte for byte:
+- **head:** `1477bf919`;
+- **main:** `61615612f`'s `src/` in place of the branch's, so the arms differ only by this change.
+
+`main` is not merged in for this half.
+- The two halves are read together, so both go to the same pair of trees.
+- The 180 commits `main` has taken since leave the change-claim check (`claimedChanges.ts`), its probes and their harness as they were, apart from one comment in `checkRequests.ts`.
+
+**The probes and the order.** As the Haiku half: all 167 probes and the backed write, 168 checks a run, twenty rounds of main A, head, main B, 60 runs and 10,080 checks. A run with a refused, failed or timed-out request is void, kept, struck with its reason and run again in the same place of the order.
+
+**#2769's 41 everyday requests,** once each on head, after the twenty rounds:
+- the Library's model is DeepSeek V4.1 Flash;
+- the claims are judged by Claude Sonnet 5.5 on the first direct Anthropic key, as in the Haiku half.
+
+**How long.** From step 1's 1.03 s a check and the try's 1.17 s, and about 30 s to start each run (the Haiku half's runs took 3.3 minutes for 168 checks):
+- 60 runs: 3.4 to 3.8 hours;
+- the 41: about 30 minutes (the Haiku half's took 22);
+- **about 4.1 hours, at most 4.5.**
+
+**The price of its hour.** Read from DeepSeek's price page on 2026-11-13 at 19:33 UTC, for deepseek-flash (DeepSeek-V4.1-Flash-1017), per million tokens:
+
+| | Off-peak | Peak |
+|---|---|---|
+| Input, cache hit | $0.003 | $0.006 |
+| Input, cache miss | $0.15 | $0.30 |
+| Output | $0.60 | $1.20 |
+
+- The page: "Peak hours are 01:00 - 04:00 and 06:00 - 10:00 UTC, Monday through Friday, excluding Chinese public holidays. All other hours are off-peak, including weekends and Chinese public holidays in full."
+- The earlier runs fit it. Step 1 (Thursday 23:28 to Friday 00:00 UTC) was off-peak and the try (Friday 02:34 to 03:10 UTC) was at peak. Priced from their tokens at the page's prices for their hours, they come to $0.156 and $0.320, and the balance moved ¥0.94 and ¥1.97, in the same ratio of about two.
+- By the page's hours, every hour from Friday 10:00 UTC to Monday 01:00 UTC is off-peak, so a run that starts in that time and ends before Monday 01:00 UTC is off-peak throughout. The latest start for a 4.5-hour run is Sunday 20:30 UTC.
+- The page and the hours are read again right before the first request. A run priced for off-peak starts no round inside peak hours: the chain stops at the last round that ends before them, and what comes next is the second reader's word, at the peak price.
+
+**The estimate,** priced from tokens at the page's off-peak price:
+
+| Part | Basis | Off-peak | At peak |
+|---|---|---|---|
+| Probe runs, 10,080 checks | step 1's 1,820 checks: 8.98M input tokens, 8.38M of them cache hits, 69k output; the gate's probes are 5.4 times that in input and 5.3 times in output, as their size on Claude Haiku 5.5 is against its step 1 | $0.84 | $1.68 |
+| The 41 on head | the Haiku half's record of the same requests: 1,292 requests of the Library's model, 13.8M input tokens, 0.42M output, taken at DeepSeek's token counts (0.65 of Anthropic's, 0.57 for output, as step 1 shows) with its output allowed to double ($0.52 for DeepSeek V4.1 Flash with the output as it is, $0.66 doubled); and the 43 of Claude Sonnet 5.5's judge, $0.045 | $0.71 | $1.42 |
+| **This half** | | **$1.55** | **$3.10** |
+
+- The balance cross-check: step 1's ¥0.94 is $0.156, a rate of ¥6.0 to the dollar, and the try's ¥1.97 for $0.320 is ¥6.2. At that rate the probe runs come to about ¥5.1, and the whole half to about ¥9.5. The balance is not the meter: it can lag a run by tens of minutes.
+- A round (three runs) costs about $0.04 off-peak, and about $0.08 at peak.
+
+**The stop for this half: $1.75.** It is what is left of #2970's $4.80:
+
+| | |
+|---|---|
+| Before the gate | $0.93 |
+| The Haiku half, 60 runs | $1.33, by the app's meter, summed from the 60 runs' records |
+| The Haiku half, the 41 | $0.78, from the run's own record: all 1,292 requests of the Library's model $0.74 (uncached input 1.05M, cache reads 10.15M, cache writes 2.57M, output 0.42M, at Claude Haiku 5.5's prices) and the 43 of the judge $0.045 |
+| **Spent** | **$3.04** |
+| **Left** | **$1.76** |
+
+The Haiku half's issue comment gave $0.26 for the 41. That counts only the Answers' tokens (5.13M in, 0.15M out), not every request of the Library's model that the same report lists after them, so the half spent $2.11, not $1.59, and the $0.80 its plan took for the 41 stands.
+
+- **The start:** only if the estimate, $1.55, is at most 60% of DeepSeek's balance, read first, less any run of another lane still unbilled, and fits inside the stop.
+- **Before every run,** the spend so far (each run's tokens at the page's price for the hour it went, plus the next run's expected cost) is checked against the stop. A run that would cross it isn't started, and the chain stops there, even mid-arm. The 41 start only if what is left covers their estimate, and the chain reports what ran as it is, not as a gate.
+- **The balance** is read before and after every round and set beside the tokens' spend. Spend is reported from the tokens, and the balance only when read at least 30 minutes after the last request.
+
+**Keys and leases.**
+- DeepSeek's key lease is held for the 60 runs and renewed after each round, so its two-hour limit doesn't end it partway.
+- The 41 take the first direct Anthropic key's judge lease outside DeepSeek's key lease, in that order of their names.
+- DeepSeek sends no per-minute allowance for our key. What is recorded before each round is that, the balance, and the price page's hour. Before the 41 the same holds for Claude Sonnet 5.5's allowance on the first direct Anthropic key: above 90%, as in the Haiku half.
+- A dry round comes first, with a key that isn't one, so every request is refused and nothing is spent: both arms open, each check is heard, and every probe has its row.
+
+**What is read.** As the Haiku half: bars 1 to 5 for this model from the three arms, and bar 6 from the 41 on head, with every flag listed with its sentence, beside #2878's saved run of the same 41 on DeepSeek V4.1 Flash.
+- `reply-self-zh` is left alone in 12 of 20 on this model in step 1 and the try. It is run and recorded at the gate, not tried again.
+- `unmade-translated-en` is reported with main's numbers beside it, and its bar is recorded failed, with the issue that owns it, if it is under.
+- Where each sentence was filed is reported for every probe on each arm, and the unmade marks probes are shown caught whatever value they get.
+
 ## Spend
 
 The stop for all of #2970 is $4.80. A run that would pass it isn't started without the second reader's word. Spent before the try: about $0.41; after it, about $0.93. An estimate takes the price at the hour the run goes: DeepSeek V4.1 Flash's daytime price is twice its off-peak one.
