@@ -786,10 +786,7 @@ function unitsOnLine(line: string, stated: StatedUnit[], context: FigureContext)
   return namesTwoUnits(units) ? [] : units;
 }
 
-/**
- * What each line of `document` states of its figures' units (`unitsOnLine`), with what the shared
- * reader reads of the whole Document placed on its lines.
- */
+// One pass of the shared reader over the Document, not one a line: a long Document has thousands.
 function unitsByLine(document: string, context: FigureContext) {
   const shared = readStatedUnits(document, context);
   let from = 0;
@@ -801,14 +798,9 @@ function unitsByLine(document: string, context: FigureContext) {
   });
 }
 
-/**
- * What a cited number's Document states of its unit on lines other than its own (`itsLine`), where
- * no label reaches it: a caption over its table, a unit line, a unit said in prose.
- */
 const statedElsewhere = (byLine: ReturnType<typeof unitsByLine>, itsLine: string) =>
   byLine.filter(({ line }) => line !== itsLine).flatMap(({ units }) => units);
 
-/** The line of `text` that holds `start`, as `statedElsewhere` leaves it out. */
 const lineAt = (text: string, start: number) =>
   text
     .slice(text.lastIndexOf("\n", start - 1) + 1)
