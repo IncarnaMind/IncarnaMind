@@ -56,6 +56,8 @@ export interface Recording {
   modelCalls: ModelCallTiming[];
   searches: SearchTiming[];
   textEvents: TextEvent[];
+  /** The text the Answer engine streamed and kept, before the core read it (#2847). */
+  writtenText: string;
   /** The Passages every search handed the model. */
   handed: WindowedPassage[];
   loadAverage: number;
@@ -131,6 +133,7 @@ export function createTimingRecorder(): TimingRecorder {
   let calls: ModelCallTiming[] = [];
   let searches: SearchTiming[] = [];
   let events: TextEvent[] = [];
+  let written = "";
   let handed: WindowedPassage[] = [];
   let load = 0;
   const since = () => now() - origin;
@@ -195,6 +198,10 @@ export function createTimingRecorder(): TimingRecorder {
       for await (const event of inner.generate(request)) {
         const text = textEventOf(event, since());
         if (text) events.push(text);
+        if (event.type === "text-delta") written += event.text;
+        if (event.type === "text-retracted") {
+          written = written.slice(0, Math.max(0, written.length - event.length));
+        }
         yield event;
       }
     },
@@ -217,6 +224,7 @@ export function createTimingRecorder(): TimingRecorder {
       calls = [];
       searches = [];
       events = [];
+      written = "";
       handed = [];
       load = loadavg()[0] ?? 0;
     },
@@ -225,6 +233,7 @@ export function createTimingRecorder(): TimingRecorder {
         modelCalls: calls,
         searches,
         textEvents: events,
+        writtenText: written,
         handed,
         loadAverage: load,
       };

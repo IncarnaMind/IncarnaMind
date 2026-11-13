@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MockLanguageModelV4 } from "ai/test";
 import { afterEach, describe, expect, test } from "vitest";
-import { armSwitch, newestStretch } from "../../eval/speed/arms";
+import { armNamed, armSwitch, newestStretch } from "../../eval/speed/arms";
 import { callHelpSet, judgePlacesAlone } from "../../eval/speed/callHelp";
 import { CALL_HELP_CASES, callOf, TRANSCRIPT } from "../../eval/speed/callHelpCases";
 import { openLedger } from "../../eval/speed/ledger";
@@ -30,21 +30,21 @@ const block = (text: string, tag: string) =>
  * A model that cites `quote` from the first Passage found ahead, then answers in the options'
  * shape, and judges its sentences supported by what they cite, as call help's are judged (#2847).
  */
-function helping(quote: string, calls: ModelCall[]) {
+function helping(
+  quote: string,
+  calls: ModelCall[],
+  reply = "★ Yes, Enterprise is $45 a seat with single sign-on [^1]\n→ answers at once\n\nI'll send the price sheet\n→ buys time",
+  markers: readonly number[] = [1],
+) {
   return scriptedModel(
     (call) => {
       calls.push(call);
       const [found] = shownPassages(block(call.prompt, "found-in-documents"));
       if (found && !call.results.some((result) => result.tool === "cite")) {
-        return {
-          calls: [
-            { tool: "cite", input: { citations: [{ marker: 1, passage: found.id, quote }] } },
-          ],
-        };
+        const citations = markers.map((marker) => ({ marker, passage: found.id, quote }));
+        return { calls: [{ tool: "cite", input: { citations } }] };
       }
-      return {
-        text: "★ Yes, Enterprise is $45 a seat with single sign-on [^1]\n→ answers at once\n\nI'll send the price sheet\n→ buys time",
-      };
+      return { text: reply };
     },
     { judgesItsAnswers: true },
   );
@@ -101,15 +101,19 @@ async function pressed(
   id: string,
   quote: string,
   judge: { grade: string; unstated: number[]; first?: "prose" | "empty" },
-  arm: "today" | "help-marks-quote-only" = "today",
+  arm: "today" | "help-marks-quote-only" | "call-help-as-before" | "call-help-fact-lines" = "today",
   /** The arm switch a paired run sends through, to read the requests as it records them. */
   through?: ReturnType<typeof armSwitch>,
+  /** The reply, and the markers its `cite` call records, where it isn't the options' default. */
+  written?: { reply: string; markers: readonly number[] },
 ) {
   const group = callHelpSet().find((each) => each.name === `call-help-${id}`);
   const item = group?.items[0];
   if (!group || !item) throw new Error(`No case ${id}.`);
   const calls: ModelCall[] = [];
-  const model = helping(quote, calls);
+  const model = written
+    ? helping(quote, calls, written.reply, written.markers)
+    : helping(quote, calls);
   // The press answers on an Ollama choice; the model is scripted, so the server is always here.
   const ollamaModels: CoreAdapters["ollamaModels"] = {
     describe: async () => null,
@@ -125,6 +129,8 @@ async function pressed(
     recordTimings: true,
     chatModels: () => (through ? through.chatModels(() => model) : () => model),
     ...(arm === "help-marks-quote-only" && { helpMarksQuoteOnly: () => true }),
+    ...(arm === "call-help-as-before" && { callHelpForm: () => "as before" as const }),
+    ...(arm === "call-help-fact-lines" && { callHelpForm: () => "fact lines" as const }),
   });
   try {
     const { library } = opened;
@@ -236,6 +242,36 @@ describe("A press during the call", { timeout: 120_000 }, () => {
       },
     ]);
   });
+
+  // protects=a press keeps its reply as written and as stored, each stored line with what its arm's form reads it as, every Citation its cite call recorded, and its places read in its arm's form: the form's fact line alone, its line to say with no place, as the panel shows it; main's arm keeps its line to say's marker and its place there; fails_when=the record lacks the text written or a dropped Citation, or reads either arm in the other's form; no_claim=what a model writes.
+  test.each([
+    { arm: "call-help-fact-lines" as const, kinds: ["say", "fact", "effect"], places: [1] },
+    { arm: "call-help-as-before" as const, kinds: ["say", "fact", "effect"], places: [2, 1] },
+  ])(
+    "a press on $arm keeps the reply as written and as stored, read in its arm's form",
+    async ({ arm, kinds, places }) => {
+      const reply =
+        "★ Yes, Enterprise is $45 a seat [^2]\n> Enterprise is $45 per seat a month, with single sign-on [^1]\n→ answers at once";
+      const through = armSwitch();
+      through.use(armNamed(arm));
+      const { run } = await pressed(
+        "en-answer-sso",
+        ENTERPRISE,
+        { grade: "right", unstated: [] },
+        arm,
+        through,
+        {
+          reply,
+          markers: [1, 2],
+        },
+      );
+
+      expect(run.help?.written).toBe(reply);
+      expect(run.help?.stored.map((line) => line.kind)).toEqual(kinds);
+      expect(through.takeCites().map((cite) => cite.marker)).toEqual([1, 2]);
+      expect(run.places?.map((place) => place.marker)).toEqual(places);
+    },
+  );
 
   test("the judge asked per place lists only the places it was shown, and asks again once when it can't be read", async () => {
     const place = (id: string) => ({

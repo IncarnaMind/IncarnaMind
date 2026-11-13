@@ -14,6 +14,7 @@ import { toolTextIn } from "../../src/core/answers/toolText";
 import { openDatabase } from "../../src/core/storage";
 import type { TimingOutcome } from "../../src/core/timing/timings";
 import { comparisonCellOf } from "../../src/shared/comparisons";
+import type { HelpLineKind } from "../../src/shared/helpReplyRead";
 import { queryDatabase } from "../../tests/helpers/core";
 import { connectToMind } from "../../tests/helpers/mindClient";
 import { readMind } from "../../tests/helpers/minds";
@@ -125,10 +126,18 @@ export interface ArmRun {
   /** The Answer or reply, to read a difference by hand. */
   text: string;
   /**
-   * A help reply as the model wrote it, its last text before it ended, where the text kept differs:
-   * its reader takes off what the panel never draws, as a marker on a line to say (#2847).
+   * A help reply as the model wrote it and as it was kept (#2847): its reader takes off what the
+   * panel never draws, as a marker on a line to say, so a reading counts that from the text written.
+   * `written`: the text the Answer engine streamed and kept; null when no recorder saw it. `stored`:
+   * each line kept, with what its arm's form reads it as. `citations`: those it kept.
    */
-  written?: string;
+  help?: {
+    written: string | null;
+    stored: { kind: HelpLineKind; text: string }[];
+    citations: { marker: number; quote: string; check: string; passedAt: number[] }[];
+  };
+  /** Every Citation the reply's `cite` calls recorded, one its text no longer holds among them. */
+  writtenCitations?: { marker: number; quote: string }[];
   /** Each request and local step, for an item that reads them (a help reply). */
   requests?: RequestTiming[];
   /**

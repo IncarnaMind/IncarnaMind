@@ -253,11 +253,40 @@ function checkReplyOf(params: LanguageModelV4CallOptions, text: string): CheckRe
   return { sentences, read, ...(read < sentences && { reply: text }) };
 }
 
+/** The Citations an Answer's `cite` calls recorded, read off a request that sends them back. */
+function citesIn(
+  prompt: LanguageModelV4CallOptions["prompt"],
+): { marker: number; quote: string }[] {
+  return prompt.flatMap((message) =>
+    message.role !== "assistant"
+      ? []
+      : message.content.flatMap((part) => {
+          if (part.type !== "tool-call" || part.toolName !== "cite") return [];
+          const input: unknown = part.input;
+          const listed =
+            typeof input === "object" && input !== null && "citations" in input
+              ? input.citations
+              : null;
+          return (Array.isArray(listed) ? listed : []).flatMap((each: unknown) =>
+            typeof each === "object" &&
+            each !== null &&
+            "marker" in each &&
+            "quote" in each &&
+            typeof each.marker === "number" &&
+            typeof each.quote === "string"
+              ? [{ marker: each.marker, quote: each.quote }]
+              : [],
+          );
+        }),
+  );
+}
+
 /** The chat models and Answer paths of a core, as the arm it runs has them. */
 export function armSwitch() {
   let current: Arm | null = null;
   const sent: SentRequest[] = [];
   const checks: CheckReply[] = [];
+  const cites = new Map<string, { marker: number; quote: string }>();
   const middleware: LanguageModelMiddleware = {
     specificationVersion: "v4",
     wrapGenerate: async ({ doGenerate, params }) => {
@@ -270,6 +299,7 @@ export function armSwitch() {
     transformParams: async ({ params, model }) => {
       const next = current?.request?.(params) ?? params;
       const { prompt, abortSignal: _signal, headers: _headers, ...rest } = next;
+      for (const cite of citesIn(prompt)) cites.set(`${cite.marker} ${cite.quote}`, cite);
       sent.push({
         prompt: JSON.stringify(prompt),
         setup: JSON.stringify({
@@ -305,6 +335,12 @@ export function armSwitch() {
     takeSent: (): SentRequest[] => sent.splice(0),
     /** The sentence check's replies since it was last asked, oldest first. */
     takeChecks: (): CheckReply[] => checks.splice(0),
+    /** The Citations `cite` calls recorded since it was last asked. */
+    takeCites: (): { marker: number; quote: string }[] => {
+      const taken = [...cites.values()];
+      cites.clear();
+      return taken;
+    },
     use(arm: Arm): void {
       current = arm;
     },

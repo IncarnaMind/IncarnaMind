@@ -18,9 +18,9 @@ import { createFakeCapture, type FakeCapture } from "../../src/core/meetings/fak
 import type { TimingOutcome } from "../../src/core/timing/timings";
 import { citationNumbers, sentencePassed } from "../../src/renderer/src/helpReply";
 import { citedSentences } from "../../src/shared/citedSentences";
-import { type ReplyItem, readHelpReply, shownItems } from "../../src/shared/helpReplyRead";
+import { helpReplyRead, type ReplyItem } from "../../src/shared/helpReplyRead";
 import { isTranscriptLocation } from "../../src/shared/locations";
-import { HELP_SHAPE } from "../../src/shared/meetingHelp";
+import { type CallHelpForm, HELP_SHAPE } from "../../src/shared/meetingHelp";
 import { normaliseText } from "../../src/shared/text";
 import { queryDatabase } from "../../tests/helpers/core";
 import {
@@ -423,16 +423,18 @@ function requestsSince(dataDir: string, since: string): RequestTiming[] {
   }));
 }
 
-/** Presses the case's button and reads what the panel showed, and when. */
+/**
+ * Presses the case's button and reads what the panel showed, and when, in the form the press was
+ * asked in (`form`: its arm's).
+ */
 async function press(
   core: Core,
   each: CallHelpCase,
   meetingId: string,
   begin: () => void,
+  form?: CallHelpForm,
 ): Promise<{
   answer: ConversationAnswer;
-  /** Its last text while it was written, before its end read it. */
-  written: string | null;
   firstWordsMs: number | null;
   firstOptionMs: number | null;
   settledMs: number | null;
@@ -450,18 +452,18 @@ async function press(
   const seen = new Map<string, { firstWordsMs: number | null; firstOptionMs: number | null }>();
   let start = 0;
   let latestText = "";
-  const written = new Map<string, string>();
   const stop = core.on("conversation.message", (message) => {
     if (message.kind !== "answer") return;
     latestText = message.text;
-    if (message.status === "streaming") written.set(message.id, message.text);
     if (snapshotting) beforeCheck = message.text;
     const at = performance.now() - start;
-    const shown = shownItems(readHelpReply(message.text), {
+    const read = helpReplyRead(message.text, {
       shape,
       leadIn: false,
       streaming: message.status === "streaming",
+      ...(form && { form }),
     });
+    const shown = [...read.lead, ...read.options];
     const times = seen.get(message.id) ?? { firstWordsMs: null, firstOptionMs: null };
     if (shown.some((item) => item.lead.some((piece) => piece.kind === "text" && piece.text.trim())))
       times.firstWordsMs ??= at;
@@ -529,7 +531,7 @@ async function press(
     // `replyEnded` waits for the marks: none waited when they had settled as the reply ended.
     const settledMs =
       finishedAt === null ? null : settledAt === null ? 0 : Math.max(0, settledAt - finishedAt);
-    return { answer, written: written.get(answer.id) ?? null, ...times, settledMs };
+    return { answer, ...times, settledMs };
   } finally {
     stop();
     stopPhase();
@@ -586,6 +588,7 @@ function item(each: CallHelpCase, set: CallHelpSet): PairedGroup["items"][number
     async run({ library, claimsJudge, meeting, choice, arm }) {
       if (!meeting) throw new Error("The call-help set needs its Meeting.");
       const quoteOnly = armNamed(arm).helpMarksQuoteOnly === true;
+      const form = armNamed(arm).callHelpForm;
       // A press answers on the Answers model the User chose, as the panel's does.
       await library.core.updateSettings({ user: { chatModel: choice } });
       const since = new Date().toISOString();
@@ -598,18 +601,22 @@ function item(each: CallHelpCase, set: CallHelpSet): PairedGroup["items"][number
       });
       let pressed: Awaited<ReturnType<typeof press>>;
       try {
-        pressed = await press(library.core, each, meeting.id, () => library.timings?.begin());
+        pressed = await press(library.core, each, meeting.id, () => library.timings?.begin(), form);
       } catch (error) {
         return failed(error instanceof Error ? error.message : String(error));
       }
-      const { answer, written, firstWordsMs, firstOptionMs, settledMs } = pressed;
+      const { answer, firstWordsMs, firstOptionMs, settledMs } = pressed;
+      const written = library.timings?.end().writtenText ?? null;
       const requests = requestsSince(library.dataDir, since);
       const done = answer.status === "done";
-      const shown = shownItems(readHelpReply(answer.text), {
+      // The text kept, read again in its arm's form: what the panel shows of it, and each line's kind.
+      const kept = helpReplyRead(answer.text, {
         shape: HELP_SHAPE[each.kind],
         leadIn: answer.steps?.textBehind === true,
         streaming: false,
+        ...(form && { form }),
       });
+      const shown = [...kept.lead, ...kept.options];
       const numbers = citationNumbers(shown, (marker) =>
         answer.citations.some((citation) => citation.marker === marker),
       );
@@ -745,7 +752,18 @@ function item(each: CallHelpCase, set: CallHelpSet): PairedGroup["items"][number
         firstOptionMs,
         requests,
         places: placeMarks,
-        ...(written !== null && written !== answer.text && { written }),
+        help: {
+          written,
+          stored: answer.text
+            .split("\n")
+            .map((text, index) => ({ kind: kept.kinds[index] ?? "other", text })),
+          citations: answer.citations.map(({ marker, quote, check, passedAt }) => ({
+            marker,
+            quote,
+            check,
+            passedAt: passedAt ?? [],
+          })),
+        },
         ...(read &&
           judged && {
             marks: {
@@ -833,7 +851,7 @@ export async function openCall(
  */
 const PLACE_SETS: ReadonlySet<CallHelpSet> = new Set(["call-help-marks-4"]);
 
-type CallHelpSet =
+export type CallHelpSet =
   | "call-help"
   | "call-help-held-out"
   | "call-help-fresh"

@@ -302,6 +302,7 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
               await arm.prepare?.(library.core);
               switches[which].takeSent();
               switches[which].takeChecks();
+              switches[which].takeCites();
               done[which] = await runOnArm(item, {
                 library,
                 ...(opened[which].meeting && { meeting: opened[which].meeting }),
@@ -313,7 +314,11 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
                 claimsJudge: judge.model,
               });
               firstSent[which] = switches[which].takeSent()[0] ?? null;
-              done[which] = { ...done[which], checkReplies: switches[which].takeChecks() };
+              done[which] = {
+                ...done[which],
+                checkReplies: switches[which].takeChecks(),
+                writtenCitations: switches[which].takeCites(),
+              };
             }
             const row: PairedRow = {
               set: item.set,
