@@ -31,7 +31,7 @@ import { currentTask } from "../../runs/current";
 import { inStep } from "../../timing/flows";
 import { estimateTokens } from "../context";
 import { answerTemperature } from "../engine";
-import { json, judge } from "../judge";
+import { judge, lines } from "../judge";
 import { figureReadings, needsCalculation } from "./calculationGate";
 import type { CheckedCitation } from "./claimCheck";
 import { claimsAtOnce } from "./runChecks";
@@ -43,7 +43,8 @@ import {
   batchesOf,
   batchParts,
   batchPrompt,
-  readBatch,
+  passesSentence,
+  readBatchText,
   sentenceBatchInstructions,
 } from "./sentenceBatch";
 import type { UnitGate } from "./unitGate";
@@ -195,7 +196,7 @@ async function supportOf(
   }
   // A Citation shows its words beside the check: a sentence they don't state is never green,
   // whatever another part of the Passage says (#2739).
-  if (verdict.quoted === "other") return null;
+  if (!passesSentence(verdict)) return null;
   // A unit, currency or scale its quotes give otherwise is what Check against Documents finds too,
   // and says so in the same words (#2997).
   const unit = unstatedUnit(sentence.found, sentence.sentence);
@@ -418,7 +419,8 @@ export function createAnswerCheck(options: AnswerCheckOptions) {
           within: { most: room },
           parts: batchParts(batch),
           data: BATCH_TAGS,
-          reply: json((value) => readBatch(value, batch.length)),
+          // Read from its text, not as one JSON value: a reply can hold a corrected answer (#3029).
+          reply: lines((text) => readBatchText(text, batch.length)),
           items: batch.length,
           retries: 1,
           signal: input.signal,
