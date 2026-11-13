@@ -3,12 +3,14 @@ import {
   BLOCK_ID_ATTRIBUTE,
   CITATION_NODE,
   type CitationAttributes,
+  PROPOSAL_ATTRIBUTE,
   PROPOSAL_DELETE_MARK,
 } from "../../src/core";
 import { citationAttributesOf } from "../../src/shared/citations";
 import { asCitedNow } from "../../src/shared/citedNow";
 import { readClaimCheck } from "../../src/shared/claimChecks";
 import { countingCheckOf, hasMarkIn } from "../../src/shared/markKeys";
+import { pendingProposals, readProposalAttribute } from "../../src/shared/proposals";
 import { INLINE_NODE, isClaim, sentenceSpans } from "../../src/shared/sentences";
 
 /** A sentence a write added, as a check reads it, with what its check's mark says. */
@@ -42,7 +44,7 @@ function lineOf(paragraph: Y.XmlElement) {
         insert: unknown;
         attributes?: Record<string, unknown>;
       }[]) {
-        // Words a waiting change takes out aren't the write's sentence.
+        // Words and nodes a waiting change takes out aren't the write's sentence.
         if (typeof run.insert !== "string" || hasMarkIn(PROPOSAL_DELETE_MARK, run.attributes))
           continue;
         const mark = countingCheckOf(run.attributes)?.attrs ?? null;
@@ -50,6 +52,8 @@ function lineOf(paragraph: Y.XmlElement) {
         for (let at = 0; at < run.insert.length; at++) marks.push(mark);
       }
     } else if (child instanceof Y.XmlElement) {
+      if (readProposalAttribute(child.getAttribute(PROPOSAL_ATTRIBUTE))?.kind === "delete")
+        continue;
       if (child.nodeName === CITATION_NODE)
         cited.push({ at: text.length, citation: citationAttributesOf(child.getAttributes()) });
       text += child.nodeName === "hardBreak" ? "\n" : INLINE_NODE;
@@ -104,4 +108,19 @@ export function writtenSentences(
     if (typeof id === "string" && ids.has(id)) visit(block, false);
   }
   return found;
+}
+
+/**
+ * The top-level Blocks the write's change `request` is in while it waits, read from the Note: the
+ * Blocks it added and the existing ones it rewrote.
+ */
+export function writtenBlocks(blocks: Y.XmlFragment, request: string): string[] {
+  return blocks.toArray().flatMap((block) => {
+    if (!(block instanceof Y.XmlElement)) return [];
+    const id = block.getAttribute(BLOCK_ID_ATTRIBUTE);
+    const holds =
+      readProposalAttribute(block.getAttribute(PROPOSAL_ATTRIBUTE))?.request === request ||
+      pendingProposals(block).some((ref) => ref.request === request);
+    return typeof id === "string" && holds ? [id] : [];
+  });
 }

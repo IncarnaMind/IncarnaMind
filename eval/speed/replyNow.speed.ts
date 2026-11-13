@@ -34,7 +34,7 @@ import { createWorkerEmbedder } from "../lib/embedder";
 import { openLibrary } from "../lib/library";
 import { createLog } from "../lib/log";
 import { createWorkerCrossEncoder } from "../lib/rerank";
-import { writtenSentences } from "../lib/writtenSentences";
+import { writtenBlocks, writtenSentences } from "../lib/writtenSentences";
 import { EIGHT_PARAGRAPHS, REPLY_NOW_CASES, type ReplyNowCase } from "./replyNowCases";
 import { env, list, modelNamed, modelsAsked, spentUsd } from "./settings";
 
@@ -242,9 +242,12 @@ async function runCase(
     const count = () => {
       const total: Sentences = { written: 0, verdict: 0, notChecked: 0, checking: 0, unmarked: 0 };
       for (const { client, mindId } of clients) {
-        // The Blocks each write's check names, an existing one it rewrote among them.
+        // The Blocks each write's own change is in, an existing one it rewrote among them, whether
+        // or not its check began.
         const named = answer.toolCalls.flatMap((call) =>
-          call.mindChange?.mindId === mindId ? (call.mindChange.selfCheck?.blocks ?? []) : [],
+          call.mindChange?.mindId === mindId
+            ? writtenBlocks(client.blocks, call.mindChange.request)
+            : [],
         );
         const ids = new Set(
           named.length > 0

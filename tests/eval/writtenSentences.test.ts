@@ -1,13 +1,18 @@
 import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
-import { writtenSentences } from "../../eval/lib/writtenSentences";
+import { writtenBlocks, writtenSentences } from "../../eval/lib/writtenSentences";
 import {
   BLOCK_ID_ATTRIBUTE,
   CITATION_NODE,
   CLAIM_CHECK_MARK,
   PROPOSAL_DELETE_MARK,
+  PROPOSAL_INSERT_MARK,
 } from "../../src/core";
+import { setProposal } from "../../src/core/proposals/write";
 import { keyedFormats } from "../../src/shared/markKeys";
+
+/** The waiting change that takes words and a Citation out. */
+const REMOVING = { id: "change-1", request: "write-1" };
 
 /** A paragraph Block `id` of `parts`: text, a Citation, or text under a check's mark. */
 function paragraph(
@@ -19,12 +24,20 @@ function paragraph(
     | { citation: Record<string, string> }
     | { text: string; mark: Record<string, unknown> }
     | { removed: string }
+    | "removed citation"
   )[],
 ) {
   const element = new Y.XmlElement("paragraph");
   element.setAttribute(BLOCK_ID_ATTRIBUTE, id);
   blocks.push([element]);
   for (const part of parts) {
+    if (part === "removed citation") {
+      const citation = new Y.XmlElement(CITATION_NODE);
+      citation.setAttribute("marker", "1");
+      setProposal(citation, { ...REMOVING, kind: "delete" });
+      element.push([citation]);
+      continue;
+    }
     if (part === "citation" || (typeof part === "object" && "citation" in part)) {
       const citation = new Y.XmlElement(CITATION_NODE);
       citation.setAttribute("marker", "1");
@@ -39,8 +52,7 @@ function paragraph(
     if (typeof part === "string") text.insert(0, part);
     else if ("removed" in part) {
       text.insert(0, part.removed);
-      const change = { id: "change-1", request: "write-1" };
-      text.format(0, part.removed.length, keyedFormats(text, PROPOSAL_DELETE_MARK, change));
+      text.format(0, part.removed.length, keyedFormats(text, PROPOSAL_DELETE_MARK, REMOVING));
     } else {
       text.insert(0, part.text);
       text.format(0, part.text.length, keyedFormats(text, CLAIM_CHECK_MARK, part.mark));
@@ -120,6 +132,41 @@ describe("the sentences a write added, as the everyday evaluation records them",
     expect(writtenSentences(blocks, new Set(["written"])).map((each) => each.text)).toEqual([
       "The quay is busy in summer.",
     ]);
+  });
+
+  // protects=a Citation a waiting change takes out of a sentence the write rewrote isn't recorded as the sentence's, so whether it is cited reads as accepting the change leaves it (#2830); fails_when=the removed Citation still makes the sentence read cited; no_claim=how the change is cut into words.
+  test("a Citation a waiting change takes out is left out", () => {
+    const doc = new Y.Doc();
+    const blocks = doc.getXmlFragment("content");
+    paragraph(blocks, "written", ["The quay is busy in summer ", "removed citation", "."]);
+
+    expect(
+      writtenSentences(blocks, new Set(["written"])).map((each) => [each.text, each.cited]),
+    ).toEqual([["The quay is busy in summer .", false]]);
+  });
+
+  // protects=the reply-timing evaluation counts the Blocks a write's own waiting change is in, one it added and an existing one it rewrote, whether or not that write's check began, and no Block another change or none touched (#2830); fails_when=a rewritten existing Block is left out, so the write counts no sentence; no_claim=which Blocks a model rewrites.
+  test("the Blocks a write's waiting change is in, added or rewritten", () => {
+    const doc = new Y.Doc();
+    const blocks = doc.getXmlFragment("content");
+    paragraph(blocks, "untouched", ["The harbour is quiet in winter."]);
+    paragraph(blocks, "rewritten", ["The quay is ", { removed: "quiet" }, "busy in summer."]);
+    paragraph(blocks, "added", ["Boats leave at dawn."]);
+    paragraph(blocks, "other", ["Gulls nest on the pier."]);
+    const [, rewritten, added, other] = blocks.toArray();
+    if (
+      !(rewritten instanceof Y.XmlElement) ||
+      !(added instanceof Y.XmlElement) ||
+      !(other instanceof Y.XmlElement)
+    )
+      throw new Error("The Note's paragraphs aren't there.");
+    const busy = rewritten.get(2);
+    if (busy instanceof Y.XmlText)
+      busy.format(0, 4, keyedFormats(busy, PROPOSAL_INSERT_MARK, REMOVING));
+    setProposal(added, { ...REMOVING, kind: "insert" });
+    setProposal(other, { id: "change-2", request: "write-2", kind: "insert" });
+
+    expect(writtenBlocks(blocks, REMOVING.request)).toEqual(["rewritten", "added"]);
   });
 });
 
