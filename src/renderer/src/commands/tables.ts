@@ -7,9 +7,13 @@ import {
   runTableAction,
   TABLE_ACTIONS,
   TABLE_MENU_KEYS,
+  type TableAction,
+  type TableActionId,
+  type TableSpot,
   tableSpot,
   unavailable,
 } from "../editor/tableCommands";
+import type { Translate } from "../objects";
 import { readMindHandle } from "./handles";
 import type { Command, CommandContext } from "./registry";
 
@@ -29,13 +33,51 @@ function tableNote(ctx: CommandContext): Editor | null {
   return editor && !editor.isDestroyed && isInTable(editor.state) ? editor : null;
 }
 
+const spotOf = (ctx: CommandContext) => {
+  const editor = tableNote(ctx);
+  return editor && tableSpot(editor.state);
+};
+
+/** The heading row and the totals are switches: the menu ticks each one that is on. */
+const SWITCHES: Partial<Record<TableActionId, (spot: TableSpot) => boolean>> = {
+  headerRow: (spot) => spot.headerRow,
+  totalRow: (spot) => spot.totalRow,
+  totalColumn: (spot) => spot.totalColumn,
+};
+
+/** A selection of several rows or columns says how many Delete takes. */
+function deleteLabel(action: TableAction, ctx: CommandContext, t: Translate): string {
+  const spot = spotOf(ctx);
+  if (action.id === "deleteRow" && spot && spot.rows > 1) {
+    return t("editor.table.deleteRows", { count: spot.rows });
+  }
+  if (action.id === "deleteColumn" && spot && spot.columns > 1) {
+    return t("editor.table.deleteColumns", { count: spot.columns });
+  }
+  return t(action.label);
+}
+
 export const tableCommands: readonly Command[] = [
-  ...TABLE_ACTIONS.map(
-    (action): Command => ({
+  ...TABLE_ACTIONS.map((action): Command => {
+    const isOn = SWITCHES[action.id];
+    return {
       id: action.command,
-      label: action.label,
+      label:
+        action.id === "deleteRow" || action.id === "deleteColumn"
+          ? (ctx, t) => deleteLabel(action, ctx, t)
+          : action.label,
       ...(action.keys && { shortcut: { keys: action.keys } }),
-      group: action.id.startsWith("delete") ? "danger" : "main",
+      ...(isOn && {
+        checked(ctx: CommandContext) {
+          const spot = spotOf(ctx);
+          return spot !== null && isOn(spot);
+        },
+      }),
+      group: action.id.startsWith("delete")
+        ? "danger"
+        : action.id === "openCalculation"
+          ? "open"
+          : "main",
       // The note's own undo (⌘Z) takes it back.
       reversible: true,
       when: (ctx) => {
@@ -48,8 +90,7 @@ export const tableCommands: readonly Command[] = [
       },
       enabled(ctx) {
         if (ctx.here?.[action.command]) return true;
-        const editor = tableNote(ctx);
-        const spot = editor && tableSpot(editor.state);
+        const spot = spotOf(ctx);
         const reason = spot && unavailable(action.id, spot);
         return reason ? { reason } : true;
       },
@@ -62,8 +103,8 @@ export const tableCommands: readonly Command[] = [
         const editor = tableNote(ctx);
         if (editor) runTableAction(editor, action);
       },
-    }),
-  ),
+    };
+  }),
   {
     id: "table.menu",
     label: "editor.table.menu",
@@ -76,6 +117,6 @@ export const tableCommands: readonly Command[] = [
       const editor = tableNote(ctx);
       return editor !== null && menuKeyApplies(editor.state) && !!editor.storage.tableKeys.openMenu;
     },
-    run: (ctx) => tableNote(ctx)?.storage.tableKeys.openMenu?.(0),
+    run: (ctx) => tableNote(ctx)?.storage.tableKeys.openMenu?.(),
   },
 ];

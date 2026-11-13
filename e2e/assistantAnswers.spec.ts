@@ -260,7 +260,7 @@ test("an Answer goes to another Mind through the ▾, and to a new Mind as chang
   await window.keyboard.press("ControlOrMeta+Shift+o");
   await expect(window.getByTestId("assistant-empty")).toBeVisible();
   await (await slideToHandle(window, chapter.locator(":scope > p").nth(1))).click();
-  const open = window.getByTestId("block-menu-open-conversation");
+  const open = window.getByTestId("block.openSource");
   await expect(open).toHaveText("Open the source conversation");
   await pointAndClick(window, open);
   await expect(assistantAnswers(window)).toHaveCount(1);
@@ -321,7 +321,7 @@ test("an Answer goes to another Mind through the ▾, and to a new Mind as chang
   await (
     await slideToHandle(window, window.getByTestId("mind-editor").locator(":scope > p").nth(1))
   ).click();
-  await pointAndClick(window, window.getByTestId("block-menu-open-conversation"));
+  await pointAndClick(window, window.getByTestId("block.openSource"));
   await expect(window.getByRole("alert")).toContainText(
     "From the conversation “When do spring tides happen”, now in Recently deleted",
   );
@@ -338,8 +338,8 @@ test("an Answer goes to another Mind through the ▾, and to a new Mind as chang
   await (
     await slideToHandle(window, window.getByTestId("mind-editor").locator(":scope > p").nth(1))
   ).click();
-  await expect(window.getByTestId("block-menu-open-conversation")).toHaveText("打开来源对话");
-  await pointAndClick(window, window.getByTestId("block-menu-open-conversation"));
+  await expect(window.getByTestId("block.openSource")).toHaveText("打开来源对话");
+  await pointAndClick(window, window.getByTestId("block.openSource"));
   await expect(window.getByRole("alert")).toContainText(
     "来自对话“When do spring tides happen”，已移到回收站",
   );

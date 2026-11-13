@@ -269,7 +269,10 @@ async function menuByRightClick(window: Page, place: Place): Promise<string[]> {
 async function menuByButton(window: Page, place: Place): Promise<string[]> {
   await asPersonDoes(async () => {
     await pointAt(window, place.hit);
-    await place.row.hover();
+    // A row that only holds what the pointer is over, such as a Note's text, has no box to hover.
+    if (await place.row.evaluate((row) => getComputedStyle(row).display !== "contents")) {
+      await place.row.hover();
+    }
     // A tab's ⋯ only anchors its menu, under the tab's own title: nobody can click it.
     const clickable = await place.button.evaluate((button) => {
       const box = button.getBoundingClientRect();
@@ -973,6 +976,28 @@ const STAGES: Record<Staged, Stage> = {
     show: ({ window }, key) => showInNote(window, key, "citation"),
     hit: ({ window }) => window.getByTestId("mind-editor").getByTestId("citation-chip").first(),
     opened: ({ window }) => window.getByTestId("viewer-header"),
+  },
+  // The key is the Mind's. One handle stands by the Block under the pointer, so the first
+  // paragraph is the one its ⋯ and its right-click are about.
+  block: {
+    inNote: true,
+    make: ({ window }) =>
+      mindWrittenBefore(window, "Tide notes", [
+        { note: "Spring tides follow the Moon." },
+        { note: "Neap tides are the smallest of the month." },
+      ]),
+    async show({ window }, key) {
+      await showMind(window, key);
+      await pointAndClick(window, mindTab(window, key).first());
+      const first = window.getByTestId("mind-editor").locator("p").first();
+      const handle = window.getByTestId("block-menu");
+      await expect(async () => {
+        await pointAt(window, first);
+        await expect(handle).toHaveAttribute("data-object-menu", /^block:./, { timeout: 1_000 });
+      }).toPass({ timeout: 10_000 });
+      return ((await handle.getAttribute("data-object-menu")) ?? "").slice("block:".length);
+    },
+    hit: ({ window }) => window.getByTestId("mind-editor").locator("p").first(),
   },
   chart: {
     inNote: true,

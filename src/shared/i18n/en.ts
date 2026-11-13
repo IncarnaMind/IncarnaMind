@@ -916,6 +916,7 @@ export const en = {
   "editor.block.handle": "Drag to move, click for options",
   "editor.block.menu": "Block options",
   "editor.block.delete": "Delete",
+  "block.delete.command": "Delete the Block the cursor is in",
   "editor.table.menu": "Table options",
   "editor.table.rowAbove": "Insert row above",
   "editor.table.rowBelow": "Insert row below",

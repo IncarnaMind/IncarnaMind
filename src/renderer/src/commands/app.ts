@@ -5,7 +5,6 @@ import { useChecks } from "../checks";
 import { useCitationStylePicker } from "../citationStylePicker";
 import { claudeSignInOffered } from "../claudeSignIn";
 import { startContradictionCheck } from "../contradictions";
-import { blockMenuOpeners } from "../editor/blockMenuOpeners";
 import { originOf } from "../editor/blockOrigins";
 import { goToCitation } from "../editor/citationMark";
 import { blockAt, noteHolding } from "../editor/noteKeymap";
@@ -29,6 +28,7 @@ import { answerTableCommands } from "./answerTables";
 import { appearanceCommands } from "./appearance";
 import { assistantCommands } from "./assistant";
 import { bibliographyCommands } from "./bibliography";
+import { blockCommands, blockIn } from "./blocks";
 import { calendarCommands } from "./calendars";
 import { chartCommands } from "./charts";
 import { checkCommands } from "./checks";
@@ -93,12 +93,6 @@ import { taskCommands } from "./tasks";
 import { viewerSelectionCommands } from "./viewerSelection";
 import { webPageCommands } from "./webPages";
 import { wordLookCommands } from "./wordLook";
-
-/** What opens the menu of the Block with this ID, if its Mind is open. */
-function blockMenuFor(blockId: string) {
-  const editor = noteHolding(blockId);
-  return (editor && blockMenuOpeners.get(editor)) ?? null;
-}
 
 /** Where the Block a menu names, or else the one the cursor is in, was added from; null if nowhere. */
 function originShown(ctx: CommandContext): BlockOrigin | null {
@@ -475,32 +469,25 @@ const appCommands: readonly Command[] = [
   },
   {
     id: "block.delete",
-    label: "editor.block.delete",
+    label: "block.delete.command",
+    menuLabel: "editor.block.delete",
     shortcut: { keys: "CmdOrCtrl+Shift+Backspace" },
     group: "danger",
     destructive: true,
-    appliesTo: ["block", "answer", "chart"],
+    appliesTo: ["block", "answer", "chart", "mind"],
+    // From ⌘K it deletes where the cursor is, which an Answer can't see.
+    assistant: false,
     // The note's own undo (⌘Z) brings it back.
     reversible: true,
+    when: (ctx) => ctx.here?.["block.delete"] !== undefined || blockIn(ctx) !== null,
     run(ctx) {
       // An Answer's or a chart's menu deletes it, wherever the cursor is.
       if (ctx.here?.["block.delete"]) return ctx.here["block.delete"]();
       // The Blocks the note's selection touches, the focused one among them.
-      if (ctx.focus) noteHolding(ctx.focus.id)?.commands.deleteBlock();
+      blockIn(ctx)?.editor.commands.deleteBlock();
     },
   },
-  {
-    id: "block.menu",
-    label: "editor.block.menu",
-    shortcut: { keys: "Shift+F10" },
-    group: "main",
-    appliesTo: ["block"],
-    reversible: true,
-    when: (ctx) => ctx.focus?.kind === "block" && blockMenuFor(ctx.focus.id) !== null,
-    run(ctx) {
-      if (ctx.focus?.kind === "block") blockMenuFor(ctx.focus.id)?.(ctx.focus.id);
-    },
-  },
+  ...blockCommands,
   {
     id: "block.openSource",
     label: "origin.open",
