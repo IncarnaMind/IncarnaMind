@@ -416,13 +416,22 @@ function givenOtherwise(
   return written ? null : given(plain);
 }
 
+/**
+ * A piece of a heading read as its own unit line ("万千瓦时" as "单位：万千瓦时"). One that goes on
+ * with more of a word after its unit ("人口", "吨位", "人口普查") states nothing; a scale word before a
+ * unit the reader doesn't know ("亿SDR") still states its scale (#2997).
+ */
+function asUnitLine(piece: string, context: FigureContext): StatedUnit[] {
+  const line = `单位：${piece}`;
+  return readStatedUnits(line, context).filter(
+    (statement) => statement.unit.kind === "plain" || !/^\p{L}/u.test(line.slice(statement.end)),
+  );
+}
+
 // A unit in brackets is read as its own unit line: "（万千瓦时）" as "单位：万千瓦时"; "（预计）" states none.
 const bracketedUnits = (written: string, context: FigureContext): StatedUnit[] =>
   [...written.matchAll(/[(（]([^()（）\n]{1,24})[)）]/gu)].flatMap(([bracket, inner = ""]) =>
-    readStatedUnits(`单位：${inner}`, context).map((statement) => ({
-      ...statement,
-      chars: bracket,
-    })),
+    asUnitLine(inner, context).map((statement) => ({ ...statement, chars: bracket })),
   );
 
 // A sentence's end in either language; "1.20" holds no end.
@@ -494,10 +503,7 @@ function labelled(text: string, start: number, context: FigureContext): Label[] 
       .flatMap((cell) =>
         [
           ...readStatedUnits(cell, context),
-          ...readStatedUnits(`单位：${cell}`, context).map((statement) => ({
-            ...statement,
-            chars: cell,
-          })),
+          ...asUnitLine(cell, context).map((statement) => ({ ...statement, chars: cell })),
           ...bracketedUnits(cell, context),
         ].map((statement) => ({ ...statement, own: false, line: cell })),
       ),
