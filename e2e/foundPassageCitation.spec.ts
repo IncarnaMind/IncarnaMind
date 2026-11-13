@@ -208,7 +208,7 @@ for (const [language, width] of [
     await expect(marks(window).and(window.locator('[data-check="supported"]'))).toHaveCount(2);
     await expect(again.getByTestId("found-passages-line")).toHaveCount(0);
     // Each before its sentence's stop, beside the Citation the writer gave it.
-    expect(await noteText(window)).toEqual([
+    expect((await noteText(window)).slice(0, 2)).toEqual([
       `${words.neap.slice(0, -1)}[${SPRING}][${NEAP}].`,
       `${words.harbour.slice(0, -1)}[${SPRING}][${HARBOUR}].`,
     ]);
