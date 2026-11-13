@@ -320,6 +320,23 @@ export function quoteStanding(
 }
 
 /**
+ * Whether a re-check found the quote isn't at its cited Units of the version it read: only then is
+ * where it stands in that version looked for (`CitationRecheck.elsewhere`, #3041).
+ */
+export function quoteNotAtItsPlace(
+  recheck: RecheckResult | "failed" | null,
+): recheck is CitationRecheck & { contentHash: string } {
+  return (
+    recheck !== null &&
+    recheck !== "failed" &&
+    !("keptInside" in recheck) &&
+    recheck.check === "not-found" &&
+    recheck.checkReason === "quote-not-on-pages" &&
+    recheck.contentHash !== null
+  );
+}
+
+/**
  * Where a Citation's quote stands in the version `recheck` read, as the card and the viewer say
  * it (#3041): at its cited place; "moved" to another, with its Location (null when none names it);
  * or "gone" from that version. A quote the re-check found away from its cited Units (`elsewhere`)

@@ -50,7 +50,7 @@ import { checkedByMe } from "../../../shared/signOffs";
 import { useAnswers } from "../answers";
 import { type MindFormatting, useMindFormatting } from "../citationFormatting";
 import { followNewVersion } from "../citationUpdate";
-import { useCitationRecheck } from "../citationVersion";
+import { useCitationRecheck, useQuoteLook } from "../citationVersion";
 import { applyCitationWording, citationWordingFix } from "../citationWording";
 import { citationHandle } from "../commands/handles";
 import { type CommandContext, commands } from "../commands/registry";
@@ -942,10 +942,16 @@ function CitationCard({
   const scanned = useScannedQuote(attributes);
   const scannedText = useScannedText(state.reason === "unsure-word" ? state.documentId : null);
   const quote = useReadableQuote(attributes);
+  const said = useQuoteLook(
+    attributes,
+    recheck,
+    useContext(MindIdContext),
+    useContext(ConversationIdContext),
+  );
   const { note: changed, on } = changedSourceLines(
     state.changedAfterCited,
     attributes,
-    recheck,
+    said,
     live,
     language,
     t,

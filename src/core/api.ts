@@ -2395,11 +2395,6 @@ export interface CitationToRecheck {
    * Units have them (#2612).
    */
   quotedWords?: QuotedWordsCheck | null;
-  /**
-   * Also where the quote stands in the current version when it isn't at its cited Units
-   * (`CitationRecheck.elsewhere`): that reads every Unit of the version, so only what says it asks.
-   */
-  lookElsewhere?: boolean;
 }
 
 /** Where a Question is asked: its Note, else its conversation; null for none. */
@@ -2436,6 +2431,12 @@ export interface RecheckCitationInput extends CitationToRecheck {
    * or in a Document's viewer.
    */
   conversationId?: string | null;
+  /**
+   * Also where the quote stands in the current version when it isn't at its cited Units
+   * (`CitationRecheck.elsewhere`, #3041). That reads the whole version, so only what shows the
+   * line asks: a Citation's card that is open, or the viewer. The answer comes once it is read.
+   */
+  lookElsewhere?: boolean;
 }
 
 /**

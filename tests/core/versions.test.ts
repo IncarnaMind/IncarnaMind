@@ -1,10 +1,18 @@
 import { writeFile } from "node:fs/promises";
 import { describe, expect, test } from "vitest";
 import type { Core, Document } from "../../src/core";
-import { citationState } from "../../src/shared/citations";
+import type { Language } from "../../src/core/language";
+import {
+  changedSourceLines,
+  citationState,
+  needsRecheck,
+  newVersionCitation,
+} from "../../src/shared/citations";
+import { type MessageKey, type MessageParams, translate } from "../../src/shared/i18n";
 import {
   answerEnded,
   askNew,
+  checkedResult,
   citationsIn,
   citingModel,
   onlyCitation,
@@ -40,6 +48,18 @@ const V3 = buildPdf([
   { lines: ["A note on the Sun", "The Sun's pull adds to the Moon's."] },
   { lines: ["Spring and neap tides", SPRING] },
 ]);
+
+/** The fourth: the quote on two pages, neither of them the page cited. */
+const V4 = buildPdf([
+  { lines: ["Tides and the Moon", "The Moon's gravity raises two tidal bulges on the Earth."] },
+  { lines: ["A note on the Sun", "The Sun's pull adds to the Moon's."] },
+  { lines: ["Spring and neap tides", SPRING] },
+  { lines: ["Tides in brief", SPRING] },
+]);
+
+/** Words in a language, as the renderer's `t` gives them. */
+const in_ = (language: Language) => (key: MessageKey, params?: MessageParams) =>
+  translate(language, key, params);
 
 /** The page rows kept of each version of the Documents, by content hash. */
 const pagesByVersion = (dataDir: string) =>
@@ -159,6 +179,92 @@ describe("Versions of a Document", { timeout: 30_000 }, () => {
       check: "cant-check",
       checkReason: "document-removed",
     });
+  });
+
+  // protects=a Citation to page 2 whose quote the new version holds on page 3 says on its card and in its viewer, from the one answer, where the quote is now, whether it kept its version or not and when its page is past the end (rows A to D); one whose quote is on two other pages says it is in another place; one whose quote is nowhere says it is no longer there; and every field of its check, Needs re-check and Update the sentence… are what they were without the look; fails_when=a quote the version holds reads as no longer in it, one of two places is named, or the check, its page or anything an action reads changes; no_claim=how the card and the viewer draw the line (tests/renderer/quoteStanding.test.ts).
+  test("a quote now on another page says where it is, and its check stays at the page it cites (#3041)", async () => {
+    const { core, client, document, answerId } = await citeThenChange();
+    const citation = onlyCitation(client, answerId);
+    const kept = sha256(V1);
+    /** Asked as a Note's Citation is, then as its open card is: the same check, and where the quote is beside it. */
+    async function lineOf(pageFrom: number, contentHash: string | null) {
+      const asked = {
+        mindId: null,
+        documentId: document.id,
+        quote: SPRING,
+        pageFrom,
+        pageTo: pageFrom,
+        contentHash,
+        location: { kind: "page" as const, from: pageFrom, to: pageFrom },
+      };
+      const before = checkedResult(await core.recheckCitation(asked));
+      const after = checkedResult(await core.recheckCitation({ ...asked, lookElsewhere: true }));
+      expect("elsewhere" in before).toBe(false);
+      const { elsewhere, ...check } = after;
+      expect(check).toEqual(before);
+      expect(before).toMatchObject({
+        check: "not-found",
+        checkReason: "quote-not-on-pages",
+        pageFrom,
+        pageTo: pageFrom,
+      });
+      const documents = await core.listDocuments();
+      const cited = { ...citation, ...asked };
+      const state = citationState(cited, documents);
+      expect(needsRecheck(state, cited, after)).toBe(needsRecheck(state, cited, before));
+      expect(newVersionCitation(cited, after)).toEqual(newVersionCitation(cited, before));
+      const live = documents.find((each) => each.id === document.id);
+      const lines = (["en", "zh-CN"] as const).map(
+        (language) =>
+          changedSourceLines(true, asked, after, live, language, in_(language)).note?.quote,
+      );
+      return { elsewhere, lines };
+    }
+
+    // Version 2 holds the quote nowhere.
+    for (const contentHash of [kept, null]) {
+      expect(await lineOf(2, contentHash)).toEqual({
+        elsewhere: null,
+        lines: ["Its quote is no longer in the new version.", "新版本中已找不到这条引文。"],
+      });
+    }
+
+    // Version 3 holds it on page 3: A, B, C and D.
+    await changeFile(core, document.id, document.path, V3);
+    for (const [pageFrom, contentHash] of [
+      [2, kept],
+      [2, null],
+      [9999, null],
+      [9999, kept],
+    ] as const) {
+      expect(await lineOf(pageFrom, contentHash)).toEqual({
+        elsewhere: { location: { kind: "page", from: 3, to: 3 } },
+        lines: ["Its quote is now at p. 3.", "引文已移到第 3 页。"],
+      });
+    }
+    // At the page that holds it, it is still here, and nothing more is looked for.
+    const atPage = checkedResult(
+      await core.recheckCitation({
+        mindId: null,
+        documentId: document.id,
+        quote: SPRING,
+        pageFrom: 3,
+        pageTo: 3,
+        contentHash: kept,
+        lookElsewhere: true,
+      }),
+    );
+    expect(atPage).toMatchObject({ check: "found", pageFrom: 3 });
+    expect("elsewhere" in atPage).toBe(false);
+
+    // Version 4 holds it on pages 3 and 4: neither is named.
+    await changeFile(core, document.id, document.path, V4);
+    for (const contentHash of [kept, null]) {
+      expect(await lineOf(2, contentHash)).toEqual({
+        elsewhere: { location: null },
+        lines: ["Its quote is in another place in the new version.", "引文在新版本中换了位置。"],
+      });
+    }
   });
 
   test("old versions' text is kept while a Citation quotes it, and goes at a start once none does", async () => {
