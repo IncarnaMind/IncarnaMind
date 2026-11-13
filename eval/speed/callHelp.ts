@@ -196,11 +196,16 @@ export function quotes(
   return where && quote.length >= 6 && (wanted.includes(quote) || quote.includes(wanted));
 }
 
-/** The reply as the panel shows it: each item's lines, its Citations by the numbers they show with. */
+/**
+ * The reply as the panel shows it: in the form, its fact lines before the options, then each item's
+ * lines with those after its "→" line, then its closing line; its Citations by the numbers they show
+ * with.
+ */
 export function shownReply(
   answer: ConversationAnswer,
   items: readonly ReplyItem[],
   numbers: ReadonlyMap<number, number>,
+  apart: { opening?: readonly ReplyItem["lead"][]; closing?: readonly ReplyItem["lead"][] } = {},
 ) {
   const text = (pieces: ReplyItem["lead"]) =>
     pieces
@@ -215,15 +220,20 @@ export function shownReply(
       )
       .join("")
       .trim();
-  return items
-    .map((item) =>
+  const paragraph = (lines: readonly ReplyItem["lead"][] = []) =>
+    lines.length > 0 ? [lines.map(text).join("\n")] : [];
+  return [
+    ...paragraph(apart.opening),
+    ...items.map((item) =>
       [
         `${item.recommended ? "★ " : ""}${text(item.lead)}`,
         ...item.notes.map(text),
         ...(item.effect ? [`→ ${text(item.effect)}`] : []),
+        ...item.after.map(text),
       ].join("\n"),
-    )
-    .join("\n\n");
+    ),
+    ...paragraph(apart.closing),
+  ].join("\n\n");
 }
 
 const JUDGE = [
@@ -634,17 +644,23 @@ function item(each: CallHelpCase, set: CallHelpSet): PairedGroup["items"][number
         },
       });
       const shown = [...kept.lead, ...kept.options];
-      const numbers = citationNumbers(shown, (marker) =>
-        answer.citations.some((citation) => citation.marker === marker),
+      const numbers = citationNumbers(
+        shown,
+        (marker) => answer.citations.some((citation) => citation.marker === marker),
+        kept.opening,
       );
       const citations = [...numbers.keys()].flatMap(
         (marker) => answer.citations.find((citation) => citation.marker === marker) ?? [],
       );
-      const places = shown.flatMap((each) =>
-        [each.lead, ...each.notes, each.effect ?? []]
-          .flat()
-          .flatMap((piece) => (piece.kind === "citation" ? [piece] : [])),
-      );
+      // Every line the panel shows a chip on: the form's fact lines before the options and after a
+      // "→" line included.
+      const shownLines = [
+        ...kept.opening,
+        ...shown.flatMap((item) => [item.lead, ...item.notes, item.effect ?? [], ...item.after]),
+      ];
+      const places = shownLines
+        .flat()
+        .flatMap((piece) => (piece.kind === "citation" ? [piece] : []));
       // A Citation shows ✓ as each arm's panel draws it, on any line it is shown on: main's beside a
       // found quote, the branch's only where the sentence check passed that line's sentence (#2847).
       const showsCheck = (citation: ConversationAnswer["citations"][number]) =>
@@ -654,11 +670,13 @@ function item(each: CallHelpCase, set: CallHelpSet): PairedGroup["items"][number
               (place) => place.marker === citation.marker && sentencePassed(citation, place.at),
             );
       const found = citations.filter(quoteFound);
-      const reply = shownReply(answer, shown, numbers);
+      const reply = shownReply(answer, shown, numbers, {
+        opening: kept.opening,
+        closing: kept.closing,
+      });
       // Each place as the app showed it: the check's own sentence and the panel's own mark (#2847).
       const sentences = citedSentences(answer.text, answer.figures);
-      let placeMarks: PlaceMark[] = shown
-        .flatMap((item) => [item.lead, ...item.notes, item.effect ?? []])
+      let placeMarks: PlaceMark[] = shownLines
         .flatMap((line) => {
           const text = line.map((piece) => (piece.kind === "text" ? piece.text : "")).join("");
           return line.flatMap((piece) => (piece.kind === "citation" ? [{ piece, text }] : []));
