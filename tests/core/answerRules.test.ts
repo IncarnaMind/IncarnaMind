@@ -215,6 +215,36 @@ describe("The Answer instructions", { timeout: 30_000 }, () => {
     },
   );
 
+  // protects=every way of citing tells the model to say what it didn't find, and what the other Documents don't say, in a sentence of its own with no marker, with examples in English and Chinese, and the premise example says the gap and the cited fact in two sentences (#3019); fails_when=a citing mode loses the rule, the way with no Citations is given markers, or an example joins the gap to a cited sentence; no_claim=that a model follows it, which a paid run on a real model measures.
+  test.each([
+    ["tools", true],
+    ["structured-output", true],
+    ["none", false],
+  ] as const)(
+    "when answering with %s, what wasn't found is a sentence of its own with no marker (#3019)",
+    (mode, cites) => {
+      const text = documentInstructions(mode, { total: 1, names: ["Memo"] }, "");
+      const marker = cites ? "[^1]" : "";
+
+      expect(
+        text.includes("Say what you didn't find in a sentence of its own, with no marker:"),
+      ).toBe(cites);
+      expect(
+        text.includes(
+          '"The memo sets a budget[^1]. I didn\'t find the amount in the Passages I read." / "备忘录提到了预算[^1]。我读到的段落里没有具体金额。"',
+        ),
+      ).toBe(cites);
+      expect(
+        text.includes('"I didn\'t find it in the other Documents." / "其他文档里没有找到。"'),
+      ).toBe(cites);
+      expect(text).toContain(
+        `"I didn't find a Board approval in the Documents. The 14 May memo asks for one${marker}." / "未在文档中找到董事会批准的记录。5 月 14 日的备忘录是在申请批准${marker}。"`,
+      );
+      expect(text).not.toContain("Board approval in the Documents;");
+      expect(text).not.toContain("董事会批准的记录；");
+    },
+  );
+
   // protects=an Answer told some of the Library's Documents is told the Library's whole count, and one told all of them is told no count twice (#1333); fails_when=the count is the scope's alone, so a reply says the Library holds that many; no_claim=none beyond protects.
   test.each(["tools", "structured-output", "none"] as const)(
     "with %s, give the Library's count when it holds more Documents than the Answer can use (#1333)",
