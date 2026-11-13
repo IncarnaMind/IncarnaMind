@@ -628,7 +628,7 @@ const LIST_ROWS: { language: "en" | "zh"; sentence: string; matches: string | nu
   {
     language: "en",
     sentence: "2) The client pays travel to each site for the whole contract term.",
-    matches: LISTED.en.listed,
+    matches: null,
   },
   { language: "en", sentence: `1) ${LISTED.en.trucks}`, matches: LISTED.en.trucks },
   {
@@ -696,11 +696,7 @@ const LIST_ROWS: { language: "en" | "zh"; sentence: string; matches: string | nu
     sentence: `${mark}${LISTED.zh.survey}`,
     matches: LISTED.zh.survey,
   })),
-  {
-    language: "zh",
-    sentence: "2）客户承担整个合同期内去各个现场的差旅费。",
-    matches: LISTED.zh.listed,
-  },
+  { language: "zh", sentence: "2）客户承担整个合同期内去各个现场的差旅费。", matches: null },
   { language: "zh", sentence: `1）${LISTED.zh.trucks}`, matches: LISTED.zh.trucks },
   { language: "zh", sentence: "1）4 辆卡车周二早上到了北边的仓库。", matches: null },
   { language: "zh", sentence: LISTED.zh.trucks, matches: LISTED.zh.trucks },
@@ -733,6 +729,89 @@ const LIST_ROWS: { language: "en" | "zh"; sentence: string; matches: string | nu
   { language: "zh", sentence: LISTED.zh.ordinal, matches: LISTED.zh.ordinal },
 ];
 
+const CLAUSE = {
+  en: (number: string, days = "") =>
+    `(${number}) The tenant shall give ${days}notice within the first month of the lease.`,
+  zh: (number: string, days = "") => `（${number}）租户须在租约第一个月内${days}发出书面通知。`,
+};
+const PHONE = {
+  en: (code: string) =>
+    `(${code}) 10 5550 1234 is the number of the Beijing office for late deliveries.`,
+  zh: (code: string) => `（${code}）10 5550 1234 是北京办公室处理延迟交货的电话号码。`,
+};
+const ZH_NUMBER: Record<string, string> = { "2": "二", "3": "三" };
+
+/** Each row: what it is, the Document's lines, an Answer's sentence and the line it matches, or null. */
+const NUMBERED_PAIRS: {
+  what: string;
+  language: "en" | "zh";
+  document: string[];
+  sentence: string;
+  matches: string | null;
+}[] = (["en", "zh"] as const).flatMap((language) => {
+  const clause = (number: string, days?: string) =>
+    CLAUSE[language](language === "zh" ? (ZH_NUMBER[number] ?? number) : number, days);
+  const notice = (days: number) => (language === "en" ? `${days} days' ` : `提前 ${days} 天`);
+  return [
+    {
+      what: "a clause against the Document's clause (2)",
+      language,
+      document: [clause("2")],
+      sentence: clause("3"),
+      matches: null,
+    },
+    {
+      what: "a clause against the Document's clause (3)",
+      language,
+      document: [clause("3")],
+      sentence: clause("2"),
+      matches: null,
+    },
+    {
+      what: "a phone's code against the Document's (85)",
+      language,
+      document: [PHONE[language]("85")],
+      sentence: PHONE[language]("86"),
+      matches: null,
+    },
+    {
+      what: "a phone's code against the Document's (86)",
+      language,
+      document: [PHONE[language]("86")],
+      sentence: PHONE[language]("85"),
+      matches: null,
+    },
+    {
+      what: "the same phone's code",
+      language,
+      document: [PHONE[language]("85")],
+      sentence: PHONE[language]("85"),
+      matches: PHONE[language]("85"),
+    },
+    {
+      what: "the same clause, another number of days",
+      language,
+      document: [clause("2", notice(30))],
+      sentence: clause("2", notice(60)),
+      matches: null,
+    },
+    {
+      what: "the same clause, the same words",
+      language,
+      document: [clause("2", notice(30))],
+      sentence: clause("2", notice(30)),
+      matches: clause("2", notice(30)),
+    },
+    {
+      what: "the same words under clauses (2) and (3), restated with no number",
+      language,
+      document: [clause("2"), clause("3")],
+      sentence: clause("2").replace(/^(?:\(\d+\) |（.）)/u, ""),
+      matches: clause("2"),
+    },
+  ];
+});
+
 describe("a list's number at a sentence's start is no number it states (#3059)", () => {
   const passagesOf = (language: "en" | "zh") => [
     { id: "P1", text: Object.values(LISTED[language]).join("\n") },
@@ -745,10 +824,24 @@ describe("a list's number at a sentence's start is no number it states (#3059)",
       quote,
     }));
   };
+  /** What `sentence` matches in a Document of `lines` alone. */
+  const matchedIn = (lines: readonly string[], sentence: string) => {
+    const text = lines.join("\n");
+    const found = (_passage: string, quote: string) => text.includes(quote);
+    return matchUnmarked(sentence, [{ id: "P1", text }], found).map(({ quote }) => quote);
+  };
   /** The sentence with a marker the model gave no record for, before its full stop. */
   const withMarker = (sentence: string) => sentence.replace(/([.。])$/, " [^1]$1");
 
-  // protects=a list's number before a sentence ("**1.** ", "1) ", "(1) ", "1.", "12) ", "1、", "1）", "（1）", "（一）", "一、") comes off its numbers, so it matches its line, and two lines carrying different list numbers match; a number of its own stays one, at the start ("3 trucks", "2024", "1.5 million") or after the list's number ("1) 3 trucks"), and an enumeration that starts it ("1) and 2)", "1, 2 and 3", "1、2 号楼", "一、二层", "（一）和（二）") and a "1)" mid-sentence keep their numbers, so neither matches a line stating fewer, in English and Chinese; fails_when=a list's number is read as the sentence's, or a number of its own or an enumeration's is taken off; no_claim=how often a model starts a sentence with a list's number.
+  // protects=two sentences that each start with a list's number match only under the same number, whichever is in the Document: a clause's ("(3)" against "(2)", "（三）" against "（二）") or a phone's code ("(86)" against "(85)"); under the same number the rest must still say the same ("30 days" is not "60 days"); a Document holding the same words under "(2)" and "(3)" gives an Answer's sentence with no number the first, in English and Chinese; fails_when=two clauses or codes are matched across their numbers, or the same number lets differing words match; no_claim=how often a Document numbers its clauses.
+  test.each(NUMBERED_PAIRS)(
+    "in $language, $what: “$sentence”",
+    ({ document, sentence, matches }) => {
+      expect(matchedIn(document, sentence)).toEqual(matches === null ? [] : [matches]);
+    },
+  );
+
+  // protects=a list's number before a sentence ("**1.** ", "1) ", "(1) ", "1.", "12) ", "1、", "1）", "（1）", "（一）", "一、") comes off its numbers, so it matches its line; two sentences that each start with a list's number match only under the same one ("2)" is not "1)"), and one numbered on one side only matches nothing when that number is the other's own ("2) units" against "2 units"); a number of its own stays one, at the start ("3 trucks", "2024", "1.5 million") or after the list's number ("1) 3 trucks"), and an enumeration that starts it ("1) and 2)", "1, 2 and 3", "1、2 号楼", "一、二层", "（一）和（二）") and a "1)" mid-sentence keep their numbers, so neither matches a line stating fewer, in English and Chinese; fails_when=a list's number is read as the sentence's, or a number of its own or an enumeration's is taken off; no_claim=how often a model starts a sentence with a list's number.
   test.each(LIST_ROWS)("in $language, “$sentence”", ({ language, sentence, matches }) => {
     expect(matched(language, sentence)).toEqual(
       matches === null ? [] : [{ passage: "P1", quote: matches }],
@@ -760,6 +853,10 @@ describe("a list's number at a sentence's start is no number it states (#3059)",
     for (const { language, sentence } of LIST_ROWS) {
       expect(withMarker(sentence)).toContain("[^1]");
       expect(matched(language, withMarker(sentence))).toEqual(matched(language, sentence));
+    }
+    for (const { document, sentence } of NUMBERED_PAIRS) {
+      expect(withMarker(sentence)).toContain("[^1]");
+      expect(matchedIn(document, withMarker(sentence))).toEqual(matchedIn(document, sentence));
     }
   });
 });

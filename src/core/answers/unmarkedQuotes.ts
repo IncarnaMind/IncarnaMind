@@ -148,17 +148,16 @@ const LIST_AGAIN = new RegExp(
 const NUMERAL_FIRST = /^\s*[\d零〇一二两三四五六七八九十百千万亿]/u;
 
 /**
- * `sentence` without the list's number it starts with, which is no number of what it says (#3059):
- * "1) 3 trucks arrived" says 3. An enumeration that starts it keeps its numbers: "1) and 2) apply",
- * "1、2 号楼", "一、二层".
+ * The list's number `sentence` starts with, and the rest of it (#3059): "1) 3 trucks arrived" is
+ * list 1 and says 3. None for an enumeration that starts it, whose numbers are what it says:
+ * "1) and 2) apply", "1、2 号楼", "一、二层".
  */
-function withoutListNumber(sentence: string): string {
+function listStart(sentence: string): { number: string; rest: string } | null {
   const found = LIST_START.exec(sentence);
-  if (!found) return sentence;
+  if (!found) return null;
   const rest = sentence.slice(found[0].length);
-  const enumeration =
-    LIST_AGAIN.test(rest) || (found[0].endsWith("、") && NUMERAL_FIRST.test(rest));
-  return enumeration ? sentence : rest;
+  if (LIST_AGAIN.test(rest) || (found[0].endsWith("、") && NUMERAL_FIRST.test(rest))) return null;
+  return { number: /\d+|[一二三四五六七八九十]+/u.exec(found[0])?.[0] ?? "", rest };
 }
 
 /**
@@ -166,20 +165,25 @@ function withoutListNumber(sentence: string): string {
  * markers' digits, nor the list's number it starts with.
  */
 function numbersOf(text: string): string[] {
-  const read = withoutListNumber(withoutMarkers(text));
-  const latin = [...read.matchAll(LATIN_NUMBER)].map((found) =>
+  const read = withoutMarkers(text);
+  const said = listStart(read)?.rest ?? read;
+  const latin = [...said.matchAll(LATIN_NUMBER)].map((found) =>
     found[0].replace(/[,\s](?=\d{3}(?!\d))/g, ""),
   );
-  const chinese = [...read.matchAll(CHINESE_NUMBER)].map((found) => found[0]);
+  const chinese = [...said.matchAll(CHINESE_NUMBER)].map((found) => found[0]);
   return [...latin, ...chinese].sort();
 }
 
 /**
  * Whether a near-duplicate says the same as a Passage's sentence: the same
  * numbers, and as many negations. Shared words alone don't tell "£739,800"
- * from "£793,800", or "is not" from "is".
+ * from "£793,800", or "is not" from "is". Two sentences that each start with
+ * a list's number say the same only under the same one: in a contract, "(3)"
+ * and "(2)" are different clauses, and a list's mark can be a code's ("(86)").
  */
 function saysTheSame(a: string, b: string): boolean {
+  const [ourList, theirList] = [a, b].map((each) => listStart(withoutMarkers(each))?.number);
+  if (ourList !== undefined && theirList !== undefined && ourList !== theirList) return false;
   const ours = numbersOf(a);
   const theirs = numbersOf(b);
   return (
