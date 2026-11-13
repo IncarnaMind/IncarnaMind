@@ -1,6 +1,7 @@
 import { describe, expect, test, vi } from "vitest";
 import { CITATION_NODE, CLAIM_CHECK_MARK, type Core, type MarkedCitation } from "../../src/core";
 import { checkableSentences } from "../../src/core/answers/checks/written";
+import { claimsOf } from "../../src/renderer/src/editor/claimChecks";
 import { pageBlocks, withAnswerChecks } from "../../src/shared/answerBlocks";
 import type { NodeJSON } from "../../src/shared/blockJson";
 import { citedSentences } from "../../src/shared/citedSentences";
@@ -14,6 +15,7 @@ import {
 } from "../helpers/checks";
 import { answerJudged, setUpWithDocuments, shownPassages } from "../helpers/citations";
 import { nextTurn, startCore } from "../helpers/core";
+import { readMind, writeMind } from "../helpers/minds";
 import {
   type GenerateCall,
   type GeneratedReply,
@@ -312,6 +314,94 @@ describe("a check reply that corrects itself is read by its corrected answer (#3
       ["found", "contradicted"],
       ["not-checked", "found"],
     ]);
+  });
+});
+
+describe("an Answer's ✓ rests only on its Citations' own quotes (#3050)", () => {
+  const AGE = "Our two kilns are fourteen years old.";
+  const SUPPLIER = "Supplier: Hartwell Kilns";
+  const AGE_ZH = "我们的两台窑炉已经用了很多年。";
+  const SUPPLIER_ZH = "供应商：哈特韦尔窑炉公司";
+  const DOCUMENTS = [
+    { name: "Kilns.pptx", contents: pptxOf({ slides: [slide(AGE, AGE_ZH)] }) },
+    { name: "Supply.md", contents: `${SUPPLIER}\n\n${SUPPLIER_ZH}\n` },
+  ];
+
+  // protects=an Answer's judgement is shown only the Passage its sentence's Citation quotes, and takes no record its reply writes of another Passage: the Citation stays as the model gave it, with no ✓ when the reply says its words don't state the sentence, judged first or by Check again, and the ✓ when it says they do, which Add to note carries with that Citation for the Note to read alike, in English and Chinese; fails_when=the judgement is shown another Passage or takes a record from its reply, which would need the Note's reading (`asCitedNow`) in the Answer too; no_claim=what a real model's judgement says.
+  test.each([
+    {
+      language: "English",
+      question: "Who supplies the kilns?",
+      answer: "The kilns are supplied by Hartwell Kilns[^1].",
+      cites: AGE,
+      elsewhere: SUPPLIER,
+    },
+    {
+      language: "Chinese",
+      question: "窑炉的供应商是谁？",
+      answer: "窑炉由哈特韦尔窑炉公司供应[^1]。",
+      cites: AGE_ZH,
+      elsewhere: SUPPLIER_ZH,
+    },
+  ])("in $language, a record its reply writes of another Passage changes nothing", async (each) => {
+    const shown: string[] = [];
+    const judged: MarkedCitation[][] = [];
+    const carried: string[][] = [];
+    for (const quoted of ["other", "states"] as const) {
+      const judge = (call: GenerateCall): GeneratedReply => {
+        shown.push(call.prompt);
+        const entry = {
+          number: 1,
+          kind: "fact",
+          verdict: "supported",
+          roles: "same",
+          time: "same",
+        };
+        return {
+          text: `${JSON.stringify({ sentences: [{ ...entry, quoted, says: null }] })}\n\nCite 1: Supply, “${each.elsewhere}”`,
+        };
+      };
+      const { core, client } = await setUpWithDocuments(
+        answeringModel("kilns supplier 窑炉 供应商", each.answer, [each.cites], {}, { judge }),
+        DOCUMENTS,
+      );
+      const answer = await (await askedAnswer(core, each.question)).judged();
+      judged.push(answer.citations);
+      if (quoted === "other") {
+        await core.checkAnswerAgain({ conversationId: answer.conversationId, answerId: answer.id });
+        judged.push((await answerJudged(core, answer.conversationId, answer.id)).citations);
+      }
+      writeMind(
+        client,
+        withAnswerChecks(pageBlocks(answer, each.question), answer, each.question, null),
+      );
+      await client.settled();
+      const inNote = claimsOf(readMind(client), {
+        footing: "not-yet-known",
+        versions: null,
+        folderId: null,
+        scope: null,
+      });
+      carried.push(inNote.claims.map((claim) => claim.shown.state));
+    }
+
+    const notChecked = expect.objectContaining({
+      marker: 1,
+      quote: each.cites,
+      check: "not-checked",
+      checkReason: null,
+    });
+    expect(judged).toEqual([
+      [notChecked],
+      [notChecked],
+      [expect.objectContaining({ marker: 1, quote: each.cites, check: "found", passedAt: [0] })],
+    ]);
+    expect(carried).toEqual([[], ["supported"]]);
+    expect(shown).toHaveLength(3);
+    for (const prompt of shown) {
+      expect(prompt).toContain(each.cites);
+      expect(prompt).not.toContain(each.elsewhere);
+    }
   });
 });
 

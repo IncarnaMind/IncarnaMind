@@ -7,6 +7,7 @@ import type {
   ChatModelChoice,
   CitationAttributes,
   CitedQuote,
+  ClaimCheckAttributes,
   ClaimCheckFailure,
   ClaimCheckPart,
   ClaimCheckResult,
@@ -16,9 +17,9 @@ import type {
   MarkedFigure,
   UnsupportedReason,
 } from "../../src/core";
-import { restsElsewhere } from "../../src/shared/citedNow";
+import { citationAttributesOf } from "../../src/shared/blockJson";
+import { asCitedNow } from "../../src/shared/citedNow";
 import { citedSentences as markedSentences } from "../../src/shared/citedSentences";
-import { resultFromParts } from "../../src/shared/claimParts";
 import type { Hear } from "../lib/tokens";
 import { type HeardCheck, heardChecks } from "./checkRequests";
 
@@ -93,47 +94,66 @@ function partOf(sentence: string, part: ClaimCheckPart): CheckedPart {
   };
 }
 
+/** A check's result as a Note's mark holds it. The record's checks are sent no figures. */
+function markOf(sentence: string, result: ClaimCheckResult): ClaimCheckAttributes {
+  const basis = {
+    id: "record",
+    request: "record",
+    action: "check-against-documents" as const,
+    providerId: null,
+    modelId: null,
+    text: sentence,
+    scope: { folderId: null, widened: false },
+    versions: result.versions,
+    excluded: result.excluded,
+    checkedAt: "",
+    ...(result.kept && { kept: true as const }),
+    ...(result.parts && { parts: result.parts }),
+    ...(result.readDocuments && { readDocuments: result.readDocuments }),
+  };
+  return result.verdict === "not-checked"
+    ? {
+        ...basis,
+        state: "not-checked",
+        reason: result.reason,
+        detail: result.detail,
+        evidence: null,
+        says: null,
+        unsupported: null,
+        calculation: null,
+        citedCaseUnchecked: false,
+        citedCaseFound: false,
+      }
+    : {
+        ...basis,
+        state: result.verdict,
+        reason: null,
+        detail: null,
+        evidence: result.evidence && citationAttributesOf(result.evidence),
+        says: result.says,
+        unsupported: result.unsupported,
+        calculation: result.calculation,
+        citedCaseUnchecked: result.citedCaseUnchecked,
+        citedCaseFound: result.citedCaseFound,
+      };
+}
+
 /**
- * The check's result as a Note reads it against the sentence's Citations (#3019): a Supported part
- * resting on a Passage they don't hold reads Not checked, `found-elsewhere`.
+ * The check's result as a Note reads it against the sentence's own Citations (`asCitedNow`,
+ * #3019): a Supported part resting on a Passage they don't hold reads Not checked,
+ * `found-elsewhere`, so the record never counts a ✓ the Note doesn't show.
  */
-function asCitedNow(
+export function readAsNote(
   checked: Pick<CitedSentence, "sentence" | "cited">,
   result: ClaimCheckResult,
-): ClaimCheckResult {
+): ClaimCheckAttributes & { state: ClaimCheckResult["verdict"] } {
   const held = checked.cited.map((cited) => ({
     documentId: cited.documentId ?? null,
     contentHash: cited.contentHash ?? null,
     quote: cited.quote,
   }));
-  const rests = (part: Parameters<typeof restsElsewhere>[0]) =>
-    restsElsewhere(part, held, checked.sentence);
-  if (!result.parts) {
-    if (result.verdict !== "supported" || !result.evidence || result.figures?.length) return result;
-    const whole = {
-      verdict: result.verdict,
-      evidence: [result.evidence],
-      calculation: result.calculation,
-      ...(result.readDocuments && { readDocuments: result.readDocuments }),
-    };
-    return rests(whole)
-      ? {
-          verdict: "not-checked",
-          reason: "found-elsewhere",
-          detail: null,
-          versions: result.versions,
-          excluded: result.excluded,
-        }
-      : result;
-  }
-  if (!result.parts.some(rests)) return result;
-  return resultFromParts(
-    result.parts.map((part) =>
-      rests(part)
-        ? { ...part, verdict: "not-checked", reason: "found-elsewhere", detail: null }
-        : part,
-    ),
-  );
+  const { state, ...read } = asCitedNow(markOf(checked.sentence, result), held, checked.sentence);
+  return { ...read, state: state === "checking" ? "not-checked" : state };
 }
 
 /** A sentence's verdict as the record keeps it: what it cites and why the check ruled so. */
@@ -141,13 +161,16 @@ export function sentenceSupport(
   checked: Pick<CitedSentence, "sentence" | "cited">,
   checkResult: ClaimCheckResult,
 ): SentenceSupport {
-  const result = asCitedNow(checked, checkResult);
+  const read = readAsNote(checked, checkResult);
+  const notChecked = read.state === "not-checked";
   return {
     sentence: checked.sentence,
-    verdict: result.verdict,
-    ...reasonOf(result),
+    verdict: read.state,
+    reason: notChecked ? read.reason : null,
+    detail: notChecked ? read.detail : null,
+    unsupported: notChecked ? null : read.unsupported,
     cites: checked.cited.map(({ documentName, quote }) => ({ documentName, quote })),
-    parts: (result.parts ?? []).map((part) => partOf(checked.sentence, part)),
+    parts: (read.parts ?? []).map((part) => partOf(checked.sentence, part)),
   };
 }
 
