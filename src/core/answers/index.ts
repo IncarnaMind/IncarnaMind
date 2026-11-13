@@ -77,7 +77,7 @@ import {
 import { holdsNothing, madeByAnswer } from "../../shared/madeMind";
 import { linkTableSources } from "../../shared/markdownTables";
 import { escapeMarkdownText } from "../../shared/markdownText";
-import { ALL_HELP, helpLabel, type MeetingHelpKind } from "../../shared/meetingHelp";
+import { type MeetingHelpKind, pressedHelp } from "../../shared/meetingHelp";
 import {
   MISSING_NUMBER_REFUSED,
   missingNumberWords,
@@ -1173,8 +1173,7 @@ export function createAnswers(options: AnswersOptions) {
 
   /**
    * The scope an ended Answer's sentences are judged again in: its Search scope as it is now. A
-   * help button's reply is judged as its press read, without another call's Transcript (#3005):
-   * its Question is a button's name, in either language, and the call's live text went with it.
+   * help button's reply is judged as its press read, without another call's Transcript (#3005).
    */
   const judgedScope = (
     question: ConversationQuestion,
@@ -1187,13 +1186,8 @@ export function createAnswers(options: AnswersOptions) {
       mindId,
       readsMind ? null : wallOfTurn(question),
     );
-    const pressed =
-      answer.steps?.sent?.transcript === true &&
-      ALL_HELP.some((kind) =>
-        LANGUAGES.some((language) => translate(language, helpLabel(kind)) === question.text),
-      );
     // A reply outlives its Note in the conversation; with no Note of its own no call is its own.
-    return pressed ? pressScope(documentIds, mindId) : documentIds;
+    return pressedHelp(question, answer) !== null ? pressScope(documentIds, mindId) : documentIds;
   };
 
   /** The judgements of Answers' sentences running, by Answer (#2311): stopping one ends it. */
