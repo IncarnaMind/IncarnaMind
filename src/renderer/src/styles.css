@@ -5900,8 +5900,9 @@
     flex-shrink: 0;
   }
   /* An unchecked sentence has no mark on the page (#1941): its button stays as its card's anchor,
-     keeping its box and place, but draws nothing, takes no pointer or focus, and leaves the tab order. */
-  .margin-check[data-check="not-checked"] {
+     keeping its box and place, but draws nothing, takes no pointer or focus, and leaves the tab order.
+     One whose ✓ waits on the Passage its check found becoming a Citation shows, to add it (#3019). */
+  .margin-check[data-check="not-checked"]:not([data-waiting]) {
     visibility: hidden;
   }
   /* Each check's colours: on its mark, and on its card's state line and quote. */

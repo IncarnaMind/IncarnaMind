@@ -319,6 +319,7 @@ export function ClaimMark({
         data-open={open || undefined}
         data-guided={guided || undefined}
         data-addable={plus || undefined}
+        data-waiting={awaiting || undefined}
         data-own-note={ownNoteOnly || undefined}
         className={`margin-check claim-mark ${inline ? "claim-mark--inline" : ""} ${reveal ? "margin-check--reveal" : ""}`}
         style={style}
@@ -1527,8 +1528,9 @@ export function ClaimCard({
             {t("claim.removeMark")}
           </button>
         )}
+        {/* Checked again, a ✓ waiting on its found Passage gets the same answer: adding it is the way (#3019). */}
         {(state === "needs-recheck" ||
-          (state === "not-checked" && added === 0 && !lineAction && !described)) && (
+          (state === "not-checked" && added === 0 && !lineAction && !described && !awaiting)) && (
           <button
             type="button"
             data-testid="claim-check-again"

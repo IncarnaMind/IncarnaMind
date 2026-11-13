@@ -23,6 +23,7 @@ import {
 import type { NoteParagraph, RecordCiteNote } from "../../../core/recordCites/referents";
 import { readCalculatedFigureEvidence } from "../../../shared/calculatedFigures";
 import { chartCheckText, chartPoints, readChart } from "../../../shared/charts";
+import { citationAttributesOf } from "../../../shared/citations";
 import { asCitedNow } from "../../../shared/citedNow";
 import {
   analysisFigureShown,
@@ -409,11 +410,11 @@ const NO_CONTEXT: ClaimContext = {
 function citationsWithin(
   doc: ProseMirrorNode,
   { from, to }: { from: number; to: number },
-): CitationAttributes[] {
-  const found: CitationAttributes[] = [];
+): Partial<CitationAttributes>[] {
+  const found: Partial<CitationAttributes>[] = [];
   doc.nodesBetween(from, to, (node, pos) => {
     if (node.type.name === CITATION_NODE && pos >= from && pos < to)
-      found.push(node.attrs as CitationAttributes);
+      found.push(citationAttributesOf(node.attrs));
     return true;
   });
   return found;

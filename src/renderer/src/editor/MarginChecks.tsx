@@ -337,7 +337,9 @@ export function MarginChecks({
     if (!element) return;
     const shown = new Set(
       marks.flatMap((mark) =>
-        mark.claim && mark.state !== "not-checked" ? [mark.claim.check.id] : [],
+        mark.claim && (mark.state !== "not-checked" || foundElsewhere(mark.claim))
+          ? [mark.claim.check.id]
+          : [],
       ),
     );
     const drawn = new Map<string, number>();
