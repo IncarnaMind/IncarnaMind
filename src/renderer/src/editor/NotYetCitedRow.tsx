@@ -27,7 +27,6 @@ export function NotYetCitedRow({
   testId: string;
   rowRef?: Ref<HTMLDivElement>;
   onNext(): void;
-  /** The row's words. */
   children: ReactNode;
 }) {
   const t = useT();
