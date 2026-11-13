@@ -8,10 +8,18 @@ import { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test } from "vitest";
 import { ARMS, armSwitch } from "../../eval/speed/arms";
 import { EARLIER_CALL_CASES } from "../../eval/speed/callHelpEarlierCalls";
-import { earlierCallsSet, readEarlierJudged } from "../../eval/speed/earlierCalls";
+import {
+  earlierCallsSet,
+  openEarlierCalls,
+  readEarlierJudged,
+} from "../../eval/speed/earlierCalls";
+import { type Dating, datedCases } from "../../eval/speed/earlierCallsRounds";
 import { runOnArm } from "../../eval/speed/paired";
 import type { CoreAdapters } from "../../src/core";
 import { createFakeEmbedder } from "../../src/core/embedding/fake";
+import { formatFullDateTime } from "../../src/shared/dates";
+import { mindName } from "../../src/shared/naming";
+import { answerEnded } from "../helpers/citations";
 import { type ModelCall, scriptedModel } from "../helpers/models";
 
 const EUROPE = "our data has to stay in Europe";
@@ -223,7 +231,7 @@ describe("A case of the earlier-call set", { timeout: 240_000 }, () => {
         line: `Last time they said: ${EUROPE} [^1].`,
         number: 1,
         source: expect.stringMatching(
-          /^1 · Transcript · Meeting, \d+ \w+ · Them · 0:\d\d · started \d{1,2}:\d\d(?: [ap]m)?$/,
+          /^1 · Transcript · Meeting, \d+ \w+ · Them · 0:\d\d · started \d+ \w+, \d{1,2}:\d\d(?: [ap]m)?$/,
         ),
         call: "earlier",
         quote: EUROPE,
@@ -289,6 +297,146 @@ describe("A case of the earlier-call set", { timeout: 240_000 }, () => {
     expect(marked(main.calls).length).toBeGreaterThan(0);
     for (const tag of marked(main.calls)) expect(tag).not.toContain("call=");
   });
+});
+
+describe("The second round's set", () => {
+  test("refuses to start until its cases are put in", () => {
+    expect(() => earlierCallsSet("call-help-earlier-calls-2")).toThrow(
+      "The set call-help-earlier-calls-2 holds no cases yet",
+    );
+  });
+
+  test("refuses a case its gate doesn't date, a case named twice, and a same-day dating too early in the day", () => {
+    const [first, second] = EARLIER_CALL_CASES;
+    if (!first || !second) throw new Error("No cases.");
+    const afternoon = new Date(2026, 10, 13, 15, 0);
+    const sameDay: Dating = { sameDayHours: 3 };
+    const round = (cases: typeof EARLIER_CALL_CASES, dating: Dating) => ({
+      cases,
+      datings: { "a-then-b": dating },
+      saidFirst: ["a-then-b"],
+    });
+    expect(() => datedCases("round", round([first, second], { days: 6 }), afternoon)).toThrow(
+      "The set round has cases its gate doesn't date: en-b-then-a",
+    );
+    expect(() => datedCases("round", round([first, first], { days: 6 }), afternoon)).toThrow(
+      "The set round names en-a-then-b twice.",
+    );
+    expect(() =>
+      datedCases("round", round([first], sameDay), new Date(2026, 10, 13, 3, 30)),
+    ).toThrow("The set round dates en-a-then-b's earlier call earlier the same day");
+    expect(datedCases("round", round([first], sameDay), afternoon)).toEqual([
+      { each: first, dating: sameDay },
+    ]);
+  });
+});
+
+describe("An earlier call dated before the live one", { timeout: 240_000 }, () => {
+  /** The live call at 3 pm on 13 November 2026, on this computer's clock. */
+  const LIVE_AT = new Date(2026, 10, 13, 15, 0);
+  const TAG =
+    /<passage id="[^"]+" document="([^"]*)"[^>]* call="(this|earlier)"(?: note="([^"]*)")? started="([^"]*)">\n\[(\d+:\d\d) /g;
+
+  test.each([
+    ["six days before", { days: 6 }, "Meeting, 7 November", 6 * 86_400_000],
+    ["twenty days before", { days: 20 }, "Meeting, 24 October", 20 * 86_400_000],
+    [
+      "three hours before, the same day",
+      { sameDayHours: 3 },
+      "Meeting, 13 November",
+      3 * 3_600_000,
+    ],
+  ] as const)(
+    "%s: the press is sent the earlier call's Note and start, and this call's, as recorded",
+    async (_, dating, earlierNote, before) => {
+      const each = EARLIER_CALL_CASES.find((known) => known.id === "en-a-then-b");
+      if (!each) throw new Error("No case en-a-then-b.");
+      const calls: ModelCall[] = [];
+      const model = scriptedModel(
+        (call) => {
+          calls.push(call);
+          return { text: "★ Let me check the hosting options\n→ keeps it moving" };
+        },
+        { judgesItsAnswers: true },
+      );
+      const through = armSwitch();
+      through.use(armOf("today"));
+      const opened = await openEarlierCalls(
+        {
+          embedder: createFakeEmbedder(),
+          ollamaModels: {
+            describe: async () => null,
+            loaded: async () => null,
+            running: async () => true,
+          },
+          keep: false,
+          log: () => undefined,
+          embeddings: false,
+          recordTimings: true,
+          chatModels: () => through.chatModels(() => model),
+          callsUnmarked: through.callsUnmarked,
+        },
+        each,
+        dating,
+        LIVE_AT,
+      );
+      try {
+        const { core } = opened.library;
+        if (!opened.meeting) throw new Error("No live call.");
+        expect(calls).toEqual([]);
+        const { id: providerId } = await core.saveChatProvider({
+          kind: "ollama",
+          modelId: "local-model",
+        });
+        await core.updateSettings({ user: { chatModel: { providerId, modelId: "local-model" } } });
+        const asked = await core.askMeetingHelp({ meetingId: opened.meeting.id, kind: "say" });
+        if (!asked.asked) throw new Error(`Not asked: ${JSON.stringify(asked)}`);
+        await answerEnded(core, asked.answerId);
+
+        const meetings = await core.listMeetings();
+        const live = meetings.find((meeting) => meeting.id === opened.meeting?.id);
+        const earlier = meetings.find((meeting) => meeting.id !== opened.meeting?.id);
+        const minds = await core.listMinds();
+        const noteOf = (mindId: string | undefined) => {
+          const mind = minds.find((known) => known.id === mindId);
+          return mind ? mindName(mind) : "";
+        };
+        expect(noteOf(live?.mindId)).toBe("Meeting, 13 November");
+        expect(noteOf(earlier?.mindId)).toBe(earlierNote);
+        const liveStart = Date.parse(live?.startedAt ?? "");
+        const earlierStart = Date.parse(earlier?.startedAt ?? "");
+        expect(liveStart - earlierStart).toBeGreaterThanOrEqual(before);
+        expect(liveStart - earlierStart).toBeLessThan(before + 120_000);
+
+        const press = calls.find((call) => call.prompt.includes("<help>"));
+        const sent = [...(press?.prompt ?? "").matchAll(TAG)].map(
+          ([, document, call, note, started, time]) => ({
+            document,
+            call,
+            note,
+            started,
+            time,
+          }),
+        );
+        expect(sent.filter((passage) => passage.call === "earlier")).toContainEqual({
+          document: `Transcript · ${earlierNote}`,
+          call: "earlier",
+          note: earlierNote,
+          started: formatFullDateTime(earlier?.startedAt ?? "", "en"),
+          time: "0:00",
+        });
+        expect(sent.filter((passage) => passage.call === "this")).toContainEqual({
+          document: "Transcript · Meeting, 13 November",
+          call: "this",
+          note: undefined,
+          started: formatFullDateTime(live?.startedAt ?? "", "en"),
+          time: "0:00",
+        });
+      } finally {
+        await opened.close();
+      }
+    },
+  );
 });
 
 describe("The earlier-call judge's reading", () => {

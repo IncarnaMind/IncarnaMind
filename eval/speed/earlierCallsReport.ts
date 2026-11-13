@@ -1,15 +1,17 @@
 /**
- * The bars of `gates/call-help-earlier-calls.md` (#3005), computed from a paired run's rows of the
- * earlier-call set exactly as the file words them, and printed into its report. The baseline is
- * main's path (`calls-unmarked`), the candidate the branch (`today`). A pilot pairs main's path
- * with itself: then both arms are main's, and the section gives main's rate and how many runs the
- * gate's Claude Haiku 5.5 run needs.
+ * The bars of `gates/call-help-earlier-calls.md` (#3005), computed from a paired run's rows of
+ * either round's earlier-call set exactly as the file words them, and printed into its report. The
+ * baseline is main's path (`calls-unmarked`), the candidate the branch (`today`). A pilot pairs
+ * main's path with itself: then both arms are main's, and the section gives main's rate and how
+ * many runs the gate's Claude Haiku 5.5 run needs, or, run with no judge, lists the replies to be
+ * read by hand. In the second round two readers count bars 1 and 2 by hand, blind to the arm, and
+ * the section gives the judge's count beside theirs.
  */
 import { recordOf } from "./callHelpMarksReport";
+import { EARLIER_CALL_SETS, type EarlierCallSet, orderOf } from "./earlierCallsRounds";
 import type { ArmRun } from "./paired";
 import type { PairedRow } from "./pairedReport";
 
-const SET = "call-help-earlier-calls";
 const BUTTONS = ["say", "answer", "check"] as const;
 const LANGUAGES = ["en", "zh-CN"] as const;
 /** Main's `earlier-as-this` presses the gate needs to have shown the fault, and the pilot's aim. */
@@ -18,15 +20,17 @@ const PILOT_AIM = 6;
 const PILOT_FLOOR = 3;
 /** The share of the branch's "last time" questions bar 2 needs. */
 const LAST_TIME_FLOOR = 0.75;
+const SECOND_ROUND: EarlierCallSet = "call-help-earlier-calls-2";
 
 const isButton = (row: PairedRow) => row.kind !== "last-time";
-/**
- * Which call of the pair was the earlier: the one that changes what the other said (b, d: "we'd
- * start in March now") or the one that first said it (a, c), from the case's id ("en-b-then-a").
- */
+/** Which call of the pair was the earlier, by the round's list in the gate file. */
 const ORDERS = [
-  ["the earlier call brings the changes", /^[a-z]{2}-[bd]-then-/],
-  ["the earlier call said it first", /^[a-z]{2}-[ac]-then-/],
+  ["the earlier call brings the changes", "brings-changes"],
+  ["the earlier call said it first", "said-first"],
+] as const;
+const CUT_LANGUAGES = [
+  ["English", "en"],
+  ["Chinese", "zh-CN"],
 ] as const;
 const shownAsThis = (run: ArmRun) => run.failures.includes("earlier-as-this");
 /** "Last time" answered as bar 2 reads it: the earlier call's words as said then, with when, cited. */
@@ -46,6 +50,9 @@ const count = (
   arm: "baseline" | "candidate",
   test: (run: ArmRun) => boolean,
 ) => rows.filter((row) => test(row[arm])).length;
+
+const inOrder = (set: EarlierCallSet, order: (typeof ORDERS)[number][1]) => (row: PairedRow) =>
+  orderOf(set, row.id) === order;
 
 /** One reply listed for a hand read: its item, reply and places. */
 function listed(row: PairedRow, run: ArmRun): string {
@@ -70,26 +77,52 @@ function byButtonAndLanguage(rows: readonly PairedRow[], arm: "baseline" | "cand
   });
 }
 
-function byOrder(rows: readonly PairedRow[], arms: readonly ("baseline" | "candidate")[]) {
-  return ORDERS.map(([order, pattern]) => {
-    const cell = rows.filter((row) => pattern.test(row.id));
+function byOrder(
+  rows: readonly PairedRow[],
+  arms: readonly ("baseline" | "candidate")[],
+  set: EarlierCallSet,
+) {
+  return ORDERS.map(([order, which]) => {
+    const cell = rows.filter(inOrder(set, which));
     const shown = arms.reduce((sum, arm) => sum + count(cell, arm, shownAsThis), 0);
     return `${order}: ${shown} of ${cell.length * arms.length}`;
   }).join("; ");
 }
 
-/** A count on each arm, in all and by order: "main 3, the branch 1 (… : main 3, the branch 0; …)". */
-function armsByOrder(rows: readonly PairedRow[], test: (run: ArmRun) => boolean) {
+/**
+ * A count on each arm, in all, by order and by language: "main 3, the branch 1 (the earlier call
+ * brings the changes: main 3, the branch 0; …; English: …; Chinese: …)".
+ */
+function armsByCut(
+  rows: readonly PairedRow[],
+  test: (run: ArmRun) => boolean,
+  set: EarlierCallSet,
+) {
   const both = (cell: readonly PairedRow[]) =>
     `main ${count(cell, "baseline", test)}, the branch ${count(cell, "candidate", test)}`;
-  const orders = ORDERS.map(
-    ([order, pattern]) => `${order}: ${both(rows.filter((row) => pattern.test(row.id)))}`,
-  );
-  return `${both(rows)} (${orders.join("; ")})`;
+  const cuts = [
+    ...ORDERS.map(([name, which]) => `${name}: ${both(rows.filter(inOrder(set, which)))}`),
+    ...CUT_LANGUAGES.map(
+      ([name, language]) => `${name}: ${both(rows.filter((row) => row.language === language))}`,
+    ),
+  ];
+  return `${both(rows)} (${cuts.join("; ")})`;
 }
 
-function pilotSection(rows: readonly PairedRow[], model: string): string[] {
+function pilotSection(rows: readonly PairedRow[], model: string, set: EarlierCallSet): string[] {
   const presses = rows.filter(isButton);
+  const judged = rows.some((row) => row.baseline.callReading || row.candidate.callReading);
+  if (!judged) {
+    return [
+      `**Pilot, ${model}: main's path against itself, with no judge.** The ${presses.length} button presses' replies are read by hand: the first sample's, then the second's apart.`,
+      "",
+      "The first sample, for the hand read:",
+      ...presses.map((row) => listed(row, row.baseline)),
+      "",
+      "The second sample:",
+      ...presses.map((row) => listed(row, row.candidate)),
+    ];
+  }
   const replies = presses.length * 2;
   const shown = count(presses, "baseline", shownAsThis) + count(presses, "candidate", shownAsThis);
   const rate = replies === 0 ? 0 : shown / replies;
@@ -98,14 +131,15 @@ function pilotSection(rows: readonly PairedRow[], model: string): string[] {
   return [
     `**Pilot, ${model}: main's path against itself.** ${shown} of ${replies} of main's button replies are \`earlier-as-this\` (${(rate * 100).toFixed(1)}%), so a run of the gate's 24 presses an arm expects ${perRun.toFixed(2)} on main's arm.`,
     `Runs for an expected ${PILOT_AIM}: ${runsFor(PILOT_AIM) ?? "none reach it"}; for an expected ${PILOT_FLOOR}: ${runsFor(PILOT_FLOOR) ?? "none reach it"}. The gate file says how the stop then sets the runs.`,
-    `By order: ${byOrder(presses, ["baseline", "candidate"])}.`,
+    `By order: ${byOrder(presses, ["baseline", "candidate"], set)}.`,
     "",
     "Every reply, for the hand read:",
     ...presses.flatMap((row) => [listed(row, row.baseline), listed(row, row.candidate)]),
   ];
 }
 
-function gateSection(rows: readonly PairedRow[], model: string): string[] {
+function gateSection(rows: readonly PairedRow[], model: string, set: EarlierCallSet): string[] {
+  const byHand = set === SECOND_ROUND;
   const buttons = rows.filter(isButton);
   const lastTime = rows.filter((row) => !isButton(row));
   const done = (run: ArmRun) => run.status === "done";
@@ -113,8 +147,9 @@ function gateSection(rows: readonly PairedRow[], model: string): string[] {
     cell.filter((row) => done(row.baseline) && done(row.candidate));
   const mainShown = count(both(buttons), "baseline", shownAsThis);
   const branchShown = count(both(buttons), "candidate", shownAsThis);
-  const bar1 =
-    branchShown > 0
+  const bar1 = byHand
+    ? "counted by two readers blind to the arm; the judge's count beside theirs"
+    : branchShown > 0
       ? "fails"
       : mainShown >= SHOWN_AT
         ? "holds"
@@ -123,19 +158,29 @@ function gateSection(rows: readonly PairedRow[], model: string): string[] {
   const mainThen = count(asked, "baseline", answeredThen);
   const branchThen = count(asked, "candidate", answeredThen);
   const floor = Math.ceil(asked.length * LAST_TIME_FLOOR);
-  const bar2 = branchThen >= mainThen && branchThen >= floor ? "holds" : "fails";
+  const bar2 = byHand
+    ? "counted by two readers blind to the arm; the judge's count beside theirs"
+    : branchThen >= mainThen && branchThen >= floor
+      ? "holds"
+      : "fails";
   const right = (run: ArmRun) => run.grade === "right";
   const mainRight = count(both(buttons), "baseline", right);
   const branchRight = count(both(buttons), "candidate", right);
+  const withFalse = (run: ArmRun) => run.falseSupported > 0;
+  const mainFalse = count(both(rows), "baseline", withFalse);
+  const branchFalse = count(both(rows), "candidate", withFalse);
   const newFalse = both(rows).filter(
-    (row) => row.candidate.falseSupported > 0 && row.baseline.falseSupported === 0,
+    (row) => withFalse(row.candidate) && !withFalse(row.baseline),
   ).length;
+  const bar4 = byHand
+    ? `${branchFalse <= mainFalse ? "holds on the count" : "fails"}.** Items with a false Supported, the branch no more than main's, and none the change caused, each of the branch's read by hand: ${armsByCut(both(rows), withFalse, set)}. New on the branch: ${newFalse}.`
+    : `${newFalse === 0 ? "holds" : "fails"}.** Items with a false Supported on the branch and none on main: ${newFalse}. With any false Supported: ${armsByCut(both(rows), withFalse, set)}.`;
   const failedMain = rows.filter((row) => row.baseline.status === "failed").length;
   const failedBranch = rows.filter((row) => row.candidate.status === "failed").length;
   return [
     `**Bar 1, never this call's, ${model}: ${bar1}.** Button presses both arms finished: ${both(buttons).length}. \`earlier-as-this\`: main ${mainShown}, the branch ${branchShown}.`,
     "",
-    `By order: main ${byOrder(both(buttons), ["baseline"])}; the branch ${byOrder(both(buttons), ["candidate"])}.`,
+    `By order: main ${byOrder(both(buttons), ["baseline"], set)}; the branch ${byOrder(both(buttons), ["candidate"], set)}.`,
     "",
     "| Button | main, English | main, Chinese |",
     "|---|---|---|",
@@ -145,13 +190,18 @@ function gateSection(rows: readonly PairedRow[], model: string): string[] {
     "|---|---|---|",
     ...byButtonAndLanguage(both(buttons), "candidate"),
     "",
-    `**Bar 2, last time still answered, ${model}: ${bar2}.** Of ${asked.length} "last time" questions both arms finished, given as said then, with when, and cited: main ${mainThen}, the branch ${branchThen} (at least ${floor} needed). By order: ${armsByOrder(asked, answeredThen)}.`,
+    `**Bar 2, last time still answered, ${model}: ${bar2}.** Of ${asked.length} "last time" questions both arms finished, given as said then, with when, and cited: main ${mainThen}, the branch ${branchThen} (at least ${floor} needed). By order and language: ${armsByCut(asked, answeredThen, set)}.`,
     "",
-    `**Bar 3, no worse on this call, ${model}: ${branchRight >= mainRight ? "holds" : "fails"}.** Button replies graded right: ${armsByOrder(both(buttons), right)}.`,
+    `**Bar 3, no worse on this call, ${model}: ${branchRight >= mainRight ? "holds" : "fails"}.** Button replies graded right: ${armsByCut(both(buttons), right, set)}.`,
     "",
-    `**Bar 4, no new false Supported, ${model}: ${newFalse === 0 ? "holds" : "fails"}.** Items with a false Supported on the branch and none on main: ${newFalse}. With any false Supported: ${armsByOrder(both(rows), (run) => run.falseSupported > 0)}.`,
+    `**Bar 4, no new false Supported, ${model}: ${bar4}`,
+    ...(byHand
+      ? rows.flatMap((row) =>
+          withFalse(row.candidate) ? [`the branch: ${listed(row, row.candidate)}`] : [],
+        )
+      : []),
     "",
-    `**Bar 5, no more items failing, ${model}: ${failedBranch <= failedMain ? "holds" : "fails"}.** Failed to run: ${armsByOrder(rows, (run) => run.status === "failed")}.`,
+    `**Bar 5, no more items failing, ${model}: ${failedBranch <= failedMain ? "holds" : "fails"}.** Failed to run: ${armsByCut(rows, (run) => run.status === "failed", set)}.`,
     "",
     `**Reported, ${model}: ✓ beside an earlier call's line in a sentence saying the other side said, asked or wants it in this call:** main ${rows.reduce((sum, row) => sum + checkedOnThisCall(row.baseline), 0)} places, the branch ${rows.reduce((sum, row) => sum + checkedOnThisCall(row.candidate), 0)}.`,
     "",
@@ -197,32 +247,35 @@ export function earlierStartedOf(rows: readonly PairedRow[], caseId: string): st
   return "";
 }
 
-/** The gate's section of a paired run's report, or null when the run holds none of the set. */
+/** The gate's sections of a paired run's report, one a round's set it holds, or null when it holds neither. */
 export function earlierCallsSection(
   all: readonly PairedRow[],
   arms: readonly [string, string],
 ): string | null {
-  const rows = all.filter((row) => row.set === SET);
-  if (rows.length === 0) return null;
   const pilot = arms[0] === arms[1];
-  const lines = [
-    `## The earlier-call gate (\`gates/call-help-earlier-calls.md\`)${pilot ? ": the pilot" : ""}`,
-    "",
-  ];
-  for (const model of [...new Set(rows.map((row) => row.model))]) {
-    const cell = rows.filter((row) => row.model === model);
-    const record = recordOf(cell);
-    lines.push(
-      `**Requests, ${model}:** ${record.requests} model requests in the record, ${record.unfinished} of them ended other than finished.`,
+  const sections = EARLIER_CALL_SETS.flatMap((set) => {
+    const rows = all.filter((row) => row.set === set);
+    if (rows.length === 0) return [];
+    const lines = [
+      `## The earlier-call gate (\`gates/call-help-earlier-calls.md\`)${set === SECOND_ROUND ? ", round 2" : ""}${pilot ? ": the pilot" : ""}`,
       "",
-    );
-    if (record.voids.length > 0) {
+    ];
+    for (const model of [...new Set(rows.map((row) => row.model))]) {
+      const cell = rows.filter((row) => row.model === model);
+      const record = recordOf(cell);
       lines.push(
-        `**Void, ${model}: its bars are not read, and it isn't run again before its reasons are read.** ${record.voids.join("; ")}.`,
+        `**Requests, ${model}:** ${record.requests} model requests in the record, ${record.unfinished} of them ended other than finished.`,
         "",
       );
+      if (record.voids.length > 0) {
+        lines.push(
+          `**Void, ${model}: its bars are not read, and it isn't run again before its reasons are read.** ${record.voids.join("; ")}.`,
+          "",
+        );
+      }
+      lines.push(...(pilot ? pilotSection(cell, model, set) : gateSection(cell, model, set)), "");
     }
-    lines.push(...(pilot ? pilotSection(cell, model) : gateSection(cell, model)), "");
-  }
-  return lines.join("\n");
+    return [lines.join("\n")];
+  });
+  return sections.length === 0 ? null : sections.join("\n");
 }

@@ -30,8 +30,8 @@ const request = (outcome: RequestTiming["outcome"] = "finished"): RequestTiming 
   outcome,
 });
 
-function arm(reply: Partial<ArmRun> & { asThis?: boolean; then?: boolean } = {}): ArmRun {
-  const { asThis = false, then = false, ...rest } = reply;
+function arm(reply: Partial<ArmRun> & { asThis?: boolean; saidThen?: boolean } = {}): ArmRun {
+  const { asThis = false, saidThen = false, ...rest } = reply;
   return {
     status: "done",
     error: null,
@@ -53,7 +53,7 @@ function arm(reply: Partial<ArmRun> & { asThis?: boolean; then?: boolean } = {})
     text: asThis ? "★ “Your data stays in Europe, as you need”" : "★ “Let me check that”",
     requests: [request()],
     places: [],
-    callReading: { earlierAsThis: asThis, thenWithWhen: then, asThisCall: [] },
+    callReading: { earlierAsThis: asThis, thenWithWhen: saidThen, asThisCall: [] },
     ...rest,
   };
 }
@@ -97,8 +97,8 @@ function lastTimes(onMain: number, onBranch: number): PairedRow[] {
     row(
       "last-time",
       index < 2 ? "en" : "zh-CN",
-      arm({ then: index < onMain, cited: true }),
-      arm({ then: index < onBranch, cited: true }),
+      arm({ saidThen: index < onMain, cited: true }),
+      arm({ saidThen: index < onBranch, cited: true }),
     ),
   );
 }
@@ -220,8 +220,97 @@ describe("The earlier-call gate's section", () => {
       "By order: main the earlier call brings the changes: 2 of 2; the earlier call said it first: 1 of 2; the branch the earlier call brings the changes: 0 of 2; the earlier call said it first: 0 of 2.",
     );
     expect(section).toContain(
-      "Button replies graded right: main 4, the branch 4 (the earlier call brings the changes: main 2, the branch 2; the earlier call said it first: main 2, the branch 2).",
+      "Button replies graded right: main 4, the branch 4 (the earlier call brings the changes: main 2, the branch 2; the earlier call said it first: main 2, the branch 2; English: main 4, the branch 4; Chinese: main 0, the branch 0).",
     );
+  });
+
+  test("a pilot with no judge lists each sample's button replies for the hand read", () => {
+    const rows = buttons(0, 0).map((each) => ({
+      ...each,
+      baseline: { ...each.baseline, callReading: undefined },
+      candidate: { ...each.candidate, callReading: undefined, text: "★ “Second sample”" },
+    }));
+    const section = earlierCallsSection(rows, ["calls-unmarked", "calls-unmarked"]) ?? "";
+    expect(section).toContain(
+      "**Pilot, anthropic/claude-haiku-5-5: main's path against itself, with no judge.** The 12 button presses' replies are read by hand: the first sample's, then the second's apart.",
+    );
+    expect(section.split("The second sample:")[0]).toContain("★ “Let me check that”");
+    expect(section.split("The second sample:")[1]).toContain("★ “Second sample”");
+    expect(section).not.toContain("Runs for an expected");
+  });
+});
+
+describe("The earlier-call gate's second round", () => {
+  /** A row of the second round's set, its id naming its case. */
+  const second = (id: string, baseline: ArmRun, candidate: ArmRun): PairedRow => ({
+    ...row(
+      id.endsWith("last-time") ? "last-time" : "say",
+      id.startsWith("zh") ? "zh-CN" : "en",
+      baseline,
+      candidate,
+    ),
+    set: "call-help-earlier-calls-2",
+    id,
+  });
+
+  test("has a section of its own, its bars 1 and 2 counted by hand with the judge's count beside", () => {
+    const section =
+      earlierCallsSection(
+        [
+          second("en-e-then-f-say", arm({ asThis: true }), arm()),
+          second("en-e-then-f-last-time", arm({ saidThen: true, cited: true }), arm()),
+        ],
+        ARMS,
+      ) ?? "";
+    expect(section).toContain(
+      "## The earlier-call gate (`gates/call-help-earlier-calls.md`), round 2",
+    );
+    expect(section).toContain(
+      "**Bar 1, never this call's, anthropic/claude-haiku-5-5: counted by two readers blind to the arm; the judge's count beside theirs.** Button presses both arms finished: 1. `earlier-as-this`: main 1, the branch 0.",
+    );
+    expect(section).toContain(
+      "**Bar 2, last time still answered, anthropic/claude-haiku-5-5: counted by two readers blind to the arm; the judge's count beside theirs.**",
+    );
+  });
+
+  test("tells the orders apart by the gate's list: both orders of the two-sided pair are the earlier call saying it first", () => {
+    const section =
+      earlierCallsSection(
+        [
+          second("en-e-then-f-say", arm({ asThis: true }), arm()),
+          second("en-f-then-e-say", arm({ asThis: true }), arm()),
+          second("zh-i-then-j-say", arm({ asThis: true }), arm()),
+          second("zh-j-then-i-say", arm({ asThis: true }), arm()),
+          second("en-h-then-g-say", arm(), arm()),
+        ],
+        ARMS,
+      ) ?? "";
+    expect(section).toContain(
+      "By order: main the earlier call brings the changes: 1 of 2; the earlier call said it first: 3 of 3;",
+    );
+  });
+
+  test("bar 4 holds on the count when the branch has no more items with a false Supported than main, and lists each of the branch's", () => {
+    const branchFalse = arm({ falseSupported: 1, text: "★ “A false one”" });
+    const holding = earlierCallsSection(
+      [
+        second("en-e-then-f-say", arm({ falseSupported: 1 }), branchFalse),
+        second("en-g-then-h-say", arm({ falseSupported: 2 }), arm()),
+      ],
+      ARMS,
+    );
+    expect(holding).toContain(
+      "no new false Supported, anthropic/claude-haiku-5-5: holds on the count.**",
+    );
+    expect(holding).toContain("the branch: - en-e-then-f-say run 1: ★ “A false one”");
+    const failing = earlierCallsSection(
+      [
+        second("en-e-then-f-say", arm(), branchFalse),
+        second("en-g-then-h-say", arm({ falseSupported: 1 }), branchFalse),
+      ],
+      ARMS,
+    );
+    expect(failing).toContain("no new false Supported, anthropic/claude-haiku-5-5: fails.**");
   });
 });
 

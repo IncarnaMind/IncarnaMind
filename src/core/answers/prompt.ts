@@ -403,6 +403,13 @@ export function emptyMindNote(offered: boolean, empty: boolean): string {
 }
 
 /**
+ * What an earlier call's line may be given as (#3005), sent alike to an Answer during a call and
+ * to call help's buttons, so the two never ask for different things.
+ */
+export const EARLIER_CALL_RULE =
+  'A Transcript Passage marked call="earlier" is another call, named by its note and started: nothing in it was said in this call. Give its line only as said in that call, saying in the sentence itself who said it and when (the day that call started, or its time when it started the same day as this one), as in "When we spoke on Monday, you said …", and cite it; a sentence that can\'t say so leaves the line out.';
+
+/**
  * A Question asked while the meeting the User is in records (#144): the live transcript goes
  * with it (see ./liveTranscript), and is what Questions about the call are answered from.
  * `callsUnmarked`: Transcript Passages aren't marked with their call (`CoreAdapters.callsUnmarked`).
@@ -418,7 +425,7 @@ export function meetingInstructions(listening: boolean, callsUnmarked = false): 
     ...(callsUnmarked
       ? []
       : [
-          '- A Transcript Passage marked call="this" is this call\'s. One marked call="earlier" is another call, named by its note and started: it was not said in this call. Say they or you said something only from call="this" lines; give an earlier call\'s line as said in that call, saying when, and cite it.',
+          `- A Transcript Passage marked call="this" is this call's: say they or you said something only from call="this" lines. ${EARLIER_CALL_RULE}`,
         ]),
     '- "Just now", "the last few minutes" and "what was just said" mean its newest Passages.',
     "- Search the User's Documents too when the Question needs them, for instance to check what was said against them.",

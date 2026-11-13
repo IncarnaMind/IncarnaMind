@@ -132,6 +132,8 @@ export interface LibraryOptions {
   helpMarksQuoteOnly?: CoreAdapters["helpMarksQuoteOnly"];
   /** See `CoreAdapters.callsUnmarked`. */
   callsUnmarked?: CoreAdapters["callsUnmarked"];
+  /** The core's clock, for a run that records a call on another day than today. */
+  now?: CoreAdapters["now"];
 }
 
 export interface EvalWebPage {
@@ -339,6 +341,7 @@ export async function openLibrary(options: LibraryOptions): Promise<Library> {
     ...(options.quotesAsGiven && { quotesAsGiven: options.quotesAsGiven }),
     ...(options.helpMarksQuoteOnly && { helpMarksQuoteOnly: options.helpMarksQuoteOnly }),
     ...(options.callsUnmarked && { callsUnmarked: options.callsUnmarked }),
+    ...(options.now && { now: options.now }),
   });
   const close = async () => {
     core.close();

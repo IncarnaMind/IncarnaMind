@@ -161,3 +161,92 @@ Before any paid request:
 - **Bar 5, no more items failing: holds.** None failed on either arm.
 - **Reported.** A ✓ beside an earlier call's line, in a sentence saying the other side said, asked or wants it in this call: main 2 places, the branch 0.
 - **The gate has failed:** bar 1 by the reading, bars 2 and 4 on the judge. The Claude Sonnet 5.5 guard doesn't run, and the branch doesn't ship as it is. This change has now seen the 8 cases, so they no longer count as proof.
+
+### The run read again, 2026-11-13: the set recorded both calls in the same minute
+
+- **The set's flaw.** The runner recorded the earlier call and then the live call seconds apart. Both calls started in the same minute, under the same Note name ("Meeting, 13 November"), so their Transcripts had the same name and the same start. No reply could say when the earlier call was, and four "last time" replies say they can't tell the calls apart by date.
+- **Bar 2, read strictly by hand:** 0 of 8 on both arms. Leaving "when" aside: main 3, the branch 7 of 8. The judge's 3 and 5 count "when" loosely.
+- **The new false Supported** comes from the change through that flaw. The branch sends each call's start, both starts were the same minute, and the reply says so over another sentence's Citation. Its other unsupported sentence has a wrong Citation number.
+- **Round 1's verdict stays failed.**
+
+## Round 2, written 2026-11-13, before any of its runs
+
+**Every earlier number came from calls recorded in the same minute:** the pilot's, round 1's, and their judging again, each under one Note name with one start. The pressure test that found the fault recorded its calls the same day, all named "Transcript · Meeting, 12 November"; its record gives no starts. Compare round 2 with them knowing this.
+
+### What changed, and why
+
+- **The cause, read from round 1's requests.** Every branch press already carried the Answer's rule in its system prompt: give an earlier call's line as said in that call, saying when, and cite it. The button's own instruction, after the Question, said instead: distinguish it from the transcript and cite it. Its form asks for a line said aloud, Citation markers at the end. The branch's five failing replies all distinguish the earlier call by the Citation alone, and the User doesn't say a Citation to the other side. Two of them also put the other side's words in the User's mouth: the buyer's procurement signer given as "our" rollout lead, "our board".
+- **The wording.** The Answer's rule and the button's instruction now carry the same sentence, `EARLIER_CALL_RULE` in `src/core/answers/prompt.ts`: "A Transcript Passage marked call="earlier" is another call, named by its note and started: nothing in it was said in this call. Give its line only as said in that call, saying in the sentence itself who said it and when (the day that call started, or its time when it started the same day as this one), as in "When we spoke on Monday, you said …", and cite it; a sentence that can't say so leaves the line out." Its example is general words, no line of either set's cases or of any reply.
+  - The system prompt's line during a call: "A Transcript Passage marked call="this" is this call's: say they or you said something only from call="this" lines." followed by that sentence.
+  - The buttons' Documents line: "A Document fact was not said in this call: distinguish it from the transcript, cite it, and never invent one." followed by that sentence.
+  - Main's arm (`calls-unmarked`) is sent neither, and its buttons' line is main's, byte for byte (`tests/core/callHelpEarlierCalls.test.ts`).
+- **The marks are unchanged.** Every block a Transcript Passage is shown in carries them, the Folder's whole text (`<document-text>`, the block the model is told to answer from) included.
+- **The earlier call is dated.** The runner records it on the core's clock set back, then the live call on today's, alike on both arms. Each case's dating is listed in `../earlierCallsRounds.ts`. `tests/eval/earlierCallsSet.test.ts` checks, for each dating, that the press is sent both Notes' names and both starts as recorded, with the live call at 3 pm on 13 November:
+  - 6 days before: the earlier call "Meeting, 7 November", started "7 Nov 2026, 3:00 pm"; the live call "Meeting, 13 November", "13 Nov 2026, 3:00 pm".
+  - 20 days before: "Meeting, 24 October", "24 Oct 2026, 4:00 pm" (the same instant in summer time); the live call as above.
+  - The same day, 3 hours before: both Notes "Meeting, 13 November"; the earlier call started "13 Nov 2026, 12:00 pm", the live call "3:00 pm". The run refuses to start before 04:00, when the earlier call would fall on the day before.
+
+### The pilot: main's path alone, on the first set dated 6 days back
+
+- **Its question.** With the calls days apart, does main still give an earlier call's content as this call's in at least 4 of 24 button replies? If fewer than 4, the fault isn't shown on real dating, and part 2 goes back for a decision, with what it is then for, before any gate run. Otherwise main's rate sizes round 2.
+- **The run.** The first set's 8 cases (spent as proof, so they can serve), every earlier call 6 days before its live one. Claude Haiku 5.5, `calls-unmarked` against itself, all 32 items once, with no judge (`INCARNAMIND_EVAL_SPEED_JUDGE=none`). The runner pairs every item, so each item has two samples. The first sample's 24 button replies are read by hand by two readers and decide the question; the second's are reported, for the rate.
+- **It counts** only with none of its requests refused, failed or timed out.
+
+### The cases
+
+- A new set, `../callHelpEarlierCalls2.ts` (`EARLIER_CALL_CASES_2`), written blind to the change and its replies by another writer and checked, and put in that file only for the gated run. The file holds no cases until then, and a run of the set (`call-help-earlier-calls-2`) refuses to start without them. The results record the file's SHA-256.
+- Three pairs of calls (e and f, g and h, i and j), each in English and Chinese and in both orders: 12 cases, ids like `en-e-then-f`.
+- **Dated by pair:** e and f 6 days before the live call, g and h 20 days before, i and j the same day 3 hours before. On the same day the two Notes share their name, and only the start tells them apart.
+- **Orders, by this list, not by the ids' letters.**
+  - The earlier call said it first, and the live call asks something it seems to answer: e-then-f, g-then-h, i-then-j and j-then-i. The third pair is two-sided, so this is 8 of the 12 cases.
+  - The earlier call brings the changes: f-then-e and h-then-g, 4 cases.
+- Buttons as in round 1, "What should I say?", "Answer their question" and "Check what was said", plus the typed "What did they say last time?": 48 items.
+
+### The bars
+
+As committed for round 1, except as said here. Every count is given in all, by the order of the two calls and by language.
+
+1. **Never this call's.** Two readers count it by hand, blind to the arm, with the judge's count beside theirs.
+   - A reply counts when it gives something only the earlier call holds as said, asked or wanted in this call, or as a settled fact, a requirement or where the other side stands, without its own words saying it comes from the earlier call.
+   - From this round on, a reply that puts an earlier call's content on "the Documents" or "the record" instead of the earlier call also counts: a thing said in a call is not a record, and the User may repeat it to the other side as one. The count is given both ways, so the rounds compare.
+   - Main's arm must show at least 4, and the branch none.
+   - **Counted apart, beside it: an earlier line of the other side given as ours.** For example, the buyer's signer given as "our" rollout lead. The readers mark it per reply. The bar for it is none on the branch, with main's count reported.
+2. **Last time still answered,** by the two readers. A reply is answered when it does all four:
+   - gives what the earlier call held;
+   - says it was then;
+   - says when, by its day, or by its time when the two calls share a day;
+   - cites the earlier call.
+   On the branch, no fewer than main and at least three quarters (9 of 12), with the judge's count beside.
+3. **No worse on this call,** by the judge's grade, as committed.
+4. **No new false Supported,** repaired for this round and said before it runs:
+   - the branch has no more items with a false Supported than main;
+   - each of the branch's is read by hand and listed;
+   - one the change caused fails the bar, whatever the count.
+   Round 1's bar 4 stays failed as written.
+5. **No more items failing to run.**
+
+Where the two readers differ on a reply, it counts against the arm: under bar 1 and the kind counted apart when either reader counts it, under bar 2 as answered only when both say so. Both readers' counts are given.
+
+**Frozen.** What the branch sends is frozen for round 2 at the commit that adds this section, and its results name that commit.
+
+### Models, judges, keys
+
+- **Claude Haiku 5.5 first, both arms,** one run of the 48 items, judged by Claude Sonnet 5.5. The pilot's rate sets the runs: the smallest number for which main's expected count, at its rate over 36 presses a run, is at least 6, up to what the stop allows.
+- **The Claude Sonnet 5.5 guard** runs only if every Haiku bar holds. It takes the pair dated 6 days back, e and f: its 4 cases' 12 button presses, both arms, one run (`INCARNAMIND_EVAL_SPEED_ITEMS` naming the 12).
+  - Its judge can't be Claude Sonnet 5.5, a model under test, and no request goes to Claude Opus or Claude Fable. So the guard is judged by Claude Haiku 5.5. Its bar 1 and the kind counted apart are read by hand by the two readers, and each of its false Supported, as in the Haiku run.
+- One route and one key, the first direct Anthropic key, with its lock for each run's length and the allowance read before each run, as for round 1.
+
+### Spend, from round 1's measured cost
+
+Round 1's Haiku run measured, caching included: $0.0008 a button reply, $0.0034 a typed one, $0.002 a reply for the Sonnet judge. Claude Sonnet 5.5 is priced at 20 times Claude Haiku 5.5. With the same caching, that is about $0.017 a button reply.
+
+| Step | Size | Estimate |
+|---|---|---|
+| Pilot | 32 items, main against itself, no judge | $0.09 |
+| Claude Haiku 5.5 run | 48 items, both arms, judged | $0.34 |
+| Claude Sonnet 5.5 guard | 12 button items, both arms, judged by Haiku | $0.40 |
+| Total | | $0.83 of the $1.03 left of $1.50 |
+
+- The stop stays $1.50 for everything, rounds 1 and 2 together, on the one ledger.
+- If the pilot's rate needs 2 Haiku runs, the guard doesn't fit and is brought for a decision.
+- A void Haiku run's rerun fits only without the guard; the guard then needs a new yes.

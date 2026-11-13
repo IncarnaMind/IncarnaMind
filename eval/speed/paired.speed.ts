@@ -90,7 +90,8 @@ function groupsOf(set: SetId, cacheDir: string): PairedGroup[] {
     case "call-help-marks-3":
       return callHelpSet(set);
     case "call-help-earlier-calls":
-      return earlierCallsSet();
+    case "call-help-earlier-calls-2":
+      return earlierCallsSet(set);
     case "meeting-notes":
       return meetingNotesSet();
   }

@@ -84,11 +84,14 @@ const LINES: Record<Language, { mine: string[]; theirs: string[]; query: string 
   },
 };
 
-const INSTRUCTION =
-  '\n- A Transcript Passage marked call="this" is this call\'s. One marked call="earlier" is another call, named by its note and started: it was not said in this call. Say they or you said something only from call="this" lines; give an earlier call\'s line as said in that call, saying when, and cite it.';
+/** What an earlier call's line may be given as: one sentence, in the Answer's rule and the button's. */
+const EARLIER_RULE =
+  'A Transcript Passage marked call="earlier" is another call, named by its note and started: nothing in it was said in this call. Give its line only as said in that call, saying in the sentence itself who said it and when (the day that call started, or its time when it started the same day as this one), as in "When we spoke on Monday, you said …", and cite it; a sentence that can\'t say so leaves the line out.';
+const INSTRUCTION = `\n- A Transcript Passage marked call="this" is this call's: say they or you said something only from call="this" lines. ${EARLIER_RULE}`;
 const HELP_LINE = {
-  marked: 'A Document fact, or an earlier call\'s line (call="earlier"), was not said in this call',
-  unmarked: "A Document fact was not said in this call",
+  marked: `A Document fact was not said in this call: distinguish it from the transcript, cite it, and never invent one. ${EARLIER_RULE} When giving`,
+  unmarked:
+    "A Document fact was not said in this call: distinguish it from the transcript, cite it, and never invent one. When giving",
 };
 
 /** What one request sent: its system prompt, its messages and its Tool results. */

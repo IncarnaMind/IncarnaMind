@@ -29,12 +29,10 @@ import { until } from "../../tests/helpers/transcription";
 import { openLibrary } from "../lib/library";
 import { callRig, quoteFound, recordCall, replyEnded, requestsSince, shownReply } from "./callHelp";
 import type { CallTurn } from "./callHelpCases";
-import {
-  EARLIER_CALL_CASES,
-  EARLIER_CALL_PRESSES,
-  type EarlierCallCase,
-} from "./callHelpEarlierCalls";
+import { EARLIER_CALL_PRESSES, type EarlierCallCase } from "./callHelpEarlierCalls";
 import { JUDGE_FAILED } from "./callHelpMarksReport";
+import { type Dating, type EarlierCallSet, earlierBy, roundCases } from "./earlierCallsRounds";
+import { NO_JUDGE } from "./judge";
 import type { GroupOptions, Measured, OpenedGroup, PairedGroup, PairedItem } from "./paired";
 
 const ANSWER_TIMEOUT_MS = 120_000;
@@ -220,10 +218,14 @@ function readable(answer: ConversationAnswer, kind: MeetingHelpKind | null) {
   return { text: shownReply(answer, shown, numbers), numbers, passed, lines };
 }
 
-function item(each: EarlierCallCase, kind: MeetingHelpKind | null): PairedItem {
+function item(
+  set: EarlierCallSet,
+  each: EarlierCallCase,
+  kind: MeetingHelpKind | null,
+): PairedItem {
   const id = `${each.id}-${kind ?? "last-time"}`;
   return {
-    set: "call-help-earlier-calls",
+    set,
     id,
     kind: kind ?? "last-time",
     language: each.language,
@@ -312,23 +314,24 @@ function item(each: EarlierCallCase, kind: MeetingHelpKind | null): PairedItem {
       const found = answer.citations.filter(quoteFound);
       let judged: Judged | null = null;
       try {
-        judged = done
-          ? await judge(
-              claimsJudge,
-              each,
-              kind === null ? "last-time" : "button",
-              formatFullDateTime(earlierStarted, each.language),
-              text,
-              [...numbers].flatMap(([marker, number]) => {
-                const citation = answer.citations.find((each) => each.marker === marker);
-                if (!citation) return [];
-                const call = citation.documentId === earlier ? "the earlier call" : "this call";
-                return [
-                  `[${number}] ${citation.documentName} (${call}): “${citation.quote}” (${quoteFound(citation) ? "found" : citation.check})`,
-                ];
-              }),
-            )
-          : null;
+        judged =
+          done && claimsJudge !== NO_JUDGE
+            ? await judge(
+                claimsJudge,
+                each,
+                kind === null ? "last-time" : "button",
+                formatFullDateTime(earlierStarted, each.language),
+                text,
+                [...numbers].flatMap(([marker, number]) => {
+                  const citation = answer.citations.find((each) => each.marker === marker);
+                  if (!citation) return [];
+                  const call = citation.documentId === earlier ? "the earlier call" : "this call";
+                  return [
+                    `[${number}] ${citation.documentName} (${call}): “${citation.quote}” (${quoteFound(citation) ? "found" : citation.check})`,
+                  ];
+                }),
+              )
+            : null;
       } catch (error) {
         return failed(`${JUDGE_FAILED}: ${error instanceof Error ? error.message : String(error)}`);
       }
@@ -364,14 +367,26 @@ function item(each: EarlierCallCase, kind: MeetingHelpKind | null): PairedItem {
   };
 }
 
-/** The group's Library: the earlier call recorded and stopped, then the live one recording, in one Folder. */
-async function openCalls(base: GroupOptions, each: EarlierCallCase): Promise<OpenedGroup> {
+/**
+ * The group's Library: the earlier call recorded and stopped, then the live one recording, in one
+ * Folder. The earlier call is recorded on the core's clock set back as its case is dated, the live
+ * one on today's, or from `at` on, for a test that needs the live call at a time of day.
+ */
+export async function openEarlierCalls(
+  base: GroupOptions,
+  each: EarlierCallCase,
+  dating: Dating,
+  at?: Date,
+): Promise<OpenedGroup> {
   const rig = callRig([...each.earlier.turns, ...each.live.turns]);
+  const shift = at ? at.getTime() - Date.now() : 0;
+  let back = earlierBy(dating);
   const library = await openLibrary({
     ...base,
     name: `paired-earlier-calls-${each.id}`,
     documents: [],
     meetings: rig.adapters,
+    now: () => new Date(Date.now() + shift - back),
   });
   try {
     const { core } = library;
@@ -380,6 +395,7 @@ async function openCalls(base: GroupOptions, each: EarlierCallCase): Promise<Ope
     const first = await recordCall(core, rig.capture, each.earlier.turns, folder.id);
     await core.stopMeeting(first.id);
     await until(core, first.id, (transcript) => transcript.state === "saved");
+    back = 0;
     const meeting = await recordCall(core, rig.capture, each.live.turns, folder.id);
     return { library, meeting, close: () => library.close() };
   } catch (error) {
@@ -388,13 +404,13 @@ async function openCalls(base: GroupOptions, each: EarlierCallCase): Promise<Ope
   }
 }
 
-/** One group a case: its own Library with both calls; the buttons, then the question typed. */
-export function earlierCallsSet(): PairedGroup[] {
-  return EARLIER_CALL_CASES.map(
-    (each): PairedGroup => ({
-      name: `call-help-earlier-calls-${each.id}`,
-      items: [...EARLIER_CALL_PRESSES.map((kind) => item(each, kind)), item(each, null)],
-      open: (base) => openCalls(base, each),
+/** One group a case of the round's set: its own Library with both calls; the buttons, then the question typed. */
+export function earlierCallsSet(set: EarlierCallSet = "call-help-earlier-calls"): PairedGroup[] {
+  return roundCases(set, new Date()).map(
+    ({ each, dating }): PairedGroup => ({
+      name: `${set}-${each.id}`,
+      items: [...EARLIER_CALL_PRESSES.map((kind) => item(set, each, kind)), item(set, each, null)],
+      open: (base) => openEarlierCalls(base, each, dating),
     }),
   );
 }
