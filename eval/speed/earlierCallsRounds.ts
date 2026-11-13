@@ -6,8 +6,13 @@
  */
 import { EARLIER_CALL_CASES, type EarlierCallCase } from "./callHelpEarlierCalls";
 import { EARLIER_CALL_CASES_2 } from "./callHelpEarlierCalls2";
+import { EARLIER_CALL_CASES_3 } from "./callHelpEarlierCalls3";
 
-export const EARLIER_CALL_SETS = ["call-help-earlier-calls", "call-help-earlier-calls-2"] as const;
+export const EARLIER_CALL_SETS = [
+  "call-help-earlier-calls",
+  "call-help-earlier-calls-2",
+  "call-help-earlier-calls-3",
+] as const;
 export type EarlierCallSet = (typeof EARLIER_CALL_SETS)[number];
 
 /** How long before the live call its earlier call starts: days before, or hours before on the same day. */
@@ -15,6 +20,8 @@ export type Dating = { days: number } | { sameDayHours: number };
 
 export interface Round {
   cases: readonly EarlierCallCase[];
+  /** The file its cases are put in for the gated run, for a round written apart from the change. */
+  file?: string;
   datings: Readonly<Record<string, Dating>>;
   /** The cases whose earlier call said it first; every other case's earlier call brings the changes. */
   saidFirst: readonly string[];
@@ -37,6 +44,7 @@ export const ROUNDS: Readonly<Record<EarlierCallSet, Round>> = {
   },
   "call-help-earlier-calls-2": {
     cases: EARLIER_CALL_CASES_2,
+    file: "eval/speed/callHelpEarlierCalls2.ts",
     datings: {
       "e-then-f": SIX_DAYS,
       "f-then-e": SIX_DAYS,
@@ -46,6 +54,20 @@ export const ROUNDS: Readonly<Record<EarlierCallSet, Round>> = {
       "j-then-i": SAME_DAY,
     },
     saidFirst: ["e-then-f", "g-then-h", "i-then-j", "j-then-i"],
+  },
+  // Its orders come with its cases, from their writer, before the run.
+  "call-help-earlier-calls-3": {
+    cases: EARLIER_CALL_CASES_3,
+    file: "eval/speed/callHelpEarlierCalls3.ts",
+    datings: {
+      "k-then-l": SIX_DAYS,
+      "l-then-k": SIX_DAYS,
+      "m-then-n": TWENTY_DAYS,
+      "n-then-m": TWENTY_DAYS,
+      "o-then-p": SAME_DAY,
+      "p-then-o": SAME_DAY,
+    },
+    saidFirst: [],
   },
 };
 
@@ -78,17 +100,23 @@ export function earlierBy(dating: Dating): number {
 }
 
 /**
- * A round's cases, each with its dating, or why the run can't start: no cases yet, a case its
- * round doesn't date, a case named twice, or a same-day dating too early in the day to fall on it.
+ * A round's cases, each with its dating, or why the run can't start: no cases yet, no case listed
+ * as the one whose earlier call said it first, a case its round doesn't date, a case named twice,
+ * or a same-day dating too early in the day to fall on it.
  */
 export function datedCases(
   name: string,
-  { cases, datings }: Round,
+  { cases, file, datings, saidFirst }: Round,
   now: Date,
 ): { each: EarlierCallCase; dating: Dating }[] {
   if (cases.length === 0) {
     throw new Error(
-      `The set ${name} holds no cases yet: its cases are put in eval/speed/callHelpEarlierCalls2.ts for the gated run.`,
+      `The set ${name} holds no cases yet: its cases are put in ${file ?? "its file"} for the gated run.`,
+    );
+  }
+  if (saidFirst.length === 0) {
+    throw new Error(
+      `The set ${name} lists no case whose earlier call said it first: its orders are put in eval/speed/earlierCallsRounds.ts with its cases.`,
     );
   }
   const ids = cases.map((each) => each.id);

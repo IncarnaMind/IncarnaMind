@@ -397,3 +397,37 @@ The branch's two, for the reading by hand of whether the change caused them:
 - Where the earlier call brings the changes, the branch shows none by round 1's way. Main shows 2 there now that the calls are dated.
 - Where the earlier call said it first, the branch shows 9 of 24 and main 13 of 24.
 - The Claude Sonnet 5.5 guard doesn't run, and nothing ships from the branch as it is.
+
+## Round 3, written 2026-11-13, before any of its runs
+
+### What changed, and why
+
+- **A press is given no other call.** Round 2's marks and rule didn't keep the option buttons from giving an earlier call's line as this call's. So a help button's press is now main's request with the Transcripts of the other Meetings IncarnaMind recorded left out, with no call marks and no rule about an earlier call. A voice memo's Transcript is read like any Document.
+  - In a Folder with no other Meeting, a press is main's request to the byte, for every button, in English and Chinese (`tests/core/callHelpEarlierCalls.test.ts`).
+  - Check again, Check the rest and their estimate read a press's reply without those Transcripts too, and without any call's when its Note is gone.
+- **A question the User types during the call keeps earlier calls,** marked, with round 2's rule. Its request is round 2's, byte for byte, on the first set's 8 cases with the model scripted: only the provider's cache key and the ids, each conversation's own, differ.
+
+### The cases
+
+- A new set, `../callHelpEarlierCalls3.ts` (`EARLIER_CALL_CASES_3`), written by another writer blind to the change and its replies, with names and a trade of its own, and put in that file only for the gated run. Its orders are listed in `../earlierCallsRounds.ts` with the cases. A run of the set (`call-help-earlier-calls-3`) refuses to start without either. The results record the file's SHA-256.
+- Three pairs of calls (k and l, m and n, o and p), each in English and Chinese and in both orders: 12 cases. Each pair's two calls sit in one Folder.
+- **Dated by pair:** k and l 6 days before the live call, m and n 20 days before, o and p the same day 3 hours before.
+- **Orders,** by the list put in with the cases, not by the ids' letters.
+- Buttons as in round 2, "What should I say?", "Answer their question" and "Check what was said", plus the typed "What did they say last time?": 48 items.
+
+### The bars
+
+As round 2's, read the same way: bar 1 and the kind counted apart by two readers blind to the arm, a third where they differ, the judge's count beside; bar 2 by the two readers; bar 3 by the judge; bar 4 as repaired; bar 5. Main's arm must show at least 4 on bar 1, and the branch none.
+
+**Frozen.** What the branch sends is frozen for round 3 at commit 2973c9996. Later commits change only this gate's files and the evaluation's code.
+
+### Models, judges, keys and spend
+
+- **Claude Haiku 5.5 first, both arms:** one run of the 48 items, judged by Claude Sonnet 5.5. Estimate $0.38, from round 2's measured cost; stop at the ledger's total + $0.45.
+- **Then Claude Sonnet 5.5 on the typed question alone,** no press: "What did they say last time?" on one Chinese case in the order where the earlier call said it first, both arms, one run.
+  - No judge (`INCARNAMIND_EVAL_SPEED_JUDGE=none`). Its replies are read by hand, blind to the arm.
+  - Two replies can't hold a rate. Each passes or fails on one thing: an earlier call's line given as this call's, or given without who said it and when. One failure is brought for a decision before anything merges.
+  - About $0.14; stop at the ledger's total + $0.175. It starts only if at least $0.175 is left under $1.50 after the Haiku run.
+  - The English twin runs with it only if at least $0.35 is left then: both items, stop at the ledger's total + $0.35.
+- **The second key, as round 2:** its lock for each run's length, with the judge's nested inside, and its allowance read before each run.
+- **Nothing runs past $1.50** on the ledger for rounds 1 to 3.

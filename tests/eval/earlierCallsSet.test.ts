@@ -304,11 +304,25 @@ describe("A case of the earlier-call set", { timeout: 240_000 }, () => {
   });
 });
 
-describe("The second round's set", () => {
-  test("refuses to start until its cases are put in", () => {
+describe("The second and third rounds' sets", () => {
+  test("refuse to start until their cases are put in, each naming its file", () => {
     expect(() => earlierCallsSet("call-help-earlier-calls-2")).toThrow(
-      "The set call-help-earlier-calls-2 holds no cases yet",
+      "The set call-help-earlier-calls-2 holds no cases yet: its cases are put in eval/speed/callHelpEarlierCalls2.ts",
     );
+    expect(() => earlierCallsSet("call-help-earlier-calls-3")).toThrow(
+      "The set call-help-earlier-calls-3 holds no cases yet: its cases are put in eval/speed/callHelpEarlierCalls3.ts",
+    );
+  });
+
+  test("refuses cases put in without the list of those whose earlier call said it first", () => {
+    const afternoon = new Date(2026, 10, 13, 15, 0);
+    expect(() =>
+      datedCases(
+        "round",
+        { cases: EARLIER_CALL_CASES, datings: { "a-then-b": { days: 6 } }, saidFirst: [] },
+        afternoon,
+      ),
+    ).toThrow("The set round lists no case whose earlier call said it first");
   });
 
   test("refuses a case its gate doesn't date, a case named twice, and a same-day dating too early in the day", () => {

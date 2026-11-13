@@ -91,6 +91,7 @@ function groupsOf(set: SetId, cacheDir: string): PairedGroup[] {
       return callHelpSet(set);
     case "call-help-earlier-calls":
     case "call-help-earlier-calls-2":
+    case "call-help-earlier-calls-3":
       return earlierCallsSet(set);
     case "meeting-notes":
       return meetingNotesSet();

@@ -20,7 +20,10 @@ const PILOT_AIM = 6;
 const PILOT_FLOOR = 3;
 /** The share of the branch's "last time" questions bar 2 needs. */
 const LAST_TIME_FLOOR = 0.75;
-const SECOND_ROUND: EarlierCallSet = "call-help-earlier-calls-2";
+/** The round 1 set, read by its judge; every later round's bar 1 is read by hand. */
+const FIRST_ROUND: EarlierCallSet = "call-help-earlier-calls";
+const roundName = (set: EarlierCallSet) =>
+  set === FIRST_ROUND ? "" : `, round ${EARLIER_CALL_SETS.indexOf(set) + 1}`;
 
 const isButton = (row: PairedRow) => row.kind !== "last-time";
 /** Which call of the pair was the earlier, by the round's list in the gate file. */
@@ -139,7 +142,7 @@ function pilotSection(rows: readonly PairedRow[], model: string, set: EarlierCal
 }
 
 function gateSection(rows: readonly PairedRow[], model: string, set: EarlierCallSet): string[] {
-  const byHand = set === SECOND_ROUND;
+  const byHand = set !== FIRST_ROUND;
   const buttons = rows.filter(isButton);
   const lastTime = rows.filter((row) => !isButton(row));
   const done = (run: ArmRun) => run.status === "done";
@@ -257,7 +260,7 @@ export function earlierCallsSection(
     const rows = all.filter((row) => row.set === set);
     if (rows.length === 0) return [];
     const lines = [
-      `## The earlier-call gate (\`gates/call-help-earlier-calls.md\`)${set === SECOND_ROUND ? ", round 2" : ""}${pilot ? ": the pilot" : ""}`,
+      `## The earlier-call gate (\`gates/call-help-earlier-calls.md\`)${roundName(set)}${pilot ? ": the pilot" : ""}`,
       "",
     ];
     for (const model of [...new Set(rows.map((row) => row.model))]) {
