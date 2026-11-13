@@ -151,7 +151,14 @@ export async function askForEvidence(
       covered === null
         ? { id: "evidence", instructions: EVIDENCE_INSTRUCTIONS }
         : { id: "covered-evidence", instructions: COVERED_EVIDENCE_INSTRUCTIONS },
-    parts: evidenceParts({ claim: request.claim, ...verdict, covered, passages, markers }),
+    parts: evidenceParts({
+      claim: request.claim,
+      ...verdict,
+      covered,
+      passages,
+      markers,
+      said: { evidence: verdict.evidence ?? [], covered: verdict.covered },
+    }),
     data: CHECK_TAGS,
     reply: json((value) => {
       const alone =

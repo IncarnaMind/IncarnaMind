@@ -11,6 +11,7 @@ import {
   citedSentences,
   disagreementLines,
   disagreements,
+  readWhileCheckingLines,
   supportedShare,
   supportRates,
   withoutSupportLines,
@@ -562,5 +563,23 @@ describe("The Answer panel's own check, kept beside the part-by-part one", () =>
       "| m | en | not-checked (answer-limit) | ✓ | 1 |",
     );
     expect(disagreementLines([])).toEqual([]);
+  });
+
+  // protects=the report counts the research Answers read while the panel's check still read checking, past the wait for it, among all research Answers; one with no record of the panel, or one whose chips had all settled, isn't counted; fails_when=such an Answer is missed, or a settled one counted; no_claim=why the check hadn't ended.
+  test("the report counts the Answers read while the panel's check still ran", async () => {
+    const support = (citations: Parameters<typeof checkCitedSentences>[1]["citations"]) =>
+      checkCitedSentences(
+        { checkClaim: async () => verdict("supported") },
+        { text: "Cost is quadratic [^2].", citations },
+      );
+    const answers = [
+      { support: await support([{ ...citation(2, "O(n^2 · d)"), check: "checking" as const }]) },
+      { support: await support([{ ...citation(2, "O(n^2 · d)"), check: "found" as const }]) },
+      { support: await support(CITATIONS) },
+      { support: null },
+    ];
+    expect(readWhileCheckingLines(answers)[0]).toBe(
+      "1 of 4 research Answers were read while the Answer panel's check still read checking.",
+    );
   });
 });

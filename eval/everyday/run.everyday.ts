@@ -32,6 +32,7 @@ import { watchReasks } from "./reasks";
 import {
   backedByFoundLines,
   disagreementLines,
+  readWhileCheckingLines,
   SUPPORTED_TARGET,
   supportedShare,
   supportRates,
@@ -300,6 +301,7 @@ function report(
           ),
           "",
           ...backedByFoundLines(checked),
+          ...readWhileCheckingLines(researched),
           ...disagreementLines(checked),
           ...withoutSupportLines(checked),
         ]

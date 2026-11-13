@@ -417,6 +417,8 @@ export function evidenceParts(input: {
   covered?: string | null;
   markers?: readonly number[];
   coverage?: ReadCoverage | null;
+  /** What the verdict's own reply said each marker was for: its Evidence and Covered lines. */
+  said?: { evidence: readonly number[]; covered: string | null };
   passages: readonly { id: string; text: string }[];
 }): JudgePart[] {
   return [
@@ -426,6 +428,15 @@ export function evidenceParts(input: {
     ...(input.markers?.length
       ? [
           `Missing Citation markers: ${JSON.stringify(input.markers)}`,
+          // Asked for markers alone, Claude Haiku 5.5 gave a paper's own references [1] and [2] (#3019).
+          ...(input.said
+            ? [
+                {
+                  text: `They are the markers of your verdict's own lines. Evidence: ${JSON.stringify(input.said.evidence)}${input.said.covered ? `. Covered: ${input.said.covered}` : ""}`,
+                },
+              ]
+            : []),
+          "A number in square brackets inside a Passage, such as [1], is the Document's own reference, never one of these markers.",
           ...(input.coverage
             ? [{ text: `Your declared coverage: ${JSON.stringify(input.coverage)}` }]
             : []),

@@ -572,6 +572,24 @@ export function disagreements(
   return [...groups.values()].sort((a, b) => b.sentences - a.sentences);
 }
 
+/**
+ * The report's line on the Answers read while the Answer panel's check still read checking, past
+ * the wait for it: their sentences keep the chips they had then.
+ */
+export function readWhileCheckingLines(
+  answers: readonly { support: readonly SentenceSupport[] | null }[],
+): string[] {
+  const read = answers.filter((each) =>
+    (each.support ?? []).some((sentence) =>
+      sentence.panel?.citations.some((citation) => citation.check === "checking"),
+    ),
+  ).length;
+  return [
+    `${read} of ${answers.length} research Answers were read while the Answer panel's check still read checking.`,
+    "",
+  ];
+}
+
 /** The report's table of the sentences the two checks disagree on. */
 export function disagreementLines(
   sentences: readonly (SentenceSupport & { model: string; language: string })[],
