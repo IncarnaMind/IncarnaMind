@@ -51,7 +51,7 @@ import { LineAction } from "../components/ProblemLine";
 import { rowActionButtonClass } from "../components/sidebarRows";
 import { askInAssistant } from "../conversations";
 import { applyCorrection, correctionsFor, type PartCorrection } from "../correctionFixes";
-import { readRestText, reasonText } from "../cost";
+import { readRestText, reasonText, sentenceReasonText } from "../cost";
 import { useEdits } from "../editWithAi";
 import { openFigureSchedule } from "../figures";
 import { useFindSources } from "../findSources";
@@ -857,7 +857,7 @@ export function ClaimCard({
     shown.state === "not-checked"
       ? (widened && !consentWaiting) || awaiting
         ? null
-        : reasonText(t, language, shown.reason, check.detail, { cap: SENTENCES_CHECKED_AT_MOST })
+        : sentenceReasonText(t, language, shown, check, { cap: SENTENCES_CHECKED_AT_MOST })
       : shown.state === "needs-recheck"
         ? t(`claim.recheck.${shown.why}`)
         : null;

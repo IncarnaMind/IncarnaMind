@@ -220,14 +220,13 @@ async function card(language: string) {
 describe.each([
   {
     language: "en",
-    reason:
-      "The cited fact is supported. The rest is the assistant’s own conclusion and wasn’t checked.",
+    reason: "The assistant’s own conclusion wasn’t checked. The rest of the sentence is supported.",
     opinion: "Left out as an opinion",
     anyway: "Check anyway",
   },
   {
     language: "zh-CN",
-    reason: "引用的事实有依据。其余是助手自己的结论，未核对。",
+    reason: "助手自己的结论未核对。句子的其余部分有依据。",
     opinion: "视为观点，未纳入核对",
     anyway: "仍然核对",
   },

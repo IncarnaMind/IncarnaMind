@@ -759,6 +759,27 @@ export function claimMarkState<State extends ClaimCheckShown["state"]>(
     : state;
 }
 
+/**
+ * Whether a sentence reads Not checked only because what it says is missing couldn't be read whole,
+ * every other part of it Supported (#3019): its line says what was checked. A sentence that is only
+ * that absence, or holds any other part, keeps its reason's own line.
+ */
+export function absenceBesideFact(
+  check: Pick<ClaimCheckAttributes, "parts">,
+  shown: ClaimCheckShown,
+): boolean {
+  if (shown.state !== "not-checked" || shown.reason !== "absence-read-limit") return false;
+  const parts = check.parts ?? [];
+  return (
+    parts.some((part) => part.verdict === "supported") &&
+    parts.every(
+      (part) =>
+        part.verdict === "supported" ||
+        (part.verdict === "not-checked" && part.reason === "absence-read-limit"),
+    )
+  );
+}
+
 export function claimCheckShown(check: ClaimCheckAttributes, now: ClaimCheckNow): ClaimCheckShown {
   if (!check.figures?.length || check.kept) {
     const shown = basisShown(asCitedNow(check, now.citations ?? [], now.text), now);
