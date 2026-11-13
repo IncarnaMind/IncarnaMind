@@ -42,6 +42,7 @@ export function failureOf(error: ProviderError): {
     case "no-answer":
       return { reason: "empty", detail: null };
     case "cut-short":
+    case "cut-short-small-window":
       return { reason: "cut-short", detail: null };
     default:
       return { reason: "failed", detail: error.message };

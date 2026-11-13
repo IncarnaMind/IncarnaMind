@@ -86,8 +86,12 @@ export const ANSWER_PROBLEMS: Record<ProviderErrorKind, AnswerProblem> = {
   region: { line: "answer.error.region", fix: chooseModel },
   // A local model's context window: trying again can't help, shortening the Question does.
   "too-long": { line: "answer.error.too-long", fix: { kind: "none" } },
+  // What every request carries doesn't leave room to read: `answerProblem` says where it was asked.
+  "window-too-small": { line: "answer.error.window-too-small.none", fix: chooseModel },
   "no-answer": { line: "answer.error.no-answer", fix: retry },
   "cut-short": { line: "answer.error.cut-short", fix: retry },
+  // Cut at the room the app left it for a small window: asked again, it is cut again.
+  "cut-short-small-window": { line: "answer.error.cut-short-small-window", fix: chooseModel },
   unknown: { line: "answer.error.unknown", fix: retry },
   // The ChatGPT plan provider.
   "not-signed-in": {
@@ -118,13 +122,20 @@ const CHATGPT_ONLY: ReadonlySet<ProviderErrorKind> = new Set([
   "blocked",
 ]);
 
-/** What the line needs to know of the model's provider beyond its kind. */
+/** What the line needs to know of the model's provider, and of the Answer, beyond its kind. */
 export interface FailureWhere {
   /** Where credit is added, when the provider's catalog entry has a page for it. */
   billingUrl?: string;
   /** Whether the model runs on this computer; left out until its provider is known. */
   local?: boolean;
+  /**
+   * Where the Answer was asked, for a window too small to ask in (#3045): in the assistant, with a
+   * Question of the User's, or with none (a call-help press, a check). "none" when left out.
+   */
+  asked?: AskedWhere;
 }
+
+export type AskedWhere = "assistant" | "question" | "none";
 
 /**
  * A failed Answer's problem, for the provider that wrote it: an Ollama Cloud allowance is Ollama's
@@ -145,6 +156,19 @@ export function answerProblem(
   // shortening the Question is not what helps.
   if (kind === "too-long" && where.local === false) {
     return { line: "answer.error.too-long.hosted", fix: chooseModel };
+  }
+  if (kind === "window-too-small") {
+    const asked = where.asked ?? "none";
+    return {
+      line:
+        where.local === false
+          ? `answer.error.window-too-small.${asked}.hosted`
+          : `answer.error.window-too-small.${asked}`,
+      fix: chooseModel,
+    };
+  }
+  if (kind === "cut-short-small-window" && where.local === false) {
+    return { line: "answer.error.cut-short-small-window.hosted", fix: chooseModel };
   }
   if (onSignInRoute && CHATGPT_ONLY.has(kind)) {
     return {

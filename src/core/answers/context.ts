@@ -833,8 +833,7 @@ function fitting(
   const chosen = new Map<Piece, Piece>();
   for (const piece of newestFirst) {
     if (remaining <= 0) break;
-    // A record that outlasts its Answer's text counts as it reads without it, which is the longer.
-    const cost = estimateTokens(piece.record?.priority ? withoutItsAnswer(piece.text) : piece.text);
+    const cost = pieceCost(piece);
     if (cost <= remaining) {
       chosen.set(piece, piece);
       remaining -= cost;
@@ -936,7 +935,59 @@ export function fitQuestionContext(
   budget: number,
   mind?: RequestMind,
   onCut?: (kept: MindCut) => void,
+  keepTurn = false,
 ): AnswerMessage[] | null {
+  const parts = questionParts(messages, question, mind);
+  const { above, withText, pictures } = parts;
+  let { asked } = parts;
+  let remaining = budget - estimateTokens(asked);
+  if (remaining < 0) return null;
+  // At a small window the turn just before is kept whole, ahead of the Mind and older content,
+  // where the caller saw it fit (#3045).
+  const range = keepTurn ? turnRange(above) : null;
+  const turn = range ? above.slice(range[0], range[1]) : [];
+  const turnCost = turn.reduce((sum, piece) => sum + pieceCost(piece), 0);
+  if (turnCost > remaining) return null;
+  remaining -= turnCost;
+  let mindText = "";
+  if (mind && (withText || parts.selected)) {
+    const given = {
+      text: withText ? mind.text : "",
+      selection: parts.selected ? mind.selection : "",
+    };
+    // Less two for the blank lines after the Mind and the selection.
+    const needed = estimateTokens(given.text) + estimateTokens(given.selection) + 2;
+    let kept: Pick<MindCut, "text" | "selection"> = given;
+    if (needed >= remaining) {
+      const cut = mind.cut(remaining - 2);
+      onCut?.(cut);
+      kept = cut;
+    }
+    mindText = kept.text;
+    if (kept.selection) asked = `${kept.selection}\n\n${asked}`;
+    remaining -= estimateTokens(kept.text) + estimateTokens(kept.selection) + 2;
+  }
+  if (!range)
+    return withMind(mindText, keptWithinBudget(above.reverse(), remaining), asked, pictures);
+  // What comes after the turn (Notes in front of the Question) and before it share what is left.
+  const after = keptWithinBudget(above.slice(range[1]).reverse(), remaining);
+  remaining -= after.reduce((sum, piece) => sum + pieceCost(piece), 0);
+  const before = keptWithinBudget(above.slice(0, range[0]).reverse(), remaining);
+  return withMind(mindText, [...before, ...turn, ...after], asked, pictures);
+}
+
+/** The pieces above the Question, and the Question, as `fitQuestionContext` cuts them. */
+function questionParts(
+  messages: readonly AnswerMessage[],
+  question: string,
+  mind?: RequestMind,
+): {
+  above: Piece[];
+  asked: string;
+  withText: boolean;
+  selected: boolean;
+  pictures: AnswerMessage["pictures"];
+} {
   const above = piecesOf(messages);
   // The Question's own pictures, and the Mind's, are kept with the Question as it is cut.
   const pictures = messages.at(-1)?.pictures;
@@ -964,24 +1015,40 @@ export function fitQuestionContext(
   } else if (last) {
     above.push(last);
   }
-  let remaining = budget - estimateTokens(asked);
-  if (remaining < 0) return null;
-  let mindText = "";
-  if (mind && (withText || selected)) {
-    const given = { text: withText ? mind.text : "", selection: selected ? mind.selection : "" };
-    // Less two for the blank lines after the Mind and the selection.
-    const needed = estimateTokens(given.text) + estimateTokens(given.selection) + 2;
-    let kept: Pick<MindCut, "text" | "selection"> = given;
-    if (needed >= remaining) {
-      const cut = mind.cut(remaining - 2);
-      onCut?.(cut);
-      kept = cut;
-    }
-    mindText = kept.text;
-    if (kept.selection) asked = `${kept.selection}\n\n${asked}`;
-    remaining -= estimateTokens(kept.text) + estimateTokens(kept.selection) + 2;
-  }
-  return withMind(mindText, keptWithinBudget(above.reverse(), remaining), asked, pictures);
+  return { above, asked, withText, selected, pictures };
+}
+
+/**
+ * What a piece costs where it is kept. A record that outlasts its Answer's text counts as it reads
+ * without it, which is the longer.
+ */
+const pieceCost = (piece: Piece) =>
+  estimateTokens(piece.record?.priority ? withoutItsAnswer(piece.text) : piece.text);
+
+/** Where the newest earlier turn sits among the pieces: the User's last piece before the newest Answer, through that Answer's records. */
+function turnRange(above: readonly Piece[]): [number, number] | null {
+  const answerAt = above.findLastIndex((piece) => piece.role === "assistant");
+  if (answerAt < 0) return null;
+  const asked = above[answerAt - 1];
+  const start = asked?.role === "user" && !asked.record ? answerAt - 1 : answerAt;
+  const answer = above[answerAt]?.answer;
+  let end = answerAt + 1;
+  while (end < above.length && answer !== undefined && above[end]?.record?.answer === answer) end++;
+  return [start, end];
+}
+
+/**
+ * The estimated tokens of the turn just before the Question (#3045): the newest earlier Question,
+ * its Answer and that Answer's records, as `fitQuestionContext` keeps them; 0 with none.
+ */
+export function turnBeforeTokens(
+  messages: readonly AnswerMessage[],
+  question: string,
+  mind?: RequestMind,
+): number {
+  const { above } = questionParts(messages, question, mind);
+  const range = turnRange(above);
+  return range ? above.slice(...range).reduce((sum, piece) => sum + pieceCost(piece), 0) : 0;
 }
 
 /** Messages as pieces, the records of earlier Answers' Tool calls and a Document's whole text apart from the messages that hold them. */

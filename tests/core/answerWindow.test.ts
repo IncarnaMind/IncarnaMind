@@ -11,6 +11,8 @@ import {
   createWindowBudget,
   ESTIMATE_FACTOR,
   NO_ROOM_FOR_PASSAGES,
+  OUTPUT_FLOOR_TOKENS,
+  SEARCH_RESERVE_TOKENS,
 } from "../../src/core/answers/window";
 import { scriptedModel } from "../helpers/models";
 
@@ -142,7 +144,8 @@ describe("A window's budget", () => {
     const passages = [passage("P1", 2_000), passage("P2", 2_000), passage("P3", 2_000)].join(
       "\n\n",
     );
-    const ids = (text: string) => [...text.matchAll(/id="(P\d)"/g)].map((match) => match[1]);
+    const ids = (text: string | null) =>
+      [...(text ?? "").matchAll(/id="(P\d)"/g)].map((match) => match[1]);
 
     // Room for two: P1 is the least relevant, though it comes first in reading order.
     expect(ids(budget.fitPassages(passages, "Answer well.", "Why?", [2, 0, 1]))).toEqual([
@@ -227,5 +230,85 @@ describe("The Passages a request said it read", () => {
     expect(reported).toHaveLength(1);
     expect(reported[0]?.length).toBeGreaterThan(0);
     expect(reported[0]?.length).toBeLessThan(ids.length);
+  });
+});
+
+describe("A small window's output cap and its problems (#3045)", () => {
+  // As the budget counts: the message around the instructions, a Passage of 500 at 1.25, a step's 128.
+  const MESSAGE = 8;
+  const ONE_PASSAGE = 625 + 128;
+  const MARGIN = 128;
+  /** What `instructions` take in a budget, with the message around them. */
+  const fixedOf = (instructions: string) =>
+    createWindowBudget({ tokens: 100_000, outputTokens: 4_096 }).tokens(instructions) + MESSAGE;
+  const reading = (instructions: string, question: string) => ({
+    instructions,
+    messages: [{ role: "user" as const, content: question }],
+    question,
+    reserve: SEARCH_RESERVE_TOKENS,
+    reads: true as const,
+  });
+
+  // protects=which problem a request that can't be sent gets is decided by one test, so its advice is true: where an empty Question would leave room for one Passage beside the instructions at the floor, a Question that doesn't leave it is too long ("shorten it"); one token less of window, and no Question could, so the window is too small; fails_when=either side of the boundary gets the other's problem; no_claim=the lines' words.
+  test("the boundary between a Question too long and a window too small", () => {
+    const instructions = block("Instructions", 4_000);
+    const edge = fixedOf(instructions) + OUTPUT_FLOOR_TOKENS + MARGIN + MESSAGE + ONE_PASSAGE;
+    const fitAt = (tokens: number, question: string) =>
+      createWindowBudget({ tokens, outputTokens: 4_096 }).fit(reading(instructions, question));
+
+    expect(fitAt(edge, "")).toMatchObject({ ok: true });
+    expect(fitAt(edge, "Why?")).toMatchObject({ ok: false, error: { kind: "too-long" } });
+    expect(fitAt(edge - 1, "")).toMatchObject({ ok: false, error: { kind: "window-too-small" } });
+    expect(fitAt(edge - 1, "Why?")).toMatchObject({
+      ok: false,
+      error: { kind: "window-too-small" },
+    });
+  });
+
+  // protects=the output cap gives way only as far as the first search's room needs, never below the floor, and not at all where it fits: the cap sent is the one the budget counted with; fails_when=it drops straight to the floor, moves where it fits, or goes below the floor; no_claim=what a model writes at the cap.
+  test("the cap gives way as far as the first search's room needs, never below the floor", () => {
+    const capOf = (tokens: number, instructionTokens: number) => {
+      const budget = createWindowBudget({ tokens, outputTokens: 4_096 });
+      const fit = budget.fit(reading(block("Instructions", instructionTokens), "Why?"));
+      if (!fit.ok) throw new Error(fit.error.message);
+      return { cap: budget.window.outputTokens, lowered: budget.lowered };
+    };
+    // At 16k, the assistant's instructions and Tools (about 12,150) leave the cap at its floor.
+    expect(capOf(16_384, 9_700)).toEqual({ cap: OUTPUT_FLOOR_TOKENS, lowered: true });
+    // At 18k, part of the way.
+    const partly = capOf(18_432, 9_700);
+    expect(partly.cap).toBeGreaterThan(OUTPUT_FLOOR_TOKENS);
+    expect(partly.cap).toBeLessThan(4_096);
+    expect(partly.lowered).toBe(true);
+    // Where it fits, not at all.
+    expect(capOf(32_768, 9_700)).toEqual({ cap: 4_096, lowered: false });
+  });
+
+  // protects=the floor a window sets is kept (an evaluation compares floors through the model's settings), and a model that can only think keeps its whole cap, so at 16k the assistant's request is a window too small, never one whose thinking fills a lowered cap; fails_when=the cap goes below the window's floor; no_claim=which floor is right, which the real-model runs measure.
+  test("a window's own floor, and a model that can only think", () => {
+    const instructions = block("Instructions", 9_700);
+    const budget = createWindowBudget({ tokens: 16_384, outputTokens: 4_096, outputFloor: 2_048 });
+    expect(budget.fit(reading(instructions, "Why?"))).toMatchObject({ ok: true });
+    expect(budget.window.outputTokens).toBe(2_048);
+
+    const thinking = createWindowBudget({
+      tokens: 16_384,
+      outputTokens: 8_192,
+      outputFloor: 8_192,
+    });
+    expect(thinking.fit(reading(instructions, "Why?"))).toMatchObject({
+      ok: false,
+      error: { kind: "window-too-small" },
+    });
+    expect(thinking.window.outputTokens).toBe(8_192);
+  });
+
+  // protects=in one pass, where the search found Passages and none fits beside the instructions, the Answer doesn't go on as if it had read them: there is no fitted text, and the problem is the window's; fails_when=the model is sent the no-room line and answers; no_claim=Passages that fit, which keep their order by rank.
+  test("one pass: Passages found that don't fit leave nothing to answer from", () => {
+    const budget = createWindowBudget({ tokens: 4_096, outputTokens: 1_024 });
+    const found = [passage("P1", 4_000), passage("P2", 4_000)].join("\n\n");
+    expect(budget.fitPassages(found, "Answer well.", "Why?")).toBeNull();
+    expect(budget.cannotRead("Answer well.", "Why?")).toMatchObject({ kind: "window-too-small" });
+    expect(budget.fitPassages(passage("P1", 500), "Answer well.", "Why?")).toContain('id="P1"');
   });
 });

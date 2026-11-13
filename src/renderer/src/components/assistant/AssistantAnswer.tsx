@@ -229,6 +229,7 @@ function AnswerArticle({
           onRetryWith={(model) => void regenerateAnswer(answer.id, { model })}
           modelNow={modelNow}
           chooseHere
+          asked="assistant"
           question={
             question
               ? {

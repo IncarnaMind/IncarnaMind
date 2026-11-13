@@ -6088,12 +6088,19 @@ export type ProviderErrorKind =
    * oldest Question context left out. Nothing is cut silently.
    */
   | "too-long"
+  /**
+   * The model's context window can't hold what every request carries (its instructions and Tools)
+   * with room left to read a Passage, however short the Question: nothing was sent (#3045).
+   */
+  | "window-too-small"
   /** The request could pass the User's monthly cap (`UserSettings.monthlyCap`): nothing was sent. */
   | "cost-cap"
   /** The model's reply ended with no text, or none that could be read. */
   | "no-answer"
   /** The model's reply reached its call's output limit and was cut off (#2275). */
   | "cut-short"
+  /** As "cut-short", at an output cap the app lowered for the model's small window: asking again can't help (#3045). */
+  | "cut-short-small-window"
   | "unknown";
 
 // Keyed by every kind, so a new one that isn't listed fails to compile instead of being missed.
@@ -6116,9 +6123,11 @@ export const PROVIDER_ERROR_KINDS: Record<ProviderErrorKind, true> = {
   "plan-limit": true,
   blocked: true,
   "too-long": true,
+  "window-too-small": true,
   "cost-cap": true,
   "no-answer": true,
   "cut-short": true,
+  "cut-short-small-window": true,
   unknown: true,
 };
 

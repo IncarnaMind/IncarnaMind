@@ -82,6 +82,12 @@ export interface ChatModelSpec {
 export interface ContextWindow {
   tokens: number;
   outputTokens: number;
+  /**
+   * The least output cap an Answer's requests may be given where the window is small (see
+   * ../answers/window.ts): its default there when absent. A model that can only think keeps its
+   * whole cap, which its reasoning fills before the first word.
+   */
+  outputFloor?: number;
 }
 
 export type ChatModelFactory = (spec: ChatModelSpec) => ChatLanguageModel;
