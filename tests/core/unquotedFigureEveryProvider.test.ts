@@ -329,7 +329,7 @@ describe("On the model on this computer, which the check doesn't offer calculate
     },
   );
 
-  // protects=a quote that gives the number in another written form holds it: a unit against the number ("54,000t", "4kg", "$5bn", "£830k", "50bps", "5m") either way round, and a number said in words before points ("six percentage points", "two point three percentage points", "three points to cover"), though "at one point" is a moment, so the sentence keeps its ✓ without calculate (#3022); fails_when=such a sentence reads Not checked, or a different number in the same form keeps its ✓; no_claim=a sentence whose own number is in words, which the rule doesn't read.
+  // protects=a quote that gives the number in another written form holds it: a unit against the number ("54,000t", "4kg", "$5bn", "£830k", "50bps", "5m") either way round, and a number said in words before points ("six percentage points", "two point three percentage points", "three points to cover"), though "at one point" is a moment, and only for a figure in points (three points counted are no 3%), so the sentence keeps its ✓ without calculate (#3022); fails_when=such a sentence reads Not checked, or a different number in the same form keeps its ✓; no_claim=a sentence whose own number is in words, which the rule doesn't read.
   test.each([
     ["The mill's output was 54,000 tonnes.", "Output was 54,000t."],
     ["The mill's output was 54,000t.", "Output was 54,000 tonnes."],
@@ -371,6 +371,9 @@ describe("On the model on this computer, which the check doesn't offer calculate
     ["It rose 1%.", "At one point it rose."],
     ["The gap was 3 percentage points.", "It was capped at two point three percentage points."],
     ["Growth was 5 basis points.", "It came in at one hundred and five basis points."],
+    ["Churn fell 3%.", "She made three points about churn, and it fell."],
+    ["It rose 3%.", "He raised three points in the meeting, and it rose."],
+    ["Costs fell 2%.", "There are two points on the agenda, and costs fell."],
   ])("%s beside “%s” is Not checked", async (claim, quote) => {
     expect(await ended(claim, `Figures\n${quote}\n`, quote)).toBe("not-checked: number-unquoted");
   });

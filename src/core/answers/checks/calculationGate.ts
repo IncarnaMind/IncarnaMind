@@ -98,6 +98,10 @@ function wordsState(figure: Figure, quote: string, context: FigureContext): bool
   });
 }
 
+/** Whether a figure or a reading is in points: percentage or basis points, or points counted. */
+const isPoints = (each: { unit: Figure["unit"] }) =>
+  each.unit.kind === "points" || (each.unit.kind === "other" && /^points?$/i.test(each.unit.word));
+
 /** A figure's number as it is written: its scale word left off, a share in its own notation. */
 const writtenOf = (figure: Figure) =>
   figure.unit.kind === "percent" || figure.unit.kind === "points"
@@ -118,28 +122,42 @@ export function quotesHoldNumbers(
   const context = documentFigureContext(citations.flatMap((citation) => citation.units));
   const own = documentFigureContext([{ text: claim }]);
   const held = citations.flatMap(({ citation, units }) => {
-    const words = writtenNumbers(pointsInDigits(citation.quote));
+    const words = writtenNumbers(citation.quote);
     return [
       ...figureReadings(citation.quote, units).flat(),
       ...(words === citation.quote ? [] : figuresInClaim(words, context).flatMap(readingsOf)),
     ];
   });
+  // Points said in words hold only a figure in points: "three points about churn" is no 3%.
+  const inPoints = held.concat(
+    citations.flatMap(({ citation }) => {
+      const said = pointsInDigits(citation.quote);
+      return said === citation.quote
+        ? []
+        : figuresInClaim(writtenNumbers(said), context).flatMap(readingsOf).filter(isPoints);
+    }),
+  );
   // A range's second end is a number of its own: "2–3%" holds 3% as well as 2%.
   const ends = (each: Reading) => [
     each.value,
     ...("rangeTo" in each && typeof each.rangeTo === "number" ? [each.rangeTo] : []),
   ];
-  const values = held.flatMap(ends);
-  const plain = held.flatMap((each) =>
-    each.unit.kind === "plain" ? ends(each).map((value) => value / each.scale) : [],
-  );
-  const holds = (readings: readonly Reading[], written: number) =>
-    readings.some((reading) => values.some((value) => sameValue(value, reading.value))) ||
-    plain.some((value) => sameValue(value, written));
+  const holderOf = (readings: readonly Reading[]) => {
+    const values = readings.flatMap(ends);
+    const plain = readings.flatMap((each) =>
+      each.unit.kind === "plain" ? ends(each).map((value) => value / each.scale) : [],
+    );
+    return (claimed: readonly Reading[], written: number) =>
+      claimed.some((reading) => values.some((value) => sameValue(value, reading.value))) ||
+      plain.some((value) => sameValue(value, written));
+  };
+  const holdsAny = holderOf(held);
+  const holdsPoints = holderOf(inPoints);
   const cites = recordCiteSpans(claim);
   return figuresInClaim(claim, own.language ? own : { ...context, header: null })
     .filter((figure) => !cites.some((cite) => figure.start < cite.to && figure.end > cite.from))
     .every((figure) => {
+      const holds = isPoints(figure) ? holdsPoints : holdsAny;
       const second = figure.ambiguous.find((each) => each.kind === "range")?.readings[1];
       const first = readingsOf(figure).filter((reading) => reading !== second);
       return (
