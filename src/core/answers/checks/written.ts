@@ -40,6 +40,7 @@
 import { randomUUID } from "node:crypto";
 import * as Y from "yjs";
 import { citationAttributesOf } from "../../../shared/citations";
+import { restsElsewhere } from "../../../shared/citedNow";
 import { SENTENCES_CHECKED_AT_MOST } from "../../../shared/claimChecks";
 import { planOf } from "../../../shared/claimParts";
 import { beginFigureCheck } from "../../../shared/figureChecks";
@@ -47,10 +48,12 @@ import { readTableBinding } from "../../../shared/figureRuns";
 import {
   type InlineTextProjection,
   inlineLayout,
+  inlineRange,
   inlineSpan,
   projectedContent,
   sliceInlineText,
 } from "../../../shared/inlineText";
+import { readProposalRef } from "../../../shared/proposals";
 import { INLINE_NODE, isClaim, onlyNamesItsTable, sentenceSpans } from "../../../shared/sentences";
 import { judgesUnreliably } from "../../../shared/smallModel";
 import {
@@ -65,7 +68,10 @@ import {
   type ClaimCheckFailure,
   type ClaimCheckResult,
   type ClaimPartPlan,
+  type ClaimPartSpan,
   type EditAction,
+  PROPOSAL_ATTRIBUTE,
+  PROPOSAL_INSERT_MARK,
   type RunStop,
 } from "../../api";
 import { MindReadOnlyError } from "../../errors";
@@ -527,9 +533,105 @@ type Landing =
       nodes: NodeJSON[] | null;
       /** Its mark, made where it lands: a figure's result is footed against the table it is in. */
       mark(blocks: Y.XmlFragment): ClaimCheckAttributes;
+      /** The Passages its check found that its Citations don't hold, each to cite after its part. */
+      found?: readonly FoundCitation[];
     }
   /** A sentence with no fact: no mark, and its opinion is left out as Check this Note leaves it. */
   | { sentence: Sentence; opinion: readonly ClaimPartPlan[] };
+
+/** A Passage the check found for a part, in the words it checked (`claim`, indexed by `span`). */
+interface FoundCitation {
+  claim: string;
+  span: ClaimPartSpan;
+  citation: CitationAttributes;
+}
+
+/**
+ * The Passages a check of a sentence the assistant wrote found for its Supported parts that its
+ * Citations don't hold (#3019): each becomes that part's Citation inside the assistant's own change,
+ * in its number series, accepted or rejected with the rest. The verdict stays the model's.
+ */
+function foundCitations(
+  sentence: Sentence,
+  claim: string,
+  result: ClaimCheckResult,
+): FoundCitation[] {
+  return (result.parts ?? []).flatMap((part) => {
+    if (!restsElsewhere(part, sentence.citations, claim)) return [];
+    const evidence = part.evidence[part.decidingEvidence ?? 0];
+    return evidence
+      ? [
+          {
+            claim,
+            span: part.span,
+            citation: { ...evidence, check: "found", checkReason: null, foundByCheck: true },
+          },
+        ]
+      : [];
+  });
+}
+
+/**
+ * The sentence `from`..`to` of a paragraph's content as the Note holds it, each found Passage's
+ * Citation after its part's words (`at`, in the paragraph's offsets). Inside a change still
+ * waiting, the Citation is part of that change, as the words before it are.
+ */
+function withFound(
+  content: readonly NodeJSON[],
+  from: number,
+  to: number,
+  found: readonly { at: number; citation: CitationAttributes }[],
+): NodeJSON[] {
+  const out: NodeJSON[] = [];
+  const cited = new Set<number>();
+  const points = new Set(found.map((each) => each.at));
+  let before: NodeJSON | undefined;
+  const cite = (at: number) => {
+    if (!points.has(at) || cited.has(at)) return;
+    cited.add(at);
+    const inserted = (before?.marks ?? []).find((mark) => mark.type === PROPOSAL_INSERT_MARK);
+    const ref = readProposalRef(inserted?.attrs);
+    for (const each of found.filter((one) => one.at === at)) {
+      out.push({
+        type: CITATION_NODE,
+        attrs: {
+          ...Object.fromEntries(
+            Object.entries(each.citation).filter(
+              ([, value]) => value !== null && value !== undefined,
+            ),
+          ),
+          ...(ref && { [PROPOSAL_ATTRIBUTE]: { ...ref, kind: "insert" } }),
+        },
+      });
+    }
+  };
+  for (const { node, start } of inlineLayout(content)) {
+    if (node.type !== "text") {
+      if (start < from || start >= to) continue;
+      cite(start);
+      out.push(node);
+      before = undefined;
+      continue;
+    }
+    const text = node.text ?? "";
+    const end = Math.min(to, start + text.length);
+    let at = Math.max(from, start);
+    if (at >= end) continue;
+    for (const cut of [...points]
+      .filter((point) => point > at && point < end)
+      .sort((a, b) => a - b)) {
+      before = { ...node, text: text.slice(at - start, cut - start) };
+      out.push(before);
+      cite(cut);
+      at = cut;
+    }
+    before = { ...node, text: text.slice(at - start, end - start) };
+    out.push(before);
+    cite(end);
+  }
+  cite(to);
+  return out;
+}
 
 const withMark = (nodes: readonly NodeJSON[], mark: ClaimCheckAttributes): NodeJSON[] =>
   nodes.map((node) =>
@@ -660,7 +762,39 @@ function land(blocks: Y.XmlFragment, ids: readonly string[], landing: Landing): 
     );
     return;
   }
+  const found = place.same ? foundPlaces(blocks, element, place, landing.found ?? []) : [];
+  if (found.length > 0) {
+    const content = inlineOf(element);
+    syncContent(
+      element,
+      replaced(
+        content,
+        place.from,
+        place.to,
+        withMark(withFound(content, place.from, place.to, found), mark),
+      ),
+    );
+    return;
+  }
   markSentence(element, place.from, place.to, mark);
+}
+
+/** Where each found Passage's Citation goes in the paragraph: after its part's words, as read now. */
+function foundPlaces(
+  blocks: Y.XmlFragment,
+  element: Y.XmlElement,
+  place: { from: number; to: number },
+  found: readonly FoundCitation[],
+): { at: number; citation: CitationAttributes }[] {
+  const blockId = element.getAttribute(BLOCK_ID_ATTRIBUTE);
+  if (found.length === 0 || typeof blockId !== "string") return [];
+  const now = checkText(sentenceOf(element, blockId, place, figuresByBlock(blocks)));
+  if (!now.projection) return [];
+  const { projection } = now;
+  return found.flatMap(({ claim, span, citation }) => {
+    const at = claim === now.claim ? inlineRange(projection, span.start, span.end)?.to : undefined;
+    return at === undefined ? [] : [{ at, citation }];
+  });
 }
 
 // Read as Check this Mind reads it, a table cell with its headings and each figure with its own
@@ -871,7 +1005,11 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     const held: { index: number; landing: Landing }[] = [];
     const landNow = (landing: Landing) => {
       const { sentence } = landing;
-      if (sentence.inCell || ("nodes" in landing && landing.nodes !== null))
+      // A found Passage's Citation changes the paragraph's text too, as a cut does.
+      if (
+        sentence.inCell ||
+        ("nodes" in landing && (landing.nodes !== null || (landing.found?.length ?? 0) > 0))
+      )
         held.push({ index: sending.indexOf(sentence), landing });
       else landAll([landing]);
     };
@@ -965,8 +1103,9 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
           mindId,
           reads.get(sentence)?.claim,
         );
+      const found = foundCitations(sentence, reads.get(sentence)?.claim ?? sentence.text, result);
       if (result.verdict === "supported") {
-        landNow({ sentence, nodes: null, mark });
+        landNow({ sentence, nodes: null, mark, found });
         return;
       }
       if (nodes && uncovered) {
@@ -975,7 +1114,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
         return;
       }
       done[result.verdict]++;
-      landNow({ sentence, nodes: null, mark });
+      landNow({ sentence, nodes: null, mark, found });
     };
     const { stop, outcomeError } = await runClaimChecks(
       holding ? [] : sending,
