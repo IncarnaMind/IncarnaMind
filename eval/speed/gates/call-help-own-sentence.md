@@ -216,3 +216,72 @@ Anthropic's prices don't change by the hour, so the hour's price is the list pri
 - How the check button's lines read without a verdict word, and whether the User misses it.
 - How the held-out cases split between options and lines, until they are checked against what they need.
 - Whether #3005 part 2 changes how often an option cites the call.
+
+## Result, 2026-11-13: the Haiku-only look, and the change put down
+
+**What ran.**
+- One run of the 24 development cases on the frozen wording (344fec2bd), both arms, Claude Haiku 5.5 graded by Claude Sonnet 5.5, on a direct Anthropic key, 11:18:58–11:25:33 UTC.
+- 48 presses done, none failed. Of 154 requests, all finished: 126 to Claude Haiku 5.5 and 28 local Transcript reads. Every press was graded.
+- The allowance was 99% before and after, on both models.
+- It cost $0.1225 of its $0.18 stop. The development phase came to $1.0148 in all, and #2847 to $5.12 of its $8.
+
+**How it was read.**
+- Two readers, blind to the arm, each filled their own copy: 88 items for 107 places, and 15 check lines.
+- Both readings were fixed before the key was opened.
+- They gave the same label on 91 of 103 items and put 92 on the same side. On all 11 side differences the second reader was the stricter.
+- The bars count the first reader's labels.
+
+**The bars and guards, main's writing → the branch,** with the trial's Haiku half beside it (the trial ran the earlier wording):
+
+| | The trial | The look |
+|---|---|---|
+| Bar 1, presses with a ✓ beside an unbacked place | 4 → 1, holds | 4 → 1, holds |
+| Bar 2, probes, English | 7 → 7, fails | 6 → 3, **fails** (at most 1) |
+| Bar 2, probes, Chinese | 9 → 6, fails | 9 → 3, **fails** (at most 1) |
+| Bar 3, W0 and W1 on the branch | 17 and 1, holds | 11 and 1, holds |
+| G1, backed places with ✓ | 12 → 18, holds | 12 → 21, holds |
+| G2, lines with a third sentence | 0, holds | 0, holds |
+| G2, lines over the form's length, English / Chinese (the branch) | 0 / 2, holds | **6** / 0, fails in English (at most 2; main's writing 3 / 0) |
+| G3, presses that cite, English / Chinese | 12 → 11 / 12 → 9, holds | 10 → 9 / 12 → 9, holds |
+| G3, judged right, English / Chinese | 9 → 8 / 7 → 5, holds | 5 → 7 / 5 → 5, holds |
+| G3, every Citation found, English / Chinese | 12 → 12 / 12 → 10, holds | 12 → 12 / 11 → 11, holds |
+| G4a, the same first request but for the instructions | 24 of 24, holds | 24 of 24, holds |
+| G4b, slower pairs, first words and the reply's end, English / Chinese | 5, 6 / 6, 2 of 12, holds | 4, 5 / 4, 5 of 12, holds |
+| G5, Chinese against English | not readable on one run | not readable on one run |
+| G6, presses failed on the branch alone | 0, holds | 0, holds |
+| G7, check lines whose verdict disagrees | 0 of 9 → 0 of 8, holds | 0 of 9 → **2 of 6**, fails |
+| The ✓'s settle time, median of paired ratios (gates nothing) | −2.9% | −23.8% (95%: −42.9% to +14.8%) |
+
+By the second reader's labels, the look's bar 2 reads 8 → 4 in English and 10 → 5 in Chinese, and its bar 1 reads 6 → 2.
+
+**The three numbers reported for the look**, gating nothing:
+
+| | Main's writing | The branch |
+|---|---|---|
+| Presses judged right, English / Chinese | 5 / 5 of 12 | 7 / 5 of 12 |
+| Cited sentences, English / Chinese (median a press) | 23 (2) / 25 (2) | 24 (2) / 18 (1.5) |
+| Lines with a third sentence, English / Chinese | 0 / 0 | 0 / 0 |
+| Lines over the form's length, English / Chinese | 3 of 25 / 0 of 25 | 6 of 28 / 0 of 24 |
+| Citations whose quote isn't found, English / Chinese | 0 / 2 (one on a sentence with two Citations) | 0 / 0 |
+
+**The branch's six places under bar 2,** by the first reader:
+- English answer-unknown: a "yes, at night" cited to the other side's question.
+- English check-wrong: a verdict on the Documents cited to the call's line.
+- English say-roof: a sentence of the reply's own about leak risk that still carries a marker.
+- Chinese answer-unknown: an offer to work after closing, cited to the question.
+- Chinese answer-unknown: the hours with a second fact, the roof's four days, under one Citation.
+- Chinese no-price: the reply's own "no", cited to the discount rule.
+
+The branch's one press with a wrong ✓ is a second fact under one Citation: a survey's length and price beside the need for a survey.
+
+**The two check lines whose verdict disagrees,** both on the branch:
+- Chinese check-wrong: "Right." before the fact that says otherwise.
+- English check-wrong: the reply shows the model's own words about the form ("the form requires exactly the given structure") between two answers, one "Wrong." and one "Right.".
+
+In the trial, neither check-wrong press went wrong. Two presses can't say whether the longer rule did it.
+
+**Outcome.**
+- The look ruled on no bar. On Claude Haiku 5.5 the change is still over bar 2 in both languages.
+- No gate ran.
+- The writing change is put down, and nothing merges from this branch. #2847 stays as shipped under its stated exception (issue comment 6851764267).
+- The next step proposed there is the form of the reply: the app lays out the cited fact and the User's own line apart, and shows no marker on an own line.
