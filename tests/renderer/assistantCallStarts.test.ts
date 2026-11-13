@@ -275,3 +275,66 @@ for (const language of ["en", "zh-CN"] as const) {
     });
   });
 }
+
+describe("Where a cited Transcript is", () => {
+  // protects=#3005: a Meeting's Transcript that shares its name shows when its call started, not the name of IncarnaMind's own folder it is kept in ("Transcripts (2)", English in every language); fails_when=the card's place is the on-disk folder; no_claim=Documents of the User's, which keep their folders.
+  test.each(["en", "zh-CN"] as const)(
+    "%s: two calls' Transcripts kept in one folder each show their call's start, and the User's own twins keep their folders",
+    async (language) => {
+      setLanguage(language);
+      const { useAppStore } = await import("../../src/renderer/src/store");
+      const { useDocumentPlace } = await import("../../src/renderer/src/documentPlaces");
+      useAppStore.setState({
+        documents: [
+          {
+            id: "earlier",
+            name: NAME,
+            kind: "transcript",
+            meetingMindId: "note-earlier",
+            path: "/data/Transcripts/a.vtt",
+          },
+          {
+            id: "this",
+            name: NAME,
+            kind: "transcript",
+            meetingMindId: "note-this",
+            path: "/data/Transcripts/b.vtt",
+          },
+          {
+            id: "report-2025",
+            name: "Report",
+            kind: "text",
+            meetingMindId: null,
+            path: "/Reports/2025/Report.md",
+          },
+          {
+            id: "report-2026",
+            name: "Report",
+            kind: "text",
+            meetingMindId: null,
+            path: "/Reports/2026/Report.md",
+          },
+        ],
+        linkedFolders: [],
+      } as never);
+      const places: Record<string, string | null> = {};
+      function Probe({ id }: { id: string }) {
+        places[id] = useDocumentPlace(id);
+        return null;
+      }
+      await act(async () =>
+        root?.render(
+          ["earlier", "this", "report-2025", "report-2026"].map((id) =>
+            createElement(Probe, { key: id, id }),
+          ),
+        ),
+      );
+      expect(places).toEqual({
+        earlier: STARTED[language](EARLIER),
+        this: STARTED[language](THIS),
+        "report-2025": "2025",
+        "report-2026": "2026",
+      });
+    },
+  );
+});

@@ -919,7 +919,8 @@ function CitationCard({
       : where
         ? citationSource(attributes, t, language, lives).text
         : name);
-  const source = named && started ? `${named} · ${started}` : named;
+  // A Transcript whose name another shares already shows its start as its place.
+  const source = named && started && started !== place ? `${named} · ${started}` : named;
   const limit = useJudgementLimit();
   const modelNames = useModelNames();
   const judgedAnswer = useContext(JudgedAnswerContext);

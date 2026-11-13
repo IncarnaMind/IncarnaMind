@@ -62,6 +62,20 @@ export interface AnswerKeeping {
 }
 
 /**
+ * An Answer in the assistant, its cited Transcripts with when their call started where two calls
+ * would read alike (#3005): to its Citations and the sources under its steps (`useCallStarts`).
+ */
+export function AssistantAnswer(props: Parameters<typeof AnswerArticle>[0]) {
+  const { citations, toolCalls } = props.answer;
+  const cited = useMemo(() => citedBy({ citations, toolCalls }), [citations, toolCalls]);
+  return (
+    <CallStartsContext.Provider value={useCallStarts(cited)}>
+      <AnswerArticle {...props} />
+    </CallStartsContext.Provider>
+  );
+}
+
+/**
  * An Answer in the assistant (#201): no box, as an Answer in a Mind has none
  * (DESIGN.md, Answer), in the assistant's reading sizes. The question it asked,
  * folded to its words, and the User's answer to it, once given (#2530); its
@@ -70,7 +84,7 @@ export interface AnswerKeeping {
  * changing one; what went wrong, and the approvals it waits for, under
  * it; then its actions (`AnswerActions`).
  */
-export function AssistantAnswer({
+function AnswerArticle({
   answer,
   question,
   sought,
@@ -89,13 +103,11 @@ export function AssistantAnswer({
   doc: Y.Doc | null;
 }) {
   const t = useT();
-  const { id, conversationId, analyses, text, citations, figures, status, toolCalls } = answer;
+  const { id, conversationId, analyses, text, citations, figures, status } = answer;
   const blocks = useMemo(
     () => answerBlocks({ id, analyses, text, citations, figures, status }),
     [id, analyses, text, citations, figures, status],
   );
-  const cited = useMemo(() => citedBy({ citations, toolCalls }), [citations, toolCalls]);
-  const starts = useCallStarts(cited);
   const writing = useAnswers((state) => state.writing.has(answer.id));
   const streaming = writing || status === "streaming";
   const problem = useAnswers((state) => state.blocked[answer.id]);
@@ -126,141 +138,137 @@ export function AssistantAnswer({
     : null;
 
   return (
-    <CallStartsContext.Provider value={starts}>
-      <article
-        data-testid="assistant-answer"
-        data-answer-id={answer.id}
-        data-status={streaming ? "streaming" : status}
-        data-sought={sought || undefined}
-        aria-label={t("answer.label")}
-        className="assistant-answer"
-      >
-        <AskedLines answer={answer} />
-        <AnswerSteps
-          answer={answer}
-          question={question}
-          askedAgain={askedAgain}
-          streaming={streaming}
-          waitingForApproval={approvals.length > 0}
-          wait={silent ? { usual } : null}
-          onRegenerate={regenerate}
+    <article
+      data-testid="assistant-answer"
+      data-answer-id={answer.id}
+      data-status={streaming ? "streaming" : status}
+      data-sought={sought || undefined}
+      aria-label={t("answer.label")}
+      className="assistant-answer"
+    >
+      <AskedLines answer={answer} />
+      <AnswerSteps
+        answer={answer}
+        question={question}
+        askedAgain={askedAgain}
+        streaming={streaming}
+        waitingForApproval={approvals.length > 0}
+        wait={silent ? { usual } : null}
+        onRegenerate={regenerate}
+      />
+      {answer.citationSupport === "none" && (
+        <NoCitationsLine
+          modelId={answer.model?.modelId ?? null}
+          providerId={answer.model?.providerId ?? null}
         />
-        {answer.citationSupport === "none" && (
-          <NoCitationsLine
-            modelId={answer.model?.modelId ?? null}
-            providerId={answer.model?.providerId ?? null}
+      )}
+      <CoverageLine answer={answer} question={question} />
+      {!streaming && <WrittenFromLine answer={answer} />}
+      {(written || streaming) && (
+        <ConversationIdContext.Provider value={conversationId}>
+          <AnswerText
+            answerId={answer.id}
+            blocks={blocks}
+            figureRuns={figureRunsOfAnswer(answer, blocks)}
+            label={t("answer.label")}
+            streaming={streaming}
+            regenerate={regenerate}
+            judged={answer}
+            onOpenTable={(table) => keeping.openTable(answer, table)}
           />
-        )}
-        <CoverageLine answer={answer} question={question} />
-        {!streaming && <WrittenFromLine answer={answer} />}
-        {(written || streaming) && (
-          <ConversationIdContext.Provider value={conversationId}>
-            <AnswerText
-              answerId={answer.id}
-              blocks={blocks}
-              figureRuns={figureRunsOfAnswer(answer, blocks)}
-              label={t("answer.label")}
-              streaming={streaming}
-              regenerate={regenerate}
-              judged={answer}
-              onOpenTable={(table) => keeping.openTable(answer, table)}
-            />
-          </ConversationIdContext.Provider>
-        )}
-        <MindChangesCard answer={answer} streaming={streaming} />
-        <CommandsCard answer={answer} streaming={streaming} />
-        {!streaming && <SelfCheckLines answer={answer} />}
-        {!streaming && question && !question.askedFrom && wantedAMind(answer) && (
-          <NoMindLine question={question} />
-        )}
-        {!streaming && <WaitingChangesLine answer={answer} />}
-        {!streaming && <UnbackedClaimLine answer={answer} onRetry={regenerate} />}
-        {!streaming && <UnbackedCommandLines steps={answer.steps} onRetry={regenerate} />}
-        {!streaming && <UnrunToolLines steps={answer.steps} onRetry={regenerate} />}
-        {!streaming && <PythonProblemLine calls={answer.toolCalls} onRetry={regenerate} />}
-        {!streaming && <UncitedWritesLine answer={answer} onRetry={regenerate} />}
-        {!streaming && <UncitedReplyLine answer={answer} onRetry={regenerate} />}
-        {!streaming && scopeEmpty && (
-          <ProblemLine
-            role="status"
-            testId="answer-empty-scope"
-            action={{
-              label: t("claim.searchAll"),
-              testId: "answer-search-all",
-              onClick: () => void regenerateAnswer(answer.id, { clearScope: true }),
-            }}
-          >
-            {t("scope.empty.line", { scope: scopeName })}
-          </ProblemLine>
-        )}
-        {!streaming && figureSummary.uncalculated > 0 && (
-          <UncalculatedLine figures={figureSummary} />
-        )}
-        {!streaming && status !== "failed" && <StillReadingLine answer={answer} />}
-        {!streaming && status !== "failed" && <UnreadFilesLine files={unread} />}
-        {!streaming && status === "failed" && !planModel && (
-          <AnswerError
-            kind={answer.errorKind ?? "unknown"}
-            modelId={answer.model?.modelId ?? null}
-            providerId={answer.model?.providerId ?? null}
-            // A conversation doesn't keep when a plan's limit resets: the line says so without it.
-            resetsAt={null}
-            signInRoute={answer.errorSignInRoute}
-            details={answer.errorMessage}
-            failedAt={answer.updatedAt}
-            onRetry={regenerate}
-            onRetryWith={(model) => void regenerateAnswer(answer.id, { model })}
-            modelNow={modelNow}
-            chooseHere
-            question={
-              question
-                ? {
-                    text: question.text,
-                    scope: question.scope,
-                    askedFrom: question.askedFrom,
-                    folderAskedIn: question.folderAskedIn,
-                  }
-                : null
-            }
-            onOpenSettings={openSettings}
-          />
-        )}
-        {!streaming && status === "failed" && planModel && (
-          <PlanLimitLine
-            modelId={planModel}
-            providerId={answer.model?.providerId ?? null}
-            details={answer.errorMessage}
-            onAnswerAgain={() => regenerateAnswer(answer.id)}
-          />
-        )}
-        {problem && (
-          <AskProblem
-            problem={problem}
-            testIds={{
-              notReady: "answer-not-ready",
-              skillUnavailable: "answer-skill-unavailable",
-              error: "answer-ask-error",
-            }}
-          />
-        )}
-        {approvals.length > 0 && (
-          <div className="answer-approvals">
-            {approvals.map((request) => (
-              <ApprovalCard key={request.requestId} request={request} />
-            ))}
-          </div>
-        )}
-        <AnswerActions
-          answer={answer}
-          streaming={streaming}
-          canKeep={written && !repliesOnlyRefusals(answer)}
-          focusedMindName={keeping.focusedMindName}
-          mindEmpty={keeping.mindEmpty}
-          onAdd={() => keeping.add(answer)}
-          onPick={(anchor) => keeping.pick(answer, anchor)}
-          onWriteNote={() => keeping.newMind(answer)}
+        </ConversationIdContext.Provider>
+      )}
+      <MindChangesCard answer={answer} streaming={streaming} />
+      <CommandsCard answer={answer} streaming={streaming} />
+      {!streaming && <SelfCheckLines answer={answer} />}
+      {!streaming && question && !question.askedFrom && wantedAMind(answer) && (
+        <NoMindLine question={question} />
+      )}
+      {!streaming && <WaitingChangesLine answer={answer} />}
+      {!streaming && <UnbackedClaimLine answer={answer} onRetry={regenerate} />}
+      {!streaming && <UnbackedCommandLines steps={answer.steps} onRetry={regenerate} />}
+      {!streaming && <UnrunToolLines steps={answer.steps} onRetry={regenerate} />}
+      {!streaming && <PythonProblemLine calls={answer.toolCalls} onRetry={regenerate} />}
+      {!streaming && <UncitedWritesLine answer={answer} onRetry={regenerate} />}
+      {!streaming && <UncitedReplyLine answer={answer} onRetry={regenerate} />}
+      {!streaming && scopeEmpty && (
+        <ProblemLine
+          role="status"
+          testId="answer-empty-scope"
+          action={{
+            label: t("claim.searchAll"),
+            testId: "answer-search-all",
+            onClick: () => void regenerateAnswer(answer.id, { clearScope: true }),
+          }}
+        >
+          {t("scope.empty.line", { scope: scopeName })}
+        </ProblemLine>
+      )}
+      {!streaming && figureSummary.uncalculated > 0 && <UncalculatedLine figures={figureSummary} />}
+      {!streaming && status !== "failed" && <StillReadingLine answer={answer} />}
+      {!streaming && status !== "failed" && <UnreadFilesLine files={unread} />}
+      {!streaming && status === "failed" && !planModel && (
+        <AnswerError
+          kind={answer.errorKind ?? "unknown"}
+          modelId={answer.model?.modelId ?? null}
+          providerId={answer.model?.providerId ?? null}
+          // A conversation doesn't keep when a plan's limit resets: the line says so without it.
+          resetsAt={null}
+          signInRoute={answer.errorSignInRoute}
+          details={answer.errorMessage}
+          failedAt={answer.updatedAt}
+          onRetry={regenerate}
+          onRetryWith={(model) => void regenerateAnswer(answer.id, { model })}
+          modelNow={modelNow}
+          chooseHere
+          question={
+            question
+              ? {
+                  text: question.text,
+                  scope: question.scope,
+                  askedFrom: question.askedFrom,
+                  folderAskedIn: question.folderAskedIn,
+                }
+              : null
+          }
+          onOpenSettings={openSettings}
         />
-      </article>
-    </CallStartsContext.Provider>
+      )}
+      {!streaming && status === "failed" && planModel && (
+        <PlanLimitLine
+          modelId={planModel}
+          providerId={answer.model?.providerId ?? null}
+          details={answer.errorMessage}
+          onAnswerAgain={() => regenerateAnswer(answer.id)}
+        />
+      )}
+      {problem && (
+        <AskProblem
+          problem={problem}
+          testIds={{
+            notReady: "answer-not-ready",
+            skillUnavailable: "answer-skill-unavailable",
+            error: "answer-ask-error",
+          }}
+        />
+      )}
+      {approvals.length > 0 && (
+        <div className="answer-approvals">
+          {approvals.map((request) => (
+            <ApprovalCard key={request.requestId} request={request} />
+          ))}
+        </div>
+      )}
+      <AnswerActions
+        answer={answer}
+        streaming={streaming}
+        canKeep={written && !repliesOnlyRefusals(answer)}
+        focusedMindName={keeping.focusedMindName}
+        mindEmpty={keeping.mindEmpty}
+        onAdd={() => keeping.add(answer)}
+        onPick={(anchor) => keeping.pick(answer, anchor)}
+        onWriteNote={() => keeping.newMind(answer)}
+      />
+    </article>
   );
 }

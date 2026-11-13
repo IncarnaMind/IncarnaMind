@@ -7,6 +7,9 @@
  */
 import type { Document, LinkedFolder } from "../../core/api";
 import { whereShown } from "../../shared/documentNames";
+import { startedLabel } from "./helpReply";
+import { useLanguage, useT } from "./i18n";
+import { useMeetings } from "./meetings";
 import { useAppStore } from "./store";
 
 let cached: {
@@ -44,13 +47,33 @@ export function placesOf(
   return places;
 }
 
-/** Where a Document is, as its row shows it, or null when its name is enough. */
-export const useDocumentPlace = (documentId: string | null): string | null =>
-  useAppStore((state) =>
+/**
+ * Where a Document is, as its row shows it, or null when its name is enough. A Meeting's Transcript
+ * has no row and is kept in IncarnaMind's own folder, whose name tells no one which call it was:
+ * where its name is shared, it shows when its call started instead (#3005).
+ */
+export function useDocumentPlace(documentId: string | null): string | null {
+  const t = useT();
+  const language = useLanguage();
+  const place = useAppStore((state) =>
     documentId === null
       ? null
       : (placesOf(state.documents, state.linkedFolders).get(documentId) ?? null),
   );
+  const transcript = useAppStore(
+    (state) =>
+      documentId !== null &&
+      (state.documents.find((each) => each.id === documentId)?.meetingMindId ?? null) !== null,
+  );
+  const startedAt = useMeetings((state) =>
+    documentId === null
+      ? null
+      : (state.meetings.find((each) => each.transcript?.documentId === documentId)?.startedAt ??
+        null),
+  );
+  if (!transcript || place === null) return place;
+  return startedAt ? startedLabel(startedAt, t, language) : null;
+}
 
 /** A Document's name with where it is, for one line of text: "Annual-Report · 2025". */
 export const nameWithPlace = (name: string, place: string | null): string =>
