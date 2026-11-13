@@ -2349,6 +2349,7 @@ export function createCore(adapters: CoreAdapters): Core {
     mindExists,
     readableMindName,
     liveTranscript: (mindId) => liveTranscriptOf(mindId),
+    noteCall: (mindId) => noteCallOf(mindId),
     meetingHelp: (mindId, question) => meetingHelpOf(mindId, question),
     otherCallTranscripts: (mindId) => otherCallTranscripts(db, mindId),
     helpFormJudged: () => adapters.helpFormJudged?.() ?? false,
@@ -4950,6 +4951,8 @@ export function createCore(adapters: CoreAdapters): Core {
   let meetingHelpOf = (_mindId: string, _question: string): MeetingHelpKind | null => null;
   /** See `AnswersOptions.liveTranscript`; set once Meetings are. */
   let liveTranscriptOf = async (_mindId: string): Promise<LiveTranscript | null> => null;
+  /** See `AnswersOptions.noteCall`; set once Meetings are. */
+  let noteCallOf = (_mindId: string): { live: boolean; transcript: string | null } | null => null;
   let transcriptSaved = (_meetingId: string) => {};
   // A pass run again at start, by the Meetings' sweep, begins before the notes can hear of it.
   const writtenAtStart: string[] = [];
@@ -5559,6 +5562,17 @@ export function createCore(adapters: CoreAdapters): Core {
   const loginItemState = (): OpenAtLogin =>
     adapters.loginItem?.get() ?? { supported: false, on: false, needsApproval: false };
 
+  noteCallOf = (mindId) => {
+    const meeting = meetings
+      .list()
+      .find((each) => each.kind === "meeting" && each.mindId === mindId);
+    return meeting
+      ? {
+          live: meeting.status === "recording" || meeting.status === "paused",
+          transcript: meeting.transcript?.documentId ?? null,
+        }
+      : null;
+  };
   liveTranscriptOf = async (mindId) => {
     // A voice memo's speech isn't a call's: no Question listens to it (#1568).
     const meeting = meetings

@@ -307,6 +307,7 @@ async function folderCore(
     dataDir,
     folder,
     call,
+    record,
     unmark: (on: boolean) => {
       unmarked = on;
     },
@@ -498,6 +499,125 @@ for (const language of ["en", "zh-CN"] as const) {
       expect(sent.some((each) => each.includes(BRIEF[language]))).toBe(true);
       for (const each of sent) {
         expect(transcriptPassages(each, setup.earlierName).filter(isEarlier)).toEqual([]);
+      }
+    });
+
+    test("a typed Question with words selected in the earlier call's Transcript: those words and every Passage of it the search finds are marked as the earlier call's", async () => {
+      const setup = await setUp(language);
+      const { core, calls, live } = setup;
+      const said = EARLIER_SAID[language];
+      const earlierId = (await core.listMeetings()).find((each) => each.status === "stopped")
+        ?.transcript?.documentId;
+      const found = await core.findPassages({ text: said.line, mindId: null, scope: null });
+      const passage = found.find((each) => each.documentId === earlierId);
+      if (!passage) throw new Error("The earlier call's line isn't found.");
+      const selected = await core.citePassage({ passageId: passage.passageId, text: said.line });
+      if (!selected) throw new Error("The earlier call's line can't be selected.");
+      const isEarlier = (shown: { lines: string[] }) =>
+        shown.lines.some((line) => setup.earlierText.includes(line));
+      const earlierMarks = ` call="earlier" note="${setup.earlierNote}" started="${setup.earlierStart}"`;
+      const thisMarks = ` call="this" started="${setup.liveStart}"`;
+
+      const from = calls.length;
+      const asked = await core.askInConversation({
+        mindId: live.mindId,
+        text: language === "en" ? "What did they say about this?" : "他们对这个说了什么？",
+        quotes: [
+          {
+            documentId: selected.documentId,
+            documentName: selected.documentName,
+            quote: selected.quote,
+            pageFrom: selected.pageFrom,
+            pageTo: selected.pageTo,
+            location: selected.location,
+            check: selected.check,
+          },
+        ],
+      });
+      if (!asked.asked) throw new Error("Not asked.");
+      await answerEnded(core, asked.answerId);
+      const sent = calls.slice(from).map(sentBy);
+
+      const shown = sent.flatMap((each) => transcriptPassages(each, setup.earlierName));
+      expect(shown.filter(isEarlier).length).toBeGreaterThan(1);
+      for (const each of shown) {
+        expect(each.attributes).toContain(isEarlier(each) ? earlierMarks : thisMarks);
+      }
+    });
+
+    test("a typed Question asked before the call's first line, whose search finds this call's lines once they are heard: those are marked as this call's", async () => {
+      let reached = () => {};
+      const paused = new Promise<void>((resolve) => {
+        reached = resolve;
+      });
+      let release = () => {};
+      const heldUntil = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const setup = await folderCore(language, {
+        model: (calls) =>
+          scriptedModel((call) => {
+            calls.push(call);
+            if (
+              call.tools.includes("search_documents") &&
+              !call.results.some((result) => result.tool === "search_documents")
+            ) {
+              return {
+                calls: [
+                  {
+                    tool: "search_documents",
+                    input: { query: LINES[language].query },
+                    streamInput: true,
+                  },
+                ],
+                pause: { after: 1, until: heldUntil, reached },
+              };
+            }
+            return { text: "They said so." };
+          }),
+      });
+      const { core, calls, dataDir, clock } = setup;
+      const earlier = await setup.call();
+      await stoppedMeeting(core, dataDir, earlier.meeting.id);
+      clock.advance(3 * HOUR);
+      await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+      const live = await core.createMeeting({ folderId: setup.folder.id });
+      await core.startMeeting({ meetingId: live.id, systemAudio: true });
+      await until(core, live.id, (transcript) => transcript.state === "live");
+
+      const asked = await core.askInConversation({
+        mindId: live.mindId,
+        text: language === "en" ? "What have they said so far?" : "他们目前说了什么？",
+      });
+      if (!asked.asked) throw new Error("Not asked.");
+      // Listened before anyone spoke; the lines land while the model is still writing its search.
+      await paused;
+      setup.record(9 * SECOND);
+      const heard = await until(core, live.id, (transcript) => transcript.lines >= 8);
+      await transcriptRead(core, dataDir, live.id, heard.documentId ?? "");
+      release();
+      await answerEnded(core, asked.answerId);
+
+      const meetings = await core.listMeetings();
+      const startOf = (meetingId: string) =>
+        formatFullDateTime(meetings.find((each) => each.id === meetingId)?.startedAt ?? "", "en");
+      const liveName =
+        (await core.listDocuments()).find((each) => each.id === heard.documentId)?.name ?? "";
+      const liveText = await textOf(core, heard.documentId ?? "");
+      const earlierText = await textOf(
+        core,
+        meetings.find((each) => each.id === earlier.meeting.id)?.transcript?.documentId ?? "",
+      );
+      const thisCallOnly = (shown: { lines: string[] }) =>
+        shown.lines.every((line) => liveText.includes(line) && !earlierText.includes(line));
+      const found = calls
+        .flatMap((call) => call.results)
+        .filter((result) => result.tool === "search_documents")
+        .flatMap((result) => transcriptPassages(result.text, liveName))
+        .filter(thisCallOnly);
+      expect(found.length).toBeGreaterThan(0);
+      for (const each of found) {
+        expect(each.attributes).toContain(` call="this" started="${startOf(live.id)}"`);
       }
     });
   });

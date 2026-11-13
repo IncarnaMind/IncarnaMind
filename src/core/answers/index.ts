@@ -666,6 +666,11 @@ export interface AnswersOptions {
    */
   meetingHelp?(mindId: string, question: string): MeetingHelpKind | null;
   /**
+   * A Note's call (#3005): whether its Meeting records or is paused, and that Meeting's Transcript
+   * Document, null until it has one. Null for a Note with no call; a voice memo is none.
+   */
+  noteCall?(mindId: string): { live: boolean; transcript: string | null } | null;
+  /**
    * The Transcripts of every call but a Mind's own, which its help buttons never read (#3005);
    * with `mindId` null, every call's.
    */
@@ -1402,6 +1407,11 @@ export function createAnswers(options: AnswersOptions) {
      */
     listening?: () => Promise<LiveTranscript | null>;
     /**
+     * The Note whose call records or is paused as the Question is asked (#3005): its Meeting's
+     * Transcript is this call's, and every other call's an earlier one's. Absent: asked during none.
+     */
+    callIn?: string;
+    /**
      * A Meeting's saved Transcript to fill its notes in from (#142): shown with the Question as
      * `listening` is; tagged facts require the whole part, other requests keep half the window.
      */
@@ -1705,8 +1715,12 @@ export function createAnswers(options: AnswersOptions) {
         marksFormulas: () => workbookToolsOffered,
         defuses: CALL_TAGS,
         quotesStateClaims: () => !options.quotesAsGiven?.(),
+        // Read as each Transcript is shown: a quote can come before listening, and the Meeting's
+        // Transcript can appear after it.
         thisCall: (documentId) =>
-          heard === null || unmarked ? undefined : transcripts.has(documentId),
+          input.callIn === undefined || unmarked
+            ? undefined
+            : options.noteCall?.(input.callIn)?.transcript === documentId,
       },
       original
         ? {
@@ -4452,6 +4466,7 @@ export function createAnswers(options: AnswersOptions) {
       analyse: question.analyse,
       consentNeeded: ready.consentNeeded,
       ...(mind && { listening: () => options.liveTranscript(mind.mindId) }),
+      ...(mind && options.noteCall?.(mind.mindId)?.live && { callIn: mind.mindId }),
       ...(help && { help }),
       quoted: callOnly ? [] : quoted,
       pictured: callOnly ? [] : pictured,
