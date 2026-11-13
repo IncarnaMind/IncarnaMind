@@ -56,7 +56,12 @@ interface PlainVerdictCheck {
   session: ReturnType<typeof createCitationSession>;
   ledger: Pick<
     CalculationLedger,
-    "confirmationFailure" | "invalidInput" | "pending" | "worked" | "requiresCalculation"
+    | "confirmationFailure"
+    | "invalidInput"
+    | "pending"
+    | "worked"
+    | "requiresCalculation"
+    | "unquotedFigure"
   >;
   results: CheckResults;
   court: CourtDecisions;
@@ -79,7 +84,15 @@ export async function plainVerdict(
 ): Promise<AtomicClaimCheckResult> {
   const late = new Set<string>();
   const result = await verdictOf(deps, request, check, late);
-  return lateQuotesJudged(result, late, request, check.session, request.signal, check.results);
+  const judged = await lateQuotesJudged(
+    result,
+    late,
+    request,
+    check.session,
+    request.signal,
+    check.results,
+  );
+  return check.ledger.unquotedFigure(judged) ? check.results.notChecked("no-evidence") : judged;
 }
 
 /** The verdict, with each quote given only when asked for after it added to `givenAfter`. */

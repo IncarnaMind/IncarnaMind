@@ -45,7 +45,8 @@ export interface CheckedText {
   document(): string;
 }
 
-const sameValue = (a: number, b: number) => Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(a));
+export const sameValue = (a: number, b: number) =>
+  Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(a));
 
 const isShare = (unit: FigureUnit) => unit.kind === "percent" || unit.kind === "points";
 
