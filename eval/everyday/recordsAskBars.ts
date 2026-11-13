@@ -93,15 +93,22 @@ export function answeredWithReferences(ask: Pick<EvidenceAsk, "reply">, sentence
   );
 }
 
-/** Bar 2's count: the check ended Not checked for want of evidence, the sentence or one of its parts. */
-export function endsWithNoEvidence(
-  sentence: Pick<SentenceSupport, "sentence" | "verdict" | "reason" | "parts">,
-): boolean {
-  return (
-    countedVerdict(sentence) === "not-checked" &&
-    (sentence.reason === "no-evidence" ||
-      sentence.parts.some((part) => part.reason === "no-evidence"))
-  );
+/** The two ways bar 2 counts a check that doesn't end on the sentence's own rows. */
+export const OFF_ROWS = ["no evidence", "found elsewhere"] as const;
+export type OffRows = (typeof OFF_ROWS)[number];
+
+/**
+ * Bar 2's count (the plan's changes): the check ended Not checked for want of evidence, or found
+ * elsewhere, its evidence not on the sentence's own rows, in the sentence or one of its parts; a
+ * check that holds both is no evidence. Null when it ended otherwise.
+ */
+export function offItsRows(
+  sentence: Pick<SentenceSupport, "verdict" | "reason" | "parts">,
+): OffRows | null {
+  if (sentence.verdict !== "not-checked") return null;
+  const reasons = [sentence.reason, ...sentence.parts.map((part) => part.reason)];
+  if (reasons.includes("no-evidence")) return "no evidence";
+  return reasons.includes("found-elsewhere") ? "found elsewhere" : null;
 }
 
 /**
@@ -276,12 +283,16 @@ export const bar1 = (read: Scored["read"]): CountBar =>
 const rightChecks = (records: readonly ItemRecord[]) =>
   records.filter((record) => record.kind === "pair" && record.twin === "right");
 
-/** Bar 2: the right sentences' checks that end with no evidence. */
-export const noEvidence = (records: readonly ItemRecord[]) =>
-  rightChecks(records).filter((record) => record.sentences.some(endsWithNoEvidence));
+/** Bar 2: the right sentences' checks that end with no evidence or found elsewhere, each with its kind. */
+export const offRows = (records: readonly ItemRecord[]) =>
+  rightChecks(records).flatMap((record) => {
+    const kinds = record.sentences.map(offItsRows);
+    const kind = OFF_ROWS.find((each) => kinds.includes(each));
+    return kind ? [{ record, kind }] : [];
+  });
 
 export const bar2 = (read: Scored["read"]): CountBar =>
-  halfOfMain(noEvidence(read.main).length, noEvidence(read.branch).length);
+  halfOfMain(offRows(read.main).length, offRows(read.branch).length);
 
 export interface WrongTick {
   record: ItemRecord;
@@ -547,8 +558,10 @@ export function readBars(input: {
   records: readonly ItemRecord[];
   judged: Judged | null;
   judgeDollars: number | null;
+  /** The run's `main` commit, and the SHA-256 of its `src` as `sourceOf` takes it. */
+  runMain: { commit: string; source: string };
 }): BarsReading {
-  const { arms, records, judged, judgeDollars } = input;
+  const { arms, records, judged, judgeDollars, runMain } = input;
   const errors: string[] = [];
   const failed: string[] = [];
   const notSettled: string[] = [];
@@ -557,6 +570,8 @@ export function readBars(input: {
   const [main, branch] = [armOf("main"), armOf("branch")];
   if (main && branch && main.source === branch.source)
     errors.push("Both arms ran the same source: the main arm must run main's src.");
+  if (main && main.source !== runMain.source)
+    errors.push(`The main arm didn't run the src of the run's main, ${runMain.commit}.`);
   for (const each of arms) {
     if (each.dry && each.fetchCalls > 0)
       errors.push(`The ${each.arm} arm called fetch ${each.fetchCalls} times in a dry run.`);
@@ -568,6 +583,8 @@ export function readBars(input: {
   const cells = cellsOf(scored.read);
   const head = [
     "# The ask for a check's missing records: the bars",
+    "",
+    `The run's main: ${runMain.commit}, its src ${runMain.source.slice(0, 12)}.`,
     "",
     ...arms.map(
       (each) =>
@@ -627,15 +644,26 @@ export function readBars(input: {
   const threeResearch = bar3Research(scored.read, judged);
   const four = bar4(scored.read);
   const shares = notCheckedShares(scored.read);
-  const byLanguage = (count: (records: readonly ItemRecord[]) => number) =>
+  const byLanguage = (count: (records: readonly ItemRecord[]) => number | string) =>
     ARMS.map(
       (arm) =>
         `${arm}: ${LANGUAGES.map((language) => `${language} ${count(scored.read[arm].filter((record) => record.language === language))}`).join(", ")}`,
     ).join("; ");
+  const byKind = (kinds: readonly OffRows[]) =>
+    OFF_ROWS.map((kind) => `${kinds.filter((each) => each === kind).length} ${kind}`).join(" and ");
   const tableRows = (records: readonly ItemRecord[]) =>
-    sentencesOf(records.filter((record) => record.kind === "research")).filter(
-      ({ sentence }) => isTableRowSentence(sentence) && endsWithNoEvidence(sentence),
-    ).length;
+    byKind(
+      sentencesOf(records.filter((record) => record.kind === "research")).flatMap(
+        ({ sentence }) => {
+          const kind = isTableRowSentence(sentence) ? offItsRows(sentence) : null;
+          return kind ? [kind] : [];
+        },
+      ),
+    );
+  const kindsOn = (arm: Arm, language: Language) =>
+    offRows(scored.read[arm].filter((record) => record.language === language)).map(
+      (each) => each.kind,
+    );
   const bySet = (arm: Arm) =>
     SETS.map(
       (set) =>
@@ -656,13 +684,29 @@ export function readBars(input: {
       ),
     ),
     "",
-    "## 2. The right sentences' checks with no evidence",
+    "## 2. The right sentences' checks with no evidence or found elsewhere",
     "",
-    `Of ${rightChecks(scored.read.main).length} checks on main and ${rightChecks(scored.read.branch).length} on the branch: main ${two.main}, branch ${two.branch}. By language: ${byLanguage((some) => noEvidence(some).length)}.`,
+    `Of ${rightChecks(scored.read.main).length} checks on main and ${rightChecks(scored.read.branch).length} on the branch, those that end with no evidence or found elsewhere: main ${two.main}, branch ${two.branch}.`,
     "",
-    `The branch at most half of main's; not settled under ${SETTLED_AT} on main: ${reading("2. No evidence on the right sentences", two.reading)}.`,
+    "| Arm | Language | No evidence | Found elsewhere |",
+    "|---|---|---|---|",
+    ...ARMS.flatMap((arm) =>
+      LANGUAGES.map((language) => {
+        const kinds = kindsOn(arm, language);
+        return `| ${arm} | ${language} | ${OFF_ROWS.map((kind) => kinds.filter((each) => each === kind).length).join(" | ")} |`;
+      }),
+    ),
     "",
-    `Beside it, with no bar: the research Answers' table-row sentences with no evidence. ${byLanguage(tableRows)}.`,
+    `The branch at most half of main's; not settled under ${SETTLED_AT} on main, its two kinds together: ${reading("2. No evidence or found elsewhere on the right sentences", two.reading)}.`,
+    "",
+    ...ARMS.flatMap((arm) =>
+      offRows(scored.read[arm]).map(
+        ({ record, kind }) =>
+          `- ${arm}, ${record.key}, ${kind}: ${oneLine(record.sentences[0]?.sentence ?? record.name)}`,
+      ),
+    ),
+    "",
+    `Beside it, with no bar: the research Answers' table-row sentences that end so, by the same two kinds. A table-row sentence holds "O(", or cites one, or cites a quote with no sentence end whose words hold three figures or more. ${byLanguage(tableRows)}.`,
     "",
     "## 3. ✓ on wrong sentences",
     "",

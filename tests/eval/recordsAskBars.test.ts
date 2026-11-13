@@ -25,11 +25,13 @@ import {
   emptyCells,
   halfOfMain,
   judgeKey,
+  offItsRows,
+  offRows,
   readBars,
   scoreOf,
   twoQuotesUnderOneMarker,
 } from "../../eval/everyday/recordsAskBars";
-import type { SentenceSupport } from "../../eval/everyday/support";
+import type { CheckedPart, SentenceSupport } from "../../eval/everyday/support";
 
 const ROWS = ["Weighted keys O(n2 d) O(1) O(1)", "Recurrent O(n d2) O(n) O(n)"];
 
@@ -122,6 +124,18 @@ const ARM = (arm: Arm, source: string): ArmInfo => ({
   endedAt: "2026-11-13T01:00:00.000Z",
 });
 const ARMS = [ARM("main", "aaa"), ARM("branch", "bbb")];
+const RUN_MAIN = { commit: "abc1234", source: "aaa" };
+
+const partOf = (reason: CheckedPart["reason"]): CheckedPart => ({
+  text: RIGHT,
+  kind: "fact",
+  verdict: "not-checked",
+  reason,
+  detail: null,
+  unsupported: null,
+  evidence: [],
+  figures: [],
+});
 
 describe("The records ask's bars", () => {
   // protects=a cell (arm, language, case set) with nothing counted is an error that stops the bars, after the cells are printed, never a bar that holds; fails_when=an arm with no Chinese checks reads as holding, or the cells come after the bars; no_claim=what a full run counts.
@@ -138,6 +152,7 @@ describe("The records ask's bars", () => {
       records,
       judged: { model: "judge", sentences: [], failedTries: [] },
       judgeDollars: 0,
+      runMain: RUN_MAIN,
     });
     expect(reading.errors.join(" ")).toContain(
       "Empty cells, which no bar reads: main, zh-CN, pairs; branch, zh-CN, pairs",
@@ -217,6 +232,73 @@ describe("The records ask's bars", () => {
     expect(bar2(read)).toEqual({ main: 3, branch: 3, reading: "not settled" });
   });
 
+  // protects=bar 2 counts a right sentence's check that ends with no evidence or found elsewhere, its evidence not on its own rows, settles on main's two kinds together, lists each check by its kind and gives both kinds by arm and language; a wrong twin's check isn't counted, a check holding both kinds is no evidence, and the main arm must have run the run's main's src; fails_when=a found-elsewhere check is missed and main's 4 reads as 2, not settled, or a wrong twin is counted; no_claim=why the check ended so.
+  test("bar 2 counts a right sentence's check that ends with no evidence or found elsewhere, by kind", () => {
+    const ended = (
+      arm: Arm,
+      key: string,
+      reason: SentenceSupport["reason"],
+      language: ItemRecord["language"] = "en",
+    ) =>
+      record(
+        arm,
+        key,
+        [sentence(RIGHT, reason === null ? "supported" : "not-checked", { reason })],
+        { language },
+      );
+    const records = fullRun([
+      ended("main", "pair-1-right#1", "no-evidence"),
+      ended("main", "pair-1-right#2", "found-elsewhere"),
+      ended("main", "pair-1-right#3", "found-elsewhere"),
+      ended("main", "pair-4-right#1", "no-evidence", "zh-CN"),
+      ended("main", "pair-1-wrong#1", "found-elsewhere"),
+      ended("branch", "pair-1-right#1", "found-elsewhere"),
+      ended("branch", "pair-1-right#2", null),
+      ended("branch", "pair-1-right#3", null),
+      ended("branch", "pair-4-right#1", null, "zh-CN"),
+      ended("branch", "pair-1-wrong#1", "found-elsewhere"),
+    ]);
+    const read = scoreOf(records).read;
+    expect(bar2(read)).toEqual({ main: 4, branch: 1, reading: "holds" });
+    expect(offRows(read.main).map(({ record: { key }, kind }) => `${key} ${kind}`)).toEqual([
+      "pair-1-right#1 no evidence",
+      "pair-1-right#2 found elsewhere",
+      "pair-1-right#3 found elsewhere",
+      "pair-4-right#1 no evidence",
+    ]);
+    const both = {
+      ...sentence(RIGHT, "not-checked", { reason: "found-elsewhere" }),
+      parts: [partOf("found-elsewhere"), partOf("no-evidence")],
+    };
+    expect(offItsRows(both)).toBe("no evidence");
+    const reading = readBars({
+      arms: ARMS,
+      records,
+      judged: { model: "judge", sentences: [], failedTries: [] },
+      judgeDollars: 0,
+      runMain: RUN_MAIN,
+    });
+    const text = reading.lines.join("\n");
+    for (const row of [
+      "| main | en | 1 | 2 |",
+      "| main | zh-CN | 1 | 0 |",
+      "| branch | en | 0 | 1 |",
+      "| branch | zh-CN | 0 | 0 |",
+      `- main, pair-1-right#2, found elsewhere: ${RIGHT}`,
+    ])
+      expect(text).toContain(row);
+    expect(text).toContain("not settled under 4 on main, its two kinds together: holds");
+    expect(
+      readBars({
+        arms: ARMS,
+        records,
+        judged: null,
+        judgeDollars: null,
+        runMain: { commit: "abc1234", source: "zzz" },
+      }).errors,
+    ).toContain("The main arm didn't run the src of the run's main, abc1234.");
+  });
+
   // protects=an ask counts for bar 1 when its reply quotes a bracketed number the sentence doesn't hold, and not when it gives the table's rows; fails_when=the rows' "O(1)" or a fenced reply is miscounted; no_claim=whether the quote is found.
   test("an ask answered with a Document's own reference numbers", () => {
     expect(answeredWithReferences(REFERENCES, RIGHT)).toBe(true);
@@ -250,6 +332,7 @@ describe("The records ask's bars", () => {
       ]),
       judged: { model: "judge", sentences: [], failedTries: [] },
       judgeDollars: 0,
+      runMain: RUN_MAIN,
     }).lines.join("\n");
     expect(lines).toContain(`- branch, pair-2-wrong#1, no ask: ${WRONG}`);
 

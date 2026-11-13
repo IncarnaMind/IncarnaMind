@@ -12,6 +12,9 @@ export type Arm = (typeof ARMS)[number];
 
 export type Language = "en" | "zh-CN";
 
+/** The `main` commit the run starts from, merged into the branch before any request (the plan's changes). */
+export const RUN_MAIN = "35c8b3196cda8f331481ff35e5566bc356f80d2b";
+
 /** The plan's models, fixed here and nowhere an environment variable can change them. */
 export const GATE_MODEL = "claude-haiku-5-5";
 export const GATE_JUDGE = "claude-sonnet-5-5";

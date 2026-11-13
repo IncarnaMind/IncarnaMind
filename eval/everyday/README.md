@@ -73,7 +73,7 @@ npm run eval:everyday
 
 `recordsAsk.everyday.ts` runs the gate for the ask for a check's missing records (#3019, `gates/records-ask.md`): `main` and the branch, each from its own source, item by item in turn. Its models are fixed, Claude Haiku 5.5 with Claude Sonnet 5.5 as judge; it refuses to start while an `INCARNAMIND_EVAL_CHAT_*` or `_JUDGE_*` variable is set. Each step is `npx vitest run --config eval/everyday/vitest.config.ts eval/everyday/recordsAsk.everyday.ts` with `INCARNAMIND_EVAL_RECORDS_ASK_RUN` set to the run's folder, an absolute path:
 
-1. **The main arm's folder:** this branch's files with `main`'s `src` in place of the branch's, and the branch's `node_modules` linked in. The branch must hold the `main` commit the run starts from.
+1. **The main arm's folder:** this branch's files with `main`'s `src` in place of the branch's, and the branch's `node_modules` linked in. `$MAIN` is the run's `main`, the commit `RUN_MAIN` names in `recordsAsk.ts` (the plan's changes), and the branch must hold it. The main arm refuses another, and the bars refuse a main arm whose `src` isn't that commit's.
 
    ```sh
    git archive HEAD | tar -x -C "$MAIN_ARM"

@@ -11,9 +11,11 @@
  * `INCARNAMIND_EVAL_RECORDS_ASK_DRY=1` plays all three on the scripted chat model with no request
  * to any provider: no key may be set, and `fetch` throws.
  */
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import type { LanguageModelV4 } from "@ai-sdk/provider";
 import { test } from "vitest";
@@ -45,6 +47,7 @@ import {
   PAIRS,
   pilotItems,
   type Requests,
+  RUN_MAIN,
   recordFile,
   runItems,
   STOP_DOLLARS,
@@ -398,8 +401,7 @@ test.skipIf(MODE !== "records-ask")("the records ask's gate: one arm, item by it
   const keys = items.map((item) => item.key);
   const info: ArmInfo = {
     arm,
-    // A folder made from two commits, main's `src` under the branch's evaluation, names main's.
-    commit: process.env.INCARNAMIND_EVAL_RECORDS_ASK_SOURCE?.trim() || commitOf(ROOT, [run]),
+    commit: arm === "main" ? mainArmCommit() : branchCommit(run),
     source: await sourceOf(ROOT),
     model: `anthropic/${GATE_MODEL}`,
     judge: `anthropic/${GATE_JUDGE}`,
@@ -466,6 +468,44 @@ test.skipIf(MODE !== "records-ask")("the records ask's gate: one arm, item by it
 
 async function allRecords(run: string): Promise<ItemRecord[]> {
   return (await Promise.all(ARMS.map((arm) => armRecords(run, arm)))).flat();
+}
+
+/**
+ * The main arm's folder holds two commits, `main`'s `src` under the branch's evaluation, and has
+ * no history of its own: it names the run's `main`, which the bars check against its `src`.
+ */
+function mainArmCommit(): string {
+  const named = process.env.INCARNAMIND_EVAL_RECORDS_ASK_SOURCE?.trim() ?? "";
+  if (named.length < 7 || !RUN_MAIN.startsWith(named))
+    throw new Error(
+      `Build the main arm from the run's main, ${RUN_MAIN}, and name it in INCARNAMIND_EVAL_RECORDS_ASK_SOURCE.`,
+    );
+  return RUN_MAIN;
+}
+
+/** The branch arm's commit, which must hold the run's `main`. */
+function branchCommit(run: string): string {
+  try {
+    execFileSync("git", ["merge-base", "--is-ancestor", RUN_MAIN, "HEAD"], { cwd: ROOT });
+  } catch (error) {
+    throw new Error(`This branch doesn't hold the run's main, ${RUN_MAIN}: merge it in first.`, {
+      cause: error,
+    });
+  }
+  return commitOf(ROOT, [run]);
+}
+
+/** The SHA-256 of the run's `main`'s `src`, as `sourceOf` takes it, from a copy of it made here. */
+async function runMainSource(): Promise<string> {
+  const folder = await mkdtemp(join(tmpdir(), "incarnamind-records-ask-main-"));
+  try {
+    execFileSync("sh", ["-c", 'git archive "$1" src | tar -x -C "$2"', "sh", RUN_MAIN, folder], {
+      cwd: ROOT,
+    });
+    return await sourceOf(folder);
+  } finally {
+    await rm(folder, { recursive: true, force: true });
+  }
 }
 
 /** What the gate spent before this run, in US dollars: the pilot's, for the run. */
@@ -574,7 +614,13 @@ test.skipIf(MODE !== "records-ask-bars")("the records ask's gate: the bars", asy
   const judged = existsSync(judgedPath)
     ? await readJson<Judged & { dollars: number | null }>(judgedPath)
     : null;
-  const reading = readBars({ arms, records, judged, judgeDollars: judged?.dollars ?? null });
+  const reading = readBars({
+    arms,
+    records,
+    judged,
+    judgeDollars: judged?.dollars ?? null,
+    runMain: { commit: RUN_MAIN, source: await runMainSource() },
+  });
   const sheet = kindBSheet(scoreOf(records).read);
   const files = {
     "bars.md": reading.lines.join("\n"),
