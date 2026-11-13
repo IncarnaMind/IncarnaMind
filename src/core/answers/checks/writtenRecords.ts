@@ -6,8 +6,8 @@
  *
  * Only a record line is read, in the forms such replies take: "[^1]: Tides, p. 4 — “…”",
  * "Cite 1: Tides, p. 4, quote "…"", "[^1] Passage P2, p. 4: "…"", "- marker 1: passage P2, location
- * "p. 4", quote "…"", or a cite call written out as JSON. A quote in running prose is none. A
- * record is taken only as a `cite` call's would be: its quote found by the Citation check in the
+ * "p. 4", quote "…"", or a cite call written out as JSON or as code. A quote in running prose is
+ * none. A record is taken only as a `cite` call's would be: its quote found by the Citation check in the
  * Passage it names, or in a Passage of the Document it names, on the page it names; never one
  * whose quote only repeats the sentence. Every record asked for is taken, or none, and then the
  * ask goes out as before. Taking a record never changes the verdict the reply gave.
@@ -37,7 +37,7 @@ const QUOTED = /“([^”]+)”|"([^"]+)"/gu;
 const PASSAGE = /\b(?:passage\s+)?(P\d{1,4})\b/iu;
 const PAGE = /\bpp?\.\s*(\d{1,4})(?:\s*[–-]\s*(\d{1,4}))?/iu;
 const JSON_RECORDS =
-  /"citations"\s*:\s*(\[[\s\S]*?\])\s*[}<]|<parameter name="citations">\s*(\[[\s\S]*?\])\s*<\/parameter>/gu;
+  /"citations"\s*:\s*(\[[\s\S]*?\])\s*[}<]|<parameter name="citations">\s*(\[[\s\S]*?\])\s*<\/parameter>|\bcite\s*\(\s*citations\s*=\s*(\[[\s\S]*?\])\s*\)/gu;
 
 const loose = (text: string) =>
   text
@@ -95,7 +95,7 @@ function fromJson(reply: string): WrittenRecord[] {
   return [...reply.matchAll(JSON_RECORDS)].flatMap((match) => {
     let given: unknown;
     try {
-      given = JSON.parse(match[1] ?? match[2] ?? "");
+      given = JSON.parse(match[1] ?? match[2] ?? match[3] ?? "");
     } catch {
       return [];
     }

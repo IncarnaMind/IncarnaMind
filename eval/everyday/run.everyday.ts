@@ -13,6 +13,7 @@ import { catalogFacts, modelsProviderOfKind } from "../../src/core/providers/cat
 import { createAiSdkChatModel } from "../../src/core/providers/models";
 import { markersIn } from "../../src/shared/answerBlocks";
 import { evalOllamaModels } from "../lib/citations";
+import { watchCiting } from "../lib/citingRecord";
 import { type ChatSettings, chatModelSpecOf, chatProviderOf, readConfig } from "../lib/config";
 import { createWorkerEmbedder } from "../lib/embedder";
 import type { EvalDocument } from "../lib/evaluationSet";
@@ -98,6 +99,7 @@ async function runModel(
     const wanted = cases.filter((each) => each.library === name);
     if (wanted.length === 0) continue;
     const watch = watchReasks();
+    const citing = watchCiting();
     const forced = forcing();
     const deciding = decider && {
       decide: (text: string) => decide(decider.provider, decider.key, text),
@@ -105,9 +107,11 @@ async function runModel(
     };
     const library = await openLibrary({
       name: `everyday-${name}`,
+      // The citing record reads what the core is given, a reply put in place of the model's included.
       chatModels: decider
-        ? (inner) => forced.chatModels(watch.chatModels(answerTokens.chatModels(inner)))
-        : (inner) => watch.chatModels(answerTokens.chatModels(inner)),
+        ? (inner) =>
+            citing.chatModels(forced.chatModels(watch.chatModels(answerTokens.chatModels(inner))))
+        : (inner) => citing.chatModels(watch.chatModels(answerTokens.chatModels(inner))),
       embedder: createWorkerEmbedder(),
       modelCache: join(config.cacheDir, "models"),
       reranker: createWorkerCrossEncoder(config.rerankOnCpu),
@@ -139,6 +143,7 @@ async function runModel(
         try {
           result = await runCase(library, scoped, judge, model, each, {
             watch,
+            citing,
             calculates,
             hear: answerTokens.hear,
             ...(deciding && { deciding }),
