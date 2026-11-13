@@ -431,3 +431,14 @@ As round 2's, read the same way: bar 1 and the kind counted apart by two readers
   - The English twin runs with it only if at least $0.35 is left then: both items, stop at the ledger's total + $0.35.
 - **The second key, as round 2:** its lock for each run's length, with the judge's nested inside, and its allowance read before each run.
 - **Nothing runs past $1.50** on the ledger for rounds 1 to 3.
+
+### Changed 2026-11-13, after the Haiku run and before any reply was read: four rows are asked once more
+
+- **What happened.** The Haiku run (13:05:45–13:24:17Z) ended with 23 of its 397 requests failed: Claude Haiku 5.5 chat requests with nothing billed, in four consecutive rows inside about 70 seconds (about 13:20:40–13:21:50Z). Another run, on another key of the same provider, got HTTP 503 in the same minute. A run with a failed request doesn't count.
+- **The change** (#3005, ruled 2026-11-13 13:32Z): the four rows are asked once more on both arms, and the other 44 rows, where every request finished, stand. The rows: `en-p-then-o-check`, `en-p-then-o-last-time`, `zh-o-then-p-say`, `zh-o-then-p-answer`.
+- **As before:** the same cases, the same commit and settings, the same models and judge, the arms alternated, on the same key after its allowance is read.
+- **Stop** at the ledger's total + $0.04. The Haiku gate stays under its $0.45, and nothing runs past $1.50.
+- **Once only.** If a request of the four rows fails, is refused or times out again, there is no third try: the four rows are left out on both arms and the gate is reported on 44 rows. That is not a pass by itself, since bar 1 would rest on 33 button rows and not 36, and it is brought for a decision.
+- **The first try's replies in the four rows,** 7 presses that failed and the one press that finished beside a failed one, are struck: kept in the first run's record with their times and error text, and never read.
+- **The readings.** The blind readings of the 44 rows may start before the four rows run. The four rows' replies go into the same blind files under new shuffled names, for the same two readers. The key stays closed, and nobody searches a log or a report by arm, until every reading is fixed, the four rows' included.
+- **The result says** which rows came from which run, and on how many pairs each bar was read.
