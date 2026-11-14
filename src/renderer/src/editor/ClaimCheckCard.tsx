@@ -1196,13 +1196,6 @@ export function ClaimCard({
         keep: true,
         onClick: onKeep,
       },
-      // The card's Find sources and its ⋯'s Find sources… were one action: it is once, under ⋯.
-      findSourcesOffered && {
-        key: "find-sources",
-        testId: "check.findSources",
-        label: t("claim.findSources.menu"),
-        onClick: onFindSources,
-      },
       findSourcesOffered && {
         key: "search-web",
         testId: "claim-search-web",
@@ -1282,7 +1275,15 @@ export function ClaimCard({
     ),
   ].filter(Boolean);
 
-  const cardMenu = <CardMenu id={check.id} actions={menu} about={about} />;
+  // The card's Find sources and its ⋯'s Find sources… were one action: it is once, the ⋯'s.
+  const cardMenu = (
+    <CardMenu
+      id={check.id}
+      actions={menu}
+      about={about}
+      findSources={findSourcesOffered ? onFindSources : undefined}
+    />
+  );
 
   // While the sentence's own read runs, or the card asks about the next, the card is that read's:
   // its question, or its progress and Stop, nothing it would replace, so no Continue or Check

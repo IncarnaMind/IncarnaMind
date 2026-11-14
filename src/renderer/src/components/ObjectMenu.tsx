@@ -188,6 +188,7 @@ export function ObjectMenu({
   align,
   without,
   controls,
+  first,
   more,
   aside,
   foot,
@@ -221,7 +222,12 @@ export function ObjectMenu({
    * colours. The command stays in the menu's order and in ⌘K; `close` closes the menu.
    */
   controls?: Readonly<Partial<Record<CommandId, (close: () => void) => ReactNode>>>;
-  /** Items after the kind's own, a rule between, and before its Delete, which stays last; `close` closes the menu. */
+  /**
+   * Items before the kind's own, a rule between: what only this place offers, in its own order, as
+   * a check card's actions; `close` closes the menu.
+   */
+  first?: (close: () => void) => ReactNode;
+  /** Items after the kind's own and before its Delete, which stays last, a rule before them; `close` closes the menu. */
   more?: (close: () => void) => ReactNode;
   /** Beside the menu while it is open, outside it: the submenus of items in `more`. */
   aside?: (close: () => void) => ReactNode;
@@ -368,10 +374,16 @@ export function ObjectMenu({
           if (event.key === "Escape") focusRow(button.current);
         }}
       >
+        {menu.open && first && (
+          <>
+            {first(menu.close)}
+            {entries.length > 0 && <div className={menuRuleClass} />}
+          </>
+        )}
         {entries.slice(0, dangerAt).map((entry, index) => itemOf(entry, index))}
         {menu.open && more && (
           <>
-            {dangerAt > 0 && <div className={menuRuleClass} />}
+            <div className={menuRuleClass} />
             {more(menu.close)}
           </>
         )}
@@ -379,7 +391,7 @@ export function ObjectMenu({
         {menu.open && foot && (
           // A long menu scrolls; its foot stays in view, covering the menu's bottom padding.
           <div className="sticky -bottom-1 -mb-1 bg-sheet pb-1">
-            {(entries.length > 0 || more) && <div className={menuRuleClass} />}
+            {(entries.length > 0 || more || first) && <div className={menuRuleClass} />}
             {typeof foot === "function" ? foot(menu.close) : foot}
           </div>
         )}

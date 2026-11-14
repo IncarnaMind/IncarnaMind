@@ -99,14 +99,17 @@ const IDS = {
 /** The card's two buttons: its main action, then Keep as my view (#2869). */
 const BUTTONS = [IDS.searchAll, IDS.keep];
 
-/** Every other action, under the card's one ⋯ in the order the card has always had them. */
+/**
+ * Every other action, under the card's one ⋯ in the order the card has always had them, then Find
+ * sources…, the check's own command, after them as every object menu lists its kind's.
+ */
 const IN_MENU = [
   IDS.checkDocument,
   IDS.chooseCitation,
   IDS.cut,
-  IDS.findSources,
   IDS.searchWeb,
   IDS.remove,
+  IDS.findSources,
 ];
 
 /** Whether the first box sits inside the second. */

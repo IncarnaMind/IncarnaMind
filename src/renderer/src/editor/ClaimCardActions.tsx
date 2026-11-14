@@ -32,36 +32,40 @@ export function CardButtons({ buttons }: { buttons: readonly CardAction[] }) {
   );
 }
 
-/** The check commands a sentence's card offers as actions of its own, in its own order. */
-const OFFERED_HERE: readonly CommandId[] = [
-  "check.anyway",
-  "check.useDocumentWording",
-  "check.findSources",
-];
+const FIND_SOURCES: readonly CommandId[] = ["check.findSources"];
 
 /**
- * The card's one ⋯ (#2869): every action that isn't a button, in the card's order, then About this
- * check, which says where it looked, with what model and when, as the check record keeps it.
+ * The card's one ⋯ (#2869): every action that isn't a button, in the card's order, Open the page
+ * first, then the check's own commands, Find sources… among them, as the right-click menu lists
+ * them, then About this check: where it looked, with what model and when, as the record keeps it.
  */
 export function CardMenu({
   id,
   actions,
   about,
+  findSources,
 }: {
   id: string;
   actions: readonly CardAction[];
   about: readonly ReactNode[];
+  /** Find sources for the sentence, where the card offers it. */
+  findSources?: () => void;
 }) {
   const t = useT();
-  if (actions.length === 0 && about.length === 0) return null;
+  if (actions.length === 0 && about.length === 0 && !findSources) return null;
+  const here: Partial<Record<CommandId, () => void>> | undefined = findSources
+    ? { "check.findSources": findSources }
+    : undefined;
   return (
     <ObjectMenu
       target={{ kind: "check", id }}
       label={t("claim.more")}
       className={`${rowActionButtonClass} citation-card-menu`}
       align="end"
-      without={OFFERED_HERE}
-      more={
+      here={here}
+      // The command's own test reads the sentence at the caret, which needn't be this card's.
+      without={findSources ? undefined : FIND_SOURCES}
+      first={
         actions.length > 0
           ? (close) =>
               actions.map((action) => (
