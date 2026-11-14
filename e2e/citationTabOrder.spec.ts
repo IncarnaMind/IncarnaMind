@@ -422,6 +422,14 @@ for (const language of ["en", "zh-CN"] as const) {
     // Enter on a chip still opens its page, beside the Note in a window this wide.
     await window.keyboard.press("Enter");
     await expect(window.getByTestId("viewer-title")).toHaveText("Tides");
+
+    // Showing the Note's tab again shows no card over its lines.
+    await pointAndClick(window, window.getByTestId("mind-tab").first());
+    await rested(window);
+    await expect(card).toHaveCount(0);
+    for (let at = 0; at < 3; at++) {
+      await expect(chips.nth(at)).toHaveAttribute("aria-expanded", "false");
+    }
     await app.close();
   });
 }
