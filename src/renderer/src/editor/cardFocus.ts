@@ -86,6 +86,17 @@ export function goingElsewhere(
   return to instanceof Node && !stays.some((each) => each?.contains(to));
 }
 
+/**
+ * Whether the focus has come back to a control because what held it has closed (a dialog or a
+ * menu the browser or the app puts the focus back from), not because the User moved it there: what
+ * it comes from is gone or hidden. Such a focus shows no card, and Space, hovering or moving the
+ * focus away and back does (#3102).
+ */
+export function cameBack(event: { relatedTarget: EventTarget | null }): boolean {
+  const from = event.relatedTarget;
+  return from instanceof Element && (!from.isConnected || !from.checkVisibility());
+}
+
 /** Space, alone and not while an input method composes: the key that goes into a card. */
 export function isSpaceKey(event: {
   key: string;

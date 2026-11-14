@@ -1,6 +1,7 @@
 import { parseHTML } from "linkedom";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import {
+  cameBack,
   enterCard,
   goingElsewhere,
   isSpaceKey,
@@ -211,5 +212,27 @@ describe("a card shown on keyboard focus (#3102)", () => {
     expect(goingElsewhere(outside, card, outside)).toBe(false);
     expect(goingElsewhere(outside, card, null)).toBe(true);
     expect(goingElsewhere(null, card, outside)).toBe(false);
+  });
+});
+
+describe("a focus that came back (#3102)", () => {
+  beforeEach(() => {
+    vi.stubGlobal("Element", page.Element);
+  });
+
+  test("from something that has gone or is hidden, it is one the app or the browser put back", () => {
+    outside.checkVisibility = () => false;
+    expect(cameBack({ relatedTarget: outside })).toBe(true);
+    const gone = page.document.createElement("button");
+    gone.checkVisibility = () => true;
+    expect(gone.isConnected).toBe(false);
+    expect(cameBack({ relatedTarget: gone })).toBe(true);
+  });
+
+  test("from a stop in view, or from nowhere, it is one the User moved", () => {
+    outside.checkVisibility = () => true;
+    expect(cameBack({ relatedTarget: outside })).toBe(false);
+    expect(cameBack({ relatedTarget: null })).toBe(false);
+    expect(cameBack({ relatedTarget: page.window as unknown as EventTarget })).toBe(false);
   });
 });

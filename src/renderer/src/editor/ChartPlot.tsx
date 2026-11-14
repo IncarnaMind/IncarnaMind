@@ -4,7 +4,7 @@ import type { ChartAttributes, ChartUnitGroup } from "../../../shared/charts";
 import type { FigureUnit } from "../../../shared/figures";
 import type { MessageKey } from "../../../shared/i18n";
 import { useT } from "../i18n";
-import { isSpaceKey } from "./cardFocus";
+import { cameBack, isSpaceKey } from "./cardFocus";
 
 export interface PointRef {
   row: number;
@@ -223,9 +223,10 @@ function ChartPanel({
                 events.peek(point, event.currentTarget, "pointer", true),
               onPointerLeave: (event: { currentTarget: Element }) =>
                 events.peek(point, event.currentTarget, "pointer", false),
-              onFocus: (event: { currentTarget: Element }) => {
+              onFocus: (event: { currentTarget: Element; nativeEvent: FocusEvent }) => {
                 setCurrent(index);
-                events.peek(point, event.currentTarget, "focus", true);
+                if (!cameBack(event.nativeEvent))
+                  events.peek(point, event.currentTarget, "focus", true);
               },
               onBlur: (event: { currentTarget: Element }) =>
                 events.peek(point, event.currentTarget, "focus", false),

@@ -10,6 +10,7 @@ import {
 import { useT } from "../i18n";
 import { ChartCheck } from "./ChartCheck";
 import { type PointEvents, type PointRef, pressOnPoint, samePoint } from "./ChartPlot";
+import { cameBack } from "./cardFocus";
 
 /** "Show as table": the way to read every value and its source without a pointer, one Tab stop as the chart's points are. */
 export function ChartValues({
@@ -117,7 +118,8 @@ export function ChartValues({
                       }
                       onFocus={(event) => {
                         setCurrent(position);
-                        events.peek(point, event.currentTarget, "focus", true);
+                        if (!cameBack(event.nativeEvent))
+                          events.peek(point, event.currentTarget, "focus", true);
                       }}
                       onBlur={(event) => events.peek(point, event.currentTarget, "focus", false)}
                       onClick={(event) => events.activate(point, event.currentTarget)}
