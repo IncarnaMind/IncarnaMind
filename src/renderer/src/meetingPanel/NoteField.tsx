@@ -31,8 +31,8 @@ export interface FieldList {
  * The panel's field (#2925), with Note | Ask at its left. In Note, Enter adds what it holds to the
  * end of the Meeting's Note, with the Meeting's time when typing began, and for 3 s its placeholder
  * says it went in, with Undo at its right, so nothing under it moves. In Ask, Enter asks it about
- * the call (`onQuestion`); a question that couldn't be asked comes back into an empty field still in
- * Ask, though it was collapsed meanwhile. Either
+ * the call (`onQuestion`); a question that couldn't be asked comes back before what the field
+ * holds, on a line of its own, or, in Note, waits for the field's next Ask. Either
  * way the cursor stays for the next line; Shift-Enter starts a new line, and the field grows to
  * three, then scrolls. Keys a list over it wants come to `listKeys` first, and no key that ends an
  * input method's composition is acted on. A press in it is what takes the keyboard
@@ -79,11 +79,6 @@ export function NoteField({
     return () => clearTimeout(timer);
   }, [added]);
 
-  const modeNow = useRef(mode);
-  useEffect(() => {
-    modeNow.current = mode;
-  }, [mode]);
-
   // Only a change: a field just shown, empty, must not tell the core to forget a line it holds.
   // A change of mode too, as a question is never kept for the Note.
   const keptAs = useRef(mode);
@@ -93,6 +88,21 @@ export function NoteField({
     keptAs.current = mode;
     notes.keep({ text, began: began.current }, mode === "note");
   }, [text, mode, notes]);
+
+  // In this field, whichever one a collapse left on screen. A question only in Ask: in Note it
+  // would be kept as a note.
+  const comeBack = useRef(() => {});
+  comeBack.current = () => {
+    if (composing.current) return;
+    const kept = notes.draft();
+    const waiting = mode === "ask" ? notes.take() : "";
+    began.current = kept.began;
+    onText(waiting && kept.text ? `${waiting}\n${kept.text}` : waiting || kept.text);
+  };
+  useEffect(() => notes.watch(() => comeBack.current()), [notes]);
+  useEffect(() => {
+    if (mode === "ask") comeBack.current();
+  }, [mode]);
 
   const change = (value: string) => {
     onText(value);
@@ -108,13 +118,7 @@ export function NoteField({
     notes.keep({ text: "", began: null }, true);
     notes.add(typed, atMs).then(
       (note) => setAdded({ note, atMs }),
-      (error: unknown) => {
-        setProblem(errorMessage(error, t));
-        // `notes` put it back, before any line begun since: the field shows what it kept.
-        const back = notes.draft();
-        began.current = back.began;
-        onText(back.text);
-      },
+      (error: unknown) => setProblem(errorMessage(error, t)),
     );
   };
 
@@ -122,12 +126,9 @@ export function NoteField({
     began.current = null;
     onText("");
     notes.keep({ text: "", began: null }, false);
-    void onQuestion(typed.trim()).then((asked) => {
-      // Never into Note, where it would be kept as a note; through `notes`, so a field collapsed
-      // meanwhile shows it again.
-      if (asked || notes.draft().text || modeNow.current !== "ask") return;
-      notes.keep({ text: typed, began: null }, false);
-      onText(typed);
+    const question = typed.trim();
+    void onQuestion(question).then((asked) => {
+      if (!asked) notes.refuse(question);
     });
   };
 
@@ -219,6 +220,7 @@ export function NoteField({
           onCompositionEnd={(event) => {
             composing.current = false;
             notes.keep({ text: event.currentTarget.value, began: began.current }, !asking);
+            comeBack.current();
           }}
           onKeyDown={keyDown}
           className={`${fieldClass} ask-field-text`}

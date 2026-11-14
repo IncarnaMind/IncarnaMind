@@ -21,6 +21,15 @@ export interface QuickNotes {
    * Ask isn't one (#2925): the core then forgets any line it held.
    */
   keep(draft: Draft, note?: boolean): void;
+  /**
+   * A question that couldn't be asked (#2925). It waits, never kept for the Note, until the field
+   * is in Ask, where it comes before what the field holds (`take`).
+   */
+  refuse(question: string): void;
+  /** The questions waiting, oldest first, a line each, now taken into the field: "" when none. */
+  take(): string;
+  /** Calls `show` when a line or a question comes back, for the field on screen; returns the stop. */
+  watch(show: () => void): () => void;
 }
 
 /** What quick notes ask of the core. */
@@ -36,7 +45,8 @@ const EMPTY: Draft = { text: "", began: null };
  * A Meeting's quick notes from the call-help panel's field (#2925). Its unsent line is kept here,
  * by Meeting, outside the field, which a collapse unmounts, and in the core, which adds it to the
  * Note if the recording stops or the panel closes first. A line that couldn't go in comes back
- * into it, before any line begun since, though the field is collapsed meanwhile.
+ * into it, before any line begun since, and shows in the field on screen, though the panel was
+ * collapsed and shown again meanwhile. A question waiting goes with the panel or the recording.
  */
 export function quickNotesFor(
   meetingId: string,
@@ -44,6 +54,11 @@ export function quickNotesFor(
   drafts: Map<string, Draft>,
   report: (error: unknown) => void,
 ): QuickNotes {
+  const waiting: string[] = [];
+  const shown = new Set<() => void>();
+  const comeBack = () => {
+    for (const show of shown) show();
+  };
   const draft = () => drafts.get(meetingId) ?? EMPTY;
   const keep = (next: Draft, note = true) => {
     drafts.set(meetingId, next);
@@ -60,10 +75,20 @@ export function quickNotesFor(
       core.addQuickNote({ meetingId, text, atMs }).catch((error: unknown) => {
         const since = draft().text;
         keep({ text: since ? `${text}\n${since}` : text, began: { ms: atMs } });
+        comeBack();
         throw error;
       }),
     undo: (added) => core.undoAddToNote(added),
     draft,
     keep,
+    refuse: (question) => {
+      waiting.push(question);
+      comeBack();
+    },
+    take: () => waiting.splice(0).join("\n"),
+    watch: (show) => {
+      shown.add(show);
+      return () => shown.delete(show);
+    },
   };
 }

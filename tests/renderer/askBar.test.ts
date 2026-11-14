@@ -631,6 +631,22 @@ describe("the field, for quick notes (#2925)", () => {
     expect(keptTexts().at(-1)).toBe("Budget 40k");
   });
 
+  // protects=a quick note refused after the panel was collapsed and shown again is in the field on screen now, before the line begun since, so typing on loses neither, here and in what the core keeps for the Note; fails_when=only a field collapsed meanwhile shows it, or the next line typed replaces it; no_claim=the problem line, said in the field it was added from.
+  test("a note refused after the panel was collapsed and shown again is in the field there now, and typing on keeps it", async () => {
+    const refused = Promise.withResolvers<AddedToNote>();
+    quickCore.addQuickNote.mockReturnValueOnce(refused.promise);
+    await show();
+    await type("Budget 40k");
+    await press("Enter");
+    await act(async () => root?.render(null));
+    await show();
+    await type("Owner");
+    await act(async () => refused.reject(new Error("The note is read-only.")));
+    expect(field().value).toBe("Budget 40k\nOwner");
+    await type(`${field().value} is Dana`);
+    expect(keptTexts().at(-1)).toBe("Budget 40k\nOwner is Dana");
+  });
+
   test("each Meeting keeps its own line", () => {
     const other = quickNotesFor("meeting-2", quickCore, drafts, () => undefined);
     notes.keep({ text: "For the first call", began: null });
@@ -740,27 +756,31 @@ describe("the field's Note | Ask (#2925)", () => {
     expect(all("quick-note-undo")).toHaveLength(0);
   });
 
-  test("in Ask, a question that couldn't be asked comes back into the field, unless something was typed since", async () => {
-    onQuestion.mockResolvedValue(false);
-    await show(null, KEYS, { mode: "ask" });
-    await type("Who signs the order form?");
-    await press("Enter");
-    expect(field().value).toBe("Who signs the order form?");
+  // protects=a question that couldn't be asked is never lost: in Ask it comes back into the field, before a line typed since, on a line of its own, as a refused quick note does; fails_when=it is dropped, put after what was typed since, or kept for the Note; no_claim=the thread's line for why.
+  test.each([
+    { language: "English", question: "Who signs the order form?", since: "And by when?" },
+    { language: "Chinese", question: "订单由谁签字？", since: "什么时候签？" },
+  ])(
+    "in Ask, a question that couldn't be asked comes back into the field, before anything typed since, on a line of its own ($language)",
+    async ({ question, since }) => {
+      onQuestion.mockResolvedValue(false);
+      await show(null, KEYS, { mode: "ask" });
+      await type(question);
+      await press("Enter");
+      expect(field().value).toBe(question);
 
-    let resolve: (asked: boolean) => void = () => undefined;
-    onQuestion.mockReturnValue(
-      new Promise((done) => {
-        resolve = done;
-      }),
-    );
-    await press("Enter");
-    await type("Another");
-    await act(async () => resolve(false));
-    expect(field().value).toBe("Another");
-  });
+      const refused = Promise.withResolvers<boolean>();
+      onQuestion.mockReturnValueOnce(refused.promise);
+      await press("Enter");
+      await type(since);
+      await act(async () => refused.resolve(false));
+      expect(field().value).toBe(`${question}\n${since}`);
+      expect(sentToCore().every((text) => text === "")).toBe(true);
+    },
+  );
 
-  // protects=a question refused after the field went to Note never lands in it, where it would be kept to go into the Note; fails_when=it comes back into the Note field or is sent to the core as a note; no_claim=the thread's line for why.
-  test("a question refused after the field went to Note doesn't come back into it, nor is kept for the Note", async () => {
+  // protects=a question refused after the field went to Note isn't put in it, where it would be kept as a note, and isn't lost: it waits, and is in the field the next time it is in Ask, before what it holds; fails_when=it lands in the Note field, is sent to the core as a note (which a Stop or a closed panel adds to the Note), or is gone in Ask; no_claim=the thread's line for why.
+  test("a question refused after the field went to Note waits, never kept for the Note, and is in the field the next time it is in Ask, before what it holds", async () => {
     const refused = Promise.withResolvers<boolean>();
     onQuestion.mockReturnValueOnce(refused.promise);
     await show(null, KEYS, { mode: "ask" });
@@ -769,7 +789,26 @@ describe("the field's Note | Ask (#2925)", () => {
     await show(null, KEYS, { mode: "note" });
     await act(async () => refused.resolve(false));
     expect(field().value).toBe("");
-    expect(sentToCore()).not.toContain("Who signs the order form?");
+    await type("Budget 40k");
+    await show(null, KEYS, { mode: "ask" });
+    expect(field().value).toBe("Who signs the order form?\nBudget 40k");
+    expect(sentToCore().some((text) => text.includes("Who signs"))).toBe(false);
+  });
+
+  // protects=a question refused after the panel was collapsed and shown again is in the field on screen now, and the next line typed keeps it; fails_when=only the field collapsed meanwhile shows it, or typing on erases it; no_claim=a panel closed, whose page is new.
+  test("a question refused after the panel was collapsed and shown again is in the field there now, and typing on keeps it", async () => {
+    const refused = Promise.withResolvers<boolean>();
+    onQuestion.mockReturnValueOnce(refused.promise);
+    await show(null, KEYS, { mode: "ask" });
+    await type("Who signs the order form?");
+    await press("Enter");
+    await act(async () => root?.render(null));
+    await show(null, KEYS, { mode: "ask" });
+    await act(async () => refused.resolve(false));
+    expect(field().value).toBe("Who signs the order form?");
+    await type(`${field().value}\nAnd by when?`);
+    expect(kept().text).toBe("Who signs the order form?\nAnd by when?");
+    expect(sentToCore().some((text) => text.includes("Who signs"))).toBe(false);
   });
 
   // protects=a question refused while the panel was collapsed comes back when the bar shows again, in Ask, and is never kept for the Note; fails_when=it is lost, or is sent to the core as a note; no_claim=a collapse and a new ask at once.
@@ -784,6 +823,25 @@ describe("the field's Note | Ask (#2925)", () => {
     await show(null, KEYS, { mode: "ask" });
     expect(field().value).toBe("Who signs the order form?");
     expect(sentToCore()).not.toContain("Who signs the order form?");
+  });
+
+  // protects=a question refused while an input method composes the next line leaves the composition alone and comes back before it once it is committed; fails_when=the field is rewritten mid-composition, or the question is lost after it; no_claim=a real input method's events.
+  test("a question refused while an input method composes the next line comes back before it once it is committed", async () => {
+    const refused = Promise.withResolvers<boolean>();
+    onQuestion.mockReturnValueOnce(refused.promise);
+    await show(null, KEYS, { mode: "ask" });
+    await type("订单由谁签字？");
+    await press("Enter");
+    await fire(field(), "compositionstart");
+    await type("shen");
+    await act(async () => refused.resolve(false));
+    expect(field().value).toBe("shen");
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field()), "value")?.set;
+      setter?.call(field(), "什么时候");
+      field().dispatchEvent(new window.Event("compositionend", { bubbles: true }));
+    });
+    expect(field().value).toBe("订单由谁签字？\n什么时候");
   });
 
   // protects=a line typed in Note and then switched to Ask stays in the field but is no longer kept for the Note, and switched back it is again; fails_when=switching clears the field, or a question goes into the Note on Stop; no_claim=the panel's own memory of the mode.
