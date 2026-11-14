@@ -1453,7 +1453,7 @@ export function createAnswers(options: AnswersOptions) {
      */
     assistant?: Pick<
       MindToolsOptions,
-      "focused" | "folderId" | "origin" | "lastAnswer" | "remake" | "touched"
+      "focused" | "folderId" | "origin" | "lastAnswer" | "remake" | "touched" | "everyDocument"
     > & {
       /** What the commands of the Conversation's earlier Answers renamed, oldest first. */
       renames: readonly CommandRename[];
@@ -4329,6 +4329,7 @@ export function createAnswers(options: AnswersOptions) {
     folderInFront: string | null,
     remake: string | null = null,
     namedScope: SearchScope | null = null,
+    everyDocument = false,
   ): ConversationAskResult {
     const { conversation, question, answer } = turn;
     const callOnly = help !== null && HELP_DOCUMENTS[help] === null;
@@ -4519,6 +4520,7 @@ export function createAnswers(options: AnswersOptions) {
         wallId,
         lastAnswer: lastAnswerOf(conversation.id, earlier, filedIn, options.interfaceLanguage()),
         remake,
+        ...(everyDocument && { everyDocument }),
         renames: renamesIn(earlier),
         commands,
         touched: touchedIn(earlier),
@@ -5028,6 +5030,7 @@ export function createAnswers(options: AnswersOptions) {
         front,
         remake,
         scoped,
+        everyDocument,
       );
     },
 

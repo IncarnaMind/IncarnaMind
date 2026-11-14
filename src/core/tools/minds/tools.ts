@@ -266,6 +266,8 @@ export interface MindToolsOptions {
   paragraph: ParagraphAsked;
   /** Where a new Mind goes: the Folder of the Question's Search scope when that is one Folder. */
   folderId: string | null;
+  /** The Answer writes again from every Document (Use all, #1149): what it writes is checked there too (#3087). */
+  everyDocument?: boolean;
   /**
    * Where a new Mind asked for in the Folder `asked` is filed, by the Folder wall the Question
    * was asked behind (#1934); null: it can't be filed, so none is made.
@@ -2169,6 +2171,7 @@ export function mindTools(options: MindToolsOptions): {
         prepared: options.prepared,
         signal,
         ...(answerFailed && { answerFailed }),
+        ...(options.everyDocument && { allDocuments: true }),
         edit: (change) => minds.edit(mindId, change),
         progressed: heard,
         ended: (check) => {
