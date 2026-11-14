@@ -1910,14 +1910,6 @@
     font-weight: 600;
     color: var(--color-ink);
   }
-  /* "18 figures · Open schedule": the Figure schedule's door from the badge (#1932). */
-  .mind-health-link {
-    color: var(--color-accent-strong);
-
-    &:hover {
-      text-decoration: underline;
-    }
-  }
   .mind-health-sep {
     color: var(--color-ink-placeholder);
   }
@@ -6239,6 +6231,50 @@
     max-height: min(calc(100vh - 16px), var(--card-room, 100vh));
     overflow-y: auto;
   }
+  /*
+   * A sentence's check card (#2869): the verdict, the sentence, why, one quote, what to do, in one
+   * column with no indent under the verdict's mark; the card's ⋯ sits on the verdict's line.
+   */
+  .claim-card {
+    gap: 8px;
+
+    :is(
+        .claim-card-sentence,
+        .claim-card-says,
+        .citation-card-note,
+        .citation-card-source,
+        .citation-card-quote,
+        .citation-card-actions
+      ) {
+      padding-left: 0;
+    }
+    .citation-card-head {
+      gap: 8px;
+    }
+    .citation-badge {
+      padding-right: 28px;
+      font-size: 13px;
+      line-height: 20px;
+    }
+    /* A cited quote's words start at the card's edge, as the other lines do. */
+    .claim-card-cited {
+      width: calc(100% + 4px);
+      margin-left: -4px;
+    }
+    .record-cite {
+      padding-left: 0;
+    }
+  }
+  /* A part that needs a look, marked in the sentence: its verdict's wash and a 2px line under it. */
+  .claim-sentence-mark {
+    padding: 1px 2px;
+    border-radius: 2px;
+    background: var(--check-wash);
+    box-shadow: inset 0 -2px 0 var(--check-ink);
+    color: var(--color-ink);
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
+  }
   .claim-parts {
     list-style: none;
     margin: 0;
@@ -6249,47 +6285,189 @@
   }
   .claim-part {
     position: relative;
-    padding-top: 10px;
-    border-top: 1px solid var(--color-rule);
-  }
-  .claim-part-words {
-    color: var(--color-ink);
-    padding-right: 22px;
-  }
-  .claim-part-result {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-  /* A row's Add as Citation sits at the end of its result line, so the rows keep their height. */
-  .citation-card-action.claim-part-add {
-    height: 24px;
-    margin-inline-start: auto;
-    padding: 0 8px;
-  }
-  .claim-part-citation {
     display: flex;
     flex-direction: column;
     gap: 4px;
+  }
+  .claim-part-reason {
+    color: var(--color-ink-secondary);
+  }
+  .claim-part-words {
+    color: var(--color-ink);
+  }
+  .claim-part-actions {
+    padding-top: 4px;
+  }
+  /* One quote and its Location line; its own menu opens from a right-click or the menu key on it. */
+  .claim-quote {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+  .claim-part-citation {
+    display: block;
     width: 100%;
     text-align: start;
     border-radius: 4px;
-    margin-top: 6px;
-  }
-  .claim-part-source {
-    color: var(--color-ink-meta);
-    max-width: 100%;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    color: var(--color-ink);
   }
   .claim-part-quote {
     text-align: start;
     white-space: pre-wrap;
+    overflow-wrap: break-word;
     display: -webkit-box;
-    -webkit-line-clamp: 2;
+    -webkit-line-clamp: 4;
     -webkit-box-orient: vertical;
     overflow: hidden;
+  }
+  .claim-quote-menu {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    overflow: hidden;
+    visibility: hidden;
+  }
+  /* The quote on a card of one part: the same words, set as a part's are, and they open the page. */
+  .claim-card .citation-card-quote blockquote,
+  .claim-quote-open {
+    max-height: 10rem;
+    margin: 0;
+    overflow-y: auto;
+    font-family: var(--font-sans);
+    font-size: 13px;
+    line-height: 20px;
+    color: var(--color-ink);
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+  }
+  .claim-quote-open {
+    display: block;
+    width: 100%;
+    border-radius: 4px;
+    text-align: start;
+  }
+  .claim-quote-where {
+    min-width: 0;
+    font-size: var(--text-meta);
+    line-height: 18px;
+    color: var(--color-ink-meta);
+  }
+  .claim-where-source {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 4px;
+    min-width: 0;
+    max-width: 100%;
+
+    /* The Citation's number right after the place, as the sentence shows it. */
+    .claim-card-cited {
+      display: inline-flex;
+      flex-shrink: 0;
+      width: auto;
+      margin: 0;
+      padding: 0;
+    }
+  }
+  .claim-part-source {
+    min-width: 0;
+    color: var(--color-ink-meta);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .claim-quote-link {
+    border-radius: 3px;
+    font-weight: 600;
+    color: var(--color-accent);
+    white-space: nowrap;
+
+    &:hover {
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+  }
+  /* The card's foot: what is folded, behind one Show, and the card's one "Checked by me". */
+  .claim-card-foot {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+
+    &[data-folded] {
+      padding-top: 8px;
+      border-top: 1px solid var(--color-rule);
+    }
+  }
+  .claim-card-foot-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 4px 8px;
+  }
+  .claim-fold-line {
+    min-width: 0;
+    font-size: var(--text-meta);
+    line-height: 18px;
+    color: var(--color-ink-meta);
+  }
+  .claim-fold-icon {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    margin-right: 6px;
+    vertical-align: -2px;
+    color: var(--color-success);
+  }
+  .claim-fold-what {
+    font-weight: 600;
+    color: var(--color-ink-secondary);
+  }
+  .claim-sign {
+    margin-inline-start: auto;
+  }
+  .claim-sign-toggle {
+    height: 24px;
+    padding: 0 8px;
+    border-radius: 6px;
+    box-shadow: inset 0 0 0 1px var(--color-rule);
+    font-size: var(--text-meta);
+    font-weight: 600;
+    color: var(--color-ink-secondary);
+
+    &:hover {
+      background: var(--color-frame);
+    }
+  }
+  /* About this check, at the foot of the card's ⋯: where it looked, the model and the time. */
+  .claim-about {
+    padding: 4px 0 4px;
+  }
+  .claim-about-title {
+    padding: 2px 10px;
+    font-size: 13px;
+    line-height: 20px;
+    color: var(--color-ink);
+  }
+  .claim-about-lines {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    max-width: 280px;
+    padding: 2px 10px 4px;
+    border-radius: 5px;
+
+    &:focus-visible {
+      outline: 2px solid var(--color-accent);
+      outline-offset: -2px;
+    }
+    :is(.citation-card-note, .claim-card-checked-by) {
+      padding: 0;
+    }
   }
   /* A file's property says its date or count in full, so its row wraps (#2458). */
   .claim-property {
@@ -6299,11 +6477,6 @@
     white-space: normal;
     overflow: visible;
     border-radius: 4px;
-  }
-  .claim-part-menu {
-    position: absolute;
-    top: 8px;
-    right: 0;
   }
 
   /* Which sentence the card is about: its words, two lines at most, under the verdict's title. */
@@ -6328,13 +6501,15 @@
     color: var(--color-ink-meta);
   }
 
-  .claim-card-checked-by-name,
+  /* A name is one piece of its line, and one wider than the line wraps at its own spaces: by the
+     line's own width, so it is right in the first frame, before any script has measured the line
+     (a menu lays its items out only as it shows). */
+  .claim-card-checked-by-name {
+    display: inline-block;
+    max-width: 100%;
+  }
   .claim-card-checked-by-when {
     white-space: nowrap;
-  }
-
-  .claim-card-checked-by-name--wide {
-    white-space: normal;
   }
 
   /* A figure a check worked out (#707): how, then each input's Citation. */

@@ -9,6 +9,7 @@ import {
   launchApp,
   motionSettled,
   newMind,
+  openCardMenu,
   pointAndClick,
   removeDataFolder,
   setLanguage,
@@ -92,18 +93,26 @@ for (const language of ["en", "zh-CN"] as const) {
       "Harbours publish the times of high water every 12 months.",
     );
     await expect(card.getByTestId("claim-nothing")).toHaveCount(0);
-    await expect(card.getByTestId("claim-open")).toHaveText(words.open);
+    // Its two buttons: Fix the sentence, then Keep as my view (#2869).
+    await expect(card.locator(".citation-card-actions button")).toHaveCount(2);
     await expect(card.getByTestId("claim-fix")).toHaveText(words.fix);
-    // The card keeps to what helps with this: no more ways to look, not even in its ⋯, and the mark can go.
-    await expect(card.getByTestId("claim-find-sources")).toHaveCount(0);
-    await expect(card.getByTestId("check-menu")).toHaveCount(0);
-    await expect(card.getByTestId("claim-search-web")).toHaveCount(0);
-    await expect(card.getByTestId("claim-remove")).toBeVisible();
-    // With no Citation it can still be cut or kept.
-    await expect(card.getByTestId("claim-cut-sentence")).toBeVisible();
     await expect(card.getByTestId("claim-keep")).toBeVisible();
-    // Open the page opens the Document beside the Mind, as a Citation does.
-    await pointAndClick(window, card.getByTestId("claim-open"));
+    // The rest under ⋯, Open the page first: no more ways to look, and the mark can go.
+    const menu = await openCardMenu(window, card);
+    await expect(menu.locator('[role="menuitem"]').first()).toHaveAttribute(
+      "data-testid",
+      "claim-open",
+    );
+    await expect(menu.getByTestId("claim-open")).toHaveText(words.open);
+    await expect(menu.getByTestId("check.findSources")).toHaveCount(0);
+    await expect(menu.getByTestId("claim-search-web")).toHaveCount(0);
+    await expect(menu.getByTestId("claim-remove")).toBeVisible();
+    // With no Citation it can still be cut.
+    await expect(menu.getByTestId("claim-cut-sentence")).toBeVisible();
+    await window.keyboard.press("Escape");
+    await expect(menu).toBeHidden();
+    // The quote opens the Document beside the Mind at the page, as a Citation does.
+    await pointAndClick(window, card.getByTestId("claim-open-quote"));
     await expect(window.getByTestId("viewer")).toBeVisible();
     // Fix the sentence selects it to write over.
     await pointAndClick(window, marks.first());
@@ -119,12 +128,12 @@ for (const language of ["en", "zh-CN"] as const) {
     // An unrelated sentence keeps today's wording.
     await pointAndClick(window, marks.nth(1));
     await expect(card.getByTestId("claim-nothing")).toHaveText(words.nothing);
-    // Find sources is in the card's ⋯, as the Mind cites no paper or book.
-    await expect(card.getByTestId("claim-find-sources")).toHaveCount(0);
-    await pointAndClick(window, card.getByTestId("check-menu"));
-    await expect(card.getByTestId("check.findSources")).toBeVisible();
+    // Find sources and Search the web are in the card's ⋯, as the Mind cites no paper or book.
+    const nothing = await openCardMenu(window, card);
+    await expect(nothing.getByTestId("check.findSources")).toBeVisible();
+    await expect(nothing.getByTestId("claim-search-web")).toBeVisible();
     await window.keyboard.press("Escape");
-    await expect(card.getByTestId("claim-search-web")).toBeVisible();
+    await expect(nothing).toBeHidden();
     await expect(card.getByTestId("claim-differs")).toHaveCount(0);
     await app.close();
   });

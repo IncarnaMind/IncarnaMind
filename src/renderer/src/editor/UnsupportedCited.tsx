@@ -6,25 +6,32 @@ import { useT } from "../i18n";
 import { openCited, quoteSaysSo } from "../openCited";
 import type { NumberedCitation } from "./citationNumbers";
 import { useCitedOrigin } from "./mindContext";
+import { MoreQuotes } from "./QuoteLink";
 
 /**
  * What a cited sentence's Unsupported card says in place of where the check
  * looked: what its Citations support and what they don't, or
- * the reason the check gave, or that it gave none; then each Citation's quote,
- * which opens at its place.
+ * the reason the check gave, or that it gave none; then the first Citation's quote,
+ * which opens at its place, and a count that opens the others (#2869).
  */
 export function UnsupportedCited({
   cited,
   why,
+  allCited,
+  onMore,
   onCheckAgain,
   onOpen,
 }: {
   cited: readonly NumberedCitation[];
   why: UnsupportedReason | null;
+  /** Every Citation's quote shows, not only the first. */
+  allCited: boolean;
+  onMore(): void;
   onCheckAgain(): void;
   onOpen(): void;
 }) {
   const t = useT();
+  const shown = allCited ? cited : cited.slice(0, 1);
   return (
     <>
       {why?.covered && why.uncovered ? (
@@ -59,7 +66,7 @@ export function UnsupportedCited({
           />
         </div>
       )}
-      {cited.map((citation) => (
+      {shown.map((citation) => (
         <OpenCitation key={citation.key} citation={citation} onOpen={onOpen}>
           {citation.attributes.quote && (
             <span data-testid="claim-cited-quote" className="line-clamp-2 min-w-0">
@@ -69,6 +76,14 @@ export function UnsupportedCited({
           <CitationChip citation={citation} testId="claim-cited-chip" />
         </OpenCitation>
       ))}
+      {cited.length > 1 && (
+        <p className="claim-quote-where">
+          <MoreQuotes
+            more={{ count: cited.length - 1, open: allCited, onToggle: onMore }}
+            testId="claim-cited-more"
+          />
+        </p>
+      )}
     </>
   );
 }

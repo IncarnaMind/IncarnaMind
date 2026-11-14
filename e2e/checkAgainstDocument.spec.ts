@@ -14,6 +14,7 @@ import {
   launchApp,
   motionSettled,
   newMind,
+  openCardMenu,
   pointAndClick,
   removeDataFolder,
   runCommand,
@@ -119,7 +120,11 @@ for (const language of ["en", "zh-CN"] as const) {
   test(`a chosen Document supports and fully rules out a sentence (${language})`, async () => {
     test.setTimeout(240_000);
     const { app, window, card } = await launchClaim(OWN, "Seabirds", language, FILES);
-    await pointAndClick(window, card.getByTestId("claim-check-document"));
+    // Under the card's ⋯, after Search all Documents and Keep as my view (#2869).
+    await pointAndClick(
+      window,
+      (await openCardMenu(window, card)).getByTestId("claim-check-document"),
+    );
     await capture(window, `after-picker-${language}-1440`);
     await choose(window, "Harbour times");
     await expect(window.getByTestId("claim-mark")).toHaveAttribute("data-check", "supported");
@@ -129,7 +134,10 @@ for (const language of ["en", "zh-CN"] as const) {
     await app.close();
 
     const absent = await launchClaim(ABSENT, "Seabirds", language, FILES);
-    await pointAndClick(absent.window, absent.card.getByTestId("claim-check-document"));
+    await pointAndClick(
+      absent.window,
+      (await openCardMenu(absent.window, absent.card)).getByTestId("claim-check-document"),
+    );
     await choose(absent.window, "Harbour times");
     await expect(absent.card.getByTestId("claim-nothing")).toHaveText(
       language === "en"
@@ -166,7 +174,10 @@ test("a partial read says exactly which pages it read, and Stop keeps the old ma
     ],
     900,
   );
-  await pointAndClick(window, card.getByTestId("claim-check-document"));
+  await pointAndClick(
+    window,
+    (await openCardMenu(window, card)).getByTestId("claim-check-document"),
+  );
   await choose(window, "Harbour times");
   await expect(card.getByTestId("claim-nothing")).toHaveText(
     "I read 1 of 3 pages in “Harbour times” and didn’t find this.",
@@ -178,7 +189,10 @@ test("a partial read says exactly which pages it read, and Stop keeps the old ma
     { name: "Long harbour.txt", contents: LONG },
     { name: "Seabirds.txt", contents: ELSEWHERE },
   ]);
-  await pointAndClick(stopped.window, stopped.card.getByTestId("claim-check-document"));
+  await pointAndClick(
+    stopped.window,
+    (await openCardMenu(stopped.window, stopped.card)).getByTestId("claim-check-document"),
+  );
   await choose(stopped.window, "Long harbour");
   const progress = stopped.card.getByTestId("document-check-progress");
   await expect(progress).toBeVisible();

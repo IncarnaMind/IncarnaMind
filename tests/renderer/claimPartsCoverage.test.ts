@@ -139,22 +139,52 @@ async function card(language: string, text: string, parts: ClaimCheckPart[]) {
   });
   // Loaded by path, as the other component tests are: the node typecheck reads no JSX.
   const rowsPath = "../../src/renderer/src/editor/ClaimPartRows.tsx";
-  const { ClaimPartRows }: { ClaimPartRows: ComponentType<Record<string, unknown>> } = await import(
-    rowsPath
-  );
+  const {
+    cardParts,
+    PartBlock,
+    PartsCoverage,
+  }: {
+    cardParts(input: Record<string, unknown>): { key: string; fold: string | null }[];
+    PartBlock: ComponentType<Record<string, unknown>>;
+    PartsCoverage: ComponentType<Record<string, unknown>>;
+  } = await import(rowsPath);
+  // Every row, the folded ones opened as Show opens them (#2869).
+  const rows = cardParts({
+    state: editor.state,
+    text,
+    sentence: text,
+    parts,
+    stale: false,
+    checking: false,
+  });
   await act(() =>
     root?.render(
-      createElement(ClaimPartRows, {
-        editor,
-        id: "check",
-        text,
-        parts,
-        onCheck: () => undefined,
-        onOpen: () => undefined,
-      }),
+      createElement("div", {}, [
+        createElement(PartsCoverage, { key: "coverage", editor, parts, onOpen: () => undefined }),
+        ...rows.map((row) =>
+          createElement(PartBlock, {
+            key: row.key,
+            editor,
+            row,
+            stale: false,
+            checking: false,
+            lookedIn: "",
+            allQuotes: true,
+            more: null,
+            checkId: "check",
+            fix: null,
+            drawsFix: false,
+            onOpen: () => undefined,
+          }),
+        ),
+      ]),
     ),
   );
   return {
+    open: rows.filter((row) => row.fold === null).length,
+    reasons: [...container.querySelectorAll('[data-testid="claim-part-reason"]')].map(
+      (reason) => reason.textContent,
+    ),
     line: container.querySelector('[data-testid="claim-parts-coverage"]')?.textContent ?? null,
     rows: container.querySelectorAll('[data-testid="claim-part"]').length,
   };
@@ -169,6 +199,11 @@ describe.each(CASES)("the coverage line ($language)", (example) => {
     ]);
     expect(shown.line).toBeNull();
     expect(shown.rows).toBe(4);
+    // The member found nowhere is the open one, and its reason starts with its own name (#2869).
+    expect(shown.open).toBe(1);
+    expect(shown.reasons.slice(0, 3)).toEqual(["“Q1”", "“Q2”", "“Q3”"]);
+    expect(shown.reasons[3]?.startsWith("“Q4”")).toBe(true);
+    expect(shown.reasons[3]?.length).toBeGreaterThan("“Q4”".length);
   });
 
   // protects=a sentence of two parts, one of them quantified, shows the coverage line in the interface language above its rows (#2002); fails_when=the line is missing or worded otherwise; no_claim=its place on screen.

@@ -1,7 +1,7 @@
 import type { Editor } from "@tiptap/core";
 import type { EditorState } from "@tiptap/pm/state";
 import type { ReactNode } from "react";
-import { useContext, useLayoutEffect, useRef, useState } from "react";
+import { useContext } from "react";
 import type {
   CitationAttributes,
   ClaimCalculation,
@@ -11,6 +11,7 @@ import type {
   ClaimPartSpan,
   WholeRead,
 } from "../../../core/api";
+import type { Language } from "../../../core/language";
 import {
   citationState,
   citedSpeakers,
@@ -20,10 +21,12 @@ import {
 import { checkedScope, partFoundNothing } from "../../../shared/claimChecks";
 import { coverageCount } from "../../../shared/claimParts";
 import { cardRows, hasKnownDomain } from "../../../shared/claimRows";
-import { citationLocation, formatLocation } from "../../../shared/locations";
+import type { MessageKey, MessageParams } from "../../../shared/i18n";
+import { citationLocation, formatLocation, openKind } from "../../../shared/locations";
 import { checkedByMe } from "../../../shared/signOffs";
+import { MetaLine } from "../components/MetaLine";
+import { dotAfter } from "../components/metaDot";
 import { ObjectMenu, useObjectMenu } from "../components/ObjectMenu";
-import { rowActionButtonClass } from "../components/sidebarRows";
 import type { PartCorrection } from "../correctionFixes";
 import { reasonText } from "../cost";
 import { useLanguage, useT } from "../i18n";
@@ -31,15 +34,17 @@ import { openCited, quoteSaysSo } from "../openCited";
 import { useScopeName } from "../scopeDocuments";
 import { useAppStore } from "../store";
 import { type CitationDecision, partDecisions } from "./alreadyCited";
-import { CorrectButton, CorrectionConflict } from "./CorrectionOffer";
-import { focusFirstAction } from "./cardFocus";
+import { CorrectionConflict, correctionLabel } from "./CorrectionOffer";
+import type { CardAction } from "./cardActions";
 import { useReadableQuote } from "./citationScan";
 import type { ShownClaim } from "./claimChecks";
+import { placeWords } from "./claimSentenceMarks";
 import { ClaimMarkIcon } from "./icons";
 import { LibrarySource } from "./LibrarySource";
 import { SignOffsContext, useCitedOrigin } from "./mindContext";
 import { PropertySource, showFileProperties } from "./PropertySource";
-import { SignOffLine, SignOffToggle } from "./SignOff";
+import { MoreQuotes, type MoreShown, QuoteLink } from "./QuoteLink";
+import { SignOffLine } from "./SignOff";
 import {
   citationSignOff,
   currentSigner,
@@ -51,14 +56,215 @@ import {
 } from "./signOffActions";
 import { CitationChip, OpenCitation } from "./UnsupportedCited";
 
-function PartCitation({
+type Translate = (key: MessageKey, params?: MessageParams) => string;
+
+/** Whether a row of the sentence's card can add a Citation of what it found. */
+export const citesMore = (
+  state: EditorState,
+  claim: ShownClaim,
+  parts: readonly ClaimCheckPart[],
+  onPage?: QuotedWordsOnPage,
+) =>
+  cardRows(parts).some(({ part }) =>
+    partDecisions(state, claim, part, onPage).some(({ decision }) => decision.kind === "add"),
+  );
+
+/** What a marked sentence's card does with the Citations of what its parts found (#2002). */
+export interface PartCitations {
+  claim: ShownClaim;
+  /** The core's verdicts on the sentence's quoted words at the places its parts found. */
+  onPage?: QuotedWordsOnPage;
+  onAdd(parts: readonly ClaimCheckPart[]): void;
+  onWiden(decision: Extract<CitationDecision, { kind: "widen" }>): void;
+  onReplace(decision: Extract<CitationDecision, { kind: "replace" }>): void;
+}
+
+/**
+ * One row of a sentence's card (#2869): a part, or a member of a quantified part's domain. A row
+ * that needs the User is open; a supported one, or one left out as an opinion, folds into the
+ * card's foot line until Show.
+ */
+export interface CardPart {
+  key: string;
+  part: ClaimCheckPart;
+  /** A quantified part's member: its name, which isn't words of the sentence. */
+  label: string | null;
+  /** The part's own words, as its check read them. */
+  words: string;
+  /** Where the row's part stands in the card's sentence; null where it can't be placed. */
+  place: { start: number; end: number } | null;
+  fold: "supported" | "opinion" | null;
+  /** Supported, not yet cited (#3019). */
+  waiting: boolean;
+  /** What the row can do with the Citation of each Passage it found. */
+  decisions: readonly { evidence: CitationAttributes; decision: CitationDecision }[];
+}
+
+export function cardParts({
+  state,
+  text,
+  sentence,
+  parts,
+  stale,
+  checking,
+  citations,
+  waiting,
+  opens,
+}: {
+  state: EditorState;
+  /** The sentence as its check read it, which the parts' spans are in. */
+  text: string;
+  /** The sentence as the card shows it. */
+  sentence: string;
+  parts: readonly ClaimCheckPart[];
+  stale: boolean;
+  checking: boolean;
+  citations?: PartCitations;
+  waiting?: ReadonlySet<ClaimCheckPart>;
+  /** A part left out that the card's verdict is about, which stays open. */
+  opens?: (part: ClaimCheckPart) => boolean;
+}): CardPart[] {
+  const placed = new Map<ClaimCheckPart, { start: number; end: number } | null>();
+  return cardRows(parts).map(({ part, label }, index) => {
+    const original = parts.find((each) => each.span === part.span) ?? part;
+    if (!placed.has(original))
+      placed.set(original, placeWords(sentence, text.slice(part.span.start, part.span.end)));
+    const isWaiting = waiting?.has(part) ?? false;
+    // A member of a quantified part still to be cited stays open with it: its Citation is to add.
+    const toCite = isWaiting || (waiting?.has(original) ?? false);
+    const leftOut = part.verdict === null && !part.itself && !(opens?.(original) ?? false);
+    return {
+      key: `${part.span.start}:${part.span.end}:${label ?? ""}:${index}`,
+      part,
+      label,
+      words: text.slice(part.span.start, part.span.end),
+      place: placed.get(original) ?? null,
+      fold: part.verdict === "supported" && !toCite ? "supported" : leftOut ? "opinion" : null,
+      waiting: isWaiting,
+      decisions:
+        citations && !stale && !checking
+          ? partDecisions(state, citations.claim, part, citations.onPage)
+          : [],
+    };
+  });
+}
+
+/** The colours a row takes: its verdict's, and the quiet ones while its check is to be read again. */
+export function partTone(row: CardPart, stale: boolean): string {
+  if (stale || row.part.verdict === "checking") return "checking";
+  if (row.waiting) return "cant-check";
+  switch (row.part.verdict) {
+    case "supported":
+      return "found";
+    case "contradicted":
+      return "contradicted";
+    case "unsupported":
+      return "unsupported";
+    default:
+      return "cant-check";
+  }
+}
+
+/** A row's verdict in words, for a screen reader, which hears every row in the sentence's order. */
+export function partVerdictText(t: Translate, row: CardPart, stale: boolean): string {
+  const { part } = row;
+  if (stale) return t("claim.why.needs-recheck");
+  if (part.verdict === null) return t(part.itself ? "claim.itself" : "claim.opinion");
+  if (row.waiting) return t("claim.state.notYetCited");
+  switch (part.verdict) {
+    case "checking":
+      return t("claim.part.checking");
+    case "supported":
+      return t("claim.state.supported");
+    case "contradicted":
+      return t("claim.why.contradicted");
+    case "not-checked":
+      return t("claim.state.not-checked");
+    default:
+      return partFoundNothing(part)
+        ? t("claim.why.notFound")
+        : part.unsupported?.kind === "units"
+          ? t("claim.why.unitsMayDiffer")
+          : t("claim.why.unsupported");
+  }
+}
+
+/** Why a row needs the User, in one sentence; null for a row whose verdict says it all. */
+export function partReason(
+  t: Translate,
+  language: Language,
+  row: CardPart,
+  { stale, lookedIn, read }: { stale: boolean; lookedIn: string; read?: WholeRead },
+): string | null {
+  const { part } = row;
+  if (row.waiting && !stale) {
+    const replacing = row.decisions.find(({ decision }) => decision.kind === "replace")?.decision;
+    if (replacing?.kind === "replace")
+      return t(
+        replacing.citation.attributes.check === "not-found"
+          ? "claim.replaceCitation.quoteNotFound"
+          : "claim.replaceCitation.doesntSupport",
+      );
+    return row.decisions.some(({ decision }) => decision.kind === "widen")
+      ? t("claim.widenCitation.note")
+      : t("claim.notYetCited");
+  }
+  if (part.verdict === null) return t(part.itself ? "claim.itself" : "claim.opinion");
+  if (part.verdict === "checking") return t("claim.part.checking");
+  if (part.verdict === "not-checked")
+    return part.reason ? reasonText(t, language, part.reason, part.detail) : null;
+  if (part.verdict === "contradicted") return part.says;
+  if (part.verdict !== "unsupported") return null;
+  if (part.unsupported?.kind === "forecast-certainty") return t("claim.forecast");
+  if (part.unsupported?.kind === "unbacked-cause") return t("claim.unbackedCause");
+  if (part.unsupported?.reason) return part.unsupported.reason;
+  // Its quote is a Passage the check found that doesn't back it, as a one-part card's is (#770).
+  if (part.evidence.length > 0) return t("claim.unsupported.differs");
+  if (read)
+    return t(
+      read.pages === read.of
+        ? "claim.readAll.notFound"
+        : read.of === 1
+          ? "claim.readSome.notFound.one"
+          : "claim.readSome.notFound",
+      { scope: lookedIn, pages: read.pages, of: read.of },
+    );
+  return t("claim.unsupported.notFound", { scope: lookedIn });
+}
+
+/** The scope a parts card's check looked in, by its name. */
+export function useLookedIn(scope?: ClaimCheckScope): string {
+  const t = useT();
+  const looked = useScopeName(scope ? checkedScope(scope) : null);
+  return looked?.name ?? t("composer.scope.all");
+}
+
+/**
+ * One quote and its Location line: the Document, the place, the Citation's number where the
+ * sentence cites it, a count of more that opens the rest, and what can be done with its Citation
+ * (#2869). The quote opens the Document at it; its own menu (right-click, or the menu key on the
+ * focused quote) opens it and signs it alone.
+ */
+export function PartQuote({
   editor,
   citation,
+  decision,
+  more,
   onOpen,
+  citations,
+  part,
+  signedAll = false,
 }: {
   editor: Editor;
   citation: CitationAttributes;
+  decision?: CitationDecision;
+  /** The count of the part's other quotes, which opens them. */
+  more?: ReactNode;
   onOpen(): void;
+  citations?: PartCitations;
+  part: ClaimCheckPart;
+  /** The card's one "Checked by me" says the User's own mark on every quote. */
+  signedAll?: boolean;
 }) {
   const origin = useCitedOrigin();
   const t = useT();
@@ -105,51 +311,110 @@ function PartCitation({
     );
     onOpen();
   };
-  const contents = (
-    <>
-      <span className="claim-part-source" title={source}>
-        {source}
-      </span>
-      {citation.quote && <span className="claim-part-quote citation-card-wash">{quote}</span>}
-    </>
-  );
+  const what = decision ?? { kind: "none" as const };
+  const citing =
+    what.kind === "already" ? (
+      <OpenCitation
+        citation={what.citation}
+        label={t("claim.alreadyCited.open", { number: what.citation.number })}
+        onOpen={onOpen}
+      >
+        <CitationChip citation={what.citation} testId="claim-part-already-chip" />
+      </OpenCitation>
+    ) : null;
+  const link =
+    citations && what.kind === "add" ? (
+      <QuoteLink testId="claim-part-add-citation" onClick={() => citations.onAdd([part])}>
+        {t("claim.addAsCitation")}
+      </QuoteLink>
+    ) : citations && what.kind === "widen" ? (
+      <QuoteLink testId="claim-part-widen-citation" onClick={() => citations.onWiden(what)}>
+        {t("claim.widenCitation")}
+      </QuoteLink>
+    ) : citations && what.kind === "replace" ? (
+      <QuoteLink testId="claim-part-replace-citation" onClick={() => citations.onReplace(what)}>
+        {t("claim.replaceCitation")}
+      </QuoteLink>
+    ) : null;
+  // The User's own mark on every quote is the card's one toggle; one on some of them, someone
+  // else's, or one that changed since, is said where it is.
+  const ownNow = signedAll && checkedByMe(signOff);
   return (
-    <div data-testid="claim-part-receipt" data-citation-id={id ?? undefined} {...menu.rowProps}>
-      {library ? (
-        <LibrarySource
-          location={library}
-          className="claim-part-citation claim-part-source claim-property"
-          testId="claim-part-library"
-        />
-      ) : property ? (
-        <PropertySource
-          citation={citation}
-          location={property}
-          className="claim-part-citation claim-part-source claim-property"
-          testId="claim-part-property"
-          onOpen={onOpen}
-        />
-      ) : citation.documentId ? (
-        <button
-          type="button"
-          className="claim-part-citation"
-          data-testid="claim-part-citation"
-          onClick={open}
-        >
-          {contents}
-        </button>
+    <div
+      data-testid="claim-part-receipt"
+      data-citation-id={id ?? undefined}
+      className="claim-quote"
+      {...menu.rowProps}
+    >
+      {library || property ? (
+        <>
+          {library ? (
+            <LibrarySource
+              location={library}
+              className="claim-part-citation claim-part-source claim-property"
+              testId="claim-part-library"
+            />
+          ) : (
+            property && (
+              <PropertySource
+                citation={citation}
+                location={property}
+                className="claim-part-citation claim-part-source claim-property"
+                testId="claim-part-property"
+                onOpen={onOpen}
+              />
+            )
+          )}
+          {/* The place says itself above; its Citation, its count and its link still have a line. */}
+          {(citing || more || link) && (
+            <MetaLine className="claim-quote-where" parts={[citing, more, link]} />
+          )}
+        </>
       ) : (
-        <div className="claim-part-citation">{contents}</div>
+        <>
+          {citation.quote &&
+            (citation.documentId ? (
+              <button
+                type="button"
+                className="claim-part-citation"
+                data-testid="claim-part-citation"
+                title={t(`citation.open.${openKind(location)}`)}
+                onClick={open}
+              >
+                <span className="claim-part-quote">
+                  <span className="citation-card-wash">{quote}</span>
+                </span>
+              </button>
+            ) : (
+              <p className="claim-part-citation">
+                <span className="claim-part-quote">
+                  <span className="citation-card-wash">{quote}</span>
+                </span>
+              </p>
+            ))}
+          <MetaLine
+            className="claim-quote-where"
+            parts={[
+              <span key="source" className="claim-where-source">
+                <span className="claim-part-source" title={source}>
+                  {source}
+                </span>
+                {citing}
+              </span>,
+              more,
+              link,
+            ]}
+          />
+        </>
       )}
-      <SignOffLine now={signOff} />
-      {canSignOff && (
-        <SignOffToggle now={signOff} onToggle={toggle} className="citation-card-action" />
-      )}
+      {!ownNow && <SignOffLine now={signOff} />}
       {target && (
         <ObjectMenu
           target={target}
           label={t("claim.more")}
-          className={rowActionButtonClass}
+          className="claim-quote-menu"
+          testId="claim-quote"
+          tabIndex={-1}
           align="end"
           without={["citation.update", "citation.keepOld", "citation.remove"]}
           here={{
@@ -165,130 +430,50 @@ function PartCitation({
   );
 }
 
-/** Whether a row of the sentence's card can add a Citation of what it found. */
-export const citesMore = (
-  state: EditorState,
-  claim: ShownClaim,
-  parts: readonly ClaimCheckPart[],
-  onPage?: QuotedWordsOnPage,
-) =>
-  cardRows(parts).some(({ part }) =>
-    partDecisions(state, claim, part, onPage).some(({ decision }) => decision.kind === "add"),
-  );
-
-/** What a marked sentence's card does with the Citations of what its parts found (#2002). */
-export interface PartCitations {
-  claim: ShownClaim;
-  /** The core's verdicts on the sentence's quoted words at the places its parts found. */
-  onPage?: QuotedWordsOnPage;
-  onAdd(parts: readonly ClaimCheckPart[]): void;
-  onWiden(decision: Extract<CitationDecision, { kind: "widen" }>): void;
-  onReplace(decision: Extract<CitationDecision, { kind: "replace" }>): void;
-}
-
 /**
- * A supported row's Citations, by the sentence card's rules: the one it already
- * has, or Widen or Replace the one there. Add as Citation sits on its result line.
+ * A row of the card: why it needs the User, in one sentence, and one quote with its Location, the
+ * rest behind a count (#2869). Its words aren't written again: the sentence marks them, and only a
+ * row whose words can't be marked there, or a member of a quantified part, starts with them.
  */
-function PartCiting({
-  citing,
-  citations,
-  onOpen,
-}: {
-  citing: readonly CitationDecision[];
-  citations: PartCitations;
-  onOpen(): void;
-}) {
-  const t = useT();
-  const already = [
-    ...new Map(
-      citing.flatMap((decision) =>
-        decision.kind === "already" ? [[decision.citation.number, decision.citation] as const] : [],
-      ),
-    ).values(),
-  ];
-  const widen = citing.filter((decision) => decision.kind === "widen");
-  const replace = citing.filter((decision) => decision.kind === "replace");
-  return (
-    <>
-      {already.map((citation) => (
-        <OpenCitation
-          key={citation.number}
-          citation={citation}
-          label={t("claim.alreadyCited.open", { number: citation.number })}
-          onOpen={onOpen}
-        >
-          <span data-testid="claim-part-already-cited">{t("claim.alreadyCited")}</span>
-          <CitationChip citation={citation} testId="claim-part-already-chip" />
-        </OpenCitation>
-      ))}
-      {widen.length > 0 && (
-        <button
-          type="button"
-          data-testid="claim-part-widen-citation"
-          className="citation-card-action"
-          onClick={() => {
-            for (const decision of widen) citations.onWiden(decision);
-          }}
-        >
-          {t("claim.widenCitation")}
-        </button>
-      )}
-      {replace.length > 0 && (
-        <button
-          type="button"
-          data-testid="claim-part-replace-citation"
-          className="citation-card-action"
-          onClick={() => {
-            for (const decision of replace) citations.onReplace(decision);
-          }}
-        >
-          {t("claim.replaceCitation")}
-        </button>
-      )}
-    </>
-  );
-}
-
-function PartRow({
+export function PartBlock({
   editor,
-  id,
-  text,
-  words,
-  part,
-  onCheck,
-  onUseWording,
-  correction,
-  onCorrect,
-  onOpen,
-  working,
+  row,
+  stale,
+  checking,
   lookedIn,
   read,
-  checking,
-  stale,
-  citing,
+  allQuotes,
+  more,
+  correction,
+  checkId,
+  fix,
+  drawsFix,
+  signedAll = false,
+  onOpen,
+  working,
   citations,
-  waiting,
 }: {
   editor: Editor;
-  id: string;
-  text: string;
-  words?: string;
-  part: ClaimCheckPart;
-  /** It is Supported, not yet cited (#3019). */
-  waiting: boolean;
-  onCheck(span: ClaimPartSpan): void;
-  onUseWording?(part: ClaimCheckPart): void;
-  /** The part's correction from the Documents, when its old words are still in place. */
-  correction?: ClaimCorrection;
-  onCorrect?(span: ClaimPartSpan): void;
-  onOpen(): void;
+  row: CardPart;
+  stale: boolean;
+  checking: boolean;
   lookedIn: string;
   read?: WholeRead;
-  checking: boolean;
-  stale: boolean;
+  /** Every quote shows, not only the first. */
+  allQuotes: boolean;
+  /** The count on the first quote's Location line that opens the others, and folds them again. */
+  more: MoreShown | null;
+  correction?: ClaimCorrection;
+  /** The check the row is part of, whose row menu (right-click, or the menu key) holds its fix. */
+  checkId: string;
+  /** The row's own fix (`partFix`). */
+  fix: CardAction | null;
+  /** The fix is drawn under the row's quote: a row left out, or a card with fixes for more than one row (#2869). */
+  drawsFix: boolean;
+  /** The card's one "Checked by me" stands for every quote: a quote doesn't repeat it. */
+  signedAll?: boolean;
+  onOpen(): void;
   working?(calculation: ClaimCalculation): ReactNode;
-  citing: readonly CitationDecision[];
   citations?: PartCitations;
 }) {
   const t = useT();
@@ -296,7 +481,17 @@ function PartRow({
   const documents = useAppStore((store) =>
     store.status.kind === "ready" ? store.documents : null,
   );
-  const omitted = !stale && part.kind === "opinion" && part.verdict === null;
+  const { part } = row;
+  const target = { kind: "check", id: `${checkId}:${part.span.start}:${part.span.end}` } as const;
+  const menu = useObjectMenu(target);
+  const menuFix =
+    fix?.testId === "claim-part-check-anyway"
+      ? { "check.anyway": fix.onClick }
+      : fix?.testId === "claim-use-wording"
+        ? { "check.useDocumentWording": fix.onClick }
+        : null;
+  const reason = partReason(t, language, row, { stale, lookedIn, read });
+  const named = row.label ?? (row.place === null ? row.words : null);
   const held =
     part.citedCaseFound &&
     (part.verdict === "supported" ||
@@ -305,96 +500,29 @@ function PartRow({
       ? part.evidence.find((citation) => citationLocation(citation) !== null)
       : undefined;
   const heldAt = held ? citationLocation(held) : null;
-  const state = stale ? "needs-recheck" : part.verdict;
-  const showsNotFound = !stale && partFoundNothing(part);
-  const target = { kind: "check", id: `${id}:${part.span.start}:${part.span.end}` } as const;
-  const menu = useObjectMenu(target);
-  const notYetCited = waiting && !stale;
-  // Where the row offers Replace or Widen, that action's own note says why its ✓ waits.
-  const replacing = citing.find(
-    (decision): decision is Extract<CitationDecision, { kind: "replace" }> =>
-      decision.kind === "replace",
-  );
-  const reason = notYetCited
-    ? replacing
-      ? t(
-          replacing.citation.attributes.check === "not-found"
-            ? "claim.replaceCitation.quoteNotFound"
-            : "claim.replaceCitation.doesntSupport",
-        )
-      : citing.some((decision) => decision.kind === "widen")
-        ? t("claim.widenCitation.note")
-        : t("claim.notYetCited")
-    : part.verdict === "not-checked" && part.reason
-      ? reasonText(t, language, part.reason, part.detail)
-      : part.verdict !== "unsupported"
-        ? null
-        : part.unsupported?.kind === "forecast-certainty"
-          ? t("claim.forecast")
-          : part.unsupported?.kind === "unbacked-cause"
-            ? t("claim.unbackedCause")
-            : (part.unsupported?.reason ??
-              (part.verdict !== "unsupported"
-                ? null
-                : read
-                  ? t(
-                      read.pages === read.of
-                        ? "claim.readAll.notFound"
-                        : read.of === 1
-                          ? "claim.readSome.notFound.one"
-                          : "claim.readSome.notFound",
-                      {
-                        scope: lookedIn,
-                        pages: read.pages,
-                        of: read.of,
-                      },
-                    )
-                  : t("claim.unsupported.notFound", { scope: lookedIn })));
-  const offered = !stale && !checking && onCorrect ? correction : undefined;
-  const wording =
-    !stale &&
-    !checking &&
-    part.unsupported?.kind === "forecast-certainty" &&
-    Boolean(part.unsupported.quoted?.quote ?? part.evidence[0]?.quote) &&
-    onUseWording;
+  const quotes = allQuotes ? part.evidence : part.evidence.slice(0, 1);
+  const decisionOf = (citation: CitationAttributes) =>
+    row.decisions.find((each) => each.evidence === citation)?.decision;
+  // One Add, Widen or Replace a row, on its first quote that offers it, as the row had one button.
+  const firstCiting = part.evidence.find((citation) => {
+    const kind = decisionOf(citation)?.kind;
+    return kind === "add" || kind === "widen" || kind === "replace";
+  });
   return (
     <li
-      className={`claim-part citation-card--${stale ? "checking" : part.verdict === "supported" ? "found" : part.verdict === "contradicted" ? "contradicted" : part.verdict === "unsupported" ? "unsupported" : "cant-check"}`}
+      className={`claim-part citation-card--${partTone(row, stale)}`}
       data-testid="claim-part"
       data-kind={part.kind}
-      tabIndex={-1}
-      data-verdict={state ?? "opinion"}
+      data-verdict={stale ? "needs-recheck" : (part.verdict ?? "opinion")}
+      data-fold={row.fold ?? undefined}
       {...menu.rowProps}
     >
-      <p className="claim-part-words">{words ?? text.slice(part.span.start, part.span.end)}</p>
-      <p className="claim-part-result">
-        {state !== null && <ClaimMarkIcon state={state} className="citation-badge-icon" />}
-        <span>
-          {state === null
-            ? t(part.itself ? "claim.itself" : "claim.opinion")
-            : notYetCited
-              ? t("claim.state.notYetCited")
-              : state === "checking"
-                ? t("claim.part.checking")
-                : state === "unsupported" && showsNotFound
-                  ? t("claim.state.notFound")
-                  : state === "unsupported" && part.unsupported?.kind === "units"
-                    ? t("claim.state.unitsMayDiffer")
-                    : t(`claim.state.${state}`)}
-        </span>
-        {citations && citing.some((decision) => decision.kind === "add") && (
-          <button
-            type="button"
-            data-testid="claim-part-add-citation"
-            className="citation-card-action claim-part-add"
-            onClick={() => citations.onAdd([part])}
-          >
-            {t("claim.addAsCitation")}
-          </button>
-        )}
-      </p>
-      {reason && (
-        <p className="citation-card-note" data-testid="claim-part-reason">
+      {(named !== null || reason) && (
+        <p className="claim-part-reason" data-testid="claim-part-reason" aria-hidden="true">
+          {named !== null && (
+            <span className="claim-part-words">{t("claim.sentence", { sentence: named })}</span>
+          )}
+          {named !== null && reason && language !== "zh-CN" ? " " : ""}
           {reason}
         </p>
       )}
@@ -417,72 +545,62 @@ function PartRow({
           })}
         </p>
       )}
-      {part.says && part.verdict === "contradicted" && (
-        <p className="claim-card-says">{part.says}</p>
-      )}
-      {offered && <CorrectionConflict correction={offered} />}
+      {correction && !stale && !checking && <CorrectionConflict correction={correction} />}
       {part.verdict === "supported" && part.currencyClause && (
         <p data-testid="claim-part-currency-clause" className="citation-card-note">
           {part.currencyClause}
         </p>
       )}
-      {part.evidence.map((citation) => (
-        <PartCitation
-          editor={editor}
-          key={
-            citation.id ??
-            JSON.stringify([
-              citation.documentId,
-              citation.contentHash,
-              citation.pageFrom,
-              citation.pageTo,
-              citation.location,
-              citation.quote,
-            ])
-          }
-          citation={citation}
-          onOpen={onOpen}
-        />
-      ))}
+      {quotes.map((citation, index) => {
+        const decision = decisionOf(citation);
+        return (
+          <PartQuote
+            key={
+              citation.id ??
+              JSON.stringify([
+                citation.documentId,
+                citation.contentHash,
+                citation.pageFrom,
+                citation.pageTo,
+                citation.location,
+                citation.quote,
+              ])
+            }
+            editor={editor}
+            citation={citation}
+            part={part}
+            decision={
+              decision?.kind === "already" || citation === firstCiting ? decision : undefined
+            }
+            citations={citations}
+            signedAll={signedAll}
+            onOpen={onOpen}
+            more={index === 0 && more && more.count > 0 ? <MoreQuotes more={more} /> : null}
+          />
+        );
+      })}
       {part.calculation && working?.(part.calculation)}
-      {citations && <PartCiting citing={citing} citations={citations} onOpen={onOpen} />}
-      {offered && (
-        <CorrectButton
-          correction={offered}
-          onCorrect={() => onCorrect?.(part.span)}
-          testId="claim-part-correct"
-        />
+      {fix && drawsFix && (
+        <div className="citation-card-actions claim-part-actions">
+          <button
+            type="button"
+            data-testid={fix.testId}
+            className={`citation-card-action ${fix.primary ? "citation-card-action--primary" : ""}`}
+            disabled={fix.disabled}
+            onClick={fix.onClick}
+          >
+            {fix.label}
+          </button>
+        </div>
       )}
-      {wording && (
-        <button
-          type="button"
-          data-testid="claim-use-wording"
-          className="citation-card-action"
-          onClick={() => onUseWording?.(part)}
-        >
-          {t("claim.useDocumentWording")}
-        </button>
-      )}
-      {omitted && (
-        <button
-          type="button"
-          data-testid="claim-part-check-anyway"
-          disabled={checking}
-          className="citation-card-action"
-          onClick={() => onCheck(part.span)}
-        >
-          {t("claim.checkAnyway")}
-        </button>
-      )}
-      {((omitted && !checking) || wording) && (
+      {menuFix && !fix?.disabled && (
         <ObjectMenu
           target={target}
           label={t("claim.more")}
-          here={{
-            ...(omitted && !checking && { "check.anyway": () => onCheck(part.span) }),
-            ...(wording && { "check.useDocumentWording": () => onUseWording?.(part) }),
-          }}
-          className={`${rowActionButtonClass} claim-part-menu`}
+          here={menuFix}
+          className="claim-quote-menu"
+          testId="claim-part"
+          tabIndex={-1}
           align="end"
         />
       )}
@@ -490,70 +608,76 @@ function PartRow({
   );
 }
 
-export function ClaimPartRows({
+/**
+ * A row's own fix (#2869): Check anyway for a part left out, and, while the check holds, Change
+ * to the Document's figure for a contradicted part or the Document's wording for a forecast.
+ */
+export function partFix(
+  t: Translate,
+  row: CardPart,
+  {
+    stale,
+    checking,
+    correction,
+    onCorrect,
+    onUseWording,
+    onCheck,
+  }: {
+    stale: boolean;
+    checking: boolean;
+    correction?: ClaimCorrection;
+    onCorrect(span: ClaimPartSpan): void;
+    onUseWording(part: ClaimCheckPart): void;
+    onCheck(span: ClaimPartSpan): void;
+  },
+): CardAction | null {
+  const { part } = row;
+  if (part.verdict === null)
+    return stale
+      ? null
+      : {
+          key: `anyway:${row.key}`,
+          testId: "claim-part-check-anyway",
+          label: t("claim.checkAnyway"),
+          disabled: checking,
+          onClick: () => onCheck(part.span),
+        };
+  if (stale || checking) return null;
+  if (correction)
+    return {
+      key: `correct:${row.key}`,
+      testId: "claim-part-correct",
+      label: correctionLabel(correction, t),
+      primary: true,
+      onClick: () => onCorrect(part.span),
+    };
+  if (
+    part.unsupported?.kind === "forecast-certainty" &&
+    (part.unsupported.quoted?.quote ?? part.evidence[0]?.quote)
+  )
+    return {
+      key: `wording:${row.key}`,
+      testId: "claim-use-wording",
+      label: t("claim.useDocumentWording"),
+      onClick: () => onUseWording(part),
+    };
+  return null;
+}
+
+/** What a quantified part covers, above its rows, and the quotes that say what its domain is. */
+export function PartsCoverage({
   editor,
-  id,
-  text,
   parts,
-  onCheck,
-  onUseWording,
-  corrections,
-  onCorrect,
+  signedAll = false,
   onOpen,
-  working,
-  scope,
-  read,
-  checking = false,
-  stale = false,
-  citations,
-  waiting,
 }: {
   editor: Editor;
-  id: string;
-  text: string;
   parts: readonly ClaimCheckPart[];
-  onCheck(span: ClaimPartSpan): void;
-  onUseWording?(part: ClaimCheckPart): void;
-  /** Each contradicted part's correction from the Documents (`correctionsFor`). */
-  corrections?: readonly PartCorrection[];
-  onCorrect?(span: ClaimPartSpan): void;
+  signedAll?: boolean;
   onOpen(): void;
-  scope?: ClaimCheckScope;
-  /** After Check against a Document… (#1554): how much of the pick was read. */
-  read?: WholeRead;
-  checking?: boolean;
-  stale?: boolean;
-  working?(calculation: ClaimCalculation): ReactNode;
-  /** A marked sentence's rows add, widen or replace the Citations of what they found. */
-  citations?: PartCitations;
-  /** The parts Supported, not yet cited (`waitingParts`, #3019). */
-  waiting?: ReadonlySet<ClaimCheckPart>;
 }) {
   const t = useT();
   const language = useLanguage();
-  const [expanded, setExpanded] = useState(false);
-  const list = useRef<HTMLOListElement>(null);
-  const revealFocus = useRef(false);
-  useLayoutEffect(() => {
-    if (!expanded || !revealFocus.current) return;
-    revealFocus.current = false;
-    const row = list.current?.children.item(4);
-    if (row instanceof HTMLElement) focusFirstAction(row, row);
-  }, [expanded]);
-  const looked = useScopeName(scope ? checkedScope(scope) : null);
-  const lookedIn = looked?.name ?? t("composer.scope.all");
-  const rows = cardRows(parts);
-  const visible = expanded ? rows : rows.slice(0, 4);
-  const citing = rows.map(({ part }) =>
-    citations && !stale && !checking
-      ? partDecisions(editor.state, citations.claim, part, citations.onPage).map(
-          ({ decision }) => decision,
-        )
-      : [],
-  );
-  const addable = rows.flatMap(({ part }, index) =>
-    citing[index]?.some((decision) => decision.kind === "add") ? [part] : [],
-  );
   return (
     <>
       {parts.flatMap((part) => {
@@ -573,74 +697,76 @@ export function ClaimPartRows({
               </p>
             )}
             {part.coverage.domainEvidence.map((citation) => (
-              <PartCitation
+              <PartQuote
                 editor={editor}
                 key={
                   citation.id ??
                   JSON.stringify([citation.documentId, citation.contentHash, citation.quote])
                 }
                 citation={citation}
+                part={part}
+                signedAll={signedAll}
                 onOpen={onOpen}
               />
             ))}
           </div>,
         ];
       })}
-      {citations && addable.length >= 2 && (
-        <button
-          type="button"
-          data-testid="claim-parts-add-all"
-          className="citation-card-action citation-card-action--primary"
-          onClick={() => citations.onAdd(addable)}
-        >
-          {t("claim.addAllAsCitations")}
-        </button>
-      )}
-      <ol ref={list} className="claim-parts" data-testid="claim-parts">
-        {visible.map(({ part, label }, index) => (
-          <PartRow
-            editor={editor}
-            key={`${part.span.start}:${part.span.end}:${label ?? ""}`}
-            id={id}
-            text={text}
-            words={label ?? undefined}
-            part={part}
-            onCheck={onCheck}
-            onUseWording={onUseWording}
-            correction={
-              corrections?.find(
-                ({ span }) =>
-                  span?.start === part.span.start && span.end === part.span.end && !label,
-              )?.correction
-            }
-            onCorrect={onCorrect}
-            onOpen={onOpen}
-            working={working}
-            lookedIn={lookedIn}
-            read={read}
-            checking={checking}
-            stale={stale}
-            citing={citing[index] ?? []}
-            citations={citations}
-            waiting={waiting?.has(part) ?? false}
-          />
-        ))}
-      </ol>
-      {!expanded && rows.length > 4 && (
-        <button
-          type="button"
-          className="citation-card-action"
-          data-testid="claim-parts-more"
-          onClick={(event) => {
-            revealFocus.current = document.activeElement === event.currentTarget;
-            setExpanded(true);
-          }}
-        >
-          {t("claim.parts.more", {
-            count: new Intl.NumberFormat(language).format(rows.length - 4),
-          })}
-        </button>
-      )}
     </>
+  );
+}
+
+/** Each correction from the Documents, by the row whose words it changes. */
+export const correctionOf = (
+  corrections: readonly PartCorrection[] | undefined,
+  row: CardPart,
+): ClaimCorrection | undefined =>
+  row.label
+    ? undefined
+    : corrections?.find(
+        ({ span }) => span?.start === row.part.span.start && span.end === row.part.span.end,
+      )?.correction;
+
+/**
+ * The foot line of a card whose rows fold (#2869): what is folded, the supported first, then the
+ * opinions left out, and Show, which opens every folded row in place, or Hide.
+ */
+export function FoldLine({
+  rows,
+  shown,
+  onToggle,
+}: {
+  rows: readonly CardPart[];
+  shown: boolean;
+  onToggle(): void;
+}) {
+  const t = useT();
+  const language = useLanguage();
+  const format = (value: number) => new Intl.NumberFormat(language).format(value);
+  const supported = rows.filter((row) => row.fold === "supported").length;
+  const opinions = rows.filter((row) => row.fold === "opinion").length;
+  if (supported + opinions === 0) return null;
+  const what = [
+    supported > 0 &&
+      (supported === 1
+        ? t("claim.parts.folded.one")
+        : t("claim.parts.folded", { count: format(supported) })),
+    opinions > 0 &&
+      (opinions === 1 ? t("opinions.one") : t("opinions.count", { count: format(opinions) })),
+  ]
+    .filter((part): part is string => typeof part === "string")
+    .reduce((line, part) => (line ? `${line}${dotAfter(line)}${part}` : part), "");
+  // The toggle keeps its place in the line as its words change, so it keeps the focus (#2869).
+  return (
+    <p data-testid="claim-parts-folded" className="claim-fold-line">
+      {!shown && supported > 0 && (
+        <ClaimMarkIcon state="supported" className="claim-fold-icon" aria-hidden="true" />
+      )}
+      {!shown && <span className="claim-fold-what">{what}</span>}
+      {!shown && <span aria-hidden="true">{dotAfter(what)}</span>}
+      <QuoteLink testId="claim-parts-show" expanded={shown} onClick={onToggle}>
+        {shown ? t("claim.parts.hide") : t("opinions.show")}
+      </QuoteLink>
+    </p>
   );
 }

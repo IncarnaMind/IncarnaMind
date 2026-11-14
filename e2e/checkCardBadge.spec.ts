@@ -178,12 +178,12 @@ for (const language of ["en", "zh-CN"] as const) {
     for (const size of WIDTHS) {
       await setWindowSize(app, window, size.width, size.height);
       for (const sentence of words.unsupported) {
-        await next("unsupported", sentence, "claim-remove");
+        await next("unsupported", sentence, "claim-keep");
         await clear(size);
         await window.keyboard.press("Escape");
         await expect(card).toHaveCount(0);
       }
-      await next("contradicted", words.last, "claim-open");
+      await next("contradicted", words.last, "claim-keep");
       await clear(size);
       // Next keeps the focus in the Mind, and the card takes none: unchanged by where it sits.
       expect(await window.evaluate(() => document.activeElement?.getAttribute("data-testid"))).toBe(
