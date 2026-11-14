@@ -16,16 +16,27 @@ function frame(
   citation: number,
   section: string,
   lines = ["L1"],
+  { opening = id, end = id }: { opening?: string; end?: string } = {},
 ) {
   return [
-    `### FACT ${id}`,
+    `### FACT ${opening}`,
     "```json",
     JSON.stringify({ topic, citations: [citation], lines, sections: [section], claim: false }),
     "```",
     `${text} [^${citation}].`,
-    `### END ${id}`,
+    `### END ${end}`,
   ].join("\n");
 }
+
+/**
+ * How a reply opens and closes its fact frames: as asked, with a title after each id (#3106), and
+ * so with the second frame's first word no id, or its closing line naming another id.
+ */
+type FrameForm =
+  | "as asked"
+  | "titled"
+  | "titled, one with no id"
+  | "titled, one closed by another id";
 
 function overview(text: string) {
   return [
@@ -47,6 +58,7 @@ async function capture(
     nestedLine = false,
     malformedFrame = false,
     badRouting = false,
+    form = "as asked",
   }: {
     badSibling?: boolean;
     withoutIds?: boolean;
@@ -54,6 +66,7 @@ async function capture(
     nestedLine?: boolean;
     malformedFrame?: boolean;
     badRouting?: boolean;
+    form?: FrameForm;
   } = {},
 ) {
   const words =
@@ -65,6 +78,7 @@ async function capture(
           first: "Dana will send the draft on Monday",
           second: "Alex will bring the checklist on Tuesday",
           topics: ["review date", "draft", "checklist"],
+          title: "Point noted",
           pointer: (topic: string, direction: "above" | "below") => `${topic} — see ${direction}`,
         }
       : {
@@ -74,15 +88,34 @@ async function capture(
           first: "王芳周一发草稿",
           second: "李明周二带来检查清单",
           topics: ["评审日期", "草稿", "检查清单"],
+          title: "记下的要点",
           pointer: (topic: string, direction: "above" | "below") =>
             `${topic}，详见${direction === "above" ? "上" : "下"}文`,
+        };
+  const framing = (id: string) =>
+    form === "as asked"
+      ? {}
+      : {
+          opening:
+            form === "titled, one with no id" && id === "F2"
+              ? `${id}: ${words.title}`
+              : `${id} — ${words.title}`,
+          end: form === "titled, one closed by another id" && id === "F2" ? "F3" : id,
         };
   const text = [
     badRouting ? "HEADINGS: H9=NONE" : splitHeading ? "HEADINGS: H1=ACTIONS" : "HEADINGS: H1=NONE",
     ...(malformedFrame ? ["### FACT 1invalid\nThis frame has no valid identity."] : []),
-    frame("F1", words.topics[0] ?? "", words.decision, 1, "decisions"),
-    frame("F2", words.topics[1] ?? "", words.first, badSibling ? 99 : 2, "actions"),
-    frame("F3", words.topics[2] ?? "", words.second, 3, "actions"),
+    frame("F1", words.topics[0] ?? "", words.decision, 1, "decisions", undefined, framing("F1")),
+    frame(
+      "F2",
+      words.topics[1] ?? "",
+      words.first,
+      badSibling ? 99 : 2,
+      "actions",
+      undefined,
+      framing("F2"),
+    ),
+    frame("F3", words.topics[2] ?? "", words.second, 3, "actions", undefined, framing("F3")),
     overview(words.purpose),
   ].join("\n\n");
   const feedback: string[] = [];
@@ -218,6 +251,48 @@ for (const language of ["en", "zh-CN"] as const) {
       }
     },
   );
+
+  // protects=a reply that writes a title after each fact's id on its opening line fills the note with every fact and its Citation, the title written nowhere; a frame whose first word after FACT is no id, an id with a colon glued to it among them, is still dropped and counted, as is one whose closing line names another id; the asked form reads as before (#3106); fails_when=a titled frame is dropped, its title reaches the note, or a frame with no id or another closing id is kept or goes uncounted; no_claim=how often a model writes titles there.
+  test.each([
+    ["as asked", 0],
+    ["titled", 0],
+    ["titled, one with no id", 1],
+    ["titled, one closed by another id", 1],
+  ] as const)(`a reply with frames %s leaves out %i (${language})`, async (form, omitted) => {
+    const { core, meeting, client, before, fill, words } = await capture(language, { form });
+    try {
+      expect(fill).toMatchObject({ state: "filled", omitted, unfinishedParts: 0 });
+      const kept =
+        omitted === 0
+          ? [words.decision, words.first, words.second]
+          : [words.decision, words.second];
+      await vi.waitFor(() => {
+        const doc = readMind(client);
+        for (const full of kept) expect(doc.textContent.split(full)).toHaveLength(2);
+        if (omitted > 0) expect(doc.textContent).not.toContain(words.first);
+        expect(doc.textContent).not.toContain(words.title);
+        const cited: string[] = [];
+        doc.descendants((node) => {
+          if (node.type.name !== "paragraph") return true;
+          let found = false;
+          node.descendants((child) => {
+            if (child.type.name !== CITATION_NODE) return true;
+            expect(child.attrs.check).toBe("found");
+            found = true;
+            return true;
+          });
+          if (found) cited.push(node.textContent);
+          return false;
+        });
+        for (const full of kept)
+          expect(cited.filter((text) => text.includes(full))).toHaveLength(1);
+      });
+      await core.undoMeetingFill(meeting.id);
+      await vi.waitFor(() => expect(exactly(client)).toEqual(before));
+    } finally {
+      core.close();
+    }
+  });
 
   test.each([false, true])(
     `an ordinary list line is filled in place, with exact Undo (missing ids: %s, ${language})`,

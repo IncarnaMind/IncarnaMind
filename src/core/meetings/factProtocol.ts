@@ -191,6 +191,13 @@ function factMetadata(
   return { topic, heading, citations, lines, sections, claim, supersedes };
 }
 
+/**
+ * A frame's id: the first word after "FACT " on its opening line. What follows it there, such as a
+ * title, is no part of the frame and isn't written (#3106); the closing line names the id alone.
+ */
+const frameId = (line: string): string | undefined =>
+  line.startsWith("FACT ") ? line.slice(5).split(/\s/, 1)[0] : undefined;
+
 function heading(node: NodeJSON | undefined): string | null {
   if (node?.type !== "heading" || node.attrs?.level !== 3) return null;
   if (
@@ -230,8 +237,8 @@ function invalidMetadataFences(markdown: string): Set<string> {
     }
     if (/^ {0,3}#{1,6}(?:[ \t]|$)/.test(line)) {
       const control = heading(markdownToBlocks(line)[0]);
-      const id = control?.startsWith("FACT ") ? control.slice(5) : null;
-      pending = control === "OVERVIEW" ? "" : id !== null && FACT_ID.test(id) ? id : null;
+      const id = control === null ? undefined : frameId(control);
+      pending = control === "OVERVIEW" ? "" : id !== undefined && FACT_ID.test(id) ? id : null;
     }
   }
   return invalid;
@@ -261,7 +268,7 @@ function framesOf(blocks: readonly NodeJSON[], raw: readonly NodeJSON[]) {
       continue;
     }
     current = null;
-    const id = label.startsWith("FACT ") ? label.slice(5) : undefined;
+    const id = frameId(label);
     if (label === "OVERVIEW" || (id !== undefined && FACT_ID.test(id))) {
       current = {
         id: id ?? null,

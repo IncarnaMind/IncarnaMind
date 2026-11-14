@@ -3,9 +3,9 @@ import { withJsonFencesClosed } from "../../src/core/answers/jsonFences";
 
 type Shape = "closed" | "open" | "blank before the fence" | "fence after the sentence";
 
-const frame = (id: string, body: string, shape: Shape) =>
+const frame = (id: string, body: string, shape: Shape, title = "") =>
   [
-    `### FACT ${id}`,
+    `### FACT ${id}${title}`,
     "```json",
     `{"topic":"${id}","citations":[1]}`,
     ...(shape === "closed" ? ["```"] : shape === "blank before the fence" ? ["", "```"] : []),
@@ -34,6 +34,14 @@ test.each(Object.entries(bodies))(
     );
   },
 );
+
+// protects=a frame whose opening line writes a title after its id is a frame here too, and its open fence is closed as an untitled frame's is (#3106); fails_when=a titled frame's open fence stays open, or a fence is closed twice; no_claim=how the fact reader takes the id, which tests/core/meetingFacts.test.ts covers.
+test.each(Object.entries(bodies))("a titled frame's open fence is closed too (%s)", (_, body) => {
+  const titled = (id: string, shape: Shape) => frame(id, body, shape, ` — Fee ${id}`);
+  expect(withJsonFencesClosed([titled("F1", "open"), titled("F2", "open")].join("\n\n"))).toBe(
+    [titled("F1", "closed"), titled("F2", "closed")].join("\n\n"),
+  );
+});
 
 test.each(
   Object.entries(bodies).flatMap(([language, body]) =>

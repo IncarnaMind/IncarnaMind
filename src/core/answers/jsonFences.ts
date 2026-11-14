@@ -1,6 +1,8 @@
 const FENCE = /^ {0,3}(`{3,}|~{3,})(.*)$/;
-const FRAME = /^ {0,3}#{1,6}[ \t]+(?:FACT[ \t]+\S+|OVERVIEW)[ \t]*$/;
-const FRAME_END = /^ {0,3}#{1,6}[ \t]+(?:END[ \t]+\S+|FACT[ \t]+\S+|OVERVIEW)[ \t]*$/;
+// A fact's opening line may hold more after its id, such as a title, which is not read (#3106).
+const FRAME = /^ {0,3}#{1,6}[ \t]+(?:FACT[ \t]+\S+(?:[ \t].*)?|OVERVIEW[ \t]*)$/;
+const FRAME_END =
+  /^ {0,3}#{1,6}[ \t]+(?:END[ \t]+\S+[ \t]*|FACT[ \t]+\S+(?:[ \t].*)?|OVERVIEW[ \t]*)$/;
 
 /** Whether a fence closes `opener` before the frame it opened in ends, or the next frame begins. */
 function closedInFrame(lines: readonly string[], from: number, opener: string): boolean {
