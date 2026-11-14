@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { KeyCap } from "../components/KeyCap";
 import { useT } from "../i18n";
-import { focusablesIn } from "./cardFocus";
+import { holdsControl } from "./cardFocus";
 
 /**
  * The foot of a card shown on keyboard focus that has controls: the key that goes into it (#3102).
@@ -15,7 +15,7 @@ export function CardKeyHint({ shown }: { shown: boolean }) {
   const [hasControl, setHasControl] = useState(false);
   useLayoutEffect(() => {
     const card = line.current?.parentElement;
-    setHasControl(card ? focusablesIn(card).length > 0 : false);
+    setHasControl(holdsControl(card ?? null));
   });
   if (!shown) return null;
   return (

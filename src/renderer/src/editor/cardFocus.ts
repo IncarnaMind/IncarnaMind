@@ -1,6 +1,13 @@
 export const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
+/**
+ * Whether a card holds a control, however it is drawn just now: a card's own keycap is measured
+ * while the card is still being shown, when `checkVisibility` would call all of it hidden.
+ */
+export const holdsControl = (container: Element | null): boolean =>
+  container?.querySelector(FOCUSABLE) != null;
+
 export function focusablesIn(container: Element | null): HTMLElement[] {
   if (!container) return [];
   return [...container.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((each) =>
