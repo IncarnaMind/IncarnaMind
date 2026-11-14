@@ -29,6 +29,11 @@ const fake = vi.hoisted(() => {
     holdAdding: false,
     /** Undo of Add to note fails, as a Note that can't be changed now. */
     undoFails: false,
+    /** The Blocks each Undo of Add to note was asked to take out. */
+    undone: [] as string[][],
+    /** An Undo of Add to note on its way until the test ends it. */
+    undoing: null as null | { resolve(): void; reject(error: Error): void },
+    holdUndo: false,
     reported: [] as unknown[],
     command: null as null | ((command: string) => void),
     /** What the panel asked of the keyboard, in order: true takes it, false gives it back (#2925). */
@@ -79,10 +84,17 @@ vi.mock("../../src/renderer/src/core", () => ({
         fake.adding = { resolve: () => resolve({ blockIds: ["block-1"] }), reject };
       });
     },
-    undoAddToNote: () =>
-      fake.undoFails
+    undoAddToNote: ({ blockIds }: { blockIds: string[] }) => {
+      fake.undone.push(blockIds);
+      if (fake.holdUndo) {
+        return new Promise<void>((resolve, reject) => {
+          fake.undoing = { resolve, reject };
+        });
+      }
+      return fake.undoFails
         ? Promise.reject(new Error("The note can't be changed now."))
-        : Promise.resolve(),
+        : Promise.resolve();
+    },
     setQuickNoteDraft: () => Promise.resolve(),
     getQuickNoteDraft: () => Promise.resolve(fake.held),
   },
@@ -252,6 +264,9 @@ beforeEach(async () => {
   fake.adding = null;
   fake.holdAdding = false;
   fake.undoFails = false;
+  fake.undone.length = 0;
+  fake.undoing = null;
+  fake.holdUndo = false;
   fake.reported.length = 0;
   fake.keyboard.length = 0;
   fake.states.length = 0;
@@ -502,7 +517,7 @@ describe("an Add to note still on its way when the suggestion is replaced", () =
     expect(fake.reported).toEqual([new Error("The note can't be changed now.")]);
   });
 
-  // protects=Add to note pressed again while the first is on its way adds the reply once, so its Undo takes out all it added; fails_when=a second click adds it a second time; no_claim=the ⌘K path, which goes through the same call.
+  // protects=Add to note pressed again while the first is on its way adds the reply once, so its Undo takes out all it added; fails_when=a second click adds it a second time; no_claim=⌘K's Add, which runs in the app's window with its own guard.
   test("pressed twice while on its way, adds the reply once", async () => {
     await wantShown();
     fake.holdAdding = true;
@@ -521,6 +536,30 @@ describe("an Add to note still on its way when the suggestion is replaced", () =
     await click(all("help-added")[0]?.querySelector("button") ?? undefined);
     expect(all("help-added")).toHaveLength(1);
     expect(container.textContent).toContain("The note can't be changed now.");
+  });
+
+  // protects=while an Undo of Add to note is on its way the reply offers neither Add to note nor a second Undo, so an Undo that then fails gives back the one add's Undo and no add is left without its own; fails_when=Add to note shows again before the Undo has ended, or a second Undo goes out; no_claim=how long Undo stays.
+  test("while its Undo is on its way, offers no Add to note; an Undo that then fails gives its Undo back", async () => {
+    await wantShown();
+    await addToNote([answerOf("answer-want", WANT, "done")]);
+    fake.holdUndo = true;
+    const undo = () => all("help-added")[0]?.querySelector("button") ?? undefined;
+    await click(undo());
+    expect(all("help-add")).toHaveLength(0);
+    expect(undo()?.hasAttribute("disabled")).toBe(true);
+    await click(undo());
+    expect(fake.undone).toHaveLength(1);
+
+    await run(() => fake.undoing?.reject(new Error("The note can't be changed now.")));
+    expect(all("help-add")).toHaveLength(0);
+    expect(undo()?.hasAttribute("disabled")).toBe(false);
+    expect(container.textContent).toContain("The note can't be changed now.");
+    fake.holdUndo = false;
+    await click(undo());
+    expect(fake.added).toHaveLength(1);
+    expect(fake.undone).toEqual([["block-1"], ["block-1"]]);
+    expect(all("help-added")).toHaveLength(0);
+    expect(all("help-add")).toHaveLength(1);
   });
 });
 

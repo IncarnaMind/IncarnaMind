@@ -417,9 +417,12 @@ body {
   font-weight: 600;
   color: var(--color-accent);
 
-  &:hover {
+  &:hover:not(:disabled) {
     text-decoration: underline;
     text-underline-offset: 3px;
+  }
+  &:disabled {
+    opacity: 0.5;
   }
 }
 

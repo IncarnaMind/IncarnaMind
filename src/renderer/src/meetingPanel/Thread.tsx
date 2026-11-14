@@ -22,6 +22,15 @@ const bridge = () => window[MEETING_PANEL_BRIDGE_KEY];
 
 /** How long a suggestion's "Added to note" stays, with its Undo. */
 const ADDED_MS = 6000;
+
+/**
+ * What a reply's Add to note added: its Undo offered, or on its way (`undoing`), when neither Add
+ * to note nor another Undo is, so an add made then can't be left without its own Undo.
+ */
+interface Added {
+  blockIds: readonly string[];
+  undoing: boolean;
+}
 /** The earlier items shown as lines before "Show earlier". */
 const EARLIER_SHOWN = 3;
 /** How near the foot the thread counts as at its foot, in px. */
@@ -101,7 +110,7 @@ export function Thread({
   const pointed = usePointed();
   // Kept here, by Answer, so a reply closed to its line and opened again within its time still
   // offers Undo for what it added.
-  const [added, setAdded] = useState<ReadonlyMap<string, readonly string[]>>(new Map());
+  const [added, setAdded] = useState<ReadonlyMap<string, Added>>(new Map());
   const addedTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   useEffect(() => {
     const timers = addedTimers.current;
@@ -109,16 +118,16 @@ export function Thread({
       for (const timer of timers.values()) clearTimeout(timer);
     };
   }, []);
-  const markAdded = (answerId: string, blockIds: readonly string[] | null) => {
+  const markAdded = (answerId: string, state: Added | null) => {
     clearTimeout(addedTimers.current.get(answerId));
     addedTimers.current.delete(answerId);
     setAdded((now) => {
       const next = new Map(now);
-      if (blockIds) next.set(answerId, blockIds);
+      if (state) next.set(answerId, state);
       else next.delete(answerId);
       return next;
     });
-    if (blockIds) {
+    if (state && !state.undoing) {
       addedTimers.current.set(
         answerId,
         setTimeout(() => markAdded(answerId, null), ADDED_MS),
@@ -180,7 +189,7 @@ export function Thread({
         pinned={pinned.includes(help.answerId)}
         onPin={onPin}
         added={added.get(help.answerId) ?? null}
-        onAdded={(blockIds) => markAdded(help.answerId, blockIds)}
+        onAdded={(state) => markAdded(help.answerId, state)}
         holder={at === "newest" ? newest : undefined}
       />
     ) : (
@@ -316,9 +325,9 @@ function Suggestion({
   help: MeetingHelp;
   pinned: boolean;
   onPin(help: MeetingHelp): void;
-  /** The Blocks its Add to note added, while its Undo is offered; null: none. */
-  added: readonly string[] | null;
-  onAdded(blockIds: readonly string[] | null): void;
+  /** What its Add to note added, while its Undo is offered or on its way; null: none. */
+  added: Added | null;
+  onAdded(state: Added | null): void;
   holder?: RefObject<HTMLDivElement | null> | undefined;
 }) {
   const t = useT();
@@ -349,18 +358,21 @@ function Suggestion({
     setProblem(null);
     try {
       const { blockIds } = await addHelpToNotes(meeting, help);
-      onAdded(blockIds);
+      onAdded({ blockIds, undoing: false });
     } catch (error) {
       failed(error);
     }
   };
-  const undoAdd = (blockIds: readonly string[]) => {
-    onAdded(null);
-    // Not taken out: its Undo stays, to try again.
-    core.undoAddToNote({ mindId: meeting.mindId, blockIds: [...blockIds] }).catch((error) => {
-      onAdded(blockIds);
-      failed(error);
-    });
+  const undoAdd = ({ blockIds }: Added) => {
+    onAdded({ blockIds, undoing: true });
+    core.undoAddToNote({ mindId: meeting.mindId, blockIds: [...blockIds] }).then(
+      () => onAdded(null),
+      (error: unknown) => {
+        // Not taken out: its Undo stays, to try again.
+        onAdded({ blockIds, undoing: false });
+        failed(error);
+      },
+    );
   };
   const typed = help.kind === "question";
   return (
@@ -384,7 +396,12 @@ function Suggestion({
               <p role="status" data-testid="help-added" className="panel-line">
                 {t("meetings.help.added")}
                 <span aria-hidden="true"> · </span>
-                <button type="button" onClick={() => undoAdd(added)} className="panel-link">
+                <button
+                  type="button"
+                  disabled={added.undoing}
+                  onClick={() => undoAdd(added)}
+                  className="panel-link"
+                >
                   {t("move.undo")}
                 </button>
               </p>

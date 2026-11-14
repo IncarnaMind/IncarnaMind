@@ -219,7 +219,11 @@ export async function helpToKeepOf(help: MeetingHelp) {
   return { answer, scope: asked?.kind === "question" ? asked.scope : null };
 }
 
-/** Each Answer's Add to note on its way: asked again meanwhile, from the panel or ⌘K, it adds once. */
+/**
+ * Each Answer's Add to note on its way, so a second press in this window adds it once. Each window
+ * has its own: ⌘K's Add runs in the app's window and the panel's button in the panel's, and
+ * reaching both within the moment an add takes isn't something a person does.
+ */
 const adding = new Map<string, Promise<{ mindId: string; blockIds: string[] }>>();
 
 /**
