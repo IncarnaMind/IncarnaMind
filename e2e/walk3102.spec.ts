@@ -152,7 +152,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await dismissChatSetup(window);
     await useLocalChatModel(window);
     await setLanguage(window, language);
-    await setWindowSize(app, window, 1100, 900);
+    await setWindowSize(app, window, 1600, 900);
     await addDocuments(window, [join(sources, "Tides.pdf")]);
     const [tides] = await window.evaluate(() =>
       (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.listDocuments(),
