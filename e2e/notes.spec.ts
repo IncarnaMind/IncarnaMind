@@ -133,6 +133,9 @@ test("Esc closes a Block's menu, and the handle then moves on to the Block under
   await expect(window.getByTestId("block.includeInContext")).toBeFocused();
   await window.keyboard.press("Escape");
   await expect(menu).toBeHidden();
+  // The Note has the focus again: typing goes into the Block the menu was about.
+  await window.keyboard.type("a");
+  await expect(paragraphs.nth(0)).toContainText("a");
 
   // The handle isn't stuck on the first Block: it follows the mouse to the third.
   const handle = await slideToHandle(window, paragraphs.nth(2));
@@ -140,6 +143,17 @@ test("Esc closes a Block's menu, and the handle then moves on to the Block under
   const third = await paragraphs.nth(2).boundingBox();
   if (!grip || !third) throw new Error("The handle or the Block isn't visible.");
   expect(Math.abs(grip.y + grip.height / 2 - (third.y + third.height / 2))).toBeLessThan(4);
+
+  // A right-click ON the grip opens the same menu; a button takes the focus on a right mouse
+  // button too, so Esc must still leave the Note typeable, with the cursor in that Block.
+  await handle.click({ button: "right" });
+  await expect(menu).toBeVisible();
+  await window.keyboard.press("Escape");
+  await expect(menu).toBeHidden();
+  await expect(editor).toBeFocused();
+  await window.keyboard.type("b");
+  await expect(paragraphs.nth(2)).toContainText("b");
+  await expect(paragraphs.nth(0)).not.toContainText("b");
   await app.close();
 });
 

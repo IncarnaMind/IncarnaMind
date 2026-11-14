@@ -26,6 +26,14 @@ export function blockIn(ctx: CommandContext): { editor: Editor; id: string } | n
   return at ? { editor: inFront.editor, id: at.id } : null;
 }
 
+/**
+ * Whether a command that acts at the cursor is asked about the Block the cursor is in: with no
+ * Block named (⌘K, the window's keys) it is, whatever the Block.
+ */
+export function cursorInFocus(editor: Editor, ctx: CommandContext): boolean {
+  return ctx.focus?.kind !== "block" || blockAt(editor.state.selection)?.id === ctx.focus.id;
+}
+
 /** A table's menu has Delete table, which is its Delete, so it doesn't say it twice. */
 export const withoutOwnDelete = (node: ProseMirrorNode): readonly CommandId[] =>
   node.type.name === "table" ? ["block.delete"] : [];

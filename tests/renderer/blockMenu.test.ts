@@ -13,6 +13,7 @@ import { INCLUDE_IN_CONTEXT_ATTRIBUTE, QUESTION_BLOCK } from "../../src/core/api
 import { readMindHandle } from "../../src/renderer/src/commands/handles";
 import { buildMenu, isMenuItem } from "../../src/renderer/src/commands/menus";
 import "../../src/renderer/src/commands/objectMenus";
+import { isInTable } from "@tiptap/pm/tables";
 import {
   type Command,
   type CommandContext,
@@ -21,6 +22,7 @@ import {
 } from "../../src/renderer/src/commands/registry";
 import { BlockCommands } from "../../src/renderer/src/editor/blockCommands";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
+import { emptyTable } from "../../src/renderer/src/editor/tableCommands";
 import { BRIDGE_KEY, FILES_BRIDGE_KEY } from "../../src/shared/bridge";
 
 function domDocument() {
@@ -66,15 +68,20 @@ let blockCommands: readonly Command[];
 let blockIn: typeof import("../../src/renderer/src/commands/blocks").blockIn;
 // The commands and the note's keys reach the bridge as they load, so they load once it is set.
 beforeAll(async () => {
-  const [keymap, blocks, footnotes] = await Promise.all([
+  const [keymap, blocks, footnotes, tables] = await Promise.all([
     import("../../src/renderer/src/editor/noteKeymap"),
     import("../../src/renderer/src/commands/blocks"),
     import("../../src/renderer/src/commands/footnotes"),
+    import("../../src/renderer/src/commands/tables"),
   ]);
   NoteKeymap = keymap.NoteKeymap;
   blockCommands = blocks.blockCommands;
   blockIn = blocks.blockIn;
-  for (const command of [...blocks.blockCommands, ...footnotes.footnoteCommands]) {
+  for (const command of [
+    ...blocks.blockCommands,
+    ...footnotes.footnoteCommands,
+    ...tables.tableCommands,
+  ]) {
     commands.register(command);
   }
 });
@@ -134,6 +141,20 @@ test("a Block's menu holds Include in context and Insert footnote, then Delete a
     "—",
     "block.delete",
   ]);
+  expect(editor.state.doc.childCount).toBe(2);
+});
+
+test("a menu lists a table's items for the table it is about, not for one the cursor is in beside it", async () => {
+  const table = { ...emptyTable(2, 2), attrs: { id: "t" } };
+  const editor = await editorWith([paragraph("a", "First"), table]);
+  const inTable = editor.state.doc.child(0).nodeSize + 4;
+  editor.commands.setTextSelection(inTable);
+  expect(isInTable(editor.state)).toBe(true);
+  // A chart or a picture before the table, opened without a pointer, once left the cursor here.
+  expect(idsOf(menuOf("a")).filter((id) => id.startsWith("table."))).toEqual([]);
+  expect(idsOf(menuOf("t"))).toContain("table.rowAbove");
+  expect(idsOf(menuOf("t"))).toContain("table.delete");
+  await commands.run("table.delete", menuOf("a"));
   expect(editor.state.doc.childCount).toBe(2);
 });
 

@@ -2,7 +2,7 @@ import type { ComputePositionConfig, VirtualElement } from "@floating-ui/dom";
 import { DragHandle } from "@tiptap/extension-drag-handle-react";
 import { NodeRangeSelection } from "@tiptap/extension-node-range";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
-import { Selection } from "@tiptap/pm/state";
+import { NodeSelection, Selection } from "@tiptap/pm/state";
 import { CellSelection, cellAround } from "@tiptap/pm/tables";
 import type { Editor } from "@tiptap/react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
@@ -151,6 +151,14 @@ function enter(
   point: { x: number; y: number } | undefined,
 ): void {
   const { doc, selection } = editor.state;
+  // A leaf Block has no inside for the cursor: it is selected itself, so its commands act on it.
+  if (block.node.isLeaf && NodeSelection.isSelectable(block.node)) {
+    if (!(selection instanceof NodeSelection && selection.from === block.pos)) {
+      editor.view.dispatch(editor.state.tr.setSelection(NodeSelection.create(doc, block.pos)));
+    }
+    editor.view.focus();
+    return;
+  }
   const over = point && editor.view.posAtCoords({ left: point.x, top: point.y });
   const cell = over ? cellAround(doc.resolve(over.pos)) : null;
   const from = cell ? cell.pos : block.pos;

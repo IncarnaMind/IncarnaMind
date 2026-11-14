@@ -6,6 +6,7 @@ import { chartOfSelection, chartOfTable, insertChart, tableAround } from "../edi
 import { chartHandles } from "../editor/chartHandles";
 import { noteHolding } from "../editor/noteKeymap";
 import { languageNow } from "../i18n";
+import { cursorInFocus } from "./blocks";
 import type { Command, CommandContext } from "./registry";
 
 function noteOf(ctx: CommandContext): Editor | null {
@@ -37,6 +38,7 @@ export const chartCommands: readonly Command[] = [
       return (
         editor !== null &&
         isInTable(editor.state) &&
+        cursorInFocus(editor, ctx) &&
         chartOfTable(editor.state, languageNow()) !== null
       );
     },

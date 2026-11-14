@@ -14,12 +14,14 @@ import {
   unavailable,
 } from "../editor/tableCommands";
 import type { Translate } from "../objects";
+import { cursorInFocus } from "./blocks";
 import { readMindHandle } from "./handles";
 import type { Command, CommandContext } from "./registry";
 
 /**
  * The note's keymap gives a command the Block at the cursor as its focus; ⌘K, with nothing chosen,
- * gives the Note in front, and acts on the table the cursor is in there.
+ * gives the Note in front, and acts on the table the cursor is in there. A menu names its Block,
+ * and the table is that Block's alone: a chart's menu never acts on the table after it.
  */
 function tableNote(ctx: CommandContext): Editor | null {
   const inFront = readMindHandle.current;
@@ -30,7 +32,9 @@ function tableNote(ctx: CommandContext): Editor | null {
           (ctx.focus === null || (ctx.focus.kind === "mind" && ctx.focus.id === inFront?.mindId))
         ? (inFront?.editor ?? null)
         : null;
-  return editor && !editor.isDestroyed && isInTable(editor.state) ? editor : null;
+  return editor && !editor.isDestroyed && isInTable(editor.state) && cursorInFocus(editor, ctx)
+    ? editor
+    : null;
 }
 
 const spotOf = (ctx: CommandContext) => {
