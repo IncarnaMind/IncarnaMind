@@ -141,23 +141,30 @@ function useTimeOf(): (citation: MarkedCitation | undefined) => string | null {
 
 /**
  * One quote line: the quote and its numbers with ✓, the card's words, or the room it keeps. As a
- * reading's moment (`moment`), the quote comes after its Citation's own time.
+ * reading's moment (`moment`), the quote comes after its Citation's own time. `held` to the one
+ * row its room kept, the quote is cut at that row's end, whole on hover (#3098).
  */
-function QuoteRow({ line, moment, ...shown }: Shown & { line: QuoteLine; moment: boolean }) {
+function QuoteRow({
+  line,
+  moment,
+  held = false,
+  ...shown
+}: Shown & { line: QuoteLine; moment: boolean; held?: boolean }) {
   const timeOf = useTimeOf();
   const citation = citationOf(shown.answer, line.drawn);
   const time = moment ? timeOf(citation) : null;
+  const words = `${time ? `${time} ` : ""}${line.cells ? cellsText(line.cells) : `“${line.quote}”`}`;
   return (
     <span
       data-testid={moment ? "help-moment" : "help-quote"}
       data-state={line.state}
+      data-held={held || undefined}
       className={moment ? "help-option-note help-moment" : "help-quote"}
     >
       {line.state === "waiting" && <span aria-hidden="true" className="help-quote-room" />}
       {line.state === "found" && (
-        <span className="help-quote-words">
-          {time && `${time} `}
-          {line.cells ? cellsText(line.cells) : `“${line.quote}”`}
+        <span title={held ? words : undefined} className="help-quote-words">
+          {words}
         </span>
       )}
       {line.state !== "found" && line.state !== "waiting" && citation && (
@@ -225,20 +232,26 @@ export function LineQuotes({
   markers: readonly number[];
   ended?: Pick<EndedLine, "rows"> | undefined;
 }) {
-  const lines =
+  const rows =
     ended?.rows ??
     quoteLines(
       markers,
       (marker) => citationOf(shown.answer, marker),
       shown.answer.status,
       (marker) => shown.numbers.has(marker),
-    );
+    ).map((line) => ({ line, held: false }));
   return (
     <>
-      {lines.map((line, index) =>
-        line ? (
+      {rows.map((row, index) =>
+        row ? (
           // A joined number comes after the line's first, so the line stays the same element.
-          <QuoteRow key={line.markers[0]} line={line} moment={false} {...shown} />
+          <QuoteRow
+            key={row.line.markers[0]}
+            line={row.line}
+            moment={false}
+            held={row.held}
+            {...shown}
+          />
         ) : (
           // biome-ignore lint/suspicious/noArrayIndexKey: a kept row, in the place it was kept.
           <QuoteNotFound key={`kept-${index}`} />

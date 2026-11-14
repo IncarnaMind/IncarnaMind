@@ -52,12 +52,16 @@ export interface EndedLine {
   gone: ReadonlyMap<number, number>;
   /** The Citations the end added to the line, their numbers drawn at its end. */
   late: number[];
-  /**
-   * The rows it kept while it was written, each with its quote line, or null where its numbers
-   * ended with no Citation: that row reads "Quote not found".
-   */
-  rows: (QuoteLine | null)[];
+  /** The rows it kept while it was written. */
+  rows: EndedRow[];
 }
+
+/**
+ * A row kept while the reply was written, once it has ended: its quote line, `held` to the room's
+ * one row where the quote first lands with the end, so it doesn't wrap; or null where its numbers
+ * ended with no Citation, and the row reads "Quote not found".
+ */
+export type EndedRow = { line: QuoteLine; held: boolean } | null;
 
 export interface EndedReply {
   lines: ReadonlyMap<string, EndedLine>;
@@ -132,21 +136,27 @@ function endedLine(
   // Each row kept while written draws its own numbers' quotes, so two quotes the end first finds
   // one inside the other keep their rows; a row whose numbers all stand for no Citation is free.
   const foot: QuoteLine[] = [];
-  const rows = quoteLines(
+  const kept = quoteLines(
     before.map(({ marker }) => marker),
     written.citationOf,
     written.status,
     (marker) => written.numbers.has(marker),
-  ).map((row): QuoteLine | null => {
+  );
+  const rows = kept.map((row): QuoteLine | null => {
     const markers = [...row.markers, ...row.more].flatMap((marker) => shown.get(marker) ?? []);
     const [first, ...more] = lines(markers);
     foot.push(...more);
     return first ?? null;
   });
   // The end's own quotes take the free rows, in order, then go to the foot: none joins a row
-  // drawn, whose words may fill it. A free row left reads "Quote not found".
+  // drawn, whose words may fill it. A free row left reads "Quote not found". A quote that first
+  // lands now, in a row kept as one row's room, holds to it (#3098).
   const added = lines(late);
-  const filled = rows.map((row) => row ?? added.shift() ?? null);
+  const filled = rows.map((row, index): EndedRow => {
+    const line = row ?? added.shift();
+    if (!line) return null;
+    return { line, held: line.state === "found" && kept[index]?.state !== "found" };
+  });
   return {
     line: { pieces: writtenPieces, shown, gone, late, rows: filled },
     foot: [...foot, ...added],

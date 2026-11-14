@@ -715,10 +715,16 @@ function endedLines(written: DrawnReply, ended: DrawnReply): { lines: PanelLine[
       }
       const chipOf = (marker: number) =>
         kept.gone.get(marker) ?? end.numbers.get(kept.shown.get(marker) ?? marker) ?? null;
+      const { rows, heights } = drawnRows(
+        kept.rows.map((row) => row?.line ?? null),
+        end.numbers,
+      );
       return {
         key,
         textRows: textRows(kept.pieces, chipOf, kind),
-        ...drawnRows(kept.rows, end.numbers),
+        rows,
+        // A quote held to its room takes the one row the room kept.
+        heights: heights.map((rowsTaken, index) => (kept.rows[index]?.held ? 1 : rowsTaken)),
       };
     }),
   );

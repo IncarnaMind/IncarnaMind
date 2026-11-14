@@ -8226,6 +8226,24 @@
       white-space: nowrap;
     }
   }
+  /*
+   * A quote that first lands as the reply ends, in a room of one row (#3098): it holds to that row,
+   * cut at its end, with its numbers and ✓ after it, so nothing below moves.
+   */
+  .help-quote[data-held] {
+    display: flex;
+    align-items: baseline;
+    white-space: nowrap;
+
+    & .help-quote-words {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    & .help-quote-marks {
+      flex: none;
+    }
+  }
   .help-quote-room {
     display: inline-block;
     width: 60%;

@@ -348,11 +348,16 @@ function withCitationsWhenAsked(prompt: Prompt, parts: StreamPart[]): StreamPart
 /**
  * For a model id ending "-number-not-given": a help reply's first option comes in its own words
  * with a number and no cite call, and asked once more for the reply's Citations, the model gives
- * none (#3098).
+ * none (#3098); ending "-number-given-late", it gives the option its line of the price sheet.
  */
-function withNumberNotGiven(prompt: Prompt, parts: StreamPart[]): StreamPart[] {
+function withNumberNotGiven(prompt: Prompt, parts: StreamPart[], given = false): StreamPart[] {
   const asked = lastUserText(prompt);
-  if (asksForCitations(prompt)) return textParts(JSON.stringify({ citations: [] }));
+  if (asksForCitations(prompt)) {
+    const sentence = (block(asked, "answer").split("\n")[0] ?? "")
+      .replace(/^★\s*/u, "")
+      .replace(/\s*\[\^\d+\]/gu, "");
+    return textParts(JSON.stringify({ citations: given ? citationFor(asked, sentence) : [] }));
+  }
   const help = block(asked, "help");
   if (!HELP.test(help) || shapeOf(help) !== "options") return parts;
   if (!parts.some((part) => part.type === "tool-call" && part.toolName === "cite")) return parts;
@@ -409,6 +414,7 @@ export function helpModelParts(modelId: string, prompt: Prompt, parts: StreamPar
   if (modelId.endsWith("-writes-before-it-cites")) return withTextBeforeCite(prompt, parts);
   if (modelId.endsWith("-cites-when-asked")) return withCitationsWhenAsked(prompt, parts);
   if (modelId.endsWith("-number-not-given")) return withNumberNotGiven(prompt, parts);
+  if (modelId.endsWith("-number-given-late")) return withNumberNotGiven(prompt, parts, true);
   if (modelId.endsWith("-long-last-word")) return withLongLastWords(prompt, parts);
   return parts;
 }

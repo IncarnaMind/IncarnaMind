@@ -575,6 +575,35 @@ describe("Under each line of call help, the app draws its Citations' quotes (#28
       ]);
     });
 
+    // protects=#3098: a quote that first lands as the reply ends, in a room of one row its number kept, holds to that row (cut at its end, whole on hover, its number and ✓ after it), so nothing below moves; drawn anew it is whole; a quote that lands while the reply is written may wrap as before; fails_when=the late quote isn't held, a quote drawn anew or landed while written is held, or the number or ✓ goes; no_claim=pixels, which the spec measures.
+    test("a long quote landing at the end in a one-row room holds to it, and is whole drawn anew", async () => {
+      const long =
+        "Enterprise plan: $45 per seat a month, with single sign-on, audit logs and a named account manager for every team.";
+      const reply = `★ Yes, Enterprise has it all [^1]\n→ answers at once${LATER}`;
+      await show("answer", answerOf(reply, [], "streaming"));
+      expect(drawn()[0]?.map((row) => row.state)).toEqual(["waiting"]);
+
+      await show("answer", answerOf(reply, [sheet(1, long)], "done"));
+      const [row] = rowsOf(all("help-option")[0] ?? container);
+      expect(row?.getAttribute("data-held")).toBe("true");
+      expect(row && read(row)).toMatchObject({ state: "found", numbers: ["1"], found: true });
+      expect(row?.querySelector(".help-quote-words")?.getAttribute("title")).toBe(
+        `“${fittedQuote(long).text}”`,
+      );
+
+      await act(async () => root?.render(null));
+      await show("answer", answerOf(reply, [sheet(1, long)], "done"));
+      const [anew] = rowsOf(all("help-option")[0] ?? container);
+      expect(anew?.hasAttribute("data-held")).toBe(false);
+      expect(anew && read(anew)).toMatchObject({ state: "found", numbers: ["1"], found: true });
+
+      await act(async () => root?.render(null));
+      await show("answer", answerOf(reply, [sheet(1, long)], "streaming"));
+      await show("answer", answerOf(reply, [sheet(1, long)], "done"));
+      const [written] = rowsOf(all("help-option")[0] ?? container);
+      expect(written?.hasAttribute("data-held")).toBe(false);
+    });
+
     // protects=#3098: each row kept while written keeps its own number's quote: when the first of two numbers on a line ends with no Citation, its row reads Quote not found and the second's quote stays in the second row; fails_when=the second quote moves up into the first row, or the rows swap; no_claim=the numbers, which another test pins.
     test("of two kept rows, the first with nothing reads Quote not found and the second keeps its quote", async () => {
       const reply = `★ Enterprise has single sign-on [^1] and is billed annually [^2]\n→ answers at once${LATER}`;

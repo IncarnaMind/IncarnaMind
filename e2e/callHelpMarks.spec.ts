@@ -65,6 +65,9 @@ const CALLS = [
     check: "Check what was said",
     showPanel: "Show the call help panel",
     quoteNotFound: "Quote not found",
+    // A line long enough that its quote line takes two rows.
+    longSheet:
+      "Price sheet 2026\n\nTeam plan: $25 per seat a month.\nEnterprise plan: $45 per seat a month, single sign-on included, with audit logs and a named account manager for every team.\n",
   },
   {
     language: "Chinese",
@@ -78,6 +81,8 @@ const CALLS = [
     check: "核对刚才说的话",
     showPanel: "显示通话助手浮窗",
     quoteNotFound: "未找到引文",
+    longSheet:
+      "企业版：每个席位每月 45 美元并含单点登录和审计日志，每个团队都配有专属客户经理。\n团队版：每个席位每月 25 美元。\n",
   },
 ];
 
@@ -410,6 +415,52 @@ for (const call of CALLS) {
     const again = shown.getByTestId("help-suggestion").last();
     await expect(again).toHaveAttribute("data-status", "done");
     await expect(again.getByTestId("help-quote")).toHaveCount(0);
+    await app.close();
+  });
+
+  // protects=#3098: a number the model wrote keeps a room of one row; when the app's one request for its Citation fills it as the reply ends, the quote holds to that row, cut at its end, with its number and ✓ in the row, so nothing moves; shown again, the quote is whole, in English and Chinese; fails_when=the row takes another row, the line below moves, the number or ✓ is missing, or the panel shown again keeps it cut; no_claim=how often a model writes a number before its Citation, which the description counts.
+  test(`call help in ${call.language}: a long quote that fills its room as the reply ends holds to the room's row, and is whole shown again`, async () => {
+    const { app, window, panel } = await callWithSheet(
+      { ...call, sheet: call.longSheet },
+      "fake-model-number-given-late",
+    );
+
+    await holdModel(app, "holdAsked", true);
+    await pressHelpPrompt(panel, call.answer);
+    const reply = panel.getByTestId("help-suggestion").last();
+    const options = reply.getByTestId("help-option");
+    await expect.poll(() => held(app), { timeout: 20_000 }).toBe(true);
+    await expect(options).toHaveCount(2);
+    const room = options.nth(0).getByTestId("help-quote");
+    await expect(room).toHaveAttribute("data-state", "waiting");
+    const later = options.nth(1).getByTestId("help-option-say");
+    const before = { room: await topOf(room), later: await topOf(later) };
+
+    await holdModel(app, "holdAsked", false);
+    await expect(reply).toHaveAttribute("data-status", "done", { timeout: 20_000 });
+    await expect(room).toHaveAttribute("data-state", "found");
+    await expect(room).toHaveAttribute("data-held", "true");
+    await expect(room.getByTestId("help-quote-number")).toHaveText(["1"]);
+    await expect(room.getByTestId("help-quote-found")).toBeVisible();
+    const after = { room: await topOf(room), later: await topOf(later) };
+    for (const part of ["room", "later"] as const) {
+      expect(Math.abs(after[part].y - before[part].y), part).toBeLessThan(0.5);
+      expect(Math.abs(after[part].height - before[part].height), part).toBeLessThan(0.5);
+    }
+    // Cut, not whole: its words run past the row, and the ✓ stays inside the row.
+    const words = room.locator(".help-quote-words");
+    expect(await words.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
+    const check = await topOf(room.getByTestId("help-quote-found"));
+    expect(check.x + check.width).toBeLessThanOrEqual(after.room.x + after.room.width + 0.5);
+    await shot(panel, `call-help-quotes-held-${call.interface}`);
+
+    const shown = await shownAgain(app, window, panel, call);
+    const again = shown.getByTestId("help-suggestion").last();
+    const whole = again.getByTestId("help-option").first().getByTestId("help-quote");
+    await expect(whole).toHaveAttribute("data-state", "found");
+    expect(await whole.getAttribute("data-held")).toBeNull();
+    expect((await topOf(whole)).height).toBeGreaterThan(after.room.height);
+    await shot(shown, `call-help-quotes-held-anew-${call.interface}`);
     await app.close();
   });
 
