@@ -1011,6 +1011,13 @@ interface Quoted {
   passages: WindowedPassage[];
 }
 
+/**
+ * A Citation Check again judges: one not checked, except a call help press's Citation of another
+ * call, which is never checked (#3005).
+ */
+const checkedAgain = (citation: MarkedCitation) =>
+  citation.check === "not-checked" && citation.checkReason !== "other-call";
+
 const holdsUnitsOf = (passage: WindowedPassage, cited: CitationRecheck) =>
   cited.pageFrom === null || cited.pageTo === null
     ? passage.passageId === cited.passageId
@@ -5093,14 +5100,12 @@ export function createAnswers(options: AnswersOptions) {
       const { answerId, question } = options.conversations.questionOf(input);
       const answer = options.conversations.answer(answerId);
       if (!answer || answer.status === "streaming") return;
-      if (!answer.citations.some((each) => each.check === "not-checked")) return;
+      if (!answer.citations.some(checkedAgain)) return;
       const limit = isRecord(input) ? moneyOf(input.limit) : null;
       const documentIds = judgedScope(question, answer);
       // The sentences judged again lose the ✓ an earlier check gave them, on every Citation they
       // cite, until this judgement passes them again (#2847).
-      const again = new Set(
-        answer.citations.filter((each) => each.check === "not-checked").map((each) => each.marker),
-      );
+      const again = new Set(answer.citations.filter(checkedAgain).map((each) => each.marker));
       const rejudged = new Set(
         citedSentences(answer.text, answer.figures)
           .filter((each) => !each.calculated && each.markers.some((marker) => again.has(marker)))
@@ -5114,7 +5119,7 @@ export function createAnswers(options: AnswersOptions) {
         if (off.length > 0) taken.set(citation.marker, off);
         return {
           ...rest,
-          ...(citation.check === "not-checked" && { check: "checking" }),
+          ...(checkedAgain(citation) && { check: "checking" }),
           ...(kept.length > 0 && { passedAt: kept }),
         };
       });
@@ -5136,9 +5141,7 @@ export function createAnswers(options: AnswersOptions) {
       const { answerId, question } = options.conversations.questionOf(input);
       const answer = options.conversations.answer(answerId);
       if (!answer?.model || answer.status === "streaming") return null;
-      const waiting = new Set(
-        answer.citations.filter((each) => each.check === "not-checked").map((each) => each.marker),
-      );
+      const waiting = new Set(answer.citations.filter(checkedAgain).map((each) => each.marker));
       if (waiting.size === 0) return null;
       const estimate =
         (await options.estimateAnswerCheck?.({

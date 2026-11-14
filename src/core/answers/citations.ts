@@ -1965,7 +1965,7 @@ export interface CitationSessionEvents {
   /**
    * Whether the Answer is checked without a Document: another call's Transcript, which a help
    * button's press never reads (#3005). A Citation of it is not checked, whatever its quote's
-   * check gave.
+   * check gave, and words the Answer quotes aren't looked for there.
    */
   checkedWithout?(documentId: string): boolean;
 }
@@ -2235,7 +2235,9 @@ export function createCitationSession(
     for (const { words, markers } of quoted) {
       const cited = [...new Set(markers)].flatMap((marker) => {
         const record = entry(marker);
-        return record ? [placeOf(record)] : [];
+        return record && !events.checkedWithout?.(record.source.documentId)
+          ? [placeOf(record)]
+          : [];
       });
       const verdict = quotedWordsVerdict(words, cited, names);
       if (verdict.kind === "stated" || verdict.kind === "title") {
@@ -3192,7 +3194,7 @@ export function createCitationSession(
       for (const { words, markers } of quoted) {
         const cited = [...new Set(markers)].flatMap((marker) => {
           const record = records.get(marker);
-          return record?.atCite
+          return record?.atCite && !events.checkedWithout?.(record.source.documentId)
             ? [{ ...placeOf(record), cantCheck: record.atCite.check === "cant-check" }]
             : [];
         });

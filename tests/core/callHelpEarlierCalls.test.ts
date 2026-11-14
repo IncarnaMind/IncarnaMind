@@ -202,19 +202,27 @@ const EARLIER_SAID: Record<Language, { line: string; sentence: string }> = {
  * earlier call's line again, cited to that line wherever it can see it: a Passage it was given or
  * found by searching once, else a Citation of the Note it reads, by its id ("C1"). While
  * `judging.now` is false the sentences' judgement fails, so its Citation waits as not checked;
- * then each batch is kept and judged unsupported, or supported with `judging.supported`.
+ * then each batch is kept and judged unsupported, or supported with `judging.supported`. With
+ * `beside`, a reply that cites the Note's Citation quotes the line word for word in quotation
+ * marks and also cites the Document that holds `beside`, found by searching for it.
  */
 function citingModel(
   calls: ModelCall[],
   batches: GenerateCall[],
   { sentence, line, query }: { sentence: string; line: string; query: string },
   judging: { now: boolean; supported?: boolean },
+  beside?: string,
 ) {
+  let quoting = false;
   return scriptedModel(
     (call) => {
       calls.push(call);
       if (call.results.some((result) => result.tool === "cite")) {
-        return { text: `★ ${sentence} [^1]\n→ keeps it moving` };
+        return {
+          text: quoting
+            ? `★ ${sentence} — “${line}” [^1][^2]\n→ keeps it moving`
+            : `★ ${sentence} [^1]\n→ keeps it moving`,
+        };
       }
       const shown = [call.prompt, ...call.results.map((result) => result.text)].join("\n\n");
       const passage = shownPassages(shown).find((each) => each.text.includes(line));
@@ -222,6 +230,24 @@ function citingModel(
         calls: [{ tool: "cite", input: { citations: [{ marker: 1, passage: id, quote: line }] } }],
       });
       if (passage) return cite(passage.id);
+      const document = beside && shownPassages(shown).find((each) => each.text.includes(beside));
+      if (beside && /· C1\]/.test(call.prompt)) {
+        if (!document) return { calls: [{ tool: "search_documents", input: { query: beside } }] };
+        quoting = true;
+        return {
+          calls: [
+            {
+              tool: "cite",
+              input: {
+                citations: [
+                  { marker: 1, passage: "C1", quote: line },
+                  { marker: 2, passage: document.id, quote: beside },
+                ],
+              },
+            },
+          ],
+        };
+      }
       if (/· C1\]/.test(call.prompt)) return cite("C1");
       if (
         call.tools.includes("search_documents") &&
@@ -728,9 +754,15 @@ for (const language of ["en", "zh-CN"] as const) {
     /**
      * A press's reply and a typed Question's Answer in the live call's Note, each with one sentence
      * saying the earlier call's line again, cited to that line and not checked; then the call
-     * stops. The press reaches the line by a Citation the User kept in the Note.
+     * stops. The press reaches the line by a Citation the User kept in the Note, and its reply is
+     * stored as a version that judged presses stored it (`judgedBefore`), or as this one does. With
+     * `quoting`, the press's reply quotes the line and cites the hosting terms beside it.
      */
-    const pressedThenStopped = async ({ typedJudged = false } = {}) => {
+    const pressedThenStopped = async ({
+      typedJudged = false,
+      quoting = false,
+      judgedBefore = true,
+    } = {}) => {
       const said = EARLIER_SAID[language];
       const batches: GenerateCall[] = [];
       const judging = { now: false, supported: false };
@@ -741,6 +773,7 @@ for (const language of ["en", "zh-CN"] as const) {
             batches,
             { sentence: said.sentence, line: said.line, query: said.sentence },
             judging,
+            quoting ? TERMS[language].sentence : undefined,
           ),
       });
       const { core, dataDir, clock } = setup;
@@ -818,7 +851,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await client.settled();
 
       // The press keeps the Note's Citation: the one way its reply can cite an earlier call.
-      const judgedBefore = batches.length;
+      const batchesBefore = batches.length;
       const pressed = await core.askMeetingHelp({
         meetingId: live.id,
         kind: "say",
@@ -830,15 +863,14 @@ for (const language of ["en", "zh-CN"] as const) {
       // A press reads no other call: its quote is found there, but its Citation isn't checked.
       const reply = await answerOf(pressIds);
       expect(
-        reply.citations.map(({ documentId, check, checkReason }) => [
-          documentId,
-          check,
-          checkReason,
-        ]),
+        reply.citations
+          .filter(({ documentId }) => documentId === stopped.document.id)
+          .map(({ documentId, check, checkReason }) => [documentId, check, checkReason]),
       ).toEqual([[stopped.document.id, "not-checked", "other-call"]]);
-      expect(batches.slice(judgedBefore)).toEqual([]);
+      expect(reply.citations).toHaveLength(quoting ? 2 : 1);
+      expect(batches.slice(batchesBefore)).toEqual([]);
       const pressWrites = written.filter((each) => each.id === pressIds.answerId);
-      await storedAsJudgedBefore(core, setup.dataDir, pressIds);
+      if (judgedBefore) await storedAsJudgedBefore(core, setup.dataDir, pressIds);
 
       // Stop: the notes are tried with the model, which this test answers with an error.
       await core.stopMeeting(live.id);
@@ -880,6 +912,37 @@ for (const language of ["en", "zh-CN"] as const) {
         ["found", null],
       ]);
       expect(quoteState(typed.citations[0], typed.status)).toBe("found");
+    });
+
+    // protects=#3005's rule for the words a press's reply quotes and for Check again: the words are looked for only in its own call and the Documents, so words found only in another call's Transcript vouch for no Citation beside them, and Check again never judges the Citation of the other call, which keeps why it isn't checked; fails_when=the hosting terms' Citation keeps its found check, a Citation of the reply holds the quoted words as found at any write, or after Check again the other call's Citation is judged or loses its reason; no_claim=the card's words.
+    test("a press's reply quoting the earlier call's words beside a Document: the Document's Citation says they aren't on its pages, no write holds them as found, and Check again leaves the other call's Citation not checked, for another call", async () => {
+      const { core, batches, judging, pressWrites, pressIds, answerOf } = await pressedThenStopped({
+        quoting: true,
+        judgedBefore: false,
+      });
+      const said = EARLIER_SAID[language];
+      const states = (citations: readonly { check: string; checkReason: string | null }[]) =>
+        citations.map(({ check, checkReason }) => [check, checkReason]);
+
+      const reply = await answerOf(pressIds);
+      expect(reply.text).toContain(`“${said.line}”`);
+      const beside = reply.citations.find((each) => each.marker === 2);
+      expect(`${beside?.documentName}.md`).toBe(TERMS[language].name);
+      expect(states(reply.citations)).toEqual([
+        ["not-checked", "other-call"],
+        ["not-found", "quoted-words-not-on-pages"],
+      ]);
+      for (const write of pressWrites) {
+        for (const citation of write.citations) {
+          expect(citation.quotedWordsFound ?? []).toEqual([]);
+        }
+      }
+
+      judging.now = true;
+      expect(await core.estimateAnswerCheck(pressIds)).toBeNull();
+      await core.checkAnswerAgain(pressIds);
+      expect(batches.filter((batch) => batch.prompt.includes(said.line))).toEqual([]);
+      expect(states((await answerOf(pressIds)).citations)).toEqual(states(reply.citations));
     });
 
     test("after the call stops, Check again and its estimate read the Folder without the earlier call's Transcript, though it holds the sentence's words; a typed Question's Answer still reads it", async () => {
