@@ -313,8 +313,9 @@ export function drawPress(press: SavedPress, counts: ReplayCounts): DrawnLine[] 
       return [`${time}${words}`, ...marks].join(" ");
     }
     const at = startOf(record?.location);
+    const check = line.state === "waiting" ? "checking" : line.state;
     const { key, params } = badgeMessage(
-      { check: line.state === "waiting" ? "checking" : line.state, reason: null },
+      { check, reason: record && check === record.check ? (record.checkReason ?? null) : null },
       {
         documentName: record?.document ?? record?.place ?? "",
         location: at === null ? null : { kind: "time", from: at, to: at },
@@ -373,6 +374,21 @@ export function drawPress(press: SavedPress, counts: ReplayCounts): DrawnLine[] 
       counts.moments.plain++;
       return;
     }
+    const start = startOf(record.location);
+    const time = start === null ? null : clockTime(start);
+    // The words a moment's ✓ rests on are stored by the app's own check. A reply an earlier build
+    // left being written keeps "checking" and none of them, so the panel shows its words alone.
+    if (status !== "done" && record.check === "checking") {
+      counts.moments.plain++;
+      drawn.push({
+        press,
+        shape: "readings",
+        written: null,
+        rows: [[momentWords(textOf(pieces), time), ...shownNumbers([moment.marker])].join(" ")],
+        moment: "plain",
+      });
+      return;
+    }
     const inQuote = inside(moment.words, record.quote);
     const inPlace =
       !inQuote && record.passageText !== undefined && inside(moment.words, record.passageText);
@@ -383,8 +399,6 @@ export function drawPress(press: SavedPress, counts: ReplayCounts): DrawnLine[] 
     }
     counts.moments["plain-found"]++;
     if (inPlace) counts.plainFoundOutsideQuote++;
-    const start = startOf(record.location);
-    const time = start === null ? null : clockTime(start);
     drawn.push({
       press,
       shape: "readings",

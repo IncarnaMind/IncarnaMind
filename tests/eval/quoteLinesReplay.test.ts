@@ -305,6 +305,42 @@ describe("The quote lines' replay", () => {
     expect(counts.quoteNotAsGiven).toBe(0);
   });
 
+  // protects=the replay words a line as the panel does: a quote that can't be checked for a stored reason takes the card's words for that reason, and a plain moment of a reply an earlier build left being written, its Citation still checking, shows its words with no ✓, since the found words the panel's ✓ rests on were never stored (#2847); fails_when=the replay's words or ✓ differ from the panel's for such a record; no_claim=the saved presses, which hold neither.
+  test("a stored reason picks the card's words, and a moment never checked shows no ✓", () => {
+    const { drawn, counts } = replay([
+      press({
+        id: "en-unsure",
+        button: "answer",
+        text: "★ Enterprise is $45 a seat [^1]\n→ answers at once",
+        citations: [
+          sheet(1, "Enterprise plan: $45 per seat a month.", {
+            check: "cant-check",
+            checkReason: "unsure-word",
+          }),
+        ],
+      }),
+      press({
+        id: "en-left",
+        set: "readings-recent",
+        button: "want",
+        status: "stopped",
+        text: "★ They want to stay near $35 a seat\n0:02 “our budget is about thirty-five a seat” [^1]\n→ show the Team plan first",
+        citations: [
+          {
+            ...heard(1, "Honestly, our budget is about thirty-five a seat, maybe less.", "0:02"),
+            check: "checking",
+          },
+        ],
+      }),
+    ]);
+    expect(drawn.map((line) => line.rows)).toEqual([
+      ["Check the page 1"],
+      ["0:02 “our budget is about thirty-five a seat” 1"],
+    ]);
+    expect(counts.moments).toMatchObject({ plain: 1, "plain-found": 0 });
+    expect(counts.checkBesideUnfoundWords).toBe(0);
+  });
+
   test("the readers' file holds the drawn lines and nothing of their kind; its key says which", () => {
     const { drawn } = replay(ALL);
     const { text, key } = readersFile(drawn);
