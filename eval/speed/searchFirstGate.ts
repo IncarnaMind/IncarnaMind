@@ -198,6 +198,13 @@ export function searchFirstGateSection(
       const lowSum = (arm: string) =>
         sum(items.map((_, index) => (low(index) ? supported(arm, index) : 0)));
       const right = { base: lowSum(base), other: lowSum(other) };
+      const roundsOf = (arm: string) => runs.filter((run) => run.checkArm === arm).length;
+      const lostFrom = (from: string, to: string) =>
+        items.filter(
+          (_, index) =>
+            low(index) && supported(from, index) === roundsOf(from) && supported(to, index) === 0,
+        );
+      const lost = lostFrom(base, other);
       const otherRight = {
         base: kindSum(base, "right") - right.base,
         other: kindSum(other, "right") - right.other,
@@ -250,6 +257,11 @@ export function searchFirstGateSection(
         "",
         `- **Wrong twins and absent sentences Supported:** ${base} ${kindSum(base, "twin")} + ${kindSum(base, "absent")}, ${other} ${kindSum(other, "twin")} + ${kindSum(other, "absent")}. Supported in more rounds on ${other} than on ${base}: ${more.map((item) => item.id).join(", ") || "none"}. **${more.length === 0 ? "Holds" : "Fails"}.**`,
         `- **Right sentences whose support ranks low or splits** (${items.filter((_, index) => low(index)).length} sentences, the gating row): Supported ${base} ${right.base}, ${other} ${right.other}${rightMargin === null ? "; no margin set, so not judged" : `, margin ${rightMargin}. **${right.other >= right.base - rightMargin ? "Holds" : "Fails"}.**`}`,
+        `- **The gating row, sentence by sentence:** Supported on ${base} in every round and on ${other} in none: ${lost.map((item) => item.id).join(", ") || "none"}. **${lost.length > 1 ? "Fails" : "Holds"}** (more than one fails). The reverse: ${
+          lostFrom(other, base)
+            .map((item) => item.id)
+            .join(", ") || "none"
+        }.`,
         `- **The other right sentences** (reported): Supported ${base} ${otherRight.base}, ${other} ${otherRight.other}.`,
         `- **By writer** (Supported, ${base} → ${other}): ${byWriter.join("; ")}.`,
         ...(guards

@@ -123,7 +123,7 @@ Every phase runs under the key's lease and the void rule below. The stop is the 
    - **Rule 2, sentence by sentence:** a sentence Supported on `main` in every round and on `search-first` in none is lost. More than one lost in a language fails the row. The reverse, Supported on `search-first` in every round and on `main` in none, is reported beside it.
    - **The margin's rule, fixed now:** on the gating row, in each language, the larger of (a) the difference in its Supported between Phase A's two `main` arms over their counted rounds, and (b) two standard errors of a 3-round total, from the sample standard deviation of their rounds' counts (2 × sd × √3); the larger over the two languages, rounded up, at least 1. For scale, the pressure test's same 7 right sentences gave 4, 6 and 5 across three runs.
    - **Rule 3, free, before B's first request:** from A's own records, how often `main` beside `main` fails rules 1 and 2 (the false-fail rate), and how often the rules catch a path that loses a third of the row (the power). Both are written here and sent before B. If three rounds catch too little, extra rounds on the gating row alone are priced; they are above B's stop, so they wait for the owner.
-   - **The margin:** _written here from Phase A's report, before Phase B._
+   - **The margin: 5,** from Phase A's three rounds: English, a difference of 4 between the two `main` arms (19 and 15) and two standard errors of 4.20; Chinese, 0 (27 and 27) and 4.38. Read as the ruling's two binomial standard errors of one round's count, it would be 4 (3.32 and 3.97, against the differences 4 and 0).
 3. **Not checked no higher:** on the held-out Note and the 10-sentence Note, `search-first`'s Not checked over the rounds no higher than `main`'s by more than one sentence in 24 per language; on the reduced set, no more than `main`'s plus 1 a language.
 4. **Faster where it should be, later nowhere:**
    - on the held-out Note and the 10-sentence Note, in each language, `search-first`'s median last mark and end are sooner than `main`'s, and its median first mark no later than `main`'s by more than `main`'s own spread on that flow and language (its slowest round minus its fastest);
@@ -163,4 +163,25 @@ A model is listed in `SEARCH_FIRST` only when Bars 1 to 5 all hold on it. A bar 
   - C, D and E were sized for a smaller Note. On this one, each needs a higher stop or a smaller run.
 - **Changed after the pilot, in the evaluation's code only:** the probe's wait above, and the report's "Guards, any sentence" line is printed only on the scripted run that calls everything Supported. On a real model, right sentences differ from round to round, so the line flagged four Chinese right sentences on `main` against `main`. No prompt, instruction or rule of the check changed.
 
-_Phase by phase as each finishes: then A, B and on._
+**Phase A** (3 rounds, `main` against `main`, Claude Haiku 5.5, 2026-11-14):
+
+- **Spend:** US$1.459 of its US$1.50: rounds 1, 2 and 3 cost US$0.498, US$0.480 and US$0.481. Round 3 ran because round 2 counted and the US$0.522 left covered round 2's cost plus 5%. 12 arm-runs, 0 void, no request refused or failed; every state cell 0. Round 1 ran a language at a time; rounds 2 and 3 ran whole, the probe waiting 30 and 60 seconds between languages.
+- **The key's limits a minute,** as the probe now logs them: 500,000 input tokens, 580,000 tokens, 80,000 output tokens, 1,000 requests. One arm-run sends 0.63–0.75 million input tokens that aren't from the cache, in about a minute.
+- **Bar 1 breaks on `main` against `main`.** In round 3, `main#2` marked a wrong twin Supported: `en-tyre-condition`, "Lumen Bay repairs any flat tyre within two working days." (the condition dropped), citing "Lumen Bay repairs a flat tyre reported through the app within two working days." Wrong twins and absent sentences Supported: English 0 + 0 on `main`, 1 + 0 on `main#2`; Chinese 0 + 0 on both. One sentence is Supported in more rounds on one arm of today's check than on the other, and its total is higher, so the gate stops here, before B, as written above.
+  - **Bar 1's own false-fail rate,** from A: today's check marked 1 of 252 wrong sentence-rounds Supported. Drawing that rate from its Jeffreys posterior, two arms of today's check over B's 3 rounds and the held-out Note's 42 wrong sentences break Bar 1 as written 45% of the time, and its totals alone 27%. The 10-sentence Note's wrong sentences add to that.
+- **The gating row, rounds 1 to 3:** English `main` 7, 7, 5 and `main#2` 4, 6, 5 of 11; Chinese `main` 8, 8, 11 and `main#2` 8, 9, 10 of 16. The other right sentences: English 40 and 41, Chinese 41 and 45. Not checked: English 20 and 19 of 147 sentence-rounds, Chinese 16 and 12 of 162.
+- **Clocks on `main`, medians:** first mark 5.1 and 6.8 s in English, 7.4 and 7.0 s in Chinese; done 57.0 and 58.4 s, 68.2 and 66.4 s.
+- **Rule 3, from A's records** (each gating sentence's chance of Supported drawn from its Jeffreys posterior over A's 6 arm-rounds; B's two arms drawn for its rounds; 20,000 runs; plug-in chances give the same within a few points):
+
+  | B's rounds, margin | `main` beside `main` fails rule 1 or 2 (English, Chinese, either) | Catches a third of the row's sentences never Supported | Catches every row sentence's chance cut by a third |
+  |---|---|---|---|
+  | 3, margin 5 (written) | 2.8%, 6.9%, 9.5% | 65%, 91%, 97% | 52%, 80%, 90% |
+  | 3, margin 4 (the ruling's reading) | 5.7%, 11%, 16% | 74%, 94%, 99% | 65%, 86%, 95% |
+  | 4, margin 6 | 2.3%, 6.5%, 8.6% | 70%, 94%, 98% | 62%, 87%, 95% |
+  | 5, margin 6 | 3.7%, 8.6%, 12% | 80%, 97%, 99% | 76%, 94%, 99% |
+  | 6, margin 7 | 2.9%, 7.0%, 9.7% | 83%, 98%, 100% | 81%, 96%, 99% |
+
+  Rule 2 alone fails `main` beside `main` in under 0.5% of runs, and catches 41% (English) and 69% (Chinese) of a third lost on 3 rounds. For more rounds, the margin's two standard errors are taken over that many rounds (2 × sd × √rounds).
+  - **Three rounds catch too little in English:** about half to two thirds. Six rounds reach about 81–83% in English and 96–98% in Chinese. The gating row alone costs US$0.025–0.048 a `main` arm-run, so about US$0.10–0.17 a round for both arms and both languages, if `search-first` costs 0.6–0.9 of `main`'s: three extra rounds, US$0.31–0.51. That is above B's stop, so it waits for the owner.
+
+_Phase by phase as each finishes: then B and on._
