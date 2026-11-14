@@ -124,6 +124,10 @@ The 30 sentences are the second held-out written set's (`writtenHeldOut.ts`) ove
 
 `INCARNAMIND_EVAL_SPEED_RERANK=1` times the built-in reranker on this computer (`rerankThroughput.speed.ts`), with no model request: one search for each of Check this Note's ten sentences, the sentence as its query, over the mixed sample set, in English and Chinese, scored one by one and the first twelve at once. It compares the GPU file as downloaded with the copy the app opens, its copies between host and GPU memory read as Identity, taking turns `RUNS` times each (5 by default). It fails if any score differs between the arms or between runs of one. The report gives each arm's load and times. A change to how the reranker runs is held to `gates/check-note-speed.md` › Gate C.
 
+## Where a rerank's time goes (#2532)
+
+`INCARNAMIND_EVAL_SPEED_RERANK=wait` times the built-in reranker on this computer (`rerankWait.speed.ts`), with no model request, over the searches a check of the sample sentences makes on the mixed sample set, in English and Chinese, `RUNS` rounds (3 by default), the order turning each round and the load read before each part. It gives each rerank's wait in the core's line and its work, with 1, 6 and 12 searches asked at once over the model on a worker thread as the app runs it; one and two GPU sessions in one process; the model in this process with 1, 2 and 4 searches scored at once and no line, with any score unlike one at a time counted; where a search's work goes (its texts' tokens, its tensors and the model's runs) by the number of texts a GPU run holds, every score set beside the app's 8; and the CPU file, one search at a time.
+
 ## The token audit (#1634)
 
 `INCARNAMIND_EVAL_SPEED_AUDIT=1` adds the token audit to the same run, or `npm run eval:speed:tokens`. For each model call it measures the exact prompt the core assembled and writes, per request kind and per flow:
