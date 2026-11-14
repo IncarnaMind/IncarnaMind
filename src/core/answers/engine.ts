@@ -455,6 +455,12 @@ export interface AnswerRequest {
    * flow was declined), the Answer's model makes them.
    */
   quickModel?(): Promise<ChatLanguageModel>;
+  /**
+   * For a Meeting fill: its own model, asked to skip thinking, for the one small call that stays
+   * with it, the ask for its reply's Citation records (#3099). Its other small calls go to
+   * `quickModel`, as an Answer's do.
+   */
+  ownQuickModel?(): Promise<ChatLanguageModel>;
   /** Searching and citing the Documents: the Documents' Tools, and the search of a model without Tools. */
   documents: AnswerTools;
   /** The Passage ids a search actually fitted into the model's request, for exact whole-read coverage. */

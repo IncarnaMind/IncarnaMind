@@ -727,8 +727,8 @@ export interface AnswersOptions {
   /**
    * The model for the calls that don't write the Answer, asked to skip thinking:
    * the quick-tasks model for an Answer asked with `answers`, which may be
-   * `answers` itself; with `own`, always `answers` itself, as a Meeting fill's calls go to the
-   * model and service the fill used (#3099).
+   * `answers` itself; with `own`, always `answers` itself, for the one call that stays with the
+   * model that wrote the reply: a Meeting fill's ask for its reply's Citation records (#3099).
    */
   prepareQuickModel?(
     answers: ChatModelChoice,
@@ -3789,7 +3789,8 @@ export function createAnswers(options: AnswersOptions) {
         ...(input.onScreenLine && { onScreenLine: input.onScreenLine }),
         model: prepared.model,
         ...(prepareQuick && {
-          quickModel: () => prepareQuick(model, prepared, context.meetingFacts === true),
+          quickModel: () => prepareQuick(model, prepared),
+          ...(context.meetingFacts && { ownQuickModel: () => prepareQuick(model, prepared, true) }),
         }),
         documents,
         tools: [

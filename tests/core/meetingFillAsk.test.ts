@@ -3,13 +3,24 @@
  * more for those markers' records, in the one request for an Answer's Citations, and reads the reply
  * with them. Through the core's public interface, with the scripted model.
  */
+import type { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test, vi } from "vitest";
-import type { ChatModelFactory, ChatModelSpec, MeetingFill } from "../../src/core";
+import type {
+  ChatModelFactory,
+  ChatModelSpec,
+  Core,
+  CoreAdapters,
+  MeetingFill,
+} from "../../src/core";
+import {
+  SEARCH_QUERY_INSTRUCTIONS,
+  TRANSLATE_QUERY_INSTRUCTIONS,
+} from "../../src/core/answers/prompt";
 import { CITATION_NODE } from "../../src/core/api";
 import type { Language } from "../../src/core/language";
 import { createFakeCapture } from "../../src/core/meetings/fakeCapture";
 import { isPartialMeetingFill } from "../../src/shared/meetingFill";
-import { shownPassages } from "../helpers/citations";
+import { askAndFinish, setUpWithDocuments, shownPassages } from "../helpers/citations";
 import { createTempDataFolder, manualClock, startCore } from "../helpers/core";
 import { connectToMind } from "../helpers/mindClient";
 import { exactly, heading, note, readMind, writeMind } from "../helpers/minds";
@@ -85,6 +96,16 @@ interface Asked {
   quote: string;
 }
 
+/** A `cite` call's records for `cites` (marker → quote), each at its quote's timed cue in `shown`. */
+const citeRecords = (shown: { id: string; text: string }[], cites: Record<number, string>) =>
+  Object.entries(cites).map(([marker, quote]) => {
+    const passage = shown.find((each) => each.text.includes(quote));
+    const cue = passage?.text.split("\n").find((line) => line.includes(quote));
+    const location = /^\[([^\]]+)\]/.exec(cue ?? "")?.[1];
+    if (!passage || !location) throw new Error("The Transcript quote has no timed cue");
+    return { marker: Number(marker), passage: passage.id, quote, location };
+  });
+
 /**
  * The model: the fill's request gets `reply` (after a `cite` call with `cites`' records, when
  * given); the ask for records gets what `ask` makes of its Answer and Passages.
@@ -114,14 +135,7 @@ function fillModel({
     if (shown.length === 0) return { text: "OK" };
     fills++;
     if (cites && !call.results.some((each) => each.tool === "cite")) {
-      const citations = Object.entries(cites).map(([marker, quote]) => {
-        const passage = shown.find((each) => each.text.includes(quote));
-        const cue = passage?.text.split("\n").find((line) => line.includes(quote));
-        const location = /^\[([^\]]+)\]/.exec(cue ?? "")?.[1];
-        if (!passage || !location) throw new Error("The Transcript quote has no timed cue");
-        return { marker: Number(marker), passage: passage.id, quote, location };
-      });
-      return { calls: [{ tool: "cite", input: { citations } }] };
+      return { calls: [{ tool: "cite", input: { citations: citeRecords(shown, cites) } }] };
     }
     return { text: reply };
   });
@@ -152,28 +166,84 @@ const recordsFor =
         : [];
     });
 
+/** A small call's name: its judge question, or the search's rewrite or translation. */
+function smallCallOf(options: Parameters<MockLanguageModelV4["doStream"]>[0]): string | undefined {
+  const system = options.prompt.find((message) => message.role === "system")?.content;
+  return (
+    questionOf(options) ??
+    (system === SEARCH_QUERY_INSTRUCTIONS
+      ? "search-rewrite"
+      : system === TRANSLATE_QUERY_INSTRUCTIONS
+        ? "search-translation"
+        : undefined)
+  );
+}
+
+/**
+ * A factory of `model` that hears which model each small call went to: `asks` for the ask for
+ * Citation records, `small` for every small call, by its name.
+ */
+function hearingModels(model: MockLanguageModelV4) {
+  const asks: ChatModelSpec[] = [];
+  const small: { question: string; spec: ChatModelSpec }[] = [];
+  const heard = (spec: ChatModelSpec, options: Parameters<MockLanguageModelV4["doStream"]>[0]) => {
+    const question = smallCallOf(options);
+    if (question === undefined) return;
+    small.push({ question, spec });
+    if (question === "unmarked-quotes") asks.push(spec);
+  };
+  const createChatModel: ChatModelFactory = (spec) => ({
+    specificationVersion: model.specificationVersion,
+    provider: model.provider,
+    modelId: model.modelId,
+    supportedUrls: model.supportedUrls,
+    doGenerate: (options) => {
+      heard(spec, options);
+      return model.doGenerate(options);
+    },
+    doStream: (options) => {
+      heard(spec, options);
+      return model.doStream(options);
+    },
+  });
+  return { createChatModel, asks, small };
+}
+
+/** Saves `cloud`, an Anthropic model, allowed, as the model for Answers, and `quick` as the quick-tasks model. */
+async function onAnthropic(core: Core, cloud: string, quick?: string) {
+  const saved = await core.saveChatProvider({
+    kind: "anthropic",
+    apiKey: "sk-test",
+    modelId: cloud,
+  });
+  for (const flow of ["chat", "checks"] as const) {
+    if (saved.service) await core.allowDataFlow(flow, saved.service.id);
+  }
+  await core.updateSettings({
+    user: {
+      chatModel: { providerId: saved.id, modelId: cloud },
+      ...(quick && { quickTasksModel: { providerId: saved.id, modelId: quick } }),
+      monthlyCap: { amount: 50, currency: "USD" },
+    },
+  });
+}
+
 /**
  * A call recorded and stopped, its notes filled by `scripted`: on a model on this computer, or with
- * `cloud`, that Anthropic model, allowed. `asks` are the specs of the models each ask went to.
+ * `cloud`, that Anthropic model, allowed, and `quick` its quick-tasks model. `asks` are the specs of
+ * the models each ask went to; `small`, of every small call's.
  */
 async function recordedFill(
   language: Language,
-  scripted: ReturnType<typeof fillModel>,
-  { cloud }: { cloud?: string } = {},
+  scripted: { model: MockLanguageModelV4 },
+  {
+    cloud,
+    quick,
+    modelFacts,
+  }: { cloud?: string; quick?: string; modelFacts?: CoreAdapters["modelFacts"] } = {},
 ) {
   const words = WORDS[language];
-  const asks: ChatModelSpec[] = [];
-  const createChatModel: ChatModelFactory = (spec) => ({
-    specificationVersion: scripted.model.specificationVersion,
-    provider: scripted.model.provider,
-    modelId: scripted.model.modelId,
-    supportedUrls: scripted.model.supportedUrls,
-    doGenerate: (options) => scripted.model.doGenerate(options),
-    doStream: (options) => {
-      if (questionOf(options) === "unmarked-quotes") asks.push(spec);
-      return scripted.model.doStream(options);
-    },
-  });
+  const { createChatModel, asks, small } = hearingModels(scripted.model);
   const clock = manualClock();
   const capture = createFakeCapture({ now: () => clock.now().getTime() });
   // Four lines for the four cues recorded, none said twice: the ask's records carry no time, so a
@@ -187,26 +257,12 @@ async function recordedFill(
     transcriptionModelSource: NO_TRANSCRIPTION_FILES,
     createChatModel,
     now: clock.now,
+    ...(modelFacts && { modelFacts }),
   });
   await core.saveLibrarySettings({ ...(await core.getLibrary()).settings, automatic: false });
   await core.updateSettings({ user: { language }, device: { meetingNoticeAccepted: true } });
   await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
-  if (cloud) {
-    const saved = await core.saveChatProvider({
-      kind: "anthropic",
-      apiKey: "sk-test",
-      modelId: cloud,
-    });
-    for (const flow of ["chat", "checks"] as const) {
-      if (saved.service) await core.allowDataFlow(flow, saved.service.id);
-    }
-    await core.updateSettings({
-      user: {
-        chatModel: { providerId: saved.id, modelId: cloud },
-        monthlyCap: { amount: 50, currency: "USD" },
-      },
-    });
-  }
+  if (cloud) await onAnthropic(core, cloud, quick);
   const meeting = await core.createMeeting();
   const client = await connectToMind(core, meeting.mindId);
   writeMind(client, [heading(1, words.heading), note(words.line)]);
@@ -229,7 +285,7 @@ async function recordedFill(
     },
     { timeout: 20_000 },
   );
-  return { core, meeting, client, before, fill, words, asks };
+  return { core, meeting, client, before, fill, words, asks, small };
 }
 
 /** Each written paragraph or bullet holding `text`: its Citations' checks and quotes. */
@@ -318,15 +374,111 @@ describe.each(["en", "zh-CN"] as const)(
 );
 
 describe("the ask for a fill's records (#3099)", () => {
-  // protects=the ask goes to the model and service the fill used, with no thinking, even where the quick-tasks model is another one (#3099); fails_when=it goes to the quick-tasks model, or thinks; no_claim=a real provider's request.
-  test("goes to the model the fill used, without thinking", async () => {
+  // protects=the ask goes to the model and service the fill used, with no thinking, where the User's quick-tasks model is another one (#3099); fails_when=it goes to the quick-tasks model, or thinks; no_claim=a real provider's request.
+  test("goes to the model the fill used, without thinking, never the quick-tasks model", async () => {
     const words = WORDS.en;
     const scripted = fillModel({ reply: ledger(words), ask: recordsFor(quotesOf(words)) });
-    const { core, fill, asks } = await recordedFill("en", scripted, { cloud: "claude-sonnet-5-5" });
+    const { core, fill, asks, small } = await recordedFill("en", scripted, {
+      cloud: "claude-sonnet-5-5",
+      quick: "claude-haiku-5-5",
+    });
     try {
       expect(fill).toMatchObject({ state: "filled", omitted: 0 });
       expect(asks.map(({ kind, modelId, thinking }) => ({ kind, modelId, thinking }))).toEqual([
         { kind: "anthropic", modelId: "claude-sonnet-5-5", thinking: "off" },
+      ]);
+      expect(small.map((each) => each.question)).toEqual(["unmarked-quotes"]);
+    } finally {
+      core.close();
+    }
+  });
+
+  // protects=the fill's tool set makes no check of text a reply writes beside its cite call, so such a fill makes no small call at all, as on main (#3099); fails_when=a small call goes out for that text; no_claim=where a fill's other small calls go, which the next test pins.
+  test("makes no check of text the reply writes beside its cite call", async () => {
+    const words = WORDS.en;
+    const model = scriptedModel(
+      (call) => {
+        if (call.question !== undefined) throw new Error(`Unexpected question: ${call.question}`);
+        const shown = shownPassages(call.prompt);
+        if (shown.length === 0) return { text: "OK" };
+        if (call.results.some((each) => each.tool === "cite")) return { text: "" };
+        return {
+          text: `${ledger(words)}\n\nNow I record each line's quote.`,
+          calls: [{ tool: "cite", input: { citations: citeRecords(shown, quotesOf(words)) } }],
+        };
+      },
+      { generate: () => ({ text: "{}" }) },
+    );
+    const { core, fill, small } = await recordedFill(
+      "en",
+      { model },
+      {
+        cloud: "claude-sonnet-5-5",
+        quick: "claude-haiku-5-5",
+      },
+    );
+    try {
+      expect(fill).toMatchObject({ state: "filled", omitted: 0 });
+      expect(small).toEqual([]);
+    } finally {
+      core.close();
+    }
+  });
+
+  // protects=only the ask stays with the fill's model: on a model that can't call Tools, a fill's search rewrite goes to the User's quick-tasks model, as on main (#3099); fails_when=it goes to the fill's model; no_claim=whether that fill fills, or a translation, which an English call with English lines doesn't make.
+  test("sends a fill's search rewrite on a model without Tools to the quick-tasks model", async () => {
+    const model = scriptedModel(() => ({ text: "{}" }), {
+      generate: (call) => ({ text: call.question === undefined ? "review date" : "{}" }),
+    });
+    const { core, small } = await recordedFill(
+      "en",
+      { model },
+      {
+        cloud: "claude-sonnet-5-5",
+        quick: "claude-haiku-5-5",
+        modelFacts: (_provider, modelId) =>
+          modelId === "claude-sonnet-5-5"
+            ? { tools: false, structuredOutput: "json_schema" }
+            : undefined,
+      },
+    );
+    try {
+      expect(
+        small.map(({ question, spec: { modelId, thinking } }) => ({ question, modelId, thinking })),
+      ).toEqual([{ question: "search-rewrite", modelId: "claude-haiku-5-5", thinking: "off" }]);
+    } finally {
+      core.close();
+    }
+  });
+
+  // protects=an Answer's own ask for the Citations it left out goes to the quick-tasks model, as before the fill's ask was added (#3099); fails_when=it goes to the Answer's model; no_claim=what the ask gives.
+  test("leaves an Answer's own ask for its Citations with the quick-tasks model", async () => {
+    const model = scriptedModel(
+      (call) => {
+        if (call.question === "unmarked-quotes") return { text: '{"citations":[]}' };
+        if (!call.results.some((result) => result.tool === "search_documents")) {
+          return { calls: [{ tool: "search_documents", input: { query: "tea" } }] };
+        }
+        return { text: "Long ago, merchants moved bricks of it west by caravan [^1]." };
+      },
+      { generate: () => ({ text: '{"sentences":[]}' }) },
+    );
+    const { createChatModel, asks } = hearingModels(model);
+    const { core, client, mind } = await setUpWithDocuments(
+      model,
+      [
+        {
+          name: "Tea.md",
+          contents: "# Tea\n\nTraders carried tea along the Tea Horse Road to Tibet.\n",
+        },
+      ],
+      { createChatModel },
+    );
+    try {
+      await onAnthropic(core, "claude-sonnet-5-5", "claude-haiku-5-5");
+      await askAndFinish(core, client, mind.id, "How did tea reach Tibet?");
+      expect(asks.map(({ kind, modelId, thinking }) => ({ kind, modelId, thinking }))).toEqual([
+        { kind: "anthropic", modelId: "claude-haiku-5-5", thinking: "off" },
       ]);
     } finally {
       core.close();

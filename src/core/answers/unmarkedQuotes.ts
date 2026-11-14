@@ -593,12 +593,12 @@ function markedLines(reply: string): string {
  * record, and only a quote the check finds is kept.
  */
 export async function recordMarkedSentences(
-  request: Pick<AnswerRequest, "model" | "quickModel" | "documents" | "signal">,
+  request: Pick<AnswerRequest, "model" | "ownQuickModel" | "documents" | "signal">,
   reply: string,
   temperature: number | undefined,
   budget?: WindowBudget | null,
 ): Promise<void> {
-  const { documents, signal } = request;
+  const { documents, signal, ownQuickModel } = request;
   if (!documents.shownPassages || !documents.quoteFound || !documents.hasRecord) return;
   const passages = documents.shownPassages();
   const sentences = markedLines(reply);
@@ -606,7 +606,12 @@ export async function recordMarkedSentences(
   // The fill read every Passage of its part whole: only a window limits what the request shows.
   const toAsk = budget ? passagesToAsk(sentences, passages, budget) : passages;
   if (toAsk.length === 0) return;
-  const given = await askForCitations(request, sentences, toAsk, temperature);
+  const given = await askForCitations(
+    { model: request.model, signal, ...(ownQuickModel && { quickModel: ownQuickModel }) },
+    sentences,
+    toAsk,
+    temperature,
+  );
   if (signal.aborted) return;
   const found = given.filter((each) => documents.quoteFound?.(each.passage, each.quote) ?? false);
   const recorded = (marker: number) => documents.hasRecord?.(marker) ?? false;
