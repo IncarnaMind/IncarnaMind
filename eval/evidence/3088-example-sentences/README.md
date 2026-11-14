@@ -7,7 +7,7 @@ Written and committed before any paid request. The bars are fixed from the first
 The fix changes what a check's model is told in two ways: a part of a longer sentence is checked with that sentence named on its own and one rule on reading a part, and a figure's separators are no longer offered as readings (the app reads them). The gate measures both on Claude Haiku 5.5 (`claude-haiku-5-5`), `main` against the branch.
 
 - **The harness** is `tests/live/exampleSentences.live.test.ts`. A round checks every case once, each Note as Check this note does, with the real sort. It writes one JSON line a sentence and one for the round.
-- **The arms** are `main` at a94f0cac7604b789f3c517952ef818ea74cb76eb, and the branch at 3a03b45b7a16e06bc61aef2700a4282291b3a7d7, which is that `main` merged in. The commits after it add only the gate's own files: this README, the harness, `score.ts` and the evaluation's spend cap. The same harness file and the same evaluation file run in both checkouts.
+- **The arms** are `main` at b283bc51c26fe8481d8d2217e4d4eacc9113ce84, and the branch at 81f2c993e09c0e50109dcfc7a899414bbbd770d4, which is that `main` merged in. The commits after it add only the gate's own files: this README and its results. The same harness file and the same evaluation file (with its spend cap) run in both checkouts.
 - **The model** is Claude Haiku 5.5, on a second Anthropic key, one run on the key at a time.
 - **Alternation:** in round r, odd rounds run `main` first and even rounds run the branch first. Both arms of a round run back to back. There are 10 rounds, so 20 arm-rounds.
 - **The check's own evaluation** (`eval/checks`, Find support) is the issue's second bar. It runs `main`, branch, `main`, branch, after the 10 rounds.
@@ -81,6 +81,8 @@ A literal "loses one" per case would fail an unchanged prompt about a third of t
 - each arm-round checked 44 sentences in 24 held-out Notes and 16 example Notes (4 cores), with 378 scripted requests and 0 refused, failed or timed out;
 - every case wrote its row, and the comparative parts' first replies were read;
 - `score.ts` read both files and scored every bar.
+
+Run again on the merged branch (81f2c993e) and on `main` (b283bc51c) before the first paid round, with the same counts: 44 sentences each, 378 scripted requests, 0 refused, failed or timed out, every row scored.
 
 The dry run's judge finds nothing, so its bars 1 read "missed" by design. Even so, `main` showed the issue's fault at no cost: the revenue sentence's figure was Not checked on `main` (the reading left unread) and not on the branch.
 

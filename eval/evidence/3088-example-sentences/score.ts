@@ -5,6 +5,7 @@
  *   node --import ./scripts/tsResolve.mjs eval/evidence/3088-example-sentences/score.ts <file>...
  */
 import { readFileSync } from "node:fs";
+import { basename } from "node:path";
 
 interface Row {
   arm: string;
@@ -42,13 +43,15 @@ const FAILED_REASONS = new Set([
   "plan-limit",
 ]);
 
-const rows: Row[] = process.argv
-  .slice(2)
-  .flatMap((file) => readFileSync(file, "utf8").split("\n"))
-  .filter((line) => line.trim() !== "")
-  .map((line) => JSON.parse(line) as Row);
+/** Each file is one arm-round: a void one's rerun is a file of its own. */
+const rows: (Row & { file: string })[] = process.argv.slice(2).flatMap((file) =>
+  readFileSync(file, "utf8")
+    .split("\n")
+    .filter((line) => line.trim() !== "")
+    .map((line) => ({ ...(JSON.parse(line) as Row), file: basename(file) })),
+);
 
-const roundKey = (row: Pick<Row, "arm" | "round">) => `${row.arm}#${row.round}`;
+const roundKey = (row: { file: string }) => row.file;
 const voids = new Map<string, string>();
 for (const row of rows) {
   if (row.group === "run" && (row.refused ?? 0) + (row.failed ?? 0) + (row.timedOut ?? 0) > 0)
@@ -215,7 +218,7 @@ console.log(
     "",
     ...runs.map(
       (run) =>
-        `- ${run.arm} round ${run.round}: ${run.requests} requests, ${run.refused} refused, ${run.failed} failed, ${run.timedOut} timed out, ${run.held ?? 0} held at the stop, ${run.inputTokens} input and ${run.outputTokens} output tokens, $${(run.priced ?? 0).toFixed(4)}${voids.has(roundKey(run)) ? `, **void** (${voids.get(roundKey(run))})` : ""}`,
+        `- ${run.file}: ${run.requests} requests, ${run.refused} refused, ${run.failed} failed, ${run.timedOut} timed out, ${run.held ?? 0} held at the stop, ${run.inputTokens} input and ${run.outputTokens} output tokens, $${(run.priced ?? 0).toFixed(4)}${voids.has(roundKey(run)) ? `, **void** (${voids.get(roundKey(run))})` : ""}`,
     ),
     "",
     `Priced in all: $${runs.reduce((sum, run) => sum + (run.priced ?? 0), 0).toFixed(4)}`,
