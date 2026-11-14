@@ -6,7 +6,7 @@
 import { randomUUID } from "node:crypto";
 import * as Y from "yjs";
 import type { NodeJSON } from "../../shared/blockJson";
-import { type MessageKey, translate } from "../../shared/i18n";
+import { type MessageKey, type MessageParams, translate } from "../../shared/i18n";
 import { meetingFillCause } from "../../shared/meetingFill";
 import type { Logger } from "../adapters";
 import type { CellAnswer } from "../answers";
@@ -139,6 +139,13 @@ export interface MeetingFillOptions {
   filled(meeting: Meeting): void;
   log: Logger;
 }
+
+/**
+ * A fill's reason as its problem's `message`, a sentence said alone, as on hover. The reason's own
+ * words end bare, so the fill line can set a separator after them; this frame gives the ending.
+ */
+export const reasonAlone = (language: Language, key: MessageKey, params?: MessageParams) =>
+  translate(language, "meetings.fill.problem.alone", { reason: translate(language, key, params) });
 
 class FillProblemError extends Error {
   constructor(readonly problem: MeetingFillProblem) {
@@ -497,11 +504,12 @@ export function createMeetingFill(options: MeetingFillOptions) {
   };
 
   const words = (key: MessageKey) => translate(options.language(), key);
+  const alone = (key: MessageKey) => reasonAlone(options.language(), key);
 
   /** A reply that failed, as the fill's problem: the provider's words, and its error's kind. */
   const failure = (answer: CellAnswer, route: Routed): MeetingFillProblem => ({
     kind: "model",
-    message: answer.error?.message ?? words("meetings.fill.problem.model"),
+    message: answer.error?.message ?? alone("meetings.fill.problem.model"),
     ...(answer.error && { error: answer.error.kind, model: route.model }),
   });
 
@@ -537,7 +545,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
     if (passages.length === 0) {
       throw new FillProblemError({
         kind: "no-transcript",
-        message: words("meetings.fill.problem.noTranscript"),
+        message: alone("meetings.fill.problem.noTranscript"),
       });
     }
     return passages;
@@ -632,7 +640,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
         problem =
           error instanceof FillProblemError
             ? error.problem
-            : { kind: "model", message: words("meetings.fill.problem.model") };
+            : { kind: "model", message: alone("meetings.fill.problem.model") };
         log.warn("meeting.fillPartFailed", { meetingId: meeting.id, parts: unfinishedParts });
         break;
       }
@@ -661,7 +669,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
       }
     }
     if (ledger.invalidFrames > 0) {
-      problem ??= { kind: "model", message: words("meetings.fill.problem.model") };
+      problem ??= { kind: "model", message: alone("meetings.fill.problem.model") };
       log.warn("meeting.fillInvalidFrames", {
         meetingId: meeting.id,
         frames: ledger.invalidFrames,
@@ -682,8 +690,8 @@ export function createMeetingFill(options: MeetingFillOptions) {
       throw new FillProblemError(
         problem ??
           (ledger.omitted(false) > 0
-            ? { kind: "unchecked", message: words("meetings.fill.problem.unchecked") }
-            : { kind: "empty", message: words("meetings.fill.problem.empty") }),
+            ? { kind: "unchecked", message: alone("meetings.fill.problem.unchecked") }
+            : { kind: "empty", message: alone("meetings.fill.problem.empty") }),
       );
     }
     const retained = ledger.facts;
@@ -778,7 +786,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
       if (cues.length === 0) {
         throw new FillProblemError({
           kind: "no-transcript",
-          message: words("meetings.fill.problem.noTranscript"),
+          message: alone("meetings.fill.problem.noTranscript"),
         });
       }
       const nodes = asItIs(title, cues, options.citeUnit);
@@ -806,13 +814,13 @@ export function createMeetingFill(options: MeetingFillOptions) {
     }
     const note = tidiedNote(replies);
     if (note.paragraphs.length === 0) {
-      throw new FillProblemError({ kind: "empty", message: words("meetings.fill.problem.empty") });
+      throw new FillProblemError({ kind: "empty", message: alone("meetings.fill.problem.empty") });
     }
     const said = passages.map((passage) => passage.text).join("\n");
     const added = wordsAdded(note.paragraphs.map(textOf).join("\n"), said);
     if (added.length > 0) {
       log.warn("meeting.memoAddedWords", { meetingId: meeting.id, words: added.length });
-      return asIs({ kind: "added", message: words("memos.fill.problem.added") });
+      return asIs({ kind: "added", message: alone("memos.fill.problem.added") });
     }
     const named = note.title !== "" && wordsAdded(note.title, said).length === 0;
     const nodes = memoBlocks(named ? note.title : title, note.paragraphs);
@@ -831,7 +839,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
     if (!transcriptId || meeting.transcript?.state === "empty") {
       set(meetingId, {
         state: "off",
-        problem: { kind: "no-transcript", message: words("meetings.fill.problem.noTranscript") },
+        problem: { kind: "no-transcript", message: alone("meetings.fill.problem.noTranscript") },
       });
       return;
     }
@@ -843,7 +851,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
         meetingId,
         message: error instanceof Error ? error.message : String(error),
       });
-      route = { problem: { kind: "no-model", message: words("meetings.fill.problem.noModel") } };
+      route = { problem: { kind: "no-model", message: alone("meetings.fill.problem.noModel") } };
     }
     // Its note went to Recently deleted meanwhile: the fill waits for it to come back (`restored`).
     if (closed || meetings.isDeleted(meetingId)) return;
@@ -1006,7 +1014,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
         local: false,
         problem: transcribed
           ? null
-          : { kind: "no-transcript", message: words("meetings.fill.problem.noTranscript") },
+          : { kind: "no-transcript", message: alone("meetings.fill.problem.noTranscript") },
         blocks: [],
       });
     },

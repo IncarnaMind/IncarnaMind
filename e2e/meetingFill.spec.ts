@@ -75,7 +75,7 @@ const LINES = {
     actions: "Action items",
     partial: "Note partly filled in",
     notFilled:
-      "The note wasn’t filled in: none of what the model wrote could be checked against the transcript.",
+      "The note wasn’t filled in: none of what the model wrote could be checked against the transcript",
     omittedOne: "1 item couldn’t be added",
     omittedTwo: "2 items couldn’t be added",
     transcript: "View Transcript",
@@ -96,7 +96,7 @@ const LINES = {
     decisions: "决定",
     actions: "待办",
     partial: "笔记未能全部补全",
-    notFilled: "未能补全笔记：模型写的内容都没能在转写稿中核对上。",
+    notFilled: "未能补全笔记：模型写的内容都没能在转写稿中核对上",
     omittedOne: "1 项内容未能添加",
     omittedTwo: "2 项内容未能添加",
     transcript: "查看转写稿",

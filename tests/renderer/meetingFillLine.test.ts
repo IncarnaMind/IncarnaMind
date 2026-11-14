@@ -319,9 +319,9 @@ describe("meeting notes with omitted items", () => {
   test.each([
     [
       "en",
-      "The note wasn’t filled in: the model couldn’t fill in the notes. · 2 items couldn’t be added · View Transcript · Try again",
+      "The note wasn’t filled in: the model couldn’t fill in the notes · 2 items couldn’t be added · View Transcript · Try again",
     ],
-    ["zh-CN", "未能补全笔记：模型未能补全笔记。· 2 项内容未能添加 · 查看转写稿 · 重试"],
+    ["zh-CN", "未能补全笔记：模型未能补全笔记 · 2 项内容未能添加 · 查看转写稿 · 重试"],
   ] as const)(
     "with no safe additions in %s, never claims the notes were filled or offers Undo",
     async (language, text) => {
@@ -357,16 +357,16 @@ describe("meeting notes that weren't filled in", () => {
       "en",
       "unchecked",
       12,
-      "The note wasn’t filled in: none of what the model wrote could be checked against the transcript. · View Transcript · Try again",
+      "The note wasn’t filled in: none of what the model wrote could be checked against the transcript · View Transcript · Try again",
     ],
     [
       "zh-CN",
       "unchecked",
       12,
-      "未能补全笔记：模型写的内容都没能在转写稿中核对上。· 查看转写稿 · 重试",
+      "未能补全笔记：模型写的内容都没能在转写稿中核对上 · 查看转写稿 · 重试",
     ],
-    ["en", "empty", 0, "The note wasn’t filled in: the model found nothing to add. · Try again"],
-    ["zh-CN", "empty", 0, "未能补全笔记：模型没有找到可补充的内容。· 重试"],
+    ["en", "empty", 0, "The note wasn’t filled in: the model found nothing to add · Try again"],
+    ["zh-CN", "empty", 0, "未能补全笔记：模型没有找到可补充的内容 · 重试"],
   ] as const)(
     "in %s, one whose reason is %s says why on the line",
     async (language, kind, omitted, text) => {
@@ -389,22 +389,22 @@ describe("meeting notes that weren't filled in", () => {
     [
       "en",
       "unchecked",
-      "The note wasn’t filled in: none of what the model wrote could be checked against the transcript. · 2 Transcript parts couldn’t be finished · View Transcript · Try again",
+      "The note wasn’t filled in: none of what the model wrote could be checked against the transcript · 2 Transcript parts couldn’t be finished · View Transcript · Try again",
     ],
     [
       "zh-CN",
       "unchecked",
-      "未能补全笔记：模型写的内容都没能在转写稿中核对上。· 2 段转写稿未处理完 · 查看转写稿 · 重试",
+      "未能补全笔记：模型写的内容都没能在转写稿中核对上 · 2 段转写稿未处理完 · 查看转写稿 · 重试",
     ],
     [
       "en",
       "model",
-      "The note wasn’t filled in: the model couldn’t fill in the notes. · 12 items couldn’t be added · 2 Transcript parts couldn’t be finished · View Transcript · Try again",
+      "The note wasn’t filled in: the model couldn’t fill in the notes · 12 items couldn’t be added · 2 Transcript parts couldn’t be finished · View Transcript · Try again",
     ],
     [
       "zh-CN",
       "model",
-      "未能补全笔记：模型未能补全笔记。· 12 项内容未能添加 · 2 段转写稿未处理完 · 查看转写稿 · 重试",
+      "未能补全笔记：模型未能补全笔记 · 12 项内容未能添加 · 2 段转写稿未处理完 · 查看转写稿 · 重试",
     ],
   ] as const)(
     "in %s, beside the reason %s, the count goes only where it says nothing more",
@@ -460,8 +460,8 @@ describe("meeting notes that weren't filled in", () => {
     {
       error: "provider",
       providerId: "provider-1",
-      en: "The note wasn’t filled in: the model couldn’t fill in the notes. · Try again",
-      zh: "未能补全笔记：模型未能补全笔记。· 重试",
+      en: "The note wasn’t filled in: the model couldn’t fill in the notes · Try again",
+      zh: "未能补全笔记：模型未能补全笔记 · 重试",
       leads: null,
     },
   ] as const)(
@@ -962,20 +962,20 @@ describe.each(["en", "zh-CN"] as const)("existing fill behavior in %s", (languag
     [
       "failed",
       "stopped",
-      "The note wasn’t filled in: IncarnaMind closed before they were done. · Try again",
-      "未能补全笔记：补全完成前 IncarnaMind 已关闭。· 重试",
+      "The note wasn’t filled in: IncarnaMind closed before they were done · Try again",
+      "未能补全笔记：补全完成前 IncarnaMind 已关闭 · 重试",
     ],
     [
       "off",
       "no-model",
-      "The note wasn’t filled in: choose an AI model first. · Try again",
-      "未能补全笔记：请先选择一个 AI 模型。· 重试",
+      "The note wasn’t filled in: choose an AI model first · Try again",
+      "未能补全笔记：请先选择一个 AI 模型 · 重试",
     ],
     [
       "failed",
       "model",
-      "The note wasn’t filled in: the model couldn’t fill in the notes. · Try again",
-      "未能补全笔记：模型未能补全笔记。· 重试",
+      "The note wasn’t filled in: the model couldn’t fill in the notes · Try again",
+      "未能补全笔记：模型未能补全笔记 · 重试",
     ],
   ] as const)(
     "%s with %s keeps its existing failure text and retry",
@@ -1022,8 +1022,8 @@ describe.each(["en", "zh-CN"] as const)("existing fill behavior in %s", (languag
     const line = await show({ ...meeting, kind: "memo" });
     expect(line?.textContent).toBe(
       language === "en"
-        ? "Transcript written in as it is: the tidied note had words you didn’t say. · Undo"
-        : "已按原样写入转写稿：整理后的笔记里有你没说过的词。· 撤销",
+        ? "Transcript written in as it is: the tidied note had words you didn’t say · Undo"
+        : "已按原样写入转写稿：整理后的笔记里有你没说过的词 · 撤销",
     );
     expect(line?.querySelectorAll("button")).toHaveLength(1);
   });
