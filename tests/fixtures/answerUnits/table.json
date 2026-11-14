@@ -42779,8 +42779,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "unsupported",
+          "reason": "The Document gives 31, not 31吨."
         }
       }
     },
@@ -42811,8 +42811,8 @@
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "unsupported",
+          "reason": "文档写的是 31，不是 31吨。"
         }
       }
     },
@@ -42838,8 +42838,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "The Document gives 31, not 31万吨."
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {
@@ -42870,8 +42870,8 @@
       "here": {
         "answer": [
           {
-            "check": "unsupported",
-            "verdict": "文档写的是 31，不是 31万吨。"
+            "check": "found",
+            "verdict": null
           }
         ],
         "document": {

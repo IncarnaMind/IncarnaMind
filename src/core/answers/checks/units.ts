@@ -26,12 +26,14 @@ import { documentFigureContext, mayLeaveOut } from "../calculations";
 import {
   type CellNames,
   cellNames,
+  cellsDown,
   isRow,
   linesOf,
   ownNames,
   possibleLabels,
   rowLabels,
   saysName,
+  type Table,
   tableAt,
   UNIT_WORD,
 } from "./figureMeasures";
@@ -664,11 +666,12 @@ const statesScale = (piece: string, context: FigureContext) =>
 // and neither does a bracket of two units ("（万吨/亿吨）"), where a rate has one ("（万吨/年）").
 // Square brackets ("[kt]", "［万吨］", "【万辆】", "〔万吨〕") state theirs, and so does a unit after a
 // slash at the end of a name ("销量/万辆", "Output / kt"), where a rate's "元/吨" names no measure
-// before its slash and a letter alone before it is half of an abbreviation ("H/W", "N/W").
+// before its slash and a letter alone either side of it is an abbreviation ("H/W", "N/W").
 const BRACKETS =
   /[(（]([^()（）\n]{1,24})[)）]|\[([^[\]\n]{1,24})\]|［([^［］\n]{1,24})］|【([^【】\n]{1,24})】|〔([^〔〕\n]{1,24})〕/gu;
 const AFTER_SLASH =
   /(\p{L}[^/／\n\d]*?)[ \u00a0]*[/／][ \u00a0]*([^/／\s()（）[\]【】:：，,。；;、]{1,12})[ \u00a0]*[:：]?[ \u00a0]*$/u;
+const ABBREVIATION = /(?<![A-Za-z])[A-Za-z][/／][A-Za-z](?![A-Za-z])/u;
 const bracketedUnits = (written: string, context: FigureContext): StatedUnit[] => {
   const slashed = AFTER_SLASH.exec(written);
   const [, name = "", unit = ""] = slashed ?? [];
@@ -679,7 +682,7 @@ const bracketedUnits = (written: string, context: FigureContext): StatedUnit[] =
         ? []
         : asUnitLine(inner, context, true).map((statement) => ({ ...statement, chars: bracket }));
     }),
-    ...(slashed && !/(?<![A-Za-z])[A-Za-z]$/u.test(name) && asUnitLine(name, context).length === 0
+    ...(slashed && !ABBREVIATION.test(slashed[0]) && asUnitLine(name, context).length === 0
       ? asUnitLine(unit, context, true).map((statement) => ({ ...statement, chars: unit }))
       : []),
   ];
@@ -709,11 +712,10 @@ interface TextReading {
   cellsOf(column: number): { at: number; cell: string }[];
   labelsOfCell(cell: string): Label[];
   /**
-   * What a cell of a units column states: its unit, as a unit line reads it. A scale word before
-   * words that name no unit begins a name ("亿利集团", "百色市"), for 单位 heads organisations too,
-   * and so does a unit written with a capital before a capitalised word ("Mt Isa").
+   * Whether `column` of `table`, headed 单位 or Unit, holds its rows' units: where no cell down it is
+   * a unit alone ("万吨", "kt"), it names organisations ("美元基金公司", "Mt Isa").
    */
-  unitOfCell(cell: string): StatedUnit[];
+  holdsUnits(table: Table, column: number): boolean;
   unitsOf(line: string): StatedUnit[];
   /** Where `line` stands among the lines. */
   linesLike(line: string): number[];
@@ -757,7 +759,7 @@ function textReadingOf(text: string, context: FigureContext): TextReading {
   });
   const columns = new Map<number, { at: number; cell: string }[]>();
   const cells = new Map<string, Label[]>();
-  const unitCells = new Map<string, StatedUnit[]>();
+  const unitColumns = new Map<string, boolean>();
   const units = new Map<string, StatedUnit[]>();
   const where = once(() => {
     const map = new Map<string, number[]>();
@@ -809,15 +811,11 @@ function textReadingOf(text: string, context: FigureContext): TextReading {
       cells.set(cell, found);
       return found;
     },
-    unitOfCell: (cell) => {
+    holdsUnits: (table, column) => {
+      const key = `${table.top}:${column}`;
       const found =
-        unitCells.get(cell) ??
-        (beginsName(cell.trim(), context)
-          ? []
-          : asUnitLine(cell, context, true).filter(
-              ({ scaleWord, unit }) => unit.kind !== "plain" || scaleWord === cell.trim(),
-            ));
-      unitCells.set(cell, found);
+        unitColumns.get(key) ?? cellsDown(table, column).some((cell) => unitAlone(cell, context));
+      unitColumns.set(key, found);
       return found;
     },
     unitsOf: (line) => {
@@ -938,12 +936,13 @@ function columnLabels(reading: TextReading, index: number, column: number): Labe
 function rowUnits(text: string, start: number, context: FigureContext): Label[] {
   const table = tableAt(text, start);
   if (!table) return [];
-  const { label, unit } = rowLabels(table);
+  const { label, unit, units: column } = rowLabels(table);
+  const ofUnits = unit !== "" && textReadingOf(text, context).holdsUnits(table, column);
   const units = [
     ...bracketedUnits(label, context)
       .slice(-1)
       .map((statement) => ({ ...statement, own: true, line: label })),
-    ...(unit === "" ? [] : textReadingOf(text, context).unitOfCell(unit)).map((statement) => ({
+    ...(ofUnits ? asUnitLine(unit, context, true) : []).map((statement) => ({
       ...statement,
       chars: unit.trim(),
       own: true,
@@ -1011,16 +1010,24 @@ const beginsName = (words: string, context: FigureContext) => {
   );
 };
 
-/**
- * The unit a clause of prose names after 单位为 or 单位是 ("单位为万吨"): the whole clause, as a
- * sentence writes it after a number. Words that go on past such a unit name something else, the
- * organisation a line names ("填报单位为万川集团", "主办单位为百度公司", "建设单位为万吨级码头指挥部").
- */
-function unitClause(clause: string, context: FigureContext): StatedUnit[] {
-  const after = `1${/^[A-Za-z]/.test(clause) ? " " : ""}${clause}`;
+/** Whether `words` are a unit and nothing more, as a sentence writes it after a number ("万吨", "kt"). */
+function unitAlone(words: string, context: FigureContext): boolean {
+  const after = `1${/^[A-Za-z]/.test(words) ? " " : ""}${words}`;
   const [said] = readFigures(after, { ...context, header: null, headerRead: null });
-  return said?.start === 0 && said.end === after.length ? asUnitLine(clause, context, true) : [];
+  return (
+    said?.start === 0 &&
+    said.end === after.length &&
+    (said.scaleWord !== null || said.unit.kind !== "plain")
+  );
 }
+
+/**
+ * The unit a clause of prose names after 单位为 or 单位是 ("单位为万吨"): the whole clause, a unit
+ * alone. Words that go on past such a unit name something else, the organisation a line names
+ * ("填报单位为万川集团", "主办单位为百度公司", "建设单位为万吨级码头指挥部").
+ */
+const unitClause = (clause: string, context: FigureContext): StatedUnit[] =>
+  unitAlone(clause, context) ? asUnitLine(clause, context, true) : [];
 
 /**
  * Whether one bracket of `words` names two units, as "（亿元，%）" does, so it gives a number
