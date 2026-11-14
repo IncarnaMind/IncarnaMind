@@ -1487,6 +1487,7 @@ export const zhCN = {
   "claim.reason.assistant-conclusion": "助手自己的结论未核对。句子的其余部分有依据。",
   "claim.absenceBesideFact": "句中说没有的内容未核对：这需要通读文档。其余部分有依据。",
   "claim.reason.kept-inside": "仅在“{detail}”内使用",
+  "claim.reason.outside-scope": "“{detail}”不在这篇笔记的搜索范围内。",
   "claim.reason.read-budget": "已停止 · 已花费{spent}",
   "claim.reason.read-budget.unknown": "已停止：已达到这次读取最多可花的费用。",
   "claim.reason.workbook-differs":

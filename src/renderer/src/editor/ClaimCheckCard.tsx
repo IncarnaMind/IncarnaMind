@@ -834,6 +834,11 @@ export function ClaimCard({
   const described = shown.state === "not-checked" && shown.reason === "library-unsettled";
   // Checked again, the assistant's own conclusion is left out again: its row's Check anyway judges it (#3019).
   const ownConclusion = shown.state === "not-checked" && shown.reason === "assistant-conclusion";
+  // Checked again in the same Search scope, a cited Document outside it is left out again (#3083).
+  const leftOut = shown.state === "not-checked" && shown.reason === "outside-scope";
+  const searchesAll =
+    leftOut ||
+    (state === "unsupported" && searchedLess(claim) && !decisionMissing && !misnamesFigure(claim));
   const lineAction = pastCap
     ? { label: t("claim.checkNow"), testId: "claim-check-now" }
     : waitingConsent
@@ -1457,21 +1462,18 @@ export function ClaimCard({
             {t("claim.fixSentence")}
           </button>
         )}
-        {state === "unsupported" &&
-          searchedLess(claim) &&
-          !decisionMissing &&
-          !misnamesFigure(claim) && (
-            <button
-              type="button"
-              data-testid="claim-search-all"
-              className={`citation-card-action ${
-                cuttable || rewrite ? "" : "citation-card-action--primary"
-              }`}
-              onClick={() => onCheckAgain(true)}
-            >
-              {t("claim.searchAll")}
-            </button>
-          )}
+        {searchesAll && (
+          <button
+            type="button"
+            data-testid="claim-search-all"
+            className={`citation-card-action ${
+              cuttable || rewrite ? "" : "citation-card-action--primary"
+            }`}
+            onClick={() => onCheckAgain(true)}
+          >
+            {t("claim.searchAll")}
+          </button>
+        )}
         {(notFound || check.action === "check-against-document") && verified === null && mindId && (
           <DocumentCheckAction
             editor={editor}
@@ -1554,7 +1556,8 @@ export function ClaimCard({
             !lineAction &&
             !described &&
             !awaiting &&
-            !ownConclusion)) && (
+            !ownConclusion &&
+            !leftOut)) && (
           <button
             type="button"
             data-testid="claim-check-again"

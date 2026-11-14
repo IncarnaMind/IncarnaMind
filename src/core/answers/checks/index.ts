@@ -953,6 +953,7 @@ export function createChecks(options: ChecksOptions) {
       return {
         documentName: withShownName(each, live).documentName,
         quote: each.quote,
+        ...(current && { documentId: current.id }),
         // A Passage of an older version isn't what the Document says now.
         ...(each.passageId &&
           current?.contentHash === each.contentHash && { passageId: each.passageId }),
@@ -1963,7 +1964,7 @@ export function createChecks(options: ChecksOptions) {
       await options.evidence.ready(undefined, () => parsed.checked);
       const scope = options.evidence.scope(
         parsed.mindId,
-        options.scopeDocuments(parsed.scope, null),
+        options.scopeDocuments(parsed.scope, parsed.mindId),
         parsed.checked,
       );
       // Nothing to check against: nothing backs it, and nothing is sent.
