@@ -8,7 +8,7 @@ import { randomUUID } from "node:crypto";
 import type { JSONContent } from "@tiptap/core";
 import { expect, test } from "vitest";
 import * as Y from "yjs";
-import type { Core, Document } from "../../src/core";
+import type { Core } from "../../src/core";
 import type { Language } from "../../src/core/language";
 import { reasonText } from "../../src/renderer/src/cost";
 import { claimsOf } from "../../src/renderer/src/editor/claimChecks";
@@ -24,7 +24,7 @@ import {
   sentenceOf,
   unsupportedReply,
 } from "../helpers/checks";
-import { shownPassages } from "../helpers/citations";
+import { citationOf, shownPassages } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
@@ -211,27 +211,6 @@ async function setUp() {
 
 type Setup = Awaited<ReturnType<typeof setUp>>;
 
-async function citation(core: Core, document: Document, line: string): Promise<JSONContent> {
-  const selected = await core.citeSelection({
-    documentId: document.id,
-    parts: [{ unit: null, text: line }],
-  });
-  return {
-    type: "citation",
-    attrs: {
-      passageId: selected.passageId,
-      documentId: document.id,
-      documentName: document.name,
-      contentHash: selected.contentHash,
-      quote: selected.quote,
-      pageFrom: selected.pageFrom,
-      pageTo: selected.pageTo,
-      location: selected.location,
-      check: selected.check,
-    },
-  };
-}
-
 /** A Note of the User's, one paragraph per line, each line followed by its Citations. */
 async function noteWith(core: Core, lines: readonly (readonly [string, ...JSONContent[]])[]) {
   const mind = await core.createMind({ title: "Harbour notes" });
@@ -292,7 +271,7 @@ const askedAbout = (calls: readonly ModelCall[], from: number, sentence: string)
 /** The Note of every case, checked once with no Search scope, then scoped to the memos' Folder. */
 async function checkedThenNarrowed(setup: Setup) {
   const { core, pack } = setup;
-  const cites = (line: string) => citation(core, pack, line);
+  const cites = (line: string) => citationOf(core, pack, line);
   const note = await noteWith(core, [
     [SELLS, await cites(SELLS)],
     [ONLY_ONLINE, await cites(SELLS)],
@@ -394,7 +373,7 @@ test("an earlier Unsupported, a new sentence and support found elsewhere ask as 
   const after = await cards(core, client);
   expect(after.get(PLANS_DEPOT)).toEqual(OUTSIDE);
 
-  const fresh = await noteWith(core, [[SELLS, await citation(core, pack, SELLS)]]);
+  const fresh = await noteWith(core, [[SELLS, await citationOf(core, pack, SELLS)]]);
   setMindScope(fresh.client.doc, folderScope(setup.memos.id));
   await fresh.client.settled();
   await checkNote(core, fresh.mindId, fresh.client);
@@ -469,7 +448,7 @@ function replaceWords(client: MindClient, blockId: string, from: string, to: str
 /** A Note of the sentences the User edits, each checked once with no scope, then scoped to the memos. */
 async function editableNote(setup: Setup) {
   const { core, pack } = setup;
-  const cites = (line: string) => citation(core, pack, line);
+  const cites = (line: string) => citationOf(core, pack, line);
   const note = await noteWith(core, [
     [SELLS, await cites(SELLS)],
     [EBITDA, await cites(EBITDA)],

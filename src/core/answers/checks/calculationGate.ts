@@ -149,7 +149,8 @@ export function quotesHoldNumbers(
   const holdsAny = holderOf(held);
   const holdsPoints = holderOf(inPoints);
   const cites = recordCiteSpans(claim);
-  return figuresInClaim(claim, own.language ? own : { ...context, header: null })
+  const names = citations.map(({ citation }) => citation.documentName);
+  return figuresInClaim(claim, own.language ? own : { ...context, header: null }, names)
     .filter((figure) => !cites.some((cite) => figure.start < cite.to && figure.end > cite.from))
     .every((figure) => {
       const holds = isPoints(figure) ? holdsPoints : holdsAny;
@@ -185,7 +186,8 @@ export async function needsCalculation({
   const context = documentFigureContext(citations.flatMap((citation) => citation.units));
   const own = documentFigureContext([{ text: claim }]);
   const claimContext = own.language ? own : { ...context, header: null };
-  const claimFigures = figuresInClaim(claim, claimContext);
+  const names = citations.map(({ citation }) => citation.documentName);
+  const claimFigures = figuresInClaim(claim, claimContext, names);
   if (claimFigures.length === 0 && !attempted && !verdict.calculations?.length) return false;
   if (attempted && computed.length === 0) return true;
   if (
@@ -253,7 +255,7 @@ export async function needsCalculation({
   const sentence = () =>
     (said ??= {
       text: claim,
-      numbers: figuresInClaim(writtenNumbers(claim), claimContext).map(writtenOf),
+      numbers: figuresInClaim(writtenNumbers(claim), claimContext, names).map(writtenOf),
     });
   const unused = [...computed];
   for (const figure of claimFigures) {

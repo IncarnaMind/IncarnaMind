@@ -1157,6 +1157,34 @@ export async function turnOnEmbeddings(window: Page): Promise<void> {
 }
 
 /**
+ * A model billed per token, whose requests the cost meter counts, with the checks allowed to use it.
+ * A monthly cap is set, so a run under a dollar still shows its estimate (#1941); a test that
+ * needs the price line from the amount alone sets none.
+ */
+export async function useCloudChatModel(
+  window: Page,
+  { modelId = "claude-haiku-5-5", cap = true }: { modelId?: string; cap?: boolean } = {},
+) {
+  await window.evaluate(
+    async ({ modelId, cap }) => {
+      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      const provider = await core.saveChatProvider({
+        kind: "anthropic",
+        apiKey: "sk-ant-test",
+        modelId,
+      });
+      if (provider.service) {
+        for (const flow of ["chat", "tagging", "checks"] as const) {
+          await core.allowDataFlow(flow, provider.service.id);
+        }
+      }
+      if (cap) await core.updateSettings({ user: { monthlyCap: { amount: 20, currency: "USD" } } });
+    },
+    { modelId, cap },
+  );
+}
+
+/**
  * Keys are kept with the system's keyring. On Linux with none running, as on
  * CI's Linux runner, the User first accepts storing them in plain text, once
  * on this computer. With `form`, accepts it as the User does, in the notice a

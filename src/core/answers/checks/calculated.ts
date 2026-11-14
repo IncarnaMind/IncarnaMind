@@ -20,13 +20,23 @@ import {
   showResult,
 } from "../../../shared/formula";
 import { wholeNumberWords } from "../../../shared/numberWords";
+import { citedNameStretches, isNameNumber } from "../../../shared/sourceNames";
 import type { CalculatedFigure, LimitRelation } from "../../api";
 import { documentFigureContext } from "../calculations";
 import { PERIOD_DEMONSTRATIVE, periodCounts } from "./periodCounts";
 
 export { periodCounts };
 
-function printedFigures(text: string, context: FigureContext): Figure[] {
+/**
+ * The figures `text` prints, but those in a reference ("Exhibit 4") and the number of the name of
+ * a Document it cites, among `names` (#3093).
+ */
+function printedFigures(
+  text: string,
+  context: FigureContext,
+  names: readonly unknown[] = [],
+): Figure[] {
+  const named = citedNameStretches(text, names);
   const references = citedCases(text).map((reference, index, citations) => {
     const next = citations[index + 1];
     const suffix = text.slice(reference.to, next?.from);
@@ -37,14 +47,21 @@ function printedFigures(text: string, context: FigureContext): Figure[] {
   });
   return readFigures(text, context).filter(
     (figure) =>
-      !references.some((reference) => figure.start >= reference.from && figure.end <= reference.to),
+      !references.some(
+        (reference) => figure.start >= reference.from && figure.end <= reference.to,
+      ) && !isNameNumber(figure, named),
   );
 }
 
-export function figuresInClaim(text: string, context: FigureContext): Figure[] {
+/** A claim's figures; `names`: the Documents it cites, whose names' numbers are none (#3093). */
+export function figuresInClaim(
+  text: string,
+  context: FigureContext,
+  names: readonly unknown[] = [],
+): Figure[] {
   const counts = periodCounts(text, context);
   return [
-    ...printedFigures(text, context).filter(
+    ...printedFigures(text, context, names).filter(
       (figure) => !counts.some((count) => figure.start < count.end && figure.end > count.start),
     ),
     ...counts,
