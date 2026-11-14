@@ -236,6 +236,41 @@ describe("A quote that is cells of a table", () => {
     expect(quoteCells("Enterprise\t$46 per seat a month", [sheet(PLANS)])).toBeNull();
   });
 
+  // protects=a heading of another sheet, or another table, of the same Document never names a cell, even with every Unit of the Document given: each table's cells are named by their own headings alone (#2847); fails_when=a cell takes a name from a sheet or table it isn't in; no_claim=which Units the cite gives.
+  test("a heading of another sheet or another table of the same Document never names a cell", () => {
+    const other = sheet(
+      [
+        ["Region", "Tax", "Notes"],
+        ["EU", "20%", "VAT"],
+      ],
+      "Taxes",
+    );
+    expect(quoteCells("Enterprise\t$45 per seat a month\tYes", [other, sheet(PLANS)])).toEqual([
+      { name: "Plan", value: "Enterprise" },
+      { name: "Price", value: "$45 per seat a month" },
+      { name: "Sign-on", value: "Yes" },
+    ]);
+    const twoTables: UnitText = {
+      page: 4,
+      kind: "page",
+      text: "Region Tax\nEU 20%\nPlan Price\nEnterprise $45",
+      label: {
+        tables: [
+          { headings: ["Region", "Tax"], rows: [["EU", "20%"]] },
+          { headings: ["Plan", "Price"], rows: [["Enterprise", "$45"]] },
+        ],
+      },
+    };
+    expect(quoteCells("Enterprise $45", [twoTables])).toEqual([
+      { name: "Plan", value: "Enterprise" },
+      { name: "Price", value: "$45" },
+    ]);
+    expect(quoteCells("EU 20%", [twoTables])).toEqual([
+      { name: "Region", value: "EU" },
+      { name: "Tax", value: "20%" },
+    ]);
+  });
+
   test("two tables that name the same words otherwise leave the quote as quoted", () => {
     const other = sheet(
       [
