@@ -35,6 +35,7 @@ import { keepSelection, submenuOpensOnRight, useMenuKeys } from "./menuKeys";
 import { NumberingChoices, SCHEME_NAMES, schemePreview } from "./NumberingMenu";
 import { numberingState } from "./numbering";
 import { Popover } from "./Popover";
+import { withKeys } from "./withShortcut";
 
 const ALIGN_LABELS = {
   left: "format.align.left",
@@ -221,7 +222,7 @@ export function FormatMenu({
               aria-checked={state.align === align}
               aria-label={t(ALIGN_LABELS[align])}
               data-testid={`format-align-${align}`}
-              title={keyedTitle(t(ALIGN_LABELS[align]), ALIGN_COMMANDS[align])}
+              title={withKeys(t, t(ALIGN_LABELS[align]), keysOf(ALIGN_COMMANDS[align]))}
               onMouseDown={keepSelection}
               onClick={() => act(() => setAlign(editor, align))}
               className="format-menu-align"
@@ -441,11 +442,6 @@ export function FormatMenu({
 function keysOf(id: CommandId): string | undefined {
   const keys = commands.get(id)?.shortcut?.keys;
   return keys ? keysHere(keys) : undefined;
-}
-
-function keyedTitle(label: string, id: CommandId): string {
-  const keys = keysOf(id);
-  return keys ? `${label} (${keys})` : label;
 }
 
 function RaisedGlyph({ raised }: { raised: boolean }) {

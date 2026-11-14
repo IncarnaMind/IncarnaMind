@@ -78,7 +78,7 @@ import {
 import { holdsNothing, madeByAnswer } from "../../shared/madeMind";
 import { linkTableSources } from "../../shared/markdownTables";
 import { escapeMarkdownText } from "../../shared/markdownText";
-import type { MeetingHelpKind } from "../../shared/meetingHelp";
+import { HELP_SHAPE, type MeetingHelpKind } from "../../shared/meetingHelp";
 import {
   MISSING_NUMBER_REFUSED,
   missingNumberWords,
@@ -255,6 +255,7 @@ import { asksForWeb } from "../tools/web/intent";
 import { type SavedPage, webTools } from "../tools/web/tools";
 import { formulaCells } from "../workbooks/formulaCells";
 import { workbookTools } from "../workbooks/tool";
+import type { WorkWall } from "../workWall";
 import {
   contentHash,
   createElement,
@@ -683,8 +684,6 @@ export interface AnswersOptions {
   helpFormJudged?(): boolean;
   /** See `CoreAdapters.quotesAsGiven`. */
   quotesAsGiven?(): boolean;
-  /** See `CoreAdapters.helpMarksQuoteOnly`. */
-  helpMarksQuoteOnly?(): boolean;
   /** See `CoreAdapters.callsUnmarked`. */
   callsUnmarked?(): boolean;
   providerExists(providerId: string): boolean;
@@ -753,8 +752,6 @@ export interface AnswersOptions {
   };
   /** What an Answer is written in when its Question has no language of its own. */
   interfaceLanguage(): Language;
-  /** The ids of the live Documents a Search scope covers; null with no Search scope (every Document). */
-  resolveScope(scope: SearchScope, mindId?: string | null): string[] | null;
   /**
    * With no Search scope, what an Answer asked from `mindId` in the assistant
    * searches: the examples until the User has a Document of their own, then
@@ -762,24 +759,21 @@ export interface AnswersOptions {
    * searches every Document. Null: every Document.
    */
   unscopedDocuments?(mindId: string | null): string[] | null;
-  /** What a Question from a Mind searches, by the one rule (`mindSearchScope`); null: every Document. */
-  searchedScope(scope: SearchScope | null, mindId: string | null): SearchScope | null;
   mindFolder(mindId: string): string | null;
   /** The name of a Folder, Tag or Document a Search scope names, as its chip shows it now; null once gone. */
   scopeItemName(kind: ScopeKind, id: string): string | null;
   /** The live Folders of the Library, with whether each keeps its work inside it. */
   libraryFolders(): readonly { id: string; name: string; keepInside: boolean }[];
-  /** The walled Folder a Mind is in; null when it is in none. */
-  walledFolder(mindId: string | null): string | null;
-  /** The Folder itself when it is walled now; null for any other, or none. */
-  walledFolderId(folderId: string | null): string | null;
-  /** The Documents filed in a walled Folder, by any filing. */
-  walledDocuments(): string[];
-  /**
-   * Where something an Answer makes is filed, behind the wall `wallId` or outside every wall
-   * (null), when `asked` is the Folder it would go in; null: it can't be filed, so isn't made.
-   */
-  filedWithin(wallId: string | null, asked: string | null): { folderId: string | null } | null;
+  wall: Pick<
+    WorkWall,
+    | "resolveScope"
+    | "scopeInsideWall"
+    | "searchedScope"
+    | "walledFolder"
+    | "walledFolderId"
+    | "walledDocuments"
+    | "filedWithin"
+  >;
   /** The Document a Mind imported from Word was also added as (#720); null for none. */
   workingCopyOf?(mindId: string): string | null;
   /** An example Mind's own Documents, by id; null for a Mind that isn't an example's. */
@@ -1169,7 +1163,7 @@ export function createAnswers(options: AnswersOptions) {
   const wallOfTurn = (question: { folderAskedIn?: string }): string | null =>
     question.folderAskedIn === undefined
       ? UNKNOWN_WALL
-      : options.walledFolderId(question.folderAskedIn);
+      : options.wall.walledFolderId(question.folderAskedIn);
 
   /**
    * The Documents work on one side of the Folder walls may read: the wall's own, else every one
@@ -1179,8 +1173,8 @@ export function createAnswers(options: AnswersOptions) {
     wallId === UNKNOWN_WALL
       ? []
       : wallId
-        ? options.resolveScope(folderScope(wallId))
-        : options.resolveScope(NO_SCOPE, mindId);
+        ? options.wall.resolveScope(folderScope(wallId))
+        : options.wall.resolveScope(NO_SCOPE, mindId);
 
   /** An Answer's Search scope as it had it, resolved as regenerating it does, for its judgement. */
   const judgedMind = (question: ConversationQuestion): string | null => {
@@ -1542,6 +1536,12 @@ export function createAnswers(options: AnswersOptions) {
     const unmarked = (options.callsUnmarked?.() ?? false) || help !== undefined;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let finished = false;
+    /**
+     * Call help's reply alone (#2847): the model's text is all written, and what the end adds is
+     * written with the end, so a number the app adds never shows before its quote line, nor in a
+     * reply still being written. Every other Answer ends as it always has.
+     */
+    let ending = false;
     /** Ends the Answer's mark on its provider (`AnswersOptions.repliesOut`). */
     let replyEnded = () => {};
     let support: CitationSupport | null = null;
@@ -1693,8 +1693,8 @@ export function createAnswers(options: AnswersOptions) {
     const searched = inScope(options.documents, documentIds);
     const inAssistant = !outside && input.assistant !== undefined;
     const mindIn = input.assistant?.focused?.mindId ?? null;
-    const turnWall = input.assistant?.wallId ?? options.walledFolder(mindIn ?? place.mindId);
-    const filing = (asked: string | null) => options.filedWithin(turnWall, asked);
+    const turnWall = input.assistant?.wallId ?? options.wall.walledFolder(mindIn ?? place.mindId);
+    const filing = (asked: string | null) => options.wall.filedWithin(turnWall, asked);
     /** Why a Tool refused across the Folder wall, said after the model's reply. */
     const wallRefusals = new Set<
       | "folder.wall.refusal"
@@ -1731,6 +1731,7 @@ export function createAnswers(options: AnswersOptions) {
         marksFormulas: () => workbookToolsOffered,
         defuses: CALL_TAGS,
         quotesStateClaims: () => !options.quotesAsGiven?.(),
+        tableCells: () => help !== undefined,
         // Read as each Transcript is shown: a quote can come before listening, and the Meeting's
         // Transcript can appear after it.
         thisCall: (documentId) =>
@@ -1942,9 +1943,25 @@ export function createAnswers(options: AnswersOptions) {
         analyses,
         answerLanguage(context.question),
       );
-      // Final: a marker with no record is removed, and each is counted for the summary.
+      // Final: a marker with no record is removed, and each is counted for the summary. Call help's
+      // panel shows each quote's check as it lands, and a reading's moments of the call on the
+      // lines it has finished as the end will find them (#2847); an option's quoted words wait for
+      // the end, which reads them once its own quotation marks are off.
+      const soFar =
+        help && !final && HELP_SHAPE[help] === "readings"
+          ? session.quotedWordsSoFar(
+              quotedWordsIn(
+                helpReplyRead(
+                  text.slice(0, text.lastIndexOf("\n") + 1),
+                  helpLayout(help, { status: "streaming", textBehind }),
+                ).text,
+              ),
+            )
+          : null;
       const citationOf = (marker: number) =>
-        final ? session.finalCitation(marker) : session.streamingCitation(marker);
+        final
+          ? session.finalCitation(marker)
+          : session.streamingCitation(marker, help !== undefined, soFar?.get(marker));
       try {
         return home.write(
           {
@@ -2031,9 +2048,9 @@ export function createAnswers(options: AnswersOptions) {
     };
 
     /**
-     * The Citations whose sentences an Answer in the assistant, or call help's reply, has judged
-     * once it ends (#2311, #2847), by marker: they wait as checking, never found, so no green check
-     * shows before its sentence earns it.
+     * The Citations whose sentences an Answer in the assistant has judged once it ends (#2311), by
+     * marker: they wait as checking, never found, so no green check shows before its sentence earns
+     * it. Call help's reply is never judged as it ends (#2847).
      */
     let waiting: ReadonlySet<number> = new Set();
     /** Checking while its sentence is judged; not checked when the Answer stopped before that. */
@@ -2041,14 +2058,15 @@ export function createAnswers(options: AnswersOptions) {
     const withSupport = (marker: number, citation: Citation): Citation =>
       waiting.has(marker) ? { ...citation, check: waitingAs, checkReason: null } : citation;
     /**
-     * The User reads an Answer in the assistant, and call help's reply in its panel, by its
-     * Citations' checks (#2847). An Answer read elsewhere is checked where it lands: in a Note, by
-     * its checks; by an outside agent or a Task, as they do.
+     * The User reads an Answer in the assistant by its Citations' checks (#2311). Call help's reply
+     * is never judged: its panel shows each Citation's quote, ✓ only where the quote was found
+     * (#2847). An Answer read elsewhere is checked where it lands: in a Note, by its checks; by an
+     * outside agent or a Task, as they do.
      */
     const judgesItsSentences = () =>
       options.checkAnswer !== undefined &&
       place.conversationId !== undefined &&
-      (flow === "question" || (flow === "call-help" && !options.helpMarksQuoteOnly?.()));
+      flow === "question";
 
     const finish = (outcome: Outcome) => {
       if (finished) return;
@@ -2131,7 +2149,7 @@ export function createAnswers(options: AnswersOptions) {
     };
 
     const writeSoon = () => {
-      if (timer || finished) return;
+      if (timer || finished || ending) return;
       timer = setTimeout(() => {
         timer = null;
         if (!finished && !write()) finish({ status: "stopped" });
@@ -2965,7 +2983,7 @@ export function createAnswers(options: AnswersOptions) {
           given
             .list()
             .filter((mind) =>
-              wallId ? mind.folderId === wallId : options.walledFolder(mind.id) === null,
+              wallId ? mind.folderId === wallId : options.wall.walledFolder(mind.id) === null,
             ),
         edit: (mindId, change) =>
           given.edit(mindId, (blocks) => {
@@ -3431,7 +3449,7 @@ export function createAnswers(options: AnswersOptions) {
        * command asked for that is the User's alone, in the card's own words (#2252).
        */
       const refusalLines = (): ((language: Language) => string)[] => {
-        const lifted = turnWall !== null && options.walledFolderId(turnWall) === null;
+        const lifted = turnWall !== null && options.wall.walledFolderId(turnWall) === null;
         return [
           ...[...wallRefusals]
             .map((key) => (key === "folder.wall.refusal" && lifted ? "folder.wall.changed" : key))
@@ -3954,6 +3972,14 @@ export function createAnswers(options: AnswersOptions) {
             activity = event.phase;
             showPhase();
             break;
+          case "ending":
+            if (help === undefined) break;
+            ending = true;
+            if (timer) clearTimeout(timer);
+            timer = null;
+            // What the model wrote shows now; while the end's own requests are out it stands.
+            if (!write()) finish({ status: "stopped" });
+            break;
           case "markers-placed":
             placedMarkers += event.count;
             break;
@@ -4342,9 +4368,9 @@ export function createAnswers(options: AnswersOptions) {
     // Each press of a help button stands alone: an earlier suggestion would only steer this one.
     // With no Note, the Folder in front (the Library's) is the turn's Folder: its wall is the one read.
     const wallId = mind
-      ? options.walledFolder(mind.mindId)
+      ? options.wall.walledFolder(mind.mindId)
       : folderInFront !== null
-        ? options.walledFolderId(folderInFront)
+        ? options.wall.walledFolderId(folderInFront)
         : wallOfTurn(turn.question);
     // Earlier turns are judged by the wall alone: one outside this turn's Search scope still counts.
     const readable = readableAcrossWalls(mind?.mindId ?? null, wallId);
@@ -4352,11 +4378,11 @@ export function createAnswers(options: AnswersOptions) {
     let walled: Set<string> | undefined;
     const otherSide = (documentId: string) => {
       if (wallId !== null) return permitted?.has(documentId) === false;
-      walled ??= new Set(options.walledDocuments());
+      walled ??= new Set(options.wall.walledDocuments());
       return walled.has(documentId);
     };
     const otherFolder = (folderId: string) =>
-      wallId === null ? options.walledFolderId(folderId) !== null : folderId !== wallId;
+      wallId === null ? options.wall.walledFolderId(folderId) !== null : folderId !== wallId;
     let turnWall: string | null = null;
     const outsideTurns = new Set<string>();
     const withWalls = turn.earlier.map((message) => {
@@ -4415,8 +4441,8 @@ export function createAnswers(options: AnswersOptions) {
               {
                 itemName: options.scopeItemName,
                 folders: options.libraryFolders,
-                walledFolderId: options.walledFolderId,
-                resolveScope: options.resolveScope,
+                walledFolderId: options.wall.walledFolderId,
+                resolveScope: options.wall.resolveScope,
                 searchableCount: options.documents.searchableCount,
                 searchableNames: (ids, limit) =>
                   options.documents.searchableNames(ids, limit).names,
@@ -4639,10 +4665,10 @@ export function createAnswers(options: AnswersOptions) {
     mindId: string | null,
     conversationWall?: string | null,
   ): { name: string; fromAnswer: boolean }[] => {
-    const wallId = conversationWall ?? options.walledFolder(mindId);
+    const wallId = conversationWall ?? options.wall.walledFolder(mindId);
     const names: { name: string; fromAnswer: boolean }[] = [];
     for (const mind of options.minds?.list() ?? []) {
-      if (wallId ? mind.folderId !== wallId : options.walledFolder(mind.id) !== null) continue;
+      if (wallId ? mind.folderId !== wallId : options.wall.walledFolder(mind.id) !== null) continue;
       if (names.length >= LISTED_MINDS) break;
       if (names.some((each) => each.name === mind.name)) continue;
       names.push({ name: mind.name, fromAnswer: options.content.peek(mind.id, madeByAnswer) });
@@ -4677,16 +4703,10 @@ export function createAnswers(options: AnswersOptions) {
     if (wallId === UNKNOWN_WALL) documentIds = [];
     else if (wallId) {
       // A Folder picked inside the wall (the Library's nested one) stays that Folder, not its wall (#2529).
-      const inside =
-        scope !== null &&
-        hasSearchScope(scope) &&
-        scope.folderIds.length > 0 &&
-        scope.tagIds.length === 0 &&
-        scope.documentIds.length === 0 &&
-        scope.folderIds.every((id) => options.walledFolderId(id) === wallId);
-      documentIds = options.resolveScope(inside ? scope : folderScope(wallId), mindId);
+      const inside = scope !== null && options.wall.scopeInsideWall(scope, wallId);
+      documentIds = options.wall.resolveScope(inside ? scope : folderScope(wallId), mindId);
     } else {
-      const resolved = options.resolveScope(scope ?? NO_SCOPE, mindId);
+      const resolved = options.wall.resolveScope(scope ?? NO_SCOPE, mindId);
       const unscoped =
         scope && hasSearchScope(scope) ? null : (options.unscopedDocuments?.(mindId) ?? null);
       documentIds =
@@ -4862,12 +4882,12 @@ export function createAnswers(options: AnswersOptions) {
       // the chip shows, read inside its wall (#2529).
       const frontWall =
         question.mind === null && question.folderInFront !== null
-          ? options.walledFolderId(question.folderInFront)
+          ? options.wall.walledFolderId(question.folderInFront)
           : null;
       const scope =
         frontWall !== null && question.folderInFront !== null
           ? folderScope(question.folderInFront)
-          : options.searchedScope(question.scope, question.mind?.id ?? null);
+          : options.wall.searchedScope(question.scope, question.mind?.id ?? null);
       const answerModel =
         question.model && options.providerExists(question.model.providerId)
           ? question.model
@@ -5013,7 +5033,7 @@ export function createAnswers(options: AnswersOptions) {
         mindId !== null
           ? null
           : front !== null
-            ? options.walledFolderId(front)
+            ? options.wall.walledFolderId(front)
             : wallOfTurn(question);
       const scoped = front !== null ? folderScope(front) : question.scope;
       const { documentIds, emptyScope } = scopeNow(scoped, mindId, wall);
@@ -5064,7 +5084,7 @@ export function createAnswers(options: AnswersOptions) {
         answer.citations.filter((each) => each.check === "not-checked").map((each) => each.marker),
       );
       const rejudged = new Set(
-        citedSentences(answer.text, answer.figures)
+        citedSentences(answer.text, answer.figures, answer.citations)
           .filter((each) => !each.calculated && each.markers.some((marker) => again.has(marker)))
           .flatMap((each) => each.at),
       );

@@ -56,6 +56,7 @@ import {
   type ReviewItem,
   waitingChanges,
 } from "./theirChanges";
+import { withKeys } from "./withShortcut";
 
 type Shown = Omit<ChangeItem, "from" | "to">;
 
@@ -631,7 +632,7 @@ function Card({
             title={
               item.outOfDate
                 ? t("proposal.cantAccept.theirs")
-                : `${t("proposal.accept")} (${keysHere(ACCEPT_KEYS)})`
+                : withKeys(t, t("proposal.accept"), keysHere(ACCEPT_KEYS))
             }
             onClick={(event) => {
               if (event.detail <= 1 && !item.outOfDate) onDecide("accept");
@@ -645,7 +646,7 @@ function Card({
             type="button"
             data-testid="review-reject"
             aria-keyshortcuts={isMacOS() ? "Meta+Backspace" : "Control+Backspace"}
-            title={`${t("proposal.reject")} (${keysHere(REJECT_KEYS)})`}
+            title={withKeys(t, t("proposal.reject"), keysHere(REJECT_KEYS))}
             onClick={(event) => {
               if (event.detail <= 1) onDecide("reject");
             }}

@@ -57,6 +57,7 @@ import {
 } from "../../../shared/proposals";
 import { INLINE_NODE, isClaim, onlyNamesItsTable, sentenceSpans } from "../../../shared/sentences";
 import { judgesUnreliably } from "../../../shared/smallModel";
+import { onlyNamesItsSource } from "../../../shared/sourceNames";
 import {
   ANALYSIS_TABLE_ATTRIBUTE,
   ANALYSIS_TABLE_NODE,
@@ -323,6 +324,8 @@ export function checkableSentences(blocks: readonly NodeJSON[]): Sentence[] {
           citationAttributesOf(inline.attrs ?? {}),
         );
         if (cited.length === 0 && !isClaim(text)) continue;
+        // It only names the Document it cites: where a row came from, not what it claims (#3093).
+        if (onlyNamesItsSource(text, citations)) continue;
         // A sentence the Answer's own judgement settled came with its mark: it isn't checked again.
         const carried = layout.some(
           ({ node: inline, start }) =>

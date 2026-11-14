@@ -37,6 +37,7 @@ import {
 import { redrawProposalRewrites, toggleProposalOriginal } from "./proposalRewrites";
 import { madeByLine, namesList } from "./theirChanges";
 import { type SentenceRange, uncitedSentences } from "./uncitedSentences";
+import { withKeys } from "./withShortcut";
 
 /** How long the bar stays once the pointer leaves its change, so it can reach the bar. */
 const LEAVE_MS = 300;
@@ -672,7 +673,7 @@ function ChangeBar({ editor, mindId }: { editor: Editor; mindId: string }) {
         <button
           type="button"
           data-testid="change-accept"
-          title={`${t("proposal.accept")} (${keys.accept})`}
+          title={withKeys(t, t("proposal.accept"), keys.accept)}
           aria-keyshortcuts={isMacOS() ? "Meta+Enter" : "Control+Enter"}
           onClick={(event) => resolve(event, "accept")}
           className="proposal-action"
@@ -686,7 +687,7 @@ function ChangeBar({ editor, mindId }: { editor: Editor; mindId: string }) {
           <button
             type="button"
             data-testid="change-reject"
-            title={`${t("proposal.reject")} (${keys.reject})`}
+            title={withKeys(t, t("proposal.reject"), keys.reject)}
             aria-keyshortcuts={isMacOS() ? "Meta+Backspace" : "Control+Backspace"}
             onClick={(event) => resolve(event, "reject")}
             className="proposal-action"

@@ -4,16 +4,19 @@
  * Linked folder, every Document's folder inside it, until Source locations show its folders as
  * on disk (#1250). Worked out once per change of the Documents or Linked folders, for every row,
  * the Library, ⌘K, findings and Citation cards. A Meeting's Transcript never takes the folder
- * IncarnaMind keeps it in ("Transcripts (2)", in every language), which says nothing of which call
+ * IncarnaMind keeps it in ("Transcripts (2)"), which says nothing of which call
  * it was: a Citation of it shows its call's start instead (#3005, `transcriptsNamedAlike`).
  */
 import type { Document, LinkedFolder } from "../../core/api";
+import type { Language } from "../../core/language";
 import { whereShown } from "../../shared/documentNames";
+import { languageNow, translateNow } from "./i18n";
 import { useAppStore } from "./store";
 
 let cached: {
   documents: readonly Document[];
   linkedFolders: readonly LinkedFolder[];
+  language: Language;
   places: ReadonlyMap<string, string>;
   transcripts: ReadonlySet<string>;
 } | null = null;
@@ -29,8 +32,17 @@ function foldersWithin(root: string, path: string): string | null {
 }
 
 function worked(documents: readonly Document[], linkedFolders: readonly LinkedFolder[]) {
-  if (cached?.documents === documents && cached.linkedFolders === linkedFolders) return cached;
-  const places = whereShown(documents);
+  const language = languageNow();
+  if (
+    cached?.documents === documents &&
+    cached.linkedFolders === linkedFolders &&
+    cached.language === language
+  ) {
+    return cached;
+  }
+  const places = whereShown(documents, (place, count) =>
+    translateNow("documents.place.twin", { place, count }),
+  );
   const transcripts = new Set<string>();
   for (const document of documents) {
     if ((document.meetingMindId ?? null) === null || !places.has(document.id)) continue;
@@ -44,7 +56,7 @@ function worked(documents: readonly Document[], linkedFolders: readonly LinkedFo
     const folders = foldersWithin(root, document.path);
     if (folders) places.set(document.id, folders);
   }
-  cached = { documents, linkedFolders, places, transcripts };
+  cached = { documents, linkedFolders, language, places, transcripts };
   return cached;
 }
 

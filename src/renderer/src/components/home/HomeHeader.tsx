@@ -1,6 +1,7 @@
 import { formatLongDay, partOfDay } from "../../../../shared/dates";
 import { menuKeysLabel } from "../../commands/keymap";
 import { commands } from "../../commands/registry";
+import { withKeys } from "../../editor/withShortcut";
 import { useHomeNeeds, useOwnMinds } from "../../home";
 import { useLanguage, useT } from "../../i18n";
 import { useAppStore } from "../../store";
@@ -71,7 +72,7 @@ export function HomeHeader({ now }: { now: Date }) {
         <button
           type="button"
           data-testid="home-new-mind"
-          title={keys ? `${newMind} (${keys})` : newMind}
+          title={withKeys(t, newMind, keys)}
           onClick={() => void commands.run("mind.new").catch(useAppStore.getState().reportError)}
           className={`${primaryButtonClass} rounded-r-none`}
         >

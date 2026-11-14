@@ -61,8 +61,6 @@ import { RESEARCH_TASK } from "../shared/research";
 import {
   folderScope,
   hasSearchScope,
-  holdsText,
-  mindSearchScope,
   NO_SCOPE,
   oneFolderOf,
   type ScopeKind,
@@ -109,7 +107,6 @@ import { createCiting } from "./answers/citing";
 import { readMind } from "./answers/context";
 import type { AnswerSearchOptions } from "./answers/engine";
 import type { LiveTranscript } from "./answers/liveTranscript";
-import { explicitWalledFolderScope } from "./answers/scopeLine";
 import {
   type AddDocumentsResult,
   type AddedToNote,
@@ -131,7 +128,6 @@ import {
   DELETED_KINDS,
   type DecisionHostStatus,
   type DeletedAgainRef,
-  type DeletedItem,
   type Document,
   type DocumentStatus,
   type EmbeddingModelStatus,
@@ -379,7 +375,7 @@ import { BUILT_IN_RERANKING_MODEL, createRerankingModel } from "./reranking";
 import { createResearch } from "./research";
 import { createRepliesOut } from "./runs/replies";
 import { createTasks, type TaskKind, type TaskNotice } from "./runs/tasks";
-import { parseSearchScope, resolveSearchScope } from "./scope";
+import { parseSearchScope } from "./scope";
 import { createSecrets } from "./secrets";
 import { createSettings, isChatModelChoice } from "./settings";
 import { createSkills } from "./skills";
@@ -430,6 +426,7 @@ import { createWindowCommands } from "./windowCommands";
 import { createWindowPresence, type HostWindow } from "./windowPresence";
 import { createWordImports } from "./wordImports";
 import { ensureWorkspace } from "./workspace";
+import { createWorkWall } from "./workWall";
 
 export const DATABASE_FILE = "incarnamind.db";
 
@@ -1700,91 +1697,8 @@ export function createCore(adapters: CoreAdapters): Core {
       ? tunedSearch(tuning, query, options, (tuned) => documents.searchTool(query, tuned))
       : documents.searchTool(query, options);
   };
-  /** Whether a scope names Folders inside `wallId` only: a Note behind a wall reads such a scope itself (#2427). */
-  const scopeInsideWall = (scope: SearchScope, wallId: string): boolean =>
-    scope.tagIds.length === 0 &&
-    scope.documentIds.length === 0 &&
-    scope.folderIds.length > 0 &&
-    scope.folderIds.every((id) => library.wallOf(id) === wallId);
-  const constrainedScope = (scope: SearchScope, mindId: string | null = null): SearchScope => {
-    const own = mindId !== null && mindExists(mindId) ? minds.get(mindId).folderId : null;
-    const ownWall = own === null ? null : library.wallOf(own);
-    if (ownWall !== null) return scopeInsideWall(scope, ownWall) ? scope : folderScope(ownWall);
-    return { ...scope, folderIds: scope.folderIds.filter((id) => library.wallOf(id) === null) };
-  };
-  const resolveScope = (scope: SearchScope | null, mindId: string | null = null) => {
-    const wanted = scope ?? NO_SCOPE;
-    const walled = library.folders().filter((folder) => folder.keepInside);
-    const own = mindId !== null && mindExists(mindId) ? minds.get(mindId).folderId : null;
-    const ownWall = own === null ? null : library.wallOf(own);
-    const explicitFolderScope = explicitWalledFolderScope(wanted, mindId, (id) =>
-      id === null ? null : library.wallOf(id),
-    );
-    if (ownWall !== null || explicitFolderScope) {
-      return resolveSearchScope(ownWall !== null ? constrainedScope(wanted, mindId) : wanted, {
-        folderTree: (folderId) => folders.subtree(folderId),
-        organizedFolderDocuments: (folderId) => library.treeDocumentIds(folderId),
-        documentIds: (filter) => documents.ids(filter),
-      });
-    }
-    const constrained = constrainedScope(wanted, mindId);
-    if (ownWall === null && hasSearchScope(wanted) && !hasSearchScope(constrained)) return [];
-    const resolved = resolveSearchScope(constrained, {
-      folderTree: (folderId) => folders.subtree(folderId),
-      organizedFolderDocuments: (folderId) => library.treeDocumentIds(folderId),
-      documentIds: (filter) => documents.ids(filter),
-    });
-    if (ownWall !== null || walled.length === 0) return resolved;
-    const excluded = new Set(walledDocuments());
-    return (resolved ?? documents.ids({})).filter((id) => !excluded.has(id));
-  };
-  /**
-   * The Documents a pick of the User's covers, as a search from `mindId` sees them (#1934): from
-   * inside a wall only those behind it, from outside never one a wall keeps inside.
-   */
-  const pickedDocuments = (scope: SearchScope, mindId: string): string[] => {
-    const searched = new Set(resolveScope(scope, mindId) ?? documents.ids({}));
-    const picked = resolveSearchScope(scope, {
-      folderTree: (folderId) => folders.subtree(folderId),
-      organizedFolderDocuments: (folderId) => library.treeDocumentIds(folderId),
-      documentIds: (filter) => documents.ids(filter),
-    });
-    return (picked ?? []).filter((id) => searched.has(id));
-  };
-  const folderIdsInScope = (folderIds: readonly string[]) =>
-    folderIds.length === 1 && walledFolderId(folderIds[0] ?? null) !== null
-      ? [...folderIds]
-      : constrainedScope({ folderIds: [...folderIds], tagIds: [], documentIds: [] }).folderIds;
-  const walledFolderId = (folderId: string | null): string | null => {
-    if (folderId === null || folderId === NOT_IN_A_FOLDER_ID) return null;
-    return library.wallOf(folderId);
-  };
   // The fingerprints of the files IncarnaMind writes (#80).
   const ownFiles = createOwnFiles(db, now);
-  // Behind a wall: filed in it or in a Folder inside it, or a file IncarnaMind wrote from one of
-  // its Notes, wherever in its tree that Note is, and wherever the file was indexed again (a
-  // Linked folder holding the Output location).
-  const behindWall = (folderId: string) => {
-    const walls = library.wallsOf();
-    const inside = [...walls].filter(([, wall]) => wall === folderId).map(([id]) => id);
-    return [...library.allTreeDocumentIds(folderId), ...ownFiles.writtenFrom(inside)];
-  };
-  const wallOfDocument = (documentId: string) =>
-    library
-      .folders()
-      .find((folder) => folder.keepInside && behindWall(folder.id).includes(documentId));
-  const walledDocument = (documentId: string): string | null =>
-    wallOfDocument(documentId)?.id ?? null;
-  const walledDocuments = (): string[] =>
-    library
-      .folders()
-      .filter((folder) => folder.keepInside)
-      .flatMap((folder) => behindWall(folder.id));
-  /** The wall a thing in Recently deleted was behind: its Folder's, or a deleted Folder's own or its parent's. */
-  const deletedWall = (item: DeletedItem): string | null =>
-    item.kind === "folder" ? library.wallOf(item.id, true) : walledFolderId(item.groupId);
-  const walledFolderName = (documentId: string): string | null =>
-    wallOfDocument(documentId)?.name ?? null;
   const folderOfNote = (mindId: string | null): string | null =>
     mindId !== null && mindExists(mindId) ? minds.get(mindId).folderId : null;
   /** The Folder of a Question's place, as the web tools take it; null once the place is deleted. */
@@ -1809,84 +1723,10 @@ export function createCore(adapters: CoreAdapters): Core {
     return { mindId: idOf(place.mindId), conversationId: idOf(place.conversationId) };
   };
   /**
-   * The wall of a Question asked from `mindId`, else in `conversationId` with no Note open: the
-   * Note's Folder, else the conversation's, judged against today's walls (#1934). Throws
-   * `NotFoundError` once that Note or conversation is deleted: it is behind no wall then, nor
-   * outside every one.
+   * "Every Document" for a search with no Search scope: the examples' until the User has a
+   * Document of their own, and from then on theirs and the examples `mindId` cites (#1942, #3083).
+   * Null: all of them, as an example's own Note always searches.
    */
-  const turnWall = ({ mindId, conversationId }: TurnPlace): string | null => {
-    if (mindId !== null) return walledFolderId(minds.get(mindId).folderId);
-    if (conversationId === null) return null;
-    return walledFolderId(conversations.get(conversationId).folderId);
-  };
-  const walledFolder = (mindId: string | null): string | null => {
-    const folderId = mindId !== null && mindExists(mindId) ? minds.get(mindId).folderId : null;
-    return walledFolderId(folderId);
-  };
-  /**
-   * Whether a Note may read again the Document a Citation names (#1934): never a Document kept
-   * inside a walled Folder the Note is outside. Recheck, Add to Note, the edit's kept Citations
-   * and a figure's inputs all ask this one question, so no path forgets the wall as Edit with AI
-   * did (#2746). A caller with no Note (an Answer in the assistant, a Document's viewer) is
-   * reading as browsing is, and may.
-   */
-  const mayRecheckIn = (mindId: string | null, documentId: string): boolean => {
-    const wall = walledDocument(documentId);
-    return wall === null || mindId === null || wall === walledFolder(mindId);
-  };
-  /**
-   * The one place deciding where the assistant files what it makes (#1934): work behind the wall
-   * `wallId` files it in that Folder, or in a Folder inside it when that is the one `asked`; it
-   * never leaves the wall. Work outside every wall never files in a walled Folder. Null: it
-   * can't be filed, so nothing may be made, as when the wall's Folder is gone or the turn's
-   * wall isn't known.
-   */
-  const filedWithin = (
-    wallId: string | null,
-    asked: string | null,
-  ): { folderId: string | null } | null => {
-    if (wallId === null) {
-      if (asked === null) return { folderId: null };
-      // A Folder that gained a wall takes nothing from outside it; one that is gone takes nothing.
-      if (walledFolderId(asked) !== null) return { folderId: null };
-      return library.folders().some((folder) => folder.id === asked) ? { folderId: asked } : null;
-    }
-    const wall = library.folders().find((folder) => folder.id === wallId);
-    // The wall's Folder is gone: nothing may be made. Its wall switched off since: no wall is left
-    // to stay inside, so the file goes where it asks, as before it had one (#2250).
-    if (!wall) return null;
-    if (!wall.keepInside) return filedWithin(null, asked);
-    if (asked === null) return { folderId: wallId };
-    return library.wallOf(asked) === wallId ? { folderId: asked } : null;
-  };
-  /**
-   * Whether work on the wall `wallId`'s side (null: outside every wall) may be filed in `folderId`
-   * now: the walls are read here, and a Document behind another wall (`behind`) never crosses it
-   * (#2250). One door for a page, a paste and a move alike.
-   */
-  const mayFileWithin = (
-    wallId: string | null,
-    folderId: string | null,
-    behind: string | null,
-  ): boolean =>
-    (behind === null || behind === wallId) && filedWithin(wallId, folderId)?.folderId === folderId;
-  /**
-   * Files a Document by the walls as they are at this moment (#2250): a wall switched on while the
-   * work was under way is judged here, never where it was before. A Document behind another wall
-   * stays where it is, and a Folder that gained a wall takes nothing from outside it. Null: it
-   * isn't filed, because `filedWithin` gives this side no Folder or the Document is on another side.
-   */
-  const fileWithin = (
-    documentId: string,
-    wallId: string | null,
-    asked: string | null,
-  ): { folderId: string | null } | null => {
-    const filed = filedWithin(wallId, asked);
-    if (filed === null) return null;
-    if (!mayFileWithin(wallId, filed.folderId, walledDocument(documentId))) return null;
-    if (filed.folderId !== null) library.assign(documentId, filed.folderId);
-    return filed;
-  };
   const unscopedDocuments = (mindId: string | null): string[] | null => {
     const made = examples.made();
     if (made.documentIds.length === 0 || (mindId && made.mindIds.includes(mindId))) return null;
@@ -1902,26 +1742,41 @@ export function createCore(adapters: CoreAdapters): Core {
     content.peek(mindId, (blocks) => addCitedUnits(blocks, left, cited));
     return [...new Set([...own, ...cited.map((each) => each.documentId)])];
   };
-  /**
-   * The Documents a Search scope covers; with no scope, "every Document": the examples' until the
-   * User has a Document of their own, and from then on theirs and the examples `mindId` cites
-   * (#1942, #3083). An example's own Note always searches every Document. Every searching surface
-   * resolves a default scope here or through `unscopedDocuments` — a Question in a Mind goes
-   * through `resolveScope ?? unscopedDocuments` — so all of them follow one rule; the Library count
-   * and the renderer state the same rule for browsing.
-   */
-  const scopeDocuments = (
-    scope: SearchScope | null,
-    mindId: string | null = null,
-  ): string[] | null => {
-    if (scope && hasSearchScope(scope)) return resolveScope(scope, mindId);
-    const unscoped = unscopedDocuments(mindId);
-    const resolved = resolveScope(NO_SCOPE, mindId);
-    if (resolved === null) return unscoped;
-    if (unscoped === null) return resolved;
-    const own = new Set(unscoped);
-    return resolved.filter((id) => own.has(id));
-  };
+  const wall = createWorkWall({
+    library: () => library,
+    documents,
+    linkedFolders: folders,
+    ownFiles,
+    folderOfNote,
+    folderOfTurn: ({ mindId, conversationId }) => {
+      if (mindId !== null) return minds.get(mindId).folderId;
+      return conversationId === null ? null : conversations.get(conversationId).folderId;
+    },
+    unscopedDocuments,
+    readableNote: (mindId) => readableMindName(mindId) !== null,
+  });
+  const {
+    constrainedScope,
+    resolveScope,
+    pickedDocuments,
+    folderIdsInScope,
+    walledFolderId,
+    walledDocument,
+    walledDocuments,
+    deletedWall,
+    walledFolderName,
+    turnWall,
+    walledFolder,
+    mayRecheckIn,
+    mayRecheckFrom,
+    filedWithin,
+    mayFileWithin,
+    fileWithin,
+    filedInWall,
+    scopeDocuments,
+    documentsToSearch,
+    searchedScope,
+  } = wall;
   /** A search's place from input; null when it has none. */
   const parsePassagePlace = (input: unknown): PassageSearchPlace | null => {
     if (input === undefined || input === null) return null;
@@ -1944,46 +1799,6 @@ export function createCore(adapters: CoreAdapters): Core {
       askedFrom,
       ...(folderAskedIn !== undefined && { folderAskedIn }),
     };
-  };
-  /**
-   * The Documents a local search reads for a Question, on its side of the Folder walls (#1934),
-   * as the Answer's turn is judged: null for every Document. A place whose Folder isn't recorded
-   * reads nothing.
-   */
-  const documentsToSearch = (
-    scope: SearchScope | null,
-    place: PassageSearchPlace,
-  ): string[] | null => {
-    if (place.kind === "turn") {
-      const wall = turnWall(place);
-      return wall === null ? scopeDocuments(scope, place.mindId) : resolveScope(folderScope(wall));
-    }
-    const mindId = place.askedFrom?.mindId ?? null;
-    const readsMind =
-      mindId !== null && place.askedFrom?.deleted !== true && readableMindName(mindId) !== null;
-    if (readsMind) return scopeDocuments(scope, mindId);
-    if (place.folderAskedIn === undefined) return [];
-    const wall = walledFolderId(place.folderAskedIn);
-    return wall === null ? scopeDocuments(scope, null) : resolveScope(folderScope(wall));
-  };
-  const searchedScope = (scope: SearchScope | null, mindId: string | null) => {
-    const folderId = mindId !== null && mindExists(mindId) ? minds.get(mindId).folderId : null;
-    const wall = walledFolderId(folderId);
-    const holds =
-      folderId !== null &&
-      documents
-        .getMany(resolveScope({ folderIds: [folderId], tagIds: [], documentIds: [] }, mindId) ?? [])
-        .some(holdsText);
-    const searched = mindSearchScope(
-      scope ?? { folderIds: [], tagIds: [], documentIds: [] },
-      folderId,
-      holds,
-    );
-    // A Note behind a wall reads its own Folder or a Folder inside the wall, never one beside it;
-    // with nothing of its own to search, the wall stands for every Document (#2427).
-    if (hasSearchScope(searched))
-      return wall === null ? searched : constrainedScope(searched, mindId);
-    return wall === null ? null : folderScope(wall);
   };
   // A scope's Folder is a Library Folder, or one of a Linked folder's (the "@" picker offers both).
   const scopeItemName = (kind: ScopeKind, id: string): string | null =>
@@ -2133,11 +1948,7 @@ export function createCore(adapters: CoreAdapters): Core {
     savePage: (address, fetch, reuse, added) =>
       webPages.save({ address, keepLook: false }, added, fetch, "search", reuse),
     folderOf: (place) => folderOfPlace(place),
-    filedWithin: (wallId, asked) => filedWithin(wallId, asked),
-    walledDocument,
-    file: (documentId, wallId, asked) => {
-      fileWithin(documentId, wallId, asked);
-    },
+    wall,
     document: (id) => documents.get(id),
     onStatus: (listener) => events.on("document.status", listener),
     ...(adapters.web && { fetch: adapters.web }),
@@ -2369,7 +2180,6 @@ export function createCore(adapters: CoreAdapters): Core {
     otherCallTranscripts: (mindId) => otherCallTranscripts(db, mindId),
     helpFormJudged: () => adapters.helpFormJudged?.() ?? false,
     quotesAsGiven: () => adapters.quotesAsGiven?.() ?? false,
-    helpMarksQuoteOnly: () => adapters.helpMarksQuoteOnly?.() ?? false,
     callsUnmarked: () => adapters.callsUnmarked?.() ?? false,
     providerExists: (providerId) => chat.exists(providerId),
     checkAnswer: (input) => checks.checkAnswer(input),
@@ -2504,13 +2314,7 @@ export function createCore(adapters: CoreAdapters): Core {
           core.listTags(),
           core.listDeleted(),
         ]);
-        const allowed = wallId
-          ? resolveSearchScope(folderScope(wallId), {
-              folderTree: (folderId) => folders.subtree(folderId),
-              organizedFolderDocuments: (folderId) => library.treeDocumentIds(folderId),
-              documentIds: (filter) => documents.ids(filter),
-            })
-          : resolveScope(NO_SCOPE, mindId);
+        const allowed = wallId ? filedInWall(wallId) : resolveScope(NO_SCOPE, mindId);
         // Only what is on the turn's side of the wall can be found, named or offered (#1934).
         const shown = allowed === null ? null : new Set(allowed);
         const onSide = (wall: string | null) => wall === wallId;
@@ -2660,9 +2464,8 @@ export function createCore(adapters: CoreAdapters): Core {
         return answer !== null;
       },
     },
-    resolveScope,
+    wall,
     workingCopyOf: (mindId) => wordImports.importedAsOf(mindId),
-    searchedScope,
     mindFolder: (mindId) => (mindExists(mindId) ? minds.get(mindId).folderId : null),
     scopeItemName,
     libraryFolders: () =>
@@ -2671,10 +2474,6 @@ export function createCore(adapters: CoreAdapters): Core {
         name: folder.name,
         keepInside: folder.keepInside,
       })),
-    walledFolder,
-    walledFolderId,
-    walledDocuments,
-    filedWithin,
     exampleDocuments: (mindId) => examples.documentsOf(mindId),
     unscopedDocuments,
     interfaceLanguage: () => settings.get().language,
@@ -2781,12 +2580,9 @@ export function createCore(adapters: CoreAdapters): Core {
   };
   const research = createResearch({
     requireMind: (mindId) => writableMind(mindId).id,
-    searchedScope,
+    wall,
     mindExists,
     mindName: (mindId) => (mindExists(mindId) ? mindName(minds.get(mindId)) || null : null),
-    walledFolder,
-    walledFolderId,
-    filedWithin,
     folderOfMind: (mindId) => (mindExists(mindId) ? minds.get(mindId).folderId : null),
     createMind: (title, folderId, model) =>
       makeMind({ title, kind: DEFAULT_MIND_KIND, folderId }, { model }).id,
@@ -2838,7 +2634,6 @@ export function createCore(adapters: CoreAdapters): Core {
       runsLocally: (choice) => chat.metered(choice)?.billing === "free",
     },
     answers,
-    scopeDocuments,
     tasks: {
       start: (kind, mindId, input) => tasks.start(kind, mindId, input),
       get: (taskId) => tasks.record(taskId),
@@ -2885,8 +2680,7 @@ export function createCore(adapters: CoreAdapters): Core {
     requireMind: (mindId) => {
       writableMind(mindId);
     },
-    scopeDocuments,
-    searchedScope,
+    wall,
     searchableCount: (documentIds) => documents.searchableCount(documentIds ?? undefined),
     speakersOf: (documentId) => documents.speakersOf(documentId),
     localOnly: () => embedding.localOnly(),
@@ -3359,23 +3153,6 @@ export function createCore(adapters: CoreAdapters): Core {
     (error) => console.error("A window that went still holds something:", error),
   );
 
-  /**
-   * Whether a Citation may be read again from where it is shown (#1934, #2782): the wall of the
-   * Note it is in, or of the conversation it is in when that has no Note; somewhere with neither
-   * reads as browsing is, which may. A place whose wall can't be judged (its Note or conversation
-   * gone) may not.
-   */
-  const mayRecheckFrom = (place: TurnPlace, documentId: string): boolean => {
-    const wall = walledDocument(documentId);
-    if (wall === null) return true;
-    if (place.mindId === null && place.conversationId === null) return true;
-    try {
-      return wall === turnWall(place);
-    } catch (error) {
-      if (error instanceof NotFoundError) return false;
-      throw error;
-    }
-  };
   /**
    * A Citation checked again in the Note or conversation it is shown in: one whose Document is
    * kept inside a walled Folder that place is outside isn't read from there, so the check it was

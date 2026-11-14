@@ -53,8 +53,7 @@ import {
 import { failedEverySource, useDownloadSources } from "./DownloadSources";
 import { CloseLineIcon } from "./lineIcons";
 import { useMeetingsLeftApartDetails } from "./MeetingsLeftApart";
-import { embeddingProviderLabel } from "./providers/EmbeddingSettings";
-import { testErrorKey } from "./providers/shared";
+import { embeddingProviderLabel, testErrorKey } from "./providers/shared";
 import { useSkippedFilesDetails } from "./SkippedFilesLine";
 import { rowActionButtonClass } from "./sidebarRows";
 import { useTaggingService } from "./useTaggingService";

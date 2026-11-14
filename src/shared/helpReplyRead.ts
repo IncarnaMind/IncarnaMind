@@ -264,7 +264,7 @@ export interface HelpReplyRead {
 }
 
 /** A reading's line that is only its moment of the call: its time, its quotation and its markers. */
-function onlyMoment(line: string): boolean {
+export function onlyMoment(line: string): boolean {
   const rest = plainLine(line)
     .replace(RECOMMENDED_MARK, "")
     .replace(LINE_MARK, "")

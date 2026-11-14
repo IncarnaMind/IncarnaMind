@@ -44,7 +44,7 @@ test("heading meaning stays in the generation, not in a heading-name list", () =
     "in English Me is I, Them is the other side, and a numbered voice keeps its mark",
   );
   expect(prompt).toContain(
-    "Write a decision once, as finally agreed: not the proposal and then its confirmation, and never its figures twice",
+    "Write a decision once, as finally agreed, as one fact with every line and section it belongs to: never a second fact for the proposal that became it or for the same decision under another heading, and never its figures twice. A proposal that differs from what was agreed is a fact of its own.",
   );
   expect(prompt).toContain(
     "The speaker marks (Me, Them and numbered voices, or their translations) are not names",
@@ -72,7 +72,7 @@ test.each([
   },
 );
 
-// protects=a named person is never the other side, even where they give their name, and is named on every Them line when they are alone on the other side, in the User's spelling where the User typed it, and never with an invented name; with others there too, named or not, a line carries a name only where the call shows who speaks it, and is the other side's where it doesn't, so what an unnamed colleague said is not put in the named person's mouth; and what a decision is stays one clause, with no rule on a term one side gave, which waits for its own measurement (#2306); fails_when=a naming rule is missing from the prompt, or the decision clause grows; no_claim=a real model following them, which tests/live/meetingFillSections.live.test.ts measures.
+// protects=a named person is never the other side, even where they give their name, and is named on every Them line when they are alone on the other side, in the User's spelling where the User typed it, and never with an invented name; with others there too, named or not, a line carries a name only where the call shows who speaks it, so what an unnamed colleague said is not put in the named person's mouth; where it doesn't, a line plainly from across a call between two sides is the other side's and a line whose side is not clear has no speaker, so a teammate is never the other side (#3013); and what a decision is stays one clause, with no rule on a term one side gave, which waits for its own measurement (#2306); fails_when=a naming rule is missing from the prompt, or the decision clause grows; no_claim=a real model following them, which tests/live/meetingFillSections.live.test.ts measures.
 test.each([
   ["no notes", []],
   ["a typed line", [{ marker: "L1", text: "和王磊通话", heading: false }]],
@@ -83,7 +83,15 @@ test.each([
   );
   expect(prompt).not.toContain("accepted aloud");
   expect(prompt).toContain(
-    "a named person is never the other side, 对方 or they, not even on the line where they give their name. When one named person is alone on the other side, every Them line is theirs, written with their name. When others are there too, named or not, a Them line may be anyone's: write a name only where the call makes clear who speaks that line, on the line itself or in what is said to them just before or after it; where it does not, the speaker is the other side (对方), never a named person.",
+    "a named person is never the other side, 对方 or they, not even on the line where they give their name. When one named person is alone on the other side, every Them line is theirs, written with their name. When others are there too, named or not, a Them line may be anyone's: write a name only where the call makes clear who speaks that line, on the line itself or in what is said to them just before or after it; where it does not, never write a named person: a line plainly from across a call between two sides is the other side's (对方), and a line whose side is not clear has no speaker: write what was said, with someone (有人) where a sentence needs a subject.",
+  );
+  expect(prompt).toContain("Me is the User, Them everyone else on the call.");
+  expect(prompt).not.toContain("Them the other side of the call");
+  expect(prompt).toContain(
+    "anyone else who was never named is the other side (对方) on a call between two sides",
+  );
+  expect(prompt).toContain(
+    "- The other side (对方) is only for a call between two sides: someone across who was never named, or a line from across that cannot be put on one person. On a call among the User's own team, or where it is not clear the call has two sides or which side a line came from, nobody is the other side: a line nobody can place has no speaker.",
   );
   expect(prompt).not.toContain("without a speaker");
   expect(prompt).toContain(
@@ -173,12 +181,18 @@ test.each([
     expect(named).not.toContain("Me is I");
     expect(named).not.toContain("Me is 我");
     expect(named).toContain("a named person is never the other side, 对方 or they");
+    expect(named).toContain(
+      "Anyone else never named is written with their mark's word in the language you write in, Them's only on a call between two sides: in English Them is the other side",
+    );
 
     const unnamed = JSON.stringify(context(false).messages);
     expect(unnamed).toContain(
       "in the first person (I, my; 我 in Chinese), even when the call gave their name",
     );
     expect(unnamed).toContain("in English Me is I, Them is the other side");
+    expect(unnamed).toContain(
+      "Someone never named is written with their mark's word in the language you write in, Them's only on a call between two sides: in English Me is I",
+    );
     expect(unnamed).toContain("in Simplified Chinese Me is 我");
     expect(unnamed).not.toContain("{{me}}");
   },

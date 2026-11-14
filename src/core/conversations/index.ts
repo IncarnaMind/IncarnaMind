@@ -25,6 +25,7 @@ import {
   type CitedUnits,
   type CitedVersions,
 } from "../answers/citedVersions";
+import { storedCells } from "../answers/quoteCells";
 import { usualWait } from "../answers/usualWait";
 import type {
   AnswerAnalysis,
@@ -606,6 +607,17 @@ function toQuestion(row: MessageRow): ConversationQuestion {
   };
 }
 
+/**
+ * A stored Citation with its table cells read tolerantly (#2847): a malformed value is none. Every
+ * other field is kept as stored, one a later version wrote included.
+ */
+function withStoredCells(citation: MarkedCitation): MarkedCitation {
+  if (!("cells" in citation)) return citation;
+  const { cells, ...rest } = citation;
+  const read = storedCells(cells);
+  return read ? { ...rest, cells: read } : rest;
+}
+
 function toAnswer(row: MessageRow): ConversationAnswer {
   const status = STATUSES.find((each) => each === row.status) ?? "stopped";
   return {
@@ -614,7 +626,7 @@ function toAnswer(row: MessageRow): ConversationAnswer {
     conversationId: row.conversation_id,
     questionId: row.question_id ?? "",
     text: row.text,
-    citations: storedList<MarkedCitation>(row.citations),
+    citations: storedList<MarkedCitation>(row.citations).map(withStoredCells),
     figures: storedList<MarkedFigure>(row.figures),
     analyses: storedList<AnswerAnalysis>(row.analyses),
     model: modelOf(row),

@@ -370,6 +370,7 @@ export function TaskProgress({
                   : "task-progress-action"
               }
               {...withShortcut(
+                t,
                 action.label,
                 action.shortcut ? shortcutLabel(action.shortcut) : undefined,
               )}

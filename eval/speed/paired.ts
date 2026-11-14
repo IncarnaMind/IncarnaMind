@@ -141,27 +141,6 @@ export interface ArmRun {
     /** The earlier call's start as the judge was given it, so a saved reply can be judged again. */
     earlierStarted?: string;
   };
-  /**
-   * A help reply's marks (#2847), read once every mark settled. Of the Citations it shows whose
-   * quote was found and whose sentence the judge says their quoted words hold (`held`): how many
-   * show ✓, how many the check gave a verdict (passed it, or found it unsupported or
-   * contradicted), and why each of the rest shows none, by its check and reason. Of those whose
-   * quote was found and which the judge lists (`listed`): how many show ✓. And how long after the
-   * reply's end the last mark settled. Absent: not a help reply, or one that didn't end.
-   */
-  marks?: {
-    held: number;
-    checked: number;
-    judged: number;
-    missed: Record<string, number>;
-    listed: number;
-    listedChecked: number;
-    settledMs: number | null;
-    /** The judge's own reply, as read: its grade and the numbers it listed. */
-    judge: { grade: string; unstated: number[] };
-    /** Each shown number: its Citation's check, its quote found, listed by the judge, and ✓ shown. */
-    numbers: { number: number; check: string; found: boolean; listed: boolean; passed: boolean }[];
-  };
 }
 
 /**

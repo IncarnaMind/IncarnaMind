@@ -1134,7 +1134,7 @@ describe("Two columns that hold the same number (#2997)", { timeout: 120_000 }, 
       "B数量为31万吨。",
       UNIT_LINE_OVER_AMOUNT,
       "B\t31\t31",
-      "31（吨）",
+      "31",
       "31万吨",
     ],
   ] as const)("under %s, %s is Unsupported", async (_, sentence, file, quote, given, figure) => {

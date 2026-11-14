@@ -9,6 +9,7 @@ import { core } from "../core";
 import { estimateText } from "../cost";
 import { AnswerError } from "../editor/AnswerView";
 import { RemoveIcon } from "../editor/icons";
+import { withKeys } from "../editor/withShortcut";
 import { useLanguage, useT } from "../i18n";
 import { useModelInUse, useOwnModel } from "../modelInUse";
 import { requestModelMenu } from "../modelMenu";
@@ -252,7 +253,7 @@ export function ResearchPlanCard({ mindId }: { mindId: string | null }) {
           data-testid="research-plan-start"
           disabled={blocked}
           aria-keyshortcuts="Control+Enter Meta+Enter"
-          title={`${t("research.plan.start")} (${keysLabel(START_KEYS, isMacOS())})`}
+          title={withKeys(t, t("research.plan.start"), keysLabel(START_KEYS, isMacOS()))}
           onClick={start}
           className={buttonStyle("primary", "sm")}
         >

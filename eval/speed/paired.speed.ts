@@ -18,7 +18,6 @@ import { createWorkerCrossEncoder } from "../lib/rerank";
 import type { TimingRecorder } from "../lib/timing";
 import { armNamed, armSwitch, type SentRequest } from "./arms";
 import { callHelpSet, rewrittenReplies } from "./callHelp";
-import { marksSection } from "./callHelpMarksReport";
 import { earlierCallsSet } from "./earlierCalls";
 import { earlierCallsSection } from "./earlierCallsReport";
 import { gradeAnswer, judgeOf } from "./judge";
@@ -227,7 +226,6 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
       notesBeforeSpeakers: switches[which].notesBeforeSpeakers,
       helpFormJudged: switches[which].helpFormJudged,
       quotesAsGiven: switches[which].quotesAsGiven,
-      helpMarksQuoteOnly: switches[which].helpMarksQuoteOnly,
       callsUnmarked: switches[which].callsUnmarked,
     }));
     const spentInCores = async () =>
@@ -374,7 +372,6 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
     itemTable(group.rows, names),
     "",
   ]);
-  const marks = marksSection(rows);
   const earlierCalls = earlierCallsSection(rows, [arms[0].id, arms[1].id]);
   const report = [
     `# Paired run: ${arms[0].id} against ${arms[1].id}`,
@@ -398,7 +395,6 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
     `Times are from the User's action, median / 90th percentile. A guard counts the items both arms finished; lost: right with the first arm and not the second, gained: the other way round. Cited, judged right and every Citation found hold with up to ${margin} fewer items in 30.`,
     "",
     ...sections,
-    ...(marks ? [marks, ""] : []),
     ...(earlierCalls ? [earlierCalls, ""] : []),
     "## Item by item",
     "",

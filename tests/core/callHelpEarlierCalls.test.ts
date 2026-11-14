@@ -23,7 +23,7 @@ import { mindName } from "../../src/shared/naming";
 import { answerEnded, shownPassages } from "../helpers/citations";
 import { createTempDataFolder, queryDatabase } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
-import { pressedBeforeFirstLine, turnOf } from "../helpers/earlierCallPress";
+import { pressedBeforeFirstLine, storedAsJudgedBefore, turnOf } from "../helpers/earlierCallPress";
 import { heldClock } from "../helpers/heldClock";
 import { connectToMind } from "../helpers/mindClient";
 import { writeMind } from "../helpers/minds";
@@ -816,10 +816,13 @@ for (const language of ["en", "zh-CN"] as const) {
       if (!pressed.asked) throw new Error("Not pressed.");
       await answerEnded(core, pressed.answerId);
       const pressIds = { conversationId: pressed.conversation.id, answerId: pressed.answerId };
+      // A press is no longer judged: its Citation keeps its quote's check, found in the earlier call.
       const reply = await answerOf(pressIds);
       expect(reply.citations.map((citation) => [citation.documentId, citation.check])).toEqual([
-        [stopped.document.id, "not-checked"],
+        [stopped.document.id, "found"],
       ]);
+      expect(batches).toEqual([]);
+      await storedAsJudgedBefore(core, setup.dataDir, pressIds);
 
       // Stop: the notes are tried with the model, which this test answers with an error.
       await core.stopMeeting(live.id);
@@ -867,13 +870,15 @@ for (const language of ["en", "zh-CN"] as const) {
     });
 
     test("a press made before the call's first line is heard: Check again and its estimate read the Folder without the earlier call's Transcript, and its kept Citation of it stays not checked", async () => {
-      const { core, line, batches, pressIds, earlier } = await pressedBeforeFirstLine(language);
+      const { core, dataDir, line, batches, pressIds, earlier } =
+        await pressedBeforeFirstLine(language);
       const holdsTheLine = () => batches.filter((batch) => batch.prompt.includes(line));
       const { answer } = await turnOf(core, pressIds);
       expect(answer.citations.map((citation) => [citation.documentId, citation.check])).toEqual([
-        [earlier, "not-checked"],
+        [earlier, "found"],
       ]);
-      expect(holdsTheLine()).toEqual([]);
+      expect(batches).toEqual([]);
+      await storedAsJudgedBefore(core, dataDir, pressIds);
 
       expect.soft(await core.estimateAnswerCheck(pressIds)).toBeNull();
       await core.checkAnswerAgain(pressIds);
@@ -885,6 +890,7 @@ for (const language of ["en", "zh-CN"] as const) {
 
     test("a press kept with a button this version doesn't know is still a press: Check again's estimate reads without the earlier call's Transcript", async () => {
       const { core, dataDir, pressIds } = await pressedBeforeFirstLine(language);
+      await storedAsJudgedBefore(core, dataDir, pressIds);
       // No operation of this version writes a button it doesn't have: the record of a button
       // renamed or removed later, or written by another version, is made in storage.
       queryDatabase(

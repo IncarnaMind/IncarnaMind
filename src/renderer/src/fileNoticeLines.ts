@@ -25,7 +25,9 @@ export function savedOutsideLine(
   saved: readonly { name: string; folder: string }[],
 ): string {
   const names = saved.map((each) =>
-    each.folder === "" ? each.name : `${each.name} (${each.folder})`,
+    each.folder === ""
+      ? each.name
+      : t("documents.savedOutside.each", { name: each.name, folder: each.folder }),
   );
   return t("documents.savedOutside", { names: unitsOf(names, language) });
 }

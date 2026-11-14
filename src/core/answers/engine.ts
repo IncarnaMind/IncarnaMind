@@ -590,6 +590,11 @@ export type AnswerEngineEvent =
         "searching" | "writing" | "checking-quotes" | "checking-figures" | "checking-claims"
       >;
     }
+  /**
+   * The model's text is all written: what the engine changes from here on (the markers and
+   * Citations it adds, the app's own lines) is the end's own, which call help writes with its end.
+   */
+  | { type: "ending" }
   /** The engine put in `count` Citation markers the model left out of its text (see ./markerPlacement). */
   | { type: "markers-placed"; count: number }
   /**
@@ -2170,6 +2175,7 @@ async function* toolLoop(
     yield* flagged(mergedFlags(standingFlags, await flagsOf(request.turnChecks ?? [], keptText)));
   }
   async function* endAnswer(): AsyncGenerator<AnswerEngineEvent> {
+    yield { type: "ending" };
     if (request.meetingFacts) {
       const fenced = withJsonFencesClosed(keptText);
       yield* textEdits(keptText, fenced);
@@ -2649,6 +2655,7 @@ async function* structured(
   }
   const worded = (text: string) => request.documents.setAsideInWords?.(text) ?? text;
   yield* emit(typeof answer === "string" ? worded(takeToolText(answer).text) : answer);
+  yield { type: "ending" };
   if (typeof answer === "string") {
     let placed = emitted;
     if (!request.meetingFacts) {
