@@ -92,6 +92,27 @@ describe("A problem line's actions", () => {
     expect(actionParts([false, undefined])).toEqual([]);
   });
 
+  // protects=the three-action rule: a line that shows three actions keeps all three as one part, a line of their own, so a row breaks before them, and where the three alone are wider than the line they wrap inside that part at a dot (#3099); fails_when=a third action comes back as a part apart; no_claim=pixels, which a structure test can't see.
+  test("three shown actions are one part, as two are (the three-action rule)", async () => {
+    const path = "../../src/renderer/src/components/MetaLine.tsx";
+    const { actionParts } = (await import(path)) as {
+      actionParts: (actions: readonly ReactNode[]) => ReactNode[];
+    };
+    const action = (label: string) =>
+      createElement("button", { key: label, type: "button" }, label);
+    const three = actionParts([
+      action("Unlock"),
+      action("Read with OCR"),
+      false,
+      action("Read hidden sheets"),
+    ]);
+    expect(three).toHaveLength(1);
+    expect((three[0] as { props: { as: string; parts: unknown[] } }).props).toMatchObject({
+      as: "span",
+    });
+    expect((three[0] as { props: { parts: unknown[] } }).props.parts).toHaveLength(3);
+  });
+
   // protects=a line's two actions are one part of it, so a row breaks before them and never between them, while the pair fits a row; inside, the pair is a line of its own that may wrap only at its dot when it alone is wider (#3099); fails_when=the two actions are parts of the line apart, or one action alone is wrapped; no_claim=pixels, which the window sweeps measure.
   test("two actions share one part of the line; one action is a part as before", async () => {
     const two = await shown(true);

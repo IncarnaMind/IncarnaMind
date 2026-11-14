@@ -1,4 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
+import { createServer, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
 import { join, resolve } from "node:path";
 import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
 import type { Editor } from "@tiptap/core";
@@ -726,6 +728,79 @@ for (const language of ["en", "zh-CN"] as const) {
     } finally {
       await app.close();
       await removeDataFolder(sources);
+    }
+  });
+}
+
+/** A model server on this computer that refuses every request as a refused key. */
+async function refusingServer(): Promise<{ server: Server; url: string }> {
+  const server = createServer((request, response) => {
+    request.resume();
+    request.on("end", () => {
+      response.writeHead(401, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: { message: "refused for the test" } }));
+    });
+  });
+  await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
+  const { port } = server.address() as AddressInfo;
+  return { server, url: `http://127.0.0.1:${port}` };
+}
+
+for (const language of ["en", "zh-CN"] as const) {
+  // protects=a problem line's two actions stay together: at the window width where the refused key's fix and Try again used to land on two rows, they share one row, under the sentence (#3099); fails_when=Try again or the fix starts a row of its own, or the pair sits on the sentence's own row; no_claim=pixels, or the line's words, which tests/renderer/meetingFillLine.test.ts reads.
+  test(`a refused key's fix and Try again stay on one row, under the sentence, where the line wraps (${language})`, async () => {
+    const words = LINES[language];
+    const model = await refusingServer();
+    const { app, window } = await launchApp(dataDir, {
+      ollama: model.url,
+      ollamaApp: "missing",
+      transcriber: { lines: [words.speech[0]], theirLines: [words.speech[1]] },
+    });
+    try {
+      await setWindowSize(app, window, 900, 760);
+      await dismissChatSetup(window);
+      await window.evaluate(async (baseUrl) => {
+        const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+        await core.saveChatProvider({ kind: "ollama", baseUrl, modelId: "test-model" });
+      }, model.url);
+      const bar = await startRecording(window, await recordMeeting(window), { notice: true });
+      await firstTranscriptLine(window);
+      const notes = window.getByTestId("mind-editor");
+      await pointAndClick(window, notes);
+      await focusSettled(window, notes);
+      for (const text of words.notes) {
+        await window.keyboard.type(text);
+        await window.keyboard.press("Enter");
+      }
+      await window.keyboard.type(`## ${words.actions}`);
+      await window.evaluate(async (chosen) => {
+        const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+        await core.updateSettings({ user: { language: chosen } });
+      }, language);
+      await pointAndClick(window, bar.getByTestId("meeting-stop"));
+      const line = window.getByTestId("meeting-fill-line");
+      const fix = line.getByTestId("meeting-fill-fix");
+      const again = line.getByTestId("meeting-fill-again");
+      await expect(fix).toBeVisible({ timeout: 30_000 });
+      await expect(again).toHaveText(words.retry);
+      // The widths where the pair used to split: the note's column is narrowest there.
+      await setWindowSize(app, window, language === "en" ? 1025 : 1125, 760);
+      await motionSettled(window);
+      await expect
+        .poll(async () => {
+          const [whole, first, second] = await Promise.all([
+            line.boundingBox(),
+            fix.boundingBox(),
+            again.boundingBox(),
+          ]);
+          if (!whole || !first || !second) return "not shown";
+          if (Math.abs(first.y - second.y) >= 2) return "two rows";
+          return first.y > whole.y + 2 ? "one row, under the sentence" : "on the sentence's row";
+        })
+        .toBe("one row, under the sentence");
+    } finally {
+      await app.close();
+      await new Promise((done) => model.server.close(done));
     }
   });
 }
