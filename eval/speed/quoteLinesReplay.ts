@@ -181,8 +181,18 @@ function startOf(location: string | undefined): number | null {
   return seconds * 1000;
 }
 
+/**
+ * Whether the record's own quote was found, read from the record alone. Not found because the
+ * reply's quoted words aren't in the place leaves the Citation's quote found.
+ */
 const quoteFound = (citation: SavedCitation): boolean =>
-  citation.found ?? (citation.check !== "not-found" && citation.check !== "cant-check");
+  citation.found ??
+  (citation.check === "not-found"
+    ? citation.checkReason === "quoted-words-not-on-pages"
+    : citation.check !== "cant-check");
+
+/** Text with each run of white space as one space, as a quote cut at a word is joined. */
+const folded = (text: string) => text.replace(/\s+/gu, " ");
 
 /** A record as the quote lines read it; a record of fewer fields is found or not by `found`. */
 function quotedOf(citation: SavedCitation): QuotedCitation {
@@ -301,7 +311,7 @@ export function drawPress(press: SavedPress, counts: ReplayCounts): DrawnLine[] 
       const asGiven = line.cells
         ? line.cells.every((cell) => given.includes(cell.value))
         : line.cut
-          ? given.startsWith(shown)
+          ? folded(given).startsWith(folded(shown))
           : shown === given;
       if (!asGiven) counts.quoteNotAsGiven++;
     }

@@ -341,6 +341,44 @@ describe("The quote lines' replay", () => {
     expect(counts.checkBesideUnfoundWords).toBe(0);
   });
 
+  // protects=the replay's bars count only what fails: a Citation not found for the reply's quoted words alone has its own quote found, as the panel draws it, and a quote cut at a word is as given though its words stood apart by more than one space or a line break (#2847); fails_when=either counts a failure where the panel draws the record right; no_claim=the saved presses, which hold neither shape.
+  test("a quote found under quoted words not found, and one cut at a word across a line break, hold the bars", () => {
+    const { counts, drawn } = replay([
+      press({
+        id: "en-quoted-elsewhere",
+        button: "answer",
+        text: "★ Enterprise is $45 a seat [^1]\n→ answers at once",
+        citations: [
+          sheet(1, "Enterprise plan: $45 per seat a month, with single sign-on and audit logs.", {
+            check: "not-found",
+            checkReason: "quoted-words-not-on-pages",
+          }),
+        ],
+      }),
+      press({
+        id: "en-cut-at-a-word",
+        button: "check",
+        text: "- Not quite: revenue grew less than they said [^1]",
+        citations: [
+          sheet(
+            1,
+            "Revenue grew  3.5 percent in the first quarter and 4.2 percent in the second\nquarter of the year while costs fell sharply across all regions",
+            { passageText: undefined },
+          ),
+        ],
+      }),
+    ]);
+    expect(drawn.map((line) => line.rows)).toEqual([
+      ["“Enterprise plan: $45 per seat a month, with single sign-on and audit logs.” 1 ✓"],
+      [
+        "“Revenue grew 3.5 percent in the first quarter and 4.2 percent in the second quarter of the year while costs…” 1 ✓",
+      ],
+    ]);
+    expect(counts.checkBesideUnfoundWords).toBe(0);
+    expect(counts.quoteCheckDiffers).toBe(0);
+    expect(counts.quoteNotAsGiven).toBe(0);
+  });
+
   test("the readers' file holds the drawn lines and nothing of their kind; its key says which", () => {
     const { drawn } = replay(ALL);
     const { text, key } = readersFile(drawn);
