@@ -91,49 +91,45 @@ async function land(window: Page, sentences: readonly string[], from: number) {
 }
 
 type Box = [number, number, number, number];
-interface Frame {
-  card: Box | null;
-  check: Box | null;
-  /** The body's height, its content's height, and how many rows it holds. */
-  body: [number, number, number] | null;
+
+/** What the browser says moved in a drawn frame: the owner's test id, and where it was and is. */
+interface Shift {
+  test: string;
+  previous: Box;
+  current: Box;
 }
 
-/** The boxes of the card and of the Check in its foot, as each frame is drawn, until `stop`. */
+interface ShiftEntry {
+  sources: { node: Node | null; previousRect: DOMRectReadOnly; currentRect: DOMRectReadOnly }[];
+}
+
+/** Every layout shift the browser draws until `stop`: only what was drawn, never a state between frames. */
 const watch = (window: Page) =>
   window.evaluate(() => {
-    const holder = globalThis as unknown as { frames: Frame[]; watching: boolean };
-    holder.frames = [];
-    holder.watching = true;
-    const box = (selector: string): Box | null => {
-      const rect = document.querySelector(selector)?.getBoundingClientRect();
-      return rect ? [rect.x, rect.y, rect.width, rect.height] : null;
-    };
-    // Read once the frame is drawn: a read inside the frame's own callback lays the page out
-    // before the observers of its size have run, and sees a state that is never drawn.
-    const step = () => {
-      if (!holder.watching) return;
-      requestAnimationFrame(() =>
-        setTimeout(() => {
-          const body = document.querySelector('[data-testid="check-card"] .check-card-body');
-          holder.frames.push({
-            card: box('[data-testid="check-card"]'),
-            check: box('[data-testid="check-card"] [data-testid="badge-check-mind"]'),
-            body: body
-              ? [body.clientHeight, body.scrollHeight, body.querySelectorAll(".check-row").length]
-              : null,
+    const holder = globalThis as unknown as { shifts: Shift[]; shifting?: PerformanceObserver };
+    holder.shifts = [];
+    const box = (rect: DOMRectReadOnly): Box => [rect.x, rect.y, rect.width, rect.height];
+    holder.shifting = new PerformanceObserver((list) => {
+      for (const entry of list.getEntries() as unknown as ShiftEntry[]) {
+        for (const source of entry.sources) {
+          const owner =
+            source.node instanceof Element ? source.node.closest("[data-testid]") : null;
+          holder.shifts.push({
+            test: owner?.getAttribute("data-testid") ?? "",
+            previous: box(source.previousRect),
+            current: box(source.currentRect),
           });
-          step();
-        }, 0),
-      );
-    };
-    step();
+        }
+      }
+    });
+    holder.shifting.observe({ type: "layout-shift" });
   });
 
 const stop = (window: Page) =>
   window.evaluate(() => {
-    const holder = globalThis as unknown as { frames: Frame[]; watching: boolean };
-    holder.watching = false;
-    return holder.frames;
+    const holder = globalThis as unknown as { shifts: Shift[]; shifting?: PerformanceObserver };
+    holder.shifting?.disconnect();
+    return holder.shifts;
   });
 
 async function boxOf(locator: Locator): Promise<Box> {
@@ -195,25 +191,26 @@ for (const language of ["en", "zh-CN"] as const) {
         // Held once what lands has settled: the body then has the height it keeps.
         await expect(body).toHaveAttribute("style", /height/);
         await motionSettled(window);
-        const frames = await stop(window);
+        const shifts = await stop(window);
         const grown = await boxOf(card);
         await still("after");
 
-        // The Check never moved, in any frame, and the card never covered its badge.
-        const trail = frames
-          .filter(
-            (frame, at) => at === 0 || JSON.stringify(frame) !== JSON.stringify(frames[at - 1]),
-          )
+        // What was drawn: the Check and its foot never shifted, and the card never covered its badge.
+        const trail = shifts
           .map(
-            (frame) =>
-              `${frame.card?.map(Math.round)} / ${frame.check?.map(Math.round)} / body ${frame.body}`,
+            (shift) =>
+              `${shift.test} ${shift.previous.map(Math.round)} to ${shift.current.map(Math.round)}`,
           )
           .join("  >  ");
-        for (const frame of frames) {
-          if (frame.check)
-            expect(same(frame.check, rest.check), `the Check moved: ${trail}`).toBe(true);
-          if (frame.card)
-            expect(overlap(frame.card, anchor), `the card covered its badge: ${trail}`).toBe(false);
+        for (const shift of shifts) {
+          expect(
+            ["badge-check-mind", "check-card-foot"],
+            `the Check shifted: ${trail}`,
+          ).not.toContain(shift.test);
+          if (shift.test === "check-card")
+            expect(overlap(shift.current, anchor), `the card covered its badge: ${trail}`).toBe(
+              false,
+            );
         }
         expect(same(await boxOf(card.getByTestId("badge-check-mind")), rest.check)).toBe(true);
         // Only its top edge moved.

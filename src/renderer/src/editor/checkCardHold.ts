@@ -2,12 +2,13 @@
 export const CARD_MARGIN = 8;
 
 /**
- * How long what lands in an empty card must stay still before the card takes its height: rows
- * arrive over a few frames, and the first of them alone would leave the others scrolling out of
- * sight. The longest it waits.
+ * How long what lands in an empty card must stay still before the card takes its height. The
+ * Note's health is counted 300 ms after its last change, and the rows can come in two counts, so
+ * the first of them alone would leave the others scrolling out of sight.
  */
-export const SETTLE_MS = 250;
-export const SETTLE_AT_MOST_MS = 1500;
+export const SETTLE_MS = 700;
+/** The longest it waits for that. */
+export const SETTLE_AT_MOST_MS = 3000;
 
 /** Whether the card's body holds only its title, so nothing in it could move yet (#2313). */
 export function bodyIsEmpty(body: HTMLElement): boolean {

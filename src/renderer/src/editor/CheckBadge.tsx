@@ -489,8 +489,18 @@ function BadgeFrame({
     const content = element.firstElementChild;
     if (!content || !anchor) return;
     const rest = element.offsetHeight;
+    const card = element.closest(".check-card");
     let settle: number | undefined;
     let first: number | undefined;
+    const hold = () => {
+      watching.disconnect();
+      window.clearTimeout(settle);
+      setHeldHeight(firstHeightOf(element, anchor, rest));
+    };
+    // The User's pointer or focus in the card ends the wait: nothing is to move under their hand.
+    const touched = () => {
+      if (!bodyIsEmpty(element)) hold();
+    };
     const watching = new ResizeObserver(() => {
       if (bodyIsEmpty(element)) return;
       if (isBelowOf(element, anchor)) {
@@ -501,18 +511,16 @@ function BadgeFrame({
       const now = performance.now();
       first ??= now;
       window.clearTimeout(settle);
-      settle = window.setTimeout(
-        () => {
-          watching.disconnect();
-          setHeldHeight(firstHeightOf(element, anchor, rest));
-        },
-        Math.min(SETTLE_MS, SETTLE_AT_MOST_MS - (now - first)),
-      );
+      settle = window.setTimeout(hold, Math.min(SETTLE_MS, SETTLE_AT_MOST_MS - (now - first)));
     });
+    card?.addEventListener("pointerenter", touched);
+    card?.addEventListener("focusin", touched);
     watching.observe(content);
     return () => {
       watching.disconnect();
       window.clearTimeout(settle);
+      card?.removeEventListener("pointerenter", touched);
+      card?.removeEventListener("focusin", touched);
     };
   }, [open, heldHeight, anchor]);
   useScrollFade(body, open && anchor !== null);
