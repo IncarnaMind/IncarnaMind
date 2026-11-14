@@ -603,6 +603,7 @@ for (const [language, width] of [
         if (!card) return null;
         const walker = document.createTreeWalker(card, NodeFilter.SHOW_TEXT);
         let room = Number.POSITIVE_INFINITY;
+        let nearest = "";
         for (let node = walker.nextNode(); node; node = walker.nextNode()) {
           const parent = node.parentElement;
           if (!parent || element.contains(node) || !node.textContent?.trim()) continue;
@@ -619,17 +620,37 @@ for (const [language, width] of [
           range.setStart(node, words.search(/\S/));
           range.setEnd(node, words.trimEnd().length);
           const em = Number.parseFloat(getComputedStyle(parent).fontSize);
-          for (const line of Array.from(range.getClientRects())) {
+          // What a clipping box around it hides isn't seen: a separator's dot before a part that
+          // starts a line is drawn in the gap and clipped there.
+          let seen = { left: Number.NEGATIVE_INFINITY, right: Number.POSITIVE_INFINITY };
+          for (let at: Element | null = parent; at && at !== card; at = at.parentElement) {
+            if (getComputedStyle(at).overflowX === "visible") continue;
+            const edge = at.getBoundingClientRect();
+            seen = {
+              left: Math.max(seen.left, edge.left),
+              right: Math.min(seen.right, edge.right),
+            };
+          }
+          for (const rect of Array.from(range.getClientRects())) {
+            const line = {
+              ...rect.toJSON(),
+              left: Math.max(rect.left, seen.left),
+              right: Math.min(rect.right, seen.right),
+            };
+            if (line.left >= line.right) continue;
             const middle = (line.top + line.bottom) / 2;
             const across = Math.max(box.left - grow - line.right, line.left - box.right - grow);
             const down = Math.max(
               box.top - grow - (middle + em / 2),
               middle - em / 2 - box.bottom - grow,
             );
-            room = Math.min(room, Math.max(across, down));
+            if (Math.max(across, down) < room) {
+              room = Math.max(across, down);
+              nearest = words.trim();
+            }
           }
         }
-        return { shown: element.matches(":focus-visible"), room };
+        return { shown: element.matches(":focus-visible"), room, nearest };
       });
 
     // The reason of a part, of a refusal, of Not found, of a court decision, of a sentence not
@@ -638,7 +659,7 @@ for (const [language, width] of [
     const reason = await style(card.getByTestId("claim-part-reason"));
     const quoted = await ringRoom(card.getByTestId("claim-part-citation"));
     expect(quoted?.shown).toBe(true);
-    expect(quoted?.room, "a part's quote and its Location line").toBeGreaterThan(0);
+    expect(quoted?.room, `a part's quote, nearest "${quoted?.nearest}"`).toBeGreaterThan(0);
     await close();
     const lines: [keyof typeof others, string, string | null][] = [
       ["refused", "claim-reason", null],
@@ -654,7 +675,9 @@ for (const [language, width] of [
       if (control) {
         const room = await ringRoom(card.getByTestId(control));
         expect(room?.shown).toBe(true);
-        expect(room?.room, `${id}: ${control}'s ring`).toBeGreaterThan(0);
+        expect(room?.room, `${id}: ${control}'s ring, nearest "${room?.nearest}"`).toBeGreaterThan(
+          0,
+        );
       }
       await screenshot(window, `simpler-reason-${id}-${language}-${width}`);
       await close();
