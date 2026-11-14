@@ -1,4 +1,7 @@
-import { describe, expect, test } from "vitest";
+import { DOMParser } from "linkedom";
+import { act, type ComponentType, createElement, type ReactNode } from "react";
+import { createRoot } from "react-dom/client";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { dotAfter } from "../../src/renderer/src/components/metaDot";
 
 describe("The dot between a meta line's parts", () => {
@@ -11,5 +14,117 @@ describe("The dot between a meta line's parts", () => {
     ["请先不要关闭 IncarnaMind", " · "],
   ])("after “%s”: “%s”", (part, dot) => {
     expect(dotAfter(part)).toBe(dot);
+  });
+});
+
+/** An action as the line takes it. */
+interface LineActionProps {
+  label: string;
+  testId: string;
+  onClick(): void;
+}
+
+describe("A problem line's actions", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  async function shown(also: boolean) {
+    const document = new DOMParser().parseFromString(
+      "<html><head></head><body></body></html>",
+      "text/html",
+    );
+    for (const [name, value] of Object.entries({
+      document,
+      window: document.defaultView,
+      IS_REACT_ACT_ENVIRONMENT: true,
+    })) {
+      vi.stubGlobal(name, value);
+    }
+    // A .tsx module, read as the other renderer tests read theirs.
+    const path = "../../src/renderer/src/components/ProblemLine.tsx";
+    const { ProblemLine } = (await import(path)) as {
+      ProblemLine: ComponentType<{
+        children?: ReactNode;
+        action?: LineActionProps;
+        also?: LineActionProps;
+        details?: readonly string[];
+      }>;
+    };
+    const container = document.createElement("div", {});
+    document.body.append(container);
+    const root = createRoot(container);
+    await act(async () =>
+      root.render(
+        createElement(
+          ProblemLine,
+          {
+            action: { label: "Check the key", testId: "fix", onClick: () => undefined },
+            ...(also && {
+              also: { label: "Try again", testId: "again", onClick: () => undefined },
+            }),
+            details: ["1 Transcript part couldn’t be finished"],
+          },
+          "The note wasn’t filled in. The key for test-model was refused",
+        ),
+      ),
+    );
+    const line = container.querySelector(".meta-line");
+    if (!line) throw new Error("No line.");
+    const partOf = (testId: string) =>
+      [...line.children].find((part) => part.querySelector(`[data-testid="${testId}"]`));
+    return { line, partOf, unmount: () => act(async () => root.unmount()) };
+  }
+
+  // protects=one rule for every line, however it is built: its shown actions, when two or more, are one part, a line of their own; one action, or none shown, is as before (#3099); fails_when=two shown actions come back as parts apart, or a hidden one counts; no_claim=how a line built with it lays them out, which the test below reads.
+  test("the shared helper makes two or more shown actions one part, and leaves one as it is", async () => {
+    const path = "../../src/renderer/src/components/MetaLine.tsx";
+    const { actionParts } = (await import(path)) as {
+      actionParts: (actions: readonly ReactNode[]) => ReactNode[];
+    };
+    const action = (label: string) =>
+      createElement("button", { key: label, type: "button" }, label);
+    const pair = actionParts([action("Try again"), false, action("Save a copy"), null]);
+    expect(pair).toHaveLength(1);
+    expect((pair[0] as { props: { parts: unknown[] } }).props.parts).toHaveLength(2);
+    expect(actionParts([action("Try again"), false])).toHaveLength(1);
+    expect(actionParts([action("Try again"), false])[0]).toMatchObject({ key: "Try again" });
+    expect(actionParts([false, undefined])).toEqual([]);
+  });
+
+  // protects=the three-action rule: a line that shows three actions keeps all three as one part, a line of their own, so a row breaks before them, and where the three alone are wider than the line they wrap inside that part at a dot (#3099); fails_when=a third action comes back as a part apart; no_claim=pixels, which a structure test can't see.
+  test("three shown actions are one part, as two are (the three-action rule)", async () => {
+    const path = "../../src/renderer/src/components/MetaLine.tsx";
+    const { actionParts } = (await import(path)) as {
+      actionParts: (actions: readonly ReactNode[]) => ReactNode[];
+    };
+    const action = (label: string) =>
+      createElement("button", { key: label, type: "button" }, label);
+    const three = actionParts([
+      action("Unlock"),
+      action("Read with OCR"),
+      false,
+      action("Read hidden sheets"),
+    ]);
+    expect(three).toHaveLength(1);
+    expect((three[0] as { props: { as: string; parts: unknown[] } }).props).toMatchObject({
+      as: "span",
+    });
+    expect((three[0] as { props: { parts: unknown[] } }).props.parts).toHaveLength(3);
+  });
+
+  // protects=a line's two actions are one part of it, so a row breaks before them and never between them, while the pair fits a row; inside, the pair is a line of its own that may wrap only at its dot when it alone is wider (#3099); fails_when=the two actions are parts of the line apart, or one action alone is wrapped; no_claim=pixels, which the window sweeps measure.
+  test("two actions share one part of the line; one action is a part as before", async () => {
+    const two = await shown(true);
+    const pair = two.partOf("fix");
+    expect(pair).toBeDefined();
+    expect(two.partOf("again")).toBe(pair);
+    expect(pair?.querySelector(":scope > .meta-line")?.children).toHaveLength(2);
+    expect([...two.line.children]).toHaveLength(3);
+    await two.unmount();
+    const one = await shown(false);
+    expect(one.partOf("fix")?.querySelector(".meta-line")).toBeNull();
+    expect([...one.line.children]).toHaveLength(3);
+    await one.unmount();
   });
 });

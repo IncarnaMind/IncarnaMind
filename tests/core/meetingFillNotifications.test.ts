@@ -11,7 +11,7 @@ import { exactly, heading, note, readMind, writeMind } from "../helpers/minds";
 import { scriptedModel, scriptedModels } from "../helpers/models";
 import { inProcessTranscriber, NO_TRANSCRIPTION_FILES, until } from "../helpers/transcription";
 
-type Result = "complete" | "omitted" | "unknown-frame";
+type Result = "complete" | "omitted" | "unknown-frame" | "unplaced-heading";
 
 async function recordedFill(language: Language, result: Result) {
   const words =
@@ -48,7 +48,8 @@ async function recordedFill(language: Language, result: Result) {
       `### END ${id}`,
     ].join("\n");
   const reply = [
-    "HEADINGS: H1=NONE",
+    // The note has no H2: the sections go under their own titles instead.
+    result === "unplaced-heading" ? "HEADINGS: H2=ACTIONS" : "HEADINGS: H1=NONE",
     ...(result === "unknown-frame" ? ["### FACT 1invalid\nUnknown frame identity."] : []),
     fact("F1", words.decision, 1, "decisions"),
     fact("F2", words.action, 2, "actions", result === "omitted"),
@@ -125,7 +126,8 @@ async function recordedFill(language: Language, result: Result) {
 }
 
 describe.each(["en", "zh-CN"] as const)("meeting-fill notifications in %s", (language) => {
-  test.each(["complete", "omitted", "unknown-frame"] as const)(
+  // protects=the notification says a note is partly filled in only when something the reply held isn't in it: an item left out, a malformed part among them; a heading the note can't take, with every fact written, is a whole note (#3099); fails_when=a whole note is called partly filled in, or a dropped part goes uncounted; no_claim=the line beside the note, which tests/renderer/meetingFillLine.test.ts covers.
+  test.each(["complete", "omitted", "unknown-frame", "unplaced-heading"] as const)(
     "%s chooses the actual Core notification title and keeps exact one-step Undo",
     async (result) => {
       const { core, meeting, client, before, fill, show, words, model } = await recordedFill(
@@ -133,15 +135,15 @@ describe.each(["en", "zh-CN"] as const)("meeting-fill notifications in %s", (lan
         result,
       );
       try {
+        const partial = result === "omitted" || result === "unknown-frame";
         expect(fill).toMatchObject({
           state: "filled",
-          omitted: result === "omitted" ? 1 : 0,
+          omitted: partial ? 1 : 0,
           unfinishedParts: 0,
         });
         expect(fill.problem).toEqual(
           result === "unknown-frame" ? { kind: "model", message: expect.any(String) } : null,
         );
-        const partial = result !== "complete";
         const title = translate(
           language,
           partial ? "meetings.fill.notify.partial" : "meetings.fill.notify",
@@ -164,7 +166,9 @@ describe.each(["en", "zh-CN"] as const)("meeting-fill notifications in %s", (lan
         expect(written.textContent).toContain(words.purpose);
         expect(written.textContent).toContain(words.decision);
         if (result === "omitted") expect(written.textContent).not.toContain(words.action);
-        else expect(written.textContent).toContain(words.action);
+        else expect(written.textContent.split(words.action)).toHaveLength(2);
+        expect(written.textContent.split(words.decision)).toHaveLength(2);
+        expect(written.textContent).not.toContain("Unknown frame identity.");
         let citations = 0;
         written.descendants((node) => {
           if (node.type.name !== CITATION_NODE) return;

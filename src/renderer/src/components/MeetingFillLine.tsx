@@ -1,17 +1,25 @@
-import type { Meeting, MeetingFillProblem } from "../../../core/api";
+import type { Meeting, MeetingFillProblem, ProviderErrorKind } from "../../../core/api";
 import type { MessageKey } from "../../../shared/i18n";
 import { isPartialMeetingFill } from "../../../shared/meetingFill";
+import { useAnswers } from "../answers";
+import { fixAction } from "../fixAction";
 import { useT } from "../i18n";
-import { useFillStep } from "../meetingFillSteps";
+import { billingUrlOfProvider } from "../keyRefusals";
+import { useFillLineHandedTo, useFillStep } from "../meetingFillSteps";
 import { useMeetings } from "../meetings";
 import { showMeetingNoteView } from "../meetingViews";
+import { useModelNames, useServiceName } from "../modelNames";
+import { answerProblem } from "../problems";
 import { speechModelDownload } from "../speechModelDownload";
+import { useAppStore } from "../store";
 import { CheckLineIcon } from "./lineIcons";
 import { type ProblemAction, ProblemLine } from "./ProblemLine";
 import { useTabPlace } from "./tabs/tabItems";
 
 const REASONS = {
   model: "meetings.fill.problem.model",
+  empty: "meetings.fill.problem.empty",
+  unchecked: "meetings.fill.problem.unchecked",
   stopped: "meetings.fill.problem.stopped",
   "local-mode": "meetings.fill.problem.localMode",
   "not-allowed": "meetings.fill.problem.notAllowed",
@@ -20,6 +28,57 @@ const REASONS = {
   "no-transcript": "meetings.fill.problem.noTranscript",
   added: "memos.fill.problem.added",
 } as const satisfies Record<MeetingFillProblem["kind"], MessageKey>;
+
+/** A provider's errors the User can act on: the line says them as a failed Answer does (#3099). */
+const PROVIDER_REASONS: ReadonlySet<ProviderErrorKind> = new Set([
+  "auth",
+  "out-of-credit",
+  "rate-limit",
+  "network",
+]);
+
+/**
+ * For `PROVIDER_REASONS`, a failed request as a failed Answer gives it: its sentence, and the action
+ * that fixes it where there is one; else null.
+ */
+function useProviderProblem(
+  problem: MeetingFillProblem | null | undefined,
+): { line: string; fix: ProblemAction | undefined } | null {
+  const t = useT();
+  const providerId = problem?.model?.providerId ?? null;
+  const service = useServiceName(providerId);
+  const names = useModelNames();
+  const provider = useAnswers(
+    (state) => state.models?.find((group) => group.provider.id === providerId)?.provider,
+  );
+  if (problem?.kind !== "model" || !problem.error || !PROVIDER_REASONS.has(problem.error)) {
+    return null;
+  }
+  const billingUrl = billingUrlOfProvider(provider);
+  const modelId = problem.model?.modelId ?? null;
+  const { line, fix } = answerProblem(problem.error, provider?.kind, undefined, {
+    ...(billingUrl && { billingUrl }),
+    ...(provider && { local: provider.service === null }),
+  });
+  const action = fixAction(
+    fix,
+    {
+      kind: problem.error,
+      providerId,
+      modelId,
+      failedAt: null,
+      onOpenSettings: (page, at) => useAppStore.getState().openSettings(page, at),
+    },
+    t,
+  );
+  return {
+    line: t(line, {
+      service,
+      model: modelId ? names(modelId, providerId).name : t("answer.error.thisModel"),
+    }),
+    fix: action && { ...action, testId: "meeting-fill-fix" },
+  };
+}
 
 /** A voice memo's note is written, not filled in (#1568): its own words where they differ. */
 const WORDS = {
@@ -31,6 +90,7 @@ const WORDS = {
     undone: "meetings.fill.undone",
     again: "meetings.fill.again",
     failed: "meetings.fill.failed",
+    failedProvider: "meetings.fill.failed.provider",
   },
   memo: {
     waiting: "memos.fill.waiting",
@@ -40,6 +100,7 @@ const WORDS = {
     undone: "memos.fill.undone",
     again: "memos.fill.again",
     failed: "memos.fill.failed",
+    failedProvider: "memos.fill.failed.provider",
   },
 } as const satisfies Record<Meeting["kind"], Record<string, MessageKey>>;
 
@@ -54,7 +115,9 @@ export function MeetingFillLine({ meeting, editor }: { meeting: Meeting; editor?
   const t = useT();
   const place = useTabPlace();
   const step = useFillStep(meeting.id, editor);
+  const handed = useFillLineHandedTo(meeting.id, place?.tabId);
   const problem = useMeetings((state) => state.problems[meeting.id]);
+  const provider = useProviderProblem(meeting.fill?.problem);
   if (!meeting.fill) return null;
   // The editor holding the fill on its own Undo is ahead of the core, which follows it.
   const fill =
@@ -82,6 +145,12 @@ export function MeetingFillLine({ meeting, editor }: { meeting: Meeting; editor?
         : REASONS[problem?.kind ?? "model"],
       { service: problem?.service ?? "" },
     );
+
+  // A provider's sentence is one of its own, so it gets a frame of its own (#3099).
+  const notFilled = (problem: MeetingFillProblem | null) =>
+    provider && problem?.kind === "model"
+      ? t(words.failedProvider, { problem: provider.line })
+      : t(words.failed, { reason: reasonOf(problem) });
 
   const transcript = meeting.transcript;
   // A call's notes go in while its speakers may still be told apart (#2839): the line says so
@@ -156,6 +225,8 @@ export function MeetingFillLine({ meeting, editor }: { meeting: Meeting; editor?
   ) {
     const filled = fill.state === "filled";
     const documentId = meeting.transcript?.documentId;
+    // That reason already says every item was left out.
+    const counted = filled || fill.problem?.kind !== "unchecked";
     return (
       <ProblemLine
         testId="meeting-fill-line"
@@ -163,7 +234,7 @@ export function MeetingFillLine({ meeting, editor }: { meeting: Meeting; editor?
         title={!filled && fill.problem?.kind === "model" ? fill.problem.message : undefined}
         details={[
           ...(filled ? telling : []),
-          ...(omitted > 0
+          ...(omitted > 0 && counted
             ? [
                 t(omitted === 1 ? "meetings.fill.omitted.one" : "meetings.fill.omitted", {
                   count: omitted,
@@ -182,24 +253,30 @@ export function MeetingFillLine({ meeting, editor }: { meeting: Meeting; editor?
             : []),
         ]}
         action={
-          documentId && place
-            ? {
-                label: t("meetings.fill.viewTranscript"),
-                testId: "meeting-fill-transcript",
-                onClick: () =>
-                  showMeetingNoteView(place.tabId, meeting.mindId, "transcript", { focus: true }),
-              }
-            : undefined
+          // A refused key or a key with no credit is mended there, not in the Transcript.
+          !filled && provider?.fix
+            ? provider.fix
+            : documentId && place
+              ? {
+                  label: t("meetings.fill.viewTranscript"),
+                  testId: "meeting-fill-transcript",
+                  onClick: () =>
+                    showMeetingNoteView(place.tabId, meeting.mindId, "transcript", {
+                      focus: true,
+                    }),
+                }
+              : undefined
         }
         also={filled ? undo : again(t("meetings.fill.tryAgain"))}
       >
-        {t(filled ? "meetings.fill.partial" : "meetings.fill.noAdditions")}
+        {filled ? t("meetings.fill.partial") : notFilled(fill.problem)}
       </ProblemLine>
     );
   }
   if (fill.state === "filled") {
-    // A call's note fills in as any AI edit applies: its line goes once the User types (#2527).
-    if (meeting.kind === "meeting" && step !== "top") return null;
+    // A call's note fills in as any AI edit applies: its line goes once the User types (#2527). A tab
+    // switch is no typing: the tab keeps the line its editor had (#3099).
+    if (meeting.kind === "meeting" && step !== "top" && !(step === null && handed)) return null;
     return (
       <ProblemLine
         testId="meeting-fill-line"
@@ -239,9 +316,10 @@ export function MeetingFillLine({ meeting, editor }: { meeting: Meeting; editor?
       role="alert"
       className=""
       title={fill.problem?.kind === "model" ? fill.problem.message : undefined}
-      action={again(t("meetings.fill.tryAgain"))}
+      action={provider?.fix ?? again(t("meetings.fill.tryAgain"))}
+      also={provider?.fix && again(t("meetings.fill.tryAgain"))}
     >
-      {t(words.failed, { reason: reasonOf(fill.problem) })}
+      {notFilled(fill.problem)}
     </ProblemLine>
   );
 }

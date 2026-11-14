@@ -564,6 +564,45 @@ describe("the Meeting's Note-local views", () => {
     );
   });
 
+  // protects=a call whose notes failed on a provider's refusal still reaches its Transcript without the fill line, which then offers the fix and Try again in its place (#3099): the page's chip, "Recorded" / "已录制", opens it from its menu; fails_when=the chip is gone or its Transcript choice doesn't open the Transcript in that state; no_claim=the fill line's own actions, which tests/renderer/meetingFillLine.test.ts covers.
+  test.each(["en", "zh-CN"] as const)(
+    "with its notes failed on a refused key, the chip still opens the Transcript (%s)",
+    async (language) => {
+      actions.language = language;
+      useMeetings.setState({
+        meetings: [
+          meetingOf({
+            fill: {
+              state: "failed",
+              mode: "sections",
+              local: false,
+              omitted: 0,
+              unfinishedParts: 1,
+              problem: {
+                kind: "model",
+                message: "provider diagnostic",
+                error: "auth",
+                model: { providerId: "provider-1", modelId: "claude-haiku-5-5" },
+              },
+            },
+          } as unknown as Partial<Meeting>),
+        ],
+      });
+      await show();
+      expect(find("meeting-view-chip").textContent).toContain(
+        translate(language, "meetings.audio.recorded", { time: "1:00" }),
+      );
+      expect(find("meeting-view-transcript").textContent).toBe(
+        translate(language, "meetings.views.transcript"),
+      );
+      await click("meeting-view-transcript");
+      expect(find("meeting-note-transcript").textContent).toContain("Keep the go-live date.");
+      expect(find("meeting-view-chip").textContent).toContain(
+        translate(language, "meetings.views.transcript"),
+      );
+    },
+  );
+
   test.each(["stopped", "recording"] as const)(
     "⌘K's views of a %s call switch the page in place and Open beside opens the Transcript next to it",
     async (status) => {
