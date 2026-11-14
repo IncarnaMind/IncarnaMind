@@ -62,6 +62,7 @@ import {
 import { type ChartHandle, chartHandles } from "./chartHandles";
 import { useCitedOrigin } from "./mindContext";
 import { Popover } from "./Popover";
+import { keyboardTakesOver, onKeyboardTakesOver, pointerMayAsk } from "./pointerRest";
 
 /** As a Citation's card: the pointer rests a moment before it shows, and may leave a moment before it goes. */
 const SHOW_MS = 120;
@@ -107,7 +108,17 @@ function usePointCard() {
   return {
     card,
     keyboardOnly,
+    /** Lets go of what the pointer holds, as another control's keyboard focus takes over (#3102). */
+    dropPointer: () => {
+      askers.current.delete("pointer");
+      askers.current.delete("card");
+      settle(0);
+      sync();
+    },
     peek: (point: PointRef, anchor: Element, source: string, on: boolean) => {
+      // A pointer the keyboard took the card from asks again only when it moves (#3102).
+      if (on && source === "pointer" && (!pointerMayAsk() || askers.current.has("pointer"))) return;
+      if (on && source === "focus" && anchor.matches(":focus-visible")) keyboardTakesOver(anchor);
       if (on) {
         askers.current.add(source);
         wanted.current = { point, anchor };
@@ -119,6 +130,7 @@ function usePointCard() {
       sync();
     },
     hold: (source: string, on: boolean) => {
+      if (on && source === "card" && !pointerMayAsk()) return;
       if (on) {
         askers.current.add(source);
         window.clearTimeout(timer.current);
@@ -219,16 +231,32 @@ export function ChartView({
   );
   /** The Mind's group: the Document opens in the group to its right. */
   const place = useTabPlace();
-  const { card, keyboardOnly, peek, hold, pin, dismiss } = usePointCard();
+  const { card, keyboardOnly, dropPointer, peek, hold, pin, dismiss } = usePointCard();
+  const letGoOfPointer = useRef(dropPointer);
+  letGoOfPointer.current = dropPointer;
+  const shownAt = useRef<Element | null>(null);
+  shownAt.current = card?.anchor ?? null;
+  useEffect(
+    () =>
+      onKeyboardTakesOver((taker) => {
+        if (taker !== shownAt.current) letGoOfPointer.current();
+      }),
+    [],
+  );
   /** The card's body, which Space on a value goes into, and where the focus is while it is in (#3102). */
   const cardBody = useRef<HTMLDivElement>(null);
   const [inCard, setInCard] = useState(false);
-  // A card taken away with the focus in it sends no blur.
-  useEffect(() => {
-    if (!card) setInCard(false);
-  }, [card]);
   /** Space came before the card was drawn: it takes the focus as it is. */
   const enterWhenDrawn = useRef(false);
+  /** Space went in: Esc goes back to the value. A card the User clicked into closes on Esc, as it did. */
+  const enteredBySpace = useRef(false);
+  // A card taken away with the focus in it sends no blur.
+  useEffect(() => {
+    if (!card) {
+      setInCard(false);
+      enteredBySpace.current = false;
+    }
+  }, [card]);
   const cardEntry = useRef({
     focus: () => {
       if (!enterWhenDrawn.current) return;
@@ -464,6 +492,7 @@ export function ChartView({
       if (state && state.check !== "not-found") openValue(point);
     },
     enter: (point, anchor) => {
+      enteredBySpace.current = true;
       const shownHere = card && samePoint(card.point, point) && card.anchor === anchor;
       // A value with no control keeps its card, as it always did.
       if (!shownHere || focusablesIn(cardBody.current).length === 0) {
@@ -659,6 +688,7 @@ export function ChartView({
             data-testid="chart-card"
             initialFocus={cardEntry}
             onPointerEnter={() => hold("card", true)}
+            onPointerMove={() => hold("card", true)}
             onPointerLeave={() => hold("card", false)}
             onFocus={() => {
               setInCard(true);
@@ -675,6 +705,7 @@ export function ChartView({
               returnAtEnds(event, event.currentTarget, back);
               // Esc goes back to the value, which a second Esc closes the card from.
               if (event.key !== "Escape" || event.nativeEvent.isComposing) return;
+              if (!enteredBySpace.current) return;
               event.preventDefault();
               back?.focus();
             }}

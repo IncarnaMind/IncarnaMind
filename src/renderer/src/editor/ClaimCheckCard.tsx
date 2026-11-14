@@ -119,6 +119,7 @@ import { ConversationIdContext, MindIdContext, useCitedOrigin } from "./mindCont
 import { checkOpinion, opinionChecks } from "./opinionChecks";
 import { Popover } from "./Popover";
 import { PropertySource } from "./PropertySource";
+import { keyboardTakesOver, onKeyboardTakesOver, pointerMayAsk } from "./pointerRest";
 import { isQuietFocus } from "./quietFocus";
 import { RecordCiteResults } from "./RecordCiteResults";
 import { readDocumentsText } from "./readDocumentsText";
@@ -257,6 +258,24 @@ export function ClaimMark({
     if (now) settle();
     else timer.current = window.setTimeout(settle, wanted ? SHOW_MS : HIDE_MS);
   }, []);
+  /** Lets go of what the pointer holds, as another control's keyboard focus takes over (#3102). */
+  const dropPointer = useCallback(() => {
+    askers.current.delete("pointer");
+    askers.current.delete("card");
+    window.clearTimeout(timer.current);
+    const wanted = askers.current.size > 0;
+    setPeeking(wanted);
+    setByKeyboard(
+      wanted && [...askers.current].every((each) => each === "focus" || each === "card-focus"),
+    );
+  }, []);
+  useEffect(
+    () =>
+      onKeyboardTakesOver((taker) => {
+        if (taker !== button) dropPointer();
+      }),
+    [button, dropPointer],
+  );
   const sourcePickerChanged = useCallback(
     (open: boolean) => {
       sourcePickerOpen.current = open;
@@ -362,12 +381,19 @@ export function ClaimMark({
         aria-expanded={open}
         // Keep the editor's selection and focus where they are.
         onMouseDown={(event) => event.preventDefault()}
-        onPointerEnter={() => hold("pointer", true)}
+        onPointerEnter={() => {
+          if (pointerMayAsk()) hold("pointer", true);
+        }}
+        onPointerMove={() => {
+          if (pointerMayAsk()) hold("pointer", true);
+        }}
         onPointerLeave={() => hold("pointer", false)}
         aria-keyshortcuts={claim.kind === "chart" ? undefined : "Space Enter"}
         onFocus={(event) => {
           enteredFromMark.current = false;
-          if (!isQuietFocus(event.currentTarget)) hold("focus", true, true);
+          if (isQuietFocus(event.currentTarget)) return;
+          if (event.currentTarget.matches(":focus-visible")) keyboardTakesOver(event.currentTarget);
+          hold("focus", true, true);
         }}
         onBlur={(event) => hold("focus", false, goingElsewhere(event.relatedTarget, card.current))}
         // Space and Enter go into the card the focus shows; they don't pin it (#3102).
@@ -424,7 +450,12 @@ export function ClaimMark({
             })}
             data-testid="claim-card"
             data-check={state}
-            onPointerEnter={() => hold("card", true)}
+            onPointerEnter={() => {
+              if (pointerMayAsk()) hold("card", true);
+            }}
+            onPointerMove={() => {
+              if (pointerMayAsk()) hold("card", true);
+            }}
             onPointerLeave={() => hold("card", false)}
             onFocus={() => {
               setInCard(true);

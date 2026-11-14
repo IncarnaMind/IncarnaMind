@@ -219,6 +219,8 @@ function ChartPanel({
               "aria-keyshortcuts": events.control(point) ? "Space" : undefined,
               onPointerEnter: (event: { currentTarget: Element }) =>
                 events.peek(point, event.currentTarget, "pointer", true),
+              onPointerMove: (event: { currentTarget: Element }) =>
+                events.peek(point, event.currentTarget, "pointer", true),
               onPointerLeave: (event: { currentTarget: Element }) =>
                 events.peek(point, event.currentTarget, "pointer", false),
               onFocus: (event: { currentTarget: Element }) => {

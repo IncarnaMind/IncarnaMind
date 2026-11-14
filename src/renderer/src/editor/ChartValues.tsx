@@ -109,6 +109,9 @@ export function ChartValues({
                       onPointerEnter={(event) =>
                         events.peek(point, event.currentTarget, "pointer", true)
                       }
+                      onPointerMove={(event) =>
+                        events.peek(point, event.currentTarget, "pointer", true)
+                      }
                       onPointerLeave={(event) =>
                         events.peek(point, event.currentTarget, "pointer", false)
                       }

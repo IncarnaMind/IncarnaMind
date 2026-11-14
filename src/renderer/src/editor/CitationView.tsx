@@ -112,6 +112,7 @@ import {
 } from "./mindContext";
 import { Popover } from "./Popover";
 import { onPeek, peekCitation, useCitationPeek } from "./peek";
+import { keyboardTakesOver, onKeyboardTakesOver, pointerMayAsk } from "./pointerRest";
 import { isQuietFocus } from "./quietFocus";
 import { SignOffLine, SignOffToggle } from "./SignOff";
 import { StyledRuns, StyledRunView } from "./StyledRuns";
@@ -264,7 +265,7 @@ export function CitationView({
   /** Clicked: the card stays until it is dismissed. */
   const [pinned, setPinned] = useState(false);
   /** Hovered or focused, with the card, the marker or its mark. */
-  const { peeking, byKeyboard, hold, clear: clearPeek } = useCitationPeek();
+  const { peeking, byKeyboard, hold, dropPointer, clear: clearPeek } = useCitationPeek();
   /** The focus is in the card: Space on the marker went in (#3102). */
   const [inCard, setInCard] = useState(false);
   const open = pinned || peeking;
@@ -272,7 +273,10 @@ export function CitationView({
   const cardShown = open && !assistantFolded;
   // A card taken away with the focus in it sends no blur.
   useEffect(() => {
-    if (!cardShown) setInCard(false);
+    if (!cardShown) {
+      setInCard(false);
+      enteredBySpace.current = false;
+    }
   }, [cardShown]);
   const marker = useRef<HTMLButtonElement>(null);
   /** Whether the editor took the marker's last press to extend the selection. */
@@ -310,10 +314,16 @@ export function CitationView({
   useEffect(() => {
     const element = marker.current;
     const stop = element && onPeek(element, ({ source, on }) => hold(source, on));
+    const letGo = onKeyboardTakesOver((taker) => {
+      if (taker === element) return;
+      pointed.current = null;
+      dropPointer();
+    });
     return () => {
       stop?.();
+      letGo();
     };
-  }, [hold]);
+  }, [hold, dropPointer]);
 
   /**
    * Opens the cited place, or the Document; amber when opened anyway after "not found".
@@ -467,10 +477,13 @@ export function CitationView({
   const cardRef = useRef<HTMLDivElement>(null);
   /** Space came before the card was drawn: it takes the focus as it is. */
   const enterWhenDrawn = useRef(false);
+  /** Space went in: Esc goes back to the marker. A card the User clicked into closes on Esc, as it did. */
+  const enteredBySpace = useRef(false);
   const enterCardFromMarker = (event: ReactKeyboardEvent<HTMLButtonElement>) => {
     if (!isSpaceKey(event)) return;
     // Not the click Space makes on a button, and not a space typed into the Note.
     event.preventDefault();
+    enteredBySpace.current = true;
     if (!event.repeat) enterWhenDrawn.current = !enterCard(cardRef.current);
   };
   const cardEntry = useRef({
@@ -561,6 +574,8 @@ export function CitationView({
       : memberMarker(editor.view.dom, inCluster.cluster, work);
   /** Shows the card of the Citation the pointer is over, and hides the one it left. */
   const pointAt = (target: HTMLElement | null) => {
+    // A pointer the keyboard took the card from asks again only when it moves (#3102).
+    if (target && !pointerMayAsk()) return;
     const before = pointed.current;
     if (before === target) return;
     pointed.current = target;
@@ -619,7 +634,10 @@ export function CitationView({
         onPointerLeave={() => pointAt(null)}
         // The keyboard's focus shows the card at once; going to another stop takes it away at once.
         onFocus={(event) => {
-          if (!isQuietFocus(event.currentTarget)) hold("focus", true, true);
+          enteredBySpace.current = false;
+          if (isQuietFocus(event.currentTarget)) return;
+          if (event.currentTarget.matches(":focus-visible")) keyboardTakesOver(event.currentTarget);
+          hold("focus", true, true);
         }}
         onBlur={(event) =>
           hold("focus", false, goingElsewhere(event.relatedTarget, cardRef.current))
@@ -692,7 +710,13 @@ export function CitationView({
             aria-label={label}
             data-testid="citation-card"
             data-check={state.check}
-            onPointerEnter={() => hold("card", true)}
+            onPointerEnter={() => {
+              if (pointerMayAsk()) hold("card", true);
+            }}
+            // A pointer at rest in the card, which the keyboard took it from, holds it again by moving.
+            onPointerMove={() => {
+              if (pointerMayAsk()) hold("card", true);
+            }}
             onPointerLeave={() => hold("card", false)}
             onFocus={() => {
               setInCard(true);
@@ -710,6 +734,7 @@ export function CitationView({
               returnAtEnds(event, event.currentTarget, marker.current);
               // Esc goes back to the marker, which a second Esc closes the card from.
               if (event.key !== "Escape" || event.nativeEvent.isComposing) return;
+              if (!enteredBySpace.current) return;
               event.preventDefault();
               marker.current?.focus();
             }}
