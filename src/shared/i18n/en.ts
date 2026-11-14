@@ -547,6 +547,7 @@ export const en = {
   "status.savedOutside.other": "{count} pages saved outside their Folder",
   "documents.savedOutside": "These pages were saved, but not into the Folder you chose: {names}",
   "documents.savedOutside.each": "{name} ({folder})",
+  "documents.place.twin": "{place} ({count})",
   "error.folder.wall": "This Folder keeps its work inside it.",
   "error.turnPlace": "This needs to know which note or conversation it’s in.",
   "error.citation.recheckNote": "A Citation can only be checked again for the note it is in.",

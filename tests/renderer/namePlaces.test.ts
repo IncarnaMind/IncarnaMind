@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 import type { ClaimReadDocument, EmbeddingProvider } from "../../src/core/api";
 import type { Language } from "../../src/core/language";
 import { embeddingProviderLabel } from "../../src/renderer/src/components/providers/shared";
@@ -18,6 +18,9 @@ const sayIn =
     translate(language, key, params);
 const en = sayIn("en");
 const zh = sayIn("zh-CN");
+
+type Places = typeof import("../../src/renderer/src/documentPlaces").placesOf;
+type Store = typeof import("../../src/renderer/src/store").useAppStore;
 
 describe("The check card's line for the Documents it read whole", () => {
   const read = (documentName: string, pages: number[]): ClaimReadDocument => ({
@@ -117,5 +120,50 @@ describe("The search model a status line names", () => {
 
   test("a company's own API has no server to name", () => {
     expect(embeddingProviderLabel(provider("openai", null), zh)).toBe("OpenAI · nomic-embed-text");
+  });
+});
+
+describe("The place a Document shows when another has its name and its folder", () => {
+  let placesOf: Places;
+  let useAppStore: Store;
+
+  beforeAll(async () => {
+    const bridge = new Proxy(
+      { on: () => () => undefined },
+      { get: (each, name) => (name === "on" ? each.on : () => Promise.resolve(undefined)) },
+    );
+    vi.stubGlobal("window", { incarnamind: bridge, incarnamindFiles: bridge });
+    ({ useAppStore } = await import("../../src/renderer/src/store"));
+    ({ placesOf } = await import("../../src/renderer/src/documentPlaces"));
+  });
+  afterAll(() => vi.unstubAllGlobals());
+
+  const twins = (folder: string) =>
+    ["a", "b", "c"].map((id) => ({ id, name: "Contract", path: `/files/${folder}/Contract.pdf` }));
+  const placesIn = (language: Language, folder: string) => {
+    useAppStore.setState({ settings: { language, user: {} } } as never);
+    return Object.fromEntries(placesOf(twins(folder) as never, []));
+  };
+
+  test("counts the twins in parentheses after the folder", () => {
+    expect(placesIn("en", "Contracts")).toEqual({
+      a: "Contracts",
+      b: "Contracts (2)",
+      c: "Contracts (3)",
+    });
+    expect(placesIn("zh-CN", "合同")).toEqual({ a: "合同", b: "合同（2）", c: "合同（3）" });
+    expect(placesIn("zh-CN", "Contracts")).toEqual({
+      a: "Contracts",
+      b: "Contracts（2）",
+      c: "Contracts（3）",
+    });
+  });
+
+  test("changing the language changes the count's form for the same Documents", () => {
+    const documents = twins("合同") as never;
+    useAppStore.setState({ settings: { language: "zh-CN", user: {} } } as never);
+    expect(placesOf(documents, []).get("b")).toBe("合同（2）");
+    useAppStore.setState({ settings: { language: "en", user: {} } } as never);
+    expect(placesOf(documents, []).get("b")).toBe("合同 (2)");
   });
 });

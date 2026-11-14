@@ -532,6 +532,7 @@ export const zhCN = {
   "status.savedOutside.other": "{count} 个网页未存入所选文件夹",
   "documents.savedOutside": "这些网页已保存，但没有存入你选择的文件夹：{names}",
   "documents.savedOutside.each": "{name}（{folder}）",
+  "documents.place.twin": "{place}（{count}）",
   "error.folder.wall": "只在本文件夹内工作。",
   "error.turnPlace": "需要知道这是在哪篇笔记或哪个对话中。",
   "error.citation.recheckNote": "只能针对引用所在的笔记重新核对引用。",
