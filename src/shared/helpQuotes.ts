@@ -185,11 +185,30 @@ export const markersOf = (pieces: readonly (readonly ReplyPiece[])[]): number[] 
  */
 function inside(inner: QuotedCitation, outer: QuotedCitation): boolean {
   if (inner.documentId !== outer.documentId || inner.passageId !== outer.passageId) return false;
-  const [a, b] = [inner.location, outer.location];
-  if (a?.kind === "time" || b?.kind === "time") {
-    if (a?.kind !== "time" || b?.kind !== "time" || a.from < b.from || a.to > b.to) return false;
-  }
+  if (!placedWithin(inner.location, outer.location)) return false;
   return comparedWords(outer.quote).includes(comparedWords(inner.quote));
+}
+
+/**
+ * Whether a Citation's place lies within another's: the same kind of place, a sheet's rows on the
+ * same sheet, its pages, slides, rows, lines or call's time inside the other's, a section the same
+ * section. Two Citations with no place of their own share their Passage's.
+ */
+function placedWithin(a: CitationLocation | null, b: CitationLocation | null): boolean {
+  if (a === null || b === null) return a === b;
+  switch (a.kind) {
+    case "page":
+    case "slide":
+    case "lines":
+    case "time":
+      return b.kind === a.kind && a.from >= b.from && a.to <= b.to;
+    case "rows":
+      return b.kind === "rows" && a.sheet === b.sheet && a.from >= b.from && a.to <= b.to;
+    case "section":
+      return b.kind === "section" && a.heading === b.heading;
+    default:
+      return JSON.stringify(a) === JSON.stringify(b);
+  }
 }
 
 /**

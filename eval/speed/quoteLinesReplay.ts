@@ -296,7 +296,7 @@ export function drawPress(press: SavedPress, counts: ReplayCounts): DrawnLine[] 
     if (line.state === "found" && record && !quoteFound(record)) counts.checkBesideUnfoundWords++;
     if (line.state === "found" && record) {
       const given = record.quote.trim().replace(LINE_MARKS, "");
-      const shown = (line.quote ?? "").replace(/…$/u, "");
+      const shown = line.cut ? (line.quote ?? "").replace(/…$/u, "") : (line.quote ?? "");
       const asGiven = line.cells
         ? line.cells.every((cell) => given.includes(cell.value))
         : line.cut

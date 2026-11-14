@@ -217,6 +217,19 @@ describe("The quote lines under a line", () => {
       [[1], "found"],
       [[2], "found"],
     ]);
+    // The same Passage, but another page of it: not the cited place itself.
+    expect(
+      linesOf([
+        cited(1, ENTERPRISE, { location: { kind: "page", from: 3, to: 3 } }),
+        cited(2, "single sign-on and audit logs", { location: { kind: "page", from: 4, to: 4 } }),
+      ]).map((line) => line.markers),
+    ).toEqual([[1], [2]]);
+    expect(
+      linesOf([
+        cited(1, ENTERPRISE, { location: { kind: "page", from: 3, to: 4 } }),
+        cited(2, "single sign-on and audit logs", { location: { kind: "page", from: 4, to: 4 } }),
+      ]).map((line) => line.markers),
+    ).toEqual([[1, 2]]);
     expect(keepApart(cited(2, "audit logs. Enterprise contracts are billed annually."))).toEqual([
       [[1], "found"],
       [[2], "found"],

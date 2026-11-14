@@ -243,6 +243,8 @@ function withTextBeforeCite(prompt: Prompt, parts: StreamPart[]): StreamPart[] {
   if (!HELP.test(help) || shapeOf(help) !== "options") return parts;
   const text = parts.flatMap((part) => (part.type === "text-delta" ? [part.delta] : [])).join("");
   if (toolResults(prompt, "cite").length > 0) {
+    // A record the cite's result asked to fix comes again as it is, before the rest of the reply.
+    if (parts.some((part) => part.type === "tool-call" && part.toolName === "cite")) return parts;
     const rest = text.slice(text.indexOf("\n"));
     return [
       { type: "stream-start", warnings: [] },

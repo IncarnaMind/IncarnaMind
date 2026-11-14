@@ -30,7 +30,7 @@ import type { FakeTranscriberOptions } from "../src/core/transcription/fake";
 import { LOG_FILE } from "../src/main/log";
 import { EVENT_CHANNEL } from "../src/shared/bridge";
 import type { DocumentLocation } from "../src/shared/documentViewer";
-import { cellsText, fittedQuote, momentFound } from "../src/shared/helpQuotes";
+import { cellsText, fittedQuote, momentFound, quoteState } from "../src/shared/helpQuotes";
 import { translate } from "../src/shared/i18n";
 import { defaultHelpKeys, HELP_SHORTCUTS, type HelpKeys } from "../src/shared/meetingHelp";
 import type { TestHooks } from "../src/shared/testHooks";
@@ -543,8 +543,10 @@ export async function expectQuoteLines(
     const { messages } = await bridge.getConversation(conversationId);
     const answer = messages.find((message) => message.id === answerId);
     if (answer?.kind !== "answer") return [];
-    return answer.citations.map(({ quote, quotedWordsFound, cells }) => ({
+    return answer.citations.map(({ quote, check, checkReason, quotedWordsFound, cells }) => ({
       quote,
+      check,
+      checkReason,
       quotedWordsFound: quotedWordsFound ?? [],
       cells: cells ?? null,
     }));
@@ -569,12 +571,14 @@ export async function expectQuoteLines(
       const untimed = words.replace(/^\d{1,2}:\d{2}(?::\d{2})?\s*/, "");
       const bare = untimed.replace(/^“|”$/gu, "");
       expect(
-        citations.some(
-          (citation) =>
-            fittedQuote(citation.quote).text === bare ||
+        citations.some((citation) => {
+          const shownFound = quoteState(citation, "done") === "found";
+          return (
+            (shownFound && fittedQuote(citation.quote).text === bare) ||
             momentFound(bare, { quotedWordsFound: citation.quotedWordsFound }) ||
-            (citation.cells !== null && cellsText(citation.cells) === untimed),
-        ),
+            (shownFound && citation.cells !== null && cellsText(citation.cells) === untimed)
+          );
+        }),
         `a ✓ beside "${bare}", which no Citation's found words are`,
       ).toBe(true);
     }

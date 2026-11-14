@@ -9,7 +9,7 @@ import { act, type ComponentType, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { ConversationAnswer, MeetingHelp, MeetingHelpKind } from "../../src/core/api";
-import { cellsText, fittedQuote, momentFound } from "../../src/shared/helpQuotes";
+import { cellsText, fittedQuote, momentFound, quoteState } from "../../src/shared/helpQuotes";
 import { type MessageKey, type MessageParams, translate } from "../../src/shared/i18n";
 
 const fake = vi.hoisted(() => ({ language: "en" as "en" | "zh-CN" }));
@@ -193,12 +193,14 @@ function expectEveryMarkOnFoundWords(answer: ConversationAnswer) {
       .trim()
       .replace(MOMENT, "");
     expect(
-      answer.citations.some(
-        (citation) =>
-          fittedQuote(citation.quote).text === words ||
+      answer.citations.some((citation) => {
+        const found = quoteState(citation, "done") === "found";
+        return (
+          (found && fittedQuote(citation.quote).text === words) ||
           momentFound(words, citation) ||
-          (citation.cells !== undefined && cellsText(citation.cells) === drawnWords),
-      ),
+          (found && citation.cells !== undefined && cellsText(citation.cells) === drawnWords)
+        );
+      }),
     ).toBe(true);
   }
 }
