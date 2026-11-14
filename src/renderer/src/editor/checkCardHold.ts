@@ -10,6 +10,8 @@ export function bodyIsEmpty(body: HTMLElement): boolean {
 export interface HeldRoom {
   /** The body's height with everything that has landed. */
   natural: number;
+  /** The body's height before anything landed. */
+  rest: number;
   /** The card's box now, with that content in it. */
   card: { top: number; bottom: number };
   /** The card's height beyond its body: its padding, its foot and the rule above it. */
@@ -21,21 +23,23 @@ export interface HeldRoom {
 /**
  * The height an empty card's body takes when its first content lands, once. The card hangs from
  * its foot, so the foot, with the Check in it, stays where it is, and only the card's top edge
- * moves: above its badge it may go as far as the window's margin, below it only to the badge's
- * bottom edge, never over the badge. What doesn't fit stays in the body, which scrolls.
+ * moves. Above its badge that edge may go as far as the window's margin. Below it, where there was
+ * no room above, the only room is the gap the card is placed at under the badge, and taking it
+ * would have the card placed again, with its foot moved: the body stays as it was. What doesn't
+ * fit stays in the body, which scrolls.
  */
-export function firstHeight({ natural, card, chrome, badge }: HeldRoom): number {
-  const above = card.bottom <= badge.top + 1;
-  const reach = above ? CARD_MARGIN : badge.bottom;
-  return Math.max(0, Math.min(natural, card.bottom - reach - chrome));
+export function firstHeight({ natural, rest, card, chrome, badge }: HeldRoom): number {
+  if (card.bottom > badge.top + 1) return rest;
+  return Math.max(0, Math.min(natural, card.bottom - CARD_MARGIN - chrome));
 }
 
 /** `firstHeight` for the body as it is laid out now, under the badge it hangs from. */
-export function firstHeightOf(body: HTMLElement, badge: Element): number {
+export function firstHeightOf(body: HTMLElement, badge: Element, rest: number): number {
   const element = body.closest<HTMLElement>(".check-card");
   if (!element) return body.offsetHeight;
   return firstHeight({
     natural: body.offsetHeight,
+    rest,
     card: element.getBoundingClientRect(),
     // Its scroll height, not its box: a body taller than the room has already clamped the card.
     chrome: element.scrollHeight - body.offsetHeight,

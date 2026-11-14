@@ -20,10 +20,10 @@ import {
 /*
  * A check card that opened with nothing in it takes its height from what lands first, once, then
  * holds it (#2313). It hangs from its foot: the Check in the foot never moves, in any frame, and
- * only the card's top edge goes up, as far as the window's margin above its badge, or only to the
- * badge's bottom edge when there was no room above and the card sits below it. It never covers the
- * badge, and what doesn't fit stays in its body, which scrolls. Nothing animates the growth.
- * Each test attaches the card's two stills, before and after.
+ * only the card's top edge goes up, as far as the window's margin above its badge. When there was
+ * no room above and the card sits below its badge, the only room is the gap it is placed at, which
+ * it keeps, so what lands scrolls in the body it had. It never covers the badge. Nothing animates
+ * the growth. Each test attaches the card's two stills, before and after.
  */
 
 const TIDES = buildPdf([{ lines: ["Harbour times", "Harbours publish times of high water."] }]);
@@ -192,13 +192,17 @@ for (const language of ["en", "zh-CN"] as const) {
         await still("after");
 
         // The Check never moved, in any frame, and the card never covered its badge.
+        const trail = frames
+          .filter(
+            (frame, at) => at === 0 || JSON.stringify(frame) !== JSON.stringify(frames[at - 1]),
+          )
+          .map((frame) => `${frame.card?.map(Math.round)} / ${frame.check?.map(Math.round)}`)
+          .join("  >  ");
         for (const frame of frames) {
           if (frame.check)
-            expect(same(frame.check, rest.check), `the Check in a frame: ${frame.check}`).toBe(
-              true,
-            );
+            expect(same(frame.check, rest.check), `the Check moved: ${trail}`).toBe(true);
           if (frame.card)
-            expect(overlap(frame.card, anchor), `the card in a frame: ${frame.card}`).toBe(false);
+            expect(overlap(frame.card, anchor), `the card covered its badge: ${trail}`).toBe(false);
         }
         expect(same(await boxOf(card.getByTestId("badge-check-mind")), rest.check)).toBe(true);
         // Only its top edge moved.
@@ -207,14 +211,9 @@ for (const language of ["en", "zh-CN"] as const) {
           expect(grown[3], "the card grew").toBeGreaterThan(rest.card[3] + 20);
           expect(grown[1], "within the window's margin").toBeGreaterThanOrEqual(8 - 0.5);
         } else {
-          expect(grown[1], "no higher than the badge's bottom edge").toBeGreaterThanOrEqual(
-            anchor[1] + anchor[3] - 0.5,
-          );
-          expect(
-            grown[3] - rest.card[3],
-            "the free room below the badge is the gap",
-          ).toBeLessThanOrEqual(9);
-          // What didn't fit scrolls in the body.
+          // Below its badge the only room is the gap it is placed at, which it keeps: what lands
+          // scrolls in the body it had.
+          expect(grown[3], "the card didn't grow").toBeCloseTo(rest.card[3], 0);
           expect(
             await body.evaluate((element) => element.scrollHeight > element.clientHeight + 1),
           ).toBe(true);

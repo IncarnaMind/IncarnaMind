@@ -480,10 +480,11 @@ function BadgeFrame({
     // height, once, in the frame it lands (#2313).
     const content = element.firstElementChild;
     if (!content || !anchor) return;
+    const rest = element.offsetHeight;
     const watching = new ResizeObserver(() => {
       if (bodyIsEmpty(element)) return;
       watching.disconnect();
-      flushSync(() => setHeldHeight(firstHeightOf(element, anchor)));
+      flushSync(() => setHeldHeight(firstHeightOf(element, anchor, rest)));
     });
     watching.observe(content);
     return () => watching.disconnect();
