@@ -152,7 +152,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await dismissChatSetup(window);
     await useLocalChatModel(window);
     await setLanguage(window, language);
-    await setWindowSize(app, window, 1100, 900);
+    await setWindowSize(app, window, 1600, 900);
     await addDocuments(window, [join(sources, "Tides.pdf")]);
     const [tides] = await window.evaluate(() =>
       (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.listDocuments(),
@@ -249,6 +249,7 @@ for (const language of ["en", "zh-CN"] as const) {
     expect(await landed(window)).toEqual([CHIP, CHIP, CHIP]);
 
     // The card shown by the focus says which key goes into it, and Space goes in without typing.
+    await window.keyboard.press("Escape");
     await caretAtStart(window, editor);
     await window.keyboard.press("Tab");
     await settle();
@@ -314,9 +315,9 @@ for (const language of ["en", "zh-CN"] as const) {
     expect(untouched, "the key was left to the input method").toBe(true);
     await expect(chips.nth(1)).toBeFocused();
 
-    // Enter on a chip still opens its page.
+    // Enter on a chip still opens its page, beside the Note in a window this wide.
     await window.keyboard.press("Enter");
-    await expect(window.getByTestId("viewer").first()).toBeVisible();
+    await expect(window.getByTestId("viewer-title")).toHaveText("Tides");
     await app.close();
   });
 }
