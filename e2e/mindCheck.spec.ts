@@ -28,6 +28,7 @@ import {
   setWindowSize,
   slideSelect,
   urlsOpened,
+  useCloudChatModel,
 } from "./app";
 
 /*
@@ -261,34 +262,6 @@ for (const language of ["en", "zh-CN"] as const) {
       await app.close();
     }
   });
-}
-
-/**
- * A model billed per token, whose requests the cost meter counts, with the checks allowed to use it.
- * A monthly cap is set, so a run under a dollar still shows its estimate (#1941); a test that
- * needs the price line from the amount alone sets none.
- */
-async function useCloudChatModel(
-  window: Page,
-  { modelId = "claude-haiku-5-5", cap = true }: { modelId?: string; cap?: boolean } = {},
-) {
-  await window.evaluate(
-    async ({ modelId, cap }) => {
-      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-      const provider = await core.saveChatProvider({
-        kind: "anthropic",
-        apiKey: "sk-ant-test",
-        modelId,
-      });
-      if (provider.service) {
-        for (const flow of ["chat", "tagging", "checks"] as const) {
-          await core.allowDataFlow(flow, provider.service.id);
-        }
-      }
-      if (cap) await core.updateSettings({ user: { monthlyCap: { amount: 20, currency: "USD" } } });
-    },
-    { modelId, cap },
-  );
 }
 
 /** The requests made to cloud models this month, as the cost meter counts them. */

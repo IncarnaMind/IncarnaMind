@@ -579,7 +579,7 @@ function BadgeFrame({
         >
           <div
             ref={body}
-            className="check-card-body scroll-fade"
+            className="check-card-body scroll-fade thin-scrollbar"
             style={heldHeight !== null ? { height: heldHeight, overflowY: "auto" } : undefined}
           >
             <div>
