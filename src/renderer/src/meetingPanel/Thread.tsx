@@ -1,5 +1,6 @@
 import { type RefObject, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Meeting, MeetingHelp } from "../../../core/api";
+import { withFigureText } from "../../../shared/figureMarkers";
 import { MEETING_PANEL_BRIDGE_KEY } from "../../../shared/meetingPanel";
 import { ChevronRightLineIcon } from "../components/lineIcons";
 import {
@@ -261,7 +262,14 @@ function EarlierLine({
 }) {
   const t = useT();
   const answer = useHelpAnswer(help);
-  const first = answer ? helpItems(answer, help.kind)[0] : undefined;
+  // Read as its reply is drawn: a figure's own words written in, so a word before it isn't doubled.
+  const text =
+    answer &&
+    withFigureText(
+      answer.text,
+      (marker) => answer.figures.find((each) => each.marker === marker) ?? null,
+    );
+  const first = answer && text !== null ? helpItems({ ...answer, text }, help.kind)[0] : undefined;
   const start = answer && first ? piecesText(first.lead, answer.figures) : "";
   const said = first?.said === true;
   return (
@@ -348,7 +356,11 @@ function Suggestion({
   };
   const undoAdd = (blockIds: readonly string[]) => {
     onAdded(null);
-    core.undoAddToNote({ mindId: meeting.mindId, blockIds: [...blockIds] }).catch(failed);
+    // Not taken out: its Undo stays, to try again.
+    core.undoAddToNote({ mindId: meeting.mindId, blockIds: [...blockIds] }).catch((error) => {
+      onAdded(blockIds);
+      failed(error);
+    });
   };
   const typed = help.kind === "question";
   return (

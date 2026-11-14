@@ -506,6 +506,13 @@ async function press(
       replyEnded(core, asked.conversation.id, asked.answerId),
       late,
     ]).finally(() => clearTimeout(timer));
+    // A reply left running would go on asking the arm's model while the next item runs.
+    if (ended === "late") {
+      await core.stopConversationAnswer({
+        conversationId: asked.conversation.id,
+        answerId: asked.answerId,
+      });
+    }
     if (ended !== "finished") throw new Error(`${what} before the question: ${ended}.`);
   };
   try {

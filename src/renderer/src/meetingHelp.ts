@@ -219,24 +219,33 @@ export async function helpToKeepOf(help: MeetingHelp) {
   return { answer, scope: asked?.kind === "question" ? asked.scope : null };
 }
 
+/** Each Answer's Add to note on its way: asked again meanwhile, from the panel or ⌘K, it adds once. */
+const adding = new Map<string, Promise<{ mindId: string; blockIds: string[] }>>();
+
 /**
  * Puts a help Answer into its meeting's notes, at their end, with a link back to it and what its
  * sentences' check settled, as Add to note from the assistant does (#2313); resolves to the Blocks
  * added, for Undo. Throws when it has nothing to add (`helpToKeepOf`).
  */
-export async function addHelpToNotes(
+export function addHelpToNotes(
   meeting: Meeting,
   help: MeetingHelp,
 ): Promise<{ mindId: string; blockIds: string[] }> {
-  const { answer, scope } = await helpToKeepOf(help);
-  const question = helpAsked(help, translateNow);
-  const { blockIds } = await core.addToNote({
-    mindId: meeting.mindId,
-    blocks: withAnswerChecks(pageBlocks(answer, question), answer, question, scope),
-    origin: { from: messageReference(answer.conversationId, answer.id), question },
-    model: answer.model,
-  });
-  return { mindId: meeting.mindId, blockIds };
+  const under = adding.get(help.answerId);
+  if (under) return under;
+  const add = (async () => {
+    const { answer, scope } = await helpToKeepOf(help);
+    const question = helpAsked(help, translateNow);
+    const { blockIds } = await core.addToNote({
+      mindId: meeting.mindId,
+      blocks: withAnswerChecks(pageBlocks(answer, question), answer, question, scope),
+      origin: { from: messageReference(answer.conversationId, answer.id), question },
+      model: answer.model,
+    });
+    return { mindId: meeting.mindId, blockIds };
+  })().finally(() => adding.delete(help.answerId));
+  adding.set(help.answerId, add);
+  return add;
 }
 
 /**

@@ -390,6 +390,99 @@ describe("The quote lines' replay", () => {
     expect(readersFile(drawn, 3).key).toHaveLength(3);
   });
 
+  // protects=a question typed in the panel (#2925) is replayed by the same rules as a press: its sentences and options carry their quote lines, ✓ only beside a quote found (#2847); fails_when=a typed reply is refused, drawn by other rules, or a ✓ stands beside a quote not found; no_claim=the saved typed replies' own counts.
+  test("a typed question's reply is drawn as a press's, in English and Chinese", () => {
+    const { counts, drawn } = replay([
+      press({
+        id: "en-typed",
+        set: "typed",
+        button: "question",
+        text: "Enterprise is $45 per seat a month [^1]. It's billed annually [^2].",
+        citations: [
+          sheet(1, "Enterprise plan: $45 per seat a month, with single sign-on and audit logs."),
+          sheet(2, "Enterprise contracts are billed annually."),
+        ],
+      }),
+      press({
+        id: "zh-typed",
+        set: "typed",
+        button: "question",
+        language: "zh-CN",
+        text: "企业版每个席位每月 40 美元 [^1]\n\n★ 我们按年签约 [^2]\n→ 说明期限",
+        citations: [
+          {
+            marker: 1,
+            quote: "企业版每个席位每月 40 美元。",
+            check: "not-found",
+            found: false,
+            place: "价格表",
+          },
+          {
+            marker: 2,
+            quote: "企业版合同按年付费。",
+            check: "found",
+            found: true,
+            place: "价格表",
+          },
+        ],
+      }),
+    ]);
+    expect(counts.presses).toEqual({ typed: 2 });
+    expect(counts.lines).toEqual({ answer: 2, "lead-ins": 1 });
+    expect(drawn.map((line) => line.rows)).toEqual([
+      [
+        "“Enterprise plan: $45 per seat a month, with single sign-on and audit logs.” 1 ✓",
+        "“Enterprise contracts are billed annually.” 2 ✓",
+      ],
+      ["未在“价格表”中找到引文 1"],
+      ["“企业版合同按年付费。” 2 ✓"],
+    ]);
+    expect(counts.checkBesideUnfoundWords).toBe(0);
+    expect(counts.quoteNotAsGiven).toBe(0);
+    expect(counts.linesWithNoCitation).toBe(0);
+  });
+
+  // protects=the replay counts what a reply's end changes (#3098): a line that had no number while written gains its quote line then, and every line below it moves; a number kept while written whose quote lands then fills its line in place; one no Citation backs closes its line, and the lines below move up; and how many presses asked once more for Citations; fails_when=a count disagrees with the panel's two drawings; no_claim=how long the end's request takes.
+  test("what the end changes: a quote line gained, a kept line filled or closed, and the lines below that move", () => {
+    const text = [
+      "Before they start, send these [^1]:",
+      "Floor plans of every floor [^2]",
+      "Two names to call out of hours [^3]",
+    ].join("\n");
+    const { counts } = replay([
+      press({
+        id: "en-end",
+        set: "typed",
+        button: "question",
+        asked: true,
+        written: [
+          "Before they start, send these:",
+          "Floor plans of every floor [^9]",
+          "Two names to call out of hours [^3] [^8]",
+        ].join("\n"),
+        text,
+        citations: [
+          { ...sheet(1, "Enterprise contracts are billed annually."), from: "request" },
+          { ...sheet(2, "Team plan: $25 per seat a month."), from: "request" },
+          sheet(3, "Volume discount: 10% off from 50 seats."),
+        ],
+      }),
+      press({ id: "en-asked", set: "typed", button: "question", asked: true, text: "Yes [^1]" }),
+    ]);
+    expect(counts.citationsAsked).toBe(2);
+    expect(counts.atTheEnd).toEqual({
+      presses: 1,
+      late: 1,
+      moving: 1,
+      linesGained: 1,
+      quoteLinesAdded: 1,
+      keptChanged: 1,
+      keptClosed: 1,
+      // The two lines below the first move down one line, each with its quote line.
+      linesMoved: 4,
+    });
+  });
+
   test("a file not in the saved records' shape is refused with where it fails", () => {
     expect(() => pressesIn({})).toThrow("expected a list of presses");
     expect(() =>

@@ -27,6 +27,8 @@ const fake = vi.hoisted(() => {
     /** Add to note's outcome: the Blocks it adds, or why it fails, once the test says. */
     adding: null as null | { resolve(): void; reject(error: Error): void },
     holdAdding: false,
+    /** Undo of Add to note fails, as a Note that can't be changed now. */
+    undoFails: false,
     reported: [] as unknown[],
     command: null as null | ((command: string) => void),
     /** What the panel asked of the keyboard, in order: true takes it, false gives it back (#2925). */
@@ -77,7 +79,10 @@ vi.mock("../../src/renderer/src/core", () => ({
         fake.adding = { resolve: () => resolve({ blockIds: ["block-1"] }), reject };
       });
     },
-    undoAddToNote: () => Promise.resolve(),
+    undoAddToNote: () =>
+      fake.undoFails
+        ? Promise.reject(new Error("The note can't be changed now."))
+        : Promise.resolve(),
     setQuickNoteDraft: () => Promise.resolve(),
     getQuickNoteDraft: () => Promise.resolve(fake.held),
   },
@@ -246,6 +251,7 @@ beforeEach(async () => {
   fake.added.length = 0;
   fake.adding = null;
   fake.holdAdding = false;
+  fake.undoFails = false;
   fake.reported.length = 0;
   fake.keyboard.length = 0;
   fake.states.length = 0;
@@ -494,6 +500,27 @@ describe("an Add to note still on its way when the suggestion is replaced", () =
     await changed(helpOf("sum", "answer-sum"));
     await run(() => fake.adding?.reject(new Error("The note can't be changed now.")));
     expect(fake.reported).toEqual([new Error("The note can't be changed now.")]);
+  });
+
+  // protects=Add to note pressed again while the first is on its way adds the reply once, so its Undo takes out all it added; fails_when=a second click adds it a second time; no_claim=the ⌘K path, which goes through the same call.
+  test("pressed twice while on its way, adds the reply once", async () => {
+    await wantShown();
+    fake.holdAdding = true;
+    await addToNote([answerOf("answer-want", WANT, "done")]);
+    await click(all("help-add")[0]);
+    await run(() => fake.adding?.resolve());
+    expect(fake.added).toHaveLength(1);
+    expect(all("help-added")).toHaveLength(1);
+  });
+
+  // protects=an Undo of Add to note that fails keeps its Undo, to try again, and says why; fails_when=the Added line and its Undo go though the Blocks are still in the Note; no_claim=how long Undo stays.
+  test("an Undo that fails keeps its Undo and says why", async () => {
+    await wantShown();
+    await addToNote([answerOf("answer-want", WANT, "done")]);
+    fake.undoFails = true;
+    await click(all("help-added")[0]?.querySelector("button") ?? undefined);
+    expect(all("help-added")).toHaveLength(1);
+    expect(container.textContent).toContain("The note can't be changed now.");
   });
 });
 

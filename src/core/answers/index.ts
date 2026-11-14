@@ -4112,6 +4112,8 @@ export function createAnswers(options: AnswersOptions) {
             session.anew();
             figures.anew();
             recordedFigures.clear();
+            recordedQuotes.clear();
+            quotesRecorded.clear();
             if (calculated) toolCalls.splice(toolCalls.indexOf(calculated), 1);
             calculated = null;
             writeSoon();

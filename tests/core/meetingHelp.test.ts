@@ -625,12 +625,22 @@ describe("Help during the call", { timeout: 60_000 }, () => {
   // protects=a press and a question asked at once, before either has its conversation, go on in one conversation, the second reading the first, in the order asked (#2925); fails_when=each starts a conversation of its own, or the Meeting lists them out of order; no_claim=how long the second waits.
   test("a press and a question asked at once go on in one conversation, in the order asked (#2925)", async () => {
     const { core, meeting } = await setUp(addPriceSheet);
-    const [pressed, typed] = await Promise.all([
-      core.askMeetingHelp({ meetingId: meeting.id, kind: "say" }),
-      core.askMeetingQuestion({ meetingId: meeting.id, text: "How much is Enterprise per seat?" }),
-    ]);
-    if (!pressed.asked || !typed.asked) throw new Error("Not asked.");
-    await Promise.all([answerEnded(core, pressed.answerId), answerEnded(core, typed.answerId)]);
+    // Each end is waited for as soon as its ask is under way, so one that ends first isn't missed.
+    const [pressed, typed] = await Promise.all(
+      [
+        core.askMeetingHelp({ meetingId: meeting.id, kind: "say" }),
+        core.askMeetingQuestion({
+          meetingId: meeting.id,
+          text: "How much is Enterprise per seat?",
+        }),
+      ].map(async (ask) => {
+        const asked = await ask;
+        if (!asked.asked) throw new Error("Not asked.");
+        await answerEnded(core, asked.answerId);
+        return asked;
+      }),
+    );
+    if (!pressed || !typed) throw new Error("Not asked.");
     expect(typed.conversation.id).toBe(pressed.conversation.id);
     const { messages } = await core.getConversation(pressed.conversation.id);
     expect(messages.filter((each) => each.kind === "question").map((each) => each.text)).toEqual([

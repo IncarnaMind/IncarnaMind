@@ -728,6 +728,62 @@ describe("a question typed during the call (#2925)", { timeout: 60_000 }, () => 
     },
   );
 
+  // protects=a typed reply's line of fact the model left uncited is the line the one request for Citations is asked about, and the Citation it gives, its number and its quote line land with the reply's end in one write, as a press's do (#2847), in English and Chinese; fails_when=the line stays uncited, or a number shows while the reply is still written; no_claim=how often a model leaves a Citation out.
+  test.each([
+    [
+      "English",
+      "How much is the Enterprise plan per seat?",
+      OWN_WORDS.en.split("\n")[0]?.replace(/^★ Yes, /u, "") ?? "",
+    ],
+    [
+      "Chinese",
+      "企业版每个席位多少钱？",
+      OWN_WORDS.zh.split("\n")[0]?.replace(/^★ 是的，/u, "") ?? "",
+    ],
+  ])(
+    "in %s, an uncited line of fact gets its Citation from the one request, with the end",
+    async (_, question, reply) => {
+      let release = () => {};
+      let reached = () => {};
+      const until = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const out = new Promise<void>((resolve) => {
+        reached = resolve;
+      });
+      const { core, meeting } = await setUp({ reply, records: [], asked: { until, reached } });
+      const writes = writesOf(core);
+      const asked = await core.askMeetingQuestion({ meetingId: meeting.id, text: question });
+      if (!asked.asked) throw new Error("Not asked.");
+      await out;
+      const standing = await vi.waitFor(
+        () => {
+          const last = writes(asked.answerId).at(-1);
+          expect(last?.text).toBe(reply);
+          return last;
+        },
+        { timeout: 20_000, interval: 5 },
+      );
+      expect(standing?.status).toBe("streaming");
+      release();
+      await vi.waitFor(() => expect(writes(asked.answerId).at(-1)?.status).toBe("done"), {
+        timeout: 20_000,
+        interval: 5,
+      });
+
+      const all = writes(asked.answerId);
+      const numbered = all.filter((each) => NUMBER.test(each.text));
+      const [end] = numbered;
+      if (!end) throw new Error("No number landed.");
+      expect(numbered.map((each) => each.status)).toEqual(numbered.map(() => "done"));
+      expect(end.citations.map(({ quote, check }) => ({ quote, check }))).toEqual([
+        { quote: PRICE, check: "found" },
+      ]);
+      expect(quoteRows(end)).toEqual([[{ markers: [end.citations[0]?.marker], state: "found" }]]);
+      expect(withoutNumbers(end.text)).toBe(reply);
+    },
+  );
+
   // protects=a typed question's quote the Document doesn't hold shows no ✓ beside it, as a press's; fails_when=a quote not found is drawn with ✓; no_claim=what the card's words say.
   test("a quote the Document doesn't hold shows no ✓", async () => {
     const reply = "The Enterprise plan is $45 per seat a month, with free onboarding [^1]";

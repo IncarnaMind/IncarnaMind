@@ -1626,7 +1626,10 @@ async function* madeAnewOnce(
   yield { type: "made-anew" };
   let shown = text.length;
   for await (const event of writer.generate(request)) {
-    if (shown > 0 && event.type === "text-delta" && event.text !== "") {
+    // A new reply that writes nothing leaves none: the first reply was turned down.
+    const replaced =
+      (event.type === "text-delta" && event.text !== "") || event.type === "finished";
+    if (shown > 0 && replaced) {
       yield { type: "text-retracted", length: shown };
       shown = 0;
     }

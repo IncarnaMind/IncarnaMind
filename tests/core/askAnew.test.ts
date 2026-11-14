@@ -82,6 +82,18 @@ describe("A typed reply in another language than its question and call, made ane
     expect(text).toBe("Ten years, for the battery.");
   });
 
+  // protects=a new reply that writes nothing doesn't leave the first reply, which was turned down, as the Answer: the Answer ends with no answer; fails_when=the first reply's text stands as a finished Answer; no_claim=what a real model writes the second time.
+  test("a new reply that writes nothing leaves no Answer, not the first reply", async () => {
+    const { calls, events, text } = await written(
+      ["The battery is covered for ten years.", ""],
+      latin,
+    );
+    expect(calls).toHaveLength(2);
+    expect(text).toBe("");
+    expect(events.at(-1)).toMatchObject({ type: "failed", error: { kind: "no-answer" } });
+    expect(events.some((event) => event.type === "finished")).toBe(false);
+  });
+
   // protects=a reply in its question's language, or a reply whose request doesn't ask for it, is never made anew and pays no wait; fails_when=it is asked twice; no_claim=none beyond protects.
   test("a reply in its question's language, or any other reply, is written once", async () => {
     const kept = await written(["电池质保十年。\n可以问他们型号。"], latin);
