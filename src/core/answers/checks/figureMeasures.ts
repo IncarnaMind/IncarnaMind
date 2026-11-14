@@ -78,7 +78,8 @@ export const namesSomething = (text: string): boolean => /\p{L}/u.test(withoutNu
 
 /** A table's row: its cells apart by tabs or bars. */
 export const isRow = (line: string): boolean => line.includes("\t") || /\S\s*\|\s*\S/.test(line);
-const isRule = (line: string): boolean => /^[\s|:-]+$/.test(line) && line.includes("-");
+/** A Markdown table's rule under its heading line: "|---|:---:|". */
+export const isRule = (line: string): boolean => /^[\s|:-]+$/.test(line) && line.includes("-");
 
 /** Width, case and runs of spaces aside; a sheet's tabs and every line break stay. */
 const flat = (text: string): string =>
@@ -132,7 +133,7 @@ function boundAt(
 }
 
 /** A row's cells, by the separator it uses: tabs in a sheet, else bars. */
-const cellsOf = (line: string): string[] => line.split(line.includes("\t") ? "\t" : "|");
+export const cellsOf = (line: string): string[] => line.split(line.includes("\t") ? "\t" : "|");
 
 /** Which cell of `line` holds offset `at`. */
 const cellAt = (line: string, at: number): number => cellsOf(line.slice(0, at)).length - 1;
@@ -176,7 +177,7 @@ export function tableAt(
   return { lines, index, column: cellAt(line, at - lineStart), top, head, end };
 }
 
-export type Table = NonNullable<ReturnType<typeof tableAt>>;
+type Table = NonNullable<ReturnType<typeof tableAt>>;
 
 // In side-by-side panels ("| Revenue | 12% | Operating margin | 94% |") the first cell
 // labels another number: the label is the nearest named cell to the left, never one with a
@@ -217,19 +218,11 @@ export function possibleLabels(table: Table): string[] {
   return names;
 }
 
-/** The headings `table` gives `column`: each heading row's cell over it, where the rows line up. */
-export const columnHeadings = (table: Table, column: number): string[] =>
-  alignedHeadings(table).map((heading) => cellsOf(heading)[column] ?? "");
-
-/** Whether `table`'s own row holds a number: only then are the rows of none above it its headings. */
-export const rowHoldsNumber = (table: Table): boolean =>
-  cellsOf(table.lines[table.index] ?? "").some(holdsNumber);
-
 /** The names `table` gives its number: the nearest named cell to its left and the heading of its own column. */
 export const ownNames = (table: Table): string[] =>
   [
     labelOf(cellsOf(table.lines[table.index] ?? ""), table.column) ?? "",
-    ...columnHeadings(table, table.column),
+    ...alignedHeadings(table).map((heading) => cellsOf(heading)[table.column] ?? ""),
   ].filter(namesSomething);
 
 /** The names a table gives its number one way, its own and its other numbers'. */
@@ -271,7 +264,7 @@ export function cellNames(table: Table): { rows: CellNames; columns: CellNames }
         }),
     },
     columns: {
-      own: columnHeadings(table, column),
+      own: headings.map((heading) => cellsOf(heading)[column] ?? ""),
       others: (keep) =>
         headings.flatMap((heading) =>
           cellsOf(heading).flatMap((name, place) =>

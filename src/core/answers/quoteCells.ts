@@ -3,28 +3,23 @@
  * as the quote gives them, after its column's name where the table gives one. The tables are read
  * by the readers the app already has: a PDF's, Word file's or deck's from the tables its index
  * stored (`documentTables`); a sheet's or CSV's rows (`shownSheetRows`) under the header row the
- * index finds (`headerRow`); and a table written with tabs or bars in a Unit's text, as the figure
- * checks read one (`tableAt`, `columnHeadings`): its headings are the rows of no number above its
- * numbered rows, so a row of no number has none. A cell no heading names keeps no name: no name is
- * ever one the table doesn't give.
+ * index finds (`headerRow`); and a table written with tabs or bars in a Unit's text, found as the
+ * figure checks find one (`tableAt`), but named only by a Markdown heading line its rule proves.
+ * A cell no heading names keeps no name: no name is ever one the table doesn't give.
  */
 import type { UnitText } from "../../shared/units";
 import { documentTables } from "../analysis/documentTables";
 import { sheetsOf, shownSheetRows } from "../analysis/ranges";
+import type { QuoteCell } from "../api";
 import { type Cell, headerRow, looksLikeFigure } from "../documents/formats/grid";
-import { columnHeadings, isRow, rowHoldsNumber, tableAt } from "./checks/figureMeasures";
+import { cellsOf, isRow, isRule, tableAt } from "./checks/figureMeasures";
+
+export type { QuoteCell };
 
 /** The most cells a quote's line names: a wider row draws as quoted. */
 export const MOST_CELLS = 24;
 /** The longest name or value a cell holds, in characters: a longer one draws the row as quoted. */
 export const LONGEST_CELL = 200;
-
-export interface QuoteCell {
-  /** Its column's heading, as the table writes it; null where the table gives it none. */
-  name: string | null;
-  /** The cell's words as the quote gives them: all of them, or the part the quote holds. */
-  value: string;
-}
 
 /** A table as its cells read: each column's heading ("" for none), and its rows below them. */
 interface Grid {
@@ -142,9 +137,31 @@ function sheetGrids(units: readonly UnitText[]): Grid[] {
   });
 }
 
-/** A table written in a Unit's text with tabs or bars: the cells the quote runs through. */
+/**
+ * The heading line over row `index` of a table written in text: the line just above the nearest
+ * Markdown rule ("|---|") above the row, every line between them a row of the table, with as many
+ * cells as the row. Null where no rule proves one: rows apart by tabs, or rows of words above
+ * numbered ones, which may be the table's headings, a section's label, a caption or its own rows.
+ */
+function headingLine(lines: readonly string[], index: number): string[] | null {
+  for (let at = index - 1; at > 0; at--) {
+    const line = lines[at] ?? "";
+    if (!isRow(line)) return null;
+    if (!isRule(line)) continue;
+    const heading = lines[at - 1] ?? "";
+    if (!isRow(heading) || isRule(heading)) return null;
+    const cells = cellsOf(heading);
+    return cells.length === cellsOf(lines[index] ?? "").length ? cells : null;
+  }
+  return null;
+}
+
+/**
+ * A table written in a Unit's text with tabs or bars: the cells the quote runs through. A Unit
+ * whose tables its index stored is read from those alone, its own reading of its place.
+ */
 function inText(quote: string, said: readonly Word[], unit: UnitText): QuoteCell[][] {
-  if (unit.kind === "rows") return [];
+  if (unit.kind === "rows" || (unit.label?.tables?.length ?? 0) > 0) return [];
   const words = wordsOf(unit.text);
   return runsOf(said, words).flatMap((from) => {
     const places: { cell: string; name: string | null }[] = [];
@@ -152,10 +169,10 @@ function inText(quote: string, said: readonly Word[], unit: UnitText): QuoteCell
       const at = words[from + index]?.start ?? 0;
       const table = tableAt(unit.text, at);
       if (!table || !isRow(table.lines[table.index] ?? "")) return [];
-      const headings = rowHoldsNumber(table) ? columnHeadings(table, table.column) : [];
+      const heading = headingLine(table.lines, table.index);
       places.push({
         cell: `${table.index}:${table.column}`,
-        name: headings.join(" "),
+        name: heading?.[table.column] ?? "",
       });
     }
     return [
@@ -165,6 +182,27 @@ function inText(quote: string, said: readonly Word[], unit: UnitText): QuoteCell
       })),
     ];
   });
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+/**
+ * A stored Citation's cells, read tolerantly: a list of two or more cells within the caps, each
+ * words with a name or none; anything else, malformed or in part, is none, and its quote line
+ * draws as quoted.
+ */
+export function storedCells(value: unknown): QuoteCell[] | null {
+  if (!Array.isArray(value) || value.length < 2 || value.length > MOST_CELLS) return null;
+  const cells: QuoteCell[] = [];
+  for (const each of value) {
+    if (!isRecord(each)) return null;
+    const { name, value: words } = each;
+    if (typeof words !== "string" || words === "" || words.length > LONGEST_CELL) return null;
+    if (name !== null && (typeof name !== "string" || name.length > LONGEST_CELL)) return null;
+    cells.push({ name, value: words });
+  }
+  return cells;
 }
 
 /**

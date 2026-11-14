@@ -103,19 +103,125 @@ describe("A quote that is cells of a table", () => {
       { name: null, value: "135" },
       { name: null, value: "5.1%" },
     ]);
-    // A Markdown table of words alone: the figure checks' reader gives its rows no headings.
-    const words = section(
-      "| Plan | Support |\n|---|---|\n| Team | Email |\n| Enterprise | Phone |",
-    );
-    expect(quoteCells("| Enterprise | Phone |", [words])).toEqual([
-      { name: null, value: "Enterprise" },
-      { name: null, value: "Phone" },
-    ]);
     // A PDF table whose stored heading for a column is empty.
     const blank = pdfPage(["Plan", ""], [["Enterprise", "$45"]]);
     expect(quoteCells("Enterprise $45", [blank])).toEqual([
       { name: "Plan", value: "Enterprise" },
       { name: null, value: "$45" },
+    ]);
+  });
+
+  // protects=a table written in a Unit's text names a cell only by a Markdown heading line its rule proves, so a row above the quoted one (a body row, a section's label, a caption or note) is never drawn as a column's name, in English and Chinese, with bars or tabs (#2847); fails_when=any cell takes a name the table's heading line doesn't give; no_claim=what the figure checks read of the same table.
+  describe("written in a Unit's text, a cell is named only by a heading line a rule proves", () => {
+    const RENTS = {
+      en: [
+        ["Term", "Studio", "One-bed"],
+        ["Rent per month", "£950", "£1,250"],
+        ["Bills included", "Yes", "No"],
+        ["Deposit", "£1,100", "£1,400"],
+      ],
+      zh: [
+        ["期限", "单间", "一居室"],
+        ["每月租金", "950 英镑", "1,250 英镑"],
+        ["含水电", "是", "否"],
+        ["押金", "1,100 英镑", "1,400 英镑"],
+      ],
+    };
+    const bare = (rows: string[][]) => rows.at(-1)?.map((value) => ({ name: null, value }));
+    const named = (rows: string[][]) =>
+      rows.at(-1)?.map((value, column) => ({ name: rows[0]?.[column] ?? null, value }));
+
+    test.each(["en", "zh"] as const)(
+      "rows apart by bars or tabs with no rule: no names, a body row above never one (%s)",
+      (language) => {
+        const rows = RENTS[language];
+        const last = rows.at(-1) ?? [];
+        for (const separator of [" | ", "\t"]) {
+          const text = rows.map((cells) => cells.join(separator)).join("\n");
+          expect(quoteCells(last.join(separator), [section(text)]), separator).toEqual(bare(rows));
+        }
+      },
+    );
+
+    test.each(["en", "zh"] as const)(
+      "a Markdown table: its heading line names each cell, whatever rows lie between (%s)",
+      (language) => {
+        const rows = RENTS[language];
+        const line = (cells: readonly string[]) => `| ${cells.join(" | ")} |`;
+        const [head = [], ...body] = rows;
+        const text = [line(head), "|---|---|---|", ...body.map(line)].join("\n");
+        expect(quoteCells(line(rows.at(-1) ?? []), [section(text)])).toEqual(named(rows));
+      },
+    );
+
+    test.each([
+      [
+        "en",
+        "| Item | 2025 | 2026 |\n|---|---|---|\n| Operating expenses | | |\n| Rent | 120 | 135 |\n| Staff | 300 | 320 |",
+        "| Rent | 120 | 135 |",
+        ["Item", "2025", "2026"],
+      ],
+      [
+        "zh",
+        "| 项目 | 2025 | 2026 |\n|---|---|---|\n| 营业费用 | | |\n| 租金 | 120 | 135 |\n| 人工 | 300 | 320 |",
+        "| 租金 | 120 | 135 |",
+        ["项目", "2025", "2026"],
+      ],
+    ])("a section's label inside a Markdown table names nothing (%s)", (_, text, quote, names) => {
+      expect(quoteCells(quote, [section(text)])?.map((cell) => cell.name)).toEqual(names);
+    });
+
+    test.each([
+      [
+        "en",
+        "Table 3: Rents in March\nOperating expenses\t\t\nRent\t120\t135\nStaff\t300\t320",
+        "Staff\t300\t320",
+      ],
+      ["zh", "表 3：三月租金\n营业费用\t\t\n租金\t120\t135\n人工\t300\t320", "人工\t300\t320"],
+    ])(
+      "a caption, a note or a section's label above rows apart by tabs names nothing (%s)",
+      (_, text, quote) => {
+        expect(quoteCells(quote, [section(text)])?.map((cell) => cell.name)).toEqual([
+          null,
+          null,
+          null,
+        ]);
+      },
+    );
+
+    test("two Markdown tables that run on as one: each row named by its own table's heading line", () => {
+      const text =
+        "| Plan | Price |\n|---|---|\n| Team | $25 |\n| Region | Tax |\n|---|---|\n| EU | 20% |";
+      expect(quoteCells("| EU | 20% |", [section(text)])).toEqual([
+        { name: "Region", value: "EU" },
+        { name: "Tax", value: "20%" },
+      ]);
+      expect(quoteCells("| Team | $25 |", [section(text)])).toEqual([
+        { name: "Plan", value: "Team" },
+        { name: "Price", value: "$25" },
+      ]);
+    });
+  });
+
+  // protects=a Word, PDF or deck Unit whose tables its index stored is read from them alone, so its own text, read again as a table, never makes the quote's place look like two tables that disagree (#2847); fails_when=such a quote gets no cells, or names its text alone would give; no_claim=tables the index didn't store.
+  test("a Unit whose tables its index stored is read from them alone", () => {
+    const word: UnitText = {
+      page: 3,
+      kind: "section",
+      text: "Prices\tMonthly\tYearly\nPlan\tPer seat\tPer seat\nEnterprise\t$45\t$480",
+      label: {
+        tables: [
+          {
+            headings: ["Plan", "Prices Monthly", "Prices Yearly"],
+            rows: [["Enterprise", "$45", "$480"]],
+          },
+        ],
+      },
+    };
+    expect(quoteCells("Enterprise\t$45\t$480", [word])).toEqual([
+      { name: "Plan", value: "Enterprise" },
+      { name: "Prices Monthly", value: "$45" },
+      { name: "Prices Yearly", value: "$480" },
     ]);
   });
 
