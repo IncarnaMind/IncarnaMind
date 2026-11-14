@@ -524,14 +524,17 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(editor).toBeFocused();
     expect(await caretOf(editor)).toBe(caret);
 
-    // Tab out of the text reaches the margin mark (past the sentence's Citation chip); Enter on it
-    // opens the card with the focus on its first action.
+    // Tab out of the text reaches the margin mark; Enter on it opens the card with the focus on its
+    // first action. The marks come after the text in the page, and a Citation chip that a Tab
+    // reaches opens its card, which takes the next Tab: from a sentence with no chip after it, the
+    // first Tab reaches the first mark, however quickly the keys come.
     const mark = window.getByTestId("claim-mark").first();
-    // The browser starts Tab from where the User last clicked or focused, which a caret set by the
-    // page doesn't always move: sometimes it started past the mark and ended in a Citation's card.
-    const sentence = await editor.locator(":scope > p").first().boundingBox();
-    if (!sentence) throw new Error("The first sentence isn't drawn.");
-    await window.mouse.click(sentence.x + 2, sentence.y + sentence.height / 2);
+    const last = await editor
+      .locator(":scope > p")
+      .filter({ hasText: words.checking })
+      .boundingBox();
+    if (!last) throw new Error("The last sentence isn't drawn.");
+    await window.mouse.click(last.x + 2, last.y + last.height / 2);
     await focusSettled(window, editor);
     const markCaret = await caretOf(editor);
     for (
