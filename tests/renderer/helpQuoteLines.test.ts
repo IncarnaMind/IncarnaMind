@@ -689,6 +689,33 @@ describe("Under each line of call help, the app draws its Citations' quotes (#28
       expect(container.textContent).not.toContain(checking);
     },
   );
+
+  // protects=#3005: a press's Citation of another call is stored not checked for that reason, and on a reply that ended its quote line says Not checked with no ✓, while a found quote beside it keeps its ✓, in English and Chinese; fails_when=that line shows ✓ or its quote; no_claim=the card's words, which the card's test reads.
+  test.each([
+    ["en" as const, "Not checked"],
+    ["zh-CN" as const, "未核对"],
+  ])(
+    "%s: on a reply that ended, a quote stored not checked for another call reads not checked, with no ✓",
+    async (language, notChecked) => {
+      fake.language = language;
+      const answer = answerOf("★ Enterprise is $45 a seat [^1] [^2]\n→ answers at once", [
+        sheet(1, "Enterprise plan: $45 per seat a month.", {
+          check: "not-checked",
+          checkReason: "other-call",
+        }),
+        sheet(2, "Enterprise contracts are billed annually."),
+      ]);
+      await show("answer", answer);
+      expect(
+        drawn().map((rows) => rows.map(({ state, words, found }) => [state, words, found])),
+      ).toEqual([
+        [
+          ["not-checked", notChecked, false],
+          ["found", "“Enterprise contracts are billed annually.”", true],
+        ],
+      ]);
+    },
+  );
 });
 
 describe("A reading's moment of the call (#2847)", () => {
