@@ -6,6 +6,9 @@
  */
 import type * as Y from "yjs";
 import {
+  type Document,
+  type LibrarySnapshot,
+  type LinkedFolder,
   MIND_CHECK_UNREAD_FIELD,
   type UnreadFile,
   type UnreadParts,
@@ -252,4 +255,57 @@ export function observeCheckUnread(doc: Y.Doc, listener: () => void): () => void
   const unread = unreadOf(doc);
   unread.observe(listener);
   return () => unread.unobserve(listener);
+}
+
+/**
+ * What could change the files a Search scope couldn't read, for the window to ask the core again
+ * when it changes (#740): each Document that failed, has no text or was read in part, and where it
+ * is filed; each Linked folder's count of files in a format not read; the count of Documents; where
+ * the Documents of a Linked folder holding such files are filed; and the Folders' places in each
+ * other. A Folder of the Library names those files from the folders on disk its filed Documents are
+ * in, so filing a Document beside one, or moving it, changes what a Folder's line names (#2789).
+ */
+export function unreadAskKey(
+  documents: readonly Pick<
+    Document,
+    | "id"
+    | "status"
+    | "failure"
+    | "fileStatus"
+    | "unreadParts"
+    | "unreadPartsUnknown"
+    | "linkedFolderId"
+  >[],
+  linkedFolders: readonly Pick<LinkedFolder, "id" | "unsupportedFiles">[],
+  library: Pick<LibrarySnapshot, "groups" | "assignments"> | null,
+): string {
+  const holdingUnread = new Set(
+    linkedFolders.filter((each) => each.unsupportedFiles > 0).map((each) => each.id),
+  );
+  const unreadDocuments = documents.filter(
+    (each) =>
+      each.status === "failed" ||
+      each.status === "no-text" ||
+      each.unreadParts !== null ||
+      each.unreadPartsUnknown,
+  );
+  const besideUnread = documents.filter(
+    (each) => each.linkedFolderId !== null && holdingUnread.has(each.linkedFolderId),
+  );
+  const filedIn =
+    unreadDocuments.length + besideUnread.length > 0
+      ? new Map(library?.assignments.map((each) => [each.documentId, each.groupId ?? ""]))
+      : new Map<string, string>();
+  return [
+    ...unreadDocuments.map(
+      (each) =>
+        `${each.id}:${each.status}:${each.failure?.reason ?? ""}:${each.fileStatus}:${
+          each.unreadParts ? JSON.stringify(each.unreadParts) : each.unreadPartsUnknown ? "?" : ""
+        }:${filedIn.get(each.id) ?? ""}`,
+    ),
+    ...linkedFolders.map((each) => `${each.id}:${each.unsupportedFiles}`),
+    documents.length,
+    ...besideUnread.map((each) => `${each.id}>${filedIn.get(each.id) ?? ""}`),
+    ...(library?.groups.map((each) => `${each.id}>${each.parentId ?? ""}`) ?? []),
+  ].join("|");
 }

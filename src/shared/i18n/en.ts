@@ -546,6 +546,8 @@ export const en = {
   "status.savedOutside.one": "1 page saved outside its Folder",
   "status.savedOutside.other": "{count} pages saved outside their Folder",
   "documents.savedOutside": "These pages were saved, but not into the Folder you chose: {names}",
+  "documents.savedOutside.each": "{name} ({folder})",
+  "documents.place.twin": "{place} ({count})",
   "error.folder.wall": "This Folder keeps its work inside it.",
   "error.turnPlace": "This needs to know which note or conversation it’s in.",
   "error.citation.recheckNote": "A Citation can only be checked again for the note it is in.",
@@ -916,6 +918,7 @@ export const en = {
   "editor.block.handle": "Drag to move, click for options",
   "editor.block.menu": "Block options",
   "editor.block.delete": "Delete",
+  "block.delete.command": "Delete the Block the cursor is in",
   "editor.table.menu": "Table options",
   "editor.table.rowAbove": "Insert row above",
   "editor.table.rowBelow": "Insert row below",
@@ -1392,6 +1395,7 @@ export const en = {
   "claim.checkedIn": "Checked against “{scope}”",
   "claim.readDocuments": "Read whole: {documents}",
   "claim.readDocuments.separator": "; ",
+  "claim.readDocuments.each": "{name} ({places})",
   "claim.checkedIn.more": "Checked against “{scope}” and {count} more",
   "claim.limit": "Can miss a change of obligation, such as should for may",
   "claim.ownNote": "Supported by your own note",
@@ -2797,6 +2801,7 @@ export const en = {
   "embeddingProviders.settings.off": "Off",
   "embeddingProviders.settings.turnOn": "Turn on…",
   "embeddingProviders.settings.builtIn": "Built-in model",
+  "embeddingProviders.settings.kindAt": "{kind} ({server})",
   "embeddingProviders.settings.sendsTo":
     "The text of your Documents, each passage with its Document’s name, and your searches, are sent to {service}.",
   "embeddingProviders.settings.error":

@@ -127,8 +127,8 @@ export interface WrittenCheckOptions extends CheckRuns {
   /** Whether the User allowed the checks flow to the Answer's model before it sent more, and not the more yet. */
   widened(answer: PreparedChatModel): boolean;
   claimCheck(request: ClaimCheckRequest): Promise<ClaimCheckResult>;
-  /** Where the Mind's sentences are checked, as Check this Mind checks them. */
-  scopeOf(mindId: string): { searchable: number; check: CheckScope };
+  /** Where the Mind's sentences are checked, as Check this Mind checks them; `allDocuments`: in every Document. */
+  scopeOf(mindId: string, allDocuments: boolean): { searchable: number; check: CheckScope };
   /**
    * Settles once the scope can tell every copy of the file the Mind was imported from (#2216), or
    * once `stop` aborts; after the core closes, only `stop` settles it.
@@ -185,6 +185,11 @@ export interface CheckWrittenInput {
    * nothing is sent to the provider that just failed.
    */
   answerFailed?: boolean;
+  /**
+   * The write read every Document (Use all, #1149): its sentences are checked in every Document, as
+   * Search all Documents checks one, rather than in the Note's Search scope (#3087).
+   */
+  allDocuments?: boolean;
   /** Changes the Mind's content, in one transaction. */
   edit(change: (blocks: Y.XmlFragment) => void): void;
   /** Hears the check once it is over, when `checkWritten` resolved with it still running; a short one may end first. */
@@ -943,7 +948,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     // The write landed before the Stop: its sentences say they were stopped, as a Stop mid-check
     // leaves them (#2710), rather than no mark, which reads as checked.
     const stopped = !holding && input.signal.aborted;
-    const atWrite = options.scopeOf(mindId);
+    const atWrite = options.scopeOf(mindId, input.allDocuments === true);
     if (atWrite.searchable === 0) return null;
     // Taken again once the evidence can tell the copies of the Mind's imported file (`checkThem`).
     let scope = atWrite.check;
@@ -1476,7 +1481,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
         // out, and they must all be told first (#2216).
         await options.evidenceReady(signal, mindId);
         if (signal.aborted) return;
-        const ready = options.scopeOf(mindId);
+        const ready = options.scopeOf(mindId, input.allDocuments === true);
         if (ready.searchable === 0) {
           // Its only Documents were copies of its own file: nothing is checked, as when the
           // write finds no Document, and its sentences lose their marks.

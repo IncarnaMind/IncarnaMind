@@ -3025,6 +3025,21 @@ export interface Citation {
   quotedWordsFound?: string[];
   /** "unsupported" and "contradicted": what the Documents say of its sentence, in one plain sentence. */
   verdict?: string | null;
+  /**
+   * A call help reply's found quote that is cells of a table, as the cite found them (#2847): each
+   * cell's words as the quote gives them, after its column's heading where the table gives one.
+   * The Document's own words, like the quote: never read by a model, carried into a Note, or read
+   * again when the Document changes. None for any other Citation, and for a reply kept before it.
+   */
+  cells?: QuoteCell[];
+}
+
+/** A table cell of a quote (`Citation.cells`). */
+export interface QuoteCell {
+  /** Its column's heading, as the table writes it; null where the table gives it none. */
+  name: string | null;
+  /** The cell's words as the quote gives them. */
+  value: string;
 }
 
 /**

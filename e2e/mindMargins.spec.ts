@@ -320,7 +320,7 @@ for (const language of ["en", "zh-CN"] as const) {
         .toBeLessThanOrEqual(text.x + text.width + 0.5);
 
       // The block handle stands 4px before the text, and steps in to a list item's bullet.
-      const handle = window.getByTestId("block-handle");
+      const handle = window.getByTestId("block-menu");
       await first.hover();
       await expect(handle).toBeVisible();
       const handleBox = await box(handle);
@@ -443,7 +443,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(editor.getByTestId("answer")).toHaveAttribute("data-status", "done");
     const question = editor.getByTestId("question");
     const fold = question.getByTestId("question-fold");
-    const handle = window.getByTestId("block-handle");
+    const handle = window.getByTestId("block-menu");
 
     for (const width of WIDTHS) {
       await sizeMind(app, window, width);
@@ -676,7 +676,7 @@ for (const language of ["en", "zh-CN"] as const) {
     );
     await sizeMind(app, window, 480);
     const question = editor.getByTestId("question");
-    const handle = window.getByTestId("block-handle");
+    const handle = window.getByTestId("block-menu");
     if (SHOTS) {
       await window.mouse.move(2, 2);
       await question.locator(".question-text").hover();

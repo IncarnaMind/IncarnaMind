@@ -5,7 +5,6 @@
 import type {
   AnswerStatus,
   AnswerSteps,
-  CitationCheckReason,
   ConversationQuestion,
   MarkedCitation,
   Meeting,
@@ -23,10 +22,13 @@ import type { MeetingHelpKind } from "../../shared/meetingHelp";
 
 /**
  * An option's sentence as the User would say it, in quotation marks of the panel's own: its reader
- * has taken off a pair the model wrapped it in. Its Citations stay after the closing mark.
+ * has taken off a pair the model wrapped it in. The marks close its words, so its Citations follow
+ * the closing mark, a space between two of them included.
  */
 export function quoted(lead: readonly ReplyPiece[]): ReplyPiece[] {
-  const texts = lead.flatMap((piece, index) => (piece.kind === "text" ? [index] : []));
+  const texts = lead.flatMap((piece, index) =>
+    piece.kind === "text" && piece.text.trim() !== "" ? [index] : [],
+  );
   const first = texts[0];
   const last = texts.at(-1);
   if (first === undefined || last === undefined) return [...lead];
@@ -90,35 +92,6 @@ export function citationNumbers(
     }
   }
   return numbers;
-}
-
-/**
- * Whether a help reply's Citation shows ✓ where it is cited (`at`): the sentence check passed the
- * sentence it is cited in there (#2847). A found quote alone shows none, nor does a line too short
- * to be judged, and a marker reused by a sentence that didn't pass keeps the ✓ its own earned.
- */
-export const sentencePassed = (citation: Pick<MarkedCitation, "passedAt">, at: number): boolean =>
-  citation.passedAt?.includes(at) === true;
-
-const ACTIONABLE = [
-  "answer-limit",
-  "monthly-limit",
-  "answer-limit-unfinished",
-  "monthly-limit-unfinished",
-  "small-model",
-] as const satisfies readonly CitationCheckReason[];
-
-/**
- * Why a help reply's Citation was never checked, where the User can do something about it: the
- * Answer's checking limit or the monthly limit reached, before its sentence or before the model
- * finished it (#2962), or a model too small to judge. Null otherwise, a line the check doesn't
- * judge among them.
- */
-export function uncheckedReason(
-  citation: Pick<MarkedCitation, "check" | "checkReason">,
-): (typeof ACTIONABLE)[number] | null {
-  if (citation.check !== "not-checked") return null;
-  return ACTIONABLE.find((each) => each === citation.checkReason) ?? null;
 }
 
 /**

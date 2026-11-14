@@ -11,7 +11,7 @@ import type {
 import type { Language } from "../../src/core/language";
 import { translate } from "../../src/shared/i18n";
 import { helpLabel } from "../../src/shared/meetingHelp";
-import { pressedBeforeFirstLine, turnOf } from "../helpers/earlierCallPress";
+import { pressedBeforeFirstLine, storedAsJudgedBefore, turnOf } from "../helpers/earlierCallPress";
 
 /*
  * A help button's reply in the assistant keeps a Citation of another call's Transcript, which its
@@ -289,11 +289,13 @@ for (const language of ["en", "zh-CN"] as const) {
       }
     });
 
-    // protects=#3005: a press made before anyone has spoken is still a press, as the core records it; fails_when=its kept Citation of another call gives the general line or offers Check again; no_claim=how the record marks a press.
-    test("a press made before the call's first line, as the core records it: Not checked, as the quote is from another call, with no Check again", {
+    // protects=#3005: a press made before anyone has spoken is still a press, as the core records it, its Citation of another call left not checked by an earlier version's judging; fails_when=its kept Citation of another call gives the general line or offers Check again; no_claim=how the record marks a press.
+    test("a press made before the call's first line, as the core records it and an earlier version judged it: Not checked, as the quote is from another call, with no Check again", {
       timeout: 180_000,
     }, async () => {
-      const { core, pressIds } = await pressedBeforeFirstLine(language);
+      const { core, dataDir, pressIds } = await pressedBeforeFirstLine(language);
+      // A press is no longer judged; one an earlier version judged kept this Citation not checked.
+      await storedAsJudgedBefore(core, dataDir, pressIds);
       const { question, answer } = await turnOf(core, pressIds);
       const { useMeetings } = await import("../../src/renderer/src/meetings");
       useMeetings.setState({ meetings: await core.listMeetings() });

@@ -288,7 +288,7 @@ export function CommandApprovalCard({
           onClick={() => respond(request.requestId, "allow-once")}
           disabled={!ready}
           className="approval-button approval-button--primary"
-          {...withShortcut(allow, keys)}
+          {...withShortcut(t, allow, keys)}
         >
           {allow}
           {keys && <span className="approval-keys">{keys}</span>}

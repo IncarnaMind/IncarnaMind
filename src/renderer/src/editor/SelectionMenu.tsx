@@ -47,6 +47,7 @@ import {
   SELECTION_MENU_KEY,
 } from "./selectionDismissal";
 import { type EditWithAiField, useEditField } from "./useEditField";
+import { withKeys } from "./withShortcut";
 
 /**
  * One action of the menu's AI section: Edit with AI, Check against Documents
@@ -661,7 +662,7 @@ export function SelectionMenu({
               role="menuitem"
               aria-disabled={!state.pageBreak}
               data-testid="format-page-break"
-              title={`${t("editor.pageBreak.insert")} (${keysHere(PAGE_BREAK_KEYS)})`}
+              title={withKeys(t, t("editor.pageBreak.insert"), keysHere(PAGE_BREAK_KEYS))}
               aria-label={t("editor.pageBreak.insert")}
               onMouseDown={keepSelection}
               onClick={() => {
@@ -860,7 +861,7 @@ function FormatButton({
       role="menuitemcheckbox"
       aria-checked={on}
       data-testid={`format-${mark}`}
-      title={keys ? `${t(label)} (${keys})` : t(label)}
+      title={withKeys(t, t(label), keys)}
       aria-label={t(label)}
       // Keep the selection in the editor.
       onMouseDown={(event) => event.preventDefault()}

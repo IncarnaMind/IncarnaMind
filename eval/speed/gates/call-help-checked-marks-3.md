@@ -1,5 +1,7 @@
 # The gate for call help's ✓ only where the sentence check passed, third file (#2847)
 
+Retired on 2026-11-14 by #2847's second version: call help no longer shows a ✓ the sentence check gives, and a press sends no sentence check, so no run reads these bars. The record below stays as it was.
+
 Written and committed on 2026-11-12, before any run it gates. Its bars are those of `call-help-checked-marks-2.md`, as they were ruled before that file's runs, with the same numbers and the same tests. That file's run on Claude Haiku 5.5 failed bar 2 in Chinese: kept ✓ was 10 of 43. In 24 of its 30 Chinese presses, the sentence check's reply ended at its output limit of 300 tokens a sentence, and the sentences of a cut reply stay Not checked. #2951 fixed that on main.
 
 Before this file, a pilot ran 30 Chinese presses of the second file's slice on Claude Haiku 5.5, on this branch alone. That slice had already been read, and the pilot read no bar. None of the check's 30 requests reached its limit, and the longest reply was 1,365 tokens. Each of the 59 Citations whose quote was found got a verdict on at least one sentence it is cited in, except 7. Those 7 are cited only on lines the check gave no verdict. Two are on a question, and two on what the User offers to do. For the other three, the record doesn't say why.

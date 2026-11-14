@@ -71,7 +71,12 @@ export const NoteKeymap = Extension.create({
             }
             return runShortcut(
               event,
-              { selection: [], focus: blockAt(view.state.selection), surface: "mind" },
+              {
+                selection: [],
+                focus: blockAt(view.state.selection),
+                surface: "mind",
+                note: this.editor,
+              },
               { objectsOnly: true },
             );
           },
