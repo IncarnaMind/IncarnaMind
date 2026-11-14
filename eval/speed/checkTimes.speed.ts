@@ -61,6 +61,7 @@ import { type Library, openLibrary } from "../lib/library";
 import { createLog } from "../lib/log";
 import { createWorkerCrossEncoder } from "../lib/rerank";
 import { SETS, writeDocuments } from "../repeats/cases";
+import { allowanceLeft } from "./allowance";
 import { ROOM_DOCUMENTS, ROOM_ITEMS } from "./checkRoomCases";
 import { roomGateSection } from "./checkRoomGate";
 import {
@@ -72,7 +73,10 @@ import {
   repeatCounter,
   shownMark,
 } from "./checkTimes";
+import { dryRunModel } from "./dryRun";
 import { judgeOf } from "./judge";
+import { SEARCH_FIRST_DOCUMENTS, SEARCH_FIRST_ITEMS } from "./searchFirstCases";
+import { searchFirstGateSection } from "./searchFirstGate";
 import { env, list, modelsAsked, spentUsd } from "./settings";
 import { unstatedSentences } from "./unstated";
 import { HELD_OUT_DOCUMENTS, HELD_OUT_ITEMS } from "./writtenHeldOut";
@@ -92,6 +96,25 @@ const NOTE: Record<Language, string[]> = {
   en: NOTE_SENTENCES.en.map((each) => each.text),
   "zh-CN": NOTE_SENTENCES["zh-CN"].map((each) => each.text),
 };
+
+/** #2532's held-out Note of 24 sentences in each language (./searchFirstCases). */
+const HELD_NOTE = (language: Language) =>
+  SEARCH_FIRST_ITEMS.filter((item) => item.language === language);
+
+/** The sentences a Note flow checks. */
+const noteSentences = (flow: string, language: Language) =>
+  flow === "note-24" ? HELD_NOTE(language).map((item) => item.sentence) : NOTE[language];
+
+/** A request's failure that leaves the run not counted (../evidence/2532-search-first/README.md). */
+const VOIDING: ReadonlySet<string> = new Set([
+  "failed",
+  "timed-out",
+  "rate-limit",
+  "out-of-credit",
+  "plan-limit",
+  "cost-cap",
+  "consent-revoked",
+]);
 
 /** Thirty sentences over the membership rules, each with the quote it cites; or the room gate's. */
 const CITED = (language: Language) =>
@@ -270,12 +293,11 @@ const versionsOf = async (core: Core) =>
 async function noteFlow(
   core: Core,
   choice: ChatModelChoice,
-  language: Language,
+  sentences: readonly string[],
   recorder: ReturnType<typeof checkRecorder>,
-  run: number,
+  title: string,
 ) {
-  const sentences = NOTE[language];
-  const { id: mindId } = await core.createMind({ title: `Note check ${run}` });
+  const { id: mindId } = await core.createMind({ title });
   const client = await connectToMind(core, mindId);
   writeMind(
     client,
@@ -292,7 +314,7 @@ async function noteFlow(
   // Its end is taken when the check ends, not after a search asked during it.
   const checking = core
     .checkMind({
-      requestId: `note-${run}-${Date.now()}`,
+      requestId: `note-${mindId}`,
       mindId,
       mode: "all",
       model: choice,
@@ -549,8 +571,26 @@ const timedChecks = wanted ? test : test.skip;
 timedChecks("where a check's time goes, on each model and language", async () => {
   const log = createLog();
   const config = readConfig(ROOT);
-  const models = modelsAsked();
+  // A dry run sends nothing: its model is scripted (./dryRun), and its key a made-up one.
+  const dry = env("DRY") === "1";
+  const models = dry
+    ? [{ kind: "anthropic" as const, modelId: "claude-haiku-5-5", apiKey: "sk-ant-dry-run" }]
+    : modelsAsked();
   if (models.length === 0) throw new Error("Set INCARNAMIND_EVAL_SPEED_MODELS.");
+  const dryModel = dry ? dryRunModel() : null;
+  // #2532's gate: each pass runs on each check arm, the order turning from round to round.
+  const checkArms = (list("CHECK_ARMS") ?? []).map((arm, at, all) => {
+    const before = all.slice(0, at).filter((each) => each === arm).length;
+    return before > 0 ? `${arm}#${before + 1}` : arm;
+  });
+  for (const arm of checkArms) {
+    if (!arm.startsWith("main") && !arm.startsWith("search-first"))
+      throw new Error(
+        `INCARNAMIND_EVAL_SPEED_CHECK_ARMS: no arm "${arm}"; the arms are main and search-first.`,
+      );
+  }
+  const rightMargin = env("RIGHT_MARGIN") === null ? null : Number(env("RIGHT_MARGIN"));
+  let firstReplied: NonNullable<FlowTimes["firstReplied"]> = [];
   const flows = wanted ?? [];
   const languages = (list("LANGUAGES") ?? ["en", "zh-CN"]) as Language[];
   const runs = Number(env("RUNS") ?? "2");
@@ -573,10 +613,23 @@ timedChecks("where a check's time goes, on each model and language", async () =>
       .flatMap((pass, pair) => {
         const asked = flow === "answer" ? arms : [null];
         return asked.map((_, at) => ({ ...pass, arm: asked[(at + pair) % asked.length] ?? null }));
-      });
+      })
+      .flatMap((pass, pair) =>
+        checkArms.length === 0
+          ? [{ ...pass, checkArm: null }]
+          : checkArms.map((_, at) => ({
+              ...pass,
+              checkArm: checkArms[(at + pair) % checkArms.length] ?? null,
+            })),
+      );
   const stopUsd = Number(env("STOP_USD") ?? "3");
   const recorder = checkRecorder();
-  let current: { flow: string; items: ReturnType<typeof CITED>; arm?: string } | null = null;
+  let current: {
+    flow: string;
+    items: ReturnType<typeof CITED>;
+    arm?: string;
+    checkArm?: string;
+  } | null = null;
   const results: FlowTimes[] = [];
   const judge = env("ANSWER_SET") === "room" && env("JUDGE") ? judgeOf(models) : null;
   const judged: Record<string, string[] | null> = {};
@@ -613,6 +666,14 @@ timedChecks("where a check's time goes, on each model and language", async () =>
       await writeFile(path, buildPdf(document.pages));
       documents.push({ key: document.file, path });
     }
+    if (flows.includes("note-24")) {
+      for (const document of SEARCH_FIRST_DOCUMENTS) {
+        if (document.language !== language) continue;
+        const path = join(folder, document.file);
+        await writeFile(path, buildPdf(document.pages));
+        documents.push({ key: document.file, path });
+      }
+    }
     const repeats = repeatCounter(createWorkerCrossEncoder(config.rerankOnCpu));
     const library: Library = await openLibrary({
       name: "check-times",
@@ -623,8 +684,15 @@ timedChecks("where a check's time goes, on each model and language", async () =>
       embeddings: false,
       keep: config.keepData,
       log,
-      chatModels: scripted(recorder.chatModels, () => current),
+      chatModels: dryModel
+        ? () => scripted(recorder.chatModels, () => current)(() => dryModel)
+        : scripted(recorder.chatModels, () => current),
       examples: join(ROOT, "resources", "examples"),
+      checkPaths: {
+        searchFirst: () =>
+          current?.checkArm === undefined ? undefined : current.checkArm.startsWith("search-first"),
+        firstReplied: (heard) => firstReplied.push(heard),
+      },
     });
     try {
       const { core, dataDir } = library;
@@ -651,32 +719,60 @@ timedChecks("where a check's time goes, on each model and language", async () =>
         const saved = await core.saveChatProvider(model);
         const choice: ChatModelChoice = { providerId: saved.id, modelId: model.modelId };
         for (const flow of flows) {
-          for (const { size, run, runs, arm } of passesOf(flow)) {
+          for (const [at, { size, run, runs, arm, checkArm }] of passesOf(flow).entries()) {
             const spent = await spentUsd(core);
             if (spentBefore + spent >= stopUsd) {
               stopped = `Stopped at $${(spentBefore + spent).toFixed(2)}, before ${name} · ${flow} · ${language} · ${run}.`;
               log(stopped);
               break matrix;
             }
+            // The core refuses any request past the stop, so a run never passes it between rounds.
+            await core.updateSettings({
+              user: {
+                monthlyCap: { currency: "USD", amount: Math.max(0, stopUsd - spentBefore) },
+              },
+            });
+            // A batch is a round of the arms: its key must have room for it before it starts.
+            if (!dry && checkArm && at % Math.max(1, checkArms.length) === 0) {
+              const left = await allowanceLeft(
+                model.kind,
+                model.apiKey ?? "",
+                model.modelId,
+                model.endpoint ?? null,
+              );
+              log(`  allowance before the round: ${left ? left.detail : "not stated"}`);
+              if (left && left.share <= 0.9) {
+                stopped = `Stopped before ${name} · ${flow} · ${language} · ${run}: the key's allowance was at ${(left.share * 100).toFixed(0)}%.`;
+                log(stopped);
+                break matrix;
+              }
+            }
             const load = loadavg()[0] ?? 0;
             const load15 = loadavg()[2] ?? 0;
             log(
-              `${name} · ${flow}${size ? ` of ${size}` : ""}${arm ? ` · ${arm}` : ""} · ${language} · ${run}/${runs} · load ${load.toFixed(1)}, ${load15.toFixed(1)} over 15 minutes`,
+              `${name} · ${flow}${size ? ` of ${size}` : ""}${arm ? ` · ${arm}` : ""}${checkArm ? ` · ${checkArm}` : ""} · ${language} · ${run}/${runs} · load ${load.toFixed(1)}, ${load15.toFixed(1)} over 15 minutes`,
             );
             const items = flow.startsWith("write")
               ? itemsOf(flow, language)
               : size
                 ? windowOf(CITED(language), size, run)
                 : CITED(language);
-            current = { flow, items, ...(arm && { arm }) };
+            current = { flow, items, ...(arm && { arm }), ...(checkArm && { checkArm }) };
+            firstReplied = [];
             const startedAt = new Date().toISOString();
             repeats.begin();
             const times: Pick<
               FlowTimes,
               "checkStartMs" | "firstSignMs" | "doneMs" | "landed" | "searchedDuring"
             > =
-              flow === "note"
-                ? await noteFlow(core, choice, language, recorder, run)
+              flow === "note" || flow === "note-24"
+                ? await noteFlow(
+                    core,
+                    choice,
+                    noteSentences(flow, language),
+                    recorder,
+                    `Note check ${flow} ${run}${checkArm ? ` ${checkArm}` : ""}`,
+                  )
                 : flow.startsWith("write")
                   ? await writeFlow(core, choice, items, recorder)
                   : flow === "asked"
@@ -693,6 +789,15 @@ timedChecks("where a check's time goes, on each model and language", async () =>
             }));
             const after = await spentUsd(core);
             const landed = [...times.landed].sort((a, b) => a.ms - b.ms);
+            const requests = recorder.end();
+            const failedRequest = requests.find((request) => request.error !== null);
+            const failedMark = landed.find((each) => each.reason && VOIDING.has(each.reason));
+            const voided = failedRequest
+              ? `a ${failedRequest.kind} request failed`
+              : failedMark
+                ? `a sentence was not checked: ${failedMark.reason}`
+                : null;
+            if (voided) log(`  void: ${voided}`);
             results.push({
               flow,
               model: name,
@@ -700,6 +805,17 @@ timedChecks("where a check's time goes, on each model and language", async () =>
               run,
               ...(size && { answerSentences: size }),
               ...(arm && { arm }),
+              ...(checkArm && { checkArm }),
+              ...(voided && { voided }),
+              ...(checkArm && { firstReplied }),
+              ...(flow === "note-24" && {
+                stated: HELD_NOTE(language).map((each) => each.kind === "right"),
+                items: HELD_NOTE(language).map((each) => ({
+                  id: each.id,
+                  kind: each.kind,
+                  figure: /\p{N}/u.test(each.sentence),
+                })),
+              }),
               load,
               load15,
               checkStartMs: times.checkStartMs,
@@ -708,7 +824,7 @@ timedChecks("where a check's time goes, on each model and language", async () =>
               firstVerdictMs: firstVerdictMs(landed),
               doneMs: times.doneMs,
               landed,
-              requests: recorder.end(),
+              requests,
               reranks,
               rerankRepeats: repeats.end(),
               ...(times.searchedDuring && { searchedDuring: times.searchedDuring }),
@@ -736,6 +852,7 @@ timedChecks("where a check's time goes, on each model and language", async () =>
   }
   const counts = new Map([
     ["note", 10],
+    ["note-24", 24],
     ["write", 30],
     ["write-mixed", 20],
     ["writes", 30],
@@ -747,6 +864,25 @@ timedChecks("where a check's time goes, on each model and language", async () =>
     `${new Date().toISOString()} · ${runs} runs a flow, model and language · seconds from the User's action, medians. Spent $${spentBefore.toFixed(3)}.${stopped ? ` ${stopped}` : ""}`,
     "",
     checkTimesReport(results, counts),
+    ...(checkArms.length > 0
+      ? [
+          "",
+          searchFirstGateSection(
+            results,
+            (flow, language) =>
+              flow === "note" || flow === "note-24"
+                ? noteSentences(flow, language as Language)
+                : itemsOf(flow, language as Language).map((each) => each.sentence),
+            rightMargin,
+          ),
+        ]
+      : []),
+    ...(dry
+      ? [
+          "",
+          "A dry run: its model was scripted, nothing left this computer, and its spend is the catalog's price of made-up token counts.",
+        ]
+      : []),
     ...(arms[0]
       ? [
           "",

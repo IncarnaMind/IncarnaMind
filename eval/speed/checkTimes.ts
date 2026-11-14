@@ -29,6 +29,7 @@ import {
 } from "../../src/core/answers/checks/prompt";
 import { SEARCH_AGAIN } from "../../src/core/answers/checks/searchAgain";
 import { sentenceBatchInstructions } from "../../src/core/answers/checks/sentenceBatch";
+import { questionOf } from "../../src/core/answers/judge";
 import type { ClaimCheckAttributes } from "../../src/core/api";
 import { claimCheckShown } from "../../src/shared/claimChecks";
 import { median } from "../lib/timing";
@@ -100,6 +101,8 @@ function kindOf(params: LanguageModelV4CallOptions): string {
     .filter((message) => message.role === "system")
     .map((message) => textOf(message.content))
     .join("\n");
+  // A sentence's first reply opens with a Run's rules, and offers no Tool.
+  if (questionOf(params) === "first-reply") return "first-reply";
   for (const [kind, start] of KINDS) if (system.startsWith(start.slice(0, 80))) return kind;
   if (params.tools?.some((tool) => tool.name === "search_documents")) return "run";
   if (/\bparts?\b/i.test(system.slice(0, 200))) return "parts";
@@ -365,6 +368,14 @@ export interface FlowTimes {
   searchedDuring?: { atMs: number; ms: number };
   /** For a Note's check: whether the Documents state each sentence, by its index. */
   stated?: boolean[];
+  /** For a gate's Note (./searchFirstCases): each sentence's id and kind, by its index. */
+  items?: { id: string; kind: string; figure: boolean }[];
+  /** The check path an arm of #2532's gate runs: `main` or `search-first`, `#2` for a second of one name. */
+  checkArm?: string;
+  /** How each part of each sentence's first reply went, as the core told it. */
+  firstReplied?: { sentence: string; part: string; outcome: string }[];
+  /** Why the run doesn't count: a request refused, failed or timed out. */
+  voided?: string;
   spentUsd: number;
 }
 
