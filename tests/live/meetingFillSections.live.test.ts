@@ -3021,7 +3021,7 @@ test.each(["en", "zh-CN"] as const)(
       misattributedIn(call, [unit(text.summary, summary), unit(text.later), unit(text.opens)], []),
     ).toEqual([{ fact: "weight", text: text.later, where: "later", read: ["later"] }]);
     expect(misattributedIn(call, [unit(text.opens)], [])).toEqual([
-      { fact: "weight", text: text.opens, where: "opens", read: ["aloneAcrossNotKnown"] },
+      { fact: "weight", text: text.opens, where: "opens", read: [] },
     ]);
   },
 );
