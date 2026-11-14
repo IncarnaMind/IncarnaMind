@@ -31,8 +31,8 @@ export interface FieldList {
  * The panel's field (#2925), with Note | Ask at its left. In Note, Enter adds what it holds to the
  * end of the Meeting's Note, with the Meeting's time when typing began, and for 3 s its placeholder
  * says it went in, with Undo at its right, so nothing under it moves. In Ask, Enter asks it about
- * the call (`onQuestion`); a question that couldn't be asked comes back before what the field
- * holds, on a line of its own, or, in Note, waits for the field's next Ask. Either
+ * the call (`onQuestion`). A note that couldn't go in, or a question that couldn't be asked, comes
+ * back before what the field holds, on a line of its own, when the field is in its mode. Either
  * way the cursor stays for the next line; Shift-Enter starts a new line, and the field grows to
  * three, then scrolls. Keys a list over it wants come to `listKeys` first, and no key that ends an
  * input method's composition is acted on. A press in it is what takes the keyboard
@@ -89,19 +89,22 @@ export function NoteField({
     notes.keep({ text, began: began.current }, mode === "note");
   }, [text, mode, notes]);
 
-  // In this field, whichever one a collapse left on screen. A question only in Ask: in Note it
-  // would be kept as a note.
-  const comeBack = useRef(() => {});
-  comeBack.current = () => {
+  // In this field, whichever one a collapse left on screen, and only in its own mode: a question
+  // in Note would be kept as a note, and a note in Ask would stop being kept for the Note.
+  const comeBack = useRef((_now: FieldMode) => {});
+  comeBack.current = (now) => {
     if (composing.current) return;
-    const kept = notes.draft();
-    const waiting = mode === "ask" ? notes.take() : "";
-    began.current = kept.began;
-    onText(waiting && kept.text ? `${waiting}\n${kept.text}` : waiting || kept.text);
+    const back = notes.take(now);
+    if (!back) return;
+    const kept = notes.draft().text;
+    if (back.began) began.current = back.began;
+    onText(kept ? `${back.text}\n${kept}` : back.text);
   };
-  useEffect(() => notes.watch(() => comeBack.current()), [notes]);
+  const modeNow = useRef(mode);
+  modeNow.current = mode;
+  useEffect(() => notes.watch(() => comeBack.current(modeNow.current)), [notes]);
   useEffect(() => {
-    if (mode === "ask") comeBack.current();
+    comeBack.current(mode);
   }, [mode]);
 
   const change = (value: string) => {
@@ -220,7 +223,7 @@ export function NoteField({
           onCompositionEnd={(event) => {
             composing.current = false;
             notes.keep({ text: event.currentTarget.value, began: began.current }, !asking);
-            comeBack.current();
+            comeBack.current(mode);
           }}
           onKeyDown={keyDown}
           className={`${fieldClass} ask-field-text`}

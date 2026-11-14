@@ -825,6 +825,23 @@ describe("the field's Note | Ask (#2925)", () => {
     expect(sentToCore()).not.toContain("Who signs the order form?");
   });
 
+  // protects=a quick note refused after the field went to Ask stays kept for the Note, without the question typed since, and comes back into the field the next time it is in Note, before what it holds, as a question waits for Ask; fails_when=the question is sent to the core as part of a note (which a Stop or a closed panel adds to the Note), or the note is lost; no_claim=the problem line.
+  test("a note refused after the field went to Ask is still kept for the Note without the question typed since, and is in the field the next time it is in Note", async () => {
+    const refused = Promise.withResolvers<AddedToNote>();
+    quickCore.addQuickNote.mockReturnValueOnce(refused.promise);
+    await show();
+    await type("Budget 40k");
+    await press("Enter");
+    await show(null, KEYS, { mode: "ask" });
+    await type("Who signs the order form?");
+    await act(async () => refused.reject(new Error("The note is read-only.")));
+    expect(field().value).toBe("Who signs the order form?");
+    expect(sentToCore().at(-1)).toBe("Budget 40k");
+    expect(sentToCore().some((text) => text.includes("Who signs"))).toBe(false);
+    await show(null, KEYS, { mode: "note" });
+    expect(field().value).toBe("Budget 40k\nWho signs the order form?");
+  });
+
   // protects=a question refused while an input method composes the next line leaves the composition alone and comes back before it once it is committed; fails_when=the field is rewritten mid-composition, or the question is lost after it; no_claim=a real input method's events.
   test("a question refused while an input method composes the next line comes back before it once it is committed", async () => {
     const refused = Promise.withResolvers<boolean>();
