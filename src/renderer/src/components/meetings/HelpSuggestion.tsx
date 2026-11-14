@@ -124,11 +124,19 @@ function CitationChip({
   );
 }
 
+const GRAPHEMES = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+
 /**
- * A line's last character, which the end's numbers hold to: only it, so a long last word or a link
- * still breaks where it must.
+ * A line's last character as it is read, a letter with its marks (a code point alone would split
+ * a Thai vowel sign or an accent from its letter), and the spaces after it. The end's numbers hold
+ * to only it, so a long last word or a link still breaks where it must.
  */
-const LAST_CHARACTER = /(\S)(\s*)$/u;
+function lastCharacter(text: string): { character: string; space: string } {
+  const words = text.trimEnd();
+  let character = "";
+  for (const { segment } of GRAPHEMES.segment(words)) character = segment;
+  return { character, space: text.slice(words.length) };
+}
 
 /**
  * A line's words and numbers. Once its reply has ended (`ended`), as it was written: each number
@@ -206,7 +214,7 @@ function Pieces({
     .slice(0, Math.max(0, last))
     .map((piece, index) => drawn(piece, `${piece.kind}-${index}`));
   if (lastPiece?.kind === "text") {
-    const [, character = "", space = ""] = LAST_CHARACTER.exec(lastPiece.text) ?? [];
+    const { character, space } = lastCharacter(lastPiece.text);
     const head = lastPiece.text.slice(0, lastPiece.text.length - character.length - space.length);
     nodes.push(
       <span key={`text-${last}`}>{head}</span>,

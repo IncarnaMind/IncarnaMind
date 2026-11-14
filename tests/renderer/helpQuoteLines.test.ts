@@ -557,6 +557,20 @@ describe("Under each line of call help, the app draws its Citations' quotes (#28
       expect(drawn()).toEqual([FOOT, []]);
     });
 
+    // protects=#3098: the end's numbers hold to a line's last character as it is read, never a mark split from its letter, which would show on a dotted circle; fails_when=the box holds only the accent or the Thai vowel sign, or the line's words change; no_claim=how a font draws them.
+    test.each([
+      ["an accent written as its own mark", "Yes, they meet at the café", "é"],
+      ["a Thai vowel sign", "ใช่ ราคานี้รวมทุกอย่างแล้วทุกที่", "ที่"],
+    ])(
+      "a line ending in %s keeps the whole letter where its numbers hold",
+      async (_, line, last) => {
+        await show("answer", answerOf(`★ ${line}`, [], "done"));
+        const [say] = all("help-option-say");
+        expect(say?.querySelector(".help-line-end")?.childNodes[0]?.textContent).toBe(last);
+        expect(say?.textContent).toBe(line);
+      },
+    );
+
     // protects=#3098: a number shown while the reply was written that ends with no Citation goes, and each number after it drops by one, as the sources number them: the line and the sources agree; fails_when=a number after it keeps its old number, or a line and its source show different numbers; no_claim=a number before it, which keeps its own.
     test("a number after one that ends with no Citation drops by one, and the sources agree", async () => {
       const lines = `★ Could you walk me through the Monday lunches [^1]\n→ invites detail\n\nIt's billed annually [^2]\n→ sets the term`;
