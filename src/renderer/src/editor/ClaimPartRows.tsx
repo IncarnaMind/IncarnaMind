@@ -243,7 +243,7 @@ export function useLookedIn(scope?: ClaimCheckScope): string {
  * (#2869). The quote opens the Document at it; its own menu (right-click, or the menu key on the
  * focused quote) opens it and signs it alone.
  */
-export function PartQuote({
+function PartQuote({
   editor,
   citation,
   decision,
