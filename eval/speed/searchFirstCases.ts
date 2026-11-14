@@ -11,6 +11,7 @@
  * before Phase A.
  */
 import type { PdfPage } from "../../tests/helpers/pdf";
+import { LOW_RANK_DOCUMENTS, LOW_RANK_ITEMS } from "./searchFirstLowRank";
 import { WRITTEN_DOCUMENTS, WRITTEN_ITEMS } from "./searchFirstWritten";
 
 export type SearchFirstKind = "right" | "twin" | "absent";
@@ -24,6 +25,14 @@ export interface SearchFirstItem {
   sentence: string;
   /** For a right sentence, the Document's lines that state it, as written. */
   rests?: readonly string[];
+  /**
+   * Who wrote it: the builder of the path, who knew it, or one of two writers told nothing of the
+   * check's code or the path (`searchFirstWritten.ts`, then `searchFirstLowRank.ts`). The report
+   * gives each writer's sentences apart.
+   */
+  writer: "builder" | "first-unaware" | "second-unaware";
+  /** For a sentence kept because its support ranks low, where its own search ranked it when kept. */
+  keptAt?: string;
 }
 
 export interface SearchFirstDocument {
@@ -125,6 +134,7 @@ export const SEARCH_FIRST_DOCUMENTS: readonly SearchFirstDocument[] = [
     pages: [{ chineseLines: ZH_NUMBERS }],
   },
   ...WRITTEN_DOCUMENTS,
+  ...LOW_RANK_DOCUMENTS,
 ];
 
 const en = (
@@ -136,6 +146,7 @@ const en = (
 ): SearchFirstItem => ({
   id: `en-${id}`,
   language: "en",
+  writer: "builder",
   kind,
   detail,
   sentence,
@@ -150,6 +161,7 @@ const zh = (
 ): SearchFirstItem => ({
   id: `zh-${id}`,
   language: "zh-CN",
+  writer: "builder",
   kind,
   detail,
   sentence,
@@ -360,4 +372,5 @@ export const SEARCH_FIRST_ITEMS: readonly SearchFirstItem[] = [
   zh("revenue-currency", "twin", "another currency", "2026年青岚收入为240万美元。"),
   zh("per-dock", "twin", "worked out wrong, a figure", "2026年末青岚平均每个停车点有20辆单车。"),
   ...WRITTEN_ITEMS,
+  ...LOW_RANK_ITEMS,
 ];

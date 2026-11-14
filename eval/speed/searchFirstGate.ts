@@ -189,7 +189,17 @@ export function searchFirstGateSection(
       const more = items.filter(
         (item, index) => item.kind !== "right" && supported(other, index) > supported(base, index),
       );
-      const right = { base: kindSum(base, "right"), other: kindSum(other, "right") };
+      // The right sentences whose support their own search ranks low or splits: the row that
+      // gates whether a right sentence keeps its Supported; the others are reported.
+      const low = (index: number) =>
+        items[index]?.kind === "right" && items[index]?.lowRank === true;
+      const lowSum = (arm: string) =>
+        sum(items.map((_, index) => (low(index) ? supported(arm, index) : 0)));
+      const right = { base: lowSum(base), other: lowSum(other) };
+      const otherRight = {
+        base: kindSum(base, "right") - right.base,
+        other: kindSum(other, "right") - right.other,
+      };
       // On a model that calls everything Supported, only the guards decide: none may let more through.
       const kept = items.filter((_, index) => supported(other, index) > supported(base, index));
       const share = (kind: string) => {
@@ -204,15 +214,26 @@ export function searchFirstGateSection(
         return { settled, asked: asked.length, text: `${settled} of ${asked.length}` };
       };
       const shares = ["right", "twin", "absent"].map(share);
+      const byWriter = [...new Set(items.map((item) => item.writer))].map((writer) => {
+        const supportedOf = (arm: string, right: boolean) =>
+          sum(
+            items.map((item, index) =>
+              item.writer === writer && (item.kind === "right") === right
+                ? supported(arm, index)
+                : 0,
+            ),
+          );
+        return `${writer}: right ${supportedOf(base, true)} → ${supportedOf(other, true)}, wrong ${supportedOf(base, false)} → ${supportedOf(other, false)}`;
+      });
       const fellBack = sum(shares.map((each) => each.asked - each.settled));
       const asked = sum(shares.map((each) => each.asked));
-      // Right sentences Supported per round on each arm, for the margin's rule.
+      // The row's right sentences Supported per round on each arm, for the margin's rule.
       const perRound = (arm: string) =>
         [...new Set(runs.filter((run) => run.checkArm === arm).map((run) => run.run))].map(
           (round) =>
             sum(
-              items.map((item, index) =>
-                item.kind === "right" &&
+              items.map((_, index) =>
+                low(index) &&
                 runs
                   .find((run) => run.checkArm === arm && run.run === round)
                   ?.landed.find((each) => each.sentence === index)?.verdict === "supported"
@@ -226,9 +247,11 @@ export function searchFirstGateSection(
       lines.push(
         "",
         `- **Wrong twins and absent sentences Supported:** ${base} ${kindSum(base, "twin")} + ${kindSum(base, "absent")}, ${other} ${kindSum(other, "twin")} + ${kindSum(other, "absent")}. Supported in more rounds on ${other} than on ${base}: ${more.map((item) => item.id).join(", ") || "none"}. **${more.length === 0 ? "Holds" : "Fails"}.**`,
-        `- **Right sentences Supported:** ${base} ${right.base}, ${other} ${right.other}${rightMargin === null ? "; no margin set, so not judged" : `, margin ${rightMargin}. **${right.other >= right.base - rightMargin ? "Holds" : "Fails"}.**`}`,
+        `- **Right sentences whose support ranks low or splits** (${items.filter((_, index) => low(index)).length} sentences, the gating row): Supported ${base} ${right.base}, ${other} ${right.other}${rightMargin === null ? "; no margin set, so not judged" : `, margin ${rightMargin}. **${right.other >= right.base - rightMargin ? "Holds" : "Fails"}.**`}`,
+        `- **The other right sentences** (reported): Supported ${base} ${otherRight.base}, ${other} ${otherRight.other}.`,
+        `- **By writer** (Supported, ${base} → ${other}): ${byWriter.join("; ")}.`,
         `- **Guards, any sentence:** Supported in more rounds on ${other} than on ${base}: ${kept.map((item) => item.id).join(", ") || "none"}. **${kept.length === 0 ? "Holds" : "Fails"}.**`,
-        `- **For the margin's rule:** right sentences Supported a round, ${base} ${perRound(base).join(", ")}, ${other} ${perRound(other).join(", ")}; the difference of the totals ${Math.abs(right.base - right.other)}, two standard errors of a total ${errors.toFixed(2)}.`,
+        `- **For the margin's rule:** the row's right sentences Supported a round, ${base} ${perRound(base).join(", ")}, ${other} ${perRound(other).join(", ")}; the difference of the totals ${Math.abs(right.base - right.other)}, two standard errors of a total ${errors.toFixed(2)}.`,
         `- **Settled in one reply on ${other}:** right ${shares[0]?.text}, wrong twins ${shares[1]?.text}, absent ${shares[2]?.text} (sentence-rounds); fell back ${fellBack} of ${asked}${asked > 0 ? ` (${((fellBack / asked) * 100).toFixed(0)}%)` : ""}.`,
       );
     }

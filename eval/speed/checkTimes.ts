@@ -371,7 +371,7 @@ export interface FlowTimes {
   /** For a Note's check: whether the Documents state each sentence, by its index. */
   stated?: boolean[];
   /** For a gate's Note (./searchFirstCases): each sentence's id and kind, by its index. */
-  items?: { id: string; kind: string; figure: boolean }[];
+  items?: { id: string; kind: string; figure: boolean; writer: string; lowRank: boolean }[];
   /** The check path an arm of #2532's gate runs: `main` or `search-first`, `#2` for a second of one name. */
   checkArm?: string;
   /** How each part of each sentence's first reply went, as the core told it. */

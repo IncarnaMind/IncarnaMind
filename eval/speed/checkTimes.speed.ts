@@ -77,6 +77,7 @@ import { dryRunModel } from "./dryRun";
 import { judgeOf } from "./judge";
 import { SEARCH_FIRST_DOCUMENTS, SEARCH_FIRST_ITEMS } from "./searchFirstCases";
 import { searchFirstGateSection } from "./searchFirstGate";
+import { LOW_RANK_CANDIDATES } from "./searchFirstLowRank";
 import { env, list, modelsAsked, spentUsd } from "./settings";
 import { unstatedSentences } from "./unstated";
 import { HELD_OUT_DOCUMENTS, HELD_OUT_ITEMS } from "./writtenHeldOut";
@@ -370,10 +371,19 @@ interface Ranked {
  * Passages that state it, as the check's search orders them (Cite…'s search, on the same Tool and
  * reranker). No model is asked.
  */
-async function ranksOf(core: Core, language: Language): Promise<Ranked[]> {
+async function ranksOf(core: Core, language: Language, candidates: boolean): Promise<Ranked[]> {
   const { id: mindId } = await core.createMind({ title: `Ranks ${language}` });
   const ranked: Ranked[] = [];
-  for (const item of HELD_NOTE(language)) {
+  const held = HELD_NOTE(language);
+  const asked = candidates
+    ? [
+        ...held,
+        ...LOW_RANK_CANDIDATES.filter(
+          (each) => each.language === language && !held.some((kept) => kept.id === each.id),
+        ),
+      ]
+    : held;
+  for (const item of asked) {
     if (item.kind !== "right" || !item.rests) continue;
     const found = await core.findPassages({ text: item.sentence, mindId, scope: null });
     // A table's row is read back as its cells, which its Passage lays out its own way.
@@ -827,8 +837,10 @@ timedChecks("where a check's time goes, on each model and language", async () =>
         },
         { timeout: 10 * 60_000, interval: 1000 },
       );
-      if (ranksAsked) ranked.push(...(await ranksOf(core, language)));
-      matrix: for (const model of ranksAsked === "only" ? [] : models) {
+      if (ranksAsked) ranked.push(...(await ranksOf(core, language, ranksAsked === "candidates")));
+      matrix: for (const model of ranksAsked === "only" || ranksAsked === "candidates"
+        ? []
+        : models) {
         const name = `${model.kind}/${model.modelId}`;
         const saved = await core.saveChatProvider(model);
         const choice: ChatModelChoice = { providerId: saved.id, modelId: model.modelId };
@@ -928,6 +940,8 @@ timedChecks("where a check's time goes, on each model and language", async () =>
                 items: HELD_NOTE(language).map((each) => ({
                   id: each.id,
                   kind: each.kind,
+                  writer: each.writer,
+                  lowRank: each.keptAt !== undefined,
                   figure: /\p{N}/u.test(each.sentence),
                 })),
               }),

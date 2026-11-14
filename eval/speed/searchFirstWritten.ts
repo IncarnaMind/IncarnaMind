@@ -314,6 +314,7 @@ export const WRITTEN_ITEMS: readonly SearchFirstItem[] = [
   {
     id: "w-para-en-1",
     language: "en",
+    writer: "first-unaware",
     kind: "right",
     detail: "paraphrase",
     sentence: "A local charity is given a found item after the depot has held it for 21 days.",
@@ -322,6 +323,7 @@ export const WRITTEN_ITEMS: readonly SearchFirstItem[] = [
   {
     id: "w-para-en-2",
     language: "en",
+    writer: "first-unaware",
     kind: "right",
     detail: "paraphrase",
     sentence:
@@ -333,6 +335,7 @@ export const WRITTEN_ITEMS: readonly SearchFirstItem[] = [
   {
     id: "w-para-zh-1",
     language: "zh-CN",
+    writer: "first-unaware",
     kind: "right",
     detail: "paraphrase",
     sentence: "运维员在每晚8点到10点之间更换电助力车的电池。",
@@ -341,6 +344,7 @@ export const WRITTEN_ITEMS: readonly SearchFirstItem[] = [
   {
     id: "w-para-zh-2",
     language: "zh-CN",
+    writer: "first-unaware",
     kind: "right",
     detail: "paraphrase",
     sentence: "电助力车的时速一到25公里，助力就会自动终止。",
@@ -349,6 +353,7 @@ export const WRITTEN_ITEMS: readonly SearchFirstItem[] = [
   {
     id: "w-near-en-1",
     language: "en",
+    writer: "first-unaware",
     kind: "right",
     detail: "near-passages",
     sentence: "In winter, a rebalancing van visits each Old Mill dock every 6 hours.",
@@ -357,6 +362,7 @@ export const WRITTEN_ITEMS: readonly SearchFirstItem[] = [
   {
     id: "w-near-en-2",
     language: "en",
+    writer: "first-unaware",
     kind: "right",
     detail: "near-passages",
     sentence: "Every 14 days, an e-assist bike gets a brake test.",
@@ -365,6 +371,7 @@ export const WRITTEN_ITEMS: readonly SearchFirstItem[] = [
   {
     id: "w-near-zh-1",
     language: "zh-CN",
+    writer: "first-unaware",
     kind: "right",
     detail: "near-passages",
     sentence: "老磨坊区每两周检查一次停车桩锁舌。",
@@ -373,6 +380,7 @@ export const WRITTEN_ITEMS: readonly SearchFirstItem[] = [
   {
     id: "w-near-zh-2",
     language: "zh-CN",
+    writer: "first-unaware",
     kind: "right",
     detail: "near-passages",
     sentence: "电助力车的刹车片每6个月换一次。",
@@ -381,6 +389,7 @@ export const WRITTEN_ITEMS: readonly SearchFirstItem[] = [
   {
     id: "w-two-en-1",
     language: "en",
+    writer: "first-unaware",
     kind: "right",
     detail: "two-passages",
     sentence: "A group ride may not include more than eight bikes.",
@@ -392,6 +401,7 @@ export const WRITTEN_ITEMS: readonly SearchFirstItem[] = [
   {
     id: "w-two-zh-1",
     language: "zh-CN",
+    writer: "first-unaware",
     kind: "right",
     detail: "two-passages",
     sentence: "申请月卡的骑行者须先缴纳120元的标准押金。",
@@ -399,7 +409,9 @@ export const WRITTEN_ITEMS: readonly SearchFirstItem[] = [
   },
   {
     id: "w-cross-zh-en",
+    keptAt: "not among the Passages its own search found, 2026-11-14",
     language: "zh-CN",
+    writer: "first-unaware",
     kind: "right",
     detail: "cross-language",
     sentence: "每辆单车都有一盏会在傍晚自动亮起的车灯。",
@@ -407,7 +419,9 @@ export const WRITTEN_ITEMS: readonly SearchFirstItem[] = [
   },
   {
     id: "w-cross-en-zh",
+    keptAt: "not among the Passages its own search found, 2026-11-14",
     language: "en",
+    writer: "first-unaware",
     kind: "right",
     detail: "cross-language",
     sentence: "A fully charged e-assist bike has a range of about 60 kilometres.",
@@ -416,6 +430,7 @@ export const WRITTEN_ITEMS: readonly SearchFirstItem[] = [
   {
     id: "w-table-en-1",
     language: "en",
+    writer: "first-unaware",
     kind: "right",
     detail: "table-cell",
     sentence: "The Kelvin Row district has 56 e-assist bays.",
@@ -424,6 +439,7 @@ export const WRITTEN_ITEMS: readonly SearchFirstItem[] = [
   {
     id: "w-table-zh-1",
     language: "zh-CN",
+    writer: "first-unaware",
     kind: "right",
     detail: "table-cell",
     sentence: "北门仓的电助力车每日维修量为18辆。",
