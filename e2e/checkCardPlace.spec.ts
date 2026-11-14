@@ -15,8 +15,8 @@ import {
 } from "./app";
 
 /*
- * A check card that opens with only its title and its price line opens above its badge, at the
- * smallest Note pane the app allows: the window at its least height with the assistant at the
+ * A check card that opens with only its title opens above its badge, at the smallest Note pane
+ * the app allows: the window at its least height with the assistant at the
  * side, and with it at the bottom, dragged as tall as it goes. Below its badge such a card would
  * hold a body a title high, and what lands in it would show nothing, so a change to the pane's
  * least height, the badge's place or the card's first lines must not bring that back unseen.
@@ -32,7 +32,7 @@ test.afterEach(async () => {
 
 for (const language of ["en", "zh-CN"] as const) {
   for (const layout of ["at the side", "at the bottom, dragged tallest"] as const) {
-    test(`a title-only card with its price line opens above its badge in the smallest Note pane, the assistant ${layout} (${language})`, async () => {
+    test(`a title-only card opens above its badge in the smallest Note pane, the assistant ${layout} (${language})`, async () => {
       test.setTimeout(120_000);
       const { app, window } = await launchApp(dataDir, { fakeChat: true });
       await dismissChatSetup(window);
@@ -51,7 +51,9 @@ for (const language of ["en", "zh-CN"] as const) {
       if (!pane) throw new Error("The Note's pane isn't drawn.");
 
       const card = await checkCard(window);
-      await expect(card.getByTestId("check-estimate")).toBeVisible();
+      // A cloud model's price line comes with sentences to price, and with them a row: a card with
+      // only its title has none, and its foot is the Check.
+      const priced = await card.getByTestId("check-estimate").count();
       await motionSettled(window);
       const [shown, badge] = await Promise.all([
         card.boundingBox(),
@@ -59,7 +61,7 @@ for (const language of ["en", "zh-CN"] as const) {
       ]);
       if (!shown || !badge) throw new Error("The card or its badge isn't drawn.");
       await test.info().attach(`pane-${layout}-${language}`, {
-        body: JSON.stringify({ pane: pane.height, card: shown, badge }),
+        body: JSON.stringify({ pane: pane.height, card: shown, badge, priced }),
         contentType: "application/json",
       });
       expect(pane.height, "the pane is the smallest the app allows").toBeLessThan(
