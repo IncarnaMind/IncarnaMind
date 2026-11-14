@@ -118,11 +118,88 @@ async function caretAtStart(window: Page, editor: Locator) {
   await window.mouse.move(0, 0);
 }
 
+/** The pointer has rested: a few frames have been drawn since it last moved. */
+const rested = (window: Page) =>
+  window.evaluate(
+    () =>
+      new Promise<void>((resolve) => {
+        let frames = 0;
+        const tick = () => (++frames < 5 ? requestAnimationFrame(tick) : resolve());
+        requestAnimationFrame(tick);
+      }),
+  );
+
+/** A dialog opens over the focused control and closes: the browser puts the focus back on it. */
+async function dialogOver(window: Page, control: Locator, how: "palette" | "settings") {
+  if (how === "palette") {
+    await window.keyboard.press("ControlOrMeta+k");
+    await expect(window.getByTestId("palette-search")).toBeFocused();
+    await window.keyboard.press("Escape");
+    await expect(window.getByTestId("palette")).toHaveCount(0);
+  } else {
+    await window.keyboard.press("ControlOrMeta+,");
+    await expect(window.locator("dialog[open]")).toHaveCount(1);
+    await window.keyboard.press("Escape");
+    await expect(window.locator("dialog[open]")).toHaveCount(0);
+  }
+  await expect(control).toBeFocused();
+}
+
+/**
+ * Coming back shows no card (#3102): the focus a dialog gives back to `control` opens nothing, so
+ * nothing covers the page; Space shows the card and goes in, so does the pointer on the control,
+ * and so does moving the focus away (`away`) and back (`back`). A card Space went into is kept as
+ * it is left by Esc.
+ */
+async function comesBackQuietly(
+  window: Page,
+  control: Locator,
+  card: Locator,
+  keys: { away: string; back: string },
+) {
+  const nothingShows = async () => {
+    await expect(control).toBeFocused();
+    await rested(window);
+    await expect(card).toHaveCount(0);
+    await rested(window);
+    await expect(card).toHaveCount(0);
+  };
+  await dialogOver(window, control, "palette");
+  await nothingShows();
+
+  await window.keyboard.press("Space");
+  await expect(card).toHaveCount(1);
+  await expect.poll(() => whereIsFocus(window)).toBe("card");
+  await window.keyboard.press("Escape");
+  await expect(control).toBeFocused();
+  await expect(card).toHaveCount(1);
+  await window.keyboard.press("Escape");
+  await expect(card).toHaveCount(0);
+
+  await dialogOver(window, control, "settings");
+  await nothingShows();
+  await control.hover();
+  await expect(card).toHaveCount(1);
+  await window.mouse.move(0, 0);
+  await expect(card).toHaveCount(0);
+
+  await dialogOver(window, control, "palette");
+  await nothingShows();
+  await window.keyboard.press(keys.away);
+  await expect(control).not.toBeFocused();
+  await window.keyboard.press(keys.back);
+  await expect(control).toBeFocused();
+  await expect(card).toHaveCount(1);
+}
+
 /** The Note as it is stored, so a key that typed into it shows. */
 const noteOf = (editor: Locator) =>
   editor.evaluate((dom) => JSON.stringify((dom as unknown as { editor: Editor }).editor.getJSON()));
 
-/** The ring on the focused stop: drawn for a key's focus, in the accent colour. */
+/**
+ * The ring on the focused stop: drawn for a key's focus, in the accent colour. A plot's bar is
+ * ringed by its fill going to the accent; everything else by an outline or a shadow in it.
+ */
 async function expectRing(window: Page, accent: string) {
   const ring = await window.evaluate(() => {
     const target = document.activeElement;
@@ -130,6 +207,8 @@ async function expectRing(window: Page, accent: string) {
     const style = getComputedStyle(target);
     return {
       keyboard: target.matches(":focus-visible"),
+      svg: target instanceof SVGElement,
+      fill: style.fill,
       line: style.outlineStyle,
       width: Number.parseFloat(style.outlineWidth),
       color: style.outlineColor,
@@ -137,71 +216,91 @@ async function expectRing(window: Page, accent: string) {
     };
   });
   expect(ring?.keyboard, "the focus is a key's").toBe(true);
-  const outlined = ring?.line !== "none" && (ring?.width ?? 0) > 0 && ring?.color === accent;
-  expect(outlined || (ring?.shadow ?? "none") !== "none", "the focus ring is drawn").toBe(true);
+  const drawn = ring?.svg
+    ? ring.fill === accent
+    : (ring?.line !== "none" && (ring?.width ?? 0) > 0 && ring?.color === accent) ||
+      (ring?.shadow ?? "").includes(accent);
+  expect(drawn, `the focus ring is drawn in the accent (${JSON.stringify(ring)})`).toBe(true);
 }
 
 const CHIP = "citation-chip";
 
+/** A Note with three Citations in one paragraph, in a window wide enough for Enter to open the page. */
+async function openThreeChips(language: "en" | "zh-CN") {
+  await writeFile(join(sources, "Tides.pdf"), TIDES);
+  const { app, window } = await launchApp(dataDir, { fakeChat: true, systemColours: true });
+  await dismissChatSetup(window);
+  // biome-ignore lint/correctness/useHookAtTopLevel: an e2e helper whose name begins with "use", not a React hook.
+  await useLocalChatModel(window);
+  await setLanguage(window, language);
+  await setWindowSize(app, window, 1600, 900);
+  await addDocuments(window, [join(sources, "Tides.pdf")]);
+  const [tides] = await window.evaluate(() =>
+    (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.listDocuments(),
+  );
+  await newMind(window);
+  const editor = window.getByTestId("mind-editor");
+  const cite = (at: number) => ({
+    type: "citation",
+    attrs: {
+      passageId: `passage-${at}`,
+      documentId: tides?.id,
+      documentName: "Tides",
+      contentHash: tides?.contentHash,
+      pageFrom: 1,
+      pageTo: 1,
+      location: null,
+      quote: "Harbours publish the times of high water every 12 months.",
+      check: "found",
+      checkReason: null,
+    },
+  });
+  const [first, second, third] = SENTENCES[language];
+  await editor.evaluate(
+    (dom, content) => {
+      (dom as unknown as { editor: Editor }).editor.commands.insertContentAt(0, content);
+    },
+    [
+      {
+        type: "paragraph",
+        content: [
+          { type: "text", text: first },
+          cite(1),
+          { type: "text", text: second },
+          cite(2),
+          { type: "text", text: third },
+          cite(3),
+        ],
+      },
+      { type: "paragraph", content: [{ type: "text", text: "·" }] },
+    ],
+  );
+  await expect(window.getByTestId(CHIP)).toHaveCount(3);
+  return { app, window, editor };
+}
+
+
 for (const language of ["en", "zh-CN"] as const) {
-  test(`three Citations in a paragraph: Tab goes from chip to chip the same at a person's pace and all at once, Space goes into a card and Tab and Esc come back, and Shift+Tab goes back (${language})`, async () => {
+  test(`walk: three Citations, the keys at a person's pace and all at once, Esc, Space and back (${language})`, async () => {
     test.setTimeout(240_000);
-    const t = (key: Parameters<typeof translate>[1]) => translate(language, key);
-    await writeFile(join(sources, "Tides.pdf"), TIDES);
-    const { app, window } = await launchApp(dataDir, { fakeChat: true, systemColours: true });
-    await dismissChatSetup(window);
-    await useLocalChatModel(window);
-    await setLanguage(window, language);
-    await setWindowSize(app, window, 1600, 900);
-    await addDocuments(window, [join(sources, "Tides.pdf")]);
-    const [tides] = await window.evaluate(() =>
-      (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.listDocuments(),
-    );
-    await newMind(window);
-    const editor = window.getByTestId("mind-editor");
-    const cite = (at: number) => ({
-      type: "citation",
-      attrs: {
-        passageId: `passage-${at}`,
-        documentId: tides?.id,
-        documentName: "Tides",
-        contentHash: tides?.contentHash,
-        pageFrom: 1,
-        pageTo: 1,
-        location: null,
-        quote: "Harbours publish the times of high water every 12 months.",
-        check: "found",
-        checkReason: null,
-      },
-    });
-    const [first, second, third] = SENTENCES[language];
-    await editor.evaluate(
-      (dom, content) => {
-        (dom as unknown as { editor: Editor }).editor.commands.insertContentAt(0, content);
-      },
-      [
-        {
-          type: "paragraph",
-          content: [
-            { type: "text", text: first },
-            cite(1),
-            { type: "text", text: second },
-            cite(2),
-            { type: "text", text: third },
-            cite(3),
-          ],
-        },
-        { type: "paragraph", content: [{ type: "text", text: "·" }] },
-      ],
-    );
-    await expect(window.getByTestId(CHIP)).toHaveCount(3);
-    const card = window.getByTestId("citation-card");
-    const hint = window.getByTestId("card-key-hint");
-    const chips = window.getByTestId(CHIP);
-
-
+    const { app, window, editor } = await openThreeChips(language);
     const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
     await window.evaluate(() => {
+      const bar = document.createElement("div");
+      bar.setAttribute("popover", "manual");
+      bar.style.cssText =
+        "position:fixed;left:12px;bottom:12px;top:auto;right:auto;margin:0;padding:6px 14px;border:0;border-radius:6px;background:#ffd400;color:#000;font:600 18px system-ui;";
+      bar.textContent = "key";
+      document.body.append(bar);
+      bar.showPopover();
+      document.addEventListener(
+        "keydown",
+        (event) => {
+          if (["Shift", "Control", "Alt", "Meta"].includes(event.key)) return;
+          bar.textContent = `${event.shiftKey ? "Shift+" : ""}${event.key === " " ? "Space" : event.key}`;
+        },
+        true,
+      );
       const holder = globalThis as unknown as { trace: { t: number; what: string }[] };
       holder.trace = [];
       const note = (what: string) =>
@@ -244,62 +343,80 @@ for (const language of ["en", "zh-CN"] as const) {
         contentType: "application/json",
       });
     };
-
-    // At a person's pace: about a third of a second between keys.
+    await window.mouse.move(0, 0);
     await caretAtStart(window, editor);
+    await pause(800);
     await walk("1-pace", async () => {
       for (let key = 0; key < 3; key++) {
         await window.keyboard.press("Tab");
-        await pause(350);
+        await pause(700);
       }
     });
-    // All at once.
     await window.keyboard.press("Escape");
-    await pause(400);
+    await pause(500);
     await caretAtStart(window, editor);
+    await pause(600);
     await walk("2-fast", async () => {
       await Promise.all([1, 2, 3].map(() => window.keyboard.press("Tab")));
+      await pause(900);
     });
-    await pause(400);
-    // Esc on a chip, then Tab; then Shift+Tab back.
     await window.keyboard.press("Escape");
     await pause(500);
     await caretAtStart(window, editor);
+    await pause(600);
     await walk("3-esc-then-tab-and-back", async () => {
       await window.keyboard.press("Tab");
-      await pause(400);
+      await pause(700);
       await window.keyboard.press("Escape");
-      await pause(400);
+      await pause(700);
       await window.keyboard.press("Tab");
-      await pause(400);
+      await pause(700);
       await window.keyboard.press("Tab");
-      await pause(400);
+      await pause(700);
       for (let key = 0; key < 3; key++) {
         await window.keyboard.press("Shift+Tab");
-        await pause(400);
+        await pause(700);
       }
     });
-    // Space in, Tab through, back by Tab, in again, back by Esc (on a build that has them).
     await window.keyboard.press("Escape");
+    await pause(500);
     await caretAtStart(window, editor);
     await window.keyboard.press("Tab");
-    await pause(500);
+    await pause(900);
     await walk("4-space-in", async () => {
       await window.keyboard.press("Space");
-      await pause(500);
+      await pause(900);
       await window.keyboard.press("Tab");
-      await pause(400);
+      await pause(700);
       await window.keyboard.press("Tab");
-      await pause(400);
+      await pause(700);
       await window.keyboard.press("Tab");
-      await pause(400);
+      await pause(900);
       await window.keyboard.press("Space");
-      await pause(500);
+      await pause(900);
       await window.keyboard.press("Escape");
-      await pause(500);
+      await pause(900);
       await window.keyboard.press("Escape");
-      await pause(500);
+      await pause(900);
     });
+    await window.keyboard.press("Escape");
+    await pause(500);
+    await caretAtStart(window, editor);
+    await window.keyboard.press("Tab");
+    await pause(900);
+    await walk("5-dialog-closes", async () => {
+      await window.keyboard.press("ControlOrMeta+k");
+      await pause(1000);
+      await window.keyboard.press("Escape");
+      await pause(1400);
+      await window.keyboard.press("Space");
+      await pause(1000);
+      await window.keyboard.press("Escape");
+      await pause(900);
+      await window.keyboard.press("Escape");
+      await pause(900);
+    });
+    await pause(600);
     await app.close();
   });
 }
