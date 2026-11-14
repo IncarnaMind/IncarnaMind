@@ -4504,6 +4504,7 @@ export const zhCN = {
   "citation.openAnyway.time": "仍然打开转写稿",
   "citation.remove": "删除这个引用",
   "citation.more": "这个引用的更多操作",
+  "card.useKey": "使用",
   "citation.regenerate": "重新生成回答",
   "citation.changedAfterCited": "此文档在被引用后有改动。",
   "citation.changedAfterCited.web":

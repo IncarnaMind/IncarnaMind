@@ -260,9 +260,9 @@ test("the action is reachable by the keyboard, and Enter takes it", async () => 
   const card = window.getByTestId("citation-card");
   const action = card.getByTestId("citation-use-document-wording");
   await expect(action).toBeVisible();
-  // Tab from the marker goes into the open card, and Enter presses the action.
+  // Space on the marker goes into the open card, and Enter presses the action.
   await citation.getByTestId("citation-chip").focus();
-  await window.keyboard.press("Tab");
+  await window.keyboard.press("Space");
   await expect(action).toBeFocused();
   await window.keyboard.press("Enter");
   await expect(citation).toHaveAttribute("data-check", "found");

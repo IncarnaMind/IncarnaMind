@@ -79,7 +79,9 @@ import { useQuotedWordsOnPage } from "../quotedWordsOnPage";
 import { recordUsage, useAppStore } from "../store";
 import { useKeptInside } from "../turnWall";
 import { pageDate } from "../webPages";
+import { CardKeyHint } from "./CardKeyHint";
 import { CitationQuotedWords } from "./CitationQuotedWords";
+import { enterCard, goingElsewhere, isSpaceKey, returnAtEnds } from "./cardFocus";
 import {
   type ClusterPlace,
   citationClusters,
@@ -110,6 +112,7 @@ import {
 } from "./mindContext";
 import { Popover } from "./Popover";
 import { onPeek, peekCitation, useCitationPeek } from "./peek";
+import { keyboardTakesOver, onKeyboardTakesOver, pointerMayAsk } from "./pointerRest";
 import { isQuietFocus } from "./quietFocus";
 import { SignOffLine, SignOffToggle } from "./SignOff";
 import { StyledRuns, StyledRunView } from "./StyledRuns";
@@ -262,10 +265,19 @@ export function CitationView({
   /** Clicked: the card stays until it is dismissed. */
   const [pinned, setPinned] = useState(false);
   /** Hovered or focused, with the card, the marker or its mark. */
-  const { peeking, hold, clear: clearPeek } = useCitationPeek();
+  const { peeking, byKeyboard, hold, dropPointer, clear: clearPeek } = useCitationPeek();
+  /** The focus is in the card: Space on the marker went in (#3102). */
+  const [inCard, setInCard] = useState(false);
   const open = pinned || peeking;
   /** Shown, and what ⌘K's "Open cited page" acts on: not while it waits in a folded assistant (#2270). */
   const cardShown = open && !assistantFolded;
+  // A card taken away with the focus in it sends no blur.
+  useEffect(() => {
+    if (!cardShown) {
+      setInCard(false);
+      enteredBySpace.current = false;
+    }
+  }, [cardShown]);
   const marker = useRef<HTMLButtonElement>(null);
   /** Whether the editor took the marker's last press to extend the selection. */
   const pressTaken = useRef(false);
@@ -302,10 +314,16 @@ export function CitationView({
   useEffect(() => {
     const element = marker.current;
     const stop = element && onPeek(element, ({ source, on }) => hold(source, on));
+    const letGo = onKeyboardTakesOver((taker) => {
+      if (taker === element) return;
+      pointed.current = null;
+      dropPointer();
+    });
     return () => {
       stop?.();
+      letGo();
     };
-  }, [hold]);
+  }, [hold, dropPointer]);
 
   /**
    * Opens the cited place, or the Document; amber when opened anyway after "not found".
@@ -455,17 +473,26 @@ export function CitationView({
           if (applyCitationWording(editor, mindId, mindDoc, wordingFix.citation)) dismiss();
         }
       : null;
-  /** The open card: Tab from the marker goes into it, so its buttons are reached from the keyboard. */
+  /** The open card; Space on the marker goes into it, and Tab from the marker never does (#3102). */
   const cardRef = useRef<HTMLDivElement>(null);
-  const tabIntoCard = (event: ReactKeyboardEvent<HTMLButtonElement>) => {
-    if (event.key !== "Tab" || event.shiftKey || !open) return;
-    const first = cardRef.current?.querySelector<HTMLElement>(
-      "button:not([tabindex='-1']), a[href], input, select, textarea",
-    );
-    if (!first) return;
+  /** Space came before the card was drawn: it takes the focus as it is. */
+  const enterWhenDrawn = useRef(false);
+  /** Space went in: Esc goes back to the marker. A card the User clicked into closes on Esc, as it did. */
+  const enteredBySpace = useRef(false);
+  const enterCardFromMarker = (event: ReactKeyboardEvent<HTMLButtonElement>) => {
+    if (!isSpaceKey(event)) return;
+    // Not the click Space makes on a button, and not a space typed into the Note.
     event.preventDefault();
-    first.focus();
+    enteredBySpace.current = true;
+    if (!event.repeat) enterWhenDrawn.current = !enterCard(cardRef.current);
   };
+  const cardEntry = useRef({
+    focus: () => {
+      if (!enterWhenDrawn.current) return;
+      enterWhenDrawn.current = false;
+      enterCard(cardRef.current);
+    },
+  });
   const choices = {
     update: recheckAsked && newVersion ? updateSentence : null,
     keepOld: recheckAsked && lookedAt ? keepOldVersion : null,
@@ -547,6 +574,8 @@ export function CitationView({
       : memberMarker(editor.view.dom, inCluster.cluster, work);
   /** Shows the card of the Citation the pointer is over, and hides the one it left. */
   const pointAt = (target: HTMLElement | null) => {
+    // A pointer the keyboard took the card from asks again only when it moves (#3102).
+    if (target && !pointerMayAsk()) return;
     const before = pointed.current;
     if (before === target) return;
     pointed.current = target;
@@ -589,6 +618,7 @@ export function CitationView({
         title={styled.kind === "runs" ? undefined : label}
         aria-haspopup="dialog"
         aria-expanded={open}
+        aria-keyshortcuts="Space"
         // Keep the editor's selection and focus where they are. A Shift-press with something to
         // extend is the Note's, which extends the selection through the Citation before this
         // (ShiftClickSelection, #2279); a press it didn't take is kept here, as before.
@@ -602,11 +632,20 @@ export function CitationView({
         // loaded grows and moves up off it, which a Citation that only heard moves took as a leave.
         onPointerOver={(event) => pointAt(markerOfWork(workAt(event.target, inCluster)))}
         onPointerLeave={() => pointAt(null)}
+        // The keyboard's focus shows the card at once; going to another stop takes it away at once.
         onFocus={(event) => {
-          if (!isQuietFocus(event.currentTarget)) hold("focus", true);
+          enteredBySpace.current = false;
+          if (isQuietFocus(event.currentTarget)) return;
+          if (event.currentTarget.matches(":focus-visible")) keyboardTakesOver(event.currentTarget);
+          hold("focus", true, true);
         }}
-        onBlur={() => hold("focus", false)}
-        onKeyDown={tabIntoCard}
+        onBlur={(event) =>
+          hold("focus", false, goingElsewhere(event.relatedTarget, cardRef.current))
+        }
+        onKeyDown={enterCardFromMarker}
+        onKeyUp={(event) => {
+          if (isSpaceKey(event)) event.preventDefault();
+        }}
         onClick={(event) => {
           // A Shift-press the editor took extended the selection, so it is not an activation of
           // the Citation; a key's click, or a press with nothing to extend, still is.
@@ -667,13 +706,38 @@ export function CitationView({
             anchor={marker.current}
             placement="top"
             onDismiss={dismiss}
+            initialFocus={cardEntry}
             aria-label={label}
             data-testid="citation-card"
             data-check={state.check}
-            onPointerEnter={() => hold("card", true)}
+            onPointerEnter={() => {
+              if (pointerMayAsk()) hold("card", true);
+            }}
+            // A pointer at rest in the card, which the keyboard took it from, holds it again by moving.
+            onPointerMove={() => {
+              if (pointerMayAsk()) hold("card", true);
+            }}
             onPointerLeave={() => hold("card", false)}
-            onFocus={() => hold("card-focus", true)}
-            onBlur={() => hold("card-focus", false)}
+            onFocus={() => {
+              setInCard(true);
+              hold("card-focus", true, true);
+            }}
+            onBlur={(event) => {
+              setInCard(false);
+              hold(
+                "card-focus",
+                false,
+                goingElsewhere(event.relatedTarget, event.currentTarget, marker.current),
+              );
+            }}
+            onKeyDown={(event) => {
+              returnAtEnds(event, event.currentTarget, marker.current);
+              // Esc goes back to the marker, which a second Esc closes the card from.
+              if (event.key !== "Escape" || event.nativeEvent.isComposing) return;
+              if (!enteredBySpace.current) return;
+              event.preventDefault();
+              marker.current?.focus();
+            }}
           >
             <CitationCard
               card={cardRef}
@@ -725,6 +789,7 @@ export function CitationView({
           </Popover>,
           document.body,
         )}
+      <CardKeyHint card={cardRef} shown={cardShown && byKeyboard && !pinned && !inCard} />
     </NodeViewWrapper>
   );
 }

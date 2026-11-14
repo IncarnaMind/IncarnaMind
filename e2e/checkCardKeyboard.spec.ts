@@ -542,12 +542,17 @@ for (const language of ["en", "zh-CN"] as const) {
       await window.keyboard.press("Tab");
     }
     await expect(mark).toBeFocused();
-    await window.keyboard.press("Enter");
+    // The card is open as the mark takes the focus, and Enter goes into it.
     await expect(card).toHaveAttribute("data-check", "supported");
+    await window.keyboard.press("Enter");
     await expect(card.locator("button").first()).toBeFocused();
+    // Esc goes back to the mark, which a second Esc closes the card from (#3102).
+    await window.keyboard.press("Escape");
+    await expect(mark).toBeFocused();
+    await expect(card).toHaveAttribute("data-check", "supported");
     await window.keyboard.press("Escape");
     await expect(card).toHaveCount(0);
-    await expect(editor).toBeFocused();
+    await expect(mark).toBeFocused();
     expect(await caretOf(editor)).toBe(markCaret);
 
     // A card still checking has no action: its mark keeps the focus, and Tab moves on past the card.

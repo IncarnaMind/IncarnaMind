@@ -87,13 +87,20 @@ import {
   citationsOf,
   quotedWordsAsks,
 } from "./alreadyCited";
+import { CardKeyHint } from "./CardKeyHint";
 import { ChangedCitations } from "./ChangedSourceNotice";
 import { CheckedByLine } from "./CheckedByLine";
 import { ChooseCitationAction } from "./ChooseCitationAction";
 import { ClaimOutline } from "./ClaimOutline";
 import { ClaimPartRows, citesMore, type PartCitations } from "./ClaimPartRows";
 import { CorrectButton, CorrectionConflict } from "./CorrectionOffer";
-import { focusFirstAction, keepFocusInside } from "./cardFocus";
+import {
+  focusFirstAction,
+  goingElsewhere,
+  isSpaceKey,
+  keepFocusInside,
+  returnAtEnds,
+} from "./cardFocus";
 import { useCardPlace } from "./checkPlace";
 import type { NumberedCitation } from "./citationNumbers";
 import { useReadableQuote } from "./citationScan";
@@ -112,6 +119,7 @@ import { ConversationIdContext, MindIdContext, useCitedOrigin } from "./mindCont
 import { checkOpinion, opinionChecks } from "./opinionChecks";
 import { Popover } from "./Popover";
 import { PropertySource } from "./PropertySource";
+import { keyboardTakesOver, onKeyboardTakesOver, pointerMayAsk } from "./pointerRest";
 import { isQuietFocus } from "./quietFocus";
 import { RecordCiteResults } from "./RecordCiteResults";
 import { readDocumentsText } from "./readDocumentsText";
@@ -193,6 +201,11 @@ export function ClaimMark({
   const pinned = useChecks((store) => store.openClaim[place] === id);
   const requestedFocus = useChecks((store) => store.focusClaim[place] === id);
   const [peeking, setPeeking] = useState(false);
+  /** Shown only because of the keyboard's focus: no pointer and no pin asks for it (#3102). */
+  const [byKeyboard, setByKeyboard] = useState(false);
+  /** The focus is in the card: Space or Enter on the mark went in. */
+  const [inCard, setInCard] = useState(false);
+  const enteredFromMark = useRef(false);
   const askers = useRef(new Set<string>());
   const timer = useRef<number | undefined>(undefined);
   const card = useRef<HTMLDivElement>(null);
@@ -200,6 +213,10 @@ export function ClaimMark({
   /** Whether the card was opened with the keyboard, whose Esc gives the caret back (#1762). */
   const openedByKeyboard = useRef(false);
   const open = claim.kind !== "chart" && (pinned || peeking);
+  // A card taken away with the focus in it sends no blur.
+  useEffect(() => {
+    if (!open) setInCard(false);
+  }, [open]);
   const onPage = useQuotedWordsOnPage(
     (state === "supported" || awaiting) && claim.kind !== "chart"
       ? quotedWordsAsks(editor.state, claim)
@@ -226,13 +243,39 @@ export function ClaimMark({
         state: reading ? t("claim.state.checking") : heading,
       });
 
-  const hold = useCallback((source: string, on: boolean) => {
+  /** `now`: the keyboard's focus shows or hides the card at once; the pointer waits (#3102). */
+  const hold = useCallback((source: string, on: boolean, now = false) => {
     if (on) askers.current.add(source);
     else askers.current.delete(source);
     window.clearTimeout(timer.current);
     const wanted = askers.current.size > 0;
-    timer.current = window.setTimeout(() => setPeeking(wanted), wanted ? SHOW_MS : HIDE_MS);
+    const settle = () => {
+      setPeeking(wanted);
+      setByKeyboard(
+        wanted && [...askers.current].every((each) => each === "focus" || each === "card-focus"),
+      );
+    };
+    if (now) settle();
+    else timer.current = window.setTimeout(settle, wanted ? SHOW_MS : HIDE_MS);
   }, []);
+  /** Lets go of what the pointer holds, as another control's keyboard focus takes over (#3102). */
+  const dropPointer = useCallback(() => {
+    askers.current.delete("pointer");
+    askers.current.delete("card");
+    window.clearTimeout(timer.current);
+    const wanted = askers.current.size > 0;
+    setPeeking(wanted);
+    setByKeyboard(
+      wanted && [...askers.current].every((each) => each === "focus" || each === "card-focus"),
+    );
+  }, []);
+  useEffect(
+    () =>
+      onKeyboardTakesOver((taker) => {
+        if (taker !== button) dropPointer();
+      }),
+    [button, dropPointer],
+  );
   const sourcePickerChanged = useCallback(
     (open: boolean) => {
       sourcePickerOpen.current = open;
@@ -244,9 +287,11 @@ export function ClaimMark({
     askers.current.clear();
     window.clearTimeout(timer.current);
     openedByKeyboard.current = false;
+    enteredFromMark.current = false;
     closeOpenClaim(place, id);
     setClaimFocus(place, null);
     setPeeking(false);
+    setByKeyboard(false);
   }, [place, id]);
   useEffect(() => () => window.clearTimeout(timer.current), []);
 
@@ -264,6 +309,7 @@ export function ClaimMark({
     if (!open) {
       openedByKeyboard.current = false;
       parked.current = false;
+      enteredFromMark.current = false;
     }
   }, [open]);
   // A new verdict can take the focused action away: the focus would fall to the page, not the Mind.
@@ -335,12 +381,33 @@ export function ClaimMark({
         aria-expanded={open}
         // Keep the editor's selection and focus where they are.
         onMouseDown={(event) => event.preventDefault()}
-        onPointerEnter={() => hold("pointer", true)}
-        onPointerLeave={() => hold("pointer", false)}
-        onFocus={(event) => {
-          if (!isQuietFocus(event.currentTarget)) hold("focus", true);
+        onPointerEnter={() => {
+          if (pointerMayAsk()) hold("pointer", true);
         }}
-        onBlur={() => hold("focus", false)}
+        onPointerMove={() => {
+          if (pointerMayAsk()) hold("pointer", true);
+        }}
+        onPointerLeave={() => hold("pointer", false)}
+        aria-keyshortcuts={claim.kind === "chart" ? undefined : "Space Enter"}
+        onFocus={(event) => {
+          enteredFromMark.current = false;
+          if (isQuietFocus(event.currentTarget)) return;
+          if (event.currentTarget.matches(":focus-visible")) keyboardTakesOver(event.currentTarget);
+          hold("focus", true, true);
+        }}
+        onBlur={(event) => hold("focus", false, goingElsewhere(event.relatedTarget, card.current))}
+        // Space and Enter go into the card the focus shows; they don't pin it (#3102).
+        onKeyDown={(event) => {
+          if (claim.kind === "chart" || event.nativeEvent.isComposing) return;
+          if (!isSpaceKey(event) && !(event.key === "Enter" && !event.shiftKey)) return;
+          event.preventDefault();
+          if (event.repeat) return;
+          enteredFromMark.current = true;
+          setClaimFocus(place, id);
+        }}
+        onKeyUp={(event) => {
+          if (isSpaceKey(event)) event.preventDefault();
+        }}
         onClick={(event) => {
           if (claim.kind === "chart") {
             void openFigureSchedule(mindId).catch(useAppStore.getState().reportError);
@@ -383,11 +450,37 @@ export function ClaimMark({
             })}
             data-testid="claim-card"
             data-check={state}
-            onPointerEnter={() => hold("card", true)}
+            onPointerEnter={() => {
+              if (pointerMayAsk()) hold("card", true);
+            }}
+            onPointerMove={() => {
+              if (pointerMayAsk()) hold("card", true);
+            }}
             onPointerLeave={() => hold("card", false)}
-            onFocus={() => hold("card-focus", true)}
-            onBlur={() => hold("card-focus", false)}
-            onKeyDown={(event) => keepFocusInside(event, event.currentTarget)}
+            onFocus={() => {
+              setInCard(true);
+              hold("card-focus", true, true);
+            }}
+            onBlur={(event) => {
+              setInCard(false);
+              hold(
+                "card-focus",
+                false,
+                goingElsewhere(event.relatedTarget, event.currentTarget, button),
+              );
+            }}
+            onKeyDown={(event) => {
+              if (!enteredFromMark.current) {
+                keepFocusInside(event, event.currentTarget);
+                return;
+              }
+              // Gone into from the mark: its ends and Esc lead back to the mark, not round the card (#3102).
+              returnAtEnds(event, event.currentTarget, button);
+              if (event.key !== "Escape" || event.nativeEvent.isComposing) return;
+              event.preventDefault();
+              openedByKeyboard.current = false;
+              button.focus();
+            }}
           >
             <ClaimCard
               rootRef={card}
@@ -509,6 +602,7 @@ export function ClaimMark({
           </Popover>,
           document.body,
         )}
+      <CardKeyHint card={card} shown={open && byKeyboard && !pinned && !inCard} />
     </>
   );
 }
