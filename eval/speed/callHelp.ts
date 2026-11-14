@@ -54,7 +54,7 @@ import { JUDGE_FAILED } from "./callHelpMarksReport";
 import { CALL_HELP_TYPED } from "./callHelpTyped";
 import { CALL_HELP_TYPED_FRESH } from "./callHelpTypedFresh";
 import { CALL_HELP_TYPED_FRESH2 } from "./callHelpTypedFresh2";
-import { CALL_HELP_TYPED_LANGUAGE } from "./callHelpTypedLanguage";
+import { CALL_HELP_TYPED_LANGUAGE, CALL_HELP_TYPED_MIXED } from "./callHelpTypedLanguage";
 import { NO_JUDGE } from "./judge";
 import {
   type GroupOptions,
@@ -931,6 +931,7 @@ type CallHelpSet =
   | "call-help-typed-fresh"
   | "call-help-typed-fresh-2"
   | "call-help-typed-language"
+  | "call-help-typed-mixed"
   | "call-help-typed-saved";
 
 const CASES: Readonly<Record<CallHelpSet, readonly CallHelpCase[]>> = {
@@ -945,6 +946,7 @@ const CASES: Readonly<Record<CallHelpSet, readonly CallHelpCase[]>> = {
   "call-help-typed-fresh": CALL_HELP_TYPED_FRESH,
   "call-help-typed-fresh-2": CALL_HELP_TYPED_FRESH2,
   "call-help-typed-language": CALL_HELP_TYPED_LANGUAGE,
+  "call-help-typed-mixed": CALL_HELP_TYPED_MIXED,
   // The confirming round's cases again, run only to save the replies a build writes for the quote
   // lines' replay: nothing in it is graded.
   "call-help-typed-saved": CALL_HELP_TYPED_FRESH2,
@@ -953,6 +955,7 @@ const CASES: Readonly<Record<CallHelpSet, readonly CallHelpCase[]>> = {
 /** The sets read by hand, which run with no judge; every other needs one. */
 const READ_BY_HAND: ReadonlySet<CallHelpSet> = new Set([
   "call-help-typed-language",
+  "call-help-typed-mixed",
   "call-help-typed-saved",
 ]);
 

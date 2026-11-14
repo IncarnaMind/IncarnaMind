@@ -57,6 +57,7 @@ export const SET_IDS = [
   "call-help-typed-fresh",
   "call-help-typed-fresh-2",
   "call-help-typed-language",
+  "call-help-typed-mixed",
   "call-help-typed-saved",
   "call-help-earlier-calls",
   "call-help-earlier-calls-2",

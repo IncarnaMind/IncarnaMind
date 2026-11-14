@@ -94,6 +94,7 @@ function groupsOf(set: SetId, cacheDir: string): PairedGroup[] {
     case "call-help-typed-fresh":
     case "call-help-typed-fresh-2":
     case "call-help-typed-language":
+    case "call-help-typed-mixed":
     case "call-help-typed-saved":
       return callHelpSet(set);
     case "call-help-earlier-calls":

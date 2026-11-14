@@ -14,7 +14,10 @@ import { CALL_HELP_CASES, callOf, TRANSCRIPT } from "../../eval/speed/callHelpCa
 import { CALL_HELP_TYPED } from "../../eval/speed/callHelpTyped";
 import { CALL_HELP_TYPED_FRESH } from "../../eval/speed/callHelpTypedFresh";
 import { CALL_HELP_TYPED_FRESH2 } from "../../eval/speed/callHelpTypedFresh2";
-import { CALL_HELP_TYPED_LANGUAGE } from "../../eval/speed/callHelpTypedLanguage";
+import {
+  CALL_HELP_TYPED_LANGUAGE,
+  CALL_HELP_TYPED_MIXED,
+} from "../../eval/speed/callHelpTypedLanguage";
 import { NO_JUDGE } from "../../eval/speed/judge";
 import { openLedger } from "../../eval/speed/ledger";
 import { runOnArm, setsNeedingJudge } from "../../eval/speed/paired";
@@ -114,7 +117,8 @@ async function pressed(
     | "call-help"
     | "call-help-typed"
     | "call-help-typed-fresh"
-    | "call-help-typed-language" = "call-help",
+    | "call-help-typed-language"
+    | "call-help-typed-mixed" = "call-help",
   /** The model answering; `helping`'s by default. */
   answering: (quote: string, calls: ModelCall[]) => ReturnType<typeof helping> = helping,
 ) {
@@ -447,7 +451,7 @@ describe("The typed question's language slice (#2925)", { timeout: 120_000 }, ()
   const told = {
     "en-language-terms": "English",
     "en-language-person": "English",
-    "en-language-short": "English",
+    "en-language-short": "its own words",
     "en-language-title": "English",
     "fr-language": "French",
     "de-language": "German",
@@ -460,7 +464,9 @@ describe("The typed question's language slice (#2925)", { timeout: 120_000 }, ()
         calls.push(call);
         if (!call.prompt.includes("typed a question about it")) return helpingReply(quote, call);
         if (call.json) return { text: JSON.stringify({ citations: [] }) };
-        const language = /- Write in ([^,]+), the language/.exec(call.prompt)?.[1] ?? "";
+        const language =
+          /- Write in ([^,]+), the language/.exec(call.prompt)?.[1] ??
+          (call.prompt.includes("own words in the Question") ? "its own words" : "");
         return { text: `Written in ${language}.` };
       },
       { judgesItsAnswers: true },
@@ -557,6 +563,35 @@ describe("The typed question's language slice (#2925)", { timeout: 120_000 }, ()
       CALL_HELP_TYPED_FRESH2.map((each) => each.id),
     );
   });
+
+  // protects=the mixed slice is six questions in both scripts the reader can't tell, on the first round's English call and its Chinese twin, each run through the runner with no judge, told the language of its own words and written once; fails_when=a case is missing, one is told a named language, it needs a judge, or a reply in the language it was told is written again; no_claim=what a real model writes.
+  test.each(CALL_HELP_TYPED_MIXED.map((each) => [each.id]))(
+    "%s runs with no judge, told the language of its own words",
+    async (id) => {
+      expect(
+        setsNeedingJudge(
+          callHelpSet("call-help-typed-mixed").flatMap((group) => group.items),
+          false,
+        ),
+      ).toEqual([]);
+      const { run, calls } = await pressed(
+        id,
+        "Contracts run for 24 months.",
+        null,
+        undefined,
+        "call-help-typed-mixed",
+        inToldLanguage,
+      );
+      expect(run.status, run.error ?? "").toBe("done");
+      const typed = calls.filter(
+        (call) => !call.json && call.prompt.includes("typed a question about it"),
+      );
+      expect(typed).toHaveLength(1);
+      expect(typed[0]?.prompt).toContain(
+        "- Write in the language of the User's own words in the Question: a name or a term it quotes from another language doesn't change it.",
+      );
+    },
+  );
 
   test("seven questions on the first round's English call, each after its button", () => {
     const call = CALL_HELP_TYPED.find((each) => each.id === "en-typed-said");
