@@ -127,11 +127,13 @@ function generatedText(options: GenerateOptions): string {
  * A slow check holds until a test releases it through `incarnamindSlowCheck`, so a window test can
  * open a Citation whose sentence is still judged without leaning on a time (#2375). `holdSort`
  * holds a Note's sort after the first sentence it names, so a window test sees that sentence's
- * check start while the rest are named (#1624).
+ * check start while the rest are named (#1624). `holdCite` holds a reply's cite call, so a window
+ * test sees the numbers a call help reply writes before its quotes come (#2847).
  */
 const slowCheck = {
   hold: false,
   holdSort: false,
+  holdCite: false,
   waiting: [] as (() => void)[],
   /** What each step in `waiting` is: a step of a sentence's check Run, or another. */
   kinds: [] as ("check-run" | "other")[],
@@ -422,6 +424,9 @@ export const createFakeChatModel: ChatModelFactory = (spec) => {
             return;
           }
           if (holds && part.type === "stream-start") await holdUntilStopped();
+          if (slowCheck.holdCite && part.type === "tool-call" && part.toolName === "cite") {
+            await held("other");
+          }
           if (halfway && part.type === "tool-input-delta") {
             if (headings >= 2) await holdUntilStopped();
             if (part.delta.includes("##")) headings++;

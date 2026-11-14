@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type {
+  CitationCheckReason,
   ConversationAnswer,
   MarkedCitation,
   MeetingHelp,
@@ -63,6 +64,21 @@ export function useHelpAnswer(
 }
 
 /**
+ * Why a quote wasn't found or can't be checked, where the Citation card says it in one line: a
+ * Folder kept inside or a word a scan may have misread the card says otherwise.
+ */
+const SAID_WHY = [
+  "quote-not-on-pages",
+  "quoted-words-not-on-pages",
+  "pages-outside-passage",
+  "too-many-pages",
+  "in-several-places",
+  "no-text",
+  "picture",
+  "document-removed",
+] as const satisfies readonly CitationCheckReason[];
+
+/**
  * A Citation's number in a line the model wrote: a plain source, never a ✓ (#2847). Its quote's
  * state shows as main shows it, not found among them, with why on hover.
  */
@@ -82,10 +98,11 @@ function CitationChip({
   const source = citation ? citationSource(citation, t).text : null;
   const pointsTo =
     source && started ? t("citation.where", { document: source, location: started }) : source;
-  const why =
+  const reason =
     citation?.check === "not-found" || citation?.check === "cant-check"
-      ? citation.checkReason && t(`citation.reason.${citation.checkReason}`)
-      : null;
+      ? SAID_WHY.find((each) => each === citation.checkReason)
+      : undefined;
+  const why = reason && t(`citation.reason.${reason}`);
   return (
     <span
       data-testid="help-citation"

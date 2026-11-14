@@ -30,6 +30,7 @@ import type { FakeTranscriberOptions } from "../src/core/transcription/fake";
 import { LOG_FILE } from "../src/main/log";
 import { EVENT_CHANNEL } from "../src/shared/bridge";
 import type { DocumentLocation } from "../src/shared/documentViewer";
+import { fittedQuote, momentFound } from "../src/shared/helpQuotes";
 import { translate } from "../src/shared/i18n";
 import { defaultHelpKeys, HELP_SHORTCUTS, type HelpKeys } from "../src/shared/meetingHelp";
 import type { TestHooks } from "../src/shared/testHooks";
@@ -510,15 +511,25 @@ export async function panelOf(app: ElectronApplication): Promise<Page> {
   return page;
 }
 
+/** A quote line or moment line under a help suggestion's line, as the User sees it (#2847). */
+export interface QuoteLineShown {
+  state: string;
+  words: string;
+  numbers: string[];
+  found: boolean;
+}
+
 /**
- * Each Citation a help suggestion shows has its ✓ exactly where the sentence check passed the line
- * it is cited on, as the core recorded it once every mark settled (#2847): never from a found quote
- * alone. Returns each chip's check, for a spec that names what the check gave a line.
+ * The quote lines under a help suggestion's lines once its reply has ended (#2847), each checked
+ * against what the core recorded: a ✓ only beside words the app found word for word, a Citation's
+ * quote it drew or a plain moment's words found in the cited place, and never in a line the model
+ * wrote. Returns each line, in order.
  */
-export async function expectMarksAsChecked(
+export async function expectQuoteLines(
   window: Page,
   suggestion: Locator,
-): Promise<{ at: number; check: string; passed: boolean }[]> {
+): Promise<QuoteLineShown[]> {
+  await expect(suggestion).toHaveAttribute("data-status", "done", { timeout: 20_000 });
   const help = await window.evaluate(async () => {
     const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
     const live = (await bridge.listMeetings()).find(
@@ -527,36 +538,49 @@ export async function expectMarksAsChecked(
     return live?.help ?? null;
   });
   if (!help) throw new Error("The meeting has no help reply.");
-  const settled = async () =>
-    window.evaluate(async ({ conversationId, answerId }) => {
-      const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-      const { messages } = await bridge.getConversation(conversationId);
-      const answer = messages.find((message) => message.id === answerId);
-      if (answer?.kind !== "answer" || answer.status === "streaming") return null;
-      if (answer.citations.some((citation) => citation.check === "checking")) return null;
-      return answer.citations.map(({ marker, check, passedAt }) => ({
-        marker,
-        check,
-        passedAt: passedAt ?? [],
-      }));
-    }, help);
-  await expect.poll(settled, { timeout: 20_000 }).not.toBeNull();
-  const citations = (await settled()) ?? [];
-  const chips = suggestion.getByTestId("help-citation");
-  const shown: { at: number; check: string; passed: boolean }[] = [];
-  for (let index = 0; index < (await chips.count()); index++) {
-    const chip = chips.nth(index);
-    const at = Number(await chip.getAttribute("data-at"));
-    const marker = Number(await chip.getAttribute("data-marker"));
-    // The chip's own Citation passed its own place: a pass recorded on another marker is no ✓.
-    const own = citations.find((citation) => citation.marker === marker);
-    if (!own) throw new Error(`A chip shows marker ${marker}, which has no Citation.`);
-    const passed = own.passedAt.includes(at);
-    await expect(chip).toHaveAttribute("data-passed", String(passed));
-    await (passed
-      ? expect(chip.getByTestId("help-citation-check")).toBeVisible()
-      : expect(chip.getByTestId("help-citation-check")).toBeHidden());
-    shown.push({ at, check: (await chip.getAttribute("data-check")) ?? "", passed });
+  const citations = await window.evaluate(async ({ conversationId, answerId }) => {
+    const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    const { messages } = await bridge.getConversation(conversationId);
+    const answer = messages.find((message) => message.id === answerId);
+    if (answer?.kind !== "answer") return [];
+    return answer.citations.map(({ quote, quotedWordsFound }) => ({
+      quote,
+      quotedWordsFound: quotedWordsFound ?? [],
+    }));
+  }, help);
+  await expect(
+    suggestion.locator(
+      ["help-option-say", "help-option-note", "help-option-effect"]
+        .map((id) => `[data-testid="${id}"] [data-testid="help-quote-found"]`)
+        .join(", "),
+    ),
+  ).toHaveCount(0);
+  const rows = suggestion.locator('[data-testid="help-quote"], [data-testid="help-moment"]');
+  const shown: QuoteLineShown[] = [];
+  for (let index = 0; index < (await rows.count()); index++) {
+    const row = rows.nth(index);
+    const words = (await row.locator(".help-quote-words, .help-quote-said").allTextContents())
+      .join("")
+      .trim();
+    const found = (await row.getByTestId("help-quote-found").count()) > 0;
+    if (found) {
+      await expect(row.getByTestId("help-quote-found")).toBeVisible();
+      const bare = words.replace(/^\d{1,2}:\d{2}(?::\d{2})?\s*/, "").replace(/^“|”$/gu, "");
+      expect(
+        citations.some(
+          (citation) =>
+            fittedQuote(citation.quote).text === bare ||
+            momentFound(bare, { quotedWordsFound: citation.quotedWordsFound }),
+        ),
+        `a ✓ beside "${bare}", which no Citation's found words are`,
+      ).toBe(true);
+    }
+    shown.push({
+      state: (await row.getAttribute("data-state")) ?? "",
+      words,
+      numbers: await row.getByTestId("help-quote-number").allTextContents(),
+      found,
+    });
   }
   return shown;
 }

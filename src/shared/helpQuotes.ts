@@ -140,7 +140,7 @@ export const momentWords = (line: string, time: string | null): string => {
  * Words as the quote check compares them: case, spaces, quotation marks and dashes aside, and the
  * marks a sentence ends with.
  */
-const comparable = (text: string): string =>
+export const comparedWords = (text: string): string =>
   normaliseText(text.replace(LINE_MARKS, ""))
     .toLowerCase()
     .replace(/[\s"'“”‘’「」『』«»„‹›\-‐‑–—―]/gu, "")
@@ -151,7 +151,9 @@ export const momentFound = (
   words: string,
   citation: { quotedWordsFound?: readonly string[] },
 ): boolean =>
-  (citation.quotedWordsFound ?? []).some((stated) => comparable(stated) === comparable(words));
+  (citation.quotedWordsFound ?? []).some(
+    (stated) => comparedWords(stated) === comparedWords(words),
+  );
 
 /**
  * A reading's line that may be a moment while it is still written: a time or an opening quotation
@@ -179,7 +181,7 @@ function inside(inner: QuotedCitation, outer: QuotedCitation): boolean {
   if (a?.kind === "time" || b?.kind === "time") {
     if (a?.kind !== "time" || b?.kind !== "time" || a.from < b.from || a.to > b.to) return false;
   }
-  return comparable(outer.quote).includes(comparable(inner.quote));
+  return comparedWords(outer.quote).includes(comparedWords(inner.quote));
 }
 
 /**

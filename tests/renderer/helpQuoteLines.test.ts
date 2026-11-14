@@ -5,10 +5,10 @@
  * a room kept from the moment a number shows, in English and Chinese.
  */
 import { DOMParser } from "linkedom";
-import { act, createElement } from "react";
+import { act, type ComponentType, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import type { ConversationAnswer, MeetingHelpKind } from "../../src/core/api";
+import type { ConversationAnswer, MeetingHelp, MeetingHelpKind } from "../../src/core/api";
 import { fittedQuote, momentFound } from "../../src/shared/helpQuotes";
 import { type MessageKey, type MessageParams, translate } from "../../src/shared/i18n";
 
@@ -86,6 +86,12 @@ const answerOf = (
     errorMessage: null,
   }) as unknown as ConversationAnswer;
 
+interface SuggestionProps {
+  help: Pick<MeetingHelp, "kind" | "heard">;
+  answer: ConversationAnswer;
+  onRetry(): void;
+}
+
 let root: Root | null = null;
 let container: HTMLElement;
 
@@ -121,9 +127,9 @@ afterEach(async () => {
 });
 
 async function show(kind: MeetingHelpKind, answer: ConversationAnswer) {
-  const { HelpSuggestion } = await import(
-    "../../src/renderer/src/components/meetings/HelpSuggestion"
-  );
+  // Loaded by path, as the other component tests are: the node typecheck reads no JSX.
+  const path = "../../src/renderer/src/components/meetings/HelpSuggestion";
+  const { HelpSuggestion }: { HelpSuggestion: ComponentType<SuggestionProps> } = await import(path);
   await act(async () =>
     root?.render(
       createElement(HelpSuggestion, { help: { kind, heard: null }, answer, onRetry() {} }),

@@ -128,7 +128,7 @@ describe("A quote line's state", () => {
     ).toEqual(["found", "found", "found", "found", "found"]);
     expect(stored("not-found", "quote-not-on-pages")).toBe("not-found");
     expect(stored("not-found", "quoted-words-not-on-pages")).toBe("found");
-    expect(stored("cant-check", "deleted")).toBe("cant-check");
+    expect(stored("cant-check", "document-removed")).toBe("cant-check");
   });
 
   test("while written, a number with no Citation yet keeps its room; Stop and failure close it", () => {

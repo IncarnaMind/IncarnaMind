@@ -223,6 +223,60 @@ function withNoteCited(prompt: Prompt, parts: StreamPart[]): StreamPart[] {
   ];
 }
 
+/** The end of a quote after its last clause mark, or its last three words: words wholly inside it. */
+function partOf(quote: string): string {
+  const said = quote.replace(/[.?!。？！]+$/u, "");
+  const clause = Math.max(said.lastIndexOf(", "), said.lastIndexOf("，"));
+  if (clause > 0) return said.slice(clause + (said[clause] === "，" ? 1 : 2)).trim();
+  return said.split(" ").slice(-3).join(" ");
+}
+
+/**
+ * For a model id ending "-writes-before-it-cites": a help reply's first option is written, with
+ * two numbers, before its cite call, as Claude Haiku 5.5 often writes (#2847); its second number
+ * cites words inside the first's quote, of the same Passage. The rest of the reply comes after
+ * the cite. Other steps are as they were.
+ */
+function withTextBeforeCite(prompt: Prompt, parts: StreamPart[]): StreamPart[] {
+  const asked = lastUserText(prompt);
+  const help = block(asked, "help");
+  if (!HELP.test(help) || shapeOf(help) !== "options") return parts;
+  const text = parts.flatMap((part) => (part.type === "text-delta" ? [part.delta] : [])).join("");
+  if (toolResults(prompt, "cite").length > 0) {
+    const rest = text.slice(text.indexOf("\n"));
+    return [
+      { type: "stream-start", warnings: [] },
+      { type: "text-start", id: "answer" },
+      ...textDeltas("answer", rest),
+      { type: "text-end", id: "answer" },
+      { type: "finish", finishReason: { unified: "stop", raw: undefined }, usage: USAGE },
+    ];
+  }
+  const call = parts.find((part) => part.type === "tool-call" && part.toolName === "cite");
+  if (call?.type !== "tool-call") return parts;
+  const { citations }: { citations: { marker: number; quote: string }[] } = JSON.parse(call.input);
+  const [whole] = citations;
+  if (!whole) return parts;
+  const quote = whole.quote.replace(/^\[[^\]]*\]\s*/, "");
+  // The same Passage and place, so it lies wholly inside the first's quote.
+  const inner = { ...whole, marker: 2, quote: partOf(quote) };
+  const { language } = callOf(asked);
+  const first = OPTIONS[language].cited(quote.replace(/[.?!。？！]+$/u, "")).split("\n")[0] ?? "";
+  return [
+    { type: "stream-start", warnings: [] },
+    { type: "text-start", id: "answer" },
+    ...textDeltas("answer", first.replace("[^1]", "[^1] [^2]")),
+    { type: "text-end", id: "answer" },
+    {
+      type: "tool-call",
+      toolCallId: "fake-cite",
+      toolName: "cite",
+      input: JSON.stringify({ citations: [whole, inner] }),
+    },
+    { type: "finish", finishReason: { unified: "tool-calls", raw: undefined }, usage: USAGE },
+  ];
+}
+
 /** For a model id ending "-help-held": a help reply writes nothing until it is stopped. */
 export const holdsHelp = (modelId: string, prompt: Prompt): boolean =>
   modelId.endsWith("-help-held") && HELP.test(block(lastUserText(prompt), "help"));
@@ -234,5 +288,6 @@ export function helpModelParts(modelId: string, prompt: Prompt, parts: StreamPar
   if (modelId.endsWith("-heading-only")) return headingOnly(prompt, parts);
   if (modelId.endsWith("-options-quoted")) return withOptionsQuoted(prompt, parts);
   if (modelId.endsWith("-cites-the-note")) return withNoteCited(prompt, parts);
+  if (modelId.endsWith("-writes-before-it-cites")) return withTextBeforeCite(prompt, parts);
   return parts;
 }
