@@ -664,7 +664,7 @@ const statesScale = (piece: string, context: FigureContext) =>
 // and neither does a bracket of two units ("（万吨/亿吨）"), where a rate has one ("（万吨/年）").
 // Square brackets ("[kt]", "［万吨］", "【万辆】", "〔万吨〕") state theirs, and so does a unit after a
 // slash at the end of a name ("销量/万辆", "Output / kt"), where a rate's "元/吨" names no measure
-// before its slash.
+// before its slash and a letter alone before it is half of an abbreviation ("H/W", "N/W").
 const BRACKETS =
   /[(（]([^()（）\n]{1,24})[)）]|\[([^[\]\n]{1,24})\]|［([^［］\n]{1,24})］|【([^【】\n]{1,24})】|〔([^〔〕\n]{1,24})〕/gu;
 const AFTER_SLASH =
@@ -679,7 +679,7 @@ const bracketedUnits = (written: string, context: FigureContext): StatedUnit[] =
         ? []
         : asUnitLine(inner, context, true).map((statement) => ({ ...statement, chars: bracket }));
     }),
-    ...(slashed && asUnitLine(name, context).length === 0
+    ...(slashed && !/(?<![A-Za-z])[A-Za-z]$/u.test(name) && asUnitLine(name, context).length === 0
       ? asUnitLine(unit, context, true).map((statement) => ({ ...statement, chars: unit }))
       : []),
   ];
@@ -708,6 +708,12 @@ interface TextReading {
   /** Each line of words in `column` of the tab-separated lines, with its line. */
   cellsOf(column: number): { at: number; cell: string }[];
   labelsOfCell(cell: string): Label[];
+  /**
+   * What a cell of a units column states: its unit, as a unit line reads it. A scale word before
+   * words that name no unit begins a name ("亿利集团", "百色市"), for 单位 heads organisations too,
+   * and so does a unit written with a capital before a capitalised word ("Mt Isa").
+   */
+  unitOfCell(cell: string): StatedUnit[];
   unitsOf(line: string): StatedUnit[];
   /** Where `line` stands among the lines. */
   linesLike(line: string): number[];
@@ -751,6 +757,7 @@ function textReadingOf(text: string, context: FigureContext): TextReading {
   });
   const columns = new Map<number, { at: number; cell: string }[]>();
   const cells = new Map<string, Label[]>();
+  const unitCells = new Map<string, StatedUnit[]>();
   const units = new Map<string, StatedUnit[]>();
   const where = once(() => {
     const map = new Map<string, number[]>();
@@ -800,6 +807,17 @@ function textReadingOf(text: string, context: FigureContext): TextReading {
             ].map((statement) => ({ ...statement, own: false, line: cell }))
           : [];
       cells.set(cell, found);
+      return found;
+    },
+    unitOfCell: (cell) => {
+      const found =
+        unitCells.get(cell) ??
+        (beginsName(cell.trim(), context)
+          ? []
+          : asUnitLine(cell, context, true).filter(
+              ({ scaleWord, unit }) => unit.kind !== "plain" || scaleWord === cell.trim(),
+            ));
+      unitCells.set(cell, found);
       return found;
     },
     unitsOf: (line) => {
@@ -925,7 +943,7 @@ function rowUnits(text: string, start: number, context: FigureContext): Label[] 
     ...bracketedUnits(label, context)
       .slice(-1)
       .map((statement) => ({ ...statement, own: true, line: label })),
-    ...(unit === "" ? [] : asUnitLine(unit, context, true)).map((statement) => ({
+    ...(unit === "" ? [] : textReadingOf(text, context).unitOfCell(unit)).map((statement) => ({
       ...statement,
       chars: unit.trim(),
       own: true,
@@ -982,6 +1000,27 @@ const UNIT_SAID =
 // money and plain scales said so ("in thousands of US dollars") are the stated units' to read.
 const MEASURE_SAID =
   /(?<![A-Za-z])in[ \u00a0]+([A-Za-z]+(?:[ \u00a0](?!(?:and|or)\b)[A-Za-z]+){0,2})[ \u00a0]*(?=[.;,:)]|$)/gu;
+// A unit written with a capital before a capitalised word, with or without its point, begins a
+// name: "in W. Australia", "in Mt. Isa", "in Mt Isa"; "in kt. Alpha leads." ends a sentence on
+// its unit.
+const BEFORE_NAME = /^(\p{Lu}[A-Za-z]*)\.?[ \u00a0]+\p{Lu}\p{Ll}/u;
+const beginsName = (words: string, context: FigureContext) => {
+  const first = BEFORE_NAME.exec(words)?.[1];
+  return (
+    first !== undefined && asUnitLine(first, context).some(({ unit }) => unit.kind !== "plain")
+  );
+};
+
+/**
+ * The unit a clause of prose names after 单位为 or 单位是 ("单位为万吨"): the whole clause, as a
+ * sentence writes it after a number. Words that go on past such a unit name something else, the
+ * organisation a line names ("填报单位为万川集团", "主办单位为百度公司", "建设单位为万吨级码头指挥部").
+ */
+function unitClause(clause: string, context: FigureContext): StatedUnit[] {
+  const after = `1${/^[A-Za-z]/.test(clause) ? " " : ""}${clause}`;
+  const [said] = readFigures(after, { ...context, header: null, headerRead: null });
+  return said?.start === 0 && said.end === after.length ? asUnitLine(clause, context, true) : [];
+}
 
 /**
  * Whether one bracket of `words` names two units, as "（亿元，%）" does, so it gives a number
@@ -1006,11 +1045,13 @@ function unitsOnLine(line: string, context: FigureContext): StatedUnit[] {
   const units = [
     ...readStatedUnits(line, context),
     ...bracketedUnits(line, context),
-    ...[...line.matchAll(UNIT_SAID)].flatMap(([, by, is]) =>
-      asUnitLine(by ?? is ?? "", context, true),
+    ...[...line.matchAll(UNIT_SAID)].flatMap(([, by, is = ""]) =>
+      by !== undefined ? asUnitLine(by, context, true) : unitClause(is, context),
     ),
-    ...[...line.matchAll(MEASURE_SAID)].flatMap(([, said = ""]) =>
-      asUnitLine(said, context, true).filter(({ unit }) => measureOf(unit) !== null),
+    ...[...line.matchAll(MEASURE_SAID)].flatMap(({ 0: whole, 1: said = "", index = 0 }) =>
+      beginsName(`${said}${line.slice(index + whole.length)}`, context)
+        ? []
+        : asUnitLine(said, context, true).filter(({ unit }) => measureOf(unit) !== null),
     ),
   ];
   return namesTwoUnits(units) ? [] : units;

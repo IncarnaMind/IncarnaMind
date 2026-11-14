@@ -250,7 +250,11 @@ const alignedHeadings = ({ lines, index, top, head }: Table): string[] =>
 export const UNIT_WORD = "(?:(?:计量|金额|货币|数量)?单位|units?)";
 const UNIT_HEADING = new RegExp(`^\\s*${UNIT_WORD}\\s*$`, "iu");
 
-/** The column that `table`'s headings name its units column, or -1: of two, none says whose. */
+/**
+ * The column that `table`'s headings name its units column, or -1: of two, none says whose. One
+ * whose cell is its row's first name names the rows, as 单位 heads a column of organisations
+ * ("单位" over "南宁市", "Unit" over "Mt Isa").
+ */
 function unitsColumn(table: Table): number {
   const columns = new Set(
     alignedHeadings(table).flatMap((heading) =>
@@ -258,7 +262,11 @@ function unitsColumn(table: Table): number {
     ),
   );
   const [only] = columns;
-  return columns.size === 1 && only !== undefined ? only : -1;
+  return columns.size === 1 &&
+    only !== undefined &&
+    possibleLabels({ ...table, column: only }).length > 0
+    ? only
+    : -1;
 }
 
 /**

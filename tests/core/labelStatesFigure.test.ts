@@ -328,6 +328,68 @@ describe("A W before a capitalised word may be West (#2997)", { timeout: 120_000
       [exit, exit, "Take Exit 12.", TICK],
     ]);
   });
+
+  // protects=a unit written with a capital before a capitalised word in prose, with or without its point ("in W. Australia", "in Mt. Isa", "in Mt Isa"), begins a place's name and states no unit, so the right sentence under the table's own unit keeps its ✓ as on main and another scale is caught in both checks, while a unit a clause ends on ("in kt. Alpha leads.", "in MW.", "in W.") still states it; fails_when="Beta's output was 31 kt." under "Output of mines in W. Australia (kt)" or over "All mines are in Mt Isa." reads Not checked; no_claim="in GWh. Alpha leads.", a capitalised unit that ends its sentence before a capitalised word, which reads as a name.
+  test("a unit written with a capital before a capitalised word begins a place's name", async () => {
+    const mines = (lines: string) => `${lines}\nMine\tOutput\nAlpha\t54\nBeta\t31`;
+    await readsAsWanted([
+      ...[
+        "Output of mines in W. Australia (kt)",
+        "Table 6. Output by mine (kt)\nAll mines are in W. Australia.",
+        "Table 6. Output by mine (kt)\nAll mines are in Mt. Isa.",
+        "Table 6. Output by mine (kt)\nAll mines are in Mt Isa.",
+        "Output of mines in Mt. Isa (kt)",
+      ].flatMap((lines): [string, string, string, Wanted][] => [
+        [mines(lines), "Beta\t31", "Beta's output was 31 kt.", TICK],
+        [mines(lines), "Beta\t31", "Beta's output was 31 Mt.", caught("31 (kt)", "31 Mt")],
+      ]),
+      [
+        "Sales in W. Europe (€m)\nCountry\tSales\nFrance\t54\nSpain\t31",
+        "Spain\t31",
+        "Spain's sales were €31 million.",
+        TICK,
+      ],
+      [
+        "Table 4. Rainfall by station (mm)\nAll stations are in W. Africa.\nStation\tRainfall\nAccra\t54\nLagos\t31",
+        "Lagos\t31",
+        "Lagos had 31 mm of rain.",
+        TICK,
+      ],
+      [mines("Table 8. Output by plant, in kt."), "Beta\t31", "Beta's output was 31 kt.", TICK],
+      [
+        mines("Table 8. Output by plant, in kt."),
+        "Beta\t31",
+        "Beta's output was 31 Mt.",
+        caught("31 kt", "31 Mt"),
+      ],
+      [
+        mines("Table 9. Output by mine\nOutput is in kt. Alpha leads."),
+        "Beta\t31",
+        "Beta's output was 31 kt.",
+        TICK,
+      ],
+      [
+        mines("Table 9. Output by mine\nOutput by mine, in MW."),
+        "Beta\t31",
+        "Beta's output was 31 MW.",
+        TICK,
+      ],
+    ]);
+  });
+
+  // protects=known costs, a unit written with a capital that ends its sentence before another sentence on its line ("Figures are in GWh. Totals may not sum.", "Output is in MW. Alpha leads."), read as a name's beginning, so the right sentence and a wrong scale both read Not checked and Supported, as on main, and never ✓ for a wrong one; fails_when=any reads otherwise without this list changing; no_claim=that the unit is a name.
+  test("known costs of a capitalised unit before another sentence", async () => {
+    const mines = (line: string) =>
+      `Table 9. Output by mine\n${line}\nMine\tOutput\nAlpha\t54\nBeta\t31`;
+    const totals = mines("Figures are in GWh. Totals may not sum.");
+    const leads = mines("Output is in MW. Alpha leads.");
+    await readsAsWanted([
+      [totals, "Beta\t31", "Beta's output was 31 GWh.", UNJUDGED],
+      [totals, "Beta\t31", "Beta's output was 31 MWh.", UNJUDGED],
+      [leads, "Beta\t31", "Beta's output was 31 MW.", UNJUDGED],
+      [leads, "Beta\t31", "Beta's output was 31 GW.", UNJUDGED],
+    ]);
+  });
 });
 
 describe("A unit said in prose names only the rows it heads (#2997)", { timeout: 120_000 }, () => {
@@ -1673,6 +1735,156 @@ describe("A table's row and units column label its values (#2997)", { timeout: 1
       ],
     ]);
   });
+
+  // protects=a column headed 单位 or Unit whose cell is its row's first name, as 单位 heads a column of organisations, names the rows and gives no unit, so a name that begins with a scale word or a unit's symbol (百色市, 亿利集团, Mt Isa) states none and the right sentence under the caption keeps its ✓ and Supported, as on main, after a column of row numbers or as the first column, English and Chinese; fails_when="百色市粮食产量为37万吨。" reads Unsupported, or "Mt Isa's output was 31 kt." reads "The Document gives 31 Mt Isa, not 31 kt."; no_claim=a units column with no name before it.
+  test("a column headed 单位 or Unit that names its rows gives them no unit", async () => {
+    const grain =
+      "表1 各单位粮食产量（万吨）\n序号\t单位\t产量\n1\t南宁市\t54\n2\t百色市\t37\n3\t百货公司\t23\n4\t百川集团\t12";
+    const water =
+      "表2 各单位用水量（万立方米）\n序号\t单位\t2023年\t2024年\n1\t万宁市水务局\t54\t31\n2\t千阳县自来水厂\t77\t80\n3\t亿利集团\t12\t14\n4\t办公室\t3\t4";
+    await readsAsWanted([
+      [grain, "1\t南宁市\t54", "南宁市粮食产量为54万吨。", TICK],
+      [grain, "2\t百色市\t37", "百色市粮食产量为37万吨。", TICK],
+      [grain, "3\t百货公司\t23", "百货公司粮食产量为23万吨。", TICK],
+      [grain, "4\t百川集团\t12", "百川集团粮食产量为12万吨。", TICK],
+      [
+        "表1 各单位粮食产量（万吨）\n单位\t产量\n南宁市\t54\n百川集团\t12",
+        "百川集团\t12",
+        "百川集团粮食产量为12万吨。",
+        TICK,
+      ],
+      [grain, "2\t百色市\t37", "百色市粮食产量为37吨。", caught("37（万吨）", "37吨")],
+      [grain, "3\t百货公司\t23", "百货公司粮食产量为23吨。", caught("23（万吨）", "23吨")],
+      [grain, "4\t百川集团\t12", "百川集团粮食产量为12吨。", caught("12（万吨）", "12吨")],
+      [
+        "表1 各单位粮食产量（万吨）\n单位\t产量\n南宁市\t54\n百川集团\t12",
+        "百川集团\t12",
+        "百川集团粮食产量为12吨。",
+        caught("12（万吨）", "12吨"),
+      ],
+      [water, "2\t千阳县自来水厂\t77\t80", "千阳县自来水厂2024年用水量为80万立方米。", TICK],
+      [water, "3\t亿利集团\t12\t14", "亿利集团2024年用水量为14万立方米。", TICK],
+      [
+        water,
+        "1\t万宁市水务局\t54\t31",
+        "万宁市水务局2024年用水量为31立方米。",
+        caught("31（万立方米）", "31立方米"),
+      ],
+      [
+        water,
+        "2\t千阳县自来水厂\t77\t80",
+        "千阳县自来水厂2024年用水量为80立方米。",
+        caught("80（万立方米）", "80立方米"),
+      ],
+      [
+        "Table 2. Copper output by unit (kt)\nUnit\tOutput\nMt Isa\t31\nOlympic Dam\t54",
+        "Mt Isa\t31",
+        "Mt Isa's output was 31 kt.",
+        TICK,
+      ],
+      [
+        "Table 2. Copper output by unit (kt)\nUnit\tOutput\nMt Isa\t31\nOlympic Dam\t54",
+        "Mt Isa\t31",
+        "Mt Isa's output was 31 Mt.",
+        caught("31 (kt)", "31 Mt"),
+      ],
+      [
+        "Table 3. Output by unit (kt)\nUnit\tOutput\nGW Pharma\t31\nMW Brands\t54\nT Rowe\t12\nKt Mining\t7",
+        "MW Brands\t54",
+        "MW Brands's output was 54 kt.",
+        TICK,
+      ],
+      [
+        "Table 3. Output by unit (kt)\nUnit\tOutput\nGW Pharma\t31\nMW Brands\t54\nT Rowe\t12\nKt Mining\t7",
+        "MW Brands\t54",
+        "MW Brands's output was 54 Mt.",
+        caught("54 (kt)", "54 Mt"),
+      ],
+    ]);
+  });
+
+  // protects=in a column headed 单位 or Unit beside another column of names, a cell that begins a name states no unit: a scale word before words that name no unit (万宁市水务局, 千阳县自来水厂, 亿利集团) or a unit written with a capital before a capitalised word ("Mt Isa", "Mt Keith"), so the right sentence under the caption keeps its ✓ and Supported while another scale is caught, with or without row numbers, or reads as on main under a caption with no unit, English and Chinese; fails_when="亿利集团2024年用水量为14亿立方米。" reads ✓ or Supported, or "Mt Isa's output was 31 kt." reads Unsupported; no_claim=a name that is a unit followed by lower-case words, which reads as a unit as "t CO2e" does.
+  test("a cell of a 单位 or Unit column that begins a name states no unit", async () => {
+    const rows = [
+      ["海南", "万宁市水务局", "31"],
+      ["陕西", "千阳县自来水厂", "80"],
+      ["内蒙古", "亿利集团", "14"],
+      ["广西", "南宁市水务局", "54"],
+    ];
+    const table = (caption: string, numbered: boolean) =>
+      [
+        caption,
+        numbered ? "序号\t地区\t单位\t2024年" : "地区\t单位\t2024年",
+        ...rows.map((row, at) => (numbered ? [`${at + 1}`, ...row] : row).join("\t")),
+      ].join("\n");
+    const quote = (at: number, numbered: boolean) =>
+      (numbered ? [`${at + 1}`, ...(rows[at] ?? [])] : (rows[at] ?? [])).join("\t");
+    const copper = (second: string) =>
+      `Table 4. Copper output by unit (kt)\nRegion\tUnit\tOutput\nQueensland\tMt Isa\t31\n${second}\t54`;
+    await readsAsWanted([
+      ...[true, false].flatMap((numbered): [string, string, string, Wanted][] => {
+        const water = table("表3 各地区各单位用水量（万立方米）", numbered);
+        const unsaid = table("表3 各地区各单位用水量", numbered);
+        return [
+          [water, quote(2, numbered), "亿利集团2024年用水量为14万立方米。", TICK],
+          [
+            water,
+            quote(2, numbered),
+            "亿利集团2024年用水量为14亿立方米。",
+            caught("14", "14亿立方米"),
+          ],
+          [water, quote(1, numbered), "千阳县自来水厂2024年用水量为80万立方米。", TICK],
+          [
+            water,
+            quote(1, numbered),
+            "千阳县自来水厂2024年用水量为80立方米。",
+            caught("80（万立方米）", "80立方米"),
+          ],
+          [
+            unsaid,
+            quote(2, numbered),
+            "亿利集团2024年用水量为14万立方米。",
+            leftToTheModel("14", "14万立方米"),
+          ],
+          [
+            unsaid,
+            quote(2, numbered),
+            "亿利集团2024年用水量为14亿立方米。",
+            leftToTheModel("14", "14亿立方米"),
+          ],
+        ];
+      }),
+      [
+        "表3 各地区各单位用水量（万立方米）\n地区\t单位\t2024年\n海南\t万宁市水务局\t31\n陕西\t千阳县自来水厂\t80\n内蒙古\t亿利集团\t14",
+        "内蒙古\t亿利集团\t14",
+        "亿利集团2024年用水量为14亿立方米。",
+        caught("14", "14亿立方米"),
+      ],
+      ...["S. Australia\tOlympic Dam", "W. Australia\tMt Keith"].flatMap(
+        (second): [string, string, string, Wanted][] => [
+          [copper(second), "Queensland\tMt Isa\t31", "Mt Isa's output was 31 kt.", TICK],
+          [
+            copper(second),
+            "Queensland\tMt Isa\t31",
+            "Mt Isa's output was 31 Mt.",
+            caught("31 (kt)", "31 Mt"),
+          ],
+        ],
+      ),
+    ]);
+  });
+
+  // protects=each cell of a units column gives its own row its unit, whatever another cell holds, so a note in words ("见附注") or a count the reader doesn't read ("艘") beside the units leaves the other rows' units read: the right sentence keeps its ✓ and Supported and another scale is caught in both checks; fails_when="2024年原煤产量为31万吨。" beside "说明\t见附注\t7" reads Unsupported in Check against Documents, or "2024年原煤产量为31吨。" there reads Not checked; no_claim=the row of the note itself.
+  test("a units column's cell gives its own row its unit beside a cell that is no unit", async () => {
+    const notes = "指标\t单位\t2024年\n原煤产量\t万吨\t31\n装机容量\t万千瓦\t54\n说明\t见附注\t7";
+    const counts = "指标\t单位\t2024年\n企业数\t家\t31\n船舶\t艘\t12";
+    await readsAsWanted([
+      [notes, "原煤产量\t万吨\t31", "2024年原煤产量为31万吨。", TICK],
+      [notes, "原煤产量\t万吨\t31", "2024年原煤产量为31吨。", caught("31 万吨", "31吨")],
+      [counts, "企业数\t家\t31", "2024年企业数为31家。", TICK],
+      [counts, "企业数\t家\t31", "2024年企业数为31万家。", caught("31", "31万家")],
+    ]);
+  });
 });
 
 const COAL_CAPTION = "表3 各厂能耗（吨标准煤）\n厂区\t能耗\n一厂\t54\n二厂\t31";
@@ -1781,7 +1993,7 @@ describe("A caption heads its own table (#2997)", { timeout: 120_000 }, () => {
 const CARS = "车型\t销量\nSUV\t57\n轿车\t31";
 
 describe("A table's unit said in other ways is read (#2997)", { timeout: 120_000 }, () => {
-  // protects=a unit said in a sentence of prose over the rows ("单位为万辆", "in thousand tonnes"), after a slash or in square brackets ("各车型销量/万辆", "销量[万辆]", "产量［万吨］", "产量〔万吨〕", "Output [kt]", "Output / kt"), in a caption that gives a value of its own ("全年销量（万辆）合计 99"), or in a bracket right after the number ("8月: 126（万千瓦时）") states it, so the right sentence keeps its ✓ and reads Supported, and another scale is caught in both checks, English and Chinese, while prose apart from its rows, a list row above a table, a bracket that is no unit and a note mark in square brackets on a row's label (甲厂〔1〕, ［2］, 【注】, [注1]) state nothing; fails_when="SUV销量为57万辆。" under any of them reads Unsupported in Check against Documents, "SUV销量为57亿辆。" or "甲厂产量为31吨。" under 产量［万吨］ keeps a ✓, or "甲厂2024年产量为31万吨。" beside a note mark loses its ✓; no_claim=a count in its plain unit ("SUV销量为57辆。"), which the unit check doesn't read.
+  // protects=a unit said in a sentence of prose over the rows ("单位为万辆", "in thousand tonnes"), after a slash or in square brackets ("各车型销量/万辆", "销量[万辆]", "产量［万吨］", "产量〔万吨〕", "Output [kt]", "Output / kt"), in a caption that gives a value of its own ("全年销量（万辆）合计 99"), or in a bracket right after the number ("8月: 126（万千瓦时）") states it, so the right sentence keeps its ✓ and reads Supported, and another scale is caught in both checks, English and Chinese, while prose apart from its rows, a list row above a table, a bracket that is no unit, a note mark in square brackets on a row's label (甲厂〔1〕, ［2］, 【注】, [注1]) and a slash between the letters of an abbreviation (H/W, S/W, A/W, B/W, N/W, G/W, R/W as a column's heading or a row's label) state nothing, as on main, and a one-character name before a slash (煤/万吨) states its unit; fails_when="SUV销量为57万辆。" under any of them reads Unsupported in Check against Documents, "SUV销量为57亿辆。" or "甲厂产量为31吨。" under 产量［万吨］ keeps a ✓, "甲厂2024年产量为31万吨。" beside a note mark or "North's hardware spend was $31 million." under H/W loses its ✓; no_claim=a count in its plain unit ("SUV销量为57辆。"), which the unit check doesn't read.
   test("prose, a slash, square brackets, a caption with a value and a bracket after the number state their unit", async () => {
     const notes = (mark: string) =>
       `表1 各厂产量（万吨）\n厂区\t2023年\t2024年\n甲厂${mark}\t54\t31\n乙厂\t77\t80`;
@@ -1835,6 +2047,67 @@ describe("A table's unit said in other ways is read (#2997)", { timeout: 120_000
         "B\t31",
         "Site B's output was 31 Mt.",
         caught("31 kt", "31 Mt"),
+      ],
+      ...(
+        [
+          [
+            "Table 1. Spend by region ($m)\nRegion\tH/W\tS/W\nNorth\t31\t54",
+            "North\t31\t54",
+            "North's hardware spend was $31 million.",
+          ],
+          [
+            "Table 1. Spend by region ($m)\nRegion\tH/W\tS/W\nNorth\t31\t54",
+            "North\t31\t54",
+            "North's software spend was $54 million.",
+          ],
+          [
+            "Table 1. Spend by kind ($m)\nKind\t2024\nH/W\t31\nS/W\t54",
+            "H/W\t31",
+            "Hardware spend in 2024 was $31 million.",
+          ],
+          [
+            "Table 1. Spend by kind ($m)\nKind\t2024\nH/W\t31\nS/W\t54",
+            "S/W\t54",
+            "Software spend in 2024 was $54 million.",
+          ],
+          [
+            "Table 1. Sales by season ($m)\nRegion\tA/W\tS/S\nNorth\t31\t54",
+            "North\t31\t54",
+            "North's autumn/winter sales were $31 million.",
+          ],
+          [
+            "Table 1. Copies printed by region (thousands)\nRegion\tB/W\tColour\nNorth\t31\t54",
+            "North\t31\t54",
+            "North printed 31 thousand black-and-white copies.",
+          ],
+          [
+            "Table 2. Weights by crate (kg)\nCrate\tN/W\tG/W\nA\t31\t54",
+            "A\t31\t54",
+            "Crate A's net weight was 31 kg.",
+          ],
+          [
+            "Table 2. Weights by crate (kg)\nCrate\tN/W\tG/W\nA\t31\t54",
+            "A\t31\t54",
+            "Crate A's gross weight was 54 kg.",
+          ],
+          [
+            "Table 3. Figures by kind ($m)\nKind\t2024\nR/W\t31\nI/O\t54",
+            "R/W\t31",
+            "The R/W figure in 2024 was $31 million.",
+          ],
+        ] as const
+      ).map(([text, quote, sentence]): [string, string, string, Wanted] => [
+        text,
+        quote,
+        sentence,
+        TICK,
+      ]),
+      ["品种\t煤/万吨\t电/亿千瓦时\n甲矿\t31\t54", "甲矿\t31\t54", "甲矿的煤为31万吨。", TICK],
+      [
+        "品种\t煤/万吨\t电/亿千瓦时\n甲矿\t31\t54",
+        "甲矿\t31\t54",
+        "甲矿的煤为31吨。",
+        caught("31 万吨", "31吨"),
       ],
       [
         "SUV销量/万辆: 57\n轿车销量/万辆: 31",
@@ -1901,12 +2174,105 @@ describe("A table's unit said in other ways is read (#2997)", { timeout: 120_000
       ],
     ]);
   });
+
+  // protects=after 单位为 or 单位是 the unit is the whole clause, as a sentence writes it after a number, so a line naming an organisation there (填报单位为万川集团, 主办单位为百度公司, 建设单位为万吨级码头指挥部) states no unit and the right sentence under the caption's 吨 keeps its ✓ while 31万吨 is caught in both checks, as on main, and a line that says the unit (本表计量单位为吨, 单位为吨, 单位为万吨) under a caption with none states it, an organisation's line above it or not; fails_when="二厂产量为31万吨。" under "填报单位为万川集团。" reads ✓ or Supported, or "二厂产量为31吨。" there reads Not checked; no_claim=a unit followed by words of its own in such a clause (单位为吨标准煤), which reads as on main.
+  test("an organisation named after 单位为 or 单位是 states no unit", async () => {
+    const plants = (caption: string, line: string) =>
+      `${caption}\n${line}\n厂区\t产量\n一厂\t54\n二厂\t31`;
+    await readsAsWanted([
+      ...[
+        "填报单位为万川集团。",
+        "编制单位为万禾股份有限公司。",
+        "建设单位为万岭化学。",
+        "牵头单位是百川公司。",
+        "责任单位为千帆科技。",
+        "施工单位为亿丰锂能。",
+        "主管单位为市统计局。",
+        "主办单位为百度公司。",
+        "建设单位为万吨级码头指挥部。",
+        "单位为万川集团。",
+        "本表填报单位为万川集团，数据为初步统计。",
+      ].flatMap((line): [string, string, string, Wanted][] => [
+        [plants("表1 各厂产量（吨）", line), "二厂\t31", "二厂产量为31吨。", TICK],
+        [
+          plants("表1 各厂产量（吨）", line),
+          "二厂\t31",
+          "二厂产量为31万吨。",
+          caught("31", "31万吨"),
+        ],
+      ]),
+      ...["本表计量单位为吨。", "单位为吨。", "产量单位为吨。"].flatMap(
+        (line): [string, string, string, Wanted][] => [
+          [plants("表1 各厂产量", line), "二厂\t31", "二厂产量为31吨。", TICK],
+          [plants("表1 各厂产量", line), "二厂\t31", "二厂产量为31万吨。", caught("31", "31万吨")],
+        ],
+      ),
+      [plants("表1 各厂产量", "单位为万吨。"), "二厂\t31", "二厂产量为31万吨。", TICK],
+      [
+        plants("表1 各厂产量", "单位为万吨。"),
+        "二厂\t31",
+        "二厂产量为31吨。",
+        caught("31 万吨", "31吨"),
+      ],
+      [
+        plants("表1 各厂产量", "填报单位为万川集团。\n本表计量单位为吨。"),
+        "二厂\t31",
+        "二厂产量为31吨。",
+        TICK,
+      ],
+      [
+        plants("表1 各厂产量", "填报单位为万川集团。\n本表计量单位为吨。"),
+        "二厂\t31",
+        "二厂产量为31万吨。",
+        caught("31", "31万吨"),
+      ],
+    ]);
+  });
+
+  // protects=known costs, a unit followed by words of its own, or a scale before a unit the reader doesn't know, after 单位为 in prose (单位为吨标准煤, 单位为万吨标准煤, 单位为亿SDR): the clause goes on past the unit a sentence reads, so it states none and its rows read as on main, the model's ✓ and Unsupported in Check against Documents, or Not checked; fails_when=any reads otherwise without this list changing; no_claim=that the clause names no unit.
+  test("known costs of a unit with words after it in a clause of prose", async () => {
+    const rows = (said: string) => `本表数据${said}。\n项目\t数值\n甲\t54\n乙\t31`;
+    await readsAsWanted([
+      [rows("单位为吨标准煤"), "乙\t31", "乙的数值为31吨标准煤。", leftToTheModel("31", "31吨")],
+      [
+        rows("单位为吨标准煤"),
+        "乙\t31",
+        "乙的数值为31万吨标准煤。",
+        leftToTheModel("31", "31万吨"),
+      ],
+      [
+        rows("单位为万吨标准煤"),
+        "乙\t31",
+        "乙的数值为31万吨标准煤。",
+        leftToTheModel("31", "31万吨"),
+      ],
+      [rows("单位为万吨标准煤"), "乙\t31", "乙的数值为31吨标准煤。", UNJUDGED],
+      [rows("单位为亿SDR"), "乙\t31", "乙的数值为31亿SDR。", leftToTheModel("31", "31亿")],
+      [rows("单位为亿SDR"), "乙\t31", "乙的数值为31万SDR。", leftToTheModel("31", "31万")],
+    ]);
+  });
+
+  // protects=known costs, a heading with a letter alone before its slash read as an abbreviation, so its unit is not read and its rows read as on main: "P/W" (power in watts) leaves "Alpha's power was 31 W." Not checked and "31 kW" the model's ✓ and Unsupported, and "Plant A / kt" leaves "31 Mt" Not checked while "31 kt" keeps its ✓; fails_when=any reads otherwise without this list changing; no_claim=that the slash is an abbreviation's.
+  test("known costs of a letter alone before a slash", async () => {
+    const power = "Plant\tP/W\tE/J\nAlpha\t31\t54";
+    await readsAsWanted([
+      [power, "Alpha\t31\t54", "Alpha's power was 31 W.", UNJUDGED],
+      [power, "Alpha\t31\t54", "Alpha's power was 31 kW.", leftToTheModel("31", "31 kW")],
+      ...["Plant A / kt", "Plant A/kt"].flatMap((heading): [string, string, string, Wanted][] => {
+        const plants = `Year\t${heading}\t${heading.replace("A", "B")}\n2024\t31\t54`;
+        return [
+          [plants, "2024\t31\t54", "Plant A's output in 2024 was 31 kt.", TICK],
+          [plants, "2024\t31\t54", "Plant A's output in 2024 was 31 Mt.", UNJUDGED],
+        ];
+      }),
+    ]);
+  });
 });
 
 describe("Wrong sentences a table's row label reads as every label does (#2997)", {
   timeout: 120_000,
 }, () => {
-  // protects=known wrong ✓ that a row's heading cell gives as main gives them under a column's heading, a caption or the number's own label: a rate dropped or changed (31万吨 or 31万吨/日 under 产量（万吨/年）, 31万桶 under 产量（万桶/日）), a unit the reader doesn't read (31厘米 under 产量（米）, "31 g" under "Output (kg)", "31 m" under "Output (km)"), pinned at what they read so the next change that touches them shows it; fails_when=any reads otherwise without its kind being fixed under every label and this list changed; no_claim=that they are right.
+  // protects=known wrong ✓ that a row's heading cell gives as main gives them under a column's heading, a caption or the number's own label: a rate dropped or changed (31万吨 or 31万吨/日 under 产量（万吨/年）, 31万桶 under 产量（万桶/日）), a unit the reader doesn't read (31厘米 under 产量（米）, "31 g" under "Output (kg)", "31 m" under "Output (km)"), another row's unit for the same number (31亿千瓦时 against 原煤产量（万吨）, 31万吨 against 发电量（亿千瓦时）) and part of a unit made of two (31亿吨 under 货物周转量（亿吨公里）), pinned at what they read so the next change that touches them shows it; fails_when=any reads otherwise without its kind being fixed under every label and this list changed; no_claim=that they are right.
   test("known wrong ✓ under a row's label", async () => {
     const row = (label: string) => `指标\t2023年\t2024年\n${label}\t54\t31`;
     const rowEn = (label: string) => `Item\t2023\t2024\n${label}\t54\t31`;
@@ -1917,6 +2283,24 @@ describe("Wrong sentences a table's row label reads as every label does (#2997)"
       [row("产量（米）"), "产量（米）\t54\t31", "2024年产量为31厘米。", TICK],
       [rowEn("Output (kg)"), "Output (kg)\t54\t31", "Output in 2024 was 31 g.", TICK],
       [rowEn("Output (km)"), "Output (km)\t54\t31", "Output in 2024 was 31 m.", TICK],
+      [
+        "指标\t2024年\n原煤产量（万吨）\t31\n发电量（亿千瓦时）\t31",
+        "原煤产量（万吨）\t31",
+        "2024年原煤产量为31亿千瓦时。",
+        TICK,
+      ],
+      [
+        "指标\t2024年\n原煤产量（万吨）\t31\n发电量（亿千瓦时）\t31",
+        "发电量（亿千瓦时）\t31",
+        "2024年发电量为31万吨。",
+        TICK,
+      ],
+      [
+        "指标\t2024年\n货物周转量（亿吨公里）\t31",
+        "货物周转量（亿吨公里）\t31",
+        "2024年货物周转量为31亿吨。",
+        TICK,
+      ],
     ]);
   });
 
@@ -1956,5 +2340,34 @@ describe("Wrong sentences a table's row label reads as every label does (#2997)"
         }),
       ),
     );
+  });
+
+  // protects=known costs, right sentences that lose their ✓ where a bracket on a row's label abbreviates the label and is also a unit's symbol, "(W)" and "(MW)" (watts, megawatts) under "Table 5. Sales by region ($m)" and "(MW)" and "(GW)" by market, pinned at what they read (Unsupported in both, "The Document gives 31, not $31 million."), where main reads ✓ and Supported, while an abbreviation that is no unit, (NE), (S), (TW), (MT), (KR), reads right; fails_when=any reads otherwise without this list changing; no_claim=that the bracket is a unit.
+  test("known costs of a bracket that abbreviates its own row's label", async () => {
+    const regions =
+      "Table 5. Sales by region ($m)\nRegion\tSales\nWest (W)\t31\nMidwest (MW)\t54\nNortheast (NE)\t77\nSouth (S)\t80";
+    const markets =
+      "Table 5. Sales by market ($m)\nMarket\tSales\nMalawi (MW)\t31\nGuinea-Bissau (GW)\t54\nTaiwan (TW)\t77\nMontana (MT)\t80\nKorea (KR)\t45";
+    await readsAsWanted([
+      [regions, "West (W)\t31", "The West's sales were $31 million.", caught("31", "$31 million")],
+      [
+        regions,
+        "Midwest (MW)\t54",
+        "The Midwest's sales were $54 million.",
+        caught("54", "$54 million"),
+      ],
+      [regions, "Northeast (NE)\t77", "The Northeast's sales were $77 million.", TICK],
+      [regions, "South (S)\t80", "The South's sales were $80 million.", TICK],
+      [markets, "Malawi (MW)\t31", "Malawi's sales were $31 million.", caught("31", "$31 million")],
+      [
+        markets,
+        "Guinea-Bissau (GW)\t54",
+        "Guinea-Bissau's sales were $54 million.",
+        caught("54", "$54 million"),
+      ],
+      [markets, "Taiwan (TW)\t77", "Taiwan's sales were $77 million.", TICK],
+      [markets, "Montana (MT)\t80", "Montana's sales were $80 million.", TICK],
+      [markets, "Korea (KR)\t45", "Korea's sales were $45 million.", TICK],
+    ]);
   });
 });
