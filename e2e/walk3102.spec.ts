@@ -288,7 +288,7 @@ for (const language of ["en", "zh-CN"] as const) {
       const bar = document.createElement("div");
       bar.setAttribute("popover", "manual");
       bar.style.cssText =
-        "position:fixed;left:12px;bottom:12px;top:auto;right:auto;margin:0;padding:6px 14px;border:0;border-radius:6px;background:#ffd400;color:#000;font:600 18px system-ui;";
+        "position:fixed;left:12px;bottom:12px;top:auto;right:auto;margin:0;padding:8px 18px;border:0;border-radius:8px;background:#ffd400;color:#000;font:700 30px system-ui;";
       bar.textContent = "key";
       document.body.append(bar);
       bar.showPopover();
