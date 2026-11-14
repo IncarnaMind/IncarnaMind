@@ -130,8 +130,6 @@ export function cardParts({
     if (!placed.has(original))
       placed.set(original, placeWords(sentence, text.slice(part.span.start, part.span.end)));
     const isWaiting = waiting?.has(part) ?? false;
-    // A member of a quantified part still to be cited stays open with it: its Citation is to add.
-    const toCite = isWaiting || (waiting?.has(original) ?? false);
     const leftOut = part.verdict === null && !part.itself && !(opens?.(original) ?? false);
     return {
       key: `${part.span.start}:${part.span.end}:${label ?? ""}:${index}`,
@@ -139,7 +137,7 @@ export function cardParts({
       label,
       words: text.slice(part.span.start, part.span.end),
       place: placed.get(original) ?? null,
-      fold: part.verdict === "supported" && !toCite ? "supported" : leftOut ? "opinion" : null,
+      fold: part.verdict === "supported" && !isWaiting ? "supported" : leftOut ? "opinion" : null,
       waiting: isWaiting,
       decisions:
         citations && !stale && !checking

@@ -1,8 +1,7 @@
 /**
  * A check card's rows where a quote is missing or doesn't back its part (#2869): a ✓ card opens
- * every part it holds back with its count, whichever part has the quote; a part whose quote doesn't
- * back it says the Documents say something different, never that nothing was found; and a member of
- * a quantified part still to be cited stays open, its Citation still to add.
+ * every part it holds back with its count, whichever part has the quote; and a part whose quote
+ * doesn't back it says the Documents say something different, never that nothing was found.
  */
 import { Editor, type JSONContent } from "@tiptap/core";
 import { DOMParser } from "linkedom";
@@ -248,78 +247,30 @@ describe.each([
 describe.each(["en", "zh-CN"] as const)("a part's reason (%s)", (language) => {
   const t = (key: MessageKey, params?: MessageParams) => translate(language, key, params);
   // protects=an unsupported part whose quote is a Passage that doesn't back it says the Documents say something different, as a one-part card does, and one with no quote says it wasn't found (#2869); fails_when=a part says nothing was found above the Passage it quotes; no_claim=the wording of other verdicts.
-  test("says the Documents differ beside a quote, and not found without one", async () => {
-    const editor = await noteWith(language);
-    const rowsPath = "../../src/renderer/src/editor/ClaimPartRows.tsx";
-    const {
-      cardParts,
-      partReason,
-    }: {
-      cardParts(input: Record<string, unknown>): unknown[];
-      partReason(
-        translate: typeof t,
-        language: Language,
-        row: unknown,
-        options: { stale: boolean; lookedIn: string },
-      ): string | null;
-    } = await import(rowsPath);
+  test("says the Documents differ above its quote, and not found where it has none", async () => {
     const unsupported = { reason: null, covered: null, uncovered: null };
-    const [quoted, bare] = cardParts({
-      state: editor.state,
-      text: SENTENCE,
-      sentence: SENTENCE,
-      parts: [
+    await card(
+      language,
+      checkOf([
         part(FIRST, {
           verdict: "unsupported",
           unsupported: { ...unsupported, found: true },
-          evidence: [passage(FIRST)],
+          evidence: [passage("Spring tides come once a month, at the new moon.")],
         }),
         part(SECOND, { verdict: "unsupported", unsupported }),
-      ],
-      stale: false,
-      checking: false,
-    });
-    const options = { stale: false, lookedIn: "Tides" };
-    expect(partReason(t, language, quoted, options)).toBe(t("claim.unsupported.differs"));
-    expect(partReason(t, language, bare, options)).toBe(
-      t("claim.unsupported.notFound", { scope: "Tides" }),
+      ]),
     );
-  });
-});
-
-describe("a quantified part still to be cited", () => {
-  // protects=the members of a quantified part Supported, not yet cited stay open, where its Citation is added, and fold as supported once it is cited (#2869); fails_when=a member of a part still to be cited folds behind Show; no_claim=the members' wording.
-  test("keeps its members open", async () => {
-    const editor = await noteWith("en");
-    const rowsPath = "../../src/renderer/src/editor/ClaimPartRows.tsx";
-    const { cardParts }: { cardParts(input: Record<string, unknown>): { fold: string | null }[] } =
-      await import(rowsPath);
-    const quantified = part(FIRST, {
-      verdict: "not-checked",
-      reason: "found-elsewhere",
-      coverage: {
-        quantifier: "all",
-        complete: true,
-        unit: "months",
-        domainEvidence: [passage("Spring tides: every month of the year.")],
-        members: ["May", "June"].map((label) => ({
-          label,
-          verdict: "supported" as const,
-          evidence: [passage(`${label}: spring tides twice.`)],
-        })),
-      },
-    });
-    const rowsOf = (waiting: ReadonlySet<ClaimCheckPart>) =>
-      cardParts({
-        state: editor.state,
-        text: SENTENCE,
-        sentence: SENTENCE,
-        parts: [quantified],
-        stale: false,
-        checking: false,
-        waiting,
-      }).map((row) => row.fold);
-    expect(rowsOf(new Set([quantified]))).toEqual([null, null]);
-    expect(rowsOf(new Set())).toEqual(["supported", "supported"]);
+    const parts = [...container.querySelectorAll('[data-testid="claim-part"]')];
+    expect(parts).toHaveLength(2);
+    expect(
+      parts.map((row) => row.querySelector('[data-testid="claim-part-reason"]')?.textContent),
+    ).toEqual([
+      t("claim.unsupported.differs"),
+      t("claim.unsupported.notFound", { scope: t("composer.scope.all") }),
+    ]);
+    expect(parts[0]?.querySelector('[data-testid="claim-part-citation"]')?.textContent).toBe(
+      "Spring tides come once a month, at the new moon.",
+    );
+    expect(parts[1]?.querySelector('[data-testid="claim-part-citation"]')).toBeNull();
   });
 });
