@@ -118,6 +118,17 @@ async function caretAtStart(window: Page, editor: Locator) {
   await window.mouse.move(0, 0);
 }
 
+/** The pointer has rested: a few frames have been drawn since it last moved. */
+const rested = (window: Page) =>
+  window.evaluate(
+    () =>
+      new Promise<void>((resolve) => {
+        let frames = 0;
+        const tick = () => (++frames < 5 ? requestAnimationFrame(tick) : resolve());
+        requestAnimationFrame(tick);
+      }),
+  );
+
 /** The Note as it is stored, so a key that typed into it shows. */
 const noteOf = (editor: Locator) =>
   editor.evaluate((dom) => JSON.stringify((dom as unknown as { editor: Editor }).editor.getJSON()));
@@ -143,58 +154,65 @@ async function expectRing(window: Page, accent: string) {
 
 const CHIP = "citation-chip";
 
+/** A Note with three Citations in one paragraph, in a window wide enough for Enter to open the page. */
+async function openThreeChips(language: "en" | "zh-CN") {
+  await writeFile(join(sources, "Tides.pdf"), TIDES);
+  const { app, window } = await launchApp(dataDir, { fakeChat: true, systemColours: true });
+  await dismissChatSetup(window);
+  // biome-ignore lint/correctness/useHookAtTopLevel: an e2e helper whose name begins with "use", not a React hook.
+  await useLocalChatModel(window);
+  await setLanguage(window, language);
+  await setWindowSize(app, window, 1600, 900);
+  await addDocuments(window, [join(sources, "Tides.pdf")]);
+  const [tides] = await window.evaluate(() =>
+    (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.listDocuments(),
+  );
+  await newMind(window);
+  const editor = window.getByTestId("mind-editor");
+  const cite = (at: number) => ({
+    type: "citation",
+    attrs: {
+      passageId: `passage-${at}`,
+      documentId: tides?.id,
+      documentName: "Tides",
+      contentHash: tides?.contentHash,
+      pageFrom: 1,
+      pageTo: 1,
+      location: null,
+      quote: "Harbours publish the times of high water every 12 months.",
+      check: "found",
+      checkReason: null,
+    },
+  });
+  const [first, second, third] = SENTENCES[language];
+  await editor.evaluate(
+    (dom, content) => {
+      (dom as unknown as { editor: Editor }).editor.commands.insertContentAt(0, content);
+    },
+    [
+      {
+        type: "paragraph",
+        content: [
+          { type: "text", text: first },
+          cite(1),
+          { type: "text", text: second },
+          cite(2),
+          { type: "text", text: third },
+          cite(3),
+        ],
+      },
+      { type: "paragraph", content: [{ type: "text", text: "·" }] },
+    ],
+  );
+  await expect(window.getByTestId(CHIP)).toHaveCount(3);
+  return { app, window, editor };
+}
+
 for (const language of ["en", "zh-CN"] as const) {
   test(`three Citations in a paragraph: Tab goes from chip to chip the same at a person's pace and all at once, Space goes into a card and Tab and Esc come back, and Shift+Tab goes back (${language})`, async () => {
     test.setTimeout(240_000);
     const t = (key: Parameters<typeof translate>[1]) => translate(language, key);
-    await writeFile(join(sources, "Tides.pdf"), TIDES);
-    const { app, window } = await launchApp(dataDir, { fakeChat: true, systemColours: true });
-    await dismissChatSetup(window);
-    await useLocalChatModel(window);
-    await setLanguage(window, language);
-    await setWindowSize(app, window, 1600, 900);
-    await addDocuments(window, [join(sources, "Tides.pdf")]);
-    const [tides] = await window.evaluate(() =>
-      (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.listDocuments(),
-    );
-    await newMind(window);
-    const editor = window.getByTestId("mind-editor");
-    const cite = (at: number) => ({
-      type: "citation",
-      attrs: {
-        passageId: `passage-${at}`,
-        documentId: tides?.id,
-        documentName: "Tides",
-        contentHash: tides?.contentHash,
-        pageFrom: 1,
-        pageTo: 1,
-        location: null,
-        quote: "Harbours publish the times of high water every 12 months.",
-        check: "found",
-        checkReason: null,
-      },
-    });
-    const [first, second, third] = SENTENCES[language];
-    await editor.evaluate(
-      (dom, content) => {
-        (dom as unknown as { editor: Editor }).editor.commands.insertContentAt(0, content);
-      },
-      [
-        {
-          type: "paragraph",
-          content: [
-            { type: "text", text: first },
-            cite(1),
-            { type: "text", text: second },
-            cite(2),
-            { type: "text", text: third },
-            cite(3),
-          ],
-        },
-        { type: "paragraph", content: [{ type: "text", text: "·" }] },
-      ],
-    );
-    await expect(window.getByTestId(CHIP)).toHaveCount(3);
+    const { app, window, editor } = await openThreeChips(language);
     const card = window.getByTestId("citation-card");
     const hint = window.getByTestId("card-key-hint");
     const chips = window.getByTestId(CHIP);
@@ -318,6 +336,77 @@ for (const language of ["en", "zh-CN"] as const) {
     // Enter on a chip still opens its page, beside the Note in a window this wide.
     await window.keyboard.press("Enter");
     await expect(window.getByTestId("viewer-title")).toHaveText("Tides");
+    await app.close();
+  });
+}
+
+for (const language of ["en", "zh-CN"] as const) {
+  test(`a card the pointer only rests over gives way to the keyboard's focus, and a pointer that moves takes over again (${language})`, async () => {
+    test.setTimeout(240_000);
+    const { app, window, editor } = await openThreeChips(language);
+    const card = window.getByTestId("citation-card");
+    const chips = window.getByTestId(CHIP);
+    // Exactly this chip's card shows, and it has stopped growing.
+    const shown = async (index: number) => {
+      for (let at = 0; at < 3; at++) {
+        await expect(chips.nth(at)).toHaveAttribute(
+          "aria-expanded",
+          at === index ? "true" : "false",
+        );
+      }
+      await expect(card).toHaveCount(1);
+      await motionSettled(window);
+    };
+    const centre = async () => {
+      const box = await card.boundingBox();
+      if (!box) throw new Error("No card is drawn.");
+      return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+    };
+
+    // Where each chip's card goes, with the keyboard alone.
+    await caretAtStart(window, editor);
+    const where = [];
+    for (let at = 0; at < 3; at++) {
+      await window.keyboard.press("Tab");
+      await shown(at);
+      where.push(await centre());
+    }
+
+    // The pointer rests over the first card while its chip has the focus; Tab to the next chip
+    // shows that chip's card, and the first goes though the pointer still rests over its place.
+    await window.keyboard.press("Escape");
+    await caretAtStart(window, editor);
+    await window.keyboard.press("Tab");
+    await shown(0);
+    await window.mouse.move(where[0]?.x ?? 0, where[0]?.y ?? 0);
+    await shown(0);
+    await rested(window);
+    await window.keyboard.press("Tab");
+    await shown(1);
+
+    // The next card lands under the pointer at rest: the pointer takes nothing, so the card goes
+    // with the focus, and the card before does not come back.
+    await window.mouse.move(where[2]?.x ?? 0, where[2]?.y ?? 0);
+    await rested(window);
+    await window.keyboard.press("Tab");
+    await shown(2);
+    await rested(window);
+    await shown(2);
+    await window.keyboard.press("Tab");
+    await expect(card).toHaveCount(0);
+    for (let at = 0; at < 3; at++)
+      await expect(chips.nth(at)).toHaveAttribute("aria-expanded", "false");
+
+    // One move of the pointer inside the card holds it as it always did: it stays when the focus
+    // goes, and goes when the pointer leaves.
+    await window.keyboard.press("Shift+Tab");
+    await shown(2);
+    await rested(window);
+    await window.mouse.move((where[2]?.x ?? 0) + 1, where[2]?.y ?? 0);
+    await window.keyboard.press("Tab");
+    await shown(2);
+    await window.mouse.move(0, 0);
+    await expect(card).toHaveCount(0);
     await app.close();
   });
 }
@@ -471,6 +560,21 @@ for (const language of ["en", "zh-CN"] as const) {
     );
     expect(untouched, "the key was left to the input method").toBe(true);
     await expect(marks.nth(1)).toBeFocused();
+
+    // A pointer at rest over the first mark's card loses it to the focus moving to the next mark.
+    await window.keyboard.press("Shift+Tab");
+    await expect(marks.first()).toBeFocused();
+    await expect(card).toHaveCount(1);
+    await motionSettled(window);
+    const shownCard = await card.boundingBox();
+    if (!shownCard) throw new Error("No card is drawn.");
+    await window.mouse.move(shownCard.x + shownCard.width / 2, shownCard.y + shownCard.height / 2);
+    await rested(window);
+    await window.keyboard.press("Tab");
+    await expect(marks.nth(1)).toBeFocused();
+    await expect(marks.first()).toHaveAttribute("aria-expanded", "false");
+    await expect(marks.nth(1)).toHaveAttribute("aria-expanded", "true");
+    await expect(card).toHaveCount(1);
     await app.close();
   });
 }

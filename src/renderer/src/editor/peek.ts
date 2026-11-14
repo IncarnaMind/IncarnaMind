@@ -32,6 +32,14 @@ export function useCitationPeek() {
     },
     [settle],
   );
+  /** Lets go of what the pointer holds, as another control's keyboard focus takes over (#3102). */
+  const dropPointer = useCallback(() => {
+    for (const source of [...askers.current]) {
+      if (source !== "focus" && source !== "card-focus") askers.current.delete(source);
+    }
+    window.clearTimeout(timer.current);
+    settle();
+  }, [settle]);
   const clear = useCallback(() => {
     askers.current.clear();
     window.clearTimeout(timer.current);
@@ -39,7 +47,7 @@ export function useCitationPeek() {
     setByKeyboard(false);
   }, []);
   useEffect(() => () => window.clearTimeout(timer.current), []);
-  return { peeking, byKeyboard, hold, clear };
+  return { peeking, byKeyboard, hold, dropPointer, clear };
 }
 
 export interface Peek {
