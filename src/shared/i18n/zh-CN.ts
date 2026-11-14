@@ -892,6 +892,7 @@ export const zhCN = {
   "editor.block.handle": "拖动以移动，点击查看选项",
   "editor.block.menu": "块选项",
   "editor.block.delete": "删除",
+  "block.delete.command": "删除光标所在的块",
   "editor.table.menu": "表格选项",
   "editor.table.rowAbove": "在上方插入行",
   "editor.table.rowBelow": "在下方插入行",
