@@ -726,11 +726,13 @@ export interface AnswersOptions {
   /**
    * The model for the calls that don't write the Answer, asked to skip thinking:
    * the quick-tasks model for an Answer asked with `answers`, which may be
-   * `answers` itself.
+   * `answers` itself; with `own`, always `answers` itself, as a Meeting fill's calls go to the
+   * model and service the fill used (#3099).
    */
   prepareQuickModel?(
     answers: ChatModelChoice,
     prepared: PreparedChatModel,
+    own?: boolean,
   ): Promise<PreparedChatModel["model"]>;
   /** Whether this model writes the Answer, then cites it, in the Tool loop, in this flow (#489). */
   writesThenCites?(prepared: PreparedChatModel, flow: AnswerFlow): boolean;
@@ -3790,7 +3792,9 @@ export function createAnswers(options: AnswersOptions) {
         ...(input.mindsLine && { mindsLine: input.mindsLine }),
         ...(input.onScreenLine && { onScreenLine: input.onScreenLine }),
         model: prepared.model,
-        ...(prepareQuick && { quickModel: () => prepareQuick(model, prepared) }),
+        ...(prepareQuick && {
+          quickModel: () => prepareQuick(model, prepared, context.meetingFacts === true),
+        }),
         documents,
         tools: [
           ...provided,

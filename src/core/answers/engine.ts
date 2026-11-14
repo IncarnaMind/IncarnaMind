@@ -143,7 +143,12 @@ import {
   settleReply,
   type TurnCheck,
 } from "./turnChecks";
-import { citeUnmarked, missingMarkerEvents, textEdits } from "./unmarkedQuotes";
+import {
+  citeUnmarked,
+  missingMarkerEvents,
+  recordMarkedSentences,
+  textEdits,
+} from "./unmarkedQuotes";
 import { createWindowBudget, SEARCH_RESERVE_TOKENS, type WindowBudget } from "./window";
 import { wroteWorking } from "./workingText";
 
@@ -2177,6 +2182,15 @@ async function* toolLoop(
           yield* citeUnmarked(request, placed, temperature, budget, () =>
             nudges.take("unmarked-quotes"),
           );
+        } else if (
+          cite !== null &&
+          cited.length === 0 &&
+          ![...calls.values()].includes(cite) &&
+          MARKER.test(keptText)
+        ) {
+          // A fill's facts are read only by their records: a reply that never called cite would
+          // lose every one (#3099).
+          await recordMarkedSentences(request, keptText, temperature, budget);
         }
       }
     }

@@ -1,0 +1,689 @@
+/**
+ * The paid proof of the ask for a fill's records (#3099): a saved fill's first reply is given back
+ * as the model wrote it, and only the ask for its markers' records goes to a real model. Its output
+ * is counts only: never a line of a call or a sentence of a note.
+ *
+ * Runs only with INCARNAMIND_ASK_ARM, and every other argument then:
+ * - INCARNAMIND_ASK_ARM: A (the saved fills whose reply wrote markers and called no `cite`, 3 tries
+ *   each), B (the same, 1 try each) or C (six that cited and filled, their records withheld, 1 try
+ *   each: the three lowest call ids of each language, other than A's, each its lowest run tag);
+ * - INCARNAMIND_ASK_RUNS: the folders of saved fills, absolute, separated by commas;
+ * - INCARNAMIND_ASK_OUT: the folder its files go to, absolute; every arm keeps its spend there;
+ * - INCARNAMIND_ASK_MODEL: the model's id, which names its provider (claude-… or deepseek-…);
+ * - INCARNAMIND_ASK_KEY_VAR: the name of the variable that holds that provider's key;
+ * - INCARNAMIND_ASK_DRY=1: every request and file is built as in a real run, and nothing is sent.
+ * No request goes that could take the spend of all arms past US$0.25.
+ */
+import { createHash } from "node:crypto";
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { basename, isAbsolute, join } from "node:path";
+import { gunzipSync } from "node:zlib";
+import type { LanguageModelV4 } from "@ai-sdk/provider";
+import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
+import { afterAll, describe, expect, test, vi } from "vitest";
+import type { Core, Meeting, MeetingFill } from "../../src/core";
+import { estimateTokens } from "../../src/core/answers/context";
+import { questionOf } from "../../src/core/answers/judge";
+import { CITATION_NODE, GENERATED_MARK } from "../../src/core/api";
+import { costOf, inCurrency } from "../../src/core/cost/price";
+import type { Language } from "../../src/core/language";
+import { catalogModel } from "../../src/core/providers/catalog";
+import * as chatModels from "../../src/core/providers/models";
+import { translate } from "../../src/shared/i18n";
+import { isPartialMeetingFill } from "../../src/shared/meetingFill";
+import { createTempDataFolder } from "../helpers/core";
+import { createRequestLedger } from "../helpers/meetingFillObservation";
+import { connectToMind } from "../helpers/mindClient";
+import { readMind, writeMind } from "../helpers/minds";
+import { type ScriptedReply, scriptedModel } from "../helpers/models";
+import { transcribingCore } from "../helpers/transcription";
+
+const ARM = process.env.INCARNAMIND_ASK_ARM;
+const DRY = process.env.INCARNAMIND_ASK_DRY === "1";
+const CAP_USD = 0.25;
+const TRIES: Readonly<Record<string, number>> = { A: 3, B: 1, C: 1 };
+const SPEND_FILE = "spend.json";
+
+/** The arguments, read only once the proof is asked for. */
+function argumentsOf() {
+  const runs = (process.env.INCARNAMIND_ASK_RUNS ?? "").split(",").filter(Boolean);
+  const out = process.env.INCARNAMIND_ASK_OUT ?? "";
+  const model = process.env.INCARNAMIND_ASK_MODEL ?? "";
+  const keyVar = process.env.INCARNAMIND_ASK_KEY_VAR ?? "";
+  const provider: "anthropic" | "deepseek" | null = model.startsWith("claude-")
+    ? "anthropic"
+    : model.startsWith("deepseek-")
+      ? "deepseek"
+      : null;
+  const key = DRY ? "a-made-up-key-for-a-dry-run" : (process.env[keyVar] ?? "");
+  if (
+    !ARM ||
+    TRIES[ARM] === undefined ||
+    runs.length === 0 ||
+    !runs.every(isAbsolute) ||
+    !isAbsolute(out) ||
+    !provider ||
+    (!DRY && (!/^[A-Z][A-Z0-9_]+$/.test(keyVar) || key.trim() === ""))
+  ) {
+    throw new Error("Invalid arguments for the ask's proof: see this file's comment.");
+  }
+  const price = catalogModel(provider, model)?.price;
+  if (!price) throw new Error("The model has no catalog price.");
+  return { arm: ARM, runs, out, model, provider, key, price, tries: TRIES[ARM] ?? 1 };
+}
+
+type Part = { type: string; [key: string]: unknown };
+
+/** A receipt's reply, back in its stream's parts: text and the JSON parts the recorder wrote. */
+function partsOf(raw: string): Part[] {
+  const parts: Part[] = [];
+  let text = "";
+  let at = 0;
+  while (at < raw.length) {
+    if (raw.startsWith('{"type":"', at)) {
+      let depth = 0;
+      let quoted = false;
+      let escaped = false;
+      let end = at;
+      for (; end < raw.length; end++) {
+        const char = raw[end];
+        if (quoted) {
+          if (escaped) escaped = false;
+          else if (char === "\\") escaped = true;
+          else if (char === '"') quoted = false;
+        } else if (char === '"') quoted = true;
+        else if (char === "{") depth++;
+        else if (char === "}" && --depth === 0) break;
+      }
+      try {
+        const part = JSON.parse(raw.slice(at, end + 1)) as Part;
+        if (text) parts.push({ type: "text", text });
+        text = "";
+        parts.push(part);
+        at = end + 1;
+        continue;
+      } catch {
+        // Text that happens to start like a part is text.
+      }
+    }
+    text += raw[at];
+    at++;
+  }
+  if (text) parts.push({ type: "text", text });
+  return parts;
+}
+
+const textOf = (parts: readonly Part[]) =>
+  parts
+    .filter((part) => part.type === "text")
+    .map((part) => String(part.text))
+    .join("");
+
+interface Record_ {
+  marker: number;
+  quote: string;
+}
+
+const citeRecords = (parts: readonly Part[]): Record_[] =>
+  parts.flatMap((part) => {
+    if (part.type !== "tool-call" || part.toolName !== "cite") return [];
+    let input: unknown = part.input;
+    try {
+      if (typeof input === "string") input = JSON.parse(input);
+    } catch {
+      // A call the model wrote malformed gave the app no records either.
+      input = null;
+    }
+    const list = (input as { citations?: unknown } | null)?.citations;
+    return Array.isArray(list)
+      ? list.flatMap((each: unknown) => {
+          const { marker, quote } = (each ?? {}) as { marker?: unknown; quote?: unknown };
+          return typeof marker === "number" && typeof quote === "string" ? [{ marker, quote }] : [];
+        })
+      : [];
+  });
+
+interface Cue {
+  text: string;
+}
+interface Saved {
+  name: string;
+  call: string;
+  language: Language;
+  provider: string;
+  filled: boolean;
+  requests: Part[][];
+  cues: Cue[];
+}
+
+const FRAMES = /^ {0,3}#{1,6}\s+FACT\s/m;
+const MARKER = /\[\^\d{1,4}\]/;
+
+function savedFills(runs: readonly string[]): Saved[] {
+  return runs
+    .flatMap((folder) =>
+      readdirSync(folder)
+        .filter((file) => file.endsWith(".receipt.json.gz"))
+        .map((file) => join(folder, file)),
+    )
+    .map((path) => {
+      const receipt = JSON.parse(gunzipSync(readFileSync(path)).toString()) as {
+        call: string;
+        provider: string;
+        quality: { fill_state: string };
+        evidence: { raw_replies: string[]; saved_cues: Cue[] };
+      };
+      return {
+        name: `${basename(join(path, ".."))}/${basename(path, ".receipt.json.gz")}`,
+        call: receipt.call,
+        language: receipt.call.startsWith("reserved-zh-") ? ("zh-CN" as const) : ("en" as const),
+        provider: receipt.provider,
+        filled: receipt.quality.fill_state === "filled",
+        requests: receipt.evidence.raw_replies.map(partsOf),
+        cues: receipt.evidence.saved_cues,
+      };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+const called = (parts: readonly Part[]) => parts.some((part) => part.type === "tool-call");
+
+/** The fills the ask goes for: their first request wrote the ledger with markers and called nothing. */
+const askable = (fill: Saved) => {
+  const first = fill.requests[0] ?? [];
+  return !called(first) && FRAMES.test(textOf(first)) && MARKER.test(textOf(first));
+};
+
+function picked(fills: readonly Saved[], arm: string): Saved[] {
+  const asked = fills.filter(askable);
+  if (arm !== "C") return asked;
+  const askedCalls = new Set(asked.map((fill) => fill.call));
+  const cited = fills.filter(
+    (fill) =>
+      fill.provider === "anthropic" &&
+      fill.filled &&
+      !askedCalls.has(fill.call) &&
+      citeRecords(fill.requests[0] ?? []).length > 0 &&
+      fill.requests.some((parts) => FRAMES.test(textOf(parts))),
+  );
+  return (["en", "zh-CN"] as const).flatMap((language) => {
+    const calls = [
+      ...new Set(cited.filter((fill) => fill.language === language).map((f) => f.call)),
+    ]
+      .sort()
+      .slice(0, 3);
+    return calls.flatMap((call) => cited.filter((fill) => fill.call === call).slice(0, 1));
+  });
+}
+
+/** The reply given back as the fill's first: arm C's ledger with its `cite` records withheld. */
+function firstReply(fill: Saved): { text: string; own: Record_[] } {
+  const ledger = fill.requests.find((parts) => FRAMES.test(textOf(parts))) ?? [];
+  return {
+    text: textOf(ledger),
+    own: fill.requests.slice(0, fill.requests.indexOf(ledger)).flatMap(citeRecords),
+  };
+}
+
+interface Fact {
+  sentence: string;
+  markers: number[];
+}
+
+const plain = (text: string) =>
+  text
+    .replace(/\[\^\d{1,4}\]/g, "")
+    .replace(/\s+([.,;:!?。，；：！？])/g, "$1")
+    .replace(/\s+/g, " ")
+    .trim();
+
+/** The fact frames the reply closed, and its overview's sentence: what the note may say. */
+function closedFacts(reply: string): { facts: Fact[]; overview: Fact | null } {
+  const facts: Fact[] = [];
+  let overview: Fact | null = null;
+  let open: { id: string; body: string[] } | null = null;
+  let fenced = false;
+  for (const line of reply.split("\n")) {
+    const start = /^ {0,3}#{1,6}\s+(?:FACT\s+(\S+)|(OVERVIEW))\s*$/.exec(line);
+    const end = /^ {0,3}#{1,6}\s+END\s+(\S+)\s*$/.exec(line);
+    if (start) {
+      open = { id: start[1] ?? "OVERVIEW", body: [] };
+      fenced = false;
+    } else if (end && open && end[1] === open.id) {
+      const sentence = open.body.join(" ");
+      const fact = {
+        sentence: plain(sentence),
+        markers: [...sentence.matchAll(/\[\^(\d{1,4})\]/g)].map((match) => Number(match[1])),
+      };
+      if (open.id === "OVERVIEW") overview = fact;
+      else facts.push(fact);
+      open = null;
+    } else if (open) {
+      if (/^ {0,3}(?:`{3,}|~{3,})/.test(line)) fenced = !fenced;
+      else if (!fenced && line.trim() !== "") open.body.push(line.trim());
+    }
+  }
+  return { facts, overview };
+}
+
+const footnoteQuotes = (reply: string): Map<number, string> =>
+  new Map(
+    [...reply.matchAll(/^\[\^(\d{1,4})\]:.*"([^"]+)"\s*$/gm)].map((match) => [
+      Number(match[1]),
+      match[2] as string,
+    ]),
+  );
+
+/** The note's AI paragraphs and bullets: their words and their Citations' quotes and checks. */
+function aiUnits(doc: ProseMirrorNode) {
+  const units: { text: string; citations: { quote: string; check: string }[] }[] = [];
+  doc.descendants((node) => {
+    if (node.type.name !== "paragraph") return true;
+    let ai = false;
+    const citations: { quote: string; check: string }[] = [];
+    node.descendants((child) => {
+      if (child.isText && child.marks.some((mark) => mark.type.name === GENERATED_MARK)) ai = true;
+      if (child.type.name === CITATION_NODE)
+        citations.push({
+          quote: String(child.attrs.quote ?? ""),
+          check: String(child.attrs.check),
+        });
+    });
+    if (ai) units.push({ text: plain(node.textContent), citations });
+    return false;
+  });
+  return units;
+}
+
+/** The cue a quote is on: the first whose words hold it. */
+const lineOf = (cues: readonly Cue[], quote: string) =>
+  cues.findIndex((cue) => plain(cue.text).includes(plain(quote)));
+
+interface Try {
+  arm: string;
+  case: string;
+  language: Language;
+  try: number;
+  void: string;
+  filled: boolean;
+  closed: number;
+  written: number;
+  sameSentences: boolean;
+  quotesFound: boolean;
+  asked: number;
+  dropped: number;
+  ownCompared: number;
+  sameLine: number;
+  footnoteCompared: number;
+  footnoteSame: number;
+  seconds: number;
+  usd: number;
+}
+
+const results: Try[] = [];
+const otherLines: string[] = [];
+let stoppedAtCap = false;
+
+/** Read only when the proof is asked for: the unit suite imports this file with no arguments. */
+const ARGS = ARM ? argumentsOf() : null;
+
+describe.skipIf(!ARGS)("the ask for a fill's records, on a real model (#3099)", () => {
+  if (!ARGS) return;
+  const args = ARGS;
+  mkdirSync(args.out, { recursive: true });
+  const fills = picked(savedFills(args.runs), args.arm);
+  const fixtures = JSON.parse(
+    readFileSync("tests/fixtures/meetings/fill-structured-reserved.json", "utf8"),
+  ) as {
+    id: string;
+    language: Language;
+    notes: Parameters<typeof writeMind>[1];
+    turns: { side: "me" | "them"; text: string }[];
+  }[];
+  const spentBefore = (): number => {
+    try {
+      const spent = JSON.parse(readFileSync(join(args.out, SPEND_FILE), "utf8")) as Record<
+        string,
+        number
+      >;
+      return Object.entries(spent)
+        .filter(([arm]) => arm !== args.arm)
+        .reduce((sum, [, usd]) => sum + usd, 0);
+    } catch {
+      return 0;
+    }
+  };
+  const dryRequests: { arm: string; case: string; bytes: number; sha256: string; usd: number }[] =
+    [];
+
+  test("the arm's fills", () => {
+    const counts = { en: 0, "zh-CN": 0 };
+    for (const fill of fills) counts[fill.language]++;
+    console.log(`Arm ${args.arm}: ${fills.length} fills (en ${counts.en}, zh ${counts["zh-CN"]})`);
+    expect(fills.length).toBe(6);
+  });
+
+  for (const [index, fill] of fills.entries()) {
+    for (let attempt = 1; attempt <= args.tries; attempt++) {
+      test(`case ${index + 1}, try ${attempt}`, { timeout: 300_000 }, async () => {
+        const call = fixtures.find((each) => each.id === fill.call);
+        if (!call) throw new Error(`No fixture for case ${index + 1}.`);
+        const { text: reply, own } = firstReply(fill);
+        const ledger = createRequestLedger({ model: args.model, price: args.price });
+        const seconds: number[] = [];
+        let estimated = 0;
+        const restore = globalThis.fetch;
+        if (DRY) {
+          globalThis.fetch = async (input, init) => {
+            const body = await new Request(input, init).text();
+            const usd = estimated;
+            dryRequests.push({
+              arm: args.arm,
+              case: fill.call,
+              bytes: Buffer.byteLength(body),
+              sha256: createHash("sha256").update(body).digest("hex"),
+              usd,
+            });
+            return new Response(
+              JSON.stringify({ error: { message: "dry run: nothing is sent" } }),
+              {
+                status: 503,
+                headers: { "content-type": "application/json" },
+              },
+            );
+          };
+        }
+        let given = false;
+        const replay = scriptedModel((each): ScriptedReply => {
+          if (each.question !== undefined || given) {
+            throw new Error("A request other than the fill's first or its ask.");
+          }
+          given = true;
+          return { text: reply };
+        });
+        const createChatModel = (spec: Parameters<typeof chatModels.createAiSdkChatModel>[0]) => {
+          const real = ledger.model(spec, () => chatModels.createAiSdkChatModel(spec));
+          const hybrid: LanguageModelV4 = {
+            specificationVersion: real.specificationVersion,
+            provider: real.provider,
+            modelId: real.modelId,
+            supportedUrls: real.supportedUrls,
+            doGenerate: (options) => replay.doGenerate(options),
+            doStream: async (options) => {
+              if (questionOf(options) !== "unmarked-quotes") return replay.doStream(options);
+              const input = estimateTokens(JSON.stringify(options.prompt));
+              const output = options.maxOutputTokens ?? 8_000;
+              estimated = inCurrency(
+                costOf({ inputTokens: input, outputTokens: output }, args.price, new Date()),
+                args.price.currency,
+                "USD",
+              );
+              const spent = spentBefore() + ledger.snapshot().total_usd;
+              if (!DRY && spent + estimated > CAP_USD) {
+                stoppedAtCap = true;
+                throw new Error("The next request could pass the spend cap: not sent.");
+              }
+              const started = performance.now();
+              const result = await real.doStream(options);
+              return {
+                ...result,
+                stream: result.stream.pipeThrough(
+                  new TransformStream({
+                    flush() {
+                      seconds.push((performance.now() - started) / 1000);
+                    },
+                  }),
+                ),
+              };
+            },
+          };
+          return hybrid;
+        };
+        const { core, record } = await transcribingCore(await createTempDataFolder(), {
+          engine: {
+            lines: ["", ...call.turns.filter((turn) => turn.side === "me").map((t) => t.text)],
+            theirLines: [
+              "",
+              ...call.turns.filter((turn) => turn.side === "them").map((t) => t.text),
+            ],
+          },
+          createChatModel,
+        });
+        try {
+          if (stoppedAtCap) throw new Error("Stopped at the spend cap: this try is not run.");
+          await core.saveLibrarySettings({
+            ...(await core.getLibrary()).settings,
+            automatic: false,
+          });
+          await core.updateSettings({
+            user: { language: call.language, monthlyCap: { amount: CAP_USD, currency: "USD" } },
+          });
+          await core.saveChatProvider({
+            kind: args.provider,
+            apiKey: args.key,
+            modelId: args.model,
+          });
+          const meeting = await core.createMeeting();
+          const client = await connectToMind(core, meeting.mindId);
+          if (call.notes.length > 0) writeMind(client, call.notes);
+          await client.settled();
+          await core.startMeeting({ meetingId: meeting.id, systemAudio: true });
+          record(20);
+          for (const turn of call.turns) {
+            record(2_000, [turn.side === "me" ? "microphone" : "system"]);
+            await new Promise((resolve) => setTimeout(resolve, 200));
+          }
+          await core.stopMeeting(meeting.id);
+          const fillNow = await settled(core, meeting);
+          const snapshot = ledger.snapshot();
+          const units = aiUnits(readMind(client));
+          const { facts, overview } = closedFacts(reply);
+          const said = new Set([...facts, ...(overview ? [overview] : [])].map((f) => f.sentence));
+          const reference = (key: "above" | "below") =>
+            new RegExp(
+              `^${translate(call.language, `meetings.fill.reference.${key}`, { topic: "\u0000" })
+                .replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+                .replace("\u0000", ".+")}$`,
+              "u",
+            );
+          const pointers = [reference("above"), reference("below")];
+          const sentences = units.filter((unit) => !pointers.some((each) => each.test(unit.text)));
+          const writtenFacts = facts.filter((fact) =>
+            units.some((unit) => unit.text === fact.sentence),
+          );
+          const askedReply = snapshot.requests.find((each) => each.text.trim() !== "")?.text ?? "";
+          const askedItems = (() => {
+            try {
+              const list = (
+                JSON.parse(askedReply.replace(/^```(?:json)?|```$/gm, "")) as {
+                  citations?: unknown;
+                }
+              ).citations;
+              return Array.isArray(list) ? list.length : 0;
+            } catch {
+              return 0;
+            }
+          })();
+          const quotes = new Set(
+            sentences.flatMap((unit) => unit.citations.map((each) => each.quote)),
+          );
+          const compare = (theirs: ReadonlyMap<number, string>) => {
+            let compared = 0;
+            let same = 0;
+            for (const fact of writtenFacts) {
+              const unit = units.find((each) => each.text === fact.sentence);
+              fact.markers.forEach((marker, at) => {
+                const mine = theirs.get(marker);
+                const asked = unit?.citations[at]?.quote;
+                if (mine === undefined || asked === undefined) return;
+                compared++;
+                const ownLine = lineOf(fill.cues, mine);
+                const askedLine = lineOf(fill.cues, asked);
+                if (ownLine === askedLine) same++;
+                else if (args.arm === "C")
+                  otherLines.push(`${fill.call}\t${marker}\t${ownLine}\t${askedLine}`);
+              });
+            }
+            return { compared, same };
+          };
+          const ownLines = compare(new Map(own.map((each) => [each.marker, each.quote])));
+          const footnotes = compare(footnoteQuotes(reply));
+          const usage = snapshot.requests;
+          const voided =
+            usage.length !== 1
+              ? `${usage.length} requests sent`
+              : usage.some((each) => each.status !== "completed" || !each.usage_complete)
+                ? "a request not completed, or without its usage"
+                : "";
+          const filled =
+            fillNow.state === "filled" &&
+            (facts.length > 1 || (writtenFacts.length === 1 && isPartialMeetingFill(fillNow)));
+          results.push({
+            arm: args.arm,
+            case: fill.call,
+            language: call.language,
+            try: attempt,
+            void: DRY ? "dry run" : voided,
+            filled,
+            closed: facts.length,
+            written: writtenFacts.length,
+            sameSentences: sentences.every((unit) => said.has(unit.text)),
+            quotesFound: sentences.every((unit) =>
+              unit.citations.every(
+                (each) => each.check === "found" && lineOf(fill.cues, each.quote) >= 0,
+              ),
+            ),
+            asked: askedItems,
+            dropped: Math.max(0, askedItems - quotes.size),
+            ownCompared: ownLines.compared,
+            sameLine: ownLines.same,
+            footnoteCompared: footnotes.compared,
+            footnoteSame: footnotes.same,
+            seconds: seconds[0] ?? 0,
+            usd: snapshot.total_usd,
+          });
+        } finally {
+          core.close();
+          globalThis.fetch = restore;
+        }
+      });
+    }
+  }
+
+  afterAll(() => {
+    if (results.length === 0) return;
+    const columns = Object.keys(results[0] ?? {}) as (keyof Try)[];
+    const rows = results.map((row) => columns.map((column) => String(row[column])));
+    const empty = rows.some((row) => row.some((cell) => cell.trim() === ""));
+    writeFileSync(
+      join(args.out, `arm-${args.arm}.tsv`),
+      [columns.join("\t"), ...rows.map((row) => row.join("\t"))].join("\n"),
+    );
+    if (args.arm === "C") writeFileSync(join(args.out, "other-line.tsv"), otherLines.join("\n"));
+    if (DRY) {
+      writeFileSync(
+        join(args.out, `dry-${args.arm}.jsonl`),
+        dryRequests.map((each) => JSON.stringify(each)).join("\n"),
+      );
+    }
+    let spent: Record<string, number> = {};
+    try {
+      spent = JSON.parse(readFileSync(join(args.out, SPEND_FILE), "utf8"));
+    } catch {
+      spent = {};
+    }
+    spent[args.arm] = results.reduce((sum, row) => sum + row.usd, 0);
+    if (!DRY) writeFileSync(join(args.out, SPEND_FILE), JSON.stringify(spent));
+    const summary = summarize(args.arm, results, dryRequests);
+    writeFileSync(join(args.out, `summary-${args.arm}.json`), JSON.stringify(summary, null, 2));
+    console.log(JSON.stringify(summary, null, 2));
+    // An empty cell or field is a fault of the harness, and fails the run.
+    const blank = (value: unknown): boolean =>
+      value === null ||
+      value === undefined ||
+      (typeof value === "string" && value.trim() === "") ||
+      (typeof value === "object" && Object.values(value).some(blank));
+    if (empty || blank(summary)) throw new Error("An empty cell or field in the proof's output.");
+  });
+});
+
+function summarize(arm: string, rows: readonly Try[], dry: readonly { usd: number }[]) {
+  const byLanguage = (pick: (row: Try) => number) => ({
+    en: rows.filter((row) => row.language === "en").reduce((sum, row) => sum + pick(row), 0),
+    zh: rows.filter((row) => row.language === "zh-CN").reduce((sum, row) => sum + pick(row), 0),
+    all: rows.reduce((sum, row) => sum + pick(row), 0),
+  });
+  const counted = (row: Try) => row.void === "";
+  const filled = (row: Try) => (counted(row) && row.filled ? 1 : 0);
+  const median = (values: number[]) => {
+    const sorted = [...values].sort((a, b) => a - b);
+    return sorted.length === 0 ? 0 : (sorted[Math.floor((sorted.length - 1) / 2)] ?? 0);
+  };
+  const cases = [...new Set(rows.map((row) => row.case))];
+  const filledRows = rows.filter((row) => filled(row) === 1);
+  const asked = byLanguage((row) => (counted(row) ? row.ownCompared : 0));
+  const same = byLanguage((row) => (counted(row) ? row.sameLine : 0));
+  const closed = byLanguage((row) => row.closed);
+  const written = byLanguage((row) => (counted(row) ? row.written : 0));
+  const bars =
+    arm === "A"
+      ? {
+          "1: filled in at least 16 of 18, each case in at least 2 of 3":
+            byLanguage(filled).all >= 16 &&
+            cases.every(
+              (each) => rows.filter((row) => row.case === each && filled(row)).length >= 2,
+            ),
+          "2: every filled try keeps the first reply's sentences, every quote found":
+            filledRows.every((row) => row.sameSentences && row.quotesFound),
+          "3: at least 9 in 10 of the closed facts written": written.all >= 0.9 * closed.all,
+        }
+      : arm === "C"
+        ? {
+            "4: filled in at least 5 of 6, and 9 in 10 asked markers on the reply's own line":
+              byLanguage(filled).all >= 5 && same.all >= 0.9 * asked.all,
+          }
+        : { "B: reported, gates nothing": true };
+  return {
+    arm,
+    dry: DRY,
+    tries: byLanguage(() => 1),
+    void: byLanguage((row) => (counted(row) ? 0 : 1)),
+    filled: byLanguage(filled),
+    sameSentences: byLanguage((row) => (filled(row) && row.sameSentences ? 1 : 0)),
+    quotesFound: byLanguage((row) => (filled(row) && row.quotesFound ? 1 : 0)),
+    droppedRecords: byLanguage((row) => (counted(row) ? row.dropped : 0)),
+    closedFacts: closed,
+    writtenFacts: written,
+    askedMarkersCompared: asked,
+    askedMarkersOnOwnLine: same,
+    footnoteQuotesCompared: byLanguage((row) => row.footnoteCompared),
+    footnoteQuotesOnSameLine: byLanguage((row) => row.footnoteSame),
+    secondsAdded: {
+      median: median(rows.filter(counted).map((row) => row.seconds)),
+      longest: Math.max(0, ...rows.filter(counted).map((row) => row.seconds)),
+    },
+    usd: byLanguage((row) => row.usd),
+    dryRequests: dry.length,
+    dryEstimateUsd: dry.reduce((sum, each) => sum + each.usd, 0),
+    stoppedAtCap,
+    bars: Object.fromEntries(
+      Object.entries(bars).map(([bar, held]) => [
+        bar,
+        DRY ? "not read in a dry run" : held ? "held" : "failed",
+      ]),
+    ),
+  };
+}
+
+async function settled(core: Core, meeting: Meeting): Promise<MeetingFill> {
+  return vi.waitFor(
+    async () => {
+      const fill = (await core.listMeetings()).find((each) => each.id === meeting.id)?.fill;
+      if (!fill || fill.state === "waiting" || fill.state === "filling") {
+        throw new Error(`Not yet: ${fill?.state}`);
+      }
+      return fill;
+    },
+    { timeout: 240_000, interval: 250 },
+  );
+}

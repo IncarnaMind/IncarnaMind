@@ -557,6 +557,57 @@ async function askForCitations(
   return judged.ok ? judged.value : [];
 }
 
+/** The lines of a reply that hold a Citation marker: its sentences, not its code, headings or footnotes. */
+function markedLines(reply: string): string {
+  const lines: string[] = [];
+  let fenced = false;
+  for (const line of reply.split("\n")) {
+    if (/^ {0,3}(?:`{3,}|~{3,})/.test(line)) fenced = !fenced;
+    else if (!fenced && !/^ {0,3}(?:#|\[\^\d{1,4}\]:)/.test(line) && /\[\^\d{1,4}\]/.test(line))
+      lines.push(line.trim());
+  }
+  return lines.join("\n\n");
+}
+
+/**
+ * A Meeting fill's reply that wrote its Citation markers and called no `cite` (#3099): their
+ * records, asked for once in the one request for an Answer's Citations, of the model that wrote
+ * the reply. Its sentences stay as written: a record takes only a marker its sentence holds with no
+ * record, and only a quote the check finds is kept.
+ */
+export async function recordMarkedSentences(
+  request: Pick<AnswerRequest, "model" | "quickModel" | "documents" | "signal">,
+  reply: string,
+  temperature: number | undefined,
+  budget?: WindowBudget | null,
+): Promise<void> {
+  const { documents, signal } = request;
+  if (!documents.shownPassages || !documents.quoteFound || !documents.hasRecord) return;
+  const passages = documents.shownPassages();
+  const sentences = markedLines(reply);
+  if (passages.length === 0 || sentences === "") return;
+  // The fill read every Passage of its part whole: only a window limits what the request shows.
+  const toAsk = budget ? passagesToAsk(sentences, passages, budget) : passages;
+  if (toAsk.length === 0) return;
+  const given = await askForCitations(request, sentences, toAsk, temperature);
+  if (signal.aborted) return;
+  const found = given.filter((each) => documents.quoteFound?.(each.passage, each.quote) ?? false);
+  const recorded = (marker: number) => documents.hasRecord?.(marker) ?? false;
+  const records = takingMarkers(found, sentences, recorded, []).flatMap((each) =>
+    each.marker === undefined
+      ? []
+      : [{ marker: each.marker, passage: each.passage, quote: each.quote }],
+  );
+  if (records.length === 0) return;
+  try {
+    documents.cite(records, { structured: true });
+  } catch (error) {
+    console.error(
+      `The fill's asked Citations couldn't be recorded: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
 /**
  * Once an Answer (`answer`, its own records' markers placed) is written: adds
  * the Citations for what it quotes without markers, and when nothing matches
