@@ -6621,7 +6621,7 @@ export function createCore(adapters: CoreAdapters): Core {
       await evidence.ready(undefined, () => checked);
       const found = await evidence.search(
         query,
-        evidence.scope(mindId, scopeDocuments(scope), checked),
+        evidence.scope(mindId, scopeDocuments(scope, mindId), checked),
       );
       return { passages: found.passages.map(passageResult), excluded: found.excluded };
     },

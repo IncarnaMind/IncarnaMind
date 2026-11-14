@@ -359,6 +359,40 @@ describe.each(["en", "zh-CN"] as const)("a Note citing an example Document (%s)"
     expect(searchedBy(setup.calls.slice(from))).toEqual(new Set([words.own]));
     setup.core.close();
   });
+
+  // protects=find-support for one sentence and the evidence search a figure's Choose a Citation runs, asked for a Note that cites an example Document, read it as that Note's checks do; asked for another Note they don't (#3083); fails_when=a check from the Note leaves its cited example out, or another Note reaches it; no_claim=the figure schedule's own rows.
+  test("find-support and the evidence search for it read it too; for another Note they don't", async () => {
+    const setup = await setUp(language);
+    const { words } = setup;
+    const citation = await citesReport(setup);
+    const citing = await noteWith(setup, [[words.ebitda, citation]]);
+    const plain = await noteWith(setup, [[words.ownLine]]);
+    const cited = {
+      documentName: setup.report.name,
+      quote: citation.attrs.quote,
+      documentId: setup.report.id,
+      ...(citation.attrs.contentHash && { contentHash: citation.attrs.contentHash }),
+      ...(citation.attrs.passageId && { passageId: citation.attrs.passageId }),
+    };
+    const findSupport = (mindId: string) =>
+      setup.core.checkClaim({ claim: words.ebitda, cited: [cited], mindId });
+    const searched = async (mindId: string) =>
+      new Set(
+        (await setup.core.searchEvidence(words.query, { mindId })).passages.map(
+          (passage) => passage.documentName,
+        ),
+      );
+
+    expect(await findSupport(citing.mindId)).toMatchObject({ verdict: "supported" });
+    expect(await searched(citing.mindId)).toEqual(new Set([words.report, words.own]));
+    expect(await findSupport(plain.mindId)).toMatchObject({
+      verdict: "not-checked",
+      reason: "outside-scope",
+      detail: words.report,
+    });
+    expect(await searched(plain.mindId)).toEqual(new Set([words.own]));
+    setup.core.close();
+  });
 });
 
 describe.each(["en", "zh-CN"] as const)(
