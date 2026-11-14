@@ -1,4 +1,16 @@
-const FENCE = /^ {0,3}(`{3,}|~{3,})(.*)$/;
+/**
+ * A fence's opening line: its run of backticks or tildes, else null. What follows the run holds no
+ * backtick.
+ */
+export const fenceOpened = (line: string): string | null =>
+  /^ {0,3}(`{3,}|~{3,})[^`]*$/.exec(line)?.[1] ?? null;
+
+/** Whether `line` closes the fence `opened` began: its character, as long a run or longer, blanks after. */
+export function fenceClosedBy(opened: string, line: string): boolean {
+  const run = /^ {0,3}(`{3,}|~{3,})[ \t]*$/.exec(line)?.[1];
+  return run !== undefined && run[0] === opened[0] && run.length >= opened.length;
+}
+
 // A fact's opening line may hold more after its id, such as a title, which is not read (#3106).
 const FRAME = /^ {0,3}#{1,6}[ \t]+(?:FACT[ \t]+\S+(?:[ \t].*)?|OVERVIEW[ \t]*)$/;
 const FRAME_END =
@@ -8,15 +20,7 @@ const FRAME_END =
 function closedInFrame(lines: readonly string[], from: number, opener: string): boolean {
   for (const line of lines.slice(from)) {
     if (FRAME_END.test(line)) return false;
-    const fence = FENCE.exec(line);
-    const delimiter = fence?.[1];
-    if (
-      delimiter !== undefined &&
-      delimiter[0] === opener[0] &&
-      delimiter.length >= opener.length &&
-      fence?.[2]?.trim() === ""
-    )
-      return true;
+    if (fenceClosedBy(opener, line)) return true;
   }
   return false;
 }
@@ -35,18 +39,11 @@ export function withJsonFencesClosed(text: string): string {
   for (let index = 0; index < lines.length; index++) {
     const line = lines[index] ?? "";
     closed.push(line);
-    const fence = FENCE.exec(line);
-    const delimiter = fence?.[1];
     if (open !== null) {
-      if (
-        delimiter !== undefined &&
-        delimiter[0] === open[0] &&
-        delimiter.length >= open.length &&
-        fence?.[2]?.trim() === ""
-      )
-        open = null;
+      if (fenceClosedBy(open, line)) open = null;
       continue;
     }
+    const delimiter = fenceOpened(line);
     if (!delimiter) continue;
     open = delimiter;
     const json = lines[index + 1];

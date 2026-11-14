@@ -535,21 +535,59 @@ describe("the ask for a fill's records (#3099)", () => {
     }
   });
 
-  // protects=a record whose quote the Transcript doesn't hold is dropped, and the facts whose quotes are found are written; fails_when=the wrong quote is recorded, or the good facts go with it; no_claim=which line a found quote is on.
+  // protects=a record whose quote the Transcript doesn't hold, given outright with a real Passage, is dropped: its fact is left out and counted, neither its sentence nor the quote is in the note, and the facts whose quotes are found keep their Citations; fails_when=the wrong quote is recorded, or the good facts go with it; no_claim=which line a found quote is on.
   test("drops a record whose quote isn't found, and keeps the facts whose quotes are", async () => {
     const words = WORDS.en;
-    const quotes = { ...quotesOf(words), 2: "Dana will send the contract on Friday" };
-    const scripted = fillModel({ reply: ledger(words), ask: recordsFor(quotes) });
+    const wrong = "Dana will send the contract on Friday";
+    const { 2: _action, ...found } = quotesOf(words);
+    const scripted = fillModel({
+      reply: ledger(words),
+      ask: (answer, passages) => {
+        const sentence = answer.split("\n").find((line) => line.includes("[^2]")) ?? "";
+        const passage = passages[0]?.id ?? "";
+        if (sentence === "" || passage === "")
+          throw new Error("The ask had no marked line or Passage.");
+        return [
+          ...recordsFor(found)(answer, passages),
+          { sentence: sentence.replace(/\s*\[\^\d+\]/g, ""), passage, quote: wrong },
+        ];
+      },
+    });
     const { core, client, fill } = await recordedFill("en", scripted);
     try {
+      expect(scripted.asked).toHaveLength(1);
       expect(fill).toMatchObject({ state: "filled", omitted: 1, unfinishedParts: 0 });
       expect(readMind(client).textContent).not.toContain(words.action);
-      expect(readMind(client).textContent).not.toContain(quotes[2]);
+      expect(readMind(client).textContent).not.toContain(wrong);
       expect(citationsBeside(client, words.decision)[0]).toEqual([
         { check: "found", quote: words.decision },
       ]);
       expect(citationsBeside(client, words.purpose)[0]).toEqual([
         { check: "found", quote: words.purpose },
+      ]);
+    } finally {
+      core.close();
+    }
+  });
+
+  // protects=a code fence holding a shorter fence line closes only on its own kind of line, so the marked sentences after it are still asked for and filled (#3099); fails_when=the inner line ends the fence and the sentences after the block are left out of the ask; no_claim=a model writing code there.
+  test("asks for the marked sentences after a fence that holds a shorter one", async () => {
+    const words = WORDS.en;
+    const reply = [
+      "HEADINGS: H1=NONE",
+      fact("F1", words.decision, 1, "decisions"),
+      ["````text", "```", "not the end of the block", "````"].join("\n"),
+      fact("F2", words.action, 2, "actions"),
+      overview(words.purpose, 3),
+    ].join("\n\n");
+    const scripted = fillModel({ reply, ask: recordsFor(quotesOf(words)) });
+    const { core, client, fill } = await recordedFill("en", scripted);
+    try {
+      expect(scripted.asked).toHaveLength(1);
+      expect(scripted.asked[0]).toContain(words.action);
+      expect(fill).toMatchObject({ state: "filled", omitted: 0, unfinishedParts: 0 });
+      expect(citationsBeside(client, words.action)[0]).toEqual([
+        { check: "found", quote: words.action },
       ]);
     } finally {
       core.close();

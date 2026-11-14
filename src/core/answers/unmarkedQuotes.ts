@@ -43,6 +43,7 @@ import { sentenceSpans } from "../../shared/sentences";
 import { detectLanguage, LANGUAGE_SAMPLE } from "../documents/textLanguage";
 import { outputTokens } from "../providers/outputLimits";
 import type { AnswerEngineEvent, AnswerRequest, AnswerTools } from "./engine";
+import { fenceClosedBy, fenceOpened } from "./jsonFences";
 import { fieldsOf, judge, list, structured } from "./judge";
 import {
   answerTableUnits,
@@ -570,10 +571,14 @@ async function askForCitations(
  */
 function markedLines(reply: string): string {
   const lines: string[] = [];
-  let fenced = false;
+  let fence: string | null = null;
   for (const line of reply.split("\n")) {
-    if (/^ {0,3}(?:`{3,}|~{3,})/.test(line)) fenced = !fenced;
-    else if (!fenced && !/^ {0,3}(?:#|\[\^\d{1,4}\]:)/.test(line) && /\[\^\d{1,4}\]/.test(line))
+    if (fence !== null) {
+      if (fenceClosedBy(fence, line)) fence = null;
+      continue;
+    }
+    fence = fenceOpened(line);
+    if (fence === null && !/^ {0,3}(?:#|\[\^\d{1,4}\]:)/.test(line) && /\[\^\d{1,4}\]/.test(line))
       lines.push(
         line
           .trim()

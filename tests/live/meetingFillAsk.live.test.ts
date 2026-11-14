@@ -24,7 +24,8 @@
  * No request goes that could take the spend of all arms past US$0.25.
  */
 import { createHash } from "node:crypto";
-import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { basename, isAbsolute, join } from "node:path";
 import { gunzipSync } from "node:zlib";
 import type { LanguageModelV4 } from "@ai-sdk/provider";
@@ -33,7 +34,11 @@ import { afterAll, describe, expect, test, vi } from "vitest";
 import type { Core, Meeting, MeetingFill } from "../../src/core";
 import type { LogFields } from "../../src/core/adapters";
 import { estimateTokens } from "../../src/core/answers/context";
-import { withJsonFencesClosed } from "../../src/core/answers/jsonFences";
+import {
+  fenceClosedBy,
+  fenceOpened,
+  withJsonFencesClosed,
+} from "../../src/core/answers/jsonFences";
 import { questionOf } from "../../src/core/answers/judge";
 import { CITATION_NODE, GENERATED_MARK } from "../../src/core/api";
 import { costOf, inCurrency } from "../../src/core/cost/price";
@@ -64,6 +69,59 @@ const SELFCHECK_ARMS: Readonly<Record<string, string>> = {
 const CAP_USD = 0.25;
 const TRIES: Readonly<Record<string, number>> = { A: 3, B: 1, C: 1 };
 const SPEND_FILE = "spend.json";
+
+/** The spend saved in `folder`, by arm. */
+function savedSpend(folder: string): Record<string, number> {
+  try {
+    return JSON.parse(readFileSync(join(folder, SPEND_FILE), "utf8")) as Record<string, number>;
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * The proof's spend, for its stop: what every arm saved in `folder`, this arm's earlier runs among
+ * them, with what this run's cases cost, each once it ended, scored or not.
+ */
+function spendBook(folder: string, arm: string) {
+  let run = 0;
+  return {
+    add(usd: number) {
+      run += usd;
+    },
+    /** Whether a request estimated at `next`, in a case that has cost `current`, stays within the cap. */
+    allows(current: number, next: number): boolean {
+      const saved = Object.values(savedSpend(folder)).reduce((sum, usd) => sum + usd, 0);
+      return saved + run + current + next <= CAP_USD;
+    },
+    /** Adds this run to the arm's saved spend. */
+    save() {
+      const spent = savedSpend(folder);
+      spent[arm] = (spent[arm] ?? 0) + run;
+      writeFileSync(join(folder, SPEND_FILE), JSON.stringify(spent));
+    },
+  };
+}
+
+// protects=the proof's stop counts every arm's saved spend, this arm's earlier runs among them, and this run's earlier cases with the case's own, so the request that would take the whole past US$0.25 is not sent; a run adds its spend to its arm's (#3099); fails_when=an earlier case or an earlier run of the same arm is left out, or a run's spend replaces the arm's; no_claim=a real model's prices, and the harness's wiring of the stop, which is read.
+test("the proof's stop counts this arm's earlier cases and its earlier runs", () => {
+  const folder = mkdtempSync(join(tmpdir(), "incarnamind-ask-spend-"));
+  try {
+    writeFileSync(join(folder, SPEND_FILE), JSON.stringify({ A: 0.2, C: 0.02 }));
+    const book = spendBook(folder, "A");
+    expect(book.allows(0, 0.02)).toBe(true);
+    book.add(0.02);
+    expect(book.allows(0, 0.005)).toBe(true);
+    expect(book.allows(0.005, 0.01)).toBe(false);
+    book.save();
+    const spent = savedSpend(folder);
+    expect(spent.A).toBeCloseTo(0.22, 10);
+    expect(spent.C).toBe(0.02);
+    expect(spendBook(folder, "A").allows(0, 0.015)).toBe(false);
+  } finally {
+    rmSync(folder, { recursive: true, force: true });
+  }
+});
 
 /** The arguments, read only once the proof is asked for. */
 function argumentsOf() {
@@ -272,13 +330,14 @@ function closedFacts(reply: string): { facts: Fact[]; overview: Fact | null } {
   const facts: Fact[] = [];
   let overview: Fact | null = null;
   let open: { id: string; body: string[] } | null = null;
-  let fenced = false;
+  let fence: string | null = null;
   for (const line of withJsonFencesClosed(reply).split("\n")) {
-    const start = /^ {0,3}#{1,6}\s+(?:FACT\s+(\S+)|(OVERVIEW))\s*$/.exec(line);
+    // A fact's id is the first word after FACT; a title after it is not read (#3106).
+    const start = /^ {0,3}#{1,6}\s+(?:FACT\s+(\S+)(?:\s.*)?|(OVERVIEW))\s*$/.exec(line);
     const end = /^ {0,3}#{1,6}\s+END\s+(\S+)\s*$/.exec(line);
     if (start) {
       open = { id: start[1] ?? "OVERVIEW", body: [] };
-      fenced = false;
+      fence = null;
     } else if (end && open && end[1] === open.id) {
       const sentence = open.body.join(" ");
       const fact = {
@@ -289,8 +348,12 @@ function closedFacts(reply: string): { facts: Fact[]; overview: Fact | null } {
       else facts.push(fact);
       open = null;
     } else if (open) {
-      if (/^ {0,3}(?:`{3,}|~{3,})/.test(line)) fenced = !fenced;
-      else if (!fenced && line.trim() !== "") open.body.push(line.trim());
+      if (fence !== null) {
+        if (fenceClosedBy(fence, line)) fence = null;
+      } else {
+        fence = fenceOpened(line);
+        if (fence === null && line.trim() !== "") open.body.push(line.trim());
+      }
     }
   }
   return { facts, overview };
@@ -578,19 +641,7 @@ describe.skipIf(!ARGS)("the ask for a fill's records, on a real model (#3099)", 
     notes: Parameters<typeof writeMind>[1];
     turns: { side: "me" | "them"; text: string }[];
   }[];
-  const spentBefore = (): number => {
-    try {
-      const spent = JSON.parse(readFileSync(join(args.out, SPEND_FILE), "utf8")) as Record<
-        string,
-        number
-      >;
-      return Object.entries(spent)
-        .filter(([arm]) => arm !== args.arm)
-        .reduce((sum, [, usd]) => sum + usd, 0);
-    } catch {
-      return 0;
-    }
-  };
+  const book = spendBook(args.out, args.arm);
   const dryRequests: { arm: string; case: string; bytes: number; sha256: string; usd: number }[] =
     [];
 
@@ -697,8 +748,7 @@ describe.skipIf(!ARGS)("the ask for a fill's records, on a real model (#3099)", 
                 args.price.currency,
                 "USD",
               );
-              const spent = spentBefore() + ledger.snapshot().total_usd;
-              if (args.sent && spent + estimated > CAP_USD) {
+              if (args.sent && !book.allows(ledger.snapshot().total_usd, estimated)) {
                 stoppedAtCap = true;
                 throw new Error("The next request could pass the spend cap: not sent.");
               }
@@ -909,6 +959,7 @@ describe.skipIf(!ARGS)("the ask for a fill's records, on a real model (#3099)", 
             sentAt: snapshot.requests.map((each) => each.priced_at),
           });
         } finally {
+          book.add(ledger.snapshot().total_usd);
           core.close();
           globalThis.fetch = restore;
         }
@@ -917,6 +968,7 @@ describe.skipIf(!ARGS)("the ask for a fill's records, on a real model (#3099)", 
   }
 
   afterAll(() => {
+    if (args.sent) book.save();
     if (results.length === 0) return;
     const columns = (Object.keys(results[0] ?? {}) as (keyof Try)[]).filter(
       (column) => column !== "sentAt",
@@ -945,14 +997,6 @@ describe.skipIf(!ARGS)("the ask for a fill's records, on a real model (#3099)", 
         dryRequests.map((each) => JSON.stringify(each)).join("\n"),
       );
     }
-    let spent: Record<string, number> = {};
-    try {
-      spent = JSON.parse(readFileSync(join(args.out, SPEND_FILE), "utf8"));
-    } catch {
-      spent = {};
-    }
-    spent[args.arm] = results.reduce((sum, row) => sum + row.usd, 0);
-    if (args.sent) writeFileSync(join(args.out, SPEND_FILE), JSON.stringify(spent));
     const summary = summarize(args.arm, results, dryRequests);
     writeFileSync(join(args.out, `summary-${args.arm}.json`), JSON.stringify(summary, null, 2));
     console.log(JSON.stringify(summary, null, 2));

@@ -16,13 +16,18 @@ function frame(
   citation: number,
   section: string,
   lines = ["L1"],
-  { opening = id, end = id }: { opening?: string; end?: string } = {},
+  {
+    opening = id,
+    end = id,
+    gap = " ",
+    openFence = false,
+  }: { opening?: string; end?: string; gap?: string; openFence?: boolean } = {},
 ) {
   return [
-    `### FACT ${opening}`,
+    `### FACT${gap}${opening}`,
     "```json",
     JSON.stringify({ topic, citations: [citation], lines, sections: [section], claim: false }),
-    "```",
+    ...(openFence ? [] : ["```"]),
     `${text} [^${citation}].`,
     `### END ${end}`,
   ].join("\n");
@@ -30,13 +35,16 @@ function frame(
 
 /**
  * How a reply opens and closes its fact frames: as asked, with a title after each id (#3106), and
- * so with the second frame's first word no id, or its closing line naming another id.
+ * so with the second frame's first word no id, or its closing line naming another id; titled with
+ * each json fence left open; or a tab after the second frame's FACT.
  */
 type FrameForm =
   | "as asked"
   | "titled"
   | "titled, one with no id"
-  | "titled, one closed by another id";
+  | "titled, one closed by another id"
+  | "titled, fences left open"
+  | "a tab after FACT";
 
 /** How the second frame's title is written, in a titled reply. */
 type TitleMark = "plain text" | "bold" | "italic" | "a link" | "inline code";
@@ -77,7 +85,7 @@ async function capture(
     withoutIds?: boolean;
     splitHeading?: "user" | "empty" | "generated";
     nestedLine?: boolean;
-    malformedFrame?: boolean;
+    malformedFrame?: boolean | "tab";
     badRouting?: boolean;
     form?: FrameForm;
     titleMark?: TitleMark;
@@ -109,16 +117,25 @@ async function capture(
   const framing = (id: string) =>
     form === "as asked"
       ? {}
-      : {
-          opening:
-            form === "titled, one with no id" && id === "F2"
-              ? `${id}: ${words.title}`
-              : `${id} — ${id === "F2" ? marked(words.title, titleMark) : words.title}`,
-          end: form === "titled, one closed by another id" && id === "F2" ? "F3" : id,
-        };
+      : form === "a tab after FACT"
+        ? id === "F2"
+          ? { gap: "\t" }
+          : {}
+        : {
+            opening:
+              form === "titled, one with no id" && id === "F2"
+                ? `${id}: ${words.title}`
+                : `${id} — ${id === "F2" ? marked(words.title, titleMark) : words.title}`,
+            end: form === "titled, one closed by another id" && id === "F2" ? "F3" : id,
+            openFence: form === "titled, fences left open",
+          };
   const text = [
     badRouting ? "HEADINGS: H9=NONE" : splitHeading ? "HEADINGS: H1=ACTIONS" : "HEADINGS: H1=NONE",
-    ...(malformedFrame ? ["### FACT 1invalid\nThis frame has no valid identity."] : []),
+    ...(malformedFrame
+      ? [
+          `### FACT${malformedFrame === "tab" ? "\t" : " "}1invalid\nThis frame has no valid identity.`,
+        ]
+      : []),
     frame("F1", words.topics[0] ?? "", words.decision, 1, "decisions", undefined, framing("F1")),
     frame(
       "F2",
@@ -266,12 +283,27 @@ for (const language of ["en", "zh-CN"] as const) {
     },
   );
 
-  // protects=a reply that writes a title after each fact's id on its opening line fills the note with every fact and its Citation, the title written nowhere; a frame whose first word after FACT is no id, an id with a colon glued to it among them, is still dropped and counted, as is one whose closing line names another id; the asked form reads as before (#3106); fails_when=a titled frame is dropped, its title reaches the note, or a frame with no id or another closing id is kept or goes uncounted; no_claim=how often a model writes titles there.
+  // protects=a malformed frame with a tab after FACT is counted as the one with a space is, never dropped unsaid (#3099); fails_when=it goes with no count; no_claim=a well-formed frame with a tab, which the next table holds.
+  test(`a malformed frame with a tab after FACT is counted (${language})`, async () => {
+    const { core, client, fill, words } = await capture(language, { malformedFrame: "tab" });
+    try {
+      expect(fill).toMatchObject({ state: "filled", omitted: 1, problem: { kind: "model" } });
+      for (const full of [words.decision, words.first, words.second]) {
+        expect(readMind(client).textContent.split(full)).toHaveLength(2);
+      }
+    } finally {
+      core.close();
+    }
+  });
+
+  // protects=a reply that writes a title after each fact's id on its opening line fills the note with every fact and its Citation, the title written nowhere, its json fences closed or left open; a frame whose first word after FACT is no id, an id with a colon glued to it among them, is still dropped and counted, as is one whose closing line names another id; a tab after FACT reads as a space (#3106, #3099); fails_when=a titled frame is dropped, its title reaches the note, a frame with a tab after FACT goes, or a frame with no id or another closing id is kept or goes uncounted; no_claim=how often a model writes titles there.
   test.each([
     ["as asked", 0],
     ["titled", 0],
     ["titled, one with no id", 1],
     ["titled, one closed by another id", 1],
+    ["titled, fences left open", 0],
+    ["a tab after FACT", 0],
   ] as const)(`a reply with frames %s leaves out %i (${language})`, async (form, omitted) => {
     const { core, meeting, client, before, fill, words } = await capture(language, { form });
     try {
