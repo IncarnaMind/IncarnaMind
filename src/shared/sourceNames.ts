@@ -5,6 +5,7 @@
  * Citation of that Document in the same sentence. Pure.
  */
 import type { CitationLocation } from "../core/api";
+import { readFigures } from "./figures";
 import { citationLocation, type RequestedLocation } from "./locations";
 import { citesSource, namedSource } from "./namedSources";
 import { INLINE_NODE } from "./sentences";
@@ -19,7 +20,21 @@ export interface CitedSource {
 
 const END = /[\s.。!！?？;；:：,，、]+$/u;
 const ENCLOSED = /^[([（【]([^()[\]（）【】]+)[)\]）】]$/u;
-const EXTENSION = /\.[a-z0-9]{1,5}$/i;
+/** A file's extension starts with a letter: the ".1" of "Lease 2.1" is part of its name. */
+const EXTENSION = /\.[a-z][a-z0-9]{0,4}$/i;
+/**
+ * The one list of words: the labels a reference writes before the name it gives ("Source: Lease 2",
+ * "见附件2"). No rule of shape alone tells them from a claim: "Void: Lease 2" states something.
+ */
+const SOURCE_LABEL =
+  /^(?:(?:see\s+also|sources?|see|from|reference|ref|per|cf)\.?(?:\s*[:：]\s*|\s+)|(?:资料来源|数据来源|来源|出处|参见|详见|见)[：:]?\s*)/iu;
+const QUOTED = /^[“"《「『‘']\s*([^“”"《》「」『』‘’']+?)\s*[”"》」』’']$/u;
+const PLACE_IN_BRACKETS =
+  /^(.+?)\s*[(（]\s*(p\.\s*\d+(?:\s*[-–—]\s*\d+)?|第\s*\d+(?:\s*[-–—]\s*\d+)?\s*页)\s*[)）]$/u;
+
+/** A number with no unit, currency, percent or scale of its own. */
+const plainNumber = (figure: { unit: { kind: string }; currency: string | null; scale: number }) =>
+  figure.unit.kind === "plain" && figure.currency === null && figure.scale === 1;
 
 /** A written place names the Citation's only when the Citation has one of its kind: a page for a page. */
 function sameKind(written: RequestedLocation, at: CitationLocation | null): boolean {
@@ -36,23 +51,39 @@ function placeOf(citation: CitedSource): CitationLocation | null {
   });
 }
 
+/** The name the words give, its quotation or title marks off and a place in brackets after it read as after a comma. */
+function nameOf(words: string): string {
+  const inner = (QUOTED.exec(words)?.[1] ?? words).trim();
+  const placed = PLACE_IN_BRACKETS.exec(inner);
+  return (placed ? `${placed[1]}, ${placed[2]}` : inner).replace(END, "");
+}
+
 /**
- * Whether the words of a sentence, apart from its Citations, brackets and end punctuation, are only
- * the name of a Document it cites, with or without the file's extension, and with the place the
- * Citation points at when they give one ("Lease 1, p. 2"). A name that is only a number names
- * nothing here: "1043" may be an amount.
+ * Whether the words of a sentence, apart from its Citations, brackets, quotation marks and end
+ * punctuation, are only the name of a Document it cites, with or without the file's extension, and
+ * with the place the Citation points at when they give one ("Lease 1, p. 2", "Lease 1 (p. 2)").
+ * A source label may stand before the name. A bare name that states a figure with a unit, percent,
+ * currency or scale is a headline, so a claim; one that is only a number may be an amount.
  */
 export function onlyNamesItsSource(words: string, cited: readonly CitedSource[]): boolean {
   if (cited.length === 0) return false;
   const bare = words.replaceAll(INLINE_NODE, "").trim().replace(END, "");
-  const named = (ENCLOSED.exec(bare)?.[1] ?? bare).trim().replace(END, "");
-  const source = named ? namedSource(named) : null;
-  if (!source || !/\p{L}/u.test(source.name.replace(EXTENSION, ""))) return false;
-  return cited.some(
-    (citation) =>
-      citesSource(citation, source) &&
-      (source.location === null || sameKind(source.location, placeOf(citation))),
-  );
+  const whole = (ENCLOSED.exec(bare)?.[1] ?? bare).trim().replace(END, "");
+  const label = SOURCE_LABEL.exec(whole);
+  const written = [
+    { name: nameOf(whole), labelled: false },
+    ...(label ? [{ name: nameOf(whole.slice(label[0].length).trim()), labelled: true }] : []),
+  ];
+  return written.some(({ name, labelled }) => {
+    const source = name ? namedSource(name) : null;
+    if (!source || !/\p{L}/u.test(source.name.replace(EXTENSION, ""))) return false;
+    if (!labelled && readFigures(source.name).some((figure) => !plainNumber(figure))) return false;
+    return cited.some(
+      (citation) =>
+        citesSource(citation, source) &&
+        (source.location === null || sameKind(source.location, placeOf(citation))),
+    );
+  });
 }
 
 const escaped = (text: string) =>
@@ -104,9 +135,7 @@ export function isNameNumber(
   stretches: readonly { from: number; to: number }[],
 ): boolean {
   return (
-    figure.unit.kind === "plain" &&
-    figure.currency === null &&
-    figure.scale === 1 &&
+    plainNumber(figure) &&
     stretches.some((stretch) => figure.start >= stretch.from && figure.end <= stretch.to)
   );
 }

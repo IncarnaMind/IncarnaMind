@@ -9,8 +9,9 @@ import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
 import { CLAIM_CHECK_MARK } from "../../src/core/api";
-import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
+import { claimSpans, claimsOf } from "../../src/renderer/src/editor/claimChecks";
 import { readNoteState } from "../../src/renderer/src/noteState";
+import { mindScopeOf } from "../../src/shared/mindScope";
 import { askAssistant, changesIn } from "../helpers/assistant";
 import {
   checkGenerate,
@@ -18,6 +19,7 @@ import {
   isCheckRun,
   listedSentences,
   type Plan,
+  requestedFigures,
   sentenceOf,
 } from "../helpers/checks";
 import {
@@ -53,6 +55,11 @@ const LANGUAGES = [
       { name: "Lease 3.txt", contents: "The rent for unit 3 is 1200 euros a month.\n" },
       { name: "1043.txt", contents: "The deposit is 1044 euros.\n" },
       {
+        name: "Northwind revenue rose 12% in Q3.txt",
+        contents: "Northwind revenue rose 12% in Q3.\n",
+      },
+      { name: "Rent is 1100 euros a month.txt", contents: "Rent is 1100 euros a month.\n" },
+      {
         name: "Lease 4.pdf",
         contents: buildPdf([
           { lines: ["The rent for unit 4 is 1300 euros a month."] },
@@ -82,6 +89,23 @@ const LANGUAGES = [
     lines: [
       { text: "Lease 4, p. 2", cites: "Lease 4", quote: "The deposit for unit 4 is 2600 euros." },
       { text: "Lease 1", cites: "Lease 1", quote: "The rent for unit 1 is 1000 euros a month." },
+      {
+        text: "Source: Lease 2",
+        cites: "Lease 2",
+        quote: "The rent for unit 2 is 1100 euros a month.",
+      },
+      {
+        text: "see Lease 2",
+        cites: "Lease 2",
+        quote: "The rent for unit 2 is 1100 euros a month.",
+      },
+      {
+        text: "Source: Northwind revenue rose 12% in Q3",
+        cites: "Northwind revenue rose 12% in Q3",
+        quote: "Northwind revenue rose 12% in Q3.",
+      },
+      { text: "“Lease 1”", cites: "Lease 1", quote: "The rent for unit 1 is 1000 euros a month." },
+      { text: "Lease 4 (p. 2)", cites: "Lease 4", quote: "The deposit for unit 4 is 2600 euros." },
     ],
     right: {
       text: "The rent for unit 1 is 1000 euros a month.",
@@ -104,11 +128,27 @@ const LANGUAGES = [
       { text: "Lease 4, p. 1", cites: "Lease 4", quote: "The deposit for unit 4 is 2600 euros." },
       { text: "1043", cites: "1043", quote: "The deposit is 1044 euros." },
       {
-        text: "Source: Lease 2",
+        text: "Northwind revenue rose 12% in Q3",
+        cites: "Northwind revenue rose 12% in Q3",
+        quote: "Northwind revenue rose 12% in Q3.",
+      },
+      {
+        text: "Rent is 1100 euros a month",
+        cites: "Rent is 1100 euros a month",
+        quote: "Rent is 1100 euros a month.",
+      },
+      {
+        text: "Void: Lease 2",
         cites: "Lease 2",
         quote: "The rent for unit 2 is 1100 euros a month.",
       },
+      { text: "Lease 4 (p. 1)", cites: "Lease 4", quote: "The deposit for unit 4 is 2600 euros." },
     ],
+    label: {
+      text: "Source: Lease 2",
+      cites: "Lease 2",
+      quote: "The rent for unit 2 is 1100 euros a month.",
+    },
     answerOnly: {
       text: "Lease 4, p. 2",
       cites: "Lease 4",
@@ -122,6 +162,7 @@ const LANGUAGES = [
       { name: "合同2.txt", contents: "三号铺月租金为1200元。\n" },
       { name: "附件5.txt", contents: "四号铺月租金为1300元。\n" },
       { name: "8806.txt", contents: "押金编号为8807。\n" },
+      { name: "三季度收入增长12%.txt", contents: "三季度收入增长12%。\n" },
       {
         name: "附件4.pdf",
         contents: buildPdf([
@@ -142,6 +183,11 @@ const LANGUAGES = [
     lines: [
       { text: "附件4，第2页", cites: "附件4", quote: "Deposit for unit 5: 2800 yuan." },
       { text: "附件3", cites: "附件3", quote: "二号铺月租金为1100元。" },
+      { text: "来源：附件3", cites: "附件3", quote: "二号铺月租金为1100元。" },
+      { text: "见合同2", cites: "合同2", quote: "三号铺月租金为1200元。" },
+      { text: "《附件3》", cites: "附件3", quote: "二号铺月租金为1100元。" },
+      { text: "「附件5」", cites: "附件5", quote: "四号铺月租金为1300元。" },
+      { text: "附件4（第2页）", cites: "附件4", quote: "Deposit for unit 5: 2800 yuan." },
     ],
     right: { text: "二号铺月租金为1100元。", cites: "附件3", quote: "二号铺月租金为1100元。" },
     wrong: { text: "三号铺月租金为1300元。", cites: "合同2", quote: "三号铺月租金为1200元。" },
@@ -151,8 +197,11 @@ const LANGUAGES = [
       { text: "合同2", cites: "附件3", quote: "二号铺月租金为1100元。" },
       { text: "附件4，第1页", cites: "附件4", quote: "Deposit for unit 5: 2800 yuan." },
       { text: "8806", cites: "8806", quote: "押金编号为8807。" },
-      { text: "来源：附件3", cites: "附件3", quote: "二号铺月租金为1100元。" },
+      { text: "三季度收入增长12%", cites: "三季度收入增长12%", quote: "三季度收入增长12%。" },
+      { text: "租金：附件3", cites: "附件3", quote: "二号铺月租金为1100元。" },
+      { text: "附件4（第1页）", cites: "附件4", quote: "Deposit for unit 5: 2800 yuan." },
     ],
+    label: { text: "来源：附件3", cites: "附件3", quote: "二号铺月租金为1100元。" },
     answerOnly: { text: "附件3", cites: "附件3", quote: "二号铺月租金为1100元。" },
   },
 ] as const;
@@ -389,8 +438,48 @@ async function stateOf(setup: Setup) {
   }).state;
 }
 
+/** A Note of a name-only cell carrying an earlier check's Unsupported mark, and the right sentence. */
+async function staleNote(setup: Setup, example: Example) {
+  const [named] = example.cells;
+  const old = {
+    id: "earlier",
+    request: "earlier",
+    action: "check-against-documents",
+    state: "unsupported",
+    reason: null,
+    detail: null,
+    providerId: "provider",
+    modelId: "model",
+    text: named.text,
+    evidence: null,
+    says: null,
+    unsupported: null,
+    calculation: null,
+    citedCaseUnchecked: false,
+    citedCaseFound: false,
+    scope: { folderId: null, widened: false },
+    versions: [],
+    excluded: [],
+    checkedAt: "2026-11-14T09:00:00.000Z",
+  };
+  writeMind(setup.client, [
+    await lineOf(setup, "named", named, old),
+    await lineOf(setup, "right", example.right),
+  ]);
+  await setup.client.settled();
+}
+
+/** The sentences the editor shows a card for. */
+const cardsIn = (setup: Setup) =>
+  claimsOf(readMind(setup.client), {
+    footing: "not-yet-known",
+    versions: null,
+    folderId: null,
+    scope: mindScopeOf(setup.client.doc),
+  }).claims.map(({ sentence }) => sentence.text);
+
 describe.each(LANGUAGES)("a sentence that only names its source ($language)", (example) => {
-  // protects=Check this note reads no sentence whose words are only the name of a Document it cites, in a cell, a list item or a line, with or without the extension, in brackets or with its Citation's place, gives it no mark and counts it nowhere, while the right and the wrong sentence beside it, a sentence naming its source with other words, another Document's name, another page and a Document named only by a number are read as before, twice alike (#3093); fails_when=a name-only sentence is sent, marked or counted, or a sentence still to read is left out; no_claim=what a real model makes of a name.
+  // protects=Check this note reads no sentence whose words are only the name of a Document it cites, in a cell, a list item or a line, with or without the extension, in brackets, quotation or title marks, after a source label, or with its Citation's place, written after a comma or in brackets, gives it no mark and counts it nowhere, while the right and the wrong sentence beside it, a bare name that states a measured figure, any other word before a name, another Document's name, another page and a Document named only by a number are read as before, twice alike (#3093); fails_when=a name-only sentence is sent, marked or counted, or a sentence still to read is left out; no_claim=what a real model makes of a name.
   test("Check this note leaves it out and reads the rest, twice alike", async () => {
     const setup = await setUp(example);
     await noteOf(setup, example);
@@ -452,37 +541,13 @@ describe.each(LANGUAGES)("a sentence that only names its source ($language)", (e
     setup.core.close();
   });
 
-  // protects=a mark an earlier check left on a name-only sentence is gone after the next Check this note, and undoing that check's edits as one step brings back the mark and what was there (#3093); fails_when=the old mark stays, or the undo can't bring it back; no_claim=the editor's own Undo keys.
-  test("a mark an earlier check left on it goes with the next check, and comes back with its Undo", async () => {
+  // protects=a mark an earlier check left on a name-only sentence shows no card even before a check, is gone after the next Check this note, and undoing that check's edits as one step brings back the mark and what was there (#3093); fails_when=the old mark shows a card, stays, or the undo can't bring it back; no_claim=the editor's own Undo keys.
+  test("a mark an earlier check left on it shows nothing, goes with the next check, and comes back with its Undo", async () => {
     const setup = await setUp(example);
     const [named] = example.cells;
-    const old = {
-      id: "earlier",
-      request: "earlier",
-      action: "check-against-documents",
-      state: "unsupported",
-      reason: null,
-      detail: null,
-      providerId: "provider",
-      modelId: "model",
-      text: named.text,
-      evidence: null,
-      says: null,
-      unsupported: null,
-      calculation: null,
-      citedCaseUnchecked: false,
-      citedCaseFound: false,
-      scope: { folderId: null, widened: false },
-      versions: [],
-      excluded: [],
-      checkedAt: "2026-11-14T09:00:00.000Z",
-    };
-    writeMind(setup.client, [
-      await lineOf(setup, "named", named, old),
-      await lineOf(setup, "right", example.right),
-    ]);
-    await setup.client.settled();
+    await staleNote(setup, example);
     expect(marksIn(setup)).toEqual([[named.text, "unsupported"]]);
+    expect(cardsIn(setup)).toEqual([]);
     const undo = new Y.UndoManager(setup.client.blocks, {
       trackedOrigins: new Set([FROM_CORE]),
       captureTimeout: 60_000,
@@ -499,12 +564,43 @@ describe.each(LANGUAGES)("a sentence that only names its source ($language)", (e
     setup.core.close();
   });
 
+  // protects=a whole read of a Document, Check against a Document, takes an earlier check's mark off a name-only sentence it touches, as Check against Documents does (#3093); fails_when=the old mark stays after the read; no_claim=what the read finds for the other sentence.
+  test("a whole read of a Document takes the earlier mark off it too", async () => {
+    const setup = await setUp(example);
+    const [named] = example.cells;
+    await staleNote(setup, example);
+    const place = {
+      from: { blockId: "named", offset: 0 },
+      to: { blockId: "right", offset: example.right.text.length + 1 },
+    };
+    const within = { folderIds: [], tagIds: [], documentIds: [setup.byName(named.cites).id] };
+    const plan = await setup.core.planDocumentCheck({ mindId: setup.mind.id, ...place, within });
+    if (plan.kind !== "ready") throw new Error(`The pick can't be read: ${plan.kind}.`);
+    await setup.core.checkSentences({
+      requestId: randomUUID(),
+      mindId: setup.mind.id,
+      action: "check-against-document",
+      ...place,
+      within,
+      plan: plan.id,
+    });
+    await setup.client.settled();
+
+    expect(marksIn(setup).map(([text]) => text)).not.toContain(named.text);
+    setup.core.close();
+  });
+
   // protects=an Answer's judgement reads no sentence that only names the Document its Citation is of, and that Citation keeps its own quote check, while the right and the wrong sentence of the same Answer are judged (#3093); fails_when=the name-only sentence is judged, or its Citation's check changes; no_claim=how the Answer's steps word it.
   test("an Answer's judgement leaves it out and judges the rest", async () => {
-    const text = `${example.right.text} [^1]\n\n${example.wrong.text} [^2]\n\n- ${example.answerOnly.text} [^3]\n`;
+    const text = `${example.right.text} [^1]\n\n${example.wrong.text} [^2]\n\n- ${example.answerOnly.text} [^3]\n\n${example.label.text} [^4]\n`;
     const setup = await setUp(example, {
       text,
-      quotes: [example.right.quote, example.wrong.quote, example.answerOnly.quote],
+      quotes: [
+        example.right.quote,
+        example.wrong.quote,
+        example.answerOnly.quote,
+        example.label.quote,
+      ],
     });
     const asked = await setup.core.askInConversation({ text: "What are the rents?" });
     if (!asked.asked) throw new Error("Not asked.");
@@ -514,6 +610,7 @@ describe.each(LANGUAGES)("a sentence that only names its source ($language)", (e
     const judged = batchedSentences(setup.asked);
     expect(judged).toEqual(expect.arrayContaining([example.right.text, example.wrong.text]));
     expect(judged).not.toContain(example.answerOnly.text);
+    expect(judged).not.toContain(example.label.text);
     const checkOf = (marker: number) =>
       answer.citations.find((each) => each.marker === marker)?.check;
     expect(checkOf(1)).toBe("found");
@@ -526,10 +623,10 @@ describe.each(LANGUAGES)("a sentence that only names its source ($language)", (e
   test("the check of what the assistant writes leaves it out and checks the rest", async () => {
     const [cell] = example.cells;
     const [item] = example.items;
-    const write = `| ${example.header[0]} | ${example.header[1]} |\n|---|---|\n| ${cell.label} | ${cell.text} [^1] |\n\n- ${item.text} [^2]\n\n${example.right.text} [^1]\n`;
+    const write = `| ${example.header[0]} | ${example.header[1]} |\n|---|---|\n| ${cell.label} | ${cell.text} [^1] |\n\n- ${item.text} [^2]\n\n${example.label.text} [^3]\n\n${example.right.text} [^1]\n`;
     const setup = await setUp(example, {
       text: "Done.",
-      quotes: [example.right.quote, item.quote],
+      quotes: [example.right.quote, item.quote, example.label.quote],
       write,
     });
     const answer = await askAssistant(setup.core, { text: "Write the rents into a new note" });
@@ -545,7 +642,40 @@ describe.each(LANGUAGES)("a sentence that only names its source ($language)", (e
         check.state,
       ]),
     ).toEqual([[example.right.text, "supported"]]);
-    for (const words of [cell.text, item.text]) expect(sentTo(setup.calls)).not.toContain(words);
+    for (const words of [cell.text, item.text, example.label.text])
+      expect(sentTo(setup.calls)).not.toContain(words);
+    setup.core.close();
+  });
+
+  // protects=a cell that names two Documents it cites is read, as the rule leaves it, and is sent with neither name's number as a figure (#3093); fails_when=it is left out, or a name's number is asked for; no_claim=what a real model judges it.
+  test("a cell that names two Documents it cites is still read, with neither name's number", async () => {
+    const setup = await setUp(example);
+    const [first, second] = example.cells;
+    const text = example.language === "en" ? "Lease 1, Lease 2" : "附件3、合同2";
+    writeMind(setup.client, [
+      {
+        type: "paragraph",
+        attrs: { id: "two" },
+        content: [
+          { type: "text", text },
+          await citationOf(setup.core, setup.byName(first.cites), first.quote),
+          await citationOf(setup.core, setup.byName(second.cites), second.quote),
+        ],
+      },
+      await lineOf(setup, "right", example.right),
+    ]);
+    await setup.client.settled();
+    await setup.core.checkMind({ requestId: randomUUID(), mindId: setup.mind.id, mode: "all" });
+    await setup.client.settled();
+
+    const run = setup.calls.find(
+      (call) => isCheckRun(call) && call.results.length === 0 && sentenceOf(call) === text,
+    );
+    expect(run && requestedFigures(run)).toEqual([]);
+    expect(marksIn(setup)).toEqual([
+      [text, "unsupported"],
+      [example.right.text, "supported"],
+    ]);
     setup.core.close();
   });
 });

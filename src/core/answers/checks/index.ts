@@ -1323,6 +1323,16 @@ export function createChecks(options: ChecksOptions) {
    * ends, so Stop or a crash leaves it so; a newer read of the sentence, or any change to its mark
    * meanwhile, wins over the result.
    */
+  /**
+   * Takes an earlier check's mark off each sentence `stretches` touch that only names the Document
+   * it cites: no check reads it now (#3093). An edit only when there is such a mark.
+   */
+  function clearSourceNames(mindId: string, stretches: readonly TextStretch[]) {
+    const named = (blocks: Y.XmlFragment) => selectedSentences(blocks, stretches).named;
+    if (content.read(mindId, (blocks) => marksASourceName(blocks, named(blocks))))
+      content.edit(mindId, (blocks) => unmarkSourceNames(blocks, named(blocks)));
+  }
+
   async function readSentences(
     input: ParsedCheck,
     within: SearchScope,
@@ -1332,6 +1342,7 @@ export function createChecks(options: ChecksOptions) {
     const { mindId } = input;
     const current = () => !signal.aborted && planned();
     const stretches = [{ from: input.from, to: input.to }, ...input.more];
+    clearSourceNames(mindId, stretches);
     const found = content.read(mindId, (blocks) => {
       const selected = selectedSentences(blocks, stretches);
       if (!selected.ok) return selected;
@@ -1507,14 +1518,8 @@ export function createChecks(options: ChecksOptions) {
   ): Promise<CheckSentencesResult> {
     const { mindId } = input;
     const stretches = [{ from: input.from, to: input.to }, ...input.more];
+    clearSourceNames(mindId, stretches);
     const read = content.read(mindId, (blocks) => selectedSentences(blocks, stretches));
-    const named = (blocks: Y.XmlFragment) => selectedSentences(blocks, stretches).named;
-    // An earlier check's mark on a sentence that only names its source goes: none reads it now (#3093).
-    if (
-      read.named.length > 0 &&
-      content.read(mindId, (blocks) => marksASourceName(blocks, named(blocks)))
-    )
-      content.edit(mindId, (blocks) => unmarkSourceNames(blocks, named(blocks)));
     if (!read.ok) return { kind: read.reason };
     if (input.part) {
       const target = input.part;

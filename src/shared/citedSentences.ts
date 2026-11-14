@@ -75,7 +75,16 @@ export function citedSentences(
       const count = inlineNodes(marked.slice(from, to));
       const inside = markers.slice(before, before + count);
       const sentence = withoutMarkers(marked.slice(from, to));
-      const cited = citations.filter((citation) => inside.includes(citation.marker));
+      // The words lost their Markdown above, so the names are compared without it too: "Annual_Report".
+      const cited = citations
+        .filter((citation) => inside.includes(citation.marker))
+        .map((citation) => ({
+          ...citation,
+          documentName:
+            typeof citation.documentName === "string"
+              ? citation.documentName.replace(/[*_`]/g, "")
+              : citation.documentName,
+        }));
       if (inside.length > 0 && isClaim(sentence) && !onlyNamesItsSource(sentence, cited)) {
         const calculated = marked.slice(from, to).includes(FIGURE_START);
         const at = inside.map((_, index) => first + before + index);

@@ -497,10 +497,6 @@ export function selectedSentences(
         const key = `${blockId}:${span.from}`;
         if (!touched || seen.has(key)) continue;
         seen.add(key);
-        if (namesItsSourceOnly(span)) {
-          named.push({ element, from: span.from, to: span.extent });
-          continue;
-        }
         const changes = changesIn(element, span.from, span.extent);
         if (changes.length > 0) {
           waiting.sentences.push({
@@ -508,6 +504,10 @@ export function selectedSentences(
             to: { blockId, offset: span.extent },
           });
           waiting.changeIds.push(...changes.filter((id) => !waiting.changeIds.includes(id)));
+          continue;
+        }
+        if (namesItsSourceOnly(span)) {
+          named.push({ element, from: span.from, to: span.extent });
           continue;
         }
         sentences.push({
