@@ -41,6 +41,7 @@ import {
   holdsDocumentText,
   keptWhole,
   type RequestMind,
+  withWholeSelection,
 } from "./context";
 import type { AnswerMessage } from "./engine";
 
@@ -135,7 +136,15 @@ export function createWindowBudget(
 ) {
   let current = factor;
   const tokens = (text: string) => Math.ceil(estimateTokens(text) * current);
-  const floor = Math.min(window.outputFloor ?? OUTPUT_FLOOR_TOKENS, window.outputTokens);
+  // Below what a declared input limit leaves, a lower cap would only let a request send more than
+  // the provider takes (#3045).
+  const floor = Math.min(
+    Math.max(
+      window.outputFloor ?? OUTPUT_FLOOR_TOKENS,
+      window.tokens - (window.maxInput ?? window.tokens),
+    ),
+    window.outputTokens,
+  );
   /** The output cap of the Answer's own requests: the window's, until a request's fit lowers it. */
   let output = window.outputTokens;
   /** What a request may hold before its output. */
@@ -269,20 +278,30 @@ export function createWindowBudget(
       const fixed = tokens(request.instructions) + tokens(request.tools ?? "") + MESSAGE_TOKENS;
       if (request.requiredContext) {
         const held = messagesTokens(request.messages);
-        const error = size(fixed, held, 0, 0);
-        if (error) return { ok: false, error };
+        // Required context that fits at the whole cap goes as it does on main; one that doesn't goes
+        // at a lower cap only with room left for its first search, where it reads (#3045).
+        output = window.outputTokens;
+        if (fixed + held > limit()) {
+          const need = request.reads ? onePassage() + STEP_OUTPUT_TOKENS : 0;
+          const error = size(fixed, held, need, need);
+          if (error) return { ok: false, error };
+        }
         return { ok: true, messages: [...request.messages], estimated: fixed + held };
       }
+      // Where it reads, the fit decides on the User's whole selection, which the Mind's own limits
+      // may have cut before it (#3045).
+      const given = request.reads
+        ? withWholeSelection(request.messages, request.mind)
+        : { messages: request.messages, mind: request.mind };
       const onScreen = request.reads ? request.onScreen : undefined;
-      const held = keptWhole(request.messages, request.question, request.mind, onScreen);
-      // Where it reads, the Question goes with the line naming the Documents on screen, and with the
-      // Search scope after that line or the selection: no Tool gives them back (#3045).
+      const held = keptWhole(given.messages, request.question, given.mind, onScreen);
+      // The Question goes with what follows it in its message (a press's help), and where it reads,
+      // with the line naming the Documents on screen and the Search scope after that line or the
+      // selection: no Tool gives them back (#3045).
       const question =
         tokens(request.question) +
         MESSAGE_TOKENS +
-        (request.reads
-          ? Math.ceil((held.asked - estimateTokens(request.question) + held.onScreen) * current)
-          : 0);
+        Math.ceil((held.asked - estimateTokens(request.question) + held.onScreen) * current);
       // The first search's room: its Passages and the step that asks for it.
       const error = request.reads
         ? size(
@@ -321,10 +340,10 @@ export function createWindowBudget(
       }
       const room = limit() - fixed;
       const forContext = Math.max(question + ahead, room - (request.reserve ?? 0));
-      const overhead = MESSAGE_TOKENS * request.messages.length;
+      const overhead = MESSAGE_TOKENS * given.messages.length;
       let mindCut: number | undefined;
       const messages = fitQuestionContext(
-        request.messages,
+        given.messages,
         request.question,
         // The overhead counts every message, kept or not: with room for the Question alone, the
         // earlier ones it drops must not leave too little for the Question itself, nor for what
@@ -336,7 +355,7 @@ export function createWindowBudget(
             (selection > 0 ? held.selection : 0) +
             (keepsTurn ? held.turn : 0),
         ),
-        request.mind,
+        given.mind,
         (kept) => {
           mindCut = kept.text ? kept.share : 0;
         },
@@ -393,7 +412,11 @@ export function createWindowBudget(
      */
     roomBeside(messages: readonly string[], outputTokens: number): number {
       const held = messages.reduce((sum, text) => sum + tokens(text) + MESSAGE_TOKENS, 0);
-      return window.tokens - Math.min(outputTokens, window.outputTokens) - MARGIN_TOKENS - held;
+      const input = Math.min(
+        window.tokens - Math.min(outputTokens, window.outputTokens),
+        window.maxInput ?? window.tokens,
+      );
+      return input - MARGIN_TOKENS - held;
     },
 
     /** Error for a request Ollama refused as too long, after the retry. */

@@ -88,6 +88,11 @@ export interface ContextWindow {
    * whole cap, which its reasoning fills before the first word.
    */
   outputFloor?: number;
+  /**
+   * The most a request may send, where its provider declares a limit: an Answer's requests never
+   * pass it, even where the room to write gives way (#3045).
+   */
+  maxInput?: number;
 }
 
 export type ChatModelFactory = (spec: ChatModelSpec) => ChatLanguageModel;

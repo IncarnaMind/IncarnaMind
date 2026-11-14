@@ -4446,6 +4446,10 @@ export function createAnswers(options: AnswersOptions) {
       selection: kept.selection,
       ...(kept.pictures?.length && { pictures: kept.pictures }),
       cut: (tokens, withSelection) => reading.section(tokens, asking, withSelection),
+      ...(kept.selection &&
+        reading.selection !== kept.selection && {
+          wholeSelection: reading.selection,
+        }),
     });
     start({
       ...(scopeText && { scopeLine: scopeText }),

@@ -347,6 +347,8 @@ export interface MindSection extends MindCut {
 export interface MindReading {
   /** Its version as read: a fingerprint of its text. */
   version: string;
+  /** What the User selected in it, whole, as a request holds it; "" for none. */
+  selection: string;
   /**
    * What of it fits in about `tokens` tokens (`estimateTokens`), the Blocks
    * that match `question` first once it doesn't fit whole; by default, as much
@@ -450,6 +452,7 @@ export function readMind(
     .slice(0, 22);
   return {
     version,
+    selection: selectionBlock(selection),
     section: (tokens = QUESTION_CONTEXT_TOKEN_BUDGET, question = "", withSelection = true) =>
       cutMind(
         {
@@ -531,6 +534,10 @@ function matching(read: readonly ReadBlock[], question: string): number[] {
     .map((each) => each.index);
 }
 
+/** Text the User selected in a Mind, as a request holds it; "" for none. */
+const selectionBlock = (text: string) =>
+  text ? `<selection>\n${asData(text, CALL_TAGS)}\n</selection>` : "";
+
 /**
  * What of a Mind fits in about `tokens` tokens: all of it when it fits. Else
  * the selection first, then its headings, then the Blocks around the cursor
@@ -553,8 +560,7 @@ function cutMind(
   const { read, focused, selection, pictures } = mind;
   const wrap = (body: string) =>
     `<mind name="${xmlAttribute(mind.name)}">\n${body}${body ? "\n" : ""}</mind>`;
-  const selected = (text: string) =>
-    text ? `<selection>\n${asData(text, CALL_TAGS)}\n</selection>` : "";
+  const selected = selectionBlock;
   /** What `selected` adds to a request: the blank line before the Question too. */
   const selectedTokens = (text: string) => (text ? estimateTokens(`${selected(text)}\n\n`) : 0);
   const total = read.reduce((sum, block) => sum + estimateTokens(block.text), 0);
@@ -919,6 +925,28 @@ function asMessages(
 export interface RequestMind extends MindParts {
   /** Cut by the Mind's own rules (`MindReading.section`), without the selection when `withSelection` is false. */
   cut(tokens: number, withSelection?: boolean): MindCut;
+  /** The User's whole selection, where the Mind's own limits cut `selection` (`MindReading.selection`). */
+  wholeSelection?: string;
+}
+
+/**
+ * The messages and the Mind with the User's whole selection in place of the one the Mind's own
+ * limits cut, where the Question's message holds it: a fit that reads decides on all of it (#3045).
+ */
+export function withWholeSelection(
+  messages: readonly AnswerMessage[],
+  mind?: RequestMind,
+): { messages: readonly AnswerMessage[]; mind?: RequestMind } {
+  const whole = mind?.wholeSelection;
+  const last = messages.at(-1);
+  const at =
+    mind?.selection && last?.role === "user" ? last.content.lastIndexOf(mind.selection) : -1;
+  if (!mind || !whole || !last || at < 0) return { messages, ...(mind && { mind }) };
+  const content = `${last.content.slice(0, at)}${whole}${last.content.slice(at + mind.selection.length)}`;
+  return {
+    messages: [...messages.slice(0, -1), { ...last, content }],
+    mind: { ...mind, selection: whole },
+  };
 }
 
 /**
