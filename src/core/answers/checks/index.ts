@@ -953,6 +953,7 @@ export function createChecks(options: ChecksOptions) {
       return {
         documentName: withShownName(each, live).documentName,
         quote: each.quote,
+        ...(current && { documentId: current.id }),
         // A Passage of an older version isn't what the Document says now.
         ...(each.passageId &&
           current?.contentHash === each.contentHash && { passageId: each.passageId }),

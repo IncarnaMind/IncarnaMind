@@ -53,7 +53,14 @@ import { absenceAfterSearch, fitsWholeRead } from "./absence";
 import { calculatesIn, createCalculationLedger, figureContextIn } from "./calculationLedger";
 import { createCheckResults, uniqueCitations } from "./checkResults";
 import { checkRun } from "./checkRun";
-import { type CourtDecisions, courtDecisions, keptInside, setUpRun } from "./checkSetup";
+import {
+  type CourtDecisions,
+  citedOutsideScope,
+  courtDecisions,
+  keptInside,
+  setUpRun,
+  withoutDocumentLeftOut,
+} from "./checkSetup";
 import { explainedIn } from "./explanations";
 import { uncheckedFigureResults } from "./figureChecks";
 import { figuresVerdict } from "./figuresVerdict";
@@ -97,10 +104,14 @@ export interface ClaimCheckDependencies {
   libraryFacts?: LibraryFactSearch;
 }
 
-/** A Citation the sentence has, as its check reads it: `passageId` when it quotes the Document as it is now. */
+/**
+ * A Citation the sentence has, as its check reads it: `documentId` while its Document is live,
+ * `passageId` when it quotes the Document as it is now.
+ */
 export interface CheckedCitation {
   documentName: string;
   quote: string;
+  documentId?: string;
   passageId?: string;
 }
 
@@ -243,9 +254,18 @@ async function checkSentence(
   // The Passages the check was given or shown, so that a text whose figures couldn't be read is
   // named by the one it came from.
   let shownPassageIds: () => readonly string[] = () => [];
+  const leftOut = citedOutsideScope(deps, request);
   const decide = async (): Promise<AtomicClaimCheckResult> => {
     const kept = keptInside(deps, request);
     if (kept) return kept;
+    if (leftOut?.every)
+      return {
+        verdict: "not-checked",
+        reason: "outside-scope",
+        detail: leftOut.name,
+        versions: [],
+        excluded: [],
+      };
     const { signal } = request;
     const results = createCheckResults(request);
     const { facts, notChecked, failedCheck } = results;
@@ -318,7 +338,8 @@ async function checkSentence(
       : plainVerdict(deps, request, verdicts);
   };
   try {
-    const result = await decide();
+    const decided = await decide();
+    const result = leftOut ? withoutDocumentLeftOut(decided, leftOut.name) : decided;
     return result.verdict === "supported"
       ? withDollarClause(deps, request.claim, result)
       : explainedIn(result, {

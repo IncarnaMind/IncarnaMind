@@ -1539,6 +1539,7 @@ export const en = {
   "claim.absenceBesideFact":
     "What the sentence says is missing wasn’t checked: that needs its Documents read whole. The rest of it is supported.",
   "claim.reason.kept-inside": "Kept inside {detail}",
+  "claim.reason.outside-scope": "“{detail}” is outside this note’s Search scope.",
   "claim.reason.read-budget": "Stopped · {spent} spent",
   "claim.reason.read-budget.unknown": "Stopped at the most this read may spend.",
   "claim.reason.workbook-differs":

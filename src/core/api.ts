@@ -7276,6 +7276,9 @@ export type ClaimVerdict = "supported" | "unsupported" | "contradicted";
  * - "consent-widened": the User allowed checks to the model's service before checks sent more, so
  *   what the assistant wrote waited, unsent, for them to allow the more (#2525).
  * - "kept-inside": the existing Citation is outside this wall, so it was not read again.
+ * - "outside-scope": a Document the sentence cites is outside the Note's Search scope, so the check
+ *   didn't read it, and found nothing that settles the sentence without it; `detail` is that
+ *   Document's name (#3083).
  * - "absence-unconfirmed": a whole read said what the sentence calls absent is there, but a look
  *   at its quote found it doesn't state that (#1554, #1443).
  * - "found-elsewhere": the check backed the sentence with a Passage its Citations, as the Note holds
@@ -7330,6 +7333,7 @@ export type ClaimCheckFailure =
   | "absence-other-document"
   | "found-elsewhere"
   | "kept-inside"
+  | "outside-scope"
   | "cut-short"
   | "read-budget"
   | "workbook-changed"
