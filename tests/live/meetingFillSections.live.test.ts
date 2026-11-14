@@ -31,6 +31,7 @@ import { translate } from "../../src/shared/i18n";
 import { createTempDataFolder } from "../helpers/core";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
 import { checkStructuredMeetingLoader } from "../helpers/meetingFillLoader";
+import { placeName } from "../helpers/meetingFillNames";
 import {
   createRequestLedger,
   meetingFillCloud,
@@ -2355,6 +2356,41 @@ function citesRightly(unit: Unit, fact: Fact, call: Call, cues: readonly Cue[]):
   });
 }
 
+/**
+ * The facts said by someone unnamed with a part that states the fact, or cites their turn, and
+ * carries another person's name (#2306): the first such part, and where the name stands in it
+ * (#3013). The Summary is left out: it speaks for the whole call, and may name who the call was with.
+ */
+function misattributedIn(call: Call, units: readonly Unit[], cues: readonly Cue[]) {
+  const summary =
+    call.sectionHeadings?.summary ?? translate(call.language, "meetings.fill.section.summary");
+  const theirTurns = (fact: Fact): Fact => ({
+    ...fact,
+    said: fact.said.filter((index) => call.turns[index]?.side === "them"),
+  });
+  return call.facts.flatMap((fact) => {
+    const name = fact.notBy;
+    const unit =
+      name &&
+      units.find(
+        (each) =>
+          each.ai &&
+          each.section !== summary &&
+          name.test(each.text) &&
+          (says(fact, each.text) || citesRightly(each, theirTurns(fact), call, cues)),
+      );
+    return name && unit
+      ? [
+          {
+            fact: fact.name,
+            text: unit.text,
+            ...placeName(call, { text: unit.text, name, pattern: fact.pattern }),
+          },
+        ]
+      : [];
+  });
+}
+
 interface Placements {
   /** The places it is written: each counts once, however often its words match in it (#3013). */
   count: number;
@@ -2936,6 +2972,57 @@ test.each(["en", "zh-CN"] as const)(
         citesRightly({ ...unit, citations: [{ ...selected, ...invalid }] }, fact, call, cues),
       ).toBe(false);
     }
+  },
+);
+
+test.each(["en", "zh-CN"] as const)(
+  "meeting scores count a name on an unnamed person's fact once, with where it stands, never from the Summary (%s)",
+  (language) => {
+    const en = language === "en";
+    const fact: Fact = {
+      name: "weight",
+      kind: "figure",
+      pattern: en ? [/340/, /grams?/i] : [/340/, /克/],
+      said: [1],
+      notBy: en ? /Hannah/iu : /孙悦/iu,
+    };
+    const call: Call = {
+      id: "misattributed-scorer-only",
+      language,
+      notes: [],
+      turns: en
+        ? [me("Hannah, how heavy is each copy?"), them("About 340 grams. I weighed a blank dummy.")]
+        : [me("孙悦，每本多重？"), them("大约 340 克，我称过一本空白样书。")],
+      facts: [fact],
+    };
+    const text = en
+      ? {
+          summary: "Hannah's team said each copy weighs about 340 grams.",
+          later: "Each copy is about 340 grams, which Hannah weighed on a dummy.",
+          opens: "Hannah weighed each copy at about 340 grams.",
+        }
+      : {
+          summary: "孙悦那边说每本大约 340 克。",
+          later: "每本大约 340 克，是孙悦称的。",
+          opens: "孙悦称过每本大约 340 克。",
+        };
+    const unit = (line: string, section: string | null = null, ai = true): Unit => ({
+      text: line,
+      ai,
+      section,
+      afterLine: null,
+      citations: [],
+    });
+    const summary = translate(language, "meetings.fill.section.summary");
+    expect(
+      misattributedIn(call, [unit(text.summary, summary), unit(text.opens, null, false)], []),
+    ).toEqual([]);
+    expect(
+      misattributedIn(call, [unit(text.summary, summary), unit(text.later), unit(text.opens)], []),
+    ).toEqual([{ fact: "weight", text: text.later, where: "later", read: ["later"] }]);
+    expect(misattributedIn(call, [unit(text.opens)], [])).toEqual([
+      { fact: "weight", text: text.opens, where: "opens", read: [] },
+    ]);
   },
 );
 
@@ -4091,22 +4178,7 @@ describe.skipIf(LOADER_PREFLIGHT || (!KEY && !LOCAL_MODEL))(
                 (pattern) => pattern.source !== fact.owner?.source && pattern.test(text),
               );
         const owned = call.facts.filter((fact) => fact.owner);
-        const theirTurns = (fact: Fact): Fact => ({
-          ...fact,
-          said: fact.said.filter((index) => call.turns[index]?.side === "them"),
-        });
-        // A part that states the unnamed person's fact, or cites their turn, and carries the name.
-        // The Summary is left out: it speaks for the whole call, and may name who the call was with.
-        const misattributed = call.facts.flatMap((fact) => {
-          const unit = units.find(
-            (unit) =>
-              unit.ai &&
-              !summary.includes(unit) &&
-              fact.notBy?.test(unit.text) === true &&
-              (says(fact, unit.text) || citesRightly(unit, theirTurns(fact), call, cues)),
-          );
-          return unit ? [{ fact: fact.name, text: unit.text }] : [];
-        });
+        const misattributed = misattributedIn(call, units, cues);
         const slips = {
           ...termsUnderDecisions(call.facts, decisions),
           decisionsInSection: counts.decisionsInSection,
@@ -4134,6 +4206,8 @@ describe.skipIf(LOADER_PREFLIGHT || (!KEY && !LOCAL_MODEL))(
           ).length,
           owned: owned.length,
           misattributed: misattributed.length,
+          misattributedOpens: misattributed.filter((each) => each.where === "opens").length,
+          misattributedLater: misattributed.filter((each) => each.where === "later").length,
           unowned: call.facts.filter((fact) => fact.notBy).length,
           unownedWritten: scored.filter((each) => each.fact.notBy && each.count > 0).length,
           restated: scored
@@ -4271,7 +4345,7 @@ describe.skipIf(LOADER_PREFLIGHT || (!KEY && !LOCAL_MODEL))(
             expect(slips.misheard, "A name the User typed is never written as misheard").toBe(0);
             expect(
               slips.misattributed,
-              "What someone unnamed said never carries another person's name",
+              `What someone unnamed said never carries another person's name (${slips.misattributedOpens} with the name opening the line, ${slips.misattributedLater} with it later)`,
             ).toBe(0);
             expect(structure.summaryFirst, "Summary is the first part added").toBe(true);
             expect(structure.summaryParts, "Summary is one overview").toBe(1);
