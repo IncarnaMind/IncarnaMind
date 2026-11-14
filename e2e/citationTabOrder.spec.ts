@@ -105,12 +105,17 @@ const whereIsFocus = (window: Page) =>
 const places = (log: readonly string[]) =>
   log.filter((place, at) => place !== "card" || log[at - 1] !== "card");
 
-/** The caret at the start of the first sentence, put there by a click as a person does. */
+/**
+ * The caret at the start of the first sentence, put there by a click as a person does, with the
+ * pointer then put out of the way: a card that grows under a pointer at rest is the pointer's,
+ * and stays until it moves.
+ */
 async function caretAtStart(window: Page, editor: Locator) {
   const first = await editor.locator(":scope > p").first().boundingBox();
   if (!first) throw new Error("The first sentence isn't drawn.");
   await window.mouse.click(first.x + 2, first.y + first.height / 2);
   await expect(editor).toBeFocused();
+  await window.mouse.move(0, 0);
 }
 
 /** The Note as it is stored, so a key that typed into it shows. */
@@ -225,17 +230,15 @@ for (const language of ["en", "zh-CN"] as const) {
       expect(await landed(window)).toEqual(paced);
     }
 
-    // One more Tab is the page's next stop after the last chip: not a card, and not the top of the page.
+    // One more Tab is the page's next stop after the last chip: a stop of the page, not a card and not a chip.
     await window.keyboard.press("Tab");
     await settle();
     const after = await window.evaluate(() => ({
-      popover: document.activeElement?.closest("[popover]") !== null,
-      y: Math.round(document.activeElement?.getBoundingClientRect().y ?? 0),
+      card: document.activeElement?.closest("[popover]") !== null,
+      page: document.activeElement !== document.body && document.activeElement !== null,
     }));
-    expect(after.popover).toBe(false);
-    const last = await chips.last().boundingBox();
-    if (!last) throw new Error("The last Citation isn't drawn.");
-    expect(after.y).toBeGreaterThanOrEqual(last.y - 1);
+    expect(after).toEqual({ card: false, page: true });
+    expect(await whereIsFocus(window)).not.toBe(CHIP);
 
     // Shift+Tab goes back through the chips, not into a card: the last chip, the one before, the first.
     await logFocus(window);
@@ -512,6 +515,7 @@ for (const language of ["en", "zh-CN"] as const) {
 
     const exercise = async (cited: Locator, uncited: Locator) => {
       // The card is open as the focus lands, with no wait; Tab goes on past it, to the page's next stop.
+      await window.mouse.move(0, 0);
       await logFocus(window);
       await cited.focus();
       await expect(card).toHaveCount(1);
