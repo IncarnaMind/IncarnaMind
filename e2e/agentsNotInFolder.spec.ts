@@ -62,6 +62,7 @@ const WORDS = {
     count: (count: number | string) => `${count} Document${count === 1 ? "" : "s"}`,
     allow: "Allow and connect",
     reads: (names: string) => `Reads ${names}`,
+    join: ", ",
   },
   "zh-CN": {
     settings: "设置",
@@ -74,6 +75,7 @@ const WORDS = {
     count: (count: number | string) => `${count} 个文档`,
     allow: "允许并连接",
     reads: (names: string) => `可读取：${names}`,
+    join: "、",
   },
 } as const;
 
@@ -268,7 +270,7 @@ for (const width of [900, 1600]) {
         await expect(own.nth(2).getByTestId("agent-folder")).toBeChecked();
         await own.nth(0).getByTestId("agent-folder").check();
         await expect(row.getByTestId("agent-pairing-reads")).toHaveText(
-          words.reads(`Coast, ${words.notInFolder}`),
+          words.reads(["Coast", words.notInFolder].join(words.join)),
         );
         await own.nth(2).getByTestId("agent-folder").uncheck();
         await expect(row.getByTestId("agent-pairing-reads")).toHaveText(words.reads("Coast"));

@@ -187,7 +187,7 @@ test("Pause, Resume and Stop are in ⌘K while a Task runs or is paused, with pi
   ]);
   await expect(progress.getByTestId("task-progress-stop")).toHaveAttribute(
     "title",
-    `停止 (${mod})`,
+    `停止（${mod}）`,
   );
   await window.keyboard.press("ControlOrMeta+k");
   await window.keyboard.type(">zanting renwu");

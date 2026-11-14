@@ -468,9 +468,9 @@ test("a Document row shows up to three Tag colours and +N after its name, names 
     await setLanguage(window, "zh-CN");
     await expect(attention).toHaveAttribute(
       "title",
-      "Attention\nAttention.txt\n标签：书籍, 合同, 论文, 报告",
+      "Attention\nAttention.txt\n标签：书籍、合同、论文、报告",
     );
-    await expect(attention).toHaveAccessibleDescription("标签：书籍, 合同, 论文, 报告");
+    await expect(attention).toHaveAccessibleDescription("标签：书籍、合同、论文、报告");
     await tabIntoRow(window, attention);
     await expect(tip).toBeVisible();
     await screenshot(window, "row-marks-zh");
