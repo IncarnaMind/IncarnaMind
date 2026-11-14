@@ -626,7 +626,7 @@ function toAnswer(row: MessageRow): ConversationAnswer {
       status === "failed" && isSignInRouteProblem(row.error_sign_in_route)
         ? row.error_sign_in_route
         : null,
-    // A part a later build stored, which this one doesn't know, reads as none: today's line.
+    // A part a later build stored, which this one doesn't know, reads as none: the Question's too-long line.
     errorTooLong:
       (status === "failed" && TOO_LONG_PARTS.find((each) => each === row.error_too_long)) || null,
     citationSupport: SUPPORTS.find((each) => each === row.citation_support) ?? null,

@@ -293,25 +293,25 @@ export function createWindowBudget(
           )
         : size(fixed, question, 0, 0);
       if (error) return { ok: false, error };
-      // At a small window the selection goes with the Question, whole, then the turn just before is
-      // kept, whole or not at all: the room to write gives way for them, then Passages beyond three.
-      // Where they are sent anyway, nothing moves.
+      // Where it reads, the selection goes with the Question, whole, and the Mind is cut without it:
+      // the Mind's cut would shorten it. At a small window the turn just before is kept too, whole or
+      // not at all. The room to write gives way for them only where they don't fit at the cap, then
+      // Passages beyond three; where everything fits, nothing moves.
       const selection =
         request.reads && held.selection > 0 ? Math.ceil(held.selection * current) : 0;
       const turn =
         request.reads && held.turn > 0 ? Math.ceil(held.turn * current) + 2 * MESSAGE_TOKENS : 0;
-      const today = limit() - fixed - (request.reserve ?? 0);
+      const contextRoom = limit() - fixed - (request.reserve ?? 0);
       const besideThree = (ahead: number) =>
         window.tokens - MARGIN_TOKENS - floor - fixed - question - ahead >=
         MIN_PASSAGES * onePassage() + STEP_OUTPUT_TOKENS;
-      const selectionLeftOut = selection > 0 && today < question + selection;
+      const selectionLeftOut = selection > 0 && contextRoom < question + selection;
       if (selectionLeftOut && !besideThree(selection)) {
         return { ok: false, error: selectionTooLong(fixed, question, selection) };
       }
       const keepsTurn =
-        turn > 0 && today < question + selection + turn && besideThree(selection + turn);
-      const keepsSelection = selection > 0 && (selectionLeftOut || keepsTurn);
-      const ahead = (keepsSelection ? selection : 0) + (keepsTurn ? turn : 0);
+        turn > 0 && contextRoom < question + selection + turn && besideThree(selection + turn);
+      const ahead = (selectionLeftOut || keepsTurn ? selection : 0) + (keepsTurn ? turn : 0);
       if (ahead > 0) {
         const room = window.tokens - MARGIN_TOKENS - fixed - question - ahead;
         output = Math.max(
@@ -327,19 +327,20 @@ export function createWindowBudget(
         request.messages,
         request.question,
         // The overhead counts every message, kept or not: with room for the Question alone, the
-        // earlier ones it drops must not leave too little for the Question itself (#3045).
+        // earlier ones it drops must not leave too little for the Question itself, nor for what
+        // goes with it. The few tokens the two counts differ by come out of the search's reserve.
         Math.max(
           Math.floor((forContext - overhead) / current),
           held.asked +
             held.onScreen +
-            (keepsSelection ? held.selection : 0) +
+            (selection > 0 ? held.selection : 0) +
             (keepsTurn ? held.turn : 0),
         ),
         request.mind,
         (kept) => {
           mindCut = kept.text ? kept.share : 0;
         },
-        { ...(onScreen && { onScreen }), selection: keepsSelection, turn: keepsTurn },
+        { ...(onScreen && { onScreen }), selection: selection > 0, turn: keepsTurn },
       );
       if (!messages) return { ok: false, error: tooLong(fixed + question + output) };
       return {
