@@ -98,10 +98,11 @@ function AboutThisCheck({ lines }: { lines: readonly ReactNode[] }) {
       <p id={title} className="claim-about-title">
         {t("claim.about")}
       </p>
+      {/* The menu's last stop: Tab past it leaves the menu, closing it, as past any last item. */}
       <div
         role="menuitem"
         aria-disabled="true"
-        tabIndex={-1}
+        tabIndex={0}
         className="claim-about-lines"
         data-testid="claim-about-lines"
       >

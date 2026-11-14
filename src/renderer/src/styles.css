@@ -6261,6 +6261,9 @@
       width: calc(100% + 4px);
       margin-left: -4px;
     }
+    .record-cite {
+      padding-left: 0;
+    }
   }
   /* A part that needs a look, marked in the sentence: its verdict's wash and a 2px line under it. */
   .claim-sentence-mark {
@@ -6322,9 +6325,11 @@
   .claim-quote-menu {
     position: absolute;
     top: 0;
-    right: 0;
+    left: 0;
     width: 1px;
     height: 1px;
+    padding: 0;
+    overflow: hidden;
     visibility: hidden;
   }
   /* The quote on a card of one part: the same words, set as a part's are, and they open the page. */
@@ -6358,6 +6363,15 @@
     gap: 4px;
     min-width: 0;
     max-width: 100%;
+
+    /* The Citation's number right after the place, as the sentence shows it. */
+    .claim-card-cited {
+      display: inline-flex;
+      flex-shrink: 0;
+      width: auto;
+      margin: 0;
+      padding: 0;
+    }
   }
   .claim-part-source {
     min-width: 0;
@@ -6396,19 +6410,17 @@
     gap: 4px 8px;
   }
   .claim-fold-line {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
     min-width: 0;
     font-size: var(--text-meta);
     line-height: 18px;
     color: var(--color-ink-meta);
   }
   .claim-fold-icon {
+    display: inline-block;
     width: 14px;
     height: 14px;
     margin-right: 6px;
-    flex-shrink: 0;
+    vertical-align: -2px;
     color: var(--color-success);
   }
   .claim-fold-what {

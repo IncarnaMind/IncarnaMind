@@ -10,7 +10,6 @@ import {
   useLocalChatModel as chooseScriptedModel,
   createDataFolder,
   dismissChatSetup,
-  focusSettled,
   launchApp,
   motionSettled,
   newMind,
@@ -201,8 +200,13 @@ async function nothingClipped(window: Page, card: Locator) {
   const reach = await card.evaluate((element) => {
     const edge = element.getBoundingClientRect();
     return [...element.querySelectorAll<HTMLElement>("p, button, li, span")]
-      .filter((each) => each.checkVisibility() && !each.closest('[role="menu"], .sr-only'))
+      .filter(
+        (each) =>
+          each.checkVisibility({ visibilityProperty: true }) &&
+          !each.closest('[role="menu"], .sr-only'),
+      )
       .map((each) => ({
+        what: `${each.tagName} ${each.dataset.testid ?? each.className}`,
         over: each.getBoundingClientRect().right - edge.right,
         cut: each.scrollWidth - each.clientWidth,
         clamped: each.classList.contains("claim-card-sentence"),
@@ -211,10 +215,9 @@ async function nothingClipped(window: Page, card: Locator) {
   });
   expect(reach).toEqual([]);
   const box = await card.boundingBox();
-  const size = window.viewportSize();
-  if (!box || !size) throw new Error("The card isn't laid out.");
+  if (!box) throw new Error("The card isn't laid out.");
   expect(box.x).toBeGreaterThanOrEqual(0);
-  expect(box.x + box.width).toBeLessThanOrEqual(size.width);
+  expect(box.x + box.width).toBeLessThanOrEqual(await window.evaluate(() => globalThis.innerWidth));
 }
 
 /** The sentence of two parts, the second found nowhere, citing the first's Passage. */
@@ -288,12 +291,13 @@ for (const [language, width] of [
     await expect(receipts).toHaveCount(1);
     await expect(receipts.first().getByTestId("claim-part-citation")).toHaveText(words.quotes[2]);
     await expect(receipts.first().locator(".claim-part-source")).toContainText(words.page(3));
-    // Two buttons, the fix first, and one ⋯.
+    // Two buttons, the first two actions this card has had (a cited sentence whose part found a
+    // nearest Passage: Fix the sentence, Remove the mark), and one ⋯.
     const buttons = card.locator(".citation-card-actions button");
     await expect(buttons).toHaveCount(2);
     expect(await buttons.evaluateAll((all) => all.map((each) => each.dataset.testid))).toEqual([
-      "claim-cut",
-      "claim-keep",
+      "claim-fix",
+      "claim-remove",
     ]);
     await expect(card.getByTestId("check-menu")).toHaveCount(1);
     // The supported part folds into one line at the foot.
@@ -508,7 +512,8 @@ for (const [language, width] of [
     await expect(menu.getByTestId("claim-limit")).toHaveText(t("claim.limit"));
     await window.keyboard.press("Escape");
     await expect(menu).toBeHidden();
-    await focusSettled(window, window.getByTestId("mind-editor"));
+    await window.keyboard.press("Escape");
+    await expect(card).toHaveCount(0);
     await app.close();
   });
 }

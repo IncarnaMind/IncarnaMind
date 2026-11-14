@@ -366,18 +366,24 @@ export function PartQuote({
                 title={t(`citation.open.${openKind(location)}`)}
                 onClick={open}
               >
-                <span className="claim-part-quote citation-card-wash">{quote}</span>
+                <span className="claim-part-quote">
+                  <span className="citation-card-wash">{quote}</span>
+                </span>
               </button>
             ) : (
               <p className="claim-part-citation">
-                <span className="claim-part-quote citation-card-wash">{quote}</span>
+                <span className="claim-part-quote">
+                  <span className="citation-card-wash">{quote}</span>
+                </span>
               </p>
             ))}
           <MetaLine
             className="claim-quote-where"
             parts={[
-              <span key="source" className="claim-part-source" title={source}>
-                {source}
+              <span key="source" className="claim-where-source">
+                <span className="claim-part-source" title={source}>
+                  {source}
+                </span>
                 {citing}
               </span>,
               more,

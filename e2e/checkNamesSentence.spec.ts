@@ -776,8 +776,13 @@ for (const language of ["en", "zh-CN"] as const) {
       expect((await overrun(name))?.line ?? 1).toBeLessThanOrEqual(0.5);
     }
 
-    // While the card opens it is drawn smaller; a name must keep its line count all the way.
+    // While the menu holding the line opens it is drawn smaller; a name must keep its line count
+    // all the way.
     const linesWhileOpening = async (id: string) => {
+      if (await card.getByTestId("check-actions").isVisible()) {
+        await window.keyboard.press("Escape");
+        await expect(card.getByTestId("check-actions")).toBeHidden();
+      }
       await window.keyboard.press("Escape");
       await expect(card).toHaveCount(0);
       const sampled = window.evaluate(
@@ -807,6 +812,8 @@ for (const language of ["en", "zh-CN"] as const) {
           }),
       );
       await pointAndClick(window, markOf(id));
+      await expect(card).toBeVisible();
+      await pointAndClick(window, card.getByTestId("check-menu"));
       return sampled;
     };
     for (const { id, lines } of edge.slice(0, 2)) {
@@ -817,11 +824,11 @@ for (const language of ["en", "zh-CN"] as const) {
       );
     }
 
-    // The line can narrow while its card is open, as when a scrollbar comes: its names are
-    // measured again, and one that no longer fits wraps.
+    // The line can narrow while its menu is open: its names are measured again, and one that no
+    // longer fits wraps.
     const under = line.locator(".claim-card-checked-by-name");
     expect(await linesOf(under)).toBe(1);
-    await card.locator(".citation-card").evaluate((element) => {
+    await card.getByTestId("claim-about-lines").evaluate((element) => {
       (element as HTMLElement).style.width = `${element.getBoundingClientRect().width - 40}px`;
     });
     await expect.poll(() => linesOf(under), "a name that no longer fits wraps").toBe(2);

@@ -448,13 +448,15 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(actions.first()).toBeFocused();
 
       if (state.first === "claim-check-document") {
-        // On the card's ⋯, Enter opens its menu; Tab leaves it, closing it, so the focus is on an
-        // action and Esc closes the card, never a menu no longer holding the focus.
+        // On the card's ⋯, Enter opens its menu; Tab goes through its items to About this check,
+        // and past it leaves the menu, closing it, so the focus is on an action and Esc closes the
+        // card, never a menu no longer holding the focus.
         await window.keyboard.press("Enter");
         const item = card.getByTestId("check.findSources");
         await expect(item).toBeVisible();
         await screenshot(window, `card-menu-${language}`);
-        await window.keyboard.press("Tab");
+        const stops = await card.getByTestId("check-actions").locator('[role="menuitem"]').count();
+        for (let at = 1; at <= stops; at++) await window.keyboard.press("Tab");
         await expect(item).not.toBeVisible();
         await expect(card.locator(":focus")).toHaveCount(1);
         await screenshot(window, `card-menu-after-tab-${language}`);

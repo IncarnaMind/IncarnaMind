@@ -531,9 +531,11 @@ for (const language of ["en", "zh-CN"] as const) {
     const menu = await openCardMenu(window, card);
     const choose = menu.getByTestId("claim-choose-citation");
     await expect(choose).toHaveText(t("claim.chooseCitation"));
-    const [item, room] = [await choose.boundingBox(), window.viewportSize()];
-    if (!item || !room) throw new Error("The menu isn't laid out.");
-    expect(item.x + item.width).toBeLessThanOrEqual(room.width);
+    const item = await choose.boundingBox();
+    if (!item) throw new Error("The menu isn't laid out.");
+    expect(item.x + item.width).toBeLessThanOrEqual(
+      await window.evaluate(() => globalThis.innerWidth),
+    );
     await capture(window, `after-rewrite-offer-${language}-900`);
     await window.keyboard.press("Escape");
     await expect(menu).toBeHidden();

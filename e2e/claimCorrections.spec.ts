@@ -170,10 +170,15 @@ async function insert(window: Page, blocks: object[]) {
 async function withinCard(window: Page) {
   const card = window.getByTestId("claim-card");
   const box = await card.boundingBox();
-  const actions = await card.locator(".citation-card-actions").boundingBox();
-  if (!box || !actions) throw new Error("The correction card isn't drawn.");
-  expect(actions.x).toBeGreaterThanOrEqual(box.x);
-  expect(actions.x + actions.width).toBeLessThanOrEqual(box.x + box.width + 1);
+  // The card's buttons, and a part's own fix under its quote when two parts have one (#2869).
+  const rows = await card.locator(".citation-card-actions").all();
+  if (!box || rows.length === 0) throw new Error("The correction card isn't drawn.");
+  for (const row of rows) {
+    const actions = await row.boundingBox();
+    if (!actions) throw new Error("The correction card's actions aren't drawn.");
+    expect(actions.x).toBeGreaterThanOrEqual(box.x);
+    expect(actions.x + actions.width).toBeLessThanOrEqual(box.x + box.width + 1);
+  }
 }
 
 for (const [language, width] of [
