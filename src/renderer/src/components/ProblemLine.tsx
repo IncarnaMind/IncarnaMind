@@ -1,6 +1,6 @@
 import type { MouseEvent, ReactNode, Ref } from "react";
 import { ExclamationIcon } from "../viewer/icons";
-import { MetaLine } from "./MetaLine";
+import { actionParts, MetaLine } from "./MetaLine";
 
 /**
  * The amber "!" that leads the words of an error (DESIGN.md, Colors: Red,
@@ -98,16 +98,7 @@ export function ProblemLine({
     >
       <MetaLine
         as="div"
-        parts={[
-          children,
-          ...details,
-          // Two actions are one part: the row breaks before them, never between, unless the pair
-          // alone is wider than the line (#3099).
-          ...(buttons.length > 1
-            ? [<MetaLine key="actions" as="span" parts={buttons} />]
-            : buttons),
-          disclosure?.toggle,
-        ]}
+        parts={[children, ...details, ...actionParts(buttons), disclosure?.toggle]}
       />
       {disclosure?.panel}
     </div>

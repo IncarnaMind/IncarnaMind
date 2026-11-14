@@ -18,6 +18,18 @@ function selectedAsOneLine(line: HTMLElement): string | null {
     .reduce((text, part) => `${text}${dotAfter(text)}${part}`);
 }
 
+const shownPart = (part: ReactNode) =>
+  part !== null && part !== undefined && part !== false && part !== "";
+
+/**
+ * A line's actions as its parts: two or more are one part, a line of their own, so a row of the
+ * line breaks before them and never between them unless they alone are wider than it (#3099).
+ */
+export function actionParts(actions: readonly ReactNode[]): ReactNode[] {
+  const shown = actions.filter(shownPart);
+  return shown.length > 1 ? [<MetaLine key="actions" as="span" parts={shown} />] : shown;
+}
+
 /**
  * A line of parts joined by middle dots ("Checked 4 claims · 3 need a look ·
  * Check again"). It wraps only between parts, and no line starts or ends with
@@ -35,9 +47,7 @@ export function MetaLine({
   children,
   ...rest
 }: { parts: readonly ReactNode[]; as?: "p" | "div" | "span" } & HTMLAttributes<HTMLElement>) {
-  const shown = parts.filter(
-    (part) => part !== null && part !== undefined && part !== false && part !== "",
-  );
+  const shown = parts.filter(shownPart);
   return (
     <Tag
       {...rest}

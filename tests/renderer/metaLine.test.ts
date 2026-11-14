@@ -76,6 +76,22 @@ describe("A problem line's actions", () => {
     return { line, partOf, unmount: () => act(async () => root.unmount()) };
   }
 
+  // protects=one rule for every line, however it is built: its shown actions, when two or more, are one part, a line of their own; one action, or none shown, is as before (#3099); fails_when=two shown actions come back as parts apart, or a hidden one counts; no_claim=how a line built with it lays them out, which the test below reads.
+  test("the shared helper makes two or more shown actions one part, and leaves one as it is", async () => {
+    const path = "../../src/renderer/src/components/MetaLine.tsx";
+    const { actionParts } = (await import(path)) as {
+      actionParts: (actions: readonly ReactNode[]) => ReactNode[];
+    };
+    const action = (label: string) =>
+      createElement("button", { key: label, type: "button" }, label);
+    const pair = actionParts([action("Try again"), false, action("Save a copy"), null]);
+    expect(pair).toHaveLength(1);
+    expect((pair[0] as { props: { parts: unknown[] } }).props.parts).toHaveLength(2);
+    expect(actionParts([action("Try again"), false])).toHaveLength(1);
+    expect(actionParts([action("Try again"), false])[0]).toMatchObject({ key: "Try again" });
+    expect(actionParts([false, undefined])).toEqual([]);
+  });
+
   // protects=a line's two actions are one part of it, so a row breaks before them and never between them, while the pair fits a row; inside, the pair is a line of its own that may wrap only at its dot when it alone is wider (#3099); fails_when=the two actions are parts of the line apart, or one action alone is wrapped; no_claim=pixels, which the window sweeps measure.
   test("two actions share one part of the line; one action is a part as before", async () => {
     const two = await shown(true);
