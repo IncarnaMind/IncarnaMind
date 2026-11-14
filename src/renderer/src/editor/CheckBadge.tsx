@@ -45,7 +45,14 @@ import { useWatchAddedDocuments } from "./AddedDocumentsLine";
 import { type Badge, type BadgeInput, badgeOf } from "./badgeState";
 import { ContradictionAsk, ContradictionLine } from "./ContradictionLine";
 import { checkTitle, useCheckEstimate, useCheckThisMindPlan } from "./changedSentences";
-import { bodyIsEmpty, CARD_MARGIN, firstHeightOf } from "./checkCardHold";
+import {
+  bodyIsEmpty,
+  CARD_MARGIN,
+  firstHeightOf,
+  isBelowOf,
+  SETTLE_AT_MOST_MS,
+  SETTLE_MS,
+} from "./checkCardHold";
 import { type CheckEstimateView, checkPressOf } from "./checkEstimateState";
 import { useCardPlace } from "./checkPlace";
 import { CheckMarkIcon, ClaimMarkIcon, NotYetCitedIcon } from "./icons";
@@ -476,18 +483,37 @@ function BadgeFrame({
       setHeldHeight(element.offsetHeight);
       return;
     }
-    // A card that opened with nothing in it has nothing to move: what lands first sets its
-    // height, once, in the frame it lands (#2313).
+    // A card that opened with nothing in it has nothing to move: what lands in it sets its height,
+    // once, when it has stopped landing (#2313). Under its badge it keeps the body it had at
+    // once, so what lands never covers the badge.
     const content = element.firstElementChild;
     if (!content || !anchor) return;
     const rest = element.offsetHeight;
+    let settle: number | undefined;
+    let first: number | undefined;
     const watching = new ResizeObserver(() => {
       if (bodyIsEmpty(element)) return;
-      watching.disconnect();
-      flushSync(() => setHeldHeight(firstHeightOf(element, anchor, rest)));
+      if (isBelowOf(element, anchor)) {
+        watching.disconnect();
+        flushSync(() => setHeldHeight(rest));
+        return;
+      }
+      const now = performance.now();
+      first ??= now;
+      window.clearTimeout(settle);
+      settle = window.setTimeout(
+        () => {
+          watching.disconnect();
+          setHeldHeight(firstHeightOf(element, anchor, rest));
+        },
+        Math.min(SETTLE_MS, SETTLE_AT_MOST_MS - (now - first)),
+      );
     });
     watching.observe(content);
-    return () => watching.disconnect();
+    return () => {
+      watching.disconnect();
+      window.clearTimeout(settle);
+    };
   }, [open, heldHeight, anchor]);
   useScrollFade(body, open && anchor !== null);
   useEffect(() => {

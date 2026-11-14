@@ -18,8 +18,8 @@ import {
 } from "./app";
 
 /*
- * A check card that opened with nothing in it takes its height from what lands first, once, then
- * holds it (#2313). It hangs from its foot: the Check in the foot never moves, in any frame, and
+ * A check card that opened with nothing in it takes its height from what lands in it, once, when
+ * it has stopped landing, then holds it (#2313). It hangs from its foot: the Check in the foot never moves, in any frame, and
  * only the card's top edge goes up, as far as the window's margin above its badge. When there was
  * no room above and the card sits below its badge, the only room is the gap it is placed at, which
  * it keeps, so what lands scrolls in the body it had. It never covers the badge. Nothing animates
@@ -145,7 +145,7 @@ const overlap = (a: Box, b: Box) =>
 for (const language of ["en", "zh-CN"] as const) {
   for (const width of [1440, 900]) {
     for (const placement of ["above", "below"] as const) {
-      test(`an empty check card takes its height from what lands first, hung from its foot: the Check stays and the badge stays clear (${placement} its badge, ${language}, ${width}px)`, async () => {
+      test(`an empty check card takes its height from what lands, hung from its foot: the Check stays and the badge stays clear (${placement} its badge, ${language}, ${width}px)`, async () => {
         test.setTimeout(120_000);
         await writeFile(join(sources, "Tides.pdf"), TIDES);
         const { app, window } = await launchApp(dataDir, { fakeChat: true });
@@ -186,6 +186,8 @@ for (const language of ["en", "zh-CN"] as const) {
         await land(window, SENTENCES[language], 0);
         const body = card.locator(".check-card-body");
         await expect(card.getByTestId("health-look")).toBeVisible();
+        // Held once what lands has settled: the body then has the height it keeps.
+        await expect(body).toHaveAttribute("style", /height/);
         await motionSettled(window);
         const frames = await stop(window);
         const grown = await boxOf(card);
@@ -210,6 +212,11 @@ for (const language of ["en", "zh-CN"] as const) {
         if (placement === "above") {
           expect(grown[3], "the card grew").toBeGreaterThan(rest.card[3] + 20);
           expect(grown[1], "within the window's margin").toBeGreaterThanOrEqual(8 - 0.5);
+          // All of it landed in the body: nothing scrolls out of sight.
+          expect(
+            await body.evaluate((element) => element.scrollHeight <= element.clientHeight + 1),
+          ).toBe(true);
+          await expect(card.getByTestId("health-toCheck")).toBeVisible();
         } else {
           // Below its badge the only room is the gap it is placed at, which it keeps: what lands
           // scrolls in the body it had.

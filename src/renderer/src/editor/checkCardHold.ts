@@ -1,6 +1,14 @@
 /** The room kept clear between the check card and the window's edge. */
 export const CARD_MARGIN = 8;
 
+/**
+ * How long what lands in an empty card must stay still before the card takes its height: rows
+ * arrive over a few frames, and the first of them alone would leave the others scrolling out of
+ * sight. The longest it waits.
+ */
+export const SETTLE_MS = 250;
+export const SETTLE_AT_MOST_MS = 1500;
+
 /** Whether the card's body holds only its title, so nothing in it could move yet (#2313). */
 export function bodyIsEmpty(body: HTMLElement): boolean {
   const title = body.querySelector(".check-card-title")?.textContent ?? "";
@@ -29,8 +37,18 @@ export interface HeldRoom {
  * fit stays in the body, which scrolls.
  */
 export function firstHeight({ natural, rest, card, chrome, badge }: HeldRoom): number {
-  if (card.bottom > badge.top + 1) return rest;
+  if (isBelow(card, badge)) return rest;
   return Math.max(0, Math.min(natural, card.bottom - CARD_MARGIN - chrome));
+}
+
+/** Whether the card is placed under its badge, as when there was no room above it. */
+export const isBelow = (card: { bottom: number }, badge: { top: number }) =>
+  card.bottom > badge.top + 1;
+
+/** Whether the body's card is under the badge it hangs from. */
+export function isBelowOf(body: HTMLElement, badge: Element): boolean {
+  const card = body.closest<HTMLElement>(".check-card")?.getBoundingClientRect();
+  return card !== undefined && isBelow(card, badge.getBoundingClientRect());
 }
 
 /** `firstHeight` for the body as it is laid out now, under the badge it hangs from. */
