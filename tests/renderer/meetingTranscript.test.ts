@@ -261,7 +261,7 @@ describe("A meeting's Transcript is placed where its Note is", () => {
   const vault: LibraryGroup = { ...folder("g-vault", "Vault"), keepInside: true };
   const inVault = note("m-vault", "Weekly call", vault.id);
   const owned = document("d-owned", "Transcript · Weekly call", inVault.id);
-  const filed = { documentId: lease.id, groupId: vault.id };
+  const filed = { documentId: lease.id, groupId: vault.id, source: "user" as const };
   const walls = {
     groups: [vault],
     assignments: [filed],

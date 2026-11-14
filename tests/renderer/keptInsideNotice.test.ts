@@ -131,3 +131,22 @@ describe("a Citation kept inside a wall, its Document changed since", () => {
     expect(recheck).not.toHaveBeenCalled();
   });
 });
+
+describe("a meeting's Transcript, its Note in a walled Folder", () => {
+  // protects=a table's and a chart's Citations to a Transcript read its Note's wall, as a single Citation does (#2528); fails_when=the Transcript reads as behind no wall; no_claim=what the core reads of a Transcript.
+  test("is kept inside for every Document at once, as for one", async () => {
+    const { useAppStore } = await import("../../src/renderer/src/store");
+    const { useKeptInside, useKeptInsideOf } = await import("../../src/renderer/src/turnWall");
+    useAppStore.setState((state) => ({
+      documents: [...state.documents, { id: "call", meetingMindId: "meeting" } as Document],
+      minds: [...state.minds, { id: "meeting", title: "Weekly call", folderId: "a" } as Mind],
+    }));
+    const Probe = () => {
+      const one = useKeptInside("call");
+      const each = useKeptInsideOf();
+      return createElement("p", null, `one: ${one} · each: ${each("call")} · ${each("other")}`);
+    };
+    await showInOutsideNote(createElement(Probe));
+    expect(container.textContent).toBe("one: Client A · each: Client A · null");
+  });
+});
