@@ -133,7 +133,10 @@ const rested = (window: Page) =>
 const noteOf = (editor: Locator) =>
   editor.evaluate((dom) => JSON.stringify((dom as unknown as { editor: Editor }).editor.getJSON()));
 
-/** The ring on the focused stop: drawn for a key's focus, in the accent colour. */
+/**
+ * The ring on the focused stop: drawn for a key's focus, in the accent colour. A plot's bar is
+ * ringed by its fill going to the accent; everything else by an outline or a shadow in it.
+ */
 async function expectRing(window: Page, accent: string) {
   const ring = await window.evaluate(() => {
     const target = document.activeElement;
@@ -141,6 +144,8 @@ async function expectRing(window: Page, accent: string) {
     const style = getComputedStyle(target);
     return {
       keyboard: target.matches(":focus-visible"),
+      svg: target instanceof SVGElement,
+      fill: style.fill,
       line: style.outlineStyle,
       width: Number.parseFloat(style.outlineWidth),
       color: style.outlineColor,
@@ -148,8 +153,11 @@ async function expectRing(window: Page, accent: string) {
     };
   });
   expect(ring?.keyboard, "the focus is a key's").toBe(true);
-  const outlined = ring?.line !== "none" && (ring?.width ?? 0) > 0 && ring?.color === accent;
-  expect(outlined || (ring?.shadow ?? "none") !== "none", "the focus ring is drawn").toBe(true);
+  const drawn = ring?.svg
+    ? ring.fill === accent
+    : (ring?.line !== "none" && (ring?.width ?? 0) > 0 && ring?.color === accent) ||
+      (ring?.shadow ?? "").includes(accent);
+  expect(drawn, `the focus ring is drawn in the accent (${JSON.stringify(ring)})`).toBe(true);
 }
 
 const CHIP = "citation-chip";
@@ -457,24 +465,30 @@ for (const language of ["en", "zh-CN"] as const) {
       if ((await whereIsFocus(window)).startsWith(MARK)) await expect(card).toHaveCount(1);
       await motionSettled(window);
     };
-    const accent = await tokenColor(window, "--color-accent");
 
-    // At a person's pace, from the first sentence to the first mark, the second, and past it.
-    await caretAtStart(window, editor);
-    await logFocus(window);
-    for (let key = 0; key < 6 && (await whereIsFocus(window)) !== `${MARK} check-1`; key++) {
+    // At a person's pace, from the first sentence to the first mark, the second, and past it, with
+    // a ring on each mark in both themes.
+    let paced: string[] = [];
+    for (const scheme of ["light", "dark"] as const) {
+      await window.emulateMedia({ colorScheme: scheme });
+      const accent = await tokenColor(window, "--color-accent");
+      await window.keyboard.press("Escape");
+      await caretAtStart(window, editor);
+      await logFocus(window);
+      for (let key = 0; key < 6 && (await whereIsFocus(window)) !== `${MARK} check-1`; key++) {
+        await window.keyboard.press("Tab");
+        await settle();
+      }
+      await expect(marks.first()).toBeFocused();
+      await expectRing(window, accent);
       await window.keyboard.press("Tab");
       await settle();
+      await expect(marks.nth(1)).toBeFocused();
+      await expectRing(window, accent);
+      await window.keyboard.press("Tab");
+      await settle();
+      paced = await landed(window);
     }
-    await expect(marks.first()).toBeFocused();
-    await expectRing(window, accent);
-    await window.keyboard.press("Tab");
-    await settle();
-    await expect(marks.nth(1)).toBeFocused();
-    await expectRing(window, accent);
-    await window.keyboard.press("Tab");
-    await settle();
-    const paced = await landed(window);
     expect(paced.slice(-3, -1), "the two marks, with no card between").toEqual([
       `${MARK} check-1`,
       `${MARK} check-2`,
@@ -590,7 +604,7 @@ for (const language of ["en", "zh-CN"] as const) {
     test.setTimeout(240_000);
     const t = (key: Parameters<typeof translate>[1]) => translate(language, key);
     await writeFile(join(sources, "Acme.pdf"), REPORT);
-    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    const { app, window } = await launchApp(dataDir, { fakeChat: true, systemColours: true });
     await dismissChatSetup(window);
     await useLocalChatModel(window);
     await setLanguage(window, language);
@@ -619,6 +633,17 @@ for (const language of ["en", "zh-CN"] as const) {
     const before = await viewers.count();
 
     const exercise = async (cited: Locator, uncited: Locator) => {
+      // The ring on a value the keys reach, in both themes.
+      for (const scheme of ["light", "dark"] as const) {
+        await window.emulateMedia({ colorScheme: scheme });
+        const accent = await tokenColor(window, "--color-accent");
+        await cited.focus();
+        await window.keyboard.press("ArrowRight");
+        await expectRing(window, accent);
+        await window.keyboard.press("ArrowLeft");
+        await expect(cited).toBeFocused();
+        await expectRing(window, accent);
+      }
       // The card is open as the focus lands, with no wait; Tab goes on past it, to the page's next stop.
       await window.mouse.move(0, 0);
       await logFocus(window);
