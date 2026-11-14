@@ -1,3 +1,4 @@
+import type { Editor } from "@tiptap/core";
 import type { ComponentType } from "react";
 import type { EditMenuState } from "../../../shared/bridge";
 import {
@@ -92,6 +93,11 @@ export interface CommandContext {
   textSelected?: true;
   /** The User picked the rows in `selection`; without it they are only the current row. */
   picked?: true;
+  /**
+   * The Note's editor a menu or a key came from, for a command that names a Block of it: the same
+   * Note open in two panes is two editors, and the command acts in the one it came from.
+   */
+  note?: Editor;
 }
 
 export interface Command {

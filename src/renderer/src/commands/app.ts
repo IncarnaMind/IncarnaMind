@@ -7,7 +7,7 @@ import { claudeSignInOffered } from "../claudeSignIn";
 import { startContradictionCheck } from "../contradictions";
 import { originOf } from "../editor/blockOrigins";
 import { goToCitation } from "../editor/citationMark";
-import { blockAt, noteHolding } from "../editor/noteKeymap";
+import { blockAt } from "../editor/noteKeymap";
 import { openOrigin } from "../editor/originActions";
 import { tieOutFigures } from "../figures";
 import { useFindSources } from "../findSources";
@@ -28,7 +28,7 @@ import { answerTableCommands } from "./answerTables";
 import { appearanceCommands } from "./appearance";
 import { assistantCommands } from "./assistant";
 import { bibliographyCommands } from "./bibliography";
-import { blockCommands } from "./blocks";
+import { blockCommands, noteOfBlock } from "./blocks";
 import { calendarCommands } from "./calendars";
 import { chartCommands } from "./charts";
 import { checkCommands } from "./checks";
@@ -97,7 +97,7 @@ import { wordLookCommands } from "./wordLook";
 /** Where the Block a menu names, or else the one the cursor is in, was added from; null if nowhere. */
 function originShown(ctx: CommandContext): BlockOrigin | null {
   if (ctx.focus?.kind === "block") {
-    const editor = noteHolding(ctx.focus.id);
+    const editor = noteOfBlock(ctx);
     return editor && originOf(editor.state, ctx.focus.id);
   }
   const editor = readMindHandle.current?.editor;

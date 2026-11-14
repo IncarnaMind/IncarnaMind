@@ -316,6 +316,7 @@ export function BlockHandle({
           >
             <ObjectMenu
               target={{ kind: "block", id: target }}
+              note={editor}
               label={label}
               hint={t("editor.block.handle")}
               icon={GripIcon}

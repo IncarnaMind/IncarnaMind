@@ -2,9 +2,19 @@ import type { Editor } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import type { CommandId } from "../../../shared/commands";
 import { contextFlag, setContextFlag } from "../editor/blockCommands";
-import { blockAt, notesHolding } from "../editor/noteKeymap";
+import { blockAt, noteHolding } from "../editor/noteKeymap";
 import { readMindHandle } from "./handles";
 import type { Command, CommandContext } from "./registry";
+
+/**
+ * The Note a command that names a Block acts in: the editor its menu or key came from, as the same
+ * Note open in two panes is two editors holding the Block; else the first that holds it.
+ */
+export function noteOfBlock(ctx: CommandContext): Editor | null {
+  if (ctx.focus?.kind !== "block") return null;
+  if (ctx.note && !ctx.note.isDestroyed) return ctx.note;
+  return noteHolding(ctx.focus.id);
+}
 
 /**
  * The Block a command acts on: the one a menu or a key names, else, from ⌘K with the focus in the
@@ -12,9 +22,7 @@ import type { Command, CommandContext } from "./registry";
  */
 export function blockIn(ctx: CommandContext): { editor: Editor; id: string } | null {
   if (ctx.focus?.kind === "block") {
-    // The Note open in two panes is held by two editors; the key acts in the one it was pressed in.
-    const holding = notesHolding(ctx.focus.id);
-    const editor = holding.find((each) => each.view.hasFocus()) ?? holding[0];
+    const editor = noteOfBlock(ctx);
     return editor ? { editor, id: ctx.focus.id } : null;
   }
   const inFront = readMindHandle.current;

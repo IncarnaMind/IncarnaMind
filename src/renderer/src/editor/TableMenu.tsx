@@ -100,6 +100,7 @@ export function TableMenu({ editor }: { editor: Editor }) {
       {block !== null && spot !== null && (
         <ObjectMenu
           target={{ kind: "block", id: block }}
+          note={editor}
           label={label}
           hint={`${label} (${shortcutLabel("table.menu")})`}
           testId="table"

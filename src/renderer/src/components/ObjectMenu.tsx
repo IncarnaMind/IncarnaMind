@@ -1,3 +1,4 @@
+import type { Editor } from "@tiptap/core";
 import {
   type ComponentType,
   Fragment,
@@ -193,8 +194,11 @@ export function ObjectMenu({
   icon: Icon = MoreLineIcon,
   hint,
   onOpenChange,
+  note,
 }: {
   target: ObjectRef;
+  /** For a Block's menu: the Note's editor it is opened in, which its commands act in. */
+  note?: Editor;
   /** What the button and the menu are called: "More for Board minutes". */
   label: string;
   /** In place of the ⋯, for a button that is the object's own handle. */
@@ -260,6 +264,7 @@ export function ObjectMenu({
     focus: target,
     surface,
     here: { ...tagsHere(target, button.current, chosen), ...here },
+    ...(note && { note }),
   };
   const mixed = new Set(forSelection.selection.map((each) => each.kind)).size > 1;
   const selectionEntries = !menu.open

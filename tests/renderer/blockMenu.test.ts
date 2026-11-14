@@ -231,18 +231,37 @@ test("Delete from the keys acts in the pane the key was pressed in, with the sam
   const blocks = [paragraph("a", "First"), paragraph("b", "Second")];
   const left = await editorWith(blocks);
   const right = await editorWith(blocks);
-  const inFirst = 2;
-  const inSecond = left.state.doc.child(0).nodeSize + 2;
-  left.commands.setTextSelection(inFirst);
-  right.commands.setTextSelection(inSecond);
-  // Typing in the right pane: it has the focus, the left, which holds the Note first, hasn't.
-  Object.defineProperty(right.view, "hasFocus", { value: () => true, configurable: true });
-  const at = blockIn(menuOf("b"));
-  Reflect.deleteProperty(right.view, "hasFocus");
+  left.commands.setTextSelection(2);
+  right.commands.setTextSelection(left.state.doc.child(0).nodeSize + 2);
+  // The key's context carries the editor it was pressed in; one that names none takes the first.
+  const at = blockIn({ ...menuOf("b"), note: right });
   expect(at?.editor).toBe(right);
+  expect(blockIn({ ...menuOf("b"), note: left })?.editor).toBe(left);
+  expect(blockIn(menuOf("b"))?.editor).toBe(left);
   at?.editor.commands.deleteBlock();
   expect(texts(left)).toEqual(["First", "Second"]);
   expect(texts(right)).toEqual(["First"]);
+});
+
+test("a table's items act in the editor the menu was opened from, with the same Note open in two panes", async () => {
+  const blocks = [paragraph("a", "First"), { ...emptyTable(2, 2), attrs: { id: "t" } }];
+  const left = await editorWith(blocks);
+  const right = await editorWith(blocks);
+  const intoTable = left.state.doc.child(0).nodeSize + 4;
+  const rows = (editor: Editor) => editor.state.doc.child(1).childCount;
+  right.commands.setTextSelection(intoTable);
+  const fromRight = { ...menuOf("t"), note: right };
+
+  // The left pane's cursor is outside the table: the right pane's menu still lists the table's items.
+  left.commands.setTextSelection(2);
+  expect(idsOf(fromRight)).toContain("table.rowBelow");
+  await commands.run("table.rowBelow", fromRight);
+  expect([rows(left), rows(right)]).toEqual([2, 3]);
+
+  // It is in another cell of the table: the row still goes in the right pane.
+  left.commands.setTextSelection(intoTable);
+  await commands.run("table.rowBelow", fromRight);
+  expect([rows(left), rows(right)]).toEqual([2, 4]);
 });
 
 test("a menu that gives its own Delete deletes the Block it stands by, wherever the cursor is", async () => {

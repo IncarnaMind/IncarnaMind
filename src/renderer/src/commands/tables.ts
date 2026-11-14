@@ -1,7 +1,6 @@
 import type { Editor } from "@tiptap/core";
 import { isInTable } from "@tiptap/pm/tables";
 import { inAnalysisTable } from "../editor/analysisTableCommands";
-import { noteHolding } from "../editor/noteKeymap";
 import {
   menuKeyApplies,
   runTableAction,
@@ -14,7 +13,7 @@ import {
   unavailable,
 } from "../editor/tableCommands";
 import type { Translate } from "../objects";
-import { cursorInFocus } from "./blocks";
+import { cursorInFocus, noteOfBlock } from "./blocks";
 import { readMindHandle } from "./handles";
 import type { Command, CommandContext } from "./registry";
 
@@ -27,7 +26,7 @@ function tableNote(ctx: CommandContext): Editor | null {
   const inFront = readMindHandle.current;
   const editor =
     ctx.focus?.kind === "block"
-      ? noteHolding(ctx.focus.id)
+      ? noteOfBlock(ctx)
       : ctx.selection.length === 0 &&
           (ctx.focus === null || (ctx.focus.kind === "mind" && ctx.focus.id === inFront?.mindId))
         ? (inFront?.editor ?? null)
