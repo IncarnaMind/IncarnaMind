@@ -647,24 +647,30 @@ function withSeparatorReading(reading: Figure, separator: Ambiguity, chosen: Rea
  * The Note's figure as its source reads it, when the source writes it identically: the same
  * digits and separators, unit, currency and scale. Null when it writes it any other way.
  */
-function asWrittenIn(figure: Figure, source: InputNumber): Figure | null {
+function asWrittenIn(
+  figure: Figure,
+  source: InputNumber,
+): { reading: Figure; like: Figure } | null {
   const written = (chars: string) => chars.normalize("NFKC").replace(/\s+/gu, " ").trim();
   if (written(figure.chars) !== written(source.chars)) return null;
   const unit = JSON.stringify(source.unit);
-  const like = [figure, ...figure.ambiguous.flatMap((each) => each.readings)].find(
+  const matched = [figure, ...figure.ambiguous.flatMap((each) => each.readings)].find(
     (each) => each.scale === source.scale && JSON.stringify(each.unit) === unit,
   );
-  if (!like) return null;
+  if (!matched) return null;
+  const like = { ...figure, ...matched };
   return {
-    ...figure,
-    ...like,
-    value: source.value,
-    decimals: source.decimals,
-    precision:
-      like.value === 0
-        ? like.precision
-        : scaledPrecision(like.precision, Math.abs(source.value / like.value)),
-    ambiguous: figure.ambiguous.filter((each) => each.kind === "range"),
+    like,
+    reading: {
+      ...like,
+      value: source.value,
+      decimals: source.decimals,
+      precision:
+        like.value === 0
+          ? like.precision
+          : scaledPrecision(like.precision, Math.abs(source.value / like.value)),
+      ambiguous: figure.ambiguous.filter((each) => each.kind === "range"),
+    },
   };
 }
 
@@ -983,23 +989,24 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
     // A Passage that writes it identically gives the very figure where the Note's own language
     // leaves its separators open. Where that language reads the same writing the other way, nothing
     // says which is meant: a German Note's "1.284" beside an English report's (#3088).
-    const asSource = sourceInput ? asWrittenIn(original.reading, sourceInput.number) : null;
+    const copied = sourceInput ? asWrittenIn(original.reading, sourceInput.number) : null;
+    // The Note's own reading at the source's scale and unit, against the source's: a scale the
+    // Note leaves open never hides its separators read the other way.
     if (
-      asSource &&
+      copied &&
       sourceInput &&
       !separator &&
-      original.reading.scale === sourceInput.number.scale &&
-      JSON.stringify(original.reading.unit) === JSON.stringify(sourceInput.number.unit) &&
-      agreesAtShownPrecision(original.reading, {
-        value: asSource.value,
+      agreesAtShownPrecision(copied.like, {
+        value: sourceInput.number.value,
         unit: sourceInput.number.unit,
         inputs: [sourceInput],
         formula: "",
       }) === false
     ) {
-      rows.push(readTwoWays(original, writtenTwoWays(original.reading, asSource), cited));
+      rows.push(readTwoWays(original, writtenTwoWays(original.reading, copied.reading), cited));
       continue;
     }
+    const asSource = copied?.reading ?? null;
     if (asSource) {
       target = { ...target, reading: asSource };
       unsure = undefined;

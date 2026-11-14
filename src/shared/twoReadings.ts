@@ -52,8 +52,10 @@ export function twoReadingsOf(detail: string | null): TwoReadings | null {
   return { shown, readings };
 }
 
+// 15 significant digits: every digit a figure is written with, and none of a double's own noise
+// (1.1 × 1e8 is 110000000.00000001).
 const compact = (value: number) =>
-  new Intl.NumberFormat("zh-CN", { notation: "compact", maximumSignificantDigits: 21 }).format(
+  new Intl.NumberFormat("zh-CN", { notation: "compact", maximumSignificantDigits: 15 }).format(
     value,
   );
 
@@ -79,7 +81,9 @@ export function readingText(language: Language, reading: FigureReading): string 
   const { value, unit } = reading;
   switch (unit.kind) {
     case "currency":
-      return `${compact(value)}${currencyName(unit.code)}`;
+      return typeof unit.code === "string"
+        ? `${compact(value)}${currencyName(unit.code)}`
+        : reading.words;
     case "percent":
       return `${share(value)}%`;
     case "points":
@@ -90,5 +94,8 @@ export function readingText(language: Language, reading: FigureReading): string 
       return `${compact(value)}${unit.word}`;
     case "plain":
       return compact(value);
+    default:
+      // A detail written by a later build may hold a unit this one doesn't know.
+      return reading.words;
   }
 }

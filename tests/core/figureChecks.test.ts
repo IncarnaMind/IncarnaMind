@@ -1191,6 +1191,41 @@ test.each([
   },
 );
 
+// protects=a Note whose language settles its separators one way but leaves its scale open, a German "1.284" under its "(£m)" heading, beside an English report's "1.284" under "All figures in £m", is Not checked with both readings named, never ✓ a thousand times off (#3088); fails_when=it reads Supported; no_claim=a bare cell its source frames the same way (the tests above).
+test("a German cell under “(£m)” copied from an English one reads two ways", async () => {
+  const body =
+    "All figures in £m\nThe figures are for the quarter and they are unaudited.\nSegment\tQ3 2026\tQ3 2025\nClothing\t1.284\t1.310";
+  const reading = readFigures("1.284", { language: "de", header: "Q3 2026 (£m)" })[0];
+  if (!reading) throw new Error("Missing cell reading");
+  expect(reading.ambiguous.map((each) => each.kind)).toEqual(["scale"]);
+  const { result } = await checkWith({
+    figures: [{ ...target("f1", "1.284", "Clothing Q3 2026"), reading }],
+    body,
+    units: segments(body),
+    quotes: ["Clothing\t1.284\t1.310", "All figures in £m"],
+    text: reply([
+      {
+        ...item(),
+        reading: 1,
+        source: { citation: 1, number: "1.284", reading: null, unitQuote: "All figures in £m" },
+      },
+    ]),
+  });
+  const figure = result.figures?.[0]?.result;
+  expect(figure).toMatchObject({ verdict: "not-checked", reason: "two-readings" });
+  const line = (language: "en" | "zh-CN") =>
+    figure?.verdict === "not-checked"
+      ? reasonText(
+          (key, params) => translate(language, key, params),
+          language,
+          figure.reason,
+          figure.detail,
+        )
+      : null;
+  expect(line("en")).toBe("“1.284” could mean 1.284 or 1,284, so it wasn’t checked.");
+  expect(line("zh-CN")).toBe("“1.284”可能是 1.284，也可能是 1284，所以未核对。");
+});
+
 test("a figure given a currency its Document never states is Unsupported, and says which part (#1798)", async () => {
   const body = "The annual salary is 54,000, paid monthly in arrears.";
   const { result } = await checkWith({

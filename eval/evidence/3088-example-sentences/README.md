@@ -168,3 +168,23 @@ The owner allowed one confirming run of bar 4 alone, past the first stop. The se
 - **Stop:** $4.00 in all for this run, held by the app's cap on each run. A run doesn't start with less than $0.90 left.
 - **Void rule:** a run with any refused or failed request is void.
 - **Environment:** the evaluation runs with a temporary HOME and model cache, a copy of the one it reads, and its own temporary data folder.
+
+### The confirming run's results (2026-11-14)
+
+`main` at 23df13e89 and the branch at 9eeddbab9, on Claude Haiku 5.5, meant and run, on the first Anthropic key. Only the new log files of this folder were uncommitted while the branch ran. The reports and comparison are in `runs/confirm-*`.
+
+- **Runs:** four, `main`, branch, `main`, branch. Each reached all 208 Find support sentences.
+- **Requests:** 824, 815, 866 and 805, 3,310 in all. None was refused, failed or timed out, by the logs, and no run was void. One sentence in `main`'s first run, fs-118, read "refused": the model's own reply declined, and its requests all returned. It is labelled supported, so it is outside bar 4.
+- **Spend at the app's own count:** $0.57, $0.57, $0.59 and $0.55, **$2.28 in all**, against the $4.00 stop.
+
+| Bar 4 | `main` | branch | Result |
+|---|---|---|---|
+| Contradicted on sentences labelled contradicted, 2 runs | 42 + 44 = 86 of 108 | 47 + 46 = 93 of 108 | met (needed 84: `main`'s spread 2, allowed 2) |
+| Paired: Contradicted in both `main` runs, not in both branch runs | | fs-151 | **missed** |
+| The other way: Contradicted in both branch runs, not in both `main` runs | fs-046 | | (reported) |
+
+fs-151 ("翠湖名邸9月分类准确率为78%。") is the same sentence the first runs lost.
+- **What it is sent is byte-identical on both arms:** a free capture of its check Run's instructions and message, through each arm's core against a one-row copy of its table, gave 38,786 bytes on each, with no difference.
+- **On the branch** its reply again gave its verdict without `cite`, in both runs.
+
+The paired rule is as written, and it stays missed.
