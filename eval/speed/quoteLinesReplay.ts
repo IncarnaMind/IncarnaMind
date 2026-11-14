@@ -761,18 +761,19 @@ function endChanges(press: SavedPress, counts: EndChanges): void {
   let movedByRooms = false;
   for (const line of after) {
     const was = before.find((each) => each.key === line.key);
+    // A line that wasn't on screen while written appears; it doesn't move.
+    if (!was) {
+      counts.linesAppeared++;
+      shift += line.textRows + line.rows.length;
+      roomShift += height(line) - line.rows.length;
+      continue;
+    }
     if (shift !== 0) {
       counts.linesMoved += 1 + line.rows.length;
       moving = true;
     } else if (roomShift !== 0) {
       counts.linesMovedByRooms += 1 + line.rows.length;
       movedByRooms = true;
-    }
-    if (!was) {
-      counts.linesAppeared++;
-      shift += line.textRows + line.rows.length;
-      roomShift += height(line) - line.rows.length;
-      continue;
     }
     const { rows } = was;
     const above = shift !== 0 || roomShift !== 0;
