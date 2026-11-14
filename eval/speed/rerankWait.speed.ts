@@ -12,6 +12,8 @@
  *   number of texts a GPU run holds (8, as the app runs it, then 16, 32 and 64), with every score
  *   beside 8's.
  * - **The CPU:** the same searches on the CPU file, one at a time.
+ * `INCARNAMIND_EVAL_SPEED_RERANK=padding`: how much of a search's GPU work is padding, and the same
+ * texts longest first and as found, against today's order and scores.
  */
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { loadavg, tmpdir } from "node:os";
@@ -399,5 +401,174 @@ timed("where a rerank's time goes, at six and at twelve at once", async () => {
     join(out, "searches.json"),
     JSON.stringify(searches.map((each) => ({ query: each.query, texts: each.texts.length }))),
   );
+  log(`Report in ${out}`);
+});
+
+type Read = { at: number; ids: number[] };
+
+/** One search's pairs scored on `session` in GPU runs of `size`, in the order `arrange` puts them; each score back at its own text. */
+async function scoreArranged(
+  session: Awaited<ReturnType<typeof createOrtSession>>,
+  pairs: readonly number[][],
+  padId: number,
+  size: number,
+  arrange: (read: Read[]) => Read[],
+) {
+  const read = arrange(pairs.map((ids, at) => ({ at, ids })));
+  const scores = new Array<number>(pairs.length);
+  const batches: { real: number; padded: number }[] = [];
+  let runMs = 0;
+  for (let start = 0; start < read.length; start += size) {
+    const batch = read.slice(start, start + size);
+    const width = Math.max(...batch.map((pair) => pair.ids.length));
+    const ids = new BigInt64Array(batch.length * width).fill(BigInt(padId));
+    const mask = new BigInt64Array(batch.length * width);
+    batch.forEach((pair, row) => {
+      pair.ids.forEach((id, column) => {
+        ids[row * width + column] = BigInt(id);
+        mask[row * width + column] = 1n;
+      });
+    });
+    const begun = performance.now();
+    const logits = await session.run(ids, mask, batch.length, width);
+    runMs += performance.now() - begun;
+    batches.push({
+      real: batch.reduce((total, pair) => total + pair.ids.length, 0),
+      padded: batch.length * width,
+    });
+    batch.forEach((pair, row) => {
+      scores[pair.at] = logits[row] ?? Number.NaN;
+    });
+  }
+  return { scores, batches, runMs };
+}
+
+/** The texts' order by score, best first, ties in their own order, as `rerank` gives it. */
+const orderOf = (scores: readonly number[]) =>
+  scores
+    .map((score, at) => ({ score, at }))
+    .sort((a, b) => b.score - a.score || a.at - b.at)
+    .map((each) => each.at);
+
+const share = (values: readonly number[]) =>
+  values.length === 0
+    ? "–"
+    : `${median(values).toFixed(1)} (${Math.min(...values).toFixed(1)}–${Math.max(...values).toFixed(1)})`;
+
+const padded = env("RERANK") === "padding" ? test : test.skip;
+
+padded("how much of a search's GPU work is padding, and its texts longest first", async () => {
+  const log = createLog();
+  const config = readConfig(ROOT);
+  const rounds = Number(env("RUNS") ?? "3");
+  const searches = await sampleSearches();
+  const { gpu, folder, files: paths, maxTokens } = BUILT_IN_RERANKING_MODEL;
+  if (!gpu) throw new Error("The built-in reranking model has no GPU file.");
+  const models = join(config.cacheDir, "models");
+  const { Tokenizer } = await TOKENIZERS.load();
+  const tokenizerConfig = JSON.parse(
+    await readFile(join(models, folder, paths.tokenizerConfig), "utf8"),
+  );
+  const tokenizer = new Tokenizer(
+    JSON.parse(await readFile(join(models, folder, paths.tokenizer), "utf8")),
+    tokenizerConfig,
+  );
+  const padId = tokenizer.token_to_id(tokenizerConfig.pad_token) ?? 1;
+  const gpuFolder = join(models, gpu.folder, "onnx");
+  const copy = (await readdir(gpuFolder)).find(
+    (name) => name.includes(".webgpu-") && name.endsWith(".onnx"),
+  );
+  if (!copy) throw new Error("The app's GPU copy isn't in the model cache yet.");
+  const session = await createOrtSession(join(gpuFolder, copy), "gpu");
+  const encode = pairEncoder(tokenizer, maxTokens);
+  const pairs = searches.map(({ query, texts }) =>
+    texts.map((text) => encode(normaliseText(query), text)),
+  );
+  const arms = {
+    "today: shortest first": (read: Read[]) =>
+      [...read].sort((a, b) => a.ids.length - b.ids.length),
+    "longest first": (read: Read[]) => [...read].sort((a, b) => b.ids.length - a.ids.length),
+    "as found, unsorted": (read: Read[]) => read,
+  };
+  type Arm = keyof typeof arms;
+  const names = Object.keys(arms) as Arm[];
+  const work = new Map<Arm, number[]>();
+  const padding = new Map<Arm, number[]>();
+  const scored = new Map<Arm, number[][]>();
+  const loads: string[] = [];
+  for (let round = 0; round < rounds; round++) {
+    loads.push(load());
+    for (const arm of round % 2 === 0 ? names : [...names].reverse()) {
+      const runs: number[][] = [];
+      for (const each of pairs) {
+        const { scores, batches, runMs } = await scoreArranged(session, each, padId, 8, arms[arm]);
+        runs.push(scores);
+        work.set(arm, [...(work.get(arm) ?? []), runMs]);
+        padding.set(arm, [
+          ...(padding.get(arm) ?? []),
+          ...batches.map((batch) => ((batch.padded - batch.real) / batch.padded) * 100),
+        ]);
+      }
+      if (!scored.has(arm)) scored.set(arm, runs);
+    }
+  }
+  // The longest text alone: its tokens' share of the search's, its own run against the search's,
+  // and the texts the model's limit already cuts.
+  const longestTokens: number[] = [];
+  const longestTime: number[] = [];
+  let cut = 0;
+  let texts = 0;
+  for (const each of pairs) {
+    const lengths = each.map((ids) => ids.length);
+    const longest = Math.max(...lengths);
+    cut += lengths.filter((length) => length >= maxTokens).length;
+    texts += lengths.length;
+    longestTokens.push((longest / lengths.reduce((total, length) => total + length, 0)) * 100);
+    const whole = await scoreArranged(session, each, padId, 8, arms["today: shortest first"]);
+    const alone = await scoreArranged(
+      session,
+      [each[lengths.indexOf(longest)] ?? []],
+      padId,
+      8,
+      (read) => read,
+    );
+    longestTime.push((alone.runMs / whole.runMs) * 100);
+  }
+  await session.release();
+  const today = scored.get("today: shortest first") ?? [];
+  const gaps = today.map((scores) => {
+    const sorted = [...scores].sort((a, b) => b - a);
+    return Math.min(...sorted.slice(1).map((score, at) => (sorted[at] ?? 0) - score));
+  });
+  const lines = [
+    `${searches.length} searches of ${median(searches.map((each) => each.texts.length))} texts at the median; GPU runs of 8 texts; ${rounds} rounds; load ${loads.join(", ")}`,
+    "",
+    "| Arm | The model's runs, a search, ms | Padding of a run's tokens, % | Searches in today's order | Largest score difference against today's, logits |",
+    "|---|--:|--:|--:|--:|",
+    ...names.map((arm) => {
+      const runs = scored.get(arm) ?? [];
+      const same = runs.filter(
+        (scores, at) => orderOf(scores).join() === orderOf(today[at] ?? []).join(),
+      ).length;
+      const largest = Math.max(
+        0,
+        ...runs.flatMap((scores, at) =>
+          scores.map((score, index) => Math.abs(score - (today[at]?.[index] ?? Number.NaN))),
+        ),
+      );
+      return `| ${arm} | ${ms(work.get(arm) ?? [])} | ${share(padding.get(arm) ?? [])} | ${same} of ${runs.length} | ${largest.toFixed(4)} |`;
+    }),
+    "",
+    `The closest two scores of a search in today's order, logits: ${share(gaps)}, median (range); a change under half a search's closest gap can't change its order.`,
+    `The longest text: ${share(longestTokens)}% of its search's tokens; scored alone, ${share(longestTime)}% of the search's GPU time; ${cut} of ${texts} texts reach the model's ${maxTokens} tokens and are cut.`,
+  ];
+  const report = ["# How much of a search's GPU work is padding", "", ...lines].join("\n");
+  console.log(report);
+  const out = join(
+    config.resultsDir,
+    `rerank-padding-${new Date().toISOString().replace(/[:.]/g, "-")}`,
+  );
+  await mkdir(out, { recursive: true });
+  await writeFile(join(out, "report.md"), report);
   log(`Report in ${out}`);
 });
