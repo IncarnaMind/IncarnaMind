@@ -23,6 +23,10 @@ const actions = vi.hoisted(() => {
     push: vi.fn<(change: Undoable) => void>(),
     openMind: vi.fn(),
     undoMeetingFill: vi.fn(async (_meetingId: string) => undefined),
+    openSettings: vi.fn(),
+    checkKey: vi.fn(),
+    openBilling: vi.fn(),
+    billing: "https://console.anthropic.com/settings/billing",
   };
 });
 
@@ -65,7 +69,9 @@ vi.mock("../../src/renderer/src/core", () => ({
 }));
 vi.mock("../../src/renderer/src/layoutSlice", () => ({ currentMindIdOf: () => null }));
 vi.mock("../../src/renderer/src/store", () => ({
-  useAppStore: { getState: () => ({ openMind: actions.openMind }) },
+  useAppStore: {
+    getState: () => ({ openMind: actions.openMind, openSettings: actions.openSettings }),
+  },
 }));
 vi.mock("../../src/renderer/src/undo", () => ({
   useUndo: { getState: () => ({ push: actions.push }) },
@@ -75,11 +81,22 @@ vi.mock("../../src/renderer/src/answers", () => ({
     select({
       models: [
         { provider: { id: "provider-1", kind: "anthropic", service: { name: "Anthropic" } } },
+        { provider: { id: "provider-2", kind: "deepseek", service: { name: "DeepSeek" } } },
       ],
     }),
 }));
+// Only Anthropic's catalog entry is given a page to add credit on here.
+vi.mock("../../src/renderer/src/keyRefusals", () => ({
+  billingUrlOfProvider: (provider: { kind: string } | undefined) =>
+    provider?.kind === "anthropic" ? actions.billing : null,
+  useKeyRefusals: {
+    getState: () => ({ check: actions.checkKey, openBilling: actions.openBilling }),
+  },
+}));
+vi.mock("../../src/renderer/src/chatGptSignIn", () => ({ signInAgain: vi.fn() }));
 vi.mock("../../src/renderer/src/modelNames", () => ({
-  useServiceName: (providerId: string | null) => (providerId ? "Anthropic" : "This service"),
+  useServiceName: (providerId: string | null) =>
+    providerId === "provider-2" ? "DeepSeek" : providerId ? "Anthropic" : "This service",
   useModelNames: () => (modelId: string) => ({
     name: modelId === "claude-haiku-5-5" ? "Claude Haiku 5.5" : modelId,
     id: modelId,
@@ -277,6 +294,7 @@ describe("meeting notes with omitted items", () => {
       ]);
       expect(actions.showTranscript).not.toHaveBeenCalled();
       expect(actions.undoFill).not.toHaveBeenCalled();
+      expect(container.querySelector('[data-testid="meeting-fill-again"]')).toBeNull();
       await click("meeting-fill-undo");
       expect(actions.undoFill.mock.calls).toEqual([[meeting.id, EDITOR]]);
       expect(actions.fillNotes).not.toHaveBeenCalled();
@@ -400,55 +418,156 @@ describe("meeting notes that weren't filled in", () => {
     },
   );
 
-  // protects=a request the provider refused for a reason the User can act on (no credit, a refused key, too many requests, no connection) gives that reason on the line in a failed Answer's own words, naming the service or the model, with the provider's own words still on hover; any other kind keeps the general reason (#3099); fails_when=the line gives only the general reason for those four, or words another kind; no_claim=how the core classifies a provider's error.
+  // protects=a request the provider refused for a reason the User can act on gives that reason in a failed Answer's own sentence, in its own frame, and the failed Answer's fix before Try again: Check the key, Add credit at the provider's billing page, or Choose another model where it has none; too many requests and no connection get Try again alone; the provider's own words stay on hover; any other kind keeps the general reason in the colon frame (#3099); fails_when=the fix is missing, out of order or leads elsewhere, or the frame is wrong; no_claim=how the core classifies a provider's error.
   test.each([
-    [
-      "auth",
-      "The note wasn’t filled in: The key for Claude Haiku 5.5 was refused · Try again",
-      "未能补全笔记：Claude Haiku 5.5 的密钥被拒绝了 · 重试",
-    ],
-    [
-      "out-of-credit",
-      "The note wasn’t filled in: No credit on this key · Try again",
-      "未能补全笔记：这个密钥没有额度 · 重试",
-    ],
-    [
-      "rate-limit",
-      "The note wasn’t filled in: Anthropic is limiting requests right now · Try again",
-      "未能补全笔记：Anthropic 暂时限制了请求 · 重试",
-    ],
-    [
-      "network",
-      "The note wasn’t filled in: Couldn’t reach Anthropic. Check your internet connection · Try again",
-      "未能补全笔记：无法连接 Anthropic，请检查网络连接 · 重试",
-    ],
-    [
-      "provider",
-      "The note wasn’t filled in: the model couldn’t fill in the notes. · Try again",
-      "未能补全笔记：模型未能补全笔记。· 重试",
-    ],
-  ] as const)("a provider's %s error gives its reason on the line", async (error, en, zh) => {
-    for (const [language, text] of [
-      ["en", en],
-      ["zh-CN", zh],
-    ] as const) {
-      actions.language.current = language;
-      const line = await show(
-        meetingOf(
+    {
+      error: "auth",
+      providerId: "provider-1",
+      en: "The note wasn’t filled in. The key for Claude Haiku 5.5 was refused. · Check the key · Try again",
+      zh: "未能补全笔记。Claude Haiku 5.5 的密钥被拒绝了。· 检查密钥 · 重试",
+      leads: () =>
+        expect(actions.checkKey.mock.calls).toEqual([["provider-1", "claude-haiku-5-5", null]]),
+    },
+    {
+      error: "out-of-credit",
+      providerId: "provider-1",
+      en: "The note wasn’t filled in. No credit on this key. · Add credit ↗ · Try again",
+      zh: "未能补全笔记。这个密钥没有额度。· 充值 ↗ · 重试",
+      leads: () =>
+        expect(actions.openBilling.mock.calls).toEqual([["provider-1", actions.billing]]),
+    },
+    {
+      error: "out-of-credit",
+      providerId: "provider-2",
+      en: "The note wasn’t filled in. No credit on this key. · Choose another model · Try again",
+      zh: "未能补全笔记。这个密钥没有额度。· 换一个模型 · 重试",
+      leads: () => expect(actions.openSettings.mock.calls).toEqual([["ai", undefined]]),
+    },
+    {
+      error: "rate-limit",
+      providerId: "provider-1",
+      en: "The note wasn’t filled in. Anthropic is limiting requests right now. · Try again",
+      zh: "未能补全笔记。Anthropic 暂时限制了请求。· 重试",
+      leads: null,
+    },
+    {
+      error: "network",
+      providerId: "provider-1",
+      en: "The note wasn’t filled in. Couldn’t reach Anthropic. Check your internet connection. · Try again",
+      zh: "未能补全笔记。无法连接 Anthropic，请检查网络连接。· 重试",
+      leads: null,
+    },
+    {
+      error: "provider",
+      providerId: "provider-1",
+      en: "The note wasn’t filled in: the model couldn’t fill in the notes. · Try again",
+      zh: "未能补全笔记：模型未能补全笔记。· 重试",
+      leads: null,
+    },
+  ] as const)(
+    "a provider's $error error ($providerId) says it and offers its fix",
+    async ({ error, providerId, en, zh, leads }) => {
+      for (const [language, text] of [
+        ["en", en],
+        ["zh-CN", zh],
+      ] as const) {
+        vi.clearAllMocks();
+        actions.language.current = language;
+        const meeting = meetingOf(
           fillOf({
             state: "failed",
             problem: {
               kind: "model",
               message: "provider diagnostic",
               error,
-              model: { providerId: "provider-1", modelId: "claude-haiku-5-5" },
+              model: { providerId, modelId: "claude-haiku-5-5" },
             },
           }),
-        ),
-      );
-      expect(line?.textContent).toBe(text);
-      expect(line?.getAttribute("title")).toBe("provider diagnostic");
-    }
+        );
+        const line = await show(meeting);
+        expect(line?.textContent).toBe(text);
+        expect(line?.getAttribute("title")).toBe("provider diagnostic");
+        const buttons = [...(line?.querySelectorAll("button") ?? [])].map((each) =>
+          each.getAttribute("data-testid"),
+        );
+        expect(buttons).toEqual(
+          leads ? ["meeting-fill-fix", "meeting-fill-again"] : ["meeting-fill-again"],
+        );
+        if (leads) {
+          await click("meeting-fill-fix");
+          leads();
+        }
+        await click("meeting-fill-again");
+        expect(actions.fillNotes.mock.calls).toEqual([[meeting.id]]);
+      }
+    },
+  );
+
+  // protects=the shape a refused request leaves, its one Transcript part not finished, keeps that count and puts the fix where View Transcript was; one with no fix of its own keeps View Transcript (#3099); fails_when=the count goes, or a line holds three actions; no_claim=the line with no parts counted, which the test above covers.
+  test.each([
+    [
+      "auth",
+      "en",
+      "The note wasn’t filled in. The key for Claude Haiku 5.5 was refused. · 1 Transcript part couldn’t be finished · Check the key · Try again",
+    ],
+    [
+      "auth",
+      "zh-CN",
+      "未能补全笔记。Claude Haiku 5.5 的密钥被拒绝了。· 1 段转写稿未处理完 · 检查密钥 · 重试",
+    ],
+    [
+      "rate-limit",
+      "en",
+      "The note wasn’t filled in. Anthropic is limiting requests right now. · 1 Transcript part couldn’t be finished · View Transcript · Try again",
+    ],
+    [
+      "rate-limit",
+      "zh-CN",
+      "未能补全笔记。Anthropic 暂时限制了请求。· 1 段转写稿未处理完 · 查看转写稿 · 重试",
+    ],
+  ] as const)("a %s refusal with its part unfinished, in %s", async (error, language, text) => {
+    actions.language.current = language;
+    const line = await show(
+      meetingOf(
+        fillOf({
+          state: "failed",
+          unfinishedParts: 1,
+          problem: {
+            kind: "model",
+            message: "provider diagnostic",
+            error,
+            model: { providerId: "provider-1", modelId: "claude-haiku-5-5" },
+          },
+        }),
+      ),
+    );
+    expect(line?.textContent).toBe(text);
+    expect(line?.querySelectorAll("button")).toHaveLength(2);
+  });
+
+  // protects=a voice memo's line says a provider's refusal in the memo's own frame, with the same fix (#3099); fails_when=it takes the note's frame or loses the fix; no_claim=a memo's other reasons.
+  test.each([
+    [
+      "en",
+      "Your memo wasn’t written. The key for Claude Haiku 5.5 was refused. · Check the key · Try again",
+    ],
+    ["zh-CN", "未能写入语音备忘。Claude Haiku 5.5 的密钥被拒绝了。· 检查密钥 · 重试"],
+  ] as const)("a voice memo's refused key, in %s", async (language, text) => {
+    actions.language.current = language;
+    const meeting = meetingOf(
+      fillOf({
+        state: "failed",
+        mode: "memo",
+        problem: {
+          kind: "model",
+          message: "provider diagnostic",
+          error: "auth",
+          model: { providerId: "provider-1", modelId: "claude-haiku-5-5" },
+        },
+      }),
+    );
+    const line = await show({ ...meeting, kind: "memo" });
+    expect(line?.textContent).toBe(text);
   });
 });
 

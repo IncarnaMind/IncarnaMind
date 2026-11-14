@@ -572,6 +572,22 @@ for (const language of ["en", "zh-CN"] as const) {
           await expect(line).toContainText(words.undone);
           await expect(line.getByTestId("meeting-fill-again")).toHaveText(words.again);
           await expectFillPlace(notes, []);
+          // The line offers no Try again: Undo, then Fill in again, reaches what it left out (#3099).
+          await pointAndClick(window, line.getByTestId("meeting-fill-again"));
+          await expect(line).toContainText(words.partial, { timeout: 30_000 });
+          await expect(line).toContainText(words.omittedOne);
+          await expect(line.getByTestId("meeting-fill-undo")).toHaveText(words.undo);
+          await expect(line.getByTestId("meeting-fill-again")).toHaveCount(0);
+          const refilled = await recordedMeeting(window);
+          expect(refilled.fill).toMatchObject({ state: "filled", omitted: 1, unfinishedParts: 0 });
+          if (!refilled.fill?.addedBlockIds?.length)
+            throw new Error("Expected the second fill's added Block IDs");
+          await expectFillPlace(notes, refilled.fill.addedBlockIds);
+          const action = notes.locator("h2:not(:has(.generated-text)) + ul > li");
+          await expect(action).toHaveCount(1);
+          await expect(action.getByTestId("citation")).toHaveAttribute("data-check", "found");
+          await expect(controlNote).toHaveText(control);
+          await expectActionsFit(line);
         } else {
           await expect(blocks).toHaveText(original);
           const retry = line.getByTestId("meeting-fill-again");
