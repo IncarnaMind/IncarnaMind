@@ -15,7 +15,10 @@
  * - INCARNAMIND_ASK_SELFCHECK, with no key: the ask's reply is scripted, and the score is read and
  *   held to what the mode must give: "own" (arm C, each reply's own withheld records), "moved"
  *   (the same, with the first case's first marker quoting the next line the check finds), "none"
- *   (no records) or "footnotes" (arm A, the quotes a reply wrote as footnote lines).
+ *   (no records), "footnotes" (arm A, the quotes a reply wrote as footnote lines) or "every" (arm A,
+ *   one try each: every marker given one found record, each quoting its own Transcript line).
+ * Beside the arm's table it keeps, per try, a record of the note and of the ask's records in counts
+ * (`notes-<arm>.jsonl`), so a run can be scored again with nothing sent.
  * No request goes that could take the spend of all arms past US$0.25.
  */
 import { createHash } from "node:crypto";
@@ -26,7 +29,9 @@ import type { LanguageModelV4 } from "@ai-sdk/provider";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { afterAll, describe, expect, test, vi } from "vitest";
 import type { Core, Meeting, MeetingFill } from "../../src/core";
+import type { LogFields } from "../../src/core/adapters";
 import { estimateTokens } from "../../src/core/answers/context";
+import { withJsonFencesClosed } from "../../src/core/answers/jsonFences";
 import { questionOf } from "../../src/core/answers/judge";
 import { CITATION_NODE, GENERATED_MARK } from "../../src/core/api";
 import { costOf, inCurrency } from "../../src/core/cost/price";
@@ -36,6 +41,7 @@ import * as chatModels from "../../src/core/providers/models";
 import { answerSentences } from "../../src/shared/answerSentences";
 import { translate } from "../../src/shared/i18n";
 import { isPartialMeetingFill } from "../../src/shared/meetingFill";
+import { findQuote } from "../../src/shared/quoteMatch";
 import { createTempDataFolder } from "../helpers/core";
 import { createRequestLedger } from "../helpers/meetingFillObservation";
 import { connectToMind } from "../helpers/mindClient";
@@ -51,6 +57,7 @@ const SELFCHECK_ARMS: Readonly<Record<string, string>> = {
   moved: "C",
   none: "C",
   footnotes: "A",
+  every: "A",
 };
 const CAP_USD = 0.25;
 const TRIES: Readonly<Record<string, number>> = { A: 3, B: 1, C: 1 };
@@ -83,7 +90,9 @@ function argumentsOf() {
   }
   const price = catalogModel(provider, model)?.price;
   if (!price) throw new Error("The model has no catalog price.");
-  return { arm: ARM, runs, out, model, provider, key, price, sent, tries: TRIES[ARM] ?? 1 };
+  // A scripted ask gives every try the same records: "every" reads each fill once.
+  const tries = SELFCHECK === "every" ? 1 : (TRIES[ARM] ?? 1);
+  return { arm: ARM, runs, out, model, provider, key, price, sent, tries };
 }
 
 type Part = { type: string; [key: string]: unknown };
@@ -252,13 +261,17 @@ const plain = (text: string) =>
     .replace(/\s+/g, " ")
     .trim();
 
-/** The fact frames the reply closed, and its overview's sentence: what the note may say. */
+/**
+ * The fact frames the reply closed, and its overview's sentence: what the note may say. Read as the
+ * app reads the reply, with the json fences it closes closed: an open one would hide every line
+ * after it in its frame.
+ */
 function closedFacts(reply: string): { facts: Fact[]; overview: Fact | null } {
   const facts: Fact[] = [];
   let overview: Fact | null = null;
   let open: { id: string; body: string[] } | null = null;
   let fenced = false;
-  for (const line of reply.split("\n")) {
+  for (const line of withJsonFencesClosed(reply).split("\n")) {
     const start = /^ {0,3}#{1,6}\s+(?:FACT\s+(\S+)|(OVERVIEW))\s*$/.exec(line);
     const end = /^ {0,3}#{1,6}\s+END\s+(\S+)\s*$/.exec(line);
     if (start) {
@@ -327,8 +340,13 @@ interface Try {
   written: number;
   sameSentences: boolean;
   quotesFound: boolean;
+  /** Whether the line reads partly filled in. */
+  partial: boolean;
   asked: number;
+  /** The ask's records whose quote the check didn't find. */
   dropped: number;
+  /** The ask's records beyond the distinct quotes the note shows: the first run's "dropped". */
+  beyondNoteQuotes: number;
   ownCompared: number;
   sameLine: number;
   footnoteCompared: number;
@@ -354,16 +372,18 @@ const movedMarkers: string[] = [];
 
 /**
  * The self-check's records for the Answer the ask shows: each marker's sentence, as a model would
- * name it, with the quote `quotes` gives it. A marker before a sentence's first word cites the
- * sentence before it.
+ * name it, with the quote `quotes` gives it; with `once`, only where the marker is first written. A
+ * marker before a sentence's first word cites the sentence before it.
  */
 function scriptedRecords(
   answer: string,
   passages: readonly { id: string; text: string }[],
   quotes: ReadonlyMap<number, string>,
   move: ((marker: number, quote: string) => string | null) | null,
+  once = false,
 ) {
   const records: { sentence: string; passage: string; quote: string }[] = [];
+  const given = new Set<number>();
   let previous = "";
   for (const sentence of answerSentences(answer)) {
     const lead = /^(?:\s*\[\^\d{1,4}\])+/.exec(sentence.text)?.[0] ?? "";
@@ -371,7 +391,8 @@ function scriptedRecords(
     for (const found of sentence.text.matchAll(/\[\^(\d{1,4})\]/g)) {
       const marker = Number(found[1]);
       const own = quotes.get(marker);
-      if (own === undefined) continue;
+      if (own === undefined || (once && given.has(marker))) continue;
+      given.add(marker);
       const quote = move?.(marker, own) ?? own;
       const passage = passages.find((each) => each.text.includes(quote));
       const cited = (found.index ?? 0) < lead.length ? previous : words;
@@ -382,6 +403,152 @@ function scriptedRecords(
   return records;
 }
 let stoppedAtCap = false;
+
+/**
+ * "every": a quote of its own for each marker the ask's Answer holds, found in a Passage: a
+ * Transcript line, or half of one where a short call has fewer lines than markers.
+ */
+function everyQuotes(
+  answer: string,
+  passages: readonly { id: string; text: string }[],
+  cues: readonly Cue[],
+): Map<number, string> {
+  const lines = cues.map((cue) => cue.text.trim());
+  const halves = lines.flatMap((line) => {
+    const chars = [...line];
+    const middle = Math.floor(chars.length / 2);
+    return [chars.slice(0, middle).join("").trim(), chars.slice(middle).join("").trim()];
+  });
+  const quotes = [...new Set([...lines, ...halves])].filter(
+    (text) => text !== "" && passages.some((passage) => passage.text.includes(text)),
+  );
+  const markers = [...new Set([...answer.matchAll(/\[\^(\d{1,4})\]/g)].map((m) => Number(m[1])))];
+  if (markers.length > quotes.length) throw new Error("Too few Transcript lines to quote.");
+  return new Map(markers.map((marker, at) => [marker, quotes[at] ?? ""]));
+}
+
+/** The text of a request's messages, as the model was shown it. */
+function promptText(prompt: unknown): string {
+  if (!Array.isArray(prompt)) return "";
+  return prompt
+    .flatMap((message: unknown) => {
+      const content = (message as { content?: unknown } | null)?.content;
+      if (typeof content === "string") return [content];
+      if (!Array.isArray(content)) return [];
+      return content.flatMap((part: unknown) => {
+        const { type, text } = (part ?? {}) as { type?: unknown; text?: unknown };
+        return type === "text" && typeof text === "string" ? [text] : [];
+      });
+    })
+    .join("\n");
+}
+
+/** Text with its markers, spaces and punctuation taken out and its width folded. */
+const folded = (text: string) =>
+  text
+    .normalize("NFKC")
+    .replace(/\[\^\d{1,4}\]/g, "")
+    .replace(/[\s\p{P}]+/gu, "")
+    .toLowerCase();
+
+/** The markers a sentence holds after its first word: one before it is the sentence before's. */
+function ownMarkers(sentence: string): number[] {
+  const first = [...sentence.matchAll(/\[\^\d{1,4}\]|[\p{L}\p{N}]/gu)].find(
+    (found) => !found[0].startsWith("["),
+  );
+  return first
+    ? [...sentence.slice(first.index).matchAll(/\[\^(\d{1,4})\]/g)].map((found) => Number(found[1]))
+    : [];
+}
+
+/** The longest stretch of the quote in the line, both folded, as a share of the quote. */
+function longestShare(quote: string, line: string): number {
+  const needle = [...folded(quote)];
+  const text = [...folded(line)];
+  if (needle.length === 0) return 0;
+  let best = 0;
+  const row = new Array<number>(text.length + 1).fill(0);
+  for (const char of needle) {
+    let diagonal = 0;
+    for (let at = 1; at <= text.length; at++) {
+      const above = row[at] ?? 0;
+      row[at] = char === text[at - 1] ? diagonal + 1 : 0;
+      best = Math.max(best, row[at] ?? 0);
+      diagonal = above;
+    }
+  }
+  return Math.round((best / needle.length) * 100) / 100;
+}
+
+interface AskedRecord {
+  sentence: string;
+  quote: string;
+}
+
+/**
+ * The ask's records in counts. A found record takes a marker as the app's reading does: the first
+ * of its sentence's markers no earlier record took, or none when a marker of that sentence took the
+ * same quote already. Found: a Citation of the note, else in one Transcript line by the app's quote
+ * matching. For one not found: whether two adjacent lines hold it, whether it is there once spaces,
+ * punctuation and width are folded, and the longest stretch of it in one line. Marker 0 with no
+ * record before it: its sentence is none of the Answer's.
+ */
+function readRecords(
+  view: string,
+  records: readonly AskedRecord[],
+  lines: readonly string[],
+  noteQuotes: ReadonlySet<string>,
+) {
+  const units = answerSentences(view).map((sentence) => ({
+    words: folded(sentence.text),
+    markers: ownMarkers(sentence.text),
+  }));
+  const pairs = lines.slice(1).map((line, at) => `${lines[at]} ${line}`);
+  const taken = new Map<number, string>();
+  const read = records.map((record) => {
+    const inNote = noteQuotes.has(record.quote);
+    const found = inNote || lines.some((line) => findQuote(line, record.quote) !== null);
+    const acrossTwoLines = !found && pairs.some((pair) => findQuote(pair, record.quote) !== null);
+    const quote = folded(record.quote);
+    const foundFolded =
+      !found &&
+      !acrossTwoLines &&
+      quote !== "" &&
+      [...lines, ...pairs].some((text) => folded(text).includes(quote));
+    let marker = 0;
+    let alreadyHadRecord = false;
+    if (found) {
+      const words = folded(record.sentence);
+      const own =
+        units.find((unit) => unit.words === words) ??
+        units.find(
+          (unit) =>
+            words !== "" &&
+            unit.words !== "" &&
+            (unit.words.includes(words) || words.includes(unit.words)),
+        );
+      const orphan = own?.markers.find((each) => !taken.has(each));
+      if (own?.markers.some((each) => taken.get(each) === record.quote)) alreadyHadRecord = true;
+      else if (orphan !== undefined) {
+        marker = orphan;
+        taken.set(orphan, record.quote);
+      } else alreadyHadRecord = own !== undefined;
+    }
+    return {
+      marker,
+      alreadyHadRecord,
+      found,
+      inNote,
+      acrossTwoLines,
+      foundFolded,
+      longestShare: Math.max(0, ...lines.map((line) => longestShare(record.quote, line))),
+    };
+  });
+  return { read, taken };
+}
+
+/** Per try: the note and the ask's records in counts, never a word. */
+const notes: unknown[] = [];
 
 /** Read only when the proof is asked for: the unit suite imports this file with no arguments. */
 const ARGS = ARM ? argumentsOf() : null;
@@ -430,6 +597,8 @@ describe.skipIf(!ARGS)("the ask for a fill's records, on a real model (#3099)", 
         const { text: reply, own } = firstReply(fill);
         const ledger = createRequestLedger({ model: args.model, price: args.price });
         const seconds: number[] = [];
+        let view = "";
+        const warnings: { event: string; fields?: LogFields }[] = [];
         let estimated = 0;
         const restore = globalThis.fetch;
         if (DRY) {
@@ -470,11 +639,13 @@ describe.skipIf(!ARGS)("the ask for a fill's records, on a real model (#3099)", 
             ...each.prompt.matchAll(/<passage id="([^"]+)">\n([\s\S]*?)\n<\/passage>/g),
           ].map((match) => ({ id: match[1] ?? "", text: match[2] ?? "" }));
           const quotes =
-            SELFCHECK === "footnotes"
-              ? footnoteQuotes(reply)
-              : SELFCHECK === "none"
-                ? new Map<number, string>()
-                : ownQuotes;
+            SELFCHECK === "every"
+              ? everyQuotes(answer, passages, fill.cues)
+              : SELFCHECK === "footnotes"
+                ? footnoteQuotes(reply)
+                : SELFCHECK === "none"
+                  ? new Map<number, string>()
+                  : ownQuotes;
           const move =
             SELFCHECK === "moved" && index === 0
               ? (marker: number, quote: string) => {
@@ -489,7 +660,9 @@ describe.skipIf(!ARGS)("the ask for a fill's records, on a real model (#3099)", 
                 }
               : null;
           return {
-            text: JSON.stringify({ citations: scriptedRecords(answer, passages, quotes, move) }),
+            text: JSON.stringify({
+              citations: scriptedRecords(answer, passages, quotes, move, SELFCHECK === "every"),
+            }),
           };
         }, SCRIPTED_USAGE);
         const createChatModel = (spec: Parameters<typeof chatModels.createAiSdkChatModel>[0]) => {
@@ -504,6 +677,7 @@ describe.skipIf(!ARGS)("the ask for a fill's records, on a real model (#3099)", 
             doGenerate: (options) => replay.doGenerate(options),
             doStream: async (options) => {
               if (questionOf(options) !== "unmarked-quotes") return replay.doStream(options);
+              view = /<answer>\n([\s\S]*?)\n<\/answer>/.exec(promptText(options.prompt))?.[1] ?? "";
               const input = estimateTokens(JSON.stringify(options.prompt));
               const output = options.maxOutputTokens ?? 8_000;
               estimated = inCurrency(
@@ -541,6 +715,11 @@ describe.skipIf(!ARGS)("the ask for a fill's records, on a real model (#3099)", 
             ],
           },
           createChatModel,
+          log: {
+            info: () => undefined,
+            warn: (event, fields) => warnings.push({ event, ...(fields && { fields }) }),
+            error: () => undefined,
+          },
         });
         try {
           if (stoppedAtCap) throw new Error("Stopped at the spend cap: this try is not run.");
@@ -587,21 +766,69 @@ describe.skipIf(!ARGS)("the ask for a fill's records, on a real model (#3099)", 
           const writtenOverview =
             overview && units.some((unit) => unit.text === overview.sentence) ? [overview] : [];
           const askedReply = snapshot.requests.find((each) => each.text.trim() !== "")?.text ?? "";
-          const askedItems = (() => {
+          const askedList = (() => {
             try {
               const list = (
                 JSON.parse(askedReply.replace(/^```(?:json)?|```$/gm, "")) as {
                   citations?: unknown;
                 }
               ).citations;
-              return Array.isArray(list) ? list.length : 0;
+              return Array.isArray(list) ? (list as unknown[]) : [];
             } catch {
-              return 0;
+              return [];
             }
           })();
+          const askedItems = askedList.length;
           const quotes = new Set(
             sentences.flatMap((unit) => unit.citations.map((each) => each.quote)),
           );
+          const askedRecords = askedList.flatMap((each) => {
+            const { sentence, quote } = (each ?? {}) as { sentence?: unknown; quote?: unknown };
+            return typeof sentence === "string" && typeof quote === "string"
+              ? [{ sentence, quote }]
+              : [];
+          });
+          const foundQuotes = new Set(
+            units.flatMap((unit) =>
+              unit.citations.filter((each) => each.check === "found").map((each) => each.quote),
+            ),
+          );
+          const records = readRecords(
+            view,
+            askedRecords,
+            fill.cues.map((cue) => cue.text),
+            foundQuotes,
+          );
+          const omittedByKind = Object.fromEntries(
+            warnings
+              .filter(
+                (each) =>
+                  each.event === "meeting.fillItemsOmitted" ||
+                  each.event === "meeting.fillInvalidFrames",
+              )
+              .flatMap((each) =>
+                Object.entries(each.fields ?? {}).filter(
+                  ([kind, count]) =>
+                    typeof count === "number" && kind !== "items" && kind !== "meetingId",
+                ),
+              ),
+          );
+          notes.push({
+            fill: index + 1,
+            try: attempt,
+            omittedByKind,
+            facts: facts.map((fact) => {
+              const markers = new Set(fact.markers);
+              return {
+                markers: markers.size,
+                markersWithRecord: [...markers].filter((marker) => records.taken.has(marker))
+                  .length,
+                inNote: units.some((unit) => folded(unit.text) === folded(fact.sentence)),
+                sentenceKept: units.some((unit) => unit.text === fact.sentence),
+              };
+            }),
+            records: records.read,
+          });
           // Each marker once, where it is first written: a marker reused in another fact is the
           // same record.
           const compare = (theirs: ReadonlyMap<number, string>) => {
@@ -653,8 +880,10 @@ describe.skipIf(!ARGS)("the ask for a fill's records, on a real model (#3099)", 
                 (each) => each.check === "found" && lineOf(fill.cues, each.quote) >= 0,
               ),
             ),
+            partial: isPartialMeetingFill(fillNow),
             asked: askedItems,
-            dropped: Math.max(0, askedItems - quotes.size),
+            dropped: records.read.filter((each) => !each.found).length,
+            beyondNoteQuotes: Math.max(0, askedItems - quotes.size),
             ownCompared: ownLines.compared,
             sameLine: ownLines.same,
             footnoteCompared: footnotes.compared,
@@ -684,6 +913,10 @@ describe.skipIf(!ARGS)("the ask for a fill's records, on a real model (#3099)", 
     );
     if (args.arm === "C") writeFileSync(join(args.out, "other-line.tsv"), otherLines.join("\n"));
     if (SELFCHECK === "moved") writeFileSync(join(args.out, "moved.tsv"), movedMarkers.join("\n"));
+    writeFileSync(
+      join(args.out, `notes-${args.arm}.jsonl`),
+      notes.map((each) => JSON.stringify(each)).join("\n"),
+    );
     if (DRY) {
       writeFileSync(
         join(args.out, `dry-${args.arm}.jsonl`),
@@ -812,6 +1045,7 @@ function summarize(arm: string, rows: readonly Try[], dry: readonly { usd: numbe
     sameSentences: byLanguage((row) => (filled(row) && row.sameSentences ? 1 : 0)),
     quotesFound: byLanguage((row) => (filled(row) && row.quotesFound ? 1 : 0)),
     droppedRecords: byLanguage((row) => (counted(row) ? row.dropped : 0)),
+    recordsBeyondNoteQuotes: byLanguage((row) => (counted(row) ? row.beyondNoteQuotes : 0)),
     closedFacts: closed,
     writtenFacts: written,
     askedMarkersCompared: asked,
@@ -887,6 +1121,21 @@ function selfCheckFindings(summary: Summary): string[] {
       "a try without footnote records filled",
     );
     need(bar.startsWith("failed"), `bar 1: ${bar}`);
+  } else if (SELFCHECK === "every") {
+    const { closedFacts: closed, writtenFacts: written } = summary;
+    need(tries.all === 6 && filled.all === 6, `filled ${filled.all} of ${tries.all}`);
+    need(
+      closed.all === 51 && written.all === 51,
+      `${written.all} of ${closed.all} closed facts written`,
+    );
+    need(summary.sameSentences.all === 6, `${summary.sameSentences.all} tries keep every sentence`);
+    need(summary.quotesFound.all === 6, `${summary.quotesFound.all} tries find every quote`);
+    need(summary.droppedRecords.all === 0, `${summary.droppedRecords.all} records dropped`);
+    const second = results.filter((row) => row.closed === 1);
+    need(
+      second.length === 1 && second.every((row) => row.filled && row.partial && row.written === 1),
+      "the second-frame fill isn't partly filled with its one fact",
+    );
   }
   return findings;
 }
