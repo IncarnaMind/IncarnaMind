@@ -470,7 +470,7 @@ export function checkTimesReport(runs: readonly FlowTimes[], counts: Map<string,
   const lines: string[] = [];
   const groups = new Map<string, FlowTimes[]>();
   for (const run of runs) {
-    const key = `${run.flow} · ${run.model} · ${run.language}`;
+    const key = `${run.flow} · ${run.model} · ${run.language}${run.checkArm ? ` · ${run.checkArm}` : ""}`;
     groups.set(key, [...(groups.get(key) ?? []), run]);
   }
   lines.push(

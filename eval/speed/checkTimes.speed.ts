@@ -376,8 +376,10 @@ async function ranksOf(core: Core, language: Language): Promise<Ranked[]> {
   for (const item of HELD_NOTE(language)) {
     if (item.kind !== "right" || !item.rests) continue;
     const found = await core.findPassages({ text: item.sentence, mindId, scope: null });
+    // A table's row is read back as its cells, which its Passage lays out its own way.
     const holds = (text: string, line: string) =>
-      findQuote(text, line) !== null || text.replace(/\s+/g, " ").includes(line);
+      findQuote(text, line) !== null ||
+      line.split(",").every((cell) => text.includes(cell.trim()));
     ranked.push({
       id: item.id,
       language,

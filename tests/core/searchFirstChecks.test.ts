@@ -260,6 +260,31 @@ describe.each(LANGUAGES)("the search-first check in $language", (each) => {
     core.close();
   });
 
+  test("Check against Documents, which the gate didn't measure, checks as before on a listed model", async () => {
+    const { core, streamed, firstReplies } = await setUp(scenarioOf(each), true);
+    await core.checkClaim({ claim: each.stated });
+    expect(firstReplies).toHaveLength(0);
+    for (const run of runsOf(streamed).filter((call) => call.results.length === 0))
+      expect(run.prompt).not.toContain(HANDED_NOTE);
+    expect(runsOf(streamed).filter((call) => call.results.length === 0).length).toBeGreaterThan(0);
+    core.close();
+  });
+
+  test("Verify, which the gate didn't measure, checks as before on a listed model", async () => {
+    const { core, streamed, firstReplies } = await setUp(scenarioOf(each), true);
+    const file = await writeSourceFile(await createTempDataFolder(), "Notes.txt", each.stated);
+    const made = await core.verifyDocument({ path: file });
+    if (!made.ok) throw new Error("The test Document could not be verified.");
+    const input = () => ({ requestId: crypto.randomUUID(), mindId: made.mind.id });
+    expect(await core.findClaims(input())).toEqual({ kind: "found", claims: 1 });
+    expect(await core.verifyClaims(input())).toMatchObject({ kind: "checked", claims: 1 });
+    expect(firstReplies).toHaveLength(0);
+    const starts = runsOf(streamed).filter((call) => call.results.length === 0);
+    expect(starts.length).toBeGreaterThan(0);
+    for (const run of runsOf(streamed)) expect(run.prompt).not.toContain(HANDED_NOTE);
+    core.close();
+  });
+
   test("a model not listed checks every sentence as before: its Run searches first", async () => {
     const { core, client, mindId, streamed, firstReplies } = await setUp(scenarioOf(each), false);
     await checkNote(core, mindId);
