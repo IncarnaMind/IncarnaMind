@@ -59,6 +59,7 @@ import type { StepRecord } from "../runs/journal";
 import { RunItemError, RunItemGaveWay, runItems } from "../runs/stop";
 import type { TaskEnd, TaskKind, TaskRun } from "../runs/tasks";
 import { parseSearchScope } from "../scope";
+import type { WorkWall } from "../workWall";
 import {
   DRAFT_STEP,
   type FinishOptions,
@@ -137,14 +138,8 @@ export interface ResearchOptions extends FinishOptions {
   };
   /** A Mind's name, as the window shows it; null once it is gone. */
   mindName(mindId: string): string | null;
-  /** The Folder wall of a Mind, or null for ordinary scope. */
-  walledFolder(mindId: string | null): string | null;
-  /** The Folder itself when it is walled now; null for any other, or none. */
-  walledFolderId(folderId: string | null): string | null;
-  /** The Documents a Search scope covers; with none, the User's own (`scopeDocuments`). */
-  scopeDocuments(scope: SearchScope | null, mindId: string | null): string[] | null;
-  /** What research from a Mind searches, by the one rule (`mindSearchScope`); null: every Document. */
-  searchedScope(scope: SearchScope | null, mindId: string): SearchScope | null;
+  wall: FinishOptions["wall"] &
+    Pick<WorkWall, "walledFolder" | "walledFolderId" | "scopeDocuments" | "searchedScope">;
   tasks: {
     start(kind: string, mindId: string, input: ResearchInput): Task;
     /** A Task's record, with its input; null for none. */
@@ -450,7 +445,7 @@ export function createResearch(options: ResearchOptions) {
       said: task.messages(),
     });
     const documentIds = input.sources.library
-      ? options.scopeDocuments(input.scope, task.mindId)
+      ? options.wall.scopeDocuments(input.scope, task.mindId)
       : [];
     task.started(key);
     const attempt = task.step(key)?.attempts ?? 1;
@@ -747,9 +742,9 @@ export function createResearch(options: ResearchOptions) {
       // With no Mind in focus, a scope of one walled Folder is work inside it (#1934).
       const wall =
         asked === null
-          ? options.walledFolderId(filingFolder(within, null))
-          : options.walledFolder(asked);
-      const filed = options.filedWithin(wall, null);
+          ? options.wall.walledFolderId(filingFolder(within, null))
+          : options.wall.walledFolder(asked);
+      const filed = options.wall.filedWithin(wall, null);
       if (filed === null) throw new InvalidInputError({ key: "error.folder.notFiled" });
       const mindId =
         asked ??
@@ -757,10 +752,10 @@ export function createResearch(options: ResearchOptions) {
         options.createMind(cutTitle(plan.title), filed.folderId, ready.model);
       const writeInto: ResearchTarget = asked === null ? { mindId } : chosen;
       const targetMind = "mindId" in writeInto ? writeInto.mindId : mindId;
-      if (wall !== options.walledFolder(targetMind)) {
+      if (wall !== options.wall.walledFolder(targetMind)) {
         throw new InvalidInputError({ key: "error.folder.wall" });
       }
-      const scope = options.searchedScope(within, targetMind);
+      const scope = options.wall.searchedScope(within, targetMind);
       const task = options.tasks.start(RESEARCH_TASK, mindId, {
         topic,
         plan,

@@ -1,3 +1,4 @@
+import type { JSONContent } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import type { MockLanguageModelV4 } from "ai/test";
 import { expect, vi } from "vitest";
@@ -331,4 +332,30 @@ export function mindCitations(client: MindClient): CitationAttributes[] {
 export function checkedResult(result: RecheckResult): CitationRecheck {
   if ("keptInside" in result) throw new Error(`The Citation is kept inside ${result.keptInside}.`);
   return result;
+}
+
+/** A Citation of `line` of `document`, as Cite in the editor puts one into a Note. */
+export async function citationOf(
+  core: Core,
+  document: Document,
+  line: string,
+): Promise<JSONContent> {
+  const selected = await core.citeSelection({
+    documentId: document.id,
+    parts: [{ unit: null, text: line }],
+  });
+  return {
+    type: "citation",
+    attrs: {
+      passageId: selected.passageId,
+      documentId: document.id,
+      documentName: document.name,
+      contentHash: selected.contentHash,
+      quote: selected.quote,
+      pageFrom: selected.pageFrom,
+      pageTo: selected.pageTo,
+      location: selected.location,
+      check: selected.check,
+    },
+  };
 }
