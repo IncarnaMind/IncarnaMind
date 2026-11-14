@@ -210,6 +210,28 @@ describe("The quote lines under a line", () => {
     ).toEqual([{ markers: [1, 2, 3], more: [], state: "found", quote: ENTERPRISE, drawn: 3 }]);
   });
 
+  // protects=a quote joins another of one section only from within the same part of it: the same heading, body or speaker notes or comment or picture alike, and its paragraphs inside the other's; a range given on one side only isn't shown within (#2847); fails_when=quotes of other paragraphs, or of the notes and the body, under one heading join; no_claim=how often a model cites one section twice.
+  test("in a section, a quote joins only one of the same part with its paragraphs inside", () => {
+    const section = (paragraphs?: { from: number; to: number }, more = {}) => ({
+      kind: "section" as const,
+      heading: "Pricing",
+      ...(paragraphs && { paragraphs }),
+      ...more,
+    });
+    const pair = (outer: ReturnType<typeof section>, inner: ReturnType<typeof section>) =>
+      linesOf([
+        cited(1, ENTERPRISE, { location: outer }),
+        cited(2, "single sign-on and audit logs", { location: inner }),
+      ]).map((line) => line.markers);
+    expect(pair(section({ from: 2, to: 3 }), section({ from: 5, to: 5 }))).toEqual([[1], [2]]);
+    expect(pair(section(), section(undefined, { notes: true }))).toEqual([[1], [2]]);
+    expect(pair(section(), section(undefined, { comment: { author: null } }))).toEqual([[1], [2]]);
+    expect(pair(section(), section(undefined, { figure: 1 }))).toEqual([[1], [2]]);
+    expect(pair(section({ from: 2, to: 3 }), section())).toEqual([[1], [2]]);
+    expect(pair(section({ from: 2, to: 4 }), section({ from: 3, to: 3 }))).toEqual([[1, 2]]);
+    expect(pair(section(), section())).toEqual([[1, 2]]);
+  });
+
   test("on a call, a quote joins only one said within the other's time", () => {
     const whole = said(1, "We need single sign-on. And audit logs for compliance.", 2000, 9000);
     expect(linesOf([whole, said(2, "And audit logs for compliance.", 5000, 9000)])).toEqual([

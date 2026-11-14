@@ -199,10 +199,21 @@ function inside(inner: QuotedCitation, outer: QuotedCitation): boolean {
   return comparedWords(outer.quote).includes(comparedWords(inner.quote));
 }
 
+/** A range `inner` inside `outer`; with only one of them given, it can't be shown to be. */
+function rangeWithin(
+  inner: { from: number; to: number } | undefined,
+  outer: { from: number; to: number } | undefined,
+): boolean {
+  if (inner === undefined || outer === undefined) return inner === outer;
+  return inner.from >= outer.from && inner.to <= outer.to;
+}
+
 /**
  * Whether a Citation's place lies within another's: the same kind of place, a sheet's rows on the
- * same sheet, its pages, slides, rows, lines or call's time inside the other's, a section the same
- * section. Two Citations with no place of their own share their Passage's.
+ * same sheet, its pages, slides, rows, lines or call's time inside the other's. A section's is the
+ * same section and part of it (its speaker notes, a comment, a picture, or the body), its paragraphs
+ * inside the other's where both give them; where only one does, it isn't shown to lie within. Two
+ * Citations with no place of their own share their Passage's.
  */
 function placedWithin(a: CitationLocation | null, b: CitationLocation | null): boolean {
   if (a === null || b === null) return a === b;
@@ -215,7 +226,15 @@ function placedWithin(a: CitationLocation | null, b: CitationLocation | null): b
     case "rows":
       return b.kind === "rows" && a.sheet === b.sheet && a.from >= b.from && a.to <= b.to;
     case "section":
-      return b.kind === "section" && a.heading === b.heading;
+      return (
+        b.kind === "section" &&
+        a.heading === b.heading &&
+        (a.notes ?? false) === (b.notes ?? false) &&
+        (a.comment === undefined) === (b.comment === undefined) &&
+        a.comment?.author === b.comment?.author &&
+        a.figure === b.figure &&
+        rangeWithin(a.paragraphs, b.paragraphs)
+      );
     default:
       return JSON.stringify(a) === JSON.stringify(b);
   }
