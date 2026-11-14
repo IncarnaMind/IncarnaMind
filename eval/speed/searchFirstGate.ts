@@ -57,17 +57,34 @@ function firstOutcome(run: FlowTimes, sentence: string): string {
   return goesOn.length === 0 ? "settled" : goesOn.map((each) => each.outcome).join(", ");
 }
 
-/** The sample standard deviation of `values`; 0 with fewer than two. */
-function deviation(values: readonly number[]): number {
-  if (values.length < 2) return 0;
-  const mean = sum(values) / values.length;
-  return Math.sqrt(sum(values.map((each) => (each - mean) ** 2)) / (values.length - 1));
+/**
+ * The thresholds of the gate's one rule (../evidence/2532-search-first/README.md › Bars), plain and
+ * strict, by the rounds of each arm: K for the wrong sentences' count, and each language's margin for
+ * its gating row, simulated from Phase A's `main` beside `main`.
+ */
+const THRESHOLDS: Readonly<
+  Record<number, Readonly<Record<"K" | "en" | "zh-CN", readonly [number, number]>>>
+> = {
+  1: { K: [3, 4], en: [3, 4], "zh-CN": [3, 5] },
+  2: { K: [3, 4], en: [4, 5], "zh-CN": [5, 7] },
+  3: { K: [3, 5], en: [5, 7], "zh-CN": [6, 9] },
+  4: { K: [3, 5], en: [5, 8], "zh-CN": [7, 10] },
+  5: { K: [3, 6], en: [6, 9], "zh-CN": [8, 11] },
+  6: { K: [4, 6], en: [7, 9], "zh-CN": [9, 12] },
+};
+
+type Item = NonNullable<FlowTimes["items"]>[number];
+type Standing = "within" | "past plain" | "past strict" | "no threshold";
+
+/** Where a bar's count past its arm stands against its plain and strict thresholds. */
+function standing(excess: number, thresholds: readonly [number, number] | undefined): Standing {
+  if (!thresholds) return "no threshold";
+  return excess > thresholds[1] ? "past strict" : excess > thresholds[0] ? "past plain" : "within";
 }
 
 export function searchFirstGateSection(
   results: readonly FlowTimes[],
   sentencesOf: (flow: string, language: string) => readonly string[],
-  rightMargin: number | null,
   /** The scripted run that calls everything Supported, where a right sentence may not differ either. */
   guards: boolean,
 ): string {
@@ -135,144 +152,288 @@ export function searchFirstGateSection(
     );
   }
 
-  // The held-out Note: every sentence's Supported count on each arm, over the rounds that count.
+  // The held-out Note, sentence by sentence across its flows: B's rounds (`note-held`,
+  // `note-reduced`) and the list Bar 1 reads again (`note-list`), over the rounds that count.
   const held = counted.filter((run) => run.items);
-  for (const language of [...new Set(held.map((run) => run.language))]) {
-    for (const model of [...new Set(held.map((run) => run.model))]) {
-      const runs = held.filter((run) => run.language === language && run.model === model);
-      const arms = [...new Set(runs.map((run) => run.checkArm ?? ""))];
-      const items = runs[0]?.items ?? [];
-      const sentences = sentencesOf(runs[0]?.flow ?? "", language);
-      const supported = (arm: string, index: number) =>
-        runs.filter(
-          (run) =>
-            run.checkArm === arm &&
-            run.landed.find((each) => each.sentence === index)?.verdict === "supported",
-        ).length;
+  const indexOf = (run: FlowTimes, id: string) =>
+    run.items?.findIndex((item) => item.id === id) ?? -1;
+  const markOf = (run: FlowTimes, id: string) => {
+    const index = indexOf(run, id);
+    return index < 0 ? undefined : run.landed.find((each) => each.sentence === index);
+  };
+  const textOf = (run: FlowTimes, id: string) =>
+    sentencesOf(run.flow, run.language)[indexOf(run, id)] ?? "";
+  for (const model of [...new Set(held.map((run) => run.model))]) {
+    const ofModel = held.filter((run) => run.model === model);
+    const [base, other] = [...new Set(ofModel.map((run) => run.checkArm ?? ""))];
+    const standings: { bar: string; standing: Standing }[] = [];
+    const lostIn: string[] = [];
+    const wrong = { base: 0, other: 0 };
+    const wrongReadings: string[] = [];
+    let roundsRead = 0;
+    let wrongOnlyRounds = 0;
+    for (const language of [...new Set(ofModel.map((run) => run.language))]) {
+      const runs = ofModel.filter((run) => run.language === language);
+      const rounds = runs.filter((run) => run.flow !== "note-list");
+      const listed = runs.filter((run) => run.flow === "note-list");
+      const items = [
+        ...new Map(
+          [...rounds, ...listed].flatMap((run) => run.items ?? []).map((item) => [item.id, item]),
+        ).values(),
+      ];
+      const arms = [base, other].flatMap((arm) => (arm === undefined ? [] : [arm]));
+      const supported = (pool: readonly FlowTimes[], arm: string, id: string) =>
+        pool.filter((run) => run.checkArm === arm && markOf(run, id)?.verdict === "supported")
+          .length;
+      const read = (pool: readonly FlowTimes[], arm: string, id: string) =>
+        pool.filter((run) => run.checkArm === arm && markOf(run, id) !== undefined).length;
       lines.push(
         "",
-        `### ${runs[0]?.flow} · ${model} · ${language}: Supported in how many rounds, by sentence`,
+        `### The held-out Note · ${model} · ${language}: Supported, of the readings, by sentence`,
         "",
-        `| Sentence | Kind | Digits | ${arms.join(" | ")} | First reply (${arms.filter((arm) => arm.startsWith("search-first")).join(", ") || "none"}) |`,
-        `|---|---|---|${arms.map(() => "--:|").join("")}---|`,
+        `| Sentence | Kind | Digits | ${arms.join(" | ")} | ${arms.map((arm) => `list, ${arm}`).join(" | ")} | First reply (${arms.filter((arm) => arm.startsWith("search-first")).join(", ") || "none"}) |`,
+        `|---|---|---|${arms.map(() => "--:|").join("")}${arms.map(() => "--:|").join("")}---|`,
+        ...items.map((item) => {
+          const outcomes = rounds
+            .filter((run) => run.checkArm?.startsWith("search-first") && indexOf(run, item.id) >= 0)
+            .map((run) => firstOutcome(run, textOf(run, item.id)));
+          const cell = (pool: readonly FlowTimes[], arm: string) =>
+            read(pool, arm, item.id) === 0
+              ? "–"
+              : `${supported(pool, arm, item.id)}/${read(pool, arm, item.id)}`;
+          return `| ${item.id} | ${item.kind} | ${item.figure ? "yes" : ""} | ${arms.map((arm) => cell(rounds, arm)).join(" | ")} | ${arms.map((arm) => cell(listed, arm)).join(" | ")} | ${outcomes.join("; ") || "–"} |`;
+        }),
       );
-      items.forEach((item, index) => {
-        const outcomes = runs
-          .filter((run) => run.checkArm?.startsWith("search-first"))
-          .map((run) => firstOutcome(run, sentences[index] ?? ""));
-        lines.push(
-          `| ${item.id} | ${item.kind} | ${item.figure ? "yes" : ""} | ${arms.map((arm) => supported(arm, index)).join(" | ")} | ${outcomes.join("; ") || "–"} |`,
-        );
-      });
-      // Every wrong sentence read Supported, with the Passage its mark cites and how it was decided.
-      const wrong = runs.flatMap((run) =>
-        items.flatMap((item, index) => {
-          const landed = run.landed.find((each) => each.sentence === index);
+      // Every wrong reading Supported, with the Passage its mark cites and how it was decided.
+      const wrongRows = runs.flatMap((run) =>
+        items.flatMap((item) => {
+          const landed = markOf(run, item.id);
           return item.kind !== "right" && landed?.verdict === "supported"
             ? [
-                `| ${item.id} | ${run.checkArm} · round ${run.run} | ${landed.evidence?.document ?? "none"} | ${(landed.evidence?.quote ?? "none").slice(0, 90)} | ${run.checkArm?.startsWith("search-first") ? firstOutcome(run, sentences[index] ?? "") : "its Run"} |`,
+                `| ${item.id} | ${item.kind} | ${run.checkArm} · ${run.flow} · round ${run.run} | ${landed.evidence?.document ?? "none"} | ${(landed.evidence?.quote ?? "none").slice(0, 90)} | ${run.checkArm?.startsWith("search-first") && run.flow !== "note-list" ? firstOutcome(run, textOf(run, item.id)) : "its Run"} |`,
               ]
             : [];
         }),
       );
-      if (wrong.length > 0)
+      if (wrongRows.length > 0)
         lines.push(
           "",
-          "Each wrong sentence read Supported:",
+          "Each wrong reading Supported:",
           "",
-          "| Sentence | Arm · round | Document cited | Quote | Decided by |",
-          "|---|---|---|---|---|",
-          ...wrong,
+          "| Sentence | Kind | Arm · flow · round | Document cited | Quote | Decided by |",
+          "|---|---|---|---|---|---|",
+          ...wrongRows,
         );
-      const [base, other] = arms;
       if (!base || !other) continue;
-      const kindSum = (arm: string, kind: string) =>
-        sum(items.map((item, index) => (item.kind === kind ? supported(arm, index) : 0)));
-      const more = items.filter(
-        (item, index) => item.kind !== "right" && supported(other, index) > supported(base, index),
-      );
+      const total = (pool: readonly FlowTimes[], arm: string, keep: (item: Item) => boolean) =>
+        sum(items.map((item) => (keep(item) ? supported(pool, arm, item.id) : 0)));
+      const isWrong = (item: Item) => item.kind !== "right";
+      for (const [arm, key] of [
+        [base, "base"],
+        [other, "other"],
+      ] as const)
+        wrong[key] += total(rounds, arm, isWrong) + total(listed, arm, isWrong);
+      for (const run of runs)
+        for (const item of items)
+          if (isWrong(item) && markOf(run, item.id)?.verdict === "supported")
+            wrongReadings.push(`${item.kind} · ${run.checkArm} · ${run.flow} · round ${run.run}`);
       // The right sentences whose support their own search ranks low or splits: the row that
       // gates whether a right sentence keeps its Supported; the others are reported.
-      const low = (index: number) =>
-        items[index]?.kind === "right" && items[index]?.lowRank === true;
-      const lowSum = (arm: string) =>
-        sum(items.map((_, index) => (low(index) ? supported(arm, index) : 0)));
-      const right = { base: lowSum(base), other: lowSum(other) };
-      const roundsOf = (arm: string) => runs.filter((run) => run.checkArm === arm).length;
+      const low = (item: Item) => item.kind === "right" && item.lowRank;
+      const roundsOf = (wrongOnly: boolean) =>
+        new Set(
+          rounds
+            .filter((run) => run.checkArm === base && (run.flow === "note-wrong") === wrongOnly)
+            .map((run) => run.run),
+        ).size;
+      const roundCount = roundsOf(false);
+      roundsRead = Math.max(roundsRead, roundCount);
+      wrongOnlyRounds = Math.max(wrongOnlyRounds, roundsOf(true));
+      const row = { base: total(rounds, base, low), other: total(rounds, other, low) };
+      const rowStanding = standing(
+        row.base - row.other,
+        THRESHOLDS[roundCount]?.[language as "en" | "zh-CN"],
+      );
+      standings.push({ bar: `the gating row, ${language}`, standing: rowStanding });
       const lostFrom = (from: string, to: string) =>
         items.filter(
-          (_, index) =>
-            low(index) && supported(from, index) === roundsOf(from) && supported(to, index) === 0,
+          (item) =>
+            low(item) &&
+            read(rounds, from, item.id) > 0 &&
+            supported(rounds, from, item.id) === read(rounds, from, item.id) &&
+            supported(rounds, to, item.id) === 0,
         );
       const lost = lostFrom(base, other);
-      const otherRight = {
-        base: kindSum(base, "right") - right.base,
-        other: kindSum(other, "right") - right.other,
-      };
-      // On a model that calls everything Supported, only the guards decide: none may let more through.
-      const kept = items.filter((_, index) => supported(other, index) > supported(base, index));
+      // Below three rounds, an unchanged path loses more than one by chance too often to decide.
+      if (roundCount >= 3 && lost.length > 1) lostIn.push(language);
+      const isRight = (item: Item) => item.kind === "right" && !item.lowRank;
+      const kept = items.filter(
+        (item) => supported(rounds, other, item.id) > supported(rounds, base, item.id),
+      );
+      const notChecked = (flow: string, arm: string) =>
+        rounds
+          .filter((run) => run.flow === flow && run.checkArm === arm)
+          .flatMap((run) => run.landed.filter((each) => each.verdict === "not-checked")).length;
+      const notCheckedLines = ["note-held", "note-reduced"].flatMap((flow) => {
+        const readings = rounds
+          .filter((run) => run.flow === flow && run.checkArm === base)
+          .map((run) => run.landed.length);
+        if (readings.length === 0) return [];
+        const allowed = flow === "note-reduced" ? 1 : Math.floor(sum(readings) / 24);
+        const over = notChecked(flow, other) - notChecked(flow, base);
+        return [
+          `${flow} ${base} ${notChecked(flow, base)}, ${other} ${notChecked(flow, other)} (no more than ${allowed} over): **${over > allowed ? "Fails" : "Holds"}**`,
+        ];
+      });
       const share = (kind: string) => {
-        const asked = runs
+        const asked = rounds
           .filter((run) => run.checkArm === other)
           .flatMap((run) =>
-            items.flatMap((item, index) =>
-              item.kind === kind ? [firstOutcome(run, sentences[index] ?? "")] : [],
+            items.flatMap((item) =>
+              item.kind === kind && indexOf(run, item.id) >= 0
+                ? [firstOutcome(run, textOf(run, item.id))]
+                : [],
             ),
           );
         const settled = asked.filter((each) => each === "settled").length;
         return { settled, asked: asked.length, text: `${settled} of ${asked.length}` };
       };
       const shares = ["right", "twin", "absent"].map(share);
-      const byWriter = [...new Set(items.map((item) => item.writer))].map((writer) => {
-        const supportedOf = (arm: string, right: boolean) =>
-          sum(
-            items.map((item, index) =>
-              item.writer === writer && (item.kind === "right") === right
-                ? supported(arm, index)
-                : 0,
-            ),
-          );
-        return `${writer}: right ${supportedOf(base, true)} → ${supportedOf(other, true)}, wrong ${supportedOf(base, false)} → ${supportedOf(other, false)}`;
-      });
       const fellBack = sum(shares.map((each) => each.asked - each.settled));
       const asked = sum(shares.map((each) => each.asked));
-      // The row's right sentences Supported per round on each arm, for the margin's rule.
-      const perRound = (arm: string) =>
-        [...new Set(runs.filter((run) => run.checkArm === arm).map((run) => run.run))].map(
-          (round) =>
-            sum(
-              items.map((_, index) =>
-                low(index) &&
-                runs
-                  .find((run) => run.checkArm === arm && run.run === round)
-                  ?.landed.find((each) => each.sentence === index)?.verdict === "supported"
-                  ? 1
-                  : 0,
-              ),
-            ),
-        );
-      const rounds = [...perRound(base), ...perRound(other)];
-      const errors = 2 * deviation(rounds) * Math.sqrt(perRound(base).length);
+      const byWriter = [...new Set(items.map((item) => item.writer))].map((writer) => {
+        const of = (arm: string, right: boolean) =>
+          total(rounds, arm, (item) => item.writer === writer && (item.kind === "right") === right);
+        return `${writer}: right ${of(base, true)} → ${of(other, true)}, wrong ${of(base, false)} → ${of(other, false)}`;
+      });
+      const thresholds = THRESHOLDS[roundCount]?.[language as "en" | "zh-CN"];
       lines.push(
         "",
-        `- **Wrong twins and absent sentences Supported:** ${base} ${kindSum(base, "twin")} + ${kindSum(base, "absent")}, ${other} ${kindSum(other, "twin")} + ${kindSum(other, "absent")}. Supported in more rounds on ${other} than on ${base}: ${more.map((item) => item.id).join(", ") || "none"}. **${more.length === 0 ? "Holds" : "Fails"}.**`,
-        `- **Right sentences whose support ranks low or splits** (${items.filter((_, index) => low(index)).length} sentences, the gating row): Supported ${base} ${right.base}, ${other} ${right.other}${rightMargin === null ? "; no margin set, so not judged" : `, margin ${rightMargin}. **${right.other >= right.base - rightMargin ? "Holds" : "Fails"}.**`}`,
-        `- **The gating row, sentence by sentence:** Supported on ${base} in every round and on ${other} in none: ${lost.map((item) => item.id).join(", ") || "none"}. **${lost.length > 1 ? "Fails" : "Holds"}** (more than one fails). The reverse: ${
+        `- **Wrong twins and absent sentences Supported** (reported; Bar 1 counts both languages together, below): over the rounds ${base} ${total(rounds, base, (item) => item.kind === "twin")} + ${total(rounds, base, (item) => item.kind === "absent")}, ${other} ${total(rounds, other, (item) => item.kind === "twin")} + ${total(rounds, other, (item) => item.kind === "absent")}; on the list ${base} ${total(listed, base, isWrong)}, ${other} ${total(listed, other, isWrong)}.`,
+        `- **The gating row** (${items.filter(low).length} sentences, ${roundCount} rounds of each arm): Supported ${base} ${row.base}, ${other} ${row.other}; ${base}'s less ${other}'s ${row.base - row.other}, against ${thresholds ? `${thresholds[0]} plain and ${thresholds[1]} strict` : "no threshold for this many rounds"}: **${rowStanding}**.`,
+        `- **The gating row, sentence by sentence:** Supported on ${base} in every round and on ${other} in none: ${lost.map((item) => item.id).join(", ") || "none"}. **${roundCount < 3 ? "Report only below 3 rounds" : lost.length > 1 ? "Fails" : "Holds"}** (more than one fails). The reverse: ${
           lostFrom(other, base)
             .map((item) => item.id)
             .join(", ") || "none"
         }.`,
-        `- **The other right sentences** (reported): Supported ${base} ${otherRight.base}, ${other} ${otherRight.other}.`,
-        `- **By writer** (Supported, ${base} → ${other}): ${byWriter.join("; ")}.`,
+        `- **The other right sentences** (reported): Supported ${base} ${total(rounds, base, isRight)}, ${other} ${total(rounds, other, isRight)}.`,
+        `- **By writer** (Supported over the rounds, ${base} → ${other}): ${byWriter.join("; ")}.`,
+        `- **Not checked over the rounds:** ${notCheckedLines.join("; ") || "none read"}.`,
         ...(guards
           ? [
               `- **Guards, any sentence:** Supported in more rounds on ${other} than on ${base}: ${kept.map((item) => item.id).join(", ") || "none"}. **${kept.length === 0 ? "Holds" : "Fails"}.**`,
             ]
           : []),
-        `- **For the margin's rule:** the row's right sentences Supported a round, ${base} ${perRound(base).join(", ")}, ${other} ${perRound(other).join(", ")}; the difference of the totals ${Math.abs(right.base - right.other)}, two standard errors of a total ${errors.toFixed(2)}.`,
         `- **Settled in one reply on ${other}:** right ${shares[0]?.text}, wrong twins ${shares[1]?.text}, absent ${shares[2]?.text} (sentence-rounds); fell back ${fellBack} of ${asked}${asked > 0 ? ` (${((fellBack / asked) * 100).toFixed(0)}%)` : ""}.`,
       );
     }
+    if (!base || !other) continue;
+    // With the 12 wrong-only rounds pooled in, K is the one fixed for them before B.
+    const k: readonly [number, number] | undefined =
+      wrongOnlyRounds === 0
+        ? THRESHOLDS[roundsRead]?.K
+        : wrongOnlyRounds === 12
+          ? [5, 8]
+          : undefined;
+    const wrongStanding = standing(wrong.other - wrong.base, k);
+    standings.push({ bar: "the wrong sentences", standing: wrongStanding });
+    const sees =
+      wrongOnlyRounds === 0
+        ? " What this bar could see: a path that Supports wrong sentences five times as often as `main` is caught only about 3 times in 4, because today's check Supports so few of them (1 in 252 readings in Phase A), so a pass here doesn't rule such a path out; it would catch a path that Supports them far more often."
+        : "";
+    const pastPlain = standings.filter((each) => each.standing === "past plain");
+    const failed =
+      standings.some(
+        (each) => each.standing === "past strict" || each.standing === "no threshold",
+      ) ||
+      pastPlain.length > 1 ||
+      lostIn.length > 0;
+    lines.push(
+      "",
+      `### The held-out Note's bars · ${model}`,
+      "",
+      `- **Bar 1, the wrong sentences,** both languages, over the rounds and the list: Supported ${base} ${wrong.base}, ${other} ${wrong.other}; ${other}'s less ${base}'s ${wrong.other - wrong.base}, against K ${k ? `${k[0]} plain and ${k[1]} strict` : "not set for this many rounds"}${wrongOnlyRounds > 0 ? `, with ${wrongOnlyRounds} wrong-only rounds pooled in` : ""}: **${wrongStanding}**. Each reading: ${
+        [...new Set(wrongReadings)]
+          .map((reading) => {
+            const times = wrongReadings.filter((each) => each === reading).length;
+            return times > 1 ? `${reading} (×${times})` : reading;
+          })
+          .join("; ") || "none"
+      }.${sees}`,
+      `- **The rule over the bars:** ${standings.map((each) => `${each.bar} ${each.standing}`).join("; ")}${lostIn.length > 0 ? `; more than one lost in ${lostIn.join(" and ")}` : ""}. **${failed ? "Fails" : pastPlain.length === 1 ? `Not settled: ${pastPlain[0]?.bar} is measured once more on three fresh reduced rounds, or counts as failed` : "Holds"}.**`,
+    );
   }
+  const unstated = unstatedOf(counted);
+  if (unstated.length > 0)
+    lines.push(
+      "",
+      "### The 10-sentence Note's sentences its Documents don't state (beside Bar 1, not a bar)",
+      "",
+      "| Model · language | Sentence | Supported readings | The new path's alone, in rounds both ran |",
+      "|---|--:|---|---|",
+      ...unstated.map(
+        (each) =>
+          `| ${each.model} · ${each.language} | ${each.sentence + 1} | ${each.readings.map((reading) => `${reading.arm} round ${reading.run}`).join(", ") || "none"} | ${each.newOnly ? "yes" : ""} |`,
+      ),
+    );
   return lines.join("\n");
+}
+
+/** The arm-runs that count: a void arm-run takes its round's other arms with it. */
+function countedOf(results: readonly FlowTimes[]): FlowTimes[] {
+  const armed = results.filter((run) => run.checkArm);
+  const roundOf = (run: FlowTimes) => `${run.flow}·${run.model}·${run.language}·${run.run}`;
+  const voidRounds = new Set(armed.filter((run) => run.voided).map(roundOf));
+  return armed.filter((run) => !voidRounds.has(roundOf(run)));
+}
+
+/** Each sentence of the 10-sentence Note its Documents don't state, with its Supported readings. */
+function unstatedOf(counted: readonly FlowTimes[]) {
+  const runs = counted.filter((run) => run.flow === "note" && run.stated);
+  const isNew = (arm: string) => arm.startsWith("search-first");
+  return [...new Set(runs.map((run) => `${run.model} · ${run.language}`))].flatMap((key) => {
+    const mine = runs.filter((run) => `${run.model} · ${run.language}` === key);
+    const [model = "", language = ""] = key.split(" · ");
+    const shared = new Set(
+      mine
+        .map((run) => run.run)
+        .filter(
+          (round) =>
+            new Set(mine.filter((run) => run.run === round).map((run) => isNew(run.checkArm ?? "")))
+              .size > 1,
+        ),
+    );
+    return (mine[0]?.stated ?? []).flatMap((stated, sentence) => {
+      if (stated) return [];
+      const readings = mine
+        .filter(
+          (run) => run.landed.find((each) => each.sentence === sentence)?.verdict === "supported",
+        )
+        .map((run) => ({ arm: run.checkArm ?? "", run: run.run }));
+      const inShared = readings.filter((reading) => shared.has(reading.run));
+      return [
+        {
+          model,
+          language,
+          sentence,
+          readings,
+          newOnly:
+            inShared.some((reading) => isNew(reading.arm)) &&
+            !inShared.some((reading) => !isNew(reading.arm)),
+        },
+      ];
+    });
+  });
+}
+
+/**
+ * The line put first in the report (the second reader's ruling, not a bar): a sentence of the
+ * 10-sentence Note its Documents don't state that the new path Supported and `main` didn't, in the
+ * rounds both ran.
+ */
+export function searchFirstHeadline(results: readonly FlowTimes[]): string | null {
+  const found = unstatedOf(countedOf(results)).filter((each) => each.newOnly);
+  return found.length === 0
+    ? null
+    : `**First, not a bar:** the new path Supported ${found.length === 1 ? "a sentence" : `${found.length} sentences`} of the 10-sentence Note that its Documents don't state, which \`main\` didn't in the same rounds: ${found.map((each) => `${each.model} · ${each.language} · sentence ${each.sentence + 1} (${each.readings.map((reading) => `${reading.arm} round ${reading.run}`).join(", ")})`).join("; ")}.`;
 }

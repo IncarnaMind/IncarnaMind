@@ -76,7 +76,7 @@ import {
 import { dryRunModel } from "./dryRun";
 import { judgeOf } from "./judge";
 import { SEARCH_FIRST_DOCUMENTS, SEARCH_FIRST_ITEMS } from "./searchFirstCases";
-import { searchFirstGateSection } from "./searchFirstGate";
+import { searchFirstGateSection, searchFirstHeadline } from "./searchFirstGate";
 import { LOW_RANK_CANDIDATES } from "./searchFirstLowRank";
 import { env, list, modelsAsked, spentUsd } from "./settings";
 import { unstatedSentences } from "./unstated";
@@ -98,13 +98,34 @@ const NOTE: Record<Language, string[]> = {
   "zh-CN": NOTE_SENTENCES["zh-CN"].map((each) => each.text),
 };
 
-/** #2532's held-out Note of 32 sentences in each language (./searchFirstCases). */
-const HELD_NOTE = (language: Language) =>
-  SEARCH_FIRST_ITEMS.filter((item) => item.language === language);
+/**
+ * #2532's held-out Note (./searchFirstCases) as each of its flows reads it: `note-held` whole,
+ * `note-reduced` its gating row and wrong sentences, `note-wrong` its wrong sentences alone,
+ * `note-list` the sentences `INCARNAMIND_EVAL_SPEED_LIST` names, which Bar 1 reads again.
+ */
+const HELD_FLOWS: ReadonlySet<string> = new Set([
+  "note-held",
+  "note-reduced",
+  "note-wrong",
+  "note-list",
+]);
+const heldItems = (flow: string, language: Language) => {
+  const all = SEARCH_FIRST_ITEMS.filter((item) => item.language === language);
+  if (flow === "note-reduced")
+    return all.filter((item) => item.kind !== "right" || item.keptAt !== undefined);
+  if (flow === "note-wrong") return all.filter((item) => item.kind !== "right");
+  if (flow === "note-list") {
+    const named = new Set(list("LIST") ?? []);
+    return all.filter((item) => named.has(item.id));
+  }
+  return all;
+};
+const HELD_NOTE = (language: Language) => heldItems("note-held", language);
 
 /** The sentences a Note flow checks. */
 const noteSentences = (flow: string, language: Language) =>
-  flow === "note-held" ? HELD_NOTE(language).map((item) => item.sentence) : NOTE[language];
+  HELD_FLOWS.has(flow) ? heldItems(flow, language).map((item) => item.sentence) : NOTE[language];
+const isNoteFlow = (flow: string) => flow === "note" || HELD_FLOWS.has(flow);
 
 /** A request's failure that leaves the run not counted (../evidence/2532-search-first/README.md). */
 const VOIDING: ReadonlySet<string> = new Set([
@@ -698,7 +719,6 @@ timedChecks("where a check's time goes, on each model and language", async () =>
         `INCARNAMIND_EVAL_SPEED_CHECK_ARMS: no arm "${arm}"; the arms are main and search-first.`,
       );
   }
-  const rightMargin = env("RIGHT_MARGIN") === null ? null : Number(env("RIGHT_MARGIN"));
   let firstReplied: NonNullable<FlowTimes["firstReplied"]> = [];
   // Where the check's own search ranks each right sentence's stating Passages: `1`, then the run;
   // `only`, with no flow run at all.
@@ -789,7 +809,7 @@ timedChecks("where a check's time goes, on each model and language", async () =>
       await writeFile(path, buildPdf(document.pages));
       documents.push({ key: document.file, path });
     }
-    if (flows.includes("note-held")) {
+    if (flows.some((flow) => HELD_FLOWS.has(flow))) {
       for (const document of SEARCH_FIRST_DOCUMENTS) {
         if (!document.libraries.includes(language)) continue;
         const path = join(folder, document.file);
@@ -845,6 +865,7 @@ timedChecks("where a check's time goes, on each model and language", async () =>
         const saved = await core.saveChatProvider(model);
         const choice: ChatModelChoice = { providerId: saved.id, modelId: model.modelId };
         for (const flow of flows) {
+          if (HELD_FLOWS.has(flow) && heldItems(flow, language).length === 0) continue;
           for (const [at, { size, run, runs, arm, checkArm }] of passesOf(flow).entries()) {
             const spent = await spentUsd(core);
             if (spentBefore + spent >= stopUsd) {
@@ -899,20 +920,19 @@ timedChecks("where a check's time goes, on each model and language", async () =>
             const times: Pick<
               FlowTimes,
               "checkStartMs" | "firstSignMs" | "doneMs" | "landed" | "searchedDuring" | "anomalies"
-            > =
-              flow === "note" || flow === "note-held"
-                ? await noteFlow(
-                    core,
-                    choice,
-                    noteSentences(flow, language),
-                    recorder,
-                    `Note check ${flow} ${run}${checkArm ? ` ${checkArm}` : ""}`,
-                  )
-                : flow.startsWith("write")
-                  ? await writeFlow(core, choice, items, recorder)
-                  : flow === "asked"
-                    ? await askedFlow(core, choice, recorder, questions[run - 1]?.question ?? "")
-                    : await answerFlow(core, choice, recorder, items);
+            > = isNoteFlow(flow)
+              ? await noteFlow(
+                  core,
+                  choice,
+                  noteSentences(flow, language),
+                  recorder,
+                  `Note check ${flow} ${run}${checkArm ? ` ${checkArm}` : ""}`,
+                )
+              : flow.startsWith("write")
+                ? await writeFlow(core, choice, items, recorder)
+                : flow === "asked"
+                  ? await askedFlow(core, choice, recorder, questions[run - 1]?.question ?? "")
+                  : await answerFlow(core, choice, recorder, items);
             current = null;
             const reranks = queryDatabase<{ started_at: string; end_ms: number }>(
               dataDir,
@@ -944,9 +964,9 @@ timedChecks("where a check's time goes, on each model and language", async () =>
               ...(voided && { voided }),
               ...(times.anomalies && { anomalies: times.anomalies }),
               ...(checkArm && { firstReplied }),
-              ...(flow === "note-held" && {
-                stated: HELD_NOTE(language).map((each) => each.kind === "right"),
-                items: HELD_NOTE(language).map((each) => ({
+              ...(HELD_FLOWS.has(flow) && {
+                stated: heldItems(flow, language).map((each) => each.kind === "right"),
+                items: heldItems(flow, language).map((each) => ({
                   id: each.id,
                   kind: each.kind,
                   writer: each.writer,
@@ -991,6 +1011,9 @@ timedChecks("where a check's time goes, on each model and language", async () =>
   const counts = new Map([
     ["note", 10],
     ["note-held", HELD_NOTE("en").length],
+    ["note-reduced", heldItems("note-reduced", "en").length],
+    ["note-wrong", heldItems("note-wrong", "en").length],
+    ["note-list", heldItems("note-list", "en").length],
     ["write", 30],
     ["write-mixed", 20],
     ["writes", 30],
@@ -1000,6 +1023,9 @@ timedChecks("where a check's time goes, on each model and language", async () =>
     "# Where a check's time goes",
     "",
     `${new Date().toISOString()} · ${runs} runs a flow, model and language · seconds from the User's action, medians. Spent $${spentBefore.toFixed(3)}.${stopped ? ` ${stopped}` : ""}`,
+    ...(checkArms.length > 0
+      ? [searchFirstHeadline(results)].flatMap((line) => (line ? ["", line] : []))
+      : []),
     "",
     checkTimesReport(results, counts),
     ...(ranked.length > 0 ? ["", ranksSection(ranked)] : []),
@@ -1009,10 +1035,9 @@ timedChecks("where a check's time goes, on each model and language", async () =>
           searchFirstGateSection(
             results,
             (flow, language) =>
-              flow === "note" || flow === "note-held"
+              isNoteFlow(flow)
                 ? noteSentences(flow, language as Language)
                 : itemsOf(flow, language as Language).map((each) => each.sentence),
-            rightMargin,
             dryAs === "yes",
           ),
         ]
