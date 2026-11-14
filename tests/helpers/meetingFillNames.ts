@@ -5,11 +5,12 @@
  *
  * The name opens the line when the line's first words are the people it is about and the name is
  * one of them: after any list mark, number, bracket, quote or emphasis, the name, or a run of the
- * call's people joined by "and", "&", a comma, 和, 与, 及 or 、 that holds it. A person is a name of the
+ * call's people joined by "and", "&", a comma, 及 or 、 that holds it. A person is a name of the
  * call (an owner or notBy mark of any of its facts) or the User in the first person. Everything
- * else stands later: a label, a role or any other word before the name, and a name as the owner
- * of what the line is about (Ana's team, 安娜的团队, 安娜那边), since only a reading can tell
- * whether such a line puts the fact on the person or on someone of theirs.
+ * else stands later: a label, a role or any other word before the name; a name after 和 or 与,
+ * which can mean "with" or "to" as well as "and"; and a name as the owner of what the line is
+ * about (Ana's team, 安娜的团队, 安娜那边), since only a reading can tell whether such a line puts
+ * the fact on the person or on someone of theirs.
  */
 
 export interface NamedCall {
@@ -19,10 +20,16 @@ export interface NamedCall {
 
 /**
  * Why a counted line goes on the list people read: its name stands later; the name opens it but a
- * clause break comes before the fact's own words; or the name opens it on a call with one named
- * person alone across.
+ * clause break comes before the fact's own words; the name opens it and it holds none of the
+ * fact's words, so it was counted for citing the unnamed person's turn; or the name opens it on a
+ * call with one named person alone across, or on a call whose marks can't tell.
  */
-export type ReadKind = "later" | "afterBreak" | "aloneAcross";
+export type ReadKind =
+  | "later"
+  | "afterBreak"
+  | "citesTurnOnly"
+  | "aloneAcross"
+  | "aloneAcrossNotKnown";
 
 export interface NamePlace {
   where: "opens" | "later";
@@ -31,10 +38,14 @@ export interface NamePlace {
 
 const MARKS = /(?:\s+|[-*•·–—_]+|\d{1,2}[.)](?=\s)|[(（]\d{1,2}[)）]|[①-⑳]|[[(（【「『《“"'‘])+/uy;
 const USER = /(?:I|[Ww]e)\b|我们|我方|我/uy;
-const JOINER = /\s*(?:,\s*(?:and\s+)?|&\s*|and\s+|[，、和与及]\s*)/uy;
-// Chinese writes a person's side or group straight after the name, with no 的.
-const POSSESSIVE = /['’](?:s\b|(?=\s))|\s*(?:的|那边|这边|方面|一方|团队|小组|工作室)/uy;
-// A bracket holds an aside inside the clause, a date or a role, so it is not a break.
+const JOINER = /\s*(?:,\s*(?:and\s+)?|&\s*|and\s+|[，、及]\s*)/uy;
+// After the name, a side or group of theirs, with or without 的: 那边, 这边, 方面, 一方, 团队, 小组,
+// 工作室. 的确 is "indeed", not a possessive.
+const POSSESSIVE = /['’](?:s\b|(?=\s))|\s*(?:的(?!确)|那边|这边|方面|一方|团队|小组|工作室)/uy;
+// A colon straight after the name labels what follows as theirs, so it is not a break.
+const SPEAKER_COLON = /\s*[:：]\s*/uy;
+// A bracket holds an aside inside the clause, a date or a role, so it is not a break. A comma
+// after a short word stays one: code can't tell "said," from "was late,".
 const CLAUSE_BREAK = /[;；，。！？：—]|,(?!\d)|:(?=\s)|[.!?](?=\s)|\s[-–]\s/u;
 
 /** Where `pattern` ends when it matches `text` right at `index`, or null. */
@@ -62,18 +73,21 @@ function opening(text: string, name: RegExp, people: readonly RegExp[]): number 
 // The fixtures mark the facts of a person never named with the words the notes must use for them.
 const unnamed = (owner: RegExp) => owner.test("the other side") || owner.test("对方");
 
-/** The fill's prompt gives every line from across to the one named person there, by name. */
-function aloneAcross(call: NamedCall): boolean {
+/**
+ * Whether the call has one named person alone across, to whom the fill's prompt gives every line
+ * from across by name: "not known" when no fact said only from across carries an owner mark.
+ */
+export function aloneAcross(call: NamedCall): "yes" | "no" | "not known" {
   const across = call.facts.filter((fact) =>
     fact.said.every((turn) => call.turns[turn]?.side === "them"),
   );
   const owners = across.flatMap((fact) => (fact.owner ? [fact.owner] : []));
-  return (
-    owners.length > 0 &&
-    new Set(owners.map((owner) => owner.source)).size === 1 &&
+  if (owners.length === 0) return "not known";
+  return new Set(owners.map((owner) => owner.source)).size === 1 &&
     !owners.some(unnamed) &&
     across.every((fact) => fact.notBy === undefined)
-  );
+    ? "yes"
+    : "no";
 }
 
 /**
@@ -90,16 +104,18 @@ export function placeName(
   ]);
   const end = opening(line.text, line.name, people);
   if (end === null) return { where: "later", read: ["later"] };
-  const rest = line.text.slice(end);
-  const starts = (line.pattern instanceof RegExp ? [line.pattern] : line.pattern)
-    .map((part) => rest.search(part))
-    .filter((start) => start >= 0);
+  const parts = line.pattern instanceof RegExp ? [line.pattern] : line.pattern;
+  const rest = line.text.slice(endOfMatch(SPEAKER_COLON, line.text, end) ?? end);
+  const starts = parts.map((part) => rest.search(part)).filter((start) => start >= 0);
   const afterBreak = starts.length > 0 && CLAUSE_BREAK.test(rest.slice(0, Math.min(...starts)));
+  const across = aloneAcross(call);
   return {
     where: "opens",
     read: [
       ...(afterBreak ? (["afterBreak"] as const) : []),
-      ...(aloneAcross(call) ? (["aloneAcross"] as const) : []),
+      ...(parts.every((part) => line.text.search(part) < 0) ? (["citesTurnOnly"] as const) : []),
+      ...(across === "yes" ? (["aloneAcross"] as const) : []),
+      ...(across === "not known" ? (["aloneAcrossNotKnown"] as const) : []),
     ],
   };
 }
