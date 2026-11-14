@@ -81,6 +81,8 @@ export interface QueuedClaim {
   only?: ClaimPartSpan;
   previous?: readonly ClaimCheckPart[];
   priorParts?: readonly ClaimCheckPart[];
+  /** Its own words' search, started before its check (#2532). */
+  ahead?: ClaimCheckRequest["ahead"];
 }
 
 export interface RunChecksOptions extends CheckRuns {
@@ -161,6 +163,7 @@ export function checkRequestOf(
     ...(claim.only && { only: claim.only }),
     ...(claim.previous && { previous: claim.previous }),
     ...(claim.figures && { figures: claim.figures }),
+    ...(claim.ahead && { ahead: claim.ahead }),
     scope: claim.scope ?? run.scope,
     ...((claim.searched ?? run.searched) !== undefined && {
       searched: claim.searched ?? run.searched,

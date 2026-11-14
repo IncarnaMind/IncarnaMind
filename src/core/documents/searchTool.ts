@@ -265,6 +265,11 @@ export interface SearchToolOptions {
   signal?: AbortSignal;
   /** A search no one is waiting on: it uses only flows already allowed, asking never. */
   background?: boolean;
+  /**
+   * Whether a hit's text states what is searched for as it is: when one does, the hits keep
+   * search's own order and the reranker isn't asked (a check's search of its sentence, #2532).
+   */
+  stated?: (text: string) => boolean;
 }
 
 /**
@@ -285,7 +290,12 @@ export async function searchDocumentsTool(
       )
     : await sources.candidates(query, parameters.candidates, options.documentIds);
   let reranked = false;
-  if (options.rerank && candidates.length > 0) {
+  const { stated } = options;
+  if (
+    options.rerank &&
+    candidates.length > 0 &&
+    !(stated && candidates.some((candidate) => stated(candidate.text)))
+  ) {
     const fused = new Map(candidates.map((candidate) => [candidate.passageId, candidate.score]));
     candidates = await options.rerank(query, candidates, options.signal, options.background);
     // A reranker that couldn't rerank (its model not downloaded yet, a service the User

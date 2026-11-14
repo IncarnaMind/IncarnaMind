@@ -132,12 +132,14 @@ import type { AnswerEngine } from "../engine";
 import { type AnswerCheckInput, createAnswerCheck } from "./answerCheck";
 import { figureContextIn } from "./calculationLedger";
 import { checkRunStart } from "./checkRun";
+import { ownSearch } from "./checkSetup";
 import {
   type AtomicClaimCheckResult,
   type CheckedCitation,
   type ClaimCheckDependencies,
   type ClaimCheckRequest,
   createClaimCheck,
+  handsOff,
 } from "./claimCheck";
 import { createFastPaths } from "./fastPaths";
 import { libraryNow } from "./libraryFacts";
@@ -1717,6 +1719,11 @@ export function createChecks(options: ChecksOptions) {
     retainEvidence,
     settleStopped,
     track,
+    // A check of its own, whose search goes to the reranker in the order the sentences are named.
+    searchAhead: (model, query, scope, signal) =>
+      handsOff(options, { model })
+        ? asCheckWork(() => ownSearch(options, { claim: query, scope, signal }).found)
+        : null,
   });
 
   /**

@@ -41,18 +41,19 @@ import type {
   ThirdPartyReason,
 } from "../../api";
 import type { CitationSource } from "../../documents";
-import type { Evidence, EvidenceScope } from "../../documents/evidence";
+import type { Evidence, EvidenceScope, EvidenceSearch } from "../../documents/evidence";
 import type { WindowedPassage } from "../../documents/search";
 import type { Language } from "../../language";
+import { type CheckPathsOverride, searchesFirst } from "../../providers/catalog/checkPaths";
 import type { PreparedChatModel } from "../../providers/chat";
 import type { RecordCitePlace } from "../../recordCites/referents";
 import type { Slots } from "../../runs/stop";
 import { type AnswerDocuments, matchingOf } from "../citations";
-import type { AnswerEngine, DocumentLanguage } from "../engine";
+import type { AnswerEngine, DocumentLanguage, SearchResultForModel } from "../engine";
 import { absenceAfterSearch, fitsWholeRead } from "./absence";
 import { calculatesIn, createCalculationLedger, figureContextIn } from "./calculationLedger";
 import { createCheckResults, uniqueCitations } from "./checkResults";
-import { checkRun } from "./checkRun";
+import { checkRun, type RunTranscript } from "./checkRun";
 import {
   type CourtDecisions,
   citedOutsideScope,
@@ -102,6 +103,14 @@ export interface ClaimCheckDependencies {
   libraryListing?(mindId: string | null, searched: SearchScope | null): LibraryListing;
   /** The Run's searches may show the Library's own facts (./libraryFacts). */
   libraryFacts?: LibraryFactSearch;
+  /** Which models check by the faster paths, instead of the lists beside the catalog; only tests and the evaluation pass one. */
+  checkPaths?: CheckPathsOverride;
+}
+
+/** A search of a sentence's own words, started before its check (#2532): its check's search of those words. */
+export interface AheadSearch {
+  query: string;
+  found: Promise<EvidenceSearch>;
 }
 
 /**
@@ -143,6 +152,8 @@ export interface ClaimCheckRequest {
   cacheKey?: string;
   /** An explicit whole-read window (./wholeRead): every search in this Run stays within it. */
   window?: readonly WindowedPassage[];
+  /** The sentence's own search, made before its check started. */
+  ahead?: AheadSearch;
   signal: AbortSignal;
   parts?: readonly ClaimPartPlan[];
   only?: ClaimPartSpan;
@@ -247,6 +258,138 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
   return (request: ClaimCheckRequest) => checkSentence(deps, request);
 }
 
+/**
+ * Whether a check on this request's model searches its sentence's own words before its first
+ * request and hands the Passages over (#2532): an uncited sentence, outside a whole read, on a
+ * model that calls Tools and is listed for it. A Run that names its sentence's parts names them
+ * before its first search, as it did before.
+ */
+export function handsOff(
+  deps: Pick<ClaimCheckDependencies, "checkPaths">,
+  request: Pick<ClaimCheckRequest, "model" | "window" | "cited" | "findParts">,
+): boolean {
+  const { model } = request;
+  return (
+    !request.window &&
+    !request.findParts &&
+    (request.cited?.length ?? 0) === 0 &&
+    (model.support ?? "tools") === "tools" &&
+    searchesFirst({ catalogId: model.provider.catalogId, modelId: model.modelId }, deps.checkPaths)
+  );
+}
+
+/** What a check's verdict is read with, set up before its first request. */
+export interface PreparedCheck {
+  results: ReturnType<typeof createCheckResults>;
+  setup: ReturnType<typeof setUpRun>;
+  calculating: boolean;
+  ledger: ReturnType<typeof createCalculationLedger>;
+  court: CourtDecisions;
+  readsWhole(): boolean;
+}
+
+/** A check set up before its first request; null when stopped while it looked up the court decisions it cites. */
+export async function prepareCheck(
+  deps: ClaimCheckDependencies,
+  request: ClaimCheckRequest,
+): Promise<PreparedCheck | null> {
+  const results = createCheckResults(request);
+  const setup = setUpRun(deps, request, results);
+  const { scoped, session } = setup;
+  const calculating = calculatesIn(request.model, request);
+  const ledger = createCalculationLedger(request, scoped, session, calculating);
+  let court: CourtDecisions;
+  try {
+    court = await courtDecisions(setup.decisions, scoped, request.signal);
+  } catch (error) {
+    if (request.signal.aborted) return null;
+    throw error;
+  }
+  let fits: boolean | undefined;
+  const readsWhole = () => {
+    fits ??= fitsWholeRead(request.scope.documentIds, deps.documents);
+    return fits;
+  };
+  return { results, setup, calculating, ledger, court, readsWhole };
+}
+
+/** The verdict a check's reply comes to, once its Run or its first reply has ended. */
+export function verdictOfReply(
+  deps: ClaimCheckDependencies,
+  request: ClaimCheckRequest,
+  prepared: PreparedCheck,
+  transcript: RunTranscript,
+): Promise<AtomicClaimCheckResult> {
+  const { results, setup, ledger, court, readsWhole } = prepared;
+  const { scoped, session, looked } = setup;
+  const { facts, notChecked, failedCheck } = results;
+  const { signal } = request;
+  const { citedCase } = court;
+  const figureContext = figureContextIn(scoped);
+  const verdicts = {
+    transcript,
+    looked,
+    session,
+    scoped,
+    ledger,
+    results,
+    court,
+    citedCase,
+    unstatedUnit: unitGate(deps, scoped, figureContext),
+    figureContext,
+    absenceFor: absenceAfterSearch({
+      request,
+      documents: deps.documents,
+      session,
+      readVersion: results.readVersion,
+      facts,
+      citedCase,
+      fits: readsWhole,
+      notChecked,
+      failedCheck,
+      lookAt: (evidence, absent, first) =>
+        lookForPresence(request, evidence, absent, session, signal, first),
+    }),
+    // Which of two Documents that disagree is newer orders a correction's choices (#1481): the
+    // host's own date for each, never shown to the model as the Document's words.
+    newestFirst: (documentId: string) => deps.documents.documentDate(documentId),
+    unitsOf: (citation: Citation) =>
+      deps.documents.pageTexts(citation.documentId, citation.contentHash, null, null),
+  };
+  const { figures } = request;
+  return figures?.length
+    ? figuresVerdict(deps, { ...request, figures }, verdicts)
+    : plainVerdict(deps, request, verdicts);
+}
+
+/**
+ * A check's result as the sentence shows it: Supported with its currency clause, anything else
+ * explained in the interface's language; figures that couldn't be read leave it not checked,
+ * named by the Passage they came from (`shownPassageIds`).
+ */
+export async function shownResult(
+  deps: ClaimCheckDependencies,
+  request: ClaimCheckRequest,
+  decide: () => Promise<AtomicClaimCheckResult>,
+  shownPassageIds: () => readonly string[],
+): Promise<AtomicClaimCheckResult> {
+  const leftOut = citedOutsideScope(deps, request);
+  try {
+    const decided = await decide();
+    const result = leftOut ? withoutDocumentLeftOut(decided, leftOut.name) : decided;
+    return result.verdict === "supported"
+      ? withDollarClause(deps, request.claim, result)
+      : explainedIn(result, {
+          language: deps.language(),
+          model: request.model,
+          signal: request.signal,
+        });
+  } catch (error) {
+    if (!(error instanceof FiguresNotRead)) throw error;
+    return figuresNotRead(deps, request, error, shownPassageIds());
+  }
+}
+
 async function checkSentence(
   deps: ClaimCheckDependencies,
   request: ClaimCheckRequest,
@@ -267,90 +410,36 @@ async function checkSentence(
         excluded: [],
       };
     const { signal } = request;
-    const results = createCheckResults(request);
-    const { facts, notChecked, failedCheck } = results;
-    const setup = setUpRun(deps, request, results);
+    const prepared = await prepareCheck(deps, request);
+    if (!prepared) return createCheckResults(request).notChecked("stopped");
+    const { results, setup, calculating, ledger, readsWhole } = prepared;
     shownPassageIds = setup.shownPassageIds;
-    const { scoped, session, looked } = setup;
-    const calculating = calculatesIn(request.model, request);
-    const ledger = createCalculationLedger(request, scoped, session, calculating);
-    const tools = setup.tools(ledger.tools);
-    let court: CourtDecisions;
-    try {
-      court = await courtDecisions(setup.decisions, scoped, signal);
-    } catch (error) {
-      if (signal.aborted) return notChecked("stopped");
-      throw error;
+    let handed: SearchResultForModel | null = null;
+    if (handsOff(deps, request) && setup.citedShown === null) {
+      try {
+        handed = await setup.handOff(signal);
+      } catch (error) {
+        if (signal.aborted) return results.notChecked("stopped");
+        throw error;
+      }
     }
-    let fits: boolean | undefined;
-    const readsWhole = () => {
-      fits ??= fitsWholeRead(request.scope.documentIds, deps.documents);
-      return fits;
-    };
     const transcript = await checkRun(deps, request, {
-      tools,
-      session,
+      tools: setup.tools(ledger.tools),
+      session: setup.session,
       citedShown: setup.citedShown,
-      looked,
+      handed,
+      looked: setup.looked,
       searches: setup.searches,
       readsWhole,
       calculating,
       ledger,
       results,
     });
-    if (signal.aborted) return notChecked("stopped");
-    if (transcript.failed) return failedCheck(transcript.failed);
-    const { citedCase } = court;
-    const figureContext = figureContextIn(scoped);
-    const verdicts = {
-      transcript,
-      looked,
-      session,
-      scoped,
-      ledger,
-      results,
-      court,
-      citedCase,
-      unstatedUnit: unitGate(deps, scoped, figureContext),
-      figureContext,
-      absenceFor: absenceAfterSearch({
-        request,
-        documents: deps.documents,
-        session,
-        readVersion: results.readVersion,
-        facts,
-        citedCase,
-        fits: readsWhole,
-        notChecked,
-        failedCheck,
-        lookAt: (evidence, absent, first) =>
-          lookForPresence(request, evidence, absent, session, signal, first),
-      }),
-      // Which of two Documents that disagree is newer orders a correction's choices (#1481): the
-      // host's own date for each, never shown to the model as the Document's words.
-      newestFirst: (documentId: string) => deps.documents.documentDate(documentId),
-      unitsOf: (citation: Citation) =>
-        deps.documents.pageTexts(citation.documentId, citation.contentHash, null, null),
-    };
-    const { figures } = request;
-    return figures?.length
-      ? figuresVerdict(deps, { ...request, figures }, verdicts)
-      : plainVerdict(deps, request, verdicts);
+    if (signal.aborted) return results.notChecked("stopped");
+    if (transcript.failed) return results.failedCheck(transcript.failed);
+    return verdictOfReply(deps, request, prepared, transcript);
   };
-  try {
-    const decided = await decide();
-    const result = leftOut ? withoutDocumentLeftOut(decided, leftOut.name) : decided;
-    return result.verdict === "supported"
-      ? withDollarClause(deps, request.claim, result)
-      : explainedIn(result, {
-          language: deps.language(),
-          model: request.model,
-          signal: request.signal,
-        });
-  } catch (error) {
-    if (!(error instanceof FiguresNotRead)) throw error;
-    return figuresNotRead(deps, request, error, shownPassageIds());
-  }
+  return shownResult(deps, request, decide, () => shownPassageIds());
 }
 
 /**

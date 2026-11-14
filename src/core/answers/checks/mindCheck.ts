@@ -55,6 +55,7 @@ import type {
   TextStretch,
 } from "../../api";
 import { CHART_NODE } from "../../api";
+import type { EvidenceSearch } from "../../documents/evidence";
 import { parseModel } from "../../edits";
 import { InvalidInputError, isRecord } from "../../errors";
 import type { MindContent } from "../../mindContent";
@@ -62,7 +63,7 @@ import { parseMindId } from "../../minds";
 import type { PreparedChatModel } from "../../providers/chat";
 import { recordCiteSpans } from "../../recordCites/parser";
 import { type Slots, slots } from "../../runs/stop";
-import type { CheckedCitation } from "./claimCheck";
+import type { AheadSearch, CheckedCitation, ClaimCheckRequest } from "./claimCheck";
 import { cellHeadings, inTableCell, inValueCell, type TableLayout } from "./figureOccurrences";
 import { type ClaimsFound, claimsAmong } from "./findClaims";
 import { recordOpinions, type SortedSentence } from "./opinions";
@@ -129,6 +130,16 @@ export interface MindCheckOptions extends RunChecksOptions {
   libraryState(): string;
   /** The run's sentences checked before it marks them, for the window to draw (#1624). */
   checkingEarly(event: MindCheckEarly): void;
+  /**
+   * A check's search of a sentence's own words, started as soon as the sentence is named, before
+   * its check has a place (#2532); null when checks on `model` don't hand their search over.
+   */
+  searchAhead?(
+    model: PreparedChatModel,
+    query: string,
+    scope: ClaimCheckRequest["scope"],
+    signal: AbortSignal,
+  ): Promise<EvidenceSearch> | null;
 }
 
 const MODES: readonly CheckMindMode[] = ["all", "changed", "added"];
@@ -685,6 +696,40 @@ export function createMindCheck(options: MindCheckOptions) {
         ? current
         : sentencesForFigures(current, markedSentences(blocks), input.figureIds);
     };
+    let libraryNow: string | null = null;
+    // Read once for all the checks it is asked for at the same moment.
+    const library = () => {
+      if (libraryNow === null) {
+        libraryNow = options.libraryState();
+        queueMicrotask(() => {
+          libraryNow = null;
+        });
+      }
+      return libraryNow;
+    };
+    /**
+     * Each sentence's own search, started once it is named, so the Note's searches go to the
+     * reranker one after another from the start instead of each when its check finds a place: kept
+     * with the Library as it was, which a check takes only while that hasn't changed.
+     */
+    const ahead = new Map<string, { search: AheadSearch; library: string }>();
+    const aheadKey = (sentence: SelectedSentence) =>
+      JSON.stringify([sentence.blockId, sentence.text, sentence.occurrence]);
+    const searchAhead = (sentence: SelectedSentence) => {
+      if (sentence.cited.length > 0 || (sentence.figures?.length ?? 0) > 0) return;
+      const key = aheadKey(sentence);
+      if (ahead.has(key)) return;
+      const query = checkText(sentence).claim;
+      const found = options.searchAhead?.(ready.prepared, query, scopeFor(sentence).scope, signal);
+      if (!found) return;
+      // A sentence the run doesn't check after all leaves its search unread.
+      found.catch(() => undefined);
+      ahead.set(key, { search: { query, found }, library: library() });
+    };
+    const aheadOf = (sentence: SelectedSentence): AheadSearch | undefined => {
+      const made = ahead.get(aheadKey(sentence));
+      return made && made.library === library() ? made.search : undefined;
+    };
 
     /**
      * The mark a claim gets and what its check sends, from the sentence as the Note has it now,
@@ -776,6 +821,7 @@ export function createMindCheck(options: MindCheckOptions) {
             ? { parts: [{ kind: "fact" as const, span: { start: 0, end: row.claim.length } }] }
             : parts && { parts }),
           ...(input.figureIds !== null && { figureIds: input.figureIds }),
+          ...(!row && aheadOf(claim) && { ahead: aheadOf(claim) }),
           ...(previousParts && {
             previous: row
               ? previousParts.length === 1 &&
@@ -794,17 +840,6 @@ export function createMindCheck(options: MindCheckOptions) {
      * What a claim's check reads besides its request: the Library, and for a record cite the
      * Note's source choices and the paragraphs an `Id.` or `supra` refers back to.
      */
-    let libraryNow: string | null = null;
-    // Read once for all the checks it is asked for at the same moment.
-    const library = () => {
-      if (libraryNow === null) {
-        libraryNow = options.libraryState();
-        queueMicrotask(() => {
-          libraryNow = null;
-        });
-      }
-      return libraryNow;
-    };
     const readsNow = (claim: SelectedSentence) => {
       const cites = recordCiteSpans(noteTextOf(claim)).length > 0;
       return () =>
@@ -851,11 +886,16 @@ export function createMindCheck(options: MindCheckOptions) {
           ? sort(mindId, fresh, ready.prepared, signal, {
               slots: limit,
               named: (sentence, parts) => {
-                if (parts.some((part) => part.kind === "fact")) startEarly(sentence, parts);
+                if (!parts.some((part) => part.kind === "fact")) return;
+                searchAhead(sentence);
+                startEarly(sentence, parts);
               },
             })
           : null;
-      for (const sentence of again) startEarly(sentence);
+      for (const sentence of again) {
+        searchAhead(sentence);
+        startEarly(sentence);
+      }
       if (sorting) {
         const found = await sorting;
         if (found.kind !== "found") return found;
@@ -865,6 +905,7 @@ export function createMindCheck(options: MindCheckOptions) {
         }
         for (const sentence of found.undecided) unexamined.add(sentenceKey(sentence.text));
         claims = [...found.claims, ...again];
+        for (const sentence of found.claims) searchAhead(sentence);
       }
 
       const startedAt = options.now().toISOString();

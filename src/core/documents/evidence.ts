@@ -91,7 +91,7 @@ export interface EvidenceDependencies {
   /** The search Tool, reranked as Answers are (see ./searchTool). */
   search(
     query: string,
-    options: Pick<SearchToolOptions, "documentIds" | "parameters" | "signal">,
+    options: Pick<SearchToolOptions, "documentIds" | "parameters" | "signal" | "stated">,
   ): Promise<WindowedPassage[]>;
 }
 
@@ -338,15 +338,18 @@ export function createEvidence(deps: EvidenceDependencies) {
     /**
      * One of a check's searches: the search Tool over its scope, then, if
      * any Documents are left out, a small search of those, for where they matched.
+     * `stated` as the search Tool's (./searchTool), for its search of the scope.
      */
     async search(
       query: string,
       scope: EvidenceScope,
       signal?: AbortSignal,
+      options?: Pick<SearchToolOptions, "stated">,
     ): Promise<EvidenceSearch> {
       const passages = await deps.search(query, {
         documentIds: scope.documentIds ?? undefined,
         signal,
+        ...(options?.stated && { stated: options.stated }),
       });
       if (scope.excluded.size === 0) return { passages, excluded: [] };
       const matched = await deps.search(query, {

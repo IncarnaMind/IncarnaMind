@@ -272,6 +272,24 @@ export function checkInstructions(
 }
 
 /**
+ * The instructions of a sentence's first reply (./firstReply): a check Run's rules and reply form,
+ * one reply for each of its parts, from the Passages its search found, with every part's records.
+ */
+export function firstReplyInstructions(language: Language, claim: string): string {
+  return [
+    ...rules(false, readStatedUnits(claim).length > 0),
+    "",
+    "The User's message gives the sentence, its numbered parts and the Passages a search of the sentence's own words found. Check each part on its own words, read in the sentence and its paragraph, against those Passages alone. Where they don't establish a part either way, its verdict is unsupported.",
+    "",
+    'Reply with one JSON object: {"parts": [{"part": 1, "reply": "…"}], "citations": [{"marker": 1, "passage": "P1", "location": "…", "quote": "…"}]}.',
+    "- parts: one entry for every numbered part, by its number. reply: that part's reply alone, in the form below.",
+    `- citations: a record for every quote any part's reply uses, each under its own marker, and no marker for two parts: ${RECORD}. Include covered parts, supported domain members and membership on unsupported results too; use an empty array only when no quote backs any part.`,
+    "",
+    reply(language, false),
+  ].join("\n");
+}
+
+/**
  * A requested figure's id in a check's request, by its place among them: a Note's own ids hold
  * its Blocks' ids, which never go to a model (#2525). `readFigureReply` reads it back.
  */

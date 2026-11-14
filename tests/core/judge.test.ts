@@ -11,6 +11,7 @@ import { ABSENCE_REPLY } from "../../src/core/answers/checks/absence";
 import { claimPartsOf } from "../../src/core/answers/checks/claims";
 import { readRestated } from "../../src/core/answers/checks/explanations";
 import { QUICK_REPLY } from "../../src/core/answers/checks/fastPaths";
+import { FIRST_REPLY } from "../../src/core/answers/checks/firstReply";
 import {
   readEvidence,
   readJudgement,
@@ -98,6 +99,15 @@ const QUESTIONS: Record<
     unreadable: '{"verdicts":[{"number":1,"verdict":"supported"}]}',
   },
   "quick-check": { reply: QUICK_REPLY, right: "Yes.", read: "yes", unreadable: "Yes, mostly." },
+  "first-reply": {
+    reply: FIRST_REPLY,
+    right: `{"parts":[{"part":1,"reply":"Verdict: supported"}],"citations":[{"marker":1,"passage":"P1","quote":"${QUOTE}"}]}`,
+    read: {
+      replies: new Map([[1, "Verdict: supported"]]),
+      records: [{ marker: 1, passage: "P1", pageFrom: null, pageTo: null, quote: QUOTE }],
+    },
+    unreadable: '{"parts":[{"reply":"Verdict: supported"}],"citations":[]}',
+  },
   "absence-read": {
     reply: ABSENCE_REPLY,
     right: '{"absent":"a break clause","absence":"holds"}',

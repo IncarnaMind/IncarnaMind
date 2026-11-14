@@ -76,6 +76,9 @@ export const OUTPUT_LIMITS = {
   // A yes or a no, after the thinking of a model that thinks first: DeepSeek V4.1 Flash, thinking,
   // wrote up to 748 tokens before its word in 80 replies, and one in five passed 64 (#2817).
   "quick-check": { most: 2_048 },
+  // A sentence's first reply (#2532): a Run's reply for each part and their records, after the
+  // thinking of a model that thinks first, within a Run's step.
+  "first-reply": { most: 8_000, each: 700, base: 2_000 },
   // One word for each part of a step's text: whether it is the Answer's or the model's working (#2371).
   "working-text": { most: 256 },
   // One sentence of a check's card written again in the interface's language (#2081).

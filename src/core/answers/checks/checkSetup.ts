@@ -5,14 +5,16 @@
  */
 import { type CaseCitation, caseCitations, isOpinionOf } from "../../../shared/caseCitations";
 import { aggregateFigureResults } from "../../../shared/figureChecks";
+import { findQuote } from "../../../shared/quoteMatch";
 import type { Citation, ClaimCheckResult, ClaimJudgment } from "../../api";
 import type { CitationSource } from "../../documents";
-import type { EvidenceScope } from "../../documents/evidence";
+import type { EvidenceScope, EvidenceSearch } from "../../documents/evidence";
 import type { WindowedPassage } from "../../documents/search";
 import { type AnswerDocuments, createCitationSession, documentNamedAmong } from "../citations";
-import type { AnswerTools, SearchResultForModel } from "../engine";
+import type { AnswerSearchOptions, AnswerTools, SearchResultForModel } from "../engine";
 import type { CheckResults } from "./checkResults";
 import type {
+  AheadSearch,
   AtomicClaimCheckResult,
   CheckedCitation,
   ClaimCheckDependencies,
@@ -159,14 +161,88 @@ export function withoutDocumentLeftOut(
   };
 }
 
+/**
+ * How many Passages a check hands its sentence (#2532). In this order the deciding Passage was
+ * within the first four for 85 of the 86 wrong twins of the pressure test it was found for at all,
+ * and first for every right sentence.
+ */
+const HANDED_PASSAGES = 4;
+
+/** The Passages a check hands its sentence: one that states it word for word first, then the search's order. */
+export function handOrder<Found extends { rank?: number; text: string }>(
+  found: readonly Found[],
+  claim: string,
+): Found[] {
+  const byRank = [...found].sort((a, b) => (a.rank ?? found.length) - (b.rank ?? found.length));
+  const stating = byRank.find((passage) => findQuote(passage.text, claim.trim()) !== null);
+  return (stating ? [stating, ...byRank.filter((passage) => passage !== stating)] : byRank).slice(
+    0,
+    HANDED_PASSAGES,
+  );
+}
+
+/** Said after the Passages a check hands its sentence. */
+export const HANDED_NOTE =
+  "IncarnaMind searched the sentence's own words for you. If these Passages don't decide it, search again with other words before you give your verdict.";
+
+/**
+ * The search of a sentence's own words that its check hands over (#2532): the one made ahead for
+ * it, or one now, in which a Passage that states the words as they are needs no rerank to come
+ * first, so none is made.
+ */
+export const ownSearch = (
+  deps: Pick<ClaimCheckDependencies, "evidence">,
+  request: Pick<ClaimCheckRequest, "claim" | "scope" | "signal" | "ahead">,
+): AheadSearch =>
+  request.ahead?.query === request.claim
+    ? request.ahead
+    : {
+        query: request.claim,
+        found: deps.evidence.search(request.claim, request.scope, request.signal, {
+          stated: (text) => findQuote(text, request.claim.trim()) !== null,
+        }),
+      };
+
 export function setUpRun(
   deps: Pick<ClaimCheckDependencies, "documents" | "evidence" | "fileProperties" | "libraryFacts">,
-  request: Pick<ClaimCheckRequest, "claim" | "originalClaim" | "cited" | "scope" | "window">,
+  request: Pick<
+    ClaimCheckRequest,
+    "claim" | "originalClaim" | "cited" | "scope" | "window" | "ahead" | "signal"
+  >,
   results: Pick<CheckResults, "readVersion" | "leftOut">,
 ) {
   const { scope } = request;
   let searches = 0;
   const decisions = caseCitations(request.originalClaim ?? request.claim);
+  /** What a search found, as the check reads it: its court decisions' web pages left out, each version read. */
+  const taken = (
+    found: EvidenceSearch | null,
+    within: readonly string[] | undefined,
+    options: AnswerSearchOptions | undefined,
+  ) => {
+    // A web search's result never settles a citation of a court decision.
+    const matched = (request.window ?? found?.passages ?? []).filter(
+      (passage) => decisions.length === 0 || !deps.documents.savedBySearch(passage.documentId),
+    );
+    const passages = [
+      ...matched,
+      ...(options?.properties && deps.fileProperties
+        ? deps.fileProperties.add(matched, within, options)
+        : []),
+      ...(options?.library && deps.libraryFacts ? deps.libraryFacts.add() : []),
+    ];
+    if (!request.window) {
+      for (const passage of passages) results.readVersion(passage.documentId, passage.contentHash);
+    }
+    for (const each of found?.excluded ?? []) results.leftOut(each);
+    return passages;
+  };
+  /** The sentence's own search, as the check hands it over: the first four, in `handOrder`. */
+  const ownPassages = async (signal: AbortSignal) => {
+    const found = await ownSearch(deps, request).found;
+    signal.throwIfAborted();
+    return handOrder(taken(found, undefined, undefined), request.claim);
+  };
   const scoped: AnswerDocuments = {
     searchableCount: () => deps.documents.searchableCount(scope.documentIds),
     // A search may name one Document, as an Answer's may: the one a Citation quotes, often.
@@ -185,23 +261,7 @@ export function setUpRun(
             within ? { ...scope, documentIds: [...within] } : scope,
             searchSignal,
           );
-      // A web search's result never settles a citation of a court decision.
-      const matched = (request.window ?? found?.passages ?? []).filter(
-        (passage) => decisions.length === 0 || !deps.documents.savedBySearch(passage.documentId),
-      );
-      const passages = [
-        ...matched,
-        ...(options?.properties && deps.fileProperties
-          ? deps.fileProperties.add(matched, within, options)
-          : []),
-        ...(options?.library && deps.libraryFacts ? deps.libraryFacts.add() : []),
-      ];
-      if (!request.window) {
-        for (const passage of passages)
-          results.readVersion(passage.documentId, passage.contentHash);
-      }
-      for (const each of found?.excluded ?? []) results.leftOut(each);
-      return passages;
+      return taken(found, within, options);
     },
     citationSource: (passageId) => deps.documents.citationSource(passageId),
     pageTexts: (documentId, contentHash, from, to) =>
@@ -229,6 +289,19 @@ export function setUpRun(
     searches: () => searches,
     // The Passages a Citation quotes are shown from the scope, so a verdict on them has looked.
     looked: () => searches > 0 || citedShown !== null,
+    /** The Passages a search of `query` found, handed to the model as one of the check's searches. */
+    handOver(query: string, passages: readonly WindowedPassage[]): SearchResultForModel {
+      searches++;
+      for (const passage of passages) results.readVersion(passage.documentId, passage.contentHash);
+      return session.searchedFor(query, passages);
+    },
+    ownPassages,
+    /** The sentence's own search, handed to the model as the check's first. */
+    async handOff(signal: AbortSignal): Promise<SearchResultForModel> {
+      const passages = await ownPassages(signal);
+      searches++;
+      return session.searchedFor(request.claim, passages);
+    },
     tools: (
       calculation: Pick<AnswerTools, "calculate" | "calculationFailed"> | null,
     ): AnswerTools => ({

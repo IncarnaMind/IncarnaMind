@@ -2551,7 +2551,11 @@ export function createCitationSession(
     within?: readonly string[],
     options?: AnswerSearchOptions,
   ): Promise<SearchResultForModel> {
-    const found = await find(query, signal, within, options);
+    return resultOf(await find(query, signal, within, options));
+  }
+
+  /** What the model is given of Passages a search found. */
+  function resultOf(found: readonly WindowedPassage[]): SearchResultForModel {
     if (found.length === 0) {
       // The miss is the search's, as `coverageOf` says of results that cover only some pages (#1443).
       return {
@@ -3036,6 +3040,15 @@ export function createCitationSession(
     /** Searches the Answer's Search scope as its search Tool does, for Passages to `show`. */
     find: (query: string, signal?: AbortSignal, options?: AnswerSearchOptions) =>
       find(query, signal, undefined, options),
+
+    /**
+     * Passages `find` found for `query`, given as the search Tool gives a search of those words: a
+     * search of the same words after it finds nothing new.
+     */
+    searchedFor(query: string, found: readonly WindowedPassage[]): SearchResultForModel {
+      searched.add(sameSearch(query));
+      return resultOf(found);
+    },
 
     quotes,
 

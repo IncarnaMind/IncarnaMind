@@ -10,11 +10,11 @@ import { givesStructuredOutput } from "../../providers/capabilities";
 import type { PreparedChatModel } from "../../providers/chat";
 import type { CalculationSession } from "../calculations";
 import type { createCitationSession } from "../citations";
-import { type AnswerTools, documentToolDefinitions } from "../engine";
+import { type AnswerTools, documentToolDefinitions, type SearchResultForModel } from "../engine";
 import type { TurnCheck, TurnFinding } from "../turnChecks";
 import { type CalculationLedger, calculatesIn } from "./calculationLedger";
 import type { CheckResults } from "./checkResults";
-import { asPassage, checkSession, citedSources, NO_DATE } from "./checkSetup";
+import { asPassage, checkSession, citedSources, HANDED_NOTE, NO_DATE } from "./checkSetup";
 import type { ClaimCheckDependencies, ClaimCheckRequest } from "./claimCheck";
 import {
   analysisItemDisagrees,
@@ -313,6 +313,94 @@ export interface RunTranscript {
   finished: boolean;
 }
 
+/**
+ * What sends a check's reply back for more before its verdict is read: the same for a Run's every
+ * turn and for a first reply's every part (./firstReply), which goes on to its Run when one would.
+ * `across` reads a reply across its turns; `askedAbout` hears the reply an ask about its Figures
+ * line is about, and `askedForOwnWords` a reply that compared other words than the sentence's.
+ */
+export function checkTurnChecks(
+  deps: Pick<ClaimCheckDependencies, "fileProperties" | "libraryFacts">,
+  request: Pick<ClaimCheckRequest, "claim" | "figures" | "window">,
+  run: {
+    looked(): boolean;
+    searches(): number;
+    readsWhole(): boolean;
+    session: ReturnType<typeof createCitationSession>;
+    ledger: Pick<CalculationLedger, "calculations" | "attempts" | "requiresCalculation">;
+    across(last: string, setAside?: readonly string[]): string;
+    askedAbout(text: string): void;
+    askedForOwnWords(): void;
+  },
+): TurnCheck[] {
+  const { looked, session, ledger, across } = run;
+  return [
+    // A model may give its verdict before it has looked: Claude Haiku 5.5 did, about one check
+    // in six of a whole Mind.
+    {
+      name: "search-first",
+      check: (text) => (!looked() && readVerdict(text) ? { claims: [], note: SEARCH_FIRST } : null),
+    },
+    // In a window of a whole read every search returns that window: the read is the search.
+    ...(request.window ? [] : [searchAgain(run.searches, run.readsWhole)]),
+    ...(deps.fileProperties ? [deps.fileProperties.turnCheck] : []),
+    ...(deps.libraryFacts
+      ? [deps.libraryFacts.turnCheck(() => session.tools.recordedQuotes?.() ?? [])]
+      : []),
+    ...figuresReplied(
+      request,
+      ledger.calculations,
+      looked,
+      (marker) => session.tools.hasRecord?.(marker) ?? false,
+      run.askedAbout,
+      across,
+    ),
+    {
+      name: "calculate-first",
+      // A sentence checked figure by figure gives each figure's calculation on its Figures
+      // line (`figuresReplied`), never a Calculation line.
+      check: async (text) =>
+        !request.figures?.length &&
+        ledger.attempts() === 0 &&
+        (await ledger.requiresCalculation(readVerdict(text)))
+          ? {
+              claims: [],
+              note: "The numerical check is incomplete. If the Documents let you work out the claim's quantity or comparison, call calculate with the cited inputs, formula and stated quantity before giving a verdict. Never calculate in your head. If a Document states the claim directly, record its deciding quote and write Calculation: none. Otherwise name each required quantity on a Calculation: line; if its inputs cannot be found, say that it could not be calculated.",
+            }
+          : null,
+    },
+    {
+      name: "roles-own-words",
+      check: (text, aside) => {
+        const read = across(text, aside);
+        const verdict = readVerdict(read);
+        if (!verdict || !comparesOtherWords(verdict, request.claim, false)) return null;
+        run.askedForOwnWords();
+        return { claims: [], writeOnly: true, note: ROLES_OWN_WORDS };
+      },
+    },
+    {
+      name: "own-detail",
+      check: (text, aside) => {
+        const read = across(text, aside);
+        const verdict = readVerdict(read);
+        // One line that already differs takes the support away: no ask can give it back.
+        if (
+          verdict?.verdict !== "supported" ||
+          ownDetailDiffers(verdict) ||
+          !ownDetailUnread(verdict)
+        )
+          return null;
+        return {
+          claims: [],
+          writeOnly: true,
+          note: deniesItself(read) ? DETAIL_DENIED : DETAIL_LINES,
+        };
+      },
+    },
+  ];
+}
+
 export async function checkRun(
   deps: Pick<
     ClaimCheckDependencies,
@@ -336,6 +424,8 @@ export async function checkRun(
     tools: AnswerTools;
     session: ReturnType<typeof createCitationSession>;
     citedShown: string | null;
+    /** The search of the sentence's own words the app made, handed over as the Run's first. */
+    handed: SearchResultForModel | null;
     looked(): boolean;
     searches(): number;
     readsWhole(): boolean;
@@ -408,6 +498,9 @@ export async function checkRun(
     question: request.claim,
     model: model.model,
     documents: tools,
+    ...(run.handed && {
+      handed: { query: request.claim, result: run.handed, note: HANDED_NOTE },
+    }),
     ...(request.window && {
       fitted: (passageIds: readonly string[]) => {
         const fitted = new Set(passageIds);
@@ -433,74 +526,20 @@ export async function checkRun(
     cacheKey: request.cacheKey,
     isReply: (text) => readVerdict(text) !== null,
     ...(request.findParts && { afterFirstStep: hear }),
-    // A model may give its verdict before it has looked: Claude Haiku 5.5 did, about one check
-    // in six of a whole Mind.
-    turnChecks: [
-      {
-        name: "search-first",
-        check: (text) =>
-          !looked() && readVerdict(text) ? { claims: [], note: SEARCH_FIRST } : null,
+    turnChecks: checkTurnChecks(deps, asked, {
+      looked,
+      searches: run.searches,
+      readsWhole,
+      session,
+      ledger,
+      across,
+      askedAbout: (text) => {
+        askedAbout = text;
       },
-      // In a window of a whole read every search returns that window: the read is the search.
-      ...(request.window ? [] : [searchAgain(run.searches, readsWhole)]),
-      ...(deps.fileProperties ? [deps.fileProperties.turnCheck] : []),
-      ...(deps.libraryFacts
-        ? [deps.libraryFacts.turnCheck(() => session.tools.recordedQuotes?.() ?? [])]
-        : []),
-      ...figuresReplied(
-        asked,
-        ledger.calculations,
-        looked,
-        (marker) => session.tools.hasRecord?.(marker) ?? false,
-        (text) => {
-          askedAbout = text;
-        },
-        across,
-      ),
-      {
-        name: "calculate-first",
-        // A sentence checked figure by figure gives each figure's calculation on its Figures
-        // line (`figuresReplied`), never a Calculation line.
-        check: async (text) =>
-          !request.figures?.length &&
-          ledger.attempts() === 0 &&
-          (await ledger.requiresCalculation(readVerdict(text)))
-            ? {
-                claims: [],
-                note: "The numerical check is incomplete. If the Documents let you work out the claim's quantity or comparison, call calculate with the cited inputs, formula and stated quantity before giving a verdict. Never calculate in your head. If a Document states the claim directly, record its deciding quote and write Calculation: none. Otherwise name each required quantity on a Calculation: line; if its inputs cannot be found, say that it could not be calculated.",
-              }
-            : null,
+      askedForOwnWords: () => {
+        askedForOwnWords = true;
       },
-      {
-        name: "roles-own-words",
-        check: (text, aside) => {
-          const read = across(text, aside);
-          const verdict = readVerdict(read);
-          if (!verdict || !comparesOtherWords(verdict, request.claim, false)) return null;
-          askedForOwnWords = true;
-          return { claims: [], writeOnly: true, note: ROLES_OWN_WORDS };
-        },
-      },
-      {
-        name: "own-detail",
-        check: (text, aside) => {
-          const read = across(text, aside);
-          const verdict = readVerdict(read);
-          // One line that already differs takes the support away: no ask can give it back.
-          if (
-            verdict?.verdict !== "supported" ||
-            ownDetailDiffers(verdict) ||
-            !ownDetailUnread(verdict)
-          )
-            return null;
-          return {
-            claims: [],
-            writeOnly: true,
-            note: deniesItself(read) ? DETAIL_DENIED : DETAIL_LINES,
-          };
-        },
-      },
-    ],
+    }),
     onAsk: (note, last, aside) => {
       heldBack =
         note === DETAIL_LINES || note === DETAIL_DENIED ? [] : heldDetailLines(across(last, aside));

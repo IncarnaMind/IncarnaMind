@@ -19,6 +19,7 @@ import type {
 import { slots } from "../../runs/stop";
 import { inCheck } from "./checkedText";
 import { failureOf } from "./checkResults";
+import { ownSearch } from "./checkSetup";
 import {
   type AtomicClaimCheckResult,
   type ClaimCheckDependencies,
@@ -27,6 +28,7 @@ import {
 } from "./claimCheck";
 import { readPartsLine } from "./claims";
 import { claimsAmong } from "./findClaims";
+import { type FirstPart, type FirstReplied, firstReply, repliesFirst } from "./firstReply";
 import { claimsAtOnce } from "./runChecks";
 
 const sameSpan = (a: ClaimPartSpan, b: ClaimPartSpan) => a.start === b.start && a.end === b.end;
@@ -291,12 +293,39 @@ export function createPartCheck(
       parts.push(null);
       checks.push({ index, plan, figures, previous });
     }
+    const asked: FirstPart[] = checks.map(({ index, plan, figures }) => ({
+      index,
+      plan,
+      request: partRequest(request, plan.span, figures),
+    }));
+    // One reply answers every part first, and only the parts it doesn't settle take their Runs,
+    // each from the sentence's one search when it is of the same words (#2532).
+    let replied: Map<number, FirstReplied> | null = null;
+    if (repliesFirst(deps, request, asked)) {
+      const ahead = ownSearch(deps, request);
+      for (const each of asked) each.request = { ...each.request, ahead };
+      replied = await limit.run(() =>
+        inCheck({ sentence, part: null }, () => firstReply(deps, { ...request, ahead }, asked)),
+      );
+      if (request.signal.aborted) return failed("stopped");
+    }
     // Parts are checked at once, within the run's limit; a failure that stops the run leaves the
     // parts not started yet not checked, for its reason.
     let stopped: { reason: ClaimCheckFailure; detail: string | null } | null = null;
     await Promise.all(
-      checks.map(({ index, plan, figures, previous }) =>
-        limit.run(async () => {
+      checks.map(({ index, plan, figures, previous }, at) => {
+        const settled = replied?.get(index);
+        if (settled && "settled" in settled) {
+          parts[index] = checkedPart(
+            plan,
+            settled.settled,
+            previous,
+            owned[index] ?? [],
+            request.figureIds,
+          );
+          return undefined;
+        }
+        return limit.run(async () => {
           if (request.signal.aborted) stopped ??= { reason: "stopped", detail: null };
           if (stopped) {
             parts[index] = partWithResult(plan, {
@@ -314,14 +343,14 @@ export function createPartCheck(
                 ? null
                 : request.claim.slice(plan.span.start, plan.span.end),
             },
-            () => atomic(partRequest(request, plan.span, figures)),
+            () => atomic(asked[at]?.request ?? partRequest(request, plan.span, figures)),
           );
           parts[index] = checkedPart(plan, result, previous, owned[index] ?? [], request.figureIds);
           if (result.verdict === "not-checked" && STOPS.includes(result.reason)) {
             stopped ??= { reason: result.reason, detail: result.detail };
           }
-        }),
-      ),
+        });
+      }),
     );
     return resultFromParts(parts.filter((part): part is ClaimCheckPart => part !== null));
   };

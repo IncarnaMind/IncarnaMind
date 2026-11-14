@@ -491,6 +491,11 @@ export interface AnswerRequest {
    * answer from those Passages without searching; it searches on when they aren't enough.
    */
   retrieveFirst?: boolean;
+  /**
+   * In the Tool loop, a search already made and handed over as the Run's own first search, with
+   * what to tell the model after its Passages: a check's search of its sentence (#2532).
+   */
+  handed?: { query: string; result: SearchResultForModel; note: string };
   /** False: the model is known to give no structured output, so it isn't tried. */
   structuredOutput?: boolean;
   /**
@@ -1465,10 +1470,21 @@ function createWritingEngine(options: AiSdkAnswerEngineOptions): AnswerEngine {
             // An experiment beside the catalog (#1633, ADR-0007's amendment): the loop starts from
             // the Question's own search and answers from it unless it needs more. Not while
             // there is nothing to search yet (web search on, or only unread Documents).
-            const presearched =
-              request.retrieveFirst && request.documents.documentCount > 0
-                ? { result: yield* searchOnce(true), query: request.question, read: [...read] }
-                : undefined;
+            let presearched: Presearched | undefined;
+            if (request.handed) {
+              const { query, result, note } = request.handed;
+              for (const source of result.thirdParty ?? []) {
+                if (read.has(source)) continue;
+                read.add(source);
+                yield { type: "read-third-party", source };
+              }
+              presearched = { query, result, read: [...read], note };
+            } else if (request.retrieveFirst && request.documents.documentCount > 0)
+              presearched = {
+                result: yield* searchOnce(true),
+                query: request.question,
+                read: [...read],
+              };
             if (signal.aborted) return;
             attempt = fitted(() =>
               tempered((sent) =>
@@ -1826,6 +1842,8 @@ interface Presearched {
   query: string;
   result: SearchResultForModel;
   read: readonly ReadThirdPartySource[];
+  /** Said after its Passages; the Question's note when absent. */
+  note?: string;
 }
 
 /**
@@ -1833,7 +1851,7 @@ interface Presearched {
  * as any search's is, and carried by the first request within the window.
  */
 function presearchMessages(
-  { query, result }: Presearched,
+  { query, result, note = PRESEARCH_NOTE }: Presearched,
   tool: string,
   request: AnswerRequest,
   loop: ReturnType<WindowBudget["loop"]> | null,
@@ -1841,7 +1859,7 @@ function presearchMessages(
   const id = "question-search";
   const input = { query };
   const read = (passages: string) =>
-    `${fittedResultText(result, passages, request.documents, request.languageNote)}\n\n${PRESEARCH_NOTE}`;
+    `${fittedResultText(result, passages, request.documents, request.languageNote)}\n\n${note}`;
   const fitted = loop
     ? loop.carried(result.text, result.passageCount, result.ranks, (passages) => [
         JSON.stringify(input),
