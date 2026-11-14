@@ -217,8 +217,12 @@ for (const language of ["en", "zh-CN"] as const) {
       );
       let drawn = "";
       const frame = () => {
-        const card = document.querySelector('[data-testid="citation-card"]');
-        const now = card && getComputedStyle(card).visibility === "visible" ? "card drawn" : "card gone";
+        const chipsNow = [...document.querySelectorAll('[data-testid="citation-chip"]')];
+        const open = chipsNow.map((chip) => (chip.getAttribute("aria-expanded") === "true" ? "o" : "-")).join("");
+        const cards = [...document.querySelectorAll('[data-testid="citation-card"]')].filter(
+          (card) => getComputedStyle(card).visibility === "visible",
+        ).length;
+        const now = `cards drawn ${cards}, chips open ${open}`;
         if (now !== drawn) {
           drawn = now;
           note(now);
@@ -276,6 +280,10 @@ for (const language of ["en", "zh-CN"] as const) {
       }
     });
     // Space in, Tab through, back by Tab, in again, back by Esc (on a build that has them).
+    await window.keyboard.press("Escape");
+    await caretAtStart(window, editor);
+    await window.keyboard.press("Tab");
+    await pause(500);
     await walk("4-space-in", async () => {
       await window.keyboard.press("Space");
       await pause(500);
