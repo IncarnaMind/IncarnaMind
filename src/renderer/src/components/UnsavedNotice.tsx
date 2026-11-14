@@ -4,7 +4,7 @@ import { lastRunLine } from "../lastRunLine";
 import { useNotices } from "../notices";
 import { useAppStore } from "../store";
 import { dismissLost, saveChangesAgain, saveCopies, useUnsavedChanges } from "../unsavedChanges";
-import { MetaLine } from "./MetaLine";
+import { actionParts, MetaLine } from "./MetaLine";
 import { LineAction, ProblemMark } from "./ProblemLine";
 import { buttonStyle } from "./ui";
 
@@ -42,28 +42,30 @@ export function UnsavedNotices() {
               data-testid="unsaved-notice-line"
               parts={[
                 t("unsaved.notice", { reason: t(`unsaved.reason.${unsaved.reason}`) }),
-                <LineAction
-                  key="again"
-                  action={{
-                    label: t("unsaved.tryAgain"),
-                    testId: "unsaved-try-again",
-                    onClick: saveChangesAgain,
-                  }}
-                />,
-                unsaved.mindIds.length > 0 && (
+                ...actionParts([
                   <LineAction
-                    key="copy"
+                    key="again"
                     action={{
-                      label: t("unsaved.saveCopy"),
-                      testId: "unsaved-save-copy",
-                      onClick: () => {
-                        saveCopies(unsaved.mindIds).catch((error: unknown) =>
-                          useNotices.getState().showError(error),
-                        );
-                      },
+                      label: t("unsaved.tryAgain"),
+                      testId: "unsaved-try-again",
+                      onClick: saveChangesAgain,
                     }}
-                  />
-                ),
+                  />,
+                  unsaved.mindIds.length > 0 && (
+                    <LineAction
+                      key="copy"
+                      action={{
+                        label: t("unsaved.saveCopy"),
+                        testId: "unsaved-save-copy",
+                        onClick: () => {
+                          saveCopies(unsaved.mindIds).catch((error: unknown) =>
+                            useNotices.getState().showError(error),
+                          );
+                        },
+                      }}
+                    />
+                  ),
+                ]),
               ]}
             />
             <details data-testid="unsaved-notice-details" className="mt-1 text-ink-meta">

@@ -14,7 +14,7 @@ import { CaptureDetails, CaptureDetailsLine, CaptureProblem } from "./CaptureDet
 import { CloseLineIcon, RecordingLineIcon } from "./lineIcons";
 import { MeetingBar, MeetingBarRoom } from "./MeetingBar";
 import { MeetingFillLine } from "./MeetingFillLine";
-import { MetaLine } from "./MetaLine";
+import { actionParts, MetaLine } from "./MetaLine";
 import { LineAction, ProblemLine } from "./ProblemLine";
 import { TranscriptLines } from "./TranscriptLines";
 import { useTabPlace } from "./tabs/tabItems";
@@ -284,26 +284,28 @@ function MeetingAudioLine({ meeting, className = "" }: { meeting: Meeting; class
         meeting.status === "stopped" &&
           t("meetings.audio.recorded", { time: clockTime(meeting.recordedMs) }),
         said,
-        canKeepAudio(meeting) && (
-          <LineAction
-            key="keep"
-            action={{
-              label: t("meetings.audio.keepAudio"),
-              testId: "meeting-audio-keep-for-good",
-              onClick: run("meeting.keepAudio"),
-            }}
-          />
-        ),
-        audio.kept && (
-          <LineAction
-            key="delete"
-            action={{
-              label: t("meetings.audio.delete"),
-              testId: "meeting-audio-delete",
-              onClick: run("meeting.deleteAudio"),
-            }}
-          />
-        ),
+        ...actionParts([
+          canKeepAudio(meeting) && (
+            <LineAction
+              key="keep"
+              action={{
+                label: t("meetings.audio.keepAudio"),
+                testId: "meeting-audio-keep-for-good",
+                onClick: run("meeting.keepAudio"),
+              }}
+            />
+          ),
+          audio.kept && (
+            <LineAction
+              key="delete"
+              action={{
+                label: t("meetings.audio.delete"),
+                testId: "meeting-audio-delete",
+                onClick: run("meeting.deleteAudio"),
+              }}
+            />
+          ),
+        ]),
       ]}
     />
   );

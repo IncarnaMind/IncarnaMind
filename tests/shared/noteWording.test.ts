@@ -85,6 +85,7 @@ const NOTE_FOR_MIND: readonly MessageKey[] = [
   "meetings.cantRecord.notes",
   "meetings.command.addLine",
   "meetings.fill.failed",
+  "meetings.fill.failed.provider",
   "meetings.fill.filled",
   "meetings.fill.filling",
   "meetings.fill.fillingLocal",

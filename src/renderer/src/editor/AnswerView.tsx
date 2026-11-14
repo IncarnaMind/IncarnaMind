@@ -26,7 +26,6 @@ import { RUN_SCRIPT, SEARCH } from "../answerSteps";
 import { documentReadText } from "../answerStepWords";
 import { useAnswers } from "../answers";
 import { useApprovals, waitingFor } from "../approvals";
-import { signInAgain } from "../chatGptSignIn";
 import { AskCall } from "../components/assistant/AskCall";
 import { CommandCall } from "../components/assistant/CommandCall";
 import { FoundPassages } from "../components/assistant/FoundPassages";
@@ -46,6 +45,7 @@ import { core } from "../core";
 import { formatResetTime } from "../cost";
 import { useDeclineEnded } from "../declineEnded";
 import { useFindSources } from "../findSources";
+import { fixAction } from "../fixAction";
 import { useLanguage, useT } from "../i18n";
 import {
   billingUrlOfProvider,
@@ -499,41 +499,11 @@ export function AnswerError({
         ? { label: t("answer.error.removeFromMenu"), onClick: removeFromMenu }
         : kind === "auth" && keySaved && onRetry
           ? { label: t("answer.error.askAgain"), onClick: onRetry }
-          : kind === "auth"
-            ? {
-                label: t("answer.error.checkKey"),
-                onClick: () =>
-                  void useKeyRefusals.getState().check(providerId, modelId ?? "", failedAt),
-              }
-            : fix.kind === "settings"
-              ? {
-                  label: t(fix.label),
-                  onClick: () =>
-                    chooseModel && chooseHere
-                      ? requestModelMenu()
-                      : onOpenSettings(fix.page, fix.at),
-                }
-              : fix.kind === "sign-in"
-                ? {
-                    label: t(fix.label),
-                    onClick: () =>
-                      void signInAgain(onOpenSettings).then((signedIn) => {
-                        if (signedIn) onRetry?.();
-                      }),
-                  }
-                : fix.kind === "link"
-                  ? // The main process opens it in the User's browser.
-                    {
-                      label: `${t(fix.label)} ↗`,
-                      onClick: () => {
-                        if (kind === "out-of-credit")
-                          useKeyRefusals.getState().openBilling(providerId, fix.url);
-                        else window.open(fix.url, "_blank", "noreferrer");
-                      },
-                    }
-                  : fix.kind === "retry" && onRetry
-                    ? { label: t(fix.label), onClick: onRetry }
-                    : undefined;
+          : fixAction(
+              fix,
+              { kind, providerId, modelId, failedAt, chooseHere, onOpenSettings, onRetry },
+              t,
+            );
   return (
     <div contentEditable={false} data-testid="answer-error" data-error-kind={kind}>
       <ProblemLine

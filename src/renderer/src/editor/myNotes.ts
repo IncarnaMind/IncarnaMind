@@ -562,7 +562,10 @@ export const MyNotes = Extension.create({
 export type MyNotesStep = "fillUndo" | "fillRedo" | "undidHidden" | "redidHidden";
 
 export interface MyNotesHistoryOptions {
-  /** Whether the next Undo or Redo is the meeting fill's own step, which lives in hidden lines. */
+  /**
+   * Whether the next Undo or Redo is the meeting fill's own step, which lives in hidden lines, or,
+   * with the editor's own history empty, the fill its tab holds.
+   */
   fillNext(editor: Editor, step: "undo" | "redo"): boolean;
   /** Where the editor's meeting fill stands in its history: in the Note, taken back, or neither. */
   fillState(editor: Editor): "done" | "undone" | null;
@@ -618,9 +621,12 @@ export const MyNotesHistory = Extension.create<MyNotesHistoryOptions>({
       ({ tr, state, dispatch }: CommandProps) => {
         tr.setMeta("preventDispatch", true);
         const manager = yUndoPluginKey.getState(state)?.undoManager;
-        if (!manager || (step === "undo" ? manager.undoStack : manager.redoStack).length === 0) {
-          return false;
-        }
+        const empty =
+          !manager || (step === "undo" ? manager.undoStack : manager.redoStack).length === 0;
+        // A fill handed to the tab is next once the history is empty: it stays, as any fill here (#3099).
+        const handedFillNext =
+          step === "undo" && !!KEY.getState(state)?.on && this.options.fillNext(this.editor, step);
+        if (empty && !handedFillNext) return false;
         if (!dispatch) return true;
         return historyStep(this.editor, step, this.options);
       };

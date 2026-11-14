@@ -620,6 +620,29 @@ describe("Record a voice memo (#1568)", { timeout: 60_000 }, () => {
     core.close();
   });
 
+  // protects=a tidied note that comes back with nothing in it writes nothing and records why in its own kind, so the memo's line names it: the model found nothing to add, in the interface's language (#3099); fails_when=an empty note is written, or the reason is the general one; no_claim=the line's frame, which tests/renderer/meetingFillLine.test.ts holds.
+  test.each([
+    ["en", "The garden", "the model found nothing to add."],
+    ["zh-CN", "花园", "模型没有找到可补充的内容。"],
+  ] as const)(
+    "a tidied note with nothing in it writes nothing, and says why (%s)",
+    async (language, title, reason) => {
+      const model = tidyingModel(`# ${title}`, {});
+      const { core, memo, client } = await recordedMemo({
+        model,
+        before: async (core) => {
+          await core.updateSettings({ user: { language } });
+        },
+      });
+      expect(await settledFill(core, memo)).toMatchObject({
+        state: "failed",
+        problem: { kind: "empty", message: reason },
+      });
+      expect(shown(client).filter((line) => line !== "")).toEqual([]);
+      core.close();
+    },
+  );
+
   test.each(["en", "zh-CN"] as const)(
     "a failed Citation never drops a verbatim thought from a voice memo (%s)",
     async (language) => {

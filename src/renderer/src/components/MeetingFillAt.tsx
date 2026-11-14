@@ -5,6 +5,7 @@ import type { Meeting } from "../../../core/api";
 import { MEETING_FILL_SLOT, setMeetingFillPlace } from "../editor/meetingFillPlace";
 import { takeFillInEditor } from "../editor/meetingFillUndo";
 import { MeetingFillLine } from "./MeetingFillLine";
+import { useTabPlace } from "./tabs/tabItems";
 
 /** `lineShown`: false where the page hides what the fill wrote, as My notes does. */
 export function MeetingFillAt({
@@ -17,6 +18,7 @@ export function MeetingFillAt({
   lineShown?: boolean;
 }) {
   const [slot, setSlot] = useState<HTMLElement | null>(null);
+  const tabId = useTabPlace()?.tabId;
 
   useEffect(() => {
     const find = () => {
@@ -31,7 +33,7 @@ export function MeetingFillAt({
     };
   }, [editor]);
 
-  useEffect(() => takeFillInEditor(editor, meeting.id), [editor, meeting.id]);
+  useEffect(() => takeFillInEditor(editor, meeting.id, tabId), [editor, meeting.id, tabId]);
 
   useEffect(() => {
     setMeetingFillPlace(

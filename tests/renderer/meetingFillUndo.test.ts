@@ -3,7 +3,14 @@ import Collaboration from "@tiptap/extension-collaboration";
 import { DOMParser } from "linkedom";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import * as Y from "yjs";
-import { type EditCause, type MeetingFill, MIND_CONTENT_FIELD } from "../../src/core/api";
+import {
+  DEFAULT_ASSISTANT,
+  type EditCause,
+  type MeetingFill,
+  MIND_CONTENT_FIELD,
+  type WindowLayout,
+} from "../../src/core/api";
+import type { Undoable } from "../../src/renderer/src/undo";
 import { meetingFillCause } from "../../src/shared/meetingFill";
 
 /*
@@ -22,10 +29,13 @@ const bridge = vi.hoisted(() => ({
   openMind: async (_mindId: string): Promise<unknown> => null,
   applyMindUpdate: async (_mindId: string, _update: Uint8Array): Promise<void> => undefined,
   follows: [] as [string, boolean][],
+  /** The fills the store was asked to take back through the core. */
+  undoFills: [] as string[],
   /** What Undo said in My notes. */
   told: [] as string[],
-  /** The window's Meetings, as the core last sent them: only the fill matters here. */
-  setMeetings: (_meetings: { id: string; fill: MeetingFill | null }[]): void => undefined,
+  /** The window's Meetings, as the core last sent them: only the fill and its Note matter here. */
+  setMeetings: (_meetings: { id: string; mindId: string; fill: MeetingFill | null }[]): void =>
+    undefined,
 }));
 
 vi.mock("../../src/renderer/src/core", () => ({
@@ -46,10 +56,13 @@ vi.mock("../../src/renderer/src/core", () => ({
 vi.mock("../../src/renderer/src/meetings", async () => {
   const { create } = await import("zustand");
   const useMeetings = create(() => ({
-    meetings: [] as { id: string; fill: MeetingFill | null }[],
+    meetings: [] as { id: string; mindId: string; fill: MeetingFill | null }[],
     problems: {},
     followFillUndo: async (meetingId: string, undone: boolean) => {
       bridge.follows.push([meetingId, undone]);
+    },
+    undoFill: async (meetingId: string) => {
+      bridge.undoFills.push(meetingId);
     },
   }));
   bridge.setMeetings = (meetings) => useMeetings.setState({ meetings });
@@ -58,8 +71,19 @@ vi.mock("../../src/renderer/src/meetings", async () => {
 
 const { openMindCopy, flushMindUpdates } = await import("../../src/renderer/src/mindCopies");
 const { takeFillInEditor } = await import("../../src/renderer/src/editor/meetingFillUndo");
-const { fillNextIn, fillStateIn, fillStepIn, letGoOfUndoneFill, undoFillInEditor } = await import(
-  "../../src/renderer/src/meetingFillSteps"
+const {
+  endHandOver,
+  fillLineHandedTo,
+  fillNextIn,
+  fillStateIn,
+  fillStepIn,
+  letGoOfUndoneFill,
+  undoFillInEditor,
+} = await import("../../src/renderer/src/meetingFillSteps");
+const { nextToRedo, nextToUndo, undoReady, useUndo } = await import("../../src/renderer/src/undo");
+const { useAppStore } = await import("../../src/renderer/src/store");
+const { showMeetingNoteView, useMeetingNoteViews } = await import(
+  "../../src/renderer/src/meetingViews"
 );
 const { MyNotes, MyNotesHistory, showMyNotes } = await import(
   "../../src/renderer/src/editor/myNotes"
@@ -124,6 +148,9 @@ beforeEach(() => {
   }
   server = new Y.Doc();
   bridge.follows = [];
+  bridge.undoFills = [];
+  useUndo.setState({ done: [], undone: [], aside: [] });
+  showTabs(["tab-1", "tab-2"]);
   bridge.told = [];
   const send = (mindId: string, update: Uint8Array, cause?: EditCause) => {
     for (const listener of [...bridge.listeners]) {
@@ -136,18 +163,47 @@ beforeEach(() => {
     send(mindId, update);
   };
   fill.send = send;
-  bridge.setMeetings([{ id: MEETING, fill: null }]);
+  bridge.setMeetings([{ id: MEETING, mindId: MIND, fill: null }]);
 });
 
 afterEach(() => {
   for (const cleanup of cleanups.splice(0).reverse()) cleanup();
+  endHandOver(MEETING);
+  useMeetingNoteViews.setState({ views: {}, focus: null, details: null });
   bridge.listeners.clear();
   vi.unstubAllGlobals();
 });
 
+/** The window's tabs, each showing the Note, in one group. */
+function showTabs(tabIds: readonly string[]): void {
+  useAppStore.setState({
+    layout: {
+      groups: [
+        {
+          id: "group",
+          tabs: tabIds.map((id) => ({
+            id,
+            item: { kind: "mind", mindId: MIND },
+            preview: false,
+            pinned: false,
+            place: null,
+            opened: 0,
+          })),
+          activeTabId: tabIds[0] ?? null,
+          width: 1,
+        },
+      ],
+      focusedGroupId: "group",
+      reopenable: 0,
+      conversationId: null,
+      assistant: DEFAULT_ASSISTANT,
+    } satisfies WindowLayout,
+  });
+}
+
 function setFill(state: MeetingFill["state"]): void {
   bridge.setMeetings([
-    { id: MEETING, fill: { state, mode: "sections", local: false, problem: null } },
+    { id: MEETING, mindId: MIND, fill: { state, mode: "sections", local: false, problem: null } },
   ]);
 }
 
@@ -199,9 +255,32 @@ function citationIn(note: Y.XmlFragment): Y.XmlElement {
   return found.value;
 }
 
+/** What an Undo says, by its words' keys. */
+const saidBy = (
+  change:
+    | { said: (t: (key: string) => string, cut: (name: string) => string) => string }
+    | undefined,
+) =>
+  change?.said(
+    (key) => key,
+    (name) => name,
+  ) ?? "";
+
 /** A copy of the Note, open in an editor that takes the fill as its own step. */
 /** `mine`: the copy can show My notes, with its Undo. */
 async function openEditor(mine = false): Promise<Editor> {
+  return (await mountEditor(mine)).editor;
+}
+
+/**
+ * A copy of the Note in a tab's editor, with what ends that editor as a tab switch does: the
+ * effect holding the fill first, or the editor first, as either may come first.
+ */
+async function openInTab(tabId: string) {
+  return mountEditor(false, tabId);
+}
+
+async function mountEditor(mine: boolean, tabId?: string) {
   const doc = await new Promise<Y.Doc>((resolve, reject) => {
     const close = openMindCopy(
       MIND,
@@ -228,9 +307,24 @@ async function openEditor(mine = false): Promise<Editor> {
     ],
   });
   editor.view.updateState(editor.state.reconfigure({ plugins: editor.extensionManager.plugins }));
-  cleanups.push(() => editor.destroy());
-  cleanups.push(takeFillInEditor(editor, MEETING));
-  return editor;
+  const release = takeFillInEditor(editor, MEETING, tabId);
+  let effect = true;
+  /** The effect holding the fill ends, the editor still drawn. */
+  const endEffect = () => {
+    if (!effect) return;
+    effect = false;
+    release();
+  };
+  let open = true;
+  const close = (first: "effect" | "editor" = "effect") => {
+    if (!open) return;
+    open = false;
+    if (first === "editor") editor.destroy();
+    endEffect();
+    if (first === "effect") editor.destroy();
+  };
+  cleanups.push(() => close());
+  return { editor, close, release: endEffect };
 }
 
 /** Types at the end of the first text holding `words`. */
@@ -415,4 +509,312 @@ describe.each(["en", "zh-CN"] as const)("the fill in two copies of one Note (%s)
     expect(bridge.told).toEqual(["fillUndo"]);
     expect(fillStepIn(MEETING, first)).toBe("top");
   });
+
+  /** The fill's Undo on the app's stack, reached or not: the editor's own, or its tab's. */
+  const fillOnStack = () =>
+    useUndo.getState().done.find((change) => saidBy(change).startsWith("meetings.fill"));
+  /** What ⌘Z takes back next, and what Edit › Undo names. */
+  const next = () => nextToUndo(useUndo.getState());
+  /** The fill's Undo is on the stack, and ⌘Z and Edit › Undo pass over it. */
+  const passedOver = () => {
+    const fill = fillOnStack();
+    expect(saidBy(fill)).toBe("meetings.fill.filled");
+    expect(useUndo.getState().aside).toContain(fill);
+    expect(next()).not.toBe(fill);
+  };
+  /** The fill's Undo is what ⌘Z takes back next. */
+  const reached = () => {
+    expect(saidBy(next())).toBe("meetings.fill.filled");
+    expect(
+      useUndo.getState().done.filter((each) => saidBy(each).startsWith("meetings.fill")),
+    ).toHaveLength(1);
+  };
+
+  /** The tab's view of the Note, as its chip sets it. */
+  const view = (tabId: string, shown: "notes" | "mine" | "transcript") =>
+    showMeetingNoteView(tabId, MIND, shown);
+
+  /** A change made after the fill, elsewhere: on the app's stack, recording what is done to it. */
+  const later = (log: string[]): Undoable => ({
+    said: () => "later",
+    name: () => "later",
+    undo: async () => {
+      log.push("undo later");
+    },
+    redo: async () => {
+      log.push("redo later");
+    },
+  });
+
+  /** The Note's tab filled: the editor in it holds the fill on top. */
+  async function filledInTab(tabId = "tab-1") {
+    ownLine(words);
+    const opened = await openInTab(tabId);
+    setFill("filling");
+    fillFromCore(words);
+    await settled(opened.editor, filledText);
+    return opened;
+  }
+
+  // protects=a tab switch is no typing: an editor that ends with the fill's step on top hands it to its tab, whose next editor offers the line, through any number of switches, and ⌘Z there takes back what the User did first and then the fill, through the core; while no editor of the tab shows, the fill's Undo keeps its place and ⌘Z passes over it (#3099); fails_when=the line is lost on a switch, comes back after the User acted, ⌘Z takes the fill back before the User's own step, or reaches it with no editor of its tab; no_claim=how the window draws the line, which the smoke spec shows.
+  test.each(["effect", "editor"] as const)(
+    "a tab's editor ending with the fill on top hands it to the tab, ⌘Z there taking the User's step first (%s ends first)",
+    async (first) => {
+      const before = await filledInTab();
+      expect(fillStepIn(MEETING, before.editor)).toBe("top");
+
+      before.close(first);
+      expect(fillLineHandedTo(MEETING, "tab-1")).toBe(true);
+      expect(fillLineHandedTo(MEETING, "tab-2")).toBe(false);
+      passedOver();
+
+      const between = await openInTab("tab-1");
+      await settled(between.editor, filledText);
+      reached();
+      between.close();
+      passedOver();
+      const after = await openInTab("tab-1");
+      await settled(after.editor, filledText);
+      expect(fillStepIn(MEETING, after.editor)).toBeNull();
+      expect(fillLineHandedTo(MEETING, "tab-1")).toBe(true);
+
+      typeAfter(after.editor, words.own, words.typed);
+      expect(fillLineHandedTo(MEETING, "tab-1")).toBe(false);
+      reached();
+
+      // ⌘Z in a Note: its own history first, then the app's (commands/edit.ts).
+      expect(after.editor.commands.undo()).toBe(true);
+      await settled(after.editor, filledText);
+      expect(bridge.undoFills).toEqual([]);
+      expect(after.editor.commands.undo()).toBe(false);
+      await useUndo.getState().undo();
+      expect(bridge.undoFills).toEqual([MEETING]);
+    },
+  );
+
+  // protects=the core's Undo takes the place of the editor's on the app's stack, so a change made after the fill stays above it, whichever of the editor and its effect ends first: the editor's ending hands over before its own offer leaves the stack (#3099); fails_when=the fill jumps ahead of the later change, or the stack holds two Undos of the fill; no_claim=what the later change is.
+  test.each(["effect", "editor"] as const)(
+    "a change made after the fill stays above it through a tab switch (%s ends first)",
+    async (first) => {
+      const log: string[] = [];
+      const before = await filledInTab();
+      const fill = fillOnStack();
+      const made = later(log);
+      useUndo.getState().push(made);
+      expect(useUndo.getState().done).toEqual([fill, made]);
+
+      before.close(first);
+      const [handed, after] = useUndo.getState().done;
+      expect(saidBy(handed)).toBe("meetings.fill.filled");
+      expect(handed).not.toBe(fill);
+      expect(after).toBe(made);
+      await useUndo.getState().undo();
+      expect(log).toEqual(["undo later"]);
+      expect(bridge.undoFills).toEqual([]);
+
+      const back = await openInTab("tab-1");
+      await settled(back.editor, filledText);
+      await useUndo.getState().undo();
+      expect(bridge.undoFills).toEqual([MEETING]);
+    },
+  );
+
+  // protects=the hand-over also runs when the effect ends with its editor still drawn: the editor lets go of the fill's step, so its own ⌘Z can't reach it, and the stack holds one Undo of the fill, the core's, which the tab's next effect reaches (#3099); fails_when=the stack holds two Undos of one fill, or the note's own ⌘Z takes the step while the core's Undo is offered; no_claim=when React ends an effect early.
+  test("an effect that ends with its editor still drawn hands over once, and the editor lets the step go", async () => {
+    const opened = await filledInTab();
+    opened.release();
+    expect(
+      useUndo.getState().done.filter((each) => saidBy(each).startsWith("meetings.fill")),
+    ).toHaveLength(1);
+    passedOver();
+    expect(opened.editor.commands.undo()).toBe(false);
+    await settled(opened.editor, filledText);
+    const again = takeFillInEditor(opened.editor, MEETING, "tab-1");
+    reached();
+    await useUndo.getState().undo();
+    expect(bridge.undoFills).toEqual([MEETING]);
+    again();
+  });
+
+  // protects=a closed tab is handed nothing: the layout drops the tab before its editor ends, and the fill's Undo then leaves the stack with the Note, as on main (#3099); fails_when=a line or an Undo of the fill is kept for a tab already closed; no_claim=Reopen closed tab.
+  test("an editor ending in a tab the layout has closed hands nothing over", async () => {
+    const before = await filledInTab();
+    showTabs(["tab-2"]);
+    before.close();
+    expect(fillLineHandedTo(MEETING, "tab-1")).toBe(false);
+    expect(fillOnStack()).toBeUndefined();
+    await useUndo.getState().undo();
+    expect(bridge.undoFills).toEqual([]);
+  });
+
+  // protects=only a step still on top is handed over: once the User typed after the fill, the editor ending hands the tab nothing, so no line comes back (#3099); fails_when=a line or an Undo of the fill comes back after the User typed; no_claim=the User's typed Undo across a tab switch, another issue (#3115).
+  test("a tab's editor the User typed in after the fill hands nothing over", async () => {
+    const before = await filledInTab();
+    typeAfter(before.editor, words.own, words.typed);
+    expect(fillStepIn(MEETING, before.editor)).toBe("done");
+
+    before.close();
+    expect(fillLineHandedTo(MEETING, "tab-1")).toBe(false);
+    const after = await openInTab("tab-1");
+    await settled(after.editor, `${words.own}${words.typed}\n${words.heading}\n${words.bullet}`);
+    expect(fillOnStack()).toBeUndefined();
+  });
+
+  // protects=what a tab was handed goes once the fill moves on: taken back elsewhere, or filled anew, the line and the app's Undo of it go (#3099); fails_when=the tab keeps a line or an Undo for a fill that is gone; no_claim=the tab closing, which the smoke spec shows.
+  test.each(["undone", "filling"] as const)(
+    "a fill %s elsewhere takes back what its tab was handed",
+    async (state) => {
+      const before = await filledInTab();
+      before.close();
+      expect(fillLineHandedTo(MEETING, "tab-1")).toBe(true);
+      const after = await openInTab("tab-1");
+      await settled(after.editor, filledText);
+      reached();
+
+      setFill(state);
+      expect(fillLineHandedTo(MEETING, "tab-1")).toBe(false);
+      expect(fillOnStack()).toBeUndefined();
+    },
+  );
+
+  // protects=the fill's Undo is reached only while its text shows: with no editor of its tab open, as from the Transcript's own tab or another Note's, or from another tab that never held the fill, ⌘Z and Edit › Undo pass over it, Edit › Undo is off when it is the only change, and a held ⌘Z steps past it and stops; the tab's editor on Notes reaches it again, and it works (#3099); fails_when=⌘Z elsewhere takes the fill back out of sight, the menu names it or is on for it, or it isn't reached once the Note shows again; no_claim=the Edit menu's words, which the smoke spec reads.
+  test("⌘Z elsewhere passes over the handed-over fill, and the tab's editor reaches it again", async () => {
+    const before = await filledInTab();
+    before.close();
+    passedOver();
+    expect(undoReady(useUndo.getState())).toBe(false);
+    await useUndo.getState().undo();
+    await useUndo.getState().undo();
+    expect(bridge.undoFills).toEqual([]);
+
+    const elsewhere = await openInTab("tab-2");
+    await settled(elsewhere.editor, filledText);
+    passedOver();
+    await useUndo.getState().undo();
+    expect(bridge.undoFills).toEqual([]);
+    elsewhere.close();
+
+    const after = await openInTab("tab-1");
+    await settled(after.editor, filledText);
+    reached();
+    expect(undoReady(useUndo.getState())).toBe(true);
+    await useUndo.getState().undo();
+    expect(bridge.undoFills).toEqual([MEETING]);
+  });
+
+  // protects=a held ⌘Z steps past a fill whose text doesn't show to the change below it, and stops; ⇧⌘Z the same way round (#3099); fails_when=⌘Z or ⇧⌘Z takes the hidden fill, or stops short of the change below it; no_claim=the order of changes made in other Notes.
+  test("a held ⌘Z steps past the hidden fill and stops; ⇧⌘Z the same way round", async () => {
+    const log: string[] = [];
+    const made = later(log);
+    useUndo.getState().push(made);
+    const before = await filledInTab();
+    const fill = fillOnStack();
+    expect(useUndo.getState().done).toEqual([made, fill]);
+    view("tab-1", "transcript");
+    await useUndo.getState().undo();
+    await useUndo.getState().undo();
+    expect(log).toEqual(["undo later"]);
+    expect(fillStepIn(MEETING, before.editor)).toBe("top");
+    await useUndo.getState().redo();
+    await useUndo.getState().redo();
+    expect(log).toEqual(["undo later", "redo later"]);
+
+    view("tab-1", "notes");
+    await useUndo.getState().undo();
+    await useUndo.getState().undo();
+    expect(log).toEqual(["undo later", "redo later", "undo later"]);
+    await settled(before.editor, words.own);
+    view("tab-1", "transcript");
+    expect(nextToRedo(useUndo.getState())).toBe(made);
+    await useUndo.getState().redo();
+    await useUndo.getState().redo();
+    expect(log).toEqual(["undo later", "redo later", "undo later", "redo later"]);
+    await settled(before.editor, words.own);
+    view("tab-1", "notes");
+    expect(nextToRedo(useUndo.getState())).toBe(fill);
+  });
+
+  // protects=the chip's Transcript view and My notes hide the fill's text, so ⌘Z passes over the fill's Undo the editor holds there; back on Notes it takes the fill back, and a change made after the fill is still taken back first (#3099); fails_when=⌘Z on the Transcript or My notes takes the fill back unseen, or the fill jumps ahead of the later change; no_claim=⌘Z in the note on My notes, which the next test holds.
+  test.each(["transcript", "mine"] as const)(
+    "on the %s view ⌘Z passes over the fill the editor holds; back on Notes the later change goes first, then the fill",
+    async (shown) => {
+      const log: string[] = [];
+      const { editor } = await filledInTab();
+      reached();
+      const made = later(log);
+      useUndo.getState().push(made);
+
+      view("tab-1", shown);
+      passedOver();
+      await useUndo.getState().undo();
+      expect(log).toEqual(["undo later"]);
+      await useUndo.getState().redo();
+      await useUndo.getState().undo();
+      expect(fillStepIn(MEETING, editor)).toBe("top");
+
+      view("tab-1", "notes");
+      // The later change, taken back before the switch, can still be done again after it.
+      expect(nextToRedo(useUndo.getState())).toBe(made);
+      await useUndo.getState().redo();
+      await useUndo.getState().undo();
+      await useUndo.getState().undo();
+      expect(log).toEqual(["undo later", "redo later", "undo later", "redo later", "undo later"]);
+      await settled(editor, words.own);
+      expect(fillStepIn(MEETING, editor)).toBe("undone");
+    },
+  );
+
+  // protects=the same for a fill handed to the tab: its editor reaches it on Notes only, never on the Transcript view or My notes (#3099); fails_when=the app's Undo takes the handed-over fill back while its text is hidden; no_claim=the line, which the smoke spec shows.
+  test("the tab's editor reaches the handed-over fill on Notes only", async () => {
+    const before = await filledInTab();
+    before.close();
+
+    view("tab-1", "transcript");
+    const after = await openInTab("tab-1");
+    await settled(after.editor, filledText);
+    passedOver();
+    view("tab-1", "mine");
+    passedOver();
+    await useUndo.getState().undo();
+    expect(bridge.undoFills).toEqual([]);
+
+    view("tab-1", "notes");
+    reached();
+    await useUndo.getState().undo();
+    expect(bridge.undoFills).toEqual([MEETING]);
+  });
+
+  // protects=⌘Z in the note on My notes leaves the fill in place and says to undo it from Notes, whether the editor holds the fill or its tab was handed it; back on Notes the fill's Undo is reached again (#138, #3099); fails_when=⌘Z on My notes takes the fill back unseen, or says nothing; no_claim=the line's words, which the smoke spec reads.
+  test.each(["held by the editor", "handed to the tab"] as const)(
+    "⌘Z in My notes leaves the fill %s, and says to undo it from Notes",
+    async (how) => {
+      let editor: Editor;
+      if (how === "held by the editor") {
+        ownLine(words);
+        editor = (await mountEditor(true, "tab-1")).editor;
+        setFill("filling");
+        fillFromCore(words);
+        await settled(editor, filledText);
+      } else {
+        const before = await filledInTab();
+        before.close();
+        editor = (await mountEditor(true, "tab-1")).editor;
+        await settled(editor, filledText);
+      }
+
+      view("tab-1", "mine");
+      showMyNotes(editor, true);
+      expect(editor.commands.undo()).toBe(true);
+      expect(bridge.told).toEqual(["fillUndo"]);
+      await settled(editor, filledText);
+      expect(bridge.undoFills).toEqual([]);
+
+      view("tab-1", "notes");
+      showMyNotes(editor, false);
+      reached();
+      await useUndo.getState().undo();
+      if (how === "held by the editor") await settled(editor, words.own);
+      else expect(bridge.undoFills).toEqual([MEETING]);
+    },
+  );
 });
