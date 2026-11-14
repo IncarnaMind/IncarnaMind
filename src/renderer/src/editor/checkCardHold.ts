@@ -32,13 +32,13 @@ export function firstHeight({ natural, card, chrome, badge }: HeldRoom): number 
 
 /** `firstHeight` for the body as it is laid out now, under the badge it hangs from. */
 export function firstHeightOf(body: HTMLElement, badge: Element): number {
-  const card = body.closest<HTMLElement>(".check-card")?.getBoundingClientRect();
-  if (!card) return body.offsetHeight;
-  const anchor = badge.getBoundingClientRect();
+  const element = body.closest<HTMLElement>(".check-card");
+  if (!element) return body.offsetHeight;
   return firstHeight({
     natural: body.offsetHeight,
-    card,
-    chrome: card.height - body.offsetHeight,
-    badge: anchor,
+    card: element.getBoundingClientRect(),
+    // Its scroll height, not its box: a body taller than the room has already clamped the card.
+    chrome: element.scrollHeight - body.offsetHeight,
+    badge: badge.getBoundingClientRect(),
   });
 }
