@@ -2094,7 +2094,8 @@ export function createCitationSession(
 
   /**
    * The Units a sheet's header row may be in, by Document version and sheet, read once: the Units
-   * of its first rows, which `headerRow` looks among.
+   * of its first rows, which `headerRow` looks among. Not every Unit whose first line repeats the
+   * header: on a long sheet that is every Unit, and each cite would read the whole sheet (#2847).
    */
   const heads = new Map<string, PageText[]>();
   function headUnits(record: Pick<Accepted, "source">, sheet: string | null): PageText[] {
@@ -2107,7 +2108,9 @@ export function createCitationSession(
         (unit) =>
           unit.kind === "rows" &&
           (unit.label?.sheet ?? null) === sheet &&
-          (unit.label?.rows ?? []).some((row) => row <= HEADER_ROWS),
+          (unit.label?.rows ?? [])
+            .slice(unit.label?.header ? 1 : 0)
+            .some((row) => row <= HEADER_ROWS),
       );
     heads.set(key, units);
     return units;

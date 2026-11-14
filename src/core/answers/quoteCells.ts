@@ -199,6 +199,7 @@ export function storedCells(value: unknown): QuoteCell[] | null {
     if (!isRecord(each)) return null;
     const { name, value: words } = each;
     if (typeof words !== "string" || words === "" || words.length > LONGEST_CELL) return null;
+    if (name === "") return null;
     if (name !== null && (typeof name !== "string" || name.length > LONGEST_CELL)) return null;
     cells.push({ name, value: words });
   }

@@ -110,6 +110,19 @@ describe("A call help Citation of a table row", { timeout: 120_000 }, () => {
     expect(structuredClone(answer.citations[0]?.cells)).toEqual(NAMED);
   });
 
+  // protects=a row far down a long sheet names its cells by the header row as one near the top does: its own Unit repeats the header, and the cite reads beside it only the Units of the sheet's first rows, never every Unit that repeats the header (#2847); fails_when=the cells go unnamed or are named otherwise; no_claim=how long a cite takes, which the description measures.
+  test("a row far down a long sheet keeps its cells named", async () => {
+    const filler = Array.from(
+      { length: 400 },
+      (_, at) => `Plan ${at + 1},$${10 + (at % 30)} per seat a month,No`,
+    );
+    const { core, meeting } = await setUp(
+      `Plan,Price,Sign-on\n${filler.join("\n")}\nEnterprise,$45 per seat a month,Yes\n`,
+    );
+    const { answer } = await press(core, meeting);
+    expect(answer.citations.map((citation) => citation.cells)).toEqual([NAMED]);
+  });
+
   test("a typed Question's Citation of the same row keeps none", async () => {
     const { core, meeting } = await setUp();
     const asked = await core.askInConversation({
@@ -171,6 +184,10 @@ describe("A call help Citation of a table row", { timeout: 120_000 }, () => {
       [{ name: 3, value: "Enterprise" }],
       [{ name: "Plan", value: "Enterprise" }, null],
       { name: "Plan", value: "Enterprise" },
+      [
+        { name: "", value: "Enterprise" },
+        { name: "Price", value: "$45" },
+      ],
     ]) {
       store(malformed);
       expect((await read())?.cells, JSON.stringify(malformed)).toBeUndefined();

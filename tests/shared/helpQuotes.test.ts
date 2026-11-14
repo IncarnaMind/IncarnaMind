@@ -116,20 +116,30 @@ describe("A quote line's quote", () => {
 });
 
 describe("A quote line's state", () => {
-  const stored = (check: CitationCheck, checkReason: CitationCheckReason | null = null) =>
-    quoteState({ check, checkReason }, "done");
+  const stored = (
+    check: CitationCheck,
+    status: AnswerStatus = "done",
+    checkReason: CitationCheckReason | null = null,
+  ) => quoteState({ check, checkReason }, status);
 
-  // protects=a reply stored before quote lines draws each Citation from what is stored: found, unsupported, contradicted, not checked and an ended "checking" were only ever said of a found quote, and quoted words the cited place doesn't hold leave the quote found (#2847); fails_when=a stored state shows no ✓ on a found quote, or a quote not found shows ✓; no_claim=what the sentence check said of the sentence.
-  test("a stored reply's six states: a found quote takes ✓, a quote not found doesn't", () => {
-    expect(
-      (["found", "unsupported", "contradicted", "not-checked", "checking"] as const).map((check) =>
-        stored(check),
-      ),
-    ).toEqual(["found", "found", "found", "found", "found"]);
-    expect(stored("not-found", "quote-not-on-pages")).toBe("not-found");
-    expect(stored("not-found", "quoted-words-not-on-pages")).toBe("found");
-    expect(stored("cant-check", "document-removed")).toBe("cant-check");
-  });
+  // protects=a reply stored before quote lines draws each Citation from what is stored, and gives ✓ only where that proves the quote was found: found, unsupported, contradicted and quoted words the cited place doesn't hold were only ever said of a found quote; "checking" and "not checked" were, on a reply that ended, while on one stopped or failed they may stand for a quote never checked, which then reads not checked, with no ✓; an unknown value has none (#2847); fails_when=a found quote loses ✓ on a reply that ended, or a stopped or failed reply's checking or not checked shows ✓, or an unknown value does; no_claim=what the sentence check said of the sentence.
+  test.each(["done", "stopped", "failed"] as const)(
+    "a stored reply's six states, on a reply %s: ✓ only where the stored check proves the quote found",
+    (status) => {
+      const ended = status === "done";
+      expect(
+        (["found", "unsupported", "contradicted"] as const).map((check) => stored(check, status)),
+      ).toEqual(["found", "found", "found"]);
+      expect(stored("not-found", status, "quoted-words-not-on-pages")).toBe("found");
+      expect(stored("not-found", status, "quote-not-on-pages")).toBe("not-found");
+      expect(stored("cant-check", status, "document-removed")).toBe("cant-check");
+      expect(stored("checking", status)).toBe(ended ? "found" : "not-checked");
+      expect(stored("not-checked", status)).toBe(ended ? "found" : "not-checked");
+      expect(
+        quoteState({ check: "judged-later" as CitationCheck, checkReason: null }, status),
+      ).toBe("cant-check");
+    },
+  );
 
   test("while written, a number with no Citation yet keeps its room; Stop and failure close it", () => {
     expect(quoteState(undefined, "streaming")).toBe("waiting");
@@ -187,6 +197,17 @@ describe("The quote lines under a line", () => {
     expect(linesOf([cited(1, ENTERPRISE), cited(2, `“${ENTERPRISE}”`)])).toEqual([
       { markers: [1, 2], more: [], state: "found", quote: ENTERPRISE, drawn: 1 },
     ]);
+  });
+
+  // protects=joining takes a quote that holds two others in: three quotes of one place, the third holding the first two, which neither holds the other, draw one line with all three numbers, at the first's place (#2847); fails_when=the first two keep a line each, or the joined line draws other words than the third's; no_claim=how often a model cites three times inside one quote.
+  test("a quote that holds two others of the same place takes both into its line", () => {
+    expect(
+      linesOf([
+        cited(1, "$45 per seat a month"),
+        cited(2, "single sign-on and audit logs"),
+        cited(3, ENTERPRISE),
+      ]),
+    ).toEqual([{ markers: [1, 2, 3], more: [], state: "found", quote: ENTERPRISE, drawn: 3 }]);
   });
 
   test("on a call, a quote joins only one said within the other's time", () => {

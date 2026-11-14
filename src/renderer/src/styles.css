@@ -8165,7 +8165,8 @@
     color: var(--color-ink-secondary);
 
     &[data-state="not-found"],
-    &[data-state="cant-check"] {
+    &[data-state="cant-check"],
+    &[data-state="not-checked"] {
       display: flex;
       align-items: center;
       gap: 4px;
@@ -8236,7 +8237,8 @@
     }
 
     &[data-state="not-found"],
-    &[data-state="cant-check"] {
+    &[data-state="cant-check"],
+    &[data-state="not-checked"] {
       display: flex;
       align-items: center;
       gap: 4px;

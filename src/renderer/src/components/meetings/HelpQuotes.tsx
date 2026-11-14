@@ -98,13 +98,20 @@ function Found({ citation }: { citation: MarkedCitation }) {
 }
 
 /**
- * The words a Citation's card uses for a quote not found or that can't be checked, with no ✓
+ * The words a Citation's card uses for a quote not found, that can't be checked, or that nothing
+ * stored proves found ("Not checked", whatever was stored while the reply was cut off), with no ✓
  * (#2847). Past its room, the place's name is cut at its end, never the words around it.
  */
-function CardWords({ citation }: { citation: MarkedCitation }) {
+function CardWords({
+  citation,
+  state,
+}: {
+  citation: MarkedCitation;
+  state: "not-found" | "cant-check" | "not-checked";
+}) {
   const t = useT();
   const { key, params } = badgeMessage(
-    { check: citation.check, reason: citation.checkReason },
+    { check: state, reason: state === citation.check ? citation.checkReason : null },
     citation,
     t,
   );
@@ -152,8 +159,8 @@ function QuoteRow({ line, moment, ...shown }: Shown & { line: QuoteLine; moment:
           {line.cells ? cellsText(line.cells) : `“${line.quote}”`}
         </span>
       )}
-      {(line.state === "not-found" || line.state === "cant-check") && citation && (
-        <CardWords citation={citation} />
+      {line.state !== "found" && line.state !== "waiting" && citation && (
+        <CardWords citation={citation} state={line.state} />
       )}
       <span className="help-quote-marks">
         {line.markers.map((marker) => (

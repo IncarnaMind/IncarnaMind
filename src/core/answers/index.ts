@@ -1540,6 +1540,11 @@ export function createAnswers(options: AnswersOptions) {
     const unmarked = (options.callsUnmarked?.() ?? false) || help !== undefined;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let finished = false;
+    /**
+     * The model's text is all written: what the end adds is written with the end alone (#2847), so
+     * a number the app adds never shows before its quote line, nor in a reply still being written.
+     */
+    let ending = false;
     /** Ends the Answer's mark on its provider (`AnswersOptions.repliesOut`). */
     let replyEnded = () => {};
     let support: CitationSupport | null = null;
@@ -2046,9 +2051,9 @@ export function createAnswers(options: AnswersOptions) {
     };
 
     /**
-     * The Citations whose sentences an Answer in the assistant, or call help's reply, has judged
-     * once it ends (#2311, #2847), by marker: they wait as checking, never found, so no green check
-     * shows before its sentence earns it.
+     * The Citations whose sentences an Answer in the assistant has judged once it ends (#2311), by
+     * marker: they wait as checking, never found, so no green check shows before its sentence earns
+     * it. Call help's reply is never judged as it ends (#2847).
      */
     let waiting: ReadonlySet<number> = new Set();
     /** Checking while its sentence is judged; not checked when the Answer stopped before that. */
@@ -2147,7 +2152,7 @@ export function createAnswers(options: AnswersOptions) {
     };
 
     const writeSoon = () => {
-      if (timer || finished) return;
+      if (timer || finished || ending) return;
       timer = setTimeout(() => {
         timer = null;
         if (!finished && !write()) finish({ status: "stopped" });
@@ -3969,6 +3974,13 @@ export function createAnswers(options: AnswersOptions) {
           case "phase":
             activity = event.phase;
             showPhase();
+            break;
+          case "ending":
+            ending = true;
+            if (timer) clearTimeout(timer);
+            timer = null;
+            // What the model wrote shows now; while the end's own requests are out it stands.
+            if (!write()) finish({ status: "stopped" });
             break;
           case "markers-placed":
             placedMarkers += event.count;

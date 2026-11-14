@@ -18,7 +18,7 @@ import type { NodeJSON } from "../../src/shared/blockJson";
 import { markersOf, momentFound, quoteLines, quoteState } from "../../src/shared/helpQuotes";
 import { readHelpReply } from "../../src/shared/helpReplyRead";
 import { answerJudged, shownPassages } from "../helpers/citations";
-import { createTempDataFolder, queryDatabase } from "../helpers/core";
+import { createTempDataFolder, queryDatabase, startCore } from "../helpers/core";
 import { createSourceFolder, waitForProcessing, writeSourceFile } from "../helpers/documents";
 import {
   type GenerateCall,
@@ -87,6 +87,11 @@ interface Marking {
   };
   /** What the call says instead of the fake engine's own lines. */
   said?: { lines: readonly string[]; theirLines: readonly string[] };
+  /**
+   * Asked once more for the Citations the reply left out: the price line for the sentence of the
+   * reply's first line, held from the request's start until `until` resolves.
+   */
+  asked?: { until: Promise<void>; reached(): void };
 }
 
 /** A model that records its Citations, writes `reply`, and judges its sentences as `given` says. */
@@ -94,6 +99,15 @@ function markingModel(given: Marking, calls: ModelCall[], batches: GenerateCall[
   return scriptedModel(
     (call) => {
       calls.push(call);
+      if (given.asked && call.question === "unmarked-quotes") {
+        const sentence = (block(call.prompt, "answer").split("\n")[0] ?? "").replace(/^★\s*/u, "");
+        const passage = [
+          ...call.prompt.matchAll(/<passage id="([^"]+)">\n([\s\S]*?)\n<\/passage>/g),
+        ].find(([, , text = ""]) => text.includes(PRICE))?.[1];
+        const citations = passage ? [{ sentence, passage, quote: PRICE }] : [];
+        const { until, reached } = given.asked;
+        return { text: JSON.stringify({ citations }), pause: { after: 0, until, reached } };
+      }
       const [sheet] = shownPassages(block(call.prompt, "found-in-documents"));
       const heard = shownPassages(block(call.prompt, "live-transcript")).at(-1);
       const newest = (heard?.text.split("\n").at(-1) ?? "").replace(/^\[[^\]]*\]\s*/, "");
@@ -438,6 +452,239 @@ describe("call help's ✓ comes only from a quote the app found (#2847)", { time
 
     expect(after.citations.map((citation) => citation.check)).toEqual(["found", "not-found"]);
     expect([...new Set(states)].sort()).toEqual([]);
+  });
+
+  // protects=a ✓ only where what is stored proves the quote found: a reply that ended with a quote not found, its row then left as a build that judged sentences wrote it mid-reply (being written, every Citation checking), reads with no ✓ at the next start, stopped with its Citations checking, and none at the start after, its Citations not checked; a found quote on a reply that ended keeps its ✓ through both (#2847); fails_when=a stopped reply's checking or not checked Citation shows ✓, or the ended reply's found quote loses it; no_claim=Check again, which the earlier-calls tests cover.
+  test("a reply left being written reads with no ✓ at the next two starts; one that ended keeps its ✓", async () => {
+    const reply = `${ENGLISH}\n\nI'll confirm the term in writing today [^2]\n→ buys time`;
+    const records = [
+      { marker: 1, from: "sheet" },
+      { marker: 2, from: "nowhere" },
+    ] as const;
+    const { core, meeting, dataDir, models } = await setUp({ reply, records });
+    const ended = await pressed(core, meeting, "answer");
+    const left = await pressed(core, meeting, "answer");
+    expect(marks(left.atEnd)).toEqual([
+      { marker: 1, check: "found", passed: true },
+      { marker: 2, check: "not-found", passed: false },
+    ]);
+    core.close();
+    queryDatabase(
+      dataDir,
+      "UPDATE conversation_messages SET status = 'streaming', citations = ? WHERE id = ? RETURNING id",
+      [
+        JSON.stringify(
+          left.atEnd.citations.map((citation) => ({
+            ...citation,
+            check: "checking",
+            checkReason: null,
+          })),
+        ),
+        left.ids.answerId,
+      ],
+    );
+
+    const both = async (started: Core) => [
+      marks(await answerOf(started, ended.ids.conversationId, ended.ids.answerId)),
+      marks(await answerOf(started, left.ids.conversationId, left.ids.answerId)),
+      (await answerOf(started, left.ids.conversationId, left.ids.answerId)).status,
+    ];
+    const kept = [
+      { marker: 1, check: "found", passed: true },
+      { marker: 2, check: "not-found", passed: false },
+    ];
+    const next = startCore(dataDir, { createChatModel: models.createChatModel });
+    expect(await both(next)).toEqual([
+      kept,
+      [
+        { marker: 1, check: "checking", passed: false },
+        { marker: 2, check: "checking", passed: false },
+      ],
+      "stopped",
+    ]);
+    next.close();
+    const after = startCore(dataDir, { createChatModel: models.createChatModel });
+    expect(await both(after)).toEqual([
+      kept,
+      [
+        { marker: 1, check: "not-checked", passed: false },
+        { marker: 2, check: "not-checked", passed: false },
+      ],
+      "stopped",
+    ]);
+  });
+});
+
+/** Each write of a press's reply, as every window hears of it, from the first. */
+function writesOf(core: Core): (answerId: string) => ConversationAnswer[] {
+  const written: ConversationAnswer[] = [];
+  core.on("conversation.message", (message) => {
+    if (message.kind === "answer") written.push(message);
+  });
+  return (answerId) => written.filter((each) => each.id === answerId);
+}
+
+const NUMBER = /\[\^\d+\]/u;
+const withoutNumbers = (text: string) => text.replace(/ ?\[\^\d+\]/gu, "");
+
+/** Options with no number, the first in its own words about the price line: too few of them for the app to cite it unasked. */
+const OWN_WORDS = {
+  en: "★ Yes, Enterprise runs $45 per seat each month, and single sign-on comes built in for every team, however large, without any extra setup fee or separate contract\n→ answers at once\n\nCould you tell me what matters most to you here?\n→ learns their priority",
+  zh: "★ 是的，企业版每个席位每月 45 美元，单点登录也一并包含，不论团队多大都不用另付设置费，也不必另签合同\n→ 直接回答\n\n能多说说你最看重哪一点吗？\n→ 了解对方重点",
+};
+
+/** An option citing the price line, then quoting it again with no number of its own. */
+const QUOTED_AGAIN = {
+  en: `★ Yes, it's $45 a seat [^1]. As the sheet puts it, “${PRICE}”\n→ answers at once\n\nCould you tell me what matters most to you here?\n→ learns their priority`,
+  zh: `★ 是的，每个席位 45 美元 [^1]。价目表上写着“${PRICE}”\n→ 直接回答\n\n能多说说你最看重哪一点吗？\n→ 了解对方重点`,
+};
+
+/** The reply's last write and the reply read again: what the panel draws from each. */
+const asDrawn = (answer: ConversationAnswer) => ({
+  status: answer.status,
+  text: answer.text,
+  citations: answer.citations,
+  rows: quoteRows(answer),
+});
+
+describe("Citations the app adds as a reply ends land with its end (#2847)", {
+  timeout: 60_000,
+}, () => {
+  // protects=the third movement allowed while a reply is written: options that came with no number get their Citations from the one request the app sends once more, and the numbers, their quote lines and the reply's end land in one write, each number under the line it belongs to, the reply's words as they stood; until then the reply's text stands whole with no number and no room; the reply read again later is the one that ended, in English and Chinese; fails_when=a number shows before the reply has ended or without its Citation, lands on another line, a line's words change, or the reply read again differs from its last write; no_claim=how often a model leaves its Citations out, which the description counts.
+  test.each([
+    ["English", OWN_WORDS.en],
+    ["Chinese", OWN_WORDS.zh],
+  ])("in %s, Citations asked for again land with the end, in one write", async (_, reply) => {
+    let release = () => {};
+    let reached = () => {};
+    const until = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const out = new Promise<void>((resolve) => {
+      reached = resolve;
+    });
+    const { core, meeting } = await setUp({ reply, records: [], asked: { until, reached } });
+    const writes = writesOf(core);
+    const asked = await core.askMeetingHelp({ meetingId: meeting.id, kind: "answer" });
+    if (!asked.asked) throw new Error("Not asked.");
+    await out;
+    const standing = await vi.waitFor(
+      () => {
+        const last = writes(asked.answerId).at(-1);
+        expect(last?.text).toBe(reply);
+        return last;
+      },
+      { timeout: 20_000, interval: 5 },
+    );
+    expect(standing?.status).toBe("streaming");
+    expect(standing?.citations).toEqual([]);
+    release();
+    await vi.waitFor(() => expect(writes(asked.answerId).at(-1)?.status).toBe("done"), {
+      timeout: 20_000,
+      interval: 5,
+    });
+
+    const all = writes(asked.answerId);
+    const numbered = all.filter((each) => NUMBER.test(each.text));
+    const [end] = numbered;
+    if (!end) throw new Error("No number landed.");
+    expect(numbered.map((each) => each.status)).toEqual(numbered.map(() => "done"));
+    expect(end.citations.map(({ marker, check }) => ({ marker, check }))).toEqual([
+      { marker: 1, check: "found" },
+    ]);
+    expect(quoteRows(end)).toEqual([[{ markers: [1], state: "found" }], []]);
+    expect(withoutNumbers(end.text)).toBe(reply);
+    for (const later of all.slice(all.indexOf(end))) expect(asDrawn(later)).toEqual(asDrawn(end));
+    const again = await answerOf(core, asked.conversation.id, asked.answerId);
+    expect(asDrawn(again)).toEqual(asDrawn(end));
+  });
+
+  // protects=the end's edits are written with the end alone: a number the app puts in for a Citation the model gave without one waits for the end, though the app's request for the reply's other Citations is still out, so it never shows in a reply still being written; fails_when=a write before the end shows that number; no_claim=what the request gives, here nothing.
+  test("a number the app puts in for a Citation the model gave waits for the end, while a request is out", async () => {
+    let release = () => {};
+    let reached = () => {};
+    const until = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const out = new Promise<void>((resolve) => {
+      reached = resolve;
+    });
+    // The second option's number has no Citation, so the app asks once more for one.
+    const reply =
+      "★ Yes, Enterprise plan is $45 per seat a month, single sign-on included\n→ answers at once\n\nI'll confirm the term in writing today [^3]\n→ buys time";
+    const { core, meeting } = await setUp({ reply, asked: { until, reached } });
+    const writes = writesOf(core);
+    const asked = await core.askMeetingHelp({ meetingId: meeting.id, kind: "answer" });
+    if (!asked.asked) throw new Error("Not asked.");
+    await out;
+    // A write the reply's edits asked for comes 50 ms after them: this gives it four times that.
+    // On a slower machine it could only come later, which this test then misses, never fails on.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    release();
+    await vi.waitFor(() => expect(writes(asked.answerId).at(-1)?.status).toBe("done"), {
+      timeout: 20_000,
+      interval: 5,
+    });
+
+    const placed = writes(asked.answerId).filter((each) => each.text.includes("[^1]"));
+    const [end] = placed;
+    if (!end) throw new Error("The number never landed.");
+    expect(placed.map((each) => each.status)).toEqual(placed.map(() => "done"));
+    expect(quoteRows(end)).toEqual([[{ markers: [1], state: "found" }], []]);
+  });
+
+  // protects=the join comes first: a Citation the app adds as the reply ends, quoting the same words of the same place as one already drawn under that line, adds no line: its number joins that quote line, landing with the end, in English and Chinese; fails_when=the added Citation draws a line of its own, its number goes on another line, or it shows before the end; no_claim=which elements the panel keeps, which the renderer test pins.
+  test.each([
+    ["English", QUOTED_AGAIN.en],
+    ["Chinese", QUOTED_AGAIN.zh],
+  ])("in %s, an added Citation repeating a drawn quote joins its line", async (_, reply) => {
+    let release = () => {};
+    let reached = () => {};
+    const until = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const there = new Promise<void>((resolve) => {
+      reached = resolve;
+    });
+    const { core, meeting } = await setUp({
+      reply,
+      pause: { after: (text) => text.length, until, reached },
+    });
+    const writes = writesOf(core);
+    const asked = await core.askMeetingHelp({ meetingId: meeting.id, kind: "answer" });
+    if (!asked.asked) throw new Error("Not asked.");
+    await there;
+    const shown = await vi.waitFor(
+      () => {
+        const last = writes(asked.answerId).at(-1);
+        expect(last?.text).toBe(reply);
+        return last;
+      },
+      { timeout: 20_000, interval: 5 },
+    );
+    if (!shown) throw new Error("Not shown.");
+    expect(shown.status).toBe("streaming");
+    expect(quoteRows(shown)).toEqual([[{ markers: [1], state: "found" }], []]);
+    release();
+    await vi.waitFor(() => expect(writes(asked.answerId).at(-1)?.status).toBe("done"), {
+      timeout: 20_000,
+      interval: 5,
+    });
+
+    const all = writes(asked.answerId);
+    const end = all.at(-1);
+    if (!end) throw new Error("No end.");
+    const joined = all.filter((each) => each.text.includes("[^2]"));
+    expect(joined.length).toBeGreaterThan(0);
+    expect(joined.map((each) => each.status)).toEqual(joined.map(() => "done"));
+    const [first, added] = end.citations;
+    expect(added).toMatchObject({
+      marker: 2,
+      passageId: first?.passageId,
+      quote: first?.quote,
+      location: first?.location,
+    });
+    expect(quoteRows(end)).toEqual([[{ markers: [1, 2], state: "found" }], []]);
   });
 });
 

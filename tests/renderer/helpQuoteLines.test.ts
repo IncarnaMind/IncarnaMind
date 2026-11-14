@@ -157,6 +157,15 @@ const read = (row: HTMLElement) => ({
 /** What each option, reading or short line draws under it. */
 const drawn = () => all("help-option").map((option) => rowsOf(option).map(read));
 
+/** What is on screen, in order: the heading, then each option's line and its quote lines. */
+const screen = () => [
+  all("help-heading"),
+  ...all("help-option").map((option) => [
+    option.querySelector<HTMLElement>('[data-testid="help-option-say"]'),
+    ...rowsOf(option),
+  ]),
+];
+
 /** The same elements, the same nodes in the same order: nothing among them was replaced. */
 function expectSameNodes(
   actual: readonly (Element | null | undefined)[],
@@ -435,15 +444,6 @@ describe("Under each line of call help, the app draws its Citations' quotes (#28
     const FIRST = "★ Enterprise has single sign-on and audit logs [^1] [^2]";
     const SECOND = "\n→ answers at once\n\nIt's billed annually [^3]\n→ sets the term";
 
-    /** What is on screen, in order: the heading, then each option's line and its quote lines. */
-    const screen = () => [
-      all("help-heading"),
-      ...all("help-option").map((option) => [
-        option.querySelector<HTMLElement>('[data-testid="help-option-say"]'),
-        ...rowsOf(option),
-      ]),
-    ];
-
     // protects=the one place a line goes while a reply is written: a number's spare room closes when its quote lands inside another found quote of the same place and no third quote takes the room, by one line an option, below that option's line, never once the reply has ended (#2847); fails_when=the option's line or its first quote line is replaced, more than one line goes, a line goes after the end, or a line above moves; no_claim=pixels, which the stills show.
     test("its spare room closes: one line, below the option's own line, only while written", async () => {
       await show("answer", answerOf(`${FIRST}${SECOND}`, [whole, billed], "streaming"));
@@ -498,6 +498,76 @@ describe("Under each line of call help, the app draws its Citations' quotes (#28
         );
       }
       expect(shown).toEqual([["found"], ["found"], ["found"]]);
+    });
+  });
+
+  describe("Citations the app adds as the reply ends", () => {
+    const PRICE = "Enterprise plan: $45 per seat a month, with single sign-on and audit logs.";
+    const LATER = "\n\nCould you tell me what matters most to you here?\n→ learns their priority";
+
+    // protects=the third movement allowed: numbers the app adds as the reply ends come with their quote lines in the one write that ends it, under the line they belong to, one line per Citation and two at most, so the heading, that option's own line and everything above stay the same elements, and a later line already on screen is kept, moved only down (#2847); fails_when=a line above or the option's own line is replaced, the quote lines land under another line, or more than two show; no_claim=pixels, which the spec measures.
+    test("their quote lines come under the line that gains them, which stays with all above it", async () => {
+      const first =
+        "★ Yes, Enterprise runs $45 per seat each month, with single sign-on built in\n→ answers at once";
+      await show("answer", answerOf(`${first}${LATER}`, [], "streaming"));
+      const before = screen();
+      expect(drawn()).toEqual([[], []]);
+
+      const numbered = first.replace(" built in", " built in [^1] [^2] [^3]");
+      await show(
+        "answer",
+        answerOf(
+          `${numbered}${LATER}`,
+          [
+            sheet(1, PRICE),
+            sheet(2, "Enterprise contracts are billed annually."),
+            sheet(3, "Volume discount: 10% off from 50 seats."),
+          ],
+          "done",
+        ),
+      );
+      const after = screen();
+      expectSameNodes(after[0] ?? [], before[0] ?? []);
+      expectSameNodes(after[1]?.slice(0, 1) ?? [], before[1] ?? []);
+      expectSameNodes(after[2] ?? [], before[2] ?? []);
+      expect(drawn()).toEqual([
+        [
+          { as: "quote", state: "found", words: `“${PRICE}”`, numbers: ["1"], found: true },
+          {
+            as: "quote",
+            state: "found",
+            words: "“Enterprise contracts are billed annually.”",
+            numbers: ["2", "3"],
+            found: true,
+          },
+        ],
+        [],
+      ]);
+    });
+
+    // protects=the join comes first: a Citation the app adds as the reply ends that repeats the quote of the same place a line already draws adds no line: the line's quote line stays the same element and gains the number, and nothing below it moves (#2847); fails_when=the quote line is replaced, a line is added, or a line below is replaced; no_claim=how the core places the number, which the core test pins.
+    test("one that repeats a drawn quote of the same place joins its line, and nothing moves", async () => {
+      const said = `★ Yes, it's $45 a seat [^1]. As the sheet puts it, “${PRICE}”\n→ answers at once`;
+      const whole = sheet(1, PRICE);
+      await show("answer", answerOf(`${said}${LATER}`, [whole], "streaming"));
+      const before = screen();
+      expect(drawn()[0]?.map((row) => row.numbers)).toEqual([["1"]]);
+
+      await show(
+        "answer",
+        answerOf(
+          `${said.replace("”\n", "” [^2]\n")}${LATER}`,
+          [whole, { ...sheet(2, PRICE), passageId: whole.passageId }],
+          "done",
+        ),
+      );
+      screen().forEach((nodes, index) => {
+        expectSameNodes(nodes, before[index] ?? []);
+      });
+      expect(drawn()).toEqual([
+        [{ as: "quote", state: "found", words: `“${PRICE}”`, numbers: ["1", "2"], found: true }],
+        [],
+      ]);
     });
   });
 
@@ -586,6 +656,39 @@ describe("Under each line of call help, the app draws its Citations' quotes (#28
     expect(container.textContent).not.toMatch(/[!≠]/u);
     expectEveryMarkOnFoundWords(answer);
   });
+
+  // protects=on a reply that was stopped or failed, a stored "checking" or "not checked" may stand for a quote never checked, so its line says Not checked in the card's words, never Checking…, with no ✓, while a found quote beside it keeps its ✓, in English and Chinese (#2847); fails_when=such a line shows ✓, its quote, or Checking…; no_claim=the panel's width, which the stills show.
+  test.each([
+    ["en" as const, "stopped" as const, "Not checked", "Checking…"],
+    ["en" as const, "failed" as const, "Not checked", "Checking…"],
+    ["zh-CN" as const, "stopped" as const, "未核对", "正在核对…"],
+    ["zh-CN" as const, "failed" as const, "未核对", "正在核对…"],
+  ])(
+    "on a reply %s %s, a quote stored as checking or not checked reads not checked, with no ✓",
+    async (language, status, notChecked, checking) => {
+      fake.language = language;
+      const answer = answerOf(
+        "★ Enterprise is $45 a seat [^1] [^2]\n→ answers at once\n\nIt's billed annually [^3]\n→ sets the term",
+        [
+          sheet(1, "Enterprise plan: $45 per seat a month.", { check: "checking" }),
+          sheet(2, "Team plan: $25 per seat a month.", { check: "not-checked" }),
+          sheet(3, "Enterprise contracts are billed annually."),
+        ],
+        status,
+      );
+      await show("answer", answer);
+      expect(
+        drawn().map((rows) => rows.map(({ state, words, found }) => [state, words, found])),
+      ).toEqual([
+        [
+          ["not-checked", notChecked, false],
+          ["not-checked", notChecked, false],
+        ],
+        [["found", "“Enterprise contracts are billed annually.”", true]],
+      ]);
+      expect(container.textContent).not.toContain(checking);
+    },
+  );
 });
 
 describe("A reading's moment of the call (#2847)", () => {

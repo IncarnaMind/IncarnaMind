@@ -5,12 +5,13 @@
  * call's language: Chinese when its newest line is, or before anyone has spoken, when the button's
  * name is.
  */
-import { passagesIn, recordFor, withSurroundingWords } from "./passages";
+import { passagesIn, recordFor, UNIT_MARK, withSurroundingWords } from "./passages";
 import {
   lastUserText,
   type Prompt,
   type Reply,
   type StreamPart,
+  systemOf,
   toolResults,
   USAGE,
 } from "./prompt";
@@ -279,6 +280,67 @@ function withTextBeforeCite(prompt: Prompt, parts: StreamPart[]): StreamPart[] {
   ];
 }
 
+/** The one request for the Citations a reply left out, sent once its text has ended. */
+export const asksForCitations = (prompt: Prompt): boolean =>
+  /^You add the Citations an Answer left out\./.test(systemOf(prompt));
+
+/** An option that says the price sheet's Enterprise line in its own words, sharing too few of them for the app to cite it. */
+const OWN_WORDS = {
+  en: "★ Yes, Enterprise runs $45 per seat each month, and single sign-on comes built in for every team, however large, without any extra setup fee or separate contract\n→ answers at once; keeps the call moving",
+  zh: "★ 是的，企业版每个席位每月 45 美元，单点登录也一并包含，不论团队多大都不用另付设置费，也不必另签合同\n→ 直接回答，推进通话",
+};
+
+/** A text's words to compare: Latin words of three letters or more, and each two neighbouring Chinese characters. */
+function wordsIn(text: string): Set<string> {
+  const words = new Set<string>();
+  for (const [run] of text.toLowerCase().matchAll(/\p{Script=Han}+|[\p{L}\p{N}]{3,}/gu)) {
+    const chars = [...run];
+    if (!/\p{Script=Han}/u.test(run)) words.add(run);
+    else for (let at = 0; at + 1 < chars.length; at++) words.add(`${chars[at]}${chars[at + 1]}`);
+  }
+  return words;
+}
+
+const textParts = (text: string): StreamPart[] => [
+  { type: "stream-start", warnings: [] },
+  { type: "text-start", id: "answer" },
+  ...textDeltas("answer", text),
+  { type: "text-end", id: "answer" },
+  { type: "finish", finishReason: { unified: "stop", raw: undefined }, usage: USAGE },
+];
+
+/**
+ * For a model id ending "-cites-when-asked": a help reply's options come with no cite call and no
+ * number, the first in its own words, as Claude Haiku 5.5 sometimes writes them (#2847); asked once
+ * more for the reply's Citations, it gives the first option the line of the Passage it says.
+ */
+function withCitationsWhenAsked(prompt: Prompt, parts: StreamPart[]): StreamPart[] {
+  const asked = lastUserText(prompt);
+  if (asksForCitations(prompt)) {
+    const sentence = (block(asked, "answer").split("\n")[0] ?? "").replace(/^★\s*/u, "");
+    const said = wordsIn(sentence);
+    const lines = [...asked.matchAll(/<passage id="([^"]+)">\n([\s\S]*?)\n<\/passage>/g)].flatMap(
+      ([, passage = "", text = ""]) =>
+        text.split("\n").map((line) => {
+          const quote = line.replace(UNIT_MARK, "").trim();
+          const shared = [...wordsIn(quote)].filter((word) => said.has(word)).length;
+          return { passage, quote, shared };
+        }),
+    );
+    const best = lines.reduce<(typeof lines)[number] | null>(
+      (top, each) => (each.shared > (top?.shared ?? 0) ? each : top),
+      null,
+    );
+    const citations = best ? [{ sentence, passage: best.passage, quote: best.quote }] : [];
+    return textParts(JSON.stringify({ citations }));
+  }
+  const help = block(asked, "help");
+  if (!HELP.test(help) || shapeOf(help) !== "options") return parts;
+  if (!parts.some((part) => part.type === "tool-call" && part.toolName === "cite")) return parts;
+  const { language } = callOf(asked);
+  return textParts(`${OWN_WORDS[language]}\n\n${OPTIONS[language].second}`);
+}
+
 /** For a model id ending "-help-held": a help reply writes nothing until it is stopped. */
 export const holdsHelp = (modelId: string, prompt: Prompt): boolean =>
   modelId.endsWith("-help-held") && HELP.test(block(lastUserText(prompt), "help"));
@@ -291,5 +353,6 @@ export function helpModelParts(modelId: string, prompt: Prompt, parts: StreamPar
   if (modelId.endsWith("-options-quoted")) return withOptionsQuoted(prompt, parts);
   if (modelId.endsWith("-cites-the-note")) return withNoteCited(prompt, parts);
   if (modelId.endsWith("-writes-before-it-cites")) return withTextBeforeCite(prompt, parts);
+  if (modelId.endsWith("-cites-when-asked")) return withCitationsWhenAsked(prompt, parts);
   return parts;
 }

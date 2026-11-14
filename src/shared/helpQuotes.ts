@@ -39,9 +39,10 @@ export interface QuotedCitation {
 /**
  * A quote line's state: its number shows and its quote hasn't come yet (`waiting`, its room kept);
  * its quote found word for word in its Passage (`found`, ✓); or a quote that isn't in the place it
- * cites, or can't be checked there, which the line says in the Citation card's words, with no ✓.
+ * cites, can't be checked there, or that nothing stored proves found (`not-checked`), which the line
+ * says in the Citation card's words, with no ✓.
  */
-export type QuoteState = "waiting" | "found" | "not-found" | "cant-check";
+export type QuoteState = "waiting" | "found" | "not-found" | "cant-check" | "not-checked";
 
 export interface QuoteLine {
   /**
@@ -66,11 +67,14 @@ export interface QuoteLine {
 }
 
 /**
- * A Citation's quote line state. A quote checked when it was recorded keeps that check: the
- * sentence's own judgement in a reply stored before #2847 (supported, unsupported, contradicted, not
- * checked, still checking when the app quit) was only ever made on a found quote, and words the
- * reply put in quotation marks that the cited place doesn't hold take the number's ✓, not the
- * quote's. Before its record comes the room waits; a reply stopped or failed closes it.
+ * A Citation's quote line state, `found` only where what is stored proves the quote was found. A
+ * sentence's own judgement (supported, unsupported, contradicted) is only ever made on a found
+ * quote, and words the reply put in quotation marks that the cited place doesn't hold leave its
+ * quote found. A Citation still waiting for its sentence's judgement ("checking", or "not checked"
+ * once a later start gave up on it) proves its quote found only on a reply that ended, since only a
+ * found quote waits: one left being written, which a quit stops, may never have had its quote
+ * checked, so it says "not checked" until Check again settles it. A check this build doesn't know
+ * proves nothing. Before its record comes the room waits; a reply stopped or failed closes it.
  */
 export function quoteState(
   citation: Pick<QuotedCitation, "check" | "checkReason"> | undefined,
@@ -78,15 +82,21 @@ export function quoteState(
 ): QuoteState | null {
   if (!citation) return status === "streaming" ? "waiting" : null;
   switch (citation.check) {
-    case "checking":
-      return status === "streaming" ? "waiting" : "found";
+    case "found":
+    case "unsupported":
+    case "contradicted":
+      return "found";
     case "not-found":
       return citation.checkReason === "quoted-words-not-on-pages" ? "found" : "not-found";
     case "cant-check":
       return "cant-check";
-    default:
-      return "found";
+    case "checking":
+      if (status === "streaming") return "waiting";
+      return status === "done" ? "found" : "not-checked";
+    case "not-checked":
+      return status === "done" ? "found" : "not-checked";
   }
+  return "cant-check";
 }
 
 /** A line of the reply as written, its Citations as markers. */
@@ -211,6 +221,44 @@ function placedWithin(a: CitationLocation | null, b: CitationLocation | null): b
   }
 }
 
+/** The Citations a quote line draws, before they are counted into two lines. */
+interface Group {
+  markers: number[];
+  citation: QuotedCitation | undefined;
+  found: boolean;
+}
+
+/**
+ * Joins each found quote wholly inside another found quote into that quote's line, its number in
+ * cited order, until none is left: a quote that grows a line to hold one also takes in any other it
+ * now holds, so no line shows words another line already shows. Only found quotes take one another
+ * in, so a joined line's ✓ stands for every number on it. The line keeps the place of the first.
+ */
+function joinInside(groups: Group[], order: readonly number[]): void {
+  const at = (marker: number) => order.indexOf(marker);
+  for (let joined = true; joined; ) {
+    joined = false;
+    for (const [first, kept] of groups.entries()) {
+      const own = kept.found ? kept.citation : undefined;
+      if (!own) continue;
+      const taken = groups.findIndex(
+        ({ found, citation }, index) =>
+          index > first &&
+          found &&
+          citation !== undefined &&
+          (inside(citation, own) || inside(own, citation)),
+      );
+      const other = groups[taken];
+      if (!other?.citation) continue;
+      if (!inside(other.citation, own)) kept.citation = other.citation;
+      kept.markers = [...kept.markers, ...other.markers].sort((a, b) => at(a) - at(b));
+      groups.splice(taken, 1);
+      joined = true;
+      break;
+    }
+  }
+}
+
 /**
  * The quote lines under a line that cites `markers`, in the order cited. A marker `numbered` doesn't
  * show takes none.
@@ -221,33 +269,19 @@ export function quoteLines(
   status: AnswerStatus,
   numbered: (marker: number) => boolean = () => true,
 ): QuoteLine[] {
-  const groups: { markers: number[]; citation: QuotedCitation | undefined; found: boolean }[] = [];
+  const groups: Group[] = [];
   for (const marker of markers) {
     if (!numbered(marker)) continue;
     const citation = citationOf(marker);
     const state = quoteState(citation, status);
     if (state === null) continue;
-    const found = state === "found" && citation !== undefined;
-    // Only found quotes take one another in, so a joined line's ✓ stands for every number on it.
-    const joins =
-      found &&
-      groups.find(
-        (group) =>
-          group.found &&
-          group.citation &&
-          (inside(citation, group.citation) || inside(group.citation, citation)),
-      );
-    if (joins) {
-      joins.markers.push(marker);
-      if (joins.citation && !inside(citation, joins.citation)) joins.citation = citation;
-    } else {
-      groups.push({
-        markers: [marker],
-        citation: state === "waiting" ? undefined : citation,
-        found,
-      });
-    }
+    groups.push({
+      markers: [marker],
+      citation: state === "waiting" ? undefined : citation,
+      found: state === "found" && citation !== undefined,
+    });
   }
+  joinInside(groups, markers);
   const lines = groups.slice(0, 2).map(({ markers: cited, citation }): QuoteLine => {
     const state = quoteState(citation, status) ?? "waiting";
     const fitted = state === "found" && citation ? fittedQuote(citation.quote) : null;

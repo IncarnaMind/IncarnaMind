@@ -110,15 +110,57 @@ async function callWithSheet(call: (typeof CALLS)[number], model?: string) {
   return { app, window, panel: await panelOf(app) };
 }
 
-/** Holds the scripted model's cite calls until set false, which lets every held one go. */
-async function holdCites(app: ElectronApplication, hold: boolean): Promise<void> {
-  await app.evaluate((_electron, held) => {
-    const slow = (
-      globalThis as unknown as { incarnamindSlowCheck: { holdCite: boolean; release(): void } }
-    ).incarnamindSlowCheck;
-    slow.holdCite = held;
-    if (!held) slow.release();
-  }, hold);
+interface SlowCheck {
+  holdCite: boolean;
+  holdAsked: boolean;
+  waiting: unknown[];
+  release(): void;
+}
+
+/**
+ * Holds the scripted model's cite calls, or its one request for a reply's Citations, until set
+ * false, which lets every held one go.
+ */
+async function holdModel(
+  app: ElectronApplication,
+  which: "holdCite" | "holdAsked",
+  hold: boolean,
+): Promise<void> {
+  await app.evaluate(
+    (_electron, { which, hold }) => {
+      const slow = (globalThis as unknown as { incarnamindSlowCheck: SlowCheck })
+        .incarnamindSlowCheck;
+      slow[which] = hold;
+      if (!hold) slow.release();
+    },
+    { which, hold },
+  );
+}
+
+/** Whether a request of the scripted model is held now. */
+const held = (app: ElectronApplication) =>
+  app.evaluate(
+    () =>
+      (globalThis as unknown as { incarnamindSlowCheck: SlowCheck }).incarnamindSlowCheck.waiting
+        .length > 0,
+  );
+
+/** The panel closed, then shown again from ⌘K: it draws its reply from what is stored. */
+async function shownAgain(
+  app: ElectronApplication,
+  window: Page,
+  panel: Page,
+  call: (typeof CALLS)[number],
+): Promise<Page> {
+  const close = panel.getByTestId("panel-close");
+  await close.hover();
+  // The window goes as the click lands, which a click Playwright waits on would call a failure.
+  await close.evaluate((button) => setTimeout(() => (button as HTMLElement).click(), 0));
+  await expect.poll(() => panelOpen(app)).toBe(false);
+  await window.keyboard.press("ControlOrMeta+k");
+  await window.keyboard.type(call.showPanel);
+  await window.keyboard.press("Enter");
+  return panelOf(app);
 }
 
 const topOf = async (locator: Locator) => {
@@ -165,15 +207,7 @@ for (const call of CALLS) {
 
     // The panel closed and shown again draws the last reply from what is stored, the same.
     const drawn = await expectQuoteLines(window, lines);
-    const close = panel.getByTestId("panel-close");
-    await close.hover();
-    // The window goes as the click lands, which a click Playwright waits on would call a failure.
-    await close.evaluate((button) => setTimeout(() => (button as HTMLElement).click(), 0));
-    await expect.poll(() => panelOpen(app)).toBe(false);
-    await window.keyboard.press("ControlOrMeta+k");
-    await window.keyboard.type(call.showPanel);
-    await window.keyboard.press("Enter");
-    const shown = await panelOf(app);
+    const shown = await shownAgain(app, window, panel, call);
     const latest = shown.getByTestId("help-suggestion").last();
     await expect(latest.getByTestId("help-heading")).toContainText(call.check);
     expect(await expectQuoteLines(window, latest)).toEqual(drawn);
@@ -186,7 +220,7 @@ for (const call of CALLS) {
   test(`call help in ${call.language}: a number written before its quote keeps its room, and a quote inside another joins its line`, async () => {
     const { app, window, panel } = await callWithSheet(call, "fake-model-writes-before-it-cites");
 
-    await holdCites(app, true);
+    await holdModel(app, "holdCite", true);
     await pressHelpPrompt(panel, call.answer);
     const reply = panel.getByTestId("help-suggestion").last();
     const option = reply.getByTestId("help-option").first();
@@ -205,7 +239,7 @@ for (const call of CALLS) {
     };
     await shot(panel, `call-help-quotes-room-${call.interface}`);
 
-    await holdCites(app, false);
+    await holdModel(app, "holdCite", false);
     await expect(reply).toHaveAttribute("data-status", "done", { timeout: 20_000 });
     await expect(rows).toHaveCount(1);
     await expect(rows.first().getByTestId("help-quote-number")).toHaveText(["1", "2"]);
@@ -231,6 +265,74 @@ for (const call of CALLS) {
       found: true,
     });
     await shot(panel, `call-help-quotes-joined-${call.interface}`);
+    await app.close();
+  });
+
+  // protects=the third movement allowed while a reply is written: options that came with no number stand whole while the app's one request for their Citations is out, a later line on screen, and then the numbers, their quote lines and the reply's end land in one write, so the heading and the line that gains them keep their place, the later line moves only down, and the panel shown again draws the reply as it ended, in English and Chinese (#2847); fails_when=a number shows while the reply is still written or without its quote line, the heading or that line moves, the later line moves up, or the panel shown again draws otherwise; no_claim=how often a model leaves its Citations out, which the description counts.
+  test(`call help in ${call.language}: Citations the app asks for once more land with the reply's end, the line and all above in place`, async () => {
+    const { app, window, panel } = await callWithSheet(call, "fake-model-cites-when-asked");
+
+    await holdModel(app, "holdAsked", true);
+    await pressHelpPrompt(panel, call.answer);
+    const reply = panel.getByTestId("help-suggestion").last();
+    const options = reply.getByTestId("help-option");
+    await expect.poll(() => held(app), { timeout: 20_000 }).toBe(true);
+    await expect(options).toHaveCount(2);
+    await expect(reply).toHaveAttribute("data-status", "streaming");
+    await expect(reply.getByTestId("help-citation")).toHaveCount(0);
+    await expect(reply.getByTestId("help-quote")).toHaveCount(0);
+    const heading = reply.getByTestId("help-heading");
+    const first = options.nth(0).getByTestId("help-option-say");
+    const later = options.nth(1).getByTestId("help-option-say");
+    const before = {
+      heading: await topOf(heading),
+      first: await topOf(first),
+      later: await topOf(later),
+    };
+    await shot(panel, `call-help-quotes-asked-${call.interface}`);
+
+    // Every change drawn from here on, as it lands: the numbers and quote lines, and the state.
+    await reply.evaluate((suggestion) => {
+      const landed: { numbers: number; quotes: number; status: string | null }[] = [];
+      (globalThis as unknown as { landed: typeof landed }).landed = landed;
+      new MutationObserver(() =>
+        landed.push({
+          numbers: suggestion.querySelectorAll('[data-testid="help-citation"]').length,
+          quotes: suggestion.querySelectorAll('[data-testid="help-quote"]').length,
+          status: suggestion.getAttribute("data-status"),
+        }),
+      ).observe(suggestion, { subtree: true, childList: true, attributes: true });
+    });
+    await holdModel(app, "holdAsked", false);
+    await expect(reply).toHaveAttribute("data-status", "done", { timeout: 20_000 });
+    const landed = await panel.evaluate(
+      () =>
+        (globalThis as unknown as { landed: { numbers: number; quotes: number; status: string }[] })
+          .landed,
+    );
+    const numbered = landed.filter((each) => each.numbers > 0);
+    expect(numbered.length).toBeGreaterThan(0);
+    expect(numbered.every((each) => each.status === "done" && each.quotes > 0)).toBe(true);
+    const drawn = await expectQuoteLines(window, reply);
+    expect(drawn).toEqual([
+      { state: "found", words: `“${call.cited}”`, numbers: ["1"], found: true },
+    ]);
+    await expect(options.nth(0).getByTestId("help-quote")).toHaveCount(1);
+    await expect(options.nth(1).getByTestId("help-quote")).toHaveCount(0);
+    const after = {
+      heading: await topOf(heading),
+      first: await topOf(first),
+      later: await topOf(later),
+    };
+    expect(Math.abs(after.heading.y - before.heading.y)).toBeLessThan(0.5);
+    expect(Math.abs(after.first.y - before.first.y)).toBeLessThan(0.5);
+    expect(after.later.y).toBeGreaterThan(before.later.y);
+    await shot(panel, `call-help-quotes-asked-landed-${call.interface}`);
+
+    const shown = await shownAgain(app, window, panel, call);
+    expect(await expectQuoteLines(window, shown.getByTestId("help-suggestion").last())).toEqual(
+      drawn,
+    );
     await app.close();
   });
 }

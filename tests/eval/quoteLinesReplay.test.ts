@@ -199,14 +199,27 @@ const OLDER = press({
   text: "★ They want a firm date\n0:03 “we need a date this week” [^1]\n→ give the date",
 });
 
-const ALL = [OPTIONS, CHINESE, JOINED, TAKEN, LONG, READINGS, MOMENTS, OLDER];
+/** A reply the User stopped, its Citation stored as still checking: never proved found. */
+const STOPPED = press({
+  id: "en-stopped",
+  button: "answer",
+  status: "stopped",
+  text: "★ Enterprise is $45 a seat [^1]\n→ answers at once",
+  citations: [
+    sheet(1, "Enterprise plan: $45 per seat a month, with single sign-on and audit logs.", {
+      check: "checking",
+    }),
+  ],
+});
+
+const ALL = [OPTIONS, CHINESE, JOINED, TAKEN, LONG, READINGS, MOMENTS, OLDER, STOPPED];
 
 describe("The quote lines' replay", () => {
-  // protects=the free replay counts what the panel draws, by shape and by kind, from presses in the saved records' shape: quotes word for word or cut at a clause, card words for a quote not found or that can't be checked, reading moments by kind, the join that closes a room by order, words shown twice, and the bars that must hold at zero (#2847); fails_when=a count disagrees with what the panel draws for these presses; no_claim=the saved presses' own counts.
+  // protects=the free replay counts what the panel draws, by shape and by kind, from presses in the saved records' shape: quotes word for word or cut at a clause, card words for a quote not found, one that can't be checked or one a stopped reply never proved found, reading moments by kind, the join that closes a room by order, words shown twice, and the bars that must hold at zero (#2847); fails_when=a count disagrees with what the panel draws for these presses; no_claim=the saved presses' own counts.
   test("counts what the panel draws, by shape and kind, and the bars hold", () => {
     const { counts } = replay(pressesIn(JSON.parse(JSON.stringify(ALL))));
-    expect(counts.presses).toEqual({ "gate-main": 6, "readings-recent": 1, "readings-older": 1 });
-    expect(counts.lines).toEqual({ options: 6, lines: 1, readings: 7 });
+    expect(counts.presses).toEqual({ "gate-main": 7, "readings-recent": 1, "readings-older": 1 });
+    expect(counts.lines).toEqual({ options: 7, lines: 1, readings: 7 });
     expect(counts.rows).toEqual({
       "word-for-word": 12,
       "cut-at-a-clause": 1,
@@ -214,6 +227,7 @@ describe("The quote lines' replay", () => {
       "cells-as-quoted": 0,
       "not-found": 1,
       "cant-check": 1,
+      "not-checked": 1,
     });
     expect(counts.moments).toEqual({
       "plain-found": 1,
@@ -233,11 +247,10 @@ describe("The quote lines' replay", () => {
     expect(counts.quoteCheckDiffers).toBe(0);
     expect(counts.checkBesideUnfoundWords).toBe(0);
     expect(counts.quoteNotAsGiven).toBe(0);
-    expect(counts.plainWordsChangedWithCheck).toBe(0);
   });
 
   test("draws each line as the panel shows it, in the interface's language", () => {
-    const { drawn } = replay([OPTIONS, CHINESE, JOINED, LONG, READINGS, MOMENTS]);
+    const { drawn } = replay([OPTIONS, CHINESE, JOINED, LONG, READINGS, MOMENTS, STOPPED]);
     const rowsOf = (id: string) =>
       drawn.filter((line) => line.press.id === id).map((line) => line.rows);
     expect(rowsOf("en-answer")).toEqual([
@@ -263,6 +276,7 @@ describe("The quote lines' replay", () => {
       ["“That's too high for us.” 3 ✓", "“Can you do thirty?” 4 ✓"],
       ["“That's too high for us.” 3 ✓"],
     ]);
+    expect(rowsOf("en-stopped")).toEqual([["Not checked 1"]]);
   });
 
   test("a quote of a table's row in its Passage is drawn cell by cell, named where the table proves it", () => {

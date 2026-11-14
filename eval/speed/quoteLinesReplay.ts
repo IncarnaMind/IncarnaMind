@@ -72,6 +72,8 @@ export interface SavedPress {
   /** Numbers the reply wrote with no Citation behind them. */
   unrecorded?: number[];
   order?: PressOrder | null;
+  /** How the reply ended: stopped or failed where the record says so, else it ended. */
+  status?: "done" | "stopped" | "failed";
 }
 
 /** A reading's moment line by the kind the panel draws it as; `plain` where nothing says which. */
@@ -90,7 +92,8 @@ export type RowKind =
   | "cells-named"
   | "cells-as-quoted"
   | "not-found"
-  | "cant-check";
+  | "cant-check"
+  | "not-checked";
 
 export interface DrawnLine {
   press: SavedPress;
@@ -119,7 +122,6 @@ export interface ReplayCounts {
   /** Where a bar doesn't hold, counted: each must be 0. */
   checkBesideUnfoundWords: number;
   quoteNotAsGiven: number;
-  plainWordsChangedWithCheck: number;
   /** Lines whose words show twice, in the model's line and in a quote line, by kind of line. */
   sameWordsTwice: Record<string, number>;
   /** Lines where a join frees a room no other quote takes, by the press's order. */
@@ -140,6 +142,7 @@ export const emptyCounts = (): ReplayCounts => ({
     "cells-as-quoted": 0,
     "not-found": 0,
     "cant-check": 0,
+    "not-checked": 0,
   },
   moments: {
     "plain-found": 0,
@@ -154,7 +157,6 @@ export const emptyCounts = (): ReplayCounts => ({
   momentsWithNoTime: 0,
   checkBesideUnfoundWords: 0,
   quoteNotAsGiven: 0,
-  plainWordsChangedWithCheck: 0,
   sameWordsTwice: {},
   joinClosesRoom: {},
   unrecordedNumbers: 0,
@@ -248,17 +250,15 @@ function momentKind(
 }
 
 const rowKind = (line: QuoteLine): RowKind =>
-  line.state === "not-found"
-    ? "not-found"
-    : line.state === "cant-check"
-      ? "cant-check"
-      : line.cells
-        ? line.cells.some((cell) => cell.name !== null)
-          ? "cells-named"
-          : "cells-as-quoted"
-        : line.cut
-          ? "cut-at-a-clause"
-          : "word-for-word";
+  line.state === "not-found" || line.state === "cant-check" || line.state === "not-checked"
+    ? line.state
+    : line.cells
+      ? line.cells.some((cell) => cell.name !== null)
+        ? "cells-named"
+        : "cells-as-quoted"
+      : line.cut
+        ? "cut-at-a-clause"
+        : "word-for-word";
 
 /** A Document's line marks, which a quote line leaves out (`fittedQuote`). */
 const LINE_MARKS = /^(?:[-*+•]\s+|\d{1,3}[.)]\s+|#{1,6}\s+|>\s*)+/u;
@@ -267,7 +267,8 @@ const LINE_MARKS = /^(?:[-*+•]\s+|\d{1,3}[.)]\s+|#{1,6}\s+|>\s*)+/u;
 export function drawPress(press: SavedPress, counts: ReplayCounts): DrawnLine[] {
   add(counts.presses, press.set);
   const kind = press.button;
-  const { lead, options } = helpParts({ text: press.text, status: "done" }, kind);
+  const status = press.status ?? "done";
+  const { lead, options } = helpParts({ text: press.text, status }, kind);
   const items = [...lead, ...options];
   const records = press.citations ?? [];
   const recordOf = (marker: number) => records.find((each) => each.marker === marker);
@@ -313,7 +314,7 @@ export function drawPress(press: SavedPress, counts: ReplayCounts): DrawnLine[] 
     }
     const at = startOf(record?.location);
     const { key, params } = badgeMessage(
-      { check: line.state === "cant-check" ? "cant-check" : "not-found", reason: null },
+      { check: line.state === "waiting" ? "checking" : line.state, reason: null },
       {
         documentName: record?.document ?? record?.place ?? "",
         location: at === null ? null : { kind: "time", from: at, to: at },
@@ -329,7 +330,7 @@ export function drawPress(press: SavedPress, counts: ReplayCounts): DrawnLine[] 
     moment: MomentKind | null,
   ) => {
     const markers = markersOf([pieces]);
-    const lines = quoteLines(markers, citationOf, "done", numbered);
+    const lines = quoteLines(markers, citationOf, status, numbered);
     if (lines.length < Math.min(2, markers.filter(cited).length)) {
       add(counts.joinClosesRoom, press.order ?? "unknown");
     }
@@ -355,7 +356,7 @@ export function drawPress(press: SavedPress, counts: ReplayCounts): DrawnLine[] 
   };
 
   const fromCitations = (markers: readonly number[], moment: MomentKind) => {
-    const lines = quoteLines(markers, citationOf, "done", numbered);
+    const lines = quoteLines(markers, citationOf, status, numbered);
     for (const line of lines) counts.rows[rowKind(line)]++;
     drawn.push({
       press,
@@ -384,15 +385,11 @@ export function drawPress(press: SavedPress, counts: ReplayCounts): DrawnLine[] 
     if (inPlace) counts.plainFoundOutsideQuote++;
     const start = startOf(record.location);
     const time = start === null ? null : clockTime(start);
-    // Its words as they show while its ✓ waits, and once it has joined: the panel draws both alike.
-    const waiting = momentWords(textOf(pieces), time);
-    const checked = momentWords(textOf(pieces), time);
-    if (waiting !== checked) counts.plainWordsChangedWithCheck++;
     drawn.push({
       press,
       shape: "readings",
       written: null,
-      rows: [[checked, ...shownNumbers([moment.marker]), "✓"].join(" ")],
+      rows: [[momentWords(textOf(pieces), time), ...shownNumbers([moment.marker]), "✓"].join(" ")],
       moment: "plain-found",
     });
   };
@@ -532,7 +529,7 @@ export function pressesIn(value: unknown, file = "input"): SavedPress[] {
   return value.map((each, index): SavedPress => {
     const where = `${file}, press ${index + 1}`;
     if (!isRecord(each)) throw new Error(`${where}: not an object.`);
-    const { id, set, language, button, text, citations, unrecorded, order, model } = each;
+    const { id, set, language, button, text, citations, unrecorded, order, model, status } = each;
     if (typeof id !== "string" || typeof set !== "string" || typeof text !== "string") {
       throw new Error(`${where}: needs its id, set and text.`);
     }
@@ -554,6 +551,7 @@ export function pressesIn(value: unknown, file = "input"): SavedPress[] {
       }),
       order:
         order === "number-first" || order === "cite-first" || order === "no-cite" ? order : null,
+      ...((status === "stopped" || status === "failed") && { status }),
     };
   });
 }
