@@ -200,10 +200,32 @@ async function check(row: Row, language: Language) {
   };
 }
 
-const twoWays = (language: Language, shown: string, first: string, second: string) =>
+/** The two-readings line: the English card's words as the check wrote them, the Chinese card's in 万 and 亿. */
+const twoWays = (
+  language: Language,
+  shown: string,
+  [enFirst, enSecond]: readonly [string, string],
+  [zhFirst, zhSecond]: readonly [string, string],
+) =>
   language === "en"
-    ? `“${shown}” could mean ${first} or ${second}, so it wasn’t checked.`
-    : `“${shown}”可能是 ${first}，也可能是 ${second}，所以未核对。`;
+    ? `“${shown}” could mean ${enFirst} or ${enSecond}, so it wasn’t checked.`
+    : `“${shown}”可能是 ${zhFirst}，也可能是 ${zhSecond}，所以未核对。`;
+
+const POUNDS_TWO_WAYS = {
+  en: ["1,284 million GBP", "1.284 million GBP"],
+  zh: ["12.84亿英镑", "128.4万英镑"],
+} as const;
+
+/** A German report: its language reads "1,284" as 1.284. */
+const GERMAN_REPORT: SourceFile = {
+  name: "Northwind Ergebnisse.txt",
+  contents: [
+    "Northwind Ergebnisse für das Quartal",
+    "Der Umsatz der Gruppe war £1,284 million, und das ist mehr als im Jahr davor.",
+    "Die Zahlen sind nicht geprüft und sie sind für das dritte Quartal.",
+    "",
+  ].join("\n"),
+};
 
 const ok = { state: "supported", line: null };
 const wrong = { state: "contradicted", line: null };
@@ -223,9 +245,24 @@ describe.each(["en", "zh-CN"] as const)("the order a separator is read in (%s)",
     expect({ state: result.state, line: result.line }).toEqual(ok);
   });
 
-  // protects=a German Note, whose language reads "1,284" as 1.284, that copies "£1,284 million" from an English report is the report's figure, not a thousand times less (#3088); fails_when=it comes back Contradicted; no_claim=a German Note's own figure that its Passage writes another way (the next row).
-  test("1. a German Note copying the figure identically is the same figure", async () => {
+  // protects=a Note whose language reads its figure as its Passage does, written the same way, is that figure (#3088); fails_when=it reads Not checked or names two readings; no_claim=a Note whose language reads the same writing the other way (the next row).
+  test("1. an English Note writing the figure as its English report does: the same figure", async () => {
     const result = await check(
+      {
+        above: ENGLISH,
+        sentence: "Revenue was £1,284 million.",
+        document: AS_NOTE,
+        quote: "Group revenue was £1,284 million",
+        number: "£1,284 million",
+      },
+      language,
+    );
+    expect({ state: result.state, line: result.line }).toEqual(ok);
+  });
+
+  // protects=where the Note's own language reads an identically written figure the other way from its Passage, the figure is Not checked with both readings named, never ✓ nor Contradicted: a German Note copying an English report's "£1,284 million", and an English Note copying a German report's (#3088); fails_when=either reads Supported or Contradicted, or the unread-Documents line shows; no_claim=a Note whose language leaves its separators open, which the Passage settles (the row above it).
+  test("1. the Note's language reading the same writing the other way: both readings, both ways round", async () => {
+    const germanNote = await check(
       {
         above: GERMAN,
         sentence: "Der Umsatz war £1,284 million.",
@@ -235,7 +272,24 @@ describe.each(["en", "zh-CN"] as const)("the order a separator is read in (%s)",
       },
       language,
     );
-    expect({ state: result.state, line: result.line }).toEqual(ok);
+    expect({ state: germanNote.state, line: germanNote.line }).toEqual({
+      state: "not-checked",
+      line: twoWays(language, "£1,284 million", POUNDS_TWO_WAYS.en, POUNDS_TWO_WAYS.zh),
+    });
+    const englishNote = await check(
+      {
+        above: ENGLISH,
+        sentence: "Revenue was £1,284 million.",
+        document: GERMAN_REPORT,
+        quote: "Der Umsatz der Gruppe war £1,284 million",
+        number: "£1,284 million",
+      },
+      language,
+    );
+    expect({ state: englishNote.state, line: englishNote.line }).toEqual({
+      state: "not-checked",
+      line: twoWays(language, "£1,284 million", POUNDS_TWO_WAYS.en, POUNDS_TWO_WAYS.zh),
+    });
   });
 
   // protects=a Note whose language is told reads its figure in that language when the Passage writes it another way, and may come out Contradicted (#3088); fails_when=the interface language or the Passage overrides the Note's own; no_claim=a Note that copies its Passage's writing (step 1).
@@ -327,7 +381,7 @@ describe.each(["en", "zh-CN"] as const)("the order a separator is read in (%s)",
     );
     expect({ state: grouped.state, line: grouped.line }).toEqual({
       state: "not-checked",
-      line: twoWays(language, "£1,284 million", "1,284 million GBP", "1.284 million GBP"),
+      line: twoWays(language, "£1,284 million", POUNDS_TWO_WAYS.en, POUNDS_TWO_WAYS.zh),
     });
     const decimal = await check(
       {
@@ -340,7 +394,12 @@ describe.each(["en", "zh-CN"] as const)("the order a separator is read in (%s)",
     );
     expect({ state: decimal.state, line: decimal.line }).toEqual({
       state: "not-checked",
-      line: twoWays(language, "£1.284 million", "1.284 million GBP", "1,284 million GBP"),
+      line: twoWays(
+        language,
+        "£1.284 million",
+        ["1.284 million GBP", "1,284 million GBP"],
+        ["128.4万英镑", "12.84亿英镑"],
+      ),
     });
   });
 
@@ -357,7 +416,12 @@ describe.each(["en", "zh-CN"] as const)("the order a separator is read in (%s)",
     );
     expect({ state: result.state, line: result.line }).toEqual({
       state: "not-checked",
-      line: twoWays(language, "¥1,284 million", "1,284 million CNY", "1,284 million JPY"),
+      line: twoWays(
+        language,
+        "¥1,284 million",
+        ["1,284 million CNY", "1,284 million JPY"],
+        ["12.84亿人民币", "12.84亿日元"],
+      ),
     });
     const offered = result.calls.map(
       (call) => /<figures>\n([\s\S]*?)\n<\/figures>/.exec(call.prompt)?.[1],
@@ -441,7 +505,12 @@ describe.each(["en", "zh-CN"] as const)("#2864's 8.214 thousand at each step (%s
     );
     expect({ state: byInterface.state, line: byInterface.line }).toEqual({
       state: "not-checked",
-      line: twoWays(language, "8.214 thousand", "8.214 thousand", "8,214 thousand"),
+      line: twoWays(
+        language,
+        "8.214 thousand",
+        ["8.214 thousand", "8,214 thousand"],
+        ["8214", "821.4万"],
+      ),
     });
   });
 });

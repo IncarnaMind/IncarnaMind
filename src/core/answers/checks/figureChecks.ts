@@ -668,6 +668,17 @@ function asWrittenIn(figure: Figure, source: InputNumber): Figure | null {
   };
 }
 
+/**
+ * The two readings of a figure its Note reads one way and its source the other: the separator's
+ * two, in the reader's order, as its writing alone gives them; else the Note's and the source's.
+ */
+function writtenTwoWays(figure: Figure, source: Reading): Ambiguity {
+  const open = readFigures(figure.chars, {})[0]?.ambiguous.find(
+    (each) => each.kind === "separator" && each.readings.length === 2,
+  );
+  return open ?? { kind: "separator", readings: [figure, source] };
+}
+
 /** A figure written as digits alone: no currency, unit or scale of its own, and none offered. */
 function writtenBare(reading: Figure): boolean {
   return (
@@ -836,8 +847,8 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
     detail,
     ...options.facts(),
   });
-  // A figure that reads two ways says both; one that reads more ways than one choice names (two
-  // things unsettled, a sign and a scale) says only that it does, never which (#3088).
+  // A figure that reads two ways says both; one that reads more ways (three scales, or a sign and
+  // a scale both unsettled) says only that it does, never which (#3088).
   const readTwoWays = (
     figure: CheckFigure,
     ambiguity: Ambiguity | null,
@@ -846,12 +857,16 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
     ...finding(figure),
     source,
     result:
-      ambiguity && ambiguity.readings.length >= 2
+      ambiguity?.readings.length === 2
         ? unavailable(
             "two-readings",
             twoReadingsDetail({
               shown: figure.reading.chars,
-              readings: ambiguity.readings.map((each) => readingWords(each, figure.reading.chars)),
+              readings: ambiguity.readings.map((each) => ({
+                words: readingWords(each, figure.reading.chars),
+                value: each.value,
+                unit: each.unit,
+              })),
             }),
           )
         : unavailable("readings-unsettled", figure.reading.chars),
@@ -965,9 +980,26 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
       else if (calculation)
         calculation = comparedFigure(target.reading, calculation, options.costs(item.calculation));
     }
-    // A Passage that writes it identically gives the very figure, whatever the Note's language
-    // makes of it: a German Note copying "£1,284 million" from an English report (#3088).
+    // A Passage that writes it identically gives the very figure where the Note's own language
+    // leaves its separators open. Where that language reads the same writing the other way, nothing
+    // says which is meant: a German Note's "1.284" beside an English report's (#3088).
     const asSource = sourceInput ? asWrittenIn(original.reading, sourceInput.number) : null;
+    if (
+      asSource &&
+      sourceInput &&
+      !separator &&
+      original.reading.scale === sourceInput.number.scale &&
+      JSON.stringify(original.reading.unit) === JSON.stringify(sourceInput.number.unit) &&
+      agreesAtShownPrecision(original.reading, {
+        value: asSource.value,
+        unit: sourceInput.number.unit,
+        inputs: [sourceInput],
+        formula: "",
+      }) === false
+    ) {
+      rows.push(readTwoWays(original, writtenTwoWays(original.reading, asSource), cited));
+      continue;
+    }
     if (asSource) {
       target = { ...target, reading: asSource };
       unsure = undefined;

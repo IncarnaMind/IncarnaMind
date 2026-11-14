@@ -11,7 +11,7 @@ import { formatDateTime } from "../../shared/dates";
 import { type MessageKey, type MessageParams, translate } from "../../shared/i18n";
 import { citationLocation, formatLocation } from "../../shared/locations";
 import { budgetStopOf } from "../../shared/readBudget";
-import { twoReadingsOf } from "../../shared/twoReadings";
+import { readingText, twoReadingsOf } from "../../shared/twoReadings";
 import { unreadFiguresOf } from "../../shared/unreadFigures";
 
 type Translate = (key: MessageKey, params?: MessageParams) => string;
@@ -80,7 +80,7 @@ export function reasonText(
   params: MessageParams = {},
 ): string {
   if (reason === "figures-not-read") return figuresNotReadText(t, detail);
-  if (reason === "two-readings") return twoReadingsText(t, detail);
+  if (reason === "two-readings") return twoReadingsText(t, language, detail);
   if (reason !== "read-budget")
     return t(`claim.reason.${reason}`, { detail: detail ?? "", ...params });
   const stop = budgetStopOf(detail);
@@ -121,14 +121,14 @@ export const perHundredAnswers = (
 ): string | null =>
   estimateText({ ...perAnswer, amount: perAnswer.amount * 100 }, null, t, language);
 
-function twoReadingsText(t: Translate, detail: string | null): string {
+function twoReadingsText(t: Translate, language: Language, detail: string | null): string {
   const figure = twoReadingsOf(detail);
-  if (!figure) return t("claim.reason.two-readings.unknown");
-  const [first, ...rest] = figure.readings;
+  const [first, second] = figure?.readings ?? [];
+  if (!figure || !first || !second) return t("claim.reason.two-readings.unknown");
   return t("claim.reason.two-readings", {
     shown: figure.shown,
-    first: first ?? "",
-    second: rest.join(" / "),
+    first: readingText(language, first),
+    second: readingText(language, second),
   });
 }
 

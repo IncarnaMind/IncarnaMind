@@ -145,7 +145,8 @@ test("checks evaluation: Find support and verify", async () => {
     }
 
     const verified: VerifiedDocument[] = [];
-    for (const received of set.received) {
+    const findSupportOnly = process.env.INCARNAMIND_EVAL_CHECKS_FIND_SUPPORT_ONLY === "1";
+    for (const received of findSupportOnly ? [] : set.received) {
       const id = idOf(received.name);
       const text = library
         .pageTexts(id)

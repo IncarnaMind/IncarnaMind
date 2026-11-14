@@ -1689,9 +1689,37 @@ test.each([undefined, 99])(
           )
         : null;
     expect(line("en")).toBe("“4980” could mean 4,980 or 4,980m GBP, so it wasn’t checked.");
-    expect(line("zh-CN")).toBe("“4980”可能是 4,980，也可能是 4,980m GBP，所以未核对。");
+    expect(line("zh-CN")).toBe("“4980”可能是 4980，也可能是 49.8亿英镑，所以未核对。");
   },
 );
+
+// protects=a scale read three ways (bare, the text's "in thousands", the heading's "£m"), its reading not named, says only that it reads several ways, in English and Chinese, never "could mean A or B / C" (#3088); fails_when=the two-readings line lists three or the unread-Documents line shows; no_claim=a scale with two readings, which names both (the test above).
+test("a scale read three ways says it reads several ways", async () => {
+  const requested = noteChoice("Revenue 4980 (in thousands)", "£m");
+  expect(requested.reading.ambiguous[0]?.readings).toHaveLength(3);
+  const { result } = await checkWith({
+    figures: [requested],
+    body: "Revenue £4980000000",
+    text: reply([{ ...item(), reading: null }]),
+  });
+  const figure = result.figures?.[0]?.result;
+  expect(figure).toMatchObject({
+    verdict: "not-checked",
+    reason: "readings-unsettled",
+    detail: "4980",
+  });
+  const line = (language: "en" | "zh-CN") =>
+    figure?.verdict === "not-checked"
+      ? reasonText(
+          (key, params) => translate(language, key, params),
+          language,
+          figure.reason,
+          figure.detail,
+        )
+      : null;
+  expect(line("en")).toBe("“4980” could be read several ways, so it wasn’t checked.");
+  expect(line("zh-CN")).toBe("“4980”有多种读法，所以未核对。");
+});
 
 test("multiple own ambiguity axes are never combined by guessing", async () => {
   const requested = noteChoice("(4980)", "£m");
