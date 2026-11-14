@@ -54,7 +54,7 @@ The apt packages CI installs (the Noto CJK fonts; bubblewrap, socat and ripgrep)
 ## After you open it
 
 - Watch the checks until they finish: `gh pr checks <number> --watch`. Don't report the work as done, or ask for a merge, while a check is red or still running.
-- When a check fails, read why: `gh run view <run id> --log-failed`, and for the smoke test, the failing shard's log and the Playwright traces uploaded as its `smoke-results-N` artifact. Fix it in this pull request, whether or not your change caused it, and say which in the pull request.
+- When a check fails, read why: `gh run view <run id> --log-failed`, and for the smoke test, the failing shard's log and the Playwright traces uploaded as its `smoke-results-N` artifact. Fix it in this pull request, whether or not your change caused it, and say which in the pull request. When `main` itself is broken (the same check fails there), the fix lands on `main` at once in a pull request of its own (`AGENTS.md` › Commits and pull requests); merge `main` into your branch once it has.
 - "Flaky" is a claim that needs evidence: it failed, then passed on a rerun with nothing changed, and you can say what timing it depends on. Then fix the test. Don't hide it with more retries, longer timeouts or a skip.
 
 ## Run the specs you changed on a clean machine
