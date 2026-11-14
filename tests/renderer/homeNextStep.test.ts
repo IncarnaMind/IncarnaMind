@@ -299,6 +299,7 @@ describe("The Answer Home offers to write", () => {
     errorKind: null,
     errorMessage: null,
     errorSignInRoute: null,
+    errorTooLong: null,
     citationSupport: null,
     toolCalls: [],
     textOrigin: null,

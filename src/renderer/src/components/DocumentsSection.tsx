@@ -28,7 +28,7 @@ import { heldWhileAdding } from "../sidebarList";
 import { moveFromMenu, rowDrag, useSidebarMove } from "../sidebarMoves";
 import { useSortMenu } from "../sortMenu";
 import { allExamples, isOwnDocument, useAppStore } from "../store";
-import { chipsOf, tagIndex } from "../tagEditing";
+import { chipsOf, tagIndex, tagMarksLine } from "../tagEditing";
 import { isMoveToKey, moveThroughRows, TREE_ROW, useTreeItem } from "../treeKeys";
 import { useRename } from "../useRename";
 import { useTreeKeyboard } from "../useTreeKeyboard";
@@ -339,16 +339,14 @@ const DocumentRow = memo(function DocumentRow({
   tagsById: ReadonlyMap<string, Tag>;
 }) {
   const t = useT();
+  const language = useLanguage();
   const rename = useRename<HTMLButtonElement>(`sidebar-document:${item.id}`);
   const renameDocument = useAppStore((state) => state.renameDocument);
   const shownName = displayName(item);
   const place = useDocumentPlace(item.id);
   const source = sourceOf(item);
   const chips = chipsOf(item.tags, tagsById);
-  const tagNames =
-    chips.length > 0
-      ? t("tags.marks", { names: chips.map(({ tag }) => tag.name).join(", ") })
-      : undefined;
+  const tagNames = chips.length > 0 ? tagMarksLine(t, language, chips) : undefined;
   const openDocument = useAppStore((state) => state.openDocument);
   const isOpen = useAppStore((state) => {
     const shown = currentTabOf(state.layout)?.item;

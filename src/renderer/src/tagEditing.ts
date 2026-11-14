@@ -3,6 +3,9 @@
  * and the Documents' links. Pure: no store, no bridge, so the tests import it.
  */
 import type { Document, DocumentTag, Tag } from "../../core/api";
+import type { Language } from "../../core/language";
+import type { MessageKey, MessageParams } from "../../shared/i18n";
+import { unitsOf } from "../../shared/i18n/join";
 import { matchName, queryWords } from "./matcher";
 
 /** How a Tag stands on the Documents being edited. */
@@ -94,3 +97,20 @@ export function chipsOf(
 /** The Tags by id. */
 export const tagIndex = (tags: readonly Tag[]): ReadonlyMap<string, Tag> =>
   new Map(tags.map((tag) => [tag.id, tag]));
+
+type Translate = (key: MessageKey, params?: MessageParams) => string;
+type NamedChip = { tag: Pick<Tag, "name"> };
+
+const namesOf = (chips: readonly NamedChip[], language: Language) =>
+  unitsOf(
+    chips.map(({ tag }) => tag.name),
+    language,
+  );
+
+/** What a Document's row says of the Tags it carries: "Tags: Q3, Q4"; "标签：Q3、Q4". */
+export const tagMarksLine = (t: Translate, language: Language, chips: readonly NamedChip[]) =>
+  t("tags.marks", { names: namesOf(chips, language) });
+
+/** What "+N" says of the Tags it hides: "2 more: Q3, Q4"; "另有 2 个：Q3、Q4". */
+export const hiddenTagsLine = (t: Translate, language: Language, hidden: readonly NamedChip[]) =>
+  t("tags.chip.more", { count: hidden.length, names: namesOf(hidden, language) });

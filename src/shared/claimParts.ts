@@ -58,6 +58,7 @@ const FAILURES: Record<ClaimCheckFailure, true> = {
   "local-mode": true,
   "consent-widened": true,
   "kept-inside": true,
+  "outside-scope": true,
   analysis: true,
   "analysis-gone": true,
   "absence-read-limit": true,

@@ -3130,6 +3130,16 @@ export const migrations: readonly Migration[] = [
         WHERE deleted_at IS NULL;
     `,
   },
+  {
+    version: 143,
+    description: "A failed Answer keeps which part of it was too long, when it isn't the Question",
+    // "selection" (TooLongPart, checked in code) for text selected in a Note too long to go whole
+    // at a small window (#3045), so the line asks for less of it after a restart too; NULL for any
+    // other failure.
+    sql: `
+      ALTER TABLE conversation_messages ADD COLUMN error_too_long TEXT;
+    `,
+  },
 ];
 
 /**

@@ -13,7 +13,14 @@ import { useAppStore } from "../../store";
 import { SettingsRow } from "../settings/SettingsGroup";
 import { buttonStyle, rowFieldClass } from "../ui";
 import { AgentFolderList, useAgentFolderRows } from "./AgentFolderList";
-import { activityWords, doneWords, helpUrl, pairingInSentence, timeWords } from "./agentWords";
+import {
+  activityWords,
+  doneWords,
+  helpUrl,
+  pairingInSentence,
+  readsLine,
+  timeWords,
+} from "./agentWords";
 import { LaunchDetails } from "./LaunchDetails";
 import { ProposeChoice } from "./ProposeChoice";
 
@@ -133,9 +140,7 @@ export function AgentPairingRow({
       detail={
         <>
           <span data-testid="agent-pairing-reads" className="block">
-            {names.length > 0
-              ? t("agents.pairing.reads", { folders: names.join(", ") })
-              : t("agents.pairing.readsNothing")}
+            {readsLine(names, t, language)}
           </span>
           {propose && (
             <span data-testid="agent-pairing-proposes" className="block">

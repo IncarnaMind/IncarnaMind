@@ -33,6 +33,11 @@ export interface OllamaModelSettings {
   keepAlive: string;
   /** `think`: false, except for a model that can only think. */
   think: boolean;
+  /**
+   * The least output cap an Answer's requests may be given where the window is small
+   * (`ContextWindow.outputFloor`). Never chosen by the app: an evaluation compares floors with it.
+   */
+  outputFloor?: number;
 }
 
 /** What Ollama says about a model, and the settings chosen from it. */
