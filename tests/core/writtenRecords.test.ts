@@ -1,9 +1,8 @@
 /**
  * The records a check's reply writes into its own text instead of calling `cite` (#3019): read
  * only from its record lines, taken only when the Citation check finds each in the Document or
- * Passage it names, and never one that repeats the sentence; a Supported part of a cited sentence
- * rests on its own Citations' words, else it shows no ✓ until the Passage the check found is its
- * Citation.
+ * Passage it names, and never one that repeats the sentence; the model's Supported stands with the
+ * Passage it found, for the Note to read against its Citations.
  */
 import { describe, expect, test } from "vitest";
 import type { ClaimCheckResult } from "../../src/core";
@@ -97,8 +96,49 @@ describe("A check reply's own record lines", () => {
   });
 });
 
+describe("A cite call written as code, and a record line holding two quotes", () => {
+  const replying = (evidence: string, line: string) =>
+    ["Verdict: supported", `Evidence: ${evidence}`, line].join("\n");
+  const record = (marker: number, quote: string) => ({
+    marker,
+    passage: "P1",
+    document: null,
+    location: "p. 4",
+    quote,
+  });
+  const call = (body: string) => `cite(citations=[${body}])`;
+  const ROW = (marker: number, quote: string) =>
+    `{"marker": ${marker}, "passage": "P1", "location": "p. 4", "quote": "${quote}"}`;
+
+  // protects=a cite call written as code gives its records as the same call written as JSON does, in English and Chinese; fails_when=it is left unread, so the check asks again for records the reply gave; no_claim=whether the quotes are found, which the Citation check decides.
+  test.each([
+    ["English", "Recurrent O(n d2) O(n) O(n)", "Weighted keys O(n2 d) O(1) O(1)"],
+    ["Chinese", "港口的潮水每天都会涨落。", "港口在黄昏关闭。"],
+  ])("read: a cite call written as code, %s", (_language, first, second) => {
+    expect(writtenRecords(replying("[1, 2]", call(`${ROW(1, first)}, ${ROW(2, second)}`)))).toEqual(
+      [record(1, first), record(2, second)],
+    );
+  });
+
+  // protects=a cite call written as code is read only as JSON: single quotes in place of double, or a quote holding "])", give no record; a line with two quotes beside an Evidence line naming two markers gives none, since a reply that writes one gives marker 2 a line of its own and both quotes are marker 1's (the 13-07-30 reply), in English and Chinese; fails_when=any of them is read as records, which would give marker 2 the quote the model gave for marker 1; no_claim=lines with one quote each, which the first test holds.
+  test.each([
+    [
+      "single quotes",
+      call("{'marker': 1, 'passage': 'P1', 'quote': 'Recurrent O(n d2) O(n) O(n)'}"),
+    ],
+    ["a quote holding ])", call(ROW(1, "the table [see Table 1]) on p. 4"))],
+    [
+      "13-07-30: two rows on [^1], no line for marker 2",
+      '[^1] passage P3, page 4: "Recurrent O(n d2) O(n) O(n)" and "Weighted keys O(n2 d) O(1) O(1)"',
+    ],
+    ["两个引文在一行", "[^1]: 段落 P1，p. 2：“港口的潮水每天都会涨落。”和“港口在黄昏关闭。”"],
+  ])("none: %s", (_case, line) => {
+    expect(writtenRecords(replying("[1, 2]", line))).toEqual([]);
+  });
+});
+
 /** A reply that gives its verdict and writes its record into its text, never calling cite. */
-const writing = (record: string) => ({
+const writing = (record: string, evidence = "[1]") => ({
   verdict: "supported" as const,
   judgement: "same" as const,
   reply: {
@@ -107,7 +147,7 @@ const writing = (record: string) => ({
       "Absence: no",
       SAME_DETAIL,
       "Explanation: The Document says so.",
-      "Evidence: [1]",
+      `Evidence: ${evidence}`,
       record,
     ].join("\n"),
   },
@@ -117,9 +157,10 @@ async function checked(
   claim: string,
   record: string,
   citedQuote: string,
+  evidence?: string,
 ): Promise<ClaimCheckResult> {
   const { core, documents } = await setUpWithDocuments(
-    checkingModel({ [claim]: writing(record) }, [], '{"passage": null}'),
+    checkingModel({ [claim]: writing(record, evidence) }, [], '{"passage": null}'),
     [TIDES, BOATS],
   );
   const [tides] = documents;
@@ -176,23 +217,61 @@ describe("A record the reply wrote is taken before the check asks for it again",
   });
 });
 
-describe("A cited sentence's Supported rests on its own Citations' words", () => {
-  // protects=a part the check backed with a Passage its Citation doesn't quote reads Not checked, "found-elsewhere", keeping that Passage for its card's Add as Citation, in English and Chinese, never Supported beside the old Citation alone and never Unsupported; fails_when=it reads Supported, Unsupported, or loses the Passage; no_claim=how its card shows it.
-  test.each([["Tides turn twice in a day here."], ["这里的潮水每天都会涨落。"]])(
-    "%s, citing another line",
-    async (claim) => {
-      const result = await checked(claim, `[^1]: Tides, “${LINE}”`, "The harbour closes at dusk.");
-      expect(result.verdict).toBe("not-checked");
-      if (result.verdict !== "not-checked") return;
-      expect(result.reason).toBe("found-elsewhere");
-      expect(result.parts?.[0]?.evidence.map((citation) => citation.quote)).toEqual([LINE]);
-    },
-  );
+describe("A cite call written as code, and a line holding two quotes, through the core's check", () => {
+  const BOTH = "The tide turns twice a day, and the harbour closes at dusk.";
+  const BOTH_ZH = "港口的潮水每天都会涨落，港口在黄昏关闭。";
+  const CLOSES = "The harbour closes at dusk.";
+  const ZH_LINE = "港口的潮水每天都会涨落。";
+  const call = (first: string) =>
+    `cite(citations=[{"marker": 1, "passage": "P1", "quote": "${first}"}, {"marker": 2, "passage": "P1", "quote": "${CLOSES}"}])`;
+
+  // protects=a check reply that writes its records as a cite call written as code has them taken when the Citation check finds each in the Passage named, so its own Supported stands with them and no ask goes out, in English and Chinese; fails_when=the call is left unread and the sentence reads Not checked; no_claim=what a real model writes.
+  test.each([
+    ["English", BOTH, call(LINE)],
+    ["Chinese", BOTH_ZH, call(ZH_LINE)],
+  ])("taken: a cite call written as code, %s", async (_case, claim, record) => {
+    const result = await checked(claim, record, LINE, "[1, 2]");
+    expect(result.verdict).toBe("supported");
+    if (result.verdict !== "supported") return;
+    expect([LINE, ZH_LINE]).toContain(result.evidence?.quote);
+  });
+
+  // protects=a line holding two quotes beside an Evidence line naming two markers is no record, so the ask goes out and the sentence reads as on main, in English and Chinese, the 13-07-30 reply's shape among them; and every record asked for is taken or none: a code call's second quote the Document doesn't hold, or a quote that only repeats the sentence, leaves the ask to go out as before, whose empty answer leaves the sentence Not checked; fails_when=any of them is taken and the sentence reads Supported; no_claim=what a real model's ask answers.
+  test.each([
+    [
+      "13-07-30: two rows on [^1], no line for marker 2",
+      BOTH,
+      `[^1]: Tides: "${LINE}" and "${CLOSES}"`,
+    ],
+    ["两个引文在一行", BOTH_ZH, `[^1]: Tides：“${ZH_LINE}”和“${CLOSES}”`],
+    [
+      "a code call's quote the Document doesn't hold",
+      BOTH,
+      call(LINE).replace(CLOSES, "The harbour closes at noon."),
+    ],
+    ["a code call's quote that repeats the sentence", LINE, call(LINE)],
+  ])("none: %s", async (_case, claim, record) => {
+    const evidence = "[1, 2]";
+    const result = await checked(claim, record, LINE, evidence);
+    expect(result.verdict).toBe("not-checked");
+    if (result.verdict !== "not-checked") return;
+    expect(result.reason).toBe("no-evidence");
+  });
 });
 
-describe("A Supported part its check recorded through cite", () => {
-  // protects=a cited sentence its check backed with another Passage through a cite call reads as on main, Supported with that Passage, until the full display shows the Passage as its Citation; fails_when=the no-✓ rule for records taken from the reply reaches a cite call's Supported; no_claim=whether that ✓ should stand, which the full display decides.
-  test("reads as before", async () => {
+describe("A cited sentence's check backed by a Passage its Citations don't hold", () => {
+  // protects=the check gives the model's own Supported with the Passage it found, from a record the reply wrote or a cite call, in English and Chinese, so the Note can read it against its Citations as they stand (#3019); fails_when=the check stores Not checked in its place, which no Add as Citation could bring back without a new request, or loses the Passage; no_claim=how the Note shows it, which tests/core/foundPassageCitation.test.ts holds.
+  test.each([["Tides turn twice in a day here."], ["这里的潮水每天都会涨落。"]])(
+    "%s, a record the reply wrote",
+    async (claim) => {
+      const result = await checked(claim, `[^1]: Tides, “${LINE}”`, "The harbour closes at dusk.");
+      expect(result.verdict).toBe("supported");
+      if (result.verdict !== "supported") return;
+      expect(result.evidence?.quote).toBe(LINE);
+    },
+  );
+
+  test("a cite call", async () => {
     const claim = "Tides turn twice in a day here.";
     const { core, documents } = await setUpWithDocuments(
       checkingModel({ [claim]: { verdict: "supported", quote: LINE, judgement: "same" } }),
@@ -212,19 +291,7 @@ describe("A Supported part its check recorded through cite", () => {
       ],
     });
     expect(result.verdict).toBe("supported");
-  });
-});
-
-describe("A Citation that holds fewer words than the quote that backs the part", () => {
-  // protects=a Citation that quotes only part of the words the check's record gives ("The tide turns" for "The tide turns twice a day.") isn't the part's own Citation, so the part reads Not checked, "found-elsewhere"; fails_when=shared words alone count as the sentence's own Citation and it reads Supported; no_claim=none beyond protects.
-  test("reads Not checked, found elsewhere", async () => {
-    const result = await checked(
-      "Tides turn twice in a day here.",
-      `[^1]: Tides, “${LINE}”`,
-      "The tide turns",
-    );
-    expect(result.verdict).toBe("not-checked");
-    if (result.verdict !== "not-checked") return;
-    expect(result.reason).toBe("found-elsewhere");
+    if (result.verdict !== "supported") return;
+    expect(result.evidence?.quote).toBe(LINE);
   });
 });

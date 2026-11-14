@@ -5,9 +5,16 @@ import { answerBlocks, hasText } from "../../../../shared/answerBlocks";
 import type { NodeJSON } from "../../../../shared/blockJson";
 import { figureRunsOfAnswer } from "../../../../shared/figureRuns";
 import { figuresOf } from "../../answerFigures";
+import { citedBy } from "../../answerSteps";
 import { useAnswers } from "../../answers";
 import { useAnswerWait } from "../../answerWait";
 import { useApprovals, waitingFor } from "../../approvals";
+import {
+  CallStartsContext,
+  OtherCallsContext,
+  useCallStarts,
+  useOtherCalls,
+} from "../../callStarts";
 import { repliesOnlyRefusals } from "../../commandFacts";
 import { regenerateAnswer } from "../../conversations";
 import {
@@ -60,6 +67,23 @@ export interface AnswerKeeping {
 }
 
 /**
+ * An Answer in the assistant, its cited Transcripts with when their call started where two calls
+ * would read alike (#3005): to its Citations and the sources under its steps (`useCallStarts`).
+ * A help button's reply also tells its Citations which other calls its check leaves out.
+ */
+export function AssistantAnswer(props: Parameters<typeof AnswerArticle>[0]) {
+  const { citations, toolCalls } = props.answer;
+  const cited = useMemo(() => citedBy({ citations, toolCalls }), [citations, toolCalls]);
+  return (
+    <CallStartsContext.Provider value={useCallStarts(cited)}>
+      <OtherCallsContext.Provider value={useOtherCalls(props.question, props.answer)}>
+        <AnswerArticle {...props} />
+      </OtherCallsContext.Provider>
+    </CallStartsContext.Provider>
+  );
+}
+
+/**
  * An Answer in the assistant (#201): no box, as an Answer in a Mind has none
  * (DESIGN.md, Answer), in the assistant's reading sizes. The question it asked,
  * folded to its words, and the User's answer to it, once given (#2530); its
@@ -68,7 +92,7 @@ export interface AnswerKeeping {
  * changing one; what went wrong, and the approvals it waits for, under
  * it; then its actions (`AnswerActions`).
  */
-export function AssistantAnswer({
+function AnswerArticle({
   answer,
   question,
   sought,
@@ -205,6 +229,8 @@ export function AssistantAnswer({
           onRetryWith={(model) => void regenerateAnswer(answer.id, { model })}
           modelNow={modelNow}
           chooseHere
+          asked="assistant"
+          tooLong={answer.errorTooLong}
           question={
             question
               ? {

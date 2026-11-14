@@ -74,11 +74,6 @@ export function installTestHooks(): void {
     setComingUp: showComingUp,
     holdStyleCatalogue,
     motionRunning,
-    openBlockMenu: (blockId) => {
-      void commands
-        .run("block.menu", { focus: { kind: "block", id: blockId }, surface: "mind" })
-        .catch(useAppStore.getState().reportError);
-    },
     setMotionSpeed,
     leavingCopies,
   };

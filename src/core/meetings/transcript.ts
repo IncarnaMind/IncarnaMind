@@ -78,6 +78,7 @@ import {
   writeVtt,
 } from "../documents/formats/vtt";
 import type { SnapshotFile } from "../documents/web";
+import type { PaceTimers } from "../sources/pace";
 import type { CloudAudioMeter, CloudTranscription } from "../transcription/cloud/routes";
 import type { TranscriptionModel } from "../transcription/model";
 import { whileOpen } from "../whileOpen";
@@ -238,7 +239,7 @@ interface State extends Saved {
   written: boolean;
   separating: boolean;
   lastIndexed: number;
-  indexTimer: ReturnType<typeof setTimeout> | null;
+  indexWait: AbortController | null;
   partialTimer: ReturnType<typeof setTimeout> | null;
   /** Partial text changed while `partialTimer` waits. */
   partialDue: boolean;
@@ -274,6 +275,8 @@ export interface TranscriptsOptions {
   transcriber: Transcriber;
   model: TranscriptionModel;
   documents: TranscriptDocuments;
+  /** The clock and waits that space a recording Transcript's reads. */
+  timers: PaceTimers;
   /** The Meeting's audio parts on disk. */
   partsOf(meetingId: string): AudioPart[];
   /** Whether the Meeting's audio was deleted, by the User or after its day. */
@@ -368,7 +371,7 @@ async function samplesOf(part: AudioPart): Promise<Int16Array> {
 }
 
 export function createTranscripts(options: TranscriptsOptions) {
-  const { transcriber, model, documents, health, log } = options;
+  const { transcriber, model, documents, health, log, timers } = options;
   const folder = join(options.dataDir, "Transcripts");
   const states = new Map<string, State>();
   let streams = 0;
@@ -427,7 +430,7 @@ export function createTranscripts(options: TranscriptsOptions) {
       written: cues.length > 0,
       separating: false,
       lastIndexed: 0,
-      indexTimer: null,
+      indexWait: null,
       partialTimer: null,
       partialDue: false,
       finishing: null,
@@ -489,7 +492,7 @@ export function createTranscripts(options: TranscriptsOptions) {
       try {
         documents.add(state.meetingId, id, file);
         state.documentId = id;
-        state.lastIndexed = Date.now();
+        state.lastIndexed = timers.now();
         persist(state);
       } catch (error) {
         log.error("transcript.documentFailed", {
@@ -500,22 +503,32 @@ export function createTranscripts(options: TranscriptsOptions) {
       return;
     }
     if (!documents.find(state.documentId)) return;
-    const wait = state.lastIndexed + indexEvery(state.cues.length) - Date.now();
+    const wait = state.lastIndexed + indexEvery(state.cues.length) - timers.now();
     if (now || wait <= 0) {
-      if (state.indexTimer) clearTimeout(state.indexTimer);
-      state.indexTimer = null;
+      stopWaiting(state);
       index(state);
-    } else {
-      state.indexTimer ??= setTimeout(() => {
-        state.indexTimer = null;
-        index(state);
-      }, wait);
+    } else if (!state.indexWait) {
+      const waiting = new AbortController();
+      state.indexWait = waiting;
+      timers.sleep(wait, waiting.signal).then(
+        () => {
+          if (state.indexWait !== waiting) return;
+          state.indexWait = null;
+          index(state);
+        },
+        () => undefined,
+      );
     }
+  }
+
+  function stopWaiting(state: State): void {
+    state.indexWait?.abort();
+    state.indexWait = null;
   }
 
   function index(state: State): void {
     if (closed || state.savedPath) return;
-    state.lastIndexed = Date.now();
+    state.lastIndexed = timers.now();
     documents.check(vttPath(state.meetingId)).catch((error: unknown) => {
       log.error("transcript.indexFailed", {
         meetingId: state.meetingId,
@@ -1651,10 +1664,20 @@ export function createTranscripts(options: TranscriptsOptions) {
     async refresh(meetingId: string): Promise<void> {
       const state = states.get(meetingId);
       if (closed || !state?.documentId || state.savedPath || state.cues.length === 0) return;
-      if (state.indexTimer) clearTimeout(state.indexTimer);
-      state.indexTimer = null;
-      state.lastIndexed = Date.now();
+      stopWaiting(state);
+      state.lastIndexed = timers.now();
       await documents.check(vttPath(meetingId));
+    },
+
+    /**
+     * Whether `path` is a Transcript file this module writes and times the reads of: from the line
+     * that made its Document until it is saved (#3055).
+     */
+    timesReads(path: string): boolean {
+      for (const state of states.values()) {
+        if (state.documentId && !state.savedPath && vttPath(state.meetingId) === path) return true;
+      }
+      return false;
     },
 
     /**
@@ -1952,7 +1975,7 @@ export function createTranscripts(options: TranscriptsOptions) {
         dropStreams(state.live);
         state.live = null;
       }
-      if (state?.indexTimer) clearTimeout(state.indexTimer);
+      if (state) stopWaiting(state);
       states.delete(meetingId);
       rmSync(jsonPath(meetingId), { force: true });
     },
@@ -1960,7 +1983,7 @@ export function createTranscripts(options: TranscriptsOptions) {
     close(): void {
       closed = true;
       for (const state of states.values()) {
-        if (state.indexTimer) clearTimeout(state.indexTimer);
+        stopWaiting(state);
         if (state.partialTimer) clearTimeout(state.partialTimer);
         // Streams still finishing lose their last lines with the engine: those stretches are read
         // from the recording at the next start instead (#2957).

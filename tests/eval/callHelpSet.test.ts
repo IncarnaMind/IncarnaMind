@@ -31,7 +31,7 @@ const block = (text: string, tag: string) =>
 
 /**
  * A model that cites `quote` from the first Passage found ahead, then answers in the options'
- * shape, and judges its sentences supported by what they cite, as call help's are judged (#2847).
+ * shape, and judges any sentence it is asked of supported by what it cites.
  */
 function helping(quote: string, calls: ModelCall[]) {
   return scriptedModel(
@@ -96,15 +96,11 @@ function judging(
   });
 }
 
-/**
- * Presses the case's button once, on a scripted model that cites `quote`, judged as `judge` says,
- * on `arm`: the judged marks, or the quote-only ones, whose ✓ needs only a found quote.
- */
+/** Presses the case's button once, on a scripted model that cites `quote`, judged as `judge` says. */
 async function pressed(
   id: string,
   quote: string,
   judge: { grade: string; unstated: number[]; first?: "prose" | "empty" },
-  arm: "today" | "help-marks-quote-only" = "today",
   /** The arm switch a paired run sends through, to read the requests as it records them. */
   through?: ReturnType<typeof armSwitch>,
   set: "call-help" | "call-help-typed" | "call-help-typed-fresh" = "call-help",
@@ -130,7 +126,6 @@ async function pressed(
     embeddings: false,
     recordTimings: true,
     chatModels: () => (through ? through.chatModels(() => model) : () => model),
-    ...(arm === "help-marks-quote-only" && { helpMarksQuoteOnly: () => true }),
   });
   try {
     const { library } = opened;
@@ -148,7 +143,7 @@ async function pressed(
       recorder,
       choice: { providerId, modelId: "local-model" },
       model: "ollama/local-model",
-      arm,
+      arm: "today",
       grade: async () => "unread",
       claimsJudge: judging(judge.grade, judge.unstated, judged, judge.first, roles),
     });
@@ -336,7 +331,6 @@ describe("The typed question's fresh cases (#2925)", () => {
       "en-fresh-followup",
       "A van charger takes half a day to fit.",
       { grade: "right", unstated: [] },
-      "today",
       undefined,
       "call-help-typed-fresh",
     );
@@ -367,7 +361,6 @@ describe("The typed question's fresh cases (#2925)", () => {
       "en-fresh-price",
       "",
       { grade: "right", unstated: [] },
-      "today",
       armSwitch(),
       "call-help-typed-fresh",
       uncited,
@@ -465,7 +458,6 @@ describe("A question typed during the call (#2925)", { timeout: 120_000 }, () =>
       "en-typed-price",
       "Towels are laundered at €1.50 per kilo.",
       { grade: "right", unstated: [] },
-      "today",
       undefined,
       "call-help-typed",
     );
@@ -489,7 +481,6 @@ describe("A question typed during the call (#2925)", { timeout: 120_000 }, () =>
       "en-typed-followup",
       "Rugs are returned within ten working days.",
       { grade: "right", unstated: [] },
-      "today",
       undefined,
       "call-help-typed",
     );
@@ -534,29 +525,22 @@ describe("A press during the call", { timeout: 120_000 }, () => {
     expect(judged[0]).toContain(`[1] Price sheet 2026: “${ENTERPRISE}” (found)`);
   });
 
-  test("a found Citation of another line than the case rests on isn't cited; a sentence the judge says its quote doesn't state is a false Supported on a quote-only ✓, and the sentence check withholds it", async () => {
-    const judge = { grade: "wrong", unstated: [1] };
-    const main = (await pressed("en-answer-sso", TEAM, judge, "help-marks-quote-only")).run;
-    const branch = (await pressed("en-answer-sso", TEAM, judge)).run;
+  test("a found Citation of another line than the case rests on isn't cited, and a sentence the judge says its found quote doesn't state is a false Supported", async () => {
+    const run = (await pressed("en-answer-sso", TEAM, { grade: "wrong", unstated: [1] })).run;
 
-    for (const run of [main, branch]) {
-      expect(run.status).toBe("done");
-      expect(run.found).toBe(1);
-      expect(run.cited).toBe(false);
-      expect(run.grade).toBe("wrong");
-    }
-    expect(main.falseSupported).toBe(1);
-    expect(main.marks).toMatchObject({ listed: 1, listedChecked: 1 });
-    // "$45 a seat" against a quote of "$25": the check leaves it unjudged, so it shows no ✓.
-    expect(branch.falseSupported).toBe(0);
-    expect(branch.marks).toMatchObject({ listed: 1, listedChecked: 0 });
+    expect(run.status).toBe("done");
+    expect(run.found).toBe(1);
+    expect(run.cited).toBe(false);
+    expect(run.grade).toBe("wrong");
+    // "$45 a seat" against a quote of "$25", found word for word: its quote line shows ✓.
+    expect(run.falseSupported).toBe(1);
   });
 
-  // protects=bar 4a of the call-help marks gate reads the same setup from two arms' own cores, each library's ids and the hash naming its prompt cache aside (#2847); fails_when=anything per library makes every pair's setup differ; no_claim=what a model does with either request.
+  // protects=a paired run of the call-help set reads the same setup from two arms' own cores, each library's ids and the hash naming its prompt cache aside; fails_when=anything per library makes every pair's setup differ; no_claim=what a model does with either request.
   test("two cores' first requests of one press have the same model, system prompt, Tools and parameters through the arm switch", async () => {
     const switches = [armSwitch(), armSwitch()];
     const judge = { grade: "right", unstated: [] };
-    for (const each of switches) await pressed("en-answer-sso", ENTERPRISE, judge, "today", each);
+    for (const each of switches) await pressed("en-answer-sso", ENTERPRISE, judge, each);
     const [first, second] = switches.map((each) => each.takeSent()[0] ?? null);
 
     expect(first?.setup).toContain("promptCacheKey");

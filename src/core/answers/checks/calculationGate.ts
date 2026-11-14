@@ -7,13 +7,14 @@ import {
   readingsOf,
   readStatedUnits,
 } from "../../../shared/figures";
+import { findQuote, findQuoteOccurrences, type TextRange } from "../../../shared/quoteMatch";
 import type { Citation, InputNumber } from "../../api";
 import { recordCiteSpans } from "../../recordCites/parser";
 import { writtenNumbers } from "../../transcription/spokenNumbers";
 import { documentFigureContext } from "../calculations";
 import { figuresInClaim, statedFigure } from "./calculated";
 import type { ReadVerdict } from "./prompt";
-import { sameValue, unitNotStated, writtenShare } from "./units";
+import { isSameUnit, sameValue, statesFigure, unitNotStated, writtenOf } from "./units";
 
 const spaced = (text: string) => text.replace(/\s+/gu, " ").trim().toLowerCase();
 
@@ -101,12 +102,6 @@ function wordsState(figure: Figure, quote: string, context: FigureContext): bool
 const isPoints = (each: { unit: Figure["unit"] }) =>
   each.unit.kind === "points" || (each.unit.kind === "other" && /^points?$/i.test(each.unit.word));
 
-/** A figure's number as it is written: its scale word left off, a share in its own notation. */
-const writtenOf = (figure: Figure) =>
-  figure.unit.kind === "percent" || figure.unit.kind === "points"
-    ? writtenShare(figure)
-    : figure.value / figure.scale;
-
 /**
  * Whether the quotes hold every number of `claim`, at its value or as it is written, in digits or
  * in words, whatever unit they give it: "54,000 tonnes" in a row under "Output (t)", "12%" in a
@@ -189,7 +184,8 @@ export async function needsCalculation({
 }): Promise<boolean> {
   const context = documentFigureContext(citations.flatMap((citation) => citation.units));
   const own = documentFigureContext([{ text: claim }]);
-  const claimFigures = figuresInClaim(claim, own.language ? own : { ...context, header: null });
+  const claimContext = own.language ? own : { ...context, header: null };
+  const claimFigures = figuresInClaim(claim, claimContext);
   if (claimFigures.length === 0 && !attempted && !verdict.calculations?.length) return false;
   if (attempted && computed.length === 0) return true;
   if (
@@ -200,9 +196,7 @@ export async function needsCalculation({
   )
     return false;
   const sameUnit = (a: Figure["unit"], b: InputNumber["unit"]) =>
-    a.kind === b.kind &&
-    (a.kind !== "currency" || (b.kind === "currency" && a.code === b.code)) &&
-    (a.kind !== "other" || (b.kind === "other" && a.word === b.word));
+    b.kind !== "rate" && isSameUnit(a, b);
   const matches = (a: Pick<Figure, "value" | "unit">, b: Pick<InputNumber, "value" | "unit">) =>
     a.value === b.value && sameUnit(a.unit, b.unit);
   const remaining = [...computed];
@@ -243,6 +237,24 @@ export async function needsCalculation({
     cited: () => citation.quote,
     document: () => units.map((unit) => unit.text).join("\n"),
   }));
+  // Where each quote stands in its Document, so a label there can state its plain number.
+  let placed: { text: string; ranges: TextRange[] }[] | undefined;
+  const places = () =>
+    (placed ??= unique.map(({ citation, units }) => {
+      const text = units.map((unit) => unit.text).join("\n");
+      const ranges = findQuoteOccurrences(text, citation.quote);
+      return {
+        text,
+        ranges:
+          ranges.length > 0 ? ranges : (findQuote(text, citation.quote, { numbers: true }) ?? []),
+      };
+    }));
+  let said: { text: string; numbers: number[] } | undefined;
+  const sentence = () =>
+    (said ??= {
+      text: claim,
+      numbers: figuresInClaim(writtenNumbers(claim), claimContext).map(writtenOf),
+    });
   const unused = [...computed];
   for (const figure of claimFigures) {
     const at = unused.findIndex((number) => matches(figure, number));
@@ -257,7 +269,8 @@ export async function needsCalculation({
         ({ citation, units }) =>
           rowStates(claim, figure, citation.quote, units, context) ||
           wordsState(figure, citation.quote, context),
-      )
+      ) ||
+      places().some(({ text, ranges }) => statesFigure(figure, sentence(), text, ranges, context))
     )
       continue;
     if (!available.some((source) => matches(figure, source))) {

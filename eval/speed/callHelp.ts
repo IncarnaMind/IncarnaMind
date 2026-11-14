@@ -22,7 +22,8 @@ import type {
 import { toolTextIn } from "../../src/core/answers/toolText";
 import { createFakeCapture, type FakeCapture } from "../../src/core/meetings/fakeCapture";
 import type { TimingOutcome } from "../../src/core/timing/timings";
-import { citationNumbers, sentencePassed } from "../../src/renderer/src/helpReply";
+import { citationNumbers } from "../../src/renderer/src/helpReply";
+import { quoteState } from "../../src/shared/helpQuotes";
 import { type ReplyItem, readHelpReply, shownItems } from "../../src/shared/helpReplyRead";
 import { isTranscriptLocation } from "../../src/shared/locations";
 import { HELP_SHAPE, type HelpShape } from "../../src/shared/meetingHelp";
@@ -35,7 +36,7 @@ import {
 } from "../../tests/helpers/transcription";
 import type { EvalDocument } from "../lib/evaluationSet";
 import { openLibrary } from "../lib/library";
-import { armNamed, citationsAsked } from "./arms";
+import { citationsAsked } from "./arms";
 import {
   CALL_HELP_CASES,
   type CallHelpCase,
@@ -78,7 +79,7 @@ const MARKS_MS = 60_000;
  * The reply's end, then every mark settled, read on the stored reply; rejects when they haven't
  * settled `MARKS_MS` after the end, so the press fails to run.
  */
-function replyEnded(
+export function replyEnded(
   core: Core,
   conversationId: string,
   answerId: string,
@@ -154,9 +155,14 @@ function hear(capture: FakeCapture, ms: number, speaking: "microphone" | "system
 }
 
 /** Starts the case's Meeting and says its call, waiting for each line to be written. */
-export async function recordCall(core: Core, capture: FakeCapture, turns: readonly CallTurn[]) {
+export async function recordCall(
+  core: Core,
+  capture: FakeCapture,
+  turns: readonly CallTurn[],
+  folderId?: string,
+) {
   await core.updateSettings({ device: { meetingNoticeAccepted: true } });
-  const meeting = await core.createMeeting();
+  const meeting = await core.createMeeting(folderId === undefined ? undefined : { folderId });
   await core.startMeeting({ meetingId: meeting.id, systemAudio: true });
   for (const [index, turn] of turns.entries()) {
     hear(capture, spokenMs(turn.text), turn.who === "me" ? "microphone" : "system");
@@ -199,7 +205,7 @@ export function quotes(
 type CitationPiece = Extract<ReplyItem["lead"][number], { kind: "citation" }>;
 
 /** The reply as the panel shows it: each item's lines, each Citation as `label` writes it. */
-function shownReply(
+function labelledReply(
   answer: Pick<ConversationAnswer, "figures">,
   items: readonly ReplyItem[],
   label: (piece: CitationPiece) => string,
@@ -226,6 +232,16 @@ function shownReply(
     .join("\n\n");
 }
 
+/** The reply as the panel shows it: each item's lines, its Citations by the numbers they show with. */
+export const shownReply = (
+  answer: Pick<ConversationAnswer, "figures">,
+  items: readonly ReplyItem[],
+  numbers: ReadonlyMap<number, number>,
+) =>
+  labelledReply(answer, items, (piece) =>
+    numbers.has(piece.marker) ? `[${numbers.get(piece.marker)}]` : "",
+  );
+
 /** Where a Citation shows in a reply: its marker, and its place among the reply's (`at`). */
 export type CitedPlace = Pick<CitationPiece, "marker" | "at">;
 
@@ -241,7 +257,7 @@ export function placedReply(
   shows: (marker: number) => boolean,
 ): { text: string; places: CitedPlace[] } {
   const places: CitedPlace[] = [];
-  const text = shownReply(answer, items, (piece) => {
+  const text = labelledReply(answer, items, (piece) => {
     if (!shows(piece.marker)) return "";
     places.push({ marker: piece.marker, at: piece.at });
     return `[${places.length}]`;
@@ -380,7 +396,7 @@ interface TimingRow {
 }
 
 /** What the press asked of models and did on this computer, from the core's own timing records. */
-function requestsSince(dataDir: string, since: string): RequestTiming[] {
+export function requestsSince(dataDir: string, since: string): RequestTiming[] {
   const from = Date.parse(since);
   return queryDatabase<TimingRow>(
     dataDir,
@@ -432,7 +448,6 @@ async function press(
   answer: ConversationAnswer;
   firstWordsMs: number | null;
   firstOptionMs: number | null;
-  settledMs: number | null;
   pressedFirst?: NonNullable<Measured["pressedFirst"]>;
   /** What the reply showed before it was written again, oldest first: its text as it last stood. */
   drafts: string[];
@@ -444,13 +459,10 @@ async function press(
   let stopPhase: () => void = () => undefined;
   const drafts: string[] = [];
   let answerId: string | null = null;
-  let finishedAt: number | null = null;
-  let settledAt: number | null = null;
   let buttonId: string | null = null;
   let buttonAt = 0;
   let buttonEndAt: number | null = null;
   const stopFinished = core.on("answer.finished", (event) => {
-    if (event.answerId === answerId) finishedAt ??= performance.now();
     if (event.answerId === buttonId) buttonEndAt ??= performance.now();
   });
   let snapshotting = false;
@@ -483,15 +495,6 @@ async function press(
       times.wordsAt ??= at;
     if (wholeShown(itsShape, shown, streaming)) times.optionAt ??= at;
     seen.set(message.id, times);
-    // Its marks have settled once it has ended and no Citation still waits for its check.
-    if (
-      message.id === answerId &&
-      finishedAt !== null &&
-      message.status !== "streaming" &&
-      !message.citations.some((citation) => citation.check === "checking")
-    ) {
-      settledAt ??= performance.now();
-    }
   });
   const waited = async (asked: ConversationAskResult, what: string) => {
     if (!asked.asked) throw new Error(`Not asked: ${JSON.stringify(asked)}`);
@@ -566,14 +569,10 @@ async function press(
     const button = buttonId === null ? undefined : seen.get(buttonId);
     if (beforeCheck !== null && answer.text !== beforeCheck)
       rewrittenReplies.push({ item: each.id, before: beforeCheck, after: answer.text });
-    // `replyEnded` waits for the marks: none waited when they had settled as the reply ended.
-    const settledMs =
-      finishedAt === null ? null : settledAt === null ? 0 : Math.max(0, settledAt - finishedAt);
     return {
       answer,
       firstWordsMs: since(times?.wordsAt, start),
       firstOptionMs: since(times?.optionAt, start),
-      settledMs,
       drafts,
       earlier: messages.flatMap((message) =>
         message.kind === "answer" && message.id !== answer.id ? [message.text] : [],
@@ -591,42 +590,6 @@ async function press(
     stopPhase();
     stopFinished();
   }
-}
-
-/**
- * What a reply's held Citations show: those with ✓, those the check gave a verdict, and why each
- * of the others shows none: its check, a not-checked one's reason, or "found" for a line the check
- * didn't judge though the Citation's other sentence passed.
- */
-function marksOf(
-  held: readonly ConversationAnswer["citations"][number][],
-  listed: readonly ConversationAnswer["citations"][number][],
-  showsCheck: (citation: ConversationAnswer["citations"][number]) => boolean,
-  settledMs: number | null,
-): Omit<NonNullable<Measured["marks"]>, "judge" | "numbers"> {
-  const missed: Record<string, number> = {};
-  let checked = 0;
-  let judged = 0;
-  for (const citation of held) {
-    const shows = showsCheck(citation);
-    if (shows) checked++;
-    if (shows || citation.check === "unsupported" || citation.check === "contradicted") judged++;
-    if (shows) continue;
-    const why =
-      citation.check === "not-checked"
-        ? `not-checked:${citation.checkReason ?? "no reason"}`
-        : citation.check;
-    missed[why] = (missed[why] ?? 0) + 1;
-  }
-  return {
-    held: held.length,
-    checked,
-    judged,
-    missed,
-    listed: listed.length,
-    listedChecked: listed.filter(showsCheck).length,
-    settledMs,
-  };
 }
 
 /** The longest a typed question's short reply's item may be and still be read in a second or two. */
@@ -682,9 +645,8 @@ function item(each: CallHelpCase, set: CallHelpSet): PairedGroup["items"][number
     kind: each.typed ? `question-${each.typed.form}` : `${each.kind}-${each.needs}`,
     language: each.language,
     words: "item",
-    async run({ library, claimsJudge, meeting, choice, arm }) {
+    async run({ library, claimsJudge, meeting, choice }) {
       if (!meeting) throw new Error("The call-help set needs its Meeting.");
-      const quoteOnly = armNamed(arm).helpMarksQuoteOnly === true;
       // A press answers on the Answers model the User chose, as the panel's does.
       await library.core.updateSettings({ user: { chatModel: choice } });
       const since = new Date().toISOString();
@@ -705,7 +667,6 @@ function item(each: CallHelpCase, set: CallHelpSet): PairedGroup["items"][number
         answer,
         firstWordsMs,
         firstOptionMs,
-        settledMs,
         pressedFirst,
         drafts,
         earlier,
@@ -724,27 +685,16 @@ function item(each: CallHelpCase, set: CallHelpSet): PairedGroup["items"][number
       const citations = [...numbers.keys()].flatMap(
         (marker) => answer.citations.find((citation) => citation.marker === marker) ?? [],
       );
-      const places = shown.flatMap((each) =>
-        [each.lead, ...each.notes, each.effect ?? []]
-          .flat()
-          .flatMap((piece) => (piece.kind === "citation" ? [piece] : [])),
-      );
-      // A Citation shows ✓ as each arm's panel draws it, on any line it is shown on: main's beside a
-      // found quote, the branch's only where the sentence check passed that line's sentence (#2847).
+      // A Citation shows ✓ as the panel draws it: on its quote line, where the app found its quote
+      // in its place (#2847).
       const showsCheck = (citation: ConversationAnswer["citations"][number]) =>
-        quoteOnly
-          ? citation.check === "found"
-          : places.some(
-              (place) => place.marker === citation.marker && sentencePassed(citation, place.at),
-            );
+        quoteState(citation, "done") === "found";
       const found = citations.filter(quoteFound);
       const citationOf = (marker: number) =>
         answer.citations.find((citation) => citation.marker === marker);
       const cites = (number: number, citation: ConversationAnswer["citations"][number]) =>
         `[${number}] ${citation.documentName}: “${citation.quote}” (${quoteFound(citation) ? "found" : citation.check})`;
-      const reply = shownReply(answer, shown, (piece) =>
-        numbers.has(piece.marker) ? `[${numbers.get(piece.marker)}]` : "",
-      );
+      const reply = shownReply(answer, shown, numbers);
       // A typed question's judge reads each place a Citation shows on its own (#2925).
       const placed = each.typed
         ? placedReply(answer, shown, (marker) => numbers.has(marker))
@@ -773,17 +723,11 @@ function item(each: CallHelpCase, set: CallHelpSet): PairedGroup["items"][number
       }
       const markerShownAs = (number: number) =>
         [...numbers].find(([, shown]) => shown === number)?.[0];
-      const listedMarkers = new Set(
-        placed
-          ? (judged?.unstated ?? []).flatMap((number) => placed.places[number - 1]?.marker ?? [])
-          : (judged?.unstated ?? []).flatMap((number) => markerShownAs(number) ?? []),
-      );
-      // A ✓ the judge finds unstated: where the panel shows it beside the sentence the judge
-      // listed, for a typed question; beside any sentence of the Citation it listed, for a button.
+      // A ✓ the judge finds unstated: beside the quote line of a place the judge listed, for a
+      // typed question; of a Citation it listed, for a button.
       const placeChecked = (place: CitedPlace) => {
         const citation = citationOf(place.marker);
-        if (!citation) return false;
-        return quoteOnly ? citation.check === "found" : sentencePassed(citation, place.at);
+        return citation !== undefined && showsCheck(citation);
       };
       const unstatedFound = placed
         ? unstatedChecked(placed.places, judged?.unstated ?? [], placeChecked).flatMap(
@@ -794,19 +738,6 @@ function item(each: CallHelpCase, set: CallHelpSet): PairedGroup["items"][number
             const citation = marker === undefined ? undefined : citationOf(marker);
             return citation !== undefined && showsCheck(citation);
           });
-      // A judge reply that couldn't be read says nothing of which quotes hold.
-      const read = judged !== null && judged.grade !== "unread";
-      const foundShown = (listed: boolean) =>
-        read
-          ? [...numbers.keys()].flatMap((marker) => {
-              const citation = citationOf(marker);
-              return citation && quoteFound(citation) && listedMarkers.has(marker) === listed
-                ? [citation]
-                : [];
-            })
-          : [];
-      const held = foundShown(false);
-      const listed = foundShown(true);
       return {
         status: done ? "done" : "failed",
         error: done ? null : `${answer.errorKind ?? answer.status}: ${answer.errorMessage ?? ""}`,
@@ -831,27 +762,6 @@ function item(each: CallHelpCase, set: CallHelpSet): PairedGroup["items"][number
         firstOptionMs,
         ...(pressedFirst && { pressedFirst }),
         requests,
-        ...(read &&
-          judged && {
-            marks: {
-              ...marksOf(held, listed, showsCheck, settledMs),
-              judge: { grade: judged.grade, unstated: judged.unstated },
-              numbers: [...numbers].flatMap(([marker, number]) => {
-                const citation = citationOf(marker);
-                return citation
-                  ? [
-                      {
-                        number,
-                        check: citation.check,
-                        found: quoteFound(citation),
-                        listed: listedMarkers.has(marker),
-                        passed: showsCheck(citation),
-                      },
-                    ]
-                  : [];
-              }),
-            },
-          }),
         // What each Citation rests on, so a reply citing another line than the case's shows as one.
         text: [
           reply,
@@ -886,7 +796,7 @@ function item(each: CallHelpCase, set: CallHelpSet): PairedGroup["items"][number
                   )
                   .map(
                     (shownItem) =>
-                      `[uncited] ${shownReply(answer, [shownItem], () => "").replace(/\n/g, " ")}`,
+                      `[uncited] ${shownReply(answer, [shownItem], new Map()).replace(/\n/g, " ")}`,
                   ),
                 ...earlier.map((text) => `[earlier answer] ${text.replace(/\n+/g, " ")}`),
                 ...citationsReplies.map(

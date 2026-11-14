@@ -31,10 +31,13 @@ const fake = vi.hoisted(() => {
     command: null as null | ((command: string) => void),
     /** What the panel asked of the keyboard, in order: true takes it, false gives it back (#2925). */
     keyboard: [] as boolean[],
+    /** What the panel told its window of itself: folded, and whether its latest is pinned. */
+    states: [] as unknown[],
     /** The unsent line the core holds for the Meeting, as a panel opening asks for it (#2925). */
     held: null as null | { text: string; atMs: number | null },
     /** The conversations Open in assistant asked the app's window for (#2925). */
     opened: [] as unknown[],
+    language: "en" as "en" | "zh-CN",
     emit(name: string, payload: unknown) {
       for (const listener of listeners.get(name) ?? []) listener(payload);
     },
@@ -81,9 +84,9 @@ vi.mock("../../src/renderer/src/core", () => ({
   files: { onMenuCommand: () => () => undefined, setEditMenu: () => undefined },
 }));
 vi.mock("../../src/renderer/src/i18n", () => ({
-  useT: () => (key: MessageKey, params?: MessageParams) => translate("en", key, params),
-  translateNow: (key: MessageKey, params?: MessageParams) => translate("en", key, params),
-  useLanguage: () => "en",
+  useT: () => (key: MessageKey, params?: MessageParams) => translate(fake.language, key, params),
+  translateNow: (key: MessageKey, params?: MessageParams) => translate(fake.language, key, params),
+  useLanguage: () => fake.language,
 }));
 vi.mock("../../src/renderer/src/store", async () => {
   const { create } = await import("zustand");
@@ -130,7 +133,9 @@ const panelBridge = {
     return () => undefined;
   },
   resize: () => undefined,
-  state: () => undefined,
+  state: (value: unknown) => {
+    fake.states.push(value);
+  },
   close: () => undefined,
   setUp: () => undefined,
   openInAssistant: (at: unknown) => fake.opened.push(at),
@@ -138,7 +143,7 @@ const panelBridge = {
 };
 
 const WANT =
-  "★ They want the rollout finished before their June audit [^1]\n→ Confirm the June date first";
+  "★ They want the rollout finished before their June audit\n6:00 “before our audit in June” [^1]\n→ Confirm the June date first";
 const SUM = "- Their audit is in June\n- They asked for a fixed monthly price";
 
 const helpOf = (kind: MeetingHelpKind, answerId: string): MeetingHelp => ({
@@ -173,16 +178,17 @@ const meetingOf = (help: MeetingHelp | null, helps: MeetingHelp[]) =>
     helpTemplate: null,
   }) as unknown as Meeting;
 
-/** The price sheet's line, its sentence passed by the check: the chip shows ✓. */
-const PASSED = {
+/** What they said at 6:00, the reading's quoted words found there: its moment shows ✓. */
+const SAID = {
   marker: 1,
-  documentId: "price-sheet",
-  documentName: "Northwind price sheet",
-  quote: "Rollout before the June audit",
-  location: null,
+  passageId: "call-1",
+  documentId: "transcript",
+  documentName: "Transcript · Northwind call",
+  quote: "We need it all live before our audit in June.",
+  location: { kind: "time", from: 360_000, to: 364_000, speaker: "Them" },
   check: "found",
-  judgedAt: "2026-11-12T20:00:00.000Z",
-  passedAt: [0],
+  checkReason: null,
+  quotedWordsFound: ["before our audit in June"],
 };
 
 const answerOf = (
@@ -196,7 +202,7 @@ const answerOf = (
     conversationId: "help-chat",
     questionId: `question-${id}`,
     text,
-    citations: text.includes("[^1]") ? [PASSED] : [],
+    citations: text.includes("[^1]") ? [SAID] : [],
     figures: [],
     analyses: [],
     model: null,
@@ -242,9 +248,11 @@ beforeEach(async () => {
   fake.holdAdding = false;
   fake.reported.length = 0;
   fake.keyboard.length = 0;
+  fake.states.length = 0;
   fake.held = null;
   fake.opened.length = 0;
   asked.length = 0;
+  fake.language = "en";
   container = document.createElement("div", {});
   document.body.append(container);
   root = createRoot(container);
@@ -309,7 +317,7 @@ const shown = () => ({
   pin: all("help-pin").length > 0,
   add: all("help-add").length > 0,
   added: all("help-added").length > 0,
-  checks: container.querySelectorAll('[data-testid="help-citation"][data-passed="true"]').length,
+  checks: all("help-quote-found").length,
 });
 
 /** The panel between a press of Sum up so far and its reply's first words. */
@@ -733,5 +741,91 @@ describe("The Meeting's thread (#2925)", () => {
     await helped(["sum", "answer-sum"]);
     expect(lines()).toEqual(["2:05·When is their audit?·The audit is in June"]);
     expect(all("help-open-assistant")).toHaveLength(0);
+  });
+});
+
+describe("A Citation of an earlier call in a reply (#3005)", () => {
+  // protects=#3005: the number's tooltip names the Transcript, its place and its call's start, joined as the interface language joins a Citation's source; fails_when=the parts are joined with an English comma in Chinese; no_claim=the place's own wording.
+  test.each([
+    {
+      language: "en" as const,
+      name: "Transcript · Meeting, 7 November",
+      shape: /^Transcript · Meeting, 7 November, \S.*, started \S.*$/,
+      foreign: "，",
+    },
+    {
+      language: "zh-CN" as const,
+      name: "转写稿 · 会议，11月7日",
+      shape: /^转写稿 · 会议，11月7日，\S.*，开始于 \S.*$/,
+      foreign: ", ",
+    },
+  ])(
+    "names its source and its call's start ($language)",
+    async ({ language, name, shape, foreign }) => {
+      fake.language = language;
+      const earlierCall = {
+        id: "meeting-0",
+        mindId: "note-0",
+        kind: "meeting",
+        status: "ready",
+        startedAt: "2026-11-07T15:00:00.000Z",
+        transcript: { documentId: "earlier-transcript" },
+        help: null,
+        helpTemplate: null,
+      } as unknown as Meeting;
+      const answer = {
+        ...answerOf("answer-want", WANT, "done"),
+        citations: [
+          {
+            marker: 1,
+            documentId: "earlier-transcript",
+            documentName: name,
+            quote: "Rollout before the June audit",
+            location: { kind: "time", from: 1942, to: 4012, speaker: "Them" },
+            check: "not-checked",
+            checkReason: null,
+          },
+        ],
+      } as unknown as ConversationAnswer;
+      await changed(null);
+      await press("want");
+      await replied(0, "answer-want");
+      await run(() =>
+        fake.emit("meetings.changed", [meetingWith(helpOf("want", "answer-want")), earlierCall]),
+      );
+      await loaded([answer]);
+
+      // The reading's moment is plain, so its number sits on the moment line the app draws.
+      const title = all("help-quote-number")[0]?.getAttribute("title") ?? "";
+      expect(title).toMatch(shape);
+      expect(title).not.toContain(foreign);
+    },
+  );
+});
+
+describe("A reply whose Citation is cells of a table (#2847)", () => {
+  // protects=Pin keeps a suggestion's ids and tells its window only whether it is pinned, and Add to note writes the reply's own text and Citations, so neither carries a quote's cells anywhere: they stay on the call help Citation the panel draws; fails_when=the cells, or a heading only they hold, reach the Note's blocks or the window's state; no_claim=how the panel draws the cells.
+  test("Pin and Add to note carry none of its cells", async () => {
+    const cells = [
+      { name: "Plan", value: "Enterprise" },
+      { name: "Price", value: "$45 per seat a month" },
+      { name: "Sign-on", value: "Yes" },
+    ];
+    const answer = {
+      ...answerOf("answer-cells", "★ Enterprise is $45 a seat [^1]\n→ answers at once", "done"),
+      citations: [
+        { ...SAID, quote: "Enterprise\t$45 per seat a month\tYes", location: null, cells },
+      ],
+    } as unknown as ConversationAnswer;
+    await changed(helpOf("answer", "answer-cells"));
+    await loaded([answer]);
+    expect(container.textContent).toContain("Sign-on “Yes”");
+    await click(all("help-pin")[0]);
+    await addToNote([answer]);
+    expect(fake.added).toHaveLength(1);
+    expect(fake.added[0]).not.toContain("cells");
+    expect(fake.added[0]).not.toContain("Sign-on");
+    expect(JSON.stringify(fake.states)).not.toContain("Sign-on");
+    expect(fake.states.at(-1)).toEqual({ folded: false, pinned: true });
   });
 });

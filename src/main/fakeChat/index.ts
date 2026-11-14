@@ -40,7 +40,7 @@ import {
 import { fakeClaims, findsClaims } from "./claims";
 import { fakeConfirm, fakeRewrite } from "./confirm";
 import { editParts, fakeEdit } from "./edit";
-import { helpModelParts, holdsHelp } from "./meetingHelp";
+import { asksForCitations, helpModelParts, holdsHelp } from "./meetingHelp";
 import { asksForPlan, fakePlan } from "./plan";
 import {
   type GenerateOptions,
@@ -127,16 +127,29 @@ function generatedText(options: GenerateOptions): string {
  * A slow check holds until a test releases it through `incarnamindSlowCheck`, so a window test can
  * open a Citation whose sentence is still judged without leaning on a time (#2375). `holdSort`
  * holds a Note's sort after the first sentence it names, so a window test sees that sentence's
- * check start while the rest are named (#1624).
+ * check start while the rest are named (#1624). `holdCite` holds a reply's cite call, so a window
+ * test sees the numbers a call help reply writes before its quotes come (#2847); `holdAsked`, the
+ * one request for the Citations a reply left out, so it sees the reply's text while that is out.
  */
 const slowCheck = {
   hold: false,
   holdSort: false,
+  holdCite: false,
+  holdAsked: false,
   waiting: [] as (() => void)[],
+  /** What each step in `waiting` is: a step of a sentence's check Run, or another. */
+  kinds: [] as ("check-run" | "other")[],
   release() {
+    slowCheck.kinds.length = 0;
     for (const go of slowCheck.waiting.splice(0)) go();
   },
 };
+
+const held = (kind: (typeof slowCheck.kinds)[number]) =>
+  new Promise<void>((go) => {
+    slowCheck.waiting.push(go);
+    slowCheck.kinds.push(kind);
+  });
 (globalThis as { incarnamindSlowCheck?: typeof slowCheck }).incarnamindSlowCheck = slowCheck;
 
 /**
@@ -161,9 +174,7 @@ function heldAfterFirstClaim(
     stream: streamed.stream.pipeThrough(
       new TransformStream({
         async transform(part, controller) {
-          if (named && slowCheck.holdSort) {
-            await new Promise<void>((go) => slowCheck.waiting.push(go));
-          }
+          if (named && slowCheck.holdSort) await held("other");
           controller.enqueue(part);
           if (part.type === "text-delta" && part.delta.includes("}]}")) named = true;
         },
@@ -280,7 +291,7 @@ export const createFakeChatModel: ChatModelFactory = (spec) => {
     // Documents, until it releases it, so the test opens a Citation whose card is still Checking
     // (#2375), sees a run mid-flight, or sees the mark of a sentence being rewritten (#1554).
     if (slowCheck.hold && (fakeSentenceBatch(options) !== null || fakeRewrite(options) !== null)) {
-      await new Promise<void>((go) => slowCheck.waiting.push(go));
+      await held("other");
     }
     return {
       content: [
@@ -316,9 +327,7 @@ export const createFakeChatModel: ChatModelFactory = (spec) => {
       }
       // A test's hold stops a check Run's judgement of a claim until it releases it, so a window
       // test sees the run mid-flight (#2313).
-      if (slowCheck.hold && CHECK_RUN.test(systemOf(prompt))) {
-        await new Promise<void>((go) => slowCheck.waiting.push(go));
-      }
+      if (slowCheck.hold && CHECK_RUN.test(systemOf(prompt))) await held("check-run");
       const refused = refusal(spec, {
         ...(tools && { tools }),
         ...(responseFormat && { responseFormat }),
@@ -417,6 +426,12 @@ export const createFakeChatModel: ChatModelFactory = (spec) => {
             return;
           }
           if (holds && part.type === "stream-start") await holdUntilStopped();
+          if (slowCheck.holdCite && part.type === "tool-call" && part.toolName === "cite") {
+            await held("other");
+          }
+          if (slowCheck.holdAsked && part.type === "stream-start" && asksForCitations(prompt)) {
+            await held("other");
+          }
           if (halfway && part.type === "tool-input-delta") {
             if (headings >= 2) await holdUntilStopped();
             if (part.delta.includes("##")) headings++;

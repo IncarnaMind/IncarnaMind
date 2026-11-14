@@ -870,6 +870,16 @@ function unreadCurrencyScales(
 const notedOut = (statement: StatedUnit, label: string): boolean =>
   statement.except === "noted" && PER_SHARE.test(label);
 
+/**
+ * Whether `statement`'s scale may not reach a number named `name`, read as a row's label is (a
+ * unit statement and exception words of its own left out): its exception leaves it out, or one
+ * "where noted" may.
+ */
+export function mayLeaveOut(statement: StatedUnit, name: string): boolean {
+  const { label } = withoutStatement(name);
+  return exceptedBy(statement, label) || notedOut(statement, label);
+}
+
 /** A head row's statements that give a number different units or scales: "Revenue (£000)	EPS (£)". */
 function conflicting(statements: readonly StatedUnit[]): boolean {
   // "币种：人民币" names the currency of every column, beside "单位：万元".

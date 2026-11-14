@@ -157,6 +157,7 @@ describe("a Document's own title", () => {
 });
 
 describe("Two Documents with one name show where each is (#1507)", () => {
+  const twin = (place: string, count: number) => `${place} (${count})`;
   const doc = (
     id: string,
     path: string,
@@ -172,13 +173,16 @@ describe("Two Documents with one name show where each is (#1507)", () => {
 
   // protects=the issue's Linked folder: two Annual-Report and two notes, one pair in 2025, one in 2026, each shown with its own year, and a Document whose name is its own shows nothing; fails_when=the two Annual-Reports read the same, or a lone name gets a place; no_claim=how a row lays it out.
   test("the nearest folder that tells them apart", () => {
-    const where = whereShown([
-      doc("a", "/Users/me/awkward/same-name/2025/Annual-Report.docx"),
-      doc("b", "/Users/me/awkward/same-name/2025/notes.md"),
-      doc("c", "/Users/me/awkward/same-name/2026/Annual-Report.docx"),
-      doc("d", "/Users/me/awkward/same-name/2026/notes.md"),
-      doc("e", "/Users/me/awkward/Budget.xlsx"),
-    ]);
+    const where = whereShown(
+      [
+        doc("a", "/Users/me/awkward/same-name/2025/Annual-Report.docx"),
+        doc("b", "/Users/me/awkward/same-name/2025/notes.md"),
+        doc("c", "/Users/me/awkward/same-name/2026/Annual-Report.docx"),
+        doc("d", "/Users/me/awkward/same-name/2026/notes.md"),
+        doc("e", "/Users/me/awkward/Budget.xlsx"),
+      ],
+      twin,
+    );
     expect(Object.fromEntries(where)).toEqual({ a: "2025", b: "2025", c: "2026", d: "2026" });
   });
 
@@ -205,6 +209,6 @@ describe("Two Documents with one name show where each is (#1507)", () => {
       { a: "old", b: "new" },
     ],
   ])("%s", (_, documents, expected) => {
-    expect(Object.fromEntries(whereShown(documents))).toEqual(expected);
+    expect(Object.fromEntries(whereShown(documents, twin))).toEqual(expected);
   });
 });

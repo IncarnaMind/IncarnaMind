@@ -433,6 +433,11 @@ export interface AnswerRequest {
    * read the Minds, and the search rewrite's notebook.
    */
   mindsLine?: { line: string; asked: string };
+  /**
+   * The line naming the Documents open on screen, before the selection and the Question (#1334): a
+   * small window keeps it with the Question, as no Tool gives it back (#3045).
+   */
+  onScreenLine?: string;
   /** The scope lines the Answer added just before the Question, kept out of the search rewrite's context (#2529). */
   scopeLine?: string;
   /** The model to answer with, from `Core.prepareChatModel`. */
@@ -597,6 +602,11 @@ export type AnswerEngineEvent =
         "searching" | "writing" | "checking-quotes" | "checking-figures" | "checking-claims"
       >;
     }
+  /**
+   * The model's text is all written: what the engine changes from here on (the markers and
+   * Citations it adds, the app's own lines) is the end's own, which call help writes with its end.
+   */
+  | { type: "ending" }
   /** The engine put in `count` Citation markers the model left out of its text (see ./markerPlacement). */
   | { type: "markers-placed"; count: number }
   /**
@@ -1266,6 +1276,11 @@ function createWritingEngine(options: AiSdkAnswerEngineOptions): AnswerEngine {
               overflow = event;
               break;
             }
+            // A reply cut at a cap the window lowered: another model helps, asking again doesn't.
+            if (event.type === "failed" && event.error.kind === "cut-short" && budget?.lowered) {
+              yield { ...event, error: { ...event.error, kind: "cut-short-small-window" } };
+              continue;
+            }
             yield event;
           }
           if (!overflow && attemptRead.length > 0) accepted?.(attemptRead);
@@ -1297,15 +1312,16 @@ function createWritingEngine(options: AiSdkAnswerEngineOptions): AnswerEngine {
             );
             return;
           }
+          const bare = request.instructions(mode, { passages: "" });
           const kept =
             found === undefined
               ? undefined
-              : budget.fitPassages(
-                  found.text,
-                  request.instructions(mode, { passages: "" }),
-                  request.question,
-                  found.ranks,
-                );
+              : budget.fitPassages(found.text, bare, request.question, found.ranks);
+          // An Answer that could read none of the Passages found never ends as if it had answered.
+          if (kept === null) {
+            yield { type: "failed", error: budget.cannotRead(bare, request.question) };
+            return;
+          }
           if (found && kept !== undefined) request.fitted?.(fittedPassageIds(found, kept));
           const instructions = request.instructions(mode, { passages: kept });
           const fit = budget.fit({
@@ -1321,7 +1337,7 @@ function createWritingEngine(options: AiSdkAnswerEngineOptions): AnswerEngine {
           }
           if (fit.mindCut !== undefined) yield { type: "mind-cut", share: fit.mindCut };
           if (fit.documentsDropped) yield { type: "documents-dropped" };
-          const sized = { ...request, messages: fit.messages };
+          const sized = { ...request, messages: fit.messages, window: budget.window };
           const window: Sized = {
             estimated: fit.estimated,
             learn: (actual) => budget.learn(actual, fit.estimated),
@@ -2132,6 +2148,8 @@ async function* toolLoop(
       tools: definitions(tools),
       reserve: SEARCH_RESERVE_TOKENS,
       mind: request.mind,
+      ...(search && { reads: true }),
+      ...(search && request.onScreenLine && { onScreen: request.onScreenLine }),
       ...(request.meetingFacts && { requiredContext: true }),
     });
     if (!fit.ok) {
@@ -2223,6 +2241,7 @@ async function* toolLoop(
     yield* flagged(mergedFlags(standingFlags, await flagsOf(request.turnChecks ?? [], keptText)));
   }
   async function* endAnswer(): AsyncGenerator<AnswerEngineEvent> {
+    yield { type: "ending" };
     if (request.meetingFacts) {
       const fenced = withJsonFencesClosed(keptText);
       yield* textEdits(keptText, fenced);
@@ -2268,6 +2287,8 @@ async function* toolLoop(
       writeOnly = false;
     }
   }
+  // The output cap the first request's fit sized for the window.
+  const capped = budget ? { ...request, window: budget.window } : request;
   const runRequest = (
     history: readonly RunMessage[],
     stepsLeft: number,
@@ -2281,8 +2302,8 @@ async function* toolLoop(
     ...(firstTool && request.forcedToolChoice !== false && { firstTool }),
     cacheKey: request.cacheKey,
     outputTokens: {
-      step: outputOf(request, stepKind(request)),
-      last: outputOf(request, writingKind(request)),
+      step: outputOf(capped, stepKind(request)),
+      last: outputOf(capped, writingKind(request)),
     },
     lastStep: { ...(request.toolsEveryRequest && { keepTools: true }) },
     gate: async (call) => {
@@ -2700,6 +2721,7 @@ async function* structured(
   }
   const worded = (text: string) => request.documents.setAsideInWords?.(text) ?? text;
   yield* emit(typeof answer === "string" ? worded(takeToolText(answer).text) : answer);
+  yield { type: "ending" };
   if (typeof answer === "string") {
     let placed = emitted;
     if (!request.meetingFacts) {

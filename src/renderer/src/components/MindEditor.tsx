@@ -1115,9 +1115,11 @@ function MindEditorView({
               {t("meetings.mine.empty")}
             </p>
           )}
-          <OpinionMenu editor={editor} mindId={mindId} doc={doc}>
-            <EditorContent editor={editor} />
-          </OpinionMenu>
+          <BlockHandle editor={editor} enabled={showingNotes && !readOnly}>
+            <OpinionMenu editor={editor} mindId={mindId} doc={doc}>
+              <EditorContent editor={editor} />
+            </OpinionMenu>
+          </BlockHandle>
           {meeting?.kind === "meeting" && (
             <MeetingFillAt editor={editor} meeting={meeting} lineShown={!myNotes} />
           )}
@@ -1149,7 +1151,6 @@ function MindEditorView({
           comparing &&
           !readOnly &&
           createPortal(<CompareSheet mindId={mindId} doc={doc} editor={editor} />, sheetSlot)}
-        {showingNotes && !readOnly && <BlockHandle editor={editor} />}
         {showingNotes && !readOnly && (
           <SelectionMenu
             editor={editor}

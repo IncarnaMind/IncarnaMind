@@ -1,5 +1,10 @@
 import { useRef, useState } from "react";
-import type { ChatProvider, ChatReadiness, ProviderErrorKind } from "../../../../core/api";
+import type {
+  ChatProvider,
+  ChatReadiness,
+  EmbeddingProvider,
+  ProviderErrorKind,
+} from "../../../../core/api";
 import type { Language } from "../../../../core/language";
 import type { Endpoint } from "../../../../core/providers/catalog";
 import {
@@ -27,6 +32,12 @@ export function testErrorKey(kind: ProviderErrorKind): MessageKey {
     case "plan-limit":
     case "blocked":
       return `chatgpt.test.${kind}`;
+    // Only an Answer's own fitting finds these (src/core/answers/window.ts), never a test request;
+    // the too-long words already say the window is too small for even a short request.
+    case "window-too-small":
+      return "providers.test.too-long";
+    case "cut-short-small-window":
+      return "providers.test.cut-short";
     default:
       return `providers.test.${kind}`;
   }
@@ -125,6 +136,23 @@ export function providerLabel(provider: ChatProvider, t: Translate, language: La
     return `${kind} · ${t("providers.settings.cloud")}`;
   }
   return `${kind} · ${provider.service?.name ?? t("providers.settings.local")}`;
+}
+
+/** "Off", "OpenAI · text-embedding-3-small", "Ollama (on this computer) · nomic-embed-text". */
+export function embeddingProviderLabel(provider: EmbeddingProvider, t: Translate): string {
+  if (provider.kind === "off") return t("embeddingProviders.settings.off");
+  if (provider.kind === "built-in") {
+    return t("embeddingProviders.settings.builtIn", { model: provider.modelId });
+  }
+  const kind = t(`embeddingProviders.kind.${provider.kind}`);
+  const named =
+    provider.kind === "openai-compatible" || provider.kind === "ollama"
+      ? t("embeddingProviders.settings.kindAt", {
+          kind,
+          server: provider.service?.name ?? t("providers.settings.local"),
+        })
+      : kind;
+  return `${named} · ${provider.modelId}`;
 }
 
 /** Who receives the data, for messages like "Questions are off: you chose not to send to {service}". */

@@ -546,6 +546,8 @@ export const en = {
   "status.savedOutside.one": "1 page saved outside its Folder",
   "status.savedOutside.other": "{count} pages saved outside their Folder",
   "documents.savedOutside": "These pages were saved, but not into the Folder you chose: {names}",
+  "documents.savedOutside.each": "{name} ({folder})",
+  "documents.place.twin": "{place} ({count})",
   "error.folder.wall": "This Folder keeps its work inside it.",
   "error.turnPlace": "This needs to know which note or conversation it’s in.",
   "error.citation.recheckNote": "A Citation can only be checked again for the note it is in.",
@@ -916,6 +918,7 @@ export const en = {
   "editor.block.handle": "Drag to move, click for options",
   "editor.block.menu": "Block options",
   "editor.block.delete": "Delete",
+  "block.delete.command": "Delete the Block the cursor is in",
   "editor.table.menu": "Table options",
   "editor.table.rowAbove": "Insert row above",
   "editor.table.rowBelow": "Insert row below",
@@ -1282,6 +1285,8 @@ export const en = {
   "claim.state.unsupported": "Needs a look · Unsupported",
   "claim.state.contradicted": "Needs a look · Contradicted",
   "claim.state.not-checked": "Not checked",
+  "claim.state.notYetCited": "Supported, not yet cited",
+  "claim.notYetCited": "This passage backs the sentence, but the sentence doesn’t cite it yet.",
   "claim.state.needs-recheck": "Needs a look · Needs re-check",
   "claim.state.notFound": "Needs a look · Not found",
   "claim.state.recordCite": "Needs a look · Record cite",
@@ -1390,6 +1395,7 @@ export const en = {
   "claim.checkedIn": "Checked against “{scope}”",
   "claim.readDocuments": "Read whole: {documents}",
   "claim.readDocuments.separator": "; ",
+  "claim.readDocuments.each": "{name} ({places})",
   "claim.checkedIn.more": "Checked against “{scope}” and {count} more",
   "claim.limit": "Can miss a change of obligation, such as should for may",
   "claim.ownNote": "Supported by your own note",
@@ -1457,6 +1463,10 @@ export const en = {
   "opinions.one": "1 opinion left out",
   "opinions.count": "{count} opinions left out",
   "opinions.show": "Show",
+  "found.add": "Add",
+  "found.addAll": "Add all",
+  "found.added.one": "Added 1 Citation",
+  "found.added": "Added {count} Citations",
   "opinions.itself.one": "1 sentence about this note left out",
   "opinions.itself": "{count} sentences about this note left out",
   "opinions.both.one.one": "1 opinion and 1 sentence about this note left out",
@@ -1528,7 +1538,12 @@ export const en = {
     "Verdict hidden: the quote the model gave is from another Document than the one the sentence is about.",
   "claim.reason.found-elsewhere":
     "Verdict hidden: the quote that backs this sentence isn’t among its Citations. Add it as a Citation, then check again.",
+  "claim.reason.assistant-conclusion":
+    "The assistant’s own conclusion wasn’t checked. The rest of the sentence is supported.",
+  "claim.absenceBesideFact":
+    "What the sentence says is missing wasn’t checked: that needs its Documents read whole. The rest of it is supported.",
   "claim.reason.kept-inside": "Kept inside {detail}",
+  "claim.reason.outside-scope": "“{detail}” is outside this note’s Search scope.",
   "claim.reason.read-budget": "Stopped · {spent} spent",
   "claim.reason.read-budget.unknown": "Stopped at the most this read may spend.",
   "claim.reason.workbook-differs":
@@ -1595,6 +1610,8 @@ export const en = {
   "checks.row.supported": "{count} supported",
   "checks.row.ownNotes.one": "1 only by your own note",
   "checks.row.ownNotes": "{count} only by your own notes",
+  "checks.row.notYetCited.one": "1 supported, not yet cited",
+  "checks.row.notYetCited": "{count} supported, not yet cited",
   "checks.row.checking.one": "1 being checked",
   "checks.row.checking": "{count} being checked",
   "checks.row.notChecked.one": "1 not checked",
@@ -1624,6 +1641,8 @@ export const en = {
   "health.state.look": "{count} need a look",
   "health.state.checked": "Checked {time}",
   "health.state.checked.noTime": "Checked",
+  "health.state.notYetCited.one": "1 not yet cited",
+  "health.state.notYetCited": "{count} not yet cited",
   "health.state.notRecalculated.one": "1 figure not recalculated",
   "health.state.notRecalculated": "{count} figures not recalculated",
   "health.state.cantCheck.one": "1 sentence can’t be checked",
@@ -2778,6 +2797,7 @@ export const en = {
   "embeddingProviders.settings.off": "Off",
   "embeddingProviders.settings.turnOn": "Turn on…",
   "embeddingProviders.settings.builtIn": "Built-in model",
+  "embeddingProviders.settings.kindAt": "{kind} ({server})",
   "embeddingProviders.settings.sendsTo":
     "The text of your Documents, each passage with its Document’s name, and your searches, are sent to {service}.",
   "embeddingProviders.settings.error":
@@ -4193,6 +4213,26 @@ export const en = {
   "answer.error.ollama-not-running": "Ollama isn’t running on this computer",
   "answer.error.too-long": "This Question is too long for the model. Shorten it.",
   "answer.error.too-long.hosted": "This is too long for {model}",
+  "answer.error.too-long.selection":
+    "The selected text is too long for {model} on this computer. Select less, or choose another model.",
+  "answer.error.too-long.selection.hosted":
+    "The selected text is too long for {model}. Select less, or choose another model.",
+  "answer.error.window-too-small.assistant":
+    "{model}’s context window on this computer is too small for the assistant, however short the Question.",
+  "answer.error.window-too-small.assistant.hosted":
+    "{model}’s context window is too small for the assistant, however short the Question.",
+  "answer.error.window-too-small.question":
+    "{model}’s context window on this computer is too small to read your Documents, however short the Question.",
+  "answer.error.window-too-small.question.hosted":
+    "{model}’s context window is too small to read your Documents, however short the Question.",
+  "answer.error.window-too-small.none":
+    "{model}’s context window on this computer is too small for even a short request.",
+  "answer.error.window-too-small.none.hosted":
+    "{model}’s context window is too small for even a short request.",
+  "answer.error.cut-short-small-window":
+    "{model} has little room to write on this computer, so its reply was cut short.",
+  "answer.error.cut-short-small-window.hosted":
+    "{model} has little room to write, so its reply was cut short.",
   "answer.error.no-answer": "The model sent no Answer",
   "answer.error.cut-short": "The model’s reply reached its length limit and was cut short",
   "answer.error.unknown": "Something went wrong with {service}",
@@ -4605,6 +4645,7 @@ export const en = {
   "citation.reason.source-removed": "The source was removed.",
   "citation.yourNote": "Your note: {title}, {date}",
   "citation.ownRecord": "Your own record",
+  "citation.foundByCheck": "Found by a check of this sentence",
   "citation.reason.kept-inside": "Kept inside {folder}",
   "citation.reason.quoted-words-not-on-pages": "The quoted words aren’t in the cited place.",
   "citation.reason.checking": "Checking the quote, and whether it supports this sentence.",
@@ -4621,6 +4662,8 @@ export const en = {
   "citation.reason.monthly-limit-unfinished.unnamed":
     "Not checked: your monthly limit was reached before this sentence’s check finished.",
   "citation.reason.notChecked": "Whether the quote supports this sentence couldn’t be checked.",
+  "citation.reason.otherCall":
+    "The quote is from another call. A call help reply is checked against its own call and your Documents.",
   "citation.reason.small-model":
     "This model on this computer is too small to judge whether the quote supports the sentence.",
   "citation.where": "{document}, {location}",
@@ -7512,6 +7555,7 @@ export const en = {
   "meetings.help.youSaid": "You said: “{text}”",
   "meetings.help.said": "“{text}”",
   "meetings.help.readFrom": "Read from what they said",
+  "meetings.help.started": "started {time}",
   "meetings.help.pin": "Pin",
   "meetings.help.unpin": "Unpin",
   "meetings.help.addToNotes": "Add to note",
@@ -7749,8 +7793,12 @@ export const en = {
   "mindCall.adding": "Adding to “{mind}”…",
   "mindCall.creating": "Making “{mind}”…",
   "mindCall.creating.new": "Making a new note…",
-  "mindCall.checking": "Checking {count} sentences in “{mind}”…",
-  "mindCall.checking.one": "Checking 1 sentence in “{mind}”…",
+  "selfCheck.checking": "Checking: {count} of {total} sentences done",
+  "selfCheck.checking.one": "Checking: {count} of 1 sentence done",
+  "selfCheck.waiting": "Waiting to check",
+  "selfCheck.look": "{count} need a look",
+  "selfCheck.look.one": "1 needs a look",
+  "selfCheck.show": "Show",
   "selfCheck.failed": "{count} sentences couldn’t be checked",
   "selfCheck.failed.one": "1 sentence couldn’t be checked",
   "selfCheck.checkedOnly": "Checked {checked} sentences",

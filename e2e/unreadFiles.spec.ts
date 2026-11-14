@@ -13,6 +13,7 @@ import {
   checkCard,
   useLocalChatModel as connectLocalChatModel,
   copyFrom,
+  coreOf,
   createDataFolder,
   dismissChatSetup,
   expectDotsBetweenParts,
@@ -30,6 +31,7 @@ import {
   setLanguage,
   useOutputLocation as setOutputLocation,
   setWindowSize,
+  sidebarFolder,
   slideSelect,
 } from "./app";
 
@@ -201,6 +203,58 @@ for (const language of ["en", "zh-CN"] as const) {
     // Clicking a Document's name opens it.
     await rows.filter({ hasText: "Scan.pdf" }).getByTestId("unread-file-open").click();
     await expect(window.getByTestId("viewer-title")).toHaveText("Scan");
+    await app.close();
+  });
+}
+
+const BESIDE: Record<string, string> = {
+  "Old/Tides.txt": "Spring tides happen at new moon and at full moon.\n",
+  "Old/Contract.doc": "binary",
+  "Quiet/Lamps.txt": "The harbour lamps were lit at dusk.\n",
+};
+
+for (const language of ["en", "zh-CN"] as const) {
+  test(`an Answer asked in a Folder updates its unread line when a Document beside a file not read is filed in and out (${language})`, async () => {
+    test.setTimeout(120_000);
+    const { app, window } = await start(language, BESIDE);
+    const bridge = await coreOf(window);
+    const file = (name: string, folderId: string | null) =>
+      bridge.evaluate(
+        async (core, { name, folderId }) => {
+          const document = (await core.listDocuments()).find((each) => each.name === name);
+          if (!document) throw new Error(`${name} wasn't added.`);
+          await core.moveToFolder({ documentIds: [document.id], folderId });
+        },
+        { name, folderId },
+      );
+    const harbour = await bridge.evaluate(async (core) => {
+      const folder = await core.createLibraryGroup({ name: "Harbour", description: "" });
+      const [note] = (await core.listMinds()).toSorted((a, b) =>
+        b.createdAt.localeCompare(a.createdAt),
+      );
+      if (!note) throw new Error("No Note is open.");
+      await core.moveToFolder({ mindIds: [note.id], folderId: folder.id });
+      return folder.id;
+    });
+    await file("Lamps", harbour);
+    await expect(sidebarFolder(window, "Harbour")).toHaveAttribute("data-count", "1");
+
+    const answer = await askInAssistant(window, "What do tides do?");
+    const line = answer.getByTestId("unread-files");
+    await expect(line).toHaveCount(0);
+
+    await file("Tides", harbour);
+    await expect(line).toContainText(
+      language === "en" ? "1 file couldn’t be read" : "1 个文件未能读取",
+    );
+    await screenshot(window, `answer-unread-filed-${language}`);
+    await line.getByTestId("unread-files-show").click();
+    await expect(line.getByTestId("unread-file")).toHaveText(
+      language === "en" ? /Contract\.doc: Format not read yet/ : /Contract\.doc：暂不支持此格式/,
+    );
+
+    await file("Tides", null);
+    await expect(line).toHaveCount(0);
     await app.close();
   });
 }

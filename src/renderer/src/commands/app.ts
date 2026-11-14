@@ -5,10 +5,9 @@ import { useChecks } from "../checks";
 import { useCitationStylePicker } from "../citationStylePicker";
 import { claudeSignInOffered } from "../claudeSignIn";
 import { startContradictionCheck } from "../contradictions";
-import { blockMenuOpeners } from "../editor/blockMenuOpeners";
 import { originOf } from "../editor/blockOrigins";
 import { goToCitation } from "../editor/citationMark";
-import { blockAt, noteHolding } from "../editor/noteKeymap";
+import { blockAt } from "../editor/noteKeymap";
 import { openOrigin } from "../editor/originActions";
 import { tieOutFigures } from "../figures";
 import { useFindSources } from "../findSources";
@@ -29,6 +28,7 @@ import { answerTableCommands } from "./answerTables";
 import { appearanceCommands } from "./appearance";
 import { assistantCommands } from "./assistant";
 import { bibliographyCommands } from "./bibliography";
+import { blockCommands, noteOfBlock } from "./blocks";
 import { calendarCommands } from "./calendars";
 import { chartCommands } from "./charts";
 import { checkCommands } from "./checks";
@@ -94,16 +94,10 @@ import { viewerSelectionCommands } from "./viewerSelection";
 import { webPageCommands } from "./webPages";
 import { wordLookCommands } from "./wordLook";
 
-/** What opens the menu of the Block with this ID, if its Mind is open. */
-function blockMenuFor(blockId: string) {
-  const editor = noteHolding(blockId);
-  return (editor && blockMenuOpeners.get(editor)) ?? null;
-}
-
 /** Where the Block a menu names, or else the one the cursor is in, was added from; null if nowhere. */
 function originShown(ctx: CommandContext): BlockOrigin | null {
   if (ctx.focus?.kind === "block") {
-    const editor = noteHolding(ctx.focus.id);
+    const editor = noteOfBlock(ctx);
     return editor && originOf(editor.state, ctx.focus.id);
   }
   const editor = readMindHandle.current?.editor;
@@ -473,34 +467,7 @@ const appCommands: readonly Command[] = [
       return useAppStore.getState().updateSettings({ user: { suggestWhileWriting: !on } });
     },
   },
-  {
-    id: "block.delete",
-    label: "editor.block.delete",
-    shortcut: { keys: "CmdOrCtrl+Shift+Backspace" },
-    group: "danger",
-    destructive: true,
-    appliesTo: ["block", "answer", "chart"],
-    // The note's own undo (⌘Z) brings it back.
-    reversible: true,
-    run(ctx) {
-      // An Answer's or a chart's menu deletes it, wherever the cursor is.
-      if (ctx.here?.["block.delete"]) return ctx.here["block.delete"]();
-      // The Blocks the note's selection touches, the focused one among them.
-      if (ctx.focus) noteHolding(ctx.focus.id)?.commands.deleteBlock();
-    },
-  },
-  {
-    id: "block.menu",
-    label: "editor.block.menu",
-    shortcut: { keys: "Shift+F10" },
-    group: "main",
-    appliesTo: ["block"],
-    reversible: true,
-    when: (ctx) => ctx.focus?.kind === "block" && blockMenuFor(ctx.focus.id) !== null,
-    run(ctx) {
-      if (ctx.focus?.kind === "block") blockMenuFor(ctx.focus.id)?.(ctx.focus.id);
-    },
-  },
+  ...blockCommands,
   {
     id: "block.openSource",
     label: "origin.open",

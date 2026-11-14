@@ -12,6 +12,7 @@ import {
 import { EDIT_INSTRUCTIONS, EDIT_INSTRUCTIONS_NAMED } from "../../src/core/edits/prompt";
 import { changedMinds } from "../../src/renderer/src/changedMinds";
 import { writeAccepted } from "../../src/renderer/src/editor/arrivedChanges";
+import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
 import { resolveInEditor } from "../../src/renderer/src/editor/proposalReview";
 import { askedFor } from "../../src/shared/askedChanges";
@@ -19,12 +20,19 @@ import { allOrigins } from "../../src/shared/blockOrigins";
 import { readChart } from "../../src/shared/charts";
 import { pendingProposals, proposalRequestOf } from "../../src/shared/proposals";
 import { askAssistant, changesIn, lastResult, mindCalls } from "../helpers/assistant";
-import { checkReply, isCheckRun } from "../helpers/checks";
+import { checkReply, isCheckRun, type Plan, sentenceOf } from "../helpers/checks";
 import { answerEnded, setUpWithDocuments, shownPassages } from "../helpers/citations";
 import { startCore } from "../helpers/core";
 import { boundEditor } from "../helpers/editor";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
-import { note, readMind, resolveChanges, shownWithChanges, writeMind } from "../helpers/minds";
+import {
+  editMind,
+  note,
+  readMind,
+  resolveChanges,
+  shownWithChanges,
+  writeMind,
+} from "../helpers/minds";
 import {
   judgesNothing,
   type ModelCall,
@@ -49,6 +57,23 @@ const QUOTES = LEASES.map(
   (_, index) => `The rent for unit ${index + 1} is ${1000 + index * 100} euros a month`,
 );
 const CITED = QUOTES.map((quote, index) => `${quote} [^${index + 1}].`).join("\n\n");
+/** Every lease's rent as its sentence states it, Supported by its own lease's line. */
+const RENTS: Record<string, Plan> = Object.fromEntries(
+  QUOTES.flatMap((quote) =>
+    [`${quote}.`, `${quote} .`].map((sentence) => [sentence, { verdict: "supported", quote }]),
+  ),
+);
+/** A sentence of the User's own about a lease in the Folder, which its check reads there alone. */
+const OWN_RENT = "Unit 2 pays 1100 euros a month.";
+
+/** Each check's sentence, state, reason and whether it was made in every Document. */
+const marksIn = (client: MindClient) =>
+  claimSpans(readMind(client)).map(({ sentence, check }) => [
+    sentence.text,
+    check.state,
+    check.reason,
+    check.scope.widened,
+  ]);
 
 const WRITE_COMMAND = "The write command is create_mind for a new Note";
 const AS_A_DOCUMENT = "To put your last Answer into a Note as it is";
@@ -437,10 +462,10 @@ describe("Use all, where the text went (#1171 review)", { timeout: 60_000 }, () 
     expect(shownWithChanges(client)).toEqual(fromTwo);
   });
 
-  // protects=Use all's text from every Document lands checked, as a first write's does: its cited sentences are checked and the card counts them (#1635); fails_when=the rewrite lands with found Citations and no check, which reads as checked; no_claim=the verdicts, which the written check's own tests hold.
-  test("Use all checks the text it writes again", async () => {
+  // protects=Use all's text from every Document lands checked, as a first write's does: its cited sentences are checked and the card counts them (#1635), in every Document it was written from, with the mark Search all Documents leaves, so a sentence citing a lease outside the Note's Folder is judged against that lease (#3087); fails_when=the rewrite lands with found Citations and no check, or its sentences read Not checked for want of the leases it read; no_claim=the verdicts' wording.
+  test("Use all checks the text it writes again, where it read", async () => {
     const model = scriptedModel(
-      (call) => (isCheckRun(call) ? checkReply(call, {}) : summaryOfShown(call)),
+      (call) => (isCheckRun(call) ? checkReply(call, RENTS) : summaryOfShown(call)),
       { generate: judgesNothing },
     );
     const { core, mind, scope } = await inAFolderOfTwo(model);
@@ -458,8 +483,92 @@ describe("Use all, where the text went (#1171 review)", { timeout: 60_000 }, () 
 
     const [change] = changesIn(rewritten);
     expect(change).toMatchObject({ mindId: made?.mindId, created: false });
-    expect(change?.selfCheck).toMatchObject({ cited: 7, sent: 7, failed: 0 });
-    expect(lastResult(model)).toContain("with Citations were checked against them.");
+    expect(change?.selfCheck).toMatchObject({ cited: 7, sent: 7, checked: 7, failed: 0 });
+    await summary.settled();
+    expect(marksIn(summary)).toEqual(
+      QUOTES.map((quote) => [`${quote} .`, "supported", null, true]),
+    );
+    expect(lastResult(model)).toContain(
+      "IncarnaMind checks these sentences against the Documents itself",
+    );
+  });
+
+  // protects=a later Check this Note checks Use all's sentences in every Document again, as it checks a sentence Search all Documents checked, and the Note's other sentences in its Folder (#3087); fails_when=Use all's sentences are checked again in the Folder alone, or the User's own sentence reaches beyond it; no_claim=the verdicts' wording.
+  test("a later Check this note checks Use all's sentences in every Document again", async () => {
+    const calls: ModelCall[] = [];
+    const model = scriptedModel(
+      (call) => {
+        if (isCheckRun(call)) calls.push(call);
+        return isCheckRun(call) ? checkReply(call, RENTS) : summaryOfShown(call);
+      },
+      { generate: judgesNothing },
+    );
+    const { core, mind, scope } = await inAFolderOfTwo(model);
+    const first = await askAssistant(core, {
+      text: "Based on my files, write a summary",
+      mindId: mind.id,
+      scope,
+    });
+    const made = changesIn(first).find((change) => change.created);
+    const summary = await connectToMind(core, made?.mindId ?? "");
+    await resolveChanges(summary, "accept");
+    await useAll(core, first);
+    await resolveChanges(summary, "accept");
+    editMind(summary, (blocks) => [...blocks, note(OWN_RENT)]);
+    await summary.settled();
+    const from = calls.length;
+
+    await core.checkMind({ requestId: "again", mindId: made?.mindId ?? "", mode: "all" });
+    await summary.settled();
+
+    const shownFor = (sentence: string) =>
+      new Set(
+        calls
+          .slice(from)
+          .filter((call) => sentenceOf(call).startsWith(sentence))
+          .flatMap((call) =>
+            [call.prompt, ...call.results.map((result) => result.text)].flatMap((text) =>
+              shownPassages(text).map((passage) => passage.document),
+            ),
+          ),
+      );
+    expect(shownFor(QUOTES[4] ?? "")).toContain("Lease 5");
+    expect([...shownFor(OWN_RENT)].sort()).toEqual(["Lease 1", "Lease 2"]);
+    expect(marksIn(summary).find(([sentence]) => sentence === `${QUOTES[4]} .`)).toEqual([
+      `${QUOTES[4]} .`,
+      "supported",
+      null,
+      true,
+    ]);
+  });
+
+  // protects=Use all, then Undo, then Use all lands the marks one Use all lands, and so does Use all twice: the scope its check reads goes with each write, never left over from another (#3087); fails_when=a second Use all or one after an Undo is checked in the Note's Folder, or keeps an earlier write's marks; no_claim=the window's own Undo step.
+  test("Use all after an Undo, or twice, lands the marks of one Use all", async () => {
+    const model = scriptedModel(
+      (call) => (isCheckRun(call) ? checkReply(call, RENTS) : summaryOfShown(call)),
+      { generate: judgesNothing },
+    );
+    const { core, mind, scope } = await inAFolderOfTwo(model);
+    const first = await askAssistant(core, {
+      text: "Based on my files, write a summary",
+      mindId: mind.id,
+      scope,
+    });
+    const made = changesIn(first).find((change) => change.created);
+    const summary = await connectToMind(core, made?.mindId ?? "");
+    await resolveChanges(summary, "accept");
+
+    await useAll(core, first);
+    await summary.settled();
+    const once = marksIn(summary);
+    expect(once).toHaveLength(7);
+    await resolveChanges(summary, "reject");
+    await useAll(core, first);
+    await summary.settled();
+    expect(marksIn(summary)).toEqual(once);
+    await useAll(core, first);
+    await summary.settled();
+    expect(marksIn(summary)).toEqual(once);
   });
 
   // protects=text the User typed in since isn't taken away at once by Use all: the rewrite waits for them, as changes that would remove their words wait (#880), and the model is told it waits; fails_when=the rewrite applies at once over their words; no_claim=the window's line, which shows what waits.

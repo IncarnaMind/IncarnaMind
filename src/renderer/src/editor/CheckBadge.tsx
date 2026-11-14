@@ -46,7 +46,8 @@ import { ContradictionAsk, ContradictionLine } from "./ContradictionLine";
 import { checkTitle, useCheckEstimate, useCheckThisMindPlan } from "./changedSentences";
 import { type CheckEstimateView, checkPressOf } from "./checkEstimateState";
 import { useCardPlace } from "./checkPlace";
-import { CheckMarkIcon, ClaimMarkIcon } from "./icons";
+import { checkRows, healthSummary } from "./healthCounts";
+import { CheckMarkIcon, ClaimMarkIcon, NotYetCitedIcon } from "./icons";
 import { MindCheckAsk, MindUnchanged, RunningText } from "./MindCheckLine";
 import { HealthCard, PartMark, partLabel, useHealth } from "./NoteHealth";
 import { Popover } from "./Popover";
@@ -171,6 +172,20 @@ function MindBadge({
       ask={input.asking || problem}
       running={running && <RunningText editor={editor} mindId={mindId} />}
       onStop={() => stopCheck(mindId)}
+      refit={
+        running
+          ? "running"
+          : [
+              ...checkRows(health).map(({ row }) => row),
+              // The summary can land with no row of its own, as in a Note whose checked
+              // sentences all hold the assistant's own conclusion (#3019).
+              healthSummary(health, {
+                running: false,
+                problem,
+                unread: state?.unreadMatters === true ? state.unread : 0,
+              })?.kind ?? "",
+            ].join(" ")
+      }
       actions={
         <CheckActions
           editor={editor}
@@ -358,6 +373,7 @@ function VerifyBadge({
       contradicted: rows.contradicted.length,
       unsupported: rows.unsupported.length,
       notChecked: rows.notChecked.length,
+      notYetCited: rows.notYetCited.length,
     },
     checkable: state.total,
     toCheck,
@@ -433,6 +449,7 @@ function BadgeFrame({
   onStop,
   foot,
   actions,
+  refit,
   children,
 }: {
   mindId: string;
@@ -443,6 +460,8 @@ function BadgeFrame({
   running: ReactNode;
   onStop(): void;
   foot?: ReactNode;
+  /** What the card's rows are: a change fits its height to them again. */
+  refit?: string;
   /** The card's press and its price line, in a fixed foot the held, scrolling body never hides. */
   actions?: ReactNode;
   children: ReactNode;
@@ -458,9 +477,17 @@ function BadgeFrame({
   const open = useChecks((state) => state.cardOpen[place] === true);
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   // The card takes its first paint's height, so what lands later never moves what is above it;
-  // content beyond that room scrolls, and the next open fits the result (#2313).
+  // content beyond that room scrolls, and the next open fits the result (#2313). A change of
+  // `refit` fits it again where it is: the rows a check's end brings show without opening the card
+  // again (#3019).
   const [heldHeight, setHeldHeight] = useState<number | null>(null);
   const body = useRef<HTMLDivElement>(null);
+  const fittedTo = useRef(refit);
+  useLayoutEffect(() => {
+    if (fittedTo.current === refit) return;
+    fittedTo.current = refit;
+    setHeldHeight(null);
+  }, [refit]);
   useLayoutEffect(() => {
     if (!open) {
       setHeldHeight(null);
@@ -591,6 +618,8 @@ function StateMark({ state }: { state: NoteState }) {
       return <ClaimMarkIcon state="needs-recheck" className="mind-health-icon" />;
     case "notChecked":
       return <ClaimMarkIcon state="not-checked" className="mind-health-icon" />;
+    case "notYetCited":
+      return <NotYetCitedIcon className="mind-health-icon mind-health-icon--wide" />;
   }
 }
 
@@ -655,6 +684,9 @@ function BadgePill({
           <span className="check-badge-short">
             {format(state.look > 0 ? state.look : state.unread)}
           </span>
+        )}
+        {state.kind === "not-yet-cited" && (
+          <span className="check-badge-short">{format(state.notYetCited)}</span>
         )}
         {state.kind === "checked" && state.checkedAt !== null && (
           <span className="check-badge-short">{formatDateTime(state.checkedAt, language)}</span>

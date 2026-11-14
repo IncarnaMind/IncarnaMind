@@ -5,12 +5,13 @@
  * call's language: Chinese when its newest line is, or before anyone has spoken, when the button's
  * name is. A question typed in the panel gets a sentence (`questionReply`).
  */
-import { passagesIn, recordFor, withSurroundingWords } from "./passages";
+import { passagesIn, recordFor, UNIT_MARK, withSurroundingWords } from "./passages";
 import {
   lastUserText,
   type Prompt,
   type Reply,
   type StreamPart,
+  systemOf,
   toolResults,
   USAGE,
 } from "./prompt";
@@ -242,6 +243,156 @@ function headingOnly(prompt: Prompt, parts: StreamPart[]): StreamPart[] {
   ];
 }
 
+/**
+ * For a model id ending "-cites-the-note": a help reply's option cites the Note's first Citation by
+ * its id, saying the Note's words before it again (#3005). Other steps are as they were.
+ */
+function withNoteCited(prompt: Prompt, parts: StreamPart[]): StreamPart[] {
+  const asked = lastUserText(prompt);
+  const help = block(asked, "help");
+  if (!HELP.test(help) || shapeOf(help) !== "options") return parts;
+  const line = asked.split("\n").find((each) => /·\s*C1\]/.test(each)) ?? "";
+  const quote = line
+    .slice(0, line.lastIndexOf("["))
+    .replace(/^[-*>\s]+/, "")
+    .trim();
+  if (!quote) return parts;
+  if (toolResults(prompt, "cite").length === 0) {
+    const input = JSON.stringify({ citations: [{ marker: 1, passage: "C1", quote }] });
+    return [
+      { type: "stream-start", warnings: [] },
+      { type: "tool-call", toolCallId: "fake-cite", toolName: "cite", input },
+      { type: "finish", finishReason: { unified: "tool-calls", raw: undefined }, usage: USAGE },
+    ];
+  }
+  const { language } = callOf(asked);
+  const said = quote.replace(/[.?!。？！]+$/u, "");
+  return [
+    { type: "stream-start", warnings: [] },
+    { type: "text-start", id: "answer" },
+    ...textDeltas("answer", `${OPTIONS[language].cited(said)}\n\n${OPTIONS[language].second}`),
+    { type: "text-end", id: "answer" },
+    { type: "finish", finishReason: { unified: "stop", raw: undefined }, usage: USAGE },
+  ];
+}
+
+/** The end of a quote after its last clause mark, or its last three words: words wholly inside it. */
+function partOf(quote: string): string {
+  const said = quote.replace(/[.?!。？！]+$/u, "");
+  const clause = Math.max(said.lastIndexOf(", "), said.lastIndexOf("，"));
+  if (clause > 0) return said.slice(clause + (said[clause] === "，" ? 1 : 2)).trim();
+  return said.split(" ").slice(-3).join(" ");
+}
+
+/**
+ * For a model id ending "-writes-before-it-cites": a help reply's first option is written, with
+ * two numbers, before its cite call, as Claude Haiku 5.5 often writes (#2847); its second number
+ * cites words inside the first's quote, of the same Passage. The rest of the reply comes after
+ * the cite. Other steps are as they were.
+ */
+function withTextBeforeCite(prompt: Prompt, parts: StreamPart[]): StreamPart[] {
+  const asked = lastUserText(prompt);
+  const help = block(asked, "help");
+  if (!HELP.test(help) || shapeOf(help) !== "options") return parts;
+  const text = parts.flatMap((part) => (part.type === "text-delta" ? [part.delta] : [])).join("");
+  if (toolResults(prompt, "cite").length > 0) {
+    // A record the cite's result asked to fix comes again as it is, before the rest of the reply.
+    if (parts.some((part) => part.type === "tool-call" && part.toolName === "cite")) return parts;
+    const rest = text.slice(text.indexOf("\n"));
+    return [
+      { type: "stream-start", warnings: [] },
+      { type: "text-start", id: "answer" },
+      ...textDeltas("answer", rest),
+      { type: "text-end", id: "answer" },
+      { type: "finish", finishReason: { unified: "stop", raw: undefined }, usage: USAGE },
+    ];
+  }
+  const call = parts.find((part) => part.type === "tool-call" && part.toolName === "cite");
+  if (call?.type !== "tool-call") return parts;
+  const { citations }: { citations: { marker: number; quote: string }[] } = JSON.parse(call.input);
+  const [whole] = citations;
+  if (!whole) return parts;
+  const quote = whole.quote.replace(/^\[[^\]]*\]\s*/, "");
+  // The same Passage and place, so it lies wholly inside the first's quote.
+  const inner = { ...whole, marker: 2, quote: partOf(quote) };
+  const { language } = callOf(asked);
+  const first = OPTIONS[language].cited(quote.replace(/[.?!。？！]+$/u, "")).split("\n")[0] ?? "";
+  return [
+    { type: "stream-start", warnings: [] },
+    { type: "text-start", id: "answer" },
+    ...textDeltas("answer", first.replace("[^1]", "[^1] [^2]")),
+    { type: "text-end", id: "answer" },
+    {
+      type: "tool-call",
+      toolCallId: "fake-cite",
+      toolName: "cite",
+      input: JSON.stringify({ citations: [whole, inner] }),
+    },
+    { type: "finish", finishReason: { unified: "tool-calls", raw: undefined }, usage: USAGE },
+  ];
+}
+
+/** The one request for the Citations a reply left out, sent once its text has ended. */
+export const asksForCitations = (prompt: Prompt): boolean =>
+  /^You add the Citations an Answer left out\./.test(systemOf(prompt));
+
+/** An option that says the price sheet's Enterprise line in its own words, sharing too few of them for the app to cite it. */
+const OWN_WORDS = {
+  en: "★ Yes, Enterprise runs $45 per seat each month, and single sign-on comes built in for every team, however large, without any extra setup fee or separate contract\n→ answers at once; keeps the call moving",
+  zh: "★ 是的，企业版每个席位每月 45 美元，单点登录也一并包含，不论团队多大都不用另付设置费，也不必另签合同\n→ 直接回答，推进通话",
+};
+
+/** A text's words to compare: Latin words of three letters or more, and each two neighbouring Chinese characters. */
+function wordsIn(text: string): Set<string> {
+  const words = new Set<string>();
+  for (const [run] of text.toLowerCase().matchAll(/\p{Script=Han}+|[\p{L}\p{N}]{3,}/gu)) {
+    const chars = [...run];
+    if (!/\p{Script=Han}/u.test(run)) words.add(run);
+    else for (let at = 0; at + 1 < chars.length; at++) words.add(`${chars[at]}${chars[at + 1]}`);
+  }
+  return words;
+}
+
+const textParts = (text: string): StreamPart[] => [
+  { type: "stream-start", warnings: [] },
+  { type: "text-start", id: "answer" },
+  ...textDeltas("answer", text),
+  { type: "text-end", id: "answer" },
+  { type: "finish", finishReason: { unified: "stop", raw: undefined }, usage: USAGE },
+];
+
+/**
+ * For a model id ending "-cites-when-asked": a help reply's options come with no cite call and no
+ * number, the first in its own words, as Claude Haiku 5.5 sometimes writes them (#2847); asked once
+ * more for the reply's Citations, it gives the first option the line of the Passage it says.
+ */
+function withCitationsWhenAsked(prompt: Prompt, parts: StreamPart[]): StreamPart[] {
+  const asked = lastUserText(prompt);
+  if (asksForCitations(prompt)) {
+    const sentence = (block(asked, "answer").split("\n")[0] ?? "").replace(/^★\s*/u, "");
+    const said = wordsIn(sentence);
+    const lines = [...asked.matchAll(/<passage id="([^"]+)">\n([\s\S]*?)\n<\/passage>/g)].flatMap(
+      ([, passage = "", text = ""]) =>
+        text.split("\n").map((line) => {
+          const quote = line.replace(UNIT_MARK, "").trim();
+          const shared = [...wordsIn(quote)].filter((word) => said.has(word)).length;
+          return { passage, quote, shared };
+        }),
+    );
+    const best = lines.reduce<(typeof lines)[number] | null>(
+      (top, each) => (each.shared > (top?.shared ?? 0) ? each : top),
+      null,
+    );
+    const citations = best ? [{ sentence, passage: best.passage, quote: best.quote }] : [];
+    return textParts(JSON.stringify({ citations }));
+  }
+  const help = block(asked, "help");
+  if (!HELP.test(help) || shapeOf(help) !== "options") return parts;
+  if (!parts.some((part) => part.type === "tool-call" && part.toolName === "cite")) return parts;
+  const { language } = callOf(asked);
+  return textParts(`${OWN_WORDS[language]}\n\n${OPTIONS[language].second}`);
+}
+
 /** For a model id ending "-help-held": a help reply writes nothing until it is stopped. */
 export const holdsHelp = (modelId: string, prompt: Prompt): boolean =>
   modelId.endsWith("-help-held") && HELP.test(block(lastUserText(prompt), "help"));
@@ -252,5 +403,8 @@ export function helpModelParts(modelId: string, prompt: Prompt, parts: StreamPar
   if (modelId.endsWith("-moves-taken-back")) return withMovesTakenBack(prompt, parts);
   if (modelId.endsWith("-heading-only")) return headingOnly(prompt, parts);
   if (modelId.endsWith("-options-quoted")) return withOptionsQuoted(prompt, parts);
+  if (modelId.endsWith("-cites-the-note")) return withNoteCited(prompt, parts);
+  if (modelId.endsWith("-writes-before-it-cites")) return withTextBeforeCite(prompt, parts);
+  if (modelId.endsWith("-cites-when-asked")) return withCitationsWhenAsked(prompt, parts);
   return parts;
 }

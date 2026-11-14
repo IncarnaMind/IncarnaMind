@@ -53,7 +53,7 @@ export function recordSearches() {
 export function shownPassages(result: string): ShownPassage[] {
   const passages: ShownPassage[] = [];
   const pattern =
-    /<passage id="([^"]+)" document="([^"]*)"(?: ((?:date|file-created|file-modified)="[^"]+"))?(?: pages="([^"]+)")?(?: location="([^"]+)")?(?: formulas="[^"]+")?(?: cite="never")?>\n([\s\S]*?)\n<\/passage>/g;
+    /<passage id="([^"]+)" document="([^"]*)"(?: ((?:date|file-created|file-modified)="[^"]+"))?(?: pages="([^"]+)")?(?: location="([^"]+)")?(?: call="[^"]+"(?: note="[^"]*")? started="[^"]*")?(?: formulas="[^"]+")?(?: cite="never")?>\n([\s\S]*?)\n<\/passage>/g;
   for (const match of result.matchAll(pattern)) {
     passages.push({
       id: match[1] as string,
@@ -238,8 +238,9 @@ export function answerEnded(
 }
 
 /**
- * An Answer in a conversation once its sentences are judged (#2311): it ends at once, and its
- * Citations wait as checking until their sentences have a result.
+ * An Answer in a conversation once its sentences are judged (#2311) and what it wrote into a Note
+ * is checked (#2830): it ends at once, and its Citations wait as checking until their sentences
+ * have a result, as the sentences it wrote do.
  */
 export async function answerJudged(
   core: Core,
@@ -253,6 +254,10 @@ export async function answerJudged(
       if (answer?.kind !== "answer") throw new Error("No Answer.");
       if (answer.citations.some((citation) => citation.check === "checking")) {
         throw new Error("Its sentences are still being judged.");
+      }
+      // What it wrote into a Note is checked after it ends, too (#2830).
+      if (answer.toolCalls.some((call) => call.mindChange?.selfCheck?.running)) {
+        throw new Error("What it wrote is still being checked.");
       }
       return answer;
     },

@@ -27,13 +27,14 @@ import { randomUUID } from "node:crypto";
 import type * as Y from "yjs";
 import { caseCitations } from "../../../shared/caseCitations";
 import { type LiveDocument, withShownName } from "../../../shared/citations";
-import { keepRecordCites, restsOn } from "../../../shared/claimChecks";
+import { keepRecordCites, restsOn, restsOnItsCitation } from "../../../shared/claimChecks";
 import {
   boundedCheck,
   boundedCheckParts,
   checkedCitation,
   checkWithParts,
   figuresByPart,
+  partsWrittenBy,
   partWithResult,
   pendingPart,
   planOf,
@@ -125,9 +126,11 @@ import { parseRecordCite, recordCiteTokens } from "../../recordCites/parser";
 import { recordCiteChoiceAlias, resolveChosenRecordCite } from "../../recordCites/resolver";
 import { asCheckWork } from "../../reranking/order";
 import { currentTask } from "../../runs/current";
+import type { RepliesOut } from "../../runs/replies";
 import { parseSearchScope } from "../../scope";
 import type { AnswerEngine } from "../engine";
 import { type AnswerCheckInput, createAnswerCheck } from "./answerCheck";
+import { figureContextIn } from "./calculationLedger";
 import { checkRunStart } from "./checkRun";
 import {
   type AtomicClaimCheckResult,
@@ -161,6 +164,7 @@ import {
 import { notCheckedMark, pendingParts } from "./runChecks";
 import {
   markedSentences as allMarks,
+  assistantWrote,
   checkedSentences,
   checkText,
   citedQuoteOf,
@@ -172,7 +176,9 @@ import {
   type SelectedSentence,
   selectedSentences,
   updateCheck,
+  writtenByAssistant,
 } from "./sentences";
+import { unitGate } from "./unitGate";
 import { createVerify, type NoDocuments, type VerifyOptions } from "./verify";
 import { createContradictionWatch, type WatchOptions } from "./watch";
 import {
@@ -254,6 +260,10 @@ export interface ChecksOptions
     WatchOptions,
     "minds" | "documentVersions" | "background" | "runCost" | "delayMs" | "log"
   >;
+  /** Aborts once a write's claims sort has taken too long; a check's time limit unless given. */
+  sortTimeLimit?: () => AbortSignal;
+  /** Where an Answer marks its provider while it is written, which a write's check waits behind. */
+  repliesOut?: RepliesOut;
   /** Throws unless the Mind exists and this version may write to it. */
   requireMind(mindId: string): void;
   /** The Folder the Mind is in; null for none. */
@@ -339,10 +349,10 @@ export interface ChecksOptions
   documentCheckProgress(event: DocumentCheckProgress): void;
   /** A Check this Note run's sentences checked before it marks them. */
   checkingEarly(event: MindCheckEarly): void;
+  /** How far the check of what the assistant wrote is (./written). */
+  writtenProgress: WrittenCheckOptions["progress"];
   engine: AnswerEngine;
   retention: Pick<VersionRetention, "retain" | "retainedBy">;
-  /** Edit with AI's new text for a passage not in a Mind, for what the assistant writes (#1111). */
-  editText: WrittenCheckOptions["editText"];
   now(): Date;
 }
 
@@ -705,6 +715,32 @@ function partsKeptInside(
   return kept ? next : null;
 }
 
+/**
+ * `parts`, each keeping the Supported or Contradicted result it had when a check again left its
+ * cited Document out of the Note's Search scope, while that result rests on the sentence's own
+ * Citation in the version its Document has now (#3087); null when none did.
+ */
+function partsStanding(
+  parts: readonly ClaimCheckPart[],
+  before: readonly ClaimCheckPart[],
+  stands: (part: ClaimCheckPart) => boolean,
+): ClaimCheckPart[] | null {
+  let kept = false;
+  const next = parts.map((part) => {
+    if (part.verdict !== "not-checked" || part.reason !== "outside-scope") return part;
+    const prior = before.find(
+      (each) =>
+        each.kind === part.kind &&
+        each.span.start === part.span.start &&
+        each.span.end === part.span.end,
+    );
+    if (!prior || !stands(prior)) return part;
+    kept = true;
+    return prior;
+  });
+  return kept ? next : null;
+}
+
 function chooseInput(value: unknown): ChooseRecordCiteSourceInput {
   if (!isRecord(value)) throw new InvalidInputError({ key: "error.recordCite.choiceInvalid" });
   const { mindId, checkId, raw, documentId, from, to } = value;
@@ -789,8 +825,10 @@ export function createChecks(options: ChecksOptions) {
     sourceText = check.text,
     priorParts?: readonly ClaimCheckPart[],
     previous: ClaimCheckAttributes | null = null,
+    sameTextParts?: readonly ClaimCheckPart[],
   ): ClaimCheckAttributes {
-    const before = previous ?? check;
+    // An earlier result is kept for the words it judged only: words edited since are new (#3087).
+    const before = previous?.text === check.text ? previous : check;
     const behindAnotherWall = (citation: CitationAttributes | null | undefined) => {
       const wall = citation?.documentId ? options.walledDocument(citation.documentId) : null;
       return wall !== null && wall !== options.walledFolder(mindId);
@@ -816,6 +854,31 @@ export function createChecks(options: ChecksOptions) {
       before.parts &&
       partsKeptInside(result.parts, before.parts, behindAnotherWall);
     if (keptParts) result = resultFromParts(keptParts);
+    const leftOut = result.parts?.some(
+      (part) => part.verdict === "not-checked" && part.reason === "outside-scope",
+    );
+    const held =
+      leftOut && sameTextParts
+        ? checkedSentences(blocks).find((each) => each.check.id === check.id)
+        : undefined;
+    if (held && sameTextParts && result.parts) {
+      const versions = options.watch.documentVersions();
+      const stands = (part: ClaimCheckPart) => {
+        const deciding =
+          part.decidingEvidence === null ? undefined : part.evidence[part.decidingEvidence ?? 0];
+        return (
+          deciding?.documentId != null &&
+          versions.get(deciding.documentId) === deciding.contentHash &&
+          restsOnItsCitation(part, held.citations, held.sentence)
+        );
+      };
+      const standing = partsStanding(result.parts, sameTextParts, stands);
+      if (standing) result = resultFromParts(standing);
+    }
+    // A mark not in the Note yet is the assistant's own write's, which says whose it is itself.
+    const assistant = assistantWrote(blocks, check.id);
+    if (result.parts && assistant !== null)
+      result = { ...result, parts: partsWrittenBy(result.parts, assistant) };
     return withResult(
       check,
       {
@@ -939,6 +1002,7 @@ export function createChecks(options: ChecksOptions) {
       return {
         documentName: withShownName(each, live).documentName,
         quote: each.quote,
+        ...(current && { documentId: current.id }),
         // A Passage of an older version isn't what the Document says now.
         ...(each.passageId &&
           current?.contentHash === each.contentHash && { passageId: each.passageId }),
@@ -951,6 +1015,11 @@ export function createChecks(options: ChecksOptions) {
     // Quitting settles every running request at once, then closes the Notes: one that unwinds
     // after that has been settled.
     if (!running.has(request)) return;
+    settleChecking(mindId, request);
+  }
+
+  /** Marks a request's sentences still shown as being checked "stopped", whether or not it runs. */
+  function settleChecking(mindId: string, request: string): void {
     const ids = content.read(mindId, (blocks) =>
       markedSentences(blocks)
         .filter(({ check }) => check.request === request && check.state === "checking")
@@ -1377,17 +1446,26 @@ export function createChecks(options: ChecksOptions) {
           const owner = input.part ? currentPartOwner(blocks, input.part) : null;
           if (input.part && !owner) return false;
           const begun = startCheck(blocks, now, owner, input, prepared, scope, startedAt);
+          // Its mark lands only below, so whose the sentence is is read from its place.
+          const result =
+            "result" in outcome && outcome.result.parts
+              ? {
+                  ...outcome.result,
+                  parts: partsWrittenBy(outcome.result.parts, writtenByAssistant(blocks, now)),
+                }
+              : null;
           const settled =
             "result" in outcome
               ? noteResult(
                   begun.pending,
-                  outcome.result,
+                  result ?? outcome.result,
                   at,
                   blocks,
                   mindId,
                   begun.queued.claim,
                   begun.queued.priorParts,
                   begun.queued.before,
+                  begun.queued.previous,
                 )
               : notCheckedMark(
                   begun.pending,
@@ -1512,6 +1590,7 @@ export function createChecks(options: ChecksOptions) {
                     sentence.claim,
                     sentence.priorParts,
                     sentence.before,
+                    sentence.previous,
                   )
                 : notCheckedMark(
                     check,
@@ -1581,10 +1660,13 @@ export function createChecks(options: ChecksOptions) {
     }
   }
 
+  const evidenceReady = (stop: AbortSignal, mindId: string) =>
+    options.evidence.ready(stop, () => leftOutOf(mindId));
+
   const watch = createContradictionWatch({
     ...options,
     ...options.watch,
-    evidenceReady: (stop, mindId) => options.evidence.ready(stop, () => leftOutOf(mindId)),
+    evidenceReady,
     folderDocuments: (folderId) =>
       options.resolveScope({ folderIds: [folderId], tagIds: [], documentIds: [] }) ?? [],
     evidenceScope: (mindId, documentIds, citedIds) =>
@@ -1612,7 +1694,7 @@ export function createChecks(options: ChecksOptions) {
     prepare,
     evidenceScope: (mindId, allDocuments, verification) =>
       scopeOf(mindId, allDocuments, { documentIds: [verification.documentId] }),
-    evidenceReady: (stop, mindId) => options.evidence.ready(stop, () => leftOutOf(mindId)),
+    evidenceReady,
     claimCheck,
     withResult: noteResult,
     retainEvidence,
@@ -1626,7 +1708,7 @@ export function createChecks(options: ChecksOptions) {
     documentVersions: options.watch.documentVersions,
     prepare,
     scopeOf: (mindId, allDocuments) => scopeOf(mindId, allDocuments),
-    evidenceReady: (stop, mindId) => options.evidence.ready(stop, () => leftOutOf(mindId)),
+    evidenceReady,
     citedNow,
     recordUnread,
     isRunning: (requestId) => running.has(requestId),
@@ -1671,7 +1753,7 @@ export function createChecks(options: ChecksOptions) {
     versionNow: (documentId) => options.documents.live([documentId])[0]?.contentHash ?? null,
   });
 
-  const checkWritten = createWrittenCheck({
+  const written = createWrittenCheck({
     ...options,
     prepare: (answer) =>
       prepareQuietly({ providerId: answer.provider.id, modelId: answer.modelId }, WRITTEN_SENDS),
@@ -1679,11 +1761,20 @@ export function createChecks(options: ChecksOptions) {
     quickModel: quickModelOf,
     firstLook,
     claimCheck,
-    scopeOf: (mindId) => scopeOf(mindId, false),
+    scopeOf: (mindId, allDocuments) => scopeOf(mindId, allDocuments),
+    evidenceReady,
     citedNow,
     withResult: noteResult,
     read: (mindId, look) => content.read(mindId, look),
     retainEvidence,
+    ...(options.sortTimeLimit && { sortTimeLimit: options.sortTimeLimit }),
+    track,
+    settleStopped,
+    // A write a Redo brings back was ended by its Undo: its check runs no more.
+    settleBroughtBack: (mindId, request) => {
+      if (!options.closed.aborted) settleChecking(mindId, request);
+    },
+    progress: options.writtenProgress,
   });
 
   /**
@@ -1733,6 +1824,7 @@ export function createChecks(options: ChecksOptions) {
       ),
     units: (citation) =>
       options.documents.pageTexts(citation.documentId, citation.contentHash, null, null),
+    unstatedUnit: unitGate(options, options.documents, figureContextIn(options.documents), false),
     claimTimeLimitMs: options.claimTimeLimitMs ?? CLAIM_TIME_LIMIT_MS,
     mostOf: (model, request) => {
       const estimate = options.estimateRead(model, { likely: [request], most: [request] });
@@ -1758,12 +1850,11 @@ export function createChecks(options: ChecksOptions) {
   return {
     ...verify,
 
-    /** What the assistant wrote in a Mind, checked before it lands (./written). */
-    async checkWritten(input: Parameters<typeof checkWritten>[0]) {
-      // A Note imported from Word leaves its original's copies out: they must all be told (#2216).
-      await options.evidence.ready(undefined, () => leftOutOf(input.mindId));
-      return checkWritten(input);
-    },
+    /** What the assistant wrote in a Mind, checked once it lands, the turn not waiting (./written). */
+    checkWritten: written.checkWritten,
+
+    /** A Mind changed: the check of a write an Undo took away ends (./written). */
+    mindChanged: written.mindChanged,
 
     /** An Answer's sentences with Citations, checked before it ends (./answerCheck). */
     checkAnswer: answerCheck.check,
@@ -1924,7 +2015,7 @@ export function createChecks(options: ChecksOptions) {
       await options.evidence.ready(undefined, () => parsed.checked);
       const scope = options.evidence.scope(
         parsed.mindId,
-        options.scopeDocuments(parsed.scope, null),
+        options.scopeDocuments(parsed.scope, parsed.mindId),
         parsed.checked,
       );
       // Nothing to check against: nothing backs it, and nothing is sent.
@@ -2167,6 +2258,7 @@ export function createChecks(options: ChecksOptions) {
     /** Stops every request, as IncarnaMind quits: their sentences not checked yet say "stopped". */
     stopAll(): void {
       watch.close();
+      written.stopAll();
       for (const [requestId, { controller, mindId }] of running) {
         controller.abort();
         try {

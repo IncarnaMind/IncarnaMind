@@ -423,8 +423,12 @@ export interface CreateMindInput {
  *   mark (#2577). An older editor would drop the node and leave the sentence
  *   without its number, saying nothing, so it opens these Notes read-only.
  *   Older content is version 57 content as it is: it holds no mark.
+ * - 59: a Citation whose Passage a check of its sentence found keeps `foundByCheck` (#3019), so its
+ *   card says so. An older editor would delete the attribute on save and the Citation would read as
+ *   the writer's own, so it opens these Notes read-only. Older content is version 58 content as it
+ *   is: a Citation without it is the writer's.
  */
-export const CONTENT_SCHEMA_VERSION = 58;
+export const CONTENT_SCHEMA_VERSION = 59;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
@@ -1631,20 +1635,19 @@ export interface MindChange {
   /** How many of its text's markers had no Citation recorded, and were left out. Absent: none. */
   unrecorded?: number;
   /**
-   * How many of the sentences it wrote are being checked against their Citations now, before
-   * they land (#1111). Absent: none, or the check is over.
-   */
-  checking?: number;
-  /**
    * The check of the sentences it wrote that a check reads (#1909: every claim,
-   * cited or not), once over: how many there were (`checkable`), how many have a
-   * Citation (`cited`), how many it sent to be checked (`sent`), how many got a
-   * verdict (`checked`) and how many couldn't be checked (`failed`), and what
-   * stopped it, if anything did. Those it couldn't check, or didn't, are marked
-   * not checked, under `request`; `blocked` says how many of them the User's own
+   * cited or not), which runs after the write lands (#2830): how many there were
+   * (`checkable`), how many have a Citation (`cited`), how many it sent to be
+   * checked (`sent`), how many got a verdict (`checked`), how many of those need a
+   * look (`look`: unsupported or contradicted), how many couldn't be checked
+   * (`failed`) and how many make no claim to check (`leftOut`: an opinion, or no claim), and what stopped
+   * it, if anything did. Those it couldn't check, or didn't, are marked not
+   * checked, under `request`; `blocked` says how many of them the User's own
    * choice kept from being sent (the flow turned off, or Local mode), which
    * checking again can't change, or how many wait for the User to allow what
-   * checks send now ("consent-widened"). Absent: none was checked.
+   * checks send now ("consent-widened"). `running` as it began, its counts not
+   * final yet; `undone` once an Undo took the write away and ended it. Absent:
+   * none was checked.
    */
   selfCheck?: {
     request: string;
@@ -1656,9 +1659,29 @@ export interface MindChange {
     sent: number;
     checked: number;
     failed: number;
+    /** Absent on a check recorded before #2830. */
+    look?: number;
+    leftOut?: number;
+    running?: true;
+    undone?: true;
     stop?: RunStop;
     blocked?: { reason: "consent-revoked" | "local-mode" | "consent-widened"; count: number };
   };
+}
+
+/**
+ * How far the check of what the assistant wrote into a Mind is (#2830), as its marks land and
+ * once more as it ends: `done` of `total` sentences have their mark (a verdict or Not checked);
+ * `total` leaves out those found to state only an opinion, which take none. `waiting` while it
+ * waits for another write's check to end: one runs at a time.
+ */
+export interface WrittenCheckProgress {
+  mindId: string;
+  request: string;
+  done: number;
+  total: number;
+  running: boolean;
+  waiting: boolean;
 }
 
 /** What a call of `read_web_page` came to (see `AnswerToolCall.webPage`). */
@@ -2436,6 +2459,12 @@ export interface RecheckCitationInput extends CitationToRecheck {
    * or in a Document's viewer.
    */
   conversationId?: string | null;
+  /**
+   * Also where the quote stands in the current version when it isn't at its cited Units
+   * (`CitationRecheck.elsewhere`, #3041). That reads the whole version, so only what shows the
+   * line asks: a Citation's card that is open, or the viewer. The answer comes once it is read.
+   */
+  lookElsewhere?: boolean;
 }
 
 /**
@@ -2470,6 +2499,14 @@ export interface CitationRecheck {
    * when nothing there is like them any more.
    */
   changed?: ChangedQuote | null;
+  /**
+   * Its quote isn't at its cited Units in the current version: where the whole quote stands in
+   * that version instead (#3041), matched as the check matches it. `location` is null when it
+   * stands in more than one place, or in one wider than a Citation's Units. Null when it is
+   * nowhere in it. Beside the check, never in place of it: the check stays not found, and the
+   * Citation keeps its Units.
+   */
+  elsewhere?: { location: CitationLocation | null } | null;
 }
 
 /** A Citation's quote as its words changed in its Document's current version (#99). */
@@ -2954,6 +2991,12 @@ export interface CitationAttributes {
    * as the text around it changes. A copy pasted beside it has none.
    */
   id?: string | null;
+  /**
+   * A check of its sentence found its Passage, and it became a Citation by the User's Add as
+   * Citation or inside the assistant's own change (#3019): its card says so, so a reader can tell
+   * it from what the writer cited.
+   */
+  foundByCheck?: true | null;
 }
 
 /** A Citation, as the Answer event stream reports it. */
@@ -2987,6 +3030,21 @@ export interface Citation {
   quotedWordsFound?: string[];
   /** "unsupported" and "contradicted": what the Documents say of its sentence, in one plain sentence. */
   verdict?: string | null;
+  /**
+   * A call help reply's found quote that is cells of a table, as the cite found them (#2847): each
+   * cell's words as the quote gives them, after its column's heading where the table gives one.
+   * The Document's own words, like the quote: never read by a model, carried into a Note, or read
+   * again when the Document changes. None for any other Citation, and for a reply kept before it.
+   */
+  cells?: QuoteCell[];
+}
+
+/** A table cell of a quote (`Citation.cells`). */
+export interface QuoteCell {
+  /** Its column's heading, as the table writes it; null where the table gives it none. */
+  name: string | null;
+  /** The cell's words as the quote gives them. */
+  value: string;
 }
 
 /**
@@ -6069,12 +6127,19 @@ export type ProviderErrorKind =
    * oldest Question context left out. Nothing is cut silently.
    */
   | "too-long"
+  /**
+   * The model's context window can't hold what every request carries (its instructions and Tools)
+   * with room left to read a Passage, however short the Question: nothing was sent (#3045).
+   */
+  | "window-too-small"
   /** The request could pass the User's monthly cap (`UserSettings.monthlyCap`): nothing was sent. */
   | "cost-cap"
   /** The model's reply ended with no text, or none that could be read. */
   | "no-answer"
   /** The model's reply reached its call's output limit and was cut off (#2275). */
   | "cut-short"
+  /** As "cut-short", at an output cap the app lowered for the model's small window: asking again can't help (#3045). */
+  | "cut-short-small-window"
   | "unknown";
 
 // Keyed by every kind, so a new one that isn't listed fails to compile instead of being missed.
@@ -6097,11 +6162,18 @@ export const PROVIDER_ERROR_KINDS: Record<ProviderErrorKind, true> = {
   "plan-limit": true,
   blocked: true,
   "too-long": true,
+  "window-too-small": true,
   "cost-cap": true,
   "no-answer": true,
   "cut-short": true,
+  "cut-short-small-window": true,
   unknown: true,
 };
+
+/** The part of an Answer's request too long for the model's window, when it isn't the Question: text selected in a Note (#3045). */
+export type TooLongPart = "selection";
+
+export const TOO_LONG_PARTS: readonly TooLongPart[] = ["selection"];
 
 export interface ProviderError {
   kind: ProviderErrorKind;
@@ -6118,6 +6190,8 @@ export interface ProviderError {
   resetsAt?: string;
   /** A sign-in route's request (a Claude account, Copilot): which of its problems it is, for its own line. */
   signInRoute?: SignInRouteProblem;
+  /** "too-long": the part too long for the window, when it isn't the Question (#3045). */
+  tooLong?: TooLongPart;
   /**
    * "cost-cap" from a Run's own budget rather than the monthly cap (#1554): that budget, and what
    * the Run had spent when it stopped.
@@ -7238,10 +7312,14 @@ export type ClaimVerdict = "supported" | "unsupported" | "contradicted";
  * - "consent-widened": the User allowed checks to the model's service before checks sent more, so
  *   what the assistant wrote waited, unsent, for them to allow the more (#2525).
  * - "kept-inside": the existing Citation is outside this wall, so it was not read again.
+ * - "outside-scope": a Document the sentence cites is outside the Note's Search scope, so the check
+ *   didn't read it, and found nothing that settles the sentence without it; `detail` is that
+ *   Document's name (#3083).
  * - "absence-unconfirmed": a whole read said what the sentence calls absent is there, but a look
  *   at its quote found it doesn't state that (#1554, #1443).
- * - "found-elsewhere": the check backed the sentence with a Passage its own Citations don't quote:
- *   no ✓ beside a Citation whose words don't say it, until that Passage is its Citation (#3019).
+ * - "found-elsewhere": the check backed the sentence with a Passage its Citations, as the Note holds
+ *   them now, don't hold: no ✓ beside a Citation whose words don't say it, until that Passage is one
+ *   of them (#3019). It is how a Supported part reads (`asCitedNow`), never what a mark stores.
  * - "absence-other-document": a whole read's quote states what the sentence calls absent, but in
  *   another Document than the one the sentence is about (#1443).
  * - "read-budget": a whole read reached the most it may spend before this part was judged, so
@@ -7261,6 +7339,9 @@ export type ClaimVerdict = "supported" | "unsupported" | "contradicted";
  * - "sentence-figures-not-read": the figures in the sentence itself couldn't be read.
  * - "library-unsettled": a sentence about the Library that its facts can't settle, such as a
  *   reading of its Documents' names (#2525). No check can change that.
+ * - "assistant-conclusion": every part the check judged is supported, but the assistant wrote the
+ *   sentence and it holds a part left out as an opinion: the assistant's own conclusion, which no
+ *   Document states (#3019). Only the sentence reads so; its parts keep their own results.
  */
 export type ClaimCheckFailure =
   | "refused"
@@ -7288,6 +7369,7 @@ export type ClaimCheckFailure =
   | "absence-other-document"
   | "found-elsewhere"
   | "kept-inside"
+  | "outside-scope"
   | "cut-short"
   | "read-budget"
   | "workbook-changed"
@@ -7313,7 +7395,8 @@ export type ClaimCheckFailure =
    * An Analysis's figure the claim judge didn't read as named by its sentence, or whose own clause
    * also names another group, a negation or a comparison; its detail is the figure's label (#2378).
    */
-  | "analysis-unnamed";
+  | "analysis-unnamed"
+  | "assistant-conclusion";
 
 /** Why a sentence was found unsupported, as the check gave it. */
 export interface UnsupportedReason {
@@ -7435,6 +7518,12 @@ export interface ClaimCheckPart
     Partial<Pick<ClaimCheckBasis, "checkedAt" | "providerId" | "modelId">> {
   verdict: ClaimVerdict | "not-checked" | "checking" | null;
   kept?: true;
+  /**
+   * An opinion part left out of a sentence the assistant wrote, as the Note held it when its check
+   * landed (#3019): it counts as not checked, so the sentence never reads Supported. Its own row
+   * still reads left out, and Check anyway judges it as any part.
+   */
+  byAssistant?: true;
   figures?: ClaimPartFigure[];
   remainder?: ClaimPartJudgment | null;
   evidence: CitationAttributes[];
@@ -8445,6 +8534,13 @@ export interface AnswerSteps {
    * isn't a help Answer.
    */
   textBehind?: true;
+  /**
+   * The call help button the Question was asked with (#3005), from the Answer's first save: its
+   * kind, as this version or another names it. A later check of the reply reads what the press
+   * read, without other calls' Transcripts. Absent: a typed Question, or a reply written before
+   * presses were kept.
+   */
+  pressed?: string;
 }
 
 /**
@@ -8769,6 +8865,8 @@ export interface ConversationAnswer {
   errorKind: ProviderErrorKind | null;
   errorMessage: string | null;
   errorSignInRoute: SignInRouteProblem | null;
+  /** A "too-long" failure's part, when it wasn't the Question (`ProviderError.tooLong`). */
+  errorTooLong: TooLongPart | null;
   citationSupport: CitationSupport | null;
   /** The Tools it called, in order: its searches, Skills and Connectors' Tools. */
   toolCalls: AnswerToolCall[];
@@ -14779,6 +14877,8 @@ export interface CoreEvents {
   "documentCheck.progress": DocumentCheckProgress;
   /** A Check this Note run's sentences checked before it marks them (`MindCheckEarly`). */
   "mindCheck.early": MindCheckEarly;
+  /** How far the check of what the assistant wrote into a Mind is, as it runs and as it ends (#2830). */
+  "writtenCheck.progress": WrittenCheckProgress;
   /** How far a Mind's `checkReferences` is: `done` of `total` entries looked up. */
   "referenceCheck.progress": { mindId: string; done: number; total: number };
   /** `importReferences` has matched `done` of `total` references. */

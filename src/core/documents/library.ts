@@ -244,6 +244,13 @@ export interface LibraryOptions {
   readingSeconds(files: readonly FoundFile[]): number | null;
   /** Local mode: what arrives now never goes to a cloud service by itself (../tags/held). */
   localOnly(): boolean;
+  /**
+   * Whether the file at `path` is being written by a part of IncarnaMind that asks for it to be
+   * read when it chooses, so a watcher's report of it changing is left alone: true for a recording
+   * call's Transcript from its first line until it is saved, false before and after (#3055). Every
+   * other read (a check asked for, a pass at start) goes ahead. Never throws.
+   */
+  readsTimedByWriter(path: string): boolean;
 }
 
 /** What one pass looks at. */
@@ -540,7 +547,7 @@ export function createLibrary(options: LibraryOptions) {
         const current = folderRow(row.id);
         if (!current || current.paused) return;
         const relevant = paths.filter((path) => {
-          if (!isInside(row.path, path)) return false;
+          if (!isInside(row.path, path) || options.readsTimedByWriter(path)) return false;
           if (iCloudStubTarget(basename(path))) return true;
           return !ignore(relativePath(row.path, path));
         });
@@ -596,10 +603,12 @@ export function createLibrary(options: LibraryOptions) {
         {
           onChange(paths) {
             // A file added on its own, or a file that may be one, moved or renamed.
-            const relevant = paths.flatMap((path) => {
-              if (path === folder) return singlesIn(folder); // something changed, not said what
-              return dirname(path) === folder && kindOf(path) ? [path] : [];
-            });
+            const relevant = paths
+              .flatMap((path) => {
+                if (path === folder) return singlesIn(folder); // something changed, not said what
+                return dirname(path) === folder && kindOf(path) ? [path] : [];
+              })
+              .filter((path) => !options.readsTimedByWriter(path));
             if (relevant.length > 0) request({ paths: relevant });
           },
           onError() {

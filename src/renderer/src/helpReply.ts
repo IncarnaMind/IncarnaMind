@@ -4,16 +4,21 @@
  */
 import type {
   AnswerStatus,
-  CitationCheckReason,
+  AnswerSteps,
+  ConversationQuestion,
   MarkedCitation,
   MarkedFigure,
+  Meeting,
 } from "../../core/api";
+import type { Language } from "../../core/language";
+import { type DateOptions, formatDateTime } from "../../shared/dates";
 import {
   helpLayout,
   helpReplyRead,
   type ReplyItem,
   type ReplyPiece,
 } from "../../shared/helpReplyRead";
+import { isTranscriptLocation, type Translate } from "../../shared/locations";
 import type { CallHelpKind } from "../../shared/meetingHelp";
 
 /** The text a reply's pieces show, its figures as worked out, without its Citations, for a line that names it. */
@@ -35,10 +40,13 @@ export const piecesText = (
 
 /**
  * An option's sentence as the User would say it, in quotation marks of the panel's own: its reader
- * has taken off a pair the model wrapped it in. Its Citations stay after the closing mark.
+ * has taken off a pair the model wrapped it in. The marks close its words, so its Citations follow
+ * the closing mark, a space between two of them included.
  */
 export function quoted(lead: readonly ReplyPiece[]): ReplyPiece[] {
-  const texts = lead.flatMap((piece, index) => (piece.kind === "text" ? [index] : []));
+  const texts = lead.flatMap((piece, index) =>
+    piece.kind === "text" && piece.text.trim() !== "" ? [index] : [],
+  );
   const first = texts[0];
   const last = texts.at(-1);
   if (first === undefined || last === undefined) return [...lead];
@@ -105,30 +113,64 @@ export function citationNumbers(
 }
 
 /**
- * Whether a help reply's Citation shows ✓ where it is cited (`at`): the sentence check passed the
- * sentence it is cited in there (#2847). A found quote alone shows none, nor does a line too short
- * to be judged, and a marker reused by a sentence that didn't pass keeps the ✓ its own earned.
+ * When the call of each cited Transcript started, by Document id, for the ones that show it beside
+ * their name (#3005): an earlier call's, and this call's (`thisCall`, its Transcript's id) only when
+ * another cited Transcript has the same name.
  */
-export const sentencePassed = (citation: Pick<MarkedCitation, "passedAt">, at: number): boolean =>
-  citation.passedAt?.includes(at) === true;
+export function callStarts(
+  cited: readonly Pick<MarkedCitation, "documentId" | "documentName" | "location">[],
+  meetings: readonly (Pick<Meeting, "kind" | "startedAt"> & {
+    transcript: { documentId: string | null } | null;
+  })[],
+  thisCall: string | null,
+): Map<string, string> {
+  const transcripts = cited.filter((citation) => isTranscriptLocation(citation.location));
+  const starts = new Map<string, string>();
+  for (const citation of transcripts) {
+    const startedAt = meetings.find(
+      (meeting) =>
+        meeting.kind === "meeting" && meeting.transcript?.documentId === citation.documentId,
+    )?.startedAt;
+    if (!startedAt) continue;
+    const sameName = transcripts.some(
+      (other) =>
+        other.documentId !== citation.documentId && other.documentName === citation.documentName,
+    );
+    if (citation.documentId !== thisCall || sameName) starts.set(citation.documentId, startedAt);
+  }
+  return starts;
+}
 
-const ACTIONABLE = [
-  "answer-limit",
-  "monthly-limit",
-  "answer-limit-unfinished",
-  "monthly-limit-unfinished",
-  "small-model",
-] as const satisfies readonly CitationCheckReason[];
+const NO_CALLS: ReadonlySet<string> = new Set();
 
 /**
- * Why a help reply's Citation was never checked, where the User can do something about it: the
- * Answer's checking limit or the monthly limit reached, before its sentence or before the model
- * finished it (#2962), or a model too small to judge. Null otherwise, a line the check doesn't
- * judge among them.
+ * The Transcripts a help button's reply is checked without (#3005), as its check reads them: every
+ * call's but the one of the Note it was pressed in, and every call's once that Note is gone. None
+ * for any other Answer.
  */
-export function uncheckedReason(
-  citation: Pick<MarkedCitation, "check" | "checkReason">,
-): (typeof ACTIONABLE)[number] | null {
-  if (citation.check !== "not-checked") return null;
-  return ACTIONABLE.find((each) => each === citation.checkReason) ?? null;
+export function otherCallsOf(
+  question: Pick<ConversationQuestion, "askedFrom"> | undefined,
+  answer: { steps: Pick<AnswerSteps, "pressed"> | null },
+  meetings: readonly (Pick<Meeting, "kind" | "mindId"> & {
+    transcript: { documentId: string | null } | null;
+  })[],
+): ReadonlySet<string> {
+  if (!question || answer.steps?.pressed === undefined) return NO_CALLS;
+  const from = question.askedFrom;
+  const own = from && !from.deleted ? from.mindId : null;
+  return new Set(
+    meetings.flatMap((meeting) =>
+      meeting.kind === "meeting" && meeting.mindId !== own && meeting.transcript?.documentId
+        ? [meeting.transcript.documentId]
+        : [],
+    ),
+  );
 }
+
+/** A call's start as a cited Transcript shows it: "started 09:00", "开始于 09:00". */
+export const startedLabel = (
+  startedAt: string,
+  t: Translate,
+  language: Language,
+  options?: DateOptions,
+): string => t("meetings.help.started", { time: formatDateTime(startedAt, language, options) });

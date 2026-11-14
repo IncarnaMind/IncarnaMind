@@ -1,5 +1,12 @@
-import type { ClaimCheckFailure, Money, RunEstimate, RunStop } from "../../core/api";
+import type {
+  ClaimCheckAttributes,
+  ClaimCheckFailure,
+  Money,
+  RunEstimate,
+  RunStop,
+} from "../../core/api";
 import type { Language } from "../../core/language";
+import { absenceBesideFact, type ClaimCheckShown } from "../../shared/claimChecks";
 import { formatDateTime } from "../../shared/dates";
 import { type MessageKey, type MessageParams, translate } from "../../shared/i18n";
 import { citationLocation, formatLocation } from "../../shared/locations";
@@ -78,6 +85,19 @@ export function reasonText(
   return stop
     ? t("claim.reason.read-budget", { spent: atLineStart(formatMoney(stop.spent, language)) })
     : t("claim.reason.read-budget.unknown");
+}
+
+/** A Not checked sentence's line: what was checked, when only what it says is missing went unread beside a Supported part. */
+export function sentenceReasonText(
+  t: Translate,
+  language: Language,
+  shown: Extract<ClaimCheckShown, { state: "not-checked" }>,
+  check: Pick<ClaimCheckAttributes, "parts" | "detail">,
+  params: MessageParams = {},
+): string {
+  return absenceBesideFact(check, shown)
+    ? t("claim.absenceBesideFact")
+    : reasonText(t, language, shown.reason, check.detail, params);
 }
 
 /** The action that reads the rest of a read stopped at its budget, with the most it may spend. */

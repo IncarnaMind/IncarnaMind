@@ -7,7 +7,7 @@ import {
   useLocalChatModel as connectLocalChatModel,
   createDataFolder,
   dismissChatSetup,
-  expectMarksAsChecked,
+  expectQuoteLines,
   firstTranscriptLine,
   launchApp,
   panelOf,
@@ -24,7 +24,8 @@ import {
 
 /**
  * The call-help panel's thread and its typed question (#2925): Note | Ask at the field's left, a
- * question asked in Ask answered in the call's short form with a checked Citation, the Meeting's
+ * question asked in Ask answered in the call's short form, its Citation's quote drawn under it as a
+ * prompt's is, with ✓ where the app found it, the Meeting's
  * conversation shown oldest first with its earlier items one line each, the same conversation in
  * the assistant and in History, and a panel that stays under 60% of the screen and scrolls inside.
  */
@@ -120,7 +121,7 @@ async function askInPanel(panel: Page, question: string): Promise<Locator> {
 
 for (const language of ["en", "zh"] as const) {
   const said = CALLS[language];
-  test(`typed question (${language}): a prompt, then a question in Ask, cited to the price sheet and checked; the prompt is one line that opens on click; Ask is kept through a collapse and a closed panel, and "/" asks a prompt in it`, async () => {
+  test(`typed question (${language}): a prompt, then a question in Ask, cited to the price sheet, its quote found; the prompt is one line that opens on click; Ask is kept through a collapse and a closed panel, and "/" asks a prompt in it`, async () => {
     test.skip(LINUX, NO_FIELD);
     test.setTimeout(120_000);
     const { app, window, panel } = await recording(language);
@@ -136,7 +137,7 @@ for (const language of ["en", "zh"] as const) {
 
     const answer = await askInPanel(panel, said.question);
     await expect(answer.getByTestId("help-option-say").first()).toContainText("$45 per seat");
-    expect((await expectMarksAsChecked(window, answer))[0]).toMatchObject({ passed: true });
+    expect((await expectQuoteLines(window, answer))[0]).toMatchObject({ found: true });
     await expect(answer.getByTestId("help-source")).toHaveText([/^1 · Price sheet · /]);
     await expect(field).toHaveValue("");
     await expect(field).toBeFocused();

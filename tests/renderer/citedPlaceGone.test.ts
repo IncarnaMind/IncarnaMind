@@ -95,15 +95,16 @@ let file = "";
 let mounted: ReturnType<typeof mountViewerDom>;
 let rechecked: object = {};
 
-/** What the Document's new version holds of the quote. */
+/** What the Document's new version holds of the quote, looked through: nothing (#3041). */
 const NOWHERE = {
   check: "not-found",
-  checkReason: null,
+  checkReason: "quote-not-on-pages",
   contentHash: "hash-1",
   passageId: null,
   pageFrom: null,
   pageTo: null,
   location: null,
+  elsewhere: null,
 };
 
 beforeEach(() => {
@@ -243,7 +244,7 @@ describe("a Citation whose cited place is gone (#2984)", () => {
         await openAt(format, language, place.gone, "changed");
         const movedTo = place.moved.words[language];
         expect(said()?.startsWith(CHANGED[language])).toBe(true);
-        expect(said()?.endsWith(language === "en" ? `${movedTo}.` : `${movedTo}。`)).toBe(true);
+        expect(said()?.endsWith(language === "en" ? `${movedTo}.` : `（${movedTo}）。`)).toBe(true);
         expect(said()).not.toContain(PLACE_LINE[language]);
 
         rechecked = {

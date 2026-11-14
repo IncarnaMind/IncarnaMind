@@ -18,7 +18,8 @@ import { createWorkerCrossEncoder } from "../lib/rerank";
 import type { TimingRecorder } from "../lib/timing";
 import { armNamed, armSwitch, type SentRequest } from "./arms";
 import { callHelpSet, rewrittenReplies } from "./callHelp";
-import { marksSection } from "./callHelpMarksReport";
+import { earlierCallsSet } from "./earlierCalls";
+import { earlierCallsSection } from "./earlierCallsReport";
 import { gradeAnswer, judgeOf } from "./judge";
 import { openLedger } from "./ledger";
 import { meetingNotesSet } from "./meetingNotes";
@@ -91,6 +92,10 @@ function groupsOf(set: SetId, cacheDir: string): PairedGroup[] {
     case "call-help-typed-fresh":
     case "call-help-typed-fresh-2":
       return callHelpSet(set);
+    case "call-help-earlier-calls":
+    case "call-help-earlier-calls-2":
+    case "call-help-earlier-calls-3":
+      return earlierCallsSet(set);
     case "meeting-notes":
       return meetingNotesSet();
   }
@@ -187,6 +192,24 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
       ),
     ),
   );
+  // A plan builds every setting the run reads, the judge's check against the models under test
+  // included, and says what it would press: it sends nothing and opens no Library, so a plan that
+  // passes means the run starts.
+  if (env("PLAN") === "1") {
+    const missing = (ids ?? []).filter((id) => ![...asked].some((item) => item.id === id));
+    if (missing.length > 0) {
+      throw new Error(`INCARNAMIND_EVAL_SPEED_ITEMS: no item ${missing.join(", ")}.`);
+    }
+    log(
+      [
+        `Plan, nothing sent: ${arms[0].id} against ${arms[1].id}; models ${models.map((model) => `${model.kind}/${model.modelId}`).join(", ")}; judge ${judge.name}.`,
+        `Sets ${sets.join(", ")}; languages ${languages?.join(", ") ?? "all"}; ${each === null ? "every kind" : `at most ${each} of a kind`}; ${asked.size} items, ${runs} run${runs === 1 ? "" : "s"}: ${[...asked].map((item) => item.id).join(", ")}.`,
+        `False Supported ${falseSupportedCounted ? "counted over the set" : "stops the run at the first"}; the same first request ${sameRequest ? "recorded" : "not recorded"}.`,
+        `Stop $${stopUsd.toFixed(2)}; $${ledger.before.toFixed(3)} spent before it on the ledger, so $${Math.max(0, stopUsd - ledger.before).toFixed(3)} may still be spent.`,
+      ].join("\n"),
+    );
+    return;
+  }
   const turn = armTurns();
   run: for (const group of bySet.flat()) {
     if (!group.items.some((item) => asked.has(item))) continue;
@@ -207,7 +230,7 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
       notesBeforeSpeakers: switches[which].notesBeforeSpeakers,
       helpFormJudged: switches[which].helpFormJudged,
       quotesAsGiven: switches[which].quotesAsGiven,
-      helpMarksQuoteOnly: switches[which].helpMarksQuoteOnly,
+      callsUnmarked: switches[which].callsUnmarked,
     }));
     const spentInCores = async () =>
       (await spentUsd(opened[0].library.core)) + (await spentUsd(opened[1].library.core));
@@ -356,7 +379,7 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
     itemTable(group.rows, names),
     "",
   ]);
-  const marks = marksSection(rows);
+  const earlierCalls = earlierCallsSection(rows, [arms[0].id, arms[1].id]);
   const report = [
     `# Paired run: ${arms[0].id} against ${arms[1].id}`,
     "",
@@ -379,7 +402,7 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
     `Times are from the User's action, median / 90th percentile. A guard counts the items both arms finished; lost: right with the first arm and not the second, gained: the other way round. Cited, judged right and every Citation found hold with up to ${margin} fewer items in 30.`,
     "",
     ...sections,
-    ...(marks ? [marks, ""] : []),
+    ...(earlierCalls ? [earlierCalls, ""] : []),
     "## Item by item",
     "",
     ...items,

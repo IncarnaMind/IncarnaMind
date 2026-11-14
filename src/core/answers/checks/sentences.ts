@@ -5,6 +5,7 @@
  * inline node counts as one character.
  */
 import * as Y from "yjs";
+import { INLINE_CODE_MARK } from "../../../shared/aiText";
 import { readCalculatedFigureEvidence } from "../../../shared/calculatedFigures";
 import { chartCheckText, chartPoints, fromAnalysisOnly, readChart } from "../../../shared/charts";
 import { citationAttributesOf } from "../../../shared/citations";
@@ -20,13 +21,21 @@ import {
   projectInlineText,
   sliceInlineText,
 } from "../../../shared/inlineText";
-import { countingCheckOf, isCheckKey, keyedFormats, markValueOf } from "../../../shared/markKeys";
+import {
+  countingCheckOf,
+  hasMarkIn,
+  isCheckKey,
+  keyedFormats,
+  markValueOf,
+} from "../../../shared/markKeys";
 import { perBlock } from "../../../shared/memo";
 import { readProposalAttribute, readProposalRef } from "../../../shared/proposals";
 import { INLINE_NODE, onlyNamesItsTable, sentenceSpans } from "../../../shared/sentences";
+import { textOriginOf } from "../../../shared/textOrigins";
 import {
   ANALYSIS_TABLE_ATTRIBUTE,
   ANALYSIS_TABLE_NODE,
+  ANSWER_BLOCK,
   BLOCK_ID_ATTRIBUTE,
   CALCULATED_FIGURE_NODE,
   CHART_NODE,
@@ -36,10 +45,12 @@ import {
   type CitedQuote,
   CLAIM_CHECK_MARK,
   type ClaimCheckAttributes,
+  GENERATED_MARK,
   PROPOSAL_ATTRIBUTE,
   PROPOSAL_DELETE_MARK,
   PROPOSAL_INSERT_MARK,
   type TextStretch,
+  type ThirdPartySource,
   type WaitingSentences,
 } from "../../api";
 import { layout, textBlocks, textBlocksOf } from "../../proposals/write";
@@ -81,6 +92,8 @@ export interface SelectedSentence {
   context: string;
   /** What its Citations quote. */
   cited: CitedQuote[];
+  /** Its Citations as the Note holds them: what a ✓ on a Passage its check found is held to (#3019). */
+  citations: Partial<CitationAttributes>[];
   figures?: FigureOccurrence[];
   projection?: InlineTextProjection;
 }
@@ -265,6 +278,7 @@ export function sentenceOf(
     text,
     context: frame.text,
     cited: citedIn(element, span.from, span.to),
+    citations: citationsIn(element, span.from, span.to),
     figures: inSpan(figures.get(blockId) ?? [], span.from, span.to),
     ...(projection && { projection }),
   };
@@ -295,6 +309,7 @@ function chartSentence(
     text,
     context: text,
     cited: [],
+    citations: [],
     figures: [...figures],
   };
 }
@@ -339,14 +354,25 @@ export function citedQuoteOf(attributes: Readonly<Record<string, unknown>>): Cit
   };
 }
 
-/** What the Citations in `from`..`to` of a Block quote. */
-function citedIn(element: Y.XmlElement, from: number, to: number): CitedQuote[] {
-  return layout(element).flatMap(({ node, start }) => {
-    if (start < from || start >= to || !(node instanceof Y.XmlElement)) return [];
-    if (node.nodeName !== CITATION_NODE) return [];
-    return citedQuoteOf(node.getAttributes()) ?? [];
-  });
+/** The Citations in `from`..`to` of a Block, by their attributes. */
+function citationNodesIn(
+  element: Y.XmlElement,
+  from: number,
+  to: number,
+): Record<string, unknown>[] {
+  return layout(element).flatMap(({ node, start }) =>
+    start >= from && start < to && node instanceof Y.XmlElement && node.nodeName === CITATION_NODE
+      ? [node.getAttributes()]
+      : [],
+  );
 }
+
+/** What the Citations in `from`..`to` of a Block quote. */
+const citedIn = (element: Y.XmlElement, from: number, to: number): CitedQuote[] =>
+  citationNodesIn(element, from, to).flatMap((attributes) => citedQuoteOf(attributes) ?? []);
+
+const citationsIn = (element: Y.XmlElement, from: number, to: number) =>
+  citationNodesIn(element, from, to).map(citationAttributesOf);
 
 function claimFrame(element: Y.XmlElement) {
   const pieces = inlinePieces(element);
@@ -372,6 +398,7 @@ function claimFrame(element: Y.XmlElement) {
         text: sliced.text,
         projection: sliced,
         cited: citedIn(element, from, extent),
+        citations: citationsIn(element, from, extent),
       },
     ];
   });
@@ -474,6 +501,7 @@ export function selectedSentences(
           text: words,
           context: text,
           cited: span.cited,
+          citations: span.citations,
           projection: span.projection,
           figures: inSpan(figures.get(blockId) ?? [], span.from, span.to),
         });
@@ -537,6 +565,7 @@ export function everySentence(blocks: Y.XmlFragment): SelectedSentence[] {
               text: words,
               context: text,
               cited: span.cited,
+              citations: span.citations,
               projection: span.projection,
               figures: inSpan(figures.get(blockId) ?? [], span.from, span.to),
             },
@@ -706,6 +735,65 @@ export function markedSentences(blocks: Y.XmlFragment): MarkedSentence[] {
   return firstMarks(blocks, marksOfBlock);
 }
 
+/** Text that came from someone else's file or agent, whatever marks it carries (#78). */
+const SOMEONE_ELSES: ReadonlySet<ThirdPartySource> = new Set([
+  "imported",
+  "web-page",
+  "outside-agent",
+]);
+
+function topOf(element: Y.XmlElement): Y.XmlElement {
+  let top = element;
+  while (top.parent instanceof Y.XmlElement) top = top.parent;
+  return top;
+}
+
+/**
+ * Whether the assistant wrote the sentence at `from`..`to` of `element`, as the Note holds it now
+ * (#3019): every word of it AI text, or in an Answer whose words are AI text as a whole, and none
+ * of it from someone else's file. A word the User typed or made theirs makes it theirs; one they
+ * only deleted leaves no trace, and nor does one a change still waiting takes out, as the sentence
+ * reads once it is accepted.
+ */
+export function writtenByAssistant(
+  blocks: Y.XmlFragment,
+  { element, from, to }: { element: Y.XmlElement; from: number; to: number },
+): boolean {
+  if (element.nodeName === CHART_NODE) return false;
+  const top = topOf(element);
+  const answer = top.nodeName === ANSWER_BLOCK;
+  // An Answer's origin is what it read, not whose words it holds.
+  const blockId = top.getAttribute(BLOCK_ID_ATTRIBUTE);
+  const origin =
+    !answer && blocks.doc && typeof blockId === "string" ? textOriginOf(blocks.doc, blockId) : null;
+  if (origin !== null && SOMEONE_ELSES.has(origin)) return false;
+  if (answer && (top.getAttributes() as Record<string, unknown>).generatedMarks !== true)
+    return true;
+  let words = false;
+  for (const { node, start } of layout(element)) {
+    if (!(node instanceof Y.XmlText)) continue;
+    let offset = start;
+    for (const run of node.toDelta() as Run[]) {
+      const length = typeof run.insert === "string" ? run.insert.length : 1;
+      const inside = offset < to && offset + length > from;
+      offset += length;
+      if (!inside || typeof run.insert !== "string") continue;
+      const attributes = run.attributes ?? {};
+      if (hasMarkIn(PROPOSAL_DELETE_MARK, attributes)) continue;
+      if (GENERATED_MARK in attributes) words = true;
+      // Inline code can't hold the mark, so the assistant's code is never AI text.
+      else if (!(INLINE_CODE_MARK in attributes)) return false;
+    }
+  }
+  return words;
+}
+
+/** `writtenByAssistant` for the sentence the check `checkId` is marked on; null when the Note holds no such mark yet. */
+export function assistantWrote(blocks: Y.XmlFragment, checkId: string): boolean | null {
+  const marked = markedSentences(blocks).find((each) => each.check.id === checkId);
+  return marked ? writtenByAssistant(blocks, marked) : null;
+}
+
 /** Whether the User keeps a sentence as their own view (#1111, #1909): a kept mark at its place, with its words as they were. */
 export function keptAsView(
   marks: readonly MarkedSentence[],
@@ -730,6 +818,8 @@ export function checkedSentences(blocks: Y.XmlFragment): CheckedSentence[] {
 type CheckedSentence = MarkedSentence & {
   sentence: string;
   cited: CitedQuote[];
+  /** Its Citations as the Note holds them: what a ✓ on a Passage its check found is held to (#3019). */
+  citations: Partial<CitationAttributes>[];
   noteText?: string;
   place?: RecordCitePlace;
   /**
@@ -743,7 +833,13 @@ const checkedOfBlock = perBlock((block): readonly CheckedSentence[] =>
   marksOfBlock(block).map((marked) => {
     const { element, from, to } = marked;
     if (element.nodeName === CHART_NODE)
-      return { ...marked, sentence: textOf(element), cited: [], sentences: { from: 0, to: 1 } };
+      return {
+        ...marked,
+        sentence: textOf(element),
+        cited: [],
+        citations: [],
+        sentences: { from: 0, to: 1 },
+      };
     const { text, spans } = claimFrame(element);
     const touched = spans.filter((span) => span.from < to && span.to > from);
     const blockId = element.getAttribute(BLOCK_ID_ATTRIBUTE);
@@ -752,6 +848,7 @@ const checkedOfBlock = perBlock((block): readonly CheckedSentence[] =>
       ...marked,
       sentence: text.slice(touched[0]?.start ?? 0, touched.at(-1)?.end ?? 0),
       cited: touched.flatMap((span) => span.cited),
+      citations: touched.flatMap((span) => span.citations),
       noteText: textOf(element).slice(start, touched.at(-1)?.to ?? 0),
       ...(typeof blockId === "string" && { place: { blockId, from: start } }),
       sentences: {

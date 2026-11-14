@@ -8,6 +8,7 @@ import {
 } from "react";
 import type { LayoutGroup, LayoutTab } from "../../../../core/api";
 import { shortcutLabel } from "../../commands/keymap";
+import { withKeys } from "../../editor/withShortcut";
 import { useT } from "../../i18n";
 import { focusedGroupOf, groupOfTab } from "../../layoutSlice";
 import { onMiddleClick } from "../../middleClick";
@@ -285,7 +286,7 @@ function Tab({ tab, groupId, selected, divider, dragged }: TabProps) {
             tabIndex={-1}
             data-testid="tab-close"
             aria-label={t("tabs.close", { title })}
-            title={`${t("tabs.close", { title })} (${shortcutLabel("tab.close")})`}
+            title={withKeys(t, t("tabs.close", { title }), shortcutLabel("tab.close"))}
             onClick={(event) => {
               event.stopPropagation();
               closeTab(tab.id);

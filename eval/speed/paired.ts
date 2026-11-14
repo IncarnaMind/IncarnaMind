@@ -55,6 +55,9 @@ export const SET_IDS = [
   "call-help-typed",
   "call-help-typed-fresh",
   "call-help-typed-fresh-2",
+  "call-help-earlier-calls",
+  "call-help-earlier-calls-2",
+  "call-help-earlier-calls-3",
   "meeting-notes",
 ] as const;
 export type SetId = (typeof SET_IDS)[number];
@@ -119,25 +122,32 @@ export interface ArmRun {
   /** Each request and local step, for an item that reads them (a help reply). */
   requests?: RequestTiming[];
   /**
-   * A help reply's marks (#2847), read once every mark settled. Of the Citations it shows whose
-   * quote was found and whose sentence the judge says their quoted words hold (`held`): how many
-   * show ✓, how many the check gave a verdict (passed it, or found it unsupported or
-   * contradicted), and why each of the rest shows none, by its check and reason. Of those whose
-   * quote was found and which the judge lists (`listed`): how many show ✓. And how long after the
-   * reply's end the last mark settled. Absent: not a help reply, or one that didn't end.
+   * What a reply of the earlier-call set showed, place by place (#3005), so a judge's reading can
+   * be checked against the record: each line or sentence with a Citation, the number it shows, the
+   * source line the panel shows for it, whose call its Transcript is, its quote and whether it was
+   * found.
    */
-  marks?: {
-    held: number;
-    checked: number;
-    judged: number;
-    missed: Record<string, number>;
-    listed: number;
-    listedChecked: number;
-    settledMs: number | null;
-    /** The judge's own reply, as read: its grade and the numbers it listed. */
-    judge: { grade: string; unstated: number[] };
-    /** Each shown number: its Citation's check, its quote found, listed by the judge, and ✓ shown. */
-    numbers: { number: number; check: string; found: boolean; listed: boolean; passed: boolean }[];
+  places?: {
+    line: string;
+    number: number;
+    source: string;
+    call: "this" | "earlier" | "other";
+    quote: string;
+    found: boolean;
+    /** It shows ✓: the sentence check passed the line or sentence it is cited in. */
+    passed: boolean;
+  }[];
+  /**
+   * The earlier-call judge's reading of the reply (#3005): it gives an earlier call's words as said
+   * in this call; for "last time", it gives them as said then, saying when; and the numbers whose
+   * sentence says the other side said, asked or wants something in this call.
+   */
+  callReading?: {
+    earlierAsThis: boolean;
+    thenWithWhen: boolean;
+    asThisCall: number[];
+    /** The earlier call's start as the judge was given it, so a saved reply can be judged again. */
+    earlierStarted?: string;
   };
 }
 

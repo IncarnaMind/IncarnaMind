@@ -51,9 +51,16 @@ import { type AnswerDocuments, matchingOf } from "../citations";
 import type { AnswerEngine, DocumentLanguage } from "../engine";
 import { absenceAfterSearch, fitsWholeRead } from "./absence";
 import { calculatesIn, createCalculationLedger, figureContextIn } from "./calculationLedger";
-import { citationKey, createCheckResults, uniqueCitations } from "./checkResults";
+import { createCheckResults, uniqueCitations } from "./checkResults";
 import { checkRun } from "./checkRun";
-import { type CourtDecisions, courtDecisions, keptInside, setUpRun } from "./checkSetup";
+import {
+  type CourtDecisions,
+  citedOutsideScope,
+  courtDecisions,
+  keptInside,
+  setUpRun,
+  withoutDocumentLeftOut,
+} from "./checkSetup";
 import { explainedIn } from "./explanations";
 import { uncheckedFigureResults } from "./figureChecks";
 import { figuresVerdict } from "./figuresVerdict";
@@ -97,10 +104,14 @@ export interface ClaimCheckDependencies {
   libraryFacts?: LibraryFactSearch;
 }
 
-/** A Citation the sentence has, as its check reads it: `passageId` when it quotes the Document as it is now. */
+/**
+ * A Citation the sentence has, as its check reads it: `documentId` while its Document is live,
+ * `passageId` when it quotes the Document as it is now.
+ */
 export interface CheckedCitation {
   documentName: string;
   quote: string;
+  documentId?: string;
   passageId?: string;
 }
 
@@ -158,8 +169,6 @@ export type AtomicClaimCheckResult = ClaimCheckResult & {
   readPassages?: readonly string[];
   /** In a whole-read window: the absence the sentence states holds in this window's text. */
   absenceHeld?: true;
-  /** The keys (`citationKey`) of the records taken from the reply's own text (./writtenRecords). */
-  writtenQuotes?: ReadonlySet<string>;
 };
 
 /**
@@ -228,61 +237,6 @@ function withDollarClause(
   };
 }
 
-const wordsOf = (text: string) =>
-  text
-    .normalize("NFKC")
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}]+/gu, " ")
-    .trim();
-
-/** Whether `cited`, a Citation the sentence has, holds the words `evidence` gives, from its Document. */
-function quotesItsCitation(cited: CheckedCitation, evidence: Citation): boolean {
-  const sameDocument = cited.passageId
-    ? cited.passageId === evidence.passageId
-    : wordsOf(cited.documentName) === wordsOf(evidence.documentName);
-  const given = wordsOf(cited.quote);
-  const found = wordsOf(evidence.quote);
-  return sameDocument && found !== "" && given.includes(found);
-}
-
-/**
- * A sentence with Citations whose Supported rests on a record taken from the reply's own text
- * (./writtenRecords) and on a Passage its Citations don't quote shows no ✓ beside a Citation whose
- * words don't say it, and no Unsupported either: it reads Not checked, why said, and its card
- * keeps that Passage and Add as Citation until the Passage is its Citation (#3019). One its check
- * backed so through `cite` reads as before, until the Passage is shown as its Citation.
- */
-function heldToItsCitations(
-  request: ClaimCheckRequest,
-  result: AtomicClaimCheckResult,
-): AtomicClaimCheckResult {
-  const cited = request.cited ?? [];
-  const evidence = result.verdict === "supported" ? result.evidence : null;
-  if (
-    !evidence ||
-    result.verdict !== "supported" ||
-    cited.length === 0 ||
-    request.figures?.length ||
-    result.calculation ||
-    (result.readDocuments?.length ?? 0) > 0
-  )
-    return result;
-  const kind = evidence.location?.kind;
-  if (kind === "properties" || kind === "library") return result;
-  if (!result.writtenQuotes?.has(citationKey(evidence))) return result;
-  if (cited.some((each) => quotesItsCitation(each, evidence))) return result;
-  return {
-    verdict: "not-checked",
-    reason: "found-elsewhere",
-    detail: null,
-    versions: result.versions,
-    excluded: result.excluded,
-    checkedEvidence: uniqueCitations([evidence, ...(result.checkedEvidence ?? [])]),
-    ...(result.coverage && { coverage: result.coverage }),
-    ...(result.recordCites && { recordCites: result.recordCites }),
-  };
-}
-
 export function createClaimCheck(deps: ClaimCheckDependencies) {
   return withLibraryFacts(deps, (withLibrary) =>
     withFileProperties(withLibrary, createSentenceCheck),
@@ -300,9 +254,18 @@ async function checkSentence(
   // The Passages the check was given or shown, so that a text whose figures couldn't be read is
   // named by the one it came from.
   let shownPassageIds: () => readonly string[] = () => [];
+  const leftOut = citedOutsideScope(deps, request);
   const decide = async (): Promise<AtomicClaimCheckResult> => {
     const kept = keptInside(deps, request);
     if (kept) return kept;
+    if (leftOut?.every)
+      return {
+        verdict: "not-checked",
+        reason: "outside-scope",
+        detail: leftOut.name,
+        versions: [],
+        excluded: [],
+      };
     const { signal } = request;
     const results = createCheckResults(request);
     const { facts, notChecked, failedCheck } = results;
@@ -375,7 +338,8 @@ async function checkSentence(
       : plainVerdict(deps, request, verdicts);
   };
   try {
-    const result = heldToItsCitations(request, await decide());
+    const decided = await decide();
+    const result = leftOut ? withoutDocumentLeftOut(decided, leftOut.name) : decided;
     return result.verdict === "supported"
       ? withDollarClause(deps, request.claim, result)
       : explainedIn(result, {

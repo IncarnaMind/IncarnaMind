@@ -15,10 +15,14 @@
  *    by the search's own ranks (see `SearchResultForModel.ranks`), in the
  *    order the search gave them, and other Tool results are cut at the end.
  *    Once nothing more would fit, the model is told to answer with what it has.
- * 3. Every request keeps the room the model's output cap needs.
+ * 3. Every request keeps the room the model's output cap needs. Where the
+ *    window is small, the cap of the Answer's own requests gives way first,
+ *    as far as the first search's room for a few Passages needs, never below
+ *    a floor (#3045).
  *
- * A request whose instructions and Question alone don't fit fails with a
- * "too-long" error before anything is sent. Required context stays whole or fails too.
+ * A request that can't be sent fails before anything is sent: "window-too-small"
+ * where even an empty Question would leave no room to read a Passage beside the
+ * instructions and Tools, else "too-long". Required context stays whole or fails too.
  *
  * Token counts are estimated (see `estimateTokens`) times a factor, until
  * Ollama's own count of a request comes back (`prompt_eval_count`, its input
@@ -35,7 +39,9 @@ import {
   fitQuestionContext,
   head,
   holdsDocumentText,
+  keptWhole,
   type RequestMind,
+  withWholeSelection,
 } from "./context";
 import type { AnswerMessage } from "./engine";
 
@@ -52,6 +58,22 @@ const MARGIN_TOKENS = 128;
 const STEP_OUTPUT_TOKENS = 128;
 /** Kept free for the first search in the Tool loop: about 8 Passages of 500 tokens. */
 export const SEARCH_RESERVE_TOKENS = 4_500;
+/**
+ * The least output cap an Answer's own requests are given where the window is small, unless the
+ * window sets its own (`ContextWindow.outputFloor`): at 16,384 tokens the assistant's instructions
+ * and Tools take about 12,200, so a cap of 4,096 left no room to read anything (#3045).
+ */
+export const OUTPUT_FLOOR_TOKENS = 1_024;
+/** A Passage, as Documents are split for search (../documents/searchTool): about this many tokens. */
+const PASSAGE_TOKENS = 500;
+/**
+ * The output cap gives way only as far as the first search's room for this many Passages needs:
+ * about what a Question in a Note reads at 8k with its whole cap, so that path keeps its cap, and
+ * at 16k the assistant still reads a search's worth (#3045).
+ */
+const FIRST_SEARCH_PASSAGES = 5;
+/** At a small window the turn just before is kept only beside at least this many Passages (#3045). */
+const MIN_PASSAGES = 3;
 /** A Tool result cut to less than this isn't worth sending: the model is told to answer instead. */
 const MIN_RESULT_TOKENS = 256;
 
@@ -93,6 +115,10 @@ export interface FitRequest {
   tools?: string;
   /** Tokens to keep free for what the request will gain, e.g. search results. */
   reserve?: number;
+  /** It reads Passages: an Answer that couldn't read one doesn't start (#3045). */
+  reads?: true;
+  /** The line naming the Documents on screen, which goes with the Question where it reads (#3045). */
+  onScreen?: string;
   /** The Mind read with the Question, cut by its own rules if it doesn't fit whole. */
   mind?: RequestMind;
 }
@@ -110,8 +136,20 @@ export function createWindowBudget(
 ) {
   let current = factor;
   const tokens = (text: string) => Math.ceil(estimateTokens(text) * current);
+  // Below what a declared input limit leaves, a lower cap would only let a request send more than
+  // the provider takes (#3045).
+  const floor = Math.min(
+    Math.max(
+      window.outputFloor ?? OUTPUT_FLOOR_TOKENS,
+      window.tokens - (window.maxInput ?? window.tokens),
+    ),
+    window.outputTokens,
+  );
+  /** The output cap of the Answer's own requests: the window's, until a request's fit lowers it. */
+  let output = window.outputTokens;
   /** What a request may hold before its output. */
-  const limit = window.tokens - window.outputTokens - MARGIN_TOKENS;
+  const limit = () => window.tokens - output - MARGIN_TOKENS;
+  const onePassage = () => Math.ceil(PASSAGE_TOKENS * current);
   const messagesTokens = (messages: readonly AnswerMessage[]) =>
     messages.reduce((sum, message) => sum + tokens(message.content) + MESSAGE_TOKENS, 0);
 
@@ -127,8 +165,54 @@ export function createWindowBudget(
 
   const tooLong = (needed: number): ProviderError => ({
     kind: "too-long",
-    message: `The request needs about ${needed} tokens, but the model's context window holds ${window.tokens}, ${window.outputTokens} of them kept for the Answer.`,
+    message: `The request needs about ${needed} tokens, but the model's context window holds ${window.tokens}, ${output} of them kept for the Answer.`,
   });
+
+  // Agents, a check's card and a cell's tooltip show the message: the numbers go to the log only.
+  const windowTooSmall = (fixed: number): ProviderError => {
+    console.warn(
+      `A request didn't fit the model's context window: window ${window.tokens}, instructions and Tools about ${fixed}, output at least ${floor}.`,
+    );
+    return {
+      kind: "window-too-small",
+      message:
+        "The model's context window is too small to read a Passage beside the model's instructions.",
+    };
+  };
+
+  /** The selection can't go whole beside three Passages at the floor, though the Question alone would. */
+  const selectionTooLong = (fixed: number, question: number, selection: number): ProviderError => {
+    console.warn(
+      `A selection didn't fit the model's context window: window ${window.tokens}, instructions and Tools about ${fixed}, Question about ${question}, selection about ${selection}, output at least ${floor}.`,
+    );
+    return {
+      kind: "too-long",
+      message:
+        "The selected text is too long to go with the Question in the model's context window.",
+      tooLong: "selection",
+    };
+  };
+
+  /**
+   * Sizes the output cap for a request of `fixed` tokens and a Question of `question`, which must
+   * leave `need` tokens free and would like `wanted`: the cap gives way only as far as `wanted`
+   * needs, and never below the floor. Or why it can't be sent, decided by one test so the problem's
+   * advice is always true: where even an empty Question would leave less than `need`, no Question
+   * fits ("window-too-small"); else this one is too long.
+   */
+  function size(
+    fixed: number,
+    question: number,
+    need: number,
+    wanted: number,
+  ): ProviderError | null {
+    const atFloor = window.tokens - MARGIN_TOKENS - floor - fixed;
+    if (atFloor - MESSAGE_TOKENS < need) return windowTooSmall(fixed);
+    if (atFloor - question < need) return tooLong(fixed + question + need + floor);
+    const room = window.tokens - MARGIN_TOKENS - fixed - question - wanted;
+    output = Math.max(floor, Math.min(window.outputTokens, room));
+    return null;
+  }
 
   /**
    * Keeps whole Passages within `room` tokens: the most relevant first, by
@@ -168,7 +252,14 @@ export function createWindowBudget(
   }
 
   return {
-    window,
+    /** The window the Answer's own requests are sent within: its output cap as the last fit sized it. */
+    get window(): ContextWindow {
+      return { ...window, outputTokens: output };
+    },
+    /** The last fit lowered the output cap for the window. */
+    get lowered(): boolean {
+      return output < window.outputTokens;
+    },
     /** The factor on the estimate, as corrected so far. */
     get factor() {
       return current;
@@ -186,29 +277,91 @@ export function createWindowBudget(
     fit(request: FitRequest): Fitted {
       const fixed = tokens(request.instructions) + tokens(request.tools ?? "") + MESSAGE_TOKENS;
       if (request.requiredContext) {
-        const estimated = fixed + messagesTokens(request.messages);
-        if (estimated > limit) {
-          return { ok: false, error: tooLong(estimated + window.outputTokens) };
+        const held = messagesTokens(request.messages);
+        // Required context that fits at the whole cap goes at the whole cap; one that doesn't goes at
+        // a lower cap only with room left for its first search, where it reads (#3045).
+        output = window.outputTokens;
+        if (fixed + held > limit()) {
+          const need = request.reads ? onePassage() + STEP_OUTPUT_TOKENS : 0;
+          const error = size(fixed, held, need, need);
+          if (error) return { ok: false, error };
         }
-        return { ok: true, messages: [...request.messages], estimated };
+        return { ok: true, messages: [...request.messages], estimated: fixed + held };
       }
-      const room = limit - fixed;
-      const question = tokens(request.question) + MESSAGE_TOKENS;
-      if (question > room)
-        return { ok: false, error: tooLong(fixed + question + window.outputTokens) };
-      const forContext = Math.max(question, room - (request.reserve ?? 0));
-      const overhead = MESSAGE_TOKENS * request.messages.length;
+      // Where it reads, the fit decides on the User's whole selection, which the Mind's own limits
+      // may have cut before it (#3045).
+      const given = request.reads
+        ? withWholeSelection(request.messages, request.mind)
+        : { messages: request.messages, mind: request.mind };
+      const onScreen = request.reads ? request.onScreen : undefined;
+      const held = keptWhole(given.messages, request.question, given.mind, onScreen);
+      // The Question goes with what follows it in its message (a press's help), and where it reads,
+      // with the line naming the Documents on screen and the Search scope after that line or the
+      // selection: no Tool gives them back (#3045).
+      const question =
+        tokens(request.question) +
+        MESSAGE_TOKENS +
+        Math.ceil((held.asked - estimateTokens(request.question) + held.onScreen) * current);
+      // The first search's room: its Passages and the step that asks for it.
+      const error = request.reads
+        ? size(
+            fixed,
+            question,
+            onePassage() + STEP_OUTPUT_TOKENS,
+            FIRST_SEARCH_PASSAGES * onePassage(),
+          )
+        : size(fixed, question, 0, 0);
+      if (error) return { ok: false, error };
+      // Where it reads, the selection goes with the Question, whole, and the Mind is cut without it:
+      // the Mind's cut would shorten it. At a small window the turn just before is kept too, whole or
+      // not at all. The room to write gives way for them only where they don't fit at the cap, then
+      // Passages beyond three; where everything fits, nothing moves.
+      const selection =
+        request.reads && held.selection > 0 ? Math.ceil(held.selection * current) : 0;
+      const turn =
+        request.reads && held.turn > 0 ? Math.ceil(held.turn * current) + 2 * MESSAGE_TOKENS : 0;
+      const contextRoom = limit() - fixed - (request.reserve ?? 0);
+      const besideThree = (ahead: number) =>
+        window.tokens - MARGIN_TOKENS - floor - fixed - question - ahead >=
+        MIN_PASSAGES * onePassage() + STEP_OUTPUT_TOKENS;
+      const selectionLeftOut = selection > 0 && contextRoom < question + selection;
+      if (selectionLeftOut && !besideThree(selection)) {
+        return { ok: false, error: selectionTooLong(fixed, question, selection) };
+      }
+      const keepsTurn =
+        turn > 0 && contextRoom < question + selection + turn && besideThree(selection + turn);
+      const ahead = (selectionLeftOut || keepsTurn ? selection : 0) + (keepsTurn ? turn : 0);
+      if (ahead > 0) {
+        const room = window.tokens - MARGIN_TOKENS - fixed - question - ahead;
+        output = Math.max(
+          floor,
+          Math.min(window.outputTokens, room - FIRST_SEARCH_PASSAGES * onePassage()),
+        );
+      }
+      const room = limit() - fixed;
+      const forContext = Math.max(question + ahead, room - (request.reserve ?? 0));
+      const overhead = MESSAGE_TOKENS * given.messages.length;
       let mindCut: number | undefined;
       const messages = fitQuestionContext(
-        request.messages,
+        given.messages,
         request.question,
-        Math.floor((forContext - overhead) / current),
-        request.mind,
+        // The overhead counts every message, kept or not: with room for the Question alone, the
+        // earlier ones it drops must not leave too little for the Question itself, nor for what
+        // goes with it. The few tokens the two counts differ by come out of the search's reserve.
+        Math.max(
+          Math.floor((forContext - overhead) / current),
+          held.asked +
+            held.onScreen +
+            (selection > 0 ? held.selection : 0) +
+            (keepsTurn ? held.turn : 0),
+        ),
+        given.mind,
         (kept) => {
           mindCut = kept.text ? kept.share : 0;
         },
+        { ...(onScreen && { onScreen }), selection: selection > 0, turn: keepsTurn },
       );
-      if (!messages) return { ok: false, error: tooLong(fixed + question + window.outputTokens) };
+      if (!messages) return { ok: false, error: tooLong(fixed + question + output) };
       return {
         ok: true,
         messages,
@@ -221,16 +374,35 @@ export function createWindowBudget(
 
     /**
      * The Passages of a search, for a request with these instructions and
-     * Question: the most relevant that fit (by `ranks`, see `fitResult`).
+     * Question: the most relevant that fit (by `ranks`, see `fitResult`), the
+     * output cap giving way as far as they need. Null when none of them fits.
      */
     fitPassages(
       passages: string,
       instructions: string,
       question: string,
       ranks?: readonly number[],
-    ): string {
-      const room = limit - tokens(instructions) - tokens(question) - 3 * MESSAGE_TOKENS;
-      return fitResult(passages, room, ranks).text;
+    ): string | null {
+      const fixed = tokens(instructions) + tokens(question) + 3 * MESSAGE_TOKENS;
+      const wanted = Math.min(tokens(passages), FIRST_SEARCH_PASSAGES * onePassage());
+      output = Math.max(
+        floor,
+        Math.min(window.outputTokens, window.tokens - MARGIN_TOKENS - fixed - wanted),
+      );
+      const fitted = fitResult(passages, limit() - fixed, ranks);
+      return fitted.passages === 0 ? null : fitted.text;
+    },
+
+    /**
+     * Why a request with these instructions and Question couldn't read the Passages its search
+     * found: the window can't hold one beside its instructions whatever the Question, or this
+     * Question is too long to leave room for one.
+     */
+    cannotRead(instructions: string, question: string): ProviderError {
+      const fixed = tokens(instructions) + 2 * MESSAGE_TOKENS;
+      return (
+        size(fixed, tokens(question) + MESSAGE_TOKENS, onePassage(), 0) ?? windowTooSmall(fixed)
+      );
     },
 
     /**
@@ -240,12 +412,16 @@ export function createWindowBudget(
      */
     roomBeside(messages: readonly string[], outputTokens: number): number {
       const held = messages.reduce((sum, text) => sum + tokens(text) + MESSAGE_TOKENS, 0);
-      return window.tokens - Math.min(outputTokens, window.outputTokens) - MARGIN_TOKENS - held;
+      const input = Math.min(
+        window.tokens - Math.min(outputTokens, window.outputTokens),
+        window.maxInput ?? window.tokens,
+      );
+      return input - MARGIN_TOKENS - held;
     },
 
     /** Error for a request Ollama refused as too long, after the retry. */
     tooLong(promptTokens: number | null): ProviderError {
-      return tooLong((promptTokens ?? window.tokens) + window.outputTokens);
+      return tooLong((promptTokens ?? window.tokens) + output);
     },
 
     /**
@@ -260,7 +436,7 @@ export function createWindowBudget(
       /** Tool results added since the last request. */
       let added = 0;
       let steps = 0;
-      const room = () => limit - held - STEP_OUTPUT_TOKENS;
+      const room = () => limit() - held - STEP_OUTPUT_TOKENS;
       const cost = (text: string) => tokens(text) + MESSAGE_TOKENS;
       const fitWithin = (text: string, count: number, ranks?: readonly number[]) => {
         const fitted = fitResult(text, room(), ranks);

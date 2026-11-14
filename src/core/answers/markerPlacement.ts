@@ -67,10 +67,17 @@ const STOP_WORDS = new Set(
   ),
 );
 
+/**
+ * An Answer's text read without its Citation markers ("[^2]") and its figures' ("[=1]"): their
+ * digits are never the text's own numbers or words (#3059).
+ */
+export const withoutMarkers = (text: string): string =>
+  text.replace(MARKER, " ").replace(FIGURE_MARKER, " ");
+
 /** The words of a text for comparing: lower-case words and numbers, and each two neighbouring CJK characters. */
 export function wordsOf(text: string): Set<string> {
   const words = new Set<string>();
-  const plain = text.replace(MARKER, " ").toLowerCase();
+  const plain = withoutMarkers(text).toLowerCase();
   for (const [run] of plain.matchAll(/[\p{L}\p{N}]+/gu)) {
     // A run may mix scripts, e.g. "transformer模型".
     for (const [part] of run.matchAll(

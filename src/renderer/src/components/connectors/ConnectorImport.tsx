@@ -2,7 +2,7 @@ import { type ChangeEvent, useEffect, useId, useState } from "react";
 import type { ConnectorImportEntry, SecretStorageStatus } from "../../../../core/api";
 import { core } from "../../core";
 import { errorMessage } from "../../errors";
-import { useT } from "../../i18n";
+import { useLanguage, useT } from "../../i18n";
 import { ProblemMark } from "../ProblemLine";
 import { SecretStorageNotice } from "../providers/ProviderForm";
 import { SettingsGroup, SettingsHelp, SettingsRow } from "../settings/SettingsGroup";
@@ -15,6 +15,7 @@ import {
   primaryButtonClass,
 } from "../ui";
 import { commandLine } from "./commandLine";
+import { importEnvLine, importHeadersLine } from "./connectorLines";
 import { importNeedsKeychain } from "./importNeeds";
 
 /**
@@ -24,6 +25,7 @@ import { importNeedsKeychain } from "./importNeeds";
  */
 export function ConnectorImport({ onDone }: { onDone(): void }) {
   const t = useT();
+  const language = useLanguage();
   const jsonId = useId();
   const [json, setJson] = useState("");
   const [preview, setPreview] = useState<ConnectorImportEntry[] | null>(null);
@@ -151,18 +153,14 @@ export function ConnectorImport({ onDone }: { onDone(): void }) {
                     )}
                     {entry.url && <span className="block truncate font-mono">{entry.url}</span>}
                     {entry.env.length > 0 && (
-                      <span className="block">
-                        {t("connectors.import.env", { names: entry.env.join(", ") })}
-                      </span>
+                      <span className="block">{importEnvLine(entry.env, t, language)}</span>
                     )}
                     {entry.connection === "sse" && (
                       <span className="block">{t("remoteConnectors.connection.sse")}</span>
                     )}
                     {(entry.headers?.length ?? 0) > 0 && (
                       <span className="block">
-                        {t("remoteConnectors.import.headers", {
-                          names: entry.headers?.join(", ") ?? "",
-                        })}
+                        {importHeadersLine(entry.headers ?? [], t, language)}
                       </span>
                     )}
                     {entry.placeholders?.map((each) => (

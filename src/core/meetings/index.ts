@@ -258,6 +258,36 @@ export function meetingRecord(
 }
 
 /**
+ * The call a Transcript Document records (#3005): its Meeting's Note and when the call started.
+ * Null for any other Document, a voice memo's Transcript and a Transcript the User added among them.
+ */
+export function callOfTranscript(
+  db: Database,
+  documentId: string,
+): { mindId: string; startedAt: string } | null {
+  const row = db.get<Pick<MeetingRow, "mind_id" | "started_at">>(
+    "SELECT mind_id, started_at FROM meetings WHERE transcript_document_id = ? AND kind = 'meeting' AND started_at IS NOT NULL",
+    [documentId],
+  );
+  return row?.started_at ? { mindId: row.mind_id, startedAt: row.started_at } : null;
+}
+
+/**
+ * The Transcripts of every call but the one in Note `mindId` (a Note holds one Meeting), every
+ * call's with `mindId` null: what a help button's press made in that Note never reads, then or
+ * when its reply is checked later (#3005). A voice memo's Transcript isn't a call's, and is read
+ * as a Document.
+ */
+export function otherCallTranscripts(db: Database, mindId: string | null): string[] {
+  return db
+    .all<Pick<MeetingRow, "transcript_document_id">>(
+      `SELECT transcript_document_id FROM meetings WHERE kind = 'meeting' AND transcript_document_id IS NOT NULL${mindId === null ? "" : " AND mind_id != ?"}`,
+      mindId === null ? [] : [mindId],
+    )
+    .flatMap((row) => (row.transcript_document_id ? [row.transcript_document_id] : []));
+}
+
+/**
  * Records which Document is the Meeting's Transcript, in the transaction that makes it, and that
  * it belongs to the Meeting's Note (#2528).
  */
