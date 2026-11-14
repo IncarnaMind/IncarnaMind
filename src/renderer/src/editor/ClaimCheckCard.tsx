@@ -1420,7 +1420,7 @@ export function ClaimCard({
             {cardMenu}
             <ClaimSentence sentence={sentence} marks={marks} />
             {decisionMissing && (
-              <p data-testid="claim-court-decision" className="citation-card-note">
+              <p data-testid="claim-court-decision" className="claim-card-says">
                 {t("claim.courtDecision.body")}
               </p>
             )}
@@ -1651,7 +1651,7 @@ export function ClaimCard({
           <ChangedCitations cited={cited} />
           {calculation && <Working calculation={calculation} onOpen={onOpen} />}
           {decisionMissing && (
-            <p data-testid="claim-court-decision" className="citation-card-note">
+            <p data-testid="claim-court-decision" className="claim-card-says">
               {t("claim.courtDecision.body")}
             </p>
           )}
@@ -1681,12 +1681,12 @@ export function ClaimCard({
                 />
               )}
               {ownWorkings && (
-                <p data-testid="claim-own-workings" className="citation-card-note">
+                <p data-testid="claim-own-workings" className="claim-card-says">
                   {t("claim.unsupported.ownWorkings")}
                 </p>
               )}
               {nothingFound && (
-                <p data-testid="claim-nothing" className="citation-card-note">
+                <p data-testid="claim-nothing" className="claim-card-says">
                   {pickRead
                     ? t(
                         pickRead.pages === pickRead.of
@@ -1728,7 +1728,7 @@ export function ClaimCard({
         </p>
       )}
       {reason && lineAction && (
-        <div className="citation-card-note">
+        <div className="claim-card-says">
           <MetaLine
             data-testid="claim-reason"
             parts={[
@@ -1739,7 +1739,7 @@ export function ClaimCard({
         </div>
       )}
       {stopLine && (
-        <div className="citation-card-note">
+        <div className="claim-card-says">
           <MetaLine
             data-testid="claim-read-stopped"
             className="claim-stop-line"
@@ -1836,6 +1836,9 @@ export function ClaimCard({
             <FoldLine
               rows={foldRows}
               shown={foldedShown}
+              before={
+                shown.state === "needs-recheck" ? (shown.why === "edited" ? "edit" : "check") : null
+              }
               onToggle={() => setFoldedShown((was) => !was)}
             />
             {signToggle}

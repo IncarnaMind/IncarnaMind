@@ -57,6 +57,13 @@ const WORDS = {
     ],
     reason: "The Document says new stores opened this quarter, but gives no number.",
     page: (number: number) => `p. ${number}`,
+    nothing: "Northwind Retail plans a listing in Singapore next spring.",
+    refused: "The board met eleven times during the year.",
+    tooMany: "Store staff numbers rose to 5,200 by September.",
+    budget: "Cash conversion was 91% in the half.",
+    court: "See Northwind v. Harbour Foods, 512 F.3d 101.",
+    differs: "Underlying EBITDA was £90 million in the quarter.",
+    single: "Underlying EBITDA was £96 million.",
   },
   "zh-CN": {
     fact: "第三季度基础 EBITDA 为 9,600 万英镑",
@@ -72,6 +79,13 @@ const WORDS = {
     ],
     reason: "文档提到本季度新开门店，但没有写数量。",
     page: (number: number) => `第 ${number} 页`,
+    nothing: "北风零售计划明年春天在新加坡上市。",
+    refused: "董事会全年开会十一次。",
+    tooMany: "截至九月门店员工增至 5,200 人。",
+    budget: "上半年现金转化率为 91%。",
+    court: "参见 Northwind v. Harbour Foods, 512 F.3d 101。",
+    differs: "本季度基础 EBITDA 为 9,000 万英镑。",
+    single: "基础 EBITDA 为 9,600 万英镑。",
   },
 } as const;
 
@@ -508,13 +522,146 @@ for (const [language, width] of [
     await expect(more).toBeFocused();
     await window.keyboard.press("Enter");
     await expect(receipts).toHaveCount(1);
-    // Its limit is said where the check is explained: About this check.
+    // Its limit is said where the check is explained: About this check. Its quote opens the page,
+    // so its ⋯ holds About this check alone; a ✓ of one quote has Open the page there.
     const menu = await openCardMenu(window, card);
     await expect(menu.getByTestId("claim-limit")).toHaveText(t("claim.limit"));
+    await expect(
+      menu.locator('[role="menuitem"]:not([data-testid="claim-about-lines"])'),
+    ).toHaveCount(0);
     await window.keyboard.press("Escape");
     await expect(menu).toBeHidden();
     await window.keyboard.press("Escape");
     await expect(card).toHaveCount(0);
+    await app.close();
+  });
+
+  test(`every reason is one style, and a focus ring never covers or touches the text beside it (${language}, ${width}px)`, async () => {
+    test.setTimeout(180_000);
+    const words = WORDS[language];
+    const { app, window, quote } = await launched(language, width);
+    await twoParts(window, words, quote);
+    const others = {
+      nothing: claimCheck("nothing", "unsupported", words.nothing, {}),
+      refused: claimCheck("refused", "not-checked", words.refused, { reason: "refused" }),
+      tooMany: claimCheck("tooMany", "not-checked", words.tooMany, { reason: "too-many" }),
+      budget: claimCheck("budget", "not-checked", words.budget, { reason: "read-budget" }),
+      court: claimCheck("court", "unsupported", words.court, { citedCaseUnchecked: true }),
+      differs: claimCheck("differs", "unsupported", words.differs, {
+        evidence: quote("q-differs", words.quotes[0], 1),
+      }),
+      single: claimCheck("single", "supported", words.single, {
+        evidence: quote("q-single", words.quotes[1], 2),
+      }),
+    };
+    await window.getByTestId("mind-editor").evaluate(
+      (dom, paragraphs) => {
+        const editor = (dom as unknown as { editor: Editor }).editor;
+        editor.commands.insertContentAt(
+          editor.state.doc.content.size,
+          paragraphs.map((content) => ({ type: "paragraph", content })),
+        );
+      },
+      Object.entries(others).map(([, mark]) => [
+        { type: "text", text: mark.attrs.text, marks: [mark] },
+      ]),
+    );
+    const card = window.getByTestId("claim-card");
+    const open = async (id: string) => {
+      const check = Object.values(others).find((each) => each.attrs.id === id);
+      const mark = window.locator(`[data-testid="claim-mark"][data-claim="${id}"]`).first();
+      await mark.evaluate((element) => element.scrollIntoView({ block: "center" }));
+      if (check?.attrs.state === "not-checked") {
+        // A sentence not checked has no mark on the page: its card opens from the keyboard, with
+        // the caret in it.
+        await window.getByTestId("mind-editor").evaluate((dom, words) => {
+          const editor = (dom as unknown as { editor: Editor }).editor;
+          let at = -1;
+          editor.state.doc.descendants((node, pos) => {
+            if (at < 0 && node.isText && node.text?.includes(words)) at = pos + 1;
+          });
+          editor.chain().focus().setTextSelection(at).run();
+        }, check.attrs.text);
+        await window.keyboard.press("ControlOrMeta+Shift+K");
+      } else await pointAndClick(window, mark);
+      await expect(card).toBeVisible();
+      await motionSettled(window);
+    };
+    const close = async () => {
+      await window.keyboard.press("Escape");
+      await expect(card).toHaveCount(0);
+    };
+    const style = (locator: Locator) =>
+      locator.evaluate((element) => {
+        const { fontSize, color } = getComputedStyle(element);
+        return { fontSize, color };
+      });
+    /** How far the control's focus ring keeps from the nearest text a person sees beside it. */
+    const ringRoom = (locator: Locator) =>
+      locator.evaluate((element) => {
+        (element as HTMLElement).focus({ focusVisible: true } as FocusOptions);
+        const ring = getComputedStyle(element);
+        const grow = Number.parseFloat(ring.outlineOffset) + Number.parseFloat(ring.outlineWidth);
+        const box = element.getBoundingClientRect();
+        const card = element.closest('[data-testid="claim-card"]');
+        if (!card) return null;
+        const walker = document.createTreeWalker(card, NodeFilter.SHOW_TEXT);
+        let room = Number.POSITIVE_INFINITY;
+        for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+          const parent = node.parentElement;
+          if (!parent || element.contains(node) || !node.textContent?.trim()) continue;
+          if (
+            parent.closest(".sr-only, [role='menu'], .claim-quote-menu") ||
+            !parent.checkVisibility({ visibilityProperty: true })
+          )
+            continue;
+          const range = document.createRange();
+          range.selectNodeContents(node);
+          for (const line of Array.from(range.getClientRects())) {
+            const across = Math.max(box.left - grow - line.right, line.left - box.right - grow);
+            const down = Math.max(box.top - grow - line.bottom, line.top - box.bottom - grow);
+            room = Math.min(room, Math.max(across, down));
+          }
+        }
+        return { shown: element.matches(":focus-visible"), room };
+      });
+
+    // The reason of a part, of a refusal, of Not found, of a court decision, of a sentence not
+    // checked yet and of a stopped read: the card's own size, in its secondary ink.
+    await open("two-parts");
+    const reason = await style(card.getByTestId("claim-part-reason"));
+    const quoted = await ringRoom(card.getByTestId("claim-part-citation"));
+    expect(quoted?.shown).toBe(true);
+    expect(quoted?.room, "a part's quote and its Location line").toBeGreaterThan(0);
+    await close();
+    const lines: [string, string, string | null][] = [
+      ["refused", "claim-reason", null],
+      ["nothing", "claim-nothing", null],
+      ["court", "claim-court-decision", null],
+      ["tooMany", "claim-reason", "claim-check-now"],
+      ["budget", "claim-read-stopped", "claim-read-continue"],
+      ["differs", "claim-differs", "claim-open-quote"],
+    ];
+    for (const [id, line, control] of lines) {
+      await open(id);
+      expect(await style(card.getByTestId(line)), `${id}'s reason`).toEqual(reason);
+      if (control) {
+        const room = await ringRoom(card.getByTestId(control));
+        expect(room?.shown).toBe(true);
+        expect(room?.room, `${id}: ${control}'s ring`).toBeGreaterThan(0);
+      }
+      await screenshot(window, `simpler-reason-${id}-${language}-${width}`);
+      await close();
+    }
+
+    // A ✓ of one quote, not in parts: no button, and Open the page first under its ⋯.
+    await open("single");
+    await expect(card.locator(".citation-card-actions button")).toHaveCount(0);
+    const menu = await openCardMenu(window, card);
+    await expect(menu.getByRole("menuitem").first()).toHaveAttribute("data-testid", "claim-open");
+    await window.keyboard.press("Escape");
+    await expect(menu).toBeHidden();
+    await close();
     await app.close();
   });
 }

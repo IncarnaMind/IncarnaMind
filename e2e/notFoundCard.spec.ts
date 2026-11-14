@@ -112,6 +112,14 @@ const IN_MENU = [
   IDS.findSources,
 ];
 
+/** How many lines a control's label takes. */
+const labelLines = (control: Locator) =>
+  control.evaluate((element) => {
+    const range = element.ownerDocument.createRange();
+    range.selectNodeContents(element);
+    return new Set(Array.from(range.getClientRects(), (rect) => Math.round(rect.top))).size;
+  });
+
 /** Whether the first box sits inside the second. */
 const inside = async (inner: Locator, outer: Locator) => {
   const [a, b] = [await inner.boundingBox(), await outer.boundingBox()];
@@ -253,6 +261,9 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(card.getByTestId(IDS.keep)).toHaveText(words.keep);
       await expect(card.getByTestId("claim-cut")).toHaveCount(0);
       for (const id of BUTTONS) expect(await inside(card.getByTestId(id), card)).toBe(true);
+      // Where the row has no room, it wraps to a second row: no label breaks inside its button.
+      for (const id of BUTTONS)
+        expect(await labelLines(card.getByTestId(id)), `${id} at ${width} px`).toBe(1);
       // It cites nothing, so there is no Citation to sign and no "Checked by me".
       await expect(card.getByTestId("sign-off-toggle")).toHaveCount(0);
       // The rest under the one ⋯, in their order, Find sources among them: the Mind cites no paper or book.

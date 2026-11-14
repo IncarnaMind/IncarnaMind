@@ -1,7 +1,9 @@
 /**
- * A check card's rows where a quote is missing or doesn't back its part (#2869): a ✓ card opens
- * every part it holds back with its count, whichever part has the quote; and a part whose quote
- * doesn't back it says the Documents say something different, never that nothing was found.
+ * A check card's rows where a quote is missing or doesn't back its part, or the check is to be read
+ * again (#2869): a ✓ card opens every part it holds back with its count, whichever part has the
+ * quote; a part whose quote doesn't back it says the Documents say something different, never that
+ * nothing was found; and a card to be checked again folds its supported parts as supported before
+ * the change, with no ✓.
  */
 import { Editor, type JSONContent } from "@tiptap/core";
 import { DOMParser } from "linkedom";
@@ -154,7 +156,11 @@ async function noteWith(language: Language) {
   return editor;
 }
 
-async function card(language: Language, check: ClaimCheckAttributes) {
+async function card(
+  language: Language,
+  check: ClaimCheckAttributes,
+  shown: Record<string, unknown> = { state: check.state },
+) {
   const editor = await noteWith(language);
   const claim = {
     check,
@@ -162,7 +168,7 @@ async function card(language: Language, check: ClaimCheckAttributes) {
     from: 0,
     to: SENTENCE.length,
     sentence: { from: 0, to: SENTENCE.length, text: SENTENCE },
-    shown: { state: check.state },
+    shown,
   };
   const noop = () => undefined;
   // Loaded by path, as the other component tests are: the node typecheck reads no JSX.
@@ -272,5 +278,48 @@ describe.each(["en", "zh-CN"] as const)("a part's reason (%s)", (language) => {
       "Spring tides come once a month, at the new moon.",
     );
     expect(parts[1]?.querySelector('[data-testid="claim-part-citation"]')).toBeNull();
+  });
+});
+
+describe.each([
+  {
+    language: "en" as const,
+    edited: "1 other part was supported before your edit · Show",
+    changed: "1 other part was supported when last checked · Show",
+    now: "1 other part is supported · Show",
+  },
+  {
+    language: "zh-CN" as const,
+    edited: "修改前另外 1 处有依据 · 查看",
+    changed: "上次核对时另外 1 处有依据 · 查看",
+    now: "另外 1 处有依据 · 查看",
+  },
+])("a card to be checked again ($language)", (example) => {
+  const unsupported = {
+    reason: "Nothing says how often neaps fall.",
+    covered: null,
+    uncovered: null,
+  };
+  const check = () =>
+    checkOf([
+      part(FIRST, { evidence: [passage(FIRST)] }),
+      part(SECOND, { verdict: "unsupported", unsupported }),
+    ]);
+  const folded = () => container.querySelector('[data-testid="claim-parts-folded"]');
+  // protects=a card whose check is to be read again folds its supported parts as supported before the change, with no ✓, after an edit or another change (#2869); fails_when=the fold line shows a ✓ or says the parts are supported now; no_claim=the rows' own tone once opened.
+  test.each([
+    { why: "edited", line: example.edited },
+    { why: "new-version", line: example.changed },
+  ])("says what was supported before it changed ($why)", async ({ why, line }) => {
+    await card(example.language, check(), { state: "needs-recheck", why });
+    expect(folded()?.textContent).toBe(line);
+    expect(folded()?.querySelector(".claim-fold-icon")).toBeNull();
+  });
+
+  // protects=the same card checked and supported now folds with its ✓ and says the parts are supported (#2869); fails_when=the line of a settled card loses its ✓; no_claim=its colour.
+  test("a settled card still says its parts are supported, with its ✓", async () => {
+    await card(example.language, check());
+    expect(folded()?.textContent).toBe(example.now);
+    expect(folded()?.querySelector(".claim-fold-icon")).not.toBeNull();
   });
 });

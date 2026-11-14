@@ -725,17 +725,32 @@ export const correctionOf = (
         ({ span }) => span?.start === row.part.span.start && span.end === row.part.span.end,
       )?.correction;
 
+/** Which change a card to be checked again is from, where its parts were supported before it. */
+export type SupportedBefore = "edit" | "check" | null;
+
+const FOLDED: Record<
+  Exclude<SupportedBefore, null> | "now",
+  { one: MessageKey; many: MessageKey }
+> = {
+  now: { one: "claim.parts.folded.one", many: "claim.parts.folded" },
+  edit: { one: "claim.parts.foldedBeforeEdit.one", many: "claim.parts.foldedBeforeEdit" },
+  check: { one: "claim.parts.foldedLastChecked.one", many: "claim.parts.foldedLastChecked" },
+};
+
 /**
  * The foot line of a card whose rows fold (#2869): what is folded, the supported first, then the
- * opinions left out, and Show, which opens every folded row in place, or Hide.
+ * opinions left out, and Show, which opens every folded row in place, or Hide. On a card to be
+ * checked again (`before`), its parts were supported before the change, so the line has no ✓.
  */
 export function FoldLine({
   rows,
   shown,
+  before = null,
   onToggle,
 }: {
   rows: readonly CardPart[];
   shown: boolean;
+  before?: SupportedBefore;
   onToggle(): void;
 }) {
   const t = useT();
@@ -744,11 +759,9 @@ export function FoldLine({
   const supported = rows.filter((row) => row.fold === "supported").length;
   const opinions = rows.filter((row) => row.fold === "opinion").length;
   if (supported + opinions === 0) return null;
+  const words = FOLDED[before ?? "now"];
   const what = [
-    supported > 0 &&
-      (supported === 1
-        ? t("claim.parts.folded.one")
-        : t("claim.parts.folded", { count: format(supported) })),
+    supported > 0 && (supported === 1 ? t(words.one) : t(words.many, { count: format(supported) })),
     opinions > 0 &&
       (opinions === 1 ? t("opinions.one") : t("opinions.count", { count: format(opinions) })),
   ]
@@ -757,10 +770,12 @@ export function FoldLine({
   // The toggle keeps its place in the line as its words change, so it keeps the focus (#2869).
   return (
     <p data-testid="claim-parts-folded" className="claim-fold-line">
-      {!shown && supported > 0 && (
+      {!shown && supported > 0 && !before && (
         <ClaimMarkIcon state="supported" className="claim-fold-icon" aria-hidden="true" />
       )}
-      {!shown && <span className="claim-fold-what">{what}</span>}
+      {!shown && (
+        <span className={`claim-fold-what ${before ? "claim-fold-what--before" : ""}`}>{what}</span>
+      )}
       {!shown && <span aria-hidden="true">{dotAfter(what)}</span>}
       <QuoteLink testId="claim-parts-show" expanded={shown} onClick={onToggle}>
         {shown ? t("claim.parts.hide") : t("opinions.show")}

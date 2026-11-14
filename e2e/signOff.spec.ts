@@ -260,16 +260,18 @@ for (const language of ["en", "zh-CN"] as const) {
         "found",
         { timeout: 30_000 },
       );
-      // The badge's card counts no figures (#2869): Tie out figures opens them.
+      // The badge's card counts no figures (#2869): ⌘K's Figure schedule opens them as they stand,
+      // with no Check started.
       await expect((await checkCard(window)).getByTestId("health-figures")).toHaveCount(0);
       await window.keyboard.press("Escape");
-      await runCommand(window, "mind.tieOut", t("figures.command"));
+      await runCommand(window, "mind.figures", t("figures.title"));
       const schedule = window.getByTestId("figure-schedule");
-      // Tie out's Check asks first when it can't be priced; too narrow for the two side by side,
-      // the schedule comes to the front once that is answered. Not now leaves the figures as they are.
       const ask = window.getByTestId("mind-check-ask");
-      await expect(ask.or(schedule).first()).toBeVisible({ timeout: 30_000 });
-      if (await ask.isVisible()) await pointAndClick(window, ask.getByTestId("mind-check-cancel"));
+      await expect(schedule).toBeVisible();
+      await expect(
+        window.getByRole("tab", { name: new RegExp(`^${t("figures.title")}`) }),
+      ).toHaveAttribute("aria-selected", "true");
+      await expect(ask).toHaveCount(0);
       const rows = schedule.locator("tbody tr[data-figure-id]");
       await expect(rows).toHaveCount(3);
       const rowOf = (index: number) => rows.nth(index);
@@ -305,6 +307,17 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect((await checkCard(window)).getByTestId("health-sign-offs")).toHaveText(
         t("signOff.count.mine", { count: 3 }),
       );
+
+      // Tie out figures starts the Note's Check where figures need one, asking first when it can't
+      // be priced; Not now still brings the schedule to the front, as wide or as narrow.
+      await window.keyboard.press("Escape");
+      await runCommand(window, "mind.tieOut", t("figures.command"));
+      await expect(ask.or(schedule).first()).toBeVisible({ timeout: 30_000 });
+      if (await ask.isVisible()) await pointAndClick(window, ask.getByTestId("mind-check-cancel"));
+      await expect(schedule).toBeVisible();
+      await expect(
+        window.getByRole("tab", { name: new RegExp(`^${t("figures.title")}`) }),
+      ).toHaveAttribute("aria-selected", "true");
     } finally {
       await app.close();
     }

@@ -6264,6 +6264,23 @@
     .record-cite {
       padding-left: 0;
     }
+    /* A focus ring never covers or touches the text beside it: a control set as text draws its
+       ring close, and a reason's own action wraps with room above it. */
+    :is(
+        .claim-quote-open,
+        .claim-part-citation,
+        .claim-quote-link,
+        .meta-line button
+      ):focus-visible {
+      outline-offset: 0;
+    }
+    .claim-card-says .meta-line {
+      row-gap: 4px;
+    }
+    /* A button keeps its label on one line; the row of buttons wraps to a second row instead. */
+    .citation-card-action {
+      white-space: nowrap;
+    }
   }
   /* A part that needs a look, marked in the sentence: its verdict's wash and a 2px line under it. */
   .claim-sentence-mark {
@@ -6303,7 +6320,7 @@
     position: relative;
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 4px;
     min-width: 0;
   }
   .claim-part-citation {
@@ -6426,6 +6443,11 @@
   .claim-fold-what {
     font-weight: 600;
     color: var(--color-ink-secondary);
+  }
+  /* What was supported before the card's check was to be read again: said quietly, no longer a ✓. */
+  .claim-fold-what--before {
+    font-weight: 400;
+    color: var(--color-ink-meta);
   }
   .claim-sign {
     margin-inline-start: auto;
