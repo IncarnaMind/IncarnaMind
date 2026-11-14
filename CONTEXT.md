@@ -157,6 +157,10 @@ _Avoid_: evidence bundle, appendix, bundle
 A project inside IncarnaMind: a named place for Documents and Notes, with a description of what belongs there. A Folder holds Folders (its **sub-Folders**), Notes and Documents. Each Document and each Note belongs to one Folder or is Not in a Folder; this does not change where a Document's original file is stored. A Note in a Folder searches the Folder by default, and its Search scope covers its sub-Folders too; deleting a Folder moves its Documents and Notes, and those of its sub-Folders, to Not in a Folder. **Keep this Folder's work inside it** adds a work wall: its Notes use only its Documents, its sub-Folders included, and other Notes do not search them, while the Library, Search and ⌘K still show and open everything.
 _Avoid_: project (in the interface), group (a Folder's former name; a Group is now a column of tabs), collection, category
 
+**Work wall**:
+What a Folder has while **Keep this Folder's work inside it** is on. Its own Notes search only what is filed in it and its sub-Folders, and cannot widen past it. Work outside it never searches its Documents or Notes, an All Documents search included, though the Library, Search and ⌘K still show and open them. What the assistant makes behind a wall is filed behind it.
+_Avoid_: matter wall, information barrier, restricted Folder
+
 **Not in a Folder**:
 The one place for every Document and Note in no Folder. A Note there searches every Document except those inside a work wall.
 _Avoid_: Unsorted, Uncategorised, Inbox

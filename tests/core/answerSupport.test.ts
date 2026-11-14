@@ -1008,7 +1008,8 @@ describe("a figure in the words a sentence quotes is stated by its Citation", ()
     expect(checkOf(citations, 2)).toMatchObject({ check: "cant-check" });
   });
 
-  test("a figure in a Document's name in quotation marks is not checked", async () => {
+  // protects=quoted words that are the whole name of the Document the sentence cites hold no figure: its number is the name's, and the sentence is judged on the rest (#3093); fails_when=the name's 10 leaves the sentence not checked; no_claim=quoted words the page doesn't have, the test after.
+  test("the number in the name of the Document it cites, in quotation marks, is no figure", async () => {
     const citations = await askedCited(
       "What does the contract say?",
       "contract terms levy",
@@ -1020,7 +1021,7 @@ describe("a figure in the words a sentence quotes is stated by its Citation", ()
       },
     );
 
-    expect(checkOf(citations, 1)).toMatchObject({ check: "not-checked" });
+    expect(checkOf(citations, 1)).toMatchObject({ check: "found" });
   });
 
   test("a figure in words the page doesn't have still leaves the sentence not checked", async () => {

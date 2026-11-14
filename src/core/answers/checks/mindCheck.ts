@@ -84,11 +84,14 @@ import {
   keptAsView,
   markedSentences,
   markSentence,
+  marksASourceName,
   noteTextOf,
   noteTextOfMarked,
   recordCiteNote,
   recordCiteParagraphs,
   type SelectedSentence,
+  sourceNamesIn,
+  unmarkSourceNames,
 } from "./sentences";
 import type { MindCheckScope, VerifyOptions } from "./verify";
 import { tableClaim } from "./verifyTables";
@@ -650,6 +653,9 @@ export function createMindCheck(options: MindCheckOptions) {
     signal: AbortSignal,
   ): Promise<CheckMindResult> {
     const { mindId, requestId, mode } = input;
+    // An earlier check's mark on a sentence that only names its source goes: none reads it now (#3093).
+    if (content.read(mindId, (blocks) => marksASourceName(blocks, sourceNamesIn(blocks))))
+      content.edit(mindId, (blocks) => unmarkSourceNames(blocks, sourceNamesIn(blocks)));
     const sent = sending(mindId, mode, input.figureIds);
     const { fresh, again, keys, skipped, widened } = sent;
     if (fresh.length + again.length === 0) return { kind: "nothing" };
