@@ -65,6 +65,7 @@ import {
   type PairedGroup,
   type RequestTiming,
 } from "./paired";
+import type { SavedPress } from "./quoteLinesReplay";
 
 const STEP_MS = 500;
 /**
@@ -458,6 +459,8 @@ async function press(
   earlier: string[];
   /** What each one request for Citations made while the reply was written replied. */
   citationsReplies: string[];
+  /** The reply as its last write before the end held it: its text and its Citations' markers. */
+  lastWritten: { text: string; markers: number[] } | null;
 }> {
   let stopPhase: () => void = () => undefined;
   const drafts: string[] = [];
@@ -475,6 +478,7 @@ async function press(
   const seen = new Map<string, { wordsAt: number | null; optionAt: number | null }>();
   let start = 0;
   let latestText = "";
+  let lastWritten: { text: string; markers: number[] } | null = null;
   const stop = core.on("conversation.message", (message) => {
     if (message.kind !== "answer") return;
     if (message.id === answerId) {
@@ -484,6 +488,12 @@ async function press(
         drafts.push(latestText);
       latestText = message.text;
       if (snapshotting) beforeCheck = message.text;
+      if (message.status === "streaming") {
+        lastWritten = {
+          text: message.text,
+          markers: message.citations.map((citation) => citation.marker),
+        };
+      }
     }
     const at = performance.now();
     const streaming = message.status === "streaming";
@@ -588,6 +598,7 @@ async function press(
         message.kind === "answer" && message.id !== answer.id ? [message.text] : [],
       ),
       citationsReplies: citationsAsked.slice(askedFrom),
+      lastWritten,
       ...(buttonId !== null && {
         pressedFirst: {
           firstWordsMs: since(button?.wordsAt, buttonAt),
@@ -648,6 +659,42 @@ export function formFailures(each: CallHelpCase, shown: readonly ReplyItem[]): s
 /** Every reply the change-claim check rewrote, with the text before the check and after it. */
 export const rewrittenReplies: { item: string; before: string; after: string }[] = [];
 
+/**
+ * A reply as the quote lines' replay reads it (`quoteLinesReplay.ts`), saved by this build: its text
+ * and Citations as it ended, those the end added marked so, and its text as its last write before
+ * the end held it.
+ */
+function savedPress(
+  each: CallHelpCase,
+  set: CallHelpSet,
+  model: string,
+  answer: ConversationAnswer,
+  asked: boolean,
+  lastWritten: { text: string; markers: number[] } | null,
+): SavedPress {
+  const before = new Set(lastWritten?.markers ?? []);
+  return {
+    id: each.id,
+    set,
+    model,
+    language: each.language,
+    button: each.typed ? "question" : each.kind,
+    text: answer.text,
+    citations: answer.citations.map((citation) => ({
+      marker: citation.marker,
+      quote: citation.quote,
+      check: citation.check,
+      ...(citation.checkReason && { checkReason: citation.checkReason }),
+      document: citation.documentName,
+      passage: citation.passageId,
+      from: before.has(citation.marker) ? "model" : "request",
+    })),
+    ...((answer.status === "stopped" || answer.status === "failed") && { status: answer.status }),
+    ...(asked && { asked }),
+    ...(lastWritten && { written: lastWritten.text }),
+  };
+}
+
 function item(each: CallHelpCase, set: CallHelpSet): PairedGroup["items"][number] {
   const byHand = READ_BY_HAND.has(set);
   return {
@@ -657,7 +704,7 @@ function item(each: CallHelpCase, set: CallHelpSet): PairedGroup["items"][number
     language: each.language,
     words: "item",
     ...(byHand && { withoutJudge: "always" as const }),
-    async run({ library, claimsJudge, meeting, choice }) {
+    async run({ library, claimsJudge, meeting, choice, model }) {
       if (claimsJudge === NO_JUDGE && !byHand) throw new Error(needsJudge(set));
       if (!meeting) throw new Error("The call-help set needs its Meeting.");
       // A press answers on the Answers model the User chose, as the panel's does.
@@ -684,6 +731,7 @@ function item(each: CallHelpCase, set: CallHelpSet): PairedGroup["items"][number
         drafts,
         earlier,
         citationsReplies,
+        lastWritten,
       } = pressed;
       const requests = requestsSince(library.dataDir, since);
       const done = answer.status === "done";
@@ -776,6 +824,7 @@ function item(each: CallHelpCase, set: CallHelpSet): PairedGroup["items"][number
         firstOptionMs,
         ...(pressedFirst && { pressedFirst }),
         requests,
+        saved: savedPress(each, set, model, answer, citationsReplies.length > 0, lastWritten),
         // What each Citation rests on, so a reply citing another line than the case's shows as one.
         text: [
           reply,
@@ -881,7 +930,8 @@ type CallHelpSet =
   | "call-help-typed"
   | "call-help-typed-fresh"
   | "call-help-typed-fresh-2"
-  | "call-help-typed-language";
+  | "call-help-typed-language"
+  | "call-help-typed-saved";
 
 const CASES: Readonly<Record<CallHelpSet, readonly CallHelpCase[]>> = {
   "call-help": CALL_HELP_CASES,
@@ -895,10 +945,16 @@ const CASES: Readonly<Record<CallHelpSet, readonly CallHelpCase[]>> = {
   "call-help-typed-fresh": CALL_HELP_TYPED_FRESH,
   "call-help-typed-fresh-2": CALL_HELP_TYPED_FRESH2,
   "call-help-typed-language": CALL_HELP_TYPED_LANGUAGE,
+  // The confirming round's cases again, run only to save the replies a build writes for the quote
+  // lines' replay: nothing in it is graded.
+  "call-help-typed-saved": CALL_HELP_TYPED_FRESH2,
 };
 
 /** The sets read by hand, which run with no judge; every other needs one. */
-const READ_BY_HAND: ReadonlySet<CallHelpSet> = new Set(["call-help-typed-language"]);
+const READ_BY_HAND: ReadonlySet<CallHelpSet> = new Set([
+  "call-help-typed-language",
+  "call-help-typed-saved",
+]);
 
 /** One group a case: its own Library, its own Meeting heard before the press. */
 export function callHelpSet(set: CallHelpSet = "call-help"): PairedGroup[] {

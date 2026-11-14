@@ -520,6 +520,44 @@ describe("The typed question's language slice (#2925)", { timeout: 120_000 }, ()
     expect(section).not.toMatch(/\| False Supported \| 0/);
   });
 
+  // protects=a typed reply is kept in the run's record as the quote lines' replay reads it, saved by the build that ran it: its text and Citations as it ended, a Citation the model gave marked as the model's, and its text as its last write before the end; the confirming round's cases run again with no judge only to save such replies; fails_when=the record lacks the reply's text as written, marks the model's Citation as the end's, or the saving set needs a judge or holds other cases; no_claim=what a real model writes.
+  test("a typed reply is saved as the quote lines' replay reads it, and the confirming round's cases run with no judge to save them", async () => {
+    const { run } = await pressed(
+      "en-typed-price",
+      "Towels are laundered at €1.50 per kilo.",
+      { grade: "right", unstated: [] },
+      undefined,
+      "call-help-typed",
+    );
+    expect(run.saved).toMatchObject({
+      id: "en-typed-price",
+      set: "call-help-typed",
+      language: "en",
+      button: "question",
+      citations: [
+        {
+          marker: 1,
+          quote: "Towels are laundered at €1.50 per kilo.",
+          check: "found",
+          from: "model",
+        },
+      ],
+    });
+    expect(run.saved?.text).toContain("[^1]");
+    expect(run.saved?.written).toContain("[^1]");
+
+    const saving = callHelpSet("call-help-typed-saved");
+    expect(
+      setsNeedingJudge(
+        saving.flatMap((group) => group.items),
+        false,
+      ),
+    ).toEqual([]);
+    expect(saving.map((group) => group.items[0]?.id)).toEqual(
+      CALL_HELP_TYPED_FRESH2.map((each) => each.id),
+    );
+  });
+
   test("seven questions on the first round's English call, each after its button", () => {
     const call = CALL_HELP_TYPED.find((each) => each.id === "en-typed-said");
     expect(CALL_HELP_TYPED_LANGUAGE.map((each) => each.id)).toEqual(Object.keys(told));

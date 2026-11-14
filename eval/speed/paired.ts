@@ -36,6 +36,7 @@ import { repeatChecks } from "../repeats/repeat";
 import { verdictOf } from "../repeats/score";
 import { SIGNS } from "./flows";
 import type { Expectation, Grade } from "./judge";
+import type { SavedPress } from "./quoteLinesReplay";
 import { citedText, type UnstatedSentence, unstatedSentences } from "./unstated";
 
 export const SET_IDS = [
@@ -56,6 +57,7 @@ export const SET_IDS = [
   "call-help-typed-fresh",
   "call-help-typed-fresh-2",
   "call-help-typed-language",
+  "call-help-typed-saved",
   "call-help-earlier-calls",
   "call-help-earlier-calls-2",
   "call-help-earlier-calls-3",
@@ -153,6 +155,8 @@ export interface ArmRun {
     /** The earlier call's start as the judge was given it, so a saved reply can be judged again. */
     earlierStarted?: string;
   };
+  /** A call-help reply as the quote lines' replay reads it, saved by the build that ran it. */
+  saved?: SavedPress;
 }
 
 /**
