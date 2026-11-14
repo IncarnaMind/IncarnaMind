@@ -189,15 +189,17 @@ test("a Chinese question on a Chinese call answered in English is asked anew onc
   // A call in Chinese on both sides, as the question is.
   const { app, panel } = await recording("zh", ["我们先看一下报价。", "企业版的价格在报价单上。"]);
   await chooseMode(panel, CALLS.zh.ask);
-  // Watches the reply's line from the first words on: it may change, never be empty.
+  // Watches the reply's line from the first words on: it may change, never be empty. The English
+  // line may stand for a moment only, so it is caught as it is drawn, not looked for afterwards.
   await panel.evaluate(() => {
-    const seen = { written: false, emptied: false };
+    const seen = { written: false, emptied: false, english: false };
     (globalThis as unknown as { anew: typeof seen }).anew = seen;
     new MutationObserver(() => {
       const line = [...document.querySelectorAll('[data-testid="help-suggestion"]')]
         .at(-1)
         ?.querySelector('[data-testid="help-option-say"]');
       const text = line?.textContent?.trim() ?? "";
+      if (text.includes("The Enterprise plan is $45 a seat")) seen.english = true;
       if (text !== "") seen.written = true;
       else if (seen.written) seen.emptied = true;
     }).observe(document.body, { subtree: true, childList: true, characterData: true });
@@ -208,13 +210,12 @@ test("a Chinese question on a Chinese call answered in English is asked anew onc
 
   const answer = newest(panel);
   const line = answer.getByTestId("help-option-say").first();
-  await expect(line).toContainText("The Enterprise plan is $45 a seat");
   await expect(line).toContainText("企业版每个席位每月 45 美元", { timeout: 20_000 });
   await expect(answer).toHaveAttribute("data-status", "done");
   await expect(answer.getByTestId("help-option-say")).toHaveCount(1);
   expect(
     await panel.evaluate(() => (globalThis as unknown as { anew: { emptied: boolean } }).anew),
-  ).toEqual({ written: true, emptied: false });
+  ).toEqual({ written: true, emptied: false, english: true });
   await app.close();
 });
 
