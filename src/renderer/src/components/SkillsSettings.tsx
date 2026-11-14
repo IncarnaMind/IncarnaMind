@@ -16,7 +16,14 @@ import { showFileLabelKey } from "../fileInfo";
 import { useLanguage, useT } from "../i18n";
 import { savedFolderLabel } from "../outputFiles";
 import { openCodeSandboxHelp } from "../sandbox";
-import { formatSize, pickSkill, skillDescription, skillShortLine, skillTitle } from "../skills";
+import {
+  formatSize,
+  pickSkill,
+  removedBuiltInsLine,
+  skillDescription,
+  skillShortLine,
+  skillTitle,
+} from "../skills";
 import { useAppStore } from "../store";
 import { DetailsLine } from "./DetailsLine";
 import { ExportLineIcon, MoreLineIcon, PlusLineIcon } from "./lineIcons";
@@ -65,6 +72,7 @@ const NEW_SKILL: SkillDraft = { name: "", description: "", steps: "" };
  */
 export function SkillsSettings() {
   const t = useT();
+  const language = useLanguage();
   const skills = useAppStore((state) => state.skills);
   const restoreBuiltInSkills = useAppStore((state) => state.restoreBuiltInSkills);
   const removedBuiltIns = useRemovedBuiltIns();
@@ -295,9 +303,7 @@ export function SkillsSettings() {
             <button
               type="button"
               data-testid="skill-restore-built-ins"
-              title={t("skills.settings.restoreBuiltIns.hint", {
-                names: removedBuiltIns.map((name) => skillTitle(name, t)).join(", "),
-              })}
+              title={removedBuiltInsLine(removedBuiltIns, t, language)}
               disabled={busy !== null}
               onClick={() => void restoreBuiltInSkills()}
               className={buttonStyle("secondary", "sm")}

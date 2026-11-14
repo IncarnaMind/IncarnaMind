@@ -6107,12 +6107,19 @@ export type ProviderErrorKind =
    * oldest Question context left out. Nothing is cut silently.
    */
   | "too-long"
+  /**
+   * The model's context window can't hold what every request carries (its instructions and Tools)
+   * with room left to read a Passage, however short the Question: nothing was sent (#3045).
+   */
+  | "window-too-small"
   /** The request could pass the User's monthly cap (`UserSettings.monthlyCap`): nothing was sent. */
   | "cost-cap"
   /** The model's reply ended with no text, or none that could be read. */
   | "no-answer"
   /** The model's reply reached its call's output limit and was cut off (#2275). */
   | "cut-short"
+  /** As "cut-short", at an output cap the app lowered for the model's small window: asking again can't help (#3045). */
+  | "cut-short-small-window"
   | "unknown";
 
 // Keyed by every kind, so a new one that isn't listed fails to compile instead of being missed.
@@ -6135,11 +6142,18 @@ export const PROVIDER_ERROR_KINDS: Record<ProviderErrorKind, true> = {
   "plan-limit": true,
   blocked: true,
   "too-long": true,
+  "window-too-small": true,
   "cost-cap": true,
   "no-answer": true,
   "cut-short": true,
+  "cut-short-small-window": true,
   unknown: true,
 };
+
+/** The part of an Answer's request too long for the model's window, when it isn't the Question: text selected in a Note (#3045). */
+export type TooLongPart = "selection";
+
+export const TOO_LONG_PARTS: readonly TooLongPart[] = ["selection"];
 
 export interface ProviderError {
   kind: ProviderErrorKind;
@@ -6156,6 +6170,8 @@ export interface ProviderError {
   resetsAt?: string;
   /** A sign-in route's request (a Claude account, Copilot): which of its problems it is, for its own line. */
   signInRoute?: SignInRouteProblem;
+  /** "too-long": the part too long for the window, when it isn't the Question (#3045). */
+  tooLong?: TooLongPart;
   /**
    * "cost-cap" from a Run's own budget rather than the monthly cap (#1554): that budget, and what
    * the Run had spent when it stopped.
@@ -8834,6 +8850,8 @@ export interface ConversationAnswer {
   errorKind: ProviderErrorKind | null;
   errorMessage: string | null;
   errorSignInRoute: SignInRouteProblem | null;
+  /** A "too-long" failure's part, when it wasn't the Question (`ProviderError.tooLong`). */
+  errorTooLong: TooLongPart | null;
   citationSupport: CitationSupport | null;
   /** The Tools it called, in order: its searches, Skills and Connectors' Tools. */
   toolCalls: AnswerToolCall[];

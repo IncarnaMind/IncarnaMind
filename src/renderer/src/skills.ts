@@ -39,4 +39,10 @@ export function formatSize(
   });
 }
 
-export { skillDescription, skillShortLine, skillsInListOrder, skillTitle } from "./skillText";
+export {
+  removedBuiltInsLine,
+  skillDescription,
+  skillShortLine,
+  skillsInListOrder,
+  skillTitle,
+} from "./skillText";

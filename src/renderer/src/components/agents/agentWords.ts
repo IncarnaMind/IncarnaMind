@@ -15,6 +15,7 @@ import type { Language } from "../../../../core/language";
 import { clientInSentence, clientTitle } from "../../../../shared/agentNames";
 import { formatDateTime } from "../../../../shared/dates";
 import { type MessageKey, type MessageParams, translate } from "../../../../shared/i18n";
+import { unitsOf } from "../../../../shared/i18n/join";
 
 type Translate = (key: MessageKey, params?: MessageParams) => string;
 
@@ -41,6 +42,12 @@ export function pairingInSentence(
   });
   return isListName ? clientInSentence({ id: client, name: "" }, t) : pairing.name;
 }
+
+/** What an agent's row says it reads: its Folders by name, or that it reads none yet. */
+export const readsLine = (names: readonly string[], t: Translate, language: Language): string =>
+  names.length > 0
+    ? t("agents.pairing.reads", { folders: unitsOf(names, language) })
+    : t("agents.pairing.readsNothing");
 
 /** How connecting an agent goes, in a line under its name. */
 export function setupWords(client: AgentClient, t: Translate): string {

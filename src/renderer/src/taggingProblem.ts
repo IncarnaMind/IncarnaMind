@@ -13,7 +13,13 @@ type Translate = (key: MessageKey, params?: MessageParams) => string;
  * them, else a line that names no service, since a Document doesn't record which one tagged it.
  */
 export const taggingProblem = (error: ProviderError, t: Translate): string =>
-  error.wording ? t(error.wording.key, error.wording.values) : t(`tagging.problem.${error.kind}`);
+  error.wording
+    ? t(error.wording.key, error.wording.values)
+    : t(`tagging.problem.${taggingKind(error)}`);
+
+/** Only an Answer's own fitting (src/core/answers/window.ts) finds these, never a Document's tagging. */
+const taggingKind = ({ kind }: ProviderError) =>
+  kind === "window-too-small" ? "too-long" : kind === "cut-short-small-window" ? "cut-short" : kind;
 
 export function taggingProblemService(text: FlowRoute, reader: FlowRoute): ExternalService | null {
   if (text.where === "unknown" || reader.where === "unknown") return null;

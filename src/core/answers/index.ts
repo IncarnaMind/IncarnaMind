@@ -388,6 +388,7 @@ import {
   meetingInstructions,
   mindInstructions,
   mindsLine,
+  onScreenLine,
   selectedTextBlock,
   signInNeededInstructions,
   skillInstructions,
@@ -1362,6 +1363,8 @@ export function createAnswers(options: AnswersOptions) {
     ids?: ContextCitations;
     /** The line naming the User's Minds, for a pass that offers the Minds' Tools (see `AnswerRequest`). */
     mindsLine?: { line: string; asked: string };
+    /** The line naming the Documents on screen (see `AnswerRequest`). */
+    onScreenLine?: string;
     /** The Documents of the Question's Search scope; null with no Search scope (every Document). */
     documentIds: string[] | null;
     /** The User limited the Question to some Documents. Absent: `documentIds` names some. */
@@ -3763,6 +3766,7 @@ export function createAnswers(options: AnswersOptions) {
         question: context.question,
         ...(context.meetingFacts && { meetingFacts: context.meetingFacts }),
         ...(input.mindsLine && { mindsLine: input.mindsLine }),
+        ...(input.onScreenLine && { onScreenLine: input.onScreenLine }),
         model: prepared.model,
         ...(prepareQuick && { quickModel: () => prepareQuick(model, prepared) }),
         documents,
@@ -4441,10 +4445,15 @@ export function createAnswers(options: AnswersOptions) {
       text: kept.text,
       selection: kept.selection,
       ...(kept.pictures?.length && { pictures: kept.pictures }),
-      cut: (tokens) => reading.section(tokens, asking),
+      cut: (tokens, withSelection) => reading.section(tokens, asking, withSelection),
+      ...(kept.selection &&
+        reading.selection !== kept.selection && {
+          wholeSelection: reading.selection,
+        }),
     });
     start({
       ...(scopeText && { scopeLine: scopeText }),
+      ...(shown.length > 0 && { onScreenLine: onScreenLine(shown) }),
       ...(named.length > 0 && {
         mindsLine: {
           line: mindsLine(named),

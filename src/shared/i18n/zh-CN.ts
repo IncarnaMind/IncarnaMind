@@ -4011,6 +4011,23 @@ export const zhCN = {
   "answer.error.ollama-not-running": "Ollama 没有在这台电脑上运行",
   "answer.error.too-long": "这个问题太长，超出了模型的上限。请缩短问题。",
   "answer.error.too-long.hosted": "内容太长，超出了 {model} 的上限",
+  "answer.error.too-long.selection":
+    "选中的文字太长，在这台电脑上 {model} 放不下。请少选一些，或换一个模型。",
+  "answer.error.too-long.selection.hosted":
+    "选中的文字太长，{model} 放不下。请少选一些，或换一个模型。",
+  "answer.error.window-too-small.assistant":
+    "在这台电脑上，{model} 的上下文窗口太小，助手用不了它，问题再短也不行。",
+  "answer.error.window-too-small.assistant.hosted":
+    "{model} 的上下文窗口太小，助手用不了它，问题再短也不行。",
+  "answer.error.window-too-small.question":
+    "在这台电脑上，{model} 的上下文窗口太小，读不了你的文档，问题再短也不行。",
+  "answer.error.window-too-small.question.hosted":
+    "{model} 的上下文窗口太小，读不了你的文档，问题再短也不行。",
+  "answer.error.window-too-small.none":
+    "在这台电脑上，{model} 的上下文窗口太小，连很短的请求都放不下。",
+  "answer.error.window-too-small.none.hosted": "{model} 的上下文窗口太小，连很短的请求都放不下。",
+  "answer.error.cut-short-small-window": "在这台电脑上，{model} 能写的篇幅很小，回复被截断了。",
+  "answer.error.cut-short-small-window.hosted": "{model} 能写的篇幅很小，回复被截断了。",
   "answer.error.no-answer": "模型没有给出回答",
   "answer.error.cut-short": "模型的回复达到长度上限，已截断",
   "answer.error.unknown": "{service} 出了问题，原因不明",
