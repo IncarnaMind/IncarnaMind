@@ -275,7 +275,11 @@ export function checkInstructions(
  * The instructions of a sentence's first reply (./firstReply): a check Run's rules and reply form,
  * one reply for each of its parts, from the Passages its search found, with every part's records.
  */
-export function firstReplyInstructions(language: Language, claim: string): string {
+export function firstReplyInstructions(
+  language: Language,
+  claim: string,
+  figures: boolean,
+): string {
   return [
     ...rules(false, readStatedUnits(claim).length > 0),
     "",
@@ -284,8 +288,14 @@ export function firstReplyInstructions(language: Language, claim: string): strin
     'Reply with one JSON object: {"parts": [{"part": 1, "reply": "…"}], "citations": [{"marker": 1, "passage": "P1", "location": "…", "quote": "…"}]}.',
     "- parts: one entry for every numbered part, by its number. reply: that part's reply alone, in the form below.",
     `- citations: a record for every quote any part's reply uses, each under its own marker, and no marker for two parts: ${RECORD}. Include covered parts, supported domain members and membership on unsupported results too; use an empty array only when no quote backs any part.`,
+    ...(figures
+      ? [
+          "- A part the message gives requested figures for ends its reply with its own Figures line, for the ids given with that part. A quote it names is recorded by its entry in citations, under its marker. Nothing is worked out in this reply: a figure that no Passage states as a number, but that their numbers would give, has verdict unsupported, source null and calculation null.",
+        ]
+      : []),
     "",
     reply(language, false),
+    ...(figures ? ["", figureInstructions(language)] : []),
   ].join("\n");
 }
 
@@ -319,6 +329,46 @@ const withoutIds = (key: string, value: unknown) => (ID_KEYS.has(key) ? undefine
 /** How many of an Analysis figure's runs of rows the judge reads: the count says how many there are. */
 const JUDGED_ROW_RUNS = 20;
 
+/** A sentence's requested figures as a check's request gives them: each by its handle, never its ids. */
+export function figuresData(figures: readonly CheckFigure[]): string {
+  const blocks = new Map<string, string>();
+  return JSON.stringify(
+    figures.map(({ locator, reading, calculated, context, label, analysisRecord }, index) => ({
+      id: figureHandle(index),
+      locator: locatorSent(locator, blocks),
+      shown: reading.chars,
+      unit: reading.unit,
+      ...(reading.ambiguous.length > 0 && {
+        ambiguities: reading.ambiguous.map(({ kind, readings }) => ({
+          kind,
+          readings: readings.map((each, index) => ({
+            reading: index + 1,
+            means: readingWords(each),
+          })),
+        })),
+      }),
+      ...(context && { context }),
+      ...(label && { label }),
+      ...(calculated && { saved: calculated.figure }),
+      ...(analysisRecord?.label !== undefined && {
+        analysis: {
+          label: analysisRecord.label,
+          unit: analysisRecord.unit ?? null,
+          ...(analysisRecord.heading && { heading: analysisRecord.heading }),
+          rule: analysisRecord.of
+            ? {
+                ...analysisRecord.of,
+                rows: analysisRecord.of.rows.slice(0, JUDGED_ROW_RUNS),
+              }
+            : null,
+          code: analysisRecord.code ?? null,
+        },
+      }),
+    })),
+    withoutIds,
+  );
+}
+
 /** The message a check Run is given: the sentence, its paragraph, and what it already cites. */
 export function claimPrompt(input: {
   claim: string;
@@ -332,7 +382,6 @@ export function claimPrompt(input: {
   const context = input.context?.trim();
   const cited = input.cited ?? [];
   const setAside = meaningOf(input.citedShown ?? "");
-  const blocks = new Map<string, string>();
   return [
     ...(context && context !== input.claim.trim()
       ? [
@@ -357,48 +406,7 @@ export function claimPrompt(input: {
       ? [
           "",
           "Exact requested occurrences; their ids and locations distinguish repeated equal values. For each one with analysis, judge only whether the sentence names it, and give its names:",
-          tagged(
-            "figures",
-            JSON.stringify(
-              input.figures?.map(
-                ({ locator, reading, calculated, context, label, analysisRecord }, index) => ({
-                  id: figureHandle(index),
-                  locator: locatorSent(locator, blocks),
-                  shown: reading.chars,
-                  unit: reading.unit,
-                  ...(reading.ambiguous.length > 0 && {
-                    ambiguities: reading.ambiguous.map(({ kind, readings }) => ({
-                      kind,
-                      readings: readings.map((each, index) => ({
-                        reading: index + 1,
-                        means: readingWords(each),
-                      })),
-                    })),
-                  }),
-                  ...(context && { context }),
-                  ...(label && { label }),
-                  ...(calculated && { saved: calculated.figure }),
-                  ...(analysisRecord?.label !== undefined && {
-                    analysis: {
-                      label: analysisRecord.label,
-                      unit: analysisRecord.unit ?? null,
-                      ...(analysisRecord.heading && { heading: analysisRecord.heading }),
-                      rule: analysisRecord.of
-                        ? {
-                            ...analysisRecord.of,
-                            rows: analysisRecord.of.rows.slice(0, JUDGED_ROW_RUNS),
-                          }
-                        : null,
-                      code: analysisRecord.code ?? null,
-                    },
-                  }),
-                }),
-              ),
-              withoutIds,
-            ),
-            "",
-            CHECK_TAGS,
-          ),
+          tagged("figures", figuresData(input.figures ?? []), "", CHECK_TAGS),
         ]
       : []),
     "",

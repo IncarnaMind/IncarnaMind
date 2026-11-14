@@ -143,6 +143,8 @@ export interface ChecksRun {
   searched?: ClaimCheckRequest["searched"];
   prepared: PreparedChatModel;
   thirdParty?: readonly ThirdPartyReason[];
+  /** Its checks are of a flow the search-first gate measured (`ClaimCheckRequest.searchFirst`). */
+  searchFirst?: true;
   signal: AbortSignal;
 }
 
@@ -164,6 +166,7 @@ export function checkRequestOf(
     ...(claim.previous && { previous: claim.previous }),
     ...(claim.figures && { figures: claim.figures }),
     ...(claim.ahead && { ahead: claim.ahead }),
+    ...(run.searchFirst && { searchFirst: true }),
     scope: claim.scope ?? run.scope,
     ...((claim.searched ?? run.searched) !== undefined && {
       searched: claim.searched ?? run.searched,

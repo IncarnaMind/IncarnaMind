@@ -1721,7 +1721,7 @@ export function createChecks(options: ChecksOptions) {
     track,
     // A check of its own, whose search goes to the reranker in the order the sentences are named.
     searchAhead: (model, query, scope, signal) =>
-      handsOff(options, { model })
+      handsOff(options, { model, searchFirst: true })
         ? asCheckWork(() => ownSearch(options, { claim: query, scope, signal }).found)
         : null,
   });

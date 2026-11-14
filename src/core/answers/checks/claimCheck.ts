@@ -154,6 +154,11 @@ export interface ClaimCheckRequest {
   window?: readonly WindowedPassage[];
   /** The sentence's own search, made before its check started. */
   ahead?: AheadSearch;
+  /**
+   * A check of a flow the search-first gate measured (Check this Note, a write's checks): only
+   * these may search first on a listed model (#2532); Verify and the watch check as before.
+   */
+  searchFirst?: true;
   signal: AbortSignal;
   parts?: readonly ClaimPartPlan[];
   only?: ClaimPartSpan;
@@ -260,16 +265,17 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
 
 /**
  * Whether a check on this request's model searches its sentence's own words before its first
- * request and hands the Passages over (#2532): an uncited sentence, outside a whole read, on a
- * model that calls Tools and is listed for it. A Run that names its sentence's parts names them
- * before its first search, as it did before.
+ * request and hands the Passages over (#2532): an uncited sentence of a flow the gate measured,
+ * outside a whole read, on a model that calls Tools and is listed for it. A Run that names its
+ * sentence's parts names them before its first search, as it did before.
  */
 export function handsOff(
   deps: Pick<ClaimCheckDependencies, "checkPaths">,
-  request: Pick<ClaimCheckRequest, "model" | "window" | "cited" | "findParts">,
+  request: Pick<ClaimCheckRequest, "model" | "window" | "cited" | "findParts" | "searchFirst">,
 ): boolean {
   const { model } = request;
   return (
+    request.searchFirst === true &&
     !request.window &&
     !request.findParts &&
     (request.cited?.length ?? 0) === 0 &&

@@ -21,11 +21,11 @@ Both arms run in the same process, on one core per language, each Note a Note of
 
 **Model:** Claude Haiku 5.5 (`claude-haiku-5-5`) on the Anthropic API with a direct key, in every phase. Sonnet 5.5 only if a step can't be read on Haiku, with a new approval. No Opus, no Fable.
 
-**Optional Phase C, second provider:** DeepSeek V4.1 Flash (`deepseek-flash`) on the DeepSeek API, the `note-24` flow only. Why: the first reply asks for one JSON object carrying several parts' replies, and a model outside Claude may write it differently; DeepSeek also thinks before replying by default, which tests the first reply's room. Run only if the lead and the CEO approve it with the plan.
+**Optional Phase C, second provider:** DeepSeek V4.1 Flash (`deepseek-flash`) on the DeepSeek API, the `note-held` flow only. Why: the first reply asks for one JSON object carrying several parts' replies, and a model outside Claude may write it differently; DeepSeek also thinks before replying by default, which tests the first reply's room. Run only if the lead and the CEO approve it with the plan.
 
 ## Sets and flows (`INCARNAMIND_EVAL_SPEED_CHECK_TIMES`)
 
-- **`note-24`, held out:** Check this Note on a Note of 24 sentences in each language (`eval/speed/searchFirstCases.ts`), over invented bike-share rider terms written for this gate and run by no prompt before: 8 sentences the terms state (4 word for word, 4 in other words), 8 wrong twins (may for must, a negation, another place, the parties the other way round, a dropped condition, another period, two other figures), 8 the terms don't state, on the same topics. Four sentences in each language are checked figure by figure (the free dry run found them), and go to their Run on both arms, with the Passages handed over on `search-first`. A fresh Sonnet 5.5 reader, shown the terms and the 48 sentences shuffled with no labels, agreed with every label before any run.
+- **`note-held`, held out:** Check this Note on a Note of 24 sentences in each language (`eval/speed/searchFirstCases.ts`), over invented bike-share rider terms written for this gate and run by no prompt before: 8 sentences the terms state (4 word for word, 4 in other words), 8 wrong twins (may for must, a negation, another place, the parties the other way round, a dropped condition, another period, two other figures), 8 the terms don't state, on the same topics. Four sentences in each language are checked figure by figure (the free dry run found them), and go to their Run on both arms, with the Passages handed over on `search-first`. A fresh Sonnet 5.5 reader, shown the terms and the 48 sentences shuffled with no labels, agreed with every label before any run.
 - **`note`:** Check this Note on the 10-sentence Note of `eval/repeats` (`en` and `en-paraphrases`, and their Chinese twins), the #1624 budget's case. Not held out: earlier gates have seen it.
 - **`write`:** the assistant writes 30 cited paragraphs into a new Note, 12 of which are checked. Cited sentences take no hand-off: a timing that must not get worse.
 - **`answer`:** an Answer of 30 cited sentences, judged in batches. Untouched by these steps: a timing that must not get worse.
@@ -33,9 +33,9 @@ Both arms run in the same process, on one core per language, each Note a Note of
 
 ## Phases
 
-- **Phase A, the margin:** `CHECK_ARMS=main,main`, `note-24`, 3 rounds, English and Chinese. Its spread fixes Bar 2's margin before Phase B.
-- **Phase B, the gate:** `CHECK_ARMS=main,search-first`, `note-24,note,write,answer`, 3 rounds, English and Chinese.
-- **Phase C (optional):** Phase B's `note-24` on DeepSeek V4.1 Flash, 2 rounds.
+- **Phase A, the margin:** `CHECK_ARMS=main,main`, `note-held`, 3 rounds, English and Chinese. Its spread fixes Bar 2's margin before Phase B.
+- **Phase B, the gate:** `CHECK_ARMS=main,search-first`, `note-held,note,write,answer`, 3 rounds, English and Chinese.
+- **Phase C (optional):** Phase B's `note-held` on DeepSeek V4.1 Flash, 2 rounds.
 
 ## The void rule, the probe and the stop
 
@@ -45,13 +45,13 @@ Both arms run in the same process, on one core per language, each Note a Note of
 
 ## Bars (per model, both languages together unless said)
 
-1. **No wrong sentence Supported more often:** on `note-24` and `note`, no wrong twin or absent sentence (a sentence the Documents don't state) is Supported in more rounds on `search-first` than on `main`, sentence by sentence, and their totals are no higher.
-2. **Right sentences Supported no fewer, beyond the repeat's noise:** on `note-24`, in each language, `search-first`'s right sentences Supported over its rounds is at least `main`'s minus the margin.
+1. **No wrong sentence Supported more often:** on `note-held` and `note`, no wrong twin or absent sentence (a sentence the Documents don't state) is Supported in more rounds on `search-first` than on `main`, sentence by sentence, and their totals are no higher.
+2. **Right sentences Supported no fewer, beyond the repeat's noise:** on `note-held`, in each language, `search-first`'s right sentences Supported over its rounds is at least `main`'s minus the margin.
    - **The margin's rule, fixed now:** the larger, over the two languages, of the difference in right sentences Supported between Phase A's two `main` arms over their 3 rounds; at least 1. For scale, the pressure test's same 7 right sentences gave 4, 6 and 5 across three runs.
    - **The margin:** _written here from Phase A's report, before Phase B._
-3. **Not checked no higher:** on `note-24` and `note`, `search-first`'s Not checked over the rounds no higher than `main`'s by more than one sentence in 24 per language.
+3. **Not checked no higher:** on `note-held` and `note`, `search-first`'s Not checked over the rounds no higher than `main`'s by more than one sentence in 24 per language.
 4. **Faster where it should be, later nowhere:**
-   - on `note-24` and `note`, in each language, `search-first`'s median end is sooner than `main`'s, and its median first verdict no later than `main`'s by more than `main`'s own spread on that flow and language (its slowest round minus its fastest);
+   - on `note-held` and `note`, in each language, `search-first`'s median end is sooner than `main`'s, and its median first verdict no later than `main`'s by more than `main`'s own spread on that flow and language (its slowest round minus its fastest);
    - on `write` and `answer`, `search-first`'s median first verdict and end no later than `main`'s by more than that same spread.
 5. **Held-out data stays held out:** no prompt, instruction or rule of this pull request changes after Phase B's first paid request. A change made after it needs a new set and a new gate.
 
@@ -59,7 +59,7 @@ A model is listed in `SEARCH_FIRST` only when Bars 1 to 5 all hold on it. A bar 
 
 ## Reported, not gated
 
-Per flow, language and arm: the first sign, the first mark, the first verdict and the end; requests a sentence and of which kind; uncached input a sentence (input tokens less those read from the cache); the seconds of a Note during which some search was running (the union of its reranks, their wait included); the reranks repeated; the load. On `note-24`: each sentence's Supported count on each arm, and on `search-first` whether its first reply settled it, or which parts went on to their Run and why (the turn check that would have sent the Run back, a reply that couldn't be read, a part not checked, or no first reply at all: a figure, nothing found). The share of sentences settled in one reply, by kind. The #1624 budget on `note`: first verdict under 5 s and done under 15 s.
+Per flow, language and arm: the first sign, the first mark, the first verdict and the end; requests a sentence and of which kind; uncached input a sentence (input tokens less those read from the cache); the seconds of a Note during which some search was running (the union of its reranks, their wait included); the reranks repeated; the load. On `note-held`: each sentence's Supported count on each arm, and on `search-first` whether its first reply settled it, or which parts went on to their Run and why (the turn check that would have sent the Run back, a reply that couldn't be read, a part not checked, or no first reply at all: a figure, nothing found). The share of sentences settled in one reply, by kind. The #1624 budget on `note`: first verdict under 5 s and done under 15 s.
 
 ## Results
 

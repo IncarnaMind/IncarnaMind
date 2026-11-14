@@ -5,7 +5,10 @@
  * read as its Run's would be after that same search: it settles the part unless a turn check would
  * send the Run back for more (to search again, to give its own words, a calculation or its Duty
  * and Condition), it can't be read, or it leaves the part not checked. Such a part, and only it,
- * goes on to its own Run, whose search of the same words is the one made here.
+ * goes on to its own Run, whose search of the same words is the one made here. A part with figures
+ * gives its Figures line as its Run would, and settles only when each of its figures is Supported or
+ * Contradicted from a quote: nothing is worked out in one reply, so a figure its Run might
+ * calculate goes on to that Run.
  */
 import { caseCitations } from "../../../shared/caseCitations";
 import type { ClaimPartPlan } from "../../api";
@@ -18,7 +21,7 @@ import { inStep } from "../../timing/flows";
 import { answerTemperature, type CitationRecordInput, parseRecords } from "../engine";
 import { type JudgePart, json, judge } from "../judge";
 import { createCheckResults } from "./checkResults";
-import { checkTurnChecks, type RunTranscript } from "./checkRun";
+import { checkTurnChecks, figuresSent, type RunTranscript } from "./checkRun";
 import { setUpRun } from "./checkSetup";
 import {
   type AtomicClaimCheckResult,
@@ -29,8 +32,10 @@ import {
   shownResult,
   verdictOfReply,
 } from "./claimCheck";
+import { readFigureReply } from "./figureChecks";
 import {
   CHECK_TAGS,
+  figuresData,
   firstReplyInstructions,
   type ReadVerdict,
   readCheckReply,
@@ -49,7 +54,7 @@ export type FirstReplied = { settled: AtomicClaimCheckResult } | { goesOn: strin
 
 const FIRST_REPLY_TAGS: readonly PromptTag[] = [...CHECK_TAGS, "part"];
 
-/** Whether a sentence's parts are answered first in one reply: each a fact, nothing cited, no figure. */
+/** Whether a sentence's parts are answered first in one reply: each a fact, and nothing cited. */
 export function repliesFirst(
   deps: Pick<ClaimCheckDependencies, "checkPaths">,
   request: ClaimCheckRequest,
@@ -58,8 +63,7 @@ export function repliesFirst(
   const sentence = request.originalClaim ?? request.claim;
   return (
     parts.length > 0 &&
-    parts.every((part) => part.plan.kind === "fact" && !part.request.figures?.length) &&
-    !request.figures?.length &&
+    parts.every((part) => part.plan.kind === "fact") &&
     request.only === undefined &&
     request.figureIds === undefined &&
     !request.undecidedOnly &&
@@ -92,7 +96,12 @@ function markersOf(reply: string, verdict: ReadVerdict): Set<number> {
   ]);
 }
 
+/** A part's figures as its Run sends them (`figuresSent`). */
+const sentFigures = (deps: ClaimCheckDependencies, part: FirstPart) =>
+  figuresSent(deps, part.request.scope, part.request.figures ?? []);
+
 function firstReplyParts(
+  deps: ClaimCheckDependencies,
   request: ClaimCheckRequest,
   passages: string,
   parts: readonly FirstPart[],
@@ -100,6 +109,7 @@ function firstReplyParts(
 ): JudgePart[] {
   const claim = request.originalClaim ?? request.claim;
   const context = request.context?.trim();
+  const withFigures = parts.some((part) => (part.request.figures?.length ?? 0) > 0);
   return [
     ...(context && context !== claim.trim()
       ? [
@@ -114,13 +124,29 @@ function firstReplyParts(
     "The sentence to check:",
     { tag: "sentence", text: claim.trim() },
     "",
-    "Its parts, each checked on its own words:",
-    ...parts.map((part, at) => ({
-      tag: "part" as const,
-      attributes: { number: String(at + 1) },
-      text: part.request.claim,
-      inline: true as const,
-    })),
+    withFigures
+      ? "Its parts, each checked on its own words, each with the exact occurrences requested of it; their ids and locations distinguish repeated equal values. For each one with analysis, judge only whether the sentence names it, and give its names:"
+      : "Its parts, each checked on its own words:",
+    ...parts.flatMap((part, at): JudgePart[] => {
+      const figures = sentFigures(deps, part);
+      return [
+        {
+          tag: "part",
+          attributes: { number: String(at + 1) },
+          text: part.request.claim,
+          inline: true,
+        },
+        ...(figures.length > 0
+          ? [
+              {
+                tag: "figures" as const,
+                attributes: { part: String(at + 1) },
+                text: figuresData(figures),
+              },
+            ]
+          : []),
+      ];
+    }),
     "",
     `Write each part's Explanation in ${LANGUAGE_NAMES[language]}.`,
   ];
@@ -146,17 +172,28 @@ async function settle(
   const named = markersOf(reply, verdict);
   const own = records.filter((record) => named.has(record.marker));
   if (own.length > 0) setup.session.tools.cite(own, { structured: true });
-  const turns = checkTurnChecks(deps, request, {
-    looked: setup.looked,
-    searches: setup.searches,
-    readsWhole,
-    session: setup.session,
-    ledger,
-    across: (last, aside = []) => replyAcrossTurns(last, aside),
-    askedAbout: () => undefined,
-    askedForOwnWords: () => undefined,
-  });
+  const sent = sentFigures(deps, part);
+  const turns = checkTurnChecks(
+    deps,
+    { ...request, ...(sent.length > 0 && { figures: sent }) },
+    {
+      looked: setup.looked,
+      searches: setup.searches,
+      readsWhole,
+      session: setup.session,
+      ledger,
+      across: (last, aside = []) => replyAcrossTurns(last, aside),
+      askedAbout: () => undefined,
+      askedForOwnWords: () => undefined,
+    },
+  );
   for (const turn of turns) if (await turn.check(reply, [])) return { goesOn: turn.name };
+  if (sent.length > 0) {
+    const read = readFigureReply(reply, sent, request.claim);
+    if (!read) return { goesOn: "figures-line" };
+    if (read.items.some((item) => item.verdict !== "supported" && item.verdict !== "contradicted"))
+      return { goesOn: "figure-not-settled" };
+  }
   const transcript: RunTranscript = {
     reply,
     written: () => reply,
@@ -209,8 +246,15 @@ export async function firstReply(
   const judged = await inStep("first-reply", () =>
     judge({
       model: model.model,
-      question: { id: "first-reply", instructions: firstReplyInstructions(language, sentence) },
-      parts: firstReplyParts(request, passages, parts, language),
+      question: {
+        id: "first-reply",
+        instructions: firstReplyInstructions(
+          language,
+          sentence,
+          parts.some((part) => (part.request.figures?.length ?? 0) > 0),
+        ),
+      },
+      parts: firstReplyParts(deps, request, passages, parts, language),
       data: FIRST_REPLY_TAGS,
       reply: FIRST_REPLY,
       items: parts.length,

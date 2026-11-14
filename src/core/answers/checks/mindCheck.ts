@@ -681,6 +681,7 @@ export function createMindCheck(options: MindCheckOptions) {
       scope: scope.scope,
       searched: scope.wanted,
       prepared: ready.prepared,
+      searchFirst: true,
       signal,
     };
     const limit = slots(claimsAtOnce(ready.prepared));
@@ -716,7 +717,7 @@ export function createMindCheck(options: MindCheckOptions) {
     const aheadKey = (sentence: SelectedSentence) =>
       JSON.stringify([sentence.blockId, sentence.text, sentence.occurrence]);
     const searchAhead = (sentence: SelectedSentence) => {
-      if (sentence.cited.length > 0 || (sentence.figures?.length ?? 0) > 0) return;
+      if (sentence.cited.length > 0) return;
       const key = aheadKey(sentence);
       if (ahead.has(key)) return;
       const query = checkText(sentence).claim;

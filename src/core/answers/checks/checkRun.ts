@@ -314,6 +314,37 @@ export interface RunTranscript {
 }
 
 /**
+ * A sentence's figures as its check sends them: an Analysis run that read a Document a wall keeps
+ * from this check backs nothing here, and what it read never goes to the model, so its label, rows
+ * and code stay out of the request (#2378).
+ */
+export function figuresSent(
+  deps: Pick<ClaimCheckDependencies, "walledDocument">,
+  scope: EvidenceScope,
+  figures: readonly CheckFigure[],
+): CheckFigure[] {
+  const walledRun = (figure: CheckFigure) =>
+    (figure.analysisRecord?.citations ?? []).some(
+      ({ documentId }) =>
+        deps.walledDocument(documentId) !== null &&
+        (scope.documentIds === null ||
+          !scope.documentIds.includes(documentId) ||
+          scope.excluded.has(documentId)),
+    );
+  return figures.map((figure) =>
+    figure.analysisRecord && walledRun(figure)
+      ? {
+          ...figure,
+          analysisRecord: {
+            recalculated: figure.analysisRecord.recalculated,
+            citations: figure.analysisRecord.citations,
+          },
+        }
+      : figure,
+  );
+}
+
+/**
  * What sends a check's reply back for more before its verdict is read: the same for a Run's every
  * turn and for a first reply's every part (./firstReply), which goes on to its Run when one would.
  * `across` reads a reply across its turns; `askedAbout` hears the reply an ask about its Figures
@@ -457,31 +488,9 @@ export async function checkRun(
   let askedAbout: string | null = null;
   let failed: ProviderError | null = null;
   let finished = false;
-  // A run that read a Document a wall keeps from this check backs nothing here, and what it read
-  // never goes to the model: its label, rows and code stay out of the request (#2378).
-  const walledRun = (figure: CheckFigure) =>
-    (figure.analysisRecord?.citations ?? []).some(
-      ({ documentId }) =>
-        deps.walledDocument(documentId) !== null &&
-        (scope.documentIds === null ||
-          !scope.documentIds.includes(documentId) ||
-          scope.excluded.has(documentId)),
-    );
   const asked: typeof request = {
     ...request,
-    ...(request.figures && {
-      figures: request.figures.map((figure) =>
-        figure.analysisRecord && walledRun(figure)
-          ? {
-              ...figure,
-              analysisRecord: {
-                recalculated: figure.analysisRecord.recalculated,
-                citations: figure.analysisRecord.citations,
-              },
-            }
-          : figure,
-      ),
-    }),
+    ...(request.figures && { figures: figuresSent(deps, scope, request.figures) }),
   };
   const start = runStart(
     {

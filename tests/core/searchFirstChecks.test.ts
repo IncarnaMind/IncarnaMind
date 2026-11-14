@@ -111,16 +111,17 @@ async function setUp(
   {
     firstReplied,
     firstWait,
-  }: { firstReplied?: () => GeneratedReply; firstWait?: Promise<void> } = {},
+  }: { firstReplied?: (call: GenerateCall) => GeneratedReply; firstWait?: Promise<void> } = {},
 ) {
   const { parts, quotes, runs } = scenario;
   const streamed: ModelCall[] = [];
   const firstReplies: GenerateCall[] = [];
   const reranked: string[] = [];
+  const heard: { sentence: string; part: string; outcome: string }[] = [];
   const generate = (call: GenerateCall): GeneratedReply => {
     if (call.question === "first-reply" && firstReplied) {
       firstReplies.push(call);
-      return firstReplied();
+      return firstReplied(call);
     }
     if (call.question === "find-claims") {
       const sentences = listedSentences(call.prompt).map(({ number, text }) => ({
@@ -165,7 +166,10 @@ async function setUp(
   const core = startCore(await createTempDataFolder(), {
     createChatModel: scriptedModels(model).createChatModel,
     reranker,
-    checkPaths: { searchFirst: () => searchFirst },
+    checkPaths: {
+      searchFirst: () => searchFirst,
+      firstReplied: (one) => heard.push(one),
+    },
   });
   core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
   await core.updateSettings({ user: { language: scenario.language } });
@@ -188,7 +192,7 @@ async function setUp(
   ]);
   await client.settled();
   reranked.length = 0;
-  return { core, client, mindId: mind.id, streamed, firstReplies, reranked };
+  return { core, client, mindId: mind.id, streamed, firstReplies, reranked, heard };
 }
 
 async function checkNote(core: Core, mindId: string) {
@@ -331,6 +335,146 @@ describe.each(LANGUAGES)("the search-first check in $language", (each) => {
     expect(await verdicts(client)).toEqual({ [part]: "unsupported" });
     expect(runsOf(streamed).length).toBeGreaterThan(0);
     expect(reranked.filter((query) => bare(query) === part)).toHaveLength(1);
+    core.close();
+  });
+});
+
+const FIGURE_TERMS = {
+  en: "# Charges\n\nA ride costs 1.50 pounds for each started 30 minutes.\n\n# The year in numbers\n\nRides in 2026: 1.2 million. Revenue in 2026: 2.4 million pounds.\n",
+  "zh-CN":
+    "# 费用\n\n每开始一个30分钟，骑行收费1.5元。\n\n# 年度数据\n\n2026年骑行次数：120万次。2026年收入：240万元。\n",
+} as const;
+
+const FIGURES_IN = /<figures part="(\d+)">\n([\s\S]*?)\n<\/figures>/g;
+const NUMBER = /\d[\d,]*(?:\.\d+)?/g;
+
+/**
+ * A first reply that calls every part Supported and binds each of its figures to a number of
+ * `quotes[part]`: the figure's own when the quote writes it, else the quote's first. With no quote
+ * it cites nothing and gives no source; `worked` gives every figure as one no Passage states.
+ */
+function figuresYes(quotes: Record<string, string>, worked = false) {
+  return (call: GenerateCall): GeneratedReply => {
+    const shown = shownPassages(call.prompt);
+    const asked = [...call.prompt.matchAll(PARTS)].map((match) => match[2] ?? "");
+    const figures = new Map(
+      [...call.prompt.matchAll(FIGURES_IN)].map((match) => [
+        Number(match[1]),
+        JSON.parse(match[2] ?? "[]") as { id: string; shown: string }[],
+      ]),
+    );
+    const citations = asked.flatMap((part, at) => {
+      const quote = quotes[part];
+      const passage = quote ? shown.find((each) => each.text.includes(quote)) : undefined;
+      return quote && passage ? [{ marker: at + 1, passage: passage.id, quote }] : [];
+    });
+    return {
+      text: JSON.stringify({
+        parts: asked.map((part, at) => {
+          const quote = quotes[part];
+          const numbers = quote?.match(NUMBER) ?? [];
+          const items = (figures.get(at + 1) ?? []).map(({ id, shown: own }) => {
+            const number = numbers.find((each) => each === own.match(NUMBER)?.[0]) ?? numbers[0];
+            const source = !worked && quote && number ? { citation: at + 1, number } : null;
+            return {
+              id,
+              verdict: worked ? "unsupported" : "supported",
+              scope: "same",
+              topic: "found",
+              roles: "same",
+              measure: null,
+              says: worked ? "No Passage states it as a number." : null,
+              reading: null,
+              relation: "equals",
+              source,
+              calculation: null,
+            };
+          });
+          return {
+            part: at + 1,
+            reply: `${partReply(part, quote ?? part, at + 1)}\nFigures: ${JSON.stringify({ items, remainder: null })}`,
+          };
+        }),
+        citations,
+      }),
+    };
+  };
+}
+
+describe.each([
+  {
+    language: "en" as const,
+    price: "A ride costs 1.50 pounds for each started 30 minutes.",
+    wrongPrice: "A ride costs 2.00 pounds for each started 30 minutes.",
+    wrongScale: "Revenue in 2026 was 2.4 billion pounds.",
+    revenue: "Revenue in 2026: 2.4 million pounds.",
+    perRide: "Lumen Bay earned 2 pounds of revenue per ride in 2026.",
+  },
+  {
+    language: "zh-CN" as const,
+    price: "每开始一个30分钟，骑行收费1.5元。",
+    wrongPrice: "每开始一个30分钟，骑行收费2元。",
+    wrongScale: "2026年收入为2.4亿元。",
+    revenue: "2026年收入：240万元。",
+    perRide: "2026年每次骑行的收入为2元。",
+  },
+])("a sentence's figures in its first reply, in $language", (each) => {
+  const bare = (text: string) => text.replace(/^[\s\p{P}]+|[\s\p{P}]+$/gu, "");
+  const figureScenario = (sentence: string): Scenario => ({
+    language: each.language,
+    terms: FIGURE_TERMS[each.language],
+    sentences: [sentence],
+    parts: { [sentence]: [bare(sentence)] },
+    quotes: {},
+    runs: { [bare(sentence)]: { verdict: "unsupported" } },
+  });
+  const outcomeOf = (heard: readonly { part: string; outcome: string }[], sentence: string) =>
+    heard.filter((one) => one.part === bare(sentence)).map((one) => one.outcome);
+  const SETTLED = ["supported", "contradicted", "unsupported"];
+
+  test("a wrong figure the reply calls Supported is settled by the figure's own check, never Supported", async () => {
+    const { core, client, mindId, heard } = await setUp(figureScenario(each.wrongPrice), true, {
+      firstReplied: figuresYes({ [bare(each.wrongPrice)]: each.price }),
+    });
+    await checkNote(core, mindId);
+    const outcome = outcomeOf(heard, each.wrongPrice);
+    expect(outcome).toHaveLength(1);
+    expect(outcome[0]).not.toBe("supported");
+    expect(Object.values(await verdicts(client))).not.toContain("supported");
+    core.close();
+  });
+
+  test("a figure of another scale the reply calls Supported is never Supported", async () => {
+    const { core, client, mindId, heard } = await setUp(figureScenario(each.wrongScale), true, {
+      firstReplied: figuresYes({ [bare(each.wrongScale)]: each.revenue }),
+    });
+    await checkNote(core, mindId);
+    const outcome = outcomeOf(heard, each.wrongScale);
+    expect(outcome).toHaveLength(1);
+    expect(outcome[0]).not.toBe("supported");
+    expect(Object.values(await verdicts(client))).not.toContain("supported");
+    core.close();
+  });
+
+  test("a figure no Passage states as a number goes on to its Run, which may work it out", async () => {
+    const { core, mindId, heard, streamed } = await setUp(figureScenario(each.perRide), true, {
+      firstReplied: figuresYes({ [bare(each.perRide)]: each.revenue }, true),
+    });
+    await checkNote(core, mindId);
+    expect(outcomeOf(heard, each.perRide)).toEqual(["figure-not-settled"]);
+    expect(runsOf(streamed).length).toBeGreaterThan(0);
+    core.close();
+  });
+
+  test("a figure the reply calls Supported with no quote goes on to its Run", async () => {
+    const { core, mindId, heard, streamed } = await setUp(figureScenario(each.wrongPrice), true, {
+      firstReplied: figuresYes({}),
+    });
+    await checkNote(core, mindId);
+    const outcome = outcomeOf(heard, each.wrongPrice);
+    expect(outcome).toHaveLength(1);
+    expect(SETTLED).not.toContain(outcome[0]);
+    expect(runsOf(streamed).length).toBeGreaterThan(0);
     core.close();
   });
 });

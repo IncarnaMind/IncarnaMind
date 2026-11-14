@@ -293,6 +293,8 @@ export interface Landed {
   verdict: string;
   /** Why a mark shows Not checked, as the mark says. */
   reason?: string;
+  /** The Passage its mark cites: its Document's name and the quote. */
+  evidence?: { document: string | null; quote: string | null };
 }
 
 /**
@@ -376,6 +378,14 @@ export interface FlowTimes {
   firstReplied?: { sentence: string; part: string; outcome: string }[];
   /** Why the run doesn't count: a request refused, failed or timed out. */
   voided?: string;
+  /**
+   * For a Note's check, the states the Note must never be left in, counted once it ends: a
+   * sentence with no mark, a Supported or Contradicted mark with no quote, a sentence marked twice
+   * or answered twice by a first reply, a mark or part still checking.
+   */
+  anomalies?: { noMark: number; noQuote: number; twice: number; checking: number };
+  /** Of the check's own search for each right sentence, where the Passages stating it ranked. */
+  ranks?: { id: string; ranks: (number | null)[]; stated: boolean }[];
   spentUsd: number;
 }
 

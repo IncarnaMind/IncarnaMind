@@ -867,6 +867,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
       recordClaim: sentence.rawText,
       cacheKey: mindId,
       opinionsLeftOut: true,
+      searchFirst: true,
       slots: limit,
       signal,
     };

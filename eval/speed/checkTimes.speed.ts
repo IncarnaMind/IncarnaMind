@@ -97,13 +97,13 @@ const NOTE: Record<Language, string[]> = {
   "zh-CN": NOTE_SENTENCES["zh-CN"].map((each) => each.text),
 };
 
-/** #2532's held-out Note of 24 sentences in each language (./searchFirstCases). */
+/** #2532's held-out Note of 32 sentences in each language (./searchFirstCases). */
 const HELD_NOTE = (language: Language) =>
   SEARCH_FIRST_ITEMS.filter((item) => item.language === language);
 
 /** The sentences a Note flow checks. */
 const noteSentences = (flow: string, language: Language) =>
-  flow === "note-24" ? HELD_NOTE(language).map((item) => item.sentence) : NOTE[language];
+  flow === "note-held" ? HELD_NOTE(language).map((item) => item.sentence) : NOTE[language];
 
 /** A request's failure that leaves the run not counted (../evidence/2532-search-first/README.md). */
 const VOIDING: ReadonlySet<string> = new Set([
@@ -273,7 +273,17 @@ function watchNote(
           ? exact
           : sentences.findIndex((sentence) => text.includes(sentence) || sentence.includes(text));
       if (index >= 0 && !landed.some((each) => each.sentence === index))
-        landed.push({ sentence: index, ms: since(), ...shown });
+        landed.push({
+          sentence: index,
+          ms: since(),
+          ...shown,
+          ...(span.check.evidence && {
+            evidence: {
+              document: span.check.evidence.documentName,
+              quote: span.check.evidence.quote,
+            },
+          }),
+        });
     }
   };
   doc.on("update", read);
@@ -333,12 +343,95 @@ async function noteFlow(
   await checking;
   watch.stop();
   stopEarly();
+  await client.settled();
   return {
+    anomalies: anomaliesIn(client.doc, sentences),
     checkStartMs: watch.firstMarkMs() ?? doneMs,
     firstSignMs: earlyMs ?? watch.firstMarkMs() ?? doneMs,
     doneMs,
     landed: watch.landed,
     ...(searchedDuring && { searchedDuring }),
+  };
+}
+
+interface Ranked {
+  id: string;
+  language: Language;
+  detail: string;
+  /** A Passage of the search holds the sentence word for word: the check hands it over first. */
+  stated: boolean;
+  /** Where in the search's order each of its stating lines' Passages came, from 1; null when none held it. */
+  ranks: (number | null)[];
+  found: number;
+}
+
+/**
+ * For each right sentence of the held-out Note, where the search of its own words ranks the
+ * Passages that state it, as the check's search orders them (Cite…'s search, on the same Tool and
+ * reranker). No model is asked.
+ */
+async function ranksOf(core: Core, language: Language): Promise<Ranked[]> {
+  const { id: mindId } = await core.createMind({ title: `Ranks ${language}` });
+  const ranked: Ranked[] = [];
+  for (const item of HELD_NOTE(language)) {
+    if (item.kind !== "right" || !item.rests) continue;
+    const found = await core.findPassages({ text: item.sentence, mindId, scope: null });
+    const holds = (text: string, line: string) =>
+      findQuote(text, line) !== null || text.replace(/\s+/g, " ").includes(line);
+    ranked.push({
+      id: item.id,
+      language,
+      detail: item.detail,
+      stated: found.some((passage) => findQuote(passage.text, item.sentence.trim()) !== null),
+      ranks: item.rests.map((line) => {
+        const at = found.findIndex((passage) => holds(passage.text, line));
+        return at < 0 ? null : at + 1;
+      }),
+      found: found.length,
+    });
+  }
+  return ranked;
+}
+
+/** The ranks as a table: whether the check hands each right sentence the Passages that state it. */
+function ranksSection(ranked: readonly Ranked[]): string {
+  const handed = (each: Ranked) =>
+    each.stated || each.ranks.every((rank) => rank !== null && rank <= 4);
+  return [
+    "## Where each right sentence's stating Passages rank in its own search",
+    "",
+    `The check hands over the first four, a Passage that states the sentence word for word first. Handed in full: ${ranked.filter(handed).length} of ${ranked.length}.`,
+    "",
+    "| Sentence | How it is stated | Word for word in a Passage | Rank of each stating line's Passage | Passages found | All handed |",
+    "|---|---|---|---|--:|---|",
+    ...ranked.map(
+      (each) =>
+        `| ${each.id} | ${each.detail} | ${each.stated ? "yes" : ""} | ${each.ranks.map((rank) => rank ?? "none").join(", ")} | ${each.found} | ${handed(each) ? "yes" : "**no**"} |`,
+    ),
+  ].join("\n");
+}
+
+/** The states a checked Note must never be left in (`FlowTimes.anomalies`), counted. */
+function anomaliesIn(doc: Y.Doc, sentences: readonly string[]) {
+  const spans = claimSpans(readMind({ blocks: doc.getXmlFragment(MIND_CONTENT_FIELD) }));
+  const marks = sentences.map(
+    (sentence) =>
+      spans.filter((span) => span.check?.state && span.sentence.text.trim() === sentence.trim())
+        .length,
+  );
+  return {
+    noMark: marks.filter((count) => count === 0).length,
+    noQuote: spans.filter(
+      (span) =>
+        (span.check?.state === "supported" || span.check?.state === "contradicted") &&
+        !span.check.evidence?.quote,
+    ).length,
+    twice: marks.filter((count) => count > 1).length,
+    checking: spans.filter(
+      (span) =>
+        span.check?.state === "checking" ||
+        (span.check?.parts ?? []).some((part) => part.verdict === "checking"),
+    ).length,
   };
 }
 
@@ -572,12 +665,17 @@ timedChecks("where a check's time goes, on each model and language", async () =>
   const log = createLog();
   const config = readConfig(ROOT);
   // A dry run sends nothing: its model is scripted (./dryRun), and its key a made-up one.
-  const dry = env("DRY") === "1";
+  const dryAs = env("DRY");
+  const dry = dryAs !== null;
+  if (dry && dryAs !== "1" && dryAs !== "yes")
+    throw new Error(
+      "INCARNAMIND_EVAL_SPEED_DRY: 1 checks by rote, yes calls everything Supported.",
+    );
   const models = dry
     ? [{ kind: "anthropic" as const, modelId: "claude-haiku-5-5", apiKey: "sk-ant-dry-run" }]
     : modelsAsked();
   if (models.length === 0) throw new Error("Set INCARNAMIND_EVAL_SPEED_MODELS.");
-  const dryModel = dry ? dryRunModel() : null;
+  const dryModel = dry ? dryRunModel(dryAs === "yes" ? "yes" : "rote") : null;
   // #2532's gate: each pass runs on each check arm, the order turning from round to round.
   const checkArms = (list("CHECK_ARMS") ?? []).map((arm, at, all) => {
     const before = all.slice(0, at).filter((each) => each === arm).length;
@@ -591,6 +689,10 @@ timedChecks("where a check's time goes, on each model and language", async () =>
   }
   const rightMargin = env("RIGHT_MARGIN") === null ? null : Number(env("RIGHT_MARGIN"));
   let firstReplied: NonNullable<FlowTimes["firstReplied"]> = [];
+  // Where the check's own search ranks each right sentence's stating Passages: `1`, then the run;
+  // `only`, with no flow run at all.
+  const ranksAsked = env("RANKS");
+  const ranked: Ranked[] = [];
   const flows = wanted ?? [];
   const languages = (list("LANGUAGES") ?? ["en", "zh-CN"]) as Language[];
   const runs = Number(env("RUNS") ?? "2");
@@ -666,11 +768,11 @@ timedChecks("where a check's time goes, on each model and language", async () =>
       await writeFile(path, buildPdf(document.pages));
       documents.push({ key: document.file, path });
     }
-    if (flows.includes("note-24")) {
+    if (flows.includes("note-held")) {
       for (const document of SEARCH_FIRST_DOCUMENTS) {
-        if (document.language !== language) continue;
+        if (!document.libraries.includes(language)) continue;
         const path = join(folder, document.file);
-        await writeFile(path, buildPdf(document.pages));
+        await writeFile(path, document.csv ?? buildPdf(document.pages ?? []));
         documents.push({ key: document.file, path });
       }
     }
@@ -714,7 +816,8 @@ timedChecks("where a check's time goes, on each model and language", async () =>
         },
         { timeout: 10 * 60_000, interval: 1000 },
       );
-      matrix: for (const model of models) {
+      if (ranksAsked) ranked.push(...(await ranksOf(core, language)));
+      matrix: for (const model of ranksAsked === "only" ? [] : models) {
         const name = `${model.kind}/${model.modelId}`;
         const saved = await core.saveChatProvider(model);
         const choice: ChatModelChoice = { providerId: saved.id, modelId: model.modelId };
@@ -763,9 +866,9 @@ timedChecks("where a check's time goes, on each model and language", async () =>
             repeats.begin();
             const times: Pick<
               FlowTimes,
-              "checkStartMs" | "firstSignMs" | "doneMs" | "landed" | "searchedDuring"
+              "checkStartMs" | "firstSignMs" | "doneMs" | "landed" | "searchedDuring" | "anomalies"
             > =
-              flow === "note" || flow === "note-24"
+              flow === "note" || flow === "note-held"
                 ? await noteFlow(
                     core,
                     choice,
@@ -807,8 +910,9 @@ timedChecks("where a check's time goes, on each model and language", async () =>
               ...(arm && { arm }),
               ...(checkArm && { checkArm }),
               ...(voided && { voided }),
+              ...(times.anomalies && { anomalies: times.anomalies }),
               ...(checkArm && { firstReplied }),
-              ...(flow === "note-24" && {
+              ...(flow === "note-held" && {
                 stated: HELD_NOTE(language).map((each) => each.kind === "right"),
                 items: HELD_NOTE(language).map((each) => ({
                   id: each.id,
@@ -852,7 +956,7 @@ timedChecks("where a check's time goes, on each model and language", async () =>
   }
   const counts = new Map([
     ["note", 10],
-    ["note-24", 24],
+    ["note-held", HELD_NOTE("en").length],
     ["write", 30],
     ["write-mixed", 20],
     ["writes", 30],
@@ -864,13 +968,14 @@ timedChecks("where a check's time goes, on each model and language", async () =>
     `${new Date().toISOString()} · ${runs} runs a flow, model and language · seconds from the User's action, medians. Spent $${spentBefore.toFixed(3)}.${stopped ? ` ${stopped}` : ""}`,
     "",
     checkTimesReport(results, counts),
+    ...(ranked.length > 0 ? ["", ranksSection(ranked)] : []),
     ...(checkArms.length > 0
       ? [
           "",
           searchFirstGateSection(
             results,
             (flow, language) =>
-              flow === "note" || flow === "note-24"
+              flow === "note" || flow === "note-held"
                 ? noteSentences(flow, language as Language)
                 : itemsOf(flow, language as Language).map((each) => each.sentence),
             rightMargin,
@@ -898,6 +1003,7 @@ timedChecks("where a check's time goes, on each model and language", async () =>
   await mkdir(out, { recursive: true });
   await writeFile(join(out, "report.md"), report);
   await writeFile(join(out, "report.json"), JSON.stringify(results, null, 2));
+  if (ranked.length > 0) await writeFile(join(out, "ranks.json"), JSON.stringify(ranked, null, 2));
   if (judge) {
     await writeFile(
       join(out, "judged.json"),
