@@ -483,8 +483,8 @@ describe("A unit said in prose names only the rows it heads (#2997)", { timeout:
 describe("A table's own heading lines and labels give its rows their unit (#2997)", {
   timeout: 120_000,
 }, () => {
-  // protects=a table glued under another, with no line between, starts at its own heading row, so it takes nothing from the first table's caption, unit line or prose, while a heading row of periods ("厂区\t2023年\t2024年", "Site\t2023\t2024", "FY2023") heads its own table and lets the caption over it through, in both languages; fails_when="研发产量为31千克。" or "Research's headcount was 31 kg." citing the glued table reads ✓, or "二厂2024年产量为31千克。" under a caption over a heading row of years reads Not checked; no_claim=a number below a section row inside a table, which reads as on main.
-  test("a glued table takes nothing from the table above, and a heading row of periods heads its own table", async () => {
+  // protects=a table glued under another, with no line between, starts at its own heading row, so it takes nothing from the first table's caption, unit line or prose, while a heading row of periods ("厂区\t2023年\t2024年", "Site\t2023\t2024", "FY2023") heads its own table and lets the caption over it through, in both languages; fails_when="研发产量为31千克。" or "Research's headcount was 31 kg." citing the glued table reads ✓, or "二厂2024年产量为31千克。" under a caption over a heading row of years reads Not checked; no_claim=a number below a section row inside a table, which reads as on main, and the first table's column heading cell, which still reaches the glued table (the known cost below).
+  test("a glued table takes nothing from the caption, unit line or prose of the table above, and a heading row of periods heads its own table", async () => {
     await readsAsWanted([
       [
         "表3 各厂产量（千克）\n厂区\t产量\n一厂\t54\n二厂\t62\n部门\t人数\n研发\t31",
@@ -540,6 +540,22 @@ describe("A table's own heading lines and labels give its rows their unit (#2997
         "Site B's output in FY2024 was 31 kg.",
         TICK,
       ],
+    ]);
+  });
+
+  // protects=known costs, a column's heading cell of a tab table glued above, with no line between, read as a label of the glued table's column too, as main reads it: under "Output (kt)" over "Output (Mt)", "B's output was 31 Mt." keeps its ✓, and "B's output was 31 kt." reads Not checked and Supported with the tables cited, ✓ and Supported with B's row cited; under 产量（万吨） over 产量（亿吨） both 31亿吨 and 31万吨 read ✓ and Supported; fails_when=any reads otherwise without this list changing, as the next part of #2997 means to turn the wrong ones; no_claim=that the heading labels the glued table.
+  test("known costs of a column's heading in a table glued above (#2997)", async () => {
+    const output = "Item\tOutput (kt)\nA\t54\nItem\tOutput (Mt)\nB\t31";
+    const plants = "项目\t产量（万吨）\n甲\t54\n项目\t产量（亿吨）\n乙\t31";
+    await readsAsWanted([
+      [output, output, "B's output was 31 Mt.", TICK],
+      [output, output, "B's output was 31 kt.", UNJUDGED],
+      [output, "B\t31", "B's output was 31 Mt.", TICK],
+      [output, "B\t31", "B's output was 31 kt.", TICK],
+      ...[plants, "乙\t31"].flatMap((quote): [string, string, string, Wanted][] => [
+        [plants, quote, "乙产量为31亿吨。", TICK],
+        [plants, quote, "乙产量为31万吨。", TICK],
+      ]),
     ]);
   });
 });
@@ -2096,6 +2112,40 @@ describe("A caption heads its own table (#2997)", { timeout: 120_000 }, () => {
         "二厂产值为31万元。",
         TICK,
       ],
+    ]);
+  });
+
+  // protects=known costs, a caption over a table that the next table's own heading line, stating no unit, follows with no blank line between, read as a group heading over both, as main reads it: "Site B's output was 31 thousand tonnes." keeps its ✓ and Supported, and "二厂产量为31万吨。" too, while 31亿吨 is caught; with a blank line between, the caption no longer reaches the next table, which states no unit, so both read the model's ✓ and Unsupported in Check against Documents (the third cost); the boundary can't move to the next table's own heading, because a group heading over two sub-lists (各月充电量（万千瓦时） over 华东 and 华北) must still give the second its unit: "华北7月充电量为90万千瓦时。" keeps ✓ and Supported and 90亿千瓦时 is caught; fails_when=any reads otherwise without this list changing, as the next part of #2997 means to tell the two apart; no_claim=that the caption heads the next table.
+  test("known costs of a caption with no blank line before the next table (#2997)", async () => {
+    const output = (gap: string) =>
+      `Output (kt)\nSite\tOutput\nA\t54\n${gap}Inventory\nSite\tOutput\nB\t31`;
+    const plants = (gap: string) =>
+      `产量（万吨）\n厂区\t产量\n一厂\t54\n${gap}库存\n厂区\t产量\n二厂\t31`;
+    const charging = "Rates\n各月充电量（万千瓦时）\n华东\n7月: 118\n8月: 126\n华北\n7月: 90";
+    await readsAsWanted([
+      ...[output(""), "B\t31"].flatMap((quote): [string, string, string, Wanted][] => [
+        [output(""), quote, "Site B's output was 31 thousand tonnes.", TICK],
+        [output(""), quote, "Site B's output was 31 Mt.", UNJUDGED],
+      ]),
+      ...[output("\n"), "B\t31"].flatMap((quote): [string, string, string, Wanted][] => [
+        [
+          output("\n"),
+          quote,
+          "Site B's output was 31 thousand tonnes.",
+          leftToTheModel("31", "31 thousand tonnes"),
+        ],
+        [output("\n"), quote, "Site B's output was 31 Mt.", UNJUDGED],
+      ]),
+      ...[plants(""), "二厂\t31"].flatMap((quote): [string, string, string, Wanted][] => [
+        [plants(""), quote, "二厂产量为31万吨。", TICK],
+        [plants(""), quote, "二厂产量为31亿吨。", caught("31", "31亿吨")],
+      ]),
+      ...[plants("\n"), "二厂\t31"].flatMap((quote): [string, string, string, Wanted][] => [
+        [plants("\n"), quote, "二厂产量为31万吨。", leftToTheModel("31", "31万吨")],
+        [plants("\n"), quote, "二厂产量为31亿吨。", leftToTheModel("31", "31亿吨")],
+      ]),
+      [charging, "7月: 90", "华北7月充电量为90万千瓦时。", TICK],
+      [charging, "7月: 90", "华北7月充电量为90亿千瓦时。", caught("90", "90亿千瓦时")],
     ]);
   });
 });
