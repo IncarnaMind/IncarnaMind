@@ -537,13 +537,25 @@ for (const language of ["en", "zh-CN"] as const) {
     await window.mouse.click(last.x + 2, last.y + last.height / 2);
     await focusSettled(window, editor);
     const markCaret = await caretOf(editor);
+    const where: string[] = [];
+    const here = () =>
+      window.evaluate(() => {
+        const active = document.activeElement;
+        const sel = getSelection();
+        const rect = active?.getBoundingClientRect();
+        return `${active?.tagName}#${active?.getAttribute("data-testid")}.${active?.className.toString().slice(0, 24)} at ${Math.round(rect?.x ?? 0)},${Math.round(rect?.y ?? 0)} sel=${sel?.anchorNode?.nodeName}:${sel?.anchorOffset} cards=${document.querySelectorAll('[data-testid="citation-card"],[data-testid="claim-card"]').length}`;
+      });
+    where.push(`start ${await here()} caret ${markCaret}`);
     for (
       let pressed = 0;
       pressed < 5 && !(await mark.evaluate((each) => each === document.activeElement));
       pressed++
     ) {
       await window.keyboard.press("Tab");
+      where.push(`tab ${pressed + 1}: ${await here()}`);
     }
+    if (!(await mark.evaluate((each) => each === document.activeElement)))
+      throw new Error(`TABFLAKE ${where.join(" || ")}`);
     await expect(mark).toBeFocused();
     await window.keyboard.press("Enter");
     await expect(card).toHaveAttribute("data-check", "supported");
