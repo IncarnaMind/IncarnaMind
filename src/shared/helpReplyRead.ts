@@ -147,6 +147,9 @@ function marksOf(line: string): { recommended: boolean; bullet: boolean; text: s
   }
 }
 
+const onlyMarkers = (line: string) =>
+  (line.match(MARKER)?.length ?? 0) > 0 && withoutMarkerRuns(line).trim() === "";
+
 /**
  * Each reply's item, with the line its lead is on; an item of a "→" line alone has none. Each marker's
  * place is counted in `written`, the lines as the reply was written, where a line read may hold fewer.
@@ -182,6 +185,13 @@ function itemsOf(
       continue;
     }
     const { recommended, bullet, text } = marksOf(shown);
+    // A model may put a sentence's markers on the next line, and one stays alone once a model's
+    // note before it is taken out: on a line of its own it would show only a number.
+    const before = current && (current.notes.at(-1) ?? current.lead);
+    if (onlyMarkers(line) && before?.some((piece) => piece.kind === "text")) {
+      before.push(...pieces(text, first));
+      continue;
+    }
     if (!recommended && !bullet && current && current.effect === null && current.lead.length > 0) {
       current.notes.push(pieces(text, first));
       continue;

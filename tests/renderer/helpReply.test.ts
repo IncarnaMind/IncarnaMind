@@ -336,6 +336,42 @@ describe("A help reply", () => {
     expect(helpToKeep({ text: "", status: "done" }, "question")).toBe(false);
   });
 
+  // protects=a line holding only Citation markers, as a model may end a sentence on the next line or as one stays once a model's note before it is taken out, is drawn on the line of words before it, in a typed reply and a button's, in English and Chinese, each marker kept at its place; fails_when=the panel shows a line holding only a number, or a marker is lost; no_claim=which Passage the marker cites.
+  test.each([
+    {
+      language: "English",
+      typed: 'In "Contract basics", contracts run for 24 months [^1].\n\n[^2]',
+      shown: ['In "Contract basics", contracts run for 24 months [1].[2]'],
+      lines: "Team is $25 a seat [^1]\nEnterprise is $45 a seat\n[^2]",
+      shownLines: ["Team is $25 a seat [1]", "Enterprise is $45 a seat[2]"],
+      option: "★ Yes, Enterprise is $45 a seat\n[^1]\n→ answers at once",
+      optionLead: "Yes, Enterprise is $45 a seat[1]",
+    },
+    {
+      language: "Chinese",
+      typed: "企业版每个席位每月 45 美元[^1]。\n\n[^2]",
+      shown: ["企业版每个席位每月 45 美元[1]。[2]"],
+      lines: "团队版每个席位 25 美元[^1]\n企业版每个席位 45 美元\n[^2]",
+      shownLines: ["团队版每个席位 25 美元[1]", "企业版每个席位 45 美元[2]"],
+      option: "★ 是的，企业版每个席位 45 美元\n[^1]\n→ 直接回答",
+      optionLead: "是的，企业版每个席位 45 美元[1]",
+    },
+  ])(
+    "a line holding only Citation markers is drawn on the line before it, never alone ($language)",
+    ({ typed, shown, lines, shownLines, option, optionLead }) => {
+      const leads = (text: string, kind: "question" | MeetingHelpKind = "question") =>
+        helpItems({ text, status: "done" }, kind).map((item) => textOf(item.lead));
+      expect(leads(typed)).toEqual(shown);
+      expect(leads(lines)).toEqual(shownLines);
+      const [first] = helpItems({ text: option, status: "done" }, "say");
+      expect(textOf(first?.lead ?? [])).toBe(optionLead);
+      expect(first?.notes).toEqual([]);
+      expect(
+        helpReplyRead(typed, helpLayout("question", { status: "done", textBehind: false })).text,
+      ).toBe(typed);
+    },
+  );
+
   // protects=what a typed reply says before its first option shows first from the moment the option comes, while it is written, once it ends and once it was stopped, in English and Chinese, each line its own, the options after it as before; a model's notes go once the reply's text no longer holds them; a button's reply with the same words is laid out as before in each state; fails_when=the sentence the User asked for is hidden in any state, or a button's reply changes; no_claim=what the model writes.
   test.each([
     {
