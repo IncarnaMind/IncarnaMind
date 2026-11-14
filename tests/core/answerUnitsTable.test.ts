@@ -305,7 +305,7 @@ const TAKEN = [
 
 describe("#2997's measured table", () => {
   // protects=the table itself: the rows that read ✓ here and not on main are exactly the listed ones, the right sentences a label, a unit line, a table's row label or units column, prose or the quote's unit in another word now states, u252, whose dollar the Document states nowhere and the Answer leaves to the model, and e-same-unit-caption-elsewhere-other-scale, whose own table states no unit, so another table's caption states none for it either (#2997); a listed row's Check against Documents reading is main's; the wrong sentences that read ✓ or Supported here and not on main are exactly the listed COSTS, a cost; the rows that read otherwise in more than that are exactly the listed CHANGED and LOSSES, and every other row reads as on main in both checks; the rows Check against Documents calls Supported on main that lose the Answer's ✓ are exactly the wrong ones now caught (TAKEN) and LOSSES, a cost; and every twin keeps the ✓ it had; fails_when=another row gains a ✓, one of these loses it, any row reads otherwise than main in either check beyond these lists, or a row of the table is changed to say otherwise; no_claim=what the code reads, which the part files run.
-  test("gives a ✓ only to the listed sentences, and never takes one from a sentence Check against Documents calls Supported", () => {
+  test("gives a ✓ only to the listed sentences, and takes one from a sentence Check against Documents calls Supported only where listed", () => {
     const listed = (ids: readonly string[]) =>
       TABLE.rows.filter((row) => ids.includes(row.id)).map(({ id }) => id);
     expect(
