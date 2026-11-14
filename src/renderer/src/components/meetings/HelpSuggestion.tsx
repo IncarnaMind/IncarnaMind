@@ -4,7 +4,6 @@ import type {
   ConversationAnswer,
   MarkedCitation,
   MeetingHelp,
-  MeetingHelpKind,
 } from "../../../../core/api";
 import { citationSource, citedLocation } from "../../../../shared/citations";
 import { withFigureText } from "../../../../shared/figureMarkers";
@@ -24,6 +23,7 @@ import { useCallStarts } from "../../callStarts";
 import { core } from "../../core";
 import { citationNumbers, helpParts, quoted } from "../../helpReply";
 import { useT } from "../../i18n";
+import { helpAsked, type PendingHelp } from "../../meetingHelp";
 import { useModelNames, useServiceName } from "../../modelNames";
 import { answerProblem } from "../../problems";
 import { DocumentLineIcon } from "../lineIcons";
@@ -132,7 +132,15 @@ function Pieces({
     <>
       {pieces.map((piece, index) => {
         const key = `${piece.kind}-${index}`;
-        if (piece.kind === "text") return <span key={key}>{piece.text}</span>;
+        if (piece.kind === "text") {
+          return piece.bold ? (
+            <b key={key} className="help-move">
+              {piece.text}
+            </b>
+          ) : (
+            <span key={key}>{piece.text}</span>
+          );
+        }
         // Figures are written into the text before it is read (`withFigureText`).
         if (piece.kind === "figure") return null;
         const citation = answer.citations.find((each) => each.marker === piece.marker);
@@ -326,16 +334,26 @@ export function HelpOutline({ count }: { count: number }) {
 
 /**
  * The heading over a suggestion: the button, then the line it answers ("They said: …"), or for
- * "What do they want?" that it is read from what they said.
+ * "What do they want?" that it is read from what they said; for a question the User typed, the
+ * question (#2925).
  */
 export function HelpHeading({
-  kind,
+  asked,
   heard = null,
 }: {
-  kind: MeetingHelpKind;
+  asked: PendingHelp;
   heard?: MeetingHelp["heard"];
 }) {
   const t = useT();
+  const { kind } = asked;
+  if (kind === "question") {
+    const question = helpAsked(asked, t);
+    return (
+      <p data-testid="help-heading" className="help-heading help-heading--question">
+        <b title={question}>{question}</b>
+      </p>
+    );
+  }
   const said = heard
     ? t(
         isTheirs(heard.speaker)
@@ -426,14 +444,16 @@ function NoHelp({
 /**
  * A help button's Answer, laid out to be read in a second or two: the options with the
  * recommended first and starred, each with what it leads to; the Citations they rest on.
- * While it streams, the options still to come keep their outline.
+ * Until its first line streams in, its outline holds the place; the Citations' sources show once
+ * it ends. Nothing is drawn under a line still being written, so nothing moves while the User
+ * reads it (#2925).
  */
 export function HelpSuggestion({
   help,
   answer,
   onRetry,
 }: {
-  help: Pick<MeetingHelp, "kind" | "heard">;
+  help: Pick<MeetingHelp, "kind" | "question" | "heard">;
   answer: ConversationAnswer;
   onRetry(): void;
 }) {
@@ -483,7 +503,7 @@ export function HelpSuggestion({
       aria-busy={streaming}
       className="help-suggestion"
     >
-      <HelpHeading kind={help.kind} heard={help.heard} />
+      <HelpHeading asked={help} heard={help.heard} />
       {items.map((item, index) => (
         <Item
           // biome-ignore lint/suspicious/noArrayIndexKey: the options are in the order written.
@@ -496,7 +516,7 @@ export function HelpSuggestion({
           starts={starts}
         />
       ))}
-      {streaming && items.length < 2 && <HelpOutline count={items.length === 0 ? 2 : 1} />}
+      {streaming && items.length === 0 && <HelpOutline count={2} />}
       {answer.status === "failed" && (
         <NoHelp testId="help-failed" message={why} onRetry={onRetry} />
       )}
@@ -506,7 +526,7 @@ export function HelpSuggestion({
       {answer.status === "stopped" && options.length === 0 && (
         <NoHelp testId="help-stopped" message={t("answer.status.stopped")} onRetry={onRetry} />
       )}
-      <Sources answer={answer} numbers={numbers} starts={starts} />
+      {!streaming && <Sources answer={answer} numbers={numbers} starts={starts} />}
     </div>
   );
 }

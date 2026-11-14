@@ -12,7 +12,13 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { generateText, type LanguageModel } from "ai";
-import type { ConversationAnswer, Core, CoreAdapters, MeetingHelpKind } from "../../src/core";
+import type {
+  ConversationAnswer,
+  ConversationAskResult,
+  Core,
+  CoreAdapters,
+  MeetingHelpKind,
+} from "../../src/core";
 import { toolTextIn } from "../../src/core/answers/toolText";
 import { createFakeCapture, type FakeCapture } from "../../src/core/meetings/fakeCapture";
 import type { TimingOutcome } from "../../src/core/timing/timings";
@@ -20,7 +26,7 @@ import { citationNumbers } from "../../src/renderer/src/helpReply";
 import { quoteState } from "../../src/shared/helpQuotes";
 import { type ReplyItem, readHelpReply, shownItems } from "../../src/shared/helpReplyRead";
 import { isTranscriptLocation } from "../../src/shared/locations";
-import { HELP_SHAPE } from "../../src/shared/meetingHelp";
+import { HELP_SHAPE, type HelpShape } from "../../src/shared/meetingHelp";
 import { normaliseText } from "../../src/shared/text";
 import { queryDatabase } from "../../tests/helpers/core";
 import {
@@ -30,6 +36,7 @@ import {
 } from "../../tests/helpers/transcription";
 import type { EvalDocument } from "../lib/evaluationSet";
 import { openLibrary } from "../lib/library";
+import { citationsAsked } from "./arms";
 import {
   CALL_HELP_CASES,
   type CallHelpCase,
@@ -44,6 +51,9 @@ import { CALL_HELP_HELD_OUT } from "./callHelpHeldOut";
 import { CALL_HELP_MARKS } from "./callHelpMarks";
 import { CALL_HELP_MARKS_3 } from "./callHelpMarks3";
 import { JUDGE_FAILED } from "./callHelpMarksReport";
+import { CALL_HELP_TYPED } from "./callHelpTyped";
+import { CALL_HELP_TYPED_FRESH } from "./callHelpTypedFresh";
+import { CALL_HELP_TYPED_FRESH2 } from "./callHelpTypedFresh2";
 import {
   type GroupOptions,
   type Measured,
@@ -192,11 +202,13 @@ export function quotes(
   return where && quote.length >= 6 && (wanted.includes(quote) || quote.includes(wanted));
 }
 
-/** The reply as the panel shows it: each item's lines, its Citations by the numbers they show with. */
-export function shownReply(
-  answer: ConversationAnswer,
+type CitationPiece = Extract<ReplyItem["lead"][number], { kind: "citation" }>;
+
+/** The reply as the panel shows it: each item's lines, each Citation as `label` writes it. */
+function labelledReply(
+  answer: Pick<ConversationAnswer, "figures">,
   items: readonly ReplyItem[],
-  numbers: ReadonlyMap<number, number>,
+  label: (piece: CitationPiece) => string,
 ) {
   const text = (pieces: ReplyItem["lead"]) =>
     pieces
@@ -205,9 +217,7 @@ export function shownReply(
           ? piece.text
           : piece.kind === "figure"
             ? (answer.figures.find((each) => each.marker === piece.marker)?.shown ?? "")
-            : numbers.has(piece.marker)
-              ? `[${numbers.get(piece.marker)}]`
-              : "",
+            : label(piece),
       )
       .join("")
       .trim();
@@ -222,12 +232,62 @@ export function shownReply(
     .join("\n\n");
 }
 
-const JUDGE = [
-  "You grade a reply that helps the User during a live call: they pressed a button and read the reply in a second or two while the call goes on.",
+/** The reply as the panel shows it: each item's lines, its Citations by the numbers they show with. */
+export const shownReply = (
+  answer: Pick<ConversationAnswer, "figures">,
+  items: readonly ReplyItem[],
+  numbers: ReadonlyMap<number, number>,
+) =>
+  labelledReply(answer, items, (piece) =>
+    numbers.has(piece.marker) ? `[${numbers.get(piece.marker)}]` : "",
+  );
+
+/** Where a Citation shows in a reply: its marker, and its place among the reply's (`at`). */
+export type CitedPlace = Pick<CitationPiece, "marker" | "at">;
+
+/**
+ * The reply as a typed question's judge reads it (#2925): each place a Citation shows, of those
+ * `shows`, numbered on its own in reading order, so the sentence the judge lists is the one whose
+ * ✓ is counted. Numbered by Citation, a ✓ beside one sentence counted for another that carries the
+ * same Citation.
+ */
+export function placedReply(
+  answer: Pick<ConversationAnswer, "figures">,
+  items: readonly ReplyItem[],
+  shows: (marker: number) => boolean,
+): { text: string; places: CitedPlace[] } {
+  const places: CitedPlace[] = [];
+  const text = labelledReply(answer, items, (piece) => {
+    if (!shows(piece.marker)) return "";
+    places.push({ marker: piece.marker, at: piece.at });
+    return `[${places.length}]`;
+  });
+  return { text, places };
+}
+
+/** The places the judge listed (by `placedReply`'s numbers) that show ✓ (`checked`). */
+export const unstatedChecked = (
+  places: readonly CitedPlace[],
+  listed: readonly number[],
+  checked: (place: CitedPlace) => boolean,
+): CitedPlace[] =>
+  [...new Set(listed)].flatMap((number) => places[number - 1] ?? []).filter(checked);
+
+const JUDGE_LINES = [
   "<expected> says what a right reply gives; <avoid>, when there is one, what it must not give as so. <call> holds the newest lines of the call.",
   "Grade it: right when it gives what <expected> says, in any wording or language (an option to say counts when what it would have the User say carries it); partly when it gives only some of it, or adds something the Documents or the call contradict; wrong when it gives something else, misses it, or gives what <avoid> names.",
   "Then read each sentence that carries a Citation number [n] against the words that Citation quotes, in <citations>: list n when the sentence states as so something its quoted words don't say, such as a figure, a term, a yes, or a claim it calls supported.",
   'Reply with JSON and nothing else: {"grade": "right" | "partly" | "wrong", "unstated": [n, ...]}',
+];
+const JUDGE = [
+  "You grade a reply that helps the User during a live call: they pressed a button and read the reply in a second or two while the call goes on.",
+  ...JUDGE_LINES,
+].join("\n");
+/** For a question the User typed during the call (#2925), which <question> holds. */
+const JUDGE_TYPED = [
+  "You grade a reply that helps the User during a live call: they typed the question in <question> and read the reply in a second or two while the call goes on.",
+  "<typed-before>, when there is one, is the question they typed just before it, which <question> follows up.",
+  ...JUDGE_LINES,
 ].join("\n");
 
 export interface Judged {
@@ -261,8 +321,10 @@ async function judge(
   reply: string,
   cited: readonly string[],
 ): Promise<Judged> {
+  const instructions = each.typed ? JUDGE_TYPED : JUDGE;
   const prompt = [
-    `<button>${each.kind}</button>`,
+    ...(each.typed?.follows ? [`<typed-before>${each.typed.follows}</typed-before>`] : []),
+    each.typed ? `<question>${each.typed.question}</question>` : `<button>${each.kind}</button>`,
     "<call>",
     ...newest.map((turn) => `${turn.who === "me" ? "The User" : "The other side"}: ${turn.text}`),
     "</call>",
@@ -277,7 +339,7 @@ async function judge(
   ].join("\n");
   const first = await generateText({
     model,
-    instructions: JUDGE,
+    instructions,
     prompt,
     maxOutputTokens: 400,
     maxRetries: 1,
@@ -291,14 +353,14 @@ async function judge(
     first.text.trim() === ""
       ? await generateText({
           model,
-          instructions: JUDGE,
+          instructions,
           prompt,
           maxOutputTokens: 1_200,
           maxRetries: 1,
         })
       : await generateText({
           model,
-          instructions: JUDGE,
+          instructions,
           messages: [
             { role: "user", content: prompt },
             { role: "assistant", content: first.text },
@@ -357,7 +419,26 @@ export function requestsSince(dataDir: string, since: string): RequestTiming[] {
   }));
 }
 
-/** Presses the case's button and reads what the panel showed, and when. */
+/** How the panel lays a case's measured reply out: its button's, or a typed question's (#2925). */
+const shapeOf = (each: CallHelpCase) => HELP_SHAPE[each.typed ? "question" : each.kind];
+
+/**
+ * Whether the panel shows a whole item of the reply yet: an option or reading with its "→" line,
+ * or a short line or sentence once another follows it or the reply ends.
+ */
+function wholeShown(shape: HelpShape, shown: readonly ReplyItem[], streaming: boolean): boolean {
+  const [first] = shown;
+  if (first === undefined) return false;
+  const lines = shape === "lines" || (shape === "answer" && !shown.some((item) => item.effect));
+  return lines ? shown.length > 1 || !streaming : first.effect !== null;
+}
+
+/**
+ * Presses the case's button and reads what the panel showed, and when. For a typed question, the
+ * button's reply is waited for to its marks first, as in a call, its first words and end kept to
+ * set beside the question's; then the question it follows up, if any, and the question's reply is
+ * the one read.
+ */
 async function press(
   core: Core,
   each: CallHelpCase,
@@ -367,41 +448,94 @@ async function press(
   answer: ConversationAnswer;
   firstWordsMs: number | null;
   firstOptionMs: number | null;
+  pressedFirst?: NonNullable<Measured["pressedFirst"]>;
+  /** What the reply showed before it was written again, oldest first: its text as it last stood. */
+  drafts: string[];
+  /** The conversation's Answers before the reply, oldest first, as they stand: what it could repeat. */
+  earlier: string[];
+  /** What each one request for Citations made while the reply was written replied. */
+  citationsReplies: string[];
 }> {
   let stopPhase: () => void = () => undefined;
+  const drafts: string[] = [];
+  let answerId: string | null = null;
+  let buttonId: string | null = null;
+  let buttonAt = 0;
+  let buttonEndAt: number | null = null;
+  const stopFinished = core.on("answer.finished", (event) => {
+    if (event.answerId === buttonId) buttonEndAt ??= performance.now();
+  });
   let snapshotting = false;
   let beforeCheck: string | null = null;
-  const shape = HELP_SHAPE[each.kind];
-  const seen = new Map<string, { firstWordsMs: number | null; firstOptionMs: number | null }>();
+  const shape = shapeOf(each);
+  /** When each reply first showed words and a whole item, on this computer's clock. */
+  const seen = new Map<string, { wordsAt: number | null; optionAt: number | null }>();
   let start = 0;
   let latestText = "";
   const stop = core.on("conversation.message", (message) => {
     if (message.kind !== "answer") return;
-    latestText = message.text;
-    if (snapshotting) beforeCheck = message.text;
-    const at = performance.now() - start;
+    if (message.id === answerId) {
+      // Written again, a reply starts over: what it showed before is kept, to tell which step
+      // wrote what the User saw.
+      if (latestText.trim() !== "" && message.text.length < latestText.length / 2)
+        drafts.push(latestText);
+      latestText = message.text;
+      if (snapshotting) beforeCheck = message.text;
+    }
+    const at = performance.now();
+    const streaming = message.status === "streaming";
+    const itsShape = message.id === buttonId ? HELP_SHAPE[each.kind] : shape;
     const shown = shownItems(readHelpReply(message.text), {
-      shape,
+      shape: itsShape,
       leadIn: false,
-      streaming: message.status === "streaming",
+      streaming,
     });
-    const times = seen.get(message.id) ?? { firstWordsMs: null, firstOptionMs: null };
+    const times = seen.get(message.id) ?? { wordsAt: null, optionAt: null };
     if (shown.some((item) => item.lead.some((piece) => piece.kind === "text" && piece.text.trim())))
-      times.firstWordsMs ??= at;
-    const [first] = shown;
-    const whole =
-      first !== undefined &&
-      (shape === "lines"
-        ? shown.length > 1 || message.status !== "streaming"
-        : first.effect !== null);
-    if (whole) times.firstOptionMs ??= at;
+      times.wordsAt ??= at;
+    if (wholeShown(itsShape, shown, streaming)) times.optionAt ??= at;
     seen.set(message.id, times);
   });
-  try {
-    begin();
-    start = performance.now();
-    const asked = await core.askMeetingHelp({ meetingId, kind: each.kind as MeetingHelpKind });
+  const waited = async (asked: ConversationAskResult, what: string) => {
     if (!asked.asked) throw new Error(`Not asked: ${JSON.stringify(asked)}`);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const late = new Promise<"late">((resolve) => {
+      timer = setTimeout(() => resolve("late"), ANSWER_TIMEOUT_MS);
+    });
+    const ended = await Promise.race([
+      replyEnded(core, asked.conversation.id, asked.answerId),
+      late,
+    ]).finally(() => clearTimeout(timer));
+    // A reply left running would go on asking the arm's model while the next item runs.
+    if (ended === "late") {
+      await core.stopConversationAnswer({
+        conversationId: asked.conversation.id,
+        answerId: asked.answerId,
+      });
+    }
+    if (ended !== "finished") throw new Error(`${what} before the question: ${ended}.`);
+  };
+  try {
+    if (each.typed) {
+      buttonAt = performance.now();
+      const button = await core.askMeetingHelp({ meetingId, kind: each.kind as MeetingHelpKind });
+      if (button.asked) buttonId = button.answerId;
+      await waited(button, "The button's reply");
+      if (each.typed.follows) {
+        await waited(
+          await core.askMeetingQuestion({ meetingId, text: each.typed.follows }),
+          "The question it follows up",
+        );
+      }
+    }
+    begin();
+    const askedFrom = citationsAsked.length;
+    start = performance.now();
+    const asked = each.typed
+      ? await core.askMeetingQuestion({ meetingId, text: each.typed.question })
+      : await core.askMeetingHelp({ meetingId, kind: each.kind as MeetingHelpKind });
+    if (!asked.asked) throw new Error(`Not asked: ${JSON.stringify(asked)}`);
+    answerId = asked.answerId;
     // The check of the changes a reply claims runs once it is written: what it shows as it runs
     // is the text before the check, and what the Answer then holds is the text after it.
     stopPhase = core.on("answer.phase", (event) => {
@@ -436,14 +570,76 @@ async function press(
     const { messages } = await core.getConversation(asked.conversation.id);
     const answer = messages.find((message) => message.id === asked.answerId);
     if (answer?.kind !== "answer") throw new Error("No reply.");
-    const times = seen.get(answer.id) ?? { firstWordsMs: null, firstOptionMs: null };
+    const since = (at: number | null | undefined, from: number) =>
+      at === null || at === undefined ? null : at - from;
+    const times = seen.get(answer.id);
+    const button = buttonId === null ? undefined : seen.get(buttonId);
     if (beforeCheck !== null && answer.text !== beforeCheck)
       rewrittenReplies.push({ item: each.id, before: beforeCheck, after: answer.text });
-    return { answer, ...times };
+    return {
+      answer,
+      firstWordsMs: since(times?.wordsAt, start),
+      firstOptionMs: since(times?.optionAt, start),
+      drafts,
+      earlier: messages.flatMap((message) =>
+        message.kind === "answer" && message.id !== answer.id ? [message.text] : [],
+      ),
+      citationsReplies: citationsAsked.slice(askedFrom),
+      ...(buttonId !== null && {
+        pressedFirst: {
+          firstWordsMs: since(button?.wordsAt, buttonAt),
+          doneMs: since(buttonEndAt, buttonAt),
+        },
+      }),
+    };
   } finally {
     stop();
     stopPhase();
+    stopFinished();
   }
+}
+
+/** The longest a typed question's short reply's item may be and still be read in a second or two. */
+const LONGEST_WORDS = 40;
+const LONGEST_HAN = 80;
+
+/**
+ * Where a typed question's reply left the form its case asks for (#2925), as the panel shows it:
+ * more than two items, or an item too long to read in a second or two, for a short reply or
+ * options; options without their "→" lines or with no recommended one first; a list with an item
+ * missing; its words not in the question's language. Empty for a button's reply.
+ */
+export function formFailures(each: CallHelpCase, shown: readonly ReplyItem[]): string[] {
+  const { typed } = each;
+  if (!typed) return [];
+  // All the panel shows of an item: its sentence, its notes and its "→" line.
+  const words = (item: ReplyItem) =>
+    [item.lead, ...item.notes, item.effect ?? []]
+      .flat()
+      .flatMap((piece) => (piece.kind === "text" ? [piece.text] : []))
+      .join(" ");
+  const tooLong = shown.some((item) => {
+    const text = words(item);
+    const han = text.match(/\p{Script=Han}/gu)?.length ?? 0;
+    const latin = text
+      .replace(/\p{Script=Han}/gu, " ")
+      .split(/\s+/)
+      .filter(Boolean).length;
+    return han > LONGEST_HAN || latin > LONGEST_WORDS;
+  });
+  const all = shown.map(words).join(" ");
+  const han = all.match(/\p{Script=Han}/gu)?.length ?? 0;
+  const letters = all.match(/[A-Za-z]/g)?.length ?? 0;
+  const hanShare = han + letters === 0 ? 0 : han / (han + letters);
+  const options =
+    shown.length > 0 && shown.every((item) => item.effect !== null) && shown[0]?.recommended;
+  return [
+    ...(typed.form !== "list" && shown.length > 2 ? ["form-too-many"] : []),
+    ...(typed.form !== "list" && tooLong ? ["form-too-long"] : []),
+    ...(typed.form === "options" && !options ? ["form-not-options"] : []),
+    ...(typed.form === "list" && shown.length < each.rests.length ? ["form-list-short"] : []),
+    ...((each.language === "zh-CN" ? hanShare < 0.5 : hanShare > 0.1) ? ["language"] : []),
+  ];
 }
 
 /** Every reply the change-claim check rewrote, with the text before the check and after it. */
@@ -453,7 +649,7 @@ function item(each: CallHelpCase, set: CallHelpSet): PairedGroup["items"][number
   return {
     set,
     id: each.id,
-    kind: `${each.kind}-${each.needs}`,
+    kind: each.typed ? `question-${each.typed.form}` : `${each.kind}-${each.needs}`,
     language: each.language,
     words: "item",
     async run({ library, claimsJudge, meeting, choice }) {
@@ -474,11 +670,19 @@ function item(each: CallHelpCase, set: CallHelpSet): PairedGroup["items"][number
       } catch (error) {
         return failed(error instanceof Error ? error.message : String(error));
       }
-      const { answer, firstWordsMs, firstOptionMs } = pressed;
+      const {
+        answer,
+        firstWordsMs,
+        firstOptionMs,
+        pressedFirst,
+        drafts,
+        earlier,
+        citationsReplies,
+      } = pressed;
       const requests = requestsSince(library.dataDir, since);
       const done = answer.status === "done";
       const shown = shownItems(readHelpReply(answer.text), {
-        shape: HELP_SHAPE[each.kind],
+        shape: shapeOf(each),
         leadIn: answer.steps?.textBehind === true,
         streaming: false,
       });
@@ -493,7 +697,15 @@ function item(each: CallHelpCase, set: CallHelpSet): PairedGroup["items"][number
       const showsCheck = (citation: ConversationAnswer["citations"][number]) =>
         quoteState(citation, "done") === "found";
       const found = citations.filter(quoteFound);
+      const citationOf = (marker: number) =>
+        answer.citations.find((citation) => citation.marker === marker);
+      const cites = (number: number, citation: ConversationAnswer["citations"][number]) =>
+        `[${number}] ${citation.documentName}: “${citation.quote}” (${quoteFound(citation) ? "found" : citation.check})`;
       const reply = shownReply(answer, shown, numbers);
+      // A typed question's judge reads each place a Citation shows on its own (#2925).
+      const placed = each.typed
+        ? placedReply(answer, shown, (marker) => numbers.has(marker))
+        : null;
       let judged: Judged | null = null;
       try {
         judged = done
@@ -501,28 +713,38 @@ function item(each: CallHelpCase, set: CallHelpSet): PairedGroup["items"][number
               claimsJudge,
               each,
               [...(each.before ?? []), ...each.turns],
-              reply,
-              [...numbers].flatMap(([marker, number]) => {
-                const citation = answer.citations.find((each) => each.marker === marker);
-                return citation
-                  ? [
-                      `[${number}] ${citation.documentName}: “${citation.quote}” (${quoteFound(citation) ? "found" : citation.check})`,
-                    ]
-                  : [];
-              }),
+              placed ? placed.text : reply,
+              placed
+                ? placed.places.flatMap((place, index) => {
+                    const citation = citationOf(place.marker);
+                    return citation ? [cites(index + 1, citation)] : [];
+                  })
+                : [...numbers].flatMap(([marker, number]) => {
+                    const citation = citationOf(marker);
+                    return citation ? [cites(number, citation)] : [];
+                  }),
             )
           : null;
       } catch (error) {
         return failed(`${JUDGE_FAILED}: ${error instanceof Error ? error.message : String(error)}`);
       }
-      const shownAs = (number: number) => {
-        const marker = [...numbers].find(([, shown]) => shown === number)?.[0];
-        return answer.citations.find((citation) => citation.marker === marker);
-      };
-      const unstatedFound = (judged?.unstated ?? []).filter((number) => {
-        const citation = shownAs(number);
+      const markerShownAs = (number: number) =>
+        [...numbers].find(([, shown]) => shown === number)?.[0];
+      // A ✓ the judge finds unstated: beside the quote line of a place the judge listed, for a
+      // typed question; of a Citation it listed, for a button.
+      const placeChecked = (place: CitedPlace) => {
+        const citation = citationOf(place.marker);
         return citation !== undefined && showsCheck(citation);
-      });
+      };
+      const unstatedFound = placed
+        ? unstatedChecked(placed.places, judged?.unstated ?? [], placeChecked).flatMap(
+            (place) => numbers.get(place.marker) ?? [],
+          )
+        : (judged?.unstated ?? []).filter((number) => {
+            const marker = markerShownAs(number);
+            const citation = marker === undefined ? undefined : citationOf(marker);
+            return citation !== undefined && showsCheck(citation);
+          });
       return {
         status: done ? "done" : "failed",
         error: done ? null : `${answer.errorKind ?? answer.status}: ${answer.errorMessage ?? ""}`,
@@ -541,9 +763,11 @@ function item(each: CallHelpCase, set: CallHelpSet): PairedGroup["items"][number
           ...(toolTextIn(answer.text).length > 0 ? ["tool-text"] : []),
           ...(answer.steps?.textBehind ? ["text-behind"] : []),
           ...(done && shown.length === 0 ? ["nothing-shown"] : []),
+          ...(done ? formFailures(each, shown) : []),
         ],
         firstWordsMs,
         firstOptionMs,
+        ...(pressedFirst && { pressedFirst }),
         requests,
         // What each Citation rests on, so a reply citing another line than the case's shows as one.
         text: [
@@ -553,6 +777,40 @@ function item(each: CallHelpCase, set: CallHelpSet): PairedGroup["items"][number
               `[${citation.check}${showsCheck(citation) ? " ✓" : ""}] ${citation.documentName}: “${citation.quote}”`,
           ),
           ...(unstatedFound.length > 0 ? [`[unstated] ${unstatedFound.join(", ")}`] : []),
+          // Each place a Citation shows, as the judge numbered it: the panel's number, ✓ there.
+          ...(placed && placed.places.length > 0
+            ? [
+                `[places] ${placed.places
+                  .map((place, index) => {
+                    const check = placeChecked(place) ? " ✓" : "";
+                    const listed = judged?.unstated.includes(index + 1) ? " listed" : "";
+                    return `${index + 1}: [${numbers.get(place.marker)}]${check}${listed}`;
+                  })
+                  .join(", ")}`,
+              ]
+            : []),
+          ...drafts.map((draft) => `[written before] ${draft}`),
+          // A typed reply's lines with no Citation, beside the Answers before it, to count the
+          // ones that repeat an earlier Answer's fact uncited (#2925).
+          ...(each.typed
+            ? [
+                ...shown
+                  .filter(
+                    (shownItem) =>
+                      ![shownItem.lead, ...shownItem.notes, shownItem.effect ?? []]
+                        .flat()
+                        .some((piece) => piece.kind === "citation"),
+                  )
+                  .map(
+                    (shownItem) =>
+                      `[uncited] ${shownReply(answer, [shownItem], new Map()).replace(/\n/g, " ")}`,
+                  ),
+                ...earlier.map((text) => `[earlier answer] ${text.replace(/\n+/g, " ")}`),
+                ...citationsReplies.map(
+                  (reply) => `[citations asked] ${reply.replace(/\n+/g, " ")}`,
+                ),
+              ]
+            : []),
         ].join("\n"),
       } satisfies Measured;
     },
@@ -612,7 +870,10 @@ type CallHelpSet =
   | "call-help-documents"
   | "call-help-checks"
   | "call-help-marks"
-  | "call-help-marks-3";
+  | "call-help-marks-3"
+  | "call-help-typed"
+  | "call-help-typed-fresh"
+  | "call-help-typed-fresh-2";
 
 const CASES: Readonly<Record<CallHelpSet, readonly CallHelpCase[]>> = {
   "call-help": CALL_HELP_CASES,
@@ -622,6 +883,9 @@ const CASES: Readonly<Record<CallHelpSet, readonly CallHelpCase[]>> = {
   "call-help-checks": CALL_HELP_CHECKS,
   "call-help-marks": CALL_HELP_MARKS,
   "call-help-marks-3": CALL_HELP_MARKS_3,
+  "call-help-typed": CALL_HELP_TYPED,
+  "call-help-typed-fresh": CALL_HELP_TYPED_FRESH,
+  "call-help-typed-fresh-2": CALL_HELP_TYPED_FRESH2,
 };
 
 /** One group a case: its own Library, its own Meeting heard before the press. */

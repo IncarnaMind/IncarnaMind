@@ -16,7 +16,11 @@ export interface QuickNotes {
   undo(added: AddedToNote): Promise<UndoAddToNoteResult>;
   /** The line in the field as last kept: what the field shows again after a collapse. */
   draft(): Draft;
-  keep(draft: Draft): void;
+  /**
+   * Keeps the line in the field; for the Note too unless `note` is false, as a question typed in
+   * Ask isn't one (#2925): the core then forgets any line it held.
+   */
+  keep(draft: Draft, note?: boolean): void;
 }
 
 /** What quick notes ask of the core. */
@@ -41,10 +45,14 @@ export function quickNotesFor(
   report: (error: unknown) => void,
 ): QuickNotes {
   const draft = () => drafts.get(meetingId) ?? EMPTY;
-  const keep = (next: Draft) => {
+  const keep = (next: Draft, note = true) => {
     drafts.set(meetingId, next);
     core
-      .setQuickNoteDraft({ meetingId, text: next.text, atMs: next.began?.ms ?? null })
+      .setQuickNoteDraft({
+        meetingId,
+        text: note ? next.text : "",
+        atMs: note ? (next.began?.ms ?? null) : null,
+      })
       .catch(report);
   };
   return {

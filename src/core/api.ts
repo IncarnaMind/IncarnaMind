@@ -96,7 +96,12 @@ import type { ExportMarks, ExportMarksChoice, MarkedFormat } from "../shared/exp
 import type { FigureFooting } from "../shared/figureFooting";
 import type { Figure } from "../shared/figures";
 import type { FormulaInput, FormulaLiteral, ResultUnit, ShowAs } from "../shared/formula";
-import type { HelpKeys, MeetingHelpKind, MeetingHelpTemplate } from "../shared/meetingHelp";
+import type {
+  CallHelpKind,
+  HelpKeys,
+  MeetingHelpKind,
+  MeetingHelpTemplate,
+} from "../shared/meetingHelp";
 import type { ChineseScript } from "../shared/meetingWords";
 import type { MindStyle } from "../shared/mindStyle";
 import type { TagColour } from "../shared/tagColours";
@@ -11688,8 +11693,13 @@ export interface Meeting {
    * recording before it; otherwise null. The computer's sound is still recorded.
    */
   microphonePausedAtMs: number | null;
-  /** The help asked for last during the call, whose Answer the floating panel shows; null before any and after Stop. */
+  /** The help asked for last during the call (the last of `helps`); null before any and after Stop. */
   help: MeetingHelp | null;
+  /**
+   * The help asked for during the call, oldest first: the buttons pressed and the questions typed
+   * in the floating panel, whose thread shows them (#2925). Empty before any and after Stop.
+   */
+  helps: MeetingHelp[];
   /** The kind of meeting the help buttons are for, as the User chose it; null: the general buttons only. */
   helpTemplate: MeetingHelpTemplate | null;
   /** Its notes filled in from the Transcript after Stop (#142); null before Stop. */
@@ -11764,11 +11774,14 @@ export interface MeetingFillProblem {
   service?: string;
 }
 
-export type { HelpKeys, MeetingHelpKind, MeetingHelpTemplate };
+export type { CallHelpKind, HelpKeys, MeetingHelpKind, MeetingHelpTemplate };
 
-/** Help asked for during a call: its button, and its Answer in a conversation. */
+/** Help asked for during a call: its button or the question typed, and its Answer in a conversation. */
 export interface MeetingHelp {
-  kind: MeetingHelpKind;
+  /** The button pressed, or "question": the User typed a question in the panel's field (#2925). */
+  kind: CallHelpKind;
+  /** What the User typed, for a "question"; null for a button. */
+  question: string | null;
   conversationId: string;
   answerId: string;
   /**
@@ -11777,6 +11790,8 @@ export interface MeetingHelp {
    * the Transcript has it ("Me", "Them", "Speaker ?"). Null for the buttons about the whole call.
    */
   heard: { text: string; speaker: string | null } | null;
+  /** The Meeting's time when it was asked, in ms of recording before it. */
+  atMs: number;
 }
 
 export interface AskMeetingHelpInput {
@@ -11787,6 +11802,13 @@ export interface AskMeetingHelpInput {
    * this meeting's help went to last, or a new one.
    */
   conversationId?: string | null;
+}
+
+/** A question about the call, typed in the call-help panel's field (#2925). */
+export interface AskMeetingQuestionInput {
+  meetingId: string;
+  /** What the User typed; the spaces at either end are trimmed. */
+  text: string;
 }
 
 export interface SetMeetingTemplateInput {
@@ -14599,6 +14621,15 @@ export interface CoreApi {
    * lines. The Meeting's `help` names it. As `askInConversation` otherwise.
    */
   askMeetingHelp(input: AskMeetingHelpInput): Promise<ConversationAskResult>;
+  /**
+   * A question about the call, typed in the call-help panel's field (#2925): asked where the
+   * Meeting's help went last, from its Mind, while it records or is paused, after that
+   * conversation's earlier turns. Its Answer keeps the call's short form unless the question asks
+   * for more, and reads what a button's does: the live transcript, the Mind, and what its Folder's
+   * Documents say about the question, found ahead. The Meeting's `help` names it.
+   * InvalidInputError for a blank question or a Meeting not live. As `askInConversation` otherwise.
+   */
+  askMeetingQuestion(input: AskMeetingQuestionInput): Promise<ConversationAskResult>;
   /** Sets the kind of meeting a live Meeting's help buttons are for: its template adds two or three. */
   setMeetingTemplate(input: SetMeetingTemplateInput): Promise<Meeting>;
   /**
@@ -15390,6 +15421,7 @@ const methods: Record<CoreApiMethod, true> = {
   followMeetingFillUndo: true,
   openAudioSettings: true,
   askMeetingHelp: true,
+  askMeetingQuestion: true,
   setMeetingTemplate: true,
   setMeetingMicrophone: true,
   addQuickNote: true,

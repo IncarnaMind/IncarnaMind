@@ -310,8 +310,8 @@ export function createMeetings(options: MeetingsOptions) {
   const kept = new Map<string, boolean>();
   /** Save recording… writing a Meeting's audio now (#687): set when its audio goes, so it stops. */
   const writing = new Map<string, { stop: boolean }>();
-  /** For the call's help, kept in memory: it matters only while the Meeting is live. */
-  const help = new Map<string, MeetingHelp>();
+  /** The call's help, oldest first, kept in memory: it matters only while the Meeting is live. */
+  const help = new Map<string, MeetingHelp[]>();
   const templates = new Map<string, MeetingHelpTemplate>();
   const microphonePausedAt = new Map<string, number>();
   const microphoneResumedAt = new Map<string, number>();
@@ -391,7 +391,8 @@ export function createMeetings(options: MeetingsOptions) {
         transcripts && row.status !== "ready" ? transcripts.of(row.id, hasAudio(row.id)) : null,
       health: health.of(row.id),
       microphonePausedAtMs: microphonePausedAt.get(row.id) ?? null,
-      help: help.get(row.id) ?? null,
+      help: help.get(row.id)?.at(-1) ?? null,
+      helps: [...(help.get(row.id) ?? [])],
       helpTemplate: templates.get(row.id) ?? null,
       fill: fillOf(row),
       createdAt: row.created_at,
@@ -1401,9 +1402,13 @@ export function createMeetings(options: MeetingsOptions) {
       changed();
     },
 
-    helped(meetingId: string, given: MeetingHelp): void {
-      if (!isLiveRow(rowOf(meetingId))) return;
-      help.set(meetingId, given);
+    /** The call's help asked for now, at the Meeting's time now: its latest. */
+    helped(meetingId: string, given: Omit<MeetingHelp, "atMs">): void {
+      const row = rowOf(meetingId);
+      if (!isLiveRow(row)) return;
+      const capturing = live?.meetingId === row.id ? live : null;
+      const atMs = capturing ? meetingTime(capturing) : recordedOf(periodsOf(row));
+      help.set(meetingId, [...(help.get(meetingId) ?? []), { ...given, atMs }]);
       changed();
     },
 

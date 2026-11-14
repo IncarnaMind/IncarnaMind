@@ -52,6 +52,9 @@ export const SET_IDS = [
   "call-help-checks",
   "call-help-marks",
   "call-help-marks-3",
+  "call-help-typed",
+  "call-help-typed-fresh",
+  "call-help-typed-fresh-2",
   "call-help-earlier-calls",
   "call-help-earlier-calls-2",
   "call-help-earlier-calls-3",
@@ -89,6 +92,11 @@ export interface ArmRun {
   firstWordsMs: number | null;
   /** The first whole option, reading or line a help reply shows; absent: not a help reply. */
   firstOptionMs?: number | null;
+  /**
+   * A typed question's (#2925): the button pressed before it in the same call, its first words and
+   * end from its press, to set beside the question's.
+   */
+  pressedFirst?: { firstWordsMs: number | null; doneMs: number | null };
   doneMs: number | null;
   modelCalls: number;
   /** Of them, the Answer's own: not its search rewrite, translation or checks. */

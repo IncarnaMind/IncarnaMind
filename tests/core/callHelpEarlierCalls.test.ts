@@ -461,6 +461,36 @@ for (const language of ["en", "zh-CN"] as const) {
       ).toBe(true);
     });
 
+    // protects=a question typed in the call-help panel's field (#2925) is no press, whatever its words: it is given the earlier call, its Passages marked with its Note and start, the model told what the marks mean, and its Answer stores no button; fails_when=it is sent without the earlier call or its marks, or kept as a button's press; no_claim=what the model makes of the earlier call.
+    test("a question typed in the panel's field with a button's words is no press: it is given the earlier call, marked, and stores no button", async () => {
+      const setup = await setUp(language);
+      const { core, calls, live } = setup;
+      const isEarlier = (passage: { lines: string[] }) =>
+        passage.lines.some((line) => setup.earlierText.includes(line));
+      const earlierMarks = ` call="earlier" note="${setup.earlierNote}" started="${setup.earlierStart}"`;
+
+      const from = calls.length;
+      const asked = await core.askMeetingQuestion({
+        meetingId: live.id,
+        text: translate(language, helpLabel("say")),
+      });
+      if (!asked.asked) throw new Error(`Not asked: ${JSON.stringify(asked)}`);
+      await answerEnded(core, asked.answerId);
+      const sent = calls.slice(from).map(sentBy);
+      const ids = { conversationId: asked.conversation.id, answerId: asked.answerId };
+
+      expect((await turnOf(core, ids)).answer.steps?.pressed).toBeUndefined();
+      expect(sent[0]).toContain("typed a question about it");
+      expect(sent[0]).toContain(INSTRUCTION);
+      expect(
+        sent.some((each) =>
+          transcriptPassages(each, setup.earlierName).some(
+            (passage) => isEarlier(passage) && passage.attributes.includes(earlierMarks),
+          ),
+        ),
+      ).toBe(true);
+    });
+
     test("no button's press is given it: each is given this call, and each button that reads the Documents the Folder's ordinary Document too", async () => {
       const setup = await setUp(language);
       const { core, calls, live } = setup;

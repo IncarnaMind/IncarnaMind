@@ -27,6 +27,8 @@ const fake = vi.hoisted(() => {
     /** Add to note's outcome: the Blocks it adds, or why it fails, once the test says. */
     adding: null as null | { resolve(): void; reject(error: Error): void },
     holdAdding: false,
+    /** Undo of Add to note fails, as a Note that can't be changed now. */
+    undoFails: false,
     reported: [] as unknown[],
     command: null as null | ((command: string) => void),
     /** What the panel asked of the keyboard, in order: true takes it, false gives it back (#2925). */
@@ -35,6 +37,8 @@ const fake = vi.hoisted(() => {
     states: [] as unknown[],
     /** The unsent line the core holds for the Meeting, as a panel opening asks for it (#2925). */
     held: null as null | { text: string; atMs: number | null },
+    /** The conversations Open in assistant asked the app's window for (#2925). */
+    opened: [] as unknown[],
     language: "en" as "en" | "zh-CN",
     emit(name: string, payload: unknown) {
       for (const listener of listeners.get(name) ?? []) listener(payload);
@@ -58,6 +62,14 @@ vi.mock("../../src/renderer/src/core", () => ({
             resolve({ asked: true, conversation: { id: "help-chat" }, answerId }),
         }),
       ),
+    askMeetingQuestion: ({ text }: { text: string }) =>
+      new Promise((resolve) =>
+        fake.asks.push({
+          kind: `question: ${text}`,
+          resolve: (answerId) =>
+            resolve({ asked: true, conversation: { id: "help-chat" }, answerId }),
+        }),
+      ),
     getConversation: () =>
       new Promise((resolve) => fake.loads.push((messages) => resolve({ messages }))),
     addToNote: ({ blocks }: { blocks: unknown[] }) => {
@@ -67,7 +79,10 @@ vi.mock("../../src/renderer/src/core", () => ({
         fake.adding = { resolve: () => resolve({ blockIds: ["block-1"] }), reject };
       });
     },
-    undoAddToNote: () => Promise.resolve(),
+    undoAddToNote: () =>
+      fake.undoFails
+        ? Promise.reject(new Error("The note can't be changed now."))
+        : Promise.resolve(),
     setQuickNoteDraft: () => Promise.resolve(),
     getQuickNoteDraft: () => Promise.resolve(fake.held),
   },
@@ -128,6 +143,7 @@ const panelBridge = {
   },
   close: () => undefined,
   setUp: () => undefined,
+  openInAssistant: (at: unknown) => fake.opened.push(at),
   keyboard: (take: boolean) => fake.keyboard.push(take),
 };
 
@@ -137,12 +153,22 @@ const SUM = "- Their audit is in June\n- They asked for a fixed monthly price";
 
 const helpOf = (kind: MeetingHelpKind, answerId: string): MeetingHelp => ({
   kind,
+  question: null,
   conversationId: "help-chat",
   answerId,
   heard: null,
+  atMs: 60_000,
 });
 
-const meetingWith = (help: MeetingHelp | null) =>
+/** The Meeting's help so far, oldest first, as the core keeps it while it records. */
+const asked: MeetingHelp[] = [];
+
+const meetingWith = (help: MeetingHelp | null) => {
+  if (help && !asked.some((each) => each.answerId === help.answerId)) asked.push(help);
+  return meetingOf(help, help ? [...asked] : []);
+};
+
+const meetingOf = (help: MeetingHelp | null, helps: MeetingHelp[]) =>
   ({
     id: "meeting-1",
     mindId: "note-1",
@@ -153,6 +179,7 @@ const meetingWith = (help: MeetingHelp | null) =>
     recordingSince: null,
     microphonePausedAtMs: null,
     help,
+    helps,
     helpTemplate: null,
   }) as unknown as Meeting;
 
@@ -199,7 +226,10 @@ beforeEach(async () => {
     "text/html",
   );
   const window = document.defaultView;
-  Object.assign(window, { [MEETING_PANEL_BRIDGE_KEY]: panelBridge });
+  Object.assign(window, {
+    [MEETING_PANEL_BRIDGE_KEY]: panelBridge,
+    screen: { availHeight: 900 },
+  });
   for (const [name, value] of Object.entries({
     document,
     window,
@@ -221,10 +251,13 @@ beforeEach(async () => {
   fake.added.length = 0;
   fake.adding = null;
   fake.holdAdding = false;
+  fake.undoFails = false;
   fake.reported.length = 0;
   fake.keyboard.length = 0;
   fake.states.length = 0;
   fake.held = null;
+  fake.opened.length = 0;
+  asked.length = 0;
   fake.language = "en";
   container = document.createElement("div", {});
   document.body.append(container);
@@ -416,15 +449,16 @@ describe("a press whose Meeting stops before its reply", () => {
     const { useMeetingHelp } = await import("../../src/renderer/src/meetingHelp");
     const stop = () =>
       run(() => fake.emit("meetings.changed", [{ ...meetingWith(null), status: "ready" }]));
+    const want = { kind: "want", question: null };
     await changed(null);
     await press("want");
-    expect(useMeetingHelp.getState().pending).toEqual({ "meeting-1": "want" });
+    expect(useMeetingHelp.getState().pending).toEqual({ "meeting-1": want });
     if (first === "stop") {
       await stop();
       await replied(0, "answer-want");
     } else {
       await replied(0, "answer-want");
-      expect(useMeetingHelp.getState().pending).toEqual({ "meeting-1": "want" });
+      expect(useMeetingHelp.getState().pending).toEqual({ "meeting-1": want });
       await stop();
     }
     expect(useMeetingHelp.getState().pending).toEqual({});
@@ -466,6 +500,27 @@ describe("an Add to note still on its way when the suggestion is replaced", () =
     await changed(helpOf("sum", "answer-sum"));
     await run(() => fake.adding?.reject(new Error("The note can't be changed now.")));
     expect(fake.reported).toEqual([new Error("The note can't be changed now.")]);
+  });
+
+  // protects=Add to note pressed again while the first is on its way adds the reply once, so its Undo takes out all it added; fails_when=a second click adds it a second time; no_claim=the ⌘K path, which goes through the same call.
+  test("pressed twice while on its way, adds the reply once", async () => {
+    await wantShown();
+    fake.holdAdding = true;
+    await addToNote([answerOf("answer-want", WANT, "done")]);
+    await click(all("help-add")[0]);
+    await run(() => fake.adding?.resolve());
+    expect(fake.added).toHaveLength(1);
+    expect(all("help-added")).toHaveLength(1);
+  });
+
+  // protects=an Undo of Add to note that fails keeps its Undo, to try again, and says why; fails_when=the Added line and its Undo go though the Blocks are still in the Note; no_claim=how long Undo stays.
+  test("an Undo that fails keeps its Undo and says why", async () => {
+    await wantShown();
+    await addToNote([answerOf("answer-want", WANT, "done")]);
+    fake.undoFails = true;
+    await click(all("help-added")[0]?.querySelector("button") ?? undefined);
+    expect(all("help-added")).toHaveLength(1);
+    expect(container.textContent).toContain("The note can't be changed now.");
   });
 });
 
@@ -597,6 +652,122 @@ describe("A panel opening again (#2925)", () => {
     await run(() => undefined);
     const field = container.querySelector<HTMLTextAreaElement>('[data-testid="quick-note-field"]');
     expect(field?.value).toBe("");
+  });
+});
+
+describe("The Meeting's thread (#2925)", () => {
+  const SAY = "★ We can **start in June** [^1]\n→ keeps it moving";
+  const NO = "★ We can't go lower this quarter\n→ keeps the margin";
+  const ASK = "★ When does your audit start?\n→ learns their date";
+  const replies = [
+    answerOf("answer-want", WANT, "done"),
+    answerOf("answer-sum", SUM, "done"),
+    answerOf("answer-say", SAY, "done"),
+    answerOf("answer-no", NO, "done"),
+    answerOf("answer-ask", ASK, "done"),
+    answerOf("answer-question", "The audit is in June [^1]", "done"),
+  ];
+  const lines = () => all("help-earlier").map((each) => each.textContent ?? "");
+  const headings = () => all("help-heading").map((each) => each.textContent ?? "");
+  const helped = async (...kinds: [MeetingHelpKind, string][]) => {
+    for (const [kind, answerId] of kinds) {
+      await changed(helpOf(kind, answerId));
+      await loaded(replies);
+    }
+  };
+  const questionOf = (question: string, answerId: string): MeetingHelp => ({
+    ...helpOf("say", answerId),
+    kind: "question",
+    question,
+    atMs: 125_000,
+  });
+
+  // protects=each earlier item is one line with its time, what was asked and the start of its reply, an option to say in quotation marks; three show, then Show earlier with the rest's count; fails_when=an earlier item shows whole, a line misses its time or question, or more than three show before Show earlier; no_claim=how the line is cut short.
+  test("earlier items are one line each, three of them, then Show earlier; the newest shows whole", async () => {
+    await helped(
+      ["want", "answer-want"],
+      ["sum", "answer-sum"],
+      ["say", "answer-say"],
+      ["no", "answer-no"],
+      ["ask", "answer-ask"],
+    );
+    expect(lines()).toEqual([
+      "1:00·Sum up so far·Their audit is in June",
+      "1:00·What should I say?·“We can start in June”",
+      "1:00·Say no politely·“We can't go lower this quarter”",
+    ]);
+    expect(headings()).toEqual([expect.stringContaining("What to ask next")]);
+    expect(all("help-show-earlier").map((each) => each.textContent)).toEqual(["Show earlier (1)"]);
+    await click(all("help-show-earlier")[0]);
+    await loaded(replies);
+    expect(lines()).toHaveLength(4);
+    expect(lines()[0]).toBe(
+      "1:00·What do they want?·They want the rollout finished before their June audit",
+    );
+    expect(all("help-show-earlier")).toHaveLength(0);
+  });
+
+  // protects=a click on an earlier line opens it whole and closes the one open, and a new ask opens its own item and closes the one the User opened; fails_when=two show whole, the click opens nothing, or a new ask leaves the earlier one open; no_claim=scrolling.
+  test("a click on an earlier line opens it and closes the open one; the next ask opens its own", async () => {
+    await helped(["want", "answer-want"], ["sum", "answer-sum"]);
+    await click(all("help-earlier")[0]);
+    await loaded(replies);
+    expect(headings()).toEqual([expect.stringContaining("What do they want?")]);
+    expect(lines()).toEqual(["1:00·Sum up so far·Their audit is in June"]);
+    await press("say");
+    await loaded(replies);
+    expect(headings()).toEqual(["What should I say?"]);
+    expect(lines()).toHaveLength(2);
+  });
+
+  // protects=Add to note's Undo stays with its reply for its time, though the reply closes to its line and opens again; fails_when=the reply opened again offers Add to note while what it added is in the Note; no_claim=how long Undo stays.
+  test("a reply added to the Note, closed to its line and opened again, still offers its Undo", async () => {
+    await helped(["want", "answer-want"], ["sum", "answer-sum"]);
+    await addToNote(replies);
+    expect(all("help-added")).toHaveLength(1);
+    await click(all("help-earlier")[0]);
+    await loaded(replies);
+    expect(headings()).toEqual([expect.stringContaining("What do they want?")]);
+    expect(all("help-added")).toHaveLength(0);
+    await click(all("help-earlier")[0]);
+    await loaded(replies);
+    expect(headings()).toEqual(["Sum up so far"]);
+    expect(all("help-added")).toHaveLength(1);
+    expect(all("help-add")).toHaveLength(0);
+  });
+
+  // protects=while a reply is written nothing is drawn under the line being written, so nothing below it moves as it grows: the outline holds the place only until the first line, and the sources come once it ends (#2925); fails_when=an outline or the sources sit under a line still growing; no_claim=how fast it is written.
+  test("while a reply is written, nothing is drawn under its newest line: no outline after the first line, and the sources once it ends", async () => {
+    await changed(helpOf("want", "answer-want"));
+    await loaded([answerOf("answer-want", "", "streaming")]);
+    expect(all("help-outline")).toHaveLength(2);
+    await written(answerOf("answer-want", "★ They want the rollout finished [^1]", "streaming"));
+    expect(all("help-outline")).toHaveLength(0);
+    expect(all("help-sources")).toHaveLength(0);
+    await written(answerOf("answer-want", WANT, "done"));
+    expect(all("help-sources")).toHaveLength(1);
+  });
+
+  // protects=a typed question shows as the question, its own heading, in its pending outline and once answered, with Open in assistant going on in the app's window at that Answer; a line names it by the question; fails_when=it shows under a button's name or none, or Open in assistant opens another conversation; no_claim=the main window's side.
+  test("a typed question shows as the question, with Open in assistant, and its earlier line names it", async () => {
+    const { askQuestion } = await import("../../src/renderer/src/meetingHelp");
+    await changed(null);
+    await run(() => void askQuestion(meetingWith(null), "When is their audit?"));
+    expect(headings()).toEqual(["When is their audit?"]);
+    expect(all("help-outline").length).toBeGreaterThan(0);
+    await replied(0, "answer-question");
+    await changed(questionOf("When is their audit?", "answer-question"));
+    await loaded(replies);
+    expect(headings()).toEqual(["When is their audit?"]);
+    expect(all("help-option").map((each) => each.textContent)).toEqual([
+      expect.stringContaining("The audit is in June"),
+    ]);
+    await click(all("help-open-assistant")[0]);
+    expect(fake.opened).toEqual([{ conversationId: "help-chat", answerId: "answer-question" }]);
+
+    await helped(["sum", "answer-sum"]);
+    expect(lines()).toEqual(["2:05·When is their audit?·The audit is in June"]);
+    expect(all("help-open-assistant")).toHaveLength(0);
   });
 });
 

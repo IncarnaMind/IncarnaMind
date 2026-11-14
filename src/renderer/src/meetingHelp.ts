@@ -7,6 +7,7 @@ import { useEffect } from "react";
 import { create } from "zustand";
 import type {
   ChatReadiness,
+  ConversationAskResult,
   Meeting,
   MeetingHelp,
   MeetingHelpKind,
@@ -14,10 +15,12 @@ import type {
 } from "../../core/api";
 import { messageReference } from "../../core/references";
 import { pageBlocks, withAnswerChecks } from "../../shared/answerBlocks";
+import type { MessageKey } from "../../shared/i18n";
 import { keysForm } from "../../shared/keyForms";
 import { type HelpShortcut, helpKeysOf, helpLabel, isHelpShortcut } from "../../shared/meetingHelp";
 import type { PanelState } from "../../shared/meetingPanel";
 import { keysHere } from "./commands/keymap";
+import { useComposer } from "./composer";
 import { noMoveSinceAsked, openConversation, useConversations } from "./conversations";
 import { core, files } from "./core";
 import { errorMessage } from "./errors";
@@ -32,9 +35,17 @@ const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
 /** Whether the call-help panel has its field for quick notes on this system: not on Linux (`helpShortcutsOn`). */
 export const quickNotesHere = (): boolean => !/linux/i.test(navigator.platform);
 
+/** What was asked and is still waiting: a button, or a question typed in the panel (#2925). */
+export type PendingHelp = Pick<MeetingHelp, "kind" | "question">;
+
 interface HelpState {
-  /** The button pressed, by Meeting, until its Answer is the Meeting's `help`. */
-  pending: Readonly<Record<string, MeetingHelpKind>>;
+  /** What was asked, by Meeting, until its Answer is the Meeting's `help`. */
+  pending: Readonly<Record<string, PendingHelp>>;
+  /**
+   * How many asks this window has made, by Meeting: the panel opens each one and brings it into
+   * view, though a quick reply has come and gone from `pending` before the panel draws (#2925).
+   */
+  asked: Readonly<Record<string, number>>;
   /** Why the last press couldn't be asked, by Meeting: no model ready, or a problem in words. */
   blocked: Readonly<
     Record<string, { readiness: Extract<ChatReadiness, { ready: false }> } | { message: string }>
@@ -44,6 +55,7 @@ interface HelpState {
 
 export const useMeetingHelp = create<HelpState>()(() => ({
   pending: {},
+  asked: {},
   blocked: {},
   panel: { shown: false, folded: false, pinned: false },
 }));
@@ -102,26 +114,45 @@ useMeetings.subscribe((state) => settleAsked(state.meetings));
  * Asks for a button's help (`AskMeetingHelpInput`); resolves to the conversation and Answer, or
  * null when it couldn't be asked, which `blocked` then says.
  */
-export async function askHelp(
+export const askHelp = (
   meeting: Meeting,
   kind: MeetingHelpKind,
   conversationId?: string | null,
+): Promise<{ conversationId: string; answerId: string } | null> =>
+  ask(meeting, { kind, question: null }, () =>
+    core.askMeetingHelp({
+      meetingId: meeting.id,
+      kind,
+      ...(conversationId !== undefined && { conversationId }),
+    }),
+  );
+
+/** Asks a question typed in the panel's field (`AskMeetingQuestionInput`), as `askHelp` asks a button. */
+export const askQuestion = (
+  meeting: Meeting,
+  text: string,
+): Promise<{ conversationId: string; answerId: string } | null> =>
+  ask(meeting, { kind: "question", question: text }, () =>
+    core.askMeetingQuestion({ meetingId: meeting.id, text }),
+  );
+
+async function ask(
+  meeting: Meeting,
+  asked: PendingHelp,
+  send: () => Promise<ConversationAskResult>,
 ): Promise<{ conversationId: string; answerId: string } | null> {
   const press: Press = { answerId: null, helped: new Set() };
   presses.set(meeting.id, press);
   const latest = () => presses.get(meeting.id) === press;
   useMeetingHelp.setState((state) => ({
-    pending: { ...state.pending, [meeting.id]: kind },
+    pending: { ...state.pending, [meeting.id]: asked },
+    asked: { ...state.asked, [meeting.id]: (state.asked[meeting.id] ?? 0) + 1 },
     blocked: Object.fromEntries(
       Object.entries(state.blocked).filter(([meetingId]) => meetingId !== meeting.id),
     ),
   }));
   try {
-    const result = await core.askMeetingHelp({
-      meetingId: meeting.id,
-      kind,
-      ...(conversationId !== undefined && { conversationId }),
-    });
+    const result = await send();
     if (!result.asked) {
       if (latest()) {
         settle(
@@ -144,6 +175,10 @@ export async function askHelp(
     return null;
   }
 }
+
+/** What a help asked, as its heading shows it: the button's name, or the question typed. */
+export const helpAsked = (help: PendingHelp, t: (key: MessageKey) => string): string =>
+  help.kind === "question" ? (help.question ?? "") : t(helpLabel(help.kind));
 
 /** The call being recorded, whose help this is: a voice memo has none (#1568). */
 export const liveMeetingNow = (): Meeting | undefined =>
@@ -184,24 +219,33 @@ export async function helpToKeepOf(help: MeetingHelp) {
   return { answer, scope: asked?.kind === "question" ? asked.scope : null };
 }
 
+/** Each Answer's Add to note on its way: asked again meanwhile, from the panel or ⌘K, it adds once. */
+const adding = new Map<string, Promise<{ mindId: string; blockIds: string[] }>>();
+
 /**
  * Puts a help Answer into its meeting's notes, at their end, with a link back to it and what its
  * sentences' check settled, as Add to note from the assistant does (#2313); resolves to the Blocks
  * added, for Undo. Throws when it has nothing to add (`helpToKeepOf`).
  */
-export async function addHelpToNotes(
+export function addHelpToNotes(
   meeting: Meeting,
   help: MeetingHelp,
 ): Promise<{ mindId: string; blockIds: string[] }> {
-  const { answer, scope } = await helpToKeepOf(help);
-  const question = translateNow(helpLabel(help.kind));
-  const { blockIds } = await core.addToNote({
-    mindId: meeting.mindId,
-    blocks: withAnswerChecks(pageBlocks(answer, question), answer, question, scope),
-    origin: { from: messageReference(answer.conversationId, answer.id), question },
-    model: answer.model,
-  });
-  return { mindId: meeting.mindId, blockIds };
+  const under = adding.get(help.answerId);
+  if (under) return under;
+  const add = (async () => {
+    const { answer, scope } = await helpToKeepOf(help);
+    const question = helpAsked(help, translateNow);
+    const { blockIds } = await core.addToNote({
+      mindId: meeting.mindId,
+      blocks: withAnswerChecks(pageBlocks(answer, question), answer, question, scope),
+      origin: { from: messageReference(answer.conversationId, answer.id), question },
+      model: answer.model,
+    });
+    return { mindId: meeting.mindId, blockIds };
+  })().finally(() => adding.delete(help.answerId));
+  adding.set(help.answerId, add);
+  return add;
 }
 
 /**
@@ -217,16 +261,25 @@ export function helpKeysLabel(
   return keys && !windowKeysOf(isMac).has(keysForm(keys, isMac)) ? keysHere(keys) : null;
 }
 
+/** Shows a conversation of the call's help in the assistant, its composer ready to go on (#2925). */
+export async function openHelpInAssistant(conversationId: string, answerId?: string) {
+  if (await openConversation(conversationId, answerId)) useComposer.getState().requestFocus();
+}
+
 /**
  * In the app's window: a help shortcut pressed with no floating panel asks in the assistant;
- * the panel's Set up opens where a model is chosen; whether the panel shows; and which keys the
- * window binds itself, which a meeting shortcut doesn't take while the window is in front.
+ * the panel's Set up opens where a model is chosen, and its Open in assistant the conversation;
+ * whether the panel shows; and which keys the window binds itself, which a meeting shortcut
+ * doesn't take while the window is in front.
  */
 export function useMeetingHelpInWindow(): void {
   useEffect(() => {
     const stops = [
       files.onMeetingHelp((kind) => void askHelpInAssistant(kind)),
       files.onSetUpModel(() => useAppStore.getState().openSettings("ai")),
+      files.onOpenConversation(
+        ({ conversationId, answerId }) => void openHelpInAssistant(conversationId, answerId),
+      ),
       files.onMeetingPanel((panel) => useMeetingHelp.setState({ panel })),
     ];
     files.windowKeys([...windowKeysOf(isMac)]);

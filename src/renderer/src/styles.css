@@ -8092,6 +8092,12 @@
       color: var(--color-ink-secondary);
     }
   }
+  .help-heading--question b {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
   .help-heading-after {
     display: -webkit-box;
     min-width: 0;
@@ -8121,6 +8127,9 @@
   .help-option--recommended .help-option-say {
     font-weight: 600;
     color: var(--color-ink);
+  }
+  .help-move {
+    font-weight: 600;
   }
   .help-option-note {
     grid-column: 2;

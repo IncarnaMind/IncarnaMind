@@ -11,6 +11,7 @@ import {
   helpItems,
   helpParts,
   helpToKeep,
+  piecesText,
   quoted,
   startedLabel,
 } from "../../src/renderer/src/helpReply";
@@ -305,6 +306,121 @@ describe("A help reply", () => {
     const items = readHelpReply("★ We can extend the pil");
     expect(items).toHaveLength(1);
     expect(items[0]?.effect).toBeNull();
+  });
+
+  // protects=a typed question's reply is laid out as what answers it: options as a button's are, else every sentence and short line it wrote, each its own, in English and Chinese (#2925); fails_when=a second sentence shows as a note of the first, a list it asked for is cut, or options lose their layout; no_claim=what the model writes.
+  test("a typed question's reply shows options as a button's, or each sentence and short line it wrote, in English and Chinese", () => {
+    const done = (text: string) =>
+      helpItems({ text, status: "done" }, "question").map((item) => textOf(item.lead));
+    expect(done("★ Yes, it's $45 [^1]\n→ answers at once\n\nLet me check\n→ buys time")).toEqual([
+      "Yes, it's $45 [1]",
+      "Let me check",
+    ]);
+    expect(done("Enterprise is $45 a seat [^1]\nSingle sign-on is included [^2]")).toEqual([
+      "Enterprise is $45 a seat [1]",
+      "Single sign-on is included [2]",
+    ]);
+    expect(done("企业版每个席位 45 美元 [^1]\n\n含单点登录 [^1]")).toEqual([
+      "企业版每个席位 45 美元 [1]",
+      "含单点登录 [1]",
+    ]);
+    expect(done("- Team $25 [^1]\n- Business $35\n- Enterprise $45\n- Custom on request")).toEqual([
+      "Team $25 [1]",
+      "Business $35",
+      "Enterprise $45",
+      "Custom on request",
+    ]);
+    expect(helpToKeep({ text: "Enterprise is $45 a seat [^1]", status: "done" }, "question")).toBe(
+      true,
+    );
+    expect(helpToKeep({ text: "", status: "done" }, "question")).toBe(false);
+  });
+
+  // protects=what a typed reply says before its first option shows first from the moment the option comes, while it is written, once it ends and once it was stopped, in English and Chinese, each line its own, the options after it as before; a model's notes go once the reply's text no longer holds them; a button's reply with the same words is laid out as before in each state; fails_when=the sentence the User asked for is hidden in any state, or a button's reply changes; no_claim=what the model writes.
+  test.each([
+    {
+      language: "English",
+      before: "They asked for EU hosting.[^1]\nIt is in the contract.[^2]",
+      option: "★ We host in Frankfurt.[^3]\n→ answers it",
+      lead: ["They asked for EU hosting.[1]", "It is in the contract.[2]"],
+      said: "We host in Frankfurt.[3]",
+    },
+    {
+      language: "Chinese",
+      before: "对方要求数据存放在欧盟。[^1]\n合同里写了。[^2]",
+      option: "★ 我们的服务器在法兰克福。[^3]\n→ 直接回答",
+      lead: ["对方要求数据存放在欧盟。[1]", "合同里写了。[2]"],
+      said: "我们的服务器在法兰克福。[3]",
+    },
+  ])(
+    "a typed reply's words before its first option show first in every state, in $language; a button's are as before",
+    ({ before, option, lead, said }) => {
+      const text = `${before}\n\n${option}`;
+      for (const status of ["streaming", "done", "stopped"] as const) {
+        const typed = helpParts({ text, status }, "question");
+        expect(
+          typed.lead.map((item) => textOf(item.lead)),
+          status,
+        ).toEqual(lead);
+        expect(
+          typed.lead.every((item) => !item.said && !item.recommended),
+          status,
+        ).toBe(true);
+        expect(
+          typed.options.map((item) => textOf(item.lead)),
+          status,
+        ).toEqual([said]);
+        expect(typed.options[0]?.said, status).toBe(true);
+        // The notes taken back, the reply's text holds the option alone, and nothing shows first.
+        expect(helpParts({ text: option, status }, "question").lead, status).toEqual([]);
+        // A button's reply puts nothing first: the words before its options are a remark, left out.
+        for (const kind of ["say", "answer"] as const) {
+          expect(helpParts({ text, status }, kind), `${kind} ${status}`).toEqual({
+            lead: [],
+            options: typed.options,
+          });
+        }
+      }
+    },
+  );
+
+  // protects=the words a model puts in bold show in bold, a run that holds a Citation and one around a line's mark included, and a bold mark still open while it streams bolds nothing; fails_when=the marks show as asterisks, a bold run is lost, or an open mark bolds the rest of the line; no_claim=whether a model writes bold (#2925).
+  test("bold marks a model writes show in bold, over a Citation too, and one left open bolds nothing", () => {
+    const [item] = readHelpReply(
+      "★ We **can't go below list** [^1], but we **can** extend\n→ **keeps** it moving",
+    );
+    expect(item?.lead).toEqual([
+      { kind: "text", text: "We " },
+      { kind: "text", text: "can't go below list", bold: true },
+      { kind: "text", text: " " },
+      { kind: "citation", marker: 1, at: 0 },
+      { kind: "text", text: ", but we " },
+      { kind: "text", text: "can", bold: true },
+      { kind: "text", text: " extend" },
+    ]);
+    expect(item?.effect).toEqual([
+      { kind: "text", text: "keeps", bold: true },
+      { kind: "text", text: " it moving" },
+    ]);
+    const [whole] = readHelpReply("**★ 是的，45 美元 [^1]**\n→ 直接回答");
+    expect(whole?.recommended).toBe(true);
+    expect(whole?.lead).toEqual([
+      { kind: "text", text: "是的，45 美元 ", bold: true },
+      { kind: "citation", marker: 1, at: 0 },
+    ]);
+    const [open] = readHelpReply("★ We **can't go");
+    expect(open?.lead).toEqual([
+      { kind: "text", text: "We " },
+      { kind: "text", text: "can't go" },
+    ]);
+  });
+
+  // protects=an earlier line's start keeps a worked-out figure as the reply shows it, and leaves its Citations out (#2925); fails_when=the line reads "is ." where the figure was, or a Citation's number shows; no_claim=how the line is cut short.
+  test("the text a line names a reply by keeps its figures as worked out, without its Citations", () => {
+    const [item] = readHelpReply("Net debt is [=1] [^2] within the  covenant");
+    expect(piecesText(item?.lead ?? [], [{ marker: 1, shown: "£310 million" }])).toBe(
+      "Net debt is £310 million within the covenant",
+    );
   });
 
   // protects=the call help panel numbers its Citations from 1 in the order the reply cites them, a figure's input's ("[^9001]") included, as the assistant does (#1831); fails_when=a chip or source row reads "9001"; no_claim=how a chip looks.

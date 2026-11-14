@@ -100,6 +100,8 @@ export interface QuestionInput {
   forcedSkill: string | null;
   /** Asked with "Analyse data…": its Answer may run an Analysis whatever its scope holds (#447). */
   analyse: boolean;
+  /** Told the Question's id once it is kept, before its Answer starts; not kept with the Question. */
+  kept?(questionId: string): void;
 }
 
 /** What an Answer records of the Mind it read (#544): which, its version, and whether only part of it. */

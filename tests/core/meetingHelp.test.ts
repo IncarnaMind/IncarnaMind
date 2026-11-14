@@ -5,12 +5,12 @@
  * Meeting names its latest help, the line it answers and the conversation it went to; the
  * template adds its buttons.
  */
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import type { Core, Meeting, MeetingHelpKind } from "../../src/core";
-import { helpOwnLines } from "../../src/core/answers/meetingHelp";
+import { helpOwnLines, meetingHelpInstructions } from "../../src/core/answers/meetingHelp";
 import { CITE_RETRY_INSTRUCTIONS } from "../../src/core/answers/prompt";
 import { setMindModel } from "../../src/shared/mindModel";
-import { answerEnded, shownPassages } from "../helpers/citations";
+import { answerEnded, answerJudged, shownPassages } from "../helpers/citations";
 import { createTempDataFolder } from "../helpers/core";
 import { createSourceFolder, waitForProcessing, writeSourceFile } from "../helpers/documents";
 import { connectToMind } from "../helpers/mindClient";
@@ -170,6 +170,18 @@ async function press(core: Core, meeting: Meeting, kind: MeetingHelpKind, conver
   return { result, answer, messages, latest };
 }
 
+/** Asks a question typed in the panel's field (#2925), as `press` presses a button. */
+async function ask(core: Core, meeting: Meeting, text: string) {
+  const result = await core.askMeetingQuestion({ meetingId: meeting.id, text });
+  if (!result.asked) throw new Error(`Not asked: ${JSON.stringify(result)}`);
+  expect((await answerEnded(core, result.answerId)).event).toBe("finished");
+  const { messages } = await core.getConversation(result.conversation.id);
+  const answer = messages.find((message) => message.id === result.answerId);
+  if (answer?.kind !== "answer") throw new Error("No Answer.");
+  const latest = (await core.listMeetings()).find((each) => each.id === meeting.id);
+  return { result, answer, messages, latest };
+}
+
 describe("Help during the call", { timeout: 60_000 }, () => {
   test("a button asks its name with the live transcript and the options' shape, offered the Documents' Tools only, and the Meeting names its help", async () => {
     const { core, meeting, calls } = await setUp();
@@ -188,10 +200,13 @@ describe("Help during the call", { timeout: 60_000 }, () => {
     expect(answer.text).toMatch(/^★ /);
     expect(latest?.help).toEqual({
       kind: "no",
+      question: null,
       conversationId: result.asked && result.conversation.id,
       answerId: result.asked && result.answerId,
       heard: { text: expect.any(String), speaker: "Them" },
+      atMs: expect.any(Number),
     });
+    expect(latest?.helps).toEqual([latest?.help]);
   });
 
   // Button instructions stay with the Question so presses with the same Search scope share the provider's cache (#1634).
@@ -443,6 +458,327 @@ describe("Help during the call", { timeout: 60_000 }, () => {
     expect(third.latest?.help?.heard).toBeNull();
   });
 
+  test("a question typed in the panel goes on in the help's conversation, reading the turns before it, the live transcript and what the Documents say about it; the Meeting lists it after the button, with its time (#2925)", async () => {
+    const { core, meeting, calls } = await setUp(addPriceSheet);
+    const button = await press(core, meeting, "say");
+    const before = calls.length;
+
+    const typed = await ask(core, meeting, "  How much is Enterprise per seat?  ");
+
+    const sent = calls[before];
+    expect(sent?.prompt).toContain("typed a question about it");
+    expect(sent?.prompt).not.toContain("pressed a button for help");
+    expect(sent?.prompt).toContain("<live-transcript>");
+    expect(sent?.prompt).toContain("What should I say?");
+    expect(block(sent?.prompt ?? "", "found-in-documents")).toContain(PRICE);
+    expect(sent?.tools).toEqual(expect.arrayContaining(["search_documents", "cite"]));
+    expect(sent?.tools).not.toContain("add_to_mind");
+    expect(typed.result.asked && typed.result.conversation.id).toBe(
+      button.result.asked && button.result.conversation.id,
+    );
+    expect(typed.messages.at(-2)).toMatchObject({
+      kind: "question",
+      text: "How much is Enterprise per seat?",
+    });
+    expect(typed.answer.citations).toEqual([
+      expect.objectContaining({ documentName: "Price sheet", quote: PRICE }),
+    ]);
+    const helps = typed.latest?.helps ?? [];
+    expect(helps.map(({ kind, question }) => [kind, question])).toEqual([
+      ["say", null],
+      ["question", "How much is Enterprise per seat?"],
+    ]);
+    expect(helps[1]?.atMs).toBeGreaterThanOrEqual(helps[0]?.atMs ?? Number.POSITIVE_INFINITY);
+    expect(typed.latest?.help).toEqual(helps[1]);
+    expect(helps[1]?.heard).toBeNull();
+  });
+
+  test("a typed question written again is still the call's: Try again keeps its form, while the same words asked in the assistant or from the Note are an ordinary Question (#2925)", async () => {
+    const { core, meeting, calls } = await setUp(addPriceSheet);
+    const words = "How much is Enterprise per seat?";
+    const typed = await ask(core, meeting, words);
+    if (!typed.result.asked) throw new Error("Not asked.");
+    const before = calls.length;
+    const again = await core.regenerateConversationAnswer({
+      conversationId: typed.result.conversation.id,
+      answerId: typed.result.answerId,
+    });
+    if (again.asked) await answerEnded(core, again.answerId);
+    expect(calls[before]?.prompt).toContain("typed a question about it");
+
+    const ordinary = async (conversationId?: string) => {
+      const at = calls.length;
+      const asked = await core.askInConversation({
+        mindId: meeting.mindId,
+        text: words,
+        ...(conversationId && { conversationId }),
+      });
+      if (!asked.asked) throw new Error("Not asked.");
+      await answerEnded(core, asked.answerId);
+      return calls[at]?.prompt ?? "";
+    };
+    for (const prompt of [await ordinary(typed.result.conversation.id), await ordinary()]) {
+      expect(prompt).toContain(words);
+      expect(prompt).not.toContain("typed a question about it");
+      expect(prompt).not.toContain("pressed a button for help");
+    }
+    const latest = (await core.listMeetings()).find((each) => each.id === meeting.id);
+    expect(latest?.helps.map(({ kind }) => kind)).toEqual(["question"]);
+  });
+
+  test("a press is the button's, whatever was typed before: its own name typed in the panel first is a typed question, then the press is the button, in English and Chinese (#2925)", async () => {
+    const { core, meeting, calls } = await setUp();
+    const form = (prompt = "") =>
+      prompt.includes("typed a question about it")
+        ? "typed"
+        : prompt.includes("pressed a button for help")
+          ? "button"
+          : "ordinary";
+    const typedThenPressed = async (name: string) => {
+      const typedAt = calls.length;
+      await ask(core, meeting, name);
+      const pressedAt = calls.length;
+      const pressed = await press(core, meeting, "say");
+      expect(pressed.messages.at(-2)).toMatchObject({ kind: "question", text: name });
+      return [form(calls[typedAt]?.prompt), form(calls[pressedAt]?.prompt)];
+    };
+
+    expect(await typedThenPressed("What should I say?")).toEqual(["typed", "button"]);
+    await core.updateSettings({ user: { language: "zh-CN" } });
+    expect(await typedThenPressed("我该怎么说？")).toEqual(["typed", "button"]);
+    const latest = (await core.listMeetings()).find((each) => each.id === meeting.id);
+    expect(latest?.helps.map(({ kind }) => kind)).toEqual(["question", "say", "question", "say"]);
+  });
+
+  // protects=a typed question reads the call's earlier Answers as their words, with no Citation ids, so a marker its reply gives no record is never asked about again by the request to cite again, whose answer the User saw in the run (#2925); and a button pressed after it is sent exactly what the same button was before it; fails_when=the typed question's context shows an earlier Answer's Citation as "[Document · C1]", the request to cite again goes out, or the button's request changes; no_claim=how a real model cites.
+  test("a typed question reads the earlier Answers' words without their Citations, so its unrecorded marker isn't asked again, and a button after it is sent what it was before (#2925)", async () => {
+    const marking = (calls: ModelCall[]) =>
+      scriptedModel(
+        (call) => {
+          calls.push(call);
+          // Typed, it marks its fact and records nothing; pressed, it cites the price sheet.
+          if (call.prompt.includes("typed a question about it"))
+            return { text: "Enterprise is $45 a seat [^1]" };
+          const [found] = shownPassages(block(call.prompt, "found-in-documents") ?? "");
+          if (found && !call.results.some((result) => result.tool === "cite")) {
+            return {
+              calls: [
+                {
+                  tool: "cite",
+                  input: { citations: [{ marker: 1, passage: found.id, quote: PRICE }] },
+                },
+              ],
+            };
+          }
+          return { text: "★ Yes, Enterprise is $45 a seat [^1]\n→ answers at once" };
+        },
+        {
+          judgesItsAnswers: true,
+          generate: (call) =>
+            call.question === "unmarked-quotes"
+              ? { text: JSON.stringify({ citations: [] }) }
+              : unscripted(call.question, call.system),
+        },
+      );
+    const { core, meeting, calls } = await setUp(addPriceSheet, {}, marking);
+    // A press reads the call's Transcript as indexed when it is pressed, waiting only a moment for
+    // that, and the two presses below are compared byte for byte. So one press comes first, and the
+    // Transcript then holds every line of the nine seconds recorded, four a side, before them: both
+    // read the same call.
+    const { documentId } = await until(
+      core,
+      meeting.id,
+      (each) => each.lines >= 8 && each.documentId !== null,
+    );
+    if (!documentId) throw new Error("No Transcript.");
+    await press(core, meeting, "say");
+    await vi.waitFor(
+      async () => {
+        const { pages } = await core.readDocumentText(documentId);
+        expect(pages.flatMap((page) => page.text.split("\n"))).toHaveLength(8);
+      },
+      { timeout: 20_000, interval: 20 },
+    );
+    const firstAt = calls.length;
+    await press(core, meeting, "say");
+    const before = calls[firstAt];
+    const typedAt = calls.length;
+    const typed = await ask(core, meeting, "How much is Enterprise per seat?");
+    const sent = calls[typedAt]?.prompt ?? "";
+    expect(sent).toContain("typed a question about it");
+    expect(sent).toContain("Yes, Enterprise is $45 a seat");
+    expect(sent).not.toMatch(/· C\d/);
+    expect(sent).not.toContain("[Price sheet");
+    expect(calls.slice(typedAt).some((call) => call.prompt.includes("no cite record backs"))).toBe(
+      false,
+    );
+    expect(typed.answer.text).toContain("Enterprise is $45 a seat");
+
+    const pressedAt = calls.length;
+    await press(core, meeting, "say");
+    const after = calls[pressedAt];
+    expect(after?.prompt).not.toContain("How much is Enterprise per seat?");
+    expect(after?.prompt).toBe(before?.prompt);
+    expect(after?.system).toBe(before?.system);
+  });
+
+  // protects=a press and a question asked at once, before either has its conversation, go on in one conversation, the second reading the first, in the order asked (#2925); fails_when=each starts a conversation of its own, or the Meeting lists them out of order; no_claim=how long the second waits.
+  test("a press and a question asked at once go on in one conversation, in the order asked (#2925)", async () => {
+    const { core, meeting } = await setUp(addPriceSheet);
+    // Each end is waited for as soon as its ask is under way, so one that ends first isn't missed.
+    const [pressed, typed] = await Promise.all(
+      [
+        core.askMeetingHelp({ meetingId: meeting.id, kind: "say" }),
+        core.askMeetingQuestion({
+          meetingId: meeting.id,
+          text: "How much is Enterprise per seat?",
+        }),
+      ].map(async (ask) => {
+        const asked = await ask;
+        if (!asked.asked) throw new Error("Not asked.");
+        await answerEnded(core, asked.answerId);
+        return asked;
+      }),
+    );
+    if (!pressed || !typed) throw new Error("Not asked.");
+    expect(typed.conversation.id).toBe(pressed.conversation.id);
+    const { messages } = await core.getConversation(pressed.conversation.id);
+    expect(messages.filter((each) => each.kind === "question").map((each) => each.text)).toEqual([
+      "What should I say?",
+      "How much is Enterprise per seat?",
+    ]);
+    const latest = (await core.listMeetings()).find((each) => each.id === meeting.id);
+    expect(latest?.helps.map(({ kind }) => kind)).toEqual(["say", "question"]);
+  });
+
+  // protects=a typed question whose reply starts in another language than the question and the call, which are in one, is asked anew once with the same request, and the reply shown is the new one; a question in another language than its call is never asked anew; fails_when=the reply in the other language stands, the request changes, or a question on a call in another language is asked twice; no_claim=what a real model writes the second time.
+  test("a typed reply in another language than its question and call is asked anew once; across languages it isn't (#2925)", async () => {
+    const answering = (english: boolean) => (calls: ModelCall[]) =>
+      scriptedModel(
+        (call) => {
+          calls.push(call);
+          if (call.json) return { text: JSON.stringify({ citations: [] }) };
+          if (!call.prompt.includes("typed a question about it"))
+            return { text: "- 我们先看了报价" };
+          const typed = calls.filter(
+            (each) => !each.json && each.prompt.includes("typed a question about it"),
+          ).length;
+          return {
+            text:
+              english || typed === 1
+                ? "The Team plan is twenty-five dollars a seat."
+                : "团队版每个席位每月二十五美元。",
+          };
+        },
+        { judgesItsAnswers: true },
+      );
+    const typedCalls = (calls: ModelCall[]) =>
+      calls.filter((call) => !call.json && call.prompt.includes("typed a question about it"));
+
+    const chinese = await setUp(
+      undefined,
+      {
+        lines: ["我们先看一下报价。", "团队版每个席位每月二十五美元。"],
+        theirLines: ["企业版能便宜一点吗？", "四十个席位一共多少钱？"],
+      },
+      answering(false),
+    );
+    const anew = await ask(chinese.core, chinese.meeting, "团队版每个席位多少钱？");
+    const asked = typedCalls(chinese.calls);
+    expect(asked).toHaveLength(2);
+    expect(asked[1]?.prompt).toBe(asked[0]?.prompt);
+    expect(anew.answer.text).toBe("团队版每个席位每月二十五美元。");
+
+    const english = await setUp(undefined, {}, answering(true));
+    const across = await ask(english.core, english.meeting, "团队版每个席位多少钱？");
+    expect(typedCalls(english.calls)).toHaveLength(1);
+    expect(across.answer.text).toBe("The Team plan is twenty-five dollars a seat.");
+  });
+
+  // protects=a typed reply made anew starts from none of the first reply's Citations, from a model that records before it writes, in English and Chinese: a marker the new reply writes without recording it is taken out, and one it records again has the new reply's quote; fails_when=a record of the first reply backs a marker of the new one, or shows or is checked as one of the Answer's Citations; no_claim=what a real model records the second time.
+  test.each([
+    {
+      language: "Chinese",
+      // Four lines a side, each said once, so a quote is in one place.
+      said: {
+        lines: ["我们先看一下报价。", "团队版每个席位二十五美元。", "企业版贵一些。", "下周再定。"],
+        theirLines: ["企业版能便宜吗？", "四十个席位多少钱？", "含单点登录吗？", "能签两年吗？"],
+      },
+      question: "我们先看什么？",
+      first: "We look at the price sheet first [^1]\nThen the questions [^2]",
+      second: "我们先看报价 [^1]\n然后再谈 [^2]",
+      quotes: { first: ["我们先看一下", "看一下报价"], second: "先看一下报价" },
+    },
+    {
+      language: "English",
+      said: {},
+      question: "What do we start with?",
+      first: "我们先看上线日期 [^1]\n然后再谈 [^2]",
+      second: "We start with the launch date [^1]\nThen the rest [^2]",
+      quotes: { first: ["Let's start", "the launch date"], second: "start with the launch" },
+    },
+  ])(
+    "made anew, a typed reply keeps none of the first reply's Citations, in $language (#2925)",
+    async ({ said, question, first, second, quotes }) => {
+      const answering = (calls: ModelCall[]) =>
+        scriptedModel(
+          (call) => {
+            calls.push(call);
+            if (call.json) return { text: JSON.stringify({ citations: [] }) };
+            const typed = calls.filter(
+              (each) => each.prompt.includes("typed a question about it") && !each.json,
+            );
+            const attempt = typed.filter((each) => each.results.length === 0).length;
+            if (call.results.some((result) => result.tool === "cite")) {
+              return { text: attempt === 1 ? first : second };
+            }
+            const [heard] = shownPassages(block(call.prompt, "live-transcript") ?? "");
+            if (!heard) return { text: "" };
+            const records =
+              attempt === 1
+                ? quotes.first.map((quote, index) => ({
+                    marker: index + 1,
+                    passage: heard.id,
+                    quote,
+                  }))
+                : [{ marker: 1, passage: heard.id, quote: quotes.second }];
+            return { calls: [{ tool: "cite", input: { citations: records } }] };
+          },
+          { judgesItsAnswers: true },
+        );
+      const { core, meeting, calls } = await setUp(undefined, said, answering);
+
+      const { answer } = await ask(core, meeting, question);
+      const judged = await answerJudged(core, answer.conversationId, answer.id);
+
+      const asked = calls.filter(
+        (call) =>
+          call.prompt.includes("typed a question about it") &&
+          !call.json &&
+          call.results.length === 0,
+      );
+      expect(asked).toHaveLength(2);
+      expect(judged.text).toContain("[^1]");
+      expect(judged.text).not.toContain("[^2]");
+      expect(judged.citations.map(({ marker, quote }) => ({ marker, quote }))).toEqual([
+        { marker: 1, quote: quotes.second },
+      ]);
+    },
+  );
+
+  test("a blank question, or one after Stop, is refused (#2925)", async () => {
+    const { core, meeting } = await setUp();
+    await expect(core.askMeetingQuestion({ meetingId: meeting.id, text: "  " })).rejects.toThrow(
+      "Type a question to ask about the call.",
+    );
+    await core.stopMeeting(meeting.id);
+    await expect(
+      core.askMeetingQuestion({ meetingId: meeting.id, text: "Who joined?" }),
+    ).rejects.toThrow("That Meeting isn’t being recorded.");
+    const stopped = (await core.listMeetings()).find((each) => each.id === meeting.id);
+    expect(stopped?.helps).toEqual([]);
+  });
+
   test("the template adds its buttons; another template's, or help after Stop, is refused", async () => {
     const { core, meeting } = await setUp();
     await expect(core.askMeetingHelp({ meetingId: meeting.id, kind: "leading" })).rejects.toThrow();
@@ -578,4 +914,89 @@ test("a help reply's own lines are found however a model marks them, and nothing
   ]);
   expect(own("answer", notes)).toEqual([]);
   expect(own("sum", "1. Find the prices\n2. Cite them")).toEqual([]);
+});
+
+// protects=a typed question's reply keeps its options and short lines as its own, as a button's are, and its sentences are judged as any Answer's are (#2925); fails_when=an option or a short line is judged as working, or a sentence that answers it is never judged; no_claim=what the judgement decides.
+test("a typed question's own lines are its options and short lines; a sentence that answers it is judged", () => {
+  const own = (text: string) =>
+    helpOwnLines("question", text).map(({ from, to }) => text.slice(from, to));
+  const notes = "The newest lines ask about the price.";
+  expect(own(`${notes}\n\n★ Yes, it's $45 [^1]\n→ answers at once`)).toEqual([
+    "★ Yes, it's $45 [^1]\n→ answers at once",
+  ]);
+  expect(own(`${notes}\n- Team is $25 [^1]\n- 企业版 $45 [^1]`)).toEqual([
+    "- Team is $25 [^1]",
+    "- 企业版 $45 [^1]",
+  ]);
+  expect(own("Enterprise is $45 a seat [^1]")).toEqual([]);
+});
+
+// protects=a typed question is told how an option is written in the very words a button is, so a change to the options' rule reaches both; its sentences are in the language it was typed in, named, and an option to say in the call's (#2925); fails_when=the question's rule for options drifts from the buttons', the language is left as "the Question's" (which an English request of the app's after it takes over), or the language rule is the button's; no_claim=how a real model follows them.
+test("a typed question's instructions give an option's rule word for word as a button's, and its language by name", () => {
+  const button = meetingHelpInstructions("say", {
+    found: true,
+    language: "en",
+    callLanguage: "English",
+  }).split("\n");
+  const asked = (question: string, callLanguage: string | null) =>
+    meetingHelpInstructions("question", {
+      found: true,
+      language: "en",
+      callLanguage,
+      asked: question,
+    }).split("\n");
+  const rule = button.filter(
+    (line) => line.startsWith("- One or two options") || line.startsWith("- Each option is two"),
+  );
+  expect(rule).toHaveLength(2);
+  const english = asked("What should I say about the price?", "English");
+  for (const line of rule) expect(english).toContain(line);
+  expect(english).toContain(
+    '- Write in English, the language the User typed the Question in. An option to say is in English, the call\'s language, its "→" line too.',
+  );
+  expect(english).toContain("Single sign-on is included in Enterprise at no extra cost [^1]");
+  // A question typed in Chinese in an English call: its sentence's example is Chinese, its options' English.
+  const chinese = asked("对方问的价格是多少？", "English");
+  expect(chinese).toContain(
+    '- Write in Simplified Chinese, the language the User typed the Question in. An option to say is in English, the call\'s language, its "→" line too.',
+  );
+  expect(chinese).toContain("企业版已包含单点登录，不另收费 [^1]");
+  const option = button[button.indexOf("For example:") + 1];
+  expect(option).toMatch(/^★ We can't/);
+  expect(chinese).toContain(option);
+  expect(asked("Who joined?", null)).toContain(
+    "- Write in English, the language the User typed the Question in.",
+  );
+  expect(asked("Who joined?", null).join("\n")).not.toContain("language of the Question");
+  expect(asked("Who joined?", null).join("\n")).not.toContain("pressed a button");
+});
+
+// protects=a typed question's reply says first that it doesn't know what no source gives, promises nothing in an option, cites each list item by its own words, and says what it found rather than where it looked (#2925); fails_when=one of these rules is missing from a typed question's instructions or reaches a button's; no_claim=how a real model follows them.
+test("a typed question is told to open with not knowing, promise nothing, cite each listed item and not say what it didn't find; a button isn't", () => {
+  const typed = meetingHelpInstructions("question", {
+    found: true,
+    language: "en",
+    callLanguage: "English",
+    asked: "Do we insure linen in transit?",
+  });
+  expect(typed).toContain(
+    "the reply's first words say it isn't known, never a yes or a guess, with no Citation",
+  );
+  expect(typed).toContain(
+    "To a question of what to say, an option then promises nothing: the User says they will check and come back.",
+  );
+  expect(typed).toContain(
+    "Each line cites the words of its own item, never a Citation another line has.",
+  );
+  expect(typed).toContain(
+    "Say what you found; never say where you looked or what you didn't find.",
+  );
+  expect(typed).not.toContain("write one sentence that says you don't know it");
+  const button = meetingHelpInstructions("say", {
+    found: true,
+    language: "en",
+    callLanguage: "English",
+  });
+  for (const rule of ["isn't known", "promises nothing", "its own item", "what you didn't find"])
+    expect(button).not.toContain(rule);
 });

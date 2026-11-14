@@ -1,14 +1,16 @@
 /**
  * One-click help during a call: the instructions for a button's
- * Question, whose Answer the User reads in a second or two while the call
+ * Question, or for a question the User typed in the floating panel (#2925),
+ * whose Answer the User reads in a second or two while the call
  * goes on. The floating panel lays each line out by its first character
  * (src/renderer/src/helpReply.ts), so the shape is fixed here.
  */
 
 import {
+  type ButtonShape,
+  type CallHelpKind,
   EFFECT_MARK,
   HELP_SHAPE,
-  type HelpShape,
   type MeetingHelpKind,
   plainLine,
   RECOMMENDED_MARK,
@@ -17,7 +19,7 @@ import type { WindowedPassage } from "../documents/search";
 import { LANGUAGE_NAMES, type Language } from "../language";
 import { estimateTokens } from "./context";
 import type { AnswerMessage } from "./engine";
-import { languageSpoken } from "./prompt";
+import { languageSpoken, questionLanguage } from "./prompt";
 
 const TASKS: Readonly<Record<MeetingHelpKind, string>> = {
   say: "What could the User say next, given the last thing said?",
@@ -43,7 +45,7 @@ const TASKS: Readonly<Record<MeetingHelpKind, string>> = {
   disagree: "Where people in the call disagree: each line is one point, and who holds which view.",
 };
 
-export const HELP_DOCUMENTS: Readonly<Record<MeetingHelpKind, string | null>> = {
+export const HELP_DOCUMENTS: Readonly<Record<CallHelpKind, string | null>> = {
   say: "ground a useful reply in relevant facts or terms",
   answer: "answer the newest question with the User's facts",
   want: null,
@@ -59,9 +61,10 @@ export const HELP_DOCUMENTS: Readonly<Record<MeetingHelpKind, string | null>> = 
   notCovered: "compare the interview guide with what the call has covered",
   decisions: null,
   disagree: null,
+  question: "answer the User's question with relevant facts",
 };
 
-const SHAPES: Readonly<Record<HelpShape, readonly string[]>> = {
+const SHAPES: Readonly<Record<ButtonShape, readonly string[]>> = {
   options: [
     '- One or two options, never more. The one you recommend comes first, its line starting with "★ ".',
     '- Each option is two lines: what the User could say, as they would say it aloud, one sentence of at most 25 words with no quotation marks around it (the panel shows it as a quote), its Citation markers at its end; then a line starting with "→ " and what saying it leads to, in at most eight words, with no Citation marker.',
@@ -76,7 +79,7 @@ const SHAPES: Readonly<Record<HelpShape, readonly string[]>> = {
 };
 
 /** A reply in each shape, in the call's language where it is Chinese: a model copies an example's language. */
-const EXAMPLES: Readonly<Record<"en" | "zh", Readonly<Record<HelpShape, readonly string[]>>>> = {
+const EXAMPLES: Readonly<Record<"en" | "zh", Readonly<Record<ButtonShape, readonly string[]>>>> = {
   en: {
     options: [
       "★ We can't go below list for Enterprise, but we can extend the pilot to 60 days [^1]",
@@ -117,9 +120,10 @@ const SHORT_LINE = /^[-*•]\s+/;
  * "★" line, or from the start of its paragraph, to its "→" line; a "★" line still waiting for its
  * "→" line; each short line; and the one line "Am I leading them?" puts before its options. They
  * are never the model's working, so none is taken back (#2778); a model's notes and remarks around
- * them are judged as any Answer's are (#2526).
+ * them are judged as any Answer's are (#2526). A typed question's reply has its options and its
+ * short lines as its own; a sentence or two that answers it is judged as any Answer's is.
  */
-export function helpOwnLines(kind: MeetingHelpKind, text: string): { from: number; to: number }[] {
+export function helpOwnLines(kind: CallHelpKind, text: string): { from: number; to: number }[] {
   const lines: { from: number; to: number; plain: string; paragraph: number }[] = [];
   let at = 0;
   let paragraph = 0;
@@ -130,7 +134,9 @@ export function helpOwnLines(kind: MeetingHelpKind, text: string): { from: numbe
     } else lines.push({ from: at, to: at + raw.length, plain, paragraph });
     at += raw.length + 1;
   }
-  if (HELP_SHAPE[kind] === "lines") return lines.filter((line) => SHORT_LINE.test(line.plain));
+  const shape = HELP_SHAPE[kind];
+  const short = lines.filter((line) => SHORT_LINE.test(line.plain));
+  if (shape === "lines") return short;
   const own: { from: number; to: number; first: number }[] = [];
   let start = 0;
   for (const [index, line] of lines.entries()) {
@@ -142,7 +148,8 @@ export function helpOwnLines(kind: MeetingHelpKind, text: string): { from: numbe
   }
   for (const [index, line] of lines.entries()) {
     const covered = own.some((each) => each.from <= line.from && line.to <= each.to);
-    if (RECOMMENDED_MARK.test(line.plain) && !covered) own.push({ ...line, first: index });
+    const kept = RECOMMENDED_MARK.test(line.plain) || (shape === "answer" && short.includes(line));
+    if (kept && !covered) own.push({ ...line, first: index });
   }
   own.sort((a, b) => a.from - b.from);
   const leadIn = kind === "leading" && own[0] ? lines[own[0].first - 1] : undefined;
@@ -203,6 +210,34 @@ export function withHelp(
 export const languageSaid = (heard: readonly WindowedPassage[]): string | null =>
   languageSpoken(heard.slice(-3));
 
+/** Whether a text is written in Chinese characters or Latin letters; null when it says too little. */
+function scriptOf(text: string): "han" | "latin" | null {
+  const plain = text.replace(/\[\^\d{1,4}\]/g, " ");
+  const han = plain.match(/\p{Script=Han}/gu)?.length ?? 0;
+  const words = plain.match(/\p{Script=Latin}{2,}/gu)?.length ?? 0;
+  if (han + words < 3) return null;
+  return han >= 2 * words ? "han" : "latin";
+}
+
+/**
+ * For a question typed during a call (#2925): whether its reply is asked anew, once, for its first
+ * line being in another language than the question and the call. Only when the question and the
+ * call are in one language: a line to say may rightly be in the call's when they differ, and then
+ * this is null, as it is when either language can't be told.
+ */
+export function anewInItsLanguage(
+  asked: string,
+  callLanguage: string | null,
+): ((firstLine: string) => boolean) | null {
+  const typed = questionLanguage(asked);
+  const script = scriptOf(asked);
+  if (typed === null || typed !== callLanguage || script === null) return null;
+  return (firstLine) => {
+    const written = scriptOf(firstLine);
+    return written !== null && written !== script;
+  };
+}
+
 /**
  * A button's Question while the live text is behind but has lines (#1366). The reply starts with a
  * line saying so, written for it: the model neither repeats it nor adds another before its form.
@@ -210,19 +245,69 @@ export const languageSaid = (heard: readonly WindowedPassage[]): string | null =
 export const LIVE_TEXT_BEHIND_NOTE =
   "- The live text fell behind: <live-transcript> holds the lines written so far, and what was said since isn't in it. A line saying so already starts the reply: don't repeat it, and answer from these lines.";
 
+/** A sentence that answers a question of fact, in the language the question was typed in. */
+const FACT_EXAMPLE = {
+  en: "Single sign-on is included in Enterprise at no extra cost [^1]",
+  zh: "企业版已包含单点登录，不另收费 [^1]",
+} as const;
+
 /**
- * What the model is told for a button's Question during a call. `found`: Passages of the User's
- * Documents were found ahead for the newest lines. `callLanguage`: the language the call's newest
- * lines are in, which the reply is written in; `language`, the interface's, when it can't be told.
+ * What the model is told for a question the User typed during a call (#2925): the shortest form
+ * that answers it, an option written as a button's is, grounded as a button's reply is. Its
+ * sentences are in the language it was typed in, named, and an option to say in the call's.
+ */
+function questionInstructions(
+  asked: string,
+  { found, callLanguage }: { found: boolean; callLanguage: string | null },
+): string {
+  const typed = /\p{Script=Han}/u.test(asked) ? "zh" : "en";
+  const call = callLanguage === null ? typed : callLanguage === "Chinese" ? "zh" : "en";
+  // Named, not "the Question's": a request of the app's in English, after it, reads as the
+  // newest question (#2925).
+  const written = LANGUAGE_NAMES[typed === "zh" ? "zh-CN" : "en"];
+  return [
+    "The User is in a call and typed a question about it: the Question is what they typed. They will read your reply in a second or two while the call goes on.",
+    "Reply in the shortest form that answers it, with nothing before or after it: start with its first line, and add no heading, introduction, plan, remark on the transcript or closing line. Say what you found; never say where you looked or what you didn't find.",
+    "- When the Question asks what to say, or how to answer or reply, give options to say:",
+    ...SHAPES.options,
+    '- Otherwise answer it in one or two sentences, the most useful first, each at most 25 words, its Citation markers at its end, with no "★" or "→" line.',
+    '- Only when the Question asks for more, such as a list, every item or more detail, write as many short lines as it needs, each starting with "- ", each one sentence, its Citation markers at its end. Each line cites the words of its own item, never a Citation another line has.',
+    "For example, to a question of fact:",
+    FACT_EXAMPLE[typed],
+    "And to a question of what to say:",
+    ...EXAMPLES[call].options,
+    "- Base it on <live-transcript> for what was said in this call, the newest lines first, and on the User's Documents for facts.",
+    "- A Document fact was not said in this call: distinguish it from the transcript, cite it, and never invent one.",
+    "- When neither the transcript nor the User's Documents give what the Question asks, the reply's first words say it isn't known, never a yes or a guess, with no Citation. To a question of what to say, an option then promises nothing: the User says they will check and come back.",
+    "- When the other side names a price or a figure, it is what they ask for, never the User's: don't repeat it as the User's price or offer.",
+    "- Never say what you can't read.",
+    ...(found
+      ? [
+          "- <found-in-documents> holds Passages of the User's Documents already found for the Question: cite them by id, and search only if they don't answer.",
+        ]
+      : []),
+    callLanguage
+      ? `- Write in ${written}, the language the User typed the Question in. An option to say is in ${callLanguage}, the call's language, its "→" line too.`
+      : `- Write in ${written}, the language the User typed the Question in.`,
+  ].join("\n");
+}
+
+/**
+ * What the model is told for a button's Question during a call, or for a question the User typed
+ * (`asked`). `found`: Passages of the User's Documents were found ahead for the newest lines, or
+ * for the question. `callLanguage`: the language the call's newest lines are in, which a button's
+ * reply is written in; `language`, the interface's, when it can't be told.
  */
 export function meetingHelpInstructions(
-  kind: MeetingHelpKind,
+  kind: CallHelpKind,
   {
     found,
     language,
     callLanguage,
-  }: { found: boolean; language: Language; callLanguage: string | null },
+    asked = "",
+  }: { found: boolean; language: Language; callLanguage: string | null; asked?: string },
 ): string {
+  if (kind === "question") return questionInstructions(asked, { found, callLanguage });
   const shape = HELP_SHAPE[kind];
   const task = TASKS[kind];
   const documents = HELP_DOCUMENTS[kind];

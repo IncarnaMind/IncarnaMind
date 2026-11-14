@@ -3084,6 +3084,21 @@ export function createCitationSession(
   return {
     tools,
 
+    /**
+     * The reply is made anew from the same request (#2925): what it recorded, and the searches and
+     * reads it made, are forgotten, so the new reply records, searches and reads for itself and
+     * none of its markers is backed by the first reply's records. The Passages shown keep their ids.
+     */
+    anew(): void {
+      records.clear();
+      toFix.clear();
+      toldSameQuote.clear();
+      rejected.length = 0;
+      searched.clear();
+      reads = 0;
+      openingGiven = false;
+    },
+
     /** What the model was given of each Passage so far, in order, with its Document's id, name and kind. */
     passagesRead: (): readonly {
       documentId: string;

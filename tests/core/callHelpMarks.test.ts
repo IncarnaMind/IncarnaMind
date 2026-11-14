@@ -9,6 +9,7 @@ import { describe, expect, test, vi } from "vitest";
 import {
   CLAIM_CHECK_MARK,
   type ConversationAnswer,
+  type ConversationAskResult,
   type Core,
   type Meeting,
   type MeetingHelpKind,
@@ -182,10 +183,17 @@ async function answerOf(core: Core, conversationId: string, answerId: string) {
 }
 
 /** Presses a button: the reply as it ends, and as it is once nothing more settles on it. */
-async function pressed(core: Core, meeting: Meeting, kind: MeetingHelpKind) {
+const pressed = (core: Core, meeting: Meeting, kind: MeetingHelpKind) =>
+  repliedTo(core, () => core.askMeetingHelp({ meetingId: meeting.id, kind }));
+
+/** A question typed in the panel's field (#2925), as `pressed` presses a button. */
+const questioned = (core: Core, meeting: Meeting, text: string) =>
+  repliedTo(core, () => core.askMeetingQuestion({ meetingId: meeting.id, text }));
+
+async function repliedTo(core: Core, ask: () => Promise<ConversationAskResult>) {
   const ended = new Set<string>();
   const stop = core.on("answer.finished", ({ answerId }) => ended.add(answerId));
-  const asked = await core.askMeetingHelp({ meetingId: meeting.id, kind });
+  const asked = await ask();
   if (!asked.asked) throw new Error("Not asked.");
   await vi.waitFor(
     () => {
@@ -685,6 +693,110 @@ describe("Citations the app adds as a reply ends land with its end (#2847)", {
       location: first?.location,
     });
     expect(quoteRows(end)).toEqual([[{ markers: [1, 2], state: "found" }], []]);
+  });
+});
+
+describe("a question typed during the call (#2925)", { timeout: 60_000 }, () => {
+  // protects=a question typed in the panel is drawn as a press is: it sends no request of the sentence check, its Citation keeps its quote's own check, and its quote line shows ✓ only where the quote was found, in English and Chinese; fails_when=a check request goes out for a typed question, or its ✓ waits for a verdict; no_claim=whether the model's sentence says what its quote does.
+  test.each([
+    {
+      language: "English",
+      question: "How much is the Enterprise plan per seat?",
+      reply: "The Enterprise plan is $45 per seat a month, with single sign-on [^1]",
+    },
+    {
+      language: "Chinese",
+      question: "Enterprise plan 每个席位多少钱？",
+      reply: "企业版每个席位每月 45 美元，含单点登录 [^1]",
+    },
+  ])(
+    "in $language, its answer cites the Document fact found ahead for the question, with no check request, its ✓ beside the quote found",
+    async ({ question, reply }) => {
+      const { core, meeting, calls, batches } = await setUp({ reply });
+
+      const { atEnd, judged } = await questioned(core, meeting, question);
+      const after = await judged();
+
+      const [first] = calls;
+      expect(first?.prompt).toContain("typed a question about it");
+      expect(block(first?.prompt ?? "", "found-in-documents")).toContain(PRICE);
+      expect(atEnd).toMatchObject({ status: "done", text: reply });
+      expect(batches).toEqual([]);
+      expect(after.citations[0]?.judgedAt).toBeUndefined();
+      expect(marks(after)).toEqual([{ marker: 1, check: "found", passed: true }]);
+      expect(quoteRows(after)).toEqual([[{ markers: [1], state: "found" }]]);
+    },
+  );
+
+  // protects=a typed reply's line of fact the model left uncited is the line the one request for Citations is asked about, and the Citation it gives, its number and its quote line land with the reply's end in one write, as a press's do (#2847), in English and Chinese; fails_when=the line stays uncited, or a number shows while the reply is still written; no_claim=how often a model leaves a Citation out.
+  test.each([
+    [
+      "English",
+      "How much is the Enterprise plan per seat?",
+      OWN_WORDS.en.split("\n")[0]?.replace(/^★ Yes, /u, "") ?? "",
+    ],
+    [
+      "Chinese",
+      "企业版每个席位多少钱？",
+      OWN_WORDS.zh.split("\n")[0]?.replace(/^★ 是的，/u, "") ?? "",
+    ],
+  ])(
+    "in %s, an uncited line of fact gets its Citation from the one request, with the end",
+    async (_, question, reply) => {
+      let release = () => {};
+      let reached = () => {};
+      const until = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const out = new Promise<void>((resolve) => {
+        reached = resolve;
+      });
+      const { core, meeting } = await setUp({ reply, records: [], asked: { until, reached } });
+      const writes = writesOf(core);
+      const asked = await core.askMeetingQuestion({ meetingId: meeting.id, text: question });
+      if (!asked.asked) throw new Error("Not asked.");
+      await out;
+      const standing = await vi.waitFor(
+        () => {
+          const last = writes(asked.answerId).at(-1);
+          expect(last?.text).toBe(reply);
+          return last;
+        },
+        { timeout: 20_000, interval: 5 },
+      );
+      expect(standing?.status).toBe("streaming");
+      release();
+      await vi.waitFor(() => expect(writes(asked.answerId).at(-1)?.status).toBe("done"), {
+        timeout: 20_000,
+        interval: 5,
+      });
+
+      const all = writes(asked.answerId);
+      const numbered = all.filter((each) => NUMBER.test(each.text));
+      const [end] = numbered;
+      if (!end) throw new Error("No number landed.");
+      expect(numbered.map((each) => each.status)).toEqual(numbered.map(() => "done"));
+      expect(end.citations.map(({ quote, check }) => ({ quote, check }))).toEqual([
+        { quote: PRICE, check: "found" },
+      ]);
+      expect(quoteRows(end)).toEqual([[{ markers: [end.citations[0]?.marker], state: "found" }]]);
+      expect(withoutNumbers(end.text)).toBe(reply);
+    },
+  );
+
+  // protects=a typed question's quote the Document doesn't hold shows no ✓ beside it, as a press's; fails_when=a quote not found is drawn with ✓; no_claim=what the card's words say.
+  test("a quote the Document doesn't hold shows no ✓", async () => {
+    const reply = "The Enterprise plan is $45 per seat a month, with free onboarding [^1]";
+    const { core, meeting, batches } = await setUp({
+      reply,
+      records: [{ marker: 1, from: "nowhere" }],
+    });
+    const after = await (
+      await questioned(core, meeting, "How much is the Enterprise plan per seat?")
+    ).judged();
+    expect(batches).toEqual([]);
+    expect(marks(after)).toEqual([{ marker: 1, check: "not-found", passed: false }]);
+    expect(quoteRows(after)).toEqual([[{ markers: [1], state: "not-found" }]]);
   });
 });
 

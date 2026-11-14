@@ -121,6 +121,7 @@ import { calculationsSchema, checkCalculationsSchema } from "./calculationsSchem
 import { asksForFixes, WRITE_NOW } from "./citations";
 import { type AskedPicture, earlierContext, type RequestMind, withLineBefore } from "./context";
 import { retryFigures } from "./figureRetry";
+import type { AskedLine } from "./helpCitations";
 import { withJsonFencesClosed } from "./jsonFences";
 import { replyJson } from "./judge";
 import {
@@ -544,6 +545,22 @@ export interface AnswerRequest {
    */
   ownLines?(text: string): readonly { from: number; to: number }[];
   /**
+   * The lines of the reply the one request for its Citations is asked about, and taken on, in
+   * place of the whole reply (a typed call-help question's, #2925); `recorded`, whether a marker
+   * has a record. Absent: the request is asked about the whole reply, as for any Answer.
+   */
+  askedLines?(
+    text: string,
+    passages: readonly { id: string; text: string }[],
+    recorded: (marker: number) => boolean,
+  ): readonly AskedLine[];
+  /**
+   * Whether the reply is made anew, once, for what its first line is (a typed call-help question's
+   * reply in another language than its question and call, #2925): the same request again, nothing
+   * added for the reply to answer, its first reply's text shown until the new one's first words.
+   */
+  asksAnew?(firstLine: string): boolean;
+  /**
    * Told what the first model call wrote once its Tools have returned, before any further call:
    * a Run it stops there makes none.
    */
@@ -665,6 +682,11 @@ export type AnswerEngineEvent =
     }
   /** The reply said these Tools ran, and none had: the model was asked once more (#1796). */
   | { type: "asked-again"; tools: readonly ClaimedTool[] }
+  /**
+   * The reply is made anew from the same request (`AnswerRequest.asksAnew`): nothing the first
+   * reply recorded or worked out may back the new one, whose events follow.
+   */
+  | { type: "made-anew" }
   /** The Answer is complete. Nothing follows. */
   | { type: "finished" }
   /** The model or its provider failed. Nothing follows. */
@@ -1547,7 +1569,72 @@ async function* endedBlank(
 
 export function createAiSdkAnswerEngine(options: AiSdkAnswerEngineOptions = {}): AnswerEngine {
   const writer = createWritingEngine(options);
-  return { generate: (request) => endedBlank(writer.generate(request), request) };
+  return { generate: (request) => endedBlank(madeAnewOnce(writer, request), request) };
+}
+
+/**
+ * A request made anew once when its first line asks for it (`AnswerRequest.asksAnew`). The first
+ * reply's text shows as it streams; once its first line is whole, or it writes no more text, that
+ * line decides, and what came after the text began waits for it. Made anew, the first reply is
+ * stopped, the runner told ("made-anew") so nothing it recorded backs the new one, and the same
+ * request made again; its text stays until the new reply's first words replace it, so the reply
+ * is never empty meanwhile.
+ */
+async function* madeAnewOnce(
+  writer: AnswerEngine,
+  request: AnswerRequest,
+): AsyncGenerator<AnswerEngineEvent> {
+  const { asksAnew } = request;
+  if (!asksAnew) {
+    yield* writer.generate(request);
+    return;
+  }
+  const first = new AbortController();
+  let text = "";
+  let decided = false;
+  let anew = false;
+  for await (const event of writer.generate({
+    ...request,
+    signal: AbortSignal.any([request.signal, first.signal]),
+  })) {
+    if (decided) {
+      yield event;
+      continue;
+    }
+    if (event.type === "text-delta" || event.type === "text-retracted") {
+      text = event.type === "text-delta" ? text + event.text : text.slice(0, -event.length);
+      yield event;
+      const written = text.trimStart();
+      const end = written.indexOf("\n");
+      if (end === -1) continue;
+      decided = true;
+      anew = asksAnew(written.slice(0, end));
+    } else if (text.trim() === "" || event.type === "reasoning") {
+      yield event;
+      continue;
+    } else {
+      decided = true;
+      anew = asksAnew(text.trim());
+      if (!anew) yield event;
+    }
+    if (anew) {
+      first.abort();
+      break;
+    }
+  }
+  if (!anew) return;
+  yield { type: "made-anew" };
+  let shown = text.length;
+  for await (const event of writer.generate(request)) {
+    // A new reply that writes nothing leaves none: the first reply was turned down.
+    const replaced =
+      (event.type === "text-delta" && event.text !== "") || event.type === "finished";
+    if (shown > 0 && replaced) {
+      yield { type: "text-retracted", length: shown };
+      shown = 0;
+    }
+    yield event;
+  }
 }
 
 /** What one go of the Tool-calling loop keeps of its calls of the Documents' Tools. */

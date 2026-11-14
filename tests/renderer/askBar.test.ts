@@ -19,6 +19,7 @@ import {
   quickNotesFor,
 } from "../../src/renderer/src/meetingPanel/quickNotes";
 import { type MessageKey, type MessageParams, translate } from "../../src/shared/i18n";
+import type { FieldMode } from "../../src/shared/meetingPanel";
 
 const state = vi.hoisted(() => ({ language: { current: "en" as Language } }));
 
@@ -28,7 +29,9 @@ vi.mock("../../src/renderer/src/i18n", () => ({
 }));
 vi.mock("../../src/renderer/src/meetingHelp", async () => {
   const { create } = await import("zustand");
-  return { useMeetingHelp: create(() => ({ pending: {} as Record<string, MeetingHelpKind> })) };
+  return {
+    useMeetingHelp: create(() => ({ pending: {} as Record<string, { kind: MeetingHelpKind }> })),
+  };
 });
 vi.mock("../../src/renderer/src/motion", () => ({ exit: vi.fn() }));
 
@@ -67,11 +70,14 @@ type Keys = Partial<Record<MeetingHelpKind, string>>;
 interface AskBarProps {
   meeting: Meeting;
   keys: Keys;
-  noteWanted: boolean;
+  mode: FieldMode;
+  onMode(mode: FieldMode): void;
+  fieldWanted: FieldMode | null;
   onAsk(kind: MeetingHelpKind): void;
+  onQuestion(text: string): Promise<boolean>;
   onReach(reach: number): void;
   onTakeKeyboard(): void;
-  onNoteTaken(): void;
+  onFieldTaken(): void;
   notes: QuickNotes | null;
 }
 
@@ -96,12 +102,16 @@ let root: Root | null = null;
 let container: HTMLElement;
 let AskBar: ComponentType<AskBarProps>;
 let usePending: {
-  setState(next: { pending: Record<string, MeetingHelpKind> }): void;
+  setState(next: {
+    pending: Record<string, { kind: MeetingHelpKind | "question"; question: string | null }>;
+  }): void;
 };
 const onAsk = vi.fn<(kind: MeetingHelpKind) => void>();
 const onReach = vi.fn<(reach: number) => void>();
 const onTakeKeyboard = vi.fn<() => void>();
-const onNoteTaken = vi.fn<() => void>();
+const onFieldTaken = vi.fn<() => void>();
+const onMode = vi.fn<(mode: FieldMode) => void>();
+const onQuestion = vi.fn<(text: string) => Promise<boolean>>();
 const ADDED: AddedToNote = { mindId: "mind-1", blockIds: ["block-1"] };
 /** The core as quick notes reach it: each call recorded, each answer set by the test. */
 const quickCore = {
@@ -170,20 +180,29 @@ async function show(
   keys: Keys = KEYS,
   {
     meeting = meetingOf(template),
-    noteWanted = false,
+    fieldWanted = null,
+    mode = "note",
     quickNotes = true,
-  }: { meeting?: Meeting; noteWanted?: boolean; quickNotes?: boolean } = {},
+  }: {
+    meeting?: Meeting;
+    fieldWanted?: FieldMode | null;
+    mode?: FieldMode;
+    quickNotes?: boolean;
+  } = {},
 ) {
   await act(async () =>
     root?.render(
       createElement(AskBar, {
         meeting,
         keys,
-        noteWanted,
+        mode,
+        onMode,
+        fieldWanted,
         onAsk,
+        onQuestion,
         onReach,
         onTakeKeyboard,
-        onNoteTaken,
+        onFieldTaken,
         notes: quickNotes ? notes : null,
       }),
     ),
@@ -397,14 +416,18 @@ describe("the ask bar", () => {
   test("a prompt asked another way, by its shortcut, closes the list", async () => {
     await show();
     await fire(one("help-more"), "click");
-    await act(async () => usePending.setState({ pending: { "meeting-1": "check" } }));
+    await act(async () =>
+      usePending.setState({ pending: { "meeting-1": { kind: "check", question: null } } }),
+    );
     expect(all("help-more-list")).toHaveLength(0);
   });
 
   test('a prompt asked by its shortcut closes the "/" list too, and clears the "/"', async () => {
     await show();
     await type("/su");
-    await act(async () => usePending.setState({ pending: { "meeting-1": "check" } }));
+    await act(async () =>
+      usePending.setState({ pending: { "meeting-1": { kind: "check", question: null } } }),
+    );
     expect(all("help-slash-list")).toHaveLength(0);
     expect(field().value).toBe("");
   });
@@ -651,6 +674,147 @@ describe("the field, for quick notes (#2925)", () => {
   });
 });
 
+describe("the field's Note | Ask (#2925)", () => {
+  const radio = (mode: FieldMode) => one(`field-mode-${mode}`) as HTMLInputElement;
+  const choose = (mode: FieldMode) =>
+    act(async () => {
+      radio(mode).checked = true;
+      radio(mode).dispatchEvent(new window.Event("click", { bubbles: true }));
+    });
+  const sentToCore = () => quickCore.setQuickNoteDraft.mock.calls.map(([input]) => input.text);
+
+  beforeEach(() => {
+    onQuestion.mockResolvedValue(true);
+  });
+
+  // protects=Note | Ask is a two-way switch at the field's left, Note by default, and choosing one tells the panel, which keeps it; fails_when=the switch is missing, starts in Ask, or choosing does nothing; no_claim=how long the panel keeps it.
+  test("sits at the field's left, Note chosen, and choosing Ask tells the panel", async () => {
+    await show();
+    const row = one("quick-note");
+    expect(row.firstElementChild?.getAttribute("data-testid")).toBe("field-mode");
+    expect(radio("note").checked).toBe(true);
+    expect(radio("ask").checked).toBe(false);
+    await choose("ask");
+    expect(onMode.mock.calls).toEqual([["ask"]]);
+    expect(onTakeKeyboard).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    {
+      language: "en" as const,
+      labels: ["Note", "Ask"],
+      placeholder: "Ask about this call…",
+      name: "Ask about this call",
+      send: "Ask",
+    },
+    {
+      language: "zh-CN" as const,
+      labels: ["笔记", "追问"],
+      placeholder: "问问这场通话…",
+      name: "问问这场通话",
+      send: "提问",
+    },
+  ])("in Ask, the field says what Enter does ($language)", async ({ language, ...said }) => {
+    state.language.current = language;
+    await show(null, KEYS, { mode: "ask" });
+    expect(
+      all("field-mode")
+        .flatMap((each) => [...each.querySelectorAll("label")])
+        .map((each) => each.textContent),
+    ).toEqual(said.labels);
+    expect(field().getAttribute("placeholder")).toBe(said.placeholder);
+    expect(field().getAttribute("aria-label")).toBe(said.name);
+    expect(one("quick-note-send").getAttribute("aria-label")).toBe(said.send);
+  });
+
+  // protects=in Ask, Enter asks the question typed and leaves the field empty for the next, adding nothing to the Note and keeping nothing for it; fails_when=the question becomes a quick note, stays in the field, or is kept to go into the Note on Stop; no_claim=the answer.
+  test("in Ask, Enter asks what was typed, empties the field for the next, and nothing goes to the Note", async () => {
+    await show(null, KEYS, { mode: "ask" });
+    await type("Does single sign-on cost extra?");
+    const enter = await press("Enter");
+    expect(enter.defaultPrevented).toBe(true);
+    expect(onQuestion.mock.calls).toEqual([["Does single sign-on cost extra?"]]);
+    expect(field().value).toBe("");
+    expect(quickCore.addQuickNote).not.toHaveBeenCalled();
+    expect(sentToCore().every((text) => text === "")).toBe(true);
+    expect(all("quick-note-undo")).toHaveLength(0);
+  });
+
+  test("in Ask, a question that couldn't be asked comes back into the field, unless something was typed since", async () => {
+    onQuestion.mockResolvedValue(false);
+    await show(null, KEYS, { mode: "ask" });
+    await type("Who signs the order form?");
+    await press("Enter");
+    expect(field().value).toBe("Who signs the order form?");
+
+    let resolve: (asked: boolean) => void = () => undefined;
+    onQuestion.mockReturnValue(
+      new Promise((done) => {
+        resolve = done;
+      }),
+    );
+    await press("Enter");
+    await type("Another");
+    await act(async () => resolve(false));
+    expect(field().value).toBe("Another");
+  });
+
+  // protects=a question refused after the field went to Note never lands in it, where it would be kept to go into the Note; fails_when=it comes back into the Note field or is sent to the core as a note; no_claim=the thread's line for why.
+  test("a question refused after the field went to Note doesn't come back into it, nor is kept for the Note", async () => {
+    const refused = Promise.withResolvers<boolean>();
+    onQuestion.mockReturnValueOnce(refused.promise);
+    await show(null, KEYS, { mode: "ask" });
+    await type("Who signs the order form?");
+    await press("Enter");
+    await show(null, KEYS, { mode: "note" });
+    await act(async () => refused.resolve(false));
+    expect(field().value).toBe("");
+    expect(sentToCore()).not.toContain("Who signs the order form?");
+  });
+
+  // protects=a question refused while the panel was collapsed comes back when the bar shows again, in Ask, and is never kept for the Note; fails_when=it is lost, or is sent to the core as a note; no_claim=a collapse and a new ask at once.
+  test("a question refused while the panel was collapsed comes back in Ask when the bar shows again, never kept for the Note", async () => {
+    const refused = Promise.withResolvers<boolean>();
+    onQuestion.mockReturnValueOnce(refused.promise);
+    await show(null, KEYS, { mode: "ask" });
+    await type("Who signs the order form?");
+    await press("Enter");
+    await act(async () => root?.render(null));
+    await act(async () => refused.resolve(false));
+    await show(null, KEYS, { mode: "ask" });
+    expect(field().value).toBe("Who signs the order form?");
+    expect(sentToCore()).not.toContain("Who signs the order form?");
+  });
+
+  // protects=a line typed in Note and then switched to Ask stays in the field but is no longer kept for the Note, and switched back it is again; fails_when=switching clears the field, or a question goes into the Note on Stop; no_claim=the panel's own memory of the mode.
+  test("a line typed in Note stays in the field in Ask, kept for the Note only while in Note", async () => {
+    await show();
+    await type("Pricing");
+    await show(null, KEYS, { mode: "ask" });
+    expect(field().value).toBe("Pricing");
+    await show(null, KEYS, { mode: "note" });
+    expect(sentToCore()).toEqual(["Pricing", "", "Pricing"]);
+  });
+
+  test('"/" lists the prompts in Ask too, and Enter asks the prompt, not a question', async () => {
+    await show(null, KEYS, { mode: "ask" });
+    await type("/su");
+    expect(slashRows()[0]).toBe("sum");
+    await press("Enter");
+    expect(onAsk.mock.calls).toEqual([["sum"]]);
+    expect(onQuestion).not.toHaveBeenCalled();
+  });
+
+  test("in Ask, Enter that ends a Chinese input method's composition sends nothing; the next does", async () => {
+    await show(null, KEYS, { mode: "ask" });
+    await type("单点登录要另外收费吗");
+    await press("Enter", { composing: true });
+    expect(onQuestion).not.toHaveBeenCalled();
+    await press("Enter");
+    expect(onQuestion.mock.calls).toEqual([["单点登录要另外收费吗"]]);
+  });
+});
+
 describe('the "/" list (#2925)', () => {
   test('"/su" lists Sum up so far first; Enter asks it and empties the field, adding no note', async () => {
     await show();
@@ -856,7 +1020,9 @@ describe("the keyboard: the panel never takes it by itself (#2925)", () => {
   test("not when it appears, on a click on a prompt, More… or a list's row, nor when an answer is asked for or arrives", async () => {
     await show();
     await fire(one("help-prompt"), "click");
-    await act(async () => usePending.setState({ pending: { "meeting-1": "say" } }));
+    await act(async () =>
+      usePending.setState({ pending: { "meeting-1": { kind: "say", question: null } } }),
+    );
     await act(async () => usePending.setState({ pending: {} }));
     await fire(one("help-more"), "click");
     const sumUp = all("help-prompt").find((each) => each.getAttribute("data-kind") === "sum");
@@ -874,16 +1040,23 @@ describe("the keyboard: the panel never takes it by itself (#2925)", () => {
     expect(onTakeKeyboard).toHaveBeenCalledTimes(1);
   });
 
-  test("⌃⌥N or ⌘K's Quick note takes it once, the cursor in the field, and a later render doesn't again", async () => {
-    const focus = vi.spyOn(window.HTMLElement.prototype, "focus");
-    await show(null, KEYS, { noteWanted: true });
-    expect(onTakeKeyboard).toHaveBeenCalledTimes(1);
-    expect(onNoteTaken).toHaveBeenCalledTimes(1);
-    expect(focus.mock.contexts).toEqual([field()]);
-    await show(null, KEYS, { noteWanted: false });
-    await show("sales", KEYS, { noteWanted: false });
-    expect(onTakeKeyboard).toHaveBeenCalledTimes(1);
-  });
+  test.each([
+    ["⌃⌥N or ⌘K's Quick note", "note"],
+    ["⌘K's Ask about this call", "ask"],
+  ] as const)(
+    "%s takes it once, the cursor in the field in its mode, and a later render doesn't again",
+    async (_name, wanted) => {
+      const focus = vi.spyOn(window.HTMLElement.prototype, "focus");
+      await show(null, KEYS, { fieldWanted: wanted, mode: wanted === "note" ? "ask" : "note" });
+      expect(onTakeKeyboard).toHaveBeenCalledTimes(1);
+      expect(onFieldTaken).toHaveBeenCalledTimes(1);
+      expect(onMode.mock.calls).toEqual([[wanted]]);
+      expect(focus.mock.contexts).toEqual([field()]);
+      await show(null, KEYS, { fieldWanted: null, mode: wanted });
+      await show("sales", KEYS, { fieldWanted: null, mode: wanted });
+      expect(onTakeKeyboard).toHaveBeenCalledTimes(1);
+    },
+  );
 
   test("while the field is being written in, a press on a prompt keeps the cursor there; otherwise it is left alone", async () => {
     await show();
@@ -899,5 +1072,8 @@ describe("the keyboard: the panel never takes it by itself (#2925)", () => {
     Object.defineProperty(document, "activeElement", { configurable: true, get: () => field() });
     expect(await mouseDown(one("help-prompt"))).toBe(true);
     expect(await mouseDown(one("help-more"))).toBe(true);
+    const ask = one("field-mode-ask").closest("label");
+    if (!ask) throw new Error("Ask has no label.");
+    expect(await mouseDown(ask)).toBe(true);
   });
 });

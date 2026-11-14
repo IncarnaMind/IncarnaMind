@@ -3,7 +3,7 @@
  * first Passage found ahead in the User's Documents, its line in the recommended option, and
  * without one, they cite nothing; readings and lines cite the transcript's newest line. In the
  * call's language: Chinese when its newest line is, or before anyone has spoken, when the button's
- * name is.
+ * name is. A question typed in the panel gets a sentence (`questionReply`).
  */
 import { passagesIn, recordFor, UNIT_MARK, withSurroundingWords } from "./passages";
 import {
@@ -73,9 +73,61 @@ function callOf(asked: string) {
   return { question, heard, language };
 }
 
+const TYPED = /typed a question about it/;
+
+/**
+ * The question a spec types to see a reply asked anew (#2925): answered in English the first time,
+ * as Claude Haiku 5.5 sometimes answered a Chinese question on a Chinese call, then in Chinese.
+ */
+export const ASKED_ANEW = "企业版每个席位多少钱？";
+const answeredInEnglish = new Set<string>();
+
+const ANSWERS = {
+  en: {
+    found: (fact: string) => `${fact} [^1]`,
+    said: (line: string) => `They said: ${line} [^1]`,
+    none: "I don't know that: it isn't in the call or your Documents.",
+  },
+  zh: {
+    found: (fact: string) => `${fact}[^1]`,
+    said: (line: string) => `对方说：${line}[^1]`,
+    none: "这个我不知道：通话和你的文档里都没有。",
+  },
+};
+
+/**
+ * A question typed during the call (#2925): one sentence in the question's language, citing the
+ * first Passage found ahead for it, else the transcript's newest line; with neither, that it
+ * doesn't know.
+ */
+function questionReply(prompt: Prompt, tools: readonly string[]): Reply | null {
+  const asked = lastUserText(prompt);
+  if (!TYPED.test(block(asked, "help"))) return null;
+  const { question, heard } = callOf(asked);
+  const language: "en" | "zh" = /\p{Script=Han}/u.test(question) ? "zh" : "en";
+  const [found] = passagesIn(block(asked, "found-in-documents"));
+  const source = found ?? heard.at(-1);
+  const taken = source && recordFor(source, question, 1);
+  if (source && taken && tools.includes("cite") && toolResults(prompt, "cite").length === 0) {
+    return { tool: "cite", input: { citations: [taken.record] } };
+  }
+  if (!taken) return { text: ANSWERS[language].none };
+  if (question === ASKED_ANEW) {
+    if (answeredInEnglish.has(question))
+      return { text: "企业版每个席位每月 45 美元，含单点登录[^1]" };
+    answeredInEnglish.add(question);
+    return { text: "The Enterprise plan is $45 a seat, single sign-on included [^1]" };
+  }
+  const quote = String(taken.record.quote)
+    .replace(/^\[[^\]]*\]\s*/, "")
+    .replace(/[.?!。？！]+$/u, "");
+  return { text: found ? ANSWERS[language].found(quote) : ANSWERS[language].said(quote) };
+}
+
 export function helpReply(prompt: Prompt, tools: readonly string[]): Reply | null {
   const asked = lastUserText(prompt);
   const help = block(asked, "help");
+  if (TYPED.test(help)) return questionReply(prompt, tools);
   if (!HELP.test(help)) return null;
   const { question, heard, language } = callOf(asked);
   const found = passagesIn(block(asked, "found-in-documents"));

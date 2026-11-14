@@ -18,22 +18,23 @@ import type { AnswerStatus } from "../core/api";
 import { MARKER, withoutMarkerRuns } from "./answerSentences";
 import { FIGURE_MARKER } from "./figureMarkers";
 import {
+  type CallHelpKind,
   EFFECT_MARK,
   HELP_SHAPE,
   type HelpShape,
   LINE_MARK,
-  type MeetingHelpKind,
   plainLine,
   RECOMMENDED_MARK,
 } from "./meetingHelp";
 import { holdsQuote } from "./quotedSpans";
 
 /**
- * A run of text, a Citation's marker ("[^2]") or a calculated figure's ("[=1]"). A Citation's `at`
- * is its marker's place among the reply's Citation markers, from 0, as the core counts them.
+ * A run of text, in bold where the model marked it ("**…**"), a Citation's marker ("[^2]") or a
+ * calculated figure's ("[=1]"). A Citation's `at` is its marker's place among the reply's Citation
+ * markers, from 0, as the core counts them.
  */
 export type ReplyPiece =
-  | { kind: "text"; text: string }
+  | { kind: "text"; text: string; bold?: true }
   | { kind: "citation"; marker: number; at: number }
   | { kind: "figure"; marker: number };
 
@@ -51,7 +52,7 @@ export interface ReplyItem {
   effect: ReplyPiece[] | null;
 }
 
-/** How a reply is laid out: its button's shape, a line put first, and whether it is still written. */
+/** How a reply is laid out: its shape, a line put first, and whether it is still written. */
 export interface HelpLayout {
   shape: HelpShape;
   leadIn: boolean;
@@ -59,12 +60,13 @@ export interface HelpLayout {
 }
 
 /**
- * How a button's reply is laid out: "Am I leading them?" puts its answer first, and a reply asked
- * while the live text was behind puts that line first. One stopped while it was written is read as it was
- * then: what came before its first option is still a model's notes (#2526).
+ * How a button's reply, or a typed question's, is laid out: "Am I leading them?" puts its answer
+ * first, and a reply asked while the live text was behind puts that line first. One stopped while
+ * it was written is read as it was then: what came before its first option is still a model's
+ * notes (#2526).
  */
 export const helpLayout = (
-  kind: MeetingHelpKind,
+  kind: CallHelpKind,
   { status, textBehind }: { status: AnswerStatus; textBehind: boolean },
 ): HelpLayout => ({
   shape: HELP_SHAPE[kind],
@@ -74,15 +76,34 @@ export const helpLayout = (
 
 const DEFINITION = /^\[\^\d{1,4}\]:/;
 const MARKERS = new RegExp(`${MARKER.source}|${FIGURE_MARKER.source}`, "g");
+const BOLD_MARK = /\*\*|__/g;
+const OPENING_BOLD = /^(?:\*\*|__)+/;
 
-/** The pieces of `text`, whose first Citation marker is the reply's `first`. */
+/**
+ * The pieces of `text`, whose first Citation marker is the reply's `first`. A bold run may hold a
+ * Citation; a bold mark left open, as while it streams, is shown as nothing and bolds nothing.
+ */
 export function pieces(text: string, first: number): ReplyPiece[] {
   const found: ReplyPiece[] = [];
+  const marks = text.match(BOLD_MARK)?.length ?? 0;
+  const paired = marks - (marks % 2);
+  let seen = 0;
+  let bold = false;
+  const addText = (run: string) => {
+    let at = 0;
+    for (const mark of run.matchAll(BOLD_MARK)) {
+      const part = run.slice(at, mark.index);
+      if (part) found.push({ kind: "text", text: part, ...(bold && { bold: true }) });
+      if (++seen <= paired) bold = !bold;
+      at = mark.index + mark[0].length;
+    }
+    const rest = run.slice(at);
+    if (rest) found.push({ kind: "text", text: rest, ...(bold && { bold: true }) });
+  };
   let from = 0;
   let cited = first;
   for (const match of text.matchAll(MARKERS)) {
-    const before = text.slice(from, match.index);
-    if (before) found.push({ kind: "text", text: before });
+    addText(text.slice(from, match.index));
     found.push(
       match[1] !== undefined
         ? { kind: "citation", marker: Number(match[1]), at: cited++ }
@@ -90,25 +111,38 @@ export function pieces(text: string, first: number): ReplyPiece[] {
     );
     from = match.index + match[0].length;
   }
-  const rest = text.slice(from);
-  if (rest) found.push({ kind: "text", text: rest });
+  addText(text.slice(from));
   return found;
 }
 
-/** A line's star and list mark, in either order ("- ★ …"), and its words after them. */
+/** `line` without the `mark` it starts with, keeping a bold mark opened before it ("**→** …"). */
+function withoutMark(line: string, mark: RegExp): string {
+  const opened = OPENING_BOLD.exec(line)?.[0] ?? "";
+  return opened + line.slice(opened.length).replace(mark, "");
+}
+
+/**
+ * A line's star and list mark, in either order ("- ★ …"), and its words after them, a bold mark
+ * opened before them kept ("**★ …**").
+ */
 function marksOf(line: string): { recommended: boolean; bullet: boolean; text: string } {
   let recommended = false;
   let bullet = false;
+  let opened = "";
   let text = line;
   for (;;) {
-    if (RECOMMENDED_MARK.test(text)) {
+    const bold = OPENING_BOLD.exec(text)?.[0];
+    if (bold) {
+      opened += bold;
+      text = text.slice(bold.length);
+    } else if (RECOMMENDED_MARK.test(text)) {
       recommended = true;
       text = text.replace(RECOMMENDED_MARK, "");
     } else if (LINE_MARK.test(text)) {
       bullet = true;
       text = text.replace(LINE_MARK, "");
     } else {
-      return { recommended, bullet, text };
+      return { recommended, bullet, text: opened + text };
     }
   }
 }
@@ -126,11 +160,13 @@ function itemsOf(
   for (const [index, raw] of lines.entries()) {
     const first = cited;
     cited += (written[index] ?? raw).match(MARKER)?.length ?? 0;
+    // Its marks are read without bold; its text keeps the bold, for the panel to show.
     const line = plainLine(raw);
+    const shown = raw.trim();
     if (line === "" || DEFINITION.test(line) || /^#+\s/.test(line)) continue;
     const current = found.at(-1)?.item;
     if (EFFECT_MARK.test(line)) {
-      const effect = pieces(line.replace(EFFECT_MARK, ""), first);
+      const effect = pieces(withoutMark(shown, EFFECT_MARK), first);
       if (current && current.effect === null) current.effect = effect;
       else {
         const item = {
@@ -145,7 +181,7 @@ function itemsOf(
       }
       continue;
     }
-    const { recommended, bullet, text } = marksOf(line);
+    const { recommended, bullet, text } = marksOf(shown);
     if (!recommended && !bullet && current && current.effect === null && current.lead.length > 0) {
       current.notes.push(pieces(text, first));
       continue;
@@ -177,6 +213,17 @@ function laidOut(
   { shape, leadIn, streaming }: HelpLayout,
 ): { lead: ReplyItem[]; options: ReplyItem[]; said: ReplyItem[] } {
   const [first] = items;
+  if (shape === "answer") {
+    // A typed question's reply is options, laid out as a button's, or what answers it, all of it:
+    // a sentence or two, or as many short lines as it asked for.
+    const firstOption = items.findIndex((item) => item.recommended || item.effect !== null);
+    if (firstOption === -1) return { lead: [], options: items.flatMap(apart), said: [] };
+    const laid = laidOut(items, { shape: "options", leadIn, streaming });
+    // What it says before its options answers the question the User typed: it shows first from the
+    // moment an option comes, as it showed before it. A model's notes go when they are taken back
+    // (#2526), as the reply's text then no longer holds them.
+    return { ...laid, lead: items.slice(0, firstOption).flatMap(apart) };
+  }
   if (shape === "lines") {
     const bullets = items.filter((item) => item.bullet);
     const lead = leadIn && first && !first.bullet ? [first] : [];
@@ -199,6 +246,12 @@ function laidOut(
   const said = shape === "options" ? after.filter((item) => item.effect !== null) : [];
   return { lead, options, said };
 }
+
+/** An item and the lines the reader took as its notes, each its own: sentences of an answer. */
+const apart = (item: ReplyItem): ReplyItem[] => [
+  { ...item, notes: [] },
+  ...item.notes.map((note) => ({ ...item, recommended: false, lead: note, notes: [] })),
+];
 
 /** What the panel shows of `items`: the line put first, then the options, readings or short lines. */
 function shown(items: readonly ReplyItem[], layout: HelpLayout) {

@@ -345,6 +345,27 @@ export function itemTable(rows: readonly PairedRow[], names: [string, string]): 
 }
 
 /**
+ * A typed question's first words and end beside those of the button pressed before it in the same
+ * call (#2925), each arm's.
+ */
+export function typedTable(rows: readonly PairedRow[], names: [string, string]): string {
+  const typed = rows.filter((row) => row.baseline.pressedFirst || row.candidate.pressedFirst);
+  const [a, b] = names;
+  const pair = (words: number | null | undefined, done: number | null | undefined) =>
+    `${seconds(words ?? null)} / ${seconds(done ?? null)}`;
+  const arm = (run: ArmRun) =>
+    `${pair(run.firstWordsMs, run.doneMs)} | ${pair(run.pressedFirst?.firstWordsMs, run.pressedFirst?.doneMs)}`;
+  return [
+    `| Item | Language | Typed, words / done, ${a} | Its button, ${a} | Typed, ${b} | Its button, ${b} |`,
+    "|---|---|---|---|---|---|",
+    ...typed.map(
+      (row) =>
+        `| ${row.id}${row.run > 1 ? ` #${row.run}` : ""} | ${row.language} | ${arm(row.baseline)} | ${arm(row.candidate)} |`,
+    ),
+  ].join("\n");
+}
+
+/**
  * Where an item's time went, for items that read their requests (a help reply): each arm's
  * median, from the User's action, to its first request, to each of the Answer's own requests'
  * first byte, first text and end, and to its first whole option; the requests made for other

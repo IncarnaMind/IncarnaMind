@@ -5,9 +5,10 @@
  * file named it also writes a hundred drawn lines for blind readers, with nothing in them that
  * tells which shape or rule made a line, and their key beside them (`<file>.key.json`).
  *
- * Each input file is a JSON list of presses (`SavedPress`). A record that holds its Passage's text
- * also has its quote looked for in it here, and a count says where that and the record differ. A
- * Transcript's place is given by its start alone, so "said within the other's time" reads as
+ * Each input file is a JSON list of presses (`SavedPress`), a question typed in the panel's field
+ * among them (#2925), drawn by the same rules. A record that holds its Passage's text also has its
+ * quote looked for in it here, and a count says where that and the record differ. A Transcript's
+ * place is given by its start alone, so "said within the other's time" reads as
  * "starting no earlier, in the same Passage". A plain moment's words count as found when they are
  * inside its Citation's quote or, where the record holds it, its Passage's text, the second counted
  * apart.
@@ -15,6 +16,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { quoteCells } from "../../src/core/answers/quoteCells";
 import {
+  type AnswerStatus,
   CITATION_CHECK_REASONS,
   type CitationCheck,
   type CitationCheckReason,
@@ -34,9 +36,9 @@ import {
   type QuoteLine,
   quoteLines,
 } from "../../src/shared/helpQuotes";
-import type { ReplyPiece } from "../../src/shared/helpReplyRead";
+import type { ReplyItem, ReplyPiece } from "../../src/shared/helpReplyRead";
 import { translate } from "../../src/shared/i18n";
-import { HELP_SHAPE, isMeetingHelpKind, type MeetingHelpKind } from "../../src/shared/meetingHelp";
+import { type CallHelpKind, HELP_SHAPE, isMeetingHelpKind } from "../../src/shared/meetingHelp";
 
 /** A Citation as a saved press records it. */
 export interface SavedCitation {
@@ -64,7 +66,8 @@ export interface SavedPress {
   set: string;
   model?: string;
   language: Language;
-  button: MeetingHelpKind;
+  /** The button pressed, or "question" for a question typed in the panel's field (#2925). */
+  button: CallHelpKind;
   /** The reply's own text, its numbers as "[^n]", with no footnote lines. */
   text: string;
   /** Null for a record that tests the reader of shapes only. */
@@ -74,6 +77,14 @@ export interface SavedPress {
   order?: PressOrder | null;
   /** How the reply ended: stopped or failed where the record says so, else it ended. */
   status?: "done" | "stopped" | "failed";
+  /** The one request for the reply's Citations ran as it ended, where the record tells. */
+  asked?: boolean;
+  /**
+   * The reply's text once the model's was all written, before the end added its Citations, where
+   * the record tells: what the panel drew while the end's request was out (#3098). A number there
+   * that no Citation of the model's backs keeps a line under its line.
+   */
+  written?: string;
 }
 
 /** A reading's moment line by the kind the panel draws it as; `plain` where nothing says which. */
@@ -97,7 +108,7 @@ export type RowKind =
 
 export interface DrawnLine {
   press: SavedPress;
-  shape: "options" | "lead-ins" | "readings" | "lines";
+  shape: "options" | "lead-ins" | "readings" | "lines" | "answer";
   /** The model's line as the panel shows it; null where a moment line takes its place. */
   written: string | null;
   /** What the panel draws under the line, or in its place, each as shown. */
@@ -129,6 +140,32 @@ export interface ReplayCounts {
   unrecordedNumbers: number;
   /** Records whose quote the Passage text here holds or not otherwise than the record says. */
   quoteCheckDiffers: number;
+  /** Presses whose one request for Citations ran as they ended. */
+  citationsAsked: number;
+  /** What the reply's end changes, on the presses whose text as written is given (#3098). */
+  atTheEnd: EndChanges;
+}
+
+/**
+ * The end's Citations land in one write with the end (#2847): what that write changes in the panel,
+ * line by line, the reply as written drawn while its text is all there and the end's request out.
+ */
+export interface EndChanges {
+  /** Presses read: those whose record gives the text as written. */
+  presses: number;
+  /** Of them, those where a quote line came or changed only at the end. */
+  late: number;
+  /** Of them, those where the end moved a line below. */
+  moving: number;
+  /** Lines of the reply that gained a quote line under them at the end. */
+  linesGained: number;
+  quoteLinesAdded: number;
+  /** Quote lines kept while written whose words came or changed at the end, in their place. */
+  keptChanged: number;
+  /** Quote lines kept while written that the end took away, as a number no Citation backs. */
+  keptClosed: number;
+  /** The panel's lines below a change that moved: a line of the reply, or a quote line. */
+  linesMoved: number;
 }
 
 export const emptyCounts = (): ReplayCounts => ({
@@ -161,6 +198,17 @@ export const emptyCounts = (): ReplayCounts => ({
   joinClosesRoom: {},
   unrecordedNumbers: 0,
   quoteCheckDiffers: 0,
+  citationsAsked: 0,
+  atTheEnd: {
+    presses: 0,
+    late: 0,
+    moving: 0,
+    linesGained: 0,
+    quoteLinesAdded: 0,
+    keptChanged: 0,
+    keptClosed: 0,
+    linesMoved: 0,
+  },
 });
 
 const add = (counts: Record<string, number>, key: string) => {
@@ -459,7 +507,80 @@ export function drawPress(press: SavedPress, counts: ReplayCounts): DrawnLine[] 
     if (record.passageText === undefined || record.from === "app-unmarked") continue;
     if (inside(record.quote, record.passageText) !== quoteFound(record)) counts.quoteCheckDiffers++;
   }
+  if (press.asked) counts.citationsAsked++;
+  endChanges(press, counts.atTheEnd);
   return drawn;
+}
+
+/** A Citation the reply's end adds: the request's, or the app's for words quoted with no number. */
+const addedAtEnd = (citation: SavedCitation) =>
+  citation.from === "request" || citation.from === "app-unmarked";
+
+/** Each line of the reply with what is drawn under it, as `quoteLines` draws it, by its words. */
+function lineRows(
+  press: SavedPress,
+  text: string,
+  status: AnswerStatus,
+  records: readonly SavedCitation[],
+): { words: string; rows: string[] }[] {
+  const { lead, options } = helpParts({ text, status }, press.button);
+  const items: ReplyItem[] = [...lead, ...options];
+  const recordOf = (marker: number) => records.find((each) => each.marker === marker);
+  const numbers = citationNumbers(
+    items,
+    (marker) => status === "streaming" || recordOf(marker) !== undefined,
+  );
+  const citationOf = (marker: number) => {
+    const record = recordOf(marker);
+    return record && quotedOf(record);
+  };
+  return items.flatMap((item) =>
+    [
+      item.said ? quoted(item.lead) : item.lead,
+      ...item.notes,
+      ...(item.effect ? [item.effect] : []),
+    ].map((pieces) => ({
+      words: comparedWords(textOf(pieces)),
+      rows: quoteLines(markersOf([pieces]), citationOf, status, (marker) =>
+        numbers.has(marker),
+      ).map((line) => `${line.state}|${line.cells ? cellsText(line.cells) : (line.quote ?? "")}`),
+    })),
+  );
+}
+
+/**
+ * What the reply's end changes (#3098), drawn as its text stood once written, the end's own
+ * Citations not yet there, then as it ended: each line keeps its place unless a line above it
+ * gained or lost a quote line.
+ */
+function endChanges(press: SavedPress, counts: EndChanges): void {
+  if (press.written === undefined || press.citations === null) return;
+  const written = press.citations.filter((citation) => !addedAtEnd(citation));
+  const before = lineRows(press, press.written, "streaming", written);
+  const after = lineRows(press, press.text, press.status ?? "done", press.citations);
+  counts.presses++;
+  let shift = 0;
+  let late = false;
+  let moving = false;
+  for (const line of after) {
+    const at = before.findIndex((each) => each.words === line.words);
+    const was = at === -1 ? [] : (before.splice(at, 1)[0]?.rows ?? []);
+    if (shift !== 0) {
+      counts.linesMoved += 1 + line.rows.length;
+      moving = true;
+    }
+    const changed = line.rows.filter((row, index) => index < was.length && row !== was[index]);
+    counts.keptChanged += changed.length;
+    if (line.rows.length > was.length) {
+      counts.linesGained++;
+      counts.quoteLinesAdded += line.rows.length - was.length;
+    }
+    counts.keptClosed += Math.max(0, was.length - line.rows.length);
+    if (changed.length > 0 || line.rows.length > was.length) late = true;
+    shift += line.rows.length - was.length;
+  }
+  if (late) counts.late++;
+  if (moving) counts.moving++;
 }
 
 /** Every press drawn, and the counts of what was drawn. */
@@ -554,11 +675,14 @@ export function pressesIn(value: unknown, file = "input"): SavedPress[] {
     const where = `${file}, press ${index + 1}`;
     if (!isRecord(each)) throw new Error(`${where}: not an object.`);
     const { id, set, language, button, text, citations, unrecorded, order, model, status } = each;
+    const { asked, written } = each;
     if (typeof id !== "string" || typeof set !== "string" || typeof text !== "string") {
       throw new Error(`${where}: needs its id, set and text.`);
     }
     if (language !== "en" && language !== "zh-CN") throw new Error(`${where}: unknown language.`);
-    if (!isMeetingHelpKind(button)) throw new Error(`${where}: unknown button.`);
+    if (button !== "question" && !isMeetingHelpKind(button)) {
+      throw new Error(`${where}: unknown button.`);
+    }
     if (citations !== null && !Array.isArray(citations)) {
       throw new Error(`${where}: citations must be a list or null.`);
     }
@@ -576,6 +700,8 @@ export function pressesIn(value: unknown, file = "input"): SavedPress[] {
       order:
         order === "number-first" || order === "cite-first" || order === "no-cite" ? order : null,
       ...((status === "stopped" || status === "failed") && { status }),
+      ...(asked === true && { asked }),
+      ...(typeof written === "string" && { written }),
     };
   });
 }

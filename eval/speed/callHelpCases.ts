@@ -41,6 +41,17 @@ export interface CallHelpCase {
   rests: readonly (readonly { in: string; line: string }[])[];
   /** What the reply must not give as so. */
   avoid?: string;
+  /**
+   * A question the User types in the panel's field once the button's reply has ended (#2925): the
+   * reply measured is the question's, and `answer`, `rests` and `avoid` are its.
+   */
+  typed?: {
+    question: string;
+    /** The form its reply keeps: a sentence or two, one or two options to say, or a list it asked for. */
+    form: "short" | "options" | "list";
+    /** A question typed just before it, which it follows up: asked and waited for, not measured. */
+    follows?: string;
+  };
 }
 
 /** Where a line said in the call is, in `rests`. */

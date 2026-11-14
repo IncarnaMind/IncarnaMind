@@ -10,6 +10,7 @@ import {
 } from "react";
 import type { Meeting, MeetingHelpKind } from "../../../core/api";
 import { helpLabel, isGeneralHelpKind } from "../../../shared/meetingHelp";
+import type { FieldMode } from "../../../shared/meetingPanel";
 import { useT } from "../i18n";
 import { useMeetingHelp } from "../meetingHelp";
 import { exit } from "../motion";
@@ -34,27 +35,35 @@ type Keys = Partial<Record<MeetingHelpKind, string>>;
  * closes on a choice, on a prompt asked any other way, on a press outside the bar, on Esc and
  * once the pointer has been off the panel for a second.
  *
- * Only a press in the field and `noteWanted` (⌃⌥N, ⌘K) take the keyboard; a press on a row or a
- * button never does, and while the field has it, keeps the cursor there. With no `notes` (Linux,
- * `helpShortcutsOn`) there is no field, and More… shows no "/".
+ * Only a press in the field and `fieldWanted` (⌃⌥N and ⌘K, for a note or a question) take the
+ * keyboard; a press on a row, a button or Note | Ask never does, and while the field has it,
+ * keeps the cursor there. With no `notes` (Linux, `helpShortcutsOn`) there is no field, and
+ * More… shows no "/".
  */
 export function AskBar({
   meeting,
   keys,
-  noteWanted,
+  mode,
+  onMode,
+  fieldWanted,
   onAsk,
+  onQuestion,
   onReach,
   onTakeKeyboard,
-  onNoteTaken,
+  onFieldTaken,
   notes,
 }: {
   meeting: Meeting;
   keys: Keys;
-  noteWanted: boolean;
+  mode: FieldMode;
+  onMode(mode: FieldMode): void;
+  fieldWanted: FieldMode | null;
   onAsk(kind: MeetingHelpKind): void;
+  /** Asks a question typed in Ask; resolves to whether it was asked. */
+  onQuestion(text: string): Promise<boolean>;
   onReach(reach: number): void;
   onTakeKeyboard(): void;
-  onNoteTaken(): void;
+  onFieldTaken(): void;
   notes: QuickNotes | null;
 }) {
   const t = useT();
@@ -147,15 +156,16 @@ export function AskBar({
   }, [listOpen, moreOpen, onReach]);
 
   useEffect(() => {
-    if (!noteWanted) return;
-    onNoteTaken();
+    if (!fieldWanted) return;
+    onFieldTaken();
+    onMode(fieldWanted);
     const element = field.current;
     if (!element) return;
     element.focus();
     element.selectionStart = element.value.length;
     element.selectionEnd = element.value.length;
     onTakeKeyboard();
-  }, [noteWanted, onNoteTaken, onTakeKeyboard]);
+  }, [fieldWanted, onFieldTaken, onMode, onTakeKeyboard]);
 
   const choose = (kind: MeetingHelpKind) => {
     closeLists();
@@ -185,14 +195,15 @@ export function AskBar({
     return false;
   };
 
-  // A press on a row or button while the field is being written in leaves the cursor there.
+  // A press on a row, a button or Note | Ask while the field is being written in leaves the cursor
+  // there.
   const keepCursor = (event: MouseEvent) => {
     const element = field.current;
     if (
       element &&
       document.activeElement === element &&
       event.target instanceof Element &&
-      event.target.closest("button")
+      event.target.closest("button, label")
     )
       event.preventDefault();
   };
@@ -254,6 +265,9 @@ export function AskBar({
             field={field}
             text={text}
             onText={changeText}
+            mode={mode}
+            onMode={onMode}
+            onQuestion={onQuestion}
             list={
               typed === null
                 ? null
