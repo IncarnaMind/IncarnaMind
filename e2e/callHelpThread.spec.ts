@@ -42,6 +42,7 @@ const CALLS = {
     answer: "Answer their question",
     sumUp: "Sum up so far",
     question: "How much is the Enterprise plan per seat?",
+    reply: "$45 per seat",
     ask: "Ask",
     placeholder: "Ask about this call…",
   },
@@ -50,6 +51,7 @@ const CALLS = {
     answer: "回答对方的问题",
     sumUp: "到目前为止的总结",
     question: "Enterprise plan 每个席位多少钱？",
+    reply: "每个席位每月 45 美元",
     ask: "追问",
     placeholder: "问问这场通话…",
   },
@@ -136,8 +138,11 @@ for (const language of ["en", "zh"] as const) {
     expect(await panelFocused(app, panel)).toBe(false);
 
     const answer = await askInPanel(panel, said.question);
-    await expect(answer.getByTestId("help-option-say").first()).toContainText("$45 per seat");
-    expect((await expectQuoteLines(window, answer))[0]).toMatchObject({ found: true });
+    await expect(answer.getByTestId("help-option-say").first()).toContainText(said.reply);
+    expect((await expectQuoteLines(window, answer))[0]).toMatchObject({
+      found: true,
+      words: expect.stringContaining("Enterprise plan: $45 per seat"),
+    });
     await expect(answer.getByTestId("help-source")).toHaveText([/^1 · Price sheet · /]);
     await expect(field).toHaveValue("");
     await expect(field).toBeFocused();

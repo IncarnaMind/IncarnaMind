@@ -95,16 +95,23 @@ const ANSWERS = {
   },
 };
 
+/** What a reply in Chinese says of a Document's English line it cites; the specs' own lines only. */
+const IN_CHINESE: Readonly<Record<string, string>> = {
+  "Enterprise plan: $45 per seat a month, single sign-on included":
+    "企业版每个席位每月 45 美元，含单点登录",
+};
+
 /**
- * A question typed during the call (#2925): one sentence in the question's language, citing the
- * first Passage found ahead for it, else the transcript's newest line; with neither, that it
- * doesn't know.
+ * A question typed during the call (#2925): one sentence in the language its instructions name,
+ * citing the first Passage found ahead for it, else the transcript's newest line; with neither,
+ * that it doesn't know.
  */
 function questionReply(prompt: Prompt, tools: readonly string[]): Reply | null {
   const asked = lastUserText(prompt);
-  if (!TYPED.test(block(asked, "help"))) return null;
+  const help = block(asked, "help");
+  if (!TYPED.test(help)) return null;
   const { question, heard } = callOf(asked);
-  const language: "en" | "zh" = /\p{Script=Han}/u.test(question) ? "zh" : "en";
+  const language: "en" | "zh" = /- Write in Simplified Chinese,/.test(help) ? "zh" : "en";
   const [found] = passagesIn(block(asked, "found-in-documents"));
   const source = found ?? heard.at(-1);
   const taken = source && recordFor(source, question, 1);
@@ -121,7 +128,11 @@ function questionReply(prompt: Prompt, tools: readonly string[]): Reply | null {
   const quote = String(taken.record.quote)
     .replace(/^\[[^\]]*\]\s*/, "")
     .replace(/[.?!。？！]+$/u, "");
-  return { text: found ? ANSWERS[language].found(quote) : ANSWERS[language].said(quote) };
+  const fact =
+    language === "zh" && !/\p{Script=Han}/u.test(quote)
+      ? (IN_CHINESE[quote] ?? "文档里写明了这一点")
+      : quote;
+  return { text: found ? ANSWERS[language].found(fact) : ANSWERS[language].said(quote) };
 }
 
 export function helpReply(prompt: Prompt, tools: readonly string[]): Reply | null {
