@@ -14,33 +14,36 @@ The fix changes what a check's model is told in two ways: a part of a longer sen
 
 ## The cases
 
-Every sentence and Document was written into the harness before any run. None is an example that the check's instructions or the unit tests give. The rule's own examples (vacancy 5.8% and 7.1%; 营业收入 4,100 万元 and 3,400 万元) are in no case.
+Every sentence and Document was written into the harness before any run. None is an example that the check's instructions or the unit tests give. The rule's own two examples, one English and one Chinese, are in no case.
 
-**The example** (`EXAMPLE` in the harness) runs in each language (the interface in that language and the shipped example in it) and in two set-ups each: the example alone, and the example beside one Document of the User's own (the Harbour Foods board pack of #3083's tests).
+**2026-11-14, after the runs:** the cases' own words are taken out of this file and of `results.md`, which name each case by its id and kind. The harness and the run files hold the words, unchanged; no case, bar or count changed.
 
-| Note | Sentences | Expected |
-|---|---|---|
-| The issue's | "Underlying EBITDA was £96 million, against £118 million a year earlier." citing the report's Highlights line, then "Revenue was £1,284 million, up 4.2% year on year." (Chinese: the example's own two sentences) | ✓ both |
-| Twin 1 | a wrong earlier-period figure: "… against £128 million a year earlier." (上年同期为 1.28 亿英镑), citing the same line | never ✓ |
-| Twin 2 | this period's figure given as the earlier period's: "Underlying EBITDA was £118 million, against £96 million a year earlier." (基础 EBITDA 为 1.18 亿英镑，上年同期为 9,600 万英镑), citing the same line | never ✓ |
-| Twin 3 | "Revenue was £1,248 million, up 4.2% year on year." (集团收入为 12.48 亿英镑) | never ✓ |
+**The example** (`EXAMPLE` in the harness) runs in each language (the interface in that language and the shipped example in it) and in two set-ups each: the example alone (`example`), and the example beside one Document of the User's own (`example+own`, the board pack of #3083's tests).
+
+| Note | Id | Sentence | Expected |
+|---|---|---|---|
+| The issue's | `note-comparative` | the example's first sentence: a figure, then the same measure in the earlier period, citing the example's report | ✓ |
+| | `note-figure` | the example's second sentence: a revenue figure and its growth | ✓ |
+| Twin 1 | `twin-1` | the first sentence with a wrong earlier-period figure | never ✓ |
+| Twin 2 | `twin-2` | the first sentence with the two periods' figures swapped | never ✓ |
+| Twin 3 | `twin-3` | the second sentence with two of its figure's digits swapped | never ✓ |
 
 **Held out** (`HELD_OUT` in the harness): 12 pairs, each case with its own Folder, its own Document and a Note of one sentence. In each pair the right sentence is expected ✓ and the wrong one never ✓.
 
 | Pair | Kind | Right / wrong |
 |---|---|---|
-| en-a1 | comparative clause | earlier figure right / wrong (£25m for £52m) |
-| en-a2 | comparative clause | "up from 76%" / "down from 76%" (the direction) |
-| en-a3 | comparative clause | net debt $3.4bn against $2.9bn / the two years swapped |
-| zh-a1 | comparative clause | 上年同期为 3,180 万元 / 3,810 万元 |
-| zh-a2 | comparative clause | 有所上升 / 有所下降 (the direction) |
-| zh-a3 | comparative clause | 18.6 亿元 against 15.2 亿元 / the two years swapped |
-| en-b1 | comma figure, short Note | £2,615 million / £2,165 million, against a Passage that writes it the same way |
-| en-b2 | comma figure, short Note | $1,075 million / $1,705 million, against "$1.075 billion" |
-| en-b3 | comma figure, short Note | a plain 4,310 / 3,410 |
-| zh-b1 | comma figure, short Note | 2,615 万英镑 / 2,165 万英镑 |
-| zh-b2 | comma figure, short Note | 1,075 万美元 / 1,705 万美元, against "1075 万美元" |
-| zh-b3 | comma figure, short Note | an English short Note under the Chinese interface, 4,310 / 3,410 |
+| en-a1 | comparative clause | the earlier period's figure right / wrong |
+| en-a2 | comparative clause | the direction right / flipped |
+| en-a3 | comparative clause | the two years right / swapped |
+| zh-a1 | comparative clause | the earlier period's figure right / wrong |
+| zh-a2 | comparative clause | the direction right / flipped |
+| zh-a3 | comparative clause | the two years right / swapped |
+| en-b1 | comma figure, short Note | right / two digits swapped; the Passage writes it the same way |
+| en-b2 | comma figure, short Note | right / two digits swapped; the Passage writes it in billions |
+| en-b3 | comma figure, short Note | a plain count, right / two digits swapped |
+| zh-b1 | comma figure, short Note | right / two digits swapped; the Passage writes it the same way |
+| zh-b2 | comma figure, short Note | right / two digits swapped; the Passage writes it with no separator |
+| zh-b3 | comma figure, short Note | en-b3's English Note under the Chinese interface |
 
 ## The bars
 
@@ -101,7 +104,10 @@ The evaluation's own tests (`tests/eval/checkPipeline.test.ts`, `checkCompare.te
 
 ## Results (2026-11-14, read after all 10 rounds and the four `eval/checks` runs)
 
-`main` at b283bc51c and the branch at 81f2c993e (the source every round and evaluation run measured; the later commits add only gate files) on Claude Haiku 5.5, meant and run, on one key, one run on it at a time. `results.md` is `score.ts`'s reading of `runs/*.jsonl`; `runs/eval-*-report.md` and `runs/eval-compare.md` are the evaluation's own.
+On Claude Haiku 5.5, meant and run, on one key, one run on it at a time.
+- **`main`** at b283bc51c, for every round and evaluation run.
+- **The branch** at f99379156, for every round and evaluation run, as the evaluation's reports name it. Its source is 81f2c993e's: the two commits after 81f2c993e change only this folder and the live harness, which both arms ran.
+- **Files:** each arm-round's lines and console output are `runs/<arm>-<round>-a.jsonl` and `.log`, and `results.md` is `score.ts`'s reading of them. Each evaluation run's report and log are `runs/eval-<arm>-<run>-report.md` and `.log`, and `runs/eval-compare.md` is the evaluation's own comparison.
 
 **Runs.**
 - **Arm-rounds:** 20, 10 for each arm, alternated. They sent 5,972 requests, with 0 refused, 0 failed, 0 timed out and 0 held at the stop, and none was void.
@@ -115,20 +121,29 @@ The evaluation's own tests (`tests/eval/checkPipeline.test.ts`, `checkCompare.te
 
 That is **about $5.77 in all**, within the $9 stop.
 
-| Bar | `main` | branch | Result |
+| Bar | `main` (b283bc51c) | branch (f99379156) | Result |
 |---|---|---|---|
 | 1. The issue's two sentences ✓, each set-up and language | 10, 10, 10, 10 (EN); 10, 10, 10, 9 (ZH) of 10 | 10, 10, 10, 10 (EN); 10, 9, 10, 10 (ZH) of 10 | met |
-| 1. The comparative part's first reply contradicted | 0 of 10 in each | 0 of 10 in each | met |
-| 1. The revenue figure Not checked, with the User's Document | 0 (EN), 1 (ZH) of 10 | 0, 0 of 10 | met |
+| 1. `note-comparative`'s part: first reply contradicted | 0 of 10 in each | 0 of 10 in each | met |
+| 1. `note-figure`'s figure Not checked, with the User's Document | 0 (EN), 1 (ZH) of 10 | 0, 0 of 10 | met |
 | 2. Any wrong sentence's ✓ more on the branch | the twins 0; held-out wrong: en-a2 7, zh-a2 1, others 0 of 10 | twins 0; en-a2 6, zh-a2 0, others 0 | met |
 | 3. Held-out right ✓, per case (fails at 3 fewer) | 97 in all | 117 in all; the largest loss is 1 (en-a3, zh-a2) | met |
 | 3. Held-out right ✓, in all (fails at a drop of max(6, 2 × 3) = 6) | 97 | 117 (a rise of 20) | met |
 | 4. Contradicted on sentences labelled contradicted, Find support | 48 + 47 = 95 of 108 | 48 + 40 = 88 of 108 | **missed** (needed 93, `main`'s spread 1, allowed 2) |
 | 4. Paired: Contradicted in both `main` runs, not in both branch runs | | fs-142, fs-151 | **missed** |
 
-**Fault 1 did not reproduce on `main`.** At b283bc51c, `main`'s first reply on "against £118 million a year earlier" said supported in 10 of 10 checks, with the example alone and beside a User's Document. In Chinese the real sort often didn't split the sentence at all. So the gate shows the part rule costs no ✓, and no wrong comparative passes because of it. It can't show the rule fixing a first reply that is already right.
+**Bar 4, run by run** (Find support; each run has 54 sentences labelled contradicted):
 
-**Fault 2 shows on the held-out comma figures in a short Note.** `main` against the branch: en-b2 "Costs came to $1,075 million" 5 → 10, en-b3 "Headcount was 4,310" 2 → 10, zh-b3 (the same English Note under the Chinese interface) 2 → 10.
+| Run | Commit | Requests | Spend | Contradicted, of 54 | fs-142 | fs-151 | fs-046 | Report and log |
+|---|---|---|---|---|---|---|---|---|
+| `main` 1 | b283bc51c | 1,481 | about $1.01 (no meter logged) | 48 | Contradicted | Contradicted | Contradicted | `runs/eval-main-1-report.md`, `runs/eval-main-1.log` |
+| branch 1 | f99379156 | 1,460 | about $1.01 (no meter logged) | 48 | Unsupported | Not checked | Contradicted | `runs/eval-branch-1-report.md`, `runs/eval-branch-1.log` |
+| `main` 2 | b283bc51c | 1,481 | $1.01 | 47 | Contradicted | Contradicted | Contradicted | `runs/eval-main-2-report.md`, `runs/eval-main-2.log` |
+| branch 2 | f99379156 | 1,459 | $1.02 | 40 | Unsupported | Not checked | Not checked | `runs/eval-branch-2-report.md`, `runs/eval-branch-2.log` |
+
+**Fault 1 did not reproduce on `main`.** At b283bc51c, `main`'s first reply on `note-comparative`'s part said supported in 10 of 10 checks, with the example alone and beside a User's Document. In Chinese the real sort often didn't split the sentence at all. So the gate shows the part rule costs no ✓, and no wrong comparative passes because of it. It can't show the rule fixing a first reply that is already right.
+
+**Fault 2 shows on the held-out comma figures in a short Note.** The right sentence's ✓ of 10, `main` against the branch: en-b2 5 → 10, en-b3 2 → 10, and zh-b3 (en-b3's Note under the Chinese interface) 2 → 10.
 
 **The wrong comparatives, read apart** (✓ and Contradicted of 10, `main` then branch):
 
@@ -141,13 +156,13 @@ That is **about $5.77 in all**, within the $9 stop.
 | zh-a2 | 1 and 4 | 0 and 7 |
 | zh-a3 | 0 and 10 | 0 and 10 |
 
-Naming the whole sentence made no wrong clause pass more often. en-a2, "Occupancy averaged 82% in July, down from 76% a year before", is a ✓ for a wrong direction on both arms, 7 and 6 times of 10: a fault of `main`'s, which this change neither causes nor fixes.
+Naming the whole sentence made no wrong clause pass more often. en-a2's wrong sentence, its direction flipped, is a ✓ on both arms, 7 and 6 times of 10: a fault of `main`'s, which this change neither causes nor fixes.
 
 **Bar 4, read apart from its verdict.**
-- None of the sentences whose Contradicted differs between runs was checked in parts. For a whole sentence, the branch's instructions and message differ from `main`'s only when a figure in it has a separator the sentence doesn't settle: those readings are no longer offered.
-- fs-142 (3.0%) and fs-151 (78%) have no such figure, so they were sent the same on both arms. On the branch, fs-142's confirmation judged "same" and fs-151's reply gave no `cite`, in both runs.
+- None of the sentences whose Contradicted differs between runs was checked in parts.
+- For a whole sentence, the branch's instructions and message differ from `main`'s only when a figure in it has a separator the sentence doesn't settle: those readings are no longer offered. fs-142 and fs-151 have no such figure. What fs-151 is sent was captured later and is byte-identical on both arms (below); fs-142's was not captured.
 - Branch run 2 lost 10 contradicted sentences against branch run 1 and gained 2.
-  - 6 of the 10 ended Not checked the same way: a verdict given without `cite`, and the quote it gave when asked afterwards not found. 2 of those (fs-023 "£45,500", fs-046 "£3,210") have such a figure; the other 4 were sent the same as on `main`.
+  - 6 of the 10 ended Not checked the same way: a verdict given without `cite`, and the quote it gave when asked afterwards not found. 2 of those, fs-023 and fs-046, have such a figure; the other 4 don't.
   - Of the other 4, fs-121 gave no quote at all, fs-066's reply couldn't be read after the strict judgement, and fs-013 and fs-112 ended Unsupported. None of those 4 has such a figure.
 
 The bar is as written, and it stays missed.
@@ -159,7 +174,7 @@ The owner allowed one confirming run of bar 4 alone, past the first stop. The se
 - a figure read three or more ways says only that it reads several ways;
 - the Chinese card writes readings in 万 and 亿 with the currency's Chinese name.
 
-**Cases the step-1 change moves: 0.** A free count over the gate's 401 sentences and Notes (the 208 Find support sentences, the labelled claims, the example's Notes and the held-out cases) found no figure that its Note settles one way while a Passage, or a Document it could cite, writes it identically under the other decimal mark. A German Note's "£1,284 million" beside an English report, as a control, was found.
+**Cases the step-1 change moves: 0.** A free count over the gate's 401 sentences and Notes (the 208 Find support sentences, the labelled claims, the example's Notes and the held-out cases) found no figure that its Note settles one way while a Passage, or a Document it could cite, writes it identically under the other decimal mark. A control, a German Note holding `note-figure`'s figure beside the example's English report, was found.
 
 **How it runs.**
 - **Arms:** `main` at 23df13e89 against the branch's pushed head, which is `main` merged in. The rule is bar 4's as written above: Contradicted on sentences labelled contradicted over two runs, and the paired rule.
@@ -171,11 +186,18 @@ The owner allowed one confirming run of bar 4 alone, past the first stop. The se
 
 ### The confirming run's results (2026-11-14)
 
-`main` at 23df13e89 and the branch at 9eeddbab9, on Claude Haiku 5.5, meant and run, on the first Anthropic key. Only the new log files of this folder were uncommitted while the branch ran. The reports and comparison are in `runs/confirm-*`.
+On Claude Haiku 5.5, meant and run, on the first Anthropic key: `main` at 23df13e89 and the branch at 9eeddbab9, as the reports name them. Only the new log files of this folder were uncommitted while the branch ran. The comparison is `runs/confirm-compare.md`.
 
 - **Runs:** four, `main`, branch, `main`, branch. Each reached all 208 Find support sentences.
-- **Requests:** 824, 815, 866 and 805, 3,310 in all. None was refused, failed or timed out, by the logs, and no run was void. One sentence in `main`'s first run, fs-118, read "refused": the model's own reply declined, and its requests all returned. It is labelled supported, so it is outside bar 4.
-- **Spend at the app's own count:** $0.57, $0.57, $0.59 and $0.55, **$2.28 in all**, against the $4.00 stop.
+- **Requests:** 3,310 in all. None was refused, failed or timed out, by the logs, and no run was void. One sentence in `main`'s first run, fs-118, read "refused": the model's own reply declined, and its requests all returned. It is labelled supported, so it is outside bar 4.
+- **Spend at the app's own count:** **$2.28 in all**, against the $4.00 stop.
+
+| Run | Commit | Requests | Spend | Contradicted, of 54 | fs-142 | fs-151 | fs-046 | Report and log |
+|---|---|---|---|---|---|---|---|---|
+| `main` 1 | 23df13e89 | 824 | $0.57 | 42 | Contradicted | Contradicted | Not checked | `runs/confirm-main-1-report.md`, `runs/confirm-main-1.log` |
+| branch 1 | 9eeddbab9 | 815 | $0.57 | 47 | Contradicted | Not checked | Contradicted | `runs/confirm-branch-1-report.md`, `runs/confirm-branch-1.log` |
+| `main` 2 | 23df13e89 | 866 | $0.59 | 44 | Unsupported | Contradicted | Not checked | `runs/confirm-main-2-report.md`, `runs/confirm-main-2.log` |
+| branch 2 | 9eeddbab9 | 805 | $0.55 | 46 | Not checked | Not checked | Contradicted | `runs/confirm-branch-2-report.md`, `runs/confirm-branch-2.log` |
 
 | Bar 4 | `main` | branch | Result |
 |---|---|---|---|
@@ -183,8 +205,10 @@ The owner allowed one confirming run of bar 4 alone, past the first stop. The se
 | Paired: Contradicted in both `main` runs, not in both branch runs | | fs-151 | **missed** |
 | The other way: Contradicted in both branch runs, not in both `main` runs | fs-046 | | (reported) |
 
-fs-151 ("翠湖名邸9月分类准确率为78%。") is the same sentence the first runs lost.
-- **What it is sent is byte-identical on both arms:** a free capture of its check Run's instructions and message, through each arm's core against a one-row copy of its table, gave 38,786 bytes on each, with no difference.
-- **On the branch** its reply again gave its verdict without `cite`, in both runs.
+**The paired rule is missed,** in the first gate (fs-142 and fs-151) and again here (fs-151). No cause is claimed for it beyond what the capture below shows: what fs-151's check is sent is byte-identical on both arms. If this change ships, it ships as a dated exception, with the bar recorded as missed.
 
-The paired rule is as written, and it stays missed.
+**fs-151's capture** (2026-11-14, after the confirming run; free, with a scripted model and nothing sent):
+- **The test:** a throwaway test, not committed. It sets up a core with the unit tests' helpers (`setUpWithDocuments`), with a scripted model that searches once and replies unsupported (`checkGenerate({})`). It adds one CSV, a copy of fs-151's table with only its header row and fs-151's own row, sets the interface to Chinese, and checks fs-151's sentence with `checkClaim`. It writes each check Run's instructions and message to a file.
+- **The command:** `SENT_OUT=<file> npx vitest run <the test>`, with a temporary HOME, once in each checkout.
+- **The checkouts:** `main` at 23df13e89; the branch with b0734765d's changes in place, before they were committed (b0734765d has `main` at 23df13e89 merged in); and the branch again, as committed with this file.
+- **The result:** three files of 38,786 bytes, each with sha256 `579f10b33b19fccb6fc766bc2254519733834e4359d541483a95bf9f1bd3e8a8`, byte for byte the same, ids included. The files hold the case's words, so they aren't committed.

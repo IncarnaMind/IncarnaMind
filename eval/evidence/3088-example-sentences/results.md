@@ -28,162 +28,162 @@ Priced in all: $1.7241
 
 | Case | Arm | ✓ | part ✓ | first reply contradicted | a figure Not checked |
 |---|---|---|---|---|---|
-| example | en | example | note | Revenue was £1,284 million, up 4.2% year on year. | right | branch | 10/10 | 0/10 | 0/10 | 0/10 |
-| example | en | example | note | Revenue was £1,284 million, up 4.2% year on year. | right | main | 10/10 | 0/10 | 0/10 | 0/10 |
-| example | en | example | note | Underlying EBITDA was £96 million, against £118 million a year earlier. | right | branch | 10/10 | 10/10 | 0/10 | 0/10 |
-| example | en | example | note | Underlying EBITDA was £96 million, against £118 million a year earlier. | right | main | 10/10 | 10/10 | 0/10 | 0/10 |
-| example | en | example | twin-1 | Underlying EBITDA was £96 million, against £128 million a year earlier. | wrong | branch | 0/10 | 0/10 | 10/10 | 0/10 |
-| example | en | example | twin-1 | Underlying EBITDA was £96 million, against £128 million a year earlier. | wrong | main | 0/10 | 0/10 | 10/10 | 0/10 |
-| example | en | example | twin-2 | Underlying EBITDA was £118 million, against £96 million a year earlier. | wrong | branch | 0/10 | 0/10 | 10/10 | 0/10 |
-| example | en | example | twin-2 | Underlying EBITDA was £118 million, against £96 million a year earlier. | wrong | main | 0/10 | 0/10 | 10/10 | 0/10 |
-| example | en | example | twin-3 | Revenue was £1,248 million, up 4.2% year on year. | wrong | branch | 0/10 | 0/10 | 0/10 | 0/10 |
-| example | en | example | twin-3 | Revenue was £1,248 million, up 4.2% year on year. | wrong | main | 0/10 | 0/10 | 0/10 | 8/10 |
-| example | en | example+own | note | Revenue was £1,284 million, up 4.2% year on year. | right | branch | 10/10 | 0/10 | 0/10 | 0/10 |
-| example | en | example+own | note | Revenue was £1,284 million, up 4.2% year on year. | right | main | 10/10 | 0/10 | 0/10 | 0/10 |
-| example | en | example+own | note | Underlying EBITDA was £96 million, against £118 million a year earlier. | right | branch | 10/10 | 10/10 | 0/10 | 0/10 |
-| example | en | example+own | note | Underlying EBITDA was £96 million, against £118 million a year earlier. | right | main | 10/10 | 10/10 | 0/10 | 0/10 |
-| example | en | example+own | twin-1 | Underlying EBITDA was £96 million, against £128 million a year earlier. | wrong | branch | 0/10 | 0/10 | 10/10 | 0/10 |
-| example | en | example+own | twin-1 | Underlying EBITDA was £96 million, against £128 million a year earlier. | wrong | main | 0/10 | 0/10 | 10/10 | 0/10 |
-| example | en | example+own | twin-2 | Underlying EBITDA was £118 million, against £96 million a year earlier. | wrong | branch | 0/10 | 0/10 | 10/10 | 0/10 |
-| example | en | example+own | twin-2 | Underlying EBITDA was £118 million, against £96 million a year earlier. | wrong | main | 0/10 | 0/10 | 10/10 | 1/10 |
-| example | en | example+own | twin-3 | Revenue was £1,248 million, up 4.2% year on year. | wrong | branch | 0/10 | 0/10 | 0/10 | 0/10 |
-| example | en | example+own | twin-3 | Revenue was £1,248 million, up 4.2% year on year. | wrong | main | 0/10 | 0/10 | 0/10 | 5/10 |
-| example | zh-CN | example | note | 基础 EBITDA 为 9,600 万英镑，上年同期为 1.18 亿英镑。 | right | branch | 10/10 | 6/10 | 0/10 | 0/10 |
-| example | zh-CN | example | note | 基础 EBITDA 为 9,600 万英镑，上年同期为 1.18 亿英镑。 | right | main | 10/10 | 4/10 | 0/10 | 0/10 |
-| example | zh-CN | example | note | 集团收入为 12.84 亿英镑，同比增长 4.2%。 | right | branch | 9/10 | 0/10 | 0/10 | 1/10 |
-| example | zh-CN | example | note | 集团收入为 12.84 亿英镑，同比增长 4.2%。 | right | main | 10/10 | 0/10 | 0/10 | 0/10 |
-| example | zh-CN | example | twin-1 | 基础 EBITDA 为 9,600 万英镑，上年同期为 1.28 亿英镑。 | wrong | branch | 0/10 | 0/10 | 10/10 | 0/10 |
-| example | zh-CN | example | twin-1 | 基础 EBITDA 为 9,600 万英镑，上年同期为 1.28 亿英镑。 | wrong | main | 0/10 | 0/10 | 10/10 | 0/10 |
-| example | zh-CN | example | twin-2 | 基础 EBITDA 为 1.18 亿英镑，上年同期为 9,600 万英镑。 | wrong | branch | 0/10 | 0/10 | 10/10 | 0/10 |
-| example | zh-CN | example | twin-2 | 基础 EBITDA 为 1.18 亿英镑，上年同期为 9,600 万英镑。 | wrong | main | 0/10 | 0/10 | 10/10 | 0/10 |
-| example | zh-CN | example | twin-3 | 集团收入为 12.48 亿英镑，同比增长 4.2%。 | wrong | branch | 0/10 | 0/10 | 0/10 | 1/10 |
-| example | zh-CN | example | twin-3 | 集团收入为 12.48 亿英镑，同比增长 4.2%。 | wrong | main | 0/10 | 0/10 | 0/10 | 0/10 |
-| example | zh-CN | example+own | note | 基础 EBITDA 为 9,600 万英镑，上年同期为 1.18 亿英镑。 | right | branch | 10/10 | 4/10 | 0/10 | 0/10 |
-| example | zh-CN | example+own | note | 基础 EBITDA 为 9,600 万英镑，上年同期为 1.18 亿英镑。 | right | main | 10/10 | 7/10 | 0/10 | 0/10 |
-| example | zh-CN | example+own | note | 集团收入为 12.84 亿英镑，同比增长 4.2%。 | right | branch | 10/10 | 0/10 | 0/10 | 0/10 |
-| example | zh-CN | example+own | note | 集团收入为 12.84 亿英镑，同比增长 4.2%。 | right | main | 9/10 | 0/10 | 0/10 | 1/10 |
-| example | zh-CN | example+own | twin-1 | 基础 EBITDA 为 9,600 万英镑，上年同期为 1.28 亿英镑。 | wrong | branch | 0/10 | 0/10 | 10/10 | 0/10 |
-| example | zh-CN | example+own | twin-1 | 基础 EBITDA 为 9,600 万英镑，上年同期为 1.28 亿英镑。 | wrong | main | 0/10 | 0/10 | 10/10 | 0/10 |
-| example | zh-CN | example+own | twin-2 | 基础 EBITDA 为 1.18 亿英镑，上年同期为 9,600 万英镑。 | wrong | branch | 0/10 | 0/10 | 10/10 | 0/10 |
-| example | zh-CN | example+own | twin-2 | 基础 EBITDA 为 1.18 亿英镑，上年同期为 9,600 万英镑。 | wrong | main | 0/10 | 0/10 | 10/10 | 0/10 |
-| example | zh-CN | example+own | twin-3 | 集团收入为 12.48 亿英镑，同比增长 4.2%。 | wrong | branch | 0/10 | 0/10 | 0/10 | 0/10 |
-| example | zh-CN | example+own | twin-3 | 集团收入为 12.48 亿英镑，同比增长 4.2%。 | wrong | main | 0/10 | 0/10 | 0/10 | 0/10 |
-| held-out | en | comparative | en-a1-right | Operating profit was £41 million in 2026, against £52 million in 2025. | right | branch | 10/10 | 9/10 | 0/10 | 0/10 |
-| held-out | en | comparative | en-a1-right | Operating profit was £41 million in 2026, against £52 million in 2025. | right | main | 10/10 | 10/10 | 0/10 | 0/10 |
-| held-out | en | comparative | en-a1-wrong | Operating profit was £41 million in 2026, against £25 million in 2025. | wrong | branch | 0/10 | 0/10 | 8/10 | 0/10 |
-| held-out | en | comparative | en-a1-wrong | Operating profit was £41 million in 2026, against £25 million in 2025. | wrong | main | 0/10 | 0/10 | 9/10 | 0/10 |
-| held-out | en | comparative | en-a2-right | Occupancy averaged 82% in July, up from 76% a year before. | right | branch | 10/10 | 10/10 | 0/10 | 0/10 |
-| held-out | en | comparative | en-a2-right | Occupancy averaged 82% in July, up from 76% a year before. | right | main | 10/10 | 10/10 | 0/10 | 0/10 |
-| held-out | en | comparative | en-a2-wrong | Occupancy averaged 82% in July, down from 76% a year before. | wrong | branch | 6/10 | 6/10 | 4/10 | 0/10 |
-| held-out | en | comparative | en-a2-wrong | Occupancy averaged 82% in July, down from 76% a year before. | wrong | main | 7/10 | 7/10 | 3/10 | 1/10 |
-| held-out | en | comparative | en-a3-right | Net debt stood at $3.4 billion at the end of 2026, compared with $2.9 billion a year earlier. | right | branch | 9/10 | 9/10 | 0/10 | 1/10 |
-| held-out | en | comparative | en-a3-right | Net debt stood at $3.4 billion at the end of 2026, compared with $2.9 billion a year earlier. | right | main | 10/10 | 10/10 | 0/10 | 0/10 |
-| held-out | en | comparative | en-a3-wrong | Net debt stood at $2.9 billion at the end of 2026, compared with $3.4 billion a year earlier. | wrong | branch | 0/10 | 0/10 | 10/10 | 0/10 |
-| held-out | en | comparative | en-a3-wrong | Net debt stood at $2.9 billion at the end of 2026, compared with $3.4 billion a year earlier. | wrong | main | 0/10 | 0/10 | 10/10 | 0/10 |
-| held-out | en | short-note | en-b1-right | Sales were £2,615 million. | right | branch | 9/10 | 0/10 | 0/10 | 1/10 |
-| held-out | en | short-note | en-b1-right | Sales were £2,615 million. | right | main | 8/10 | 0/10 | 0/10 | 2/10 |
-| held-out | en | short-note | en-b1-wrong | Sales were £2,165 million. | wrong | branch | 0/10 | 0/10 | 0/10 | 0/10 |
-| held-out | en | short-note | en-b1-wrong | Sales were £2,165 million. | wrong | main | 0/10 | 0/10 | 0/10 | 4/10 |
-| held-out | en | short-note | en-b2-right | Costs came to $1,075 million. | right | branch | 10/10 | 0/10 | 0/10 | 0/10 |
-| held-out | en | short-note | en-b2-right | Costs came to $1,075 million. | right | main | 5/10 | 0/10 | 0/10 | 4/10 |
-| held-out | en | short-note | en-b2-wrong | Costs came to $1,705 million. | wrong | branch | 0/10 | 0/10 | 0/10 | 0/10 |
-| held-out | en | short-note | en-b2-wrong | Costs came to $1,705 million. | wrong | main | 0/10 | 0/10 | 0/10 | 8/10 |
-| held-out | en | short-note | en-b3-right | Headcount was 4,310. | right | branch | 10/10 | 0/10 | 0/10 | 0/10 |
-| held-out | en | short-note | en-b3-right | Headcount was 4,310. | right | main | 2/10 | 0/10 | 0/10 | 8/10 |
-| held-out | en | short-note | en-b3-wrong | Headcount was 3,410. | wrong | branch | 0/10 | 0/10 | 0/10 | 0/10 |
-| held-out | en | short-note | en-b3-wrong | Headcount was 3,410. | wrong | main | 0/10 | 0/10 | 0/10 | 6/10 |
-| held-out | zh-CN | comparative | zh-a1-right | 营业利润为 2,750 万元，上年同期为 3,180 万元。 | right | branch | 10/10 | 10/10 | 0/10 | 0/10 |
-| held-out | zh-CN | comparative | zh-a1-right | 营业利润为 2,750 万元，上年同期为 3,180 万元。 | right | main | 10/10 | 10/10 | 0/10 | 0/10 |
-| held-out | zh-CN | comparative | zh-a1-wrong | 营业利润为 2,750 万元，上年同期为 3,810 万元。 | wrong | branch | 0/10 | 0/10 | 10/10 | 0/10 |
-| held-out | zh-CN | comparative | zh-a1-wrong | 营业利润为 2,750 万元，上年同期为 3,810 万元。 | wrong | main | 0/10 | 0/10 | 10/10 | 0/10 |
-| held-out | zh-CN | comparative | zh-a2-right | 出租率为 91%，较上年的 87% 有所上升。 | right | branch | 9/10 | 9/10 | 0/10 | 1/10 |
-| held-out | zh-CN | comparative | zh-a2-right | 出租率为 91%，较上年的 87% 有所上升。 | right | main | 10/10 | 10/10 | 0/10 | 0/10 |
-| held-out | zh-CN | comparative | zh-a2-wrong | 出租率为 91%，较上年的 87% 有所下降。 | wrong | branch | 0/10 | 0/10 | 8/10 | 4/10 |
-| held-out | zh-CN | comparative | zh-a2-wrong | 出租率为 91%，较上年的 87% 有所下降。 | wrong | main | 1/10 | 1/10 | 8/10 | 2/10 |
-| held-out | zh-CN | comparative | zh-a3-right | 2026 年末净负债为 18.6 亿元，一年前为 15.2 亿元。 | right | branch | 10/10 | 10/10 | 0/10 | 0/10 |
-| held-out | zh-CN | comparative | zh-a3-right | 2026 年末净负债为 18.6 亿元，一年前为 15.2 亿元。 | right | main | 10/10 | 10/10 | 0/10 | 0/10 |
-| held-out | zh-CN | comparative | zh-a3-wrong | 2026 年末净负债为 15.2 亿元，一年前为 18.6 亿元。 | wrong | branch | 0/10 | 0/10 | 10/10 | 0/10 |
-| held-out | zh-CN | comparative | zh-a3-wrong | 2026 年末净负债为 15.2 亿元，一年前为 18.6 亿元。 | wrong | main | 0/10 | 0/10 | 10/10 | 0/10 |
-| held-out | zh-CN | short-note | zh-b1-right | 销售额为 2,615 万英镑。 | right | branch | 10/10 | 0/10 | 0/10 | 0/10 |
-| held-out | zh-CN | short-note | zh-b1-right | 销售额为 2,615 万英镑。 | right | main | 10/10 | 0/10 | 0/10 | 0/10 |
-| held-out | zh-CN | short-note | zh-b1-wrong | 销售额为 2,165 万英镑。 | wrong | branch | 0/10 | 0/10 | 0/10 | 0/10 |
-| held-out | zh-CN | short-note | zh-b1-wrong | 销售额为 2,165 万英镑。 | wrong | main | 0/10 | 0/10 | 0/10 | 3/10 |
-| held-out | zh-CN | short-note | zh-b2-right | 成本为 1,075 万美元。 | right | branch | 10/10 | 0/10 | 0/10 | 0/10 |
-| held-out | zh-CN | short-note | zh-b2-right | 成本为 1,075 万美元。 | right | main | 10/10 | 0/10 | 0/10 | 0/10 |
-| held-out | zh-CN | short-note | zh-b2-wrong | 成本为 1,705 万美元。 | wrong | branch | 0/10 | 0/10 | 0/10 | 0/10 |
-| held-out | zh-CN | short-note | zh-b2-wrong | 成本为 1,705 万美元。 | wrong | main | 0/10 | 0/10 | 0/10 | 4/10 |
-| held-out | zh-CN | short-note | zh-b3-right | Headcount was 4,310. | right | branch | 10/10 | 0/10 | 0/10 | 0/10 |
-| held-out | zh-CN | short-note | zh-b3-right | Headcount was 4,310. | right | main | 2/10 | 0/10 | 0/10 | 8/10 |
-| held-out | zh-CN | short-note | zh-b3-wrong | Headcount was 3,410. | wrong | branch | 0/10 | 0/10 | 0/10 | 0/10 |
-| held-out | zh-CN | short-note | zh-b3-wrong | Headcount was 3,410. | wrong | main | 0/10 | 0/10 | 0/10 | 7/10 |
+| example | en | example | note-comparative | right | branch | 10/10 | 10/10 | 0/10 | 0/10 |
+| example | en | example | note-comparative | right | main | 10/10 | 10/10 | 0/10 | 0/10 |
+| example | en | example | note-figure | right | branch | 10/10 | 0/10 | 0/10 | 0/10 |
+| example | en | example | note-figure | right | main | 10/10 | 0/10 | 0/10 | 0/10 |
+| example | en | example | twin-1 | wrong | branch | 0/10 | 0/10 | 10/10 | 0/10 |
+| example | en | example | twin-1 | wrong | main | 0/10 | 0/10 | 10/10 | 0/10 |
+| example | en | example | twin-2 | wrong | branch | 0/10 | 0/10 | 10/10 | 0/10 |
+| example | en | example | twin-2 | wrong | main | 0/10 | 0/10 | 10/10 | 0/10 |
+| example | en | example | twin-3 | wrong | branch | 0/10 | 0/10 | 0/10 | 0/10 |
+| example | en | example | twin-3 | wrong | main | 0/10 | 0/10 | 0/10 | 8/10 |
+| example | en | example+own | note-comparative | right | branch | 10/10 | 10/10 | 0/10 | 0/10 |
+| example | en | example+own | note-comparative | right | main | 10/10 | 10/10 | 0/10 | 0/10 |
+| example | en | example+own | note-figure | right | branch | 10/10 | 0/10 | 0/10 | 0/10 |
+| example | en | example+own | note-figure | right | main | 10/10 | 0/10 | 0/10 | 0/10 |
+| example | en | example+own | twin-1 | wrong | branch | 0/10 | 0/10 | 10/10 | 0/10 |
+| example | en | example+own | twin-1 | wrong | main | 0/10 | 0/10 | 10/10 | 0/10 |
+| example | en | example+own | twin-2 | wrong | branch | 0/10 | 0/10 | 10/10 | 0/10 |
+| example | en | example+own | twin-2 | wrong | main | 0/10 | 0/10 | 10/10 | 1/10 |
+| example | en | example+own | twin-3 | wrong | branch | 0/10 | 0/10 | 0/10 | 0/10 |
+| example | en | example+own | twin-3 | wrong | main | 0/10 | 0/10 | 0/10 | 5/10 |
+| example | zh-CN | example | note-comparative | right | branch | 10/10 | 6/10 | 0/10 | 0/10 |
+| example | zh-CN | example | note-comparative | right | main | 10/10 | 4/10 | 0/10 | 0/10 |
+| example | zh-CN | example | note-figure | right | branch | 9/10 | 0/10 | 0/10 | 1/10 |
+| example | zh-CN | example | note-figure | right | main | 10/10 | 0/10 | 0/10 | 0/10 |
+| example | zh-CN | example | twin-1 | wrong | branch | 0/10 | 0/10 | 10/10 | 0/10 |
+| example | zh-CN | example | twin-1 | wrong | main | 0/10 | 0/10 | 10/10 | 0/10 |
+| example | zh-CN | example | twin-2 | wrong | branch | 0/10 | 0/10 | 10/10 | 0/10 |
+| example | zh-CN | example | twin-2 | wrong | main | 0/10 | 0/10 | 10/10 | 0/10 |
+| example | zh-CN | example | twin-3 | wrong | branch | 0/10 | 0/10 | 0/10 | 1/10 |
+| example | zh-CN | example | twin-3 | wrong | main | 0/10 | 0/10 | 0/10 | 0/10 |
+| example | zh-CN | example+own | note-comparative | right | branch | 10/10 | 4/10 | 0/10 | 0/10 |
+| example | zh-CN | example+own | note-comparative | right | main | 10/10 | 7/10 | 0/10 | 0/10 |
+| example | zh-CN | example+own | note-figure | right | branch | 10/10 | 0/10 | 0/10 | 0/10 |
+| example | zh-CN | example+own | note-figure | right | main | 9/10 | 0/10 | 0/10 | 1/10 |
+| example | zh-CN | example+own | twin-1 | wrong | branch | 0/10 | 0/10 | 10/10 | 0/10 |
+| example | zh-CN | example+own | twin-1 | wrong | main | 0/10 | 0/10 | 10/10 | 0/10 |
+| example | zh-CN | example+own | twin-2 | wrong | branch | 0/10 | 0/10 | 10/10 | 0/10 |
+| example | zh-CN | example+own | twin-2 | wrong | main | 0/10 | 0/10 | 10/10 | 0/10 |
+| example | zh-CN | example+own | twin-3 | wrong | branch | 0/10 | 0/10 | 0/10 | 0/10 |
+| example | zh-CN | example+own | twin-3 | wrong | main | 0/10 | 0/10 | 0/10 | 0/10 |
+| held-out | en | comparative | en-a1-right | right | branch | 10/10 | 9/10 | 0/10 | 0/10 |
+| held-out | en | comparative | en-a1-right | right | main | 10/10 | 10/10 | 0/10 | 0/10 |
+| held-out | en | comparative | en-a1-wrong | wrong | branch | 0/10 | 0/10 | 8/10 | 0/10 |
+| held-out | en | comparative | en-a1-wrong | wrong | main | 0/10 | 0/10 | 9/10 | 0/10 |
+| held-out | en | comparative | en-a2-right | right | branch | 10/10 | 10/10 | 0/10 | 0/10 |
+| held-out | en | comparative | en-a2-right | right | main | 10/10 | 10/10 | 0/10 | 0/10 |
+| held-out | en | comparative | en-a2-wrong | wrong | branch | 6/10 | 6/10 | 4/10 | 0/10 |
+| held-out | en | comparative | en-a2-wrong | wrong | main | 7/10 | 7/10 | 3/10 | 1/10 |
+| held-out | en | comparative | en-a3-right | right | branch | 9/10 | 9/10 | 0/10 | 1/10 |
+| held-out | en | comparative | en-a3-right | right | main | 10/10 | 10/10 | 0/10 | 0/10 |
+| held-out | en | comparative | en-a3-wrong | wrong | branch | 0/10 | 0/10 | 10/10 | 0/10 |
+| held-out | en | comparative | en-a3-wrong | wrong | main | 0/10 | 0/10 | 10/10 | 0/10 |
+| held-out | en | short-note | en-b1-right | right | branch | 9/10 | 0/10 | 0/10 | 1/10 |
+| held-out | en | short-note | en-b1-right | right | main | 8/10 | 0/10 | 0/10 | 2/10 |
+| held-out | en | short-note | en-b1-wrong | wrong | branch | 0/10 | 0/10 | 0/10 | 0/10 |
+| held-out | en | short-note | en-b1-wrong | wrong | main | 0/10 | 0/10 | 0/10 | 4/10 |
+| held-out | en | short-note | en-b2-right | right | branch | 10/10 | 0/10 | 0/10 | 0/10 |
+| held-out | en | short-note | en-b2-right | right | main | 5/10 | 0/10 | 0/10 | 4/10 |
+| held-out | en | short-note | en-b2-wrong | wrong | branch | 0/10 | 0/10 | 0/10 | 0/10 |
+| held-out | en | short-note | en-b2-wrong | wrong | main | 0/10 | 0/10 | 0/10 | 8/10 |
+| held-out | en | short-note | en-b3-right | right | branch | 10/10 | 0/10 | 0/10 | 0/10 |
+| held-out | en | short-note | en-b3-right | right | main | 2/10 | 0/10 | 0/10 | 8/10 |
+| held-out | en | short-note | en-b3-wrong | wrong | branch | 0/10 | 0/10 | 0/10 | 0/10 |
+| held-out | en | short-note | en-b3-wrong | wrong | main | 0/10 | 0/10 | 0/10 | 6/10 |
+| held-out | zh-CN | comparative | zh-a1-right | right | branch | 10/10 | 10/10 | 0/10 | 0/10 |
+| held-out | zh-CN | comparative | zh-a1-right | right | main | 10/10 | 10/10 | 0/10 | 0/10 |
+| held-out | zh-CN | comparative | zh-a1-wrong | wrong | branch | 0/10 | 0/10 | 10/10 | 0/10 |
+| held-out | zh-CN | comparative | zh-a1-wrong | wrong | main | 0/10 | 0/10 | 10/10 | 0/10 |
+| held-out | zh-CN | comparative | zh-a2-right | right | branch | 9/10 | 9/10 | 0/10 | 1/10 |
+| held-out | zh-CN | comparative | zh-a2-right | right | main | 10/10 | 10/10 | 0/10 | 0/10 |
+| held-out | zh-CN | comparative | zh-a2-wrong | wrong | branch | 0/10 | 0/10 | 8/10 | 4/10 |
+| held-out | zh-CN | comparative | zh-a2-wrong | wrong | main | 1/10 | 1/10 | 8/10 | 2/10 |
+| held-out | zh-CN | comparative | zh-a3-right | right | branch | 10/10 | 10/10 | 0/10 | 0/10 |
+| held-out | zh-CN | comparative | zh-a3-right | right | main | 10/10 | 10/10 | 0/10 | 0/10 |
+| held-out | zh-CN | comparative | zh-a3-wrong | wrong | branch | 0/10 | 0/10 | 10/10 | 0/10 |
+| held-out | zh-CN | comparative | zh-a3-wrong | wrong | main | 0/10 | 0/10 | 10/10 | 0/10 |
+| held-out | zh-CN | short-note | zh-b1-right | right | branch | 10/10 | 0/10 | 0/10 | 0/10 |
+| held-out | zh-CN | short-note | zh-b1-right | right | main | 10/10 | 0/10 | 0/10 | 0/10 |
+| held-out | zh-CN | short-note | zh-b1-wrong | wrong | branch | 0/10 | 0/10 | 0/10 | 0/10 |
+| held-out | zh-CN | short-note | zh-b1-wrong | wrong | main | 0/10 | 0/10 | 0/10 | 3/10 |
+| held-out | zh-CN | short-note | zh-b2-right | right | branch | 10/10 | 0/10 | 0/10 | 0/10 |
+| held-out | zh-CN | short-note | zh-b2-right | right | main | 10/10 | 0/10 | 0/10 | 0/10 |
+| held-out | zh-CN | short-note | zh-b2-wrong | wrong | branch | 0/10 | 0/10 | 0/10 | 0/10 |
+| held-out | zh-CN | short-note | zh-b2-wrong | wrong | main | 0/10 | 0/10 | 0/10 | 4/10 |
+| held-out | zh-CN | short-note | zh-b3-right | right | branch | 10/10 | 0/10 | 0/10 | 0/10 |
+| held-out | zh-CN | short-note | zh-b3-right | right | main | 2/10 | 0/10 | 0/10 | 8/10 |
+| held-out | zh-CN | short-note | zh-b3-wrong | wrong | branch | 0/10 | 0/10 | 0/10 | 0/10 |
+| held-out | zh-CN | short-note | zh-b3-wrong | wrong | main | 0/10 | 0/10 | 0/10 | 7/10 |
 
 ## Bars
 
-- met: example | en | example | note | Underlying EBITDA was £96 million, against £118 million a year earlier. | right: ✓ in at least 9 of 10 (10/10)
-- met: example | en | example | note | Underlying EBITDA was £96 million, against £118 million a year earlier. | right: first reply contradicted in at most 1 (0/10)
-- met: example | en | example | note | Revenue was £1,284 million, up 4.2% year on year. | right: ✓ in at least 9 of 10 (10/10)
-- met: example | en | example+own | note | Underlying EBITDA was £96 million, against £118 million a year earlier. | right: ✓ in at least 9 of 10 (10/10)
-- met: example | en | example+own | note | Underlying EBITDA was £96 million, against £118 million a year earlier. | right: first reply contradicted in at most 1 (0/10)
-- met: example | en | example+own | note | Revenue was £1,284 million, up 4.2% year on year. | right: ✓ in at least 9 of 10 (10/10)
-- met: example | en | example+own | note | Revenue was £1,284 million, up 4.2% year on year. | right: no figure Not checked (0/10)
-- met: example | zh-CN | example | note | 基础 EBITDA 为 9,600 万英镑，上年同期为 1.18 亿英镑。 | right: ✓ in at least 9 of 10 (10/10)
-- met: example | zh-CN | example | note | 基础 EBITDA 为 9,600 万英镑，上年同期为 1.18 亿英镑。 | right: first reply contradicted in at most 1 (0/10)
-- met: example | zh-CN | example | note | 集团收入为 12.84 亿英镑，同比增长 4.2%。 | right: ✓ in at least 9 of 10 (9/10)
-- met: example | zh-CN | example+own | note | 基础 EBITDA 为 9,600 万英镑，上年同期为 1.18 亿英镑。 | right: ✓ in at least 9 of 10 (10/10)
-- met: example | zh-CN | example+own | note | 基础 EBITDA 为 9,600 万英镑，上年同期为 1.18 亿英镑。 | right: first reply contradicted in at most 1 (0/10)
-- met: example | zh-CN | example+own | note | 集团收入为 12.84 亿英镑，同比增长 4.2%。 | right: ✓ in at least 9 of 10 (10/10)
-- met: example | zh-CN | example+own | note | 集团收入为 12.84 亿英镑，同比增长 4.2%。 | right: no figure Not checked (0/10)
-- met: example | en | example | twin-1 | Underlying EBITDA was £96 million, against £128 million a year earlier. | wrong: no ✓ gained (main 0/10, branch 0/10)
-- met: example | en | example | twin-2 | Underlying EBITDA was £118 million, against £96 million a year earlier. | wrong: no ✓ gained (main 0/10, branch 0/10)
-- met: example | en | example | twin-3 | Revenue was £1,248 million, up 4.2% year on year. | wrong: no ✓ gained (main 0/10, branch 0/10)
-- met: example | en | example+own | twin-3 | Revenue was £1,248 million, up 4.2% year on year. | wrong: no ✓ gained (main 0/10, branch 0/10)
-- met: example | en | example+own | twin-1 | Underlying EBITDA was £96 million, against £128 million a year earlier. | wrong: no ✓ gained (main 0/10, branch 0/10)
-- met: example | en | example+own | twin-2 | Underlying EBITDA was £118 million, against £96 million a year earlier. | wrong: no ✓ gained (main 0/10, branch 0/10)
-- met: held-out | en | comparative | en-a1-wrong | Operating profit was £41 million in 2026, against £25 million in 2025. | wrong: no ✓ gained (main 0/10, branch 0/10)
-- met: held-out | en | comparative | en-a2-wrong | Occupancy averaged 82% in July, down from 76% a year before. | wrong: no ✓ gained (main 7/10, branch 6/10)
-- met: held-out | en | short-note | en-b1-wrong | Sales were £2,165 million. | wrong: no ✓ gained (main 0/10, branch 0/10)
-- met: held-out | en | comparative | en-a3-wrong | Net debt stood at $2.9 billion at the end of 2026, compared with $3.4 billion a year earlier. | wrong: no ✓ gained (main 0/10, branch 0/10)
-- met: held-out | en | short-note | en-b3-wrong | Headcount was 3,410. | wrong: no ✓ gained (main 0/10, branch 0/10)
-- met: held-out | en | short-note | en-b2-wrong | Costs came to $1,705 million. | wrong: no ✓ gained (main 0/10, branch 0/10)
-- met: example | zh-CN | example | twin-1 | 基础 EBITDA 为 9,600 万英镑，上年同期为 1.28 亿英镑。 | wrong: no ✓ gained (main 0/10, branch 0/10)
-- met: example | zh-CN | example | twin-3 | 集团收入为 12.48 亿英镑，同比增长 4.2%。 | wrong: no ✓ gained (main 0/10, branch 0/10)
-- met: example | zh-CN | example | twin-2 | 基础 EBITDA 为 1.18 亿英镑，上年同期为 9,600 万英镑。 | wrong: no ✓ gained (main 0/10, branch 0/10)
-- met: example | zh-CN | example+own | twin-1 | 基础 EBITDA 为 9,600 万英镑，上年同期为 1.28 亿英镑。 | wrong: no ✓ gained (main 0/10, branch 0/10)
-- met: example | zh-CN | example+own | twin-3 | 集团收入为 12.48 亿英镑，同比增长 4.2%。 | wrong: no ✓ gained (main 0/10, branch 0/10)
-- met: example | zh-CN | example+own | twin-2 | 基础 EBITDA 为 1.18 亿英镑，上年同期为 9,600 万英镑。 | wrong: no ✓ gained (main 0/10, branch 0/10)
-- met: held-out | zh-CN | comparative | zh-a1-wrong | 营业利润为 2,750 万元，上年同期为 3,810 万元。 | wrong: no ✓ gained (main 0/10, branch 0/10)
-- met: held-out | zh-CN | comparative | zh-a2-wrong | 出租率为 91%，较上年的 87% 有所下降。 | wrong: no ✓ gained (main 1/10, branch 0/10)
-- met: held-out | zh-CN | comparative | zh-a3-wrong | 2026 年末净负债为 15.2 亿元，一年前为 18.6 亿元。 | wrong: no ✓ gained (main 0/10, branch 0/10)
-- met: held-out | zh-CN | short-note | zh-b1-wrong | 销售额为 2,165 万英镑。 | wrong: no ✓ gained (main 0/10, branch 0/10)
-- met: held-out | zh-CN | short-note | zh-b2-wrong | 成本为 1,705 万美元。 | wrong: no ✓ gained (main 0/10, branch 0/10)
-- met: held-out | zh-CN | short-note | zh-b3-wrong | Headcount was 3,410. | wrong: no ✓ gained (main 0/10, branch 0/10)
-- met: held-out | en | comparative | en-a2-right | Occupancy averaged 82% in July, up from 76% a year before. | right: no ✓ lost (main 10/10, branch 10/10)
-- met: held-out | en | comparative | en-a1-right | Operating profit was £41 million in 2026, against £52 million in 2025. | right: no ✓ lost (main 10/10, branch 10/10)
-- met: held-out | en | short-note | en-b1-right | Sales were £2,615 million. | right: no ✓ lost (main 8/10, branch 9/10)
-- met: held-out | en | comparative | en-a3-right | Net debt stood at $3.4 billion at the end of 2026, compared with $2.9 billion a year earlier. | right: no ✓ lost (main 10/10, branch 9/10)
-- met: held-out | en | short-note | en-b2-right | Costs came to $1,075 million. | right: no ✓ lost (main 5/10, branch 10/10)
-- met: held-out | en | short-note | en-b3-right | Headcount was 4,310. | right: no ✓ lost (main 2/10, branch 10/10)
-- met: held-out | zh-CN | comparative | zh-a1-right | 营业利润为 2,750 万元，上年同期为 3,180 万元。 | right: no ✓ lost (main 10/10, branch 10/10)
-- met: held-out | zh-CN | comparative | zh-a2-right | 出租率为 91%，较上年的 87% 有所上升。 | right: no ✓ lost (main 10/10, branch 9/10)
-- met: held-out | zh-CN | short-note | zh-b1-right | 销售额为 2,615 万英镑。 | right: no ✓ lost (main 10/10, branch 10/10)
-- met: held-out | zh-CN | comparative | zh-a3-right | 2026 年末净负债为 18.6 亿元，一年前为 15.2 亿元。 | right: no ✓ lost (main 10/10, branch 10/10)
-- met: held-out | zh-CN | short-note | zh-b3-right | Headcount was 4,310. | right: no ✓ lost (main 2/10, branch 10/10)
-- met: held-out | zh-CN | short-note | zh-b2-right | 成本为 1,075 万美元。 | right: no ✓ lost (main 10/10, branch 10/10)
+- met: example | en | example | note-comparative | right: ✓ in at least 9 of 10 (10/10)
+- met: example | en | example | note-comparative | right: first reply contradicted in at most 1 (0/10)
+- met: example | en | example | note-figure | right: ✓ in at least 9 of 10 (10/10)
+- met: example | en | example+own | note-comparative | right: ✓ in at least 9 of 10 (10/10)
+- met: example | en | example+own | note-comparative | right: first reply contradicted in at most 1 (0/10)
+- met: example | en | example+own | note-figure | right: ✓ in at least 9 of 10 (10/10)
+- met: example | en | example+own | note-figure | right: no figure Not checked (0/10)
+- met: example | zh-CN | example | note-comparative | right: ✓ in at least 9 of 10 (10/10)
+- met: example | zh-CN | example | note-comparative | right: first reply contradicted in at most 1 (0/10)
+- met: example | zh-CN | example | note-figure | right: ✓ in at least 9 of 10 (9/10)
+- met: example | zh-CN | example+own | note-comparative | right: ✓ in at least 9 of 10 (10/10)
+- met: example | zh-CN | example+own | note-comparative | right: first reply contradicted in at most 1 (0/10)
+- met: example | zh-CN | example+own | note-figure | right: ✓ in at least 9 of 10 (10/10)
+- met: example | zh-CN | example+own | note-figure | right: no figure Not checked (0/10)
+- met: example | en | example | twin-1 | wrong: no ✓ gained (main 0/10, branch 0/10)
+- met: example | en | example | twin-2 | wrong: no ✓ gained (main 0/10, branch 0/10)
+- met: example | en | example | twin-3 | wrong: no ✓ gained (main 0/10, branch 0/10)
+- met: example | en | example+own | twin-3 | wrong: no ✓ gained (main 0/10, branch 0/10)
+- met: example | en | example+own | twin-1 | wrong: no ✓ gained (main 0/10, branch 0/10)
+- met: example | en | example+own | twin-2 | wrong: no ✓ gained (main 0/10, branch 0/10)
+- met: held-out | en | comparative | en-a1-wrong | wrong: no ✓ gained (main 0/10, branch 0/10)
+- met: held-out | en | comparative | en-a2-wrong | wrong: no ✓ gained (main 7/10, branch 6/10)
+- met: held-out | en | short-note | en-b1-wrong | wrong: no ✓ gained (main 0/10, branch 0/10)
+- met: held-out | en | comparative | en-a3-wrong | wrong: no ✓ gained (main 0/10, branch 0/10)
+- met: held-out | en | short-note | en-b3-wrong | wrong: no ✓ gained (main 0/10, branch 0/10)
+- met: held-out | en | short-note | en-b2-wrong | wrong: no ✓ gained (main 0/10, branch 0/10)
+- met: example | zh-CN | example | twin-1 | wrong: no ✓ gained (main 0/10, branch 0/10)
+- met: example | zh-CN | example | twin-3 | wrong: no ✓ gained (main 0/10, branch 0/10)
+- met: example | zh-CN | example | twin-2 | wrong: no ✓ gained (main 0/10, branch 0/10)
+- met: example | zh-CN | example+own | twin-1 | wrong: no ✓ gained (main 0/10, branch 0/10)
+- met: example | zh-CN | example+own | twin-3 | wrong: no ✓ gained (main 0/10, branch 0/10)
+- met: example | zh-CN | example+own | twin-2 | wrong: no ✓ gained (main 0/10, branch 0/10)
+- met: held-out | zh-CN | comparative | zh-a1-wrong | wrong: no ✓ gained (main 0/10, branch 0/10)
+- met: held-out | zh-CN | comparative | zh-a2-wrong | wrong: no ✓ gained (main 1/10, branch 0/10)
+- met: held-out | zh-CN | comparative | zh-a3-wrong | wrong: no ✓ gained (main 0/10, branch 0/10)
+- met: held-out | zh-CN | short-note | zh-b1-wrong | wrong: no ✓ gained (main 0/10, branch 0/10)
+- met: held-out | zh-CN | short-note | zh-b2-wrong | wrong: no ✓ gained (main 0/10, branch 0/10)
+- met: held-out | zh-CN | short-note | zh-b3-wrong | wrong: no ✓ gained (main 0/10, branch 0/10)
+- met: held-out | en | comparative | en-a2-right | right: no ✓ lost (main 10/10, branch 10/10)
+- met: held-out | en | comparative | en-a1-right | right: no ✓ lost (main 10/10, branch 10/10)
+- met: held-out | en | short-note | en-b1-right | right: no ✓ lost (main 8/10, branch 9/10)
+- met: held-out | en | comparative | en-a3-right | right: no ✓ lost (main 10/10, branch 9/10)
+- met: held-out | en | short-note | en-b2-right | right: no ✓ lost (main 5/10, branch 10/10)
+- met: held-out | en | short-note | en-b3-right | right: no ✓ lost (main 2/10, branch 10/10)
+- met: held-out | zh-CN | comparative | zh-a1-right | right: no ✓ lost (main 10/10, branch 10/10)
+- met: held-out | zh-CN | comparative | zh-a2-right | right: no ✓ lost (main 10/10, branch 9/10)
+- met: held-out | zh-CN | short-note | zh-b1-right | right: no ✓ lost (main 10/10, branch 10/10)
+- met: held-out | zh-CN | comparative | zh-a3-right | right: no ✓ lost (main 10/10, branch 10/10)
+- met: held-out | zh-CN | short-note | zh-b3-right | right: no ✓ lost (main 2/10, branch 10/10)
+- met: held-out | zh-CN | short-note | zh-b2-right | right: no ✓ lost (main 10/10, branch 10/10)
 - met: held-out right sentences, all: no ✓ lost (main 97, branch 117, drop -20, fails at 6 (main's spread 3))
 
 ## Wrong comparatives, read apart
 
 | Wrong comparative | Arm | ✓ | Contradicted |
 |---|---|---|---|
-| held-out | en | comparative | en-a1-wrong | Operating profit was £41 million in 2026, against £25 million in 2025. | wrong | branch | 0/10 | 10/10 |
-| held-out | en | comparative | en-a1-wrong | Operating profit was £41 million in 2026, against £25 million in 2025. | wrong | main | 0/10 | 10/10 |
-| held-out | en | comparative | en-a2-wrong | Occupancy averaged 82% in July, down from 76% a year before. | wrong | branch | 6/10 | 4/10 |
-| held-out | en | comparative | en-a2-wrong | Occupancy averaged 82% in July, down from 76% a year before. | wrong | main | 7/10 | 3/10 |
-| held-out | en | comparative | en-a3-wrong | Net debt stood at $2.9 billion at the end of 2026, compared with $3.4 billion a year earlier. | wrong | branch | 0/10 | 10/10 |
-| held-out | en | comparative | en-a3-wrong | Net debt stood at $2.9 billion at the end of 2026, compared with $3.4 billion a year earlier. | wrong | main | 0/10 | 10/10 |
-| held-out | zh-CN | comparative | zh-a1-wrong | 营业利润为 2,750 万元，上年同期为 3,810 万元。 | wrong | branch | 0/10 | 10/10 |
-| held-out | zh-CN | comparative | zh-a1-wrong | 营业利润为 2,750 万元，上年同期为 3,810 万元。 | wrong | main | 0/10 | 10/10 |
-| held-out | zh-CN | comparative | zh-a2-wrong | 出租率为 91%，较上年的 87% 有所下降。 | wrong | branch | 0/10 | 7/10 |
-| held-out | zh-CN | comparative | zh-a2-wrong | 出租率为 91%，较上年的 87% 有所下降。 | wrong | main | 1/10 | 4/10 |
-| held-out | zh-CN | comparative | zh-a3-wrong | 2026 年末净负债为 15.2 亿元，一年前为 18.6 亿元。 | wrong | branch | 0/10 | 10/10 |
-| held-out | zh-CN | comparative | zh-a3-wrong | 2026 年末净负债为 15.2 亿元，一年前为 18.6 亿元。 | wrong | main | 0/10 | 10/10 |
+| held-out | en | comparative | en-a1-wrong | wrong | branch | 0/10 | 10/10 |
+| held-out | en | comparative | en-a1-wrong | wrong | main | 0/10 | 10/10 |
+| held-out | en | comparative | en-a2-wrong | wrong | branch | 6/10 | 4/10 |
+| held-out | en | comparative | en-a2-wrong | wrong | main | 7/10 | 3/10 |
+| held-out | en | comparative | en-a3-wrong | wrong | branch | 0/10 | 10/10 |
+| held-out | en | comparative | en-a3-wrong | wrong | main | 0/10 | 10/10 |
+| held-out | zh-CN | comparative | zh-a1-wrong | wrong | branch | 0/10 | 10/10 |
+| held-out | zh-CN | comparative | zh-a1-wrong | wrong | main | 0/10 | 10/10 |
+| held-out | zh-CN | comparative | zh-a2-wrong | wrong | branch | 0/10 | 7/10 |
+| held-out | zh-CN | comparative | zh-a2-wrong | wrong | main | 1/10 | 4/10 |
+| held-out | zh-CN | comparative | zh-a3-wrong | wrong | branch | 0/10 | 10/10 |
+| held-out | zh-CN | comparative | zh-a3-wrong | wrong | main | 0/10 | 10/10 |

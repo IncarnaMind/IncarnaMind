@@ -91,7 +91,7 @@ export function readingText(language: Language, reading: FigureReading): string 
     case "times":
       return `${compact(value)}倍`;
     case "other":
-      return `${compact(value)}${unit.word}`;
+      return typeof unit.word === "string" ? `${compact(value)}${unit.word}` : reading.words;
     case "plain":
       return compact(value);
     default:

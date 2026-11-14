@@ -85,10 +85,15 @@ interface Tally {
   figureNotChecked: number;
 }
 const tallies = new Map<string, Map<string, Tally>>();
+/** Ids and kinds only: the cases' own words stay in the harness and the run files. */
+const caseId = (row: Row) =>
+  row.group === "example" && row.case === "note"
+    ? row.part
+      ? "note-comparative"
+      : "note-figure"
+    : row.case;
 const caseKey = (row: Row) =>
-  [row.group, row.language, row.setup ?? row.kind ?? "", row.case, row.sentence, row.expected].join(
-    " | ",
-  );
+  [row.group, row.language, row.setup ?? row.kind ?? "", caseId(row), row.expected].join(" | ");
 for (const row of counted) {
   const byArm = tallies.get(caseKey(row)) ?? new Map<string, Tally>();
   tallies.set(caseKey(row), byArm);
@@ -130,7 +135,7 @@ const bar = (name: string, met: boolean, detail: string) =>
 
 // Bar 1: on the branch, each language and set-up, the issue's two sentences.
 for (const [key, byArm] of tallies) {
-  if (!key.startsWith("example") || !key.includes("| note |")) continue;
+  if (!key.startsWith("example") || !key.includes("| note-")) continue;
   const t = byArm.get("branch");
   if (!t) continue;
   bar(
@@ -138,7 +143,7 @@ for (const [key, byArm] of tallies) {
     t.supported >= 9 && t.checks >= 10,
     `${t.supported}/${t.checks}`,
   );
-  if (key.includes("EBITDA") || key.includes("基础"))
+  if (key.includes("| note-comparative |"))
     bar(
       `${key}: first reply contradicted in at most 1`,
       t.firstContradicted <= 1,

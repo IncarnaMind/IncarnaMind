@@ -22,19 +22,25 @@ describe("a reading as the card writes it", () => {
     expect(readingText("en", pounds(1.1 * 1e9, "1.1 billion GBP"))).toBe("1.1 billion GBP");
   });
 
-  // protects=a reading whose unit this build doesn't know, or a currency with no code, keeps its words on the Chinese card rather than breaking the line (#3088); fails_when=it throws or writes "undefined"; no_claim=a detail that names no two readings, which reads the fallback line.
-  test("a unit it doesn't know, or a currency with no code, keeps its words", () => {
-    const detail = JSON.stringify({
-      shown: "1,284 widgets",
-      readings: [
-        { words: "1,284 widgets", value: 1284, unit: { kind: "a-later-kind" } },
-        { words: "1.284 widgets", value: 1.284, unit: { kind: "currency" } },
-      ],
-    });
-    const read = twoReadingsOf(detail);
-    expect(read?.readings.map((each) => readingText("zh-CN", each))).toEqual([
+  // protects=a reading whose unit this build doesn't know, a currency with no code, or a counted unit with no word keeps its words on the Chinese card rather than breaking the line (#3088); fails_when=it throws or writes "undefined"; no_claim=a detail that names no two readings, which reads the fallback line.
+  test("a unit it doesn't know, a currency with no code or a unit with no word keeps its words", () => {
+    const readings = (first: object, second: object) =>
+      twoReadingsOf(
+        JSON.stringify({
+          shown: "1,284 widgets",
+          readings: [
+            { words: "1,284 widgets", value: 1284, unit: first },
+            { words: "1.284 widgets", value: 1.284, unit: second },
+          ],
+        }),
+      )?.readings.map((each) => readingText("zh-CN", each));
+    expect(readings({ kind: "a-later-kind" }, { kind: "currency" })).toEqual([
       "1,284 widgets",
       "1.284 widgets",
+    ]);
+    expect(readings({ kind: "other" }, { kind: "other", word: "件" })).toEqual([
+      "1,284 widgets",
+      "1.284件",
     ]);
     expect(twoReadingsOf(twoReadingsDetail({ shown: "x", readings: [] }))).toBeNull();
   });
