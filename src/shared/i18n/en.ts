@@ -4662,7 +4662,7 @@ export const en = {
   "citation.reason.monthly-limit-unfinished.unnamed":
     "Not checked: your monthly limit was reached before this sentence’s check finished.",
   "citation.reason.notChecked": "Whether the quote supports this sentence couldn’t be checked.",
-  "citation.reason.otherCall":
+  "citation.reason.other-call":
     "The quote is from another call. A call help reply is checked against its own call and your Documents.",
   "citation.reason.small-model":
     "This model on this computer is too small to judge whether the quote supports the sentence.",
