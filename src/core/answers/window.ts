@@ -278,8 +278,8 @@ export function createWindowBudget(
       const fixed = tokens(request.instructions) + tokens(request.tools ?? "") + MESSAGE_TOKENS;
       if (request.requiredContext) {
         const held = messagesTokens(request.messages);
-        // Required context that fits at the whole cap goes as it does on main; one that doesn't goes
-        // at a lower cap only with room left for its first search, where it reads (#3045).
+        // Required context that fits at the whole cap goes at the whole cap; one that doesn't goes at
+        // a lower cap only with room left for its first search, where it reads (#3045).
         output = window.outputTokens;
         if (fixed + held > limit()) {
           const need = request.reads ? onePassage() + STEP_OUTPUT_TOKENS : 0;
