@@ -31,6 +31,8 @@ interface Row {
   outputTokens?: number;
   priced?: number;
   held?: number;
+  /** The arm-round checked every core it was given; false when it ended early. */
+  complete?: boolean;
 }
 
 /** A check's own reason that says a request of it failed: its round is void. */
@@ -59,12 +61,18 @@ for (const row of rows) {
       roundKey(row),
       `${row.refused} refused, ${row.failed} failed, ${row.timedOut} timed out`,
     );
+  if (row.group === "run" && row.complete === false) voids.set(roundKey(row), "it ended early");
+  if (row.group === "run" && (row.held ?? 0) > 0)
+    voids.set(roundKey(row), `${row.held} requests held at the stop`);
   if (row.group !== "run" && row.reason && FAILED_REASONS.has(row.reason))
     voids.set(roundKey(row), `a check read ${row.reason}`);
   for (const figure of row.figures ?? [])
     if (figure.reason && FAILED_REASONS.has(figure.reason))
       voids.set(roundKey(row), `a figure read ${figure.reason}`);
 }
+for (const file of new Set(rows.map(roundKey)))
+  if (!rows.some((row) => row.file === file && row.group === "run"))
+    voids.set(file, "it wrote no line of its own");
 const counted = rows.filter((row) => row.group !== "run" && !voids.has(roundKey(row)));
 const arms = [...new Set(rows.map((row) => row.arm))];
 

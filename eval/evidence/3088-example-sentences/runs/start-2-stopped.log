@@ -1,0 +1,5 @@
+
+ RUN  v5.0.3 /Users/joeyxiong/Desktop/code/IncarnaMind/.claude/worktrees/agent-afeba8b81811843b6-main
+
+(node:10548) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)

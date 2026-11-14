@@ -605,36 +605,43 @@ describe("the #3088 gate", () => {
     { timeout: 3_600_000 },
     async () => {
       const spent: unknown[] = [];
-      for (const language of ["en", "zh-CN"] as const) {
-        if (GROUPS.includes("example"))
-          for (const own of [false, true]) {
-            const round = await exampleRound(language, own);
+      // The round's own line is written however it ends, so what it spent is always counted.
+      try {
+        for (const language of ["en", "zh-CN"] as const) {
+          if (GROUPS.includes("example"))
+            for (const own of [false, true]) {
+              const round = await exampleRound(language, own);
+              write(round.rows);
+              spent.push(round.spent);
+            }
+          if (GROUPS.includes("held-out")) {
+            const round = await heldOutRound(language);
             write(round.rows);
             spent.push(round.spent);
           }
-        if (GROUPS.includes("held-out")) {
-          const round = await heldOutRound(language);
-          write(round.rows);
-          spent.push(round.spent);
         }
+      } finally {
+        write([
+          {
+            arm: ARM,
+            round: ROUND,
+            group: "run",
+            model: DRY ? "scripted" : MODEL,
+            complete:
+              spent.length ===
+              (GROUPS.includes("example") ? 4 : 0) + (GROUPS.includes("held-out") ? 2 : 0),
+            requests: heard.requests,
+            refused: heard.refused,
+            failed: heard.failed,
+            timedOut: heard.timedOut,
+            inputTokens: heard.inputTokens,
+            outputTokens: heard.outputTokens,
+            priced: heard.spent,
+            held: heard.held,
+            spent,
+          },
+        ]);
       }
-      write([
-        {
-          arm: ARM,
-          round: ROUND,
-          group: "run",
-          model: DRY ? "scripted" : MODEL,
-          requests: heard.requests,
-          refused: heard.refused,
-          failed: heard.failed,
-          timedOut: heard.timedOut,
-          inputTokens: heard.inputTokens,
-          outputTokens: heard.outputTokens,
-          priced: heard.spent,
-          held: heard.held,
-          spent,
-        },
-      ]);
       expect(heard.requests).toBeGreaterThan(0);
     },
   );
