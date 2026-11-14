@@ -106,6 +106,7 @@ export function ChartValues({
                       tabIndex={position === at ? 0 : -1}
                       aria-label={events.label(point)}
                       aria-haspopup="dialog"
+                      aria-expanded={samePoint(point, active)}
                       aria-keyshortcuts={events.control(point) ? "Space" : undefined}
                       onPointerEnter={(event) =>
                         events.peek(point, event.currentTarget, "pointer", true)

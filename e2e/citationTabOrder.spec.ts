@@ -386,6 +386,14 @@ for (const language of ["en", "zh-CN"] as const) {
     await window.keyboard.press("Escape");
     await expect(card).toHaveCount(0);
     await expect(chips.first()).toBeFocused();
+    // Space on the chip after Esc shows its card again and goes in.
+    await window.keyboard.press("Space");
+    await expect(card).toHaveCount(1);
+    await expect.poll(() => whereIsFocus(window)).toBe("card");
+    await window.keyboard.press("Escape");
+    await window.keyboard.press("Escape");
+    await expect(card).toHaveCount(0);
+    await expect(chips.first()).toBeFocused();
     await window.keyboard.press("Tab");
     await expect(chips.nth(1)).toBeFocused();
     await expect(card).toHaveCount(1);
@@ -608,6 +616,16 @@ for (const language of ["en", "zh-CN"] as const) {
       await window.keyboard.press("Tab");
       await expect(marks.first()).toBeFocused();
       await expect(card).toHaveCount(1);
+      // Back on the mark by Tab, Esc there hides the card and leaves the focus on the mark; the
+      // key that goes in shows it again.
+      await window.keyboard.press("Escape");
+      await expect(card).toHaveCount(0);
+      await expect(marks.first()).toBeFocused();
+      await window.keyboard.press(key);
+      await expect(card).toHaveCount(1);
+      await expect.poll(() => whereIsFocus(window)).toBe("card");
+      await window.keyboard.press("Escape");
+      await expect(marks.first()).toBeFocused();
 
       // Shift+Tab from the first control goes back to the mark.
       await window.keyboard.press(key);
@@ -725,6 +743,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(card).toHaveCount(1);
       await motionSettled(window);
       await expect(cited).toHaveAttribute("aria-keyshortcuts", "Space");
+      await expect(cited).toHaveAttribute("aria-expanded", "true");
       await expect(hint).toBeVisible();
       await expect(hint).toContainText("Space");
       await expect(hint).toContainText(t("card.useKey"));

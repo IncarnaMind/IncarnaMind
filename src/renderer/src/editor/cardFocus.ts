@@ -67,18 +67,23 @@ export function enterCard(card: Element | null): boolean {
   return card?.contains(document.activeElement) ?? false;
 }
 
-/** Past either end of a card's controls the focus goes back to its control; it does not wrap. */
+/**
+ * Past either end of a card's controls the focus goes back to its control; it does not wrap.
+ * Says whether it went back.
+ */
 export function returnAtEnds(
   event: TabPress,
   card: Element,
   control: { focus(): void } | null,
-): void {
-  if (event.key !== "Tab" || event.ctrlKey || event.metaKey || event.altKey || !control) return;
+): boolean {
+  if (event.key !== "Tab" || event.ctrlKey || event.metaKey || event.altKey || !control)
+    return false;
   const stops = focusablesIn(card);
   const edge = event.shiftKey ? stops[0] : stops.at(-1);
-  if (!edge || event.target !== edge) return;
+  if (!edge || event.target !== edge) return false;
   event.preventDefault();
   control.focus();
+  return true;
 }
 
 /**

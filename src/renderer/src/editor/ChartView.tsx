@@ -484,7 +484,11 @@ export function ChartView({
     );
   };
   const events: PointEvents = {
-    peek: (point, anchor, source, on) => peek(point, anchor, source, on),
+    peek: (point, anchor, source, on) => {
+      // A Space that found no card drawn goes in when one is drawn, not for a card that opens later.
+      if (!on && source === "focus") enterWhenDrawn.current = false;
+      peek(point, anchor, source, on);
+    },
     activate: (point, anchor) => {
       pin(point, anchor);
       const state = stateOf(listed[point.row]?.values[point.series]);
@@ -508,8 +512,11 @@ export function ChartView({
       enterWhenDrawn.current = true;
       peek(point, anchor, "focus", true);
     },
-    control: (point) =>
-      cited(listed[point.row]?.values[point.series]).some(({ state }) => state.documentId !== null),
+    control: (point) => {
+      const value = listed[point.row]?.values[point.series];
+      // A calculated value's card holds its figure's buttons, a cited one's its Open.
+      return Boolean(value?.figure) || cited(value).some(({ state }) => state.documentId !== null);
+    },
     label: (point) => {
       const source = sourceText(listed[point.row]?.values[point.series]);
       const noUnit = unitlessRows(chart.data, point.series).has(point.row);

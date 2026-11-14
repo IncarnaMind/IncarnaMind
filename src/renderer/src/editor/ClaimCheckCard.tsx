@@ -479,7 +479,11 @@ export function ClaimMark({
                 return;
               }
               // Gone into from the mark: its ends and Esc lead back to the mark, not round the card (#3102).
-              returnAtEnds(event, event.currentTarget, button);
+              if (returnAtEnds(event, event.currentTarget, button)) {
+                // Back on the mark by Tab: Esc there hides the card and leaves the focus on the mark.
+                openedByKeyboard.current = false;
+                return;
+              }
               if (event.key !== "Escape" || event.nativeEvent.isComposing) return;
               event.preventDefault();
               openedByKeyboard.current = false;

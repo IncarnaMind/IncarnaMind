@@ -216,6 +216,7 @@ function ChartPanel({
               tabIndex: index === at ? 0 : -1,
               "aria-label": events.label(point),
               "aria-haspopup": "dialog" as const,
+              "aria-expanded": samePoint(point, active),
               "aria-keyshortcuts": events.control(point) ? "Space" : undefined,
               onPointerEnter: (event: { currentTarget: Element }) =>
                 events.peek(point, event.currentTarget, "pointer", true),

@@ -645,9 +645,11 @@ export function CitationView({
           if (event.currentTarget.matches(":focus-visible")) keyboardTakesOver(event.currentTarget);
           hold("focus", true, true);
         }}
-        onBlur={(event) =>
-          hold("focus", false, goingElsewhere(event.relatedTarget, cardRef.current))
-        }
+        onBlur={(event) => {
+          // A Space that found no card drawn goes in when one is drawn, not for a card that opens later.
+          enterWhenDrawn.current = false;
+          hold("focus", false, goingElsewhere(event.relatedTarget, cardRef.current));
+        }}
         onKeyDown={enterCardFromMarker}
         onKeyUp={(event) => {
           if (isSpaceKey(event)) event.preventDefault();

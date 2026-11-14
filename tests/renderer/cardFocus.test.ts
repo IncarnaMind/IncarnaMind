@@ -140,17 +140,17 @@ describe("a card shown on keyboard focus (#3102)", () => {
 
   test("Tab from the last control, and Shift+Tab from the first, go back to the control", () => {
     const forward = press({ target: last });
-    returnAtEnds(forward.event, card, control);
+    expect(returnAtEnds(forward.event, card, control)).toBe(true);
     expect(forward.prevented()).toBe(true);
     const backward = press({ target: first, shiftKey: true });
-    returnAtEnds(backward.event, card, control);
+    expect(returnAtEnds(backward.event, card, control)).toBe(true);
     expect(backward.prevented()).toBe(true);
     expect(control.focus).toHaveBeenCalledTimes(2);
   });
 
   test("a Tab between the controls is the browser's, and none wraps", () => {
     const middle = press({ target: second });
-    returnAtEnds(middle.event, card, control);
+    expect(returnAtEnds(middle.event, card, control)).toBe(false);
     const firstBack = press({ target: first });
     returnAtEnds(firstBack.event, card, control);
     const lastForward = press({ target: last, shiftKey: true });
