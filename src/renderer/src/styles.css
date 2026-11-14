@@ -8219,6 +8219,8 @@
   }
   .help-quote-said-fixed {
     flex: none;
+    /* A flex item drops the space at its edge: "in " and " at" keep theirs before the name. */
+    white-space: pre;
   }
   .help-quote-said-name {
     min-width: 0;
