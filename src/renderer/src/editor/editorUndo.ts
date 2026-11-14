@@ -57,7 +57,8 @@ export function asOneStep<T>(editor: Editor, change: () => T): T {
  * `onUndone` puts back what the step left behind outside the note's history,
  * such as a check's result the core wrote over (#1247), and `onRedone` makes
  * that again once the step is done again: without it, only the note's own
- * ⇧⌘Z does the step again. Returns what takes it off the stack.
+ * ⇧⌘Z does the step again. Returns what takes it off the stack, which holds the change it put
+ * there.
  */
 export function offerEditorUndo(
   editor: Editor,
@@ -65,7 +66,7 @@ export function offerEditorUndo(
   shownAt?: string,
   onUndone?: () => void,
   onRedone?: () => void,
-): () => void {
+): EditorUndoOffer {
   const manager = undoStackOf(editor);
   const last = manager?.undoStack.at(-1);
   if (!manager || last === undefined) return () => undefined;
@@ -126,8 +127,11 @@ export function offerEditorUndo(
   manager.on("stack-cleared", onCleared);
   editor.on("destroy", forget);
   useUndo.getState().push(change);
-  return forget;
+  return Object.assign(forget, { change });
 }
+
+/** Takes an editor's step off the app's undo stack; `change` is what it put there, if anything. */
+export type EditorUndoOffer = (() => void) & { readonly change?: Undoable };
 
 /**
  * Steps of a note's Undo, followed as ⌘Z takes them back and ⌘⇧Z does them

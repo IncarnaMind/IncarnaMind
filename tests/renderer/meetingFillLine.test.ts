@@ -569,6 +569,22 @@ describe("meeting notes that weren't filled in", () => {
     const line = await show({ ...meeting, kind: "memo" });
     expect(line?.textContent).toBe(text);
   });
+
+  // protects=a voice memo whose tidied note came back with nothing in it names that reason on its line, in the memo's frame, with Try again (#3099); fails_when=it gives the general reason or no way to try again; no_claim=when the core records it, which tests/core/voiceMemo.test.ts holds.
+  test.each([
+    ["en", "Your memo wasn’t written: the model found nothing to add · Try again"],
+    ["zh-CN", "未能写入语音备忘：模型没有找到可补充的内容 · 重试"],
+  ] as const)("a voice memo with nothing written, in %s", async (language, text) => {
+    actions.language.current = language;
+    const stored = translate(language, "meetings.fill.problem.empty");
+    const meeting = meetingOf(
+      fillOf({ state: "failed", mode: "memo", problem: { kind: "empty", message: stored } }),
+    );
+    const line = await show({ ...meeting, kind: "memo" });
+    expect(line?.textContent).toBe(text);
+    await click("meeting-fill-again");
+    expect(actions.fillNotes.mock.calls).toEqual([[meeting.id]]);
+  });
 });
 
 describe("meeting notes retained before a later failure", () => {
@@ -787,7 +803,7 @@ describe.each(["en", "zh-CN"] as const)("existing fill behavior in %s", (languag
     );
     const meeting = meetingOf(fillOf());
     const withdraw = vi.fn();
-    handFillOver(meeting.id, "meeting-tab", withdraw);
+    handFillOver(meeting.id, "meeting-tab", { show: () => undefined, withdraw });
     expect((await show(meeting))?.textContent).toBe(
       language === "en" ? "Note filled in from the call · Undo" : "已补全笔记 · 撤销",
     );

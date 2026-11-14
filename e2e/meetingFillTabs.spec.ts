@@ -1,5 +1,6 @@
-import { expect, type Locator, type Page, test } from "@playwright/test";
+import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
+import { translate } from "../src/shared/i18n";
 import {
   clickEditItem,
   closeFirstFillPopover,
@@ -15,6 +16,7 @@ import {
   useLocalChatModel as selectLocalChatModel,
   setWindowSize,
   startRecording,
+  undoMenuItem,
 } from "./app";
 
 /*
@@ -120,6 +122,63 @@ const fillState = (window: Page) =>
     const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
     return (await core.listMeetings()).at(-1)?.fill?.state ?? null;
   });
+
+/** Whether the call's audio is kept until the User deletes it. */
+const audioKept = (window: Page) =>
+  window.evaluate(async () => {
+    const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    return (await core.listMeetings()).at(-1)?.audio.keptUntilDeleted ?? null;
+  });
+
+/** The note's first Citation opens its Transcript in a tab of its own, which stays in front. */
+async function toTheTranscriptTab(window: Page, notes: Locator) {
+  await pointAndClick(window, notes.getByTestId("citation-chip").first());
+  const card = window.getByTestId("citation-card");
+  await expect(card).toBeVisible();
+  await pointAndClick(window, card.getByTestId("citation-open"));
+  await expect(window.locator("[data-quote-highlight]").first()).toBeInViewport();
+  await motionSettled(window);
+}
+
+/**
+ * Edit › Undo here doesn't name the fill, and ⌘Z, or the menu's Undo where a test's key can't reach
+ * it, takes back nothing of the fill.
+ */
+async function undoLeavesTheFill(
+  app: ElectronApplication,
+  window: Page,
+  language: Language,
+  how: "key" | "menu",
+) {
+  await expect
+    .poll(async () => (await undoMenuItem(app)).label)
+    .toBe(translate(language, "menu.undo"));
+  if (how === "key") await window.keyboard.press("ControlOrMeta+z");
+  else await clickEditItem(app, "edit.undo");
+  await motionSettled(window);
+  expect(await fillState(window)).toBe("filled");
+}
+
+/** The chip shows one of the Note's views in its tab. */
+async function showView(window: Page, view: "notes" | "mine" | "transcript") {
+  await pointAndClick(window, window.getByTestId("meeting-view-chip"));
+  await pointAndClick(window, window.getByTestId(`meeting-view-${view}`));
+  const menu = window.getByTestId("meeting-view-menu");
+  if (await menu.isVisible()) await window.keyboard.press("Escape");
+  await expect(menu).toBeHidden();
+  await motionSettled(window);
+}
+
+/** ⌘Z in the note on My notes leaves the fill, and says where to undo it. */
+async function myNotesLeavesTheFill(window: Page, notes: Locator, language: Language) {
+  await showView(window, "mine");
+  await pointAndClick(window, notes.locator(":scope > p[data-id]:visible").first());
+  await window.keyboard.press("ControlOrMeta+z");
+  await expect(window.getByTestId("undo-line")).toHaveText(
+    `${translate(language, "meetings.mine.fillUndo")} · ${translate(language, "meetings.views.showNotes")}`,
+  );
+  expect(await fillState(window)).toBe("filled");
+}
 
 for (const language of ["en", "zh-CN"] as const) {
   const words = WORDS[language];
@@ -255,6 +314,130 @@ for (const language of ["en", "zh-CN"] as const) {
       await pointAndClick(window, line.getByTestId("meeting-fill-undo"));
       await expect(line).toHaveText(words.undone);
       await expect(blocks).toHaveText(original);
+    } finally {
+      await app.close();
+    }
+  });
+
+  // protects=the fill's Undo is reached only where its text shows: on the Transcript's own tab, Edit › Undo doesn't name it and ⌘Z leaves it; back on the note the line and its Undo are as before (#3099); fails_when=⌘Z on the Transcript's tab takes the fill back out of sight, or the menu names it there; no_claim=what else that tab's Undo takes back.
+  test(`g: on the Transcript's own tab, ⌘Z leaves the fill (${language})`, async () => {
+    const { app, window } = await launched(language);
+    try {
+      const { notes, line, blocks, original } = await filledCall(window, language);
+      await toTheTranscriptTab(window, notes);
+      await undoLeavesTheFill(app, window, language, "key");
+      await backToTheNote(window, notes);
+      await expect(line).toHaveText(words.filled);
+      await pointAndClick(window, line.getByTestId("meeting-fill-undo"));
+      await expect(line).toHaveText(words.undone);
+      await expect(blocks).toHaveText(original);
+    } finally {
+      await app.close();
+    }
+  });
+
+  // protects=the same from another Note's tab with nothing of its own to undo: Edit › Undo there leaves the fill (#3099); fails_when=the menu's Undo in another Note takes the fill back; no_claim=that Note's own Undo.
+  test(`h: in another Note's tab, Undo leaves the fill (${language})`, async () => {
+    const { app, window } = await launched(language);
+    try {
+      const { notes, line, blocks, original } = await filledCall(window, language);
+      await window.keyboard.press("ControlOrMeta+t");
+      await expect(window.getByTestId("mind-tab")).toHaveCount(2);
+      await expect(notes).toBeVisible();
+      await motionSettled(window);
+      // The new Note's own history is empty: ⌘Z there goes on to the Edit menu's Undo.
+      await undoLeavesTheFill(app, window, language, "menu");
+      await backToTheNote(window, notes);
+      await expect(line).toHaveText(words.filled);
+      await pointAndClick(window, line.getByTestId("meeting-fill-undo"));
+      await expect(line).toHaveText(words.undone);
+      await expect(blocks).toHaveText(original);
+    } finally {
+      await app.close();
+    }
+  });
+
+  // protects=the chip's Transcript view and My notes hide the fill's text: ⌘Z on the Transcript view leaves the fill, and the User's own lines behind it, and the menu doesn't name it; ⌘Z in the note on My notes leaves the fill and says to undo it from Notes (#138); back on Notes the line and its Undo are as before (#3099); fails_when=⌘Z takes the fill back while its text is hidden, the browser's own undo takes back the User's typing out of sight, or My notes stops saying where to undo it; no_claim=My notes' other steps.
+  test(`i: on the Transcript view and My notes, ⌘Z leaves the fill (${language})`, async () => {
+    const { app, window } = await launched(language);
+    try {
+      const { notes, line, blocks, original } = await filledCall(window, language);
+      await showView(window, "transcript");
+      await undoLeavesTheFill(app, window, language, "key");
+      await myNotesLeavesTheFill(window, notes, language);
+      await showView(window, "notes");
+      await expect(line).toHaveText(words.filled);
+      await pointAndClick(window, line.getByTestId("meeting-fill-undo"));
+      await expect(line).toHaveText(words.undone);
+      await expect(blocks).toHaveText(original);
+    } finally {
+      await app.close();
+    }
+  });
+
+  // protects=a fill handed to the tab keeps My notes' rule: ⌘Z in the note there leaves it and says to undo it from Notes; on Notes ⌘Z takes it back (#138, #3099); fails_when=⌘Z on My notes takes the handed-over fill back unseen; no_claim=the Transcript's tab, which g holds.
+  test(`i: back from the Transcript's tab, My notes keeps the fill (${language})`, async () => {
+    const { app, window } = await launched(language);
+    try {
+      const { notes, line, blocks, original } = await filledCall(window, language);
+      await throughTheTranscript(window, notes);
+      await myNotesLeavesTheFill(window, notes, language);
+      await showView(window, "notes");
+      await expect(line).toHaveText(words.filled);
+      await pointAndClick(window, line.getByTestId("meeting-fill-undo"));
+      await expect(line).toHaveText(words.undone);
+      await expect(blocks).toHaveText(original);
+    } finally {
+      await app.close();
+    }
+  });
+
+  // protects=the fill's Undo keeps its place in the order of changes: a change made after the fill, here Keep audio, is taken back first, through the chip's Transcript view and a tab switch, and Edit › Undo names each in turn (#3099); fails_when=the fill jumps ahead of the later change, or ⌘Z skips it; no_claim=Keep audio's own Undo, which meetingAudio holds.
+  test(`j: a change made after the fill is taken back first, after a view switch and a tab switch (${language})`, async () => {
+    const { app, window } = await launched(language);
+    try {
+      const { notes, line, blocks, original } = await filledCall(window, language);
+      await pointAndClick(window, window.getByTestId("meeting-view-chip"));
+      await pointAndClick(window, window.getByTestId("meeting-audio-keep-for-good"));
+      await expect.poll(() => audioKept(window)).toBe(true);
+      const menu = window.getByTestId("meeting-view-menu");
+      if (await menu.isVisible()) await window.keyboard.press("Escape");
+      await expect(menu).toBeHidden();
+      await showView(window, "transcript");
+      await showView(window, "notes");
+      await throughTheTranscript(window, notes);
+      await expect(line).toHaveText(words.filled);
+
+      const named = (key: "meetings.command.keepAudio" | "meetings.fill.undoName") =>
+        translate(language, "menu.undo.named", { action: translate(language, key) });
+      await window.getByTestId("meeting-view-chip").focus();
+      await expect
+        .poll(async () => (await undoMenuItem(app)).label)
+        .toBe(named("meetings.command.keepAudio"));
+      await window.keyboard.press("ControlOrMeta+z");
+      await expect.poll(() => audioKept(window)).toBe(false);
+      expect(await fillState(window)).toBe("filled");
+      await expect
+        .poll(async () => (await undoMenuItem(app)).label)
+        .toBe(named("meetings.fill.undoName"));
+      await window.keyboard.press("ControlOrMeta+z");
+      await expect(line).toHaveText(words.undone);
+      await expect(blocks).toHaveText(original);
+    } finally {
+      await app.close();
+    }
+  });
+
+  // protects=closing the Note's tab takes the fill's Undo away with it: ⌘Z afterwards leaves the fill, and Edit › Undo doesn't name it (#3099); fails_when=⌘Z after the tab closed takes the fill back unseen; no_claim=Reopen closed tab.
+  test(`k: the Note's tab closed, ⌘Z leaves the fill (${language})`, async () => {
+    const { app, window } = await launched(language);
+    try {
+      const { notes } = await filledCall(window, language);
+      const tab = window.getByTestId("mind-tab").first();
+      await tab.hover();
+      await pointAndClick(window, tab.getByTestId("tab-close"));
+      await expect(notes).toHaveCount(0);
+      await undoLeavesTheFill(app, window, language, "key");
     } finally {
       await app.close();
     }
