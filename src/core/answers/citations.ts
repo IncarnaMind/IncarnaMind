@@ -1863,6 +1863,12 @@ interface Accepted {
   location: Citation["location"];
   result: CheckResult | null;
   /**
+   * Its quote's check as it was recorded, which call help shows while the reply is still written
+   * (#2847). `result`, the end's, differs from it only where the Answer's own quoted words aren't in
+   * the cited place, or the Document was deleted meanwhile.
+   */
+  atCite?: CheckResult;
+  /**
    * The Answer's quoted words that its sentence's Citations don't have, when they made `result`
    * not found (#483), or the page they run on to past the one it cites (#2504).
    */
@@ -2438,6 +2444,7 @@ export function createCitationSession(
       }
       const { record, source, passageUnits } = taken;
       const { marker } = record;
+      record.atCite = check(record);
       records.set(marker, record);
       recorded.push(marker);
       events.onRecord(marker, toCitation(record, null));
@@ -2507,7 +2514,7 @@ export function createCitationSession(
         : `cite one page, or two consecutive pages, within ${handle}'s pages (${pagesLabel(source)}).`;
     }
     if (!record.quote) return `the quote is empty; copy a short quote from ${handle}.`;
-    if (check(record).check !== "not-found") return null;
+    if ((record.atCite ?? check(record)).check !== "not-found") return null;
     if (cueAdvice && record.time) {
       return `the quote was not found at the requested time/speaker "${record.given.location}" in ${handle}; ${cueAdvice}`;
     }
@@ -2897,7 +2904,10 @@ export function createCitationSession(
         { structured: true },
         earlier.speakers,
       );
-      if (!taken.ok || !taken.record.quote || !located(check(taken.record))) return false;
+      if (!taken.ok || !taken.record.quote) return false;
+      const result = check(taken.record);
+      if (!located(result)) return false;
+      taken.record.atCite = result;
       records.set(marker, taken.record);
       toFix.delete(marker);
       events.onRecord(marker, toCitation(taken.record, null));
@@ -2905,10 +2915,26 @@ export function createCitationSession(
     },
   };
 
-  /** A marker's Citation while the Answer streams, "checking": its record's, or null before one is given. */
-  const streamingCitation = (marker: number): Citation | null => {
+  /**
+   * A marker's Citation while the Answer streams: its record's, or null before one is given. It reads
+   * "checking", or with `atCite` its quote's check as recorded (call help's, #2847), with what the
+   * finished lines' quoted words found so far (`quotedWordsSoFar`).
+   */
+  const streamingCitation = (
+    marker: number,
+    atCite = false,
+    quoted?: { stated: string[]; notFound: boolean },
+  ): Citation | null => {
     const record = records.get(marker);
-    return record ? toCitation(record, null) : null;
+    if (!record) return null;
+    if (!atCite) return toCitation(record, null);
+    const result: CheckResult | null = quoted?.notFound
+      ? { check: "not-found", checkReason: "quoted-words-not-on-pages" }
+      : (record.atCite ?? null);
+    const citation = toCitation(record, result);
+    return quoted && quoted.stated.length > 0
+      ? { ...citation, quotedWordsFound: [...(citation.quotedWordsFound ?? []), ...quoted.stated] }
+      : citation;
   };
 
   /**
@@ -3068,6 +3094,45 @@ export function createCitationSession(
      */
     checkQuotedWords(quoted: readonly QuotedSentence[]): string[] {
       return applyQuotedWords(quoted, (marker) => records.get(marker));
+    },
+
+    /**
+     * The same check of quoted words, run while call help's reply is still written on the lines it
+     * has finished (#2847), against each Citation's quote check as recorded, changing no record: by
+     * marker, the words its place states, and whether it is the one the words weren't found nearest,
+     * which the end will make not found.
+     */
+    quotedWordsSoFar(
+      quoted: readonly QuotedSentence[],
+    ): Map<number, { stated: string[]; notFound: boolean }> {
+      const found = new Map<number, { stated: string[]; notFound: boolean }>();
+      const of = (marker: number) => {
+        const known = found.get(marker) ?? { stated: [], notFound: false };
+        found.set(marker, known);
+        return known;
+      };
+      const names = [...records.values()].map(({ source }) => source.documentName);
+      for (const { words, markers } of quoted) {
+        const cited = [...new Set(markers)].flatMap((marker) => {
+          const record = records.get(marker);
+          return record?.atCite
+            ? [{ ...placeOf(record), cantCheck: record.atCite.check === "cant-check" }]
+            : [];
+        });
+        if (cited.length === 0) continue;
+        const verdict = quotedWordsVerdict(words, cited, names);
+        if (verdict.kind === "stated" || verdict.kind === "title") {
+          for (const { record } of verdict.by) of(record.marker).stated.push(words);
+        } else if (verdict.kind === "run-on") {
+          of(verdict.by.record.marker).stated.push(words);
+        } else if (verdict.kind === "not-found") {
+          const nearest = nearestPlace(words, cited);
+          if (nearest?.place.record.atCite?.check === "found") {
+            of(nearest.place.record.marker).notFound = true;
+          }
+        }
+      }
+      return found;
     },
 
     finalCitation,

@@ -195,7 +195,6 @@ export async function transcribingCore(
     answerPaths,
     notesBeforeSpeakers,
     helpFormJudged,
-    helpMarksQuoteOnly,
     callsUnmarked,
     examples,
     serving,
@@ -238,7 +237,6 @@ export async function transcribingCore(
     /** Whether a call's notes start before its speakers are told apart, instead of the default. */
     notesBeforeSpeakers?: CoreAdapters["notesBeforeSpeakers"];
     helpFormJudged?: CoreAdapters["helpFormJudged"];
-    helpMarksQuoteOnly?: CoreAdapters["helpMarksQuoteOnly"];
     callsUnmarked?: CoreAdapters["callsUnmarked"];
     /** The shipped examples' folder, for a core that makes them. */
     examples?: string;
@@ -280,7 +278,6 @@ export async function transcribingCore(
     ...(answerPaths && { answerPaths }),
     ...(notesBeforeSpeakers && { notesBeforeSpeakers }),
     ...(helpFormJudged && { helpFormJudged }),
-    ...(helpMarksQuoteOnly && { helpMarksQuoteOnly }),
     ...(callsUnmarked && { callsUnmarked }),
     ...(examples && { paths: { dataDir, examples } }),
     ...(systemCalendar && { systemCalendar }),

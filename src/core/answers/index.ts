@@ -78,7 +78,7 @@ import {
 import { holdsNothing, madeByAnswer } from "../../shared/madeMind";
 import { linkTableSources } from "../../shared/markdownTables";
 import { escapeMarkdownText } from "../../shared/markdownText";
-import type { MeetingHelpKind } from "../../shared/meetingHelp";
+import { HELP_SHAPE, type MeetingHelpKind } from "../../shared/meetingHelp";
 import {
   MISSING_NUMBER_REFUSED,
   missingNumberWords,
@@ -682,8 +682,6 @@ export interface AnswersOptions {
   helpFormJudged?(): boolean;
   /** See `CoreAdapters.quotesAsGiven`. */
   quotesAsGiven?(): boolean;
-  /** See `CoreAdapters.helpMarksQuoteOnly`. */
-  helpMarksQuoteOnly?(): boolean;
   /** See `CoreAdapters.callsUnmarked`. */
   callsUnmarked?(): boolean;
   providerExists(providerId: string): boolean;
@@ -1939,9 +1937,25 @@ export function createAnswers(options: AnswersOptions) {
         analyses,
         answerLanguage(context.question),
       );
-      // Final: a marker with no record is removed, and each is counted for the summary.
+      // Final: a marker with no record is removed, and each is counted for the summary. Call help's
+      // panel shows each quote's check as it lands, and a reading's moments of the call on the
+      // lines it has finished as the end will find them (#2847); an option's quoted words wait for
+      // the end, which reads them once its own quotation marks are off.
+      const soFar =
+        help && !final && HELP_SHAPE[help] === "readings"
+          ? session.quotedWordsSoFar(
+              quotedWordsIn(
+                helpReplyRead(
+                  text.slice(0, text.lastIndexOf("\n") + 1),
+                  helpLayout(help, { status: "streaming", textBehind }),
+                ).text,
+              ),
+            )
+          : null;
       const citationOf = (marker: number) =>
-        final ? session.finalCitation(marker) : session.streamingCitation(marker);
+        final
+          ? session.finalCitation(marker)
+          : session.streamingCitation(marker, help !== undefined, soFar?.get(marker));
       try {
         return home.write(
           {
@@ -2038,14 +2052,15 @@ export function createAnswers(options: AnswersOptions) {
     const withSupport = (marker: number, citation: Citation): Citation =>
       waiting.has(marker) ? { ...citation, check: waitingAs, checkReason: null } : citation;
     /**
-     * The User reads an Answer in the assistant, and call help's reply in its panel, by its
-     * Citations' checks (#2847). An Answer read elsewhere is checked where it lands: in a Note, by
-     * its checks; by an outside agent or a Task, as they do.
+     * The User reads an Answer in the assistant by its Citations' checks (#2311). Call help's reply
+     * is never judged: its panel shows each Citation's quote, ✓ only where the quote was found
+     * (#2847). An Answer read elsewhere is checked where it lands: in a Note, by its checks; by an
+     * outside agent or a Task, as they do.
      */
     const judgesItsSentences = () =>
       options.checkAnswer !== undefined &&
       place.conversationId !== undefined &&
-      (flow === "question" || (flow === "call-help" && !options.helpMarksQuoteOnly?.()));
+      flow === "question";
 
     const finish = (outcome: Outcome) => {
       if (finished) return;
