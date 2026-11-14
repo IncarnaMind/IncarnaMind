@@ -1208,6 +1208,36 @@ export function createAnswers(options: AnswersOptions) {
     return answer.steps?.pressed !== undefined ? pressScope(documentIds, mindId) : documentIds;
   };
 
+  /**
+   * An ended press's reply with each Citation of another call's Transcript not checked for that
+   * reason, as Check again reads it (#3005): by its stored reason, and by the press's other calls
+   * for a reply stored before the reason was. Nothing found or passed stays on it.
+   */
+  const withOtherCalls = (
+    question: ConversationQuestion,
+    answer: ConversationAnswer,
+  ): ConversationAnswer => {
+    const pressed = answer.steps?.pressed !== undefined && !options.callsUnmarked?.();
+    const others = new Set(
+      pressed ? (options.otherCallTranscripts?.(judgedMind(question)) ?? []) : [],
+    );
+    const citations = answer.citations.map((citation): MarkedCitation => {
+      if (citation.checkReason !== "other-call" && !others.has(citation.documentId)) {
+        return citation;
+      }
+      const {
+        passedAt: _passed,
+        quotedWordsFound: _found,
+        quotedWords: _words,
+        judgedAt: _judged,
+        verdict: _verdict,
+        ...rest
+      } = citation;
+      return { ...rest, check: "not-checked", checkReason: "other-call" };
+    });
+    return { ...answer, citations };
+  };
+
   /** The judgements of Answers' sentences running, by Answer (#2311): stopping one ends it. */
   const judgements = new Map<
     string,
@@ -5088,9 +5118,17 @@ export function createAnswers(options: AnswersOptions) {
      */
     async checkAnswerAgain(input: unknown): Promise<void> {
       const { answerId, question } = options.conversations.questionOf(input);
-      const answer = options.conversations.answer(answerId);
-      if (!answer || answer.status === "streaming") return;
-      if (!answer.citations.some(checkedAgain)) return;
+      const stored = options.conversations.answer(answerId);
+      if (!stored || stored.status === "streaming") return;
+      const answer = withOtherCalls(question, stored);
+      const relabelled = answer.citations.some(
+        (citation, index) => citation.checkReason !== stored.citations[index]?.checkReason,
+      );
+      if (!answer.citations.some(checkedAgain)) {
+        if (relabelled)
+          options.conversations.writeCitations(answerId, answer.text, answer.citations);
+        return;
+      }
       const limit = isRecord(input) ? moneyOf(input.limit) : null;
       const documentIds = judgedScope(question, answer);
       // The sentences judged again lose the ✓ an earlier check gave them, on every Citation they
@@ -5129,8 +5167,9 @@ export function createAnswers(options: AnswersOptions) {
      */
     async estimateAnswerCheck(input: unknown): Promise<RunEstimate | null> {
       const { answerId, question } = options.conversations.questionOf(input);
-      const answer = options.conversations.answer(answerId);
-      if (!answer?.model || answer.status === "streaming") return null;
+      const stored = options.conversations.answer(answerId);
+      if (!stored?.model || stored.status === "streaming") return null;
+      const answer = withOtherCalls(question, stored);
       const waiting = new Set(answer.citations.filter(checkedAgain).map((each) => each.marker));
       if (waiting.size === 0) return null;
       const estimate =
@@ -5141,7 +5180,7 @@ export function createAnswers(options: AnswersOptions) {
           waiting,
           mindId: judgedMind(question),
           documentIds: judgedScope(question, answer),
-          model: answer.model,
+          model: stored.model,
         })) ?? null;
       if (estimate?.billing !== "per-token" || !estimate.upTo?.cost) return estimate;
       const most = estimate.upTo.cost;
