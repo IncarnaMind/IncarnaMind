@@ -518,9 +518,9 @@ describe("Under each line of call help, the app draws its Citations' quotes (#28
     /** The numbers at the end of each option's line to say, which take none of its room. */
     const atLineEnd = () =>
       all("help-option-say").map((say) =>
-        Array.from(say.querySelectorAll(".help-citation-late [data-testid='help-citation']")).map(
-          (chip) => chip.textContent,
-        ),
+        Array.from(
+          say.querySelectorAll("[data-testid='help-end-numbers'] [data-testid='help-citation']"),
+        ).map((chip) => chip.textContent),
       );
     const FOOT = [
       { as: "quote", state: "found", words: `“${PRICE}”`, numbers: ["1"], found: true },
@@ -555,6 +555,24 @@ describe("Under each line of call help, the app draws its Citations' quotes (#28
       expect(foot()).toEqual([]);
       expect(atLineEnd()).toEqual([[], []]);
       expect(drawn()).toEqual([FOOT, []]);
+    });
+
+    // protects=#3098: a number shown while the reply was written that ends with no Citation goes, and each number after it drops by one, as the sources number them: the line and the sources agree; fails_when=a number after it keeps its old number, or a line and its source show different numbers; no_claim=a number before it, which keeps its own.
+    test("a number after one that ends with no Citation drops by one, and the sources agree", async () => {
+      const lines = `★ Could you walk me through the Monday lunches [^1]\n→ invites detail\n\nIt's billed annually [^2]\n→ sets the term`;
+      const billed = sheet(2, "Enterprise contracts are billed annually.");
+      await show("answer", answerOf(lines, [billed], "streaming"));
+      expect(all("help-citation").map((chip) => chip.textContent)).toEqual(["1", "2"]);
+
+      await show("answer", answerOf(lines, [billed], "done"));
+      expect(all("help-citation").map((chip) => chip.textContent)).toEqual(["1"]);
+      expect(
+        all("help-option-say")[1]?.querySelector("[data-testid='help-citation']")?.textContent,
+      ).toBe("1");
+      expect(drawn()[1]?.map((row) => row.numbers)).toEqual([["1"]]);
+      expect(all("help-source").map((source) => source.textContent?.split(" · ")[0])).toEqual([
+        "1",
+      ]);
     });
 
     // protects=#3098: the numbers the User saw while the reply was written keep their numbers when the end adds a Citation to a line above them, the end's taking the next; fails_when=a number already shown changes; no_claim=the numbers of a reply drawn anew, which count from its first line.

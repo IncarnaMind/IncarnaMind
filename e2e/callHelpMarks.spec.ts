@@ -334,7 +334,7 @@ for (const call of CALLS) {
     ]);
     await expect(options.getByTestId("help-quote")).toHaveCount(0);
     await expect(reply.getByTestId("help-foot").getByTestId("help-quote")).toHaveCount(1);
-    await expect(first.locator(".help-citation-late").getByTestId("help-citation")).toHaveText([
+    await expect(first.getByTestId("help-end-numbers").getByTestId("help-citation")).toHaveText([
       "1",
     ]);
     const after = {
@@ -347,7 +347,7 @@ for (const call of CALLS) {
       expect(Math.abs(after[part].height - before[part].height), part).toBeLessThan(0.5);
     }
     // The number sits on the line's last row, after its last word, inside the panel.
-    const number = await topOf(first.locator(".help-citation-late").getByTestId("help-citation"));
+    const number = await topOf(first.getByTestId("help-end-numbers").getByTestId("help-citation"));
     expect(number.y + number.height).toBeLessThanOrEqual(after.first.y + after.first.height + 0.5);
     const width = await panel.evaluate(() => document.documentElement.clientWidth);
     expect(number.x + number.width).toBeLessThanOrEqual(width);
@@ -410,6 +410,58 @@ for (const call of CALLS) {
     const again = shown.getByTestId("help-suggestion").last();
     await expect(again).toHaveAttribute("data-status", "done");
     await expect(again.getByTestId("help-quote")).toHaveCount(0);
+    await app.close();
+  });
+
+  // protects=#3098: the end's number holds to its line's last character only, so a line ending in a link or in one long word still breaks where it must: its number lands at its end, its rows stay, and nothing runs past the panel's edge, in English and Chinese; fails_when=a line takes another row, runs past its edge, or the panel scrolls sideways once the numbers land; no_claim=how often a reply ends a line so, which the description doesn't count.
+  test(`call help in ${call.language}: lines ending in a link or a long word keep their rows when the end's numbers land, and nothing runs past the edge`, async () => {
+    const { app, panel } = await callWithSheet(call, "fake-model-long-last-word");
+
+    await holdModel(app, "holdAsked", true);
+    await pressHelpPrompt(panel, call.answer);
+    const reply = panel.getByTestId("help-suggestion").last();
+    await expect.poll(() => held(app), { timeout: 20_000 }).toBe(true);
+    const lines = reply.getByTestId("help-option-say");
+    await expect(lines).toHaveCount(2);
+    const boxes = async () => [await topOf(lines.nth(0)), await topOf(lines.nth(1))];
+    const overflow = () =>
+      panel.evaluate(() =>
+        [
+          document.documentElement,
+          ...document.querySelectorAll<HTMLElement>("[data-testid='help-option-say']"),
+        ].some(
+          (element) =>
+            element.scrollWidth > element.clientWidth ||
+            element.getBoundingClientRect().right > document.documentElement.clientWidth,
+        ),
+      );
+    const before = await boxes();
+    expect(await overflow()).toBe(false);
+    await shot(panel, `call-help-quotes-long-last-written-${call.interface}`);
+
+    await holdModel(app, "holdAsked", false);
+    await expect(reply).toHaveAttribute("data-status", "done", { timeout: 20_000 });
+    await expect(reply.getByTestId("help-end-numbers").getByTestId("help-citation")).toHaveText([
+      "1",
+      "2",
+    ]);
+    await shot(panel, `call-help-quotes-long-last-${call.interface}`);
+    const after = await boxes();
+    after.forEach((box, index) => {
+      expect(Math.abs(box.y - (before[index]?.y ?? 0)), `line ${index + 1}`).toBeLessThan(0.5);
+      expect(Math.abs(box.height - (before[index]?.height ?? 0)), `line ${index + 1}`).toBeLessThan(
+        0.5,
+      );
+    });
+    expect(await overflow()).toBe(false);
+    const width = await panel.evaluate(() => document.documentElement.clientWidth);
+    for (const chip of await reply
+      .getByTestId("help-end-numbers")
+      .getByTestId("help-citation")
+      .all()) {
+      const box = await topOf(chip);
+      expect(box.x + box.width).toBeLessThanOrEqual(width);
+    }
     await app.close();
   });
 }

@@ -19,7 +19,6 @@ import {
   RECOMMENDED_MARK,
 } from "../../../../shared/meetingHelp";
 import { isTheirs, SPEAKER_ME } from "../../../../shared/speakers";
-import { CJK } from "../../../../shared/text";
 import { useAnswers } from "../../answers";
 import { useCallStarts } from "../../callStarts";
 import { core } from "../../core";
@@ -125,13 +124,17 @@ function CitationChip({
   );
 }
 
-/** The end of a line's words that no row may break: its last word, or its last Chinese character. */
-const LAST_WORD = new RegExp(`([${CJK}]?[^\\s${CJK}]*)(\\s*)$`, "u");
+/**
+ * A line's last character, which the end's numbers hold to: only it, so a long last word or a link
+ * still breaks where it must.
+ */
+const LAST_CHARACTER = /(\S)(\s*)$/u;
 
 /**
  * A line's words and numbers. Once its reply has ended (`ended`), as it was written: each number
  * where it stood, one that stands for no Citation now kept as room, and the end's own numbers after
- * its last word, taking no room of the line's own (#3098): every line keeps that room at its end.
+ * its last character (#3098). They land in room the line keeps there from its first word (`room`),
+ * one number wide and held to that character, so they add no row; a note keeps it by its width.
  */
 function Pieces({
   pieces,
@@ -139,12 +142,14 @@ function Pieces({
   numbers,
   starts,
   ended,
+  room = true,
 }: {
   pieces: readonly ReplyPiece[];
   answer: ConversationAnswer;
   numbers: ReadonlyMap<number, number>;
   starts: ReadonlyMap<string, string>;
-  ended?: EndedLine;
+  ended?: EndedLine | undefined;
+  room?: boolean;
 }) {
   const chip = (marker: number, at: number, key: string) => {
     const citation = answer.citations.find((each) => each.marker === marker);
@@ -176,19 +181,19 @@ function Pieces({
     return chip(ended?.shown.get(piece.marker) ?? piece.marker, piece.at, key);
   };
   const late = ended?.late ?? [];
-  if (late.length === 0) {
-    return (
-      <span className="help-line-words">
-        {pieces.map((piece, index) => drawn(piece, `${piece.kind}-${index}`))}
-      </span>
-    );
+  if (!room && late.length === 0) {
+    return <>{pieces.map((piece, index) => drawn(piece, `${piece.kind}-${index}`))}</>;
   }
   const numbersAtEnd = (
-    <span key="late" className="help-citation-late">
+    <span
+      key="late"
+      data-testid="help-end-numbers"
+      className={room ? "help-late-room" : "help-citation-late"}
+    >
       {late.map((marker) => chip(marker, -1, `late-${marker}`))}
     </span>
   );
-  // The end's numbers hold to the last thing drawn, so no row can break before them.
+  // The room holds to the last thing drawn, so no row can break before it.
   let last = pieces.length - 1;
   const shows = (piece: ReplyPiece, at: number) =>
     piece.kind === "text" ? piece.text.trim() !== "" : drawn(piece, String(at)) !== null;
@@ -201,12 +206,12 @@ function Pieces({
     .slice(0, Math.max(0, last))
     .map((piece, index) => drawn(piece, `${piece.kind}-${index}`));
   if (lastPiece?.kind === "text") {
-    const [, word = "", space = ""] = LAST_WORD.exec(lastPiece.text) ?? [];
-    const head = lastPiece.text.slice(0, lastPiece.text.length - word.length - space.length);
+    const [, character = "", space = ""] = LAST_CHARACTER.exec(lastPiece.text) ?? [];
+    const head = lastPiece.text.slice(0, lastPiece.text.length - character.length - space.length);
     nodes.push(
       <span key={`text-${last}`}>{head}</span>,
       <span key="end" className="help-line-end">
-        {word}
+        {character}
         {numbersAtEnd}
       </span>,
       <span key="space">{space}</span>,
@@ -220,7 +225,7 @@ function Pieces({
     );
   }
   nodes.push(...pieces.slice(last + 1).map((piece, index) => drawn(piece, `after-${index}`)));
-  return <span className="help-line-words">{nodes}</span>;
+  return <>{nodes}</>;
 }
 
 /**
@@ -290,6 +295,7 @@ function ReplyLine({
           numbers={numbers}
           starts={starts}
           ended={ended}
+          room={className !== "help-option-note"}
         />
       </span>
       <LineQuotes

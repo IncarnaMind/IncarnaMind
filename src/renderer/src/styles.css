@@ -8077,8 +8077,8 @@
     flex-direction: column;
     gap: 10px;
     /*
-     * The room a line keeps after its last word for numbers the reply's end adds, one number's
-     * chip (#3098): they land in it, so no row is added and nothing below moves.
+     * The room a line keeps after its last character for numbers the reply's end adds, one
+     * number's chip (#3098): they land in it, so no row is added and nothing below moves.
      */
     --late-room: 25px;
   }
@@ -8107,7 +8107,8 @@
   }
   .help-option {
     display: grid;
-    grid-template-columns: 16px 1fr;
+    /* No wider than the panel: a long link or word breaks rather than widen it (#3098). */
+    grid-template-columns: 16px minmax(0, 1fr);
     column-gap: 6px;
     row-gap: 2px;
   }
@@ -8144,36 +8145,33 @@
     &:not(.help-moment) {
       max-width: calc(100% - var(--late-room));
     }
-    & .help-line-words {
-      padding-inline-end: 0;
-    }
   }
   .help-option-note.help-option-note--late {
     max-width: 100%;
     padding-right: calc(6px + var(--late-room));
   }
-  /* Its end padding sits on the last row only, after the last word. */
-  .help-line-words {
-    padding-inline-end: var(--late-room);
-  }
   .help-line-end {
     white-space: nowrap;
   }
+  .help-late-room,
   .help-citation-late {
     display: inline-block;
-    width: 0;
+    width: var(--late-room);
     white-space: nowrap;
 
     & .help-citation + .help-citation {
       margin-left: 2px;
     }
   }
+  .help-citation-late {
+    width: 0;
+  }
   .help-citation--gone {
     visibility: hidden;
   }
   .help-foot {
     display: grid;
-    grid-template-columns: 16px 1fr;
+    grid-template-columns: 16px minmax(0, 1fr);
     column-gap: 6px;
     row-gap: 2px;
   }
