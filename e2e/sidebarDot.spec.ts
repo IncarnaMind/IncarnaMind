@@ -79,7 +79,7 @@ test("a hidden sidebar's toggle shows a dot while Tagging needs the User, never 
   await expect(toggle).toHaveAttribute("title", /^Show sidebar · Tagging needs you \(/);
   await setLanguage(window, "zh-CN");
   await expect(toggle).toHaveAccessibleName("显示侧边栏 · 打标签需要你处理");
-  await expect(toggle).toHaveAttribute("title", /^显示侧边栏 · 打标签需要你处理 \(/);
+  await expect(toggle).toHaveAttribute("title", /^显示侧边栏 · 打标签需要你处理（/);
   await setLanguage(window, "en");
   for (const [width, height] of [
     [900, 700],
