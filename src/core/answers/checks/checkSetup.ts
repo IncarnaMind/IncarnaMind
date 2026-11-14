@@ -292,13 +292,6 @@ export function setUpRun(
     searches: () => searches,
     // The Passages a Citation quotes are shown from the scope, so a verdict on them has looked.
     looked: () => searches > 0 || citedShown !== null,
-    /** The Passages a search of `query` found, handed to the model as one of the check's searches. */
-    handOver(query: string, passages: readonly WindowedPassage[]): SearchResultForModel {
-      searches++;
-      for (const passage of passages) results.readVersion(passage.documentId, passage.contentHash);
-      return session.searchedFor(query, passages);
-    },
-    ownPassages,
     /** The sentence's own search, handed to the model as the check's first. */
     async handOff(signal: AbortSignal): Promise<SearchResultForModel> {
       const passages = await ownPassages(signal);

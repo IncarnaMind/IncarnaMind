@@ -25,10 +25,9 @@ interface Admitted {
 const QUICK_FIRST_LOOK: readonly Admitted[] = [];
 
 /**
- * The search-first check (#2532, ../../answers/checks/firstReply): the app searches a sentence's
- * own words before the check's first request and hands its Passages over, and a sentence whose
- * parts are known is answered part by part in one reply, each part the reply can't settle going
- * on to the check's Run. A model is listed once it holds eval/evidence/2532-search-first's bars.
+ * The search-first check (#2532, ../../answers/checks/checkSetup): the app searches a sentence's
+ * own words before the check's first request and hands its Passages over to the Run, which keeps
+ * its search. A model is listed once it holds eval/evidence/2532-search-first's bars.
  */
 const SEARCH_FIRST: readonly Omit<Admitted, "quick">[] = [];
 
@@ -36,14 +35,12 @@ const SEARCH_FIRST: readonly Omit<Admitted, "quick">[] = [];
 export interface CheckPathsOverride {
   quickFirstLook?(answers: ListedModel, quick: ListedModel): boolean | undefined;
   searchFirst?(model: ListedModel): boolean | undefined;
-  /** Hears how a first reply went for each part: its verdict, or why the part went on to its Run. */
-  firstReplied?(heard: { sentence: string; part: string; outcome: string }): void;
 }
 
 const named = ({ catalogId, modelId }: ListedModel) =>
   catalogId === null ? null : `${catalogId}/${withoutDateSuffix(modelId)}`;
 
-/** Whether a check on `model` searches first and answers a sentence's parts in one reply. */
+/** Whether a check on `model` searches its sentence first and hands the Passages to its Run. */
 export function searchesFirst(model: ListedModel, override?: CheckPathsOverride): boolean {
   const chosen = override?.searchFirst?.(model);
   if (chosen !== undefined) return chosen;

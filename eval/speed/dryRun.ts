@@ -2,7 +2,7 @@
  * The models of a gate's free runs (`INCARNAMIND_EVAL_SPEED_DRY`): nothing leaves this computer.
  * Each checks by rote, so the whole gate runs end to end at no cost. A Run searches the sentence's
  * own words unless they were handed over, and cites the line of its Passages that shares most of
- * the sentence's words; a first reply answers each part the same way.
+ * the sentence's words.
  * - `rote` (`DRY=1`) calls a sentence Supported only when that line holds it word for word, and a
  *   figure only when the line writes its number: its verdicts measure nothing but the plumbing.
  * - `yes` (`DRY=yes`) calls every sentence and every figure Supported from that line, whatever it
@@ -157,8 +157,6 @@ const runReply =
     return { text: replyFor(claim, found, 1, model, requestedIn(call.prompt).get(0) ?? []) };
   };
 
-const PARTS = /<part number="(\d+)">([\s\S]*?)<\/part>/g;
-
 export function dryRunModel(model: DryModel) {
   const generate = checkGenerate({});
   return scriptedModel(runReply(model), {
@@ -171,25 +169,6 @@ export function dryRunModel(model: DryModel) {
           parts: [{ kind: "fact", text }],
         }));
         return { text: JSON.stringify({ sentences }) };
-      }
-      if (call.question === "first-reply") {
-        const shown = shownPassages(call.prompt);
-        const parts = [...call.prompt.matchAll(PARTS)].map((match) => match[2] ?? "");
-        const figures = requestedIn(call.prompt);
-        const found = parts.map((part) => bestLine(part, shown));
-        return {
-          text: JSON.stringify({
-            parts: parts.map((part, at) => ({
-              part: at + 1,
-              reply: replyFor(part, found[at] ?? null, at + 1, model, figures.get(at + 1) ?? []),
-            })),
-            citations: found.flatMap((each, at) =>
-              each && cites(each, model)
-                ? [{ marker: at + 1, passage: each.passage, quote: each.line }]
-                : [],
-            ),
-          }),
-        };
       }
       return generate(call);
     },

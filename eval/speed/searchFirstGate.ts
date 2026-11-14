@@ -2,8 +2,8 @@
  * The report of #2532's gate (../evidence/2532-search-first/README.md), from a check-times run with
  * `INCARNAMIND_EVAL_SPEED_CHECK_ARMS`: each arm's clocks, requests, input and dollars by flow, model
  * and language over the rounds that count; the states no Note may be left in, run by run; and on the
- * held-out Note each sentence's Supported count on each arm, how its first reply went, the Passage
- * every wrong Supported cites, and the bars. Counts, times and sizes, and the quotes of the gate's
+ * held-out Note each sentence's Supported count on each arm, the Passage every wrong Supported
+ * cites, and the bars. Counts, times and sizes, and the quotes of the gate's
  * own invented Documents.
  */
 import { median } from "../lib/timing";
@@ -47,16 +47,6 @@ function perRun(run: FlowTimes, sentences: number) {
 /** When the last mark reached the page. */
 const lastMarkMs = (run: FlowTimes) =>
   run.landed.length === 0 ? null : Math.max(...run.landed.map((each) => each.ms));
-
-/** Whether a sentence's first reply settled it, or why a part went on to its Run. */
-function firstOutcome(run: FlowTimes, sentence: string): string {
-  const heard = (run.firstReplied ?? []).filter((each) => each.sentence.trim() === sentence.trim());
-  if (heard.length === 0) return "no first reply";
-  const goesOn = heard.filter(
-    (each) => !["supported", "contradicted", "unsupported"].includes(each.outcome),
-  );
-  return goesOn.length === 0 ? "settled" : goesOn.map((each) => each.outcome).join(", ");
-}
 
 /**
  * The thresholds of the gate's one rule (../evidence/2532-search-first/README.md › Bars), plain and
@@ -163,8 +153,6 @@ export function searchFirstGateSection(
     const index = indexOf(run, id);
     return index < 0 ? undefined : run.landed.find((each) => each.sentence === index);
   };
-  const textOf = (run: FlowTimes, id: string) =>
-    sentencesOf(run.flow, run.language)[indexOf(run, id)] ?? "";
   for (const model of [...new Set(held.map((run) => run.model))]) {
     const ofModel = held.filter((run) => run.model === model);
     const [base, other] = [...new Set(ofModel.map((run) => run.checkArm ?? ""))];
@@ -198,17 +186,14 @@ export function searchFirstGateSection(
         "",
         `### The held-out Note · ${model} · ${language}: Supported, of the readings, by sentence`,
         "",
-        `| Sentence | Kind | Digits | ${arms.join(" | ")} | ${arms.map((arm) => `list, ${arm}`).join(" | ")} | First reply (${arms.filter((arm) => arm.startsWith("search-first")).join(", ") || "none"}) |`,
-        `|---|---|---|${arms.map(() => "--:|").join("")}${arms.map(() => "--:|").join("")}---|`,
+        `| Sentence | Kind | Digits | ${arms.join(" | ")} | ${arms.map((arm) => `list, ${arm}`).join(" | ")} |`,
+        `|---|---|---|${arms.map(() => "--:|").join("")}${arms.map(() => "--:|").join("")}`,
         ...items.map((item) => {
-          const outcomes = rounds
-            .filter((run) => run.checkArm?.startsWith("search-first") && indexOf(run, item.id) >= 0)
-            .map((run) => firstOutcome(run, textOf(run, item.id)));
           const cell = (pool: readonly FlowTimes[], arm: string) =>
             read(pool, arm, item.id) === 0
               ? "–"
               : `${supported(pool, arm, item.id)}/${read(pool, arm, item.id)}`;
-          return `| ${item.id} | ${item.kind} | ${item.figure ? "yes" : ""} | ${arms.map((arm) => cell(rounds, arm)).join(" | ")} | ${arms.map((arm) => cell(listed, arm)).join(" | ")} | ${outcomes.join("; ") || "–"} |`;
+          return `| ${item.id} | ${item.kind} | ${item.figure ? "yes" : ""} | ${arms.map((arm) => cell(rounds, arm)).join(" | ")} | ${arms.map((arm) => cell(listed, arm)).join(" | ")} |`;
         }),
       );
       // Every wrong reading Supported, with the Passage its mark cites and how it was decided.
@@ -217,7 +202,7 @@ export function searchFirstGateSection(
           const landed = markOf(run, item.id);
           return item.kind !== "right" && landed?.verdict === "supported"
             ? [
-                `| ${item.id} | ${item.kind} | ${run.checkArm} · ${run.flow} · round ${run.run} | ${landed.evidence?.document ?? "none"} | ${(landed.evidence?.quote ?? "none").slice(0, 90)} | ${run.checkArm?.startsWith("search-first") && run.flow !== "note-list" ? firstOutcome(run, textOf(run, item.id)) : "its Run"} |`,
+                `| ${item.id} | ${item.kind} | ${run.checkArm} · ${run.flow} · round ${run.run} | ${landed.evidence?.document ?? "none"} | ${(landed.evidence?.quote ?? "none").slice(0, 90)} |`,
               ]
             : [];
         }),
@@ -227,8 +212,8 @@ export function searchFirstGateSection(
           "",
           "Each wrong reading Supported:",
           "",
-          "| Sentence | Kind | Arm · flow · round | Document cited | Quote | Decided by |",
-          "|---|---|---|---|---|---|",
+          "| Sentence | Kind | Arm · flow · round | Document cited | Quote |",
+          "|---|---|---|---|---|",
           ...wrongRows,
         );
       if (!base || !other) continue;
@@ -302,22 +287,6 @@ export function searchFirstGateSection(
           `${flow} ${base} ${notChecked(flow, base)}, ${other} ${notChecked(flow, other)} (no more than ${allowed} over): **${over > allowed ? "Fails" : "Holds"}**`,
         ];
       });
-      const share = (kind: string) => {
-        const asked = rounds
-          .filter((run) => run.checkArm === other)
-          .flatMap((run) =>
-            items.flatMap((item) =>
-              item.kind === kind && indexOf(run, item.id) >= 0
-                ? [firstOutcome(run, textOf(run, item.id))]
-                : [],
-            ),
-          );
-        const settled = asked.filter((each) => each === "settled").length;
-        return { settled, asked: asked.length, text: `${settled} of ${asked.length}` };
-      };
-      const shares = ["right", "twin", "absent"].map(share);
-      const fellBack = sum(shares.map((each) => each.asked - each.settled));
-      const asked = sum(shares.map((each) => each.asked));
       const byWriter = [...new Set(items.map((item) => item.writer))].map((writer) => {
         const of = (arm: string, right: boolean) =>
           total(rounds, arm, (item) => item.writer === writer && (item.kind === "right") === right);
@@ -341,7 +310,6 @@ export function searchFirstGateSection(
               `- **Guards, any sentence:** Supported in more rounds on ${other} than on ${base}: ${kept.map((item) => item.id).join(", ") || "none"}. **${kept.length === 0 ? "Holds" : "Fails"}.**`,
             ]
           : []),
-        `- **Settled in one reply on ${other}:** right ${shares[0]?.text}, wrong twins ${shares[1]?.text}, absent ${shares[2]?.text} (sentence-rounds); fell back ${fellBack} of ${asked}${asked > 0 ? ` (${((fellBack / asked) * 100).toFixed(0)}%)` : ""}.`,
       );
     }
     if (!base || !other) continue;

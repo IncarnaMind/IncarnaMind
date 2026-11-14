@@ -270,4 +270,16 @@ A model is listed in `SEARCH_FIRST` only when Bars 1 to 5 all hold on it. A bar 
 - **A third fault, in the reply itself:** over all of B, 375 of `search-first`'s 551 first-reply parts were "reply-unreadable". The reply ended normally in all 532 first-reply requests (none cut off), but in a form the reader doesn't accept. That was 32 of the 52 lost rounds. The scripted model of the free runs writes the expected form, so no free check could show it.
 - **Reading:** most lost rounds (77%) are a first search that doesn't find the Passage, not a reply that misses one it was given. By the CEO's ruling, that points to the reworked shape: `main`'s check, given the first search's results in its first request, with its search tool kept. Nothing is built until the CEO rules.
 
+**The reworked shape, free timing** (2026-11-14, the CEO's ruling after B): built small. It is `main`'s check, given the first search's results in its first request, with its search tool kept; the one-reply step is gone. Unit tests pass. The free timing ran on the held-out Note with the scripted model, five runs an arm, alternated: 20 arm-runs, 0 void, every state cell 0.
+
+| Language · arm | First Mark, median (range) | Last Mark, median (range) | Requests a sentence | Searches the model asked for, a sentence |
+|---|--:|--:|--:|--:|
+| English · `main` | 0.8 s (0.6–1.9) | 18.7 s (16.9–29.1) | 3.24 | 1.00 |
+| English · reworked | 1.4 s (1.2–2.0) | 17.3 s (15.5–18.3) | 2.27 | 0.00 |
+| Chinese · `main` | 0.7 s (0.6–1.5) | 18.5 s (16.0–33.1) | 4.02 | 1.00 |
+| Chinese · reworked | 1.0 s (0.8–1.2) | 18.8 s (15.1–19.5) | 3.00 | 0.00 |
+
+- **The stop rule:** the reworked median last Mark is 1.4 s sooner in English, against `main`'s own spread of 12.2 s, and 0.3 s later in Chinese, against 17.2 s. Neither is sooner by more than the spread, so by the ruling #2532 stops here: no paid pilot, no gate file.
+- **What this timing can see:** the scripted model's replies take no time, so it reads only the app's own work. The reworked shape asks about one request fewer a sentence (3.24 → 2.27 in English, 4.02 → 3.00 in Chinese). The scripted model never searched again after the hand-over.
+
 _Phase by phase as each finishes._

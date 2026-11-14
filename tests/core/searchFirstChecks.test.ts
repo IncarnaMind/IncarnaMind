@@ -1,21 +1,14 @@
 /**
  * The search-first check (#2532): on a model listed for it, Check this Note searches each
- * sentence's own words as soon as the sentence is named and hands its check those Passages, the
- * one that states it word for word first and unreranked, four at most. A sentence whose parts are
- * known is answered part by part in one reply, and a part that reply can't settle, and only that
- * part, goes on to its check's Run, which starts from the Passages handed over.
+ * sentence's own words as soon as the sentence is named and hands its check's Run those Passages in
+ * its first request, the one that states it word for word first and unreranked, four at most. The
+ * Run keeps its search and decides for itself whether to search again.
  */
 import { describe, expect, test } from "vitest";
 import type { Core, Reranker } from "../../src/core";
 import { HANDED_NOTE } from "../../src/core/answers/checks/checkSetup";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
-import {
-  checkGenerate,
-  checkReply,
-  listedSentences,
-  type Plan,
-  SAME_DETAIL,
-} from "../helpers/checks";
+import { checkGenerate, checkReply, listedSentences, type Plan } from "../helpers/checks";
 import { shownPassages } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
@@ -64,25 +57,12 @@ const LANGUAGES = [
 
 type Case = (typeof LANGUAGES)[number];
 
-const PARTS = /<part number="(\d+)">([\s\S]*?)<\/part>/g;
-
-/** A first reply's part, as a check's Run would give it after the same search, its quote under `marker`. */
-function partReply(part: string, quote: string | null, marker: number): string {
-  return quote
-    ? `Verdict: supported\nAbsence: no\nScope: none, same\nTopic: found\nRoles: ${part} / ${part}, same\nTime: none / none, same\n${SAME_DETAIL}\nExplanation: The Document says so. [^${marker}]\nEvidence: [${marker}]`
-    : `Verdict: unsupported\nAbsence: no\nScope: none, same\nTopic: not found\nRoles: ${part} / none, same\nTime: none / none, same\n${SAME_DETAIL}\nExplanation: The Documents don't say so.\nEvidence: []`;
-}
-
-/**
- * A Note to check: its Document, its sentences, the parts each is sorted into, the quote that
- * supports each part (none: the Documents don't state it), and how a part's Run checks it.
- */
+/** A Note to check: its Document, its sentences, the parts each is sorted into, and how each part's Run checks it. */
 interface Scenario {
   language: Case["language"];
   terms: string;
   sentences: readonly string[];
   parts: Record<string, readonly string[]>;
-  quotes: Record<string, string>;
   runs: Record<string, Plan>;
 }
 
@@ -92,7 +72,6 @@ function scenarioOf(each: Case): Scenario {
     terms: each.terms,
     sentences: [each.stated, each.twoParts],
     parts: { [each.stated]: [each.statedPart], [each.twoParts]: [each.found, each.absent] },
-    quotes: { [each.statedPart]: each.statedPart, [each.found]: each.found },
     runs: {
       [each.statedPart]: { verdict: "supported", quote: each.statedPart },
       [each.found]: { verdict: "supported", quote: each.found },
@@ -101,28 +80,12 @@ function scenarioOf(each: Case): Scenario {
   };
 }
 
-/**
- * A core checking `scenario`'s Note. `firstReplied`: a first reply in place of the one its plans
- * give; `firstWait`: what each first reply waits for before it comes.
- */
-async function setUp(
-  scenario: Scenario,
-  searchFirst: boolean,
-  {
-    firstReplied,
-    firstWait,
-  }: { firstReplied?: (call: GenerateCall) => GeneratedReply; firstWait?: Promise<void> } = {},
-) {
-  const { parts, quotes, runs } = scenario;
+/** A core checking `scenario`'s Note; `runWait`: what each Run's verdict waits for before it comes. */
+async function setUp(scenario: Scenario, searchFirst: boolean, runWait?: Promise<void>) {
+  const { parts, runs } = scenario;
   const streamed: ModelCall[] = [];
-  const firstReplies: GenerateCall[] = [];
   const reranked: string[] = [];
-  const heard: { sentence: string; part: string; outcome: string }[] = [];
   const generate = (call: GenerateCall): GeneratedReply => {
-    if (call.question === "first-reply" && firstReplied) {
-      firstReplies.push(call);
-      return firstReplied(call);
-    }
     if (call.question === "find-claims") {
       const sentences = listedSentences(call.prompt).map(({ number, text }) => ({
         number,
@@ -130,32 +93,15 @@ async function setUp(
       }));
       return { text: JSON.stringify({ sentences }) };
     }
-    if (call.question === "first-reply") {
-      firstReplies.push(call);
-      const shown = shownPassages(call.prompt);
-      const asked = [...call.prompt.matchAll(PARTS)].map((match) => match[2] ?? "");
-      const citations = asked.flatMap((part, at) => {
-        const quote = quotes[part];
-        const passage = quote ? shown.find((passage) => passage.text.includes(quote)) : undefined;
-        return quote && passage ? [{ marker: at + 1, passage: passage.id, quote }] : [];
-      });
-      return {
-        text: JSON.stringify({
-          parts: asked.map((part, at) => ({
-            part: at + 1,
-            reply: partReply(part, quotes[part] ?? null, at + 1),
-          })),
-          citations,
-        }),
-        ...(firstWait && { until: firstWait }),
-      };
-    }
     return checkGenerate(runs)(call);
   };
   const model = scriptedModel(
     (call) => {
       streamed.push(call);
-      return checkReply(call, runs);
+      const reply = checkReply(call, runs);
+      return runWait && !("error" in reply) && reply.text
+        ? { ...reply, pause: { after: 0, until: runWait } }
+        : reply;
     },
     { generate },
   );
@@ -166,10 +112,7 @@ async function setUp(
   const core = startCore(await createTempDataFolder(), {
     createChatModel: scriptedModels(model).createChatModel,
     reranker,
-    checkPaths: {
-      searchFirst: () => searchFirst,
-      firstReplied: (one) => heard.push(one),
-    },
+    checkPaths: { searchFirst: () => searchFirst },
   });
   core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
   await core.updateSettings({ user: { language: scenario.language } });
@@ -192,7 +135,7 @@ async function setUp(
   ]);
   await client.settled();
   reranked.length = 0;
-  return { core, client, mindId: mind.id, streamed, firstReplies, reranked, heard };
+  return { core, client, mindId: mind.id, streamed, reranked };
 }
 
 async function checkNote(core: Core, mindId: string) {
@@ -219,41 +162,32 @@ const runsOf = (calls: readonly ModelCall[]) =>
     (call) => call.system.startsWith("You check one sentence") && !call.prompt.includes("Verdict:"),
   );
 
+/** The first request of the Run that checks `words`. */
+const runOf = (calls: readonly ModelCall[], words: string) =>
+  runsOf(calls).find((call) => call.prompt.includes(`<sentence>\n${words}\n`));
+
 describe.each(LANGUAGES)("the search-first check in $language", (each) => {
-  test("one reply settles the parts its Passages decide, and only the rest go on to a Run", async () => {
-    const { core, client, mindId, streamed, firstReplies } = await setUp(scenarioOf(each), true);
+  test("every part's Run starts from the Passages of its own words handed over, and keeps its search", async () => {
+    const { core, client, mindId, streamed } = await setUp(scenarioOf(each), true);
     await checkNote(core, mindId);
     expect(await verdicts(client)).toEqual({
       [each.statedPart]: "supported",
       [each.found]: "supported",
       [each.absent]: "unsupported",
     });
-    // One reply a sentence, both parts of the second in one.
-    expect(firstReplies).toHaveLength(2);
-    const firstRuns = runsOf(streamed).filter((call) => call.results.length > 0);
-    const sentences = firstRuns.map(
-      (call) => /<sentence>\n([\s\S]*?)\n<\/sentence>/.exec(call.prompt)?.[1],
-    );
-    expect(new Set(sentences)).toEqual(new Set([each.absent]));
-    core.close();
-  });
-
-  test("the Run of a part that goes on starts from the sentence's Passages handed over", async () => {
-    const { core, mindId, streamed } = await setUp(scenarioOf(each), true);
-    await checkNote(core, mindId);
-    const [first] = streamed.filter((call) => call.prompt.includes(`<sentence>\n${each.absent}\n`));
-    expect(first?.results[0]?.tool).toBe("search_documents");
-    expect(first?.results[0]?.text).toContain(HANDED_NOTE);
+    for (const words of [each.statedPart, each.found, each.absent]) {
+      const first = runOf(streamed, words);
+      expect(first?.results[0]?.tool).toBe("search_documents");
+      expect(first?.results[0]?.text).toContain(HANDED_NOTE);
+      expect(first?.tools).toContain("search_documents");
+    }
     core.close();
   });
 
   test("the Passage that states a sentence word for word comes first, unreranked, and at most four are handed", async () => {
-    const { core, mindId, firstReplies, reranked } = await setUp(scenarioOf(each), true);
+    const { core, mindId, streamed, reranked } = await setUp(scenarioOf(each), true);
     await checkNote(core, mindId);
-    const stated = firstReplies.find((call) =>
-      call.prompt.includes(`<sentence>\n${each.stated}\n`),
-    );
-    const shown = shownPassages(stated?.prompt ?? "");
+    const shown = shownPassages(runOf(streamed, each.statedPart)?.results[0]?.text ?? "");
     expect(shown[0]?.text).toContain(each.statedPart);
     expect(shown.length).toBeLessThanOrEqual(4);
     expect(reranked).not.toContain(each.stated);
@@ -261,24 +195,22 @@ describe.each(LANGUAGES)("the search-first check in $language", (each) => {
   });
 
   test("Check against Documents, which the gate didn't measure, checks as before on a listed model", async () => {
-    const { core, streamed, firstReplies } = await setUp(scenarioOf(each), true);
+    const { core, streamed } = await setUp(scenarioOf(each), true);
     await core.checkClaim({ claim: each.stated });
-    expect(firstReplies).toHaveLength(0);
-    for (const run of runsOf(streamed).filter((call) => call.results.length === 0))
-      expect(run.prompt).not.toContain(HANDED_NOTE);
-    expect(runsOf(streamed).filter((call) => call.results.length === 0).length).toBeGreaterThan(0);
+    const starts = runsOf(streamed).filter((call) => call.results.length === 0);
+    expect(starts.length).toBeGreaterThan(0);
+    for (const run of runsOf(streamed)) expect(run.prompt).not.toContain(HANDED_NOTE);
     core.close();
   });
 
   test("Verify, which the gate didn't measure, checks as before on a listed model", async () => {
-    const { core, streamed, firstReplies } = await setUp(scenarioOf(each), true);
+    const { core, streamed } = await setUp(scenarioOf(each), true);
     const file = await writeSourceFile(await createTempDataFolder(), "Notes.txt", each.stated);
     const made = await core.verifyDocument({ path: file });
     if (!made.ok) throw new Error("The test Document could not be verified.");
     const input = () => ({ requestId: crypto.randomUUID(), mindId: made.mind.id });
     expect(await core.findClaims(input())).toEqual({ kind: "found", claims: 1 });
     expect(await core.verifyClaims(input())).toMatchObject({ kind: "checked", claims: 1 });
-    expect(firstReplies).toHaveLength(0);
     const starts = runsOf(streamed).filter((call) => call.results.length === 0);
     expect(starts.length).toBeGreaterThan(0);
     for (const run of runsOf(streamed)) expect(run.prompt).not.toContain(HANDED_NOTE);
@@ -286,11 +218,9 @@ describe.each(LANGUAGES)("the search-first check in $language", (each) => {
   });
 
   test("a model not listed checks every sentence as before: its Run searches first", async () => {
-    const { core, client, mindId, streamed, firstReplies } = await setUp(scenarioOf(each), false);
+    const { core, client, mindId, streamed } = await setUp(scenarioOf(each), false);
     await checkNote(core, mindId);
-    expect(firstReplies).toHaveLength(0);
-    for (const run of runsOf(streamed).filter((call) => call.results.length === 0))
-      expect(run.prompt).not.toContain(HANDED_NOTE);
+    for (const run of runsOf(streamed)) expect(run.prompt).not.toContain(HANDED_NOTE);
     expect(runsOf(streamed).filter((call) => call.results.length === 0)).toHaveLength(3);
     expect(await verdicts(client)).toEqual({
       [each.statedPart]: "supported",
@@ -306,16 +236,17 @@ describe.each(LANGUAGES)("the search-first check in $language", (each) => {
       terms: `# Rooms\n\n${each.rooms.map((room) => room.rule).join(" ")}\n`,
       sentences: each.rooms.map((room) => room.sentence),
       parts: Object.fromEntries(each.rooms.map((room) => [room.sentence, [room.sentence]])),
-      quotes: Object.fromEntries(each.rooms.map((room) => [room.sentence, room.rule])),
-      runs: {},
+      runs: Object.fromEntries(
+        each.rooms.map((room) => [room.sentence, { verdict: "supported", quote: room.rule }]),
+      ),
     };
     let allSearched = () => {};
     const searched = new Promise<void>((resolve) => {
       allSearched = resolve;
     });
-    // Each sentence's first reply waits for all eight searches: two more than the six checks that
-    // can run at once, so a search made only once its check had a place would never come.
-    const set = await setUp(rooms, true, { firstWait: searched });
+    // Each sentence's Run waits for all eight searches before its verdict: two more than the six
+    // checks that can run at once, so a search made only once its check had a place would never come.
+    const set = await setUp(rooms, true, searched);
     const waiting = setInterval(() => {
       if (rooms.sentences.every((sentence) => set.reranked.includes(sentence))) allSearched();
     }, 5);
@@ -330,21 +261,7 @@ describe.each(LANGUAGES)("the search-first check in $language", (each) => {
     }
   });
 
-  test("a first reply that fails leaves every part to its Run", async () => {
-    const { core, client, mindId, firstReplies } = await setUp(scenarioOf(each), true, {
-      firstReplied: () => ({ error: { status: 500, message: "The server is down." } }),
-    });
-    await checkNote(core, mindId);
-    expect(firstReplies.length).toBeGreaterThan(0);
-    expect(await verdicts(client)).toEqual({
-      [each.statedPart]: "supported",
-      [each.found]: "supported",
-      [each.absent]: "unsupported",
-    });
-    core.close();
-  });
-
-  test("a sentence of one part its first reply can't settle is searched once, for the reply and its Run", async () => {
+  test("a sentence of one part is searched once, ahead, for its Run", async () => {
     const bare = (text: string) => text.replace(/^[\s\p{P}]+|[\s\p{P}]+$/gu, "");
     const part = bare(each.car);
     const car: Scenario = {
@@ -352,154 +269,13 @@ describe.each(LANGUAGES)("the search-first check in $language", (each) => {
       terms: each.terms,
       sentences: [each.car],
       parts: { [each.car]: [part] },
-      quotes: {},
       runs: { [part]: { verdict: "unsupported" } },
     };
     const { core, client, mindId, reranked, streamed } = await setUp(car, true);
     await checkNote(core, mindId);
     expect(await verdicts(client)).toEqual({ [part]: "unsupported" });
-    expect(runsOf(streamed).length).toBeGreaterThan(0);
+    expect(runOf(streamed, part)?.results[0]?.text).toContain(HANDED_NOTE);
     expect(reranked.filter((query) => bare(query) === part)).toHaveLength(1);
-    core.close();
-  });
-});
-
-const FIGURE_TERMS = {
-  en: "# Charges\n\nA ride costs 1.50 pounds for each started 30 minutes.\n\n# The year in numbers\n\nRides in 2026: 1.2 million. Revenue in 2026: 2.4 million pounds.\n",
-  "zh-CN":
-    "# 费用\n\n每开始一个30分钟，骑行收费1.5元。\n\n# 年度数据\n\n2026年骑行次数：120万次。2026年收入：240万元。\n",
-} as const;
-
-const FIGURES_IN = /<figures part="(\d+)">\n([\s\S]*?)\n<\/figures>/g;
-const NUMBER = /\d[\d,]*(?:\.\d+)?/g;
-
-/**
- * A first reply that calls every part Supported and binds each of its figures to a number of
- * `quotes[part]`: the figure's own when the quote writes it, else the quote's first. With no quote
- * it cites nothing and gives no source; `worked` gives every figure as one no Passage states.
- */
-function figuresYes(quotes: Record<string, string>, worked = false) {
-  return (call: GenerateCall): GeneratedReply => {
-    const shown = shownPassages(call.prompt);
-    const asked = [...call.prompt.matchAll(PARTS)].map((match) => match[2] ?? "");
-    const figures = new Map(
-      [...call.prompt.matchAll(FIGURES_IN)].map((match) => [
-        Number(match[1]),
-        JSON.parse(match[2] ?? "[]") as { id: string; shown: string }[],
-      ]),
-    );
-    const citations = asked.flatMap((part, at) => {
-      const quote = quotes[part];
-      const passage = quote ? shown.find((each) => each.text.includes(quote)) : undefined;
-      return quote && passage ? [{ marker: at + 1, passage: passage.id, quote }] : [];
-    });
-    return {
-      text: JSON.stringify({
-        parts: asked.map((part, at) => {
-          const quote = quotes[part];
-          const numbers = quote?.match(NUMBER) ?? [];
-          const items = (figures.get(at + 1) ?? []).map(({ id, shown: own }) => {
-            const number = numbers.find((each) => each === own.match(NUMBER)?.[0]) ?? numbers[0];
-            const source = !worked && quote && number ? { citation: at + 1, number } : null;
-            return {
-              id,
-              verdict: worked ? "unsupported" : "supported",
-              scope: "same",
-              topic: "found",
-              roles: "same",
-              measure: null,
-              says: worked ? "No Passage states it as a number." : null,
-              reading: null,
-              relation: "equals",
-              source,
-              calculation: null,
-            };
-          });
-          return {
-            part: at + 1,
-            reply: `${partReply(part, quote ?? part, at + 1)}\nFigures: ${JSON.stringify({ items, remainder: null })}`,
-          };
-        }),
-        citations,
-      }),
-    };
-  };
-}
-
-describe.each([
-  {
-    language: "en" as const,
-    price: "A ride costs 1.50 pounds for each started 30 minutes.",
-    wrongPrice: "A ride costs 2.00 pounds for each started 30 minutes.",
-    wrongScale: "Revenue in 2026 was 2.4 billion pounds.",
-    revenue: "Revenue in 2026: 2.4 million pounds.",
-    perRide: "Lumen Bay earned 2 pounds of revenue per ride in 2026.",
-  },
-  {
-    language: "zh-CN" as const,
-    price: "每开始一个30分钟，骑行收费1.5元。",
-    wrongPrice: "每开始一个30分钟，骑行收费2元。",
-    wrongScale: "2026年收入为2.4亿元。",
-    revenue: "2026年收入：240万元。",
-    perRide: "2026年每次骑行的收入为2元。",
-  },
-])("a sentence's figures in its first reply, in $language", (each) => {
-  const bare = (text: string) => text.replace(/^[\s\p{P}]+|[\s\p{P}]+$/gu, "");
-  const figureScenario = (sentence: string): Scenario => ({
-    language: each.language,
-    terms: FIGURE_TERMS[each.language],
-    sentences: [sentence],
-    parts: { [sentence]: [bare(sentence)] },
-    quotes: {},
-    runs: { [bare(sentence)]: { verdict: "unsupported" } },
-  });
-  const outcomeOf = (heard: readonly { part: string; outcome: string }[], sentence: string) =>
-    heard.filter((one) => one.part === bare(sentence)).map((one) => one.outcome);
-  const SETTLED = ["supported", "contradicted", "unsupported"];
-
-  test("a wrong figure the reply calls Supported is settled by the figure's own check, never Supported", async () => {
-    const { core, client, mindId, heard } = await setUp(figureScenario(each.wrongPrice), true, {
-      firstReplied: figuresYes({ [bare(each.wrongPrice)]: each.price }),
-    });
-    await checkNote(core, mindId);
-    const outcome = outcomeOf(heard, each.wrongPrice);
-    expect(outcome).toHaveLength(1);
-    expect(outcome[0]).not.toBe("supported");
-    expect(Object.values(await verdicts(client))).not.toContain("supported");
-    core.close();
-  });
-
-  test("a figure of another scale the reply calls Supported is never Supported", async () => {
-    const { core, client, mindId, heard } = await setUp(figureScenario(each.wrongScale), true, {
-      firstReplied: figuresYes({ [bare(each.wrongScale)]: each.revenue }),
-    });
-    await checkNote(core, mindId);
-    const outcome = outcomeOf(heard, each.wrongScale);
-    expect(outcome).toHaveLength(1);
-    expect(outcome[0]).not.toBe("supported");
-    expect(Object.values(await verdicts(client))).not.toContain("supported");
-    core.close();
-  });
-
-  test("a figure no Passage states as a number goes on to its Run, which may work it out", async () => {
-    const { core, mindId, heard, streamed } = await setUp(figureScenario(each.perRide), true, {
-      firstReplied: figuresYes({ [bare(each.perRide)]: each.revenue }, true),
-    });
-    await checkNote(core, mindId);
-    expect(outcomeOf(heard, each.perRide)).toEqual(["figure-not-settled"]);
-    expect(runsOf(streamed).length).toBeGreaterThan(0);
-    core.close();
-  });
-
-  test("a figure the reply calls Supported with no quote goes on to its Run", async () => {
-    const { core, mindId, heard, streamed } = await setUp(figureScenario(each.wrongPrice), true, {
-      firstReplied: figuresYes({}),
-    });
-    await checkNote(core, mindId);
-    const outcome = outcomeOf(heard, each.wrongPrice);
-    expect(outcome).toHaveLength(1);
-    expect(SETTLED).not.toContain(outcome[0]);
-    expect(runsOf(streamed).length).toBeGreaterThan(0);
     core.close();
   });
 });

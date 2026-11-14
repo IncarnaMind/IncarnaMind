@@ -719,7 +719,6 @@ timedChecks("where a check's time goes, on each model and language", async () =>
         `INCARNAMIND_EVAL_SPEED_CHECK_ARMS: no arm "${arm}"; the arms are main and search-first.`,
       );
   }
-  let firstReplied: NonNullable<FlowTimes["firstReplied"]> = [];
   // Where the check's own search ranks each right sentence's stating Passages: `1`, then the run;
   // `only`, with no flow run at all.
   const ranksAsked = env("RANKS");
@@ -834,7 +833,6 @@ timedChecks("where a check's time goes, on each model and language", async () =>
       checkPaths: {
         searchFirst: () =>
           current?.checkArm === undefined ? undefined : current.checkArm.startsWith("search-first"),
-        firstReplied: (heard) => firstReplied.push(heard),
       },
     });
     try {
@@ -914,7 +912,6 @@ timedChecks("where a check's time goes, on each model and language", async () =>
                 ? windowOf(CITED(language), size, run)
                 : CITED(language);
             current = { flow, items, ...(arm && { arm }), ...(checkArm && { checkArm }) };
-            firstReplied = [];
             const startedAt = new Date().toISOString();
             repeats.begin();
             const times: Pick<
@@ -963,7 +960,6 @@ timedChecks("where a check's time goes, on each model and language", async () =>
               ...(checkArm && { checkArm }),
               ...(voided && { voided }),
               ...(times.anomalies && { anomalies: times.anomalies }),
-              ...(checkArm && { firstReplied }),
               ...(HELD_FLOWS.has(flow) && {
                 stated: heldItems(flow, language).map((each) => each.kind === "right"),
                 items: heldItems(flow, language).map((each) => ({
