@@ -81,6 +81,9 @@ describe("a sentence that only names the Document it cites (#3093)", () => {
     ["“Tenant's Lease”", [lease("Tenant's Lease")]],
     ['"Tenant\'s Lease"', [lease("Tenant's Lease")]],
     ["「O'Brien租约」", [lease("O'Brien租约")]],
+    ["‘Tenant’s Lease’", [lease("Tenant’s Lease")]],
+    ["'Tenant's Lease'", [lease("Tenant's Lease")]],
+    ["‘O’Brien租约’", [lease("O’Brien租约")]],
   ])("%s only names it", (words, cited) => {
     expect(onlyNamesItsSource(words, cited)).toBe(true);
   });

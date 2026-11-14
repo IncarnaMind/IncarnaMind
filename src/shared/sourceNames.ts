@@ -64,9 +64,13 @@ function placeOf(citation: CitedSource): CitationLocation | null {
  */
 function namesIn(words: string): string[] {
   const found = [words];
+  // Each closing mark may end the name: a single quote's closing mark is also an apostrophe.
   const close = MARKS[words[0] ?? ""];
-  const end = close === undefined ? -1 : words.indexOf(close, 1);
-  if (end > 1) {
+  for (
+    let end = close ? words.indexOf(close, 1) : -1;
+    end > 1;
+    end = words.indexOf(close ?? "", end + 1)
+  ) {
     const place = words.slice(end + 1).replace(/^[\s,，]+/u, "");
     const held = /^[(（](.+)[)）]$/u.exec(place)?.[1] ?? place;
     const name = words.slice(1, end).trim();
