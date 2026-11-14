@@ -1727,6 +1727,8 @@ export function createAnswers(options: AnswersOptions) {
     };
     /** Whether the Answer offers a workbook's formula Tools, decided with its Tools. */
     let workbookToolsOffered = false;
+    /** The other calls' Transcripts a press reads none of (#3005), listed once it cites. */
+    let otherCalls: ReadonlySet<string> | null = null;
     const session = createCitationSession(
       searched,
       {
@@ -1742,6 +1744,12 @@ export function createAnswers(options: AnswersOptions) {
           input.callIn === undefined || unmarked
             ? undefined
             : options.noteCall?.(input.callIn)?.transcript === documentId,
+        // Its quote may still be found there, through a Citation the Note keeps: it isn't checked.
+        checkedWithout: (documentId) => {
+          if (help === undefined || options.callsUnmarked?.()) return false;
+          otherCalls ??= new Set(options.otherCallTranscripts?.(mindIn) ?? []);
+          return otherCalls.has(documentId);
+        },
       },
       original
         ? {

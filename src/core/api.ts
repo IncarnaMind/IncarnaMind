@@ -2372,7 +2372,12 @@ export type CitationCheckReason =
    * Not checked: the model that wrote the Answer runs on this computer and is too small to judge
    * its sentences, so their check never ran (#2375).
    */
-  | "small-model";
+  | "small-model"
+  /**
+   * Not checked: a help button's press reads no other call (#3005), so a Citation of another
+   * call's Transcript its reply keeps is never checked, whatever its quote's check gave.
+   */
+  | "other-call";
 
 /** Every check reason, for reading one the app didn't write: a value outside these is no reason. */
 export const CITATION_CHECK_REASONS = [
@@ -2391,6 +2396,7 @@ export const CITATION_CHECK_REASONS = [
   "answer-limit-unfinished",
   "monthly-limit-unfinished",
   "small-model",
+  "other-call",
 ] as const satisfies readonly CitationCheckReason[];
 
 /**

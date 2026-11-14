@@ -712,6 +712,7 @@ const removedFrom = (range: PageRange): CitationRecheck => ({
 
 const FOUND: CheckResult = { check: "found", checkReason: null };
 const NOT_ON_PAGES: CheckResult = { check: "not-found", checkReason: "quote-not-on-pages" };
+const OTHER_CALL: CheckResult = { check: "not-checked", checkReason: "other-call" };
 
 /** Whether a check puts the quote on its page: found, or a scan's word that asks for a look (#535). */
 const located = (result: CheckResult) =>
@@ -1961,6 +1962,12 @@ export interface CitationSessionEvents {
    * when it is asked during none, so no Passage is marked with its call.
    */
   thisCall?(documentId: string): boolean | undefined;
+  /**
+   * Whether the Answer is checked without a Document: another call's Transcript, which a help
+   * button's press never reads (#3005). A Citation of it is not checked, whatever its quote's
+   * check gave.
+   */
+  checkedWithout?(documentId: string): boolean;
 }
 
 /**
@@ -2137,6 +2144,18 @@ export function createCitationSession(
     if (result.check !== "found" || !events.tableCells?.()) return;
     const cells = cellsOf(record);
     if (cells) record.cells = cells;
+  };
+
+  /**
+   * A record's Citation as `result` checked it; where `checkedWithout` says, not checked, and with
+   * no words found for it either, which a reading's moment would show ✓ beside.
+   */
+  const checkedCitation = (record: Accepted, result: CheckResult | null): Citation => {
+    if (!result || !events.checkedWithout?.(record.source.documentId)) {
+      return toCitation(record, result);
+    }
+    const { quotedWordsFound: _found, ...citation } = toCitation(record, OTHER_CALL);
+    return citation;
   };
 
   /**
@@ -2989,8 +3008,8 @@ export function createCitationSession(
     const result: CheckResult | null = quoted?.notFound
       ? { check: "not-found", checkReason: "quoted-words-not-on-pages" }
       : (record.atCite ?? null);
-    const citation = toCitation(record, result);
-    return quoted && quoted.stated.length > 0
+    const citation = checkedCitation(record, result);
+    return quoted && quoted.stated.length > 0 && citation.checkReason !== "other-call"
       ? { ...citation, quotedWordsFound: [...(citation.quotedWordsFound ?? []), ...quoted.stated] }
       : citation;
   };
@@ -3006,7 +3025,7 @@ export function createCitationSession(
       finalMarkers.push(marker);
       if (!record) removedMarkers++;
     }
-    return record ? toCitation(record, record.result) : null;
+    return record ? checkedCitation(record, record.result) : null;
   };
 
   /** The Documents the Answer's final Citations name, in the order they first appear. */
@@ -3227,7 +3246,7 @@ export function createCitationSession(
           const copy = copyOf(marker);
           if (!copy) return null;
           placedElsewhere.add(marker);
-          return citationNode(toCitation(copy, copy.result));
+          return citationNode(checkedCitation(copy, copy.result));
         },
       };
     },
@@ -3285,7 +3304,7 @@ export function createCitationSession(
     } {
       const citations = finalMarkers.flatMap((marker) => {
         const record = records.get(marker);
-        return record ? [toCitation(record, record.result)] : [];
+        return record ? [checkedCitation(record, record.result)] : [];
       });
       const unused = [...records.keys()].filter(
         (marker) => !finalMarkers.includes(marker) && !placedElsewhere.has(marker),
