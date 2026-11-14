@@ -612,6 +612,16 @@ for (const [language, width] of [
             !parent.checkVisibility({ visibilityProperty: true })
           )
             continue;
+          // A separator's dot is drawn in the gap before its part and clipped where the part
+          // starts a line (MetaLine): there no one sees it.
+          const part = parent.classList.contains("meta-dot") ? parent.parentElement : null;
+          const row = part?.parentElement;
+          if (part && row) {
+            const start =
+              row.getBoundingClientRect().left +
+              Number.parseFloat(getComputedStyle(row).paddingLeft);
+            if (part.getBoundingClientRect().left - start < 1) continue;
+          }
           // From the first to the last character a person sees, the spaces around a separator's
           // dot being no ink; and each line one em tall about its middle, as a fallback font's
           // taller box around a curly quote is no ink either.
@@ -620,24 +630,7 @@ for (const [language, width] of [
           range.setStart(node, words.search(/\S/));
           range.setEnd(node, words.trimEnd().length);
           const em = Number.parseFloat(getComputedStyle(parent).fontSize);
-          // What a clipping box around it hides isn't seen: a separator's dot before a part that
-          // starts a line is drawn in the gap and clipped there.
-          let seen = { left: Number.NEGATIVE_INFINITY, right: Number.POSITIVE_INFINITY };
-          for (let at: Element | null = parent; at && at !== card; at = at.parentElement) {
-            if (getComputedStyle(at).overflowX === "visible") continue;
-            const edge = at.getBoundingClientRect();
-            seen = {
-              left: Math.max(seen.left, edge.left),
-              right: Math.min(seen.right, edge.right),
-            };
-          }
-          for (const rect of Array.from(range.getClientRects())) {
-            const line = {
-              ...rect.toJSON(),
-              left: Math.max(rect.left, seen.left),
-              right: Math.min(rect.right, seen.right),
-            };
-            if (line.left >= line.right) continue;
+          for (const line of Array.from(range.getClientRects())) {
             const middle = (line.top + line.bottom) / 2;
             const across = Math.max(box.left - grow - line.right, line.left - box.right - grow);
             const down = Math.max(
