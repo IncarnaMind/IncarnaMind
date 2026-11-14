@@ -9,6 +9,7 @@ import {
   createDataFolder,
   dismissChatSetup,
   focusSettled,
+  footFadeOf,
   launchApp,
   motionSettled,
   newMind,
@@ -179,21 +180,25 @@ async function aNewNote(
 
 /**
  * Waits until a row of the check card sits whole inside the card's body, as one scrolled out of
- * it or cut by its foot would not (#3019). The fade the foot draws is part of what shows: a body
- * that holds only a title and one row has no room for the row above it.
+ * it or cut by its foot would not (#3019). The fade the foot draws is part of what shows, so a
+ * row taller than the room above it, as a body of a title and one row has, may reach into it;
+ * `clearOfFade` asks for the room above it.
  */
-async function shownInBody(panel: Locator, row: Locator) {
+async function shownInBody(panel: Locator, row: Locator, { clearOfFade = false } = {}) {
   const body = panel.locator(".check-card-body");
   await expect
     .poll(
       async () => {
-        const [inner, outer] = await Promise.all([row.boundingBox(), body.boundingBox()]);
+        const [inner, outer, { fade }] = await Promise.all([
+          row.boundingBox(),
+          body.boundingBox(),
+          footFadeOf(body, "*"),
+        ]);
         if (!inner || !outer) return "not drawn";
-        const inside =
-          inner.y >= outer.y - 0.5 && inner.y + inner.height <= outer.y + outer.height + 0.5;
-        return inside
+        const foot = outer.y + outer.height - (clearOfFade ? fade : 0);
+        return inner.y >= outer.y - 0.5 && inner.y + inner.height <= foot + 0.5
           ? "inside"
-          : `row ${inner.y}..${inner.y + inner.height}, body ${outer.y}..${outer.y + outer.height}`;
+          : `row ${inner.y}..${inner.y + inner.height}, body ${outer.y}..${foot}`;
       },
       { message: "the row is inside the visible body" },
     )
@@ -322,6 +327,22 @@ for (const [language, width] of [
     await screenshot(window, `${language}-mixed`);
     await window.keyboard.press("Escape");
     await expect(window.getByTestId("check-badge")).toContainText(words.mixedBadge);
+    await app.close();
+  });
+  test(`a check that ends with nothing left shows its summary in the card it opened with, clear of the fade (${language}, ${width}px)`, async () => {
+    test.setTimeout(180_000);
+    const opened = await launched();
+    const { app, window } = opened;
+    await useLocalChatModel(window);
+    await aNewNote(opened, language, width);
+    await writeNote(window, [SPRING]);
+
+    // The card opened with a row for the sentence to check; the check ends with no row for what is
+    // left, and its summary at the top of the body is brought into view above the fade (#3019).
+    const panel = await checkFromCard(window);
+    const summary = panel.getByTestId("health-all-checked");
+    await expect(summary).toBeVisible();
+    await shownInBody(panel, summary, { clearOfFade: true });
     await app.close();
   });
 }
