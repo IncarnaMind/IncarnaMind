@@ -788,18 +788,21 @@ for (const language of ["en", "zh-CN"] as const) {
      * saying the earlier call's line again, cited to that line and not checked; then the call
      * stops. The press reaches the line by a Citation the User kept in the Note, and its reply is
      * stored as a version that judged presses stored it (`judgedBefore`), or as this one does. The
-     * press's reply may quote words after its sentence and cite the hosting terms beside it.
+     * press's reply may quote words after its sentence and cite the hosting terms beside it. With
+     * `panel`, the same question is then typed in the panel's field (#2925) before the call stops.
      */
     const pressedThenStopped = async ({
       typedJudged = false,
       judgedBefore = true,
       quoted,
       beside = false,
+      panel = false,
     }: {
       typedJudged?: boolean;
       judgedBefore?: boolean;
       quoted?: string;
       beside?: boolean;
+      panel?: boolean;
     } = {}) => {
       const said = EARLIER_SAID[language];
       const batches: GenerateCall[] = [];
@@ -910,6 +913,18 @@ for (const language of ["en", "zh-CN"] as const) {
       const pressWrites = written.filter((each) => each.id === pressIds.answerId);
       if (judgedBefore) await storedAsJudgedBefore(core, setup.dataDir, pressIds);
 
+      let panelIds: { conversationId: string; answerId: string } | null = null;
+      if (panel) {
+        const inField = await core.askMeetingQuestion({
+          meetingId: live.id,
+          text: language === "en" ? "What did they say last time?" : "上次他们说了什么？",
+        });
+        if (!inField.asked) throw new Error("Not asked in the panel's field.");
+        await answerEnded(core, inField.answerId);
+        panelIds = { conversationId: inField.conversation.id, answerId: inField.answerId };
+      }
+      const panelWrites = written.filter((each) => each.id === panelIds?.answerId);
+
       // Stop: the notes are tried with the model, which this test answers with an error.
       await core.stopMeeting(live.id);
       await until(core, live.id, (transcript) => transcript.state === "saved");
@@ -918,7 +933,20 @@ for (const language of ["en", "zh-CN"] as const) {
           "failed",
         ),
       );
-      return { core, said, batches, judging, live, pressIds, typedIds, answerOf, pressWrites };
+      return {
+        core,
+        said,
+        batches,
+        judging,
+        live,
+        stopped,
+        pressIds,
+        typedIds,
+        panelIds,
+        answerOf,
+        pressWrites,
+        panelWrites,
+      };
     };
 
     /**
@@ -958,6 +986,28 @@ for (const language of ["en", "zh-CN"] as const) {
 
     const NOT_ON_PAGES = ["not-found", "quoted-words-not-on-pages"];
     const OTHER_CALL = ["not-checked", "other-call"];
+
+    // protects=a question typed in the panel's field is no press and may read earlier calls (#2925): its reply's Citation of the earlier call's Transcript is looked up and shows found at every write, beside the press's that reads not checked for another call, and Check again on it leaves it found; fails_when=the typed reply's Citation reads not checked for another call, or loses its found check after Check again; no_claim=what a real model cites.
+    test("a question typed in the panel's field cites the earlier call found, beside a press's not checked for another call, and Check again leaves it found", async () => {
+      const { core, stopped, pressIds, panelIds, answerOf, panelWrites } = await pressedThenStopped(
+        { panel: true, judgedBefore: false },
+      );
+      if (!panelIds) throw new Error("No question typed in the panel's field.");
+      const typed = await answerOf(panelIds);
+      expect(typed.citations.map(({ documentId }) => documentId)).toEqual([stopped.document.id]);
+      expect(states(typed.citations)).toEqual([["found", null]]);
+      expect(quoteState(typed.citations[0], typed.status)).toBe("found");
+      for (const write of panelWrites) {
+        for (const citation of write.citations) expect(citation.checkReason).not.toBe("other-call");
+      }
+      expect(states((await answerOf(pressIds)).citations)).toEqual([OTHER_CALL]);
+
+      await core.checkAnswerAgain(panelIds);
+      const rechecked = await answerOf(panelIds);
+      expect(states(rechecked.citations)).toEqual([["found", null]]);
+      expect(quoteState(rechecked.citations[0], rechecked.status)).toBe("found");
+    });
+
     const quotedRows = [
       { name: "the earlier call's own words, beside a Document", quoted: "line", beside: true },
       { name: "made-up words, beside a Document", quoted: "made-up", beside: true },

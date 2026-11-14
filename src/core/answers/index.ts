@@ -1792,7 +1792,7 @@ export function createAnswers(options: AnswersOptions) {
             : options.noteCall?.(input.callIn)?.transcript === documentId,
         // Its quote may still be found there, through a Citation the Note keeps: it isn't checked.
         checkedWithout: (documentId) => {
-          if (help === undefined || options.callsUnmarked?.()) return false;
+          if (pressOf(help) === null || options.callsUnmarked?.()) return false;
           otherCalls ??= new Set(options.otherCallTranscripts?.(mindIn) ?? []);
           return otherCalls.has(documentId);
         },
