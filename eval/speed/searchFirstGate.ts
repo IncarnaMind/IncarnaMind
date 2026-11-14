@@ -8,6 +8,7 @@
  */
 import { median } from "../lib/timing";
 import { type FlowTimes, firstVerdictMs } from "./checkTimes";
+import { type DriftRecords, driftThresholds } from "./searchFirstDrift";
 
 const s = (ms: number | null) => (ms === null ? "–" : (ms / 1000).toFixed(1));
 const sum = (values: readonly number[]) => values.reduce((total, each) => total + each, 0);
@@ -74,6 +75,7 @@ const THRESHOLDS: Readonly<
 };
 
 type Item = NonNullable<FlowTimes["items"]>[number];
+type Tally = DriftRecords["wrong"][number];
 type Standing = "within" | "past plain" | "past strict" | "no threshold";
 
 /** Where a bar's count past its arm stands against its plain and strict thresholds. */
@@ -166,7 +168,12 @@ export function searchFirstGateSection(
   for (const model of [...new Set(held.map((run) => run.model))]) {
     const ofModel = held.filter((run) => run.model === model);
     const [base, other] = [...new Set(ofModel.map((run) => run.checkArm ?? ""))];
-    const standings: { bar: string; standing: Standing }[] = [];
+    const rowExcess: { language: string; excess: number; rounds: number }[] = [];
+    const drift: { rows: Record<string, Tally[]>; wrong: Tally[]; listed: boolean[] } = {
+      rows: {},
+      wrong: [],
+      listed: [],
+    };
     const lostIn: string[] = [];
     const wrong = { base: 0, other: 0 };
     const wrongReadings: string[] = [];
@@ -233,6 +240,15 @@ export function searchFirstGateSection(
         [other, "other"],
       ] as const)
         wrong[key] += total(rounds, arm, isWrong) + total(listed, arm, isWrong);
+      // B's own `main` arm, for the drift rule's thresholds.
+      const tally = (item: Item) => ({
+        supported: supported(rounds, base, item.id),
+        read: read(rounds, base, item.id),
+      });
+      for (const item of items.filter(isWrong)) {
+        drift.wrong.push(tally(item));
+        drift.listed.push(read(listed, base, item.id) > 0 || supported(rounds, base, item.id) > 0);
+      }
       for (const run of runs)
         for (const item of items)
           if (isWrong(item) && markOf(run, item.id)?.verdict === "supported")
@@ -254,7 +270,8 @@ export function searchFirstGateSection(
         row.base - row.other,
         THRESHOLDS[roundCount]?.[language as "en" | "zh-CN"],
       );
-      standings.push({ bar: `the gating row, ${language}`, standing: rowStanding });
+      rowExcess.push({ language, excess: row.base - row.other, rounds: roundCount });
+      drift.rows[language] = items.filter(low).map(tally);
       const lostFrom = (from: string, to: string) =>
         items.filter(
           (item) =>
@@ -310,7 +327,7 @@ export function searchFirstGateSection(
       lines.push(
         "",
         `- **Wrong twins and absent sentences Supported** (reported; Bar 1 counts both languages together, below): over the rounds ${base} ${total(rounds, base, (item) => item.kind === "twin")} + ${total(rounds, base, (item) => item.kind === "absent")}, ${other} ${total(rounds, other, (item) => item.kind === "twin")} + ${total(rounds, other, (item) => item.kind === "absent")}; on the list ${base} ${total(listed, base, isWrong)}, ${other} ${total(listed, other, isWrong)}.`,
-        `- **The gating row** (${items.filter(low).length} sentences, ${roundCount} rounds of each arm): Supported ${base} ${row.base}, ${other} ${row.other}; ${base}'s less ${other}'s ${row.base - row.other}, against ${thresholds ? `${thresholds[0]} plain and ${thresholds[1]} strict` : "no threshold for this many rounds"}: **${rowStanding}**.`,
+        `- **The gating row** (${items.filter(low).length} sentences, ${roundCount} rounds of each arm): Supported ${base} ${row.base}, ${other} ${row.other}; ${base}'s less ${other}'s ${row.base - row.other}, against the written ${thresholds ? `${thresholds[0]} plain and ${thresholds[1]} strict` : "no threshold for this many rounds"}: ${rowStanding} (read below against the smaller of these and the recomputed).`,
         `- **The gating row, sentence by sentence:** Supported on ${base} in every round and on ${other} in none: ${lost.map((item) => item.id).join(", ") || "none"}. **${roundCount < 3 ? "Report only below 3 rounds" : lost.length > 1 ? "Fails" : "Holds"}** (more than one fails). The reverse: ${
           lostFrom(other, base)
             .map((item) => item.id)
@@ -335,8 +352,44 @@ export function searchFirstGateSection(
         : wrongOnlyRounds === 12
           ? [5, 8]
           : undefined;
-    const wrongStanding = standing(wrong.other - wrong.base, k);
-    standings.push({ bar: "the wrong sentences", standing: wrongStanding });
+    // The drift rule: the thresholds again from B's own `main` arm; each bar is read against the
+    // smaller of the written and the recomputed, plain and strict apart.
+    const records: DriftRecords = drift;
+    const recomputed = roundsRead > 0 ? driftThresholds(records, roundsRead) : undefined;
+    const recomputedK =
+      wrongOnlyRounds > 0
+        ? driftThresholds(records, roundsRead + wrongOnlyRounds).K
+        : recomputed?.K;
+    const bars = [
+      {
+        bar: "the wrong sentences",
+        excess: wrong.other - wrong.base,
+        written: k,
+        again: recomputedK,
+      },
+      ...rowExcess.map((each) => ({
+        bar: `the gating row, ${each.language}`,
+        excess: each.excess,
+        written: THRESHOLDS[each.rounds]?.[each.language as "en" | "zh-CN"],
+        again: recomputed?.[each.language],
+      })),
+    ].map((each) => {
+      const used: readonly [number, number] | undefined =
+        each.written && each.again
+          ? [Math.min(each.written[0], each.again[0]), Math.min(each.written[1], each.again[1])]
+          : each.written;
+      const reading = standing(each.excess, used);
+      return {
+        ...each,
+        used,
+        standing: reading,
+        changed: reading !== standing(each.excess, each.written),
+      };
+    });
+    const standings = bars.map((each) => ({ bar: each.bar, standing: each.standing }));
+    const wrongStanding = bars[0]?.standing ?? "no threshold";
+    const pair = (value: readonly [number, number] | undefined) =>
+      value ? `${value[0]} / ${value[1]}` : "–";
     const sees =
       wrongOnlyRounds === 0
         ? " What this bar could see: a path that Supports wrong sentences five times as often as `main` is caught only about 3 times in 4, because today's check Supports so few of them (1 in 252 readings in Phase A), so a pass here doesn't rule such a path out; it would catch a path that Supports them far more often."
@@ -352,7 +405,7 @@ export function searchFirstGateSection(
       "",
       `### The held-out Note's bars · ${model}`,
       "",
-      `- **Bar 1, the wrong sentences,** both languages, over the rounds and the list: Supported ${base} ${wrong.base}, ${other} ${wrong.other}; ${other}'s less ${base}'s ${wrong.other - wrong.base}, against K ${k ? `${k[0]} plain and ${k[1]} strict` : "not set for this many rounds"}${wrongOnlyRounds > 0 ? `, with ${wrongOnlyRounds} wrong-only rounds pooled in` : ""}: **${wrongStanding}**. Each reading: ${
+      `- **Bar 1, the wrong sentences,** both languages, over the rounds and the list: Supported ${base} ${wrong.base}, ${other} ${wrong.other}; ${other}'s less ${base}'s ${wrong.other - wrong.base}, against K ${k ? `${k[0]} plain and ${k[1]} strict` : "not set for this many rounds"}${wrongOnlyRounds > 0 ? `, with ${wrongOnlyRounds} wrong-only rounds pooled in` : ""}, read against ${pair(bars[0]?.used)}: **${wrongStanding}**. Each reading: ${
         [...new Set(wrongReadings)]
           .map((reading) => {
             const times = wrongReadings.filter((each) => each === reading).length;
@@ -360,6 +413,14 @@ export function searchFirstGateSection(
           })
           .join("; ") || "none"
       }.${sees}`,
+      "",
+      `| Bar | How far past | Written, plain / strict | Recomputed from ${base}'s own records | Read against | Reading | Changed by the recomputed |`,
+      "|---|--:|--:|--:|--:|---|---|",
+      ...bars.map(
+        (each) =>
+          `| ${each.bar} | ${each.excess} | ${pair(each.written)} | ${pair(each.again)} | ${pair(each.used)} | ${each.standing} | ${each.changed ? "yes" : "no"} |`,
+      ),
+      "",
       `- **The rule over the bars:** ${standings.map((each) => `${each.bar} ${each.standing}`).join("; ")}${lostIn.length > 0 ? `; more than one lost in ${lostIn.join(" and ")}` : ""}. **${failed ? "Fails" : pastPlain.length === 1 ? `Not settled: ${pastPlain[0]?.bar} is measured once more on three fresh reduced rounds, or counts as failed` : "Holds"}.**`,
     );
   }
