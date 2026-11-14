@@ -134,7 +134,7 @@ function firstCut(
     // The earliest start that fits keeps the most words before the mark; else it starts at the mark.
     let low = 0;
     let high = places.length - 1;
-    let best = places.at(-1) ?? first.start;
+    let best = first.start;
     while (low <= high) {
       const middle = Math.floor((low + high) / 2);
       const at = places[middle] ?? first.start;

@@ -2,10 +2,11 @@ import type { ReactNode } from "react";
 import type { UnsupportedReason } from "../../../core/api";
 import { MetaLine } from "../components/MetaLine";
 import { LineAction } from "../components/ProblemLine";
-import { useLanguage, useT } from "../i18n";
+import { useT } from "../i18n";
 import { openCited, quoteSaysSo } from "../openCited";
 import type { NumberedCitation } from "./citationNumbers";
 import { useCitedOrigin } from "./mindContext";
+import { MoreQuotes } from "./QuoteLink";
 
 /**
  * What a cited sentence's Unsupported card says in place of where the check
@@ -30,7 +31,6 @@ export function UnsupportedCited({
   onOpen(): void;
 }) {
   const t = useT();
-  const language = useLanguage();
   const shown = allCited ? cited : cited.slice(0, 1);
   return (
     <>
@@ -78,19 +78,10 @@ export function UnsupportedCited({
       ))}
       {cited.length > 1 && (
         <p className="claim-quote-where">
-          <button
-            type="button"
-            data-testid="claim-cited-more"
-            className="claim-quote-link"
-            aria-expanded={allCited}
-            onClick={onMore}
-          >
-            {allCited
-              ? t("claim.parts.hide")
-              : t("claim.parts.more", {
-                  count: new Intl.NumberFormat(language).format(cited.length - 1),
-                })}
-          </button>
+          <MoreQuotes
+            more={{ count: cited.length - 1, open: allCited, onToggle: onMore }}
+            testId="claim-cited-more"
+          />
         </p>
       )}
     </>

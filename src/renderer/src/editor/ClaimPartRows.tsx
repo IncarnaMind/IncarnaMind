@@ -43,6 +43,7 @@ import { ClaimMarkIcon } from "./icons";
 import { LibrarySource } from "./LibrarySource";
 import { SignOffsContext, useCitedOrigin } from "./mindContext";
 import { PropertySource, showFileProperties } from "./PropertySource";
+import { MoreQuotes, type MoreShown, QuoteLink } from "./QuoteLink";
 import { SignOffLine } from "./SignOff";
 import {
   citationSignOff,
@@ -129,6 +130,8 @@ export function cardParts({
     if (!placed.has(original))
       placed.set(original, placeWords(sentence, text.slice(part.span.start, part.span.end)));
     const isWaiting = waiting?.has(part) ?? false;
+    // A member of a quantified part still to be cited stays open with it: its Citation is to add.
+    const toCite = isWaiting || (waiting?.has(original) ?? false);
     const leftOut = part.verdict === null && !part.itself && !(opens?.(original) ?? false);
     return {
       key: `${part.span.start}:${part.span.end}:${label ?? ""}:${index}`,
@@ -136,7 +139,7 @@ export function cardParts({
       label,
       words: text.slice(part.span.start, part.span.end),
       place: placed.get(original) ?? null,
-      fold: part.verdict === "supported" && !isWaiting ? "supported" : leftOut ? "opinion" : null,
+      fold: part.verdict === "supported" && !toCite ? "supported" : leftOut ? "opinion" : null,
       waiting: isWaiting,
       decisions:
         citations && !stale && !checking
@@ -215,6 +218,8 @@ export function partReason(
   if (part.unsupported?.kind === "forecast-certainty") return t("claim.forecast");
   if (part.unsupported?.kind === "unbacked-cause") return t("claim.unbackedCause");
   if (part.unsupported?.reason) return part.unsupported.reason;
+  // Its quote is a Passage the check found that doesn't back it, as a one-part card's is (#770).
+  if (part.evidence.length > 0) return t("claim.unsupported.differs");
   if (read)
     return t(
       read.pages === read.of
@@ -341,20 +346,30 @@ export function PartQuote({
       className="claim-quote"
       {...menu.rowProps}
     >
-      {library ? (
-        <LibrarySource
-          location={library}
-          className="claim-part-citation claim-part-source claim-property"
-          testId="claim-part-library"
-        />
-      ) : property ? (
-        <PropertySource
-          citation={citation}
-          location={property}
-          className="claim-part-citation claim-part-source claim-property"
-          testId="claim-part-property"
-          onOpen={onOpen}
-        />
+      {library || property ? (
+        <>
+          {library ? (
+            <LibrarySource
+              location={library}
+              className="claim-part-citation claim-part-source claim-property"
+              testId="claim-part-library"
+            />
+          ) : (
+            property && (
+              <PropertySource
+                citation={citation}
+                location={property}
+                className="claim-part-citation claim-part-source claim-property"
+                testId="claim-part-property"
+                onOpen={onOpen}
+              />
+            )
+          )}
+          {/* The place says itself above; its Citation, its count and its link still have a line. */}
+          {(citing || more || link) && (
+            <MetaLine className="claim-quote-where" parts={[citing, more, link]} />
+          )}
+        </>
       ) : (
         <>
           {citation.quote &&
@@ -415,31 +430,6 @@ export function PartQuote({
   );
 }
 
-/** An action on a quote's Location line, written as a link rather than a button. */
-export function QuoteLink({
-  testId,
-  onClick,
-  expanded,
-  children,
-}: {
-  testId: string;
-  onClick(): void;
-  expanded?: boolean;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      data-testid={testId}
-      className="claim-quote-link"
-      aria-expanded={expanded}
-      onClick={onClick}
-    >
-      {children}
-    </button>
-  );
-}
-
 /**
  * A row of the card: why it needs the User, in one sentence, and one quote with its Location, the
  * rest behind a count (#2869). Its words aren't written again: the sentence marks them, and only a
@@ -472,7 +462,7 @@ export function PartBlock({
   /** Every quote shows, not only the first. */
   allQuotes: boolean;
   /** The count on the first quote's Location line that opens the others, and folds them again. */
-  more: { count: number; open: boolean; onToggle(): void } | null;
+  more: MoreShown | null;
   correction?: ClaimCorrection;
   /** The check the row is part of, whose row menu (right-click, or the menu key) holds its fix. */
   checkId: string;
@@ -585,17 +575,7 @@ export function PartBlock({
             citations={citations}
             signedAll={signedAll}
             onOpen={onOpen}
-            more={
-              index === 0 && more && more.count > 0 ? (
-                <QuoteLink testId="claim-part-more" expanded={more.open} onClick={more.onToggle}>
-                  {more.open
-                    ? t("claim.parts.hide")
-                    : t("claim.parts.more", {
-                        count: new Intl.NumberFormat(language).format(more.count),
-                      })}
-                </QuoteLink>
-              ) : null
-            }
+            more={index === 0 && more && more.count > 0 ? <MoreQuotes more={more} /> : null}
           />
         );
       })}

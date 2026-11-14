@@ -110,7 +110,6 @@ import {
   partReason,
   partTone,
   partVerdictText,
-  QuoteLink,
 } from "./ClaimPartRows";
 import { ClaimSentence } from "./ClaimSentence";
 import { CorrectionConflict, correctionLabel } from "./CorrectionOffer";
@@ -140,6 +139,7 @@ import {
 import { checkOpinion, opinionChecks } from "./opinionChecks";
 import { Popover } from "./Popover";
 import { PropertySource } from "./PropertySource";
+import { MoreQuotes, type MoreShown, QuoteLink } from "./QuoteLink";
 import { isQuietFocus } from "./quietFocus";
 import { RecordCiteResults } from "./RecordCiteResults";
 import { readDocumentsText } from "./readDocumentsText";
@@ -1336,7 +1336,7 @@ export function ClaimCard({
       drawsFix,
     }: {
       allQuotes: boolean;
-      more: { count: number; open: boolean; onToggle(): void } | null;
+      more: MoreShown | null;
       drawsFix: boolean;
     },
   ) => (
@@ -1360,7 +1360,17 @@ export function ClaimCard({
       citations={partCitations}
     />
   );
-  const fineQuotes = fineRows.reduce((count, row) => count + row.part.evidence.length, 0);
+  // A ✓ card shows its first part's first quote; the count opens every other quote, and a later
+  // part with none, which has nothing else to show it by.
+  const fineFirstQuoted = (fineRows[0]?.part.evidence.length ?? 0) > 0;
+  const fineHidden =
+    fineRows.reduce((count, row) => count + row.part.evidence.length, 0) -
+    (fineFirstQuoted ? 1 : 0) +
+    fineRows.slice(1).filter((row) => row.part.evidence.length === 0).length;
+  const fineMore: MoreShown | null =
+    fineHidden > 0
+      ? { count: fineHidden, open: fineOpen, onToggle: () => toggleQuotes(FINE) }
+      : null;
   const signToggle =
     signable.length > 0 ? (
       <span
@@ -1467,18 +1477,16 @@ export function ClaimCard({
               {(fineOpen ? fineRows : fineRows.slice(0, 1)).map((row, index) =>
                 blockOf(row, {
                   allQuotes: fineOpen,
-                  more:
-                    index === 0 && fineQuotes > 1
-                      ? {
-                          count: fineQuotes - 1,
-                          open: fineOpen,
-                          onToggle: () => toggleQuotes(FINE),
-                        }
-                      : null,
+                  more: index === 0 && fineFirstQuoted ? fineMore : null,
                   drawsFix: false,
                 }),
               )}
             </ol>
+          )}
+          {fineMore && !fineFirstQuoted && (
+            <p className="claim-quote-where">
+              <MoreQuotes more={fineMore} />
+            </p>
           )}
         </>
       ) : (
