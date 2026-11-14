@@ -275,8 +275,8 @@ export function createWindowBudget(
       }
       const onScreen = request.reads ? request.onScreen : undefined;
       const held = keptWhole(request.messages, request.question, request.mind, onScreen);
-      // Where it reads, the Question goes with the Documents on screen and the Search scope after
-      // them or the selection, as no Tool gives them back (#3045).
+      // Where it reads, the Question goes with the line naming the Documents on screen, and with the
+      // Search scope after that line or the selection: no Tool gives them back (#3045).
       const question =
         tokens(request.question) +
         MESSAGE_TOKENS +

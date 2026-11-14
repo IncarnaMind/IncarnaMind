@@ -930,9 +930,9 @@ export interface RequestMind extends MindParts {
  * if it doesn't fit whole; `onCut` hears what was kept of it then. For a
  * model whose context window is known only once the model is ready (see
  * ./window). `keep`: what a small window keeps whole ahead of the Mind, where
- * the caller saw it fit, the selection with the Question, then the turn just
- * before it (#3045). Null when the Question alone, or what `keep` holds, is
- * over the budget.
+ * the caller saw it fit: the line naming the Documents on screen and the
+ * selection with the Question, then the turn just before it (#3045). Null
+ * when the Question alone, or what `keep` holds, is over the budget.
  */
 export function fitQuestionContext(
   messages: readonly AnswerMessage[],
