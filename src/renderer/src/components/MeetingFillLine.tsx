@@ -1,10 +1,13 @@
-import type { Meeting, MeetingFillProblem } from "../../../core/api";
+import type { Meeting, MeetingFillProblem, ProviderErrorKind } from "../../../core/api";
 import type { MessageKey } from "../../../shared/i18n";
 import { isPartialMeetingFill } from "../../../shared/meetingFill";
+import { useAnswers } from "../answers";
 import { useT } from "../i18n";
 import { useFillStep } from "../meetingFillSteps";
 import { useMeetings } from "../meetings";
 import { showMeetingNoteView } from "../meetingViews";
+import { useModelNames, useServiceName } from "../modelNames";
+import { answerProblem } from "../problems";
 import { speechModelDownload } from "../speechModelDownload";
 import { CheckLineIcon } from "./lineIcons";
 import { type ProblemAction, ProblemLine } from "./ProblemLine";
@@ -22,6 +25,37 @@ const REASONS = {
   "no-transcript": "meetings.fill.problem.noTranscript",
   added: "memos.fill.problem.added",
 } as const satisfies Record<MeetingFillProblem["kind"], MessageKey>;
+
+/** A provider's errors the User can act on: the line says them as a failed Answer does (#3099). */
+const PROVIDER_REASONS: ReadonlySet<ProviderErrorKind> = new Set([
+  "auth",
+  "out-of-credit",
+  "rate-limit",
+  "network",
+]);
+
+/** A failed request's reason in a failed Answer's words, for `PROVIDER_REASONS`; else null. */
+function useProviderReason(problem: MeetingFillProblem | null | undefined): string | null {
+  const t = useT();
+  const providerId = problem?.model?.providerId ?? null;
+  const service = useServiceName(providerId);
+  const names = useModelNames();
+  const provider = useAnswers(
+    (state) => state.models?.find((group) => group.provider.id === providerId)?.provider,
+  );
+  if (problem?.kind !== "model" || !problem.error || !PROVIDER_REASONS.has(problem.error)) {
+    return null;
+  }
+  const { line } = answerProblem(problem.error, provider?.kind, undefined, {
+    ...(provider && { local: provider.service === null }),
+  });
+  return t(line, {
+    service,
+    model: problem.model
+      ? names(problem.model.modelId, providerId).name
+      : t("answer.error.thisModel"),
+  });
+}
 
 /** A voice memo's note is written, not filled in (#1568): its own words where they differ. */
 const WORDS = {
@@ -57,6 +91,7 @@ export function MeetingFillLine({ meeting, editor }: { meeting: Meeting; editor?
   const place = useTabPlace();
   const step = useFillStep(meeting.id, editor);
   const problem = useMeetings((state) => state.problems[meeting.id]);
+  const providerReason = useProviderReason(meeting.fill?.problem);
   if (!meeting.fill) return null;
   // The editor holding the fill on its own Undo is ahead of the core, which follows it.
   const fill =
@@ -78,6 +113,7 @@ export function MeetingFillLine({ meeting, editor }: { meeting: Meeting; editor?
   };
   // Said in the interface's words now; a model's own words show on hover.
   const reasonOf = (problem: MeetingFillProblem | null) =>
+    (problem?.kind === "model" ? providerReason : null) ??
     t(
       meeting.kind === "memo" && problem?.kind === "not-allowed"
         ? "memos.fill.problem.notAllowed"
@@ -158,6 +194,8 @@ export function MeetingFillLine({ meeting, editor }: { meeting: Meeting; editor?
   ) {
     const filled = fill.state === "filled";
     const documentId = meeting.transcript?.documentId;
+    // That reason already says every item was left out.
+    const counted = filled || fill.problem?.kind !== "unchecked";
     return (
       <ProblemLine
         testId="meeting-fill-line"
@@ -165,7 +203,7 @@ export function MeetingFillLine({ meeting, editor }: { meeting: Meeting; editor?
         title={!filled && fill.problem?.kind === "model" ? fill.problem.message : undefined}
         details={[
           ...(filled ? telling : []),
-          ...(omitted > 0
+          ...(omitted > 0 && counted
             ? [
                 t(omitted === 1 ? "meetings.fill.omitted.one" : "meetings.fill.omitted", {
                   count: omitted,

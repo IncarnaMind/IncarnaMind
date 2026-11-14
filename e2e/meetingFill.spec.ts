@@ -484,9 +484,9 @@ for (const language of ["en", "zh-CN"] as const) {
         await expect(line).toContainText(outcome === "partial" ? words.partial : words.notFilled, {
           timeout: 30_000,
         });
-        await expect(line).toContainText(
-          outcome === "partial" ? words.omittedOne : words.omittedTwo,
-        );
+        // Not filled, the reason already says no item could be checked: the count is left off.
+        if (outcome === "partial") await expect(line).toContainText(words.omittedOne);
+        else await expect(line).not.toContainText(words.omittedTwo);
         if (outcome === "partial") await closeFirstFillPopover(window);
         await expect(line).not.toContainText(words.filled);
         await expect(line).toHaveAttribute("role", outcome === "partial" ? "status" : "alert");
@@ -594,7 +594,7 @@ for (const language of ["en", "zh-CN"] as const) {
               .poll(() => attempt.evaluate(({ observed }) => observed), { timeout: 30_000 })
               .toEqual({ filling: true, failed: true });
             await expect(line).toContainText(words.notFilled);
-            await expect(line).toContainText(words.omittedTwo);
+            await expect(line).not.toContainText(words.omittedTwo);
             await expect(line).not.toContainText(words.filled);
             await expect(line).toHaveAttribute("role", "alert");
             expect(

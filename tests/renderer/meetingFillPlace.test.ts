@@ -27,6 +27,14 @@ vi.mock("../../src/renderer/src/meetings", () => ({
   ),
 }));
 vi.mock("../../src/renderer/src/meetingViews", () => ({ showMeetingNoteView: vi.fn() }));
+// The line names a provider's service and model from the stores the app's window loads.
+vi.mock("../../src/renderer/src/answers", () => ({
+  useAnswers: (select: (state: unknown) => unknown) => select({ models: [] }),
+}));
+vi.mock("../../src/renderer/src/modelNames", () => ({
+  useServiceName: () => "This service",
+  useModelNames: () => (modelId: string) => ({ name: modelId, id: undefined }),
+}));
 vi.mock("../../src/renderer/src/components/tabs/tabItems", () => ({
   useTabPlace: () => ({ tabId: "meeting-tab", groupId: "meeting-group" }),
 }));

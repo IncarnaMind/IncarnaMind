@@ -70,6 +70,21 @@ vi.mock("../../src/renderer/src/store", () => ({
 vi.mock("../../src/renderer/src/undo", () => ({
   useUndo: { getState: () => ({ push: actions.push }) },
 }));
+vi.mock("../../src/renderer/src/answers", () => ({
+  useAnswers: (select: (state: unknown) => unknown) =>
+    select({
+      models: [
+        { provider: { id: "provider-1", kind: "anthropic", service: { name: "Anthropic" } } },
+      ],
+    }),
+}));
+vi.mock("../../src/renderer/src/modelNames", () => ({
+  useServiceName: (providerId: string | null) => (providerId ? "Anthropic" : "This service"),
+  useModelNames: () => (modelId: string) => ({
+    name: modelId === "claude-haiku-5-5" ? "Claude Haiku 5.5" : modelId,
+    id: modelId,
+  }),
+}));
 
 let root: Root | null = null;
 let container: HTMLElement;
@@ -324,13 +339,13 @@ describe("meeting notes that weren't filled in", () => {
       "en",
       "unchecked",
       12,
-      "The note wasn’t filled in: none of what the model wrote could be checked against the transcript. · 12 items couldn’t be added · View Transcript · Try again",
+      "The note wasn’t filled in: none of what the model wrote could be checked against the transcript. · View Transcript · Try again",
     ],
     [
       "zh-CN",
       "unchecked",
       12,
-      "未能补全笔记：模型写的内容都没能在转写稿中核对上。· 12 项内容未能添加 · 查看转写稿 · 重试",
+      "未能补全笔记：模型写的内容都没能在转写稿中核对上。· 查看转写稿 · 重试",
     ],
     ["en", "empty", 0, "The note wasn’t filled in: the model found nothing to add. · Try again"],
     ["zh-CN", "empty", 0, "未能补全笔记：模型没有找到可补充的内容。· 重试"],
@@ -350,6 +365,91 @@ describe("meeting notes that weren't filled in", () => {
       expect(actions.fillNotes.mock.calls).toEqual([[meeting.id]]);
     },
   );
+
+  // protects=the items count goes only where the reason already says every item was left out; beside any other reason it stays, and the Transcript parts never finished stay with every reason (#3099); fails_when=the count is left off beside another reason, or the parts go; no_claim=which reason the core records.
+  test.each([
+    [
+      "en",
+      "unchecked",
+      "The note wasn’t filled in: none of what the model wrote could be checked against the transcript. · 2 Transcript parts couldn’t be finished · View Transcript · Try again",
+    ],
+    [
+      "zh-CN",
+      "unchecked",
+      "未能补全笔记：模型写的内容都没能在转写稿中核对上。· 2 段转写稿未处理完 · 查看转写稿 · 重试",
+    ],
+    [
+      "en",
+      "model",
+      "The note wasn’t filled in: the model couldn’t fill in the notes. · 12 items couldn’t be added · 2 Transcript parts couldn’t be finished · View Transcript · Try again",
+    ],
+    [
+      "zh-CN",
+      "model",
+      "未能补全笔记：模型未能补全笔记。· 12 项内容未能添加 · 2 段转写稿未处理完 · 查看转写稿 · 重试",
+    ],
+  ] as const)(
+    "in %s, beside the reason %s, the count goes only where it says nothing more",
+    async (language, kind, text) => {
+      actions.language.current = language;
+      const problem = { kind, message: translate(language, `meetings.fill.problem.${kind}`) };
+      const line = await show(
+        meetingOf(fillOf({ state: "failed", omitted: 12, unfinishedParts: 2, problem })),
+      );
+      expect(line?.textContent).toBe(text);
+    },
+  );
+
+  // protects=a request the provider refused for a reason the User can act on (no credit, a refused key, too many requests, no connection) gives that reason on the line in a failed Answer's own words, naming the service or the model, with the provider's own words still on hover; any other kind keeps the general reason (#3099); fails_when=the line gives only the general reason for those four, or words another kind; no_claim=how the core classifies a provider's error.
+  test.each([
+    [
+      "auth",
+      "The note wasn’t filled in: The key for Claude Haiku 5.5 was refused · Try again",
+      "未能补全笔记：Claude Haiku 5.5 的密钥被拒绝了 · 重试",
+    ],
+    [
+      "out-of-credit",
+      "The note wasn’t filled in: No credit on this key · Try again",
+      "未能补全笔记：这个密钥没有额度 · 重试",
+    ],
+    [
+      "rate-limit",
+      "The note wasn’t filled in: Anthropic is limiting requests right now · Try again",
+      "未能补全笔记：Anthropic 暂时限制了请求 · 重试",
+    ],
+    [
+      "network",
+      "The note wasn’t filled in: Couldn’t reach Anthropic. Check your internet connection · Try again",
+      "未能补全笔记：无法连接 Anthropic，请检查网络连接 · 重试",
+    ],
+    [
+      "provider",
+      "The note wasn’t filled in: the model couldn’t fill in the notes. · Try again",
+      "未能补全笔记：模型未能补全笔记。· 重试",
+    ],
+  ] as const)("a provider's %s error gives its reason on the line", async (error, en, zh) => {
+    for (const [language, text] of [
+      ["en", en],
+      ["zh-CN", zh],
+    ] as const) {
+      actions.language.current = language;
+      const line = await show(
+        meetingOf(
+          fillOf({
+            state: "failed",
+            problem: {
+              kind: "model",
+              message: "provider diagnostic",
+              error,
+              model: { providerId: "provider-1", modelId: "claude-haiku-5-5" },
+            },
+          }),
+        ),
+      );
+      expect(line?.textContent).toBe(text);
+      expect(line?.getAttribute("title")).toBe("provider diagnostic");
+    }
+  });
 });
 
 describe("meeting notes retained before a later failure", () => {

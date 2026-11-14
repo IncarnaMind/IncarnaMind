@@ -498,6 +498,13 @@ export function createMeetingFill(options: MeetingFillOptions) {
 
   const words = (key: MessageKey) => translate(options.language(), key);
 
+  /** A reply that failed, as the fill's problem: the provider's words, and its error's kind. */
+  const failure = (answer: CellAnswer, route: Routed): MeetingFillProblem => ({
+    kind: "model",
+    message: answer.error?.message ?? words("meetings.fill.problem.model"),
+    ...(answer.error && { error: answer.error.kind, model: route.model }),
+  });
+
   /** One part of the Transcript answered, or the problem that stops the fill. */
   async function ask(
     context: QuestionContext,
@@ -519,10 +526,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
       throw new FillProblemError({ kind: "stopped", message: "" });
     }
     if (answer.status === "failed" && !context.meetingFacts) {
-      throw new FillProblemError({
-        kind: "model",
-        message: answer.error?.message ?? words("meetings.fill.problem.model"),
-      });
+      throw new FillProblemError(failure(answer, route));
     }
     return answer;
   }
@@ -651,10 +655,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
       }
       if (answer.status === "failed") {
         unfinishedParts = parts.length - index;
-        problem = {
-          kind: "model",
-          message: answer.error?.message ?? words("meetings.fill.problem.model"),
-        };
+        problem = failure(answer, route);
         log.warn("meeting.fillPartFailed", { meetingId: meeting.id, parts: unfinishedParts });
         break;
       }

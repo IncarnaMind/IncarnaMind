@@ -11766,6 +11766,10 @@ export interface MeetingFillProblem {
   message: string;
   /** For "not-allowed": the service's name, as the User knows it. */
   service?: string;
+  /** For "model" from the provider: its error's kind, which the line may word as an Answer's does. */
+  error?: ProviderErrorKind;
+  /** With `error`: the model the fill asked. */
+  model?: ChatModelChoice;
 }
 
 export type { HelpKeys, MeetingHelpKind, MeetingHelpTemplate };

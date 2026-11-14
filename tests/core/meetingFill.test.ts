@@ -1764,9 +1764,10 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
     const { core, meeting, client } = await recorded(model, NOTES);
     const before = shown(client);
     const failed = await settledFill(core, meeting);
+    // The refusal's kind and the model asked are kept, for the line to say it as an Answer does (#3099).
     expect(failed).toMatchObject({
       state: "failed",
-      problem: { kind: "model" },
+      problem: { kind: "model", error: "auth", model: { modelId: "local-model" } },
       addedBlockIds: [],
     });
     expect(failed.problem?.message).not.toBe("");
