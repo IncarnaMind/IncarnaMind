@@ -176,7 +176,7 @@ export function tableAt(
   return { lines, index, column: cellAt(line, at - lineStart), top, head, end };
 }
 
-type Table = NonNullable<ReturnType<typeof tableAt>>;
+export type Table = NonNullable<ReturnType<typeof tableAt>>;
 
 // In side-by-side panels ("| Revenue | 12% | Operating margin | 94% |") the first cell
 // labels another number: the label is the nearest named cell to the left, never one with a
@@ -217,11 +217,19 @@ export function possibleLabels(table: Table): string[] {
   return names;
 }
 
+/** The headings `table` gives `column`: each heading row's cell over it, where the rows line up. */
+export const columnHeadings = (table: Table, column: number): string[] =>
+  alignedHeadings(table).map((heading) => cellsOf(heading)[column] ?? "");
+
+/** Whether `table`'s own row holds a number: only then are the rows of none above it its headings. */
+export const rowHoldsNumber = (table: Table): boolean =>
+  cellsOf(table.lines[table.index] ?? "").some(holdsNumber);
+
 /** The names `table` gives its number: the nearest named cell to its left and the heading of its own column. */
 export const ownNames = (table: Table): string[] =>
   [
     labelOf(cellsOf(table.lines[table.index] ?? ""), table.column) ?? "",
-    ...alignedHeadings(table).map((heading) => cellsOf(heading)[table.column] ?? ""),
+    ...columnHeadings(table, table.column),
   ].filter(namesSomething);
 
 /** The names a table gives its number one way, its own and its other numbers'. */
@@ -263,7 +271,7 @@ export function cellNames(table: Table): { rows: CellNames; columns: CellNames }
         }),
     },
     columns: {
-      own: headings.map((heading) => cellsOf(heading)[column] ?? ""),
+      own: columnHeadings(table, column),
       others: (keep) =>
         headings.flatMap((heading) =>
           cellsOf(heading).flatMap((name, place) =>
