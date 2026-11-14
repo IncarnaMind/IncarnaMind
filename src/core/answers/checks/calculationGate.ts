@@ -7,12 +7,14 @@ import {
   readingsOf,
   readStatedUnits,
 } from "../../../shared/figures";
+import { findQuote, findQuoteOccurrences, type TextRange } from "../../../shared/quoteMatch";
 import type { Citation, InputNumber } from "../../api";
+import { recordCiteSpans } from "../../recordCites/parser";
 import { writtenNumbers } from "../../transcription/spokenNumbers";
 import { documentFigureContext } from "../calculations";
 import { figuresInClaim, statedFigure } from "./calculated";
 import type { ReadVerdict } from "./prompt";
-import { unitNotStated } from "./units";
+import { isSameUnit, sameValue, statesFigure, unitNotStated, writtenOf } from "./units";
 
 const spaced = (text: string) => text.replace(/\s+/gu, " ").trim().toLowerCase();
 
@@ -96,6 +98,70 @@ function wordsState(figure: Figure, quote: string, context: FigureContext): bool
   });
 }
 
+/** Whether a figure or a reading is in points: percentage or basis points, or points counted. */
+const isPoints = (each: { unit: Figure["unit"] }) =>
+  each.unit.kind === "points" || (each.unit.kind === "other" && /^points?$/i.test(each.unit.word));
+
+/**
+ * Whether the quotes hold every number of `claim`, at its value or as it is written, in digits or
+ * in words, whatever unit they give it: "54,000 tonnes" in a row under "Output (t)", "12%" in a
+ * cell under "YoY%". Whether its unit is the sentence's is the unit gate's to judge (./units), and
+ * a record cite's numbers say where, not how much. A number none holds is one no quote states
+ * (#3022).
+ */
+export function quotesHoldNumbers(
+  claim: string,
+  citations: readonly { citation: Citation; units: readonly { text: string }[] }[],
+): boolean {
+  const context = documentFigureContext(citations.flatMap((citation) => citation.units));
+  const own = documentFigureContext([{ text: claim }]);
+  const held = citations.flatMap(({ citation, units }) => {
+    const words = writtenNumbers(citation.quote);
+    return [
+      ...figureReadings(citation.quote, units).flat(),
+      ...(words === citation.quote ? [] : figuresInClaim(words, context).flatMap(readingsOf)),
+    ];
+  });
+  // A number said in words before points is read for a sentence's figure in points alone:
+  // "three points about churn" is no 3%.
+  const inPoints = held.concat(
+    citations.flatMap(({ citation }) => {
+      const said = writtenNumbers(citation.quote, { points: true });
+      return said === citation.quote
+        ? []
+        : figuresInClaim(said, context).flatMap(readingsOf).filter(isPoints);
+    }),
+  );
+  // A range's second end is a number of its own: "2–3%" holds 3% as well as 2%.
+  const ends = (each: Reading) => [
+    each.value,
+    ...("rangeTo" in each && typeof each.rangeTo === "number" ? [each.rangeTo] : []),
+  ];
+  const holderOf = (readings: readonly Reading[]) => {
+    const values = readings.flatMap(ends);
+    const plain = readings.flatMap((each) =>
+      each.unit.kind === "plain" ? ends(each).map((value) => value / each.scale) : [],
+    );
+    return (claimed: readonly Reading[], written: number) =>
+      claimed.some((reading) => values.some((value) => sameValue(value, reading.value))) ||
+      plain.some((value) => sameValue(value, written));
+  };
+  const holdsAny = holderOf(held);
+  const holdsPoints = holderOf(inPoints);
+  const cites = recordCiteSpans(claim);
+  return figuresInClaim(claim, own.language ? own : { ...context, header: null })
+    .filter((figure) => !cites.some((cite) => figure.start < cite.to && figure.end > cite.from))
+    .every((figure) => {
+      const holds = isPoints(figure) ? holdsPoints : holdsAny;
+      const second = figure.ambiguous.find((each) => each.kind === "range")?.readings[1];
+      const first = readingsOf(figure).filter((reading) => reading !== second);
+      return (
+        holds(first, writtenOf(figure)) &&
+        (second === undefined || holds([second], writtenOf({ ...figure, value: second.value })))
+      );
+    });
+}
+
 export async function needsCalculation({
   claim,
   verdict,
@@ -118,7 +184,8 @@ export async function needsCalculation({
 }): Promise<boolean> {
   const context = documentFigureContext(citations.flatMap((citation) => citation.units));
   const own = documentFigureContext([{ text: claim }]);
-  const claimFigures = figuresInClaim(claim, own.language ? own : { ...context, header: null });
+  const claimContext = own.language ? own : { ...context, header: null };
+  const claimFigures = figuresInClaim(claim, claimContext);
   if (claimFigures.length === 0 && !attempted && !verdict.calculations?.length) return false;
   if (attempted && computed.length === 0) return true;
   if (
@@ -129,9 +196,7 @@ export async function needsCalculation({
   )
     return false;
   const sameUnit = (a: Figure["unit"], b: InputNumber["unit"]) =>
-    a.kind === b.kind &&
-    (a.kind !== "currency" || (b.kind === "currency" && a.code === b.code)) &&
-    (a.kind !== "other" || (b.kind === "other" && a.word === b.word));
+    b.kind !== "rate" && isSameUnit(a, b);
   const matches = (a: Pick<Figure, "value" | "unit">, b: Pick<InputNumber, "value" | "unit">) =>
     a.value === b.value && sameUnit(a.unit, b.unit);
   const remaining = [...computed];
@@ -172,6 +237,24 @@ export async function needsCalculation({
     cited: () => citation.quote,
     document: () => units.map((unit) => unit.text).join("\n"),
   }));
+  // Where each quote stands in its Document, so a label there can state its plain number.
+  let placed: { text: string; ranges: TextRange[] }[] | undefined;
+  const places = () =>
+    (placed ??= unique.map(({ citation, units }) => {
+      const text = units.map((unit) => unit.text).join("\n");
+      const ranges = findQuoteOccurrences(text, citation.quote);
+      return {
+        text,
+        ranges:
+          ranges.length > 0 ? ranges : (findQuote(text, citation.quote, { numbers: true }) ?? []),
+      };
+    }));
+  let said: { text: string; numbers: number[] } | undefined;
+  const sentence = () =>
+    (said ??= {
+      text: claim,
+      numbers: figuresInClaim(writtenNumbers(claim), claimContext).map(writtenOf),
+    });
   const unused = [...computed];
   for (const figure of claimFigures) {
     const at = unused.findIndex((number) => matches(figure, number));
@@ -186,7 +269,8 @@ export async function needsCalculation({
         ({ citation, units }) =>
           rowStates(claim, figure, citation.quote, units, context) ||
           wordsState(figure, citation.quote, context),
-      )
+      ) ||
+      places().some(({ text, ranges }) => statesFigure(figure, sentence(), text, ranges, context))
     )
       continue;
     if (!available.some((source) => matches(figure, source))) {

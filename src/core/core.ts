@@ -5,8 +5,9 @@ import { basename, dirname, extname, isAbsolute, join } from "node:path";
 import { deflateRawSync } from "node:zlib";
 import * as Y from "yjs";
 import { cleanApiKey } from "../shared/apiKey";
+import { meetingTimeAt } from "../shared/blockTimes";
 import { isCitationStyleId, withRecentStyle } from "../shared/citationStyles";
-import { parseQuotedWords } from "../shared/citations";
+import { parseQuotedWords, quoteNotAtItsPlace } from "../shared/citations";
 import type { DrawnPage } from "../shared/citedPage";
 import {
   chosenExportMarks,
@@ -49,6 +50,7 @@ import {
   sameStyle,
   writeMindStyle,
 } from "../shared/mindStyle";
+import { missingNumberWords } from "../shared/missingNumbers";
 import { mindName } from "../shared/naming";
 import { paperFor } from "../shared/printDocument";
 import { resolveProposals, restoreRevised } from "../shared/proposals";
@@ -91,6 +93,7 @@ import {
   recheckCitation,
   recheckKept,
   recheckWhereSelected,
+  sharedQuoteLooks,
 } from "./answers/citations";
 import {
   addCitedUnit,
@@ -109,6 +112,7 @@ import type { LiveTranscript } from "./answers/liveTranscript";
 import { explicitWalledFolderScope } from "./answers/scopeLine";
 import {
   type AddDocumentsResult,
+  type AddedToNote,
   type AnnotationColour,
   type AnswerPlace,
   type ChatModelChoice,
@@ -221,7 +225,7 @@ import { findUnreadDocuments } from "./documents/unread";
 import { createViewing } from "./documents/viewing";
 import { fsWatchFolder } from "./documents/watcher";
 import { createWebPages, wallKey } from "./documents/web";
-import { createEdits, editText } from "./edits";
+import { createEdits } from "./edits";
 import { BUILT_IN_EMBEDDING_MODEL, createEmbeddingModel } from "./embedding";
 import { createActiveEmbedding } from "./embedding/active";
 import { createModelSources, MODEL_COPIES, modelCopyUrl } from "./embedding/modelSources";
@@ -273,7 +277,14 @@ import { createPlanPace, type Plan } from "./library/planPace";
 import { createTagging } from "./library/tagging";
 import type { LibrarySettings, TaggingClassifier } from "./library/types";
 import { keyMarks } from "./markKeys";
-import { createMeetings, isMemo, linkTranscript, meetingRecord } from "./meetings";
+import {
+  callOfTranscript,
+  createMeetings,
+  isMemo,
+  linkTranscript,
+  meetingRecord,
+  otherCallTranscripts,
+} from "./meetings";
 import { listParts, meetingFolder } from "./meetings/audioFiles";
 import { createMeetingFill } from "./meetings/fill";
 import { createCaptureHealth } from "./meetings/health";
@@ -366,6 +377,7 @@ import {
 import { parseReference } from "./references";
 import { BUILT_IN_RERANKING_MODEL, createRerankingModel } from "./reranking";
 import { createResearch } from "./research";
+import { createRepliesOut } from "./runs/replies";
 import { createTasks, type TaskKind, type TaskNotice } from "./runs/tasks";
 import { parseSearchScope, resolveSearchScope } from "./scope";
 import { createSecrets } from "./secrets";
@@ -802,6 +814,7 @@ export function createCore(adapters: CoreAdapters): Core {
       checkpoints.edited(mindId);
       mindIndex.contentStored(mindId);
       comparisons.mindChanged(mindId);
+      checks.mindChanged(mindId);
       noteConversations.changed(mindId);
       const renamed = minds.setAutoTitle(mindId, content.peek(mindId, firstLineOf));
       if (renamed) {
@@ -1094,11 +1107,14 @@ export function createCore(adapters: CoreAdapters): Core {
   let annotations: ReturnType<typeof createAnnotations>;
   /** Set once created, so a failure after it can close it. */
   let createdDocuments: ReturnType<typeof createDocuments> | undefined;
+  /** The Transcripts module's, once it is made: they are made after the Documents. */
+  let readsTimedByWriter = (_path: string): boolean => false;
   try {
     documents = createdDocuments = createDocuments({
       db,
       dataDir,
       now,
+      readsTimedByWriter: (path) => readsTimedByWriter(path),
       localOnly: () => embedding.localOnly(),
       log: adapters.log ?? silentLogger,
       model: embedding.model,
@@ -1878,15 +1894,21 @@ export function createCore(adapters: CoreAdapters): Core {
     // The examples are the User's Library until a Document of their own exists (#1942), a
     // meeting's Transcript among them: a first meeting's Note searches its own words only.
     const own = documents.ids({}).filter((id) => !left.has(id));
-    return own.length > 0 ? own : null;
+    if (own.length === 0) return null;
+    if (mindId === null) return own;
+    // A Note the User wrote against an example is their own work, so what it cites stays in its
+    // reach, for its checks, Answers and assistant alike (#3083).
+    const cited: CitedUnits[] = [];
+    content.peek(mindId, (blocks) => addCitedUnits(blocks, left, cited));
+    return [...new Set([...own, ...cited.map((each) => each.documentId)])];
   };
   /**
    * The Documents a Search scope covers; with no scope, "every Document": the examples' until the
-   * User has a Document of their own, and theirs alone from then on (#1942). An example's own Note
-   * always searches every Document. Every searching surface resolves a default scope here or
-   * through `unscopedDocuments` — a Question in a Mind goes through `resolveScope ??
-   * unscopedDocuments` — so all of them follow one rule; the Library count and the renderer state
-   * the same rule for browsing.
+   * User has a Document of their own, and from then on theirs and the examples `mindId` cites
+   * (#1942, #3083). An example's own Note always searches every Document. Every searching surface
+   * resolves a default scope here or through `unscopedDocuments` — a Question in a Mind goes
+   * through `resolveScope ?? unscopedDocuments` — so all of them follow one rule; the Library count
+   * and the renderer state the same rule for browsing.
    */
   const scopeDocuments = (
     scope: SearchScope | null,
@@ -2320,10 +2342,13 @@ export function createCore(adapters: CoreAdapters): Core {
       ? fastest
       : null;
   };
+  // An Answer marks its provider while it is written, and a write's check waits behind it (#2830).
+  const repliesOut = createRepliesOut();
   const answers = createAnswers({
     content,
     changes,
     events,
+    repliesOut,
     engine: answerEngine,
     ...(adapters.analysisRuntime && { analysisRuntime: adapters.analysisRuntime }),
     ...(codeRunner && {
@@ -2339,10 +2364,13 @@ export function createCore(adapters: CoreAdapters): Core {
     mindExists,
     readableMindName,
     liveTranscript: (mindId) => liveTranscriptOf(mindId),
+    noteCall: (mindId) => noteCallOf(mindId),
     meetingHelp: (mindId, question) => meetingHelpOf(mindId, question),
+    otherCallTranscripts: (mindId) => otherCallTranscripts(db, mindId),
     helpFormJudged: () => adapters.helpFormJudged?.() ?? false,
     quotesAsGiven: () => adapters.quotesAsGiven?.() ?? false,
     helpMarksQuoteOnly: () => adapters.helpMarksQuoteOnly?.() ?? false,
+    callsUnmarked: () => adapters.callsUnmarked?.() ?? false,
     providerExists: (providerId) => chat.exists(providerId),
     checkAnswer: (input) => checks.checkAnswer(input),
     estimateAnswerCheck: (input) => checks.estimateAnswerCheck(input),
@@ -2434,6 +2462,17 @@ export function createCore(adapters: CoreAdapters): Core {
         documents.pageTexts(documentId, contentHash, from, to),
       documentDate: (documentId) => documents.documentDate(documentId),
       speakers: (documentId) => documents.speakersOf(documentId),
+      callOf: (documentId) => {
+        const call = callOfTranscript(db, documentId);
+        return (
+          call && {
+            note:
+              minds.locate(call.mindId)?.name ||
+              translate(settings.get().language, "mind.untitled"),
+            startedAt: call.startedAt,
+          }
+        );
+      },
     },
     toolProviders: [
       {
@@ -2499,6 +2538,7 @@ export function createCore(adapters: CoreAdapters): Core {
                 {
                   id: mind.id,
                   name: mindName(mind) || translate(settings.get().language, "mind.untitled"),
+                  titled: mind.title !== "",
                   folderId: mind.folderId,
                   changedAt: mind.updatedAt,
                 },
@@ -2509,7 +2549,18 @@ export function createCore(adapters: CoreAdapters): Core {
       edit: (mindId, change) => content.edit(mindId, change),
       text: (mindId, name, tokens, ids, applied) => {
         const section = content
-          .peek(mindId, (blocks) => readMind(blocks, name, null, null, ids, true, applied))
+          .peek(mindId, (blocks) =>
+            readMind(
+              blocks,
+              name,
+              null,
+              null,
+              ids,
+              true,
+              applied,
+              missingNumberWords(settings.get().language),
+            ),
+          )
           .section(tokens);
         return { text: section.text, origins: section.origins };
       },
@@ -2565,8 +2616,8 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     // Every window hears of each message as it is added or written.
     conversations: {
-      add: (input, answerModel, read, emit = true, askedIn) => {
-        const added = conversations.add(input, answerModel, read, askedIn);
+      add: (input, answerModel, read, emit = true, askedIn, pressed) => {
+        const added = conversations.add(input, answerModel, read, askedIn, pressed);
         if (emit) publishConversation(added.turn);
         return added;
       },
@@ -2583,8 +2634,8 @@ export function createCore(adapters: CoreAdapters): Core {
         if (question) events.emit("conversation.message", question);
         return question;
       },
-      restartAnswer: (answerId, answerModel, read, emit = true, origin) => {
-        const turn = conversations.restartAnswer(answerId, answerModel, read, origin);
+      restartAnswer: (answerId, answerModel, read, emit = true, origin, pressed) => {
+        const turn = conversations.restartAnswer(answerId, answerModel, read, origin, pressed);
         if (emit) {
           // An origin and the Answer it resets were written together: both changed at once.
           if (origin) events.emit("conversation.message", turn.question);
@@ -2981,6 +3032,7 @@ export function createCore(adapters: CoreAdapters): Core {
     chat,
     consent,
     localOnly: () => embedding.localOnly(),
+    missingNumber: () => missingNumberWords(settings.get().language),
     // An edit's kept Citations are checked again, but never one the Note may not read (#2746).
     recheck: (attributes, mindId) =>
       typeof attributes.documentId === "string" && mayRecheckIn(mindId, attributes.documentId)
@@ -3125,6 +3177,7 @@ export function createCore(adapters: CoreAdapters): Core {
   }
 
   const checks = createChecks({
+    repliesOut,
     closed: lifetime.signal,
     language: () => settings.get().language,
     warmReranker: () => rerank.warm(),
@@ -3216,6 +3269,9 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     claimTimeLimitMs: adapters.contradictionWatch?.claimTimeLimitMs ?? CLAIM_TIME_LIMIT_MS,
     timers: paceTimers,
+    ...(adapters.contradictionWatch?.sortTimeLimit && {
+      sortTimeLimit: adapters.contradictionWatch.sortTimeLimit,
+    }),
     mindFolder: (mindId) => minds.get(mindId).folderId,
     walledFolder,
     walledDocument,
@@ -3267,7 +3323,6 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     engine: answerEngine,
     retention,
-    editText,
     recheckCitation: (citation) => recheckCitation(documents, citation),
     estimateRead(model, read) {
       const metered = chat.metered(model ?? undefined);
@@ -3282,6 +3337,7 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     documentCheckProgress: (event) => events.emit("documentCheck.progress", event),
     checkingEarly: (event) => events.emit("mindCheck.early", event),
+    writtenProgress: (event) => events.emit("writtenCheck.progress", event),
     now: () => adapters.now?.() ?? new Date(),
   });
 
@@ -3330,6 +3386,7 @@ export function createCore(adapters: CoreAdapters): Core {
     if (mayRecheckFrom(place, input.documentId)) return recheckCitation(documents, input);
     return { keptInside: walledFolderName(input.documentId) ?? "" };
   };
+  const lookElsewhere = sharedQuoteLooks(documents);
   // "Add to note" into a Mind that isn't open (#201), with its Citations checked where they land.
   const noteAdding = createNoteAdding({
     content,
@@ -4915,6 +4972,8 @@ export function createCore(adapters: CoreAdapters): Core {
   let meetingHelpOf = (_mindId: string, _question: string): MeetingHelpKind | null => null;
   /** See `AnswersOptions.liveTranscript`; set once Meetings are. */
   let liveTranscriptOf = async (_mindId: string): Promise<LiveTranscript | null> => null;
+  /** See `AnswersOptions.noteCall`; set once Meetings are. */
+  let noteCallOf = (_mindId: string): { live: boolean; transcript: string | null } | null => null;
   let transcriptSaved = (_meetingId: string) => {};
   // A pass run again at start, by the Meetings' sweep, begins before the notes can hear of it.
   const writtenAtStart: string[] = [];
@@ -4998,6 +5057,7 @@ export function createCore(adapters: CoreAdapters): Core {
       dataDir,
       transcriber,
       model: transcriptionModel,
+      timers: paceTimers,
       cloud: cloudTranscription,
       ...(speakerPass && { speakers: speakerPass }),
       documents: {
@@ -5075,6 +5135,7 @@ export function createCore(adapters: CoreAdapters): Core {
       log: adapters.log ?? silentLogger,
     });
 
+  if (transcripts) readsTimedByWriter = (path) => transcripts.timesReads(path);
   transcripts?.dropPurged();
   // Meetings (#135): while audio is being captured, background model work holds back.
   const meetings = createMeetings({
@@ -5418,8 +5479,68 @@ export function createCore(adapters: CoreAdapters): Core {
   transcriptWritten = (meetingId) => meetingFill.transcriptWritten(meetingId);
   for (const meetingId of writtenAtStart.splice(0)) meetingFill.transcriptWritten(meetingId);
   meetingFill.resume();
-  /** Stop: the notes wait for the Transcript, and are filled in from it (#142). */
+  /**
+   * The line typed in the call-help panel's field and not sent, by Meeting (#2925): in memory only,
+   * as the User's half-typed text, so the panel going or the recording stopping never drops it.
+   */
+  const quickNoteDrafts = new Map<string, { text: string; atMs: number | null }>();
+
+  const linesOf = (text: unknown): string[] =>
+    typeof text === "string"
+      ? text
+          .split(/\r?\n/)
+          .map((line) => line.trim())
+          .filter(Boolean)
+      : [];
+
+  const noteTimeOf = (atMs: unknown): number | null => {
+    if (atMs === null) return null;
+    if (typeof atMs !== "number" || !Number.isFinite(atMs) || atMs < 0) {
+      throw new InvalidInputError({ key: "error.meeting.quickNoteTime" });
+    }
+    return atMs;
+  };
+
+  const recordsOrPaused = (meeting: Meeting) =>
+    meeting.status === "recording" || meeting.status === "paused";
+
+  /** A quick note's lines at the end of a live Meeting's Note, its time capped at the Meeting's now. */
+  const writeQuickNote = (meeting: Meeting, lines: readonly string[], atMs: number | null) => {
+    const time = atMs === null ? null : Math.min(atMs, meetingTimeAt(meeting, Date.parse(now())));
+    const added = noteAdding.addLines(meeting.mindId, lines, time);
+    // Forgotten only once it is in: a Note that refused it leaves it for the next try.
+    quickNoteDrafts.delete(meeting.id);
+    return added;
+  };
+
+  /** The Meeting's unsent line, if it has one, into its Note as a quick note; null with none. */
+  const addQuickNoteDraft = (meetingId: string): AddedToNote | null => {
+    const draft = quickNoteDrafts.get(meetingId);
+    if (!draft) return null;
+    const meeting = meetings.get(meetingId);
+    if (recordsOrPaused(meeting)) return writeQuickNote(meeting, linesOf(draft.text), draft.atMs);
+    quickNoteDrafts.delete(meetingId);
+    return null;
+  };
+
+  /** Before a recording ends: a Note that can't take the line doesn't keep the Meeting from stopping. */
+  const keepUnsentLine = (meetingId: string) => {
+    try {
+      addQuickNoteDraft(meetingId);
+    } catch (error) {
+      (adapters.log ?? silentLogger).warn("meeting.quickNoteDraftLost", {
+        meetingId,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  };
+
+  /**
+   * Stop: a line left unsent in the call-help panel goes into the Note first, then the notes wait
+   * for the Transcript, and are filled in from it (#142).
+   */
   const stopMeeting = (meetingId: unknown): Meeting => {
+    if (typeof meetingId === "string") keepUnsentLine(meetingId);
     const stopped = meetings.stop(meetingId);
     meetingFill.stopped(stopped.id);
     return meetings.get(stopped.id);
@@ -5464,6 +5585,17 @@ export function createCore(adapters: CoreAdapters): Core {
   const loginItemState = (): OpenAtLogin =>
     adapters.loginItem?.get() ?? { supported: false, on: false, needsApproval: false };
 
+  noteCallOf = (mindId) => {
+    const meeting = meetings
+      .list()
+      .find((each) => each.kind === "meeting" && each.mindId === mindId);
+    return meeting
+      ? {
+          live: meeting.status === "recording" || meeting.status === "paused",
+          transcript: meeting.transcript?.documentId ?? null,
+        }
+      : null;
+  };
   liveTranscriptOf = async (mindId) => {
     // A voice memo's speech isn't a call's: no Question listens to it (#1568).
     const meeting = meetings
@@ -6295,7 +6427,7 @@ export function createCore(adapters: CoreAdapters): Core {
       ) {
         throw new InvalidInputError({ key: "error.citation.recheckPlace" });
       }
-      return recheckIn({
+      const asked = {
         documentId: input.documentId,
         quote: typeof input.quote === "string" ? input.quote : "",
         pageFrom: page(input.pageFrom),
@@ -6305,7 +6437,10 @@ export function createCore(adapters: CoreAdapters): Core {
         ...(input.location !== undefined && { location: parseLocation(input.location) }),
         mindId: input.mindId,
         conversationId: input.conversationId ?? null,
-      });
+      };
+      const checked = recheckIn(asked);
+      if (input.lookElsewhere !== true || !quoteNotAtItsPlace(checked)) return checked;
+      return { ...checked, elsewhere: await lookElsewhere(asked, checked.contentHash) };
     },
     citeSelection: async (input) => {
       if (!isRecord(input) || !Array.isArray(input.parts)) {
@@ -6486,7 +6621,7 @@ export function createCore(adapters: CoreAdapters): Core {
       await evidence.ready(undefined, () => checked);
       const found = await evidence.search(
         query,
-        evidence.scope(mindId, scopeDocuments(scope), checked),
+        evidence.scope(mindId, scopeDocuments(scope, mindId), checked),
       );
       return { passages: found.passages.map(passageResult), excluded: found.excluded };
     },
@@ -7685,6 +7820,32 @@ export function createCore(adapters: CoreAdapters): Core {
       return meetings.setTemplate(meetingId, template);
     },
     setMeetingMicrophone: async (input) => meetings.setMicrophonePaused(input),
+    addQuickNote: async (input) => {
+      const { meetingId, text, atMs } = isRecord(input) ? input : {};
+      const lines = linesOf(text);
+      if (lines.length === 0) throw new InvalidInputError({ key: "error.meeting.quickNoteEmpty" });
+      const time = noteTimeOf(atMs);
+      const meeting = meetings.get(meetingId);
+      if (!recordsOrPaused(meeting)) {
+        throw new InvalidInputError({ key: "error.meeting.notBeingRecorded" });
+      }
+      return writeQuickNote(meeting, lines, time);
+    },
+    setQuickNoteDraft: async (input) => {
+      const { meetingId, text, atMs } = isRecord(input) ? input : {};
+      const time = noteTimeOf(atMs);
+      const meeting = meetings.get(meetingId);
+      // A "/" search is not a line.
+      const line = typeof text === "string" && !text.startsWith("/") && linesOf(text).length > 0;
+      if (line && recordsOrPaused(meeting)) quickNoteDrafts.set(meeting.id, { text, atMs: time });
+      else quickNoteDrafts.delete(meeting.id);
+    },
+    addQuickNoteDraft: async (meetingId) => addQuickNoteDraft(meetings.get(meetingId).id),
+    getQuickNoteDraft: async (meetingId) => {
+      const meeting = meetings.get(meetingId);
+      const draft = quickNoteDrafts.get(meeting.id);
+      return draft && recordsOrPaused(meeting) ? { ...draft } : null;
+    },
     getMeetingOffers: async () => meetingOffers.get(),
     takeMeetingOffer: async (offerId) => meetings.get(meetingOffers.take(String(offerId))),
     declineMeetingOffer: async (input) => {
@@ -7790,7 +7951,8 @@ export function createCore(adapters: CoreAdapters): Core {
     close: () => {
       if (lifetime.signal.aborted) return;
       lifetime.abort();
-      // What a Meeting has captured is saved before anything else stops.
+      // What a Meeting has captured is saved before anything else stops, a line left unsent too.
+      for (const meetingId of [...quickNoteDrafts.keys()]) keepUnsentLine(meetingId);
       meetingOffers.close();
       meetings.close();
       calendars.close();

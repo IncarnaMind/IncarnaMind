@@ -70,7 +70,7 @@ Each sentence and claim keeps, beside its outcome, every request the app's check
 A Not checked has the core's own reason in `outcome.code`. The report and the summary count them by cause, and split the core's "no evidence" by what the replies show:
 
 - **Quote not found:** the app turned the judge's last `cite` away, or nothing shows a calculation was owed.
-- **Calculation not made:** no usable calculation where the sentence needed one, and no quote the app turned away: the judge called `calculate` and its figure settled nothing, the app sent it back to calculate and it didn't, or its reply names a calculation it never made. The check turns a quote away before it asks for a calculation, so a quote comes first.
+- **Calculation not made:** no usable calculation where the sentence needed one, and no quote the app turned away: the judge called `calculate` and its figure settled nothing, the app sent it back to calculate and it didn't, or its reply names a calculation it never made. The check turns a quote away before it asks for a calculation, so a quote comes first. The core's own "number-unquoted" and "number-not-worked-out" (#3022), a number no quote gives, count here too.
 - **Malformed reply:** the core's "malformed", a reply with no verdict that could be read.
 - **Other:** every other reason the core gives, such as a refusal, a failed request or a limit.
 

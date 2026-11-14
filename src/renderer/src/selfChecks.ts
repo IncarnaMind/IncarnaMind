@@ -1,8 +1,8 @@
 /**
- * What the checks of an Answer's writes left to do (#1111, #1909), from its
- * calls: the lines under it, and the one Check their action runs. The written
- * check reads the sentences with Citations; the claims with none are left to
- * the one count and the one Check. Only data.
+ * How the checks of an Answer's writes go (#1111, #1909, #2830), from its calls:
+ * the line under it while one runs, "Checking 5 of 40 sentences", then what it
+ * checked and what needs a look, what it couldn't check, and the one Check
+ * their action runs. Only data.
  */
 import type { AnswerToolCall, MindChange, RegisteredDataFlow } from "../../core/api";
 import type { Language } from "../../core/language";
@@ -42,26 +42,27 @@ export async function checksWaitNow(
 export const checkableOf = (check: NonNullable<MindChange["selfCheck"]>): number =>
   check.checkable ?? check.cited;
 
-/** Each write's check, in the order of the calls, with something left to check: a failure, or sentences the write did not check (with no Citation, or past the most one check sends). */
+/** Each write's check, in the order of the calls, but one whose write an Undo took away. */
 export const selfChecksOf = (toolCalls: readonly AnswerToolCall[]): SelfCheck[] =>
   toolCalls.flatMap((call) => {
     const change = call.mindChange;
     const check = change?.selfCheck;
-    return change && check && (check.failed > 0 || check.sent < checkableOf(check))
-      ? [{ mindId: change.mindId, ...check }]
-      : [];
+    return change && check && !check.undone ? [{ mindId: change.mindId, ...check }] : [];
   });
 
 /**
  * One line under the Answer: its words, more parts before its action, and the
- * action: check the sentences left now, or change the spending cap. A plan's
- * limit has none: nothing can be checked until it resets. Nor has a line for
- * sentences the User's own choice kept from being sent (sending turned off,
- * Local mode): checking again can't succeed. Sentences waiting for the User
- * to allow what checks send now have Review…, the Check that asks it (#2525).
+ * action: show the next sentence that needs a look, check the sentences left
+ * now, or change the spending cap. A plan's limit has none: nothing can be
+ * checked until it resets. Nor has a line for sentences the User's own choice
+ * kept from being sent (sending turned off, Local mode): checking again can't
+ * succeed. Sentences waiting for the User to allow what checks send now have
+ * Review…, the Check that asks it (#2525).
  */
 export interface SelfCheckLine {
   kind:
+    | "checking"
+    | "checked"
     | "failed"
     | "cost-cap"
     | "plan-limit"
@@ -71,7 +72,31 @@ export interface SelfCheckLine {
     | "left";
   text: string;
   details: string[];
-  action: { label: string; does: "check" | "change-cap" } | null;
+  action: { label: string; does: "show" | "check" | "change-cap" } | null;
+}
+
+/** How far a check that is still running is, as its marks land (#2830). */
+export interface SelfCheckProgress {
+  done: number;
+  total: number;
+  /** Waiting for another write's check to end: one runs at a time. */
+  waiting?: boolean;
+}
+
+// It counts the sentences done, as the Note's badge does, not the one being checked: several are
+// checked at once.
+function checkingLine(t: Translate, { done, total, waiting }: SelfCheckProgress): SelfCheckLine {
+  return {
+    kind: "checking",
+    // A count that stands still while another write is checked would read as stuck (#2830).
+    text: waiting
+      ? t("selfCheck.waiting")
+      : total === 1
+        ? t("selfCheck.checking.one", { count: done })
+        : t("selfCheck.checking", { count: done, total }),
+    details: [],
+    action: null,
+  };
 }
 
 const BLOCKED = {
@@ -89,11 +114,39 @@ export function selfCheckLines(
   left?: number | null,
   /** Whether checks still wait for the User to allow what they send now: once allowed, sentences that waited only failed. */
   consentWaiting = true,
+  /** How far the check is while it runs; null once it ended. */
+  progress: SelfCheckProgress | null = null,
+  /** Its sentences that need a look now, live from its Mind; null: not known, the record's count. */
+  look: number | null = null,
 ): SelfCheckLine[] {
+  if (progress) return [checkingLine(t, progress)];
+  // Recorded as it began, and not heard from since: this window hasn't heard how far it is yet,
+  // or IncarnaMind stopped before it could say how it ended. Its sentences' marks say either way.
+  if (check.running) return [];
   const { failed, stop } = check;
   const blocked =
     check.blocked?.reason === "consent-widened" && !consentWaiting ? undefined : check.blocked;
   const lines: SelfCheckLine[] = [];
+  const checkable = checkableOf(check);
+  const checkedText = t(
+    check.checked === 1 ? "selfCheck.checkedOnly.one" : "selfCheck.checkedOnly",
+    { checked: check.checked },
+  );
+  const looking = look ?? check.look ?? 0;
+  if (check.sent >= checkable && check.checked > 0) {
+    lines.push({
+      kind: "checked",
+      text:
+        looking > 0
+          ? [
+              checkedText,
+              t(looking === 1 ? "selfCheck.look.one" : "selfCheck.look", { count: looking }),
+            ].join(" · ")
+          : checkedText,
+      details: [],
+      action: looking > 0 ? { label: t("selfCheck.show"), does: "show" } : null,
+    });
+  }
   const one = failed === 1;
   if (failed > 0 && stop?.reason === "cost-cap") {
     lines.push({
@@ -133,7 +186,7 @@ export function selfCheckLines(
       });
     }
   }
-  const checkable = checkableOf(check);
+  // A check recorded before #2830 checked only some of the write: the line says how many are left.
   if (check.sent < checkable) {
     // The live count of what no check covers now, as the badge counts it (#1909): the saved
     // failures were true when the write landed, and the User may have settled some since (#2313).
@@ -142,13 +195,9 @@ export function selfCheckLines(
       kind: "left",
       text:
         remaining === null
-          ? t(check.checked === 1 ? "selfCheck.checkedOnly.one" : "selfCheck.checkedOnly", {
-              checked: check.checked,
-            })
+          ? checkedText
           : [
-              t(check.checked === 1 ? "selfCheck.checkedOnly.one" : "selfCheck.checkedOnly", {
-                checked: check.checked,
-              }),
+              checkedText,
               t(remaining === 1 ? "selfCheck.leftPart.one" : "selfCheck.leftPart", {
                 left: remaining,
               }),

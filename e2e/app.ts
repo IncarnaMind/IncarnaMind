@@ -1759,18 +1759,6 @@ export async function openDocumentAt(window: Page, location: DocumentLocation): 
 }
 
 /**
- * Opens the Block menu Shift+F10 opens for this Block, without moving the caret, through the
- * test hook: a spec can hold the caret in one list while the command names another Block.
- */
-export async function openBlockMenuFor(window: Page, blockId: string): Promise<void> {
-  await window.evaluate((id) => {
-    const hooks = (globalThis as { incarnamindTestHooks?: TestHooks }).incarnamindTestHooks;
-    if (!hooks) throw new Error("Test hooks are off: launch with INCARNAMIND_TEST_HOOKS=1.");
-    hooks.openBlockMenu(id);
-  }, blockId);
-}
-
-/**
  * The next Skill import in Settings gets this path instead of the system's
  * open dialog, which a test can't drive, through the test hook.
  */
@@ -2695,7 +2683,7 @@ export async function slideToHandle(window: Page, block: Locator): Promise<Locat
   if (!text) throw new Error("The Block isn't visible.");
   const y = text.y + Math.min(text.height, 28) / 2;
   await window.mouse.move(text.x + 8, y, { steps: 4 });
-  const handle = window.getByTestId("block-handle");
+  const handle = window.getByTestId("block-menu");
   await expect(handle).toBeVisible();
   const grip = await handle.boundingBox();
   if (!grip) throw new Error("The block handle isn't visible.");

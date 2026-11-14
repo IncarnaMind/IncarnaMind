@@ -4,7 +4,7 @@ import { mindName } from "../../../../shared/naming";
 import { core } from "../../core";
 import { errorMessage } from "../../errors";
 import { useHistory } from "../../history";
-import { reasonLabel, versionLabel } from "../../historyLabels";
+import { comparedLabel, versionLabel } from "../../historyLabels";
 import { languageNow, translateNow, useLanguage, useT } from "../../i18n";
 import { useAppStore } from "../../store";
 import { useUndo } from "../../undo";
@@ -148,8 +148,6 @@ function History({ mindId, onClose }: { mindId: string; onClose(): void }) {
   const leftCheckpoint = checkpoints.find((each) => each.id === left) ?? null;
   const rightCheckpoint = checkpoints.find((each) => each.id === right) ?? null;
   const now = new Date();
-  const nameOf = (checkpoint: typeof leftCheckpoint) =>
-    checkpoint ? versionLabel(checkpoint, now, language, t) : t("history.now");
   const same = comparison !== null && comparison.changes === 0;
   /** The left version reads as the Mind does now: restoring it would change nothing. */
   const nothingToRestore = same && right === null;
@@ -244,12 +242,12 @@ function History({ mindId, onClose }: { mindId: string; onClose(): void }) {
       </header>
       <main
         data-testid="history-compare"
-        aria-label={t("history.compared", {
-          left: [nameOf(leftCheckpoint), leftCheckpoint && reasonLabel(leftCheckpoint, t)]
-            .filter(Boolean)
-            .join(", "),
-          right: nameOf(rightCheckpoint),
-        })}
+        aria-label={comparedLabel(
+          { left: leftCheckpoint, right: rightCheckpoint },
+          now,
+          language,
+          t,
+        )}
         className="history-card"
       >
         {/* The left version's name, typed where it shows, and the line that takes it back. */}

@@ -1,7 +1,7 @@
 import { type ReactNode, useContext } from "react";
 import type { CitationAttributes } from "../../../core/api";
 import { changedSourceLines, citationState } from "../../../shared/citations";
-import { useCitationRecheck } from "../citationVersion";
+import { useCitationRecheck, useQuoteLook } from "../citationVersion";
 import { useLanguage, useT } from "../i18n";
 import { useAppStore } from "../store";
 import { useKeptInside } from "../turnWall";
@@ -30,13 +30,17 @@ export function ChangedSourceNotice({
   const keptInside = useKeptInside(attributes.documentId);
   const state = citationState(attributes, documents, kept, keptInside);
   const live = documents?.find((each) => each.id === state.documentId);
-  const recheck = useCitationRecheck(
-    state.changedAfterCited ? attributes : null,
+  const mindId = useContext(MindIdContext);
+  const conversationId = useContext(ConversationIdContext);
+  const rechecked = state.changedAfterCited ? attributes : null;
+  const checked = useCitationRecheck(
+    rechecked,
     state.changedAfterCited,
     live?.contentHash,
-    useContext(MindIdContext),
-    useContext(ConversationIdContext),
+    mindId,
+    conversationId,
   );
+  const recheck = useQuoteLook(rechecked, checked, mindId, conversationId);
   const { note, on } = changedSourceLines(
     state.changedAfterCited,
     attributes,

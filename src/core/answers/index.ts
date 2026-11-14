@@ -67,6 +67,7 @@ import { sameWords, yoursLine } from "../../shared/commands";
 import { FIGURE_MARKER, withFigures, withFigureText } from "../../shared/figureMarkers";
 import { figureRunsOfAnswer, installFigureRuns } from "../../shared/figureRuns";
 import { readFigures } from "../../shared/figures";
+import { helpLayout, helpReplyRead } from "../../shared/helpReplyRead";
 import { type MessageKey, type MessageParams, translate } from "../../shared/i18n";
 import {
   citationLocation,
@@ -78,6 +79,11 @@ import { holdsNothing, madeByAnswer } from "../../shared/madeMind";
 import { linkTableSources } from "../../shared/markdownTables";
 import { escapeMarkdownText } from "../../shared/markdownText";
 import type { MeetingHelpKind } from "../../shared/meetingHelp";
+import {
+  MISSING_NUMBER_REFUSED,
+  missingNumberWords,
+  withMissingNumbers,
+} from "../../shared/missingNumbers";
 import {
   linkKnownSources,
   type NamedSource,
@@ -98,7 +104,12 @@ import { normaliseText } from "../../shared/text";
 import { setTextOrigin } from "../../shared/textOrigins";
 import { unbackedCommandNotes, unrunToolNotes } from "../../shared/unrunTools";
 import type { AnalysisRuntime } from "../adapters";
-import { chartsPlacedIn, withAnalysisResults, withEveryChartPlaced } from "../analysis/markers";
+import {
+  chartsPlacedIn,
+  figuresLeftOut,
+  withAnalysisResults,
+  withEveryChartPlaced,
+} from "../analysis/markers";
 import { createAnalysisRecorder } from "../analysis/recorder";
 import { analysisTool } from "../analysis/tool";
 import {
@@ -202,6 +213,7 @@ import type { CodeRunner } from "../runCode";
 import { runCodeTool } from "../runCode/tool";
 import { currentTask } from "../runs/current";
 import type { GateDecision, TokenUsage } from "../runs/engine";
+import type { RepliesOut } from "../runs/replies";
 import type { SkillScript, SkillSession } from "../skills";
 import {
   parseScriptArgs,
@@ -259,6 +271,7 @@ import { asksToCheckOrCalculate } from "./carefulIntent";
 import { type ChangedScale, changedScale, changedScaleNote } from "./changedScale";
 import {
   type AnswerCheckInput,
+  type JudgementCut,
   type JudgementStop,
   judgedMarkers,
   type SupportResult,
@@ -375,6 +388,7 @@ import {
   meetingInstructions,
   mindInstructions,
   mindsLine,
+  onScreenLine,
   selectedTextBlock,
   signInNeededInstructions,
   skillInstructions,
@@ -500,6 +514,7 @@ export interface AnswerConversations {
     read: AnswerRead | null,
     emit?: boolean,
     askedIn?: (conversationFolderId: string | null) => string,
+    pressed?: MeetingHelpKind | null,
   ): AddedTurn;
   /** Emits a turn added with `emit: false`, once its Question can be asked. */
   publish(turn: Turn): void;
@@ -529,6 +544,7 @@ export interface AnswerConversations {
     read: AnswerRead | null,
     emit?: boolean,
     origin?: RetryOrigin,
+    pressed?: MeetingHelpKind | null,
   ): Turn;
   /** Writes an Answer as it stands; false when it is gone: its conversation was deleted. */
   writeAnswer(answerId: string, write: AnswerWrite): boolean;
@@ -653,12 +669,24 @@ export interface AnswersOptions {
    * records or is paused: its text is the button's name. Null for any other Question.
    */
   meetingHelp?(mindId: string, question: string): MeetingHelpKind | null;
+  /**
+   * A Note's call (#3005): whether its Meeting records or is paused, and that Meeting's Transcript
+   * Document, null until it has one. Null for a Note with no call; a voice memo is none.
+   */
+  noteCall?(mindId: string): { live: boolean; transcript: string | null } | null;
+  /**
+   * The Transcripts of every call but a Mind's own, which its help buttons never read (#3005);
+   * with `mindId` null, every call's.
+   */
+  otherCallTranscripts?(mindId: string | null): readonly string[];
   /** See `CoreAdapters.helpFormJudged`. */
   helpFormJudged?(): boolean;
   /** See `CoreAdapters.quotesAsGiven`. */
   quotesAsGiven?(): boolean;
   /** See `CoreAdapters.helpMarksQuoteOnly`. */
   helpMarksQuoteOnly?(): boolean;
+  /** See `CoreAdapters.callsUnmarked`. */
+  callsUnmarked?(): boolean;
   providerExists(providerId: string): boolean;
   /**
    * An Answer's sentences with Citations, checked against what they cite before it ends (#2311):
@@ -678,6 +706,8 @@ export interface AnswersOptions {
     choice: ChatModelChoice,
     thinking: "off" | "summary" | ThinkingKind,
   ): Promise<PreparedChatModel>;
+  /** Where an Answer marks its provider while it is written (../runs/replies). */
+  repliesOut?: RepliesOut;
   /**
    * The model call help answers on under `answers` (#2526), of the same provider; null:
    * `answers` itself.
@@ -727,9 +757,9 @@ export interface AnswersOptions {
   resolveScope(scope: SearchScope, mindId?: string | null): string[] | null;
   /**
    * With no Search scope, what an Answer asked from `mindId` in the assistant
-   * searches: the examples until the User has a Document of their own, theirs
-   * alone from then on (#1942); an example's Mind searches every Document.
-   * Null: every Document.
+   * searches: the examples until the User has a Document of their own, then
+   * theirs and the examples `mindId` cites (#1942, #3083); an example's Mind
+   * searches every Document. Null: every Document.
    */
   unscopedDocuments?(mindId: string | null): string[] | null;
   /** What a Question from a Mind searches, by the one rule (`mindSearchScope`); null: every Document. */
@@ -922,7 +952,10 @@ const messageOf = (error: unknown) => (error instanceof Error ? error.message : 
  * ids (null: every Document).
  */
 export interface DocumentsForAnswers
-  extends Pick<AnswerDocuments, "citationSource" | "pageTexts" | "documentDate" | "speakers"> {
+  extends Pick<
+    AnswerDocuments,
+    "citationSource" | "pageTexts" | "documentDate" | "speakers" | "callOf"
+  > {
   searchableCount(documentIds: readonly string[] | null): number;
   /** The Library's count as its page shows it: the examples' until the User has one, then theirs. */
   libraryCount(): number;
@@ -1002,6 +1035,7 @@ function inScope(
       documents.pageTexts(documentId, contentHash, from, to),
     documentDate: (documentId) => documents.documentDate(documentId),
     speakers: (documentId) => documents.speakers?.(documentId) ?? null,
+    callOf: (documentId) => documents.callOf?.(documentId) ?? null,
     passage: (passageId) => documents.passage(passageId),
     passagesBetween: (documentId, from, to) => documents.passagesBetween(documentId, from, to),
     passagesCovering: (documentId, from, to, overlapping) =>
@@ -1083,6 +1117,11 @@ export function createAnswers(options: AnswersOptions) {
   const { content, events, engine } = options;
   /** Answers being written, by id. */
   const active = new Map<string, Generation>();
+  /**
+   * By Answer: the turn that wrote it last. Retry and regenerate write it again under its id, while
+   * an older turn's check of what it wrote may still end, which mustn't write that turn's calls.
+   */
+  const turns = new Map<string, symbol>();
   /** Whether an Answer not written for a Task is being written. */
   let writing = false;
   const writingChanged = () => {
@@ -1149,10 +1188,23 @@ export function createAnswers(options: AnswersOptions) {
     return from && !from.deleted ? from.mindId : null;
   };
 
-  const judgedScope = (question: ConversationQuestion): string[] | null => {
+  /**
+   * The scope an ended Answer's sentences are judged again in: its Search scope as it is now. A
+   * help button's reply is judged as its press read, without another call's Transcript (#3005).
+   */
+  const judgedScope = (
+    question: ConversationQuestion,
+    answer: ConversationAnswer,
+  ): string[] | null => {
     const mindId = judgedMind(question);
     const readsMind = mindId !== null && options.readableMindName(mindId) !== null;
-    return scopeNow(question.scope, mindId, readsMind ? null : wallOfTurn(question)).documentIds;
+    const { documentIds } = scopeNow(
+      question.scope,
+      mindId,
+      readsMind ? null : wallOfTurn(question),
+    );
+    // A reply outlives its Note in the conversation; with no Note of its own no call is its own.
+    return answer.steps?.pressed !== undefined ? pressScope(documentIds, mindId) : documentIds;
   };
 
   /** The judgements of Answers' sentences running, by Answer (#2311): stopping one ends it. */
@@ -1217,7 +1269,7 @@ export function createAnswers(options: AnswersOptions) {
     const judged = (
       marker: number | null,
       result: SupportResult | null,
-      stop: JudgementStop | null = null,
+      stop: JudgementStop | JudgementCut | null = null,
     ) => {
       citations = citations.map((citation): MarkedCitation => {
         if (citation.check !== "checking" || (marker !== null && citation.marker !== marker)) {
@@ -1311,6 +1363,8 @@ export function createAnswers(options: AnswersOptions) {
     ids?: ContextCitations;
     /** The line naming the User's Minds, for a pass that offers the Minds' Tools (see `AnswerRequest`). */
     mindsLine?: { line: string; asked: string };
+    /** The line naming the Documents on screen (see `AnswerRequest`). */
+    onScreenLine?: string;
     /** The Documents of the Question's Search scope; null with no Search scope (every Document). */
     documentIds: string[] | null;
     /** The User limited the Question to some Documents. Absent: `documentIds` names some. */
@@ -1365,6 +1419,11 @@ export function createAnswers(options: AnswersOptions) {
      * to now, to go with the Question. Absent: none.
      */
     listening?: () => Promise<LiveTranscript | null>;
+    /**
+     * The Note whose call records or is paused as the Question is asked (#3005): its Meeting's
+     * Transcript is this call's, and every other call's an earlier one's. Absent: asked during none.
+     */
+    callIn?: string;
     /**
      * A Meeting's saved Transcript to fill its notes in from (#142): shown with the Question as
      * `listening` is; tagged facts require the whole part, other requests keep half the window.
@@ -1479,8 +1538,12 @@ export function createAnswers(options: AnswersOptions) {
     let foundAhead = false;
     /** The language the call's newest lines are in, which a help Answer is written in. */
     let callLanguage: string | null = null;
+    // A press reads no other call (#3005), so it is sent no call marks and no rule about them.
+    const unmarked = (options.callsUnmarked?.() ?? false) || help !== undefined;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let finished = false;
+    /** Ends the Answer's mark on its provider (`AnswersOptions.repliesOut`). */
+    let replyEnded = () => {};
     let support: CitationSupport | null = null;
     /** Markers the engine put in for records the model gave without them. */
     let placedMarkers = 0;
@@ -1623,6 +1686,7 @@ export function createAnswers(options: AnswersOptions) {
             ...(heard && transcripts.size > 0 && { transcript: true as const }),
           },
         }),
+        ...(help !== undefined && { pressed: help }),
       };
     };
     let skills: SkillSession | null = null;
@@ -1667,6 +1731,12 @@ export function createAnswers(options: AnswersOptions) {
         marksFormulas: () => workbookToolsOffered,
         defuses: CALL_TAGS,
         quotesStateClaims: () => !options.quotesAsGiven?.(),
+        // Read as each Transcript is shown: a quote can come before listening, and the Meeting's
+        // Transcript can appear after it.
+        thisCall: (documentId) =>
+          input.callIn === undefined || unmarked
+            ? undefined
+            : options.noteCall?.(input.callIn)?.transcript === documentId,
       },
       original
         ? {
@@ -1890,14 +1960,16 @@ export function createAnswers(options: AnswersOptions) {
                 withAnalysisPictures(blocks, analyses),
                 analyses.map((analysis) => ({ answerId, analysis })),
               );
-              return asGenerated(
-                calculating
-                  ? withCalculatedFigures(drawn, (marker) => figures.figure(marker), {
-                      id: answerId,
-                      analyses,
-                    })
-                  : drawn,
-              );
+              // Once it has ended, a marker with no figure is the mark that says so (#2577).
+              const figured = calculating
+                ? withCalculatedFigures(
+                    drawn,
+                    (marker) => figures.figure(marker),
+                    { id: answerId, analyses },
+                    final ? () => undefined : undefined,
+                  )
+                : drawn;
+              return asGenerated(final ? withMissingNumbers(figured) : figured);
             },
             citations: () => {
               const found: MarkedCitation[] = [];
@@ -1932,11 +2004,16 @@ export function createAnswers(options: AnswersOptions) {
     /** Call help's own model while it writes the reply; null: the model it was asked of (#2526). */
     let writtenBy: ChatModelChoice | null = null;
     let settled = false;
-    /** The text as it ends: each quote checked, once, and the markers no Citation backs taken out. */
-    const settle = () => {
+    /**
+     * The text as it ends: each quote checked, once, and the markers no Citation backs taken out.
+     * Call help's reply is kept as its panel reads it (#2925), so every later reader of it reads the
+     * words its check read.
+     */
+    const settle = (status: Outcome["status"]) => {
       if (settled) return;
       settled = true;
       markdown = session.citeWrittenIds(markdown, notKept);
+      if (help) markdown = helpReplyRead(markdown, helpLayout(help, { status, textBehind })).text;
       // The check runs once, now; its results are stored with each Citation, and each figure's input.
       try {
         session.check();
@@ -1977,6 +2054,7 @@ export function createAnswers(options: AnswersOptions) {
       if (finished) return;
       finished = true;
       finishedAt = Date.now();
+      replyEnded();
       if (timer) clearTimeout(timer);
       active.delete(answerId);
       writingChanged();
@@ -1988,12 +2066,6 @@ export function createAnswers(options: AnswersOptions) {
         const cut = call.status === "running";
         if (cut) call.status = "failed";
         if (call.approval === "waiting") call.approval = "denied";
-        // A check still running when the Answer stopped never reports again: its row says what the
-        // call did, not that it is checking (#2710).
-        if (call.mindChange?.checking !== undefined) {
-          const { checking: _checking, ...change } = call.mindChange;
-          call.mindChange = change;
-        }
         // What a call was given is kept with the conversation, where no id may be stored (#1800).
         call.input = Object.fromEntries(
           Object.entries(call.input).map(([key, value]) => [
@@ -2003,7 +2075,7 @@ export function createAnswers(options: AnswersOptions) {
         );
         if (cut) input.onCall?.({ ...call });
       }
-      settle();
+      settle(outcome.status);
       const judging = judgesItsSentences() && outcome.status !== "failed";
       if (judging) {
         // A stopped Answer's sentences aren't judged: they wait for the User's Check again.
@@ -2067,6 +2139,8 @@ export function createAnswers(options: AnswersOptions) {
     };
 
     active.set(answerId, { home, model, finish, task: input.task === true });
+    const ownTurn = Symbol(answerId);
+    turns.set(answerId, ownTurn);
     writingChanged();
     announce("answer.started", { ...place, answerId, questionId: input.questionId, model });
 
@@ -2542,6 +2616,7 @@ export function createAnswers(options: AnswersOptions) {
       const helpModel = help ? (options.helpModel?.(model) ?? null) : null;
       try {
         prepared = await options.prepareModel(model, thinking);
+        if (!finished) replyEnded = options.repliesOut?.begin(prepared.provider.id) ?? replyEnded;
         if (helpModel) {
           try {
             const quick = await options.prepareModel(helpModel, thinking);
@@ -2633,6 +2708,8 @@ export function createAnswers(options: AnswersOptions) {
         }
         if (finished) return;
         const kept = newestWithin(heard?.passages ?? [], listenedTokens(prepared.window));
+        // Known before they are shown, so this call's lines are marked as this call's (#3005).
+        for (const passage of kept) transcripts.add(passage.documentId);
         if (heard) messages = withTranscript(messages, session.show(kept));
         const hasEarlierTurns = messages.length > 1;
         if (heard && hasEarlierTurns) {
@@ -2651,7 +2728,6 @@ export function createAnswers(options: AnswersOptions) {
           announce("answer.delta", { ...place, answerId, text: markdown });
         }
         if (kept.length > 0) {
-          for (const passage of kept) transcripts.add(passage.documentId);
           callDocuments?.push(...transcripts);
           if (help) callLanguage = languageSaid(kept);
         }
@@ -2934,6 +3010,7 @@ export function createAnswers(options: AnswersOptions) {
               notFiled: () => {
                 wallRefusals.add("folder.wall.notFiled");
               },
+              missingNumberRefused: MISSING_NUMBER_REFUSED[options.interfaceLanguage()],
               ...(wallId && {
                 wallMessage: translate(options.interfaceLanguage(), "folder.wall.refusal"),
                 wallRefused: () => {
@@ -3021,12 +3098,19 @@ export function createAnswers(options: AnswersOptions) {
                     return node;
                   }),
                 );
-                const uncited = calculating
-                  ? withCalculatedFigures(cited, (marker) => figures.figure(marker), {
-                      id: answerId,
-                      analyses,
-                    })
-                  : cited;
+                // A marker no figure was recorded for is the mark that says so, and the change says
+                // which; the mark's words read from a Note are the mark again (#2577).
+                const unwritten = new Set<number>();
+                const uncited = withMissingNumbers(
+                  calculating
+                    ? withCalculatedFigures(
+                        cited,
+                        (marker) => figures.figure(marker),
+                        { id: answerId, analyses },
+                        (marker) => unwritten.add(marker),
+                      )
+                    : cited,
+                );
                 // An Analysis's own table names the rows and files it read, so content that gives one isn't uncited.
                 const bound = withAnalysisTables(uncited, markerRuns);
                 const blocks = asGenerated(bound);
@@ -3040,6 +3124,8 @@ export function createAnswers(options: AnswersOptions) {
                   droppedSources: sourced.dropped,
                   unlinkedSources: tables.unlinked,
                   extraCells: tables.extraCells,
+                  figuresLeftOut:
+                    unwritten.size > 0 ? figuresLeftOut(unwritten.size, analyses) : undefined,
                   searchTalk: written.left,
                   analysisTables: analysisTablesOf(markerRuns),
                   chartsPlaced: chartsPlacedIn(written.markdown, markerAnalyses),
@@ -3055,8 +3141,18 @@ export function createAnswers(options: AnswersOptions) {
                   writeSoon();
                 }
               },
+              checkRecorded: (toolCallId, change) => {
+                if (mindChanges.has(toolCallId)) mindChanges.set(toolCallId, change);
+                const call = toolCalls.find((each) => each.id === toolCallId);
+                // A call whose change was taken back has no card to say it on.
+                if (!call?.mindChange) return;
+                call.mindChange = change;
+                if (!finished) writeSoon();
+                else if (turns.get(answerId) === ownTurn)
+                  options.conversations.writeToolCalls(answerId, toolCalls);
+              },
               failed: (toolCallId, problem) => {
-                mindProblems.set(toolCallId, problem);
+                if (problem) mindProblems.set(toolCallId, problem);
                 // Whatever it wrote as its input came in was taken back: nothing of it counts.
                 mindChanges.delete(toolCallId);
                 const call = toolCalls.find((each) => each.id === toolCallId);
@@ -3364,10 +3460,13 @@ export function createAnswers(options: AnswersOptions) {
             }
             return cut;
           }, text);
+      // Call help is offered no Tool that changes a Note or runs a command, and its reply is lines
+      // for the User to say: a claim of a change can't be the app's, so it isn't checked (#2526).
+      const checksChanges = Boolean(mindsTools || commandsOffered) && !help;
       const heldBack = holdBack(() => mindsListed().map((mind) => mind.name));
       // After a command that was refused, failed or not allowed, the reply shows only once it is
       // checked: what it says of that command could be untrue, and a Stop meanwhile would leave it
-      // unchecked (#2407).
+      // unchecked (#2407). A sentence that may claim a change waits only for a check that runs.
       const shownUpTo = (text: string) =>
         toolCalls.some(
           (call) =>
@@ -3375,7 +3474,9 @@ export function createAnswers(options: AnswersOptions) {
             (call.status === "failed" || call.command?.yours !== undefined),
         )
           ? 0
-          : heldBack(text);
+          : checksChanges
+            ? heldBack(text)
+            : text.length;
       // Asked again inside the turn, the model reads what applied as applied: the window may not
       // have taken it in yet, and told it waits, the model tells the User so.
       const appliedInTurn: ChangeStates = (change) =>
@@ -3407,11 +3508,8 @@ export function createAnswers(options: AnswersOptions) {
       // An Answer the User reads holds its claims of Tools to its calls; a check's, a cell's or a
       // call's help is read by its own flow, which offers no calculate to call.
       const readByUser = !outside && !help && !input.task && input.toolSet !== "check";
-      // Call help is offered no Tool that changes a Note or runs a command, and its reply is lines
-      // for the User to say: a claim of a change can't be the app's, so it isn't checked (#2526).
-      const checksClaims = !help;
       const turnChecks: TurnCheck[] = [
-        ...((mindsTools || commandsOffered) && checksClaims
+        ...(checksChanges
           ? [
               {
                 name: "claimed-change",
@@ -3437,6 +3535,7 @@ export function createAnswers(options: AnswersOptions) {
                     const checked = await inStep("change-claim-check", () =>
                       claimsNoCallMade(reply, toolCalls, mindsListed(), focusedId, {
                         model: judgeModel,
+                        request: context.question,
                         names: options.readableMindName,
                         states: appliedInTurn,
                         parts: (mindId, part) =>
@@ -3448,7 +3547,10 @@ export function createAnswers(options: AnswersOptions) {
                     // refused as the User's alone, whatever the judge took a claim to be about, so
                     // none of it reads as done (#2407). Only a verdict asks again.
                     const refused = new Set<string>(refusedCommands().map(({ yours }) => yours));
-                    const claimed = checked.claims.length > 0 || checked.commands.length > 0;
+                    const claimed =
+                      checked.claims.length > 0 ||
+                      checked.commands.length > 0 ||
+                      checked.unfinished === true;
                     const commands =
                       claimed || checked.failed
                         ? CLAIMED_COMMANDS.filter(
@@ -3458,7 +3560,12 @@ export function createAnswers(options: AnswersOptions) {
                     if (!claimed)
                       return commands.length > 0 ? { claims: [], commands, note: "" } : null;
                     return {
-                      claims: checked.claims,
+                      // A request said done and left undone is a change claimed, for the line
+                      // under the reply (#2878).
+                      claims:
+                        checked.unfinished && checked.claims.length === 0
+                          ? (["changed"] satisfies ClaimedChange[])
+                          : checked.claims,
                       commands,
                       note: askAgainNote(
                         checked,
@@ -3634,7 +3741,7 @@ export function createAnswers(options: AnswersOptions) {
             analysisInstructions(withAnalysisTools),
             codeInstructions(withCodeTools, withAnalysisTools),
             workbookInstructions(withWorkbookTools),
-            meetingInstructions(heard !== null),
+            meetingInstructions(heard !== null, unmarked),
             signInNeededInstructions(signInNeeded.map((connector) => connector.name)),
             help ? "" : language,
           ]
@@ -3659,6 +3766,7 @@ export function createAnswers(options: AnswersOptions) {
         question: context.question,
         ...(context.meetingFacts && { meetingFacts: context.meetingFacts }),
         ...(input.mindsLine && { mindsLine: input.mindsLine }),
+        ...(input.onScreenLine && { onScreenLine: input.onScreenLine }),
         model: prepared.model,
         ...(prepareQuick && { quickModel: () => prepareQuick(model, prepared) }),
         documents,
@@ -4151,7 +4259,16 @@ export function createAnswers(options: AnswersOptions) {
     const ids = contextCitationsFor(mindId);
     const readsPictures = model === null || options.readsImages?.(model) !== false;
     const reading = content.peek(mindId, (blocks) =>
-      readMind(blocks, name, focus, documents, ids, readsPictures),
+      readMind(
+        blocks,
+        name,
+        focus,
+        documents,
+        ids,
+        readsPictures,
+        undefined,
+        missingNumberWords(options.interfaceLanguage()),
+      ),
     );
     return { mindId, reading, ids, section: reading.section(MIND_TOKEN_LIMIT, question) };
   }
@@ -4173,15 +4290,35 @@ export function createAnswers(options: AnswersOptions) {
   };
 
   /**
+   * A help button's Search scope (#3005): its Note's, without another call's Transcript, since a
+   * press is about the call in progress; `mindId` null (its Note is gone), without any call's. A
+   * typed question keeps them, each marked with its call. With the evaluation's `callsUnmarked`,
+   * a press reads them as before.
+   */
+  const pressScope = (scope: string[] | null, mindId: string | null): string[] | null => {
+    if (options.callsUnmarked?.()) return scope;
+    const others = new Set(options.otherCallTranscripts?.(mindId) ?? []);
+    if (others.size === 0) return scope;
+    // Every Document, listed now: another call's Transcript whose Passages come later stays out.
+    if (scope === null) {
+      return options.documents
+        .searchableBySize(null)
+        .flatMap((each) => (others.has(each.id) ? [] : [each.id]));
+    }
+    return scope.some((id) => others.has(id)) ? scope.filter((id) => !others.has(id)) : scope;
+  };
+
+  /**
    * Writes the Answer of a Question in a conversation, added or emptied in `turn`, from
    * the messages before it, the Mind it reads and its Search scope as it is now.
    */
   function startInConversation(
     turn: Turn,
     ready: { model: ChatModelChoice; consentNeeded: boolean },
-    documentIds: string[] | null,
-    emptyScope: boolean,
+    scope: string[] | null,
+    scopeEmpty: boolean,
     mind: MindToRead | null,
+    help: MeetingHelpKind | null,
     onScreen: readonly string[],
     {
       quoted,
@@ -4194,8 +4331,13 @@ export function createAnswers(options: AnswersOptions) {
     namedScope: SearchScope | null = null,
   ): ConversationAskResult {
     const { conversation, question, answer } = turn;
-    const help = mind ? (options.meetingHelp?.(mind.mindId, question.text) ?? null) : null;
     const callOnly = help !== null && HELP_DOCUMENTS[help] === null;
+    const documentIds = help && mind ? pressScope(scope, mind.mindId) : scope;
+    // With no Search scope there is no chosen scope to be empty, listed or not.
+    const emptyScope =
+      documentIds === scope || scope === null
+        ? scopeEmpty
+        : documentIds !== null && options.documents.searchableCount(documentIds) === 0;
     // Each press of a help button stands alone: an earlier suggestion would only steer this one.
     // With no Note, the Folder in front (the Library's) is the turn's Folder: its wall is the one read.
     const wallId = mind
@@ -4303,10 +4445,15 @@ export function createAnswers(options: AnswersOptions) {
       text: kept.text,
       selection: kept.selection,
       ...(kept.pictures?.length && { pictures: kept.pictures }),
-      cut: (tokens) => reading.section(tokens, asking),
+      cut: (tokens, withSelection) => reading.section(tokens, asking, withSelection),
+      ...(kept.selection &&
+        reading.selection !== kept.selection && {
+          wholeSelection: reading.selection,
+        }),
     });
     start({
       ...(scopeText && { scopeLine: scopeText }),
+      ...(shown.length > 0 && { onScreenLine: onScreenLine(shown) }),
       ...(named.length > 0 && {
         mindsLine: {
           line: mindsLine(named),
@@ -4357,6 +4504,7 @@ export function createAnswers(options: AnswersOptions) {
       analyse: question.analyse,
       consentNeeded: ready.consentNeeded,
       ...(mind && { listening: () => options.liveTranscript(mind.mindId) }),
+      ...(mind && options.noteCall?.(mind.mindId)?.live && { callIn: mind.mindId }),
       ...(help && { help }),
       quoted: callOnly ? [] : quoted,
       pictured: callOnly ? [] : pictured,
@@ -4554,8 +4702,8 @@ export function createAnswers(options: AnswersOptions) {
    * What an Answer to `question` is written from: its context, and its Search
    * scope as it is now, resolved to the Documents it covers now. With no
    * scope it follows the one rule (#1942): the examples until the User has a
-   * Document of their own, theirs alone from then on; an example's own Note
-   * searches every Document.
+   * Document of their own, then theirs and the examples the Note cites (#3083);
+   * an example's own Note searches every Document.
    */
   const askedWith = (context: QuestionContext, question: Y.XmlElement, mindId: string) => {
     const chosen = searchScopeOf(question.getAttributes());
@@ -4609,6 +4757,7 @@ export function createAnswers(options: AnswersOptions) {
           QUESTION_CONTEXT_TOKEN_BUDGET,
           options.documents.names(),
           ids,
+          missingNumberWords(options.interfaceLanguage()),
         );
         const asked = {
           ...askedWith(context, question.element, mindId),
@@ -4728,6 +4877,7 @@ export function createAnswers(options: AnswersOptions) {
         answerModel,
       );
       const quotes = checkQuotes(question.quotes, question.mind?.id ?? null);
+      const pressed = mind ? (options.meetingHelp?.(mind.mindId, question.text) ?? null) : null;
       const added = options.conversations.add(
         { ...question, scope, quotes: storedQuotes(quotes) },
         answerModel,
@@ -4743,6 +4893,7 @@ export function createAnswers(options: AnswersOptions) {
             ? (scope.folderIds[0] ?? "")
             : "";
         },
+        pressed,
       );
       const { turn } = added;
       let published = false;
@@ -4769,11 +4920,14 @@ export function createAnswers(options: AnswersOptions) {
           question.mind?.id ?? null,
           readyMind ? null : wallOfTurn(added.turn.question),
         );
+        const help = readyMind ? pressed : null;
         const readyTurn = options.conversations.restartAnswer(
           turn.answer.id,
           ready.model,
           readOf(readyMind),
           false,
+          undefined,
+          help,
         );
         options.conversations.publish(readyTurn);
         published = true;
@@ -4783,6 +4937,7 @@ export function createAnswers(options: AnswersOptions) {
           documentIds,
           emptyScope,
           readyMind,
+          help,
           question.onScreen,
           checked,
           question.commands,
@@ -4843,12 +4998,14 @@ export function createAnswers(options: AnswersOptions) {
       } else if (front !== null) {
         origin = { folderId: front, scope: folderScope(front) };
       }
+      const help = mind ? (options.meetingHelp?.(mind.mindId, question.text) ?? null) : null;
       const turn = options.conversations.restartAnswer(
         answerId,
         ready.model,
         readOf(mind),
         true,
         origin,
+        help,
       );
       const wall =
         mindId !== null
@@ -4864,6 +5021,7 @@ export function createAnswers(options: AnswersOptions) {
         documentIds,
         emptyScope,
         mind,
+        help,
         onScreen,
         checkQuotes(question.quotes, mindId, wall),
         commands,
@@ -4896,7 +5054,7 @@ export function createAnswers(options: AnswersOptions) {
       if (!answer || answer.status === "streaming") return;
       if (!answer.citations.some((each) => each.check === "not-checked")) return;
       const limit = isRecord(input) ? moneyOf(input.limit) : null;
-      const documentIds = judgedScope(question);
+      const documentIds = judgedScope(question, answer);
       // The sentences judged again lose the ✓ an earlier check gave them, on every Citation they
       // cite, until this judgement passes them again (#2847).
       const again = new Set(
@@ -4948,7 +5106,7 @@ export function createAnswers(options: AnswersOptions) {
           figures: answer.figures,
           waiting,
           mindId: judgedMind(question),
-          documentIds: judgedScope(question),
+          documentIds: judgedScope(question, answer),
           model: answer.model,
         })) ?? null;
       if (estimate?.billing !== "per-token" || !estimate.upTo?.cost) return estimate;

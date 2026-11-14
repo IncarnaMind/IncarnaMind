@@ -1,10 +1,10 @@
 import { isMacOS } from "@tiptap/core";
 import { createContext, type ReactNode, useContext, useMemo, useRef } from "react";
 import type { Document } from "../../../core/api";
-import { changedSourceLines, citationState } from "../../../shared/citations";
+import { changedSourceLines, citationState, whereQuoteStands } from "../../../shared/citations";
 import { displayName, sourceOf } from "../../../shared/documentNames";
 import { useAnnotations } from "../annotations";
-import { useCitationRecheck } from "../citationVersion";
+import { useCitationRecheck, useQuoteLook } from "../citationVersion";
 import { CountItLine } from "../components/CountItLine";
 import { YourNoteLabel } from "../components/DocumentsSection";
 import { InlineName } from "../components/InlineName";
@@ -20,6 +20,7 @@ import { useAppStore, type ViewerTarget } from "../store";
 import { useRename } from "../useRename";
 import { pageDate } from "../webPages";
 import { AreaModeContext } from "./areaSelection";
+import { citedPlaceGoneLine } from "./citedPlace";
 import { AreaIcon, OpenExternallyIcon } from "./icons";
 import { canOpenExternally, useOpenExternally } from "./openExternally";
 
@@ -63,6 +64,7 @@ export function ViewerHeader({
   openable = true,
   onRetry,
   showingCited = false,
+  placeGone = false,
 }: {
   leading?: ReactNode;
   children?: ReactNode;
@@ -78,6 +80,11 @@ export function ViewerHeader({
    * does, and a saved page's date is the cited version's.
    */
   showingCited?: boolean;
+  /**
+   * The Units the Citation opened the page at aren't in the Document (`citedPlaceGone`): the
+   * line under the toolbar says so, after the one that says the Document changed.
+   */
+  placeGone?: boolean;
 }) {
   const t = useT();
   const language = useLanguage();
@@ -104,8 +111,8 @@ export function ViewerHeader({
     [cited, target, documents],
   );
   const changedState = citedState?.changedAfterCited ?? false;
-  const recheck = useCitationRecheck(
-    // The cited version's own view says how it stands, not the newer one's.
+  // The cited version's own view says how it stands, not the newer one's.
+  const rechecked =
     !showingCited && cited && target?.quote
       ? {
           documentId: target.documentId,
@@ -115,27 +122,28 @@ export function ViewerHeader({
           quote: target.quote,
           location: cited.location,
         }
-      : null,
-    changedState,
-    document?.contentHash,
-    // The Document's own viewer is browsing, which a Folder wall leaves open (#1934).
-    null,
-  );
+      : null;
+  // The Document's own viewer is browsing, which a Folder wall leaves open (#1934).
+  const checked = useCitationRecheck(rechecked, changedState, document?.contentHash, null);
+  const recheck = useQuoteLook(rechecked, checked, null);
+  const citedPlace = {
+    pageFrom: cited?.pageFrom ?? target?.pageFrom ?? null,
+    pageTo: cited?.pageTo ?? target?.pageTo ?? null,
+    location: cited?.location ?? null,
+  };
   const changed =
     !showingCited && citedState
-      ? changedSourceLines(
-          changedState,
-          {
-            pageFrom: cited?.pageFrom ?? target?.pageFrom ?? null,
-            pageTo: cited?.pageTo ?? target?.pageTo ?? null,
-            location: cited?.location ?? null,
-          },
-          recheck,
-          document,
-          language,
-          t,
-        ).note
+      ? changedSourceLines(changedState, citedPlace, recheck, document, language, t).note
       : null;
+  const standing =
+    recheck === null || recheck === "failed" || "keptInside" in recheck
+      ? null
+      : (whereQuoteStands(citedPlace, recheck)?.standing ?? null);
+  const gone = placeGone && target ? citedPlaceGoneLine(target, t, documents, standing) : null;
+  const notice = [changed?.notice, changed?.quote, gone].reduce<string>(
+    (text, line) => (line ? `${text}${text ? gap(text, line) : ""}${line}` : text),
+    "",
+  );
   // A saved page's date is the shown version's: the cited one while it is shown (#2159).
   const fetchedAt =
     showingCited && document?.web
@@ -304,10 +312,9 @@ ${sourceOf(document)}`
           {problem.message}
         </ProblemLine>
       )}
-      {changed && (
+      {notice && (
         <ProblemLine role="status" testId="viewer-citation-changed" className="shrink-0 px-4 py-2">
-          {changed.notice}
-          {changed.quote && `${gap(changed.notice, changed.quote)}${changed.quote}`}
+          {notice}
         </ProblemLine>
       )}
       {document && leftOut && (

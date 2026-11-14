@@ -5,12 +5,14 @@
  * about and that model reads images.
  */
 import { randomUUID } from "node:crypto";
-import { readdir, readFile } from "node:fs/promises";
+import { mkdir, readdir, readFile } from "node:fs/promises";
+import { join } from "node:path";
 import type { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test } from "vitest";
 import type { Core, CoreAdapters, MindFocus } from "../../src/core";
 import { answerEnded } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
+import { createSourceFolder, linkAndProcess, writeSourceFile } from "../helpers/documents";
 import { checkWellFormed, part, unzip } from "../helpers/docx";
 import { connectToMind } from "../helpers/mindClient";
 import { note, writeMind } from "../helpers/minds";
@@ -161,6 +163,46 @@ describe("A picture's exports", () => {
     // Written again with nothing changed: the files there hold the pictures, so none is copied again.
     await core.rewriteMindExport(mind.id, { format: "markdown" }, saved.file.path);
     expect((await readdir(saved.file.folder)).sort()).toEqual(second);
+  });
+
+  // protects=a Change saves the pictures before it writes the file, so a Markdown export whose pictures can't be saved stays as it was and never links pictures that aren't there, and the same Change writes both once they can be; fails_when=the file is written first and keeps links to pictures that were never saved; no_claim=a folder made read-only, where the file can't be written either, and what the window says of the refusal.
+  test("a Markdown export whose pictures can't be saved is left as it was", async () => {
+    const { core, mind, client } = await setUp();
+    const linked = await createSourceFolder();
+    await writeSourceFile(linked, "Lease.txt", "Rent is due monthly.");
+    await linkAndProcess(core, linked);
+    const [folder] = await core.listLinkedFolders();
+    if (!folder) throw new Error("The folder wasn't linked.");
+    const out = join(linked, "Exports");
+    await mkdir(out);
+    await core.setOutputLocation(out);
+    await core.setLinkedFolderWriting(folder.id, true);
+    writeMind(client, [note("Spring tides."), picture()]);
+    await client.settled();
+    const saved = await core.saveMindExport(mind.id, { format: "markdown" });
+    if (saved.status !== "saved") throw new Error(`Not saved: ${saved.status}`);
+    const before = await readFile(saved.file.path, "utf8");
+    const held = (await readdir(out)).sort();
+    expect(held).toHaveLength(2);
+
+    // A second picture, and new files stopped in the folder: the file can still be written, the picture can't.
+    writeMind(client, [note("Spring tides."), picture(), picture("A second chart", OTHER_PIXEL)]);
+    await client.settled();
+    await core.setLinkedFolderWriting(folder.id, false);
+    await expect(
+      core.rewriteMindExport(mind.id, { format: "markdown" }, saved.file.path),
+    ).rejects.toThrow("You didn’t allow new files in this Linked folder, so nothing was saved.");
+    expect(await readFile(saved.file.path, "utf8")).toBe(before);
+    expect((await readdir(out)).sort()).toEqual(held);
+
+    // The same Change once the folder takes new files: it is the pictures that held it back.
+    await core.setLinkedFolderWriting(folder.id, true);
+    await core.rewriteMindExport(mind.id, { format: "markdown" }, saved.file.path);
+    const after = await readFile(saved.file.path, "utf8");
+    expect(after).toContain("![A second chart](picture-");
+    const names = new Set(Array.from(after.matchAll(/picture-[0-9a-f]{12}\.png/g), (m) => m[0]));
+    expect(names.size).toBe(2);
+    expect((await readdir(out)).sort()).toEqual([saved.file.name, ...names].sort());
   });
 });
 

@@ -153,9 +153,9 @@ for (const language of ["en", "zh-CN"] as const) {
     await pointAndClick(window, button);
     const menu = window.getByTestId("table-actions");
     await expect(menu).toBeVisible();
-    await expect(menu.getByTestId("table-rowBelow")).toContainText(words.rowBelow);
+    await expect(menu.getByTestId("table.rowBelow")).toContainText(words.rowBelow);
     await screenshot(window, `table-menu-${language}`);
-    await pointAndClick(window, menu.getByTestId("table-rowBelow"));
+    await pointAndClick(window, menu.getByTestId("table.rowBelow"));
     await expect(menu).toBeHidden();
     await expect(table.locator("tr")).toHaveCount(4);
     expect((await tableText(table))[2]).toEqual(["", "", ""]);
@@ -176,29 +176,35 @@ for (const language of ["en", "zh-CN"] as const) {
     await window.keyboard.press("ControlOrMeta+z");
     await expect.poll(() => columnsOf(table)).toBe(3);
 
-    // A right-click in a cell opens the same menu there, and deletes that row.
+    // A right-click in a cell opens the Block's menu there, and deletes that row.
     const empty = table.locator("tr").nth(2).locator("td").first();
+    const blockMenu = window.getByTestId("block-actions");
     await pointAndClick(window, empty, { button: "right" });
-    await expect(menu).toBeVisible();
-    await expect(menu.getByTestId("table-deleteRow")).toContainText(words.deleteRow);
-    await pointAndClick(window, menu.getByTestId("table-deleteRow"));
+    await expect(blockMenu).toBeVisible();
+    await expect(blockMenu.getByTestId("table.deleteRow")).toContainText(words.deleteRow);
+    await pointAndClick(window, blockMenu.getByTestId("table.deleteRow"));
     await expect(table.locator("tr")).toHaveCount(2);
 
     // ⌘/ opens it from the keyboard, and Esc goes back to the cell; the arrows reach "Delete
     // column", and Enter does it.
-    await clickCell(table.locator("tr").first().locator("th").nth(2));
+    const heading = table.locator("tr").first().locator("th").nth(2);
+    await clickCell(heading);
+    // The ⋯ goes with the cell's focus, so the focus can't be left on it: ⌘/ is the keyboard's way.
+    await button.focus();
+    await expect(button).toBeHidden();
+    await clickCell(heading);
     await window.keyboard.press("ControlOrMeta+/");
     await expect(menu).toBeVisible();
-    await expect(menu.getByTestId("table-rowAbove")).toBeFocused();
+    await expect(menu.getByTestId("table.rowAbove")).toBeFocused();
     await window.keyboard.press("Escape");
     await expect(menu).toBeHidden();
     await expect(editor).toBeFocused();
     await window.keyboard.press("ControlOrMeta+/");
-    await expect(menu.getByTestId("table-rowAbove")).toBeFocused();
+    await expect(menu.getByTestId("table.rowAbove")).toBeFocused();
     await window.keyboard.press("End");
     await window.keyboard.press("ArrowUp");
-    await expect(menu.getByTestId("table-deleteColumn")).toBeFocused();
-    await expect(menu.getByTestId("table-deleteColumn")).toContainText(words.deleteColumn);
+    await expect(menu.getByTestId("table.deleteColumn")).toBeFocused();
+    await expect(menu.getByTestId("table.deleteColumn")).toContainText(words.deleteColumn);
     await window.keyboard.press("Enter");
     await expect.poll(() => columnsOf(table)).toBe(2);
     expect(await tableText(table)).toEqual(rows.map((row) => row.slice(0, 2)));

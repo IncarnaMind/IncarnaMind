@@ -98,10 +98,9 @@ describe("An Answer's stored usage", { timeout: 30_000 }, () => {
     expect(finished.usage).toEqual(stored(100, 200, 400));
   });
 
-  // protects=the one request for an Answer's Citations counts in its usage; fails_when=its tokens are left out (#2817).
-  test("counts its request for the Citations it left out", async () => {
+  /** `answer`, written with no record of its own after one search of a line on tea; the one request for its Citations gets none. */
+  async function teaAnswer(answer: string) {
     const { asked, heard } = asking();
-    const answer = "Long ago, traders carried tea along the old Horse Road to Tibet [^1].";
     const model = scriptedModel(
       (call) => {
         if (call.question === "unmarked-quotes")
@@ -125,11 +124,28 @@ describe("An Answer's stored usage", { timeout: 30_000 }, () => {
         contents: "# Tea\n\nTraders carried tea along the Tea Horse Road to Tibet.\n",
       },
     ]);
-
     const { finished } = await askAndFinish(core, client, mind.id, "How did tea reach Tibet?");
+    return { asked, finished };
+  }
+
+  // protects=the one request for an Answer's Citations counts in its usage; fails_when=its tokens are left out (#2817).
+  test("counts its request for the Citations it left out", async () => {
+    const { asked, finished } = await teaAnswer(
+      "Long ago, merchants moved bricks of it west by caravan [^1].",
+    );
 
     expect(asked).toContain("unmarked-quotes");
     expect(finished.usage).toEqual(stored(100, 200, 300));
+  });
+
+  // protects=a sentence worded closely like its Document's line, with a marker it gave no record for, takes that line's Citation with no request for Citations, so its usage counts none (#3059); fails_when=the request goes out and is counted; no_claim=none beyond protects.
+  test("counts no request for Citations when its sentence matches its line by itself", async () => {
+    const { asked, finished } = await teaAnswer(
+      "Long ago, traders carried tea along the old Horse Road to Tibet [^1].",
+    );
+
+    expect(asked).not.toContain("unmarked-quotes");
+    expect(finished.usage).toEqual(stored(100, 200));
   });
 
   // protects=the claimed-change check's tokens count in the Answer's usage when its reply doesn't hold to the schema and is read as JSON; fails_when=the salvaged reply's tokens are lost, as they were (#2817).
@@ -168,9 +184,10 @@ describe("An Answer's stored usage", { timeout: 30_000 }, () => {
     const answer = await askAssistant(core, { text: "write a summary page", mindId: mind.id });
 
     expect(answer.steps?.unbackedClaims).toEqual(["added"]);
-    expect(asked).toEqual(["claimed-changes"]);
+    // Nothing was changed, so the check also asks whether the reply says the request is done.
+    expect(asked).toEqual(["claimed-changes", "request-done"]);
     const requests = model.doStreamCalls.filter((call) => !call.tools?.length).length;
-    expect(await finished).toEqual(stored(...Array(requests).fill(200), 500));
+    expect(await finished).toEqual(stored(...Array(requests).fill(200), 500, 500));
   });
 
   // protects=a local model's retries of its quotes and its figures count where the Answer counts its own requests; fails_when=either retry's tokens are left out, as they were (#2817).

@@ -12,6 +12,7 @@
  */
 import type { Embedder, EmbeddingModelFiles } from "../adapters";
 import { ChannelClosedError, channelRequests } from "../channelRequests";
+import { channelStops } from "../channelStop";
 
 export type EmbedderCommand =
   | { type: "load"; files: EmbeddingModelFiles }
@@ -46,11 +47,15 @@ export function createChannelEmbedder(start: () => EmbedderChannel): Embedder {
   /** The files the open channel has loaded. */
   let loadedKey: string | undefined;
   let loading: { key: string; done: Promise<void> } | undefined;
+  const stops = channelStops<EmbedderChannel>();
   const requests = channelRequests<EmbedderChannel, EmbedderResponse>();
 
   function open(): EmbedderChannel {
     const started = start();
-    started.onResponse((response) => requests.answer(response.id, response));
+    started.onResponse((response) => {
+      requests.answer(response.id, response);
+      stops.answered(started, response.id);
+    });
     started.onExit((code) => {
       requests.rejectAll(started, new Error(`The embedding process stopped (exit code ${code}).`));
       if (channel !== started) return;
@@ -102,8 +107,9 @@ export function createChannelEmbedder(start: () => EmbedderChannel): Embedder {
       loadedKey = undefined;
       loading = undefined;
       if (!stopping) return;
+      const inFlight = new Set(requests.out(stopping));
       requests.rejectAll(stopping, new ChannelClosedError("The embedding model was stopped."));
-      stopping.stop();
+      stops.close(stopping, inFlight);
     },
   };
 }

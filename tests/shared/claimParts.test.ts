@@ -1,8 +1,10 @@
 import { describe, expect, test } from "vitest";
+import { runFailureOf } from "../../src/core/answers/checks/checkResults";
 import type {
   CheckFigure,
   Citation,
   ClaimCheckAttributes,
+  ClaimCheckFailure,
   ClaimCheckPart,
   ClaimCheckResult,
   ClaimPartPlan,
@@ -197,6 +199,60 @@ describe("ordered claim part codec", () => {
       verdict: "not-checked",
       reason: "rate-limit",
     });
+  });
+
+  // protects=a number no quote gives, or a quote the sentence's Citations don't hold, on one part never hides a limit or a stop on another: the sentence takes the limit, so the run waits it out or stops, whichever part comes first; alone, or beside "no-evidence" or "malformed", its own reason shows (#3022, #3019); fails_when=the sentence ends with that reason where another part met a limit, or "no-evidence" hides it; no_claim=how the run pauses, which the core's test covers.
+  describe("a reason that says what to do, beside another part's ending (#3022, #3019)", () => {
+    const second: ClaimPartPlan = { span: { start: 13, end: 25 }, kind: "fact" };
+    const ended = (at: ClaimPartPlan, reason: ClaimCheckFailure) =>
+      partWithResult(at, {
+        verdict: "not-checked",
+        reason,
+        detail: null,
+        versions: [],
+        excluded: [],
+      });
+    const NUMBERS = ["number-unquoted", "number-not-worked-out", "found-elsewhere"] as const;
+
+    test.each(
+      NUMBERS.flatMap((number) =>
+        (
+          [
+            "rate-limit",
+            "cost-cap",
+            "plan-limit",
+            "read-budget",
+            "stopped",
+            "consent-revoked",
+          ] as const
+        ).map((limit) => [number, limit] as const),
+      ),
+    )("%s beside %s: the sentence takes the limit, in either order", (number, limit) => {
+      for (const parts of [
+        [ended(plan, number), ended(second, limit)],
+        [ended(plan, limit), ended(second, number)],
+      ]) {
+        const sentence = resultFromParts(parts);
+        expect(sentence).toMatchObject({ verdict: "not-checked", reason: limit });
+        const shared = ["rate-limit", "cost-cap", "plan-limit"].includes(limit);
+        expect(runFailureOf(sentence)?.kind ?? null).toBe(shared ? limit : null);
+      }
+    });
+
+    test.each(NUMBERS)(
+      "%s alone, or beside no-evidence or malformed, shows its own reason",
+      (number) => {
+        expect(resultFromParts([ended(plan, number)])).toMatchObject({ reason: number });
+        for (const other of ["no-evidence", "malformed"] as const) {
+          expect(resultFromParts([ended(plan, other), ended(second, number)])).toMatchObject({
+            reason: number,
+          });
+          expect(resultFromParts([ended(plan, number), ended(second, other)])).toMatchObject({
+            reason: number,
+          });
+        }
+      },
+    );
   });
 
   // protects=a contradicted part shows beside a part stopped or still being checked, and one with no valid evidence never shows as Contradicted, though an unsupported sibling still shows (#2002); fails_when=a stopped or unfinished part hides the contradiction, or a contradiction with nothing behind it gets a mark; no_claim=how the card lays the rows out.

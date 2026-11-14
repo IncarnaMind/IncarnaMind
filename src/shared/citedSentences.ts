@@ -3,6 +3,7 @@
  * check step counts. Pure.
  */
 import type { MarkedFigure } from "../core/api";
+import { MARKER } from "./answerSentences";
 import { FIGURE_MARKER } from "./figureMarkers";
 import { comparableSentence, INLINE_NODE, isClaim, sentenceSpans } from "./sentences";
 
@@ -24,8 +25,7 @@ export interface CitedSentence {
   inTable: boolean;
 }
 
-const MARKER = /\[\^(\d+)\]/g;
-const FOOTNOTE_LINE = /^\s*\[\^\d+\]:/;
+const FOOTNOTE_LINE = /^\s*\[\^\d{1,4}\]:/;
 const BLOCK_MARKUP = /^\s*(?:#{1,6}\s+|[-*+]\s+|\d+[.)]\s+|>\s*)/;
 const BEFORE_MARKER = new RegExp(`\\s+(?=${INLINE_NODE})`, "gu");
 

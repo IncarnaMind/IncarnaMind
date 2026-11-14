@@ -232,6 +232,42 @@ body {
   gap: 2px;
 }
 
+/* The field for quick notes: one line at rest, a line more at a time to three, then it scrolls; its buttons stay on its first line. */
+.ask-field {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 4px 2px 0;
+}
+
+.ask-field-text {
+  flex: 1;
+  min-width: 0;
+  min-height: 30px;
+  max-height: 70px;
+  field-sizing: content;
+  overflow-y: auto;
+  resize: none;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 14px;
+  line-height: 20px;
+  user-select: text;
+}
+
+.ask-field-undo {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.ask-field-send {
+  margin-top: 3px;
+}
+
+.ask-field-problem {
+  padding: 4px 2px 0;
+}
+
 .panel-suggestion {
   display: flex;
   flex-direction: column;

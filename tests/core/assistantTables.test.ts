@@ -240,16 +240,19 @@ describe("A table the assistant writes into a Mind is a table", { timeout: 30_00
             check: "found",
           }),
         ],
-        // The one cited claim was checked before it landed; the other claim, with no Citation, is left
-        // to the one Check (#1111, #1909). A header cell names its column and counts as no claim (#2378).
+        // Both claims are checked after the reply, the cited one and the one with no Citation, which
+        // the scripted sort names a claim (#1111, #1909, #2830). A header cell names its column and
+        // counts as no claim (#2378).
         selfCheck: {
           request: expect.any(String),
           blocks: expect.any(Array),
           checkable: 2,
           cited: 1,
-          sent: 1,
-          checked: 1,
+          sent: 2,
+          checked: 2,
           failed: 0,
+          look: 2,
+          leftOut: 0,
         },
       },
     ]);

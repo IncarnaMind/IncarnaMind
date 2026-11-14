@@ -20,8 +20,8 @@ import {
   readRecordJudgement,
 } from "../../src/core/answers/checks/prompt";
 import { readRewrite } from "../../src/core/answers/checks/rewrite";
-import { readBatch } from "../../src/core/answers/checks/sentenceBatch";
-import { claimsReply } from "../../src/core/answers/claimedChanges";
+import { readBatchText } from "../../src/core/answers/checks/sentenceBatch";
+import { claimsReply, requestReply } from "../../src/core/answers/claimedChanges";
 import { FIGURES_REPLY } from "../../src/core/answers/figureRetry";
 import {
   byKey,
@@ -79,7 +79,7 @@ const QUESTIONS: Record<
   { reply: JudgeReply<unknown>; right: string; read: unknown; unreadable: string; stream?: true }
 > = {
   "sentence-batch": {
-    reply: json((value) => readBatch(value, 1)),
+    reply: lines((text) => readBatchText(text, 1)),
     right:
       '{"sentences":[{"number":1,"kind":"fact","verdict":"supported","roles":"same","time":"same","quoted":"states","says":"The lease says so."}]}',
     read: new Map([
@@ -184,6 +184,12 @@ const QUESTIONS: Record<
     }),
     read: { claims: ["changed"], commands: [], unsure: false },
     unreadable: JSON.stringify({ verdict: "unbacked" }),
+  },
+  "request-done": {
+    reply: requestReply,
+    right: JSON.stringify({ asks_change: "yes", request: "done" }),
+    read: { asks_change: "yes", request: "done" },
+    unreadable: JSON.stringify({ request: "done" }),
   },
   "unmarked-quotes": {
     reply: CITED_REPLY,

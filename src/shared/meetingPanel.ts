@@ -19,8 +19,11 @@ export const SAYS_HIDDEN_FROM_SHARES: boolean = false;
 /** The global shortcuts the main process holds now. */
 export type HeldKeys = Partial<Record<HelpShortcut, string>>;
 
-/** What ⌘K in the app's window asks of the panel: pin its latest suggestion, or fold or unfold it. */
-export type PanelCommand = "pin" | "fold";
+/**
+ * What ⌘K in the app's window asks of the panel: pin its latest suggestion, fold or unfold it, or
+ * put the cursor in its field for a quick note (#2925), as ⌃⌥N does.
+ */
+export type PanelCommand = "pin" | "fold" | "note";
 
 /** The panel as the app's window knows it, for ⌘K's labels. */
 export interface PanelState {
@@ -47,6 +50,11 @@ export const MEETING_PANEL_CHANNELS = {
   state: "meetingPanel:state",
   /** Main → page: ⌘K asked for a `PanelCommand`. */
   command: "meetingPanel:command",
+  /**
+   * Page → main: the panel takes the keyboard for its field (true), or gives it back to the app
+   * that had it (false). Nothing else makes the window focusable (#2925).
+   */
+  keyboard: "meetingPanel:keyboard",
 } as const;
 
 export interface MeetingPanelBridge {
@@ -58,4 +66,5 @@ export interface MeetingPanelBridge {
   onHelp(listener: (kind: GeneralHelpKind) => void): () => void;
   state(state: Omit<PanelState, "shown">): void;
   onCommand(listener: (command: PanelCommand) => void): () => void;
+  keyboard(take: boolean): void;
 }

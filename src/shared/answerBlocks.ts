@@ -32,6 +32,7 @@ import { citedSentences } from "./citedSentences";
 import { withFigures } from "./figureMarkers";
 import { figureRunId } from "./figureRuns";
 import { inlineLayout, inlineRange, projectedContent } from "./inlineText";
+import { withMissingNumbers } from "./missingNumbers";
 import { withoutFraming } from "./noteBlocks";
 import { printedValue } from "./printedFigures";
 import { comparableSentence, INLINE_NODE, sentenceSpans } from "./sentences";
@@ -40,7 +41,8 @@ import { comparableSentence, INLINE_NODE, sentenceSpans } from "./sentences";
  * While it is written, what would still change how it looks is held back, and
  * a marker whose Citation hasn't come yet shows as being checked; once it has
  * ended, a marker with no Citation is left out. A figure marker with no
- * figure is left out.
+ * figure is left out while it is written, as its figure may still come; once it has ended, it is
+ * the mark that says no number was written, as the words of that mark the Answer wrote are (#2577).
  */
 export function answerBlocks(
   answer: Pick<ConversationAnswer, "text" | "citations" | "figures" | "status"> &
@@ -54,30 +56,29 @@ export function answerBlocks(
     if (citation) return citationNode(citation);
     return streaming ? citationNode(null) : null;
   });
-  return asGenerated(
-    closeUpCitations(
-      withCalculatedFigures(
-        withAnalysisTables(
-          withAnalysisPictures(blocks, answer.analyses),
-          (answer.analyses ?? []).map((analysis) => ({
-            answerId: answer.id ?? "preview",
-            analysis,
-          })),
-        ),
-        (marker) => figures.get(marker) ?? null,
-        answer,
-      ),
+  const figured = withCalculatedFigures(
+    withAnalysisTables(
+      withAnalysisPictures(blocks, answer.analyses),
+      (answer.analyses ?? []).map((analysis) => ({
+        answerId: answer.id ?? "preview",
+        analysis,
+      })),
     ),
+    (marker) => figures.get(marker) ?? null,
+    answer,
+    streaming ? undefined : () => undefined,
   );
+  return asGenerated(closeUpCitations(streaming ? figured : withMissingNumbers(figured)));
 }
 
 export function withCalculatedFigures(
   blocks: readonly NodeJSON[],
   figureOf: (marker: number) => CalculatedFigure | null,
   answer: { id?: string; analyses?: readonly AnswerAnalysis[] },
+  missing?: (marker: number) => void,
 ): NodeJSON[] {
   let occurrence = 0;
-  return withFigures(blocks, figureOf, (figure, marker, written) => {
+  const show = (figure: CalculatedFigure, marker: number, written: string | null) => {
     const analysis = figure.analysis
       ? answer.analyses?.find((run) => run.number === figure.analysis?.analysis)
       : undefined;
@@ -90,7 +91,8 @@ export function withCalculatedFigures(
       `${answer.id ?? "preview"}:figure:${marker}:${occurrence++}`,
       backed ? figureRunId(answer.id ?? "preview", backed) : null,
     );
-  });
+  };
+  return withFigures(blocks, figureOf, show, missing);
 }
 
 function holdsFigure(analysis: AnswerAnalysis, figure: CalculatedFigure): boolean {

@@ -70,10 +70,10 @@ describe("The line under a reply that still claims a change (#1559)", () => {
   // protects=once a Mind changed, whose card says how, the line says not all the reply claims was done, never that nothing was; fails_when="Nothing was written" shows beside a write, or no line shows; no_claim=none beyond protects.
   test("with a Mind changed, not all of it was done", () => {
     expect(unbackedClaimLine(en, { ...claimed, toolCalls: [call(null, "a")] })).toBe(
-      "The assistant didn’t make every change this reply describes",
+      "The assistant didn’t do everything this reply says",
     );
     expect(unbackedClaimLine(zh, { ...claimed, toolCalls: [call(null, "a")] })).toBe(
-      "助手没有完成这条回答中说的全部改动",
+      "这条回答说的事，助手没有全部完成",
     );
   });
 

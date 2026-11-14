@@ -37,10 +37,17 @@ import {
   useVerify,
 } from "../verify";
 import { AnswerError } from "./AnswerView";
-import { coverageOf, type ShownClaim, sameCoverage, shownClaims } from "./claimChecks";
+import {
+  coverageOf,
+  foundElsewhere,
+  type ShownClaim,
+  sameCoverage,
+  shownClaims,
+} from "./claimChecks";
 import { ClaimMarkIcon, type ClaimMarkState } from "./icons";
 import { useRunModel } from "./ModelChip";
 import { Counted } from "./NoteHealth";
+import { NotYetCitedRow } from "./NotYetCitedRow";
 import { OpinionsLine } from "./OpinionsLine";
 import { useOpinionChecks } from "./opinionChecks";
 import { ReferencesLine } from "./ReferencesLine";
@@ -58,7 +65,14 @@ export function useVerification(doc: Y.Doc): Verification | null {
   return verification;
 }
 
-const VERIFY_ROWS = ["contradicted", "unsupported", "notChecked", "recheck", "supported"] as const;
+const VERIFY_ROWS = [
+  "contradicted",
+  "unsupported",
+  "notChecked",
+  "recheck",
+  "supported",
+  "notYetCited",
+] as const;
 type VerifyRow = (typeof VERIFY_ROWS)[number];
 
 const ROW_OF: Partial<Record<ShownClaim["shown"]["state"], VerifyRow>> = {
@@ -68,9 +82,16 @@ const ROW_OF: Partial<Record<ShownClaim["shown"]["state"], VerifyRow>> = {
   supported: "supported",
 };
 
-/** A claim no model checked stays not checked when it is edited, or "Checked 20 of 24" would count it. */
+/**
+ * A claim no model checked stays not checked when it is edited, or "Checked 20 of 24" would count
+ * it; one Supported, not yet cited, was checked, and has its own row (#3019).
+ */
 const rowOf = (claim: ShownClaim): VerifyRow | undefined =>
-  claim.check.state === "not-checked" ? "notChecked" : ROW_OF[claim.shown.state];
+  claim.check.state === "not-checked"
+    ? "notChecked"
+    : foundElsewhere(claim)
+      ? "notYetCited"
+      : ROW_OF[claim.shown.state];
 
 /** The checks of the document's sentences: how many there are and are going, and where each state's are. */
 function claimMarks(editor: Editor, verified: (blockId: string) => boolean) {
@@ -83,6 +104,7 @@ function claimMarks(editor: Editor, verified: (blockId: string) => boolean) {
     notChecked: [],
     recheck: [],
     supported: [],
+    notYetCited: [],
   };
   for (const claim of shownClaims(editor.state)) {
     const id: unknown = doc.resolve(claim.from).parent.attrs.id;
@@ -168,7 +190,7 @@ export const verifyDone = ({ running, outcome, claims, marks }: VerifyState) =>
   claims !== null &&
   marks.marked > 0;
 
-const VERIFY_MARKS: Record<VerifyRow, ClaimMarkState> = {
+const VERIFY_MARKS: Record<Exclude<VerifyRow, "notYetCited">, ClaimMarkState> = {
   contradicted: "contradicted",
   unsupported: "unsupported",
   notChecked: "not-checked",
@@ -383,6 +405,24 @@ export function VerifyCard({
         {VERIFY_ROWS.filter((row) => marks.rows[row].length > 0).map((row) => {
           const count = marks.rows[row].length;
           const shown = { count: format(count) };
+          if (row === "notYetCited") {
+            const text = t(
+              count === 1 ? "checks.row.notYetCited.one" : "checks.row.notYetCited",
+              shown,
+            );
+            return (
+              <NotYetCitedRow
+                key={row}
+                editor={editor}
+                count={count}
+                label={t("verify.next", { part: text })}
+                testId={`verify-${row}`}
+                onNext={() => goToNext(row)}
+              >
+                <Counted text={text} count={format(count)} />
+              </NotYetCitedRow>
+            );
+          }
           const text =
             row === "notChecked"
               ? t("verify.notChecked", shown)

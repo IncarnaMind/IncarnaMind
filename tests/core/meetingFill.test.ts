@@ -12,6 +12,7 @@ import type {
   ChatModelFactory,
   CitationLocation,
   Core,
+  CoreAdapters,
   Meeting,
   MeetingFill,
   SpeakerSeparator,
@@ -202,8 +203,11 @@ async function recorded(
     keychain,
     notesBeforeSpeakers,
     folder,
+    ollamaModels,
   }: {
     speakerSeparator?: SpeakerSeparator;
+    /** What the Ollama on this computer says of its models: none, no window. */
+    ollamaModels?: CoreAdapters["ollamaModels"];
     /** The Folder the Meeting's Note is made in, once `before` has run: none, no Folder. */
     folder?: () => string | undefined;
     /** How Stop is pressed. */
@@ -230,6 +234,7 @@ async function recorded(
     ...(capture && { capture }),
     ...(keychain && { keychain }),
     ...(notesBeforeSpeakers && { notesBeforeSpeakers }),
+    ...(ollamaModels && { ollamaModels }),
   });
   await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
   if (cloud) {
@@ -869,6 +874,64 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
     core.close();
   });
 
+  // protects=a quick note from the call-help panel's field (#2925) is one of the User's lines to the fill: kept as typed and filled in under; fails_when=it goes in as AI text, the fill rewrites or drops it, or reads the Note as having no notes; no_claim=My notes' view, which the panel's spec covers.
+  test("a quick note from the call-help panel is the User's own line: the fill keeps it as typed and fills in under it", async () => {
+    const model = fillingModel(
+      [
+        "HEADINGS: H1=NONE H2=NONE",
+        lineFact("L1", "pricing", "The enterprise price is 45 dollars a seat [^1]."),
+      ].join("\n\n"),
+      { 1: MY_LINES[0] as string },
+    );
+    const { core, meeting, client } = await recorded(model, null, undefined, undefined, {
+      stop: async (core, meetingId) => {
+        await core.addQuickNote({ meetingId, text: "Price for 40 seats?", atMs: 2 * SECOND });
+        return core.stopMeeting(meetingId);
+      },
+    });
+
+    expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", mode: "notes" });
+    await vi.waitFor(() =>
+      expect(shown(client).filter(Boolean)).toEqual([
+        "Price for 40 seats?",
+        "«The enterprise price is 45 dollars a seat »￼«.»",
+      ]),
+    );
+    core.close();
+  });
+
+  // protects=a line typed in the call-help panel's field and not sent when Stop is pressed (#2925) goes into the Note before the write-up reads it, as the User's line; fails_when=Stop drops it, or it lands after the fill or as AI text; no_claim=the panel's own keeping of the line, which tests/renderer/askBar.test.ts covers.
+  test.each([
+    { language: "English", line: "Price for 40 seats?" },
+    { language: "Chinese", line: "40 个席位的价格？" },
+  ])(
+    "a line left unsent in the call-help panel when Stop is pressed is the User's own line, kept as typed and filled in under ($language)",
+    async ({ line }) => {
+      const model = fillingModel(
+        [
+          "HEADINGS: H1=NONE H2=NONE",
+          lineFact("L1", "pricing", "The enterprise price is 45 dollars a seat [^1]."),
+        ].join("\n\n"),
+        { 1: MY_LINES[0] as string },
+      );
+      const { core, meeting, client } = await recorded(model, null, undefined, undefined, {
+        stop: async (core, meetingId) => {
+          await core.setQuickNoteDraft({ meetingId, text: line, atMs: 2 * SECOND });
+          return core.stopMeeting(meetingId);
+        },
+      });
+
+      expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", mode: "notes" });
+      await vi.waitFor(() =>
+        expect(shown(client).filter(Boolean)).toEqual([
+          line,
+          "«The enterprise price is 45 dollars a seat »￼«.»",
+        ]),
+      );
+      core.close();
+    },
+  );
+
   // protects=the fill reaches the window as one update named for its meeting, so the editor showing the Note takes it as one step of its own Undo and ⌘Z there takes back the fill, not the User's earlier typing (#2527); fails_when=the fill's update has no cause, another update carries it, or it comes in more than one; no_claim=the editor's own history, which the window test covers.
   test("the fill comes to the window as one update with its meeting's cause", async () => {
     const model = fillingModel(
@@ -1152,6 +1215,48 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
         "- «We agreed the enterprise price is 45 dollars a seat »\uFFFC«.»",
       ),
     );
+    core.close();
+  });
+
+  // protects=on a model on this computer at a 16k window, a Transcript part that doesn't fit beside the whole output cap is sent with the cap lowered, never below its floor of 1,024, where main failed it as too long; a reply cut at that cap isn't asked again with more room, which the window can't give, and the fill ends on its own problem, which its line words as "the model couldn't fill in the notes", never a window line, and writes nothing (#3045); fails_when=nothing is sent, the cap isn't lowered or goes below the floor, a second request asks for more room, the problem is of another kind, or the Note changes; no_claim=how often a real model's reply reaches the lowered cap.
+  test("at a 16k window, a fill cut at its lowered cap isn't asked again, and says so in its own line", async () => {
+    const limits: (number | undefined)[] = [];
+    const model = scriptedModel((call) => {
+      if (isCheckRun(call)) return checkReply(call, {});
+      if (!isFill(call)) return { text: "OK" };
+      limits.push(call.options.maxOutputTokens);
+      return { text: "", cutOff: true };
+    });
+    // A Transcript whose one part fits beside the instructions only with the cap lowered.
+    const long = (line: string) =>
+      `${line}, ${"and we went through each of the figures again ".repeat(56)}`.trim();
+    const { core, meeting, client } = await recorded(model, NOTES, undefined, undefined, {
+      lines: { mine: MY_LINES.map(long), theirs: THEIR_LINES.map(long) },
+      // The app's first local pick on a 32 GB computer: a 16k window and an output cap of 4,096.
+      ollamaModels: {
+        describe: async () => ({
+          digest: null,
+          capabilities: ["completion", "tools"],
+          contextLength: 262_144,
+          parameters: null,
+          support: "tools",
+          chat: true,
+          remote: false,
+          settings: { numCtx: 16_384, outputTokens: 4_096, keepAlive: "5m", think: false },
+        }),
+        loaded: async () => true,
+        running: async () => true,
+      },
+    });
+    const before = shown(client);
+
+    const fill = await settledFill(core, meeting);
+
+    expect(fill).toMatchObject({ state: "failed", problem: { kind: "model" } });
+    expect(limits).toHaveLength(1);
+    expect(limits[0]).toBeGreaterThanOrEqual(1_024);
+    expect(limits[0]).toBeLessThan(4_096);
+    expect(shown(client)).toEqual(before);
     core.close();
   });
 

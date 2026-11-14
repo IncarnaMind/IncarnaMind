@@ -74,6 +74,11 @@ async function setup(language: "en" | "zh-CN", heard = true) {
             ],
           };
         }
+        // A reading's own first line cites nothing (#2847): what was said is its moment, below it.
+        if (call.prompt.includes("Each reading is three lines")) {
+          const reading = language === "en" ? "★ They want it settled" : "★ 对方想把事情定下来";
+          return { text: `${reading}\n${quote} [^1]\n→ ${language === "en" ? "ask" : "问清楚"}` };
+        }
         return { text: `- ${quote} [^1]` };
       },
       { judgesItsAnswers: true },

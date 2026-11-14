@@ -12,9 +12,11 @@
  * made anywhere, and what Accept all or Reject all did is undone there. Only
  * the last few of those steps keep their copies, and can be undone.
  */
+import type { EditorState } from "@tiptap/pm/state";
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 import * as Y from "yjs";
 import {
+  BLOCK_ID_ATTRIBUTE,
   MIND_CONTENT_FIELD,
   MIND_PROPOSAL_REQUESTS_FIELD,
   MIND_REVISIONS_FIELD,
@@ -28,6 +30,7 @@ import { type ArrivingInMind, arrivingNow } from "./arrivingChanges";
 import type { ChangedMind } from "./changedMinds";
 import { readMindHandle } from "./commands/handles";
 import { core } from "./core";
+import { originOf } from "./editor/blockOrigins";
 import { appliedIn, type PendingProposal, pendingIn } from "./editor/proposalReview";
 import { openMindCopy } from "./mindCopies";
 import { useAppStore } from "./store";
@@ -221,12 +224,17 @@ function revealChange(
     applying: readonly PendingProposal[],
   ) => PendingProposal | undefined,
   frames = REVEAL_FRAMES,
+  otherwise?: (state: EditorState) => number | null,
 ): void {
   const read = readMindHandle.current;
   if (read && read.mindId === mindId && !read.editor.isDestroyed) {
     const first = pick(pendingIn(read.editor.state), appliedIn(read.editor.state));
-    if (first) {
-      const at = first.block ? first.from + 1 : first.from;
+    const at = first
+      ? first.block
+        ? first.from + 1
+        : first.from
+      : (otherwise?.(read.editor.state) ?? null);
+    if (at !== null) {
       read.editor
         .chain()
         .focus()
@@ -236,14 +244,34 @@ function revealChange(
       return;
     }
   }
-  if (frames > 0) requestAnimationFrame(() => revealChange(mindId, pick, frames - 1));
+  if (frames > 0) requestAnimationFrame(() => revealChange(mindId, pick, frames - 1, otherwise));
 }
 
-/** Review and Open: the Mind, at the Answer's first change that waits, else at its first applying. */
-export function showChanges(row: ChangedMind): void {
+/** Where the first top-level Block the Answer `answerId` wrote starts; null when it wrote none here. */
+function firstWrittenAt(state: EditorState, answerId: string): number | null {
+  let at: number | null = null;
+  state.doc.forEach((node, offset) => {
+    if (at !== null) return;
+    const anchor = originOf(state, node.attrs[BLOCK_ID_ATTRIBUTE])?.from.anchor;
+    if (anchor?.kind === "message" && anchor.messageId === answerId) at = offset + 1;
+  });
+  return at;
+}
+
+/**
+ * Review and Open: the Mind, at the Answer's first change that waits, else at its first applying,
+ * else, once its changes have applied, at the first Block it wrote there: its reply comes before
+ * its check ends, and so does Open (#2830).
+ */
+export function showChanges(row: ChangedMind, answerId?: string): void {
   useAppStore.getState().openMind(row.mindId);
   const own = belongsTo(row.requests);
-  revealChange(row.mindId, (pending, applying) => pending.find(own) ?? applying.find(own));
+  revealChange(
+    row.mindId,
+    (pending, applying) => pending.find(own) ?? applying.find(own),
+    REVEAL_FRAMES,
+    answerId === undefined ? undefined : (state) => firstWrittenAt(state, answerId),
+  );
 }
 
 /** Review beside the Note's count of what waits: the Mind, at the change of this Answer that waits, else at the first of any. */

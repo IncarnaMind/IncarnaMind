@@ -56,6 +56,13 @@ const LINES = {
     `- 上线推迟到 11 月 18 日${cite}\n- 合作伙伴预览仍在 10 月 28 日\n- 市场部等新日期确定后再公布`,
 };
 
+const shapeOf = (help: string) =>
+  /One or two readings/.test(help)
+    ? "readings"
+    : /At most three short lines/.test(help)
+      ? "lines"
+      : "options";
+
 function callOf(asked: string) {
   // The button's instructions follow its Question, in its message.
   const question = asked.slice(0, asked.indexOf("\n\n<help>")).split("\n\n").at(-1) ?? "";
@@ -71,11 +78,7 @@ export function helpReply(prompt: Prompt, tools: readonly string[]): Reply | nul
   if (!HELP.test(help)) return null;
   const { question, heard, language } = callOf(asked);
   const found = passagesIn(block(asked, "found-in-documents"));
-  const shape = /One or two readings/.test(help)
-    ? "readings"
-    : /At most three short lines/.test(help)
-      ? "lines"
-      : "options";
+  const shape = shapeOf(help);
   const source = shape === "options" ? found[0] : heard.at(-1);
   const taken = source && recordFor(source, heard.at(-1)?.text ?? question, 1);
   if (source && taken && tools.includes("cite")) {
@@ -150,6 +153,30 @@ function withMovesTakenBack(prompt: Prompt, parts: StreamPart[]): StreamPart[] {
   return [...parts.slice(0, start + 1), ...textDeltas(opened.id, first), ...parts.slice(end)];
 }
 
+/**
+ * For a model id ending "-options-quoted": each option of a help reply wrapped in quotation marks of
+ * the model's own, its Citation after them (#2925). Other steps are as they were.
+ */
+function withOptionsQuoted(prompt: Prompt, parts: StreamPart[]): StreamPart[] {
+  const help = block(lastUserText(prompt), "help");
+  if (!HELP.test(help) || shapeOf(help) !== "options") return parts;
+  const start = parts.findIndex((part) => part.type === "text-start");
+  const end = parts.findIndex((part) => part.type === "text-end");
+  const opened = parts[start];
+  if (opened?.type !== "text-start" || end === -1) return parts;
+  const text = parts
+    .flatMap((part) => (part.type === "text-delta" ? [part.delta] : []))
+    .join("")
+    .split("\n")
+    .map((line) =>
+      line === "" || line.startsWith("→")
+        ? line
+        : line.replace(/^(★ )?(.+?)((?: ?\[\^\d+\])*)$/u, '$1"$2"$3'),
+    )
+    .join("\n");
+  return [...parts.slice(0, start + 1), ...textDeltas(opened.id, text), ...parts.slice(end)];
+}
+
 /** For a model id ending "-heading-only": a help reply of one Markdown heading, with no records. */
 function headingOnly(prompt: Prompt, parts: StreamPart[]): StreamPart[] {
   const asked = lastUserText(prompt);
@@ -158,6 +185,39 @@ function headingOnly(prompt: Prompt, parts: StreamPart[]): StreamPart[] {
     { type: "stream-start", warnings: [] },
     { type: "text-start", id: "answer" },
     ...textDeltas("answer", `## ${callOf(asked).question}`),
+    { type: "text-end", id: "answer" },
+    { type: "finish", finishReason: { unified: "stop", raw: undefined }, usage: USAGE },
+  ];
+}
+
+/**
+ * For a model id ending "-cites-the-note": a help reply's option cites the Note's first Citation by
+ * its id, saying the Note's words before it again (#3005). Other steps are as they were.
+ */
+function withNoteCited(prompt: Prompt, parts: StreamPart[]): StreamPart[] {
+  const asked = lastUserText(prompt);
+  const help = block(asked, "help");
+  if (!HELP.test(help) || shapeOf(help) !== "options") return parts;
+  const line = asked.split("\n").find((each) => /·\s*C1\]/.test(each)) ?? "";
+  const quote = line
+    .slice(0, line.lastIndexOf("["))
+    .replace(/^[-*>\s]+/, "")
+    .trim();
+  if (!quote) return parts;
+  if (toolResults(prompt, "cite").length === 0) {
+    const input = JSON.stringify({ citations: [{ marker: 1, passage: "C1", quote }] });
+    return [
+      { type: "stream-start", warnings: [] },
+      { type: "tool-call", toolCallId: "fake-cite", toolName: "cite", input },
+      { type: "finish", finishReason: { unified: "tool-calls", raw: undefined }, usage: USAGE },
+    ];
+  }
+  const { language } = callOf(asked);
+  const said = quote.replace(/[.?!。？！]+$/u, "");
+  return [
+    { type: "stream-start", warnings: [] },
+    { type: "text-start", id: "answer" },
+    ...textDeltas("answer", `${OPTIONS[language].cited(said)}\n\n${OPTIONS[language].second}`),
     { type: "text-end", id: "answer" },
     { type: "finish", finishReason: { unified: "stop", raw: undefined }, usage: USAGE },
   ];
@@ -172,5 +232,7 @@ export function helpModelParts(modelId: string, prompt: Prompt, parts: StreamPar
   if (modelId.endsWith("-notes-first")) return withNotesFirst(prompt, parts);
   if (modelId.endsWith("-moves-taken-back")) return withMovesTakenBack(prompt, parts);
   if (modelId.endsWith("-heading-only")) return headingOnly(prompt, parts);
+  if (modelId.endsWith("-options-quoted")) return withOptionsQuoted(prompt, parts);
+  if (modelId.endsWith("-cites-the-note")) return withNoteCited(prompt, parts);
   return parts;
 }

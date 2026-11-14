@@ -1,6 +1,7 @@
 import { describe, expect, test, vi } from "vitest";
 import { CITATION_NODE, CLAIM_CHECK_MARK, type Core, type MarkedCitation } from "../../src/core";
 import { checkableSentences } from "../../src/core/answers/checks/written";
+import { claimsOf } from "../../src/renderer/src/editor/claimChecks";
 import { pageBlocks, withAnswerChecks } from "../../src/shared/answerBlocks";
 import type { NodeJSON } from "../../src/shared/blockJson";
 import { citedSentences } from "../../src/shared/citedSentences";
@@ -14,6 +15,7 @@ import {
 } from "../helpers/checks";
 import { answerJudged, setUpWithDocuments, shownPassages } from "../helpers/citations";
 import { nextTurn, startCore } from "../helpers/core";
+import { readMind, writeMind } from "../helpers/minds";
 import {
   type GenerateCall,
   type GeneratedReply,
@@ -260,6 +262,146 @@ describe("a sentence its quote doesn't support loses its green check", () => {
       verdict: each.reason,
     });
     expect(checkOf(citations, 2)).toMatchObject({ quote: TERM, check: "found" });
+  });
+});
+
+describe("a check reply that corrects itself is read by its corrected answer (#3029)", () => {
+  // protects=an Answer's check reads a batch reply that holds a first answer, words, then a corrected one, by the corrected one: its verdicts reach the Citations, and a pass the first answer judged otherwise leaves its sentence Not checked; fails_when=such a reply leaves every sentence Not checked, or a pass rests on a reply that said otherwise; no_claim=how often a model corrects itself.
+  test.each([
+    {
+      language: "English",
+      question: "How much does the kiln upgrade cost, and when is it installed?",
+      cost: "The upgrade costs £185,000 for two K9 kilns.",
+      date: "Installation is planned for February 2027.",
+      words: "Wait, I need to include both sentences.",
+    },
+    {
+      language: "Chinese",
+      question: "窑炉升级要花多少钱？什么时候安装？",
+      cost: "升级两台 K9 窑炉的费用是 £185,000。",
+      date: "安装计划在 2027 年 2 月。",
+      words: "等等，两句都要给出结论。更正如下：",
+    },
+  ])("in $language, the corrected answer's verdicts are the Citations'", async (each) => {
+    const answer = `${each.cost.slice(0, -1)}[^1]${each.cost.slice(-1)} ${each.date.slice(0, -1)}[^2]${each.date.slice(-1)}`;
+    const entry = (number: number, verdict: string) =>
+      `{"number":${number},"kind":"fact","verdict":"${verdict}","roles":"same","time":"same","quoted":"states","says":"The slide says so."}`;
+    const replies = [
+      // Sentence 2 skipped, then both: each gets the corrected answer's verdict.
+      `{"sentences":[${entry(1, "supported")}]}\n\n${each.words}\n\n{"sentences":[${entry(1, "supported")},${entry(2, "contradicted")}]}`,
+      // Sentence 1 judged unsupported, then passed: it stays Not checked.
+      `{"sentences":[${entry(1, "unsupported")},${entry(2, "supported")}]}\n\n${each.words}\n\n{"sentences":[${entry(1, "supported")},${entry(2, "supported")}]}`,
+    ];
+    const checks = [];
+    for (const reply of replies) {
+      const { core } = await setUpWithDocuments(
+        answeringModel(
+          "kilns installed cost",
+          answer,
+          [COST, INSTALLATION],
+          {},
+          {
+            judge: () => ({ text: reply }),
+          },
+        ),
+        [KILN_DECK],
+      );
+      const citations = await citationsOfAnswer(core, each.question);
+      checks.push([checkOf(citations, 1)?.check, checkOf(citations, 2)?.check]);
+    }
+
+    expect(checks).toEqual([
+      ["found", "contradicted"],
+      ["not-checked", "found"],
+    ]);
+  });
+});
+
+describe("an Answer's ✓ rests only on its Citations' own quotes (#3050)", () => {
+  const AGE = "Our two kilns are fourteen years old.";
+  const SUPPLIER = "Supplier: Hartwell Kilns";
+  const AGE_ZH = "我们的两台窑炉已经用了很多年。";
+  const SUPPLIER_ZH = "供应商：哈特韦尔窑炉公司";
+  const DOCUMENTS = [
+    { name: "Kilns.pptx", contents: pptxOf({ slides: [slide(AGE, AGE_ZH)] }) },
+    { name: "Supply.md", contents: `${SUPPLIER}\n\n${SUPPLIER_ZH}\n` },
+  ];
+
+  // protects=an Answer's judgement is shown only the Passage its sentence's Citation quotes, and takes no record its reply writes of another Passage: the Citation stays as the model gave it, with no ✓ when the reply says its words don't state the sentence, judged first or by Check again, and the ✓ when it says they do, which Add to note carries with that Citation for the Note to read alike, in English and Chinese; fails_when=the judgement is shown another Passage or takes a record from its reply, which would need the Note's reading (`asCitedNow`) in the Answer too; no_claim=what a real model's judgement says.
+  test.each([
+    {
+      language: "English",
+      question: "Who supplies the kilns?",
+      answer: "The kilns are supplied by Hartwell Kilns[^1].",
+      cites: AGE,
+      elsewhere: SUPPLIER,
+    },
+    {
+      language: "Chinese",
+      question: "窑炉的供应商是谁？",
+      answer: "窑炉由哈特韦尔窑炉公司供应[^1]。",
+      cites: AGE_ZH,
+      elsewhere: SUPPLIER_ZH,
+    },
+  ])("in $language, a record its reply writes of another Passage changes nothing", async (each) => {
+    const shown: string[] = [];
+    const judged: MarkedCitation[][] = [];
+    const carried: string[][] = [];
+    for (const quoted of ["other", "states"] as const) {
+      const judge = (call: GenerateCall): GeneratedReply => {
+        shown.push(call.prompt);
+        const entry = {
+          number: 1,
+          kind: "fact",
+          verdict: "supported",
+          roles: "same",
+          time: "same",
+        };
+        return {
+          text: `${JSON.stringify({ sentences: [{ ...entry, quoted, says: null }] })}\n\nCite 1: Supply, “${each.elsewhere}”`,
+        };
+      };
+      const { core, client } = await setUpWithDocuments(
+        answeringModel("kilns supplier 窑炉 供应商", each.answer, [each.cites], {}, { judge }),
+        DOCUMENTS,
+      );
+      const answer = await (await askedAnswer(core, each.question)).judged();
+      judged.push(answer.citations);
+      if (quoted === "other") {
+        await core.checkAnswerAgain({ conversationId: answer.conversationId, answerId: answer.id });
+        judged.push((await answerJudged(core, answer.conversationId, answer.id)).citations);
+      }
+      writeMind(
+        client,
+        withAnswerChecks(pageBlocks(answer, each.question), answer, each.question, null),
+      );
+      await client.settled();
+      const inNote = claimsOf(readMind(client), {
+        footing: "not-yet-known",
+        versions: null,
+        folderId: null,
+        scope: null,
+      });
+      carried.push(inNote.claims.map((claim) => claim.shown.state));
+    }
+
+    const notChecked = expect.objectContaining({
+      marker: 1,
+      quote: each.cites,
+      check: "not-checked",
+      checkReason: null,
+    });
+    expect(judged).toEqual([
+      [notChecked],
+      [notChecked],
+      [expect.objectContaining({ marker: 1, quote: each.cites, check: "found", passedAt: [0] })],
+    ]);
+    expect(carried).toEqual([[], ["supported"]]);
+    expect(shown).toHaveLength(3);
+    for (const prompt of shown) {
+      expect(prompt).toContain(each.cites);
+      expect(prompt).not.toContain(each.elsewhere);
+    }
   });
 });
 
@@ -938,5 +1080,43 @@ describe("the sentences of an Answer its check reads", () => {
       ["Q1 Revenue was 289.4", [3], false, true],
       ["Revenue grew 20.4% in 2025.", [4], true, false],
     ]);
+  });
+
+  test("a Chinese sentence that quotes an English one is judged whole, and its Citations take that judgement (#3009)", async () => {
+    const answer =
+      "另外，该文档的摘要页写明“Prepared for software testing[^1]. The text is fictional.”（为软件测试准备，文本是虚构的）[^2]。";
+    const whole =
+      "另外，该文档的摘要页写明“Prepared for software testing. The text is fictional.”（为软件测试准备，文本是虚构的）。";
+    const plans: Record<string, Plan> = { [whole]: { verdict: "supported", says: whole } };
+    const judged: string[] = [];
+    const { core } = await setUpWithDocuments(
+      answeringModel(
+        "software testing fictional",
+        answer,
+        ["Prepared for software testing", "The text is fictional"],
+        plans,
+        {
+          judge: (call) => {
+            for (const [, sentence = ""] of call.prompt.matchAll(
+              /<sentence number="\d+">\n([\s\S]*?)\n<\/sentence>/g,
+            ))
+              judged.push(sentence);
+            return batchReply(call, plans);
+          },
+        },
+      ),
+      [
+        {
+          name: "Test summary.md",
+          contents: "# Summary\n\nPrepared for software testing. The text is fictional.\n",
+        },
+      ],
+    );
+
+    const citations = await citationsOfAnswer(core, "这份文档的摘要页写了什么？");
+
+    expect(judged).toEqual([whole]);
+    expect(checkOf(citations, 1)).toMatchObject({ check: "found" });
+    expect(checkOf(citations, 2)).toMatchObject({ check: "found" });
   });
 });

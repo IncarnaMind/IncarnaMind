@@ -135,9 +135,11 @@ const ANSWER_ERRORS = [
   "plan-limit",
   "blocked",
   "too-long",
+  "window-too-small",
   "cost-cap",
   "no-answer",
   "cut-short",
+  "cut-short-small-window",
   "unknown",
 ] as const;
 const DOCUMENT_ERRORS = [

@@ -192,18 +192,20 @@ function shownCitations({ text, citations }: Pick<StepsInput["answer"], "text" |
 const JUDGED = new Set(["found", "unsupported", "contradicted", "not-checked"]);
 
 /**
- * The limit that stopped judging an Answer's sentences, if one did (#2311), and how many of the
- * sentences it judges were checked: those none of whose Citations is left not checked.
+ * The limit that stopped judging an Answer's sentences (#2311), or kept a batch's reply too short to
+ * finish (#2962), if one did, and how many of the sentences it judges were checked: those none of
+ * whose Citations is left not checked.
  */
 function stoppedJudgement(
   answer: StepsInput["answer"],
 ): Extract<StepRow, { kind: "check" }>["stopped"] | null {
   const limits = answer.citations.map((citation) => citation.checkReason);
-  const by = limits.includes("answer-limit")
-    ? "answer-limit"
-    : limits.includes("monthly-limit")
-      ? "monthly-limit"
-      : null;
+  const by =
+    limits.includes("answer-limit") || limits.includes("answer-limit-unfinished")
+      ? "answer-limit"
+      : limits.includes("monthly-limit") || limits.includes("monthly-limit-unfinished")
+        ? "monthly-limit"
+        : null;
   if (!by) return null;
   const cited = new Map(answer.citations.map((citation) => [citation.marker, citation]));
   const judged = citedSentences(answer.text, answer.figures ?? [])
@@ -262,7 +264,7 @@ function searchBehind(
  * Notes (#2768), which are as much the sources it used. The last Answer written in as it was
  * cites what that Answer used, not this one.
  */
-const citedBy = ({
+export const citedBy = ({
   citations,
   toolCalls,
 }: Pick<StepsInput["answer"], "citations" | "toolCalls">): Citation[] => [
@@ -571,10 +573,6 @@ export function liveStep({
   if (phase === "searching" || running.some(isSearch)) return { kind: "searching" };
   const call = running.find((each) => !isSearch(each));
   if (call) return { kind: "call", call };
-  // A write whose Citations came after it is checked once the reply has streamed (#1635): the
-  // line words it as its call still at work, while its row keeps what the call did.
-  const checking = answer.toolCalls.find((each) => (each.mindChange?.checking ?? 0) > 0);
-  if (checking) return { kind: "call", call: { ...checking, status: "running" } };
   if (answer.text.trim()) {
     const markers = markersIn(answer.text);
     const cited = new Set(answer.citations.map((citation) => citation.marker));

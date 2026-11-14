@@ -15,7 +15,6 @@ import {
   documentReadText,
   documentsReadText,
   foldedWords,
-  mindCallText,
 } from "../../src/renderer/src/answerStepWords";
 import { translate } from "../../src/shared/i18n";
 
@@ -694,11 +693,62 @@ describe("an Answer's steps", () => {
     expect(zh("steps.check.answerLimit", { checked: 12, total: 40, limit: "$0.25" })).toBe(
       "已核对 40 句中的 12 句 · 已达本回答 $0.25 的核对上限",
     );
-    expect(en("steps.check.monthlyLimit", { checked: 12, total: 40, cap: "$20.00" })).toBe(
-      "12 of 40 sentences checked · Your monthly limit of $20.00 reached",
+    expect(en("steps.check.monthlyLimit", { checked: 12, total: 40 })).toBe(
+      "12 of 40 sentences checked · Your monthly limit reached",
     );
-    expect(zh("steps.check.monthlyLimit", { checked: 12, total: 40, cap: "$20.00" })).toBe(
-      "已核对 40 句中的 12 句 · 已达每月上限 $20.00",
+    expect(zh("steps.check.monthlyLimit", { checked: 12, total: 40 })).toBe(
+      "已核对 40 句中的 12 句 · 已达每月上限",
+    );
+  });
+
+  test("a batch a limit kept too short to finish: the line names that limit as a stop does, and the card says the model didn't finish, in English and Chinese (#2962)", () => {
+    const text = "Spring tides follow the new moon [^1]. They are the highest [^2].";
+    const cutBy = (reason: "answer-limit-unfinished" | "monthly-limit-unfinished") =>
+      stepRows(
+        input({
+          text,
+          citations: [
+            { ...citation(1, "a", "d1", 4), quote: "Spring tides" },
+            {
+              ...citation(2, "a", "d1", 4),
+              quote: "Full moon",
+              check: "not-checked",
+              checkReason: reason,
+            },
+          ],
+        }),
+      ).at(-1);
+
+    expect(cutBy("answer-limit-unfinished")).toMatchObject({
+      notChecked: 1,
+      stopped: { by: "answer-limit", checked: 1, total: 2 },
+    });
+    expect(cutBy("monthly-limit-unfinished")).toMatchObject({
+      stopped: { by: "monthly-limit", checked: 1, total: 2 },
+    });
+    const limit = { limit: "$0.25", model: "Claude Fable 5" };
+    expect(en("citation.reason.answer-limit-unfinished", limit)).toBe(
+      "Not checked: this Answer’s $0.25 checking limit was reached before Claude Fable 5 finished checking this sentence.",
+    );
+    expect(zh("citation.reason.answer-limit-unfinished", limit)).toBe(
+      "未核对：Claude Fable 5 还没核对完这句，就已达本回答 $0.25 的核对上限。",
+    );
+    const model = { model: "Claude Fable 5" };
+    expect(en("citation.reason.monthly-limit-unfinished", model)).toBe(
+      "Not checked: your monthly limit was reached before Claude Fable 5 finished checking this sentence.",
+    );
+    expect(zh("citation.reason.monthly-limit-unfinished", model)).toBe(
+      "未核对：Claude Fable 5 还没核对完这句，就已达每月上限。",
+    );
+    // In a Note, whose card has no Answer to name the model by.
+    expect(en("citation.reason.answer-limit-unfinished.unnamed", { limit: "$0.25" })).toBe(
+      "Not checked: this Answer’s $0.25 checking limit was reached before this sentence’s check finished.",
+    );
+    expect(zh("citation.reason.answer-limit-unfinished.unnamed", { limit: "$0.25" })).toBe(
+      "未核对：这句还没核对完，就已达本回答 $0.25 的核对上限。",
+    );
+    expect(zh("citation.reason.monthly-limit-unfinished.unnamed")).toBe(
+      "未核对：这句还没核对完，就已达每月上限。",
     );
   });
 
@@ -1214,46 +1264,6 @@ describe("the live step", () => {
     expect(live({ ...answer, citations: [citation(1, "a", "d1", 4)] })).toEqual({
       kind: "writing",
     });
-  });
-
-  // protects=a write whose Citations came after it is checked once the reply has streamed (#1635), and the live line says so in the write's own words, not Writing or Checking Citations, while the write's row keeps what it did; fails_when=a finished write's check leaves the line on the reply's words, a write whose check is over still says checking, or the row says checking; no_claim=when the core reports the count, which tests/core/assistantPageCitations.test.ts covers.
-  test("a write checked after its reply streamed is the step, in its call's words", () => {
-    const write = (checking?: number): AnswerToolCall => ({
-      id: "w1",
-      tool: "add_to_mind",
-      source: "minds",
-      input: {},
-      status: "done",
-      resultCount: 0,
-      mindChange: {
-        mindId: "m1",
-        created: false,
-        request: "Add a revenue table",
-        proposals: 1,
-        ...(checking !== undefined && { checking }),
-      },
-    });
-    const reply = {
-      text: "Added the table [^1] [^2].",
-      citations: [citation(1, "a", "d1", 4), citation(2, "a", "d1", 5)],
-    };
-    const step = live({ ...reply, toolCalls: [write(2)] }, { phase: "writing" });
-    expect(step).toEqual({ kind: "call", call: { ...write(2), status: "running" } });
-    const call = step.kind === "call" ? step.call : write(2);
-    expect(mindCallText(en, call, "Harbour notes")).toBe(
-      "Checking 2 sentences in “Harbour notes”…",
-    );
-    expect(mindCallText(zh, call, "Harbour notes")).toBe("正在核对“Harbour notes”中的 2 句话…");
-    // A check that outlives the call keeps the row saying so, as one after the Run does (#2710).
-    expect(mindCallText(en, write(2), "Harbour notes")).toBe(
-      "Checking 2 sentences in “Harbour notes”…",
-    );
-    const checked = write();
-    expect(live({ ...reply, toolCalls: [checked] }, { phase: "writing" })).toEqual({
-      kind: "checking",
-      count: 2,
-    });
-    expect(mindCallText(en, checked, "Harbour notes")).toBe("Edited “Harbour notes” · 1 change");
   });
 
   test("figures being recorded are no running call; their retry is checking figures", () => {

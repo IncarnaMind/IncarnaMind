@@ -29,6 +29,9 @@ import { windowKeysOf } from "./windowKeys";
 
 const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
 
+/** Whether the call-help panel has its field for quick notes on this system: not on Linux (`helpShortcutsOn`). */
+export const quickNotesHere = (): boolean => !/linux/i.test(navigator.platform);
+
 interface HelpState {
   /** The button pressed, by Meeting, until its Answer is the Meeting's `help`. */
   pending: Readonly<Record<string, MeetingHelpKind>>;
@@ -45,7 +48,21 @@ export const useMeetingHelp = create<HelpState>()(() => ({
   panel: { shown: false, folded: false, pinned: false },
 }));
 
+/**
+ * A Meeting's latest press: its Answer once asked, and the helps this window has had for the
+ * Meeting since. A call's reply can arrive before the event with the Meeting's new help (#3005), so
+ * the press keeps its outline until its own Answer has been the Meeting's help, rather than showing
+ * the one before again. A later press replaces it, and the earlier one's reply then changes nothing.
+ */
+interface Press {
+  answerId: string | null;
+  helped: Set<string>;
+}
+
+const presses = new Map<string, Press>();
+
 function settle(meetingId: string, blocked?: HelpState["blocked"][string]): void {
+  presses.delete(meetingId);
   useMeetingHelp.setState((state) => {
     const { [meetingId]: _pending, ...pending } = state.pending;
     const { [meetingId]: _blocked, ...rest } = state.blocked;
@@ -63,14 +80,23 @@ core.on("chatReadiness.changed", (readiness) => {
   }));
 });
 
-// A press on a Meeting that has since stopped leaves no outline behind.
-useMeetings.subscribe((state) => {
+/** A press's outline goes once its own Answer has been its Meeting's help, and with a Meeting that stopped. */
+function settleAsked(meetings: readonly Meeting[]): void {
   const { pending } = useMeetingHelp.getState();
   for (const meetingId of Object.keys(pending)) {
-    const meeting = state.meetings.find((each) => each.id === meetingId);
-    if (!isLive(meeting)) settle(meetingId);
+    const meeting = meetings.find((each) => each.id === meetingId);
+    if (!isLive(meeting)) {
+      settle(meetingId);
+      continue;
+    }
+    const press = presses.get(meetingId);
+    if (!press) continue;
+    if (meeting.help) press.helped.add(meeting.help.answerId);
+    if (press.answerId !== null && press.helped.has(press.answerId)) settle(meetingId);
   }
-});
+}
+
+useMeetings.subscribe((state) => settleAsked(state.meetings));
 
 /**
  * Asks for a button's help (`AskMeetingHelpInput`); resolves to the conversation and Answer, or
@@ -81,6 +107,9 @@ export async function askHelp(
   kind: MeetingHelpKind,
   conversationId?: string | null,
 ): Promise<{ conversationId: string; answerId: string } | null> {
+  const press: Press = { answerId: null, helped: new Set() };
+  presses.set(meeting.id, press);
+  const latest = () => presses.get(meeting.id) === press;
   useMeetingHelp.setState((state) => ({
     pending: { ...state.pending, [meeting.id]: kind },
     blocked: Object.fromEntries(
@@ -94,18 +123,24 @@ export async function askHelp(
       ...(conversationId !== undefined && { conversationId }),
     });
     if (!result.asked) {
-      settle(
-        meeting.id,
-        result.reason === "not-ready"
-          ? { readiness: result.readiness }
-          : { message: translateNow("meetings.help.failed", { message: result.skill }) },
-      );
+      if (latest()) {
+        settle(
+          meeting.id,
+          result.reason === "not-ready"
+            ? { readiness: result.readiness }
+            : { message: translateNow("meetings.help.failed", { message: result.skill }) },
+        );
+      }
       return null;
     }
-    settle(meeting.id);
+    if (latest()) {
+      press.answerId = result.answerId;
+      settleAsked(useMeetings.getState().meetings);
+    }
     return { conversationId: result.conversation.id, answerId: result.answerId };
   } catch (error) {
-    settle(meeting.id, { message: errorMessage(error, translateNow) });
+    if (latest()) settle(meeting.id, { message: errorMessage(error, translateNow) });
+    else useAppStore.getState().reportError(error);
     return null;
   }
 }

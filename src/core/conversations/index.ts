@@ -14,6 +14,7 @@ import { randomUUID } from "node:crypto";
 import { PICTURE_DATA_URL } from "../../shared/askedQuote";
 import { withFigureText } from "../../shared/figureMarkers";
 import { parseLocation } from "../../shared/locations";
+import { isMeetingHelpKind, type MeetingHelpKind } from "../../shared/meetingHelp";
 import { conversationName, cutTitle } from "../../shared/naming";
 import { parseThirdPartySource } from "../../shared/textOrigins";
 import { asksToCheckOrCalculate } from "../answers/carefulIntent";
@@ -66,6 +67,7 @@ import {
   CLAIMED_TOOLS,
   MOST_ASKED_QUOTES,
   PROVIDER_ERROR_KINDS,
+  TOO_LONG_PARTS,
 } from "../api";
 import { InvalidInputError, isRecord, NotFoundError } from "../errors";
 import { isSignInRouteProblem } from "../providers/signInRoutes";
@@ -172,6 +174,7 @@ interface MessageRow {
   error_kind: string | null;
   error_message: string | null;
   error_sign_in_route: string | null;
+  error_too_long: string | null;
   citation_support: string | null;
   citations: string;
   figures: string;
@@ -265,6 +268,7 @@ function storedSteps(value: string | null): AnswerSteps | null {
     stillReading,
     sent,
     textBehind,
+    pressed,
   } = parsed;
   const claimed = Array.isArray(unbackedClaims)
     ? unbackedClaims.filter((each): each is ClaimedChange =>
@@ -331,8 +335,17 @@ function storedSteps(value: string | null): AnswerSteps | null {
           ...(sent.transcript === true && { transcript: true as const }),
         },
       }),
+    // Any button's name: one this version doesn't have still reads as a press.
+    ...(typeof pressed === "string" && pressed !== "" && { pressed }),
   };
 }
+
+/**
+ * The steps a press's Answer is saved with before it has any (#3005): the button, so it is a press
+ * from its first save, however soon it stops. Only a button's kind: any other turn has none.
+ */
+const pressedSteps = (pressed: MeetingHelpKind | null): string | null =>
+  pressed !== null && isMeetingHelpKind(pressed) ? JSON.stringify({ pressed }) : null;
 
 const claimedTools = (value: unknown): ClaimedTool[] =>
   Array.isArray(value)
@@ -613,6 +626,9 @@ function toAnswer(row: MessageRow): ConversationAnswer {
       status === "failed" && isSignInRouteProblem(row.error_sign_in_route)
         ? row.error_sign_in_route
         : null,
+    // A part a later build stored, which this one doesn't know, reads as none: the Question's too-long line.
+    errorTooLong:
+      (status === "failed" && TOO_LONG_PARTS.find((each) => each === row.error_too_long)) || null,
     citationSupport: SUPPORTS.find((each) => each === row.citation_support) ?? null,
     toolCalls: storedList<AnswerToolCall>(row.tool_calls),
     textOrigin: parseThirdPartySource(row.text_origin),
@@ -658,6 +674,19 @@ const readColumns = (read: AnswerRead | null): [string | null, string | null, nu
 
 /** A call whose window's command was still going on: it didn't finish. */
 function unfinished(call: AnswerToolCall): AnswerToolCall {
+  const check = call.mindChange?.selfCheck;
+  // Its sentences still being checked were marked stopped as their Note opened (#2830).
+  if (call.mindChange && check?.running) {
+    const { running: _running, ...ended } = check;
+    const checkable = check.checkable ?? check.cited;
+    return {
+      ...call,
+      mindChange: {
+        ...call.mindChange,
+        selfCheck: { ...ended, failed: checkable - check.checked - (check.leftOut ?? 0) },
+      },
+    };
+  }
   const done = call.command;
   if (!done?.window?.running) return call;
   const { command: _done, ...rest } = call;
@@ -793,6 +822,8 @@ export function createConversations(db: Database, now: () => string) {
       quotes?: readonly AskedQuote[];
       status?: AnswerStatus;
       read?: AnswerRead | null;
+      /** An Answer's: the help button its Question was asked with (`AnswerSteps.pressed`). */
+      pressed?: MeetingHelpKind | null;
     },
     at: string,
   ): MessageRow {
@@ -800,9 +831,9 @@ export function createConversations(db: Database, now: () => string) {
     db.run(
       `INSERT INTO conversation_messages (id, conversation_id, position, kind, question_id, text,
          asked_from_mind_id, focus, scope, folder_asked_in, provider_id, model_id, forced_skill, analyse, quotes, status,
-         read_mind_id, read_mind_version, read_partial, created_at, updated_at)
+         read_mind_id, read_mind_version, read_partial, steps, created_at, updated_at)
        VALUES (?, ?, (SELECT coalesce(max(position), 0) + 1 FROM conversation_messages
-                      WHERE conversation_id = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                      WHERE conversation_id = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         conversationId,
@@ -821,6 +852,7 @@ export function createConversations(db: Database, now: () => string) {
         fields.quotes?.length ? JSON.stringify(fields.quotes) : null,
         fields.status ?? null,
         ...readColumns(fields.read ?? null),
+        pressedSteps(fields.pressed ?? null),
         at,
         at,
       ],
@@ -878,7 +910,8 @@ export function createConversations(db: Database, now: () => string) {
 
   /**
    * A window's command still going on when an earlier run of the app ended, a Check for one,
-   * never says how it ended (#1421): its call says it didn't finish.
+   * never says how it ended (#1421): its call says it didn't finish. A check of what a call wrote
+   * says what it hadn't checked.
    */
   db.transaction(() => {
     for (const row of db.all<{ id: string; tool_calls: string }>(
@@ -1062,13 +1095,15 @@ export function createConversations(db: Database, now: () => string) {
      * written with `answerModel` from the Mind it reads (`read`), all in one go. A new
      * conversation is named by the Question and belongs to the Folder of the Mind in
      * focus, or to none. `askedIn` gives the Folder the Question is asked in, "" for none, from
-     * its conversation's Folder; left out, it isn't recorded.
+     * its conversation's Folder; left out, it isn't recorded. `pressed`: the help button the
+     * Question is asked with, kept with its Answer from this first save.
      */
     add(
       input: Omit<QuestionInput, "onScreen" | "commands">,
       answerModel: ChatModelChoice | null,
       read: AnswerRead | null,
       askedIn?: (conversationFolderId: string | null) => string,
+      pressed: MeetingHelpKind | null = null,
     ): AddedTurn {
       const previousConversationUpdatedAt =
         input.conversationId === null
@@ -1120,6 +1155,7 @@ export function createConversations(db: Database, now: () => string) {
             model: answerModel,
             status: "streaming",
             read,
+            pressed,
           },
           at,
         );
@@ -1298,12 +1334,16 @@ export function createConversations(db: Database, now: () => string) {
       return row?.kind === "question" ? toQuestion(row) : null;
     },
 
-    /** Empties an Answer, where it is, to write it again with `answerModel` from the Mind it reads. */
+    /**
+     * Empties an Answer, where it is, to write it again with `answerModel` from the Mind it reads;
+     * `pressed`, the help button it is written for now, is kept from this save as `add` keeps it.
+     */
     restartAnswer(
       answerId: string,
       answerModel: ChatModelChoice | null,
       read: AnswerRead | null,
       origin?: RetryOrigin,
+      pressed: MeetingHelpKind | null = null,
     ): Turn {
       return db.transaction(() => {
         const answer = liveMessage(answerId);
@@ -1328,11 +1368,12 @@ export function createConversations(db: Database, now: () => string) {
         db.run(
           `UPDATE conversation_messages SET text = '', citations = '[]', figures = '[]', analyses = '[]', tool_calls = '[]',
              status = 'streaming', error_kind = NULL, error_message = NULL,
-             error_sign_in_route = NULL, citation_support = NULL, text_origin = NULL, steps = NULL, provider_id = ?,
+             error_sign_in_route = NULL, error_too_long = NULL, citation_support = NULL, text_origin = NULL, steps = ?, provider_id = ?,
              model_id = ?, read_mind_id = ?, read_mind_version = ?, read_partial = ?,
              updated_at = ?
            WHERE id = ?`,
           [
+            pressedSteps(pressed),
             answerModel?.providerId ?? null,
             answerModel?.modelId ?? null,
             ...readColumns(read),
@@ -1358,7 +1399,7 @@ export function createConversations(db: Database, now: () => string) {
           `UPDATE conversation_messages SET text = ?, citations = ?, figures = ?, analyses = ?,
              tool_calls = ?, citation_support = ?, text_origin = ?, read_mind_id = ?, read_mind_version = ?,
              read_partial = ?, steps = ?, status = ?, error_kind = ?, error_message = ?,
-             error_sign_in_route = ?, provider_id = COALESCE(?, provider_id),
+             error_sign_in_route = ?, error_too_long = ?, provider_id = COALESCE(?, provider_id),
              model_id = COALESCE(?, model_id), updated_at = ?
            WHERE id = ?`,
           [
@@ -1375,6 +1416,7 @@ export function createConversations(db: Database, now: () => string) {
             outcome?.error?.kind ?? null,
             outcome?.error?.message ?? null,
             outcome?.error?.signInRoute ?? null,
+            outcome?.error?.tooLong ?? null,
             write.model?.providerId ?? null,
             write.model?.modelId ?? null,
             now(),

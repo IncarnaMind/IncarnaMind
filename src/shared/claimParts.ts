@@ -42,6 +42,8 @@ const FAILURES: Record<ClaimCheckFailure, true> = {
   malformed: true,
   empty: true,
   "no-evidence": true,
+  "number-unquoted": true,
+  "number-not-worked-out": true,
   unread: true,
   "rate-limit": true,
   "cost-cap": true,
@@ -56,11 +58,13 @@ const FAILURES: Record<ClaimCheckFailure, true> = {
   "local-mode": true,
   "consent-widened": true,
   "kept-inside": true,
+  "outside-scope": true,
   analysis: true,
   "analysis-gone": true,
   "absence-read-limit": true,
   "absence-unconfirmed": true,
   "absence-other-document": true,
+  "found-elsewhere": true,
   "cut-short": true,
   "read-budget": true,
   "workbook-changed": true,
@@ -77,10 +81,25 @@ const FAILURES: Record<ClaimCheckFailure, true> = {
   "sentence-figures-not-read": true,
   "library-unsettled": true,
   "analysis-unnamed": true,
+  "assistant-conclusion": true,
 };
 export const CLAIM_CHECK_FAILURES: readonly ClaimCheckFailure[] = Object.keys(FAILURES).filter(
   (key): key is ClaimCheckFailure => Object.hasOwn(FAILURES, key),
 );
+// A part the model answered that the check couldn't take: a limit or a stop on another part of the
+// sentence is its reason instead, so the run waits it out or stops (#3022). Among these, a number
+// no quote gives, or a quote the sentence's Citations don't hold (#3019), says what the User can
+// do, which "no-evidence" doesn't.
+const SAYS_WHAT_TO_DO: ReadonlySet<ClaimCheckFailure> = new Set([
+  "number-unquoted",
+  "number-not-worked-out",
+  "found-elsewhere",
+]);
+const ANSWERED: ReadonlySet<ClaimCheckFailure> = new Set([
+  ...SAYS_WHAT_TO_DO,
+  "no-evidence",
+  "malformed",
+]);
 const EXCLUSIONS: readonly EvidenceExclusion[] = [
   "own-file",
   "own-workings",
@@ -794,6 +813,7 @@ export function readClaimParts(
       citedCaseFound: each.citedCaseFound,
       ...(coverage && { coverage }),
       ...(each.kept === true && { kept: true }),
+      ...(each.byAssistant === true && plan.kind === "opinion" && { byAssistant: true }),
       ...(each.figures !== undefined && { figures }),
       ...(remainder !== undefined && { remainder }),
       ...(typeof each.checkedAt === "string" && { checkedAt: each.checkedAt }),
@@ -980,6 +1000,27 @@ function notCheckedPart(
     citedCaseUnchecked: false,
     citedCaseFound: false,
   };
+}
+
+/** An opinion left out of a sentence the assistant wrote: never judged, it counts as not checked (#3019). */
+export const leftOutByAssistant = (part: ClaimCheckPart): boolean =>
+  part.byAssistant === true && part.kind === "opinion" && part.verdict === null && !part.itself;
+
+/**
+ * `parts` as whoever wrote their sentence leaves them (#3019): when the assistant did, each opinion
+ * left out is the assistant's; otherwise none is.
+ */
+export function partsWrittenBy(
+  parts: readonly ClaimCheckPart[],
+  assistant: boolean,
+): ClaimCheckPart[] {
+  return parts.map((part) => {
+    const own = assistant && part.kind === "opinion" && part.verdict === null && !part.itself;
+    if (own === (part.byAssistant === true)) return part;
+    if (own) return { ...part, byAssistant: true };
+    const { byAssistant: _byAssistant, ...rest } = part;
+    return rest;
+  });
 }
 
 export function resultFromParts(parts: readonly ClaimCheckPart[]): ClaimCheckResult {
@@ -1180,9 +1221,13 @@ export function resultFromParts(parts: readonly ClaimCheckPart[]): ClaimCheckRes
     checked.find(({ part }) => part.verdict === "unsupported");
   const failures = checked.filter(({ part }) => part.verdict === "not-checked");
   const failure =
-    failures.find(({ part }) => part.reason !== "no-evidence" && part.reason !== "malformed") ??
+    failures.find(({ part }) => !part.reason || !ANSWERED.has(part.reason)) ??
+    failures.find(({ part }) => part.reason && SAYS_WHAT_TO_DO.has(part.reason)) ??
     failures[0];
   if (!adverse && failure) return failed(failure.part.reason ?? "failed", failure.part.detail);
+  // Only once every part judged is supported, as this reason's words say.
+  if (!adverse && outcomes.some(({ part }) => leftOutByAssistant(part)))
+    return failed("assistant-conclusion");
   const outcome = adverse ?? checked[0];
   if (
     !outcome ||

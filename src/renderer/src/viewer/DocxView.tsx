@@ -20,6 +20,7 @@ import {
 import { markQuote, quoteNodesIn, textNodes, unmarkQuote } from "./domQuote";
 import { FileStates } from "./FileStates";
 import "./officeFonts.css";
+import { citedPlaceGone } from "./citedPlace";
 import { mapOfficeFontNames } from "./officeFontNames";
 import { CitationMark, quoteMarkOf, quoteTone } from "./quoteMark";
 import { domSelection, useSelectionReader } from "./selectedText";
@@ -472,6 +473,7 @@ function DocxPages({
             <OutlineButton open={outlineOpen} onToggle={() => setOutlineOpen((open) => !open)} />
           )
         }
+        placeGone={citedPlaceGone(target, docx.units.length)}
       />
       <div className="flex min-h-0 flex-1">
         {outlineOpen && <UnitOutline entries={outline} current={current} onGo={goTo} />}

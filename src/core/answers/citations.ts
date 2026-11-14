@@ -29,6 +29,7 @@
 import { markersIn, shownRanges } from "../../shared/answerBlocks";
 import { citationNode, type NodeJSON } from "../../shared/blockJson";
 import { parseQuotedWords } from "../../shared/citations";
+import { formatFullDateTime } from "../../shared/dates";
 import { FIGURE_MARKER } from "../../shared/figureMarkers";
 import {
   englishPlace,
@@ -44,10 +45,12 @@ import {
   withoutArea,
 } from "../../shared/locations";
 import { citesSource, type NamedSource } from "../../shared/namedSources";
+import { cleanQuote } from "../../shared/quotedSpans";
 import {
   findQuote,
   lostLigatures,
   type MatchOptions,
+  quoteParts,
   type TextRange,
 } from "../../shared/quoteMatch";
 import { readableQuote, readableQuoteText } from "../../shared/readableQuote";
@@ -129,15 +132,8 @@ export const WRITE_NOW = " Write the Answer now if you haven't yet; don't repeat
 /** Whether what `cite` told the model asks it to fix records, which the Tool loop must not end before. */
 export const asksForFixes = (told: string): boolean => told.includes(FIX_THESE);
 
-/**
- * Where a new Unit starts inside a Passage given to the model ("[p. 4]",
- * "[slide 4]", "[§ 2.1 Sensitivity]", "[Revenue, rows 2–41]", "[lines 51–100]"),
- * where a slide's speaker notes start ("[speaker notes]"), where a Word
- * comment starts ("[comment by Reviewer]"), and a row the file sets aside
- * ("[row 4, struck through]", ./sheetRows).
- */
-const LOCATION_MARK =
-  /\[(?:p\.\s*\d+(?:[–-]\d+)?|slides?\s+\d+(?:[–-]\d+)?|(?:[^\]\n]{1,100},\s*)?rows?\s+\d+(?:[–-]\d+)?(?:, (?:struck through|hidden))*|lines?\s+\d+(?:[–-]\d+)?|§[^\]\n]{0,200}|speaker notes|comment(?: by [^\]\n]{1,100})?|\d{1,2}:\d{2}(?::\d{2})?(?: [^\]\n]{1,60})?)\]/gi;
+// The quote check and call help's reader read a quote by one rule (shared/quotedSpans).
+export { cleanQuote };
 
 /** Marks where a slide's speaker notes start, inside a Passage given to the model. */
 const NOTES_MARK = "[speaker notes]";
@@ -145,38 +141,6 @@ const NOTES_MARK = "[speaker notes]";
 /** Marks where a Word comment starts, inside a Passage given to the model, with its author if known (#76). */
 const commentMark = (author: string | null) =>
   author ? `[comment by ${author.replace(/[\]\n]+/g, " ")}]` : "[comment]";
-
-export const QUOTE_PAIRS: readonly (readonly [string, string])[] = [
-  ['"', '"'],
-  ["'", "'"],
-  ["“", "”"],
-  ["‘", "’"],
-  ["「", "」"],
-  ["『", "』"],
-  ["«", "»"],
-];
-
-/**
- * The quote as the model meant it: without location marks, without the
- * ellipses and quotation marks models put around a quote. Its words are left alone.
- */
-export function cleanQuote(raw: string): string {
-  // The marks of a scan's unsure words (#535) are the Passage's, never the quote's.
-  let quote = raw.replace(/[⟦⟧]/gu, "").replace(LOCATION_MARK, " ").trim();
-  for (;;) {
-    const before = quote;
-    quote = quote
-      .replace(/^(?:\.{3}|…)\s*/u, "")
-      .replace(/\s*(?:\.{3}|…)$/u, "")
-      .trim();
-    for (const [open, close] of QUOTE_PAIRS) {
-      if (quote.length > 1 && quote.startsWith(open) && quote.endsWith(close)) {
-        quote = quote.slice(open.length, -close.length).trim();
-      }
-    }
-    if (quote === before) return quote;
-  }
-}
 
 /** How a Document's text is matched: whether it lost its f-ligatures (see `lostLigatures`). */
 export type Matching = Pick<MatchOptions, "lostLigatures">;
@@ -645,6 +609,12 @@ export function checkCitation(input: {
   return unsure.length > 0 ? { check: "cant-check", checkReason: "unsure-word", unsure } : FOUND;
 }
 
+/** A recorded call, as its Transcript's Passages name it: its Note's current name, and its start (ISO 8601). */
+export interface TranscriptCall {
+  note: string;
+  startedAt: string;
+}
+
 /** What the core needs from Documents for an Answer: search, and what Citations point to. */
 export interface AnswerDocuments {
   /** How many live Documents have Passages to search. */
@@ -669,6 +639,8 @@ export interface AnswerDocuments {
   documentDate(documentId: string): DocumentDate | null;
   /** Who's who in a Transcript (#138), so its lines read by the names the User gave; null for none. */
   speakers?(documentId: string): TranscriptSpeakers | null;
+  /** The call a Transcript records (#3005); null for any other Document. */
+  callOf?(documentId: string): TranscriptCall | null;
   /** The id of the Document to search named `name`, as the instructions list it; null for none. */
   documentNamed?(name: string): string | null;
   /** The User's highlights and notes that hold the words (#327), as lines for the model; "" for none. */
@@ -1170,6 +1142,127 @@ function recheckInCurrent(
     }
   }
   return result({ check: "not-found", checkReason: "quote-not-on-pages" }, cited);
+}
+
+/** About this many characters of a version are matched between yields: some 15 ms of the matcher. */
+const LOOK_WINDOW = 30_000;
+
+const nextTurn = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+/**
+ * Windows over a version's text (its Units joined, see `joinUnits`), each about `LOOK_WINDOW` long
+ * and cut after a line break where one is near, each starting at least `overlap` characters before
+ * the one before ends: any stretch of the text shorter than `overlap` is whole in one of them, over
+ * Units of any length. A cut inside a line is only for a line longer than a window.
+ */
+export function* windowsOf(text: string, overlap: number): Generator<TextRange> {
+  const size = Math.max(LOOK_WINDOW, overlap * 2);
+  let start = 0;
+  while (start < text.length) {
+    let end = Math.min(text.length, start + size);
+    if (end < text.length) {
+      const cut = text.lastIndexOf("\n", end - 1) + 1;
+      if (cut > start + overlap) end = cut;
+    }
+    yield { start, end };
+    if (end === text.length) return;
+    const next = text.lastIndexOf("\n", end - overlap - 1) + 1;
+    start = next > start ? next : end - overlap;
+  }
+}
+
+/**
+ * Where the whole quote stands in a version, matched by the check's own `findQuote` a window at a
+ * time with a turn of the event loop between (#3041), so a long Document never holds the app up.
+ * At one place a Citation could cite, one Unit or two that run on: its Location. In more than one
+ * place, or across more Units than a Citation cites: no Location. A quote with an ellipsis whose
+ * parts each still stand, though no window holds them together: no Location. Nowhere: null. The
+ * readings `findQuote` tries are tried in its order, a later one only when no window had the quote
+ * in the one before.
+ */
+export async function quoteElsewhere(
+  documents: RecheckDocuments,
+  input: Rechecked,
+  contentHash: string,
+): Promise<CitationRecheck["elsewhere"]> {
+  const { units, matching, inRange } = versionOf(documents, input.documentId, contentHash);
+  const quote = cleanQuote(input.quote);
+  if (quote === "") return null;
+  const { text, starts } = joinUnits(units);
+  const numbers = numbersIn(units);
+  const readings = (numbers === "if-needed" ? [false, true] : [numbers === true]).flatMap(
+    (each) => [
+      { numbers: each, lostLigatures: false },
+      ...(matching.lostLigatures ? [{ numbers: each, lostLigatures: true }] : []),
+    ],
+  );
+  // As `placesOf` has it: room for the quote and the spacing matching passes over.
+  const overlap = quote.length * 2 + 200;
+  const standsIn = async (wanted: string) => {
+    for (const reading of readings) {
+      for (const { start, end } of windowsOf(text, overlap)) {
+        await nextTurn();
+        if (findQuote(text.slice(start, end), wanted, reading)) return true;
+      }
+    }
+    return false;
+  };
+  const places: TextRange[][] = [];
+  for (const reading of readings) {
+    for (const { start, end } of windowsOf(text, overlap)) {
+      await nextTurn();
+      const window = text.slice(start, end);
+      const found = findQuote(window, quote, reading);
+      if (!found) continue;
+      if (!findQuote(window, quote, { ...reading, unique: true })) return { location: null };
+      const at = found.map((range) => ({ start: range.start + start, end: range.end + start }));
+      if (!places.some((place) => place[0]?.start === at[0]?.start)) places.push(at);
+      if (places.length > 1) return { location: null };
+    }
+    if (places.length > 0) break;
+  }
+  const [place] = places;
+  if (!place) {
+    // Its parts can stand further apart than a window: each is looked for on its own.
+    const parts = quoteParts(quote);
+    if (parts.length === 0) return null;
+    for (const part of parts) if (!(await standsIn(part))) return null;
+    return { location: null };
+  }
+  const covered = units.filter((unit, index) => {
+    const at = starts[index] ?? 0;
+    return place.some((range) => range.start < at + unit.text.length && range.end > at);
+  });
+  const [first, second] = covered;
+  if (!first || first.page === null || covered.length > 2) return { location: null };
+  if (second && (second.page !== first.page + 1 || !sameRun(first, second))) {
+    return { location: null };
+  }
+  const cited = inRange({ pageFrom: first.page, pageTo: second?.page ?? first.page });
+  return { location: locationOf(cited, quoteInUnits(cited, quote, matching)) };
+}
+
+/**
+ * `quoteElsewhere` for a core: one look for each Citation at a time (#3041), so a card and the
+ * viewer asking while it runs share it. Nothing is kept once it ends.
+ */
+export function sharedQuoteLooks(documents: RecheckDocuments) {
+  const running = new Map<string, Promise<CitationRecheck["elsewhere"]>>();
+  return (input: Rechecked, contentHash: string): Promise<CitationRecheck["elsewhere"]> => {
+    const key = JSON.stringify([
+      input.documentId,
+      contentHash,
+      input.quote,
+      input.pageFrom,
+      input.pageTo,
+      input.location ?? null,
+    ]);
+    const known = running.get(key);
+    if (known) return known;
+    const look = quoteElsewhere(documents, input, contentHash).finally(() => running.delete(key));
+    running.set(key, look);
+    return look;
+  };
 }
 
 // Processing peels running headers and footers off a PDF's stored pages (../documents/boilerplate):
@@ -1708,12 +1801,26 @@ interface ShownPassage {
   notCited: boolean;
   /** A workbook's rows whose figures its formulas work out, which the text doesn't show (#2372). */
   formulas: string | null;
+  /** The call a Transcript Passage is from, when the Answer is asked during one (#3005). */
+  call: (TranscriptCall & { thisCall: boolean }) | null;
+}
+
+/**
+ * A call Transcript's attributes: this call's, or an earlier one's by its Note, each with its start
+ * in words, so two Transcripts named for the same day are told apart (#3005).
+ */
+function callAttributes(call: ShownPassage["call"]): string {
+  if (!call) return "";
+  const started = ` started="${attribute(formatFullDateTime(call.startedAt, "en"))}"`;
+  return call.thisCall
+    ? ` call="this"${started}`
+    : ` call="earlier" note="${attribute(call.note)}"${started}`;
 }
 
 /** Passages as the model sees them, each with its short id, Document, its date, and pages or Location. */
 function formatPassages(passages: readonly ShownPassage[], also: readonly PromptTag[]): string {
   return passages
-    .map(({ id, documentName, date, range, location, text, notCited, formulas }) => {
+    .map(({ id, documentName, date, range, location, text, notCited, formulas, call }) => {
       const pages = pagesLabel(range);
       const where = location
         ? ` location="${attribute(location)}"`
@@ -1728,7 +1835,7 @@ function formatPassages(passages: readonly ShownPassage[], also: readonly Prompt
       return tagged(
         "passage",
         text,
-        ` id="${id}" document="${attribute(documentName)}"${dated}${where}${worked}${never}`,
+        ` id="${id}" document="${attribute(documentName)}"${dated}${where}${callAttributes(call)}${worked}${never}`,
         also,
       );
     })
@@ -1832,6 +1939,11 @@ export interface CitationSessionEvents {
    * quotes as given. A check's own evidence keeps its quote.
    */
   quotesStateClaims?(): boolean;
+  /**
+   * Whether a Document is the Transcript of the call the Answer is asked during (#3005); undefined
+   * when it is asked during none, so no Passage is marked with its call.
+   */
+  thisCall?(documentId: string): boolean | undefined;
 }
 
 /**
@@ -2480,6 +2592,15 @@ export function createCitationSession(
       if (!dates.has(documentId)) dates.set(documentId, documents.documentDate(documentId));
       return dates.get(documentId) ?? null;
     };
+    const calls = new Map<string, ShownPassage["call"]>();
+    const callOf = (documentId: string) => {
+      if (!calls.has(documentId)) {
+        const thisCall = events.thisCall?.(documentId);
+        const call = thisCall === undefined ? null : documents.callOf?.(documentId);
+        calls.set(documentId, call ? { ...call, thisCall: thisCall === true } : null);
+      }
+      return calls.get(documentId) ?? null;
+    };
     const formatted = found.map((passage): ShownPassage => {
       const range = { pageFrom: passage.pageFrom, pageTo: passage.pageTo };
       const units =
@@ -2538,6 +2659,7 @@ export function createCitationSession(
         text,
         notCited,
         formulas: events.marksFormulas?.() ? formulaRows(units) : null,
+        call: callOf(passage.documentId),
       };
     });
     return formatPassages(formatted, events.defuses ?? []);

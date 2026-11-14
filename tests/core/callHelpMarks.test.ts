@@ -12,9 +12,10 @@ import {
   type Meeting,
   type MeetingHelpKind,
 } from "../../src/core";
-import { readHelpReply, sentencePassed } from "../../src/renderer/src/helpReply";
+import { sentencePassed } from "../../src/renderer/src/helpReply";
 import { pageBlocks, withAnswerChecks } from "../../src/shared/answerBlocks";
 import type { NodeJSON } from "../../src/shared/blockJson";
+import { readHelpReply } from "../../src/shared/helpReplyRead";
 import { isTranscriptLocation } from "../../src/shared/locations";
 import { answerJudged, shownPassages } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
@@ -69,7 +70,8 @@ function batchOf(call: GenerateCall, verdicts: readonly [string, Verdict][]): { 
 }
 
 interface Marking {
-  reply: string;
+  /** The reply, or the reply given the call's newest line, which a "call" record quotes. */
+  reply: string | ((heard: string) => string);
   /** What each marker quotes: the price line found ahead, or the call's newest line. */
   records?: readonly { marker: number; from: "sheet" | "call" }[];
   verdicts?: readonly [string, Verdict][];
@@ -84,23 +86,25 @@ function markingModel(given: Marking, calls: ModelCall[], batches: GenerateCall[
   return scriptedModel(
     (call) => {
       calls.push(call);
-      if (call.results.some((result) => result.tool === "cite")) {
-        return { text: given.reply, ...(given.pause && { pause: given.pause }) };
-      }
       const [sheet] = shownPassages(block(call.prompt, "found-in-documents"));
       const heard = shownPassages(block(call.prompt, "live-transcript")).at(-1);
+      const newest = (heard?.text.split("\n").at(-1) ?? "").replace(/^\[[^\]]*\]\s*/, "");
+      const text = typeof given.reply === "function" ? given.reply(newest) : given.reply;
+      if (call.results.some((result) => result.tool === "cite")) {
+        return { text, ...(given.pause && { pause: given.pause }) };
+      }
       const citations = (given.records ?? [{ marker: 1, from: "sheet" }]).flatMap((record) => {
         const passage = record.from === "sheet" ? sheet : heard;
         if (!passage) return [];
-        const quote =
-          record.from === "sheet"
-            ? PRICE
-            : (passage.text.split("\n").at(-1) ?? "").replace(/^\[[^\]]*\]\s*/, "");
-        return [{ marker: record.marker, passage: passage.id, quote }];
+        return [
+          {
+            marker: record.marker,
+            passage: passage.id,
+            quote: record.from === "sheet" ? PRICE : newest,
+          },
+        ];
       });
-      return citations.length > 0
-        ? { calls: [{ tool: "cite", input: { citations } }] }
-        : { text: given.reply };
+      return citations.length > 0 ? { calls: [{ tool: "cite", input: { citations } }] } : { text };
     },
     {
       generate: (call) => {
@@ -242,6 +246,37 @@ describe("call help's ✓ comes only from the sentence check", { timeout: 60_000
     },
   );
 
+  // protects=a reply's sentence giving a currency its quote gives otherwise is Unsupported with the line Check against Documents gives, so it shows its number alone though the model called it supported (#2997); fails_when="£45" or "45 英镑" citing the sheet's "$45" shows ✓; no_claim=what a real model replies.
+  test.each([
+    {
+      language: "English",
+      reply: "★ Yes, Enterprise is £45 a seat with single sign-on [^1]\n→ answers at once",
+      line: "The Document gives $45, not £45.",
+    },
+    {
+      language: "Chinese",
+      reply: "★ 是的，企业版每个席位每月 45 英镑，含单点登录 [^1]\n→ 直接回答，推进通话",
+      line: "The Document gives $45, not 45 英镑.",
+    },
+  ])(
+    "in $language, a sentence whose quote gives another currency shows its number alone",
+    async ({ reply, line }) => {
+      const { core, meeting } = await setUp({ reply });
+      const after = await (await pressed(core, meeting, "answer")).judged();
+
+      expect(marks(after)).toEqual([{ marker: 1, check: "unsupported", passed: false }]);
+      expect(after.citations[0]?.verdict).toBe(line);
+    },
+  );
+
+  // protects=a reply naming the dollar the sheet's bare "$" doesn't ("45 美元") keeps the ✓ its check passes, as before #2997: an Answer leaves that reading out until its replies write the Document's own sign (#3030); fails_when="45 美元" citing "$45" shows its number alone; no_claim=Check against Documents, which reads it Unsupported.
+  test("a reply naming the dollar the sheet's bare $ doesn't keeps its ✓ for now", async () => {
+    const { core, meeting } = await setUp({ reply: CHINESE });
+    const after = await (await pressed(core, meeting, "answer")).judged();
+
+    expect(marks(after)).toEqual([{ marker: 1, check: "found", passed: true }]);
+  });
+
   test.each([
     { language: "English", reply: ENGLISH, words: "Enterprise is $45" },
     { language: "Chinese", reply: CHINESE, words: "企业版每个席位" },
@@ -323,30 +358,65 @@ describe("call help's ✓ comes only from the sentence check", { timeout: 60_000
     expect(batch?.prompt).toContain('document="Price sheet"');
   });
 
-  test("a → line given a marker and a promise under one are judged as any sentence; only what passes shows ✓", async () => {
+  // protects=a marker on a "→" line, the reply's own line, is taken off where the reply is kept: not drawn, not sent to the check, its Citation not kept, while a promise under a marker is judged as any sentence and every other place counts in the text kept (#2847); fails_when=the "→" line's sentence goes to the check, its chip shows, or a ✓ lands on another place; no_claim=what the check decides about the promise.
+  test("a → line's marker is taken off, and a promise under one is judged as any sentence; only what passes shows ✓", async () => {
     const reply =
       "★ Yes, Enterprise is $45 a seat with single sign-on [^1]\n→ answers at once [^2]\n\nI'll confirm the price in writing today [^3]\n→ buys time";
-    const { core, meeting } = await setUp({
+    const { core, meeting, batches } = await setUp({
       reply,
       records: [
         { marker: 1, from: "sheet" },
         { marker: 2, from: "sheet" },
         { marker: 3, from: "sheet" },
       ],
-      verdicts: [
-        ["answers at once", { verdict: "supported", kind: "opinion" }],
-        ["in writing", { verdict: "unsupported" }],
-      ],
+      verdicts: [["in writing", { verdict: "unsupported" }]],
     });
 
     const after = await (await pressed(core, meeting, "answer")).judged();
 
+    expect(after.text).toBe(
+      "★ Yes, Enterprise is $45 a seat with single sign-on [^1]\n→ answers at once\n\nI'll confirm the price in writing today [^3]\n→ buys time",
+    );
+    const judgedSentences = batches.flatMap((batch) =>
+      [...batch.prompt.matchAll(/<sentence number="\d+">\n([\s\S]*?)\n<\/sentence>/g)].map(
+        ([, sentence]) => sentence,
+      ),
+    );
+    expect(judgedSentences).toHaveLength(2);
+    expect(judgedSentences.join("\n")).not.toContain("answers at once");
     expect(marks(after)).toEqual([
       { marker: 1, check: "found", passed: true },
-      { marker: 2, check: "not-checked", passed: false },
       { marker: 3, check: "unsupported", passed: false },
     ]);
+    expect(after.citations[0]?.passedAt).toEqual([0]);
   });
+
+  // protects=a short-lines reply's "→" line is kept as written: a Check reply as main writes one keeps the marker on its "→" line, its Citation and its chip at its place, in English and Chinese, since short lines are asked for no "→" line; fails_when=the core's kept text loses that marker, its Citation goes, or the chip's place moves; no_claim=what the check decides about that line.
+  test.each([
+    "- They said the panels are cleaned once a year [^1]\n- Supported: the sheet says once a year [^2]\n→ You can confirm it; Enterprise is $45 a seat [^3]",
+    "- 对方说组件每年清洗一次 [^1]\n- 文档支持：每年清洗一次 [^2]\n→ 可以直接确认；企业版每个席位 45 美元 [^3]",
+  ])(
+    "a Check reply's → line keeps its marker, its Citation and its chip's place: %s",
+    async (reply) => {
+      const { core, meeting } = await setUp({
+        reply,
+        records: [
+          { marker: 1, from: "call" },
+          { marker: 2, from: "sheet" },
+          { marker: 3, from: "sheet" },
+        ],
+      });
+
+      const after = await (await pressed(core, meeting, "check")).judged();
+
+      expect(after.text).toBe(reply);
+      expect(after.citations.map((citation) => citation.marker).sort()).toEqual([1, 2, 3]);
+      const arrow = readHelpReply(after.text)
+        .flatMap((item) => item.effect ?? [])
+        .flatMap((piece) => (piece.kind === "citation" ? [[piece.marker, piece.at]] : []));
+      expect(arrow).toEqual([[3, 2]]);
+    },
+  );
 
   test("a sentence with a calculated figure's marker is the figure check's, not the sentence check's: its Citation stays plain", async () => {
     const reply = "★ Enterprise is [=1] a seat a month [^1]\n→ answers at once";
@@ -360,7 +430,8 @@ describe("call help's ✓ comes only from the sentence check", { timeout: 60_000
   });
 
   test("a line too short to be judged shows no ✓, whatever its marker earned in the sentence before it", async () => {
-    const reply = "★ Yes, Enterprise is $45 a seat with single sign-on [^1]\n→ Same price [^1]";
+    const reply =
+      "★ Yes, Enterprise is $45 a seat with single sign-on [^1]\n→ answers at once\n\nSame price [^1]\n→ buys time";
     const { core, meeting } = await setUp({ reply });
 
     const after = await (await pressed(core, meeting, "answer")).judged();
@@ -457,7 +528,7 @@ describe("call help's ✓ comes only from the sentence check", { timeout: 60_000
         release = resolve;
       });
       const reply =
-        "★ Yes, Enterprise is $45 a seat with single sign-on [^1][^2]\n→ answers at once [^2]";
+        "★ Yes, Enterprise is $45 a seat with single sign-on [^1][^2]\n→ answers at once\n\nIt answers at once [^2]\n→ buys time";
       const { core, meeting, batches } = await setUp({
         reply,
         records: [
@@ -512,7 +583,7 @@ describe("call help's ✓ comes only from the sentence check", { timeout: 60_000
         release = resolve;
       });
       const reply =
-        "★ Yes, Enterprise is $45 a seat with single sign-on [^1][^2]\n→ answers at once [^2]";
+        "★ Yes, Enterprise is $45 a seat with single sign-on [^1][^2]\n→ answers at once\n\nIt answers at once [^2]\n→ buys time";
       const { core, meeting, batches } = await setUp({
         reply,
         records: [
@@ -557,7 +628,7 @@ describe("call help's ✓ comes only from the sentence check", { timeout: 60_000
   test("Check again passing a sentence again gives its ✓ back to a Citation another sentence left unsupported", async () => {
     let round = 0;
     const reply =
-      "★ Yes, Enterprise is $45 a seat with single sign-on [^1][^2]\n→ answers at once [^2]\n\nI'll confirm the price in writing today [^1]\n→ buys time";
+      "★ Yes, Enterprise is $45 a seat with single sign-on [^1][^2]\n→ answers at once\n\nIt answers at once [^2]\n→ ties it up\n\nI'll confirm the price in writing today [^1]\n→ buys time";
     const { core, meeting, batches } = await setUp({
       reply,
       records: [
@@ -782,4 +853,202 @@ describe("call help's ✓ comes only from the sentence check", { timeout: 60_000
     expect(deltas.get(after.ids.answerId)).toEqual(deltas.get(before.ids.answerId));
     expect(after.atEnd.text).toBe(before.atEnd.text);
   });
+});
+
+/** The text of a note's Blocks, in order. */
+const textIn = (nodes: readonly NodeJSON[]): string =>
+  nodes.map((node) => `${node.text ?? ""}${textIn(node.content ?? [])}`).join("");
+
+describe("a reply is kept, checked and read again as the panel shows it (#2925)", {
+  timeout: 60_000,
+}, () => {
+  // protects=an option the model wrapped whole in its own quotation marks, its marker inside the marks or after them, in English and Chinese marks, is kept and checked as the panel shows it, so its Citation can take ✓ as a bare option's does; fails_when=the check reads the option's own words as the Document's and shows its Citation not found, or the reply is kept with the marks the panel doesn't show; no_claim=how often a model wraps an option.
+  test.each([
+    {
+      form: "its marker inside the marks",
+      reply: '★ "Yes, Enterprise is $45 a seat with single sign-on [^1]"\n→ answers at once',
+      kept: ENGLISH,
+    },
+    {
+      form: "its marker after the marks",
+      reply: '★ "Yes, Enterprise is $45 a seat with single sign-on" [^1]\n→ answers at once',
+      kept: ENGLISH,
+    },
+    {
+      form: "Chinese marks",
+      reply: "★ “是的，企业版每个席位每月 45 美元，含单点登录 [^1]”\n→ 直接回答，推进通话",
+      kept: CHINESE,
+    },
+    {
+      form: "bold after its star",
+      reply: '★ **"Yes, Enterprise is $45 a seat with single sign-on" [^1]**\n→ answers at once',
+      kept: "★ **Yes, Enterprise is $45 a seat with single sign-on [^1]**\n→ answers at once",
+    },
+  ])(
+    "an option wrapped in its own quotation marks, $form, is kept as shown and takes ✓",
+    async ({ reply, kept }) => {
+      const { core, meeting } = await setUp({ reply });
+      const after = await (await pressed(core, meeting, "answer")).judged();
+      expect(after.text).toBe(kept);
+      expect(marks(after)).toEqual([{ marker: 1, check: "found", passed: true }]);
+    },
+  );
+
+  // protects=after the call has stopped, Check the rest judges a wrapped option in the words its first check read, every place that check passed stays where it was, and the note it is then added to holds those words; fails_when=the option goes to the judge or into the note in the model's quotation marks, or a passed place moves or is lost; no_claim=which verdict the judge gives.
+  test("after the call stops, Check the rest and the note read the option as it was checked, every passed place kept", async () => {
+    let round = 0;
+    const reply = [
+      '★ "Yes, Enterprise is $45 a seat with single sign-on [^1]"',
+      "→ answers at once",
+      "",
+      '"I\'ll confirm the Team plan price in writing today [^2]"',
+      "→ buys time",
+    ].join("\n");
+    const { core, meeting, batches } = await setUp({
+      reply,
+      records: [
+        { marker: 1, from: "sheet" },
+        { marker: 2, from: "sheet" },
+      ],
+      judge: (call) =>
+        ++round === 1
+          ? batchOf(call, [["in writing", { verdict: "supported", kind: "opinion" }]])
+          : batchOf(call, []),
+    });
+    const first = await (await pressed(core, meeting, "answer")).judged();
+    expect(marks(first)).toEqual([
+      { marker: 1, check: "found", passed: true },
+      { marker: 2, check: "not-checked", passed: false },
+    ]);
+    await core.stopMeeting(meeting.id);
+
+    await core.checkAnswerAgain({ conversationId: first.conversationId, answerId: first.id });
+    const after = await answerJudged(core, first.conversationId, first.id);
+
+    expect(batches).toHaveLength(2);
+    expect(batches[1]?.prompt).toContain("I'll confirm the Team plan price in writing today");
+    expect(batches[1]?.prompt).not.toContain("\"I'll confirm");
+    expect(marks(after)).toEqual([
+      { marker: 1, check: "found", passed: true },
+      { marker: 2, check: "found", passed: true },
+    ]);
+    expect(after.citations.map((citation) => citation.passedAt)).toEqual([[0], [1]]);
+    const note = textIn(pageBlocks(after, "Answer their question"));
+    expect(note).toContain("I'll confirm the Team plan price in writing today");
+    expect(note).not.toMatch(/["“”]/);
+  });
+
+  // protects=a reading's moment of the call keeps its quotation marks, after a blank line too, and its words are looked for on the call it cites; fails_when=the moment is kept or checked without its marks, so words the call never had pass; no_claim=how a model words a reading.
+  test("a reading's moment after a blank line keeps its marks, and words the call never had leave it not found", async () => {
+    const reply =
+      '★ They want a lower price for the whole team [^1]\n\n"We cannot go above forty dollars this year" [^1]\n→ offer the two-year term';
+    const { core, meeting } = await setUp({ reply, records: [{ marker: 1, from: "call" }] });
+    const after = await (await pressed(core, meeting, "want")).judged();
+    // The reading's first line is the reply's own and loses its marker; its moment keeps its own.
+    expect(after.text).toBe(
+      '★ They want a lower price for the whole team\n\n"We cannot go above forty dollars this year" [^1]\n→ offer the two-year term',
+    );
+    expect(after.citations.map((citation) => citation.check)).toEqual(["not-found"]);
+  });
+
+  // protects=a reading's first line or an option's "→" line that puts words in quotation marks keeps its marker, so the quote check reads those words as on main: words the call never had leave the Citation not found, and a reply's own line quoting them never shows them with nothing beside it; fails_when=the marker comes off such a line, so its Citation goes and its words stay in quotation marks unchecked; no_claim=how a model quotes.
+  test.each([
+    {
+      kind: "want",
+      reply:
+        '★ They want a lower price: "We cannot go above forty dollars this year" [^1]\n→ offer the two-year term',
+      records: [{ marker: 1, from: "call" }],
+      not: 1,
+    },
+    {
+      kind: "want",
+      reply: '★ They call the price "far too steep for a pilot" [^1]\n→ offer the two-year term',
+      records: [{ marker: 1, from: "call" }],
+      not: 1,
+    },
+    {
+      kind: "answer",
+      reply:
+        '★ Yes, Enterprise is $45 a seat with single sign-on [^1]\n→ they said "we must sign by Friday", so this answers it [^2]',
+      records: [
+        { marker: 1, from: "sheet" },
+        { marker: 2, from: "call" },
+      ],
+      not: 2,
+    },
+  ] as const)(
+    "a line that quotes words the call never had keeps its marker, its Citation not found: $reply",
+    async ({ kind, reply, records, not }) => {
+      const { core, meeting } = await setUp({ reply, records });
+      const after = await (await pressed(core, meeting, kind)).judged();
+      expect(after.text).toBe(reply);
+      expect(after.citations.find((citation) => citation.marker === not)?.check).toBe("not-found");
+    },
+  );
+
+  // protects=a Chinese reading's first line quoting the other side keeps its marker, so the quote check reads the words and, on an English call, takes their marks off as a translation, as on main; fails_when=the marker comes off and the words stay in quotation marks with no Citation beside them; no_claim=how a model translates.
+  test("a Chinese reading that quotes the other side keeps its marker, and the quote check reads it", async () => {
+    const reply = "★ 对方想压价：“今年我们最多只能出四十美元” [^1]\n→ 先给阶梯价";
+    const { core, meeting } = await setUp({ reply, records: [{ marker: 1, from: "call" }] });
+    const after = await (await pressed(core, meeting, "want")).judged();
+    expect(after.text).toBe("★ 对方想压价：今年我们最多只能出四十美元 [^1]\n→ 先给阶梯价");
+    expect(after.citations.map((citation) => citation.marker)).toEqual([1]);
+  });
+
+  // protects=a reading's first line or an option's "→" line that quotes words the call did have keeps its marker and its Citation, found by the quote check; fails_when=the marker comes off such a line or the words aren't looked for on the call; no_claim=how a model quotes.
+  test.each([
+    {
+      kind: "want",
+      reply: (heard: string) => `★ They asked: "${heard}" [^1]\n→ answer it first`,
+      records: [{ marker: 1, from: "call" }],
+      marker: 1,
+    },
+    {
+      kind: "want",
+      reply: (heard: string) => `★ They put it as "${heard}" [^1]\n→ answer it first`,
+      records: [{ marker: 1, from: "call" }],
+      marker: 1,
+    },
+    {
+      kind: "answer",
+      reply: (heard: string) =>
+        `★ Yes, Enterprise is $45 a seat with single sign-on [^1]\n→ they asked "${heard}", so this answers it [^2]`,
+      records: [
+        { marker: 1, from: "sheet" },
+        { marker: 2, from: "call" },
+      ],
+      marker: 2,
+    },
+  ] as const)(
+    "a line that quotes words the call did have keeps its Citation, found ($kind, [^$marker])",
+    async ({ kind, reply, records, marker }) => {
+      const { core, meeting } = await setUp({ reply, records });
+      const after = await (await pressed(core, meeting, kind)).judged();
+      expect(after.text).toContain(`[^${marker}]`);
+      expect(after.citations.find((citation) => citation.marker === marker)?.check).toBe("found");
+    },
+  );
+
+  // protects=words quoted inside an option, not on the cited page, still read as a quotation and leave its Citation not found, in English and Chinese marks; fails_when=the option's own marks taken off hide a quotation inside it; no_claim=what a model quotes.
+  test.each([
+    {
+      marks: "English marks inside straight ones",
+      reply:
+        '★ "Enterprise comes with “free onboarding for every single seat” at $45 [^1]"\n→ answers at once',
+    },
+    // In the page's own language: Chinese words on the English sheet read as a translation.
+    {
+      marks: "Chinese marks inside curly ones",
+      reply:
+        "★ “Enterprise comes with 「free onboarding for every single seat」 at $45 [^1]”\n→ answers at once",
+    },
+  ])(
+    "words quoted inside an option and not on its page still read not found: $marks",
+    async ({ reply }) => {
+      const { core, meeting } = await setUp({ reply });
+      const after = await (await pressed(core, meeting, "answer")).judged();
+      expect(after.citations.map((citation) => citation.check)).toEqual(["not-found"]);
+      expect(marks(after)[0]?.passed).toBe(false);
+    },
+  );
 });

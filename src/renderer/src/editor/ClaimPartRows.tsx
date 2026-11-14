@@ -268,12 +268,15 @@ function PartRow({
   stale,
   citing,
   citations,
+  waiting,
 }: {
   editor: Editor;
   id: string;
   text: string;
   words?: string;
   part: ClaimCheckPart;
+  /** It is Supported, not yet cited (#3019). */
+  waiting: boolean;
   onCheck(span: ClaimPartSpan): void;
   onUseWording?(part: ClaimCheckPart): void;
   /** The part's correction from the Documents, when its old words are still in place. */
@@ -306,8 +309,23 @@ function PartRow({
   const showsNotFound = !stale && partFoundNothing(part);
   const target = { kind: "check", id: `${id}:${part.span.start}:${part.span.end}` } as const;
   const menu = useObjectMenu(target);
-  const reason =
-    part.verdict === "not-checked" && part.reason
+  const notYetCited = waiting && !stale;
+  // Where the row offers Replace or Widen, that action's own note says why its ✓ waits.
+  const replacing = citing.find(
+    (decision): decision is Extract<CitationDecision, { kind: "replace" }> =>
+      decision.kind === "replace",
+  );
+  const reason = notYetCited
+    ? replacing
+      ? t(
+          replacing.citation.attributes.check === "not-found"
+            ? "claim.replaceCitation.quoteNotFound"
+            : "claim.replaceCitation.doesntSupport",
+        )
+      : citing.some((decision) => decision.kind === "widen")
+        ? t("claim.widenCitation.note")
+        : t("claim.notYetCited")
+    : part.verdict === "not-checked" && part.reason
       ? reasonText(t, language, part.reason, part.detail)
       : part.verdict !== "unsupported"
         ? null
@@ -354,13 +372,15 @@ function PartRow({
         <span>
           {state === null
             ? t(part.itself ? "claim.itself" : "claim.opinion")
-            : state === "checking"
-              ? t("claim.part.checking")
-              : state === "unsupported" && showsNotFound
-                ? t("claim.state.notFound")
-                : state === "unsupported" && part.unsupported?.kind === "units"
-                  ? t("claim.state.unitsMayDiffer")
-                  : t(`claim.state.${state}`)}
+            : notYetCited
+              ? t("claim.state.notYetCited")
+              : state === "checking"
+                ? t("claim.part.checking")
+                : state === "unsupported" && showsNotFound
+                  ? t("claim.state.notFound")
+                  : state === "unsupported" && part.unsupported?.kind === "units"
+                    ? t("claim.state.unitsMayDiffer")
+                    : t(`claim.state.${state}`)}
         </span>
         {citations && citing.some((decision) => decision.kind === "add") && (
           <button
@@ -486,6 +506,7 @@ export function ClaimPartRows({
   checking = false,
   stale = false,
   citations,
+  waiting,
 }: {
   editor: Editor;
   id: string;
@@ -505,6 +526,8 @@ export function ClaimPartRows({
   working?(calculation: ClaimCalculation): ReactNode;
   /** A marked sentence's rows add, widen or replace the Citations of what they found. */
   citations?: PartCitations;
+  /** The parts Supported, not yet cited (`waitingParts`, #3019). */
+  waiting?: ReadonlySet<ClaimCheckPart>;
 }) {
   const t = useT();
   const language = useLanguage();
@@ -599,6 +622,7 @@ export function ClaimPartRows({
             stale={stale}
             citing={citing[index] ?? []}
             citations={citations}
+            waiting={waiting?.has(part) ?? false}
           />
         ))}
       </ol>

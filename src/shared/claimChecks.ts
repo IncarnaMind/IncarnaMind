@@ -27,10 +27,12 @@ import {
 } from "../core/api";
 import { type RecordCiteNote, shortFormsThrough } from "../core/recordCites/referents";
 import { citedInputs } from "./calculatedFigures";
+import { asCitedNow, type HeldCitation } from "./citedNow";
 import {
   CLAIM_CHECK_FAILURES,
   checkWithParts,
   keepCheckAsView,
+  leftOutByAssistant,
   partCitations,
   readCheckedVersions,
   readClaimCalculation,
@@ -49,7 +51,10 @@ import { parseLocation } from "./locations";
 import { folderScope, hasSearchScope, sameScope } from "./searchScope";
 import { comparableCheckSentence, comparableSentence, isClaim } from "./sentences";
 
-/** The most sentences with Citations one write of the assistant's has checked as it lands (#1111): past it, a long draft would wait minutes and cost dozens of requests. */
+/**
+ * The most sentences with Citations one write of the assistant's had checked before its reply
+ * (#1111): what a sentence marked "too-many" then says. Since #2830 a write checks every sentence.
+ */
 export const SENTENCES_CHECKED_AT_MOST = 12;
 
 const STATES: readonly ClaimCheckAttributes["state"][] = [
@@ -397,13 +402,14 @@ export type ClaimCheckShown =
 
 /**
  * The failures a check on the same sentence and Documents cannot settle: the Citation it needs
- * is kept inside another Folder, or the sentence describes the Library in a way its facts can't
- * settle (#2525). A reply that failed, was refused or couldn't be used, a service
- * limit, a cap, a stop, or a sentence a later Check takes may be settled next time, so those stay
- * Not checked.
+ * is kept inside another Folder or outside the Note's Search scope (#3083), or the sentence
+ * describes the Library in a way its facts can't settle (#2525). A reply that failed, was refused
+ * or couldn't be used, a service limit, a cap, a stop, or a sentence a later Check takes may be
+ * settled next time, so those stay Not checked.
  */
 export const UNCHECKABLE_FAILURES: ReadonlySet<ClaimCheckFailure> = new Set([
   "kept-inside",
+  "outside-scope",
   "library-unsettled",
 ]);
 
@@ -431,6 +437,12 @@ export interface ClaimCheckNow {
   figured?: boolean;
   /** The sentence as it reads now: all of the sentences its marked text is in. */
   text: string;
+  /**
+   * The sentence's Citations as the Note holds them now: a ✓ resting on a Passage the check found
+   * shows only once that Passage is one of them (`asCitedNow`, #3019). Every reading of a sentence
+   * gives them; absent only where a figure's own check is read, which rests on no Passage of its.
+   */
+  citations?: readonly HeldCitation[];
   /** Each live Document's current version, by id; null while they aren't known. */
   versions: ReadonlyMap<string, string> | null;
   /** The Mind's Folder now; null for none. */
@@ -634,6 +646,34 @@ export function restsOn(check: ClaimCheckAttributes): (CitationAttributes | Cita
   ].filter((each): each is CitationAttributes | Citation => each !== null);
 }
 
+/**
+ * Why a result read at `versions` needs checking again with the Documents as they are now; null
+ * when none it depends on changed. `relied`: what it rests on, which it can't do without.
+ */
+function staleVersions(
+  versions: ClaimCheckBasis["versions"],
+  relied: () => readonly { documentId: string | null }[],
+  now: Pick<ClaimCheckNow, "versions">,
+  fromAnswer: boolean,
+): RecheckReason | null {
+  if (!now.versions) return null;
+  const restsOnIds = new Set(relied().map((each) => each.documentId));
+  for (const version of versions) {
+    const current = now.versions.get(version.documentId);
+    // A fact of the Library not known yet is taken as it was: the window asks for them apart.
+    if (readLibraryVersion(version.documentId)) {
+      if (current !== undefined && current !== version.contentHash) return "library";
+      continue;
+    }
+    // A Document only read, gone, takes nothing from the result: an example's, swapped for the interface language, among them (#962).
+    // A carried check relied on every Citation its Answer judged, not only the one that decided.
+    if (current === undefined && (restsOnIds.has(version.documentId) || fromAnswer))
+      return "document-removed";
+    if (current !== undefined && current !== version.contentHash) return "new-version";
+  }
+  return null;
+}
+
 /** How a check shows, given the sentence, the Documents and the Mind's Folder and scope as they are now. */
 function basisShown(check: ClaimCheckBasis, now: Omit<ClaimCheckNow, "footing">): ClaimCheckShown {
   if (check.state === "checking") return { state: "checking" };
@@ -646,32 +686,13 @@ function basisShown(check: ClaimCheckBasis, now: Omit<ClaimCheckNow, "footing">)
   }
   if (referentsMoved(check, now)) return { state: "needs-recheck", why: "referent" };
   if (check.kept) return { state: "kept" };
-  if (now.versions) {
-    const relied = new Set([
-      ...restsOn(check).map((each) => each.documentId),
-      ...(check.readDocuments ?? []).map((each) => each.documentId),
-    ]);
-    for (const version of check.versions) {
-      const current = now.versions.get(version.documentId);
-      // A fact of the Library not known yet is taken as it was: the window asks for them apart.
-      if (readLibraryVersion(version.documentId)) {
-        if (current !== undefined && current !== version.contentHash)
-          return { state: "needs-recheck", why: "library" };
-        continue;
-      }
-      // A Document only read, gone, takes nothing from the result: an example's, swapped for the interface language, among them (#962).
-      // A carried check relied on every Citation its Answer judged, not only the one that decided.
-      if (
-        current === undefined &&
-        (relied.has(version.documentId) || check.fromAnswer !== undefined)
-      ) {
-        return { state: "needs-recheck", why: "document-removed" };
-      }
-      if (current !== undefined && current !== version.contentHash) {
-        return { state: "needs-recheck", why: "new-version" };
-      }
-    }
-  }
+  const stale = staleVersions(
+    check.versions,
+    () => [...restsOn(check), ...(check.readDocuments ?? [])],
+    now,
+    check.fromAnswer !== undefined,
+  );
+  if (stale) return { state: "needs-recheck", why: stale };
   // A landed result searched the Folder it was in: filed elsewhere with Documents never read, a
   // whole-Folder read or a result with no quote to rest on must be checked there (#2313). A check
   // that landed nothing is not a result the move can rewrite.
@@ -742,9 +763,30 @@ export function claimMarkState<State extends ClaimCheckShown["state"]>(
     : state;
 }
 
+/**
+ * Whether a sentence reads Not checked only because what it says is missing couldn't be read whole,
+ * every other part of it Supported (#3019): its line says what was checked. A sentence that is only
+ * that absence, or holds any other part, keeps its reason's own line.
+ */
+export function absenceBesideFact(
+  check: Pick<ClaimCheckAttributes, "parts">,
+  shown: ClaimCheckShown,
+): boolean {
+  if (shown.state !== "not-checked" || shown.reason !== "absence-read-limit") return false;
+  const parts = check.parts ?? [];
+  return (
+    parts.some((part) => part.verdict === "supported") &&
+    parts.every(
+      (part) =>
+        part.verdict === "supported" ||
+        (part.verdict === "not-checked" && part.reason === "absence-read-limit"),
+    )
+  );
+}
+
 export function claimCheckShown(check: ClaimCheckAttributes, now: ClaimCheckNow): ClaimCheckShown {
   if (!check.figures?.length || check.kept) {
-    const shown = basisShown(check, now);
+    const shown = basisShown(asCitedNow(check, now.citations ?? [], now.text), now);
     // A verdict stored before each figure got its own never read a table cell's row and column,
     // so a right cell could stand as Unsupported (#1459): it is checked again, not kept.
     return now.figured === true &&
@@ -761,15 +803,46 @@ export function claimCheckShown(check: ClaimCheckAttributes, now: ClaimCheckNow)
   ) {
     return { state: "needs-recheck", why: "referent" };
   }
-  const figures = check.figures.map((figure) => figureCheckShown(figure, now));
-  return aggregateFigureStates(
-    figures,
+  // Its figures each have their own check, and its remainder holds only its facts: an opinion
+  // Check anyway is judging reads as a plain sentence being checked, one it judged counts beside
+  // them, and the assistant's own left out still takes its ✓ (#3019).
+  const opinions = (check.parts ?? []).filter((part) => part.kind === "opinion" && !part.itself);
+  if (opinions.some((part) => part.verdict === "checking")) return { state: "checking" };
+  const shown = aggregateFigureStates(
+    [
+      ...check.figures.map((figure) => figureCheckShown(figure, now)),
+      ...opinions.flatMap((part) =>
+        part.verdict === null ? [] : [opinionShown(part, part.verdict, now)],
+      ),
+    ],
     check.remainder === null
       ? null
       : check.remainder
         ? basisShown(check.remainder, now)
         : undefined,
   );
+  if (shown.state !== "supported") return shown;
+  return opinions.some(leftOutByAssistant)
+    ? { state: "not-checked", reason: "assistant-conclusion" }
+    : shown;
+}
+
+/** How an opinion part Check anyway judged shows, read against the Documents as they are now. */
+function opinionShown(
+  part: ClaimCheckPart,
+  verdict: NonNullable<ClaimCheckPart["verdict"]>,
+  now: ClaimCheckNow,
+): ClaimCheckShown {
+  if (verdict === "checking") return { state: "checking" };
+  const stale = staleVersions(
+    part.versions,
+    () => [...partCitations(part), ...(part.readDocuments ?? [])],
+    now,
+    false,
+  );
+  if (stale) return { state: "needs-recheck", why: stale };
+  if (verdict === "not-checked") return { state: "not-checked", reason: part.reason ?? "failed" };
+  return { state: verdict };
 }
 
 /**
@@ -885,16 +958,23 @@ export function figureCheckShown(
 /**
  * Whether Documents added to its scope since could change a check (#993): one
  * found unsupported or not checked. A supported or contradicted one already
- * has its evidence, contradiction watch makes its own checks again, and a
- * whole read covered only the User's pick.
+ * has its evidence, as have one whose ✓ waits on the Passage it found becoming
+ * a Citation and one beside the assistant's own conclusion (#3019), unless an
+ * absence read whole backs it, which a new Document can still disprove;
+ * contradiction watch makes its own checks again, and a whole read covered
+ * only the User's pick.
  */
 export const addedCouldChange = (check: ClaimCheckAttributes, shown: ClaimCheckShown): boolean =>
   check.action !== "contradiction-watch" &&
   check.action !== "check-against-document" &&
   check.checkedAt !== "" &&
   (shown.state === "unsupported" ||
-    shown.state === "not-checked" ||
-    (shown.state === "supported" && (check.readDocuments?.length ?? 0) > 0));
+    (shown.state === "not-checked" &&
+      shown.reason !== "found-elsewhere" &&
+      shown.reason !== "assistant-conclusion") ||
+    ((shown.state === "supported" ||
+      (shown.state === "not-checked" && shown.reason === "assistant-conclusion")) &&
+      (check.readDocuments?.length ?? 0) > 0));
 
 /**
  * A sentence as every surface counts it (#1909): a claim no check covers now
@@ -955,7 +1035,10 @@ export function checkedSentence(input: {
       case "contradicted":
         return { kind: "covered" };
       case "not-checked":
-        return { kind: "to-check", fresh: false, why: "failed" };
+        // Checked: what is left is the assistant's own conclusion, which no check settles (#3019).
+        return input.check.reason === "assistant-conclusion"
+          ? { kind: "covered" }
+          : { kind: "to-check", fresh: false, why: "failed" };
       case "needs-recheck":
         return { kind: "to-check", fresh: false, why: "recheck" };
     }

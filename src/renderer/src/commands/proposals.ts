@@ -124,6 +124,7 @@ const editAction = (
   id: `edit.${action}`,
   label,
   group: "main",
+  appliesToText: true,
   // It applies at once; ⌘Z takes it back.
   reversible: true,
   when: () => withSelection() !== null,
@@ -284,6 +285,7 @@ export const proposalCommands: readonly Command[] = [
     id: "edit.withAi",
     label: "editor.ai.edit",
     group: "main",
+    appliesToText: true,
     // What the User then asks for applies at once; ⌘Z takes it back.
     reversible: true,
     when: () => withSelection() !== null,
@@ -300,6 +302,7 @@ export const proposalCommands: readonly Command[] = [
     id: "edit.translate",
     label: "editor.ai.translate",
     group: "main",
+    appliesToText: true,
     reversible: true,
     when: () => withSelection() !== null,
     run() {
@@ -317,6 +320,7 @@ export const proposalCommands: readonly Command[] = [
     id: "edit.explain",
     label: "editor.ai.explain",
     group: "main",
+    appliesToText: true,
     reversible: true,
     when: () => withSelection() !== null,
     run() {
@@ -329,6 +333,7 @@ export const proposalCommands: readonly Command[] = [
     label: "editor.ai.markAsMine",
     assistant: { never: "authorship" },
     group: "main",
+    appliesToText: true,
     // ⌘Z, or Undo on its line, takes it back.
     reversible: true,
     when: () => withAiText() !== null,

@@ -97,6 +97,7 @@ import { ListKeys } from "../editor/listKeys";
 import { MarginChecks } from "../editor/MarginChecks";
 import { MathEditing, MathEditor } from "../editor/MathEditor";
 import { MindOutline } from "../editor/MindOutline";
+import { MissingNumberView, missingNumberWordsNow } from "../editor/MissingNumberView";
 import { MeetingFillPlace } from "../editor/meetingFillPlace";
 import { MeetingNotes } from "../editor/meetingNotes";
 import {
@@ -480,6 +481,8 @@ function MindEditorView({
             (props) => <CalculatedFigureView {...props} doc={doc} />,
             { as: "span" },
           ),
+          missingNumberView: ReactNodeViewRenderer(MissingNumberView, { as: "span" }),
+          missingNumberWords: missingNumberWordsNow,
           analysisTableView: ReactNodeViewRenderer(
             (props) => <AnalysisTableView {...props} doc={doc} />,
             { as: "span" },
@@ -1112,9 +1115,11 @@ function MindEditorView({
               {t("meetings.mine.empty")}
             </p>
           )}
-          <OpinionMenu editor={editor} mindId={mindId} doc={doc}>
-            <EditorContent editor={editor} />
-          </OpinionMenu>
+          <BlockHandle editor={editor} enabled={showingNotes && !readOnly}>
+            <OpinionMenu editor={editor} mindId={mindId} doc={doc}>
+              <EditorContent editor={editor} />
+            </OpinionMenu>
+          </BlockHandle>
           {meeting?.kind === "meeting" && (
             <MeetingFillAt editor={editor} meeting={meeting} lineShown={!myNotes} />
           )}
@@ -1146,7 +1151,6 @@ function MindEditorView({
           comparing &&
           !readOnly &&
           createPortal(<CompareSheet mindId={mindId} doc={doc} editor={editor} />, sheetSlot)}
-        {showingNotes && !readOnly && <BlockHandle editor={editor} />}
         {showingNotes && !readOnly && (
           <SelectionMenu
             editor={editor}

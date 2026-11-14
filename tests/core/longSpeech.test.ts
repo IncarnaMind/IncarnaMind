@@ -143,21 +143,34 @@ const model = {
   threads: 1,
 };
 
-/** A second of quiet, then `words` said one after another with no pause, then a second and a half of quiet. */
-function speech(words: number): Float32Array {
-  const samples = new Float32Array(RATE + words * (WORD_SAMPLES + GAP_SAMPLES) + 1.5 * RATE);
+/**
+ * A second of quiet, then `words` said one after another with no pause, then a second and a half
+ * of quiet. `pause` adds a quiet this long, too short to end the stretch, after word `pause.after`.
+ */
+function speech(words: number, pause?: { after: number; samples: number }): Float32Array {
+  const pauseSamples = pause?.samples ?? 0;
+  const samples = new Float32Array(
+    RATE + words * (WORD_SAMPLES + GAP_SAMPLES) + pauseSamples + 1.5 * RATE,
+  );
   for (let index = 0; index < words; index++) {
-    const from = RATE + index * (WORD_SAMPLES + GAP_SAMPLES);
+    const from =
+      RATE +
+      index * (WORD_SAMPLES + GAP_SAMPLES) +
+      (pause && index >= pause.after ? pauseSamples : 0);
     samples.fill(levelOf(index), from, from + WORD_SAMPLES);
   }
   return samples;
 }
 
 /** The final lines of `samples` said into a Meeting's microphone, `pushMs` of audio at a time. */
-async function transcribe(samples: Float32Array, pushMs: number): Promise<SpeechSegment[]> {
+async function transcribe(
+  samples: Float32Array,
+  pushMs: number,
+  limits: { newTokens?: number } = {},
+): Promise<SpeechSegment[]> {
   const lines: SpeechSegment[] = [];
   const failures: string[] = [];
-  const host = createSpeechHost(await createSherpaEngine(model), {
+  const host = createSpeechHost(await createSherpaEngine(model, limits), {
     segment: (segment) => {
       if (segment.final && segment.text) lines.push(segment);
     },
@@ -228,6 +241,77 @@ for (const [language, said] of Object.entries(LANGUAGES)) {
       readings.length = 0;
       expect(await transcribe(new Float32Array(30 * RATE), 100)).toEqual([]);
       expect(readings).toEqual([]);
+    });
+  });
+
+  describe(`A stretch whose reading reaches the token limit, ${language} (#1031)`, () => {
+    const wordsOf = (text: string) =>
+      said.separator ? text.split(said.separator) : Array.from(text);
+    /** The final lines of `samples`, the engine writing at most `newTokens`, and what it logged. */
+    async function limited(samples: Float32Array, newTokens: number) {
+      vocabulary = said.words;
+      separator = said.separator;
+      readings.length = 0;
+      const warned = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const lines = await transcribe(samples, 100, { newTokens });
+      const logged = JSON.stringify(warned.mock.calls);
+      const warnings = warned.mock.calls.length;
+      warned.mockRestore();
+      return { lines, logged, warnings };
+    }
+    /**
+     * The readings of `line`'s final text, its first and any it was read again in: the partials
+     * read while the stretch went on come before them.
+     */
+    const readingsOf = (line?: SpeechSegment) => {
+      const seconds = ((line?.endMs ?? 0) - (line?.startMs ?? 0)) / 1000;
+      return readings.slice(readings.findLastIndex((each) => Math.abs(each - seconds) < 1e-6));
+    };
+
+    // protects=a stretch whose reading reaches the token limit is read again in two parts, cut between words in its middle fifth, and its line keeps both parts' words, every word once and in order; the log says so with lengths and counts, never the words; fails_when=the words past the limit are lost (as before #1031), the stretch is read more than three times, the cut lands outside its middle fifth, or a word shows in the log; no_claim=the real model, which on the meeting set reached the limit only by writing the same words over and over.
+    test("is read again in two parts, and its line keeps both parts' words", async () => {
+      // 21 words fit a reading at 24 tokens, the header taking 3: fewer than the stretch's 30, more than either part's.
+      const { lines, logged, warnings } = await limited(speech(30), 24);
+
+      expect(lines).toHaveLength(1);
+      expect(lines[0]?.text).toBe(said.words.slice(0, 30).join(said.separator));
+      const final = readingsOf(lines[0]);
+      expect(final).toHaveLength(3);
+      const [whole = 0, first = 0, second = 0] = final;
+      expect(first + second).toBeCloseTo(whole, 6);
+      expect(first / whole).toBeGreaterThanOrEqual(0.4);
+      expect(first / whole).toBeLessThanOrEqual(0.6);
+      expect(warnings).toBeGreaterThanOrEqual(2);
+      for (const word of said.words.slice(0, 30)) expect(logged).not.toContain(word);
+    });
+
+    // protects=a part that reaches the limit too keeps the words it wrote and is not read again: one level only; fails_when=a part is split again, or its words are dropped; no_claim=which words a real model writes first.
+    test("a part that reaches it too keeps what it wrote, and isn't read again", async () => {
+      // 9 words fit a reading at 12 tokens, fewer than either part's.
+      const { lines } = await limited(speech(30), 12);
+
+      expect(lines).toHaveLength(1);
+      expect(readingsOf(lines[0])).toHaveLength(3);
+      const heard = wordsOf(lines[0]?.text ?? "");
+      const secondFrom = said.words.indexOf(heard[9] ?? "");
+      expect(heard).toEqual([
+        ...said.words.slice(0, 9),
+        ...said.words.slice(secondFrom, secondFrom + 9),
+      ]);
+      expect(secondFrom).toBeGreaterThan(9);
+    });
+
+    // protects=the cut between the two parts is searched for in the stretch's middle fifth only, so neither part is short of what the limit was reached on; fails_when=the cut goes to a quieter moment outside it; no_claim=where a real speaker pauses.
+    test("is cut in its middle fifth, though it is quieter before it", async () => {
+      // A 400 ms pause after the sixth word, about a fifth of the way in: quieter than any moment
+      // of the middle, and too short to end the stretch.
+      const { lines } = await limited(speech(30, { after: 6, samples: 0.4 * RATE }), 24);
+
+      expect(lines).toHaveLength(1);
+      expect(lines[0]?.text).toBe(said.words.slice(0, 30).join(said.separator));
+      const [whole = 0, first = 0] = readingsOf(lines[0]);
+      expect(first / whole).toBeGreaterThanOrEqual(0.4);
+      expect(first / whole).toBeLessThanOrEqual(0.6);
     });
   });
 }

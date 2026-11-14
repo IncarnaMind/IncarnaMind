@@ -39,6 +39,7 @@ import {
   markKeyOf,
   markValueOf,
 } from "../../shared/markKeys";
+import { MISSING_NUMBER_WORDS } from "../../shared/missingNumbers";
 import { citesSource, linkSources, type NamedSource } from "../../shared/namedSources";
 import {
   INLINE_NODES,
@@ -67,6 +68,7 @@ import {
   GENERATED_MARK,
   type LeftOutPart,
   MIND_CONTENT_FIELD,
+  MISSING_NUMBER_NODE,
   PROPOSAL_ATTRIBUTE,
   PROPOSAL_DELETE_MARK,
   PROPOSAL_INSERT_MARK,
@@ -274,6 +276,17 @@ export interface Selection {
   after: string;
   /** How many characters it holds, for the model's window. */
   characters: number;
+  /**
+   * The words the mark where a figure couldn't be calculated reads as (#2577); null: the mark
+   * reads as nothing.
+   */
+  missingNumber: string | null;
+  /**
+   * How many of those marks it holds: the new text's words of the mark, in either language, are
+   * the mark again that many times at most, counted from its start, so words the User typed in a
+   * passage with none stay words.
+   */
+  marks: number;
 }
 
 export type ReadResult =
@@ -346,6 +359,7 @@ const keyOf = {
   footnote: (n: number) => `\u0000f${n}`,
   math: (latex: string) => `\u0000m${latex}`,
   break: () => "\u0000b",
+  missing: () => "\u0000x",
   node: (name: string, n: number) => `\u0000n${name}${n}`,
 };
 
@@ -354,7 +368,12 @@ const keyOf = {
  * isn't in the Mind (it changed), the text holds Proposals still waiting, or
  * an Answer being written holds it.
  */
-export function readSelection(blocks: Y.XmlFragment, from: TextPlace, to: TextPlace): ReadResult {
+export function readSelection(
+  blocks: Y.XmlFragment,
+  from: TextPlace,
+  to: TextPlace,
+  missingNumber: string | null = null,
+): ReadResult {
   const all = textBlocks(blocks);
   const first = all.findIndex(
     ({ element }) => element.getAttribute(BLOCK_ID_ATTRIBUTE) === from.blockId,
@@ -376,6 +395,7 @@ export function readSelection(blocks: Y.XmlFragment, from: TextPlace, to: TextPl
   const text: string[] = [];
   const context: string[] = [];
   let characters = 0;
+  let marks = 0;
   /** An inline node of the selection, as the model reads it: a numbered marker, a formula. */
   const nodeToken = (node: Y.XmlElement, attributes: Attributes, index: number): NodeKey => {
     const name = node.nodeName;
@@ -399,6 +419,10 @@ export function readSelection(blocks: Y.XmlFragment, from: TextPlace, to: TextPl
       return { key: keyOf.math(latex), shown: `$${latex}$` };
     }
     if (name === BREAK) return { key: keyOf.break(), shown: "\n" };
+    if (name === MISSING_NUMBER_NODE && missingNumber !== null) {
+      marks++;
+      return { key: keyOf.missing(), shown: missingNumber };
+    }
     // Nothing the model can keep: it comes back without it, for the User to review.
     return { key: keyOf.node(name, index), shown: "" };
   };
@@ -435,7 +459,7 @@ export function readSelection(blocks: Y.XmlFragment, from: TextPlace, to: TextPl
     });
     plain.push(tokens.map((token) => token.text ?? NODE_CHARACTER).join(""));
     text.push(modelText);
-    context.push(blockText(element));
+    context.push(blockText(element, missingNumber));
     characters += shownText.length;
   }
   const firstBlock = chosen[0]?.element;
@@ -461,9 +485,13 @@ export function readSelection(blocks: Y.XmlFragment, from: TextPlace, to: TextPl
         .join("\n\n"),
       marked,
       context: context.join("\n\n"),
-      before: firstBlock ? nearWords(blockText(firstBlock, 0, from.offset), "before") : "",
-      after: lastBlock ? nearWords(blockText(lastBlock, to.offset), "after") : "",
+      before: firstBlock
+        ? nearWords(blockText(firstBlock, missingNumber, 0, from.offset), "before")
+        : "",
+      after: lastBlock ? nearWords(blockText(lastBlock, missingNumber, to.offset), "after") : "",
       characters,
+      missingNumber,
+      marks,
     },
   };
 }
@@ -520,7 +548,7 @@ export function selectionParts(
     const from = placeOf(first, "from");
     const to = placeOf(last, "to");
     if (!from || !to) return null;
-    const result = readSelection(blocks, from, to);
+    const result = readSelection(blocks, from, to, selection.missingNumber);
     return result.ok ? result.selection : null;
   };
   // The runs of segments inside one Block: a part is whole ones of these.
@@ -591,11 +619,12 @@ export function withBlocksAround(blocks: Y.XmlFragment, selection: Selection): S
   const from = first ? all.indexOf(first) : -1;
   const to = last ? all.indexOf(last) : -1;
   if (from < 0 || to < from) return selection;
+  const words = selection.missingNumber;
   const before =
-    from > 0 ? endingWith(blockText(all[from - 1] as Y.XmlElement), AROUND_CHARACTERS) : "";
+    from > 0 ? endingWith(blockText(all[from - 1] as Y.XmlElement, words), AROUND_CHARACTERS) : "";
   const after =
     to < all.length - 1
-      ? startingWith(blockText(all[to + 1] as Y.XmlElement), AROUND_CHARACTERS)
+      ? startingWith(blockText(all[to + 1] as Y.XmlElement, words), AROUND_CHARACTERS)
       : "";
   if (before === "" && after === "") return selection;
   return {
@@ -826,7 +855,12 @@ function tokensIn(
  * `end` (`TextPlace` offsets), as the Mind reads it: what Proposals still
  * waiting add left out, inline nodes as they read, Citations as "[·]".
  */
-function blockText(element: Y.XmlElement, start = 0, end = Number.POSITIVE_INFINITY): string {
+function blockText(
+  element: Y.XmlElement,
+  missingNumber: string | null,
+  start = 0,
+  end = Number.POSITIVE_INFINITY,
+): string {
   let text = "";
   for (const { node, start: at, size } of layout(element)) {
     if (at + size <= start || at >= end) continue;
@@ -845,6 +879,7 @@ function blockText(element: Y.XmlElement, start = 0, end = Number.POSITIVE_INFIN
     if (node.nodeName === MATH) text += `$${stringOf(node.getAttribute("latex"))}$`;
     else if (node.nodeName === BREAK) text += "\n";
     else if (node.nodeName === CITATION_NODE) text += "[·]";
+    else if (node.nodeName === MISSING_NUMBER_NODE && missingNumber !== null) text += missingNumber;
   }
   return text.trim();
 }
@@ -1044,6 +1079,11 @@ function newParagraphs(
       node: { name: FOOTNOTE_NODE, attributes: source.getAttributes() as Attributes, source },
     };
   };
+  const markers =
+    selection.marks === 0
+      ? MARKER
+      : new RegExp(`${MARKER.source}|(${MISSING_NUMBER_WORDS.source})`, "g");
+  let marksLeft = selection.marks;
   const tokensOf = (written: string, notes: Notes): NewToken[] => {
     const tokens: NewToken[] = [];
     const emphasis = emphasisOf(written);
@@ -1064,12 +1104,17 @@ function newParagraphs(
       }
     };
     let at = 0;
-    for (const match of paragraph.matchAll(MARKER)) {
+    for (const match of paragraph.matchAll(markers)) {
       words(paragraph.slice(at, match.index), at);
       at = match.index + match[0].length;
-      const [, footnote, citation, formula] = match;
+      const [, footnote, citation, formula, missing] = match;
       if (match[0] === "\n") {
         tokens.push({ key: keyOf.break(), node: { name: BREAK, attributes: {} } });
+      } else if (missing !== undefined && marksLeft > 0) {
+        marksLeft--;
+        tokens.push({ key: keyOf.missing(), node: { name: MISSING_NUMBER_NODE, attributes: {} } });
+      } else if (missing !== undefined) {
+        words(match[0], match.index);
       } else if (footnote !== undefined || citation !== undefined) {
         const n = Number(footnote ?? citation);
         const node = footnote !== undefined ? footnoteNode(n) : citationNode(n);
@@ -1296,6 +1341,11 @@ export interface Written {
    * doesn't place (#2424): the change is refused.
    */
   notPlaced?: true;
+  /**
+   * What it wrote takes out the mark where a figure couldn't be calculated, which only a
+   * calculated figure may take the place of (#2577): the change is refused.
+   */
+  takesMissingNumber?: true;
   /** What the paragraphs written had that they don't hold as it was written. */
   notes: Notes;
 }

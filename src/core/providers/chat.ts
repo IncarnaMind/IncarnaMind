@@ -1566,10 +1566,15 @@ export function createChat(options: {
       // Without Ollama's word on the model (it couldn't be asked, or doesn't have it), its
       // request fails anyway: nothing is sized to a window that may not be its own.
       if (!profile || !baseUrl) return prepared;
-      const { numCtx, outputTokens } = profile.settings;
+      const { numCtx, outputTokens, think, outputFloor } = profile.settings;
+      const floor = think ? outputTokens : outputFloor;
       return {
         ...prepared,
-        window: { tokens: numCtx, outputTokens },
+        window: {
+          tokens: numCtx,
+          outputTokens,
+          ...(floor !== undefined && { outputFloor: floor }),
+        },
         retryQuotes: true,
         ...(profile.parameters !== null &&
           !profile.remote &&

@@ -2,6 +2,7 @@ import {
   type FocusEvent,
   type ReactNode,
   type Ref,
+  useContext,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -47,6 +48,7 @@ import {
 import { useAnswers } from "../../answers";
 import { waitText, waitTextShort } from "../../answerWaitWords";
 import { stepsScope } from "../../assistantContext";
+import { CallStartsContext } from "../../callStarts";
 import { namedMind } from "../../changeProblems";
 import { commandCallText } from "../../commandFacts";
 import { CallRow, SkillRow } from "../../editor/AnswerView";
@@ -55,6 +57,7 @@ import { useCitedOrigin } from "../../editor/mindContext";
 import { holdSteps, type ShownStep, type StepHold, takeOver } from "../../heldStep";
 import { useT } from "../../i18n";
 import { useJudgementLimit } from "../../judgementLimit";
+import { stoppedLine } from "../../limitWords";
 import { useMeetings } from "../../meetings";
 import { useModelNames } from "../../modelNames";
 import type { Translate } from "../../objects";
@@ -1082,14 +1085,17 @@ function SourceRow({ source }: { source: StepSource }) {
     (state) => shownDocumentName(source, state.documents) || source.documentName,
   );
   const speakers = useAppStore((state) => citedSpeakers(source, state.documents));
+  const started = useContext(CallStartsContext)?.get(source.documentId) ?? null;
   const location = citationLocation(source);
   const where = location ? formatLocation(location, t, { speakers }) : null;
+  const named = where ? t("citation.where", { document: name, location: where }) : name;
+  const detail = [where, started].filter(Boolean).join(" · ");
   return (
     <button
       type="button"
       data-testid="answer-step-source"
       data-document-id={source.documentId}
-      title={where ? t("citation.where", { document: name, location: where }) : name}
+      title={started ? t("citation.where", { document: named, location: started }) : named}
       onClick={() =>
         void openCited(source, {
           origin,
@@ -1102,7 +1108,7 @@ function SourceRow({ source }: { source: StepSource }) {
     >
       <DocumentLineIcon kind={kind ?? "text"} className="answer-step-source-icon" />
       <span className="answer-step-source-name">{name}</span>
-      {where && <span className="answer-step-detail answer-step-source-where">{where}</span>}
+      {detail && <span className="answer-step-detail answer-step-source-where">{detail}</span>}
     </button>
   );
 }
@@ -1179,7 +1185,7 @@ function CheckStep({
   running?: boolean | undefined;
 }) {
   const t = useT();
-  const limits = useJudgementLimit();
+  const limit = useJudgementLimit();
   const openSettings = useAppStore((state) => state.openSettings);
   if (running) {
     return (
@@ -1190,16 +1196,13 @@ function CheckStep({
   }
   if (stopped) {
     const mark = contradicted > 0 ? "contradicted" : needALook > 0 ? "unsupported" : "not-checked";
-    const values = { checked: stopped.checked, total: stopped.total };
     return (
       <Step
         kind="check"
         icon={<CheckMarkIcon check={mark} data-check={mark} className="answer-step-check" />}
       >
         <p data-testid="answer-check-stopped" className="answer-step-title">
-          {stopped.by === "answer-limit"
-            ? t("steps.check.answerLimit", { ...values, limit: limits.limit })
-            : t("steps.check.monthlyLimit", { ...values, cap: limits.cap })}
+          {stoppedLine(t, stopped, limit)}
           <span aria-hidden="true"> · </span>
           {stopped.by === "answer-limit" ? (
             <CheckTheRest answer={answer} />

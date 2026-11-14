@@ -13,6 +13,7 @@ import { catalogFacts, modelsProviderOfKind } from "../../src/core/providers/cat
 import { createAiSdkChatModel } from "../../src/core/providers/models";
 import { markersIn } from "../../src/shared/answerBlocks";
 import { evalOllamaModels } from "../lib/citations";
+import { watchCiting } from "../lib/citingRecord";
 import { type ChatSettings, chatModelSpecOf, chatProviderOf, readConfig } from "../lib/config";
 import { createWorkerEmbedder } from "../lib/embedder";
 import type { EvalDocument } from "../lib/evaluationSet";
@@ -29,7 +30,14 @@ import { type DecisionProvider, decide, forcing } from "./decisions";
 import { writeFilingDocuments } from "./filings";
 import { languageRates, type RequestRun, rowRates } from "./rates";
 import { watchReasks } from "./reasks";
-import { SUPPORTED_TARGET, supportedShare, supportRates } from "./support";
+import {
+  backedByFoundLines,
+  disagreementLines,
+  SUPPORTED_TARGET,
+  supportedShare,
+  supportRates,
+  withoutSupportLines,
+} from "./support";
 
 const ROOT = resolve(__dirname, "../..");
 
@@ -90,6 +98,7 @@ async function runModel(
     const wanted = cases.filter((each) => each.library === name);
     if (wanted.length === 0) continue;
     const watch = watchReasks();
+    const citing = watchCiting();
     const forced = forcing();
     const deciding = decider && {
       decide: (text: string) => decide(decider.provider, decider.key, text),
@@ -97,9 +106,11 @@ async function runModel(
     };
     const library = await openLibrary({
       name: `everyday-${name}`,
+      // The citing record reads what the core is given, a reply put in place of the model's included.
       chatModels: decider
-        ? (inner) => forced.chatModels(watch.chatModels(answerTokens.chatModels(inner)))
-        : (inner) => watch.chatModels(answerTokens.chatModels(inner)),
+        ? (inner) =>
+            citing.chatModels(forced.chatModels(watch.chatModels(answerTokens.chatModels(inner))))
+        : (inner) => citing.chatModels(watch.chatModels(answerTokens.chatModels(inner))),
       embedder: createWorkerEmbedder(),
       modelCache: join(config.cacheDir, "models"),
       reranker: createWorkerCrossEncoder(config.rerankOnCpu),
@@ -131,7 +142,9 @@ async function runModel(
         try {
           result = await runCase(library, scoped, judge, model, each, {
             watch,
+            citing,
             calculates,
+            hear: answerTokens.hear,
             ...(deciding && { deciding }),
           });
         } catch (error) {
@@ -151,6 +164,12 @@ async function runModel(
             changes: [],
             seconds: 0,
             answeredSeconds: 0,
+            repliedSeconds: null,
+            checkEndedSeconds: null,
+            checkStartedSeconds: null,
+            landedSeconds: null,
+            written: [],
+            checkRequests: [],
             error: error instanceof Error ? error.message : String(error),
             usage: { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0, cacheWriteTokens: 0 },
             droppedMarkers: 0,
@@ -262,7 +281,12 @@ function report(
   const summaries = answered.flatMap((each) => (each.claims ? [each] : []));
   const covering = answered.filter((each) => each.covered !== undefined);
   const checked = researched.flatMap((each) =>
-    (each.support ?? []).map((sentence) => ({ id: each.id, model: each.model, ...sentence })),
+    (each.support ?? []).map((sentence) => ({
+      id: each.id,
+      model: each.model,
+      language: each.language,
+      ...sentence,
+    })),
   );
   return [
     "# Everyday requests",
@@ -279,23 +303,16 @@ function report(
           "",
           `The research questions' Answers, each cited sentence checked against the Documents by the app's own Check against Documents, run by the model asked. The target is ${percent(SUPPORTED_TARGET * 100, 100)} Supported.`,
           "",
-          "| Model | Language | Supported | Not checked |",
-          "|---|---|---|---|",
+          "| Model | Language | Supported | Of them, backed by a Passage the check found | Not checked |",
+          "|---|---|---|---|---|",
           ...supportRates(researched.map((each) => ({ ...each, support: each.support ?? [] }))).map(
             (group) =>
-              `| ${group.model} | ${group.language} | ${group.supported} of ${group.judged}${group.judged > 0 ? ` (${percent(group.supported, group.judged)})` : ""} | ${group.notChecked} |`,
+              `| ${group.model} | ${group.language} | ${group.supported} of ${group.judged}${group.judged > 0 ? ` (${percent(group.supported, group.judged)})` : ""} | ${group.backedByFound} | ${group.notChecked} |`,
           ),
           "",
-          ...(checked.some((each) => each.verdict !== "supported")
-            ? [
-                "Not Supported:",
-                "",
-                ...checked
-                  .filter((each) => each.verdict !== "supported")
-                  .map((each) => `- ${each.id} (${each.model}), ${each.verdict}: ${each.sentence}`),
-                "",
-              ]
-            : []),
+          ...backedByFoundLines(checked),
+          ...disagreementLines(checked),
+          ...withoutSupportLines(checked),
         ]
       : []),
     ...(dated.length > 0

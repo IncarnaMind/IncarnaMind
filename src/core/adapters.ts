@@ -1278,9 +1278,14 @@ export interface CoreAdapters {
   /**
    * Timings tests shorten: how long after a new version of a Document its
    * Folder's Minds are watched for contradictions (#112, 30 seconds), and how
-   * long a check of one claim may take, in every flow (3 minutes).
+   * long a check of one claim may take, in every flow (3 minutes), as the sort
+   * of a write's claims may too (`sortTimeLimit`, which tests end themselves).
    */
-  contradictionWatch?: { delayMs?: number; claimTimeLimitMs?: number };
+  contradictionWatch?: {
+    delayMs?: number;
+    claimTimeLimitMs?: number;
+    sortTimeLimit?: () => AbortSignal;
+  };
   /**
    * How long asking the example's ready Question waits for its Documents to be read before it
    * says it is still reading (#2218). Defaults to 20 seconds; tests shorten it.
@@ -1394,6 +1399,11 @@ export interface CoreAdapters {
    * evaluation pass one.
    */
   helpMarksQuoteOnly?: () => boolean | undefined;
+  /**
+   * Whether an earlier call's Transcript is sent and shown as before #3005, unmarked; only tests
+   * and the evaluation pass one.
+   */
+  callsUnmarked?: () => boolean | undefined;
   /**
    * Tunes and watches the search Tool for Answers' searches (reranking depth,
    * Passages handed, a callback with each search's timings). Only the
