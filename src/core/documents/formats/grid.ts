@@ -162,6 +162,9 @@ function headsBelow(cells: readonly Cell[], below: readonly (readonly Cell[])[])
   return heads;
 }
 
+/** The rows a sheet's header row is looked for among, from its first. */
+export const HEADER_ROWS = 10;
+
 /**
  * The sheet's header row: among its first 10 rows, the first whose words head
  * the figures of its columns below. A table of words alone has no kinds to
@@ -169,7 +172,7 @@ function headsBelow(cells: readonly Cell[], below: readonly (readonly Cell[])[])
  */
 export function headerRow(rows: ReadonlyMap<number, Cell[]>): number | null {
   const numbers = [...rows.keys()].sort((a, b) => a - b);
-  const first = numbers.slice(0, 10);
+  const first = numbers.slice(0, HEADER_ROWS);
   const candidates = first.filter((number) => looksLikeHeader(rows.get(number) ?? []));
   for (const number of candidates) {
     const below = numbers.slice(numbers.indexOf(number) + 1).map((row) => rows.get(row) ?? []);

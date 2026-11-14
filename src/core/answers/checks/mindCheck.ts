@@ -527,9 +527,10 @@ export function createMindCheck(options: MindCheckOptions) {
           if (state.kind === "kept" || state.kind === "checking" || state.kind === "not-claim") {
             continue;
           }
-          if (mark && (mark.check.text === sentence.text || !isClaim(sentence.text)))
+          if (mark && (mark.check.text === sentence.text || !isClaim(sentence.text))) {
             again.push(sentence);
-          else fresh.push(sentence);
+            if (mark.check.scope.widened) widened.add(sentence);
+          } else fresh.push(sentence);
         }
         return { fresh, again, keys, skipped, widened, held: [] };
       }
@@ -583,7 +584,10 @@ export function createMindCheck(options: MindCheckOptions) {
         if (state.kind === "to-check") {
           if (state.fresh || (mark?.check.text !== sentence.text && isClaim(sentence.text)))
             fresh.push(sentence);
-          else again.push(sentence);
+          else {
+            again.push(sentence);
+            if (mark?.check.scope.widened) widened.add(sentence);
+          }
           continue;
         }
         if (state.kind !== "covered" || !mark) continue;

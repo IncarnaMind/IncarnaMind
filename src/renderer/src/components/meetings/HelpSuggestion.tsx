@@ -1,31 +1,33 @@
 import { useEffect, useState } from "react";
 import type {
+  CitationCheckReason,
   ConversationAnswer,
   MarkedCitation,
   MeetingHelp,
   MeetingHelpKind,
 } from "../../../../core/api";
 import { citationSource, citedLocation } from "../../../../shared/citations";
+import { withFigureText } from "../../../../shared/figureMarkers";
+import { lineText, markersOf, momentBegun, momentOf } from "../../../../shared/helpQuotes";
 import type { ReplyItem, ReplyPiece } from "../../../../shared/helpReplyRead";
 import { isTranscriptLocation } from "../../../../shared/locations";
-import { helpLabel } from "../../../../shared/meetingHelp";
+import {
+  HELP_SHAPE,
+  helpLabel,
+  LINE_MARK,
+  plainLine,
+  RECOMMENDED_MARK,
+} from "../../../../shared/meetingHelp";
 import { isTheirs, SPEAKER_ME } from "../../../../shared/speakers";
 import { useAnswers } from "../../answers";
 import { useCallStarts } from "../../callStarts";
 import { core } from "../../core";
-import {
-  citationNumbers,
-  helpParts,
-  quoted,
-  sentencePassed,
-  uncheckedReason,
-} from "../../helpReply";
+import { citationNumbers, helpParts, quoted } from "../../helpReply";
 import { useT } from "../../i18n";
-import { useJudgementLimit } from "../../judgementLimit";
-import { limitReason } from "../../limitWords";
 import { useModelNames, useServiceName } from "../../modelNames";
 import { answerProblem } from "../../problems";
-import { CheckLineIcon, DocumentLineIcon } from "../lineIcons";
+import { DocumentLineIcon } from "../lineIcons";
+import { MomentRoom, PlainMoment, QuoteRows } from "./HelpQuotes";
 
 /**
  * A help Answer, as the core writes it: loaded once, then each write as it streams. Only this
@@ -62,9 +64,23 @@ export function useHelpAnswer(
 }
 
 /**
- * A Citation's number, with ✓ only where the sentence check passed the sentence it is cited in at
- * `at` (#2847): a found quote alone earns none. The ✓ keeps its place whether it shows or not, so
- * nothing moves when it comes after the reply.
+ * Why a quote wasn't found or can't be checked, where the Citation card says it in one line: a
+ * Folder kept inside or a word a scan may have misread the card says otherwise.
+ */
+const SAID_WHY = [
+  "quote-not-on-pages",
+  "quoted-words-not-on-pages",
+  "pages-outside-passage",
+  "too-many-pages",
+  "in-several-places",
+  "no-text",
+  "picture",
+  "document-removed",
+] as const satisfies readonly CitationCheckReason[];
+
+/**
+ * A Citation's number in a line the model wrote: a plain source, never a ✓ (#2847). Its quote's
+ * state shows as main shows it, not found among them, with why on hover.
  */
 function CitationChip({
   citation,
@@ -79,32 +95,24 @@ function CitationChip({
   started: string | null;
 }) {
   const t = useT();
-  const limit = useJudgementLimit();
   const source = citation ? citationSource(citation, t).text : null;
   const pointsTo =
     source && started ? t("citation.where", { document: source, location: started }) : source;
-  const passed = citation !== undefined && sentencePassed(citation, at);
-  const reason = citation ? uncheckedReason(citation) : null;
-  const unchecked =
-    reason === "small-model"
-      ? t("citation.reason.small-model")
-      : limitReason(t, reason, limit, null);
+  const reason =
+    citation?.check === "not-found" || citation?.check === "cant-check"
+      ? SAID_WHY.find((each) => each === citation.checkReason)
+      : undefined;
+  const why = reason && t(`citation.reason.${reason}`);
   return (
     <span
       data-testid="help-citation"
       data-check={citation?.check ?? "checking"}
       data-marker={citation?.marker}
-      data-passed={passed}
       data-at={at}
-      title={pointsTo ? [pointsTo, unchecked].filter(Boolean).join("\n") : undefined}
+      title={pointsTo ? [pointsTo, why].filter(Boolean).join("\n") : undefined}
       className="help-citation"
     >
       {number}
-      <CheckLineIcon
-        aria-hidden="true"
-        data-testid="help-citation-check"
-        className="help-citation-found"
-      />
     </span>
   );
 }
@@ -125,10 +133,8 @@ function Pieces({
       {pieces.map((piece, index) => {
         const key = `${piece.kind}-${index}`;
         if (piece.kind === "text") return <span key={key}>{piece.text}</span>;
-        if (piece.kind === "figure") {
-          const figure = answer.figures.find((each) => each.marker === piece.marker);
-          return <span key={key}>{figure?.shown ?? ""}</span>;
-        }
+        // Figures are written into the text before it is read (`withFigureText`).
+        if (piece.kind === "figure") return null;
         const citation = answer.citations.find((each) => each.marker === piece.marker);
         const number = numbers.get(piece.marker);
         // A marker with no Citation is left out, as the assistant shows an Answer.
@@ -147,13 +153,79 @@ function Pieces({
   );
 }
 
+/**
+ * One of a reply's lines and the quote lines under it (#2847). A reading's moment of the call is
+ * drawn by its kind (`momentOf`): a plain one keeps its words and takes its ✓ where it stands, one
+ * quotation with several Citations is drawn by the app from them; while a line that may be a moment
+ * is still written, its place is a room, so no words shown there are replaced.
+ */
+function ReplyLine({
+  pieces,
+  testId,
+  className,
+  reading,
+  open,
+  answer,
+  numbers,
+  starts,
+}: {
+  pieces: readonly ReplyPiece[];
+  testId: string;
+  className: string;
+  /** A reading's line, where a moment of the call may be drawn by the app. */
+  reading: boolean;
+  /** The reply's last line while it is still written. */
+  open: boolean;
+  answer: ConversationAnswer;
+  numbers: ReadonlyMap<number, number>;
+  starts: ReadonlyMap<string, string>;
+}) {
+  if (reading && open && momentBegun(pieces)) return <MomentRoom />;
+  const moment = reading && !open ? momentOf(pieces) : null;
+  if (moment?.kind === "plain") {
+    return (
+      <PlainMoment
+        pieces={pieces}
+        moment={moment}
+        answer={answer}
+        numbers={numbers}
+        starts={starts}
+      />
+    );
+  }
+  if (moment?.kind === "several") {
+    return (
+      <QuoteRows
+        markers={moment.markers}
+        moment
+        answer={answer}
+        numbers={numbers}
+        starts={starts}
+      />
+    );
+  }
+  return (
+    <>
+      <span data-testid={testId} className={className}>
+        <Pieces pieces={pieces} answer={answer} numbers={numbers} starts={starts} />
+      </span>
+      <QuoteRows markers={markersOf([pieces])} answer={answer} numbers={numbers} starts={starts} />
+    </>
+  );
+}
+
 function Item({
   item,
+  open,
+  reading,
   answer,
   numbers,
   starts,
 }: {
   item: ReplyItem;
+  /** Which of its lines is the reply's last while it is still written, if any. */
+  open: "lead" | number | "effect" | null;
+  reading: boolean;
   answer: ConversationAnswer;
   numbers: ReadonlyMap<number, number>;
   starts: ReadonlyMap<string, string>;
@@ -172,27 +244,66 @@ function Item({
           </span>
         )}
       </span>
-      <span data-testid="help-option-say" className="help-option-say">
-        <Pieces
-          pieces={item.said ? quoted(item.lead) : item.lead}
+      <ReplyLine
+        pieces={item.said ? quoted(item.lead) : item.lead}
+        testId="help-option-say"
+        className="help-option-say"
+        reading={reading && !item.said}
+        open={open === "lead"}
+        answer={answer}
+        numbers={numbers}
+        starts={starts}
+      />
+      {item.notes.map((note, index) => (
+        <ReplyLine
+          // biome-ignore lint/suspicious/noArrayIndexKey: a reading's notes are in the order written.
+          key={index}
+          pieces={note}
+          testId="help-option-note"
+          className="help-option-note"
+          reading={reading}
+          open={open === index}
           answer={answer}
           numbers={numbers}
           starts={starts}
         />
-      </span>
-      {item.notes.map((note, index) => (
-        // biome-ignore lint/suspicious/noArrayIndexKey: a reading's notes are in the order written.
-        <span key={index} data-testid="help-option-note" className="help-option-note">
-          <Pieces pieces={note} answer={answer} numbers={numbers} starts={starts} />
-        </span>
       ))}
       {item.effect && (
-        <span data-testid="help-option-effect" className="help-option-effect">
-          → <Pieces pieces={item.effect} answer={answer} numbers={numbers} starts={starts} />
-        </span>
+        <>
+          <span data-testid="help-option-effect" className="help-option-effect">
+            → <Pieces pieces={item.effect} answer={answer} numbers={numbers} starts={starts} />
+          </span>
+          <QuoteRows
+            markers={markersOf([item.effect])}
+            answer={answer}
+            numbers={numbers}
+            starts={starts}
+          />
+        </>
       )}
     </div>
   );
+}
+
+/**
+ * Which line of the last shown item is the reply's last while it is still written: the line the
+ * text ends on, with no line break after it yet.
+ */
+function openLine(
+  text: string,
+  status: ConversationAnswer["status"],
+  item: ReplyItem | undefined,
+): "lead" | number | "effect" | null {
+  if (status !== "streaming" || !item || text.endsWith("\n")) return null;
+  const last = plainLine(text.slice(text.lastIndexOf("\n") + 1))
+    .replace(RECOMMENDED_MARK, "")
+    .replace(LINE_MARK, "")
+    .trim();
+  const same = (pieces: readonly ReplyPiece[]) => lineText(pieces).trim() === last;
+  if (item.effect) return null;
+  const note = item.notes.length - 1;
+  if (note >= 0) return same(item.notes[note] ?? []) ? note : null;
+  return same(item.lead) ? "lead" : null;
 }
 
 /** The outline of options still to come: shown within 100 ms of a press. */
@@ -350,8 +461,16 @@ export function HelpSuggestion({
       )
     : (answer.errorMessage ?? "");
   const streaming = answer.status === "streaming";
-  const { lead, options } = helpParts(answer, help.kind);
+  // A figure's own text is written in before the reply is read, so a word the model wrote before
+  // it ("about") isn't doubled.
+  const text = withFigureText(
+    answer.text,
+    (marker) => answer.figures.find((each) => each.marker === marker) ?? null,
+  );
+  const { lead, options } = helpParts({ ...answer, text }, help.kind);
   const items = [...lead, ...options];
+  const open = openLine(text, answer.status, items.at(-1));
+  const reading = HELP_SHAPE[help.kind] === "readings";
   const numbers = citationNumbers(
     items,
     (marker) => streaming || answer.citations.some((each) => each.marker === marker),
@@ -370,6 +489,8 @@ export function HelpSuggestion({
           // biome-ignore lint/suspicious/noArrayIndexKey: the options are in the order written.
           key={index}
           item={item}
+          open={index === items.length - 1 ? open : null}
+          reading={reading}
           answer={answer}
           numbers={numbers}
           starts={starts}

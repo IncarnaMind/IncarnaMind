@@ -99,6 +99,9 @@ type WithResult = (
   mindId: string,
   sourceText?: string,
   priorParts?: readonly ClaimCheckPart[],
+  before?: ClaimCheckAttributes | null,
+  /** The parts an earlier check gave this very text, unlike `priorParts`, which may be of words since changed. */
+  sameTextParts?: readonly ClaimCheckPart[],
 ) => ClaimCheckAttributes;
 
 /** A sentence's mark Not checked for `reason`: its figures and each part still checking say so too. */
@@ -336,7 +339,17 @@ export async function runChecks(
         }
         const { result } = outcome;
         const landed = write(claim.id, (each, blocks) =>
-          options.withResult(each, result, at, blocks, mindId, claim.claim, claim.priorParts),
+          options.withResult(
+            each,
+            result,
+            at,
+            blocks,
+            mindId,
+            claim.claim,
+            claim.priorParts,
+            null,
+            claim.previous,
+          ),
         );
         if (landed && result.verdict !== "not-checked") checked++;
       },
