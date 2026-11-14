@@ -41,6 +41,7 @@ import { type InlineTextPiece, inlineRange, projectInlineText } from "../../../s
 import { ySyncOf } from "../../../shared/markKeys";
 import { sameScope } from "../../../shared/searchScope";
 import { INLINE_NODE, sentenceSpans } from "../../../shared/sentences";
+import { onlyNamesItsSource } from "../../../shared/sourceNames";
 
 /** Every attribute a check's mark keeps: all of `ClaimCheckAttributes`, never read from pasted HTML. */
 const ATTRIBUTES: readonly (keyof ClaimCheckAttributes)[] = [
@@ -438,6 +439,8 @@ export function claimsOf(
           )
         : undefined;
     const citations = span.kind === "chart" ? [] : citationsWithin(doc, span.sentence);
+    // No check reads a sentence that only names its source, so an earlier mark on it shows no card (#3093).
+    if (span.kind !== "chart" && onlyNamesItsSource(span.sentence.text, citations)) continue;
     let shown = claimCheckShown(span.check, {
       ...context,
       text: span.sentence.text,

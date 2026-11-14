@@ -30,7 +30,9 @@ import {
  * icon on the marker ("?" for a quote that isn't there, never the "!" of an unsupported sentence). One page holds a supported sentence, an unsupported one with two found
  * Citations, a contradicted one, a supported one whose Citation isn't found, and two unchecked
  * ones: a quote that isn't found, and a Citation to a Document that is gone (can't check). The
- * scripted model (src/main/fakeChat/checks.ts) gives the verdicts.
+ * scripted model (src/main/fakeChat/checks.ts) gives the verdicts. A ✓ stands only beside a
+ * Citation that holds the Passage the check found, so the supported sentence whose Citation isn't
+ * found reads Supported, not yet cited (#3019).
  */
 
 const TIDES = buildPdf([
@@ -60,7 +62,7 @@ const LANGUAGES = {
       "Supported",
       "Needs a look · Unsupported",
       "Needs a look · Contradicted",
-      "Supported",
+      "Supported, not yet cited",
     ].map((state) => `Sentence check: ${state}`),
     health: { look: "4 need a look", supported: "1 supported" },
   },
@@ -69,7 +71,7 @@ const LANGUAGES = {
     notFound: /未在.*找到引文/,
     contradicted: /与文档矛盾/,
     cantCheck: /无法核对/,
-    marks: ["有依据", "需要留意：无依据", "需要留意：与文档矛盾", "有依据"].map(
+    marks: ["有依据", "需要留意：无依据", "需要留意：与文档矛盾", "有依据，尚未引用"].map(
       (state) => `句子核对：${state}`,
     ),
     health: { look: "4 句需要留意", supported: "1 句有依据" },
@@ -197,7 +199,12 @@ for (const language of ["en", "zh-CN"] as const) {
     );
     const marks = window.getByTestId("claim-mark");
     await expect(marks).toHaveCount(4);
-    for (const [at, check] of ["supported", "unsupported", "contradicted", "supported"].entries()) {
+    for (const [at, check] of [
+      "supported",
+      "unsupported",
+      "contradicted",
+      "not-checked",
+    ].entries()) {
       await expect(marks.nth(at)).toHaveAttribute("data-check", check);
       await expect(marks.nth(at)).toHaveAccessibleName(words.marks[at] ?? "");
     }
