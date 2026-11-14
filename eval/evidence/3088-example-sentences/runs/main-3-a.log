@@ -1,0 +1,11 @@
+
+ RUN  v5.0.3 <main checkout>
+
+(node:29457) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  06:24:26
+   Duration  97.73s (tests 94%, transform 5%, import 1%)
+

@@ -1,0 +1,57 @@
+
+ RUN  v5.0.3 <main checkout>
+
+(node:10200) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+stdout | tests/live/exampleSentences.live.test.ts > the #3088 gate > one round of every case, each Note checked once
+[yjs] Changed the client-id because another client seems to be using it.
+
+stdout | tests/live/exampleSentences.live.test.ts > the #3088 gate > one round of every case, each Note checked once
+[yjs] Changed the client-id because another client seems to be using it.
+[yjs] Changed the client-id because another client seems to be using it.
+[yjs] Changed the client-id because another client seems to be using it.
+
+ ❯ tests/live/exampleSentences.live.test.ts (1 test | 1 failed) 8559ms
+   ❯ the #3088 gate (1)
+     × one round of every case, each Note checked once 8558ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/live/exampleSentences.live.test.ts > the #3088 gate > one round of every case, each Note checked once
+Error: Refused a write under the real home folder: <branch checkout>/eval/evidence/3088-example-sentences/runs/main-1-a.jsonl. Tests use temporary folders (docs/agents/testing.md).
+ ❯ Object.check tests/helpers/home.ts:86:13
+     84|       }
+     85|       refused.push(path);
+     86|       throw new Error(
+       |             ^
+     87|         `Refused a write under the real home folder: ${path}. Tests us…
+     88|       );
+ ❯ guarded tests/helpers/home.ts:145:60
+ ❯ write tests/live/exampleSentences.live.test.ts:530:27
+ ❯ tests/live/exampleSentences.live.test.ts:612:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/live/exampleSentences.live.test.ts > the #3088 gate > one round of every case, each Note checked once
+Error: Writes under the real home folder were refused; give the test a temporary folder instead:
+<branch checkout>/eval/evidence/3088-example-sentences/runs/main-1-a.jsonl
+ ❯ failOnRefused tests/setup/home.ts:42:11
+     40|   const refused = guard.takeRefused();
+     41|   if (refused.length > 0) {
+     42|     throw new Error(
+       |           ^
+     43|       `Writes under the real home folder were refused; give the test a…
+     44|     );
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+   Start at  06:15:20
+   Duration  13.82s (tests 62%, transform 30%, import 8%)
+
+  Transform  transforming modules took 4.08s · 30% of tracked time, re-done on every run
+             persist transforms across runs with fsModuleCache: true
+             learn more: https://vitest.dev/guide/improving-performance#caching-between-reruns
+

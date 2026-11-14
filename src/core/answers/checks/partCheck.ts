@@ -87,7 +87,9 @@ export function partRequest<
     figures: figures.length ? [...figures] : undefined,
     projection: undefined,
     originalClaim: request.originalClaim ?? request.claim,
-    context: [request.context, request.claim].filter(Boolean).join("\n\n"),
+    context: request.context?.includes(request.claim)
+      ? request.context
+      : [request.context, request.claim].filter(Boolean).join("\n\n"),
   };
 }
 

@@ -49,7 +49,7 @@ When a person changes a label or a quote, the test says which quote isn't found 
 
 ## The run
 
-`npm run eval` runs it when a chat model is given (`INCARNAMIND_EVAL_CHAT_*`, see `eval/README.md`); without one, or when `INCARNAMIND_EVAL_QUESTIONS` asks for a short run of the other sets, it says so and stops. `npm run eval -- eval/checks` runs it alone.
+`npm run eval` runs it when a chat model is given (`INCARNAMIND_EVAL_CHAT_*`, see `eval/README.md`); without one, or when `INCARNAMIND_EVAL_QUESTIONS` asks for a short run of the other sets, it says so and stops. `npm run eval -- eval/checks` runs it alone. `INCARNAMIND_EVAL_SPEND_CAP` (dollars) sets the app's monthly cap for the run, so no request is sent that could pass it, at the app's own count; a check it stops reads Not checked for the cap.
 
 1. A temporary data folder, as for the other evaluations. The Folder's files and the received documents are added and the web pages saved, then the Folder's Documents are moved into a Folder. Searches run as the app's do by default: keyword search's top 60, reranked by the built-in model, with embeddings off. The chat model is saved as the app's, and setting the variables is the consent for the "checks" flow.
 2. **Find support:** each sentence is checked against the Folder by the app's claim check (`checkClaim`, #96), the check Run Find support runs.
