@@ -89,14 +89,23 @@ Every phase runs under the key's lease and the void rule below. The stop is the 
 
 | Phase | Model, key | Flows, rounds | Margin for right sentences | Stop |
 |---|---|---|---|--:|
-| A | Claude Haiku 5.5, the Anthropic key | `main` against `main`: the held-out Note, 3 rounds, EN and ZH | (sets it) | US$1.50 |
-| B | Claude Haiku 5.5, the Anthropic key | `main` against `search-first`: the held-out Note, the 10-sentence Note, a write, an Answer; 3 rounds, EN and ZH | A's | US$3.00 |
-| C | DeepSeek V4.1 Flash, the DeepSeek key, off-peak only | as B | the larger of A's and 2 | US$1.50 |
-| D | GPT-6.1 Sol, the OpenAI key, after B passes | the held-out Note, 2 rounds, EN and ZH | the larger of A's and 2 | set after its first round is priced |
-| E | Claude Sonnet 5.5, the Anthropic key, after B passes | the held-out Note, 1 round, EN and ZH, a mirror read | A's | US$1.50 |
+| A | Claude Haiku 5.5, the Anthropic key | `main` against `main`: the held-out Note, EN and ZH; the pilot, round 2, and round 3 only if round 2 counted and what is left covers round 2's own cost plus 5% | (sets it) | US$1.50 |
+| B | Claude Haiku 5.5, the Anthropic key | `main` against `search-first`: the held-out Note, the 10-sentence Note, a write, an Answer; 3 rounds, EN and ZH. No room to run a void round again: after a void round, B stops and reports | A's | US$3.00 |
+| C | DeepSeek V4.1 Flash, the DeepSeek key, off-peak hours only, priced at the hour it runs | the reduced set (below), both arms, 3 rounds, EN and ZH | the larger of A's and 2 | US$1.50 |
+| D | GPT-6.1 Sol, the OpenAI key, after B passes | a priced pilot: six English sentences of the reduced set, two of each kind, both arms, ruling on no bar. The round (the reduced set, 1 round, both arms, EN and ZH) waits for the owner | the larger of A's and 2 | the pilot US$1.00; the round not set |
+| E | Claude Sonnet 5.5, the Anthropic key, after B passes | the reduced set's wrong twins and absent sentences, `search-first`'s arm only, 1 round, EN and ZH | (no right sentences) | US$1.50 |
+
+**After the pilot** (the second reader's ruling on #2532, 2026-11-14), every phase fits inside its stop as written:
+
+- **Stops:** a written stop is raised only by the owner, a re-run included. Waiting for the owner's yes, asked as one question, and not run before it: B's one re-run of a void round and any extra rounds on the gating row (US$3.00 asked to US$4.00); D's round (about US$4 asked to US$8.00); E, if `search-first`'s arm prices above its stop (US$1.50 asked to US$2.00).
+- **A:** a void round's re-run comes out of the same stop and takes round 3's place. Fewer rounds never loosen a bar: the margin is the larger of `main`'s own spread and two standard errors, and round 1's two standard errors already set it in both languages.
+- **The reduced set** (C, D, E): the gating row, the wrong twins and the absent sentences, 32 sentences in English and 37 in Chinese. On it, "right sentences" means the gating row, and Not checked may be no more than `main`'s plus 1 a language. The 10-sentence Note, the write and the Answer aren't read on DeepSeek or Sol; B reads them on Haiku, and each report says so.
+- **D's pilot** measures Sol's real cache share and reasoning tokens, and prices the round.
+- **E** reads what the plan gives it, the wrong twins and absent sentences. None Supported on `search-first`: E holds, and `main`'s arm isn't needed. If one is, that sentence is read three times on `main` within the hour, and it is new unless `main` marks it Supported at least once. One new one, and Sonnet keeps today's check. If B's measured cost of `search-first`'s arm prices E above US$1.50, E waits.
+- **A split run** (a language at a time, as round 1 was) reports each part's own record.
 
 - **Estimate before the pilot,** for the 49- and 54-sentence Note, scaled from earlier Haiku check costs, not yet priced: A about US$0.62–0.82 a round, so US$1.9–2.5 for 3 rounds, past its stop; B about US$0.75–1.00 a round, so US$2.2–3.0 for 3 rounds, at its stop.
-- **A priced pilot:** Phase A's first round is the pilot. Its spend a request and a sentence, and a fresh estimate of every phase, are written below before A's second round. If the pilot shows rounds 2 and 3 would pass A's stop, the gate stops after the pilot until the second reader sets a higher one.
+- **A priced pilot:** Phase A's first round is the pilot. Its spend a request and a sentence, and a fresh estimate of every phase, are written below before A's second round. If the pilot shows rounds 2 and 3 would pass A's stop, the gate stops after the pilot for the second reader's ruling (below).
 - **If `main` against `main` breaks Bar 1** in Phase A, the gate stops there and the numbers are reported before B.
 - **The Claude family** gets the path when Haiku passes B and Sonnet's read in E shows no new Supported on a wrong twin or an absent sentence, with right sentences within the margin. Opus follows Sonnet with no paid run of its own. Nothing runs on Fable.
 - **If the path fails a bar** on a model: no ship for that model, and the numbers go to the lead and then the second reader before any second wording or second run.
@@ -109,10 +118,13 @@ Every phase runs under the key's lease and the void rule below. The stop is the 
 ## Bars (per model, both languages together unless said)
 
 1. **No wrong sentence Supported more often:** on the held-out Note and the 10-sentence Note, no wrong twin or absent sentence is Supported in more rounds on `search-first` than on `main`, sentence by sentence, and their totals are no higher.
-2. **Right sentences keep their Supported, beyond the repeat's noise:** on the held-out Note's gating row (the right sentences whose support ranks low or is split, above), in each language, `search-first`'s Supported over its rounds is at least `main`'s minus the margin. The other right sentences are reported beside it, not gated.
-   - **The margin's rule, fixed now:** on the gating row, in each language, the larger of (a) the difference in its Supported between Phase A's two `main` arms over their 3 rounds, and (b) two standard errors of a 3-round total, from the sample standard deviation of the 6 rounds' counts (2 × sd × √3); the larger over the two languages, rounded up, at least 1. For scale, the pressure test's same 7 right sentences gave 4, 6 and 5 across three runs.
+2. **Right sentences keep their Supported, beyond the repeat's noise:** on the held-out Note's gating row (the right sentences whose support ranks low or is split, above), each language by itself, both rules hold. The other right sentences are reported beside it, not gated.
+   - **Rule 1, the count:** the row's Supported is counted over B's rounds together, and `search-first`'s is at least `main`'s minus the margin.
+   - **Rule 2, sentence by sentence:** a sentence Supported on `main` in every round and on `search-first` in none is lost. More than one lost in a language fails the row. The reverse, Supported on `search-first` in every round and on `main` in none, is reported beside it.
+   - **The margin's rule, fixed now:** on the gating row, in each language, the larger of (a) the difference in its Supported between Phase A's two `main` arms over their counted rounds, and (b) two standard errors of a 3-round total, from the sample standard deviation of their rounds' counts (2 × sd × √3); the larger over the two languages, rounded up, at least 1. For scale, the pressure test's same 7 right sentences gave 4, 6 and 5 across three runs.
+   - **Rule 3, free, before B's first request:** from A's own records, how often `main` beside `main` fails rules 1 and 2 (the false-fail rate), and how often the rules catch a path that loses a third of the row (the power). Both are written here and sent before B. If three rounds catch too little, extra rounds on the gating row alone are priced; they are above B's stop, so they wait for the owner.
    - **The margin:** _written here from Phase A's report, before Phase B._
-3. **Not checked no higher:** on the held-out Note and the 10-sentence Note, `search-first`'s Not checked over the rounds no higher than `main`'s by more than one sentence in 24 per language.
+3. **Not checked no higher:** on the held-out Note and the 10-sentence Note, `search-first`'s Not checked over the rounds no higher than `main`'s by more than one sentence in 24 per language; on the reduced set, no more than `main`'s plus 1 a language.
 4. **Faster where it should be, later nowhere:**
    - on the held-out Note and the 10-sentence Note, in each language, `search-first`'s median last mark and end are sooner than `main`'s, and its median first mark no later than `main`'s by more than `main`'s own spread on that flow and language (its slowest round minus its fastest);
    - on a write and an Answer, `search-first`'s median first mark, last mark and end no later than `main`'s by more than that same spread.
@@ -143,7 +155,7 @@ A model is listed in `SEARCH_FIRST` only when Bars 1 to 5 all hold on it. A bar 
 - **Bar 1, `main` against `main`:** wrong twins and absent sentences Supported 0 + 0 on both arms, in both languages.
 - **The gating row, one round:** Supported 7 and 4 of 11 in English, 8 and 8 of 16 in Chinese. The margin is written here after round 3.
 - **Fresh estimate:**
-  - **A**, rounds 2 and 3: US$0.93–1.04, against US$1.00 left under its stop, so likely to reach it in round 3. The gate stops here until the second reader sets A's stop. US$1.60 in all covers rounds 2 and 3; US$2.10 also covers the one re-run of a void round that the void rule allows.
+  - **A**, rounds 2 and 3: US$0.93–1.04, against US$1.00 left under its stop, so likely to reach it in round 3. The gate stopped here for the second reader, whose ruling (above, under Phases) raised no stop and fitted every phase inside its own.
   - **B**, 3 rounds of the four flows: US$2.3–2.8, under its US$3.00, with no room to run a void round again. This assumes `search-first` spends 0.6–0.9 of `main`'s on a Note.
   - **C**, DeepSeek V4.1 Flash, as B: these tokens at its prices cost about 2.3 times Haiku's, so US$5.3–6.4 at the day price and US$2.6–3.2 off-peak: past its US$1.50.
   - **D**, GPT-6.1 Sol, the held-out Note, 2 rounds: at US$2 a million input tokens and US$10 a million output, about 20 times Haiku's, so US$13–16, before any reasoning tokens.
