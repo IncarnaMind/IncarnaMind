@@ -27,6 +27,7 @@ import { classifyProviderError } from "../providers/providerErrors";
 import { RECORD_PREFIX } from "../runs/journal";
 import { runStopOf } from "../runs/stop";
 import type { TaskEnd, TaskRun } from "../runs/tasks";
+import type { WorkWall } from "../workWall";
 import { draftContext, readTags, TAG_INSTRUCTIONS, tagPrompt } from "./prompt";
 
 /** A Tag request that takes longer than this fails: the pages are filed without Tags. */
@@ -53,11 +54,7 @@ export interface FinishOptions {
   createMind(title: string, folderId: string | null, model: ChatModelChoice): string;
   /** Puts a Mind in a Folder: where a Task's own Mind goes once its sources were filed. */
   moveMind(mindId: string, folderId: string): void;
-  /**
-   * Where something a Task started behind the wall `wallId` (null: outside every wall) makes is
-   * filed, when `asked` is the Folder it would go in; null: it can't be filed, so isn't made.
-   */
-  filedWithin(wallId: string | null, asked: string | null): { folderId: string | null } | null;
+  wall: Pick<WorkWall, "filedWithin">;
   documents: {
     /** Of these Documents, the live web pages added since `since` (ISO 8601), with their names. */
     webPagesSince(ids: readonly string[], since: string): { id: string; name: string }[];
@@ -165,7 +162,7 @@ function folderFor(
     earlier &&
     name &&
     options.library.folderExists(earlier) &&
-    options.filedWithin(wallId, earlier)?.folderId === earlier
+    options.wall.filedWithin(wallId, earlier)?.folderId === earlier
   ) {
     return { id: earlier, name };
   }
@@ -340,7 +337,7 @@ function wallFolder(
   wallId: string | null,
 ): { id: string; name: string } | null | undefined {
   if (wallId === null) return undefined;
-  const id = options.filedWithin(wallId, null)?.folderId ?? null;
+  const id = options.wall.filedWithin(wallId, null)?.folderId ?? null;
   const name = id === null ? null : options.library.folderName(id);
   return id === null || name === null ? null : { id, name };
 }
@@ -376,12 +373,12 @@ export function draftMind(
 ): string | null {
   const made = madeMind(options, task, target);
   if (made) {
-    const moveTo = options.filedWithin(wallId, folderId)?.folderId ?? null;
+    const moveTo = options.wall.filedWithin(wallId, folderId)?.folderId ?? null;
     // Only while it is unfiled: a Folder the User gave it during the run is theirs to keep.
     if (ownMind && moveTo && options.folderOfMind(made) === null) options.moveMind(made, moveTo);
     return made;
   }
-  const home = options.filedWithin(
+  const home = options.wall.filedWithin(
     wallId,
     folderId ?? (task.mindId ? options.folderOfMind(task.mindId) : null),
   );
