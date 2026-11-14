@@ -8,15 +8,27 @@
  * changes the words in the fill's Blocks (⌘Z here would delete them with it), the core takes it
  * back, or fills anew. Its Undo is then the core's (`undoMeetingFill`), which keeps the Blocks the User
  * typed in.
+ *
+ * An editor that closes with the step still on top, as a tab switch closes it, hands the fill to its
+ * tab (#3099): the tab's next editor starts with no history, so the line stays there with the core's
+ * Undo, on the app's stack under what the User does next, until the fill moves on or the tab closes.
  */
 import type { Editor } from "@tiptap/core";
 import * as Y from "yjs";
 import { type MeetingFill, MIND_CONTENT_FIELD } from "../../../core/api";
 import { isPartialMeetingFill, meetingFillCause } from "../../../shared/meetingFill";
-import { holdFillSteps } from "../meetingFillSteps";
+import {
+  endHandedLine,
+  endHandOver,
+  fillLineHandedTo,
+  handedOver,
+  handFillOver,
+  holdFillSteps,
+} from "../meetingFillSteps";
 import { useMeetings } from "../meetings";
 import { EDIT_FROM_CORE, FROM_CORE, takeEditUpdates } from "../mindCopies";
-import { pageUndoPlace } from "../undo";
+import { useAppStore } from "../store";
+import { pageUndoPlace, type Undoable, useUndo } from "../undo";
 import {
   asOneStep,
   followSteps,
@@ -27,7 +39,7 @@ import {
 } from "./editorUndo";
 import { editorDoc } from "./proposalReview";
 
-export function takeFillInEditor(editor: Editor, meetingId: string): () => void {
+export function takeFillInEditor(editor: Editor, meetingId: string, tabId?: string): () => void {
   const doc = editorDoc(editor);
   const stack = undoStackOf(editor);
   if (!doc || !stack) return () => undefined;
@@ -66,16 +78,7 @@ export function takeFillInEditor(editor: Editor, meetingId: string): () => void 
           following--;
         });
     });
-    const withdraw = offerEditorUndo(
-      editor,
-      (t) => {
-        const fill = fillOf(useMeetings.getState().meetings, meetingId);
-        return t(
-          fill && isPartialMeetingFill(fill) ? "meetings.fill.partial" : "meetings.fill.filled",
-        );
-      },
-      pageUndoPlace,
-    );
+    const withdraw = offerEditorUndo(editor, saidOf(meetingId), pageUndoPlace);
     held = {
       steps,
       release: () => {
@@ -108,12 +111,76 @@ export function takeFillInEditor(editor: Editor, meetingId: string): () => void 
     if (fillingAnew || undoneElsewhere) letGo();
   });
 
+  let handed = false;
+  const handOver = () => {
+    if (handed || !held || !tabId || held.steps.state() !== "done" || !held.steps.onTop()) return;
+    handed = true;
+    handFillOver(meetingId, tabId, offerCoreUndo(meetingId));
+    watchHandOvers();
+  };
+  // A tab switch may end the editor before this effect or after it: the first hands over, while the
+  // editor's history is still whole.
+  editor.on("destroy", handOver);
+  const actedHere = (event: { type: "undo" | "redo" }) => {
+    if (event.type === "undo" && tabId) endHandedLine(meetingId, tabId);
+  };
+  const afterHandOver = tabId !== undefined && fillLineHandedTo(meetingId, tabId);
+  if (afterHandOver) stack.on("stack-item-added", actedHere);
+
   return () => {
+    handOver();
+    editor.off("destroy", handOver);
+    if (afterHandOver) stack.off("stack-item-added", actedHere);
     stopTaking();
     note.unobserveDeep(touched);
     stopWatching();
     letGo();
   };
+}
+
+/** What the fill's Undo says: the line's own words. */
+const saidOf =
+  (meetingId: string): Undoable["said"] =>
+  (t) => {
+    const fill = fillOf(useMeetings.getState().meetings, meetingId);
+    return t(fill && isPartialMeetingFill(fill) ? "meetings.fill.partial" : "meetings.fill.filled");
+  };
+
+/** The core's Undo of the fill on the app's stack, where ⌘Z in the Note reaches it once the Note's own history is empty. */
+function offerCoreUndo(meetingId: string): () => void {
+  const change: Undoable = {
+    said: saidOf(meetingId),
+    name: (t) =>
+      t(
+        useMeetings.getState().meetings.find((each) => each.id === meetingId)?.kind === "memo"
+          ? "memos.fill.undoName"
+          : "meetings.fill.undoName",
+      ),
+    undo: () => useMeetings.getState().undoFill(meetingId),
+    shownAt: pageUndoPlace,
+  };
+  useUndo.getState().offer(change);
+  return () => useUndo.getState().withdraw(change);
+}
+
+let watching = false;
+
+/** A handed-over fill goes once it is taken back, filled anew or gone, or its tab closes. */
+function watchHandOvers(): void {
+  if (watching) return;
+  watching = true;
+  useMeetings.subscribe((state) => {
+    for (const { meetingId } of handedOver()) {
+      if (fillOf(state.meetings, meetingId)?.state !== "filled") endHandOver(meetingId);
+    }
+  });
+  useAppStore.subscribe(({ layout }) => {
+    if (!layout) return;
+    const open = new Set(layout.groups.flatMap((group) => group.tabs.map((tab) => tab.id)));
+    for (const { meetingId, tabId } of handedOver()) {
+      if (!open.has(tabId)) endHandOver(meetingId, tabId);
+    }
+  });
 }
 
 const fillOf = (

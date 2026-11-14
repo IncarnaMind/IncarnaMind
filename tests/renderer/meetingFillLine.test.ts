@@ -780,6 +780,28 @@ describe.each(["en", "zh-CN"] as const)("existing fill behavior in %s", (languag
     await act(async () => release());
   });
 
+  // protects=a tab switch is no typing: in the tab its editor handed the fill to, the line stays with its Undo, the store's (the core's once no editor holds it), until the User acts there; another tab that never held it draws none (#3099); fails_when=the line goes on a switch, shows in another tab, or stays once the User acted; no_claim=when the editor hands it over, which tests/renderer/meetingFillUndo.test.ts covers.
+  test("in the tab its editor handed the fill to, the line stays with Undo until the User acts there", async () => {
+    const { endHandedLine, endHandOver, handFillOver } = await import(
+      "../../src/renderer/src/meetingFillSteps"
+    );
+    const meeting = meetingOf(fillOf());
+    const withdraw = vi.fn();
+    handFillOver(meeting.id, "meeting-tab", withdraw);
+    expect((await show(meeting))?.textContent).toBe(
+      language === "en" ? "Note filled in from the call · Undo" : "已补全笔记 · 撤销",
+    );
+    await click("meeting-fill-undo");
+    expect(actions.undoFill.mock.calls).toEqual([[meeting.id, EDITOR]]);
+    actions.place.current = { tabId: "another-tab", groupId: "meeting-group" };
+    expect(await show(meeting)).toBeNull();
+    actions.place.current = { tabId: "meeting-tab", groupId: "meeting-group" };
+    await act(async () => endHandedLine(meeting.id, "meeting-tab"));
+    expect(container.querySelector('[data-testid="meeting-fill-line"]')).toBeNull();
+    await act(async () => endHandOver(meeting.id));
+    expect(withdraw).toHaveBeenCalledTimes(1);
+  });
+
   test("a fill another copy of the Note holds on top draws no line in this one", async () => {
     const { holdFillSteps } = await import("../../src/renderer/src/meetingFillSteps");
     const release = holdFillSteps("meeting-with-partial-notes", {}, heldSteps());
