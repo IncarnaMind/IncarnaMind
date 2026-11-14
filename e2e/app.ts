@@ -391,7 +391,10 @@ export async function launchApp(
     ...(systemColours && { colorScheme: null }),
     chromiumSandbox: sandboxed || sandboxNotice === "environment" || sandboxNotice === "on",
     ...(KEEP_ARTIFACTS && {
-      recordVideo: { dir: test.info().outputPath("video", basename(dataDir)) },
+      recordVideo: {
+        dir: test.info().outputPath("video", basename(dataDir)),
+        size: { width: 1600, height: 900 },
+      },
     }),
   });
   if (KEEP_ARTIFACTS || trace) await keepOnClose(app, dataDir);
