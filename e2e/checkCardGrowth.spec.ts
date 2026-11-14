@@ -94,6 +94,8 @@ type Box = [number, number, number, number];
 interface Frame {
   card: Box | null;
   check: Box | null;
+  /** The body's height, its content's height, and how many rows it holds. */
+  body: [number, number, number] | null;
 }
 
 /** The boxes of the card and of the Check in its foot, as each frame is drawn, until `stop`. */
@@ -112,9 +114,13 @@ const watch = (window: Page) =>
       if (!holder.watching) return;
       requestAnimationFrame(() =>
         setTimeout(() => {
+          const body = document.querySelector('[data-testid="check-card"] .check-card-body');
           holder.frames.push({
             card: box('[data-testid="check-card"]'),
             check: box('[data-testid="check-card"] [data-testid="badge-check-mind"]'),
+            body: body
+              ? [body.clientHeight, body.scrollHeight, body.querySelectorAll(".check-row").length]
+              : null,
           });
           step();
         }, 0),
@@ -198,7 +204,10 @@ for (const language of ["en", "zh-CN"] as const) {
           .filter(
             (frame, at) => at === 0 || JSON.stringify(frame) !== JSON.stringify(frames[at - 1]),
           )
-          .map((frame) => `${frame.card?.map(Math.round)} / ${frame.check?.map(Math.round)}`)
+          .map(
+            (frame) =>
+              `${frame.card?.map(Math.round)} / ${frame.check?.map(Math.round)} / body ${frame.body}`,
+          )
           .join("  >  ");
         for (const frame of frames) {
           if (frame.check)
@@ -215,6 +224,7 @@ for (const language of ["en", "zh-CN"] as const) {
           // All of it landed in the body: nothing scrolls out of sight.
           expect(
             await body.evaluate((element) => element.scrollHeight <= element.clientHeight + 1),
+            `the body hides rows: ${trail}`,
           ).toBe(true);
           await expect(card.getByTestId("health-toCheck")).toBeVisible();
         } else {
