@@ -3,7 +3,7 @@ import type { UnreadFile } from "../../../core/api";
 import { UNREAD_REASON_KEYS, unreadPartsText } from "../../../shared/unreadFiles";
 import { useT } from "../i18n";
 import { useAppStore } from "../store";
-import { MetaLine } from "./MetaLine";
+import { actionParts, MetaLine } from "./MetaLine";
 import { LineAction, ProblemLine } from "./ProblemLine";
 
 /**
@@ -118,33 +118,35 @@ function UnreadFileRow({ file }: { file: UnreadFile }) {
                     : t(UNREAD_REASON_KEYS[file.reason], { extension: file.extension ?? "" }),
             })}
           </>,
-          lockedPdf?.fileStatus === "available" && (
-            <LineAction
-              action={{
-                label: t("documents.unlockAction"),
-                testId: "unread-file-unlock",
-                onClick: () => openDocument({ documentId: lockedPdf.id }),
-              }}
-            />
-          ),
-          file.reason === "pages" && retryable && documentId !== null && (
-            <LineAction
-              action={{
-                label: t("unread.ocr"),
-                testId: "unread-file-ocr",
-                onClick: () => void retryDocument(documentId),
-              }}
-            />
-          ),
-          hiddenWorkbook !== null && (
-            <LineAction
-              action={{
-                label: t("documents.readHiddenSheets"),
-                testId: "unread-file-hidden-sheets",
-                onClick: () => void readHiddenSheets(hiddenWorkbook.id),
-              }}
-            />
-          ),
+          ...actionParts([
+            lockedPdf?.fileStatus === "available" && (
+              <LineAction
+                action={{
+                  label: t("documents.unlockAction"),
+                  testId: "unread-file-unlock",
+                  onClick: () => openDocument({ documentId: lockedPdf.id }),
+                }}
+              />
+            ),
+            file.reason === "pages" && retryable && documentId !== null && (
+              <LineAction
+                action={{
+                  label: t("unread.ocr"),
+                  testId: "unread-file-ocr",
+                  onClick: () => void retryDocument(documentId),
+                }}
+              />
+            ),
+            hiddenWorkbook !== null && (
+              <LineAction
+                action={{
+                  label: t("documents.readHiddenSheets"),
+                  testId: "unread-file-hidden-sheets",
+                  onClick: () => void readHiddenSheets(hiddenWorkbook.id),
+                }}
+              />
+            ),
+          ]),
         ]}
       />
     </li>

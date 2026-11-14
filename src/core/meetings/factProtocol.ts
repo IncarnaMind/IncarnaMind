@@ -1,6 +1,7 @@
 import { asGenerated } from "../../shared/aiText";
 import { citationNode, type NodeJSON, withCitations } from "../../shared/blockJson";
 import type { CellAnswer } from "../answers";
+import { fenceClosedBy, fenceOpened } from "../answers/jsonFences";
 import { markdownToBlocks } from "../answers/markdown";
 import { CITATION_NODE, GENERATED_MARK, type MarkedCitation } from "../api";
 import { type FillSection, textOf } from "./fillPrompt";
@@ -191,6 +192,12 @@ function factMetadata(
   return { topic, heading, citations, lines, sections, claim, supersedes };
 }
 
+/**
+ * A frame's id: the first word after "FACT " on its opening line. What follows it there, such as a
+ * title, is no part of the frame and isn't written (#3106); the closing line names the id alone.
+ */
+const frameId = (line: string): string | undefined => /^FACT\s+(\S+)/.exec(line)?.[1];
+
 function heading(node: NodeJSON | undefined): string | null {
   if (node?.type !== "heading" || node.attrs?.level !== 3) return null;
   if (
@@ -209,29 +216,26 @@ function heading(node: NodeJSON | undefined): string | null {
 function invalidMetadataFences(markdown: string): Set<string> {
   const invalid = new Set<string>();
   let pending: string | null = null;
-  let open: { closer: RegExp; key: string | null } | null = null;
+  let open: { fence: string; key: string | null } | null = null;
   for (const line of markdown.replace(/\r\n?/g, "\n").split("\n")) {
     if (open) {
-      if (open.closer.test(line)) {
+      if (fenceClosedBy(open.fence, line)) {
         if (open.key !== null && line !== "```") invalid.add(open.key);
         open = null;
       }
       continue;
     }
-    const fence = /^ {0,3}(`{3,}|~{3,})[ \t]*([^\s`]*)[^`]*$/.exec(line)?.[1];
+    const fence = fenceOpened(line);
     if (fence) {
       if (pending !== null && line !== "```json") invalid.add(pending);
-      open = {
-        closer: new RegExp(`^ {0,3}${fence[0] === "`" ? "`" : "~"}{${fence.length},}[ \\t]*$`),
-        key: pending,
-      };
+      open = { fence, key: pending };
       pending = null;
       continue;
     }
     if (/^ {0,3}#{1,6}(?:[ \t]|$)/.test(line)) {
       const control = heading(markdownToBlocks(line)[0]);
-      const id = control?.startsWith("FACT ") ? control.slice(5) : null;
-      pending = control === "OVERVIEW" ? "" : id !== null && FACT_ID.test(id) ? id : null;
+      const id = control === null ? undefined : frameId(control);
+      pending = control === "OVERVIEW" ? "" : id !== undefined && FACT_ID.test(id) ? id : null;
     }
   }
   return invalid;
@@ -261,7 +265,7 @@ function framesOf(blocks: readonly NodeJSON[], raw: readonly NodeJSON[]) {
       continue;
     }
     current = null;
-    const id = label.startsWith("FACT ") ? label.slice(5) : undefined;
+    const id = frameId(label);
     if (label === "OVERVIEW" || (id !== undefined && FACT_ID.test(id))) {
       current = {
         id: id ?? null,
@@ -271,7 +275,7 @@ function framesOf(blocks: readonly NodeJSON[], raw: readonly NodeJSON[]) {
         aligned: control !== null && original === control,
       };
       frames.push(current);
-    } else if (label === "FACT" || label.startsWith("FACT ")) invalidFrames++;
+    } else if (/^FACT(?:\s|$)/.test(label)) invalidFrames++;
   }
   return { frames, invalidFrames };
 }

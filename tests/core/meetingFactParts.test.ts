@@ -1,8 +1,11 @@
 import { describe, expect, test, vi } from "vitest";
-import type { Core, Meeting, MeetingFill } from "../../src/core";
+import type { Core, Meeting, MeetingFill, SystemNotifications } from "../../src/core";
 import { buildPassages } from "../../src/core/documents/passages";
 import type { WindowedPassage } from "../../src/core/documents/search";
+import type { Language } from "../../src/core/language";
 import { FILL_PART_TOKENS, transcriptParts } from "../../src/core/meetings/fill";
+import { translate } from "../../src/shared/i18n";
+import { mindName } from "../../src/shared/naming";
 import { mindCitations, shownPassages } from "../helpers/citations";
 import { createTempDataFolder } from "../helpers/core";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
@@ -125,6 +128,7 @@ async function capture(
   model: ReturnType<typeof modelFor>,
   long = false,
   name: string | null = null,
+  { language, notifications }: { language?: Language; notifications?: SystemNotifications } = {},
 ) {
   const { schedule } = model;
   const padding =
@@ -139,10 +143,12 @@ async function capture(
   const { core, record } = await transcribingCore(await createTempDataFolder(), {
     model: model.model,
     engine: { lines: [...lines, "The workshop is closed"], maxSpeechMs: 500 },
+    ...(notifications && { notifications }),
   });
   await core.saveLibrarySettings({ ...(await core.getLibrary()).settings, automatic: false });
   await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
   if (name) await core.updateSettings({ user: { authorName: name } });
+  if (language) await core.updateSettings({ user: { language } });
   const meeting = await core.createMeeting();
   const client = await connectToMind(core, meeting.mindId);
   writeMind(client, [heading(1, "Review workshop"), note("review schedule")]);
@@ -277,29 +283,42 @@ describe("Meeting fact frames across provider failures and Transcript parts", ()
     },
   );
 
-  test("a later part that throws retains prior checked facts and counts the current and remaining parts", async () => {
-    const model = modelFor((part) =>
-      part === 1
-        ? { text: `${fact("P1_review", EARLIER)}\n\n${overview()}` }
-        : { text: "", error: true },
-    );
-    const captured = await capture(model, true);
-    const { core, meeting, client, parts } = captured;
-    try {
-      const fill = await settledFill(core, meeting);
-      expectRetained(client, EARLIER, [FINAL]);
-      expectRequests(model, [2, 1]);
-      await undo(captured);
-      expect(fill).toMatchObject({
-        state: "filled",
-        omitted: 0,
-        unfinishedParts: parts.length - 1,
-        problem: { kind: "model" },
-      });
-    } finally {
-      core.close();
-    }
-  });
+  // protects=a later part that fails keeps what earlier parts checked, counts the parts it never finished, and its notification says the note is partly filled in, in English and Chinese (#3099); fails_when=the earlier facts go, the count is wrong, or the notification is the plain one; no_claim=the line's words, which tests/renderer/meetingFillLine.test.ts covers.
+  test.each(["en", "zh-CN"] as const)(
+    "a later part that throws retains prior checked facts, counts the current and remaining parts, and notifies a partly filled note (%s)",
+    async (language) => {
+      const model = modelFor((part) =>
+        part === 1
+          ? { text: `${fact("P1_review", EARLIER)}\n\n${overview()}` }
+          : { text: "", error: true },
+      );
+      const show = vi.fn<SystemNotifications["show"]>();
+      const captured = await capture(model, true, null, { language, notifications: { show } });
+      const { core, meeting, client, parts } = captured;
+      try {
+        const fill = await settledFill(core, meeting);
+        expectRetained(client, EARLIER, [FINAL]);
+        expectRequests(model, [2, 1]);
+        const mind = (await core.listMinds()).find((each) => each.id === meeting.mindId);
+        if (!mind) throw new Error("The Meeting's Note is missing.");
+        expect(show.mock.calls.map(([notification]) => notification)).toEqual([
+          {
+            title: translate(language, "meetings.fill.notify.partial", { meeting: mindName(mind) }),
+            body: "",
+          },
+        ]);
+        await undo(captured);
+        expect(fill).toMatchObject({
+          state: "filled",
+          omitted: 0,
+          unfinishedParts: parts.length - 1,
+          problem: { kind: "model" },
+        });
+      } finally {
+        core.close();
+      }
+    },
+  );
 
   test("a later checked correction replaces the prior fact once, with its new Citation and one overview and Undo", async () => {
     const model = modelFor((part) => ({

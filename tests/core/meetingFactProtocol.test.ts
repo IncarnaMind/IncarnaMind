@@ -362,6 +362,42 @@ describe("Meeting fact protocol (#2306)", () => {
     expect(parsed.omitted).toBe(1);
   });
 
+  // protects=a fact frame's id is the first word after FACT on its opening line, split at a space or tab only: a title after it is not read, an id with punctuation glued to it is no id and its frame is counted as malformed (#3106); fails_when=a titled frame is dropped, or an id glued to punctuation is cut out and kept; no_claim=the note it fills, which tests/core/meetingFacts.test.ts covers.
+  test.each([
+    ["### FACT Good — Review delivery", ["Good"], 0],
+    ["### FACT Good\tReview delivery", ["Good"], 0],
+    ["### FACT Good: Review delivery", [], 1],
+    ["### FACT Good—Review delivery", [], 1],
+  ] as const)(
+    "an opening line %j reads its first word as the id",
+    (opening, ids, invalidFrames) => {
+      const parsed = parseFactReply(
+        answer(`${fact("Good").replace("### FACT Good", opening)}\n${overview}`),
+      );
+      expect(parsed.facts.map((each) => each.id)).toEqual(ids);
+      expect(parsed.invalidFrames).toBe(invalidFrames);
+      expect(parsed.omitted).toBe(0);
+    },
+  );
+
+  // protects=a title after a fact's id leaves its other checks as they were: a metadata fence of another form still drops it, and so does a closing line that is not its id alone (#3106); fails_when=a titled frame is kept with another fence or another closing line; no_claim=how its id is read, which the test above covers.
+  test.each([
+    { opener: "~~~json", closer: "~~~", end: "### END Bad" },
+    { opener: "```json", closer: "```", end: "### END Bad — Review" },
+  ])(
+    "a titled frame still needs the simple fence and its id alone to close: $opener $end",
+    ({ opener, closer, end }) => {
+      const titled = fact("Bad")
+        .replace("### FACT Bad", "### FACT Bad — Review")
+        .replace("```json", opener)
+        .replace("\n```\n", `\n${closer}\n`)
+        .replace("### END Bad", end);
+      const parsed = parseFactReply(answer(`${titled}\n${fact("Good")}\n${overview}`));
+      expect(parsed.facts.map((each) => each.id)).toEqual(["Good"]);
+      expect(parsed.omitted).toBe(1);
+    },
+  );
+
   test("metadata in Blocks must still match the Answer's fenced metadata", () => {
     const input = answer(
       `${fact("Bad", undefined, { citations: [1, 99] })}\n${fact("Good")}\n${overview}`,

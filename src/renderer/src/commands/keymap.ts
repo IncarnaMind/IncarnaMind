@@ -133,7 +133,14 @@ export function runShortcut(
     if (dialogHolds(command.id)) return false;
     // A list's own keys act on the row the focus is in.
     const here = shortcut.list ? { ...ctx, focus: ctx.focus ?? objectAt(event.target) } : ctx;
-    if (!offered(command, here) || !isEnabled(command, here)) continue;
+    if (!offered(command, here)) continue;
+    if (!isEnabled(command, here)) {
+      // Outside text with nothing of the app's to take back, the browser would undo the last typing
+      // in the text it last edited, as a Note hidden behind its Transcript (#3099).
+      if (command.id !== "edit.undo" && command.id !== "edit.redo") continue;
+      event.preventDefault();
+      return true;
+    }
     event.preventDefault();
     commands.run(command.id, here).catch(report);
     return true;

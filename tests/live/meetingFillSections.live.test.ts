@@ -31,6 +31,7 @@ import { translate } from "../../src/shared/i18n";
 import { createTempDataFolder } from "../helpers/core";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
 import { checkStructuredMeetingLoader } from "../helpers/meetingFillLoader";
+import { placeName } from "../helpers/meetingFillNames";
 import {
   createRequestLedger,
   meetingFillCloud,
@@ -2355,6 +2356,41 @@ function citesRightly(unit: Unit, fact: Fact, call: Call, cues: readonly Cue[]):
   });
 }
 
+/**
+ * The facts said by someone unnamed with a part that states the fact, or cites their turn, and
+ * carries another person's name (#2306): the first such part, and where the name stands in it
+ * (#3013). The Summary is left out: it speaks for the whole call, and may name who the call was with.
+ */
+function misattributedIn(call: Call, units: readonly Unit[], cues: readonly Cue[]) {
+  const summary =
+    call.sectionHeadings?.summary ?? translate(call.language, "meetings.fill.section.summary");
+  const theirTurns = (fact: Fact): Fact => ({
+    ...fact,
+    said: fact.said.filter((index) => call.turns[index]?.side === "them"),
+  });
+  return call.facts.flatMap((fact) => {
+    const name = fact.notBy;
+    const unit =
+      name &&
+      units.find(
+        (each) =>
+          each.ai &&
+          each.section !== summary &&
+          name.test(each.text) &&
+          (says(fact, each.text) || citesRightly(each, theirTurns(fact), call, cues)),
+      );
+    return name && unit
+      ? [
+          {
+            fact: fact.name,
+            text: unit.text,
+            ...placeName(call, { text: unit.text, name, pattern: fact.pattern }),
+          },
+        ]
+      : [];
+  });
+}
+
 interface Placements {
   /** The places it is written: each counts once, however often its words match in it (#3013). */
   count: number;
@@ -2442,6 +2478,28 @@ function placements(
       places.every((each) => each.units.every((unit) => citesRightly(unit, fact, call, cues))),
   };
 }
+
+/**
+ * The lines that each state a fact whole, outside the Summary and not as a pointer: the places
+ * `placements` finds that are one written line (#3013). Adjacent lines that only together state a
+ * decision are one place there, and no line here.
+ */
+function linesStating(fact: Fact, units: readonly Unit[], call: Call): number {
+  const summary =
+    call.sectionHeadings?.summary ?? translate(call.language, "meetings.fill.section.summary");
+  return units.filter(
+    (unit) =>
+      unit.ai &&
+      unit.section !== summary &&
+      !pointsElsewhere(unit.text, call.language) &&
+      says(fact, unit.text),
+  ).length;
+}
+
+/** The decisions that two or more lines each state whole (#3013). */
+const decisionsWholeOnTwoOrMoreLines = (call: Call, units: readonly Unit[]) =>
+  call.facts.filter((fact) => fact.kind === "decision" && linesStating(fact, units, call) >= 2)
+    .length;
 
 function actionSectionCounts(
   units: readonly Unit[],
@@ -2939,6 +2997,57 @@ test.each(["en", "zh-CN"] as const)(
   },
 );
 
+test.each(["en", "zh-CN"] as const)(
+  "meeting scores count a name on an unnamed person's fact once, with where it stands, never from the Summary (%s)",
+  (language) => {
+    const en = language === "en";
+    const fact: Fact = {
+      name: "weight",
+      kind: "figure",
+      pattern: en ? [/340/, /grams?/i] : [/340/, /克/],
+      said: [1],
+      notBy: en ? /Hannah/iu : /孙悦/iu,
+    };
+    const call: Call = {
+      id: "misattributed-scorer-only",
+      language,
+      notes: [],
+      turns: en
+        ? [me("Hannah, how heavy is each copy?"), them("About 340 grams. I weighed a blank dummy.")]
+        : [me("孙悦，每本多重？"), them("大约 340 克，我称过一本空白样书。")],
+      facts: [fact],
+    };
+    const text = en
+      ? {
+          summary: "Hannah's team said each copy weighs about 340 grams.",
+          later: "Each copy is about 340 grams, which Hannah weighed on a dummy.",
+          opens: "Hannah weighed each copy at about 340 grams.",
+        }
+      : {
+          summary: "孙悦那边说每本大约 340 克。",
+          later: "每本大约 340 克，是孙悦称的。",
+          opens: "孙悦称过每本大约 340 克。",
+        };
+    const unit = (line: string, section: string | null = null, ai = true): Unit => ({
+      text: line,
+      ai,
+      section,
+      afterLine: null,
+      citations: [],
+    });
+    const summary = translate(language, "meetings.fill.section.summary");
+    expect(
+      misattributedIn(call, [unit(text.summary, summary), unit(text.opens, null, false)], []),
+    ).toEqual([]);
+    expect(
+      misattributedIn(call, [unit(text.summary, summary), unit(text.later), unit(text.opens)], []),
+    ).toEqual([{ fact: "weight", text: text.later, where: "later", read: ["later"] }]);
+    expect(misattributedIn(call, [unit(text.opens)], [])).toEqual([
+      { fact: "weight", text: text.opens, where: "opens", read: [] },
+    ]);
+  },
+);
+
 function splitDecision(language: "en" | "zh-CN") {
   const en = language === "en";
   const turns = en
@@ -3141,7 +3250,8 @@ function writtenTwice(language: Language) {
         unpointed: "江边仓库已商定",
       };
   const score = (units: Unit[]) => placements(fact, units, call, cues);
-  return { unit, text, title, score, topic: en ? "Venue" : "场地" };
+  const lines = (units: Unit[]) => linesStating(fact, units, call);
+  return { unit, text, title, score, lines, topic: en ? "Venue" : "场地" };
 }
 
 test.each(["en", "zh-CN"] as const)(
@@ -3211,6 +3321,67 @@ test.each(["en", "zh-CN"] as const)(
       count: 2,
       pointers: 0,
     });
+  },
+);
+
+test.each(["en", "zh-CN"] as const)(
+  "a decision counts on two lines only where each line states it whole; its places still take a run of lines as one (%s)",
+  (language) => {
+    const { fact, call, cues, unit, text } = splitDecision(language);
+    const elsewhere = (each: Unit, section: string): Unit => ({
+      ...each,
+      section,
+      afterLine: null,
+    });
+    const decisions = translate(language, "meetings.fill.section.decisions");
+    const summary = translate(language, "meetings.fill.section.summary");
+    const read = (units: Unit[]) => ({
+      places: placements(fact, units, call, cues).count,
+      lines: linesStating(fact, units, call),
+      onTwoLines: decisionsWholeOnTwoOrMoreLines(call, units),
+    });
+    expect(read([unit(text.whole)])).toEqual({ places: 1, lines: 1, onTwoLines: 0 });
+    expect(read([unit(text.budget)])).toEqual({ places: 0, lines: 0, onTwoLines: 0 });
+    expect(read([unit(text.whole), elsewhere(unit(text.whole), decisions)])).toEqual({
+      places: 2,
+      lines: 2,
+      onTwoLines: 1,
+    });
+    expect(read([unit(text.whole), elsewhere(unit(text.whole), summary)])).toEqual({
+      places: 1,
+      lines: 1,
+      onTwoLines: 0,
+    });
+    const run = [unit(text.budget), unit(text.deadline)];
+    expect(read([elsewhere(unit(text.whole), decisions), ...run])).toEqual({
+      places: 2,
+      lines: 1,
+      onTwoLines: 0,
+    });
+    expect(
+      read([
+        elsewhere(unit(text.whole), decisions),
+        unit(text.budget),
+        unit(text.unrelated),
+        unit(text.deadline),
+      ]),
+    ).toEqual({ places: 1, lines: 1, onTwoLines: 0 });
+    expect(read(run)).toEqual({ places: 1, lines: 0, onTwoLines: 0 });
+    expect(read([unit(text.budget), { ...unit(text.deadline), afterLine: "other line" }])).toEqual({
+      places: 0,
+      lines: 0,
+      onTwoLines: 0,
+    });
+  },
+);
+
+test.each(["en", "zh-CN"] as const)(
+  "a pointer is not a line that states a decision; the same words without it are (%s)",
+  (language) => {
+    const { unit, text, title, lines, topic } = writtenTwice(language);
+    const decision = unit(text.decision, title("decisions"));
+    expect(lines([unit(text.pointer, topic), decision])).toBe(1);
+    expect(lines([unit(text.unpointed, topic), decision])).toBe(2);
   },
 );
 
@@ -4091,22 +4262,7 @@ describe.skipIf(LOADER_PREFLIGHT || (!KEY && !LOCAL_MODEL))(
                 (pattern) => pattern.source !== fact.owner?.source && pattern.test(text),
               );
         const owned = call.facts.filter((fact) => fact.owner);
-        const theirTurns = (fact: Fact): Fact => ({
-          ...fact,
-          said: fact.said.filter((index) => call.turns[index]?.side === "them"),
-        });
-        // A part that states the unnamed person's fact, or cites their turn, and carries the name.
-        // The Summary is left out: it speaks for the whole call, and may name who the call was with.
-        const misattributed = call.facts.flatMap((fact) => {
-          const unit = units.find(
-            (unit) =>
-              unit.ai &&
-              !summary.includes(unit) &&
-              fact.notBy?.test(unit.text) === true &&
-              (says(fact, unit.text) || citesRightly(unit, theirTurns(fact), call, cues)),
-          );
-          return unit ? [{ fact: fact.name, text: unit.text }] : [];
-        });
+        const misattributed = misattributedIn(call, units, cues);
         const slips = {
           ...termsUnderDecisions(call.facts, decisions),
           decisionsInSection: counts.decisionsInSection,
@@ -4134,17 +4290,20 @@ describe.skipIf(LOADER_PREFLIGHT || (!KEY && !LOCAL_MODEL))(
           ).length,
           owned: owned.length,
           misattributed: misattributed.length,
+          misattributedOpens: misattributed.filter((each) => each.where === "opens").length,
+          misattributedLater: misattributed.filter((each) => each.where === "later").length,
           unowned: call.facts.filter((fact) => fact.notBy).length,
           unownedWritten: scored.filter((each) => each.fact.notBy && each.count > 0).length,
           restated: scored
             .filter((each) => each.fact.kind === "decision")
             .reduce((sum, each) => sum + Math.max(0, each.count - 1), 0),
+          decisionsWholeOnTwoOrMoreLines: decisionsWholeOnTwoOrMoreLines(call, units),
         };
         if (REPORT) {
           const rows = scored
             .map(
               ({ fact, count, inClaims, cited, inPlace, repeats, summary, pointers }) =>
-                `| ${fact.kind} | ${fact.name} | ${count} | ${cited ? "yes" : "no"} | ${inClaims} | ${fact.underLine ? (inPlace ? "yes" : "no") : "—"} | ${repeats} | ${summary} | ${pointers} |`,
+                `| ${fact.kind} | ${fact.name} | ${count} | ${linesStating(fact, units, call)} | ${cited ? "yes" : "no"} | ${inClaims} | ${fact.underLine ? (inPlace ? "yes" : "no") : "—"} | ${repeats} | ${summary} | ${pointers} |`,
             )
             .join("\n");
           await appendFile(
@@ -4165,10 +4324,11 @@ describe.skipIf(LOADER_PREFLIGHT || (!KEY && !LOCAL_MODEL))(
                   : []),
                 ...(named ? [`Named (#2306): ${JSON.stringify(named)}`] : []),
                 "Occurrence counts use component-match minima and can miss partial or anaphoric repeats. Subject-only matches do not add to these counts. An independent raw duplicate and topic audit is still required, including redundant deadline restatements and action references without declared subjects.",
+                "In the slips, restated counts a decision's places beyond its first, adjacent lines that only together state it being one place; decisionsWholeOnTwoOrMoreLines counts the decisions that two or more lines each state whole (#3013).",
                 `Transcript cues: ${JSON.stringify(cues)}`,
                 "",
-                "| Kind | Fact | Times in the note | Cited rightly | In the claims list | In place | Matched again in one place | In the Summary | In a pointer |",
-                "|---|---|---|---|---|---|---|---|---|",
+                "| Kind | Fact | Times in the note | Lines stating it whole | Cited rightly | In the claims list | In place | Matched again in one place | In the Summary | In a pointer |",
+                "|---|---|---|---|---|---|---|---|---|---|",
                 rows,
                 "",
                 "```",
@@ -4271,7 +4431,7 @@ describe.skipIf(LOADER_PREFLIGHT || (!KEY && !LOCAL_MODEL))(
             expect(slips.misheard, "A name the User typed is never written as misheard").toBe(0);
             expect(
               slips.misattributed,
-              "What someone unnamed said never carries another person's name",
+              `What someone unnamed said never carries another person's name (${slips.misattributedOpens} with the name opening the line, ${slips.misattributedLater} with it later)`,
             ).toBe(0);
             expect(structure.summaryFirst, "Summary is the first part added").toBe(true);
             expect(structure.summaryParts, "Summary is one overview").toBe(1);
