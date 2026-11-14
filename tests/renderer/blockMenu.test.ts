@@ -63,6 +63,7 @@ const question = (id: string, text: string): JSONContent => ({
 const editors: Editor[] = [];
 let NoteKeymap: Extension;
 let blockCommands: readonly Command[];
+let blockIn: typeof import("../../src/renderer/src/commands/blocks").blockIn;
 // The commands and the note's keys reach the bridge as they load, so they load once it is set.
 beforeAll(async () => {
   const [keymap, blocks, footnotes] = await Promise.all([
@@ -72,6 +73,7 @@ beforeAll(async () => {
   ]);
   NoteKeymap = keymap.NoteKeymap;
   blockCommands = blocks.blockCommands;
+  blockIn = blocks.blockIn;
   for (const command of [...blocks.blockCommands, ...footnotes.footnoteCommands]) {
     commands.register(command);
   }
@@ -202,6 +204,24 @@ test("Delete from the keys takes away the Block at the cursor, as the menu names
   expect(offered(command, menuOf("b"))).toBe(true);
   await commands.run("block.delete", menuOf("a"));
   expect(texts(editor)).toEqual(["Second"]);
+});
+
+test("Delete from the keys acts in the pane the key was pressed in, with the same Note open in two panes", async () => {
+  const blocks = [paragraph("a", "First"), paragraph("b", "Second")];
+  const left = await editorWith(blocks);
+  const right = await editorWith(blocks);
+  const inFirst = 2;
+  const inSecond = left.state.doc.child(0).nodeSize + 2;
+  left.commands.setTextSelection(inFirst);
+  right.commands.setTextSelection(inSecond);
+  // Typing in the right pane: it has the focus, the left, which holds the Note first, hasn't.
+  Object.defineProperty(right.view, "hasFocus", { value: () => true, configurable: true });
+  const at = blockIn(menuOf("b"));
+  Reflect.deleteProperty(right.view, "hasFocus");
+  expect(at?.editor).toBe(right);
+  at?.editor.commands.deleteBlock();
+  expect(texts(left)).toEqual(["First", "Second"]);
+  expect(texts(right)).toEqual(["First"]);
 });
 
 test("a menu that gives its own Delete deletes the Block it stands by, wherever the cursor is", async () => {
