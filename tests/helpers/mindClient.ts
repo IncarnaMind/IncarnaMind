@@ -2,8 +2,11 @@ import { onTestFinished } from "vitest";
 import * as Y from "yjs";
 import { type CoreBridge, MIND_CONTENT_FIELD } from "../../src/core";
 
-/** Marks changes that came from the core, so the client doesn't send them back. */
-const FROM_CORE = Symbol("from the core");
+/**
+ * Marks changes that came from the core, so the client doesn't send them back; a test's Undo of a
+ * core's edits tracks it.
+ */
+export const FROM_CORE = Symbol("from the core");
 
 export interface MindClient {
   doc: Y.Doc;

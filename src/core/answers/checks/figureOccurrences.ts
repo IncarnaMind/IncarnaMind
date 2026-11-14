@@ -24,6 +24,7 @@ import {
 } from "../../../shared/figures";
 import { perBlock } from "../../../shared/memo";
 import { targetHash } from "../../../shared/proposals";
+import { citedNameStretches, isNameNumber } from "../../../shared/sourceNames";
 import {
   ANALYSIS_TABLE_ATTRIBUTE,
   ANALYSIS_TABLE_NODE,
@@ -31,6 +32,7 @@ import {
   type CellFigurePlace,
   CHART_NODE,
   type CheckFigure,
+  CITATION_NODE,
   type TextStretch,
 } from "../../api";
 import { plainText } from "../../mindText";
@@ -260,6 +262,22 @@ function inSentence(
   const raw = textOf(sentence.element);
   const parts = layout(sentence.element);
   const spans = sentenceSpansIn(sentence.element);
+  // Where each sentence writes the name of a Document it cites: its number is no figure (#3093).
+  const named = spans.flatMap((span, index) => {
+    const next = spans[index + 1]?.from ?? raw.length;
+    const names = parts.flatMap(({ node, start }) =>
+      node instanceof Y.XmlElement &&
+      node.nodeName === CITATION_NODE &&
+      start >= span.from &&
+      start < next
+        ? [node.getAttribute("documentName")]
+        : [],
+    );
+    return citedNameStretches(raw.slice(span.from, span.to), names).map((stretch) => ({
+      from: stretch.from + span.from,
+      to: stretch.to + span.from,
+    }));
+  });
   const whole = { from: 0, to: raw.length };
   // The spans come in order and don't overlap, so the one a figure is in is found by its start.
   const spanOf = (start: number, end: number) => {
@@ -323,6 +341,7 @@ function inSentence(
   })
     .filter((reading) => reading.start >= sentence.from && reading.end <= sentence.to)
     .filter((reading) => !inCitation(reading.start, reading.end))
+    .filter((reading) => !isNameNumber(reading, named))
     .map((reading) => {
       const { span, key, context, stretch } = around(reading.start, reading.end);
       return {
