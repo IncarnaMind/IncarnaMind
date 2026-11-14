@@ -155,11 +155,11 @@ export const momentFound = (
 
 /**
  * A reading's line that may be a moment while it is still written: a time or an opening quotation
- * mark first, or nothing yet. Until it is finished its place is a room, since which kind it is can't
- * be told yet.
+ * mark first, the start of a time so far, or nothing yet. Until it is finished its place is a room,
+ * since which kind it is can't be told yet.
  */
 export const momentBegun = (pieces: readonly ReplyPiece[]): boolean =>
-  /^\s*(?:\d{1,2}:\d{2}|[“"「『«]|$)/u.test(lineText(pieces));
+  /^\s*(?:\d{1,2}:\d{2}|\d{1,2}(?::\d?)?\s*$|[“"「『«]|$)/u.test(lineText(pieces));
 
 /** The Citation markers a line of the reply carries, each once, in its order. */
 export const markersOf = (pieces: readonly (readonly ReplyPiece[])[]): number[] => [

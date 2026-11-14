@@ -186,7 +186,8 @@ export function QuoteRows({
   return (
     <>
       {lines.map((line) => (
-        <QuoteRow key={line.markers.join(" ")} line={line} moment={moment} {...shown} />
+        // A joined number comes after the line's first, so the line stays the same element.
+        <QuoteRow key={line.markers[0]} line={line} moment={moment} {...shown} />
       ))}
     </>
   );

@@ -152,16 +152,17 @@ const meetingWith = (help: MeetingHelp | null) =>
     helpTemplate: null,
   }) as unknown as Meeting;
 
-/** The price sheet's line, its sentence passed by the check: the chip shows ✓. */
-const PASSED = {
+/** What they said at 6:00, the reading's quoted words found there: its moment shows ✓. */
+const SAID = {
   marker: 1,
-  documentId: "price-sheet",
-  documentName: "Northwind price sheet",
-  quote: "Rollout before the June audit",
-  location: null,
+  passageId: "call-1",
+  documentId: "transcript",
+  documentName: "Transcript · Northwind call",
+  quote: "We need it all live before our audit in June.",
+  location: { kind: "time", from: 360_000, to: 364_000, speaker: "Them" },
   check: "found",
-  judgedAt: "2026-11-12T20:00:00.000Z",
-  passedAt: [0],
+  checkReason: null,
+  quotedWordsFound: ["before our audit in June"],
 };
 
 const answerOf = (
@@ -175,7 +176,7 @@ const answerOf = (
     conversationId: "help-chat",
     questionId: `question-${id}`,
     text,
-    citations: text.includes("[^1]") ? [PASSED] : [],
+    citations: text.includes("[^1]") ? [SAID] : [],
     figures: [],
     analyses: [],
     model: null,
@@ -284,7 +285,7 @@ const shown = () => ({
   pin: all("help-pin").length > 0,
   add: all("help-add").length > 0,
   added: all("help-added").length > 0,
-  checks: container.querySelectorAll('[data-testid="help-citation"][data-passed="true"]').length,
+  checks: all("help-quote-found").length,
 });
 
 /** The panel between a press of Sum up so far and its reply's first words. */
@@ -645,7 +646,8 @@ describe("A Citation of an earlier call in a reply (#3005)", () => {
       );
       await loaded([answer]);
 
-      const title = all("help-citation")[0]?.getAttribute("title") ?? "";
+      // The reading's moment is plain, so its number sits on the moment line the app draws.
+      const title = all("help-quote-number")[0]?.getAttribute("title") ?? "";
       expect(title).toMatch(shape);
       expect(title).not.toContain(foreign);
     },
