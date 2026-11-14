@@ -428,7 +428,7 @@ describe("A call-help reply reads alike in its panel and its check (#2925)", () 
     expect(shown.slice(first).every(Boolean)).toBe(true);
   });
 
-  // protects=a reply kept before the "→" rule, a marker still on its "→" line, shows each other chip at the place its check gave it, so no ✓ moves to another chip; fails_when=the second option's chip counts its place without the "→" line's marker; no_claim=how such a reply was written.
+  // protects=a reply kept before the "→" rule, a marker still on its "→" line, gives each other chip the place its sentence check counted, which Check again on an older reply counts too; fails_when=the second option's chip counts its place without the "→" line's marker; no_claim=how such a reply was written.
   test("a reply kept with a marker on its → line shows every other chip at its place as written", () => {
     const reply = `★ ${A}[^1]\n→ It answers the roof worry [^2]\n\n${B}[^3]\n→ It moves to the lease.`;
     const read = helpReplyRead(reply, helpLayout("say", { status: "done", textBehind: false }));

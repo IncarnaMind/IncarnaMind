@@ -123,6 +123,9 @@
       }
     },
     {
+      "type": "ending"
+    },
+    {
       "type": "finished"
     }
   ]

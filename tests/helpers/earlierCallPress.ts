@@ -1,7 +1,7 @@
 import type { Core } from "../../src/core";
 import type { Language } from "../../src/core/language";
 import { answerEnded } from "./citations";
-import { createTempDataFolder } from "./core";
+import { createTempDataFolder, queryDatabase } from "./core";
 import { addAndProcess, writeSourceFile } from "./documents";
 import { connectToMind } from "./mindClient";
 import { writeMind } from "./minds";
@@ -168,6 +168,33 @@ export async function pressedBeforeFirstLine(language: Language) {
   await answerEnded(core, pressed.answerId);
   const pressIds = { conversationId: pressed.conversation.id, answerId: pressed.answerId };
   return { core, dataDir, line, batches, pressIds, earlier: stopped.document.id };
+}
+
+/**
+ * A press's reply as a version that judged a press's sentences stored it, before #2847: each
+ * Citation not checked, as that judging left one it couldn't or wouldn't check. No operation of
+ * this version writes a press's Citation so, since a press is no longer judged.
+ */
+export async function storedAsJudgedBefore(
+  core: Core,
+  dataDir: string,
+  ids: { conversationId: string; answerId: string },
+) {
+  const { answer } = await turnOf(core, ids);
+  queryDatabase(
+    dataDir,
+    "UPDATE conversation_messages SET citations = ? WHERE id = ? RETURNING id",
+    [
+      JSON.stringify(
+        answer.citations.map((citation) => ({
+          ...citation,
+          check: "not-checked",
+          checkReason: null,
+        })),
+      ),
+      ids.answerId,
+    ],
+  );
 }
 
 /** The press's Question and Answer, as the conversation holds them. */

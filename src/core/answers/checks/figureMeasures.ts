@@ -78,7 +78,8 @@ export const namesSomething = (text: string): boolean => /\p{L}/u.test(withoutNu
 
 /** A table's row: its cells apart by tabs or bars. */
 export const isRow = (line: string): boolean => line.includes("\t") || /\S\s*\|\s*\S/.test(line);
-const isRule = (line: string): boolean => /^[\s|:-]+$/.test(line) && line.includes("-");
+/** A Markdown table's rule under its heading line: "|---|:---:|". */
+export const isRule = (line: string): boolean => /^[\s|:-]+$/.test(line) && line.includes("-");
 
 /** Width, case and runs of spaces aside; a sheet's tabs and every line break stay. */
 const flat = (text: string): string =>
@@ -132,7 +133,7 @@ function boundAt(
 }
 
 /** A row's cells, by the separator it uses: tabs in a sheet, else bars. */
-const cellsOf = (line: string): string[] => line.split(line.includes("\t") ? "\t" : "|");
+export const cellsOf = (line: string): string[] => line.split(line.includes("\t") ? "\t" : "|");
 
 /** Which cell of `line` holds offset `at`. */
 const cellAt = (line: string, at: number): number => cellsOf(line.slice(0, at)).length - 1;
