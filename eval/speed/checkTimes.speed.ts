@@ -378,8 +378,7 @@ async function ranksOf(core: Core, language: Language): Promise<Ranked[]> {
     const found = await core.findPassages({ text: item.sentence, mindId, scope: null });
     // A table's row is read back as its cells, which its Passage lays out its own way.
     const holds = (text: string, line: string) =>
-      findQuote(text, line) !== null ||
-      line.split(",").every((cell) => text.includes(cell.trim()));
+      findQuote(text, line) !== null || line.split(",").every((cell) => text.includes(cell.trim()));
     ranked.push({
       id: item.id,
       language,
@@ -712,18 +711,23 @@ timedChecks("where a check's time goes, on each model and language", async () =>
   const passesOf = (flow: string) =>
     (flow === "answer" ? answerSizes : [{ size: null, count: runs }])
       .flatMap(({ size, count }) =>
-        Array.from({ length: count }, (_, at) => ({ size, run: at + 1, runs: count })),
+        Array.from({ length: count }, (_, at) => ({
+          size,
+          run: roundFrom + at,
+          runs: roundFrom + count - 1,
+        })),
       )
       .flatMap((pass, pair) => {
         const asked = flow === "answer" ? arms : [null];
         return asked.map((_, at) => ({ ...pass, arm: asked[(at + pair) % asked.length] ?? null }));
       })
-      .flatMap((pass, pair) =>
+      // The order turns with the round's own number, so rounds run apart take turns as one run would.
+      .flatMap((pass) =>
         checkArms.length === 0
           ? [{ ...pass, checkArm: null }]
           : checkArms.map((_, at) => ({
               ...pass,
-              checkArm: checkArms[(at + pair) % checkArms.length] ?? null,
+              checkArm: checkArms[(at + pass.run - 1) % checkArms.length] ?? null,
             })),
       );
   const stopUsd = Number(env("STOP_USD") ?? "3");
@@ -734,7 +738,12 @@ timedChecks("where a check's time goes, on each model and language", async () =>
     arm?: string;
     checkArm?: string;
   } | null = null;
+  // A gate's later rounds run apart from its priced first: they number on from it, and the report
+  // reads its rounds with theirs.
+  const roundFrom = Number(env("ROUND_FROM") ?? "1");
   const results: FlowTimes[] = [];
+  for (const prior of list("PRIOR") ?? [])
+    results.push(...(JSON.parse(await readFile(prior, "utf8")) as FlowTimes[]));
   const judge = env("ANSWER_SET") === "room" && env("JUDGE") ? judgeOf(models) : null;
   const judged: Record<string, string[] | null> = {};
   const unstatedIds = () => unstatedIdsFrom(judged);
