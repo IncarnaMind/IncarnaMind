@@ -1948,8 +1948,9 @@ describe("A table's row and units column label its values (#2997)", { timeout: 1
     ]);
   });
 
-  // protects=known costs, a units column with no cell that is a unit alone, every cell having words after its unit (all 吨标准煤, the one row 综合能耗 ⇥ 吨标准煤, all "t CO2e"), read as a column of organisations' names as "美元基金公司" is, so its rows read exactly as main reads them, right and wrong alike: the right 吨标准煤 sentence and the wrong 31万吨标准煤 both the model's ✓ and Unsupported in Check against Documents, and both "t CO2e" sentences Not checked and Supported; fails_when=any reads otherwise without this list changing; no_claim=that the column names organisations.
-  test("known costs of a units column with no unit alone", async () => {
+  // protects=known costs, a units column with no cell that is a unit alone, every cell having words after its unit (all 吨标准煤, the one row 综合能耗 ⇥ 吨标准煤, all "t CO2e"), read as a column of organisations' names as "美元基金公司" is, so its rows read exactly as main reads them, right and wrong alike: the right 吨标准煤 sentence and the wrong 31万吨标准煤 both the model's ✓ and Unsupported in Check against Documents, and both "t CO2e" sentences Not checked and Supported; fails_when=any reads otherwise without this list changing, as the next part of #2997 means to turn them; no_claim=that the column names organisations.
+  test("known costs of a units column with no unit alone (#2997)", async () => {
+    // #2997: a figure off by a scale word keeps its ✓ here, and the right sentence reads Unsupported in Check against Documents.
     const coal = "指标\t单位\t2024年\n综合能耗\t吨标准煤\t31\n购入能耗\t吨标准煤\t54";
     const one = "指标\t单位\t2023年\t2024年\n综合能耗\t吨标准煤\t54\t31";
     const carbon = "Item\tUnit\t2024\nScope 1\tt CO2e\t31\nScope 2\tt CO2e\t54";
