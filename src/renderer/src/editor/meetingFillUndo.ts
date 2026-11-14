@@ -175,9 +175,10 @@ function watchHandOvers(): void {
     }
   });
   useAppStore.subscribe(({ layout }) => {
-    if (!layout) return;
+    const kept = handedOver();
+    if (!layout || kept.length === 0) return;
     const open = new Set(layout.groups.flatMap((group) => group.tabs.map((tab) => tab.id)));
-    for (const { meetingId, tabId } of handedOver()) {
+    for (const { meetingId, tabId } of kept) {
       if (!open.has(tabId)) endHandOver(meetingId, tabId);
     }
   });
