@@ -106,7 +106,9 @@ for (const [language, width] of [
         translate(language, "claim.state.unitsMayDiffer"),
       );
       const part = card.getByTestId("claim-part");
-      await expect(part).toContainText(translate(language, "claim.state.unitsMayDiffer"));
+      // The verdict is the card's, said once at its top; its part gives the reason (#2869).
+      await expect(part).toBeVisible();
+      await expect(part).not.toContainText(translate(language, "claim.state.unitsMayDiffer"));
       await expect(part.getByTestId("claim-part-reason")).toHaveText(
         translate(language, "claim.unsupported.unitsMayDiffer", { amount: "91,500,000" }),
       );
