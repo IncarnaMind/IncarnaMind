@@ -1,4 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
+import { createServer, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
 import { join, resolve } from "node:path";
 import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
 import type { Editor } from "@tiptap/core";
@@ -72,7 +74,8 @@ const LINES = {
     decisions: "Decisions",
     actions: "Action items",
     partial: "Note partly filled in",
-    noAdditions: "No notes added",
+    notFilled:
+      "The note wasn’t filled in: none of what the model wrote could be checked against the transcript",
     omittedOne: "1 item couldn’t be added",
     omittedTwo: "2 items couldn’t be added",
     transcript: "View Transcript",
@@ -93,7 +96,7 @@ const LINES = {
     decisions: "决定",
     actions: "待办",
     partial: "笔记未能全部补全",
-    noAdditions: "未添加笔记",
+    notFilled: "未能补全笔记：模型写的内容都没能在转写稿中核对上",
     omittedOne: "1 项内容未能添加",
     omittedTwo: "2 项内容未能添加",
     transcript: "查看转写稿",
@@ -275,7 +278,7 @@ async function ownTranscriptRoundTrip(
   });
   try {
     const serialized = await retained.evaluate(({ document }) => JSON.stringify(document));
-    for (const status of [words.filled, words.partial, words.noAdditions]) {
+    for (const status of [words.filled, words.partial, words.notFilled]) {
       expect(serialized).not.toContain(status);
     }
     await expect(panel.getByTestId("meeting-view-chip")).toHaveText(words.recordedChip);
@@ -480,13 +483,12 @@ for (const language of ["en", "zh-CN"] as const) {
         }, language);
         await pointAndClick(window, bar.getByTestId("meeting-stop"));
         const line = window.getByTestId("meeting-fill-line");
-        await expect(line).toContainText(
-          outcome === "partial" ? words.partial : words.noAdditions,
-          { timeout: 30_000 },
-        );
-        await expect(line).toContainText(
-          outcome === "partial" ? words.omittedOne : words.omittedTwo,
-        );
+        await expect(line).toContainText(outcome === "partial" ? words.partial : words.notFilled, {
+          timeout: 30_000,
+        });
+        // Not filled, the reason already says no item could be checked: the count is left off.
+        if (outcome === "partial") await expect(line).toContainText(words.omittedOne);
+        else await expect(line).not.toContainText(words.omittedTwo);
         if (outcome === "partial") await closeFirstFillPopover(window);
         await expect(line).not.toContainText(words.filled);
         await expect(line).toHaveAttribute("role", outcome === "partial" ? "status" : "alert");
@@ -572,6 +574,22 @@ for (const language of ["en", "zh-CN"] as const) {
           await expect(line).toContainText(words.undone);
           await expect(line.getByTestId("meeting-fill-again")).toHaveText(words.again);
           await expectFillPlace(notes, []);
+          // The line offers no Try again: Undo, then Fill in again, reaches what it left out (#3099).
+          await pointAndClick(window, line.getByTestId("meeting-fill-again"));
+          await expect(line).toContainText(words.partial, { timeout: 30_000 });
+          await expect(line).toContainText(words.omittedOne);
+          await expect(line.getByTestId("meeting-fill-undo")).toHaveText(words.undo);
+          await expect(line.getByTestId("meeting-fill-again")).toHaveCount(0);
+          const refilled = await recordedMeeting(window);
+          expect(refilled.fill).toMatchObject({ state: "filled", omitted: 1, unfinishedParts: 0 });
+          if (!refilled.fill?.addedBlockIds?.length)
+            throw new Error("Expected the second fill's added Block IDs");
+          await expectFillPlace(notes, refilled.fill.addedBlockIds);
+          const action = notes.locator("h2:not(:has(.generated-text)) + ul > li");
+          await expect(action).toHaveCount(1);
+          await expect(action.getByTestId("citation")).toHaveAttribute("data-check", "found");
+          await expect(controlNote).toHaveText(control);
+          await expectActionsFit(line);
         } else {
           await expect(blocks).toHaveText(original);
           const retry = line.getByTestId("meeting-fill-again");
@@ -593,8 +611,8 @@ for (const language of ["en", "zh-CN"] as const) {
             await expect
               .poll(() => attempt.evaluate(({ observed }) => observed), { timeout: 30_000 })
               .toEqual({ filling: true, failed: true });
-            await expect(line).toContainText(words.noAdditions);
-            await expect(line).toContainText(words.omittedTwo);
+            await expect(line).toContainText(words.notFilled);
+            await expect(line).not.toContainText(words.omittedTwo);
             await expect(line).not.toContainText(words.filled);
             await expect(line).toHaveAttribute("role", "alert");
             expect(
@@ -710,6 +728,79 @@ for (const language of ["en", "zh-CN"] as const) {
     } finally {
       await app.close();
       await removeDataFolder(sources);
+    }
+  });
+}
+
+/** A model server on this computer that refuses every request as a refused key. */
+async function refusingServer(): Promise<{ server: Server; url: string }> {
+  const server = createServer((request, response) => {
+    request.resume();
+    request.on("end", () => {
+      response.writeHead(401, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: { message: "refused for the test" } }));
+    });
+  });
+  await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
+  const { port } = server.address() as AddressInfo;
+  return { server, url: `http://127.0.0.1:${port}` };
+}
+
+for (const language of ["en", "zh-CN"] as const) {
+  // protects=a problem line's two actions stay together: at the window width where the refused key's fix and Try again used to land on two rows, they share one row, under the sentence (#3099); fails_when=Try again or the fix starts a row of its own, or the pair sits on the sentence's own row; no_claim=pixels, or the line's words, which tests/renderer/meetingFillLine.test.ts reads.
+  test(`a refused key's fix and Try again stay on one row, under the sentence, where the line wraps (${language})`, async () => {
+    const words = LINES[language];
+    const model = await refusingServer();
+    const { app, window } = await launchApp(dataDir, {
+      ollama: model.url,
+      ollamaApp: "missing",
+      transcriber: { lines: [words.speech[0]], theirLines: [words.speech[1]] },
+    });
+    try {
+      await setWindowSize(app, window, 900, 760);
+      await dismissChatSetup(window);
+      await window.evaluate(async (baseUrl) => {
+        const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+        await core.saveChatProvider({ kind: "ollama", baseUrl, modelId: "test-model" });
+      }, model.url);
+      const bar = await startRecording(window, await recordMeeting(window), { notice: true });
+      await firstTranscriptLine(window);
+      const notes = window.getByTestId("mind-editor");
+      await pointAndClick(window, notes);
+      await focusSettled(window, notes);
+      for (const text of words.notes) {
+        await window.keyboard.type(text);
+        await window.keyboard.press("Enter");
+      }
+      await window.keyboard.type(`## ${words.actions}`);
+      await window.evaluate(async (chosen) => {
+        const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+        await core.updateSettings({ user: { language: chosen } });
+      }, language);
+      await pointAndClick(window, bar.getByTestId("meeting-stop"));
+      const line = window.getByTestId("meeting-fill-line");
+      const fix = line.getByTestId("meeting-fill-fix");
+      const again = line.getByTestId("meeting-fill-again");
+      await expect(fix).toBeVisible({ timeout: 30_000 });
+      await expect(again).toHaveText(words.retry);
+      // The widths where the pair used to split: the note's column is narrowest there.
+      await setWindowSize(app, window, language === "en" ? 1025 : 1125, 760);
+      await motionSettled(window);
+      await expect
+        .poll(async () => {
+          const [whole, first, second] = await Promise.all([
+            line.boundingBox(),
+            fix.boundingBox(),
+            again.boundingBox(),
+          ]);
+          if (!whole || !first || !second) return "not shown";
+          if (Math.abs(first.y - second.y) >= 2) return "two rows";
+          return first.y > whole.y + 2 ? "one row, under the sentence" : "on the sentence's row";
+        })
+        .toBe("one row, under the sentence");
+    } finally {
+      await app.close();
+      await new Promise((done) => model.server.close(done));
     }
   });
 }

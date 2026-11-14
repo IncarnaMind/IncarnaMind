@@ -11756,6 +11756,8 @@ export interface MeetingFill {
 /**
  * Why the notes weren't filled in:
  * - "model": the model failed (`message`: its words, or a provider error's);
+ * - "empty": the model's reply held nothing to add;
+ * - "unchecked": none of what the model wrote could be checked against the Transcript;
  * - "stopped": IncarnaMind closed while they were being filled in;
  * - "local-mode": "Keep everything on this computer" is on and the Mind's model isn't local;
  * - "not-allowed": the User hasn't allowed sending to the model's service yet (`service`);
@@ -11768,6 +11770,8 @@ export interface MeetingFill {
 export interface MeetingFillProblem {
   kind:
     | "model"
+    | "empty"
+    | "unchecked"
     | "stopped"
     | "local-mode"
     | "not-allowed"
@@ -11778,6 +11782,10 @@ export interface MeetingFillProblem {
   message: string;
   /** For "not-allowed": the service's name, as the User knows it. */
   service?: string;
+  /** For "model" from the provider: its error's kind, which the line may word as an Answer's does. */
+  error?: ProviderErrorKind;
+  /** With `error`: the model the fill asked. */
+  model?: ChatModelChoice;
 }
 
 export type { CallHelpKind, HelpKeys, MeetingHelpKind, MeetingHelpTemplate };

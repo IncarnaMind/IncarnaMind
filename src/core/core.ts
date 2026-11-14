@@ -282,7 +282,7 @@ import {
   otherCallTranscripts,
 } from "./meetings";
 import { listParts, meetingFolder } from "./meetings/audioFiles";
-import { createMeetingFill } from "./meetings/fill";
+import { createMeetingFill, reasonAlone } from "./meetings/fill";
 import { createCaptureHealth } from "./meetings/health";
 import { type MemoCue, memoTitle } from "./meetings/memo";
 import { createMeetingOffers, offerAllowed } from "./meetings/offers";
@@ -2207,8 +2207,8 @@ export function createCore(adapters: CoreAdapters): Core {
       writesThenCites({ catalogId: provider.catalogId, modelId }, flow, adapters.answerPaths),
     retrievesFirst: ({ provider, modelId }, flow) =>
       retrievesFirst({ catalogId: provider.catalogId, modelId }, flow, adapters.answerPaths),
-    async prepareQuickModel(answers, prepared) {
-      const quick = chat.quickTasksModel(answers);
+    async prepareQuickModel(answers, prepared, own = false) {
+      const quick = own ? null : chat.quickTasksModel(answers);
       // An Answer on this computer keeps its small calls there too.
       const stayHere =
         !quick ||
@@ -5196,7 +5196,7 @@ export function createCore(adapters: CoreAdapters): Core {
         return {
           problem: {
             kind: "model-removed",
-            message: translate(language, "meetings.fill.problem.modelRemoved"),
+            message: reasonAlone(language, "meetings.fill.problem.modelRemoved"),
           },
         };
       }
@@ -5208,9 +5208,12 @@ export function createCore(adapters: CoreAdapters): Core {
             readiness.reason === "local-mode"
               ? {
                   kind: "local-mode",
-                  message: translate(language, "meetings.fill.problem.localMode"),
+                  message: reasonAlone(language, "meetings.fill.problem.localMode"),
                 }
-              : { kind: "no-model", message: translate(language, "meetings.fill.problem.noModel") },
+              : {
+                  kind: "no-model",
+                  message: reasonAlone(language, "meetings.fill.problem.noModel"),
+                },
         };
       }
       // Filling in never asks: a service the User hasn't allowed yet waits for an Answer to ask.
@@ -5219,7 +5222,7 @@ export function createCore(adapters: CoreAdapters): Core {
         return {
           problem: {
             kind: "not-allowed",
-            message: translate(language, "meetings.fill.problem.notAllowed", { service }),
+            message: reasonAlone(language, "meetings.fill.problem.notAllowed", { service }),
             service,
           },
         };

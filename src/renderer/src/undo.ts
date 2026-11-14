@@ -135,6 +135,11 @@ interface UndoState {
   done: readonly Undoable[];
   /** The changes ⇧⌘Z does again, the last one taken back last. */
   undone: readonly Undoable[];
+  /**
+   * Changes on either stack that ⌘Z and ⇧⌘Z pass over for now, each keeping its place, as one made
+   * in a Note that doesn't show: Undo and Redo of it by name still run.
+   */
+  aside: readonly Undoable[];
   /** What the undo line shows: the change just made or done again, or why one didn't happen. */
   line: UndoLineState | null;
   /** The step being taken now, off both stacks until it ends: a key pressed meanwhile waits its turn. */
@@ -150,8 +155,13 @@ interface UndoState {
   showPlace(place: string): () => void;
   /** Puts a change just made on the stack and shows its line; nothing more can be redone. */
   push(change: Undoable): void;
-  /** Tracks an existing change without showing a new line or clearing Redo. */
-  offer(change: Undoable): void;
+  /**
+   * Tracks an existing change without showing a new line or clearing Redo: in the place of
+   * `inPlaceOf` when that is on the stack, else last.
+   */
+  offer(change: Undoable, inPlaceOf?: Undoable): void;
+  /** ⌘Z and ⇧⌘Z pass over a change on the stacks, or reach it again. */
+  setAside(change: Undoable, aside: boolean): void;
   /** Shows a line that isn't a change, in place of what shows, as after a tab closes. */
   tell(line: ToldLine): void;
   undo(change?: Undoable): Promise<void>;
@@ -172,9 +182,19 @@ interface UndoState {
   renew(change: Undoable): void;
 }
 
+/** The last change on `stack` that isn't set aside. */
+const lastOf = (stack: readonly Undoable[], aside: readonly Undoable[] = []) =>
+  stack.findLast((change) => !aside.includes(change));
+
+type Aside = Partial<Pick<UndoState, "aside">>;
+
 /** What ⌘Z takes back next, once the step being taken now has ended: a change being done again is. */
-export const nextToUndo = ({ done, running }: Pick<UndoState, "done" | "running">) =>
-  running?.step === "redo" ? running.change : done.at(-1);
+export const nextToUndo = ({
+  done,
+  running,
+  aside,
+}: Pick<UndoState, "done" | "running"> & Aside) =>
+  running?.step === "redo" ? running.change : lastOf(done, aside);
 
 /**
  * Whether ⌘Z has something to take back now: a change done, one being done again, or one still
@@ -184,12 +204,17 @@ export const undoReady = ({
   done,
   making,
   running,
-}: Pick<UndoState, "done" | "making" | "running">) =>
-  making > 0 || nextToUndo({ done, running }) !== undefined;
+  aside,
+}: Pick<UndoState, "done" | "making" | "running"> & Aside) =>
+  making > 0 || nextToUndo({ done, running, aside }) !== undefined;
 
 /** What ⇧⌘Z does again next, once the step being taken now has ended: a change being taken back is. */
-export const nextToRedo = ({ undone, running }: Pick<UndoState, "undone" | "running">) =>
-  running?.step === "undo" && running.change.redo ? running.change : undone.at(-1);
+export const nextToRedo = ({
+  undone,
+  running,
+  aside,
+}: Pick<UndoState, "undone" | "running"> & Aside) =>
+  running?.step === "undo" && running.change.redo ? running.change : lastOf(undone, aside);
 
 /**
  * Where the line shows: the place its change showed its line (`Undoable.shownAt`), or null for the
@@ -282,7 +307,7 @@ export const useUndo = create<UndoState>()((set, get) => {
             label: fix.label,
             run: async () => {
               await fix.run();
-              if (get()[stack].at(-1) === change) await get()[step]();
+              if (lastOf(get()[stack], get().aside) === change) await get()[step]();
             },
           },
         },
@@ -294,6 +319,7 @@ export const useUndo = create<UndoState>()((set, get) => {
   return {
     done: [],
     undone: [],
+    aside: [],
     line: null,
     running: null,
     making: 0,
@@ -311,16 +337,31 @@ export const useUndo = create<UndoState>()((set, get) => {
       if (get().done.at(-1) === change) return;
       set((state) => ({ done: [...state.done, change], undone: [], line: lineOf(change) }));
     },
-    offer(change) {
+    offer(change, inPlaceOf) {
       if (get().done.includes(change) || get().undone.includes(change)) return;
-      set((state) => ({ done: [...state.done, change] }));
+      set((state) =>
+        inPlaceOf && state.done.includes(inPlaceOf)
+          ? {
+              done: state.done.map((each) => (each === inPlaceOf ? change : each)),
+              aside: state.aside.filter((each) => each !== inPlaceOf),
+            }
+          : { done: [...state.done, change] },
+      );
+    },
+    setAside(change, aside) {
+      set((state) => {
+        if (state.aside.includes(change) === aside) return state;
+        if (!aside) return { aside: state.aside.filter((each) => each !== change) };
+        const kept = state.done.includes(change) || state.undone.includes(change);
+        return kept ? { aside: [...state.aside, change] } : state;
+      });
     },
     tell(line) {
       set({ line: { id: ++lines, told: line } });
     },
     undo: (wanted) =>
       inTurn(async () => {
-        const change = wanted ?? get().done.at(-1);
+        const change = wanted ?? lastOf(get().done, get().aside);
         if (!change || !get().done.includes(change)) return;
         set((state) => ({
           done: state.done.filter((each) => each !== change),
@@ -349,7 +390,7 @@ export const useUndo = create<UndoState>()((set, get) => {
       }),
     redo: (wanted) =>
       inTurn(async () => {
-        const change = wanted ?? get().undone.at(-1);
+        const change = wanted ?? lastOf(get().undone, get().aside);
         if (!change?.redo || !get().undone.includes(change)) return;
         set((state) => ({
           undone: state.undone.filter((each) => each !== change),
@@ -388,6 +429,7 @@ export const useUndo = create<UndoState>()((set, get) => {
       set((state) => ({
         done: state.done.filter((each) => each !== change),
         undone: state.undone.filter((each) => each !== change),
+        aside: state.aside.filter((each) => each !== change),
         ...(state.running?.change === change && { running: null }),
         ...(state.line?.change === change && { line: null }),
       }));

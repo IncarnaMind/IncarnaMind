@@ -6,7 +6,7 @@
 import { randomUUID } from "node:crypto";
 import * as Y from "yjs";
 import type { NodeJSON } from "../../shared/blockJson";
-import { type MessageKey, translate } from "../../shared/i18n";
+import { type MessageKey, type MessageParams, translate } from "../../shared/i18n";
 import { meetingFillCause } from "../../shared/meetingFill";
 import type { Logger } from "../adapters";
 import type { CellAnswer } from "../answers";
@@ -139,6 +139,13 @@ export interface MeetingFillOptions {
   filled(meeting: Meeting): void;
   log: Logger;
 }
+
+/**
+ * A fill's reason as its problem's `message`, a sentence said alone, as on hover. The reason's own
+ * words end bare, so the fill line can set a separator after them; this frame gives the ending.
+ */
+export const reasonAlone = (language: Language, key: MessageKey, params?: MessageParams) =>
+  translate(language, "meetings.fill.problem.alone", { reason: translate(language, key, params) });
 
 class FillProblemError extends Error {
   constructor(readonly problem: MeetingFillProblem) {
@@ -497,6 +504,14 @@ export function createMeetingFill(options: MeetingFillOptions) {
   };
 
   const words = (key: MessageKey) => translate(options.language(), key);
+  const alone = (key: MessageKey) => reasonAlone(options.language(), key);
+
+  /** A reply that failed, as the fill's problem: the provider's words, and its error's kind. */
+  const failure = (answer: CellAnswer, route: Routed): MeetingFillProblem => ({
+    kind: "model",
+    message: answer.error?.message ?? alone("meetings.fill.problem.model"),
+    ...(answer.error && { error: answer.error.kind, model: route.model }),
+  });
 
   /** One part of the Transcript answered, or the problem that stops the fill. */
   async function ask(
@@ -519,10 +534,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
       throw new FillProblemError({ kind: "stopped", message: "" });
     }
     if (answer.status === "failed" && !context.meetingFacts) {
-      throw new FillProblemError({
-        kind: "model",
-        message: answer.error?.message ?? words("meetings.fill.problem.model"),
-      });
+      throw new FillProblemError(failure(answer, route));
     }
     return answer;
   }
@@ -533,7 +545,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
     if (passages.length === 0) {
       throw new FillProblemError({
         kind: "no-transcript",
-        message: words("meetings.fill.problem.noTranscript"),
+        message: alone("meetings.fill.problem.noTranscript"),
       });
     }
     return passages;
@@ -628,7 +640,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
         problem =
           error instanceof FillProblemError
             ? error.problem
-            : { kind: "model", message: words("meetings.fill.problem.model") };
+            : { kind: "model", message: alone("meetings.fill.problem.model") };
         log.warn("meeting.fillPartFailed", { meetingId: meeting.id, parts: unfinishedParts });
         break;
       }
@@ -638,39 +650,34 @@ export function createMeetingFill(options: MeetingFillOptions) {
         ...parsed.facts.flatMap((fact) => fact.sections.map((section) => section.toUpperCase())),
         ...(parsed.facts.some((fact) => fact.claim) ? ["CLAIMS"] : []),
       ];
+      // A section that no heading of the User's can take goes under its own title with every fact:
+      // nothing is missing, so it isn't a problem (#3099).
       const routed = headingRoutes(answer.markdown, markers, lines);
-      if (routed === null) {
-        problem ??= { kind: "model", message: words("meetings.fill.problem.model") };
-        log.warn("meeting.fillRoutingFailed", { meetingId: meeting.id });
-      }
+      if (routed === null) log.warn("meeting.fillRoutingFailed", { meetingId: meeting.id });
       for (const [section, heading] of routed ?? []) {
         const conflicts =
           (destinations.has(section) && destinations.get(section) !== heading) ||
           [...destinations].some(([other, target]) => other !== section && target === heading);
-        if (conflicts) {
-          problem ??= { kind: "model", message: words("meetings.fill.problem.model") };
-          log.warn("meeting.fillRoutingFailed", { meetingId: meeting.id });
-        } else destinations.set(section, heading);
+        if (conflicts) log.warn("meeting.fillRoutingFailed", { meetingId: meeting.id });
+        else destinations.set(section, heading);
       }
       if (answer.status === "failed") {
         unfinishedParts = parts.length - index;
-        problem = {
-          kind: "model",
-          message: answer.error?.message ?? words("meetings.fill.problem.model"),
-        };
+        problem = failure(answer, route);
         log.warn("meeting.fillPartFailed", { meetingId: meeting.id, parts: unfinishedParts });
         break;
       }
     }
     if (ledger.invalidFrames > 0) {
-      problem ??= { kind: "model", message: words("meetings.fill.problem.model") };
+      problem ??= { kind: "model", message: alone("meetings.fill.problem.model") };
       log.warn("meeting.fillInvalidFrames", {
         meetingId: meeting.id,
         frames: ledger.invalidFrames,
       });
     }
     const { overview } = ledger;
-    const omitted = ledger.omitted(unfinishedParts === 0);
+    // A malformed part has no id to count it by, but it was left out all the same (#3099).
+    const omitted = ledger.omitted(unfinishedParts === 0) + ledger.invalidFrames;
     if (omitted > 0) {
       log.warn("meeting.fillItemsOmitted", {
         meetingId: meeting.id,
@@ -681,14 +688,10 @@ export function createMeetingFill(options: MeetingFillOptions) {
     set(meeting.id, { omitted, unfinishedParts });
     if (ledger.facts.length === 0 && overview === null) {
       throw new FillProblemError(
-        problem ?? {
-          kind: "model",
-          message: words(
-            ledger.omitted(false) > 0
-              ? "meetings.fill.problem.unchecked"
-              : "meetings.fill.problem.empty",
-          ),
-        },
+        problem ??
+          (ledger.omitted(false) > 0
+            ? { kind: "unchecked", message: alone("meetings.fill.problem.unchecked") }
+            : { kind: "empty", message: alone("meetings.fill.problem.empty") }),
       );
     }
     const retained = ledger.facts;
@@ -783,7 +786,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
       if (cues.length === 0) {
         throw new FillProblemError({
           kind: "no-transcript",
-          message: words("meetings.fill.problem.noTranscript"),
+          message: alone("meetings.fill.problem.noTranscript"),
         });
       }
       const nodes = asItIs(title, cues, options.citeUnit);
@@ -811,13 +814,13 @@ export function createMeetingFill(options: MeetingFillOptions) {
     }
     const note = tidiedNote(replies);
     if (note.paragraphs.length === 0) {
-      throw new FillProblemError({ kind: "model", message: words("meetings.fill.problem.empty") });
+      throw new FillProblemError({ kind: "empty", message: alone("meetings.fill.problem.empty") });
     }
     const said = passages.map((passage) => passage.text).join("\n");
     const added = wordsAdded(note.paragraphs.map(textOf).join("\n"), said);
     if (added.length > 0) {
       log.warn("meeting.memoAddedWords", { meetingId: meeting.id, words: added.length });
-      return asIs({ kind: "added", message: words("memos.fill.problem.added") });
+      return asIs({ kind: "added", message: alone("memos.fill.problem.added") });
     }
     const named = note.title !== "" && wordsAdded(note.title, said).length === 0;
     const nodes = memoBlocks(named ? note.title : title, note.paragraphs);
@@ -836,7 +839,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
     if (!transcriptId || meeting.transcript?.state === "empty") {
       set(meetingId, {
         state: "off",
-        problem: { kind: "no-transcript", message: words("meetings.fill.problem.noTranscript") },
+        problem: { kind: "no-transcript", message: alone("meetings.fill.problem.noTranscript") },
       });
       return;
     }
@@ -848,7 +851,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
         meetingId,
         message: error instanceof Error ? error.message : String(error),
       });
-      route = { problem: { kind: "no-model", message: words("meetings.fill.problem.noModel") } };
+      route = { problem: { kind: "no-model", message: alone("meetings.fill.problem.noModel") } };
     }
     // Its note went to Recently deleted meanwhile: the fill waits for it to come back (`restored`).
     if (closed || meetings.isDeleted(meetingId)) return;
@@ -1011,7 +1014,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
         local: false,
         problem: transcribed
           ? null
-          : { kind: "no-transcript", message: words("meetings.fill.problem.noTranscript") },
+          : { kind: "no-transcript", message: alone("meetings.fill.problem.noTranscript") },
         blocks: [],
       });
     },

@@ -44,6 +44,7 @@ import { detectLanguage, LANGUAGE_SAMPLE } from "../documents/textLanguage";
 import { outputTokens } from "../providers/outputLimits";
 import type { AnswerEngineEvent, AnswerRequest, AnswerTools } from "./engine";
 import type { AskedLine } from "./helpCitations";
+import { fenceClosedBy, fenceOpened } from "./jsonFences";
 import { fieldsOf, judge, list, structured } from "./judge";
 import {
   answerTableUnits,
@@ -334,8 +335,11 @@ function takingMarkers(
   matched: readonly Found[],
 ): Found[] {
   const units = markedUnits(answer).map((unit) => ({ ...unit, words: wordsOf(unit.text) }));
-  const taken = new Set(
-    matched.flatMap((match) => (match.marker === undefined ? [] : [match.marker])),
+  /** Each marker taken, with the quote that took it. */
+  const taken = new Map(
+    matched.flatMap((match) =>
+      match.marker === undefined ? [] : [[match.marker, match.quote] as const],
+    ),
   );
   return asked.flatMap((match) => {
     const words = wordsOf(match.sentence);
@@ -351,9 +355,12 @@ function takingMarkers(
     if (own && (own.markers.some(recorded) || matched.some((each) => each.start === own?.start))) {
       return [];
     }
+    // A marker used in two sentences is given its quote twice: the second time it would take the
+    // sentence's other marker, citing a line that marker never named (#3099).
+    if (own?.markers.some((marker) => taken.get(marker) === match.quote)) return [];
     const orphan = own?.markers.find((marker) => !taken.has(marker));
     if (!own || orphan === undefined) return [match];
-    taken.add(orphan);
+    taken.set(orphan, match.quote);
     return [{ ...match, marker: orphan, start: own.start, end: own.end }];
   });
 }
@@ -632,6 +639,77 @@ async function askForCitations(
   if (!judged.ok && judged.error)
     console.error(`The Answer's Citations couldn't be asked for: ${judged.error.message}`);
   return judged.ok ? judged.value : [];
+}
+
+/**
+ * The lines of a reply that hold a Citation marker: its sentences, not its code, headings or
+ * footnotes. A marker written after its sentence's full stop is put before it: read as written,
+ * "Agreed. [^4]" leaves [^4] to no sentence, and no record could take it.
+ */
+function markedLines(reply: string): string {
+  const lines: string[] = [];
+  let fence: string | null = null;
+  for (const line of reply.split("\n")) {
+    if (fence !== null) {
+      if (fenceClosedBy(fence, line)) fence = null;
+      continue;
+    }
+    fence = fenceOpened(line);
+    if (fence === null && !/^ {0,3}(?:#|\[\^\d{1,4}\]:)/.test(line) && /\[\^\d{1,4}\]/.test(line))
+      lines.push(
+        line
+          .trim()
+          .replace(
+            /([.!?。！？]+)[ \t]*((?:\[\^\d{1,4}\][ \t]*)+)/gu,
+            (_, stop: string, markers: string) => ` ${markers.trim()}${stop}`,
+          ),
+      );
+  }
+  return lines.join("\n\n");
+}
+
+/**
+ * A Meeting fill's reply that wrote its Citation markers and called no `cite` (#3099): their
+ * records, asked for once in the one request for an Answer's Citations, of the model that wrote
+ * the reply. Its sentences stay as written: a record takes only a marker its sentence holds with no
+ * record, and only a quote the check finds is kept.
+ */
+export async function recordMarkedSentences(
+  request: Pick<AnswerRequest, "model" | "ownQuickModel" | "documents" | "signal">,
+  reply: string,
+  temperature: number | undefined,
+  budget?: WindowBudget | null,
+): Promise<void> {
+  const { documents, signal, ownQuickModel } = request;
+  if (!documents.shownPassages || !documents.quoteFound || !documents.hasRecord) return;
+  const passages = documents.shownPassages();
+  const sentences = markedLines(reply);
+  if (passages.length === 0 || sentences === "") return;
+  // The fill read every Passage of its part whole: only a window limits what the request shows.
+  const toAsk = budget ? passagesToAsk(sentences, passages, budget) : passages;
+  if (toAsk.length === 0) return;
+  const given = await askForCitations(
+    { model: request.model, signal, ...(ownQuickModel && { quickModel: ownQuickModel }) },
+    sentences,
+    toAsk,
+    temperature,
+  );
+  if (signal.aborted) return;
+  const found = given.filter((each) => documents.quoteFound?.(each.passage, each.quote) ?? false);
+  const recorded = (marker: number) => documents.hasRecord?.(marker) ?? false;
+  const records = takingMarkers(found, sentences, recorded, []).flatMap((each) =>
+    each.marker === undefined
+      ? []
+      : [{ marker: each.marker, passage: each.passage, quote: each.quote }],
+  );
+  if (records.length === 0) return;
+  try {
+    documents.cite(records, { structured: true });
+  } catch (error) {
+    console.error(
+      `The fill's asked Citations couldn't be recorded: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
 }
 
 /**
