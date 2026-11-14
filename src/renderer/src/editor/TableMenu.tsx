@@ -9,6 +9,7 @@ import { useT } from "../i18n";
 import { findBlock } from "./blockCommands";
 import { BLOCK_ID_ATTRIBUTE } from "./noteSchema";
 import { sameSpot, type TableSpot, tableSpot } from "./tableCommands";
+import { withKeys } from "./withShortcut";
 
 const BUTTON_SIZE = 20;
 /** How far the button sits inside the cell's top-right corner. */
@@ -102,7 +103,7 @@ export function TableMenu({ editor }: { editor: Editor }) {
           target={{ kind: "block", id: block }}
           note={editor}
           label={label}
-          hint={`${label} (${shortcutLabel("table.menu")})`}
+          hint={withKeys(t, label, shortcutLabel("table.menu"))}
           testId="table"
           className="table-menu-button"
           onOpenChange={setOpen}

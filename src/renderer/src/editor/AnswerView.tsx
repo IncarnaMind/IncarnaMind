@@ -725,7 +725,7 @@ function ToolApprovalCard({ request, keys }: { request: ToolApprovalRequest; key
           data-testid="approval-allow-once"
           onClick={() => decide("allow-once")}
           className="approval-button approval-button--primary"
-          {...withShortcut(t("approvals.card.allowOnce"), keys)}
+          {...withShortcut(t, t("approvals.card.allowOnce"), keys)}
         >
           {t("approvals.card.allowOnce")}
           {keys && <span className="approval-keys">{keys}</span>}
@@ -888,7 +888,7 @@ function ScriptApprovalCard({
             data-testid="approval-allow-once"
             onClick={() => respond(request.requestId, "allow-once")}
             className="approval-button approval-button--primary"
-            {...withShortcut(t("scripts.card.allowOnce"), keys)}
+            {...withShortcut(t, t("scripts.card.allowOnce"), keys)}
           >
             {t("scripts.card.allowOnce")}
             {keys && <span className="approval-keys">{keys}</span>}

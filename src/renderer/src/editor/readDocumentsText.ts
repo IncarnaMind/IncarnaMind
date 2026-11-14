@@ -21,7 +21,7 @@ export function readDocumentsText(
         document.locations.map((location) => formatLocation(location, t)),
         language,
       );
-      return places ? `${name} (${places})` : name;
+      return places ? t("claim.readDocuments.each", { name, places }) : name;
     })
     .join(t("claim.readDocuments.separator"));
 }
