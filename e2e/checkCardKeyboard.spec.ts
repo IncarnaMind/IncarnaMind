@@ -468,20 +468,25 @@ for (const language of ["en", "zh-CN"] as const) {
 
     // A Citation already on the Passage, a wider clause to widen to, and a Citation to replace:
     // the quote first, then what its Location line does with its Citation (#2869).
+    // A ✓ stands only beside a Citation that holds the Passage the check found, so the last two
+    // read Not checked, "Supported, not yet cited", until the Citation is widened or replaced (#3019).
     const variants = [
       {
+        check: "supported",
         sentence: words.alreadyCited,
         starts: words.alreadyStart,
         second: "claim-cited",
         label: "claim.alreadyCited.open" as MessageKey,
       },
       {
+        check: "not-checked",
         sentence: words.widenSentence,
         starts: words.widenStart,
         second: "claim-widen-citation",
         label: "claim.widenCitation" as MessageKey,
       },
       {
+        check: "not-checked",
         sentence: words.replaceSentence,
         starts: words.replaceStart,
         second: "claim-replace-citation",
@@ -493,7 +498,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await focusSettled(window, editor);
       const caret = await caretOf(editor);
       await showCheckFromCommand(window, t("claim.showCard"));
-      await expect(card).toHaveAttribute("data-check", "supported");
+      await expect(card).toHaveAttribute("data-check", variant.check);
       // The buttons the User can reach: a closed menu's items are in the card but not in the Tab order.
       const actions = card.locator("button:visible");
       const count = await actions.count();
@@ -545,7 +550,13 @@ for (const language of ["en", "zh-CN"] as const) {
     // Tab out of the text reaches the margin mark (past the sentence's Citation chip); Enter on it
     // opens the card with the focus on its first action.
     const mark = window.getByTestId("claim-mark").first();
+    // The browser starts Tab from where the User last clicked or focused, which a caret set by the
+    // page doesn't always move: sometimes it started past the mark and ended in a Citation's card.
+    const sentence = await editor.locator(":scope > p").first().boundingBox();
+    if (!sentence) throw new Error("The first sentence isn't drawn.");
+    await window.mouse.click(sentence.x + 2, sentence.y + sentence.height / 2);
     await focusSettled(window, editor);
+    const markCaret = await caretOf(editor);
     for (
       let pressed = 0;
       pressed < 5 && !(await mark.evaluate((each) => each === document.activeElement));
@@ -560,7 +571,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await window.keyboard.press("Escape");
     await expect(card).toHaveCount(0);
     await expect(editor).toBeFocused();
-    expect(await caretOf(editor)).toBe(caret);
+    expect(await caretOf(editor)).toBe(markCaret);
 
     // A card still checking has no action: its mark keeps the focus, and Tab moves on past the card.
     await cursorIn(editor, words.checking.slice(0, 20));

@@ -178,6 +178,27 @@ async function aNewNote(
   await newMind(window);
 }
 
+/**
+ * Waits until a row of the check card sits whole inside the card's body, as one scrolled out of
+ * it or cut by its foot would not (#3019). The fade the foot draws is part of what shows: a body
+ * of a title and one row has no room for the row above it.
+ */
+async function shownInBody(panel: Locator, row: Locator) {
+  const body = panel.locator(".check-card-body");
+  await expect
+    .poll(
+      async () => {
+        const [inner, outer] = await Promise.all([row.boundingBox(), body.boundingBox()]);
+        if (!inner || !outer) return "not drawn";
+        return inner.y >= outer.y - 0.5 && inner.y + inner.height <= outer.y + outer.height + 0.5
+          ? "inside"
+          : `row ${inner.y}..${inner.y + inner.height}, body ${outer.y}..${outer.y + outer.height}`;
+      },
+      { message: "the row is inside the visible body" },
+    )
+    .toBe("inside");
+}
+
 /** Check in the check card, which stays open while the check runs and after it ends. */
 async function checkFromCard(window: Page) {
   const card = await checkCard(window);
@@ -216,7 +237,7 @@ for (const [language, width] of [
     expect(await noteText(window)).toEqual(before);
     const row = panel.getByTestId("health-notYetCited");
     await expect(row).toContainText(words.row);
-    await expect(row).toBeInViewport({ ratio: 1 });
+    await shownInBody(panel, row);
     await expect(row.getByTestId("found-passages-add")).toHaveText(words.addAll);
     await expect(panel.getByTestId("health-toCheck")).toHaveCount(0);
     await expect(panel.getByTestId("health-supported")).toHaveCount(0);
@@ -296,11 +317,62 @@ for (const [language, width] of [
     const row = panel.getByTestId("health-notYetCited");
     await expect(row).toContainText(words.mixed.waiting);
     await expect(row.getByTestId("found-passages-add")).toHaveText(words.add);
-    await expect(row).toBeInViewport({ ratio: 1 });
+    await shownInBody(panel, row);
     await expect(panel.getByTestId("health-toCheck")).toHaveCount(0);
     await screenshot(window, `${language}-mixed`);
     await window.keyboard.press("Escape");
     await expect(window.getByTestId("check-badge")).toContainText(words.mixedBadge);
     await app.close();
   });
+  test(`a check that ends with nothing left shows its summary in the card it opened with (${language}, ${width}px)`, async () => {
+    test.setTimeout(180_000);
+    const opened = await launched();
+    const { app, window } = opened;
+    await useLocalChatModel(window);
+    await aNewNote(opened, language, width);
+    await writeNote(window, [SPRING]);
+
+    // The card opened with a row for the sentence to check; the check ends with no row for what is
+    // left, and its summary at the top of the body is brought into view (#3019).
+    const panel = await checkFromCard(window);
+    const summary = panel.getByTestId("health-all-checked");
+    await expect(summary).toBeVisible();
+    await shownInBody(panel, summary);
+    await app.close();
+  });
+}
+
+for (const language of ["en", "zh-CN"] as const) {
+  for (const width of [900, 1440]) {
+    test(`the check card keeps its height through the check's end, with the row of sentences not yet cited scrolled into its body (${language}, ${width}px)`, async () => {
+      test.setTimeout(180_000);
+      const words = WORDS[language];
+      const opened = await launched();
+      const { app, window } = opened;
+      await useLocalChatModel(window);
+      await aNewNote(opened, language, width);
+      await writeNote(window, [NEAP, HARBOUR]);
+
+      // The card opens before the check, and is still open when it ends: what the end brings
+      // lands in the card's body, not in a taller card (#2313), and is brought into view (#3019).
+      const panel = await checkCard(window);
+      const before = await panel.boundingBox();
+      if (!before) throw new Error("The card isn't drawn.");
+      await pointAndClick(window, panel.getByTestId("badge-check-mind"));
+      await expect(panel.getByTestId("card-foot-stop")).toHaveCount(0, { timeout: 30_000 });
+      const row = panel.getByTestId("health-notYetCited");
+      await expect(row).toContainText(words.row);
+      await shownInBody(panel, row);
+      await motionSettled(window);
+      await test.info().attach(`check-end-${language}-${width}`, {
+        body: await window.screenshot(),
+        contentType: "image/png",
+      });
+      const ended = await panel.boundingBox();
+      if (!ended) throw new Error("The card went at the check's end.");
+      expect(ended.height).toBeCloseTo(before.height, 0);
+      expect(ended.y).toBeCloseTo(before.y, 0);
+      await app.close();
+    });
+  }
 }

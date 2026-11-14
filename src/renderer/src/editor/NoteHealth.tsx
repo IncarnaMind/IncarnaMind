@@ -272,13 +272,23 @@ export function HealthCard({
   const rows = checkRows(health);
   const placesOf = (row: CheckRow): readonly number[] =>
     rows.find((each) => each.row === row)?.places ?? [];
-  // The card fits its rows again as a check ends; where they need more room than the window has,
-  // the row the check's end brings is scrolled into view (#3019).
+  const summary = healthSummary(health, {
+    running: running !== undefined,
+    problem: problem !== undefined,
+    unread: state?.unreadMatters === true ? state.unread : 0,
+  });
+  // The card keeps the height it opened with while a check runs (#2313): what the check's end
+  // brings can land below it, and is scrolled into view where it lands (#3019).
   const notYetCitedRow = useRef<HTMLDivElement>(null);
+  const allCheckedLine = useRef<HTMLParagraphElement>(null);
   const waitingShown = running === undefined && placesOf("notYetCited").length > 0;
+  const allCheckedShown = running === undefined && summary?.kind === "all";
   useEffect(() => {
     if (waitingShown) notYetCitedRow.current?.scrollIntoView({ block: "nearest" });
   }, [waitingShown]);
+  useEffect(() => {
+    if (allCheckedShown) allCheckedLine.current?.scrollIntoView({ block: "nearest" });
+  }, [allCheckedShown]);
 
   /**
    * Puts the cursor at the next such sentence after it, round to the first. It is centred by its
@@ -313,11 +323,6 @@ export function HealthCard({
     setOpenClaim(place, claim.check.id);
   };
 
-  const summary = healthSummary(health, {
-    running: running !== undefined,
-    problem: problem !== undefined,
-    unread: state?.unreadMatters === true ? state.unread : 0,
-  });
   const close = {
     label: t("checks.close"),
     testId: "checks-problem-close",
@@ -383,7 +388,7 @@ export function HealthCard({
   return (
     <>
       {summary?.kind === "all" && (
-        <p data-testid="health-all-checked" className="mind-health-summary">
+        <p ref={allCheckedLine} data-testid="health-all-checked" className="mind-health-summary">
           {t("health.allChecked")}
         </p>
       )}
