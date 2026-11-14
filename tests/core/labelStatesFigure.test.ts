@@ -12,6 +12,7 @@
 import { describe, expect, test } from "vitest";
 import type { Language } from "../../src/core/language";
 import { type File, type Read, readRows } from "../helpers/answerUnitsTable";
+import { paragraph, table, wordFile } from "../helpers/word";
 
 type Wanted = (language: Language) => Read;
 
@@ -43,11 +44,15 @@ const leftToTheModel =
     document: { verdict: "unsupported", reason: line(language, given, figure) },
   });
 
-/** Each row's Document, its quote and its sentence, read through the core in both languages. */
-async function readsAsWanted(rows: readonly [string, string, string, Wanted][]) {
+/**
+ * Each row's Document (a text file's words, or a file), its quote and its sentence, read through
+ * the core in both languages.
+ */
+async function readsAsWanted(rows: readonly [string | File, string, string, Wanted][]) {
   const files: Record<string, File> = {};
   const asked = rows.flatMap(([text, quote, sentence, wanted], at) => {
-    files[`f${at}`] = { name: `Report ${at}.txt`, text: `${text}\n` };
+    files[`f${at}`] =
+      typeof text === "string" ? { name: `Report ${at}.txt`, text: `${text}\n` } : text;
     return (["en", "zh-CN"] as const).map((language) => ({
       id: `${at}-${language}`,
       language,
@@ -2094,7 +2099,7 @@ describe("A plain unit with a qualifier states its unit (#2997)", { timeout: 120
 });
 
 describe("A caption heads its own table (#2997)", { timeout: 120_000 }, () => {
-  // protects=an unlabelled number takes its unit and scale from the lines heading its own table, and from no caption, bracket or prose elsewhere in the Document, so in a Document of two captioned tables the right sentence keeps its ✓ and Supported while the other table's scale or measure is caught in both checks, and under a heading that states no unit the other heading's bracket gives nothing in Check against Documents, English and Chinese; a Document's unit line still reaches a table whose caption states none; fails_when="全国产量为31万吨。" under "表8 全国产量（亿吨）", "二厂产量为31万元。" under "表3 各厂产量（吨）" or "National output was 31 kt." under "Table 8. National output (Mt)" reads ✓ or Supported; no_claim=the Answer's ✓ where the number's own heading states no unit ("8月收入为22万千瓦时。"), which is the model's, as on main.
+  // protects=an unlabelled number whose own table's heading lines state a unit takes that unit and scale, and none from a caption, bracket or prose elsewhere in the Document, so in a Document of two captioned tables the right sentence keeps its ✓ and Supported while the other table's scale or measure is caught in both checks, English and Chinese; a Document's unit line still reaches a table whose caption states none; fails_when="全国产量为31万吨。" under "表8 全国产量（亿吨）", "二厂产量为31万元。" under "表3 各厂产量（吨）" or "National output was 31 kt." under "Table 8. National output (Mt)" reads ✓ or Supported; no_claim=a table whose own heading lines state no unit, which another heading's bracket still reaches (the known costs after this test).
   test("an unlabelled number takes the scale of its own table's caption alone", async () => {
     await readsAsWanted([
       [TWO_TABLES, "二厂\t31", "二厂产量为31吨。", TICK],
@@ -2105,7 +2110,6 @@ describe("A caption heads its own table (#2997)", { timeout: 120_000 }, () => {
       [TWO_SCALES_EN, "National\t31", "National output was 31 Mt.", TICK],
       [TWO_SCALES_EN, "National\t31", "National output was 31 kt.", caught("31 (Mt)", "31 kt")],
       [CHARGING, "8月\t126", "8月充电量为126万千瓦时。", TICK],
-      [CHARGING, "8月\t22", "8月收入为22万千瓦时。", leftToTheModel("22", "22万千瓦时")],
       [
         "单位：万元\n\n表3 各厂产值\n厂区\t产值\n一厂\t54\n二厂\t31",
         "二厂\t31",
@@ -2115,37 +2119,152 @@ describe("A caption heads its own table (#2997)", { timeout: 120_000 }, () => {
     ]);
   });
 
-  // protects=known costs, a caption over a table that the next table's own heading line, stating no unit, follows with no blank line between, read as a group heading over both, as main reads it: "Site B's output was 31 thousand tonnes." keeps its ✓ and Supported, and "二厂产量为31万吨。" too, while 31亿吨 is caught; with a blank line between, the caption no longer reaches the next table, which states no unit, so both read the model's ✓ and Unsupported in Check against Documents (the third cost); the boundary can't move to the next table's own heading, because a group heading over two sub-lists (各月充电量（万千瓦时） over 华东 and 华北) must still give the second its unit: "华北7月充电量为90万千瓦时。" keeps ✓ and Supported and 90亿千瓦时 is caught; fails_when=any reads otherwise without this list changing, as the next part of #2997 means to tell the two apart; no_claim=that the caption heads the next table.
-  test("known costs of a caption with no blank line before the next table (#2997)", async () => {
+  // protects=known costs, another table's caption or heading over a table whose own heading lines state no unit, read as a group heading over both, as main reads it, with no blank line between the tables and with one: "Site B's output was 31 thousand tonnes." keeps its ✓ and Supported and "31 Mt" reads Not checked and Supported, "二厂产量为31万吨。" keeps its ✓ and Supported while 31亿吨 is caught, a headcount under "表4 各厂人数" after "表3 各厂产量（万吨）" and an income under 各月收入 after 各月充电量（万千瓦时） read ✓ and Supported in the other table's unit, and "表4 各港吞吐量（千吨）" catches "二厂产量为31万吨。" in the table before it; the reach can't end at a blank line or at the table's own heading, because a heading over sub-lists must still give each its unit (the tests after this one); fails_when=any reads otherwise without this list changing, as the next part of #2997 means to tell the two apart; no_claim=that the caption heads the other table.
+  test("known costs of another table's caption over a table whose own heading states no unit (#2997)", async () => {
     const output = (gap: string) =>
       `Output (kt)\nSite\tOutput\nA\t54\n${gap}Inventory\nSite\tOutput\nB\t31`;
     const plants = (gap: string) =>
       `产量（万吨）\n厂区\t产量\n一厂\t54\n${gap}库存\n厂区\t产量\n二厂\t31`;
-    const charging = "Rates\n各月充电量（万千瓦时）\n华东\n7月: 118\n8月: 126\n华北\n7月: 90";
     await readsAsWanted([
-      ...[output(""), "B\t31"].flatMap((quote): [string, string, string, Wanted][] => [
-        [output(""), quote, "Site B's output was 31 thousand tonnes.", TICK],
-        [output(""), quote, "Site B's output was 31 Mt.", UNJUDGED],
+      ...["", "\n"].flatMap((gap): [string, string, string, Wanted][] => [
+        ...[output(gap), "B\t31"].flatMap((quote): [string, string, string, Wanted][] => [
+          [output(gap), quote, "Site B's output was 31 thousand tonnes.", TICK],
+          [output(gap), quote, "Site B's output was 31 Mt.", UNJUDGED],
+        ]),
+        ...[plants(gap), "二厂\t31"].flatMap((quote): [string, string, string, Wanted][] => [
+          [plants(gap), quote, "二厂产量为31万吨。", TICK],
+          [plants(gap), quote, "二厂产量为31亿吨。", caught("31", "31亿吨")],
+        ]),
       ]),
-      ...[output("\n"), "B\t31"].flatMap((quote): [string, string, string, Wanted][] => [
-        [
-          output("\n"),
-          quote,
-          "Site B's output was 31 thousand tonnes.",
-          leftToTheModel("31", "31 thousand tonnes"),
+      [
+        "表3 各厂产量（万吨）\n厂区\t产量\n一厂\t54\n二厂\t62\n\n表4 各厂人数\n厂区\t人数\n一厂\t77\n二厂\t31",
+        "二厂\t31",
+        "二厂产量为31万吨。",
+        TICK,
+      ],
+      [CHARGING, "8月\t22", "8月收入为22万千瓦时。", TICK],
+      [
+        "表3 各厂产量\n工厂\t产量\n一厂\t54\n二厂\t31\n\n表4 各港吞吐量（千吨）\n港口\t吞吐量\n甲港\t12",
+        "二厂\t31",
+        "二厂产量为31万吨。",
+        caught("31", "31万吨"),
+      ],
+    ]);
+  });
+});
+
+const EAST = "华东\n月份\t充电量\n7月\t120\n8月\t126";
+const NORTH = "华北\n月份\t充电量\n7月\t90\n8月\t95";
+const PLANTS = "厂区\t产量\n一厂\t54\n二厂\t31";
+const LIST = "Rates\n各月充电量（万千瓦时）\n华东\n7月: 118\n8月: 126\n华北\n7月: 90";
+const REVENUE = (east: string, north: string) =>
+  `${east}East\nMonth\tRevenue\nJuly\t120\nAugust\t126\n${north}North\nMonth\tRevenue\nJuly\t90\nAugust\t95`;
+const OUTPUT = (east: string, north: string) =>
+  `${east}East\nMonth\tOutput\nJuly\t120\nAugust\t126\n${north}North\nMonth\tOutput\nJuly\t90\nAugust\t95`;
+/** A Word file of these blocks: a styled heading at its level, or a table's rows. */
+const wordOf = (
+  name: string,
+  blocks: readonly ({ heading: number; text: string } | { rows: string[][] })[],
+): File => ({
+  name,
+  base64: wordFile({
+    body: blocks
+      .map((block) =>
+        "rows" in block
+          ? table(block.rows)
+          : paragraph(block.text, { style: `Heading${block.heading}` }),
+      )
+      .join(""),
+  }).toString("base64"),
+});
+
+describe("A heading that states the unit reaches the rows under its sub-headings (#2997)", {
+  timeout: 120_000,
+}, () => {
+  // protects=a heading or caption that states the unit, over a sub-heading, a year or a sentence of prose that heads the rows and states none, gives those rows its unit across a blank line and from its own section of a Markdown or Word file, where each heading starts a section of its own, as main reads it: "华北7月充电量为90万千瓦时。" under 各月充电量（万千瓦时） over 华东 and 华北 keeps its ✓ and reads Supported, and 90亿千瓦时 is caught in both checks, beside the same rows under a unit line, a heading's （单位：…）, rows with a blank line directly above them, money and English, in both languages; fails_when="华北7月充电量为90万千瓦时。" reads Unsupported in Check against Documents, or "华北7月充电量为90亿千瓦时。" keeps the Answer's ✓, in a text, Markdown or Word file; no_claim=telling such a heading from another table's caption, which reaches a table whose own heading states no unit as well (the known costs before this test).
+  test("a heading over sub-headings, a year or prose gives their rows its unit, across a blank line and from a Markdown or Word heading's section", async () => {
+    const north = (document: string | File): [string | File, string, string, Wanted][] => [
+      [document, "7月\t90", "华北7月充电量为90万千瓦时。", TICK],
+      [document, "7月\t90", "华北7月充电量为90亿千瓦时。", caught("90", "90亿千瓦时")],
+    ];
+    const east = (document: string | File): [string | File, string, string, Wanted][] => [
+      [document, "7月\t120", "华东7月充电量为120万千瓦时。", TICK],
+      [document, "7月\t120", "华东7月充电量为120亿千瓦时。", caught("120", "120亿千瓦时")],
+    ];
+    const plants = (document: string | File): [string | File, string, string, Wanted][] => [
+      [document, "二厂\t31", "二厂产量为31万吨。", TICK],
+      [document, "二厂\t31", "二厂产量为31亿吨。", caught("31", "31亿吨")],
+    ];
+    const revenue = (document: string | File): [string | File, string, string, Wanted][] => [
+      [document, "July\t90", "North's July revenue was $90 million.", TICK],
+      [document, "July\t90", "North's July revenue was $90 billion.", caught("90", "$90 billion")],
+    ];
+    const markdown = `# 各月充电量（万千瓦时）\n## ${EAST}\n## ${NORTH}\n`;
+    await readsAsWanted([
+      ...north(`各月充电量（万千瓦时）\n${EAST}\n\n${NORTH}`),
+      ...east(`各月充电量（万千瓦时）\n\n${EAST}\n\n${NORTH}`),
+      ...north(`各月充电量（万千瓦时）\n\n${EAST}\n\n${NORTH}`),
+      ...plants(`表3 各厂产量（万吨）\n\n2024年度\n${PLANTS}`),
+      ...plants(`表3 各厂产量（万吨）\n\n各厂产量如下。\n${PLANTS}`),
+      ...east({ name: "各月充电量.md", text: markdown }),
+      ...north({ name: "各月充电量.md", text: markdown }),
+      ...plants({
+        name: "产量情况.md",
+        text: `# 三、产量情况（万吨）\n\n本节列示各厂产量。\n\n表3 各厂产量\n${PLANTS}\n`,
+      }),
+      [
+        `Output by month (kt)\n${OUTPUT("", "\n")}`,
+        "July\t90",
+        "North's July output was 90 thousand tonnes.",
+        TICK,
+      ],
+      [
+        { name: "Output.md", text: `# Output by month (kt)\n${OUTPUT("## ", "## ")}\n` },
+        "July\t90",
+        "North's July output was 90 thousand tonnes.",
+        TICK,
+      ],
+      ...east(`各月充电量（万千瓦时）\n${EAST}\n\n${NORTH}`),
+      ...north(`各月充电量（万千瓦时）\n${EAST}\n\n月份\t充电量\n7月\t90\n8月\t95`),
+      ...plants(`表3 各厂产量（万吨）\n\n${PLANTS}`),
+      ...north(`单位：万千瓦时\n${EAST}\n\n${NORTH}`),
+      ...north(`各月充电量（单位：万千瓦时）\n${EAST}\n\n${NORTH}`),
+      [LIST, "7月: 90", "华北7月充电量为90万千瓦时。", TICK],
+      [LIST, "7月: 90", "华北7月充电量为90亿千瓦时。", caught("90", "90亿千瓦时")],
+      ...revenue(`Monthly revenue ($ million)\n${REVENUE("", "\n")}`),
+      ...revenue({
+        name: "Revenue.md",
+        text: `# Monthly revenue ($ million)\n${REVENUE("## ", "## ")}\n`,
+      }),
+    ]);
+  });
+
+  // protects=a Word file's heading that states the unit reaches the tables under its sub-headings, though each styled heading starts a Unit of its own and the cited Unit holds only its sub-heading and table, as main reads it, in both languages; fails_when="华北7月充电量为90万千瓦时。" citing the 华北 table reads Unsupported in Check against Documents, or "华北7月充电量为90亿千瓦时。" keeps the Answer's ✓; no_claim=telling such a heading from another table's caption in an earlier section, which reaches a table whose own heading states no unit as well.
+  test("a Word heading that states the unit reaches the tables under its sub-headings", async () => {
+    const charging = wordOf("各月充电量.docx", [
+      { heading: 1, text: "各月充电量（万千瓦时）" },
+      { heading: 2, text: "华东" },
+      {
+        rows: [
+          ["月份", "充电量"],
+          ["7月", "120"],
+          ["8月", "126"],
         ],
-        [output("\n"), quote, "Site B's output was 31 Mt.", UNJUDGED],
-      ]),
-      ...[plants(""), "二厂\t31"].flatMap((quote): [string, string, string, Wanted][] => [
-        [plants(""), quote, "二厂产量为31万吨。", TICK],
-        [plants(""), quote, "二厂产量为31亿吨。", caught("31", "31亿吨")],
-      ]),
-      ...[plants("\n"), "二厂\t31"].flatMap((quote): [string, string, string, Wanted][] => [
-        [plants("\n"), quote, "二厂产量为31万吨。", leftToTheModel("31", "31万吨")],
-        [plants("\n"), quote, "二厂产量为31亿吨。", leftToTheModel("31", "31亿吨")],
-      ]),
-      [charging, "7月: 90", "华北7月充电量为90万千瓦时。", TICK],
-      [charging, "7月: 90", "华北7月充电量为90亿千瓦时。", caught("90", "90亿千瓦时")],
+      },
+      { heading: 2, text: "华北" },
+      {
+        rows: [
+          ["月份", "充电量"],
+          ["7月", "90"],
+          ["8月", "95"],
+        ],
+      },
+    ]);
+    await readsAsWanted([
+      [charging, "7月\t120", "华东7月充电量为120万千瓦时。", TICK],
+      [charging, "7月\t120", "华东7月充电量为120亿千瓦时。", caught("120", "120亿千瓦时")],
+      [charging, "7月\t90", "华北7月充电量为90万千瓦时。", TICK],
+      [charging, "7月\t90", "华北7月充电量为90亿千瓦时。", caught("90", "90亿千瓦时")],
     ]);
   });
 });

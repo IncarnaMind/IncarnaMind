@@ -38555,8 +38555,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "The Document gives 20, not 20万."
+          "verdict": "supported",
+          "reason": null
         }
       }
     },
@@ -38587,8 +38587,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "文档写的是 20，不是 20万。"
+          "verdict": "supported",
+          "reason": null
         }
       }
     },
@@ -39190,8 +39190,8 @@
       "here": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 31, not 31万吨."
           }
         ],
         "document": {
@@ -39222,8 +39222,8 @@
       "here": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 31，不是 31万吨。"
           }
         ],
         "document": {
@@ -43867,8 +43867,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "The Document gives 22, not 22万千瓦时."
+          "verdict": "supported",
+          "reason": null
         }
       }
     },
@@ -43899,8 +43899,8 @@
           }
         ],
         "document": {
-          "verdict": "unsupported",
-          "reason": "文档写的是 22，不是 22万千瓦时。"
+          "verdict": "supported",
+          "reason": null
         }
       }
     },
