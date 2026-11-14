@@ -450,20 +450,25 @@ for (const language of ["en", "zh-CN"] as const) {
     }
 
     // A Citation already on the Passage, a wider clause to widen to, and a Citation to replace.
+    // A ✓ stands only beside a Citation that holds the Passage the check found, so the last two
+    // read Not checked, "Supported, not yet cited", until the Citation is widened or replaced (#3019).
     const variants = [
       {
+        check: "supported",
         sentence: words.alreadyCited,
         starts: words.alreadyStart,
         first: "claim-cited",
         label: "claim.alreadyCited.open" as MessageKey,
       },
       {
+        check: "not-checked",
         sentence: words.widenSentence,
         starts: words.widenStart,
         first: "claim-widen-citation",
         label: "claim.widenCitation" as MessageKey,
       },
       {
+        check: "not-checked",
         sentence: words.replaceSentence,
         starts: words.replaceStart,
         first: "claim-replace-citation",
@@ -475,7 +480,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await focusSettled(window, editor);
       const caret = await caretOf(editor);
       await showCheckFromCommand(window, t("claim.showCard"));
-      await expect(card).toHaveAttribute("data-check", "supported");
+      await expect(card).toHaveAttribute("data-check", variant.check);
       // The buttons the User can reach: a closed menu's items are in the card but not in the Tab order.
       const actions = card.locator("button:visible");
       const count = await actions.count();
