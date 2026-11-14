@@ -51,7 +51,10 @@ import { parseLocation } from "./locations";
 import { folderScope, hasSearchScope, sameScope } from "./searchScope";
 import { comparableCheckSentence, comparableSentence, isClaim } from "./sentences";
 
-/** The most sentences with Citations one write of the assistant's has checked as it lands (#1111): past it, a long draft would wait minutes and cost dozens of requests. */
+/**
+ * The most sentences with Citations one write of the assistant's had checked before its reply
+ * (#1111): what a sentence marked "too-many" then says. Since #2830 a write checks every sentence.
+ */
 export const SENTENCES_CHECKED_AT_MOST = 12;
 
 const STATES: readonly ClaimCheckAttributes["state"][] = [
@@ -399,13 +402,14 @@ export type ClaimCheckShown =
 
 /**
  * The failures a check on the same sentence and Documents cannot settle: the Citation it needs
- * is kept inside another Folder, or the sentence describes the Library in a way its facts can't
- * settle (#2525). A reply that failed, was refused or couldn't be used, a service
- * limit, a cap, a stop, or a sentence a later Check takes may be settled next time, so those stay
- * Not checked.
+ * is kept inside another Folder or outside the Note's Search scope (#3083), or the sentence
+ * describes the Library in a way its facts can't settle (#2525). A reply that failed, was refused
+ * or couldn't be used, a service limit, a cap, a stop, or a sentence a later Check takes may be
+ * settled next time, so those stay Not checked.
  */
 export const UNCHECKABLE_FAILURES: ReadonlySet<ClaimCheckFailure> = new Set([
   "kept-inside",
+  "outside-scope",
   "library-unsettled",
 ]);
 

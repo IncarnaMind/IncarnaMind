@@ -114,6 +114,7 @@ import { Popover } from "./Popover";
 import { PropertySource } from "./PropertySource";
 import { isQuietFocus } from "./quietFocus";
 import { RecordCiteResults } from "./RecordCiteResults";
+import { readDocumentsText } from "./readDocumentsText";
 import { CitationChip, OpenCitation, UnsupportedCited } from "./UnsupportedCited";
 
 /** How long a pointer rests on a mark before its card shows, and how long it may leave before it goes. */
@@ -801,13 +802,7 @@ export function ClaimCard({
     where !== null;
   const looked = useScopeName(checkedScope(check.scope));
   const lookedIn = looked?.name ?? t("composer.scope.all");
-  const wholeRead = (check.readDocuments ?? [])
-    .map((document) => {
-      const name = shownDocumentName(document, documents) || document.documentName;
-      const places = document.locations.map((location) => formatLocation(location, t)).join(", ");
-      return places ? `${name} (${places})` : name;
-    })
-    .join(t("claim.readDocuments.separator"));
+  const wholeRead = readDocumentsText(check.readDocuments ?? [], documents, t, language);
   const evidenceDocument = evidence
     ? documents.find((each) => each.id === evidence.documentId)
     : undefined;
@@ -834,6 +829,11 @@ export function ClaimCard({
   const described = shown.state === "not-checked" && shown.reason === "library-unsettled";
   // Checked again, the assistant's own conclusion is left out again: its row's Check anyway judges it (#3019).
   const ownConclusion = shown.state === "not-checked" && shown.reason === "assistant-conclusion";
+  // Checked again in the same Search scope, a cited Document outside it is left out again (#3083).
+  const leftOut = shown.state === "not-checked" && shown.reason === "outside-scope";
+  const searchesAll =
+    leftOut ||
+    (state === "unsupported" && searchedLess(claim) && !decisionMissing && !misnamesFigure(claim));
   const lineAction = pastCap
     ? { label: t("claim.checkNow"), testId: "claim-check-now" }
     : waitingConsent
@@ -1342,6 +1342,18 @@ export function ClaimCard({
         );
       })}
       <div className="citation-card-actions">
+        {/* A part its Documents don't back is the first thing to fix: the check marks it and never
+            cuts it itself, once the sentence has landed (#2830). */}
+        {cuttable && (
+          <button
+            type="button"
+            data-testid="claim-cut"
+            className="citation-card-action citation-card-action--primary"
+            onClick={onCut}
+          >
+            {t("claim.cutUnsupported")}
+          </button>
+        )}
         {sole && (
           <CorrectButton
             correction={sole.correction}
@@ -1394,7 +1406,11 @@ export function ClaimCard({
             type="button"
             data-testid="claim-open"
             className={`citation-card-action ${
-              !sole && !use && !rewrite && (decision.kind === "none" || decision.kind === "already")
+              !sole &&
+              !use &&
+              !rewrite &&
+              !cuttable &&
+              (decision.kind === "none" || decision.kind === "already")
                 ? "citation-card-action--primary"
                 : ""
             }`}
@@ -1441,31 +1457,18 @@ export function ClaimCard({
             {t("claim.fixSentence")}
           </button>
         )}
-        {cuttable && (
+        {searchesAll && (
           <button
             type="button"
-            data-testid="claim-cut"
-            className="citation-card-action citation-card-action--primary"
-            onClick={onCut}
+            data-testid="claim-search-all"
+            className={`citation-card-action ${
+              cuttable || rewrite ? "" : "citation-card-action--primary"
+            }`}
+            onClick={() => onCheckAgain(true)}
           >
-            {t("claim.cutUnsupported")}
+            {t("claim.searchAll")}
           </button>
         )}
-        {state === "unsupported" &&
-          searchedLess(claim) &&
-          !decisionMissing &&
-          !misnamesFigure(claim) && (
-            <button
-              type="button"
-              data-testid="claim-search-all"
-              className={`citation-card-action ${
-                cuttable || rewrite ? "" : "citation-card-action--primary"
-              }`}
-              onClick={() => onCheckAgain(true)}
-            >
-              {t("claim.searchAll")}
-            </button>
-          )}
         {(notFound || check.action === "check-against-document") && verified === null && mindId && (
           <DocumentCheckAction
             editor={editor}
@@ -1548,7 +1551,8 @@ export function ClaimCard({
             !lineAction &&
             !described &&
             !awaiting &&
-            !ownConclusion)) && (
+            !ownConclusion &&
+            !leftOut)) && (
           <button
             type="button"
             data-testid="claim-check-again"

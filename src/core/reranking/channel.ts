@@ -11,6 +11,7 @@
  */
 import type { CrossEncoder, RerankingDevice, RerankingModelFiles } from "../adapters";
 import { ChannelClosedError, channelRequests } from "../channelRequests";
+import { channelStops } from "../channelStop";
 
 export type CrossEncoderCommand =
   | { type: "load"; files: RerankingModelFiles }
@@ -45,11 +46,15 @@ export function createChannelCrossEncoder(start: () => CrossEncoderChannel): Cro
   let channel: CrossEncoderChannel | undefined;
   let loaded: { key: string; device: RerankingDevice } | undefined;
   let loading: { key: string; done: Promise<RerankingDevice> } | undefined;
+  const stops = channelStops<CrossEncoderChannel>();
   const requests = channelRequests<CrossEncoderChannel, CrossEncoderResponse>();
 
   function open(): CrossEncoderChannel {
     const started = start();
-    started.onResponse((response) => requests.answer(response.id, response));
+    started.onResponse((response) => {
+      requests.answer(response.id, response);
+      stops.answered(started, response.id);
+    });
     started.onExit((code) => {
       requests.rejectAll(started, new Error(`The reranking process stopped (exit code ${code}).`));
       if (channel !== started) return;
@@ -106,8 +111,9 @@ export function createChannelCrossEncoder(start: () => CrossEncoderChannel): Cro
       loaded = undefined;
       loading = undefined;
       if (!stopping) return;
+      const inFlight = new Set(requests.out(stopping));
       requests.rejectAll(stopping, new ChannelClosedError("The reranking model was stopped."));
-      stopping.stop();
+      stops.close(stopping, inFlight);
     },
   };
 }

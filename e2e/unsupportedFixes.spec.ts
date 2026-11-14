@@ -220,6 +220,11 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(fixes[1] as Locator).toHaveText(words.searchAll);
       await expect(fixes[2] as Locator).toHaveText(words.keep);
       await expect(fixes[0] as Locator).toHaveClass(/citation-card-action--primary/);
+      // Cut the unsupported part is the card's first action (#2830).
+      await expect(card.locator(".citation-card-actions button").first()).toHaveAttribute(
+        "data-testid",
+        "claim-cut",
+      );
       for (const fix of fixes) expect(await inside(fix, card)).toBe(true);
       for (const gone of [
         "claim-cut-sentence",

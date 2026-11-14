@@ -207,6 +207,7 @@ const conversationWithChange = (application: AskedChangeApplication): Conversati
   errorKind: null,
   errorMessage: null,
   errorSignInRoute: null,
+  errorTooLong: null,
   citationSupport: null,
   toolCalls: [
     {

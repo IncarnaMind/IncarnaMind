@@ -19,6 +19,7 @@ import { attentionIds } from "../attention";
 import { commands } from "../commands/registry";
 import { core } from "../core";
 import { Popover } from "../editor/Popover";
+import { alreadyAddedLine, savedOutsideLine, skippedNamesLine } from "../fileNoticeLines";
 import { useLanguage, useT } from "../i18n";
 import { useJoinedMeetings } from "../joinedMeetings";
 import { useKeyRefusals } from "../keyRefusals";
@@ -818,7 +819,7 @@ function useStatuses(): Status[] {
         skipped.length === 1
           ? t("skipped.count.one")
           : t("skipped.count.other", { count: skipped.length }),
-      full: skipped.map((file) => file.name).join(", "),
+      full: skippedNamesLine(skipped, language),
       wraps: true,
       details: skippedDetails,
       dismiss: dismissSkipped,
@@ -833,7 +834,7 @@ function useStatuses(): Status[] {
         alreadyAdded.length === 1
           ? t("status.alreadyAdded.one")
           : t("status.alreadyAdded.other", { count: alreadyAdded.length }),
-      full: t("documents.alreadyAdded", { names: alreadyAdded.join(", ") }),
+      full: alreadyAddedLine(t, language, alreadyAdded),
       dismiss: dismissAlreadyAdded,
     });
   }
@@ -897,9 +898,6 @@ function useStatuses(): Status[] {
   }
 
   if (savedOutside.length > 0) {
-    const names = savedOutside.map((each) =>
-      each.folder === "" ? each.name : `${each.name} (${each.folder})`,
-    );
     statuses.push({
       testId: "saved-outside",
       tone: "waiting",
@@ -907,7 +905,7 @@ function useStatuses(): Status[] {
         savedOutside.length === 1
           ? t("status.savedOutside.one")
           : t("status.savedOutside.other", { count: savedOutside.length }),
-      full: t("documents.savedOutside", { names: names.join(", ") }),
+      full: savedOutsideLine(t, language, savedOutside),
       dismiss: dismissSavedOutside,
     });
   }

@@ -1,0 +1,299 @@
+import { describe, expect, test } from "vitest";
+import * as Y from "yjs";
+import { writtenBlocks, writtenSentences } from "../../eval/lib/writtenSentences";
+import {
+  BLOCK_ID_ATTRIBUTE,
+  CITATION_NODE,
+  CLAIM_CHECK_MARK,
+  PROPOSAL_DELETE_MARK,
+  PROPOSAL_INSERT_MARK,
+} from "../../src/core";
+import { setProposal } from "../../src/core/proposals/write";
+import { keyedFormats } from "../../src/shared/markKeys";
+
+/** The waiting change that takes words and a Citation out. */
+const REMOVING = { id: "change-1", request: "write-1" };
+
+/** A paragraph Block `id` of `parts`: text, a Citation, or text under a check's mark. */
+function paragraph(
+  blocks: Y.XmlFragment,
+  id: string,
+  parts: (
+    | string
+    | "citation"
+    | { citation: Record<string, string> }
+    | { text: string; mark: Record<string, unknown> }
+    | { removed: string }
+    | "removed citation"
+  )[],
+) {
+  const element = new Y.XmlElement("paragraph");
+  element.setAttribute(BLOCK_ID_ATTRIBUTE, id);
+  blocks.push([element]);
+  for (const part of parts) {
+    if (part === "removed citation") {
+      const citation = new Y.XmlElement(CITATION_NODE);
+      citation.setAttribute("marker", "1");
+      setProposal(citation, { ...REMOVING, kind: "delete" });
+      element.push([citation]);
+      continue;
+    }
+    if (part === "citation" || (typeof part === "object" && "citation" in part)) {
+      const citation = new Y.XmlElement(CITATION_NODE);
+      citation.setAttribute("marker", "1");
+      if (typeof part === "object")
+        for (const [name, value] of Object.entries(part.citation))
+          citation.setAttribute(name, value);
+      element.push([citation]);
+      continue;
+    }
+    const text = new Y.XmlText();
+    element.push([text]);
+    if (typeof part === "string") text.insert(0, part);
+    else if ("removed" in part) {
+      text.insert(0, part.removed);
+      text.format(0, part.removed.length, keyedFormats(text, PROPOSAL_DELETE_MARK, REMOVING));
+    } else {
+      text.insert(0, part.text);
+      text.format(0, part.text.length, keyedFormats(text, CLAIM_CHECK_MARK, part.mark));
+    }
+  }
+}
+
+describe("the sentences a write added, as the everyday evaluation records them", () => {
+  // protects=each sentence a write added is recorded in the Note's order with whether it has a Citation and what its check's mark says, when it was set, and an unmarked one as unmarked, the same on main and on a head that checks later (#2830); fails_when=a sentence another write left is counted, a cited sentence reads as uncited, or a mark's time is lost; no_claim=what a real check finds.
+  test("each sentence of the write's Blocks, in order, cited or not, with its mark and when it was set", () => {
+    const doc = new Y.Doc();
+    const blocks = doc.getXmlFragment("content");
+    const moon = {
+      id: "check-1",
+      state: "supported",
+      checkedAt: "2026-11-13T06:00:05.000Z",
+    };
+    const quay = {
+      id: "check-2",
+      state: "not-checked",
+      reason: "stopped",
+      checkedAt: "2026-11-13T06:00:09.000Z",
+    };
+    paragraph(blocks, "before", ["Boats moor by the quay in every season."]);
+    paragraph(blocks, "written", [
+      { text: "Spring tides come at new and full moon ", mark: moon },
+      "citation",
+      ". ",
+      { text: "The quay is busy in summer.", mark: quay },
+      " See below.",
+    ]);
+
+    expect(writtenSentences(blocks, new Set(["written"]))).toEqual([
+      {
+        place: 0,
+        text: "Spring tides come at new and full moon .",
+        cited: true,
+        state: "supported",
+        reason: null,
+        checkedAt: "2026-11-13T06:00:05.000Z",
+      },
+      {
+        place: 1,
+        text: "The quay is busy in summer.",
+        cited: false,
+        state: "not-checked",
+        reason: "stopped",
+        checkedAt: "2026-11-13T06:00:09.000Z",
+      },
+    ]);
+  });
+
+  // protects=a claim the write added that its check never marked, as main leaves a sentence with no Citation, is recorded unmarked, never dropped (#2830); fails_when=it is left out, so main's arm reads as having checked every sentence; no_claim=which sentences main checks.
+  test("a claim with no mark is recorded unmarked", () => {
+    const doc = new Y.Doc();
+    const blocks = doc.getXmlFragment("content");
+    paragraph(blocks, "written", ["The quay is busy in summer."]);
+
+    expect(writtenSentences(blocks, new Set(["written"]))).toEqual([
+      {
+        place: 0,
+        text: "The quay is busy in summer.",
+        cited: false,
+        state: null,
+        reason: null,
+        checkedAt: null,
+      },
+    ]);
+  });
+
+  // protects=words a waiting change takes out of a sentence the write rewrote aren't recorded as the write's, so its sentence reads as accepting the change leaves it (#2830); fails_when=the removed words join the sentence's text; no_claim=how the change is cut into words.
+  test("the words a waiting change takes out are left out", () => {
+    const doc = new Y.Doc();
+    const blocks = doc.getXmlFragment("content");
+    paragraph(blocks, "written", ["The quay is ", { removed: "quiet" }, "busy", " in summer."]);
+
+    expect(writtenSentences(blocks, new Set(["written"])).map((each) => each.text)).toEqual([
+      "The quay is busy in summer.",
+    ]);
+  });
+
+  // protects=a Citation a waiting change takes out of a sentence the write rewrote isn't recorded as the sentence's, so whether it is cited reads as accepting the change leaves it (#2830); fails_when=the removed Citation still makes the sentence read cited; no_claim=how the change is cut into words.
+  test("a Citation a waiting change takes out is left out", () => {
+    const doc = new Y.Doc();
+    const blocks = doc.getXmlFragment("content");
+    paragraph(blocks, "written", ["The quay is busy in summer ", "removed citation", "."]);
+
+    expect(
+      writtenSentences(blocks, new Set(["written"])).map((each) => [each.text, each.cited]),
+    ).toEqual([["The quay is busy in summer .", false]]);
+  });
+
+  // protects=a Block a waiting change takes out, beside the Block that replaces it or nested in a Block that stays, isn't read as the write's, so its sentences aren't counted (#2830); fails_when=the removed Block's sentences are still recorded; no_claim=how a write replaces a Block.
+  test("a Block a waiting change takes out is left out, at any depth", () => {
+    const doc = new Y.Doc();
+    const blocks = doc.getXmlFragment("content");
+    paragraph(blocks, "old", ["The quay is quiet in summer."]);
+    paragraph(blocks, "new", ["The quay is busy in summer."]);
+    const quote = new Y.XmlElement("blockquote");
+    quote.setAttribute(BLOCK_ID_ATTRIBUTE, "quote");
+    blocks.push([quote]);
+    for (const [line, goes] of [
+      ["Boats leave at dawn.", false],
+      ["Boats leave at noon.", true],
+    ] as const) {
+      const inner = new Y.XmlElement("paragraph");
+      const text = new Y.XmlText();
+      inner.push([text]);
+      text.insert(0, line);
+      quote.push([inner]);
+      if (goes) setProposal(inner, { ...REMOVING, kind: "delete" });
+    }
+    const [old] = blocks.toArray();
+    if (!(old instanceof Y.XmlElement)) throw new Error("The removed Block isn't there.");
+    setProposal(old, { ...REMOVING, kind: "delete" });
+
+    expect(
+      writtenSentences(blocks, new Set(["old", "new", "quote"])).map((each) => each.text),
+    ).toEqual(["The quay is busy in summer.", "Boats leave at dawn."]);
+  });
+
+  // protects=the reply-timing evaluation counts the Blocks a write's own waiting change is in, one it added and an existing one it rewrote, whether or not that write's check began, and no Block another change or none touched (#2830); fails_when=a rewritten existing Block is left out, so the write counts no sentence; no_claim=which Blocks a model rewrites.
+  test("the Blocks a write's waiting change is in, added or rewritten", () => {
+    const doc = new Y.Doc();
+    const blocks = doc.getXmlFragment("content");
+    paragraph(blocks, "untouched", ["The harbour is quiet in winter."]);
+    paragraph(blocks, "rewritten", ["The quay is ", { removed: "quiet" }, "busy in summer."]);
+    paragraph(blocks, "added", ["Boats leave at dawn."]);
+    paragraph(blocks, "other", ["Gulls nest on the pier."]);
+    const [, rewritten, added, other] = blocks.toArray();
+    if (
+      !(rewritten instanceof Y.XmlElement) ||
+      !(added instanceof Y.XmlElement) ||
+      !(other instanceof Y.XmlElement)
+    )
+      throw new Error("The Note's paragraphs aren't there.");
+    const busy = rewritten.get(2);
+    if (busy instanceof Y.XmlText)
+      busy.format(0, 4, keyedFormats(busy, PROPOSAL_INSERT_MARK, REMOVING));
+    setProposal(added, { ...REMOVING, kind: "insert" });
+    setProposal(other, { id: "change-2", request: "write-2", kind: "insert" });
+
+    expect(writtenBlocks(blocks, REMOVING.request)).toEqual(["rewritten", "added"]);
+  });
+});
+
+const SENTENCE = "Spring tides come at new and full moon.";
+const FOUND = "Spring tides come twice a month, at new and full moon.";
+const OTHER = "The harbour closes at dusk.";
+
+const passage = (passageId: string, quote: string) => ({
+  passageId,
+  documentId: "tides",
+  documentName: "Tides",
+  contentHash: "v1",
+  quote,
+  check: "found",
+});
+
+const markOf = (state: string, more: Record<string, unknown> = {}) => ({
+  id: "check-1",
+  request: "run",
+  action: "check-against-documents",
+  state,
+  text: SENTENCE,
+  checkedAt: "2026-11-13T06:00:05.000Z",
+  ...more,
+});
+
+/** The Passage quoting FOUND as a check's evidence holds it. */
+const evidence = {
+  ...passage("found", FOUND),
+  pageFrom: null,
+  pageTo: null,
+  location: null,
+  checkReason: null,
+};
+
+/** A Supported mark whose one part rests on the Passage quoting FOUND, as the check stores it. */
+const restingOnFound = markOf("supported", {
+  evidence,
+  parts: [
+    {
+      span: { start: 0, end: SENTENCE.length - 1 },
+      kind: "fact",
+      verdict: "supported",
+      evidence: [evidence],
+      decidingEvidence: 0,
+      says: null,
+      unsupported: null,
+      calculation: null,
+      reason: null,
+      detail: null,
+      versions: [],
+      excluded: [],
+      citedCaseUnchecked: false,
+      citedCaseFound: false,
+    },
+  ],
+});
+
+describe("a write's sentence as the Note reads its mark", () => {
+  // protects=the everyday evaluation records a written sentence's mark as the Note shows it against the sentence's own Citations, through the Note's own reading (#3019, #3052): a stored Supported resting on a Passage the sentence doesn't cite is Not checked, found elsewhere, and Supported once it cites that Passage; a mark with no parts and an Unsupported one read as stored; fails_when=the record counts a ✓ the Note doesn't show, or hides one it shows; no_claim=what the check finds.
+  test.each<[string, Record<string, unknown>, Record<string, string>[], [string, string | null]]>([
+    [
+      "Supported, resting on a Passage it doesn't cite",
+      restingOnFound,
+      [passage("other", OTHER)],
+      ["not-checked", "found-elsewhere"],
+    ],
+    [
+      "the same, once it cites that Passage",
+      restingOnFound,
+      [passage("other", OTHER), passage("found", FOUND)],
+      ["supported", null],
+    ],
+    [
+      "Supported with no parts, on its own Citation",
+      markOf("supported", { evidence }),
+      [passage("found", FOUND)],
+      ["supported", null],
+    ],
+    ["Unsupported", markOf("unsupported"), [passage("other", OTHER)], ["unsupported", null]],
+  ])("%s", (_, mark, citations, [state, reason]) => {
+    const doc = new Y.Doc();
+    const blocks = doc.getXmlFragment("content");
+    paragraph(blocks, "written", [
+      { text: SENTENCE.slice(0, -1), mark },
+      ...citations.map((citation) => ({ citation })),
+      ".",
+    ]);
+
+    expect(writtenSentences(blocks, new Set(["written"]))).toEqual([
+      {
+        place: 0,
+        text: SENTENCE,
+        cited: true,
+        state,
+        reason,
+        checkedAt: "2026-11-13T06:00:05.000Z",
+      },
+    ]);
+  });
+});

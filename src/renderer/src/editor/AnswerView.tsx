@@ -13,6 +13,7 @@ import {
   SKILL_SCRIPT_LIMITS,
   type SkillScriptApprovalRequest,
   SOURCE_KIND_PROVIDERS,
+  type TooLongPart,
   type ToolApprovalRequest,
 } from "../../../core/api";
 import { isSignInRoute, isSignInRouteProblem } from "../../../core/providers/signInRoutes";
@@ -58,7 +59,7 @@ import { requestModelMenu, retryModel } from "../modelMenu";
 import { useModelNames, useServiceName } from "../modelNames";
 import { useOnline } from "../online";
 import { useStoppedByPlanLimit } from "../planLimits";
-import { ANSWER_PROBLEMS, failedAnswerLine, retry } from "../problems";
+import { ANSWER_PROBLEMS, type AskedWhere, failedAnswerLine, retry } from "../problems";
 import { useRouteOffered } from "../routeSignIn";
 import type { SettingsPage, SettingsTarget } from "../settingsPages";
 import { skillTitle } from "../skills";
@@ -239,6 +240,7 @@ export function AnswerView({ node, editor, getPos }: ReactNodeViewProps) {
           details={text(node.attrs.errorMessage)}
           onRetry={questionId ? () => writeAgain() : undefined}
           question={askedQuestion}
+          asked="question"
           onOpenSettings={openSettings}
         />
       )}
@@ -349,6 +351,8 @@ export function AnswerError({
   modelNow = null,
   chooseHere = false,
   question = null,
+  asked = "none",
+  tooLong = null,
   onOpenSettings,
 }: {
   kind: ProviderErrorKind;
@@ -377,6 +381,10 @@ export function AnswerError({
     askedFrom?: { mindId: string | null; deleted?: boolean } | null;
     folderAskedIn?: string;
   } | null;
+  /** Where the Answer was asked: its line for a window too small says so. */
+  asked?: AskedWhere;
+  /** A "too-long" failure's part, when it wasn't the Question: its line says so. */
+  tooLong?: TooLongPart | null;
   onOpenSettings(page: SettingsPage, at?: SettingsTarget): void;
 }) {
   const t = useT();
@@ -451,6 +459,8 @@ export function AnswerError({
   const shown = failedAnswerLine(kind, provider, signInRoute, offered, {
     ...(billingUrl && { billingUrl }),
     ...(providerInUse && { local: providerInUse.service === null }),
+    asked,
+    ...(tooLong && { tooLong }),
   });
   if (shown.kind === "route") {
     return (

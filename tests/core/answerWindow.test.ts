@@ -5,13 +5,20 @@
  * whole Passages.
  */
 import { describe, expect, test } from "vitest";
-import { estimateTokens, fitQuestionContext } from "../../src/core/answers/context";
+import {
+  estimateTokens,
+  fitQuestionContext,
+  type RequestMind,
+} from "../../src/core/answers/context";
 import { type AnswerMessage, createAiSdkAnswerEngine } from "../../src/core/answers/engine";
 import {
   createWindowBudget,
   ESTIMATE_FACTOR,
   NO_ROOM_FOR_PASSAGES,
+  OUTPUT_FLOOR_TOKENS,
+  SEARCH_RESERVE_TOKENS,
 } from "../../src/core/answers/window";
+import { cloudWindow, resolveCapabilities } from "../../src/core/providers/capabilities";
 import { scriptedModel } from "../helpers/models";
 
 /** About `tokens` tokens of text, labelled. */
@@ -142,7 +149,8 @@ describe("A window's budget", () => {
     const passages = [passage("P1", 2_000), passage("P2", 2_000), passage("P3", 2_000)].join(
       "\n\n",
     );
-    const ids = (text: string) => [...text.matchAll(/id="(P\d)"/g)].map((match) => match[1]);
+    const ids = (text: string | null) =>
+      [...(text ?? "").matchAll(/id="(P\d)"/g)].map((match) => match[1]);
 
     // Room for two: P1 is the least relevant, though it comes first in reading order.
     expect(ids(budget.fitPassages(passages, "Answer well.", "Why?", [2, 0, 1]))).toEqual([
@@ -227,5 +235,249 @@ describe("The Passages a request said it read", () => {
     expect(reported).toHaveLength(1);
     expect(reported[0]?.length).toBeGreaterThan(0);
     expect(reported[0]?.length).toBeLessThan(ids.length);
+  });
+});
+
+describe("A small window's output cap and its problems (#3045)", () => {
+  // As the budget counts: the message around the instructions, a Passage of 500 at 1.25, a step's 128.
+  const MESSAGE = 8;
+  const ONE_PASSAGE = 625 + 128;
+  const MARGIN = 128;
+  /** What `instructions` take in a budget, with the message around them. */
+  const fixedOf = (instructions: string) =>
+    createWindowBudget({ tokens: 100_000, outputTokens: 4_096 }).tokens(instructions) + MESSAGE;
+  const reading = (instructions: string, question: string) => ({
+    instructions,
+    messages: [{ role: "user" as const, content: question }],
+    question,
+    reserve: SEARCH_RESERVE_TOKENS,
+    reads: true as const,
+  });
+
+  // protects=which problem a request that can't be sent gets is decided by one test, so its advice is true: where an empty Question would leave room for one Passage beside the instructions at the floor, a Question that doesn't leave it is too long ("shorten it"); one token less of window, and no Question could, so the window is too small; fails_when=either side of the boundary gets the other's problem; no_claim=the lines' words.
+  test("the boundary between a Question too long and a window too small", () => {
+    const instructions = block("Instructions", 4_000);
+    const edge = fixedOf(instructions) + OUTPUT_FLOOR_TOKENS + MARGIN + MESSAGE + ONE_PASSAGE;
+    const fitAt = (tokens: number, question: string) =>
+      createWindowBudget({ tokens, outputTokens: 4_096 }).fit(reading(instructions, question));
+
+    expect(fitAt(edge, "")).toMatchObject({ ok: true });
+    expect(fitAt(edge, "Why?")).toMatchObject({ ok: false, error: { kind: "too-long" } });
+    expect(fitAt(edge - 1, "")).toMatchObject({ ok: false, error: { kind: "window-too-small" } });
+    expect(fitAt(edge - 1, "Why?")).toMatchObject({
+      ok: false,
+      error: { kind: "window-too-small" },
+    });
+  });
+
+  // protects=where it reads, the line naming the Documents on screen goes with the Question: a window that holds the Question beside a Passage at the floor, but not with that line too, gives today's too-long, never a request without the line; one that holds both sends it in its place before the Question; fails_when=the Question is sent without the line, or the problem says the selection is too long; no_claim=the line's wording.
+  test("the Documents on screen go with the Question, or the Question is too long", () => {
+    const instructions = block("Instructions", 4_000);
+    const question = "Summarise this document.";
+    const shown = 'On screen now: "Harbour handbook"';
+    const budgetAt = (tokens: number) => createWindowBudget({ tokens, outputTokens: 4_096 });
+    const withShown = {
+      ...reading(instructions, question),
+      messages: [{ role: "user" as const, content: `${shown}\n\n${question}` }],
+      onScreen: shown,
+    };
+    // The least window that holds the Question alone beside a Passage at the floor.
+    const edge =
+      fixedOf(instructions) +
+      OUTPUT_FLOOR_TOKENS +
+      MARGIN +
+      ONE_PASSAGE +
+      budgetAt(100_000).tokens(question) +
+      MESSAGE;
+
+    expect(budgetAt(edge).fit(reading(instructions, question))).toMatchObject({ ok: true });
+    const tooLong = budgetAt(edge).fit(withShown);
+    expect(tooLong).toMatchObject({ ok: false, error: { kind: "too-long" } });
+    expect(tooLong.ok === false && tooLong.error.tooLong).toBeUndefined();
+    const sent = budgetAt(edge + 100).fit(withShown);
+    expect(sent.ok && sent.messages.at(-1)?.content).toBe(`${shown}\n\n${question}`);
+  });
+
+  // protects=a request that doesn't read, whose last message holds more than its Question (a call-help press adds its help after it), is sized by all of it: at a window it can't fit, today's too-long and nothing sent, never a request over the window; at one it fits, it goes whole; fails_when=it is let through over the window, or refused where it fits; no_claim=the press's own words.
+  test("a request that doesn't read is sized by its whole last message", () => {
+    const instructions = block("Instructions", 2_000);
+    const question = "What should I ask next?";
+    const asked = `${question}\n\n<help>\n${"word ".repeat(4_000)}\n</help>`;
+    const pressing = {
+      instructions,
+      messages: [{ role: "user" as const, content: asked }],
+      question,
+    };
+    const fitAt = (tokens: number) =>
+      createWindowBudget({ tokens, outputTokens: 2_048 }).fit(pressing);
+
+    expect(fitAt(6_000)).toMatchObject({ ok: false, error: { kind: "too-long" } });
+    const sent = fitAt(12_000);
+    expect(sent.ok && sent.messages.at(-1)?.content).toBe(asked);
+  });
+
+  // protects=a cloud model whose provider declares an input limit below its window less its reply is never sent more than that limit, even where the room to write gives way: the budget never lets the instructions, the Question and the Passages pass it; where everything fits, its reply keeps its whole room; fails_when=what a request would send passes the declared input limit; no_claim=the provider's own count.
+  test("a declared input limit is never passed, even where the room to write gives way", () => {
+    const window = cloudWindow(
+      resolveCapabilities({ catalog: { context: 400_000, maxInput: 272_000, maxOutput: 128_000 } }),
+    );
+    if (!window) throw new Error("No window.");
+    const question = "Where does the second chapter disagree with the first?";
+    const budget = createWindowBudget(window);
+    // Instructions and a Question that leave less than the first search's room under the limit.
+    const fitted = budget.fit(reading(block("Instructions", 216_200), question));
+    if (!fitted.ok) throw new Error(`Not sent: ${fitted.error.kind}`);
+    const many = Array.from({ length: 400 }, (_, at) => passage(`P${at + 1}`, 500)).join("\n\n");
+    const shown = budget.loop(fitted.estimated).passages(many, 400);
+
+    expect(fitted.estimated + budget.tokens(shown.text)).toBeLessThanOrEqual(272_000);
+    expect(budget.window.outputTokens).toBeGreaterThanOrEqual(400_000 - 272_000);
+  });
+
+  // protects=required context that reads (a Meeting's notes, which search) is sent as main sends it where it fits at the whole cap; where it doesn't, the room to write gives way for it only as far as leaves room for its first search, one Passage and the step that asks, or it isn't sent; fails_when=it goes with no room to search, is refused where it fits whole, or its cap moves where it fits; no_claim=what the search finds.
+  test("required context that reads keeps room for its first search, or is too long", () => {
+    const instructions = block("Instructions", 3_200);
+    const required = (tokens: number) => ({
+      instructions,
+      messages: [{ role: "user" as const, content: block("Transcript", tokens) }],
+      question: "Fill in the notes.",
+      reserve: SEARCH_RESERVE_TOKENS,
+      reads: true as const,
+      requiredContext: true as const,
+    });
+    const fitAt = (tokens: number) => {
+      const budget = createWindowBudget({ tokens: 16_384, outputTokens: 4_096 });
+      const fitted = budget.fit(required(tokens));
+      return {
+        fitted,
+        cap: budget.window.outputTokens,
+        room: fitted.ok ? 16_384 - budget.window.outputTokens - MARGIN - fitted.estimated : 0,
+      };
+    };
+
+    // Fits at the whole cap: as main sends it.
+    expect(fitAt(6_000)).toMatchObject({ fitted: { ok: true }, cap: 4_096 });
+    // Over it: the cap gives way, and the first search keeps its room.
+    const lowered = fitAt(8_000);
+    expect(lowered.fitted.ok).toBe(true);
+    expect(lowered.cap).toBeLessThan(4_096);
+    expect(lowered.room).toBeGreaterThanOrEqual(ONE_PASSAGE);
+    // Too long for that even at the floor: not sent.
+    expect(fitAt(8_800).fitted).toMatchObject({ ok: false, error: { kind: "too-long" } });
+  });
+
+  // protects=where it reads, a selection is sent whole or not asked at every window, a token at a time across the point where it stops fitting beside three Passages at the floor, where the cap gives way for it and where it fits at the whole cap: on a first Question with the Mind's text in the message and without it, and on a follow-up whose turn is too long to keep, with and without it; the Mind's cut is never asked to keep the selection, which goes with the Question; fails_when=at any window the selection is cut, left out or refused as anything else, or the Mind's cut is asked to keep it; no_claim=the Mind's own cut, which the Mind's tests cover; the band it found on adc164c4c, where the Mind's cut shortened it at the whole cap, is why it walks every token.
+  test.each([
+    ["a first Question, the Mind's text in the message", true, false],
+    ["a first Question, no Mind text in the message", false, false],
+    ["a follow-up whose turn is too long to keep, the Mind's text in the message", true, true],
+    ["a follow-up whose turn is too long to keep, no Mind text in the message", false, true],
+  ] as const)(
+    "a selection goes whole or not at all at every window: %s",
+    (_, withText, followUp) => {
+      const instructions = block("Instructions", 1_000);
+      const question = "Make this shorter.";
+      const words = "berth ".repeat(240).trim();
+      const selection = `<selection>\n${words}\n</selection>`;
+      const mindText = `<mind name="Notes">\n${"note ".repeat(160).trim()}\n</mind>`;
+      const keptBy: string[] = [];
+      const mind: RequestMind = {
+        text: mindText,
+        selection,
+        // As the Mind's own cut would at its tightest: it shortens a selection it is asked to keep.
+        cut: (tokens, withSelection = true) => {
+          if (withSelection) keptBy.push(`cut(${tokens}, true)`);
+          return {
+            text: `<mind name="Notes">\n[…]\n</mind>`,
+            selection: withSelection
+              ? `<selection>\n${words.slice(0, Math.max(0, tokens * 2))}…\n</selection>`
+              : "",
+            share: 0,
+          };
+        },
+      };
+      const asked = `${selection}\n\nSearch scope: All Documents (1)\n\n${question}`;
+      const opening = (text: string) => (withText ? `${mindText}\n\n${text}` : text);
+      const messages: AnswerMessage[] = followUp
+        ? [
+            { role: "user", content: opening("When are spring tides?") },
+            { role: "assistant", content: "At new moon and at full moon." },
+            { role: "user", content: "And neap tides?" },
+            { role: "assistant", content: `At the quarter moons. ${"pilot ".repeat(3_200)}` },
+            { role: "user", content: asked },
+          ]
+        : [{ role: "user", content: opening(asked) }];
+      const asking = { ...reading(instructions, question), messages, mind };
+      const caps = new Set<number>();
+      let refused = 0;
+      for (let tokens = 4_500; tokens <= 11_500; tokens++) {
+        const budget = createWindowBudget({ tokens, outputTokens: 4_096 });
+        const fitted = budget.fit(asking);
+        expect(keptBy, `window ${tokens}`).toEqual([]);
+        if (fitted.ok) {
+          const sent = fitted.messages.map((message) => message.content).join("\n\n");
+          expect(sent.includes(selection), `window ${tokens}`).toBe(true);
+          expect(sent.includes("…\n</selection>"), `window ${tokens}`).toBe(false);
+          caps.add(budget.window.outputTokens);
+        } else {
+          expect(fitted.error, `window ${tokens}`).toMatchObject({
+            kind: "too-long",
+            tooLong: "selection",
+          });
+          refused++;
+        }
+      }
+      // The walk crossed the refusal, the cap giving way for the selection, and the whole cap.
+      expect(refused).toBeGreaterThan(0);
+      expect(Math.min(...caps)).toBe(OUTPUT_FLOOR_TOKENS);
+      expect(caps.has(4_096)).toBe(true);
+    },
+  );
+
+  // protects=the output cap gives way only as far as the first search's room needs, never below the floor, and not at all where it fits: the cap sent is the one the budget counted with; fails_when=it drops straight to the floor, moves where it fits, or goes below the floor; no_claim=what a model writes at the cap.
+  test("the cap gives way as far as the first search's room needs, never below the floor", () => {
+    const capOf = (tokens: number, instructionTokens: number) => {
+      const budget = createWindowBudget({ tokens, outputTokens: 4_096 });
+      const fit = budget.fit(reading(block("Instructions", instructionTokens), "Why?"));
+      if (!fit.ok) throw new Error(fit.error.message);
+      return { cap: budget.window.outputTokens, lowered: budget.lowered };
+    };
+    // At 16k, the assistant's instructions and Tools (about 12,150) leave the cap at its floor.
+    expect(capOf(16_384, 9_700)).toEqual({ cap: OUTPUT_FLOOR_TOKENS, lowered: true });
+    // At 18k, part of the way.
+    const partly = capOf(18_432, 9_700);
+    expect(partly.cap).toBeGreaterThan(OUTPUT_FLOOR_TOKENS);
+    expect(partly.cap).toBeLessThan(4_096);
+    expect(partly.lowered).toBe(true);
+    // Where it fits, not at all.
+    expect(capOf(32_768, 9_700)).toEqual({ cap: 4_096, lowered: false });
+  });
+
+  // protects=the floor a window sets is kept (an evaluation compares floors through the model's settings), and a model that can only think keeps its whole cap, so at 16k the assistant's request is a window too small, never one whose thinking fills a lowered cap; fails_when=the cap goes below the window's floor; no_claim=which floor is right, which the real-model runs measure.
+  test("a window's own floor, and a model that can only think", () => {
+    const instructions = block("Instructions", 9_700);
+    const budget = createWindowBudget({ tokens: 16_384, outputTokens: 4_096, outputFloor: 2_048 });
+    expect(budget.fit(reading(instructions, "Why?"))).toMatchObject({ ok: true });
+    expect(budget.window.outputTokens).toBe(2_048);
+
+    const thinking = createWindowBudget({
+      tokens: 16_384,
+      outputTokens: 8_192,
+      outputFloor: 8_192,
+    });
+    expect(thinking.fit(reading(instructions, "Why?"))).toMatchObject({
+      ok: false,
+      error: { kind: "window-too-small" },
+    });
+    expect(thinking.window.outputTokens).toBe(8_192);
+  });
+
+  // protects=in one pass, where the search found Passages and none fits beside the instructions, the Answer doesn't go on as if it had read them: there is no fitted text, and the problem is the window's; fails_when=the model is sent the no-room line and answers; no_claim=Passages that fit, which keep their order by rank.
+  test("one pass: Passages found that don't fit leave nothing to answer from", () => {
+    const budget = createWindowBudget({ tokens: 4_096, outputTokens: 1_024 });
+    const found = [passage("P1", 4_000), passage("P2", 4_000)].join("\n\n");
+    expect(budget.fitPassages(found, "Answer well.", "Why?")).toBeNull();
+    expect(budget.cannotRead("Answer well.", "Why?")).toMatchObject({ kind: "window-too-small" });
+    expect(budget.fitPassages(passage("P1", 500), "Answer well.", "Why?")).toContain('id="P1"');
   });
 });

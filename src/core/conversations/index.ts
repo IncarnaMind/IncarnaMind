@@ -67,6 +67,7 @@ import {
   CLAIMED_TOOLS,
   MOST_ASKED_QUOTES,
   PROVIDER_ERROR_KINDS,
+  TOO_LONG_PARTS,
 } from "../api";
 import { InvalidInputError, isRecord, NotFoundError } from "../errors";
 import { isSignInRouteProblem } from "../providers/signInRoutes";
@@ -173,6 +174,7 @@ interface MessageRow {
   error_kind: string | null;
   error_message: string | null;
   error_sign_in_route: string | null;
+  error_too_long: string | null;
   citation_support: string | null;
   citations: string;
   figures: string;
@@ -624,6 +626,9 @@ function toAnswer(row: MessageRow): ConversationAnswer {
       status === "failed" && isSignInRouteProblem(row.error_sign_in_route)
         ? row.error_sign_in_route
         : null,
+    // A part a later build stored, which this one doesn't know, reads as none: the Question's too-long line.
+    errorTooLong:
+      (status === "failed" && TOO_LONG_PARTS.find((each) => each === row.error_too_long)) || null,
     citationSupport: SUPPORTS.find((each) => each === row.citation_support) ?? null,
     toolCalls: storedList<AnswerToolCall>(row.tool_calls),
     textOrigin: parseThirdPartySource(row.text_origin),
@@ -669,6 +674,19 @@ const readColumns = (read: AnswerRead | null): [string | null, string | null, nu
 
 /** A call whose window's command was still going on: it didn't finish. */
 function unfinished(call: AnswerToolCall): AnswerToolCall {
+  const check = call.mindChange?.selfCheck;
+  // Its sentences still being checked were marked stopped as their Note opened (#2830).
+  if (call.mindChange && check?.running) {
+    const { running: _running, ...ended } = check;
+    const checkable = check.checkable ?? check.cited;
+    return {
+      ...call,
+      mindChange: {
+        ...call.mindChange,
+        selfCheck: { ...ended, failed: checkable - check.checked - (check.leftOut ?? 0) },
+      },
+    };
+  }
   const done = call.command;
   if (!done?.window?.running) return call;
   const { command: _done, ...rest } = call;
@@ -892,7 +910,8 @@ export function createConversations(db: Database, now: () => string) {
 
   /**
    * A window's command still going on when an earlier run of the app ended, a Check for one,
-   * never says how it ended (#1421): its call says it didn't finish.
+   * never says how it ended (#1421): its call says it didn't finish. A check of what a call wrote
+   * says what it hadn't checked.
    */
   db.transaction(() => {
     for (const row of db.all<{ id: string; tool_calls: string }>(
@@ -1349,7 +1368,7 @@ export function createConversations(db: Database, now: () => string) {
         db.run(
           `UPDATE conversation_messages SET text = '', citations = '[]', figures = '[]', analyses = '[]', tool_calls = '[]',
              status = 'streaming', error_kind = NULL, error_message = NULL,
-             error_sign_in_route = NULL, citation_support = NULL, text_origin = NULL, steps = ?, provider_id = ?,
+             error_sign_in_route = NULL, error_too_long = NULL, citation_support = NULL, text_origin = NULL, steps = ?, provider_id = ?,
              model_id = ?, read_mind_id = ?, read_mind_version = ?, read_partial = ?,
              updated_at = ?
            WHERE id = ?`,
@@ -1380,7 +1399,7 @@ export function createConversations(db: Database, now: () => string) {
           `UPDATE conversation_messages SET text = ?, citations = ?, figures = ?, analyses = ?,
              tool_calls = ?, citation_support = ?, text_origin = ?, read_mind_id = ?, read_mind_version = ?,
              read_partial = ?, steps = ?, status = ?, error_kind = ?, error_message = ?,
-             error_sign_in_route = ?, provider_id = COALESCE(?, provider_id),
+             error_sign_in_route = ?, error_too_long = ?, provider_id = COALESCE(?, provider_id),
              model_id = COALESCE(?, model_id), updated_at = ?
            WHERE id = ?`,
           [
@@ -1397,6 +1416,7 @@ export function createConversations(db: Database, now: () => string) {
             outcome?.error?.kind ?? null,
             outcome?.error?.message ?? null,
             outcome?.error?.signInRoute ?? null,
+            outcome?.error?.tooLong ?? null,
             write.model?.providerId ?? null,
             write.model?.modelId ?? null,
             now(),

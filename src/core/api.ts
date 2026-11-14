@@ -1630,20 +1630,19 @@ export interface MindChange {
   /** How many of its text's markers had no Citation recorded, and were left out. Absent: none. */
   unrecorded?: number;
   /**
-   * How many of the sentences it wrote are being checked against their Citations now, before
-   * they land (#1111). Absent: none, or the check is over.
-   */
-  checking?: number;
-  /**
    * The check of the sentences it wrote that a check reads (#1909: every claim,
-   * cited or not), once over: how many there were (`checkable`), how many have a
-   * Citation (`cited`), how many it sent to be checked (`sent`), how many got a
-   * verdict (`checked`) and how many couldn't be checked (`failed`), and what
-   * stopped it, if anything did. Those it couldn't check, or didn't, are marked
-   * not checked, under `request`; `blocked` says how many of them the User's own
+   * cited or not), which runs after the write lands (#2830): how many there were
+   * (`checkable`), how many have a Citation (`cited`), how many it sent to be
+   * checked (`sent`), how many got a verdict (`checked`), how many of those need a
+   * look (`look`: unsupported or contradicted), how many couldn't be checked
+   * (`failed`) and how many make no claim to check (`leftOut`: an opinion, or no claim), and what stopped
+   * it, if anything did. Those it couldn't check, or didn't, are marked not
+   * checked, under `request`; `blocked` says how many of them the User's own
    * choice kept from being sent (the flow turned off, or Local mode), which
    * checking again can't change, or how many wait for the User to allow what
-   * checks send now ("consent-widened"). Absent: none was checked.
+   * checks send now ("consent-widened"). `running` as it began, its counts not
+   * final yet; `undone` once an Undo took the write away and ended it. Absent:
+   * none was checked.
    */
   selfCheck?: {
     request: string;
@@ -1655,9 +1654,29 @@ export interface MindChange {
     sent: number;
     checked: number;
     failed: number;
+    /** Absent on a check recorded before #2830. */
+    look?: number;
+    leftOut?: number;
+    running?: true;
+    undone?: true;
     stop?: RunStop;
     blocked?: { reason: "consent-revoked" | "local-mode" | "consent-widened"; count: number };
   };
+}
+
+/**
+ * How far the check of what the assistant wrote into a Mind is (#2830), as its marks land and
+ * once more as it ends: `done` of `total` sentences have their mark (a verdict or Not checked);
+ * `total` leaves out those found to state only an opinion, which take none. `waiting` while it
+ * waits for another write's check to end: one runs at a time.
+ */
+export interface WrittenCheckProgress {
+  mindId: string;
+  request: string;
+  done: number;
+  total: number;
+  running: boolean;
+  waiting: boolean;
 }
 
 /** What a call of `read_web_page` came to (see `AnswerToolCall.webPage`). */
@@ -6088,12 +6107,19 @@ export type ProviderErrorKind =
    * oldest Question context left out. Nothing is cut silently.
    */
   | "too-long"
+  /**
+   * The model's context window can't hold what every request carries (its instructions and Tools)
+   * with room left to read a Passage, however short the Question: nothing was sent (#3045).
+   */
+  | "window-too-small"
   /** The request could pass the User's monthly cap (`UserSettings.monthlyCap`): nothing was sent. */
   | "cost-cap"
   /** The model's reply ended with no text, or none that could be read. */
   | "no-answer"
   /** The model's reply reached its call's output limit and was cut off (#2275). */
   | "cut-short"
+  /** As "cut-short", at an output cap the app lowered for the model's small window: asking again can't help (#3045). */
+  | "cut-short-small-window"
   | "unknown";
 
 // Keyed by every kind, so a new one that isn't listed fails to compile instead of being missed.
@@ -6116,11 +6142,18 @@ export const PROVIDER_ERROR_KINDS: Record<ProviderErrorKind, true> = {
   "plan-limit": true,
   blocked: true,
   "too-long": true,
+  "window-too-small": true,
   "cost-cap": true,
   "no-answer": true,
   "cut-short": true,
+  "cut-short-small-window": true,
   unknown: true,
 };
+
+/** The part of an Answer's request too long for the model's window, when it isn't the Question: text selected in a Note (#3045). */
+export type TooLongPart = "selection";
+
+export const TOO_LONG_PARTS: readonly TooLongPart[] = ["selection"];
 
 export interface ProviderError {
   kind: ProviderErrorKind;
@@ -6137,6 +6170,8 @@ export interface ProviderError {
   resetsAt?: string;
   /** A sign-in route's request (a Claude account, Copilot): which of its problems it is, for its own line. */
   signInRoute?: SignInRouteProblem;
+  /** "too-long": the part too long for the window, when it isn't the Question (#3045). */
+  tooLong?: TooLongPart;
   /**
    * "cost-cap" from a Run's own budget rather than the monthly cap (#1554): that budget, and what
    * the Run had spent when it stopped.
@@ -7257,6 +7292,9 @@ export type ClaimVerdict = "supported" | "unsupported" | "contradicted";
  * - "consent-widened": the User allowed checks to the model's service before checks sent more, so
  *   what the assistant wrote waited, unsent, for them to allow the more (#2525).
  * - "kept-inside": the existing Citation is outside this wall, so it was not read again.
+ * - "outside-scope": a Document the sentence cites is outside the Note's Search scope, so the check
+ *   didn't read it, and found nothing that settles the sentence without it; `detail` is that
+ *   Document's name (#3083).
  * - "absence-unconfirmed": a whole read said what the sentence calls absent is there, but a look
  *   at its quote found it doesn't state that (#1554, #1443).
  * - "found-elsewhere": the check backed the sentence with a Passage its Citations, as the Note holds
@@ -7311,6 +7349,7 @@ export type ClaimCheckFailure =
   | "absence-other-document"
   | "found-elsewhere"
   | "kept-inside"
+  | "outside-scope"
   | "cut-short"
   | "read-budget"
   | "workbook-changed"
@@ -8806,6 +8845,8 @@ export interface ConversationAnswer {
   errorKind: ProviderErrorKind | null;
   errorMessage: string | null;
   errorSignInRoute: SignInRouteProblem | null;
+  /** A "too-long" failure's part, when it wasn't the Question (`ProviderError.tooLong`). */
+  errorTooLong: TooLongPart | null;
   citationSupport: CitationSupport | null;
   /** The Tools it called, in order: its searches, Skills and Connectors' Tools. */
   toolCalls: AnswerToolCall[];
@@ -14790,6 +14831,8 @@ export interface CoreEvents {
   "documentCheck.progress": DocumentCheckProgress;
   /** A Check this Note run's sentences checked before it marks them (`MindCheckEarly`). */
   "mindCheck.early": MindCheckEarly;
+  /** How far the check of what the assistant wrote into a Mind is, as it runs and as it ends (#2830). */
+  "writtenCheck.progress": WrittenCheckProgress;
   /** How far a Mind's `checkReferences` is: `done` of `total` entries looked up. */
   "referenceCheck.progress": { mindId: string; done: number; total: number };
   /** `importReferences` has matched `done` of `total` references. */

@@ -3,7 +3,7 @@ import type { Connector, LocalConnector, SecretStorageStatus } from "../../../..
 import { nameInLine } from "../../../../shared/naming";
 import { core } from "../../core";
 import { errorMessage } from "../../errors";
-import { useT } from "../../i18n";
+import { useLanguage, useT } from "../../i18n";
 import { FieldProblem, type FieldProblems, useFieldProblems } from "../FieldProblem";
 import { ProblemMark } from "../ProblemLine";
 import { SecretStorageNotice } from "../providers/ProviderForm";
@@ -18,6 +18,7 @@ import {
   rowFieldClass,
 } from "../ui";
 import { splitCommandLine } from "./commandLine";
+import { envKeptLine } from "./connectorLines";
 import { ConnectorKeyFields, HeaderNameField, keyHeader } from "./RemoteKey";
 import { ClientFields } from "./RemoteSignIn";
 
@@ -317,6 +318,7 @@ function LocalFields(props: {
   problems: FieldProblems;
 }) {
   const t = useT();
+  const language = useLanguage();
   const invalidId = useId();
   const { id, command, setCommand, args, setArgs, env, setEnv, problems } = props;
   const [argsMoved, setArgsMoved] = useState(false);
@@ -380,7 +382,7 @@ function LocalFields(props: {
         htmlFor={`${id}-env`}
         detail={
           props.savedEnv.length > 0
-            ? t("connectors.form.envKeep", { names: props.savedEnv.join(", ") })
+            ? envKeptLine(props.savedEnv, t, language)
             : t("connectors.form.envHint")
         }
       >

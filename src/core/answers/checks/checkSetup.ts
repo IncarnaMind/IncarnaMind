@@ -1,17 +1,23 @@
 /**
- * What a check's Run starts from: the gate that keeps a walled Document's Citations inside, the
- * scope's search, the citation session every look goes through, and the court decisions the
- * sentence cites.
+ * What a check's Run starts from: the gates that keep a walled Document's Citations inside and
+ * name a cited Document outside the Search scope, the scope's search, the citation session every
+ * look goes through, and the court decisions the sentence cites.
  */
 import { type CaseCitation, caseCitations, isOpinionOf } from "../../../shared/caseCitations";
-import type { Citation, ClaimCheckResult } from "../../api";
+import { aggregateFigureResults } from "../../../shared/figureChecks";
+import type { Citation, ClaimCheckResult, ClaimJudgment } from "../../api";
 import type { CitationSource } from "../../documents";
 import type { EvidenceScope } from "../../documents/evidence";
 import type { WindowedPassage } from "../../documents/search";
 import { type AnswerDocuments, createCitationSession, documentNamedAmong } from "../citations";
 import type { AnswerTools, SearchResultForModel } from "../engine";
 import type { CheckResults } from "./checkResults";
-import type { CheckedCitation, ClaimCheckDependencies, ClaimCheckRequest } from "./claimCheck";
+import type {
+  AtomicClaimCheckResult,
+  CheckedCitation,
+  ClaimCheckDependencies,
+  ClaimCheckRequest,
+} from "./claimCheck";
 import { CHECK_TAGS } from "./prompt";
 
 /**
@@ -88,6 +94,69 @@ export function keptInside(
     };
   }
   return null;
+}
+
+/**
+ * The Document a sentence cites that its check's Search scope leaves out, the first of its
+ * Citations' (#3083), and whether every Citation is outside the scope; null when none is. A
+ * Document behind another wall keeps that wall's reason (`keptInside`), and a whole read's window
+ * is the pick the User asked to read, not a Search scope.
+ */
+export function citedOutsideScope(
+  deps: Pick<ClaimCheckDependencies, "walledDocument">,
+  request: Pick<ClaimCheckRequest, "cited" | "scope" | "window">,
+): { name: string; every: boolean } | null {
+  const { scope, cited = [] } = request;
+  const { documentIds } = scope;
+  if (request.window || documentIds === null) return null;
+  const outside = ({ documentId }: CheckedCitation): string | null =>
+    documentId !== undefined && !documentIds.includes(documentId) && !scope.excluded.has(documentId)
+      ? documentId
+      : null;
+  const named = cited.find((citation) => {
+    const documentId = outside(citation);
+    return documentId !== null && deps.walledDocument(documentId) === null;
+  });
+  return named
+    ? { name: named.documentName, every: cited.every((citation) => outside(citation) !== null) }
+    : null;
+}
+
+/**
+ * A check's result when a Document the sentence cites is outside its Search scope (#3083):
+ * Supported and Contradicted stand on what it read, and Unsupported, which says the Documents
+ * don't state it, is Not checked for want of that Document, named by `name`.
+ */
+export function withoutDocumentLeftOut(
+  result: AtomicClaimCheckResult,
+  name: string,
+): AtomicClaimCheckResult {
+  const unjudged = (judgment: ClaimJudgment): ClaimJudgment =>
+    judgment.verdict !== "unsupported" || judgment.kept
+      ? judgment
+      : {
+          verdict: "not-checked",
+          reason: "outside-scope",
+          detail: name,
+          versions: judgment.versions,
+          excluded: judgment.excluded,
+          ...(judgment.recordCites && { recordCites: judgment.recordCites }),
+          ...(judgment.readDocuments && { readDocuments: judgment.readDocuments }),
+        };
+  if (!result.figures) return unjudged(result);
+  const figures = result.figures.map((figure) => ({ ...figure, result: unjudged(figure.result) }));
+  const remainder = result.remainder && unjudged(result.remainder);
+  if (
+    remainder === result.remainder &&
+    figures.every((each, at) => each.result === result.figures?.[at]?.result)
+  )
+    return result;
+  return {
+    ...result,
+    ...aggregateFigureResults(figures, remainder),
+    figures,
+    ...(remainder !== undefined && { remainder }),
+  };
 }
 
 export function setUpRun(

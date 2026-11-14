@@ -1,7 +1,7 @@
 import type { Document, DocumentTag, Tag } from "../../../core/api";
-import { useT } from "../i18n";
+import { useLanguage, useT } from "../i18n";
 import { useAppStore } from "../store";
-import { chipsOf } from "../tagEditing";
+import { chipsOf, hiddenTagsLine } from "../tagEditing";
 import { DocumentTagFooter } from "./DocumentTags";
 import { SparkLineIcon, TagLineIcon } from "./lineIcons";
 import { tagChipColour } from "./TagColour";
@@ -34,6 +34,7 @@ export function DocumentTagChips({
 }) {
   const peek = variant === "peek";
   const t = useT();
+  const language = useLanguage();
   const tags = useAppStore((state) => state.tags);
   const popover = useTagPopover({
     // A folded row's button has no box: the ⋯ that opened the picker is where it should show.
@@ -49,10 +50,7 @@ export function DocumentTagChips({
   const listed = peek ? chips : chips.slice(0, MOST_CHIPS);
   const hidden = peek ? [] : chips.slice(fitting.shown);
   const label = pickerLabel(t, [document]);
-  const more = t("tags.chip.more", {
-    count: hidden.length,
-    names: hidden.map(({ tag }) => tag.name).join(", "),
-  });
+  const more = hiddenTagsLine(t, language, hidden);
   return (
     <div
       ref={fitting.row}

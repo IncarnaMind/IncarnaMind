@@ -2,10 +2,12 @@ import type { Checkpoint, CheckpointReason } from "../../core/api";
 import type { Language } from "../../core/language";
 import { formatTime, formatWeekdayDate } from "../../shared/dates";
 import type { MessageKey, MessageParams } from "../../shared/i18n";
+import { unitsOf } from "../../shared/i18n/join";
 
 /** What History says of a Checkpoint: pure, so a test can pin the clock and the language. */
 
 type Say = (key: MessageKey, params?: MessageParams) => string;
+type LabelledCheckpoint = Pick<Checkpoint, "createdAt" | "reason" | "name" | "file">;
 
 /** A Checkpoint saved just before the AI changed the Mind, marked with the spark: not a person's changes. */
 export const beforeAiChange = (checkpoint: Pick<Checkpoint, "reason">): boolean =>
@@ -61,6 +63,25 @@ export const versionLabel = (
     day: dayLabel(checkpoint.createdAt, now, language),
     time: timeLabel(checkpoint.createdAt, language),
   });
+
+/**
+ * What History's comparison says of the two versions it sets side by side, "Friday 9 Oct, 10:42,
+ * before AI edits on the left, now on the right"; a side that is null is the Mind as it is now.
+ */
+export function comparedLabel(
+  { left, right }: { left: LabelledCheckpoint | null; right: LabelledCheckpoint | null },
+  now: Date,
+  language: Language,
+  say: Say,
+): string {
+  const nameOf = (checkpoint: LabelledCheckpoint | null) =>
+    checkpoint ? versionLabel(checkpoint, now, language, say) : say("history.now");
+  const why = left ? reasonLabel(left, say) : null;
+  return say("history.compared", {
+    left: unitsOf(why === null ? [nameOf(left)] : [nameOf(left), why], language),
+    right: nameOf(right),
+  });
+}
 
 /** Checkpoints, newest first, in groups by the day they were saved. */
 export function byDay(

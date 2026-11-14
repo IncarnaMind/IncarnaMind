@@ -516,9 +516,11 @@ describe("What is known of a model", () => {
   test("a cloud model's window is its context, less its input limit or the room for its longest reply", () => {
     const window = (facts: Parameters<typeof resolveCapabilities>[0]["catalog"]) =>
       cloudWindow(resolveCapabilities({ catalog: facts }));
+    // The input limit goes with it, which a request never passes (#3045).
     expect(window({ context: 1_050_000, maxInput: 922_000, maxOutput: 128_000 })).toEqual({
       tokens: 1_050_000,
       outputTokens: 128_000,
+      maxInput: 922_000,
     });
     // Room for the longest reply the app asks for, 32,000 tokens, not the model's own 128,000.
     expect(window({ context: 1_000_000, maxOutput: 128_000 })).toEqual({
@@ -548,19 +550,19 @@ describe("What is known of a model", () => {
     };
     expect(of("qwen", "qwen3.7-flash")).toEqual({
       facts: { context: 1_000_000, maxInput: 991_808, maxOutput: 131_072 },
-      window: { tokens: 1_000_000, outputTokens: 32_000 },
+      window: { tokens: 1_000_000, outputTokens: 32_000, maxInput: 991_808 },
     });
     expect(of("openrouter", "qwen/qwen3.7-flash")).toEqual({
       facts: { context: 1_000_000, maxInput: 991_808, maxOutput: 65_536 },
-      window: { tokens: 1_000_000, outputTokens: 32_000 },
+      window: { tokens: 1_000_000, outputTokens: 32_000, maxInput: 991_808 },
     });
     expect(of("openrouter", "stepfun/step-3.7-flash")).toEqual({
       facts: { context: 262_144, maxInput: 256_000, maxOutput: 230_400 },
-      window: { tokens: 262_144, outputTokens: 32_000 },
+      window: { tokens: 262_144, outputTokens: 32_000, maxInput: 256_000 },
     });
     expect(of("openai", "gpt-5.3-codex-spark")).toEqual({
       facts: { context: 128_000, maxInput: 100_000, maxOutput: 32_000 },
-      window: { tokens: 128_000, outputTokens: 32_000 },
+      window: { tokens: 128_000, outputTokens: 32_000, maxInput: 100_000 },
     });
     // A small window: half of it, as before.
     expect(of("openai", "gpt-4")).toEqual({

@@ -11,7 +11,7 @@ import type { MessageKey } from "../../../../shared/i18n";
 import { focusComposer } from "../../commands/assistant";
 import { core } from "../../core";
 import { errorMessage } from "../../errors";
-import { useT } from "../../i18n";
+import { useLanguage, useT } from "../../i18n";
 import { useAppStore } from "../../store";
 import { CheckLineIcon, PencilLineIcon, TrashLineIcon } from "../lineIcons";
 import { ProblemMark } from "../ProblemLine";
@@ -27,6 +27,7 @@ import { ConnectorForm } from "./ConnectorForm";
 import { ConnectorTile } from "./ConnectorTile";
 import { ConnectorTools, ReviewedTools } from "./ConnectorTools";
 import { commandLine } from "./commandLine";
+import { keyMaskLine } from "./connectorLines";
 import { RemoteKeyForm } from "./RemoteKey";
 import { ClientForm, RemoteSignIn } from "./RemoteSignIn";
 
@@ -288,6 +289,7 @@ export function ConnectorDetail({
  */
 function ConnectorControls({ connector }: { connector: Connector }) {
   const t = useT();
+  const language = useLanguage();
   const { id, name } = connector;
   const heldBack = connector.transport === "http" && connector.signIn.heldBack;
   const dot = heldBack ? null : stateDot[connector.state];
@@ -405,7 +407,7 @@ function ConnectorControls({ connector }: { connector: Connector }) {
                 data-testid="connector-key-mask"
                 className="text-[13px] leading-5 text-ink-meta"
               >
-                {connector.headers?.join(", ")} · ••••••••
+                {keyMaskLine(connector.headers ?? [], language)}
               </span>
             }
           />
