@@ -171,10 +171,12 @@ import {
   everySentence,
   markedSentences,
   markSentence,
+  marksASourceName,
   noteTextOf,
   recordCiteParagraphs,
   type SelectedSentence,
   selectedSentences,
+  unmarkSourceNames,
   updateCheck,
   writtenByAssistant,
 } from "./sentences";
@@ -1317,6 +1319,16 @@ export function createChecks(options: ChecksOptions) {
   }
 
   /**
+   * Takes an earlier check's mark off each sentence `stretches` touch that only names the Document
+   * it cites: no check reads it now (#3093). An edit only when there is such a mark.
+   */
+  function clearSourceNames(mindId: string, stretches: readonly TextStretch[]) {
+    const named = (blocks: Y.XmlFragment) => selectedSentences(blocks, stretches).named;
+    if (content.read(mindId, (blocks) => marksASourceName(blocks, named(blocks))))
+      content.edit(mindId, (blocks) => unmarkSourceNames(blocks, named(blocks)));
+  }
+
+  /**
    * Check against a Document… (./wholeRead). A sentence's mark stays as it was until its read
    * ends, so Stop or a crash leaves it so; a newer read of the sentence, or any change to its mark
    * meanwhile, wins over the result.
@@ -1330,6 +1342,7 @@ export function createChecks(options: ChecksOptions) {
     const { mindId } = input;
     const current = () => !signal.aborted && planned();
     const stretches = [{ from: input.from, to: input.to }, ...input.more];
+    clearSourceNames(mindId, stretches);
     const found = content.read(mindId, (blocks) => {
       const selected = selectedSentences(blocks, stretches);
       if (!selected.ok) return selected;
@@ -1505,6 +1518,7 @@ export function createChecks(options: ChecksOptions) {
   ): Promise<CheckSentencesResult> {
     const { mindId } = input;
     const stretches = [{ from: input.from, to: input.to }, ...input.more];
+    clearSourceNames(mindId, stretches);
     const read = content.read(mindId, (blocks) => selectedSentences(blocks, stretches));
     if (!read.ok) return { kind: read.reason };
     if (input.part) {

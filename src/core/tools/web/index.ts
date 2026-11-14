@@ -23,6 +23,7 @@ import type { PageFetch } from "../../documents/web/fetch";
 import { NotFoundError } from "../../errors";
 import type { PreparedChatModel } from "../../providers/chat";
 import { searchWeb } from "../../providers/webSearch";
+import type { WorkWall } from "../../workWall";
 import { createPublicFetch, type PublicFetchOptions } from "./fetcher";
 import type { SavedPage } from "./tools";
 
@@ -48,16 +49,7 @@ export interface WebSearchOptions {
   ): Promise<WebPageResult>;
   /** The Folder of the Mind or conversation a Question was asked in; null for none. */
   folderOf(place: AnswerPlace): string | null;
-  /** See `AnswersOptions.filedWithin`. */
-  filedWithin(wallId: string | null, asked: string | null): { folderId: string | null } | null;
-  /** The walled Folder a Document is behind; null for none. */
-  walledDocument(documentId: string): string | null;
-  /**
-   * Files a page this turn saved in `asked` where the walls put it now: the core's filing door
-   * judges both walls at the filing, so a Folder that gained a wall after the fetch takes
-   * nothing (#2250).
-   */
-  file(documentId: string, wallId: string | null, asked: string | null): void;
+  wall: Pick<WorkWall, "filedWithin" | "walledDocument" | "fileWithin">;
   /** A live Document; throws `NotFoundError` once it is gone. */
   document(id: string): Document;
   /** Hears each change of a Document's status. Returns a function that stops listening. */
@@ -121,7 +113,7 @@ export function createWebSearch(options: WebSearchOptions): AnswerWeb & { close(
 
     async save(address, place, signal, wallId): Promise<SavedPage> {
       const askedBefore = options.folderOf(place);
-      const startedWithin = options.filedWithin(wallId, askedBefore);
+      const startedWithin = options.wall.filedWithin(wallId, askedBefore);
       if (startedWithin === null) return { outcome: "failed", reason: "kept-inside" };
       // Before a page saved already is used as it is: web search reads only the public internet.
       try {
@@ -138,7 +130,7 @@ export function createWebSearch(options: WebSearchOptions): AnswerWeb & { close(
         fetcher.fetch,
         {
           key: wallKey(wallId),
-          reusable: (documentId) => options.walledDocument(documentId) === wallId,
+          reusable: (documentId) => options.wall.walledDocument(documentId) === wallId,
         },
         () => {
           made = true;
@@ -152,17 +144,18 @@ export function createWebSearch(options: WebSearchOptions): AnswerWeb & { close(
       const askedNow = options.folderOf(place);
       const target =
         askedNow === startedWithin.folderId ? askedNow : (startedWithin.folderId ?? askedNow);
-      const filed = options.filedWithin(wallId, target);
+      const filed = options.wall.filedWithin(wallId, target);
       const blocked =
         filed === null
           ? ("gone" as const)
           : filed.folderId === null && target !== null
             ? ("walled" as const)
             : null;
-      if (!result.existing && blocked === null) options.file(document.id, wallId, target);
+      if (!result.existing && blocked === null)
+        options.wall.fileWithin(document.id, wallId, target);
       // The User's save can take the page behind a wall meanwhile: it is theirs to file, and this
       // turn reads no page from the other side of it (#2250).
-      const behind = options.walledDocument(document.id);
+      const behind = options.wall.walledDocument(document.id);
       if (behind !== null && behind !== wallId) return { outcome: "failed", reason: "kept-inside" };
       if (!(await searchable(document.id, signal)))
         return { outcome: "failed", reason: "not-text" };
