@@ -3545,6 +3545,12 @@ export interface GettingStarted {
   seen: boolean;
 }
 
+/** A decision model on a host, as the User chose it for checks. */
+export interface CheckDecisionModel {
+  host: DecisionHost;
+  modelId: string;
+}
+
 /** Settings that belong to this device and never sync (ADR-0003). */
 export interface DeviceSettings {
   /** Width of the left sidebar, in CSS pixels. */
@@ -3599,6 +3605,11 @@ export interface DeviceSettings {
    * ask once cloud routes exist (#141).
    */
   transcriptionRoute: TranscriptionRoute | null;
+  /**
+   * The decision model that reads each sentence of Check this Note first (#3118), on a host
+   * whose key this device holds. Null: none, so the AI model checks every sentence.
+   */
+  checkDecisionModel: CheckDecisionModel | null;
   /**
    * The User has read, once on this device, what a recording captures and
    * that the other people should be told. Recording waits for it.
@@ -8251,6 +8262,11 @@ export type CheckMindResult =
       checked: number;
       smallModel: boolean;
       stop: RunStop | null;
+      /**
+       * Why the decision model chosen for checks stopped reading part way (#3118): the AI model
+       * checked the sentences it hadn't read. Absent when it read them all, or none was chosen.
+       */
+      decisionStopped?: ProviderError;
     }
   /** The model couldn't name the claims: nothing was checked. */
   | { kind: "failed"; error: ProviderError }
@@ -9681,6 +9697,7 @@ export const dataKinds = [
   "absence-documents",
   "watched-sentences",
   "calendar-request",
+  "checked-sentences",
 ] as const;
 
 export type DataKind = (typeof dataKinds)[number];
@@ -9754,6 +9771,10 @@ export type DataKind = (typeof dataKinds)[number];
  *   Calendar or Microsoft 365, every few minutes while the app runs (#190). The events come back
  *   and stay on this computer. Connecting the account allows it; background work, which never
  *   asks; none in local mode. The Mac's own calendar is read on this computer and isn't a flow.
+ * - "decision-checks": while Check this Note runs (#3118), each sentence it checks, with its
+ *   paragraph, and each Passage the check's search finds for it, with its Document's name and
+ *   page, to the host of the decision model the User chose for checks. Choosing the model, where
+ *   its line says so, allows it; none before a model is chosen, and none in local mode.
  */
 export const dataFlowIds = [
   "chat",
@@ -9775,6 +9796,7 @@ export const dataFlowIds = [
   "scan-images",
   "document-check",
   "calendars",
+  "decision-checks",
 ] as const;
 
 export type DataFlowId = (typeof dataFlowIds)[number];

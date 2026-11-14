@@ -1764,6 +1764,8 @@ export const zhCN = {
   "consent.flow.checks.purpose": "对照你的文档核对句子、笔记和文档",
   "consent.flow.document-check": "对照指定文档核对…",
   "consent.flow.document-check.purpose": "通读你指定的文档或文件夹，以核对一个句子",
+  "consent.flow.decision-checks": "决策模型核对",
+  "consent.flow.decision-checks.purpose": "核对笔记时，先于你的 AI 模型读每个句子",
   "aiText.markedAsMine": "已标为你写的",
   "edit.pending.improve": "正在润色…",
   "edit.pending.shorten": "正在精简…",
@@ -3348,6 +3350,8 @@ export const zhCN = {
   "consent.data.file-properties":
     "句子说的是文件本身时，文件的名称、文件自身的日期（没有时用这台电脑记录的日期）、作者、页数（或幻灯片数、工作表数）和大小",
   "consent.data.absence-documents": "句子说某处没有某内容时，范围内的整份文档（总共最多 40 页）",
+  "consent.data.checked-sentences":
+    "你核对的笔记中的每个句子及其所在段落，以及为它找到的文档段落，连同所属文档的名称和页码",
   "consent.data.watched-sentences": "文档有新版本后，所在文件夹中笔记里带引用的句子，用于查找矛盾",
   "consent.data.live-transcript": "会议转写稿：录制时的实时部分，停止录制后整份用于填写笔记",
   "consent.data.passages": "文档中与问题相关的段落，连同所属文档的名称和页码",
@@ -5966,6 +5970,8 @@ export const zhCN = {
   "error.check.readUnplanned": "未读取任何内容：通读文档前，需要先计算读取量并显示费用。",
   "error.check.localMode": "未核对：已开启“所有内容都留在这台电脑上”。",
   "error.check.declined": "你已拒绝向这个模型的服务发送这条说法，因此没有发送任何内容。",
+  "error.check.decisionModel": "核对暂时还不能使用这个决策模型。",
+  "error.check.decisionLocal": "决策模型无法读取你的句子：已开启“所有内容都留在这台电脑上”。",
   "error.recordCite.choiceInvalid": "所选文档的信息不完整，请重新选择。",
   "error.recordCite.spanInvalid": "引用的位置无效，请重新核对这句话。",
   "error.recordCite.notFound": "这次核对中找不到该记录引用，请重新核对这句话。",

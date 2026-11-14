@@ -54,7 +54,10 @@ function checkedPart(
   figures: readonly CheckFigure[],
   figureIds: readonly string[] | undefined,
 ): ClaimCheckPart {
-  const part = partWithResult(plan, result, result.checkedEvidence, result.coverage);
+  const part = {
+    ...partWithResult(plan, result, result.checkedEvidence, result.coverage),
+    ...result.judge,
+  };
   if (!figureIds || !previous?.figures || !result.figures) return part;
   const incoming = new Map(result.figures.map((figure) => [figure.id, figure]));
   return {
@@ -89,6 +92,17 @@ export function partRequest<
     originalClaim: request.originalClaim ?? request.claim,
     context: [request.context, request.claim].filter(Boolean).join("\n\n"),
   };
+}
+
+/** The paragraph a part's request reads its sentence in: its context without the sentence `partRequest` added. */
+export function paragraphOf({
+  context,
+  originalClaim,
+}: Pick<ClaimCheckRequest, "context" | "originalClaim">): string | undefined {
+  if (originalClaim === undefined || context === undefined) return context;
+  if (context === originalClaim) return undefined;
+  const added = `\n\n${originalClaim}`;
+  return context.endsWith(added) ? context.slice(0, -added.length) : context;
 }
 
 export function createPartCheck(

@@ -139,6 +139,7 @@ import {
   type ClaimCheckRequest,
   createClaimCheck,
 } from "./claimCheck";
+import { withDecisionFirst } from "./decisionFirst";
 import { createFastPaths } from "./fastPaths";
 import { libraryNow } from "./libraryFacts";
 import { createMindCheck, type MindCheckOptions } from "./mindCheck";
@@ -351,6 +352,7 @@ export interface ChecksOptions
   documentCheckProgress(event: DocumentCheckProgress): void;
   /** A Check this Note run's sentences checked before it marks them. */
   checkingEarly(event: MindCheckEarly): void;
+  decision?: MindCheckOptions["decision"];
   /** How far the check of what the assistant wrote is (./written). */
   writtenProgress: WrittenCheckOptions["progress"];
   engine: AnswerEngine;
@@ -912,7 +914,9 @@ export function createChecks(options: ChecksOptions) {
     (check: (request: ClaimCheckRequest) => Promise<ClaimCheckResult>) =>
     (request: ClaimCheckRequest) =>
       asCheckWork(() => check(request));
-  const claimCheck = asCheck(withCites(createPartCheck(options)));
+  const claimCheck = asCheck(
+    withCites(createPartCheck(options, withDecisionFirst(options, createClaimCheck(options)))),
+  );
   const atomicCheck = asCheck(createClaimCheck(options));
   // The background watch only adds a Contradicted with its quote: it checks each sentence whole.
   const wholeCheck = asCheck(withCites(createClaimCheck(options)));

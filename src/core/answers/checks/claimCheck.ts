@@ -61,6 +61,7 @@ import {
   setUpRun,
   withoutDocumentLeftOut,
 } from "./checkSetup";
+import type { DecisionReader } from "./decisionFirst";
 import { explainedIn } from "./explanations";
 import { uncheckedFigureResults } from "./figureChecks";
 import { figuresVerdict } from "./figuresVerdict";
@@ -155,6 +156,8 @@ export interface ClaimCheckRequest {
   slots?: Slots;
   /** The User didn't ask about this sentence: an opinion in it is left out, never checked. */
   opinionsLeftOut?: boolean;
+  /** The decision model that reads the sentence first (./decisionFirst): Check this Note's, when the User chose one. */
+  decision?: DecisionReader;
   /**
    * The Run's first turn names the sentence's parts: told what that turn wrote before any further
    * request, or what the Run wrote when it calls no Tool.
@@ -163,6 +166,8 @@ export interface ClaimCheckRequest {
 }
 
 export type AtomicClaimCheckResult = ClaimCheckResult & {
+  /** The model that gave the verdict, where it isn't the request's (./decisionFirst). */
+  judge?: Pick<ClaimCheckPart, "providerId" | "modelId">;
   checkedEvidence?: readonly Citation[];
   coverage?: ClaimPartCoverage;
   /** In a whole-read window: the Passages that reached the model in the request it answered. */
@@ -175,7 +180,7 @@ export type AtomicClaimCheckResult = ClaimCheckResult & {
  * Where `line` stands in `units`, from only the Units it covers: a page range never spans the whole
  * Document (#2226).
  */
-function lineLocation(
+export function lineLocation(
   units: ReturnType<ClaimCheckDependencies["documents"]["pageTexts"]>,
   line: string,
   matching: ReturnType<typeof matchingOf>,

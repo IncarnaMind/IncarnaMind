@@ -1838,6 +1838,9 @@ export const en = {
   "consent.flow.document-check": "Check against a Document…",
   "consent.flow.document-check.purpose":
     "read a Document or Folder you pick whole to check a sentence",
+  "consent.flow.decision-checks": "Checks by a decision model",
+  "consent.flow.decision-checks.purpose":
+    "read each sentence of a note you check before your AI model does",
   "aiText.markedAsMine": "Marked as yours",
   "edit.pending.improve": "Improving the writing…",
   "edit.pending.shorten": "Shortening…",
@@ -3517,6 +3520,8 @@ export const en = {
     "A file’s name, its own dates (or this computer’s when it has none), author, page, slide or sheet count and size, for a sentence about the file",
   "consent.data.absence-documents":
     "Whole Documents in the scope, up to 40 pages in all, for a sentence that says something is absent",
+  "consent.data.checked-sentences":
+    "Each sentence of a note you check, with its paragraph, and the passages from your Documents found for it, with their Documents’ names and pages",
   "consent.data.watched-sentences":
     "After a new version of a Document, the cited sentences of the notes in its Folder, to check them for contradictions",
   "consent.data.live-transcript":
@@ -6296,6 +6301,9 @@ export const en = {
   "error.check.localMode": "Not checked: “Keep everything on this computer” is on.",
   "error.check.declined":
     "You declined sending the claim to the model’s service, so nothing was sent.",
+  "error.check.decisionModel": "Checks can’t use that decision model yet.",
+  "error.check.decisionLocal":
+    "A decision model can’t read your sentences: “Keep everything on this computer” is on.",
   "error.recordCite.choiceInvalid": "The source choice is incomplete. Choose a Document again.",
   "error.recordCite.spanInvalid": "The cite’s position is invalid. Check the sentence again.",
   "error.recordCite.notFound":

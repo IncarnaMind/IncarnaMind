@@ -140,6 +140,8 @@ export interface ChecksRun {
   scope: ClaimCheckRequest["scope"];
   searched?: ClaimCheckRequest["searched"];
   prepared: PreparedChatModel;
+  /** The decision model that reads each sentence first, when the User chose one for checks. */
+  decision?: ClaimCheckRequest["decision"];
   thirdParty?: readonly ThirdPartyReason[];
   signal: AbortSignal;
 }
@@ -166,6 +168,7 @@ export function checkRequestOf(
       searched: claim.searched ?? run.searched,
     }),
     model: run.prepared,
+    ...(run.decision && { decision: run.decision }),
     ...(run.thirdParty && { thirdParty: run.thirdParty }),
     mindId: run.mindId,
     ...(claim.recordClaim !== undefined && { recordClaim: claim.recordClaim }),

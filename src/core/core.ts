@@ -80,6 +80,7 @@ import { createAnnotations } from "./annotations";
 import { createAiSdkAnswerEngine, createAnswers } from "./answers";
 import { createAskedChanges } from "./answers/applyAsked";
 import { createChecks } from "./answers/checks";
+import { createDecisionChoice } from "./answers/checks/decisionChoice";
 import { tableCellFigurePlaces } from "./answers/checks/figureOccurrences";
 import { type LibraryListing, linkedFolderName } from "./answers/checks/libraryFacts";
 import { CLAIM_TIME_LIMIT_MS } from "./answers/checks/runCheck";
@@ -3131,6 +3132,7 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     documentCheckProgress: (event) => events.emit("documentCheck.progress", event),
     checkingEarly: (event) => events.emit("mindCheck.early", event),
+    decision: () => decisionChoice.reader(),
     writtenProgress: (event) => events.emit("writtenCheck.progress", event),
     now: () => adapters.now?.() ?? new Date(),
   });
@@ -3491,6 +3493,12 @@ export function createCore(adapters: CoreAdapters): Core {
     localOnly: () => embedding.localOnly(),
     signal: lifetime.signal,
     ...(adapters.decisionOrigins && { origins: adapters.decisionOrigins }),
+  });
+  const decisionChoice = createDecisionChoice({
+    chosen: () => settings.get().device.checkDecisionModel,
+    hosts: decisionHosts,
+    consent,
+    localOnly: () => embedding.localOnly(),
   });
   // Tagging on a plan goes gently, and waits while the plan's limit holds.
   const planPaceFor = (plan: Plan) =>
@@ -5949,11 +5957,18 @@ export function createCore(adapters: CoreAdapters): Core {
           change = { ...patch, user };
         }
       }
-      const route =
-        isRecord(patch) && isRecord(patch.device) ? patch.device.transcriptionRoute : undefined;
+      const device = isRecord(patch) && isRecord(patch.device) ? patch.device : {};
+      const route = device.transcriptionRoute;
       if (route !== undefined) await cloudTranscription.check(route);
+      const choosesDecision = device.checkDecisionModel !== undefined;
+      if (choosesDecision) await decisionChoice.check(device.checkDecisionModel);
       const languageWas = settings.get().language;
       const updated = settings.update(change);
+      // Choosing a decision model for checks where its line says what goes to its host is the consent.
+      if (choosesDecision) {
+        decisionChoice.chose(updated.device.checkDecisionModel);
+        await dataFlowsChanged();
+      }
       // Choosing a cloud service where its line says meeting audio goes to it is the consent (ADR-0022).
       let dropped = Promise.resolve();
       if (route !== undefined) {
@@ -7125,6 +7140,9 @@ export function createCore(adapters: CoreAdapters): Core {
       await stopSortingWith(
         (classifier) => classifier.kind === "decision" && classifier.host === host,
       );
+      // The model chosen for checks goes with its host's key: the AI model checks every sentence again.
+      if (settings.get().device.checkDecisionModel?.host === host)
+        events.emit("settings.changed", settings.update({ device: { checkDecisionModel: null } }));
       return decisionsChanged(await decisionHosts.removeKey(host));
     },
 
