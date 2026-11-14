@@ -208,7 +208,7 @@ function stoppedJudgement(
         : null;
   if (!by) return null;
   const cited = new Map(answer.citations.map((citation) => [citation.marker, citation]));
-  const judged = citedSentences(answer.text, answer.figures ?? [])
+  const judged = citedSentences(answer.text, answer.figures ?? [], answer.citations)
     .filter((sentence) => !sentence.calculated)
     .map((sentence) => sentence.markers.flatMap((marker) => cited.get(marker) ?? []))
     .filter((citations) => citations.some((citation) => JUDGED.has(citation.check)));
