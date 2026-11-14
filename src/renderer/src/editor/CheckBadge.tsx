@@ -11,6 +11,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { flushSync } from "react-dom";
 import type * as Y from "yjs";
 import { formatDateTime } from "../../../shared/dates";
 import type { Verification } from "../../../shared/verification";
@@ -44,9 +45,16 @@ import { useWatchAddedDocuments } from "./AddedDocumentsLine";
 import { type Badge, type BadgeInput, badgeOf } from "./badgeState";
 import { ContradictionAsk, ContradictionLine } from "./ContradictionLine";
 import { checkTitle, useCheckEstimate, useCheckThisMindPlan } from "./changedSentences";
+import {
+  bodyIsEmpty,
+  CARD_MARGIN,
+  firstHeightOf,
+  isBelowOf,
+  SETTLE_AT_MOST_MS,
+  SETTLE_MS,
+} from "./checkCardHold";
 import { type CheckEstimateView, checkPressOf } from "./checkEstimateState";
 import { useCardPlace } from "./checkPlace";
-import { checkRows, healthSummary } from "./healthCounts";
 import { CheckMarkIcon, ClaimMarkIcon, NotYetCitedIcon } from "./icons";
 import { MindCheckAsk, MindUnchanged, RunningText } from "./MindCheckLine";
 import { HealthCard, PartMark, partLabel, useHealth } from "./NoteHealth";
@@ -172,20 +180,6 @@ function MindBadge({
       ask={input.asking || problem}
       running={running && <RunningText editor={editor} mindId={mindId} />}
       onStop={() => stopCheck(mindId)}
-      refit={
-        running
-          ? "running"
-          : [
-              ...checkRows(health).map(({ row }) => row),
-              // The summary can land with no row of its own, as in a Note whose checked
-              // sentences all hold the assistant's own conclusion (#3019).
-              healthSummary(health, {
-                running: false,
-                problem,
-                unread: state?.unreadMatters === true ? state.unread : 0,
-              })?.kind ?? "",
-            ].join(" ")
-      }
       actions={
         <CheckActions
           editor={editor}
@@ -449,7 +443,6 @@ function BadgeFrame({
   onStop,
   foot,
   actions,
-  refit,
   children,
 }: {
   mindId: string;
@@ -460,8 +453,6 @@ function BadgeFrame({
   running: ReactNode;
   onStop(): void;
   foot?: ReactNode;
-  /** What the card's rows are: a change fits its height to them again. */
-  refit?: string;
   /** The card's press and its price line, in a fixed foot the held, scrolling body never hides. */
   actions?: ReactNode;
   children: ReactNode;
@@ -477,17 +468,9 @@ function BadgeFrame({
   const open = useChecks((state) => state.cardOpen[place] === true);
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   // The card takes its first paint's height, so what lands later never moves what is above it;
-  // content beyond that room scrolls, and the next open fits the result (#2313). A change of
-  // `refit` fits it again where it is: the rows a check's end brings show without opening the card
-  // again (#3019).
+  // content beyond that room scrolls, and the next open fits the result (#2313).
   const [heldHeight, setHeldHeight] = useState<number | null>(null);
   const body = useRef<HTMLDivElement>(null);
-  const fittedTo = useRef(refit);
-  useLayoutEffect(() => {
-    if (fittedTo.current === refit) return;
-    fittedTo.current = refit;
-    setHeldHeight(null);
-  }, [refit]);
   useLayoutEffect(() => {
     if (!open) {
       setHeldHeight(null);
@@ -495,8 +478,51 @@ function BadgeFrame({
     }
     if (heldHeight !== null) return;
     const element = body.current;
-    if (element) setHeldHeight(element.offsetHeight);
-  }, [open, heldHeight]);
+    if (!element) return;
+    if (!bodyIsEmpty(element)) {
+      setHeldHeight(element.offsetHeight);
+      return;
+    }
+    // A card that opened with nothing in it has nothing to move: what lands in it sets its height,
+    // once, when it has stopped landing (#2313). Under its badge it keeps the body it had at
+    // once, so what lands never covers the badge.
+    const content = element.firstElementChild;
+    if (!content || !anchor) return;
+    const rest = element.offsetHeight;
+    const card = element.closest(".check-card");
+    let settle: number | undefined;
+    let first: number | undefined;
+    const hold = () => {
+      watching.disconnect();
+      window.clearTimeout(settle);
+      setHeldHeight(firstHeightOf(element, anchor, rest));
+    };
+    // The User's pointer or focus in the card ends the wait: nothing is to move under their hand.
+    const touched = () => {
+      if (!bodyIsEmpty(element)) hold();
+    };
+    const watching = new ResizeObserver(() => {
+      if (bodyIsEmpty(element)) return;
+      if (isBelowOf(element, anchor)) {
+        watching.disconnect();
+        flushSync(() => setHeldHeight(rest));
+        return;
+      }
+      const now = performance.now();
+      first ??= now;
+      window.clearTimeout(settle);
+      settle = window.setTimeout(hold, Math.min(SETTLE_MS, SETTLE_AT_MOST_MS - (now - first)));
+    });
+    card?.addEventListener("pointerenter", touched);
+    card?.addEventListener("focusin", touched);
+    watching.observe(content);
+    return () => {
+      watching.disconnect();
+      window.clearTimeout(settle);
+      card?.removeEventListener("pointerenter", touched);
+      card?.removeEventListener("focusin", touched);
+    };
+  }, [open, heldHeight, anchor]);
   useScrollFade(body, open && anchor !== null);
   useEffect(() => {
     if (ask && front) setCheckCardOpen(place, true);
@@ -543,6 +569,7 @@ function BadgeFrame({
         <Popover
           anchor={anchor}
           placement="top-end"
+          fromBottom
           middleware={placing}
           aria-label={t("health.label")}
           data-testid="check-card"
@@ -552,7 +579,7 @@ function BadgeFrame({
         >
           <div
             ref={body}
-            className="check-card-body scroll-fade"
+            className="check-card-body scroll-fade thin-scrollbar"
             style={heldHeight !== null ? { height: heldHeight, overflowY: "auto" } : undefined}
           >
             <div>
@@ -593,10 +620,10 @@ function stepThroughCard(event: KeyboardEvent<HTMLDivElement>) {
 // Above the badge, and never taller than the room above it: its rows scroll instead.
 const placing = () => [
   offset(8),
-  flip({ padding: 8 }),
-  shift({ padding: 8 }),
+  flip({ padding: CARD_MARGIN }),
+  shift({ padding: CARD_MARGIN }),
   size({
-    padding: 8,
+    padding: CARD_MARGIN,
     apply: ({ availableHeight, elements }) => {
       elements.floating.style.maxHeight = `${Math.max(160, availableHeight)}px`;
     },
