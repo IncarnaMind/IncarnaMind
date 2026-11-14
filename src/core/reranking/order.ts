@@ -22,6 +22,15 @@ export function asCheckWork<T>(work: () => T): T {
   return current.getStore() === undefined ? current.run(next++, work) : work();
 }
 
+/**
+ * A check's place, taken now, for work of it that starts apart, as a sentence's reading by a
+ * decision model and then its check do (#3118): the function runs `work` as part of that check.
+ */
+export function checkPlace(): <T>(work: () => T) => T {
+  const place = next++;
+  return (work) => current.run(place, work);
+}
+
 /** Where a search asked now waits. */
 function placeNow(): Place {
   const check = current.getStore();

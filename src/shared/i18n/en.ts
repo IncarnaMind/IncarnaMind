@@ -3521,7 +3521,7 @@ export const en = {
   "consent.data.absence-documents":
     "Whole Documents in the scope, up to 40 pages in all, for a sentence that says something is absent",
   "consent.data.checked-sentences":
-    "Each sentence of a note you check, with its paragraph, and the passages from your Documents found for it, with their Documents’ names and pages",
+    "Each sentence of a note you check, with its paragraph, and the passages from your Documents found for it or cited in it, with their Documents’ names and pages",
   "consent.data.watched-sentences":
     "After a new version of a Document, the cited sentences of the notes in its Folder, to check them for contradictions",
   "consent.data.live-transcript":

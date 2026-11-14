@@ -72,12 +72,31 @@ const YEARLY = "The harbour office publishes the times of high water every year.
 const PENGUINS = "Penguins nest on the cliffs above the harbour.";
 const TONNES = "The harbour office handled 54,000 tonnes of cargo.";
 
-const NINE = ["new", "full", "half", "red", "blue", "low", "high", "late", "early"].map(
-  (moon) => `Spring tides come at the ${moon} moon.`,
-);
+// More sentences than a cloud model checks at once, and more requests than the host is sent at once.
+const MOONS = [
+  ...["new", "full", "half", "red", "blue", "low", "high", "late", "early", "pale"],
+  ...["dark", "cold", "warm", "thin", "wide", "first", "last", "white", "grey", "gold"],
+].map((moon) => `Spring tides come at the ${moon} moon.`);
+
+const LAMP = "The lighthouse lamp is lit at dusk every evening of the year.";
+// One Document of many Passages: a search returns a few of them, not the lamp's.
+const LOG = {
+  name: "Harbour log.md",
+  contents: [
+    "# Harbour log",
+    ...["Ferries", "Moorings", "Pilots", "Cranes", "Dredging", "Customs", "Fishing", "Lamp"].map(
+      (topic, at) =>
+        `## ${topic}\n\n${
+          topic === "Lamp"
+            ? LAMP
+            : `Entry ${at} on ${topic.toLowerCase()} in the harbour, kept by the clerk. `.repeat(30)
+        }`,
+    ),
+  ].join("\n\n"),
+};
 
 const PLANS: Record<string, Plan> = {
-  ...Object.fromEntries(NINE.map((sentence) => [sentence, { verdict: "unsupported" }])),
+  ...Object.fromEntries(MOONS.map((sentence) => [sentence, { verdict: "unsupported" }])),
   [MOON]: { verdict: "supported", quote: MOON },
   [YEARLY]: {
     verdict: "contradicted",
@@ -192,7 +211,24 @@ async function setUp(sentences: readonly string[] = [MOON, YEARLY, PENGUINS]) {
     held = waiting.promise;
     return waiting.resolve;
   };
-  return { core, client, host, run, readByAiModel, holdAiModel, aiModelId: AI_MODEL };
+  /** What the AI model's own checks were sent, from the `from`th request on, in no order. */
+  const sentToAiModel = (from = 0) =>
+    checks
+      .slice(from)
+      .filter((call) => isCheckRun(call))
+      .map((call) => JSON.stringify([call.system, call.prompt, call.tools, call.results]))
+      .sort();
+  return {
+    core,
+    client,
+    host,
+    run,
+    readByAiModel,
+    sentToAiModel,
+    aiRequests: () => checks.length,
+    holdAiModel,
+    aiModelId: AI_MODEL,
+  };
 }
 
 const choose = (core: Core, model: CheckDecisionModel | null = DECIDER) =>
@@ -233,6 +269,8 @@ describe("Check this Note with a decision model chosen (#3118)", { timeout: 30_0
       [PENGUINS]: { state: "unsupported", quote: null, by: aiModelId },
     });
     expect(readByAiModel()).toEqual([PENGUINS]);
+    const pairs = host.asked.map(({ state }) => `${state.sentence}\n${state.passage.text}`);
+    expect(new Set(pairs).size).toBe(pairs.length);
     expect(host.asked.every((each) => each.model === DECIDER.modelId)).toBe(true);
     expect(host.asked.every((each) => each.questions.join() === "B,C")).toBe(true);
   });
@@ -286,6 +324,91 @@ describe("Check this Note with a decision model chosen (#3118)", { timeout: 30_0
     });
   });
 
+  // protects=every sentence is read by the decision model as the run starts, not as its check gets one of the AI model's places: each Mark shows its first reading while the AI model has answered nothing; fails_when=a sentence past the first six waits for a place before it is read; no_claim=how long a real host takes.
+  test("every sentence gets its first reading at once, before the AI model answers any", async () => {
+    const { core, client, host, run, holdAiModel } = await setUp(MOONS);
+    await choose(core);
+    host.answers(({ passage }) => ({
+      B: passage.text.includes("Spring tides") ? 0.9 : 0.02,
+      C: 0.01,
+    }));
+    const release = holdAiModel();
+
+    const running = core.checkMind(run());
+    await expect
+      .poll(async () => Object.values(await marks(client)).filter((mark) => mark.firstReading))
+      .toHaveLength(MOONS.length);
+    expect(Object.values(await marks(client)).map((mark) => mark.state)).toEqual(
+      MOONS.map(() => "checking"),
+    );
+    release();
+
+    expect(await running).toMatchObject({ kind: "checked", checked: MOONS.length });
+  });
+
+  // protects=a first reading is display only: the AI model's check of the sentence is sent what it is sent with no decision model chosen; fails_when=a reading adds to, or changes, a request to the AI model; no_claim=that the AI model's answers are the same, which a real model's run measures.
+  test("a first reading changes nothing the AI model is asked", async () => {
+    const { core, host, run, sentToAiModel, aiRequests } = await setUp([MOON, PENGUINS]);
+    await core.checkMind(run("first"));
+    const second = aiRequests();
+    await core.checkMind(run("no decision model"));
+    const third = aiRequests();
+    const plain = sentToAiModel(second);
+
+    await choose(core);
+    host.answers(({ sentence, passage }) => ({
+      B: sentence === MOON && passage.text.includes(MOON) ? 0.9 : 0.02,
+      C: 0.01,
+    }));
+    await core.checkMind(run("first reading"));
+
+    expect(host.asked.length).toBeGreaterThan(0);
+    expect(plain.length).toBeGreaterThan(0);
+    expect(sentToAiModel(third)).toEqual(plain);
+  });
+
+  // protects=the Passages a sentence cites are read by the decision model with those its search finds, so a verdict never rests on the search alone while the cited Passage says otherwise; fails_when=a cited Passage the search didn't return isn't sent to the decision model; no_claim=what the AI model's check does with a Citation.
+  test("the Passage a sentence cites is read too, though the search doesn't find it", async () => {
+    const { core, client, host, run } = await setUp([MOON]);
+    const [log] = await addAndProcess(core, [
+      await writeSourceFile(await createTempDataFolder(), LOG.name, LOG.contents),
+    ]);
+    const [lamp] = await core.searchPassages("lighthouse lamp", { mode: "keyword" });
+    if (!log || !lamp?.text.includes(LAMP)) throw new Error("The log wasn't added.");
+    expect((await core.searchPassages(MOON)).some((each) => each.text.includes(LAMP))).toBe(false);
+    writeMind(client, [
+      {
+        type: "paragraph",
+        attrs: { id: "one" },
+        content: [
+          text(`${MOON} `),
+          {
+            type: "citation",
+            attrs: {
+              passageId: lamp.passageId,
+              documentId: log.id,
+              documentName: "Harbour log",
+              contentHash: log.contentHash,
+              pageFrom: null,
+              pageTo: null,
+              quote: LAMP,
+              check: "found",
+              checkReason: null,
+            },
+          },
+        ],
+      },
+    ]);
+    await client.settled();
+    await choose(core);
+
+    await core.checkMind(run());
+
+    const read = host.asked.filter(({ state }) => state.sentence === MOON);
+    expect(read.filter(({ state }) => state.passage.text.includes(LAMP))).toHaveLength(1);
+    expect(read.length).toBeGreaterThan(1);
+  });
+
   // protects=a sentence with a figure never gets its verdict from the decision model, however sure it is: it shows a first reading and its own check, which ties each figure to its source's, gives the Mark; fails_when=a sentence with a figure is marked by the decision model; no_claim=the figure check itself.
   test("a sentence with a figure gets only a first reading", async () => {
     const { core, client, host, run, readByAiModel, aiModelId } = await setUp([TONNES]);
@@ -321,7 +444,7 @@ describe("Check this Note with a decision model chosen (#3118)", { timeout: 30_0
 
   // protects=a decision host that refuses stops being asked for the rest of the run, the AI model checks every sentence, and the result says why the decision model stopped; fails_when=sentences stay unchecked, the host keeps being asked, or the failure is silent; no_claim=which failures a real host returns.
   test("a host that refuses leaves every sentence to the AI model, and the run says so", async () => {
-    const { core, client, host, run, readByAiModel } = await setUp(NINE);
+    const { core, client, host, run, readByAiModel } = await setUp(MOONS);
     await choose(core);
     host.answers(() => ({ status: 401 }));
 
@@ -329,15 +452,15 @@ describe("Check this Note with a decision model chosen (#3118)", { timeout: 30_0
 
     expect(result).toMatchObject({
       kind: "checked",
-      checked: 9,
+      checked: MOONS.length,
       decisionStopped: { kind: "auth" },
     });
-    expect(readByAiModel().sort()).toEqual([...NINE].sort());
+    expect(readByAiModel().sort()).toEqual([...MOONS].sort());
     expect(Object.values(await marks(client)).map((mark) => mark.state)).toEqual(
-      NINE.map(() => "unsupported"),
+      MOONS.map(() => "unsupported"),
     );
-    // Six sentences are checked at once: the three that start after the refusal are never sent.
-    expect(new Set(host.asked.map(({ state }) => state.sentence)).size).toBeLessThanOrEqual(6);
+    // The host is sent 32 requests at once: those that would start after the refusal never go.
+    expect(host.asked.length).toBeLessThanOrEqual(32);
   });
 
   // protects=nothing goes to a decision host until the User chooses a model for checks, choosing it is the consent to that host, and taking the consent back stops the requests; fails_when=a request leaves before the choice or after the consent is revoked; no_claim=the Settings row that makes the choice.

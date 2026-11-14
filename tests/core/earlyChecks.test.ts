@@ -5,11 +5,14 @@
  */
 import { expect, test } from "vitest";
 import type { ClaimCheckRequest } from "../../src/core/answers/checks/claimCheck";
+import type { DecisionReader } from "../../src/core/answers/checks/decisionFirst";
+import type { DecisionLines } from "../../src/core/answers/checks/decisionLines";
 import {
   type ChecksRun,
   checkRequestOf,
   earlyChecks,
   type QueuedClaim,
+  readingsFirst,
 } from "../../src/core/answers/checks/runChecks";
 import type { ClaimCheckResult } from "../../src/core/api";
 import { resolveCapabilities } from "../../src/core/providers/capabilities";
@@ -24,7 +27,13 @@ const RESULT: ClaimCheckResult = {
   excluded: [],
 };
 
-function setUp(places: number) {
+const LINES: DecisionLines = { firstReading: { supported: 0.8, contradicted: 0.5 } };
+
+function setUp(
+  places: number,
+  read?: Parameters<typeof readingsFirst>[0],
+  reader?: DecisionReader,
+) {
   const run: ChecksRun = {
     mindId: "note-1",
     scope: { documentIds: null, excluded: new Map() },
@@ -44,6 +53,7 @@ function setUp(places: number) {
       summarizesReasoning: false,
       capabilities: resolveCapabilities({ catalog: { tools: true } }),
     },
+    ...(read && reader && { readFirst: readingsFirst(read, reader, "note-1") }),
     signal: new AbortController().signal,
   };
   const limit = slots(places);
@@ -126,33 +136,39 @@ test("an early check is stopped, not taken, when what it reads besides its reque
   expect(await again).toBe(RESULT);
 });
 
-// protects=a decision model's first reading of a sentence checked early reaches the run that takes the check, whether it came before the run took it or after (#3118); fails_when=a first reading given before the run's marks exist is lost, or one given later goes nowhere; no_claim=what the run writes on the Mark with it.
-test("the run that takes an early check hears its first reading, early or late", async () => {
-  const { early, sent, finish, run, limit } = setUp(2);
-  const before = claim("Spring tides come at new moon.");
-  const after = claim("Neap tides come at the quarter moons.");
-  early.start(before, unchanged);
-  early.start(after, unchanged);
-  const [first, second] = sent;
+// protects=a sentence checked early is read by the run's decision model first and once, and one that reading marks never reaches its check (#3118); fails_when=an early check asks the model before the reading ends, a marked sentence is checked all the same, or the run reads again what an early check read; no_claim=what the run writes on the Mark.
+test("an early check waits for its sentence's reading, made once, and a marked sentence has no check", async () => {
+  const marked = claim("Spring tides come at new moon.");
+  const leaning = claim("Neap tides come at the quarter moons.");
   const supported = { verdict: "supported", providerId: null, modelId: "decision" } as const;
-  const contradicted = { ...supported, verdict: "contradicted" } as const;
-  const heard: unknown[] = [];
-  const taking = (queued: QueuedClaim) =>
-    early.claimCheck({
-      ...checkRequestOf(queued, run, limit, run.signal),
-      onFirstReading: (reading) => heard.push([queued.id, reading.verdict]),
-    });
+  const read: string[] = [];
+  const ends: (() => void)[] = [];
+  const reader: DecisionReader = { model: supported, lines: LINES, ask: async () => null };
+  const { early, sent, finish, run, limit } = setUp(
+    2,
+    (request) => {
+      read.push(request.claim);
+      return new Promise((resolve) => {
+        ends.push(() =>
+          resolve(
+            request.claim === marked.claim ? { result: RESULT } : { firstReading: supported },
+          ),
+        );
+      });
+    },
+    reader,
+  );
 
-  first?.onFirstReading?.(supported);
-  early.keep([before, after]);
-  const taken = [taking(before), taking(after)];
-  second?.onFirstReading?.(contradicted);
+  early.start(marked, unchanged);
+  early.start(leaning, unchanged);
+  expect(read).toEqual([marked.claim, leaning.claim]);
+  expect(sent).toHaveLength(0);
+  early.keep([marked, leaning]);
+  const again = run.readFirst?.(checkRequestOf(leaning, run, limit, run.signal)).reading;
+  for (const end of ends) end();
 
-  expect(sent).toHaveLength(2);
-  expect(heard).toEqual([
-    [before.id, "supported"],
-    [after.id, "contradicted"],
-  ]);
+  expect(await again).toEqual({ firstReading: supported });
+  expect(read).toHaveLength(2);
+  expect(sent.map((request) => request.claim)).toEqual([leaning.claim]);
   for (const done of finish) done();
-  await Promise.all(taken);
 });

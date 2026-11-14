@@ -688,7 +688,7 @@ function readFirstReading(value: unknown): ClaimFirstReading | null {
   return { verdict: value.verdict, providerId: value.providerId, modelId: value.modelId };
 }
 
-/** `check` with a decision model's first reading on its part that is still being checked (#3118). */
+/** `check` with a decision model's first reading on its fact, the one part a sentence it reads has (#3118). */
 export function withFirstReading(
   check: ClaimCheckAttributes,
   firstReading: ClaimFirstReading,
@@ -696,9 +696,7 @@ export function withFirstReading(
   if (!check.parts) return check;
   return {
     ...check,
-    parts: check.parts.map((part) =>
-      part.kind === "fact" && part.verdict === "checking" ? { ...part, firstReading } : part,
-    ),
+    parts: check.parts.map((part) => (part.kind === "fact" ? { ...part, firstReading } : part)),
   };
 }
 

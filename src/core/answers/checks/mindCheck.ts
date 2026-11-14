@@ -75,6 +75,7 @@ import {
   pendingParts,
   type QueuedClaim,
   type RunChecksOptions,
+  readingsFirst,
   runChecks,
 } from "./runChecks";
 import {
@@ -135,6 +136,8 @@ export interface MindCheckOptions extends RunChecksOptions {
   checkingEarly(event: MindCheckEarly): void;
   /** The decision model the User chose to read a run's sentences first; null: none reads now. */
   decision?(): Promise<RunDecisionReader | null>;
+  /** A sentence's reading by that model, in front of its check (#3118). */
+  firstReading?: Parameters<typeof readingsFirst>[0];
 }
 
 const MODES: readonly CheckMindMode[] = ["all", "changed", "added"];
@@ -680,7 +683,10 @@ export function createMindCheck(options: MindCheckOptions) {
       scope: scope.scope,
       searched: scope.wanted,
       prepared: ready.prepared,
-      ...(decision && { decision }),
+      ...(decision &&
+        options.firstReading && {
+          readFirst: readingsFirst(options.firstReading, decision, mindId),
+        }),
       signal,
     };
     const limit = slots(claimsAtOnce(ready.prepared));

@@ -139,7 +139,7 @@ import {
   type ClaimCheckRequest,
   createClaimCheck,
 } from "./claimCheck";
-import { withDecisionFirst } from "./decisionFirst";
+import { createFirstReading } from "./decisionFirst";
 import { createFastPaths } from "./fastPaths";
 import { libraryNow } from "./libraryFacts";
 import { createMindCheck, type MindCheckOptions } from "./mindCheck";
@@ -914,9 +914,7 @@ export function createChecks(options: ChecksOptions) {
     (check: (request: ClaimCheckRequest) => Promise<ClaimCheckResult>) =>
     (request: ClaimCheckRequest) =>
       asCheckWork(() => check(request));
-  const claimCheck = asCheck(
-    withCites(createPartCheck(options, withDecisionFirst(options, createClaimCheck(options)))),
-  );
+  const claimCheck = asCheck(withCites(createPartCheck(options)));
   const atomicCheck = asCheck(createClaimCheck(options));
   // The background watch only adds a Contradicted with its quote: it checks each sentence whole.
   const wholeCheck = asCheck(withCites(createClaimCheck(options)));
@@ -1731,6 +1729,7 @@ export function createChecks(options: ChecksOptions) {
     recordUnread,
     isRunning: (requestId) => running.has(requestId),
     claimCheck,
+    firstReading: createFirstReading(options),
     withResult: noteResult,
     retainEvidence,
     settleStopped,

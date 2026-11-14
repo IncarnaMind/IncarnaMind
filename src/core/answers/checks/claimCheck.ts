@@ -33,7 +33,6 @@ import type {
   CitationLocation,
   ClaimCheckPart,
   ClaimCheckResult,
-  ClaimFirstReading,
   ClaimPartCoverage,
   ClaimPartPlan,
   ClaimPartSpan,
@@ -62,7 +61,6 @@ import {
   setUpRun,
   withoutDocumentLeftOut,
 } from "./checkSetup";
-import type { DecisionReader } from "./decisionFirst";
 import { explainedIn } from "./explanations";
 import { uncheckedFigureResults } from "./figureChecks";
 import { figuresVerdict } from "./figuresVerdict";
@@ -157,10 +155,6 @@ export interface ClaimCheckRequest {
   slots?: Slots;
   /** The User didn't ask about this sentence: an opinion in it is left out, never checked. */
   opinionsLeftOut?: boolean;
-  /** The decision model that reads the sentence first (./decisionFirst): Check this Note's, when the User chose one. */
-  decision?: DecisionReader;
-  /** Told the decision model's first reading as soon as it has one, before the check that confirms it. */
-  onFirstReading?: (reading: ClaimFirstReading) => void;
   /**
    * The Run's first turn names the sentence's parts: told what that turn wrote before any further
    * request, or what the Run wrote when it calls no Tool.
@@ -169,10 +163,6 @@ export interface ClaimCheckRequest {
 }
 
 export type AtomicClaimCheckResult = ClaimCheckResult & {
-  /** The model that gave the verdict, where it isn't the request's (./decisionFirst). */
-  judge?: Pick<ClaimCheckPart, "providerId" | "modelId">;
-  /** The decision model's first reading, which this result confirms or changes (./decisionFirst). */
-  firstReading?: ClaimFirstReading;
   checkedEvidence?: readonly Citation[];
   coverage?: ClaimPartCoverage;
   /** In a whole-read window: the Passages that reached the model in the request it answered. */
