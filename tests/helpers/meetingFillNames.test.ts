@@ -95,6 +95,7 @@ describe.each<{
       ["我和孙悦约好 13 号之前发预约链接。", LATER],
       ["孙悦和王磊约好 13 号之前发预约链接。", OPENS],
       ["王磊、孙悦约好 13 号之前发预约链接。", OPENS],
+      ["王磊，孙悦约好 13 号之前发预约链接。", LATER],
       ["王磊及孙悦约好 13 号之前发预约链接。", OPENS],
       ["王磊、孙悦与排期约好 13 号之前发预约链接。", OPENS],
       ["排期和孙悦约好 13 号之前发预约链接。", LATER],
@@ -163,6 +164,11 @@ const CALLS: [string, NamedCall, "yes" | "no" | "not known"][] = [
   ["Marta alone across", CONTRACT, "yes"],
   ["陈晓梅 alone across", LEASE, "yes"],
   [
+    "Marta's owner mark beside an unmarked fact from across",
+    { ...CONTRACT, facts: [{ said: [1], owner: /Marta/iu }, { said: [1] }, SAID_HERE] },
+    "yes",
+  ],
+  [
     "someone never named across as well",
     { ...CONTRACT, facts: [...CONTRACT.facts, { said: [1], notBy: /Marta/iu }] },
     "no",
@@ -186,7 +192,7 @@ const CALLS: [string, NamedCall, "yes" | "no" | "not known"][] = [
   [
     "someone never named across, and no owner mark there",
     { ...CONTRACT, facts: [{ said: [1], notBy: /Marta/iu }, SAID_HERE] },
-    "not known",
+    "no",
   ],
   ["no fact said from across", { ...CONTRACT, facts: [SAID_HERE] }, "not known"],
   [
@@ -198,6 +204,20 @@ const CALLS: [string, NamedCall, "yes" | "no" | "not known"][] = [
 
 test.each(CALLS)("one named person alone across: %s", (_case, call, expected) => {
   expect(aloneAcross(call)).toBe(expected);
+});
+
+test("a half-width comma still joins the people a line opens with: Dana, Lee will send the draft", () => {
+  const call: NamedCall = {
+    turns: [{ side: "me" }, { side: "them" }, { side: "them" }],
+    facts: [
+      { said: [1], notBy: /Lee/iu },
+      { said: [2], owner: /Lee/iu },
+      { said: [0], owner: /Dana/iu },
+    ],
+  };
+  const line = { name: /Lee/iu, pattern: [/draft/i] };
+  expect(placeName(call, { ...line, text: "Dana, Lee will send the draft." })).toEqual(OPENS);
+  expect(placeName(call, { ...line, text: "Dana told Lee to send the draft." })).toEqual(LATER);
 });
 
 describe("a name-led line on a call with one named person alone across, or not known", () => {

@@ -2479,6 +2479,28 @@ function placements(
   };
 }
 
+/**
+ * The lines that each state a fact whole, outside the Summary and not as a pointer: the places
+ * `placements` finds that are one written line (#3013). Adjacent lines that only together state a
+ * decision are one place there, and no line here.
+ */
+function linesStating(fact: Fact, units: readonly Unit[], call: Call): number {
+  const summary =
+    call.sectionHeadings?.summary ?? translate(call.language, "meetings.fill.section.summary");
+  return units.filter(
+    (unit) =>
+      unit.ai &&
+      unit.section !== summary &&
+      !pointsElsewhere(unit.text, call.language) &&
+      says(fact, unit.text),
+  ).length;
+}
+
+/** The decisions that two or more lines each state whole (#3013). */
+const decisionsWholeOnTwoOrMoreLines = (call: Call, units: readonly Unit[]) =>
+  call.facts.filter((fact) => fact.kind === "decision" && linesStating(fact, units, call) >= 2)
+    .length;
+
 function actionSectionCounts(
   units: readonly Unit[],
   title: string,
@@ -3021,7 +3043,7 @@ test.each(["en", "zh-CN"] as const)(
       misattributedIn(call, [unit(text.summary, summary), unit(text.later), unit(text.opens)], []),
     ).toEqual([{ fact: "weight", text: text.later, where: "later", read: ["later"] }]);
     expect(misattributedIn(call, [unit(text.opens)], [])).toEqual([
-      { fact: "weight", text: text.opens, where: "opens", read: ["aloneAcrossNotKnown"] },
+      { fact: "weight", text: text.opens, where: "opens", read: [] },
     ]);
   },
 );
@@ -3228,7 +3250,8 @@ function writtenTwice(language: Language) {
         unpointed: "江边仓库已商定",
       };
   const score = (units: Unit[]) => placements(fact, units, call, cues);
-  return { unit, text, title, score, topic: en ? "Venue" : "场地" };
+  const lines = (units: Unit[]) => linesStating(fact, units, call);
+  return { unit, text, title, score, lines, topic: en ? "Venue" : "场地" };
 }
 
 test.each(["en", "zh-CN"] as const)(
@@ -3298,6 +3321,67 @@ test.each(["en", "zh-CN"] as const)(
       count: 2,
       pointers: 0,
     });
+  },
+);
+
+test.each(["en", "zh-CN"] as const)(
+  "a decision counts on two lines only where each line states it whole; its places still take a run of lines as one (%s)",
+  (language) => {
+    const { fact, call, cues, unit, text } = splitDecision(language);
+    const elsewhere = (each: Unit, section: string): Unit => ({
+      ...each,
+      section,
+      afterLine: null,
+    });
+    const decisions = translate(language, "meetings.fill.section.decisions");
+    const summary = translate(language, "meetings.fill.section.summary");
+    const read = (units: Unit[]) => ({
+      places: placements(fact, units, call, cues).count,
+      lines: linesStating(fact, units, call),
+      onTwoLines: decisionsWholeOnTwoOrMoreLines(call, units),
+    });
+    expect(read([unit(text.whole)])).toEqual({ places: 1, lines: 1, onTwoLines: 0 });
+    expect(read([unit(text.budget)])).toEqual({ places: 0, lines: 0, onTwoLines: 0 });
+    expect(read([unit(text.whole), elsewhere(unit(text.whole), decisions)])).toEqual({
+      places: 2,
+      lines: 2,
+      onTwoLines: 1,
+    });
+    expect(read([unit(text.whole), elsewhere(unit(text.whole), summary)])).toEqual({
+      places: 1,
+      lines: 1,
+      onTwoLines: 0,
+    });
+    const run = [unit(text.budget), unit(text.deadline)];
+    expect(read([elsewhere(unit(text.whole), decisions), ...run])).toEqual({
+      places: 2,
+      lines: 1,
+      onTwoLines: 0,
+    });
+    expect(
+      read([
+        elsewhere(unit(text.whole), decisions),
+        unit(text.budget),
+        unit(text.unrelated),
+        unit(text.deadline),
+      ]),
+    ).toEqual({ places: 1, lines: 1, onTwoLines: 0 });
+    expect(read(run)).toEqual({ places: 1, lines: 0, onTwoLines: 0 });
+    expect(read([unit(text.budget), { ...unit(text.deadline), afterLine: "other line" }])).toEqual({
+      places: 0,
+      lines: 0,
+      onTwoLines: 0,
+    });
+  },
+);
+
+test.each(["en", "zh-CN"] as const)(
+  "a pointer is not a line that states a decision; the same words without it are (%s)",
+  (language) => {
+    const { unit, text, title, lines, topic } = writtenTwice(language);
+    const decision = unit(text.decision, title("decisions"));
+    expect(lines([unit(text.pointer, topic), decision])).toBe(1);
+    expect(lines([unit(text.unpointed, topic), decision])).toBe(2);
   },
 );
 
@@ -4213,12 +4297,13 @@ describe.skipIf(LOADER_PREFLIGHT || (!KEY && !LOCAL_MODEL))(
           restated: scored
             .filter((each) => each.fact.kind === "decision")
             .reduce((sum, each) => sum + Math.max(0, each.count - 1), 0),
+          decisionsWholeOnTwoOrMoreLines: decisionsWholeOnTwoOrMoreLines(call, units),
         };
         if (REPORT) {
           const rows = scored
             .map(
               ({ fact, count, inClaims, cited, inPlace, repeats, summary, pointers }) =>
-                `| ${fact.kind} | ${fact.name} | ${count} | ${cited ? "yes" : "no"} | ${inClaims} | ${fact.underLine ? (inPlace ? "yes" : "no") : "—"} | ${repeats} | ${summary} | ${pointers} |`,
+                `| ${fact.kind} | ${fact.name} | ${count} | ${linesStating(fact, units, call)} | ${cited ? "yes" : "no"} | ${inClaims} | ${fact.underLine ? (inPlace ? "yes" : "no") : "—"} | ${repeats} | ${summary} | ${pointers} |`,
             )
             .join("\n");
           await appendFile(
@@ -4239,10 +4324,11 @@ describe.skipIf(LOADER_PREFLIGHT || (!KEY && !LOCAL_MODEL))(
                   : []),
                 ...(named ? [`Named (#2306): ${JSON.stringify(named)}`] : []),
                 "Occurrence counts use component-match minima and can miss partial or anaphoric repeats. Subject-only matches do not add to these counts. An independent raw duplicate and topic audit is still required, including redundant deadline restatements and action references without declared subjects.",
+                "In the slips, restated counts a decision's places beyond its first, adjacent lines that only together state it being one place; decisionsWholeOnTwoOrMoreLines counts the decisions that two or more lines each state whole (#3013).",
                 `Transcript cues: ${JSON.stringify(cues)}`,
                 "",
-                "| Kind | Fact | Times in the note | Cited rightly | In the claims list | In place | Matched again in one place | In the Summary | In a pointer |",
-                "|---|---|---|---|---|---|---|---|---|",
+                "| Kind | Fact | Times in the note | Lines stating it whole | Cited rightly | In the claims list | In place | Matched again in one place | In the Summary | In a pointer |",
+                "|---|---|---|---|---|---|---|---|---|---|",
                 rows,
                 "",
                 "```",

@@ -5,12 +5,13 @@
  *
  * The name opens the line when the line's first words are the people it is about and the name is
  * one of them: after any list mark, number, bracket, quote or emphasis, the name, or a run of the
- * call's people joined by "and", "&", a comma, 及 or 、 that holds it. A person is a name of the
- * call (an owner or notBy mark of any of its facts) or the User in the first person. Everything
- * else stands later: a label, a role or any other word before the name; a name after 和 or 与,
- * which can mean "with" or "to" as well as "and"; and a name as the owner of what the line is
- * about (Ana's team, 安娜的团队, 安娜那边), since only a reading can tell whether such a line puts
- * the fact on the person or on someone of theirs.
+ * call's people joined by "and", "&", a half-width comma, 及 or 、 that holds it. A person is a
+ * name of the call (an owner or notBy mark of any of its facts) or the User in the first person.
+ * Everything else stands later: a label, a role or any other word before the name; a name after
+ * 和 or 与, which can mean "with" or "to" as well as "and", or after "，", which can be a pause as
+ * well as a list; and a name as the owner of what the line is about (Ana's team, 安娜的团队,
+ * 安娜那边), since only a reading can tell whether such a line puts the fact on the person or on
+ * someone of theirs.
  */
 
 export interface NamedCall {
@@ -38,7 +39,7 @@ export interface NamePlace {
 
 const MARKS = /(?:\s+|[-*•·–—_]+|\d{1,2}[.)](?=\s)|[(（]\d{1,2}[)）]|[①-⑳]|[[(（【「『《“"'‘])+/uy;
 const USER = /(?:I|[Ww]e)\b|我们|我方|我/uy;
-const JOINER = /\s*(?:,\s*(?:and\s+)?|&\s*|and\s+|[，、及]\s*)/uy;
+const JOINER = /\s*(?:,\s*(?:and\s+)?|&\s*|and\s+|[、及]\s*)/uy;
 // After the name, a side or group of theirs, with or without 的: 那边, 这边, 方面, 一方, 团队, 小组,
 // 工作室. 的确 is "indeed", not a possessive.
 const POSSESSIVE = /['’](?:s\b|(?=\s))|\s*(?:的(?!确)|那边|这边|方面|一方|团队|小组|工作室)/uy;
@@ -75,17 +76,18 @@ const unnamed = (owner: RegExp) => owner.test("the other side") || owner.test("�
 
 /**
  * Whether the call has one named person alone across, to whom the fill's prompt gives every line
- * from across by name: "not known" when no fact said only from across carries an owner mark.
+ * from across by name. Yes and not known both put a line on the read list and only "no" takes it
+ * off, so every "no" must rest on a mark; a not-by mark is one, since whoever said it across is
+ * not that named person, so across is never one named person alone.
  */
 export function aloneAcross(call: NamedCall): "yes" | "no" | "not known" {
   const across = call.facts.filter((fact) =>
     fact.said.every((turn) => call.turns[turn]?.side === "them"),
   );
+  if (across.some((fact) => fact.notBy !== undefined)) return "no";
   const owners = across.flatMap((fact) => (fact.owner ? [fact.owner] : []));
   if (owners.length === 0) return "not known";
-  return new Set(owners.map((owner) => owner.source)).size === 1 &&
-    !owners.some(unnamed) &&
-    across.every((fact) => fact.notBy === undefined)
+  return new Set(owners.map((owner) => owner.source)).size === 1 && !owners.some(unnamed)
     ? "yes"
     : "no";
 }
