@@ -9,7 +9,7 @@
  */
 import { appendFileSync } from "node:fs";
 import { resolve } from "node:path";
-import type { LanguageModelV4CallOptions } from "@ai-sdk/provider";
+import type { LanguageModelV4CallOptions, LanguageModelV4Usage } from "@ai-sdk/provider";
 import type { JSONContent } from "@tiptap/core";
 import { wrapLanguageModel } from "ai";
 import { describe, expect, test, vi } from "vitest";
@@ -239,8 +239,40 @@ const heard = {
   timedOut: 0,
   inputTokens: 0,
   outputTokens: 0,
+  /** Dollars, at the catalog's Haiku 5.5 price, from each reply's own usage. */
+  spent: 0,
+  /** Requests not sent because the gate's stop was reached. */
+  held: 0,
   replies: [] as { prompt: string; sentence: string; text: string }[],
 };
+
+/** The gate's stop in dollars, and what the gate spent before this arm-round. */
+const STOP = Number(process.env.INCARNAMIND_LIVE_GATE_STOP_USD ?? "Infinity");
+const SPENT_BEFORE = Number(process.env.INCARNAMIND_LIVE_GATE_SPENT_USD ?? "0");
+/** Room for the requests already in flight when the stop is reached: a few at about $0.001 each. */
+const IN_FLIGHT = 0.05;
+
+type Usage = LanguageModelV4Usage;
+
+/** Haiku 5.5's catalog price, per million tokens: uncached input, cache reads, cache writes, output. */
+function priced(usage: Usage) {
+  const input = usage.inputTokens;
+  heard.inputTokens += input.total ?? 0;
+  heard.outputTokens += usage.outputTokens.total ?? 0;
+  heard.spent +=
+    ((input.noCache ?? input.total ?? 0) * 0.1 +
+      (input.cacheRead ?? 0) * 0.01 +
+      (input.cacheWrite ?? 0) * 0.125 +
+      (usage.outputTokens.total ?? 0) * 0.5) /
+    1_000_000;
+}
+
+/** Sends no request once the gate's spend, before this arm-round and in it, reaches its stop. */
+function underStop() {
+  if (SPENT_BEFORE + heard.spent < STOP - IN_FLIGHT) return;
+  heard.held++;
+  throw new Error("The gate's spend stop is reached; no more requests are sent.");
+}
 
 type Params = LanguageModelV4CallOptions;
 
@@ -280,15 +312,16 @@ const realModel: NonNullable<Parameters<typeof startCore>[1]>["createChatModel"]
     middleware: {
       specificationVersion: "v4",
       wrapGenerate: async ({ doGenerate, params }) => {
+        underStop();
         heard.requests++;
         const result = await Promise.resolve(doGenerate()).catch(heardFailure);
-        heard.inputTokens += result.usage.inputTokens.total ?? 0;
-        heard.outputTokens += result.usage.outputTokens.total ?? 0;
+        priced(result.usage);
         const text = result.content.flatMap((part) => (part.type === "text" ? [part.text] : []));
         if (text.length > 0) heardReply(params, text.join(""));
         return result;
       },
       wrapStream: async ({ doStream, params }) => {
+        underStop();
         heard.requests++;
         const result = await Promise.resolve(doStream()).catch(heardFailure);
         let text = "";
@@ -297,10 +330,7 @@ const realModel: NonNullable<Parameters<typeof startCore>[1]>["createChatModel"]
             transform(part, controller) {
               if (part.type === "text-delta") text += part.delta;
               if (part.type === "error") heard.failed++;
-              if (part.type === "finish") {
-                heard.inputTokens += part.usage.inputTokens.total ?? 0;
-                heard.outputTokens += part.usage.outputTokens.total ?? 0;
-              }
+              if (part.type === "finish") priced(part.usage);
               controller.enqueue(part);
             },
             flush() {
@@ -600,6 +630,8 @@ describe("the #3088 gate", () => {
           timedOut: heard.timedOut,
           inputTokens: heard.inputTokens,
           outputTokens: heard.outputTokens,
+          priced: heard.spent,
+          held: heard.held,
           spent,
         },
       ]);

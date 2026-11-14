@@ -119,6 +119,9 @@ test("checks evaluation: Find support and verify", async () => {
       ...(chat.apiKey !== null && { apiKey: chat.apiKey }),
       ...(chat.baseUrl !== null && { baseUrl: chat.baseUrl }),
     });
+    const cap = Number(process.env.INCARNAMIND_EVAL_SPEND_CAP);
+    if (cap > 0)
+      await core.updateSettings({ user: { monthlyCap: { amount: cap, currency: "USD" } } });
     const pipeline = corePipeline({
       core,
       generate: chatGenerate(chat),

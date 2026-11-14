@@ -836,20 +836,25 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
     detail,
     ...options.facts(),
   });
+  // A figure that reads two ways says both; one that reads more ways than one choice names (two
+  // things unsettled, a sign and a scale) says only that it does, never which (#3088).
   const readTwoWays = (
     figure: CheckFigure,
-    ambiguity: Ambiguity,
+    ambiguity: Ambiguity | null,
     source: Citation | null,
   ): FigureCheckResult => ({
     ...finding(figure),
     source,
-    result: unavailable(
-      "two-readings",
-      twoReadingsDetail({
-        shown: figure.reading.chars,
-        readings: ambiguity.readings.map((each) => readingWords(each, figure.reading.chars)),
-      }),
-    ),
+    result:
+      ambiguity && ambiguity.readings.length >= 2
+        ? unavailable(
+            "two-readings",
+            twoReadingsDetail({
+              shown: figure.reading.chars,
+              readings: ambiguity.readings.map((each) => readingWords(each, figure.reading.chars)),
+            }),
+          )
+        : unavailable("readings-unsettled", figure.reading.chars),
   });
   const parsed = readFigureReply(options.reply, requested, options.claim);
   if (!parsed) return uncheckedFigureResults(requested, unavailable("malformed"));
@@ -897,16 +902,16 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
     // settles which one they are (`inSourceFrame`), as it does for the model. With no source,
     // an Unsupported one needs no reading either.
     const framedLater = ambiguities.length === 1 && ambiguities[0]?.kind === "scale";
+    const several = ambiguities.length > 0 && target.reading.ambiguous.length > 1;
     const unreadOne =
       separator && !read
         ? separator
-        : (ambiguities.length > 0 && target.reading.ambiguous.length > 1) ||
-            (ambiguities.length === 1 && !selected && !framedLater)
+        : several || (ambiguities.length === 1 && !selected && !framedLater)
           ? ambiguities[0]
           : undefined;
     const replayed = target.calculated !== null && !target.calculated.figure.analysis;
     if (unreadOne && (replayed || !item.source)) {
-      rows.push(readTwoWays(original, unreadOne, cited));
+      rows.push(readTwoWays(original, several ? null : unreadOne, cited));
       continue;
     }
     if (selected && !unreadOne)
@@ -967,7 +972,7 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
       target = { ...target, reading: asSource };
       unsure = undefined;
     } else if (unreadOne) {
-      rows.push(readTwoWays(original, unreadOne, cited));
+      rows.push(readTwoWays(original, several ? null : unreadOne, cited));
       continue;
     }
     const framed = inSourceFrame(

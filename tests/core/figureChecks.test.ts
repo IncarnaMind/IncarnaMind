@@ -18,6 +18,7 @@ import { extractXlsx } from "../../src/core/documents/formats/xlsx";
 import { resolveCapabilities } from "../../src/core/providers/capabilities";
 import type { PreparedChatModel } from "../../src/core/providers/chat";
 import { workbookTools } from "../../src/core/workbooks/tool";
+import { reasonText } from "../../src/renderer/src/cost";
 import { MAX_CHART_VALUES } from "../../src/shared/charts";
 import { readFigures } from "../../src/shared/figures";
 import { translate } from "../../src/shared/i18n";
@@ -1674,11 +1675,21 @@ test.each([undefined, 99])(
       body: "Revenue £4980000000",
       text: reply([{ ...item(), reading }]),
     });
-    expect(result.figures?.[0]?.result).toMatchObject({
-      verdict: "not-checked",
-      reason: "two-readings",
-    });
+    const figure = result.figures?.[0]?.result;
+    expect(figure).toMatchObject({ verdict: "not-checked", reason: "two-readings" });
     expect(result.figures?.[0]?.reading.ambiguous.length).toBeGreaterThan(0);
+    // The scale's two readings, named in the card's line in both languages.
+    const line = (language: "en" | "zh-CN") =>
+      figure?.verdict === "not-checked"
+        ? reasonText(
+            (key, params) => translate(language, key, params),
+            language,
+            figure.reason,
+            figure.detail,
+          )
+        : null;
+    expect(line("en")).toBe("“4980” could mean 4,980 or 4,980m GBP, so it wasn’t checked.");
+    expect(line("zh-CN")).toBe("“4980”可能是 4,980，也可能是 4,980m GBP，所以未核对。");
   },
 );
 
@@ -1690,9 +1701,11 @@ test("multiple own ambiguity axes are never combined by guessing", async () => {
     body: "Revenue £4980000000",
     text: reply([{ ...item(), reading: 1 }]),
   });
+  // A sign and a scale both unsettled read more ways than one choice can name.
   expect(result.figures?.[0]?.result).toMatchObject({
     verdict: "not-checked",
-    reason: "two-readings",
+    reason: "readings-unsettled",
+    detail: "(4980)",
   });
 });
 

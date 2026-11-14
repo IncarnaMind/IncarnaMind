@@ -77,7 +77,7 @@ const ENGLISH = "The board met on Tuesday and it was the first meeting of the ye
  * A judge that searches, cites `quote` and binds every requested figure to `number` as the quote
  * writes it, naming no reading of its own, and calls each Supported.
  */
-function binding(quote: string, number: string) {
+function binding(quote: string, number: string, unitQuote?: string, reading?: number) {
   return (call: ModelCall): ScriptedReply => {
     const searches = call.results.filter((result) => result.tool === "search_documents");
     if (searches.length === 0)
@@ -103,7 +103,7 @@ function binding(quote: string, number: string) {
       says: null,
       reading: null,
       relation: "equals",
-      source: { citation: 1, number },
+      source: { citation: 1, number, ...(unitQuote && { unitQuote }), ...(reading && { reading }) },
       measure: null,
       calculation: null,
     }));
@@ -119,6 +119,10 @@ interface Row {
   document: SourceFile;
   quote: string;
   number: string;
+  /** The line of the quote's Passage that states the number's unit, as the judge gives it. */
+  unitQuote?: string;
+  /** The reading of the quote's own number the judge names, when its Document doesn't settle it. */
+  sourceReading?: number;
   /** The sentence cites the line of its Document that holds `quote`. */
   cites?: true;
 }
@@ -126,7 +130,7 @@ interface Row {
 /** Checks the last line of a new Note as Check against Documents does: its card, and its check Runs. */
 async function check(row: Row, language: Language) {
   const calls: ModelCall[] = [];
-  const reply = binding(row.quote, row.number);
+  const reply = binding(row.quote, row.number, row.unitQuote, row.sourceReading);
   const model = scriptedModel(
     (call) => {
       calls.push(call);
@@ -362,6 +366,83 @@ describe.each(["en", "zh-CN"] as const)("the order a separator is read in (%s)",
       '"ambiguities":[{"kind":"currency","readings":[{"reading":1,"means":"1,284 million CNY"},{"reading":2,"means":"1,284 million JPY"}]}]',
     );
     expect(offered.join("\n")).not.toContain('"separator"');
+  });
+});
+
+/** #2864's figure, "8.214 thousand pounds", whose "." groups thousands or marks a decimal. */
+const ROOM_REVENUE = "Room revenue was 8.214 thousand pounds.";
+const IN_THOUSANDS: SourceFile = {
+  name: "Ridgeway Hotels.txt",
+  contents: "Ridgeway Hotels\nGBP thousands unless stated otherwise\nRoom revenue was 8,214.\n",
+};
+const THOUSANDS_WITH_COMMA_DECIMALS: SourceFile = {
+  name: "Ridgeway Hotels kennzahlen.txt",
+  contents:
+    "Ridgeway Hotels\nGBP thousands unless stated otherwise\nRoom revenue was 8.214.\nTotal 1.234.567\n",
+};
+const AS_WRITTEN: SourceFile = {
+  name: "Ridgeway Hotels results.txt",
+  contents: [
+    "Ridgeway Hotels results for the year",
+    "Room revenue was 8.214 thousand pounds in the year.",
+    "The figures are unaudited and they are for the year to 31 March 2026.",
+    "",
+  ].join("\n"),
+};
+
+describe.each(["en", "zh-CN"] as const)("#2864's 8.214 thousand at each step (%s)", (language) => {
+  // protects=a figure #2864 left needing a look keeps an ordinary verdict wherever a step before the interface language reads it: the Passage writing it identically, the Note's own language, the cited Document's way of writing numbers; only the interface language alone leaves it Not checked with both readings (#3088); fails_when=dropping the old separator guard loses a verdict at steps 1 to 3, or step 4 gives one; no_claim=what a real model binds.
+  test("steps 1 to 3 give an ordinary verdict; step 4 alone names both readings", async () => {
+    const identical = await check(
+      {
+        sentence: ROOM_REVENUE,
+        document: AS_WRITTEN,
+        quote: "Room revenue was 8.214 thousand pounds",
+        number: "8.214 thousand",
+      },
+      language,
+    );
+    expect({ state: identical.state, line: identical.line }).toEqual(ok);
+    const toldEnglish = await check(
+      {
+        above: ENGLISH,
+        sentence: ROOM_REVENUE,
+        document: IN_THOUSANDS,
+        quote: "Room revenue was 8,214",
+        number: "8,214",
+        unitQuote: "GBP thousands unless stated otherwise",
+        sourceReading: 1,
+      },
+      language,
+    );
+    expect({ state: toldEnglish.state, line: toldEnglish.line }).toEqual(wrong);
+    const cited = await check(
+      {
+        sentence: ROOM_REVENUE,
+        document: THOUSANDS_WITH_COMMA_DECIMALS,
+        quote: "Room revenue was 8.214",
+        number: "8.214",
+        unitQuote: "GBP thousands unless stated otherwise",
+        cites: true,
+      },
+      language,
+    );
+    expect({ state: cited.state, line: cited.line }).toEqual(ok);
+    const byInterface = await check(
+      {
+        sentence: ROOM_REVENUE,
+        document: IN_THOUSANDS,
+        quote: "Room revenue was 8,214",
+        number: "8,214",
+        unitQuote: "GBP thousands unless stated otherwise",
+        sourceReading: 1,
+      },
+      language,
+    );
+    expect({ state: byInterface.state, line: byInterface.line }).toEqual({
+      state: "not-checked",
+      line: twoWays(language, "8.214 thousand", "8.214 thousand", "8,214 thousand"),
+    });
   });
 });
 

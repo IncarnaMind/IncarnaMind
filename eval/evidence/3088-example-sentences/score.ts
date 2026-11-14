@@ -28,6 +28,8 @@ interface Row {
   timedOut?: number;
   inputTokens?: number;
   outputTokens?: number;
+  priced?: number;
+  held?: number;
 }
 
 /** A check's own reason that says a request of it failed: its round is void. */
@@ -66,6 +68,7 @@ const arms = [...new Set(rows.map((row) => row.arm))];
 interface Tally {
   checks: number;
   supported: number;
+  contradicted: number;
   partSupported: number;
   firstContradicted: number;
   figureNotChecked: number;
@@ -81,6 +84,7 @@ for (const row of counted) {
   const tally = byArm.get(row.arm) ?? {
     checks: 0,
     supported: 0,
+    contradicted: 0,
     partSupported: 0,
     firstContradicted: 0,
     figureNotChecked: 0,
@@ -88,6 +92,7 @@ for (const row of counted) {
   byArm.set(row.arm, tally);
   tally.checks++;
   if (row.state === "supported") tally.supported++;
+  if (row.state === "contradicted") tally.contradicted++;
   if (row.partVerdict === "supported") tally.partSupported++;
   if (row.firstReply === "contradicted") tally.firstContradicted++;
   if ((row.figures ?? []).some((figure) => figure.state === "not-checked"))
@@ -147,9 +152,11 @@ for (const key of tallies.keys()) {
     `main ${main.supported}/${main.checks}, branch ${branch.supported}/${branch.checks}`,
   );
 }
-// Bar 3: no held-out right sentence loses a ✓: 3 or more fewer of 10 in a case, or 10 or more in all.
+// Bar 3: no held-out right sentence loses a ✓: 3 or more fewer of 10 in a case; in all, a drop of
+// max(6, 2 × main's spread between its best and worst round's total) or more (2026-11-14).
 let mainRight = 0;
 let branchRight = 0;
+const losses: string[] = [];
 for (const key of tallies.keys()) {
   if (!key.startsWith("held-out") || !key.endsWith("| right")) continue;
   const main = tally(key, "main");
@@ -157,17 +164,49 @@ for (const key of tallies.keys()) {
   if (!main || !branch) continue;
   mainRight += main.supported;
   branchRight += branch.supported;
+  if (branch.supported < main.supported)
+    losses.push(`${key} (main ${main.supported}, branch ${branch.supported})`);
   bar(
     `${key}: no ✓ lost`,
     branch.supported > main.supported - 3,
     `main ${main.supported}/${main.checks}, branch ${branch.supported}/${branch.checks}`,
   );
 }
+const mainRounds = new Map<number, number>();
+for (const row of counted)
+  if (row.arm === "main" && row.group === "held-out" && row.expected === "right")
+    mainRounds.set(
+      row.round,
+      (mainRounds.get(row.round) ?? 0) + (row.state === "supported" ? 1 : 0),
+    );
+const spread =
+  mainRounds.size > 0 ? Math.max(...mainRounds.values()) - Math.min(...mainRounds.values()) : 0;
+const allowed = Math.max(6, 2 * spread);
+const drop = mainRight - branchRight;
 bar(
   "held-out right sentences, all: no ✓ lost",
-  branchRight > mainRight - 10,
-  `main ${mainRight}, branch ${branchRight}`,
+  drop < allowed,
+  `main ${mainRight}, branch ${branchRight}, drop ${drop}, fails at ${allowed} (main's spread ${spread})`,
 );
+const named =
+  drop >= 3 && drop < allowed
+    ? ["", `A passing total drop of ${drop}, named: ${losses.join("; ")}.`]
+    : [];
+
+const comparatives: string[] = [
+  "| Wrong comparative | Arm | ✓ | Contradicted |",
+  "|---|---|---|---|",
+];
+for (const [key, byArm] of [...tallies].sort(([a], [b]) => a.localeCompare(b))) {
+  if (!key.includes("| comparative |") || !key.endsWith("| wrong")) continue;
+  for (const arm of arms) {
+    const t = byArm.get(arm);
+    if (t)
+      comparatives.push(
+        `| ${key} | ${arm} | ${t.supported}/${t.checks} | ${t.contradicted}/${t.checks} |`,
+      );
+  }
+}
 
 const runs = rows.filter((row) => row.group === "run");
 console.log(
@@ -176,8 +215,10 @@ console.log(
     "",
     ...runs.map(
       (run) =>
-        `- ${run.arm} round ${run.round}: ${run.requests} requests, ${run.refused} refused, ${run.failed} failed, ${run.timedOut} timed out, ${run.inputTokens} input and ${run.outputTokens} output tokens${voids.has(roundKey(run)) ? `, **void** (${voids.get(roundKey(run))})` : ""}`,
+        `- ${run.arm} round ${run.round}: ${run.requests} requests, ${run.refused} refused, ${run.failed} failed, ${run.timedOut} timed out, ${run.held ?? 0} held at the stop, ${run.inputTokens} input and ${run.outputTokens} output tokens, $${(run.priced ?? 0).toFixed(4)}${voids.has(roundKey(run)) ? `, **void** (${voids.get(roundKey(run))})` : ""}`,
     ),
+    "",
+    `Priced in all: $${runs.reduce((sum, run) => sum + (run.priced ?? 0), 0).toFixed(4)}`,
     "",
     "## Cases",
     "",
@@ -186,5 +227,10 @@ console.log(
     "## Bars",
     "",
     ...bars,
+    ...named,
+    "",
+    "## Wrong comparatives, read apart",
+    "",
+    ...comparatives,
   ].join("\n"),
 );

@@ -1567,6 +1567,7 @@ export const en = {
   "claim.reason.two-readings": "“{shown}” could mean {first} or {second}, so it wasn’t checked.",
   "claim.reason.two-readings.unknown":
     "A figure here could be read more than one way, so it wasn’t checked.",
+  "claim.reason.readings-unsettled": "“{detail}” could be read several ways, so it wasn’t checked.",
   "claim.reason.library-unsettled": "Only your Library’s counts, names and kinds can be checked.",
   "claim.readBudget.continue": "Read the rest",
   "claim.readBudget.readRest": "Read the rest · up to {most}",

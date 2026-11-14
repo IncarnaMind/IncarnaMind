@@ -1,13 +1,14 @@
 # The gate of #3088: the credit example's own sentences
 
-Written and committed before any paid request. Nothing here changes once the first paid round starts; a change to a bar or a case after that is a new gate, and says so.
+Written and committed before any paid request. The bars are fixed from the first paid round: nothing here changes after it, and a change to a bar or a case would be a new gate that says so. No branch count is read against a bar until all 10 rounds and the four `eval/checks` runs are in.
 
 ## What is measured
 
 The fix changes what a check's model is told in two ways: a part of a longer sentence is checked with that sentence named on its own and one rule on reading a part, and a figure's separators are no longer offered as readings (the app reads them). The gate measures both on Claude Haiku 5.5 (`claude-haiku-5-5`), `main` against the branch.
 
 - **The harness** is `tests/live/exampleSentences.live.test.ts`. A round checks every case once, each Note as Check this note does, with the real sort. It writes one JSON line a sentence and one for the round.
-- **The arms** are `main` and the branch with `main` merged in at the same commit. The same harness file runs in both checkouts.
+- **The arms** are `main` at a94f0cac7604b789f3c517952ef818ea74cb76eb, and the branch at 3a03b45b7a16e06bc61aef2700a4282291b3a7d7, which is that `main` merged in. The commits after it add only the gate's own files: this README, the harness, `score.ts` and the evaluation's spend cap. The same harness file and the same evaluation file run in both checkouts.
+- **The model** is Claude Haiku 5.5, on a second Anthropic key, one run on the key at a time.
 - **Alternation:** in round r, odd rounds run `main` first and even rounds run the branch first. Both arms of a round run back to back. There are 10 rounds, so 20 arm-rounds.
 - **The check's own evaluation** (`eval/checks`, Find support) is the issue's second bar. It runs `main`, branch, `main`, branch, after the 10 rounds.
 
@@ -63,10 +64,14 @@ Read by `score.ts` beside this file, from the rounds that aren't void.
 
 A literal "loses one" per case would fail an unchanged prompt about a third of the time for any case whose ✓ isn't certain, so the bar is set at 3. Bar 2 has no such floor, because a wrong sentence's ✓ rate is 0 on `main` unless `main` already has a bug there.
 
+**2026-11-14, before the first paid round:** bar 3's total is replaced, by the second reader's ruling. Across the 12 held-out right sentences, the total fails at a drop of max(6, 2 × `main`'s spread) or more. `main`'s spread is its best round's total of ✓ over those 12, less its worst round's, over its ten rounds. A total drop of 3 or more that still passes is named in the pull request, with its cases. The per-case bar and the other bars are unchanged.
+
+**Read apart, beside the bars:** the held-out comparative clauses whose right reading isn't a ✓ (the three English and three Chinese wrong comparatives, two of them a flipped direction). Their ✓ and Contradicted counts on both arms show whether naming the whole sentence makes the judge pass a wrong clause.
+
 ## A run that counts
 
 - **Void rule:** an arm-round is void, kept and struck if any of its requests was refused, failed or timed out, counted by the harness from every request. It is also void if any check or figure in it reads a reason that a request failed (rate limit, failed, timed out, out of credit, the spend cap, the plan's limit). A void arm-round is run again beside its pair, in the same round, and both are reported.
-- **Before each round:** one request of one token reads the key's remaining input allowance from the response headers, and the round starts only above 90% of it. The key is never printed or written down.
+- **Before each arm-round:** one request of one token reads the key's remaining input allowance from the response headers. The arm-round starts only above 90% of it; at 90% or less the gate stops. The key is never printed or written down, and nothing the harness keeps holds it.
 - **Every request is kept:** the harness's JSON lines and each round's console output go beside this file.
 
 ## Dry run (no cost)
@@ -86,4 +91,8 @@ The evaluation's own tests (`tests/eval/checkPipeline.test.ts`, `checkCompare.te
 - **Rounds:** an arm-round of the scripted judge sent 378 requests. A real one sends about 400 to 450, with search, cite, the reply and a contradiction's confirmation. Priced from a held-out set of #2184, at about 50,000 input tokens a sentence's check, 60% of them cache reads, an arm-round is about 3.5M input and 60,000 output tokens. At the catalog's Haiku 5.5 price ($0.10 a million input, $0.01 cache reads, $0.50 output) that is **about $0.19**, so 20 arm-rounds are **about $3.80**.
 - **`eval/checks`:** a Find support run on Haiku 5.5 took 21 minutes, 10.4M input tokens (6.4M cache reads) and 0.18M output, **about $0.60**. Four runs are **about $2.40**.
 - **Total:** about **$6.20**, and about 4.5 hours with the rounds kept under the key's limit (4 Notes at once).
-- **Stop:** the gate stops at **$12** spent at the app's own count, summed over the arm-rounds and the evaluation's reports. It also stops at the first arm-round that is void twice running. Each core's own monthly cap is $5.
+- **Stop:** the gate stops at **$9** spent, about the estimate plus room for void reruns. The meter is watched between requests, not only between rounds:
+  - in the harness, no request is sent once the gate's spend before the arm-round plus the arm-round's own reaches $9 less $0.05 for the requests in flight. The spend is priced from each reply's own usage at the catalog's price, beside the app's own count per core;
+  - in `eval/checks`, `INCARNAMIND_EVAL_SPEND_CAP` sets the app's monthly cap to what is left of the $9, so the app sends no request that could pass it.
+
+  The gate also stops at the first arm-round that is void twice running, and when a probe shows 90% or less of the allowance left. When any stop fires, what is in is reported and nothing more is spent.
