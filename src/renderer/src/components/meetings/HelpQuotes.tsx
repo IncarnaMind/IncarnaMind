@@ -192,6 +192,15 @@ export function QuoteRows({
     shown.answer.status,
     (marker) => shown.numbers.has(marker),
   );
+  return <QuoteLineRows lines={lines} moment={moment} {...shown} />;
+}
+
+/** Quote lines as drawn: under their line, or at the reply's foot (#3098). */
+export function QuoteLineRows({
+  lines,
+  moment = false,
+  ...shown
+}: Shown & { lines: readonly QuoteLine[]; moment?: boolean }) {
   return (
     <>
       {lines.map((line) => (
@@ -199,6 +208,19 @@ export function QuoteRows({
         <QuoteRow key={line.markers[0]} line={line} moment={moment} {...shown} />
       ))}
     </>
+  );
+}
+
+/**
+ * A quote line kept for a number the reply's end gave no Citation (#3098): it keeps its row and
+ * says so, with no number and no ✓; `empty`, one whose quote another line of its line now holds.
+ */
+export function KeptQuote({ empty = false }: { empty?: boolean }) {
+  const t = useT();
+  return (
+    <span data-testid="help-quote" data-state={empty ? "kept" : "not-found"} className="help-quote">
+      {!empty && <span className="help-quote-said">{t("claim.why.quoteNotFound")}</span>}
+    </span>
   );
 }
 
