@@ -1,7 +1,9 @@
 /**
  * The paid proof of the ask for a fill's records (#3099): a saved fill's first reply is given back
  * as the model wrote it, and only the ask for its markers' records goes to a real model. Its output
- * is counts only: never a line of a call or a sentence of a note.
+ * is counts only, never a line of a call or a sentence of a note, except arm C's `other-line.tsv`:
+ * the second reader's file, which for each marker the ask put on another line gives the fact's
+ * sentence and both quotes.
  *
  * Runs only with INCARNAMIND_ASK_ARM, and every other argument then:
  * - INCARNAMIND_ASK_ARM: A (the saved fills whose reply wrote markers and called no `cite`, 3 tries
@@ -358,6 +360,16 @@ interface Try {
 }
 
 const results: Try[] = [];
+/** The second reader's file: each marker the ask put on another line than the reply's own record. */
+const OTHER_LINE_COLUMNS = [
+  "case",
+  "marker",
+  "own line",
+  "asked line",
+  "sentence",
+  "own quote",
+  "asked quote",
+] as const;
 const otherLines: string[] = [];
 /** What the self-check's scripted ask reports it used, whole as a provider's report is. */
 const SCRIPTED_USAGE = {
@@ -847,7 +859,11 @@ describe.skipIf(!ARGS)("the ask for a fill's records, on a real model (#3099)", 
                 const askedLine = lineOf(fill.cues, asked);
                 if (ownLine === askedLine) same++;
                 else if (args.arm === "C")
-                  otherLines.push(`${fill.call}\t${marker}\t${ownLine}\t${askedLine}`);
+                  otherLines.push(
+                    [fill.call, marker, ownLine, askedLine, fact.sentence, mine, asked]
+                      .map((cell) => String(cell).replace(/\s+/g, " ").trim())
+                      .join("\t"),
+                  );
               });
             }
             return { compared, same };
@@ -911,7 +927,13 @@ describe.skipIf(!ARGS)("the ask for a fill's records, on a real model (#3099)", 
       join(args.out, `arm-${args.arm}.tsv`),
       [columns.join("\t"), ...rows.map((row) => row.join("\t"))].join("\n"),
     );
-    if (args.arm === "C") writeFileSync(join(args.out, "other-line.tsv"), otherLines.join("\n"));
+    if (args.arm === "C") {
+      writeFileSync(
+        join(args.out, "other-line.tsv"),
+        [OTHER_LINE_COLUMNS.join("\t"), ...otherLines].join("\n"),
+      );
+    }
+    const emptyOther = otherLines.some((row) => row.split("\t").some((cell) => cell === ""));
     if (SELFCHECK === "moved") writeFileSync(join(args.out, "moved.tsv"), movedMarkers.join("\n"));
     writeFileSync(
       join(args.out, `notes-${args.arm}.jsonl`),
@@ -940,7 +962,8 @@ describe.skipIf(!ARGS)("the ask for a fill's records, on a real model (#3099)", 
       value === undefined ||
       (typeof value === "string" && value.trim() === "") ||
       (typeof value === "object" && Object.values(value).some(blank));
-    if (empty || blank(summary)) throw new Error("An empty cell or field in the proof's output.");
+    if (empty || emptyOther || blank(summary))
+      throw new Error("An empty cell or field in the proof's output.");
     if (summary.errors.length > 0) {
       throw new Error(`The proof's score counted nothing in: ${summary.errors.join(", ")}.`);
     }
