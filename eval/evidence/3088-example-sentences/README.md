@@ -106,7 +106,7 @@ The evaluation's own tests (`tests/eval/checkPipeline.test.ts`, `checkCompare.te
 **Runs.**
 - **Arm-rounds:** 20, 10 for each arm, alternated. They sent 5,972 requests, with 0 refused, 0 failed, 0 timed out and 0 held at the stop, and none was void.
 - **Two starts before the first round** were not counted (`runs/start-*.log`). The first refused its own output path, which was under the repository rather than a temporary folder, after one example core. The second was stopped at once. Neither wrote a line of its own, so $0.10 is counted for them.
-- **`eval/checks`:** four runs, `main`, branch, `main`, branch. Each reached all 208 Find support sentences and 10 received documents, with 834, 830, 832 and 812 requests (counted from the reports' requests). No request failed or was refused, by the logs and the core's own reasons.
+- **`eval/checks`:** four runs, `main`, branch, `main`, branch. Each reached all 208 Find support sentences and 10 received documents. They made 1,481, 1,460, 1,481 and 1,459 requests, 5,881 in all, counted from the reports' requests: Find support's 834, 830, 832 and 812, Verify's checks, and 10 extractions. No request failed or was refused, by the logs and the core's own reasons.
 
 **Spend, at the app's own count.**
 - the arm-rounds: $1.62 (the harness's own pricing matched it to the cent);
@@ -151,3 +151,20 @@ Naming the whole sentence made no wrong clause pass more often. en-a2, "Occupanc
   - Of the other 4, fs-121 gave no quote at all, fs-066's reply couldn't be read after the strict judgement, and fs-013 and fs-112 ended Unsupported. None of those 4 has such a figure.
 
 The bar is as written, and it stays missed.
+
+## The confirming run of bar 4 (2026-11-14, written before it)
+
+The owner allowed one confirming run of bar 4 alone, past the first stop. The second reader's rulings were built before it:
+- step 1 settles a figure only where its Note leaves the separators open, or reads them as its Passage does. Where the Note's own language reads the same writing the other way, the figure is Not checked with both readings named;
+- a figure read three or more ways says only that it reads several ways;
+- the Chinese card writes readings in 万 and 亿 with the currency's Chinese name.
+
+**Cases the step-1 change moves: 0.** A free count over the gate's 401 sentences and Notes (the 208 Find support sentences, the labelled claims, the example's Notes and the held-out cases) found no figure that its Note settles one way while a Passage, or a Document it could cite, writes it identically under the other decimal mark. A German Note's "£1,284 million" beside an English report, as a control, was found.
+
+**How it runs.**
+- **Arms:** `main` at 23df13e89 against the branch's pushed head, which is `main` merged in. The rule is bar 4's as written above: Contradicted on sentences labelled contradicted over two runs, and the paired rule.
+- **Order:** `main`, branch, `main`, branch, one lease each on the first Anthropic key, with Claude Haiku 5.5 and a probe before each run.
+- **What each run checks:** Find support only (`INCARNAMIND_EVAL_CHECKS_FIND_SUPPORT_ONLY=1`), since bar 4 reads nothing else, at about $0.57 a run.
+- **Stop:** $4.00 in all for this run, held by the app's cap on each run. A run doesn't start with less than $0.90 left.
+- **Void rule:** a run with any refused or failed request is void.
+- **Environment:** the evaluation runs with a temporary HOME and model cache, a copy of the one it reads, and its own temporary data folder.
