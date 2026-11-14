@@ -276,6 +276,30 @@ describe.each(["en", "zh-CN"] as const)(
       }
     });
 
+    // protects=a reply that writes each marker after its sentence's full stop, as the replies that called no cite did, still has each record taken by its marker (#3099); fails_when=the records of that form are dropped; no_claim=a marker in the middle of a sentence.
+    test("takes the records of markers written after a full stop", async () => {
+      const words = WORDS[language];
+      const stop = language === "en" ? "." : "。";
+      const reply = ledger(words).replace(/ \[\^(\d)\]\.$/gm, `${stop} [^$1]`);
+      expect(reply.match(new RegExp(`\\${stop} \\[\\^\\d\\]$`, "gm"))).toHaveLength(3);
+      const scripted = fillModel({ reply, ask: recordsFor(quotesOf(words)) });
+      const { core, client, fill } = await recordedFill(language, scripted);
+      try {
+        expect(fill).toMatchObject({
+          state: "filled",
+          omitted: 0,
+          unfinishedParts: 0,
+          problem: null,
+        });
+        expect(scripted.asked).toHaveLength(1);
+        for (const text of Object.values(quotesOf(words))) {
+          expect(citationsBeside(client, text)[0]).toEqual([{ check: "found", quote: text }]);
+        }
+      } finally {
+        core.close();
+      }
+    });
+
     // protects=asked once and given no records, the fill ends as it does today: not filled, for the reason that nothing could be checked, with no third request (#3099); fails_when=another request is sent or the reason changes; no_claim=the line's words, which tests/renderer/meetingFillLine.test.ts covers.
     test("given no records, ends as today with exactly two requests", async () => {
       const words = WORDS[language];
@@ -303,6 +327,56 @@ describe("the ask for a fill's records (#3099)", () => {
       expect(fill).toMatchObject({ state: "filled", omitted: 0 });
       expect(asks.map(({ kind, modelId, thinking }) => ({ kind, modelId, thinking }))).toEqual([
         { kind: "anthropic", modelId: "claude-sonnet-5-5", thinking: "off" },
+      ]);
+    } finally {
+      core.close();
+    }
+  });
+
+  // protects=a marker the reply used in two facts keeps its own quote in both, and the second fact's other marker gets its own, though the ask names the reused marker's quote again for the second fact (#3099); fails_when=the other marker takes the reused marker's quote; no_claim=a marker reused in one sentence.
+  test("gives a marker reused in a second fact its own quote, and that fact's other marker its own", async () => {
+    const words = WORDS.en;
+    const reply = [
+      "HEADINGS: H1=NONE",
+      fact("F1", words.decision, 1, "decisions"),
+      [
+        "### FACT F2",
+        "```json",
+        JSON.stringify({
+          topic: "actions",
+          citations: [1, 2],
+          lines: ["L1"],
+          sections: ["actions"],
+          claim: false,
+        }),
+        "```",
+        `${words.action} [^1] [^2].`,
+        "### END F2",
+      ].join("\n"),
+      overview(words.purpose, 3),
+    ].join("\n\n");
+    const quotes = quotesOf(words);
+    // A record for every marker where the reply wrote it, as a model names each sentence's sources.
+    const perMarker = (answer: string, passages: { id: string; text: string }[]): Asked[] =>
+      answer.split("\n").flatMap((line) =>
+        [...line.matchAll(/\[\^(\d+)\]/g)].flatMap((match) => {
+          const quote = quotes[Number(match[1])];
+          const passage = passages.find((each) => quote && each.text.includes(quote));
+          return quote && passage
+            ? [{ sentence: line.replace(/\s*\[\^\d+\]/g, ""), passage: passage.id, quote }]
+            : [];
+        }),
+      );
+    const scripted = fillModel({ reply, ask: perMarker });
+    const { core, client, fill } = await recordedFill("en", scripted);
+    try {
+      expect(fill).toMatchObject({ state: "filled", omitted: 0 });
+      expect(citationsBeside(client, words.action)[0]).toEqual([
+        { check: "found", quote: words.decision },
+        { check: "found", quote: words.action },
+      ]);
+      expect(citationsBeside(client, words.decision)[0]).toEqual([
+        { check: "found", quote: words.decision },
       ]);
     } finally {
       core.close();

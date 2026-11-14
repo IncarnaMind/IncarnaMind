@@ -11,7 +11,11 @@
  * - INCARNAMIND_ASK_OUT: the folder its files go to, absolute; every arm keeps its spend there;
  * - INCARNAMIND_ASK_MODEL: the model's id, which names its provider (claude-… or deepseek-…);
  * - INCARNAMIND_ASK_KEY_VAR: the name of the variable that holds that provider's key;
- * - INCARNAMIND_ASK_DRY=1: every request and file is built as in a real run, and nothing is sent.
+ * - INCARNAMIND_ASK_DRY=1: every request and file is built as in a real run, and nothing is sent;
+ * - INCARNAMIND_ASK_SELFCHECK, with no key: the ask's reply is scripted, and the score is read and
+ *   held to what the mode must give: "own" (arm C, each reply's own withheld records), "moved"
+ *   (the same, with the first case's first marker quoting the next line the check finds), "none"
+ *   (no records) or "footnotes" (arm A, the quotes a reply wrote as footnote lines).
  * No request goes that could take the spend of all arms past US$0.25.
  */
 import { createHash } from "node:crypto";
@@ -29,6 +33,7 @@ import { costOf, inCurrency } from "../../src/core/cost/price";
 import type { Language } from "../../src/core/language";
 import { catalogModel } from "../../src/core/providers/catalog";
 import * as chatModels from "../../src/core/providers/models";
+import { answerSentences } from "../../src/shared/answerSentences";
 import { translate } from "../../src/shared/i18n";
 import { isPartialMeetingFill } from "../../src/shared/meetingFill";
 import { createTempDataFolder } from "../helpers/core";
@@ -40,6 +45,13 @@ import { transcribingCore } from "../helpers/transcription";
 
 const ARM = process.env.INCARNAMIND_ASK_ARM;
 const DRY = process.env.INCARNAMIND_ASK_DRY === "1";
+const SELFCHECK = process.env.INCARNAMIND_ASK_SELFCHECK;
+const SELFCHECK_ARMS: Readonly<Record<string, string>> = {
+  own: "C",
+  moved: "C",
+  none: "C",
+  footnotes: "A",
+};
 const CAP_USD = 0.25;
 const TRIES: Readonly<Record<string, number>> = { A: 3, B: 1, C: 1 };
 const SPEND_FILE = "spend.json";
@@ -55,7 +67,8 @@ function argumentsOf() {
     : model.startsWith("deepseek-")
       ? "deepseek"
       : null;
-  const key = DRY ? "a-made-up-key-for-a-dry-run" : (process.env[keyVar] ?? "");
+  const sent = !DRY && SELFCHECK === undefined;
+  const key = sent ? (process.env[keyVar] ?? "") : "a-made-up-key-nothing-is-sent";
   if (
     !ARM ||
     TRIES[ARM] === undefined ||
@@ -63,13 +76,14 @@ function argumentsOf() {
     !runs.every(isAbsolute) ||
     !isAbsolute(out) ||
     !provider ||
-    (!DRY && (!/^[A-Z][A-Z0-9_]+$/.test(keyVar) || key.trim() === ""))
+    (SELFCHECK !== undefined && (DRY || SELFCHECK_ARMS[SELFCHECK] !== ARM)) ||
+    (sent && (!/^[A-Z][A-Z0-9_]+$/.test(keyVar) || key.trim() === ""))
   ) {
     throw new Error("Invalid arguments for the ask's proof: see this file's comment.");
   }
   const price = catalogModel(provider, model)?.price;
   if (!price) throw new Error("The model has no catalog price.");
-  return { arm: ARM, runs, out, model, provider, key, price, tries: TRIES[ARM] ?? 1 };
+  return { arm: ARM, runs, out, model, provider, key, price, sent, tries: TRIES[ARM] ?? 1 };
 }
 
 type Part = { type: string; [key: string]: unknown };
@@ -218,10 +232,11 @@ function picked(fills: readonly Saved[], arm: string): Saved[] {
 
 /** The reply given back as the fill's first: arm C's ledger with its `cite` records withheld. */
 function firstReply(fill: Saved): { text: string; own: Record_[] } {
-  const ledger = fill.requests.find((parts) => FRAMES.test(textOf(parts))) ?? [];
+  const at = fill.requests.findIndex((parts) => FRAMES.test(textOf(parts)));
+  // A model may call cite in the request that writes the ledger, after its text.
   return {
-    text: textOf(ledger),
-    own: fill.requests.slice(0, fill.requests.indexOf(ledger)).flatMap(citeRecords),
+    text: textOf(fill.requests[at] ?? []),
+    own: fill.requests.slice(0, at + 1).flatMap(citeRecords),
   };
 }
 
@@ -301,6 +316,8 @@ const lineOf = (cues: readonly Cue[], quote: string) =>
 
 interface Try {
   arm: string;
+  /** Which of the arm's fills, from 1: two may be runs of the same call. */
+  fill: number;
   case: string;
   language: Language;
   try: number;
@@ -318,10 +335,52 @@ interface Try {
   footnoteSame: number;
   seconds: number;
   usd: number;
+  /** When its requests were sent (ISO 8601): a provider's price can depend on the hour. */
+  sentAt: string[];
 }
 
 const results: Try[] = [];
 const otherLines: string[] = [];
+/** What the self-check's scripted ask reports it used, whole as a provider's report is. */
+const SCRIPTED_USAGE = {
+  usage: {
+    inputTokens: { total: 2_000, noCache: 2_000, cacheRead: 0, cacheWrite: 0 },
+    outputTokens: { total: 300, text: 300, reasoning: 0 },
+  },
+};
+
+/** "moved": the case and marker whose record the self-check moved to another line. */
+const movedMarkers: string[] = [];
+
+/**
+ * The self-check's records for the Answer the ask shows: each marker's sentence, as a model would
+ * name it, with the quote `quotes` gives it. A marker before a sentence's first word cites the
+ * sentence before it.
+ */
+function scriptedRecords(
+  answer: string,
+  passages: readonly { id: string; text: string }[],
+  quotes: ReadonlyMap<number, string>,
+  move: ((marker: number, quote: string) => string | null) | null,
+) {
+  const records: { sentence: string; passage: string; quote: string }[] = [];
+  let previous = "";
+  for (const sentence of answerSentences(answer)) {
+    const lead = /^(?:\s*\[\^\d{1,4}\])+/.exec(sentence.text)?.[0] ?? "";
+    const words = plain(sentence.text);
+    for (const found of sentence.text.matchAll(/\[\^(\d{1,4})\]/g)) {
+      const marker = Number(found[1]);
+      const own = quotes.get(marker);
+      if (own === undefined) continue;
+      const quote = move?.(marker, own) ?? own;
+      const passage = passages.find((each) => each.text.includes(quote));
+      const cited = (found.index ?? 0) < lead.length ? previous : words;
+      if (passage && cited !== "") records.push({ sentence: cited, passage: passage.id, quote });
+    }
+    if (words !== "") previous = words;
+  }
+  return records;
+}
 let stoppedAtCap = false;
 
 /** Read only when the proof is asked for: the unit suite imports this file with no arguments. */
@@ -401,8 +460,42 @@ describe.skipIf(!ARGS)("the ask for a fill's records, on a real model (#3099)", 
           given = true;
           return { text: reply };
         });
+        const ownQuotes = new Map(own.map((each) => [each.marker, each.quote]));
+        const selfAsk = scriptedModel((each): ScriptedReply => {
+          if (each.question !== "unmarked-quotes") {
+            throw new Error("The self-check scripts only the ask.");
+          }
+          const answer = /<answer>\n([\s\S]*?)\n<\/answer>/.exec(each.prompt)?.[1] ?? "";
+          const passages = [
+            ...each.prompt.matchAll(/<passage id="([^"]+)">\n([\s\S]*?)\n<\/passage>/g),
+          ].map((match) => ({ id: match[1] ?? "", text: match[2] ?? "" }));
+          const quotes =
+            SELFCHECK === "footnotes"
+              ? footnoteQuotes(reply)
+              : SELFCHECK === "none"
+                ? new Map<number, string>()
+                : ownQuotes;
+          const move =
+            SELFCHECK === "moved" && index === 0
+              ? (marker: number, quote: string) => {
+                  if (movedMarkers.length > 0) return null;
+                  const next = fill.cues
+                    .slice(lineOf(fill.cues, quote) + 1)
+                    .map((cue) => cue.text.trim())
+                    .find((text) => text !== "" && passages.some((p) => p.text.includes(text)));
+                  if (next === undefined) return null;
+                  movedMarkers.push(`${fill.call}\t${marker}`);
+                  return next;
+                }
+              : null;
+          return {
+            text: JSON.stringify({ citations: scriptedRecords(answer, passages, quotes, move) }),
+          };
+        }, SCRIPTED_USAGE);
         const createChatModel = (spec: Parameters<typeof chatModels.createAiSdkChatModel>[0]) => {
-          const real = ledger.model(spec, () => chatModels.createAiSdkChatModel(spec));
+          const real = ledger.model(spec, () =>
+            SELFCHECK ? selfAsk : chatModels.createAiSdkChatModel(spec),
+          );
           const hybrid: LanguageModelV4 = {
             specificationVersion: real.specificationVersion,
             provider: real.provider,
@@ -419,7 +512,7 @@ describe.skipIf(!ARGS)("the ask for a fill's records, on a real model (#3099)", 
                 "USD",
               );
               const spent = spentBefore() + ledger.snapshot().total_usd;
-              if (!DRY && spent + estimated > CAP_USD) {
+              if (args.sent && spent + estimated > CAP_USD) {
                 stoppedAtCap = true;
                 throw new Error("The next request could pass the spend cap: not sent.");
               }
@@ -491,6 +584,8 @@ describe.skipIf(!ARGS)("the ask for a fill's records, on a real model (#3099)", 
           const writtenFacts = facts.filter((fact) =>
             units.some((unit) => unit.text === fact.sentence),
           );
+          const writtenOverview =
+            overview && units.some((unit) => unit.text === overview.sentence) ? [overview] : [];
           const askedReply = snapshot.requests.find((each) => each.text.trim() !== "")?.text ?? "";
           const askedItems = (() => {
             try {
@@ -507,15 +602,19 @@ describe.skipIf(!ARGS)("the ask for a fill's records, on a real model (#3099)", 
           const quotes = new Set(
             sentences.flatMap((unit) => unit.citations.map((each) => each.quote)),
           );
+          // Each marker once, where it is first written: a marker reused in another fact is the
+          // same record.
           const compare = (theirs: ReadonlyMap<number, string>) => {
             let compared = 0;
             let same = 0;
-            for (const fact of writtenFacts) {
+            const seen = new Set<number>();
+            for (const fact of [...writtenFacts, ...writtenOverview]) {
               const unit = units.find((each) => each.text === fact.sentence);
               fact.markers.forEach((marker, at) => {
                 const mine = theirs.get(marker);
                 const asked = unit?.citations[at]?.quote;
-                if (mine === undefined || asked === undefined) return;
+                if (mine === undefined || asked === undefined || seen.has(marker)) return;
+                seen.add(marker);
                 compared++;
                 const ownLine = lineOf(fill.cues, mine);
                 const askedLine = lineOf(fill.cues, asked);
@@ -534,16 +633,17 @@ describe.skipIf(!ARGS)("the ask for a fill's records, on a real model (#3099)", 
               ? `${usage.length} requests sent`
               : usage.some((each) => each.status !== "completed" || !each.usage_complete)
                 ? "a request not completed, or without its usage"
-                : "";
+                : null;
           const filled =
             fillNow.state === "filled" &&
             (facts.length > 1 || (writtenFacts.length === 1 && isPartialMeetingFill(fillNow)));
           results.push({
             arm: args.arm,
+            fill: index + 1,
             case: fill.call,
             language: call.language,
             try: attempt,
-            void: DRY ? "dry run" : voided,
+            void: DRY ? "dry run" : voided || "no",
             filled,
             closed: facts.length,
             written: writtenFacts.length,
@@ -561,6 +661,7 @@ describe.skipIf(!ARGS)("the ask for a fill's records, on a real model (#3099)", 
             footnoteSame: footnotes.same,
             seconds: seconds[0] ?? 0,
             usd: snapshot.total_usd,
+            sentAt: snapshot.requests.map((each) => each.priced_at),
           });
         } finally {
           core.close();
@@ -572,7 +673,9 @@ describe.skipIf(!ARGS)("the ask for a fill's records, on a real model (#3099)", 
 
   afterAll(() => {
     if (results.length === 0) return;
-    const columns = Object.keys(results[0] ?? {}) as (keyof Try)[];
+    const columns = (Object.keys(results[0] ?? {}) as (keyof Try)[]).filter(
+      (column) => column !== "sentAt",
+    );
     const rows = results.map((row) => columns.map((column) => String(row[column])));
     const empty = rows.some((row) => row.some((cell) => cell.trim() === ""));
     writeFileSync(
@@ -580,6 +683,7 @@ describe.skipIf(!ARGS)("the ask for a fill's records, on a real model (#3099)", 
       [columns.join("\t"), ...rows.map((row) => row.join("\t"))].join("\n"),
     );
     if (args.arm === "C") writeFileSync(join(args.out, "other-line.tsv"), otherLines.join("\n"));
+    if (SELFCHECK === "moved") writeFileSync(join(args.out, "moved.tsv"), movedMarkers.join("\n"));
     if (DRY) {
       writeFileSync(
         join(args.out, `dry-${args.arm}.jsonl`),
@@ -593,7 +697,7 @@ describe.skipIf(!ARGS)("the ask for a fill's records, on a real model (#3099)", 
       spent = {};
     }
     spent[args.arm] = results.reduce((sum, row) => sum + row.usd, 0);
-    if (!DRY) writeFileSync(join(args.out, SPEND_FILE), JSON.stringify(spent));
+    if (args.sent) writeFileSync(join(args.out, SPEND_FILE), JSON.stringify(spent));
     const summary = summarize(args.arm, results, dryRequests);
     writeFileSync(join(args.out, `summary-${args.arm}.json`), JSON.stringify(summary, null, 2));
     console.log(JSON.stringify(summary, null, 2));
@@ -604,6 +708,16 @@ describe.skipIf(!ARGS)("the ask for a fill's records, on a real model (#3099)", 
       (typeof value === "string" && value.trim() === "") ||
       (typeof value === "object" && Object.values(value).some(blank));
     if (empty || blank(summary)) throw new Error("An empty cell or field in the proof's output.");
+    if (summary.errors.length > 0) {
+      throw new Error(`The proof's score counted nothing in: ${summary.errors.join(", ")}.`);
+    }
+    if (SELFCHECK) {
+      const findings = selfCheckFindings(summary);
+      console.log(
+        `Self-check "${SELFCHECK}": ${findings.length === 0 ? "as expected" : findings.join("; ")}`,
+      );
+      if (findings.length > 0) throw new Error(`The self-check "${SELFCHECK}" fell short.`);
+    }
   });
 });
 
@@ -613,39 +727,85 @@ function summarize(arm: string, rows: readonly Try[], dry: readonly { usd: numbe
     zh: rows.filter((row) => row.language === "zh-CN").reduce((sum, row) => sum + pick(row), 0),
     all: rows.reduce((sum, row) => sum + pick(row), 0),
   });
-  const counted = (row: Try) => row.void === "";
+  const counted = (row: Try) => row.void === "no";
   const filled = (row: Try) => (counted(row) && row.filled ? 1 : 0);
   const median = (values: number[]) => {
     const sorted = [...values].sort((a, b) => a - b);
     return sorted.length === 0 ? 0 : (sorted[Math.floor((sorted.length - 1) / 2)] ?? 0);
   };
-  const cases = [...new Set(rows.map((row) => row.case))];
+  const cases = [...new Set(rows.map((row) => row.fill))];
   const filledRows = rows.filter((row) => filled(row) === 1);
   const asked = byLanguage((row) => (counted(row) ? row.ownCompared : 0));
   const same = byLanguage((row) => (counted(row) ? row.sameLine : 0));
   const closed = byLanguage((row) => row.closed);
   const written = byLanguage((row) => (counted(row) ? row.written : 0));
+  // A bar says what it counted, and over a cell with nothing in it it is an error, never held.
+  const verdict = (held: boolean, counted: string, empty: string | null) =>
+    empty !== null ? `error: ${empty} (${counted})` : `${held ? "held" : "failed"}: ${counted}`;
+  const tries = rows.length;
+  const filledTries = byLanguage(filled).all;
+  const casesTwice = cases.filter(
+    (each) => rows.filter((row) => row.fill === each && filled(row)).length >= 2,
+  ).length;
+  const kept = filledRows.filter((row) => row.sameSentences && row.quotesFound).length;
   const bars =
     arm === "A"
       ? {
-          "1: filled in at least 16 of 18, each case in at least 2 of 3":
-            byLanguage(filled).all >= 16 &&
-            cases.every(
-              (each) => rows.filter((row) => row.case === each && filled(row)).length >= 2,
-            ),
-          "2: every filled try keeps the first reply's sentences, every quote found":
-            filledRows.every((row) => row.sameSentences && row.quotesFound),
-          "3: at least 9 in 10 of the closed facts written": written.all >= 0.9 * closed.all,
+          "1: filled in at least 16 of 18, each case in at least 2 of 3": verdict(
+            filledTries >= 16 && casesTwice === cases.length,
+            `${filledTries} of ${tries} tries filled; ${casesTwice} of ${cases.length} cases filled in at least 2 of 3`,
+            tries === 0 ? "no try" : null,
+          ),
+          "2: every filled try keeps the first reply's sentences, every quote found": verdict(
+            kept === filledRows.length,
+            `${kept} of ${filledRows.length} filled tries`,
+            filledRows.length === 0 ? "no filled try to read" : null,
+          ),
+          "3: at least 9 in 10 of the closed facts written": verdict(
+            written.all >= 0.9 * closed.all,
+            `${written.all} of ${closed.all} closed facts written, ${Math.ceil(0.9 * closed.all)} needed`,
+            closed.all === 0 ? "no closed fact" : null,
+          ),
         }
       : arm === "C"
         ? {
             "4: filled in at least 5 of 6, and 9 in 10 asked markers on the reply's own line":
-              byLanguage(filled).all >= 5 && same.all >= 0.9 * asked.all,
+              verdict(
+                filledTries >= 5 && same.all >= 0.9 * asked.all,
+                `${filledTries} of ${tries} tries filled; ${same.all} of ${asked.all} asked markers on the reply's own line, ${Math.ceil(0.9 * asked.all)} needed`,
+                tries === 0
+                  ? "no try"
+                  : filledTries >= 5 && asked.all === 0
+                    ? "no asked marker to compare"
+                    : null,
+              ),
           }
-        : { "B: reported, gates nothing": true };
+        : {
+            "B: reported, gates nothing": `reported: ${filledTries} of ${tries} tries filled`,
+          };
+  const sentAt = rows.flatMap((row) => row.sentAt).sort();
+  const hour = (at: string | undefined) => (at ? `${at.slice(0, 13)}:00Z` : "none sent");
+  // What each result was counted over; on a real record, a cell that counted nothing is an error.
+  const cells = {
+    tries: tries,
+    closedFacts: closed.all,
+    askedMarkers:
+      arm === "C" ? asked.all : rows.reduce((sum, row) => sum + (counted(row) ? row.asked : 0), 0),
+  };
+  const errors =
+    DRY || SELFCHECK
+      ? []
+      : Object.entries(cells)
+          .filter(([, count]) => count === 0)
+          .map(([cell]) => cell);
   return {
     arm,
     dry: DRY,
+    selfCheck: SELFCHECK ?? "no",
+    cells,
+    errors,
+    firstRequestUtcHour: hour(sentAt[0]),
+    lastRequestUtcHour: hour(sentAt.at(-1)),
     tries: byLanguage(() => 1),
     void: byLanguage((row) => (counted(row) ? 0 : 1)),
     filled: byLanguage(filled),
@@ -667,12 +827,68 @@ function summarize(arm: string, rows: readonly Try[], dry: readonly { usd: numbe
     dryEstimateUsd: dry.reduce((sum, each) => sum + each.usd, 0),
     stoppedAtCap,
     bars: Object.fromEntries(
-      Object.entries(bars).map(([bar, held]) => [
-        bar,
-        DRY ? "not read in a dry run" : held ? "held" : "failed",
-      ]),
+      Object.entries(bars).map(([bar, read]) => [bar, DRY ? "not read in a dry run" : read]),
     ),
   };
+}
+
+type Summary = ReturnType<typeof summarize>;
+
+/** What a self-check mode must give, each shortfall with the numbers it read. */
+function selfCheckFindings(summary: Summary): string[] {
+  const findings: string[] = [];
+  const need = (ok: boolean, what: string) => {
+    if (!ok) findings.push(what);
+  };
+  const bar = Object.values(summary.bars)[0] ?? "";
+  const { filled, tries, askedMarkersCompared: asked, askedMarkersOnOwnLine: same } = summary;
+  if (SELFCHECK === "own") {
+    need(filled.all === tries.all, `filled ${filled.all} of ${tries.all}`);
+    need(
+      asked.all > 0 && same.all === asked.all,
+      `${same.all} of ${asked.all} markers on their own line`,
+    );
+    need(
+      summary.sameSentences.all === tries.all,
+      `${summary.sameSentences.all} tries keep every sentence`,
+    );
+    need(
+      summary.writtenFacts.all === summary.closedFacts.all,
+      `${summary.writtenFacts.all} of ${summary.closedFacts.all} closed facts written`,
+    );
+    need(otherLines.length === 0, `${otherLines.length} markers on another line`);
+    need(bar.startsWith("held"), `bar 4: ${bar}`);
+  } else if (SELFCHECK === "moved") {
+    need(movedMarkers.length === 1, `${movedMarkers.length} markers moved`);
+    need(
+      otherLines.length === 1 && otherLines[0]?.startsWith(movedMarkers[0] ?? "-") === true,
+      `${otherLines.length} markers listed on another line, the moved one ${otherLines.some((line) => line.startsWith(movedMarkers[0] ?? "-")) ? "among them" : "not among them"}`,
+    );
+    need(
+      asked.all > 0 && same.all === asked.all - 1,
+      `${same.all} of ${asked.all} markers on their own line`,
+    );
+  } else if (SELFCHECK === "none") {
+    need(filled.all === 0, `filled ${filled.all} of ${tries.all}`);
+    need(bar.startsWith("failed"), `bar 4: ${bar}`);
+  } else if (SELFCHECK === "footnotes") {
+    const cases = results.filter((row) => row.footnoteCompared > 0);
+    need(cases.length > 0, "no try compared footnote quotes");
+    need(
+      cases.every((row) => row.filled && row.footnoteCompared === 13 && row.footnoteSame === 13),
+      cases
+        .map(
+          (row) => `${row.footnoteSame} of ${row.footnoteCompared} footnote quotes on their line`,
+        )
+        .join(", "),
+    );
+    need(
+      results.filter((row) => row.footnoteCompared === 0).every((row) => !row.filled),
+      "a try without footnote records filled",
+    );
+    need(bar.startsWith("failed"), `bar 1: ${bar}`);
+  }
+  return findings;
 }
 
 async function settled(core: Core, meeting: Meeting): Promise<MeetingFill> {

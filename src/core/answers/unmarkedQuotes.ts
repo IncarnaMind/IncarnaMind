@@ -327,8 +327,11 @@ function takingMarkers(
   matched: readonly Found[],
 ): Found[] {
   const units = markedUnits(answer).map((unit) => ({ ...unit, words: wordsOf(unit.text) }));
-  const taken = new Set(
-    matched.flatMap((match) => (match.marker === undefined ? [] : [match.marker])),
+  /** Each marker taken, with the quote that took it. */
+  const taken = new Map(
+    matched.flatMap((match) =>
+      match.marker === undefined ? [] : [[match.marker, match.quote] as const],
+    ),
   );
   return asked.flatMap((match) => {
     const words = wordsOf(match.sentence);
@@ -344,9 +347,12 @@ function takingMarkers(
     if (own && (own.markers.some(recorded) || matched.some((each) => each.start === own?.start))) {
       return [];
     }
+    // A marker used in two sentences is given its quote twice: the second time it would take the
+    // sentence's other marker, citing a line that marker never named (#3099).
+    if (own?.markers.some((marker) => taken.get(marker) === match.quote)) return [];
     const orphan = own?.markers.find((marker) => !taken.has(marker));
     if (!own || orphan === undefined) return [match];
-    taken.add(orphan);
+    taken.set(orphan, match.quote);
     return [{ ...match, marker: orphan, start: own.start, end: own.end }];
   });
 }
@@ -557,14 +563,25 @@ async function askForCitations(
   return judged.ok ? judged.value : [];
 }
 
-/** The lines of a reply that hold a Citation marker: its sentences, not its code, headings or footnotes. */
+/**
+ * The lines of a reply that hold a Citation marker: its sentences, not its code, headings or
+ * footnotes. A marker written after its sentence's full stop is put before it: read as written,
+ * "Agreed. [^4]" leaves [^4] to no sentence, and no record could take it.
+ */
 function markedLines(reply: string): string {
   const lines: string[] = [];
   let fenced = false;
   for (const line of reply.split("\n")) {
     if (/^ {0,3}(?:`{3,}|~{3,})/.test(line)) fenced = !fenced;
     else if (!fenced && !/^ {0,3}(?:#|\[\^\d{1,4}\]:)/.test(line) && /\[\^\d{1,4}\]/.test(line))
-      lines.push(line.trim());
+      lines.push(
+        line
+          .trim()
+          .replace(
+            /([.!?。！？]+)[ \t]*((?:\[\^\d{1,4}\][ \t]*)+)/gu,
+            (_, stop: string, markers: string) => ` ${markers.trim()}${stop}`,
+          ),
+      );
   }
   return lines.join("\n\n");
 }
