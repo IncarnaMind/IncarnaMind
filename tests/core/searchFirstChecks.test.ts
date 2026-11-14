@@ -40,6 +40,11 @@ const LANGUAGES = [
       "The Employer pays the salary on the last working day of each month, and the Employee gets a company car.",
     found: "The Employer pays the salary on the last working day of each month",
     absent: "the Employee gets a company car",
+    car: "The Employee gets a company car.",
+    rooms: ["Oak", "Elm", "Ash", "Pine", "Birch", "Cedar", "Maple", "Willow"].map((room) => ({
+      rule: `The ${room} room is open to members on Mondays.`,
+      sentence: `Members can use the ${room} room on Mondays.`,
+    })),
   },
   {
     language: "zh-CN",
@@ -49,6 +54,11 @@ const LANGUAGES = [
     twoParts: "雇主在每月最后一个工作日支付工资，雇员还配有公司用车。",
     found: "雇主在每月最后一个工作日支付工资",
     absent: "雇员还配有公司用车",
+    car: "雇员配有公司用车。",
+    rooms: ["橡树", "榆树", "白蜡", "松树", "桦树", "雪松", "枫树", "柳树"].map((room) => ({
+      rule: `${room}会议室每周一向会员开放。`,
+      sentence: `会员可在周一使用${room}会议室。`,
+    })),
   },
 ] as const;
 
@@ -63,30 +73,55 @@ function partReply(part: string, quote: string | null, marker: number): string {
     : `Verdict: unsupported\nAbsence: no\nScope: none, same\nTopic: not found\nRoles: ${part} / none, same\nTime: none / none, same\n${SAME_DETAIL}\nExplanation: The Documents don't say so.\nEvidence: []`;
 }
 
-/** The parts each sentence is sorted into, and the quote each part is supported by, if any. */
-function plansOf(each: Case) {
-  const parts: Record<string, readonly string[]> = {
-    [each.stated]: [each.statedPart],
-    [each.twoParts]: [each.found, each.absent],
-  };
-  const quotes: Record<string, string> = {
-    [each.statedPart]: each.statedPart,
-    [each.found]: each.found,
-  };
-  const runs: Record<string, Plan> = {
-    [each.statedPart]: { verdict: "supported", quote: each.statedPart },
-    [each.found]: { verdict: "supported", quote: each.found },
-    [each.absent]: { verdict: "unsupported" },
-  };
-  return { parts, quotes, runs };
+/**
+ * A Note to check: its Document, its sentences, the parts each is sorted into, the quote that
+ * supports each part (none: the Documents don't state it), and how a part's Run checks it.
+ */
+interface Scenario {
+  language: Case["language"];
+  terms: string;
+  sentences: readonly string[];
+  parts: Record<string, readonly string[]>;
+  quotes: Record<string, string>;
+  runs: Record<string, Plan>;
 }
 
-async function setUp(each: Case, searchFirst: boolean) {
-  const { parts, quotes, runs } = plansOf(each);
+function scenarioOf(each: Case): Scenario {
+  return {
+    language: each.language,
+    terms: each.terms,
+    sentences: [each.stated, each.twoParts],
+    parts: { [each.stated]: [each.statedPart], [each.twoParts]: [each.found, each.absent] },
+    quotes: { [each.statedPart]: each.statedPart, [each.found]: each.found },
+    runs: {
+      [each.statedPart]: { verdict: "supported", quote: each.statedPart },
+      [each.found]: { verdict: "supported", quote: each.found },
+      [each.absent]: { verdict: "unsupported" },
+    },
+  };
+}
+
+/**
+ * A core checking `scenario`'s Note. `firstReplied`: a first reply in place of the one its plans
+ * give; `firstWait`: what each first reply waits for before it comes.
+ */
+async function setUp(
+  scenario: Scenario,
+  searchFirst: boolean,
+  {
+    firstReplied,
+    firstWait,
+  }: { firstReplied?: () => GeneratedReply; firstWait?: Promise<void> } = {},
+) {
+  const { parts, quotes, runs } = scenario;
   const streamed: ModelCall[] = [];
   const firstReplies: GenerateCall[] = [];
   const reranked: string[] = [];
   const generate = (call: GenerateCall): GeneratedReply => {
+    if (call.question === "first-reply" && firstReplied) {
+      firstReplies.push(call);
+      return firstReplied();
+    }
     if (call.question === "find-claims") {
       const sentences = listedSentences(call.prompt).map(({ number, text }) => ({
         number,
@@ -111,6 +146,7 @@ async function setUp(each: Case, searchFirst: boolean) {
           })),
           citations,
         }),
+        ...(firstWait && { until: firstWait }),
       };
     }
     return checkGenerate(runs)(call);
@@ -132,7 +168,7 @@ async function setUp(each: Case, searchFirst: boolean) {
     checkPaths: { searchFirst: () => searchFirst },
   });
   core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
-  await core.updateSettings({ user: { language: each.language } });
+  await core.updateSettings({ user: { language: scenario.language } });
   const provider = await core.saveChatProvider({
     kind: "anthropic",
     apiKey: "sk-ant-test",
@@ -140,14 +176,14 @@ async function setUp(each: Case, searchFirst: boolean) {
   });
   if (provider.service) await core.allowDataFlow("checks", provider.service.id);
   const sources = await createTempDataFolder();
-  await addAndProcess(core, [await writeSourceFile(sources, "Terms.md", each.terms)]);
+  await addAndProcess(core, [await writeSourceFile(sources, "Terms.md", scenario.terms)]);
   const mind = await core.createMind({ title: "Leave notes" });
   const client = await connectToMind(core, mind.id);
   writeMind(client, [
     {
       type: "paragraph",
       attrs: { id: "one" },
-      content: [{ type: "text", text: `${each.stated} ${each.twoParts}` }],
+      content: [{ type: "text", text: scenario.sentences.join(" ") }],
     },
   ]);
   await client.settled();
@@ -181,7 +217,7 @@ const runsOf = (calls: readonly ModelCall[]) =>
 
 describe.each(LANGUAGES)("the search-first check in $language", (each) => {
   test("one reply settles the parts its Passages decide, and only the rest go on to a Run", async () => {
-    const { core, client, mindId, streamed, firstReplies } = await setUp(each, true);
+    const { core, client, mindId, streamed, firstReplies } = await setUp(scenarioOf(each), true);
     await checkNote(core, mindId);
     expect(await verdicts(client)).toEqual({
       [each.statedPart]: "supported",
@@ -199,7 +235,7 @@ describe.each(LANGUAGES)("the search-first check in $language", (each) => {
   });
 
   test("the Run of a part that goes on starts from the sentence's Passages handed over", async () => {
-    const { core, mindId, streamed } = await setUp(each, true);
+    const { core, mindId, streamed } = await setUp(scenarioOf(each), true);
     await checkNote(core, mindId);
     const [first] = streamed.filter((call) => call.prompt.includes(`<sentence>\n${each.absent}\n`));
     expect(first?.results[0]?.tool).toBe("search_documents");
@@ -208,7 +244,7 @@ describe.each(LANGUAGES)("the search-first check in $language", (each) => {
   });
 
   test("the Passage that states a sentence word for word comes first, unreranked, and at most four are handed", async () => {
-    const { core, mindId, firstReplies, reranked } = await setUp(each, true);
+    const { core, mindId, firstReplies, reranked } = await setUp(scenarioOf(each), true);
     await checkNote(core, mindId);
     const stated = firstReplies.find((call) =>
       call.prompt.includes(`<sentence>\n${each.stated}\n`),
@@ -221,7 +257,7 @@ describe.each(LANGUAGES)("the search-first check in $language", (each) => {
   });
 
   test("a model not listed checks every sentence as before: its Run searches first", async () => {
-    const { core, client, mindId, streamed, firstReplies } = await setUp(each, false);
+    const { core, client, mindId, streamed, firstReplies } = await setUp(scenarioOf(each), false);
     await checkNote(core, mindId);
     expect(firstReplies).toHaveLength(0);
     for (const run of runsOf(streamed).filter((call) => call.results.length === 0))
@@ -232,6 +268,69 @@ describe.each(LANGUAGES)("the search-first check in $language", (each) => {
       [each.found]: "supported",
       [each.absent]: "unsupported",
     });
+    core.close();
+  });
+
+  test("a Note's searches go to the reranker as its sentences are named, before their checks have a place", async () => {
+    const rooms: Scenario = {
+      language: each.language,
+      terms: `# Rooms\n\n${each.rooms.map((room) => room.rule).join(" ")}\n`,
+      sentences: each.rooms.map((room) => room.sentence),
+      parts: Object.fromEntries(each.rooms.map((room) => [room.sentence, [room.sentence]])),
+      quotes: Object.fromEntries(each.rooms.map((room) => [room.sentence, room.rule])),
+      runs: {},
+    };
+    let allSearched = () => {};
+    const searched = new Promise<void>((resolve) => {
+      allSearched = resolve;
+    });
+    // Each sentence's first reply waits for all eight searches: two more than the six checks that
+    // can run at once, so a search made only once its check had a place would never come.
+    const set = await setUp(rooms, true, { firstWait: searched });
+    const waiting = setInterval(() => {
+      if (rooms.sentences.every((sentence) => set.reranked.includes(sentence))) allSearched();
+    }, 5);
+    try {
+      await checkNote(set.core, set.mindId);
+      expect(Object.values(await verdicts(set.client))).toEqual(
+        rooms.sentences.map(() => "supported"),
+      );
+    } finally {
+      clearInterval(waiting);
+      set.core.close();
+    }
+  });
+
+  test("a first reply that fails leaves every part to its Run", async () => {
+    const { core, client, mindId, firstReplies } = await setUp(scenarioOf(each), true, {
+      firstReplied: () => ({ error: { status: 500, message: "The server is down." } }),
+    });
+    await checkNote(core, mindId);
+    expect(firstReplies.length).toBeGreaterThan(0);
+    expect(await verdicts(client)).toEqual({
+      [each.statedPart]: "supported",
+      [each.found]: "supported",
+      [each.absent]: "unsupported",
+    });
+    core.close();
+  });
+
+  test("a sentence of one part its first reply can't settle is searched once, for the reply and its Run", async () => {
+    const bare = (text: string) => text.replace(/^[\s\p{P}]+|[\s\p{P}]+$/gu, "");
+    const part = bare(each.car);
+    const car: Scenario = {
+      language: each.language,
+      terms: each.terms,
+      sentences: [each.car],
+      parts: { [each.car]: [part] },
+      quotes: {},
+      runs: { [part]: { verdict: "unsupported" } },
+    };
+    const { core, client, mindId, reranked, streamed } = await setUp(car, true);
+    await checkNote(core, mindId);
+    expect(await verdicts(client)).toEqual({ [part]: "unsupported" });
+    expect(runsOf(streamed).length).toBeGreaterThan(0);
+    expect(reranked.filter((query) => bare(query) === part)).toHaveLength(1);
     core.close();
   });
 });

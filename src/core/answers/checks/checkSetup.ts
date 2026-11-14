@@ -185,16 +185,19 @@ export function handOrder<Found extends { rank?: number; text: string }>(
 export const HANDED_NOTE =
   "IncarnaMind searched the sentence's own words for you. If these Passages don't decide it, search again with other words before you give your verdict.";
 
+/** Words without the spaces and stops around them: a sentence's one part is its sentence but for its stop. */
+const bareWords = (text: string) => text.replace(/^[\s\p{P}]+|[\s\p{P}]+$/gu, "");
+
 /**
  * The search of a sentence's own words that its check hands over (#2532): the one made ahead for
- * it, or one now, in which a Passage that states the words as they are needs no rerank to come
- * first, so none is made.
+ * those words, or one now, in which a Passage that states the words as they are needs no rerank to
+ * come first, so none is made.
  */
 export const ownSearch = (
   deps: Pick<ClaimCheckDependencies, "evidence">,
   request: Pick<ClaimCheckRequest, "claim" | "scope" | "signal" | "ahead">,
 ): AheadSearch =>
-  request.ahead?.query === request.claim
+  request.ahead && bareWords(request.ahead.query) === bareWords(request.claim)
     ? request.ahead
     : {
         query: request.claim,
