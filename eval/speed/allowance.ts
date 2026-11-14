@@ -40,11 +40,15 @@ export async function allowanceLeft(
   const shares = LIMITS.flatMap((name) => {
     const limit = Number(response.headers.get(`anthropic-ratelimit-${name}-limit`));
     const remaining = Number(response.headers.get(`anthropic-ratelimit-${name}-remaining`));
-    return limit > 0 && Number.isFinite(remaining) ? [{ name, share: remaining / limit }] : [];
+    return limit > 0 && Number.isFinite(remaining)
+      ? [{ name, limit, share: remaining / limit }]
+      : [];
   });
   if (shares.length === 0) return { share: 1, detail: "no rate-limit headers" };
   return {
     share: Math.min(...shares.map((each) => each.share)),
-    detail: shares.map((each) => `${each.name} ${(each.share * 100).toFixed(0)}%`).join(", "),
+    detail: shares
+      .map((each) => `${each.name} ${(each.share * 100).toFixed(0)}% of ${each.limit}`)
+      .join(", "),
   };
 }

@@ -68,6 +68,8 @@ export function searchFirstGateSection(
   results: readonly FlowTimes[],
   sentencesOf: (flow: string, language: string) => readonly string[],
   rightMargin: number | null,
+  /** The scripted run that calls everything Supported, where a right sentence may not differ either. */
+  guards: boolean,
 ): string {
   const lines: string[] = ["## #2532's gate", ""];
   const armed = results.filter((run) => run.checkArm);
@@ -250,7 +252,11 @@ export function searchFirstGateSection(
         `- **Right sentences whose support ranks low or splits** (${items.filter((_, index) => low(index)).length} sentences, the gating row): Supported ${base} ${right.base}, ${other} ${right.other}${rightMargin === null ? "; no margin set, so not judged" : `, margin ${rightMargin}. **${right.other >= right.base - rightMargin ? "Holds" : "Fails"}.**`}`,
         `- **The other right sentences** (reported): Supported ${base} ${otherRight.base}, ${other} ${otherRight.other}.`,
         `- **By writer** (Supported, ${base} → ${other}): ${byWriter.join("; ")}.`,
-        `- **Guards, any sentence:** Supported in more rounds on ${other} than on ${base}: ${kept.map((item) => item.id).join(", ") || "none"}. **${kept.length === 0 ? "Holds" : "Fails"}.**`,
+        ...(guards
+          ? [
+              `- **Guards, any sentence:** Supported in more rounds on ${other} than on ${base}: ${kept.map((item) => item.id).join(", ") || "none"}. **${kept.length === 0 ? "Holds" : "Fails"}.**`,
+            ]
+          : []),
         `- **For the margin's rule:** the row's right sentences Supported a round, ${base} ${perRound(base).join(", ")}, ${other} ${perRound(other).join(", ")}; the difference of the totals ${Math.abs(right.base - right.other)}, two standard errors of a total ${errors.toFixed(2)}.`,
         `- **Settled in one reply on ${other}:** right ${shares[0]?.text}, wrong twins ${shares[1]?.text}, absent ${shares[2]?.text} (sentence-rounds); fell back ${fellBack} of ${asked}${asked > 0 ? ` (${((fellBack / asked) * 100).toFixed(0)}%)` : ""}.`,
       );

@@ -860,13 +860,22 @@ timedChecks("where a check's time goes, on each model and language", async () =>
             });
             // A batch is a round of the arms: its key must have room for it before it starts.
             if (!dry && checkArm && at % Math.max(1, checkArms.length) === 0) {
-              const left = await allowanceLeft(
-                model.kind,
-                model.apiKey ?? "",
-                model.modelId,
-                model.endpoint ?? null,
-              );
+              const read = () =>
+                allowanceLeft(
+                  model.kind,
+                  model.apiKey ?? "",
+                  model.modelId,
+                  model.endpoint ?? null,
+                );
+              let left = await read();
               log(`  allowance before the round: ${left ? left.detail : "not stated"}`);
+              // The round before can spend most of a minute's input tokens itself, so the key gets
+              // two minutes to refill before the run stops for someone else's use of it.
+              for (let wait = 1; left && left.share <= 0.9 && wait <= 4; wait++) {
+                await new Promise((resolve) => setTimeout(resolve, 30_000));
+                left = await read();
+                log(`  allowance after ${wait * 30} s: ${left ? left.detail : "not stated"}`);
+              }
               if (left && left.share <= 0.9) {
                 stopped = `Stopped before ${name} · ${flow} · ${language} · ${run}: the key's allowance was at ${(left.share * 100).toFixed(0)}%.`;
                 log(stopped);
@@ -1004,6 +1013,7 @@ timedChecks("where a check's time goes, on each model and language", async () =>
                 ? noteSentences(flow, language as Language)
                 : itemsOf(flow, language as Language).map((each) => each.sentence),
             rightMargin,
+            dryAs === "yes",
           ),
         ]
       : []),

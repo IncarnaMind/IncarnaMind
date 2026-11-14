@@ -104,7 +104,7 @@ Every phase runs under the key's lease and the void rule below. The stop is the 
 ## The void rule and the probe
 
 - **Void:** an arm-round is void when any of its requests was refused, failed or timed out (a retried request counts), or any sentence's mark says it couldn't be checked for a failure, a rate limit, a time limit, credit or a cap. A void arm-round voids its round for both arms. The report lists every void round; the bars read only the rounds that count. A void round may be run again once, within the stop.
-- **Probe:** before each round, one request of one token to the same key and model reads the key's rate-limit headers. The round starts only when more than 90% of every stated limit (requests, input tokens, output tokens) is left; otherwise the run stops there. Only the numbers are logged.
+- **Probe:** before each round, one request of one token to the same key and model reads the key's rate-limit headers. The round starts only when more than 90% of every stated limit (requests, input tokens, output tokens) is left. When less is left, the probe reads again every 30 seconds for up to two minutes, since the round before can spend much of a minute's allowance itself (the pilot, below); if it still isn't, the run stops there. Only the numbers are logged: each limit's share left and its size.
 
 ## Bars (per model, both languages together unless said)
 
@@ -135,4 +135,20 @@ A model is listed in `SEARCH_FIRST` only when Bars 1 to 5 all hold on it. A bar 
 - **2, ranks:** as above, 46 of the 61 right sentences handed over in full, 15 not.
 - **4, states:** in all 8 arm-runs, 0 sentences with no mark, 0 marks with no quote, 0 marked twice, 0 still checking.
 
-_Phase by phase as each finishes: the priced pilot, then A, B and on._
+**Phase A's priced pilot** (round 1, `main` against `main`, Claude Haiku 5.5, the Anthropic key, 2026-11-14):
+
+- **How it ran:** the English half first. Then the probe before the Chinese half read the key's input tokens at 34% left, two seconds after the English half's own requests, and the run stopped as the rule said then. The Chinese half ran four minutes later, when the probe read 100%. 4 arm-runs, 0 void, no request refused or failed; every state cell 0.
+- **Spend:** US$0.498 for the round (English US$0.243, Chinese US$0.255). Each arm checked 103 sentences, and the round made 750 requests: US$0.00223–0.00258 a sentence and US$0.00061–0.00073 a request. Each arm-run sent 2.2–2.4 million input tokens (0.63–0.75 million not from the cache) and 41–50 thousand output tokens in about a minute.
+- **Clocks on `main`:** first mark 5.5 and 6.6 s in English, 7.4 and 8.1 s in Chinese; done 57 and 63 s, 69 and 66 s.
+- **Bar 1, `main` against `main`:** wrong twins and absent sentences Supported 0 + 0 on both arms, in both languages.
+- **The gating row, one round:** Supported 7 and 4 of 11 in English, 8 and 8 of 16 in Chinese. The margin is written here after round 3.
+- **Fresh estimate:**
+  - **A**, rounds 2 and 3: US$0.93–1.04, against US$1.00 left under its stop, so likely to reach it in round 3. The gate stops here until the second reader sets A's stop. US$1.60 in all covers rounds 2 and 3; US$2.10 also covers the one re-run of a void round that the void rule allows.
+  - **B**, 3 rounds of the four flows: US$2.3–2.8, under its US$3.00, with no room to run a void round again. This assumes `search-first` spends 0.6–0.9 of `main`'s on a Note.
+  - **C**, DeepSeek V4.1 Flash, as B: these tokens at its prices cost about 2.3 times Haiku's, so US$5.3–6.4 at the day price and US$2.6–3.2 off-peak: past its US$1.50.
+  - **D**, GPT-6.1 Sol, the held-out Note, 2 rounds: at US$2 a million input tokens and US$10 a million output, about 20 times Haiku's, so US$13–16, before any reasoning tokens.
+  - **E**, Claude Sonnet 5.5, the held-out Note, 1 round: at the same prices as D, US$6.7–8.0: past its US$1.50.
+  - C, D and E were sized for a smaller Note. On this one, each needs a higher stop or a smaller run.
+- **Changed after the pilot, in the evaluation's code only:** the probe's wait above, and the report's "Guards, any sentence" line is printed only on the scripted run that calls everything Supported. On a real model, right sentences differ from round to round, so the line flagged four Chinese right sentences on `main` against `main`. No prompt, instruction or rule of the check changed.
+
+_Phase by phase as each finishes: then A, B and on._
