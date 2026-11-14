@@ -567,24 +567,20 @@ for (const [language, width] of [
       ]),
     );
     const card = window.getByTestId("claim-card");
-    const open = async (id: string) => {
-      const check = Object.values(others).find((each) => each.attrs.id === id);
-      const mark = window.locator(`[data-testid="claim-mark"][data-claim="${id}"]`).first();
-      await mark.evaluate((element) => element.scrollIntoView({ block: "center" }));
-      if (check?.attrs.state === "not-checked") {
-        // A sentence not checked has no mark on the page: its card opens from the keyboard, with
-        // the caret in it.
-        await window.getByTestId("mind-editor").evaluate((dom, words) => {
-          const editor = (dom as unknown as { editor: Editor }).editor;
-          let at = -1;
-          editor.state.doc.descendants((node, pos) => {
-            if (at < 0 && node.isText && node.text?.includes(words)) at = pos + 1;
-          });
-          editor.chain().focus().setTextSelection(at).run();
-        }, check.attrs.text);
-        await window.keyboard.press("ControlOrMeta+Shift+K");
-      } else await pointAndClick(window, mark);
+    // Each card opens from the keyboard, with the caret in its sentence: a sentence not checked
+    // has no mark on the page, and the pointer never rests over another sentence's mark.
+    const open = async (words: string) => {
+      await window.getByTestId("mind-editor").evaluate((dom, sentence) => {
+        const editor = (dom as unknown as { editor: Editor }).editor;
+        let at = -1;
+        editor.state.doc.descendants((node, pos) => {
+          if (at < 0 && node.isText && node.text?.includes(sentence)) at = pos + 1;
+        });
+        editor.chain().focus().setTextSelection(at).scrollIntoView().run();
+      }, words);
+      await window.keyboard.press("ControlOrMeta+Shift+K");
       await expect(card).toBeVisible();
+      await expect(card.getByTestId("claim-sentence")).toContainText(words.slice(0, 12));
       await motionSettled(window);
     };
     const close = async () => {
@@ -615,8 +611,12 @@ for (const [language, width] of [
             !parent.checkVisibility({ visibilityProperty: true })
           )
             continue;
+          // From the first to the last character a person sees: the spaces around a separator's
+          // dot are no ink.
+          const words = node.textContent ?? "";
           const range = document.createRange();
-          range.selectNodeContents(node);
+          range.setStart(node, words.search(/\S/));
+          range.setEnd(node, words.trimEnd().length);
           for (const line of Array.from(range.getClientRects())) {
             const across = Math.max(box.left - grow - line.right, line.left - box.right - grow);
             const down = Math.max(box.top - grow - line.bottom, line.top - box.bottom - grow);
@@ -628,13 +628,13 @@ for (const [language, width] of [
 
     // The reason of a part, of a refusal, of Not found, of a court decision, of a sentence not
     // checked yet and of a stopped read: the card's own size, in its secondary ink.
-    await open("two-parts");
+    await open(words.fact);
     const reason = await style(card.getByTestId("claim-part-reason"));
     const quoted = await ringRoom(card.getByTestId("claim-part-citation"));
     expect(quoted?.shown).toBe(true);
     expect(quoted?.room, "a part's quote and its Location line").toBeGreaterThan(0);
     await close();
-    const lines: [string, string, string | null][] = [
+    const lines: [keyof typeof others, string, string | null][] = [
       ["refused", "claim-reason", null],
       ["nothing", "claim-nothing", null],
       ["court", "claim-court-decision", null],
@@ -643,7 +643,7 @@ for (const [language, width] of [
       ["differs", "claim-differs", "claim-open-quote"],
     ];
     for (const [id, line, control] of lines) {
-      await open(id);
+      await open(others[id].attrs.text);
       expect(await style(card.getByTestId(line)), `${id}'s reason`).toEqual(reason);
       if (control) {
         const room = await ringRoom(card.getByTestId(control));
@@ -655,7 +655,7 @@ for (const [language, width] of [
     }
 
     // A ✓ of one quote, not in parts: no button, and Open the page first under its ⋯.
-    await open("single");
+    await open(words.single);
     await expect(card.locator(".citation-card-actions button")).toHaveCount(0);
     const menu = await openCardMenu(window, card);
     await expect(menu.getByRole("menuitem").first()).toHaveAttribute("data-testid", "claim-open");
