@@ -361,6 +361,11 @@ for (const language of ["en", "zh-CN"] as const) {
       const row = panel.getByTestId("health-notYetCited");
       await expect(row).toContainText(words.row);
       await shownInBody(panel, row);
+      await motionSettled(window);
+      await test.info().attach(`check-end-${language}-${width}`, {
+        body: await window.screenshot(),
+        contentType: "image/png",
+      });
       const ended = await panel.boundingBox();
       if (!ended) throw new Error("The card went at the check's end.");
       expect(ended.height).toBeCloseTo(before.height, 0);
