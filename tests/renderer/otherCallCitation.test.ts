@@ -270,6 +270,20 @@ for (const language of ["en", "zh-CN"] as const) {
       }
     });
 
+    // protects=#3005: a Citation stored not checked for another call says so by its stored reason, with nothing around it that marks a press or another call; fails_when=its card gives the general line or offers Check again; no_claim=how the reason came to be stored.
+    test("stored not checked for another call, with no press and no other call around it: Not checked, as the quote is from another call, with no Check again", async () => {
+      setLanguage(language);
+      const card = await cardOf(
+        questionOf("What did they say last time?"),
+        answerCiting({ ...notChecked("this"), checkReason: "other-call" }, null),
+      );
+
+      expect(card.badge).toContain(t("citation.badge.notChecked"));
+      expect(card.reason).toBe(OTHER_CALL);
+      expect(card.checkAgain).toBe(false);
+      expect(card.primary).toBe("citation-open");
+    });
+
     // protects=#3005: only a Citation the press's check leaves out takes the line; fails_when=a typed Question's, this call's, or a Question with a button's words but no press recorded takes it; no_claim=why those were left unchecked.
     test("any other: a typed Question's, this call's on a press's reply, or a button's words with no press recorded keeps the general line", async () => {
       setLanguage(language);
