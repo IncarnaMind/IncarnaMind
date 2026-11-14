@@ -1,20 +1,21 @@
 /**
- * A sentence's first reading by a decision model, before its check on the User's AI model (#3118).
+ * A sentence's reading by a decision model, before its check on the User's AI model (#3118).
  *
  * The check's own search finds the sentence's Passages once, and the decision model is asked two
  * questions of each, one request a Passage: does it state the sentence, and does it say the
  * opposite. Where a score is clear of that model's measured line (./decisionLines) the reading is
  * the sentence's verdict, resting on that one Passage, with the Passage's nearest line as its
- * quote. Every other sentence goes to its check on the AI model unchanged: one no Passage
- * decides, one named as more than one part, one whose check does more than read Passages (a
- * figure, which it matches to its source's figure; a record cite; a court decision; a whole read),
- * and one the decision model couldn't be asked about.
+ * quote. Where it only leans, the reading is a first reading: shown at once, and confirmed or
+ * changed by the AI model's check. So is every reading of a sentence with a figure: its check
+ * ties each figure to its source's, with its unit, currency and scale, which no Passage's score
+ * does.
  *
- * The verdict is the model's answer. A sentence with a figure never gets one here: its check ties
- * each figure to its source's, with its unit, currency and scale, which no Passage's score does.
+ * A sentence the decision model can't read goes to its check on the AI model unchanged: one named
+ * as more than one part, one whose check reads more than Passages (a record cite, a court
+ * decision, a whole read), and one the decision model couldn't be asked about.
  */
 import { caseCitations } from "../../../shared/caseCitations";
-import type { Citation } from "../../api";
+import type { Citation, ClaimFirstReading } from "../../api";
 import type { WindowedPassage } from "../../documents/search";
 import type { JevNoulQuestion } from "../../providers/jev";
 import { recordCiteSpans } from "../../recordCites/parser";
@@ -109,15 +110,14 @@ function isWholeSentence({ claim, originalClaim }: ClaimCheckRequest): boolean {
 }
 
 /**
- * Whether one Passage can decide the request: its words are a whole sentence already named as one
- * fact, which is what the lines were measured on, and its check reads only Passages.
+ * Whether the decision model can read the request: its words are a whole sentence already named
+ * as one fact, which is what the lines were measured on, and its check reads Passages.
  */
-function readsPassagesOnly(deps: ClaimCheckDependencies, request: ClaimCheckRequest): boolean {
+function canRead(deps: ClaimCheckDependencies, request: ClaimCheckRequest): boolean {
   const sentence = request.originalClaim ?? request.claim;
   return (
     !request.findParts &&
     isWholeSentence(request) &&
-    !request.figures?.length &&
     !request.window &&
     recordCiteSpans(sentence).length === 0 &&
     caseCitations(sentence).length === 0 &&
@@ -159,11 +159,14 @@ function citationOf(
   };
 }
 
-async function firstReading(
+/** What the decision model's reading of a sentence comes to: its verdict, or only what it leans to. */
+type Read = { result: AtomicClaimCheckResult } | { firstReading: ClaimFirstReading } | null;
+
+async function read(
   deps: Dependencies,
   request: ClaimCheckRequest,
   reader: DecisionReader,
-): Promise<AtomicClaimCheckResult | null> {
+): Promise<Read> {
   const { signal } = request;
   const results = createCheckResults(request);
   const found = await deps.evidence.search(request.claim, request.scope, signal);
@@ -182,11 +185,18 @@ async function firstReading(
   });
   // One Passage unread could be the one that says the opposite.
   if (scores.length < found.passages.length) return null;
+  const record = checkRunOf(deps, request.model, signal, request.mindId ?? null).record;
   const reading = readingOf(scores, reader.lines);
-  if (!reading?.final) return null;
-  const passage = found.passages.find((each) => each.passageId === reading.passageId);
-  const evidence = passage ? citationOf(deps, request.claim, passage) : null;
-  if (!evidence) return null;
+  const passage = reading && found.passages.find((each) => each.passageId === reading.passageId);
+  // A figure's check ties it to its source's figure, which a Passage's score doesn't do.
+  const evidence =
+    reading?.final && passage && !request.figures?.length
+      ? citationOf(deps, request.claim, passage)
+      : null;
+  if (!reading || !evidence) {
+    recordCheck(record, reader.model, null);
+    return reading && { firstReading: { verdict: reading.verdict, ...reader.model } };
+  }
   const result: AtomicClaimCheckResult = {
     verdict: reading.verdict,
     evidence,
@@ -198,22 +208,21 @@ async function firstReading(
     ...results.facts(),
     judge: reader.model,
   };
-  recordCheck(
-    checkRunOf(deps, request.model, signal, request.mindId ?? null).record,
-    reader.model,
-    result,
-  );
-  return result;
+  recordCheck(record, reader.model, result);
+  return { result };
 }
 
-/** `check`, with a first reading before it for a request that names a decision model. */
+/** `check`, with a decision model's reading before it for a request that names one. */
 export function withDecisionFirst(
   deps: Dependencies,
   check: (request: ClaimCheckRequest) => Promise<AtomicClaimCheckResult>,
 ) {
   return async (request: ClaimCheckRequest): Promise<AtomicClaimCheckResult> => {
     const reader = request.decision;
-    if (!reader || !readsPassagesOnly(deps, request)) return check(request);
-    return (await firstReading(deps, request, reader)) ?? check(request);
+    const first = reader && canRead(deps, request) ? await read(deps, request, reader) : null;
+    if (!first) return check(request);
+    if ("result" in first) return first.result;
+    request.onFirstReading?.(first.firstReading);
+    return { ...(await check(request)), firstReading: first.firstReading };
   };
 }

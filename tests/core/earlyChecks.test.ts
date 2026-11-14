@@ -125,3 +125,34 @@ test("an early check is stopped, not taken, when what it reads besides its reque
   for (const done of finish) done();
   expect(await again).toBe(RESULT);
 });
+
+// protects=a decision model's first reading of a sentence checked early reaches the run that takes the check, whether it came before the run took it or after (#3118); fails_when=a first reading given before the run's marks exist is lost, or one given later goes nowhere; no_claim=what the run writes on the Mark with it.
+test("the run that takes an early check hears its first reading, early or late", async () => {
+  const { early, sent, finish, run, limit } = setUp(2);
+  const before = claim("Spring tides come at new moon.");
+  const after = claim("Neap tides come at the quarter moons.");
+  early.start(before, unchanged);
+  early.start(after, unchanged);
+  const [first, second] = sent;
+  const supported = { verdict: "supported", providerId: null, modelId: "decision" } as const;
+  const contradicted = { ...supported, verdict: "contradicted" } as const;
+  const heard: unknown[] = [];
+  const taking = (queued: QueuedClaim) =>
+    early.claimCheck({
+      ...checkRequestOf(queued, run, limit, run.signal),
+      onFirstReading: (reading) => heard.push([queued.id, reading.verdict]),
+    });
+
+  first?.onFirstReading?.(supported);
+  early.keep([before, after]);
+  const taken = [taking(before), taking(after)];
+  second?.onFirstReading?.(contradicted);
+
+  expect(sent).toHaveLength(2);
+  expect(heard).toEqual([
+    [before.id, "supported"],
+    [after.id, "contradicted"],
+  ]);
+  for (const done of finish) done();
+  await Promise.all(taken);
+});

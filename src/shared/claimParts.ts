@@ -13,6 +13,7 @@ import type {
   ClaimCheckResult,
   ClaimCheckScope,
   ClaimCorrection,
+  ClaimFirstReading,
   ClaimJudgment,
   ClaimPartCoverage,
   ClaimPartFigure,
@@ -676,11 +677,37 @@ function judgmentOf(value: unknown): ClaimPartJudgment | null {
   };
 }
 
-/** The model and time that judged a part, those it has. */
+function readFirstReading(value: unknown): ClaimFirstReading | null {
+  if (
+    !isRecord(value) ||
+    (value.verdict !== "supported" && value.verdict !== "contradicted") ||
+    (value.providerId !== null && typeof value.providerId !== "string") ||
+    typeof value.modelId !== "string"
+  )
+    return null;
+  return { verdict: value.verdict, providerId: value.providerId, modelId: value.modelId };
+}
+
+/** `check` with a decision model's first reading on its part that is still being checked (#3118). */
+export function withFirstReading(
+  check: ClaimCheckAttributes,
+  firstReading: ClaimFirstReading,
+): ClaimCheckAttributes {
+  if (!check.parts) return check;
+  return {
+    ...check,
+    parts: check.parts.map((part) =>
+      part.kind === "fact" && part.verdict === "checking" ? { ...part, firstReading } : part,
+    ),
+  };
+}
+
+/** The model and time that judged a part and a decision model's first reading of it, those it has. */
 const judgedBy = (part: ClaimCheckPart) => ({
   ...(part.checkedAt !== undefined && { checkedAt: part.checkedAt }),
   ...(part.providerId !== undefined && { providerId: part.providerId }),
   ...(part.modelId !== undefined && { modelId: part.modelId }),
+  ...(part.firstReading && { firstReading: part.firstReading }),
 });
 
 export function readClaimParts(
@@ -766,6 +793,8 @@ export function readClaimParts(
     if (coverage === null) return null;
     const correction = verdict === "contradicted" ? readClaimCorrection(each.correction) : null;
     if (each.kept !== undefined && each.kept !== true) return null;
+    const firstReading = readFirstReading(each.firstReading);
+    if (each.firstReading !== undefined && !firstReading) return null;
     const figures: ClaimPartFigure[] = [];
     if (each.figures !== undefined) {
       if (!Array.isArray(each.figures) || each.figures.length === 0) return null;
@@ -814,6 +843,7 @@ export function readClaimParts(
       ...(coverage && { coverage }),
       ...(each.kept === true && { kept: true }),
       ...(each.byAssistant === true && plan.kind === "opinion" && { byAssistant: true }),
+      ...(firstReading && { firstReading }),
       ...(each.figures !== undefined && { figures }),
       ...(remainder !== undefined && { remainder }),
       ...(typeof each.checkedAt === "string" && { checkedAt: each.checkedAt }),

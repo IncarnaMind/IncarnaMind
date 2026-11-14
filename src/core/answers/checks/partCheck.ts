@@ -57,6 +57,7 @@ function checkedPart(
   const part = {
     ...partWithResult(plan, result, result.checkedEvidence, result.coverage),
     ...result.judge,
+    ...(result.firstReading && { firstReading: result.firstReading }),
   };
   if (!figureIds || !previous?.figures || !result.figures) return part;
   const incoming = new Map(result.figures.map((figure) => [figure.id, figure]));

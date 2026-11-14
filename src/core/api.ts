@@ -7518,6 +7518,16 @@ export interface ClaimPartCoverage {
   domainEvidence: CitationAttributes[];
 }
 
+/**
+ * A decision model's first reading of a sentence (#3118): what it leans to, shown while the AI
+ * model's check confirms or changes it.
+ */
+export interface ClaimFirstReading {
+  verdict: "supported" | "contradicted";
+  providerId: string | null;
+  modelId: string;
+}
+
 /** A part keeps the model and time that judged it: checking another part again changes neither (#1667). */
 export interface ClaimCheckPart
   extends ClaimPartPlan,
@@ -7530,6 +7540,11 @@ export interface ClaimCheckPart
    * still reads left out, and Check anyway judges it as any part.
    */
   byAssistant?: true;
+  /**
+   * The decision model's first reading of the part (#3118). It stays once the AI model has
+   * judged the part, as the record of what was read first, and on a part whose check never ended.
+   */
+  firstReading?: ClaimFirstReading;
   figures?: ClaimPartFigure[];
   remainder?: ClaimPartJudgment | null;
   evidence: CitationAttributes[];

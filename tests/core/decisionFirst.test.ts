@@ -149,10 +149,12 @@ const text = (value: string): JSONContent => ({ type: "text", text: value });
 async function setUp(sentences: readonly string[] = [MOON, YEARLY, PENGUINS]) {
   const host = await startDecisionHost();
   const checks: ModelCall[] = [];
+  let held: Promise<void> | null = null;
   const model = scriptedModel(
     (call) => {
       checks.push(call);
-      return checkReply(call, PLANS);
+      const reply = checkReply(call, PLANS);
+      return held && isCheckRun(call) ? { ...reply, pause: { after: 0, until: held } } : reply;
     },
     { generate: checkGenerate(PLANS) },
   );
@@ -184,13 +186,19 @@ async function setUp(sentences: readonly string[] = [MOON, YEARLY, PENGUINS]) {
   const readByAiModel = () => [
     ...new Set(checks.filter((call) => isCheckRun(call)).map((call) => sentenceOf(call))),
   ];
-  return { core, client, host, mindId: mind.id, run, readByAiModel, aiModelId: AI_MODEL };
+  /** The AI model's checks wait from now until the returned function is called. */
+  const holdAiModel = () => {
+    const waiting = Promise.withResolvers<void>();
+    held = waiting.promise;
+    return waiting.resolve;
+  };
+  return { core, client, host, run, readByAiModel, holdAiModel, aiModelId: AI_MODEL };
 }
 
 const choose = (core: Core, model: CheckDecisionModel | null = DECIDER) =>
   core.updateSettings({ device: { checkDecisionModel: model } });
 
-/** Each sentence's Mark as stored: its verdict, its quote and the model that gave it. */
+/** Each sentence's Mark as stored: its verdict, its quote, the model that gave it and any first reading. */
 async function marks(client: MindClient) {
   await client.settled();
   return Object.fromEntries(
@@ -202,6 +210,7 @@ async function marks(client: MindClient) {
           state: check.state,
           quote: part?.evidence?.[0]?.quote ?? null,
           by: part?.modelId ?? check.modelId,
+          ...(part?.firstReading && { firstReading: part.firstReading.verdict }),
         },
       ];
     }),
@@ -244,30 +253,70 @@ describe("Check this Note with a decision model chosen (#3118)", { timeout: 30_0
     });
   });
 
-  // protects=a score inside the band of its line is not a verdict: the AI model checks that sentence; fails_when=a score just over the line marks the sentence; no_claim=how wide the band should be.
-  test("a score too near its line leaves the sentence to the AI model", async () => {
-    const { core, client, host, run, readByAiModel, aiModelId } = await setUp();
+  // protects=a score inside the band of its line is a first reading, not a verdict: the Mark shows it while the AI model checks the sentence, and keeps it as the record once the AI model has answered; fails_when=a score just over the line marks the sentence, the first reading isn't on the Mark while the check runs, or it is gone afterwards; no_claim=how wide the band should be, or how the card draws a first reading.
+  test("a score too near its line is a first reading the AI model confirms", async () => {
+    const { core, client, host, run, readByAiModel, holdAiModel, aiModelId } = await setUp();
     await choose(core);
     host.answers((state) => {
       const given = sure(state);
       return "B" in given ? { B: Math.min(given.B, 0.983), C: Math.min(given.C, 0.903) } : given;
     });
+    const release = holdAiModel();
 
-    await core.checkMind(run());
+    const running = core.checkMind(run());
+    await expect.poll(async () => (await marks(client))[YEARLY]?.firstReading).toBe("contradicted");
+    expect(await marks(client)).toMatchObject({
+      [MOON]: { state: "checking", firstReading: "supported" },
+      [YEARLY]: { state: "checking", firstReading: "contradicted" },
+    });
+    expect((await marks(client))[PENGUINS]).not.toHaveProperty("firstReading");
+    release();
+    await running;
 
     expect(readByAiModel().sort()).toEqual([MOON, PENGUINS, YEARLY].sort());
-    expect((await marks(client))[MOON]).toEqual({ state: "supported", quote: MOON, by: aiModelId });
+    expect(await marks(client)).toEqual({
+      [MOON]: { state: "supported", quote: MOON, by: aiModelId, firstReading: "supported" },
+      [YEARLY]: {
+        state: "contradicted",
+        quote: WEEKLY,
+        by: aiModelId,
+        firstReading: "contradicted",
+      },
+      [PENGUINS]: { state: "unsupported", quote: null, by: aiModelId },
+    });
   });
 
-  // protects=a sentence with a figure keeps its own check, which matches each figure to its source's: the decision model never gives its verdict; fails_when=a sentence with a figure is marked by the decision model; no_claim=the figure check itself.
-  test("a sentence with a figure is left to the AI model's figure check", async () => {
-    const { core, host, run, readByAiModel } = await setUp([TONNES]);
+  // protects=a sentence with a figure never gets its verdict from the decision model, however sure it is: it shows a first reading and its own check, which ties each figure to its source's, gives the Mark; fails_when=a sentence with a figure is marked by the decision model; no_claim=the figure check itself.
+  test("a sentence with a figure gets only a first reading", async () => {
+    const { core, client, host, run, readByAiModel, aiModelId } = await setUp([TONNES]);
     await choose(core);
+    host.answers(() => ({ B: 0.999, C: 0.01 }));
 
     await core.checkMind(run());
 
-    expect(host.asked).toEqual([]);
     expect(readByAiModel()).toEqual([TONNES]);
+    expect((await marks(client))[TONNES]).toMatchObject({
+      by: aiModelId,
+      firstReading: "supported",
+    });
+  });
+
+  // protects=a first reading the AI model never confirmed stays on the Mark, which reads not checked for the reason the check gave; fails_when=the first reading is lost with the failed check, or the sentence reads Supported on it; no_claim=the words the card puts to it.
+  test("a first reading stays when the AI model's check is stopped", async () => {
+    const { core, client, host, run, holdAiModel } = await setUp([MOON]);
+    await choose(core);
+    host.answers((state) => ({ B: state.passage.text.includes(MOON) ? 0.9 : 0.02, C: 0.01 }));
+    holdAiModel();
+
+    const running = core.checkMind(run("stopped"));
+    await expect.poll(async () => (await marks(client))[MOON]?.firstReading).toBe("supported");
+    await core.cancelCheck("stopped");
+    await running;
+
+    expect((await marks(client))[MOON]).toMatchObject({
+      state: "not-checked",
+      firstReading: "supported",
+    });
   });
 
   // protects=a decision host that refuses stops being asked for the rest of the run, the AI model checks every sentence, and the result says why the decision model stopped; fails_when=sentences stay unchecked, the host keeps being asked, or the failure is silent; no_claim=which failures a real host returns.

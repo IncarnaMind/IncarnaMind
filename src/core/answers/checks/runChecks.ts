@@ -7,12 +7,13 @@ import { settleFigureCheck } from "../../../shared/figureChecks";
  * plan's limit stops the run, and the claims left say why they weren't checked.
  */
 
-import { pendingPart, resultFromParts } from "../../../shared/claimParts";
+import { pendingPart, resultFromParts, withFirstReading } from "../../../shared/claimParts";
 import type {
   ClaimCheckAttributes,
   ClaimCheckFailure,
   ClaimCheckPart,
   ClaimCheckResult,
+  ClaimFirstReading,
   ClaimPartPlan,
   ClaimPartSpan,
   RunStop,
@@ -216,6 +217,9 @@ export function earlyChecks(
     replied(): boolean;
     /** Tells the run that took the check that a model replied to it. */
     taken: (() => void) | null;
+    /** The decision model's first reading, once it has one, and the run's request to tell it to. */
+    firstReading: ClaimFirstReading | null;
+    onFirstReading: ClaimCheckRequest["onFirstReading"];
   }
   const started = new Map<string, Early[]>();
   // One the run takes is its claim's own check, recorded by the run; one it doesn't is a claim of
@@ -244,12 +248,20 @@ export function earlyChecks(
       );
       const key = requestKey(request);
       const early: Early = {
-        result: checkClaim(claimCheck, request),
+        result: checkClaim(claimCheck, {
+          ...request,
+          onFirstReading(reading) {
+            early.firstReading = reading;
+            early.onFirstReading?.(reading);
+          },
+        }),
         stop,
         read: readNow(),
         readNow,
         replied: heard.replied,
         taken: null,
+        firstReading: null,
+        onFirstReading: undefined,
       };
       early.result.catch((error: unknown) => {
         // A check the run takes fails there, as any other does.
@@ -287,6 +299,8 @@ export function earlyChecks(
       // meanwhile has already recorded the claim (#2909).
       early.taken = () => heardThrough(request.model);
       if (early.replied()) early.taken();
+      early.onFirstReading = request.onFirstReading;
+      if (early.firstReading) request.onFirstReading?.(early.firstReading);
       return early.result;
     },
     /** Stops every early check the run didn't take. */
@@ -324,10 +338,10 @@ export async function runChecks(
   const { stop, outcomeError } = await runClaimChecks(
     run.queued,
     (claim, check) =>
-      check(
-        (request) => checkClaim(options.claimCheck, request),
-        checkRequestOf(claim, run, limit, signal),
-      ),
+      check((request) => checkClaim(options.claimCheck, request), {
+        ...checkRequestOf(claim, run, limit, signal),
+        onFirstReading: (reading) => write(claim.id, (each) => withFirstReading(each, reading)),
+      }),
     {
       ...checkRunOf(options, prepared, signal, mindId),
       concurrency: atOnce,
