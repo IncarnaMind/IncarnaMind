@@ -657,9 +657,11 @@ const statesScale = (piece: string, context: FigureContext) =>
 
 // A unit in brackets states what its words do: "（万千瓦时）" as "万千瓦时"; "（预计）" states none,
 // and neither does a bracket of two units ("（万吨/亿吨）"), where a rate has one ("（万吨/年）").
-// Square brackets ("[kt]", "【万辆】") state theirs, and so does a unit after a slash at the end of
-// a name ("销量/万辆", "Output / kt"), where a rate's "元/吨" names no measure before its slash.
-const BRACKETS = /[(（]([^()（）\n]{1,24})[)）]|\[([^[\]\n]{1,24})\]|【([^【】\n]{1,24})】/gu;
+// Square brackets ("[kt]", "［万吨］", "【万辆】", "〔万吨〕") state theirs, and so does a unit after a
+// slash at the end of a name ("销量/万辆", "Output / kt"), where a rate's "元/吨" names no measure
+// before its slash.
+const BRACKETS =
+  /[(（]([^()（）\n]{1,24})[)）]|\[([^[\]\n]{1,24})\]|［([^［］\n]{1,24})］|【([^【】\n]{1,24})】|〔([^〔〕\n]{1,24})〕/gu;
 const AFTER_SLASH =
   /(\p{L}[^/／\n\d]*?)[ \u00a0]*[/／][ \u00a0]*([^/／\s()（）[\]【】:：，,。；;、]{1,12})[ \u00a0]*[:：]?[ \u00a0]*$/u;
 const bracketedUnits = (written: string, context: FigureContext): StatedUnit[] => {
@@ -1450,7 +1452,7 @@ export function unitNotStated(
         )[0];
     if (misread) {
       const { chars, label } = misread;
-      const amount = label.startsWith("（") ? `${chars}${label}` : `${chars} ${label}`;
+      const amount = /^[（［【〔]/u.test(label) ? `${chars}${label}` : `${chars} ${label}`;
       return { kind: "scale", figure: figure.chars, amount, matches: matchesOf([misread]) };
     }
     const decided = worked.some(({ start, end }) => start < figure.end && figure.start < end);

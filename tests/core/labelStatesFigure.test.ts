@@ -1781,9 +1781,25 @@ describe("A caption heads its own table (#2997)", { timeout: 120_000 }, () => {
 const CARS = "车型\t销量\nSUV\t57\n轿车\t31";
 
 describe("A table's unit said in other ways is read (#2997)", { timeout: 120_000 }, () => {
-  // protects=a unit said in a sentence of prose over the rows ("单位为万辆", "in thousand tonnes"), after a slash or in square brackets ("各车型销量/万辆", "销量[万辆]", "Output [kt]", "Output / kt"), in a caption that gives a value of its own ("全年销量（万辆）合计 99"), or in a bracket right after the number ("8月: 126（万千瓦时）") states it, so the right sentence keeps its ✓ and reads Supported, and another scale is caught in both checks, English and Chinese, while prose apart from its rows, a list row above a table and a bracket that is no unit state nothing; fails_when="SUV销量为57万辆。" under any of them reads Unsupported in Check against Documents, or "SUV销量为57亿辆。" keeps a ✓; no_claim=a count in its plain unit ("SUV销量为57辆。"), which the unit check doesn't read.
+  // protects=a unit said in a sentence of prose over the rows ("单位为万辆", "in thousand tonnes"), after a slash or in square brackets ("各车型销量/万辆", "销量[万辆]", "产量［万吨］", "产量〔万吨〕", "Output [kt]", "Output / kt"), in a caption that gives a value of its own ("全年销量（万辆）合计 99"), or in a bracket right after the number ("8月: 126（万千瓦时）") states it, so the right sentence keeps its ✓ and reads Supported, and another scale is caught in both checks, English and Chinese, while prose apart from its rows, a list row above a table, a bracket that is no unit and a note mark in square brackets on a row's label (甲厂〔1〕, ［2］, 【注】, [注1]) state nothing; fails_when="SUV销量为57万辆。" under any of them reads Unsupported in Check against Documents, "SUV销量为57亿辆。" or "甲厂产量为31吨。" under 产量［万吨］ keeps a ✓, or "甲厂2024年产量为31万吨。" beside a note mark loses its ✓; no_claim=a count in its plain unit ("SUV销量为57辆。"), which the unit check doesn't read.
   test("prose, a slash, square brackets, a caption with a value and a bracket after the number state their unit", async () => {
+    const notes = (mark: string) =>
+      `表1 各厂产量（万吨）\n厂区\t2023年\t2024年\n甲厂${mark}\t54\t31\n乙厂\t77\t80`;
     await readsAsWanted([
+      ...["［万吨］", "〔万吨〕"].flatMap((bracket): [string, string, string, Wanted][] => {
+        const plants = `厂区\t产量${bracket}\n甲厂\t31\n乙厂\t54`;
+        return [
+          [plants, "甲厂\t31", "甲厂产量为31万吨。", TICK],
+          [plants, "甲厂\t31", "甲厂产量为31吨。", caught(`31${bracket}`, "31吨")],
+          [plants, "甲厂\t31", "甲厂产量为31亿吨。", caught("31", "31亿吨")],
+        ];
+      }),
+      ...["〔1〕", "［2］", "【注】", "[注1]"].map((mark): [string, string, string, Wanted] => [
+        notes(mark),
+        `甲厂${mark}\t54\t31`,
+        "甲厂2024年产量为31万吨。",
+        TICK,
+      ]),
       [`本表列出各车型销量，单位为万辆。\n${CARS}`, "SUV\t57", "SUV销量为57万辆。", TICK],
       [
         `本表列出各车型销量，单位为万辆。\n${CARS}`,
@@ -1902,5 +1918,43 @@ describe("Wrong sentences a table's row label reads as every label does (#2997)"
       [rowEn("Output (kg)"), "Output (kg)\t54\t31", "Output in 2024 was 31 g.", TICK],
       [rowEn("Output (km)"), "Output (km)\t54\t31", "Output in 2024 was 31 m.", TICK],
     ]);
+  });
+
+  // protects=known costs, right sentences that lose their ✓ beside a footnote letter that is a unit's symbol on a row's label, pinned at what they read: with "(t)" and "(W)" the tab row's label now reads as main already reads it with bars and spaces (Unsupported, "The Document gives 31 (t), not 31 kt.", and Not checked), where main reads tabs ✓ and Supported; with "[t]" and "[W]" the cost is new in tabs, bars and spaces alike, from reading square brackets as round ones are read, where main reads all three ✓ and Supported; fails_when=any reads otherwise without this list changing; no_claim=that the letter is a unit.
+  test("known costs of a footnote letter in brackets on a row's label", async () => {
+    const plants = (mark: string, layout: "tabs" | "bars" | "spaces") => {
+      const lines = [
+        ["Plant", "2023", "2024"],
+        [`Alpha ${mark}`, "54", "31"],
+        ["Beta", "77", "80"],
+      ];
+      const row = (cells: string[]) =>
+        layout === "tabs"
+          ? cells.join("\t")
+          : layout === "bars"
+            ? `| ${cells.join(" | ")} |`
+            : cells.join(" ");
+      const [head = [], alpha = [], beta = []] = lines;
+      const table =
+        layout === "bars"
+          ? [row(head), "| --- | --- | --- |", row(alpha), row(beta)]
+          : [row(head), row(alpha), row(beta)];
+      return [`Table 1. Output by plant (kt)\n${table.join("\n")}`, row(alpha)] as const;
+    };
+    await readsAsWanted(
+      (["tabs", "bars", "spaces"] as const).flatMap((layout) =>
+        (
+          [
+            ["(t)", caught("31 (t)", "31 kt")],
+            ["[t]", caught("31 [t]", "31 kt")],
+            ["(W)", UNJUDGED],
+            ["[W]", UNJUDGED],
+          ] as const
+        ).map(([mark, wanted]): [string, string, string, Wanted] => {
+          const [text, quote] = plants(mark, layout);
+          return [text, quote, "Alpha's output in 2024 was 31 kt.", wanted];
+        }),
+      ),
+    );
   });
 });
