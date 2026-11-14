@@ -11,6 +11,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { flushSync } from "react-dom";
 import type * as Y from "yjs";
 import { formatDateTime } from "../../../shared/dates";
 import type { Verification } from "../../../shared/verification";
@@ -44,6 +45,7 @@ import { useWatchAddedDocuments } from "./AddedDocumentsLine";
 import { type Badge, type BadgeInput, badgeOf } from "./badgeState";
 import { ContradictionAsk, ContradictionLine } from "./ContradictionLine";
 import { checkTitle, useCheckEstimate, useCheckThisMindPlan } from "./changedSentences";
+import { bodyIsEmpty, CARD_MARGIN, firstHeightOf } from "./checkCardHold";
 import { type CheckEstimateView, checkPressOf } from "./checkEstimateState";
 import { useCardPlace } from "./checkPlace";
 import { CheckMarkIcon, ClaimMarkIcon, NotYetCitedIcon } from "./icons";
@@ -469,8 +471,23 @@ function BadgeFrame({
     }
     if (heldHeight !== null) return;
     const element = body.current;
-    if (element) setHeldHeight(element.offsetHeight);
-  }, [open, heldHeight]);
+    if (!element) return;
+    if (!bodyIsEmpty(element)) {
+      setHeldHeight(element.offsetHeight);
+      return;
+    }
+    // A card that opened with nothing in it has nothing to move: what lands first sets its
+    // height, once, in the frame it lands (#2313).
+    const content = element.firstElementChild;
+    if (!content || !anchor) return;
+    const watching = new ResizeObserver(() => {
+      if (bodyIsEmpty(element)) return;
+      watching.disconnect();
+      flushSync(() => setHeldHeight(firstHeightOf(element, anchor)));
+    });
+    watching.observe(content);
+    return () => watching.disconnect();
+  }, [open, heldHeight, anchor]);
   useScrollFade(body, open && anchor !== null);
   useEffect(() => {
     if (ask && front) setCheckCardOpen(place, true);
@@ -517,6 +534,7 @@ function BadgeFrame({
         <Popover
           anchor={anchor}
           placement="top-end"
+          fromBottom
           middleware={placing}
           aria-label={t("health.label")}
           data-testid="check-card"
@@ -567,10 +585,10 @@ function stepThroughCard(event: KeyboardEvent<HTMLDivElement>) {
 // Above the badge, and never taller than the room above it: its rows scroll instead.
 const placing = () => [
   offset(8),
-  flip({ padding: 8 }),
-  shift({ padding: 8 }),
+  flip({ padding: CARD_MARGIN }),
+  shift({ padding: CARD_MARGIN }),
   size({
-    padding: 8,
+    padding: CARD_MARGIN,
     apply: ({ availableHeight, elements }) => {
       elements.floating.style.maxHeight = `${Math.max(160, availableHeight)}px`;
     },

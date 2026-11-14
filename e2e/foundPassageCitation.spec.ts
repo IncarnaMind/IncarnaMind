@@ -9,7 +9,6 @@ import {
   createDataFolder,
   dismissChatSetup,
   focusSettled,
-  footFadeOf,
   launchApp,
   motionSettled,
   newMind,
@@ -179,27 +178,26 @@ async function aNewNote(
 }
 
 /**
- * Waits until a row of the check card sits inside the card's body and above the fade its foot
- * draws, as one scrolled out of the body or left under the fade would not (#3019).
+ * Waits until a row of the check card sits whole inside the card's body, as one scrolled out of
+ * it or cut by its foot would not (#3019). The fade the foot draws is part of what shows: a body
+ * that holds only a title and one row has no room for the row above it.
  */
 async function shownInBody(panel: Locator, row: Locator) {
   const body = panel.locator(".check-card-body");
   await expect
     .poll(
       async () => {
-        const [inner, outer, { fade }] = await Promise.all([
-          row.boundingBox(),
-          body.boundingBox(),
-          footFadeOf(body, "*"),
-        ]);
-        if (!inner || !outer) return false;
-        return (
-          inner.y >= outer.y - 0.5 && inner.y + inner.height <= outer.y + outer.height - fade + 0.5
-        );
+        const [inner, outer] = await Promise.all([row.boundingBox(), body.boundingBox()]);
+        if (!inner || !outer) return "not drawn";
+        const inside =
+          inner.y >= outer.y - 0.5 && inner.y + inner.height <= outer.y + outer.height + 0.5;
+        return inside
+          ? "inside"
+          : `row ${inner.y}..${inner.y + inner.height}, body ${outer.y}..${outer.y + outer.height}`;
       },
       { message: "the row is inside the visible body" },
     )
-    .toBe(true);
+    .toBe("inside");
 }
 
 /** Check in the check card, which stays open while the check runs and after it ends. */
