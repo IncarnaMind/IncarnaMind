@@ -135,6 +135,8 @@ describe("A quote line's state", () => {
       expect(stored("cant-check", status, "document-removed")).toBe("cant-check");
       expect(stored("checking", status)).toBe(ended ? "found" : "not-checked");
       expect(stored("not-checked", status)).toBe(ended ? "found" : "not-checked");
+      // A press's Citation of another call is never checked (#3005): no ✓, even once ended.
+      expect(stored("not-checked", status, "other-call")).toBe("not-checked");
       expect(
         quoteState({ check: "judged-later" as CitationCheck, checkReason: null }, status),
       ).toBe("cant-check");

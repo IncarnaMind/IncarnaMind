@@ -8,9 +8,10 @@
  * call sent unmarked, to a press too.
  */
 import { describe, expect, test, vi } from "vitest";
-import type { Core } from "../../src/core";
+import type { ConversationAnswer, Core } from "../../src/core";
 import type { Language } from "../../src/core/language";
 import { formatFullDateTime } from "../../src/shared/dates";
+import { quoteState } from "../../src/shared/helpQuotes";
 import { translate } from "../../src/shared/i18n";
 import {
   GENERAL_HELP,
@@ -201,13 +202,13 @@ const EARLIER_SAID: Record<Language, { line: string; sentence: string }> = {
  * earlier call's line again, cited to that line wherever it can see it: a Passage it was given or
  * found by searching once, else a Citation of the Note it reads, by its id ("C1"). While
  * `judging.now` is false the sentences' judgement fails, so its Citation waits as not checked;
- * then each batch is kept and judged unsupported.
+ * then each batch is kept and judged unsupported, or supported with `judging.supported`.
  */
 function citingModel(
   calls: ModelCall[],
   batches: GenerateCall[],
   { sentence, line, query }: { sentence: string; line: string; query: string },
-  judging: { now: boolean },
+  judging: { now: boolean; supported?: boolean },
 ) {
   return scriptedModel(
     (call) => {
@@ -249,11 +250,11 @@ function citingModel(
             sentences: sentences.map(([, number]) => ({
               number: Number(number),
               kind: "fact",
-              verdict: "unsupported",
+              verdict: judging.supported ? "supported" : "unsupported",
               roles: "same",
               time: "same",
               quoted: "states",
-              says: "The quote says something else.",
+              says: judging.supported ? null : "The quote says something else.",
             })),
           }),
         };
@@ -729,10 +730,10 @@ for (const language of ["en", "zh-CN"] as const) {
      * saying the earlier call's line again, cited to that line and not checked; then the call
      * stops. The press reaches the line by a Citation the User kept in the Note.
      */
-    const pressedThenStopped = async () => {
+    const pressedThenStopped = async ({ typedJudged = false } = {}) => {
       const said = EARLIER_SAID[language];
       const batches: GenerateCall[] = [];
-      const judging = { now: false };
+      const judging = { now: false, supported: false };
       const setup = await folderCore(language, {
         model: (calls) =>
           citingModel(
@@ -761,6 +762,11 @@ for (const language of ["en", "zh-CN"] as const) {
       const { meeting: live, heard } = await setup.call();
       await setup.read(live.id, heard.documentId);
       expect(await textOf(core, stopped.document.id)).toContain(said.line);
+      /** Every write of an Answer, as the panel and the assistant read them. */
+      const written: ConversationAnswer[] = [];
+      core.on("conversation.message", (message) => {
+        if (message.kind === "answer") written.push(message);
+      });
 
       const answerOf = async (ids: { conversationId: string; answerId: string }) => {
         const { messages } = await core.getConversation(ids.conversationId);
@@ -770,12 +776,16 @@ for (const language of ["en", "zh-CN"] as const) {
       };
 
       // A typed Question cites the earlier call's line; the User keeps that Citation in the Note.
+      judging.now = typedJudged;
+      judging.supported = typedJudged;
       const asked = await core.askInConversation({
         mindId: live.mindId,
         text: language === "en" ? "What did they say last time?" : "上次他们说了什么？",
       });
       if (!asked.asked) throw new Error("Not asked.");
       await answerEnded(core, asked.answerId);
+      judging.now = false;
+      judging.supported = false;
       const typedIds = { conversationId: asked.conversation.id, answerId: asked.answerId };
       const [kept] = (await answerOf(typedIds)).citations;
       if (!kept) throw new Error("The typed Question cited nothing.");
@@ -808,6 +818,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await client.settled();
 
       // The press keeps the Note's Citation: the one way its reply can cite an earlier call.
+      const judgedBefore = batches.length;
       const pressed = await core.askMeetingHelp({
         meetingId: live.id,
         kind: "say",
@@ -816,12 +827,17 @@ for (const language of ["en", "zh-CN"] as const) {
       if (!pressed.asked) throw new Error("Not pressed.");
       await answerEnded(core, pressed.answerId);
       const pressIds = { conversationId: pressed.conversation.id, answerId: pressed.answerId };
-      // A press is no longer judged: its Citation keeps its quote's check, found in the earlier call.
+      // A press reads no other call: its quote is found there, but its Citation isn't checked.
       const reply = await answerOf(pressIds);
-      expect(reply.citations.map((citation) => [citation.documentId, citation.check])).toEqual([
-        [stopped.document.id, "found"],
-      ]);
-      expect(batches).toEqual([]);
+      expect(
+        reply.citations.map(({ documentId, check, checkReason }) => [
+          documentId,
+          check,
+          checkReason,
+        ]),
+      ).toEqual([[stopped.document.id, "not-checked", "other-call"]]);
+      expect(batches.slice(judgedBefore)).toEqual([]);
+      const pressWrites = written.filter((each) => each.id === pressIds.answerId);
       await storedAsJudgedBefore(core, setup.dataDir, pressIds);
 
       // Stop: the notes are tried with the model, which this test answers with an error.
@@ -832,7 +848,7 @@ for (const language of ["en", "zh-CN"] as const) {
           "failed",
         ),
       );
-      return { core, said, batches, judging, live, pressIds, typedIds, answerOf };
+      return { core, said, batches, judging, live, pressIds, typedIds, answerOf, pressWrites };
     };
 
     /** Check again on the press's reply sends none of the earlier call's line and passes nothing. */
@@ -845,6 +861,26 @@ for (const language of ["en", "zh-CN"] as const) {
       expect(rechecked.citations.map((citation) => citation.check)).toEqual(["not-checked"]);
       expect(rechecked.citations.flatMap((citation) => citation.passedAt ?? [])).toEqual([]);
     };
+
+    // protects=#3005's rule, broken by #3090: a press reads no other call, so the Citation of the earlier call its reply keeps reads not checked, for another call, from the cite to the stored reply, and never shows ✓; a typed Question, which may read earlier calls, keeps the found quote its check passed; fails_when=the press's Citation reads found or draws ✓ at any write, or the typed Question's loses its found check; no_claim=the card's words, which the spec reads.
+    test("a press's Citation of the earlier call reads not checked, for another call, at every write and never ✓; a typed Question's keeps its found quote", async () => {
+      const { pressWrites, typedIds, answerOf } = await pressedThenStopped({ typedJudged: true });
+
+      const cited = pressWrites.filter((each) => each.citations.length > 0);
+      expect(cited.length).toBeGreaterThan(0);
+      for (const write of cited) {
+        for (const citation of write.citations) {
+          expect(citation.check === "checking" || citation.checkReason === "other-call").toBe(true);
+          expect(quoteState(citation, write.status)).not.toBe("found");
+          expect(citation.quotedWordsFound ?? []).toEqual([]);
+        }
+      }
+      const typed = await answerOf(typedIds);
+      expect(typed.citations.map(({ check, checkReason }) => [check, checkReason])).toEqual([
+        ["found", null],
+      ]);
+      expect(quoteState(typed.citations[0], typed.status)).toBe("found");
+    });
 
     test("after the call stops, Check again and its estimate read the Folder without the earlier call's Transcript, though it holds the sentence's words; a typed Question's Answer still reads it", async () => {
       const setup = await pressedThenStopped();
@@ -874,9 +910,13 @@ for (const language of ["en", "zh-CN"] as const) {
         await pressedBeforeFirstLine(language);
       const holdsTheLine = () => batches.filter((batch) => batch.prompt.includes(line));
       const { answer } = await turnOf(core, pressIds);
-      expect(answer.citations.map((citation) => [citation.documentId, citation.check])).toEqual([
-        [earlier, "found"],
-      ]);
+      expect(
+        answer.citations.map(({ documentId, check, checkReason }) => [
+          documentId,
+          check,
+          checkReason,
+        ]),
+      ).toEqual([[earlier, "not-checked", "other-call"]]);
       expect(batches).toEqual([]);
       await storedAsJudgedBefore(core, dataDir, pressIds);
 

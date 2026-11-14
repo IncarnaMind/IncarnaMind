@@ -97,7 +97,8 @@ export function quoteState(
       if (status === "streaming") return "waiting";
       return status === "done" ? "found" : "not-checked";
     case "not-checked":
-      return status === "done" ? "found" : "not-checked";
+      // Another call's quote is never checked for a press (#3005), so it proves nothing found.
+      return status === "done" && citation.checkReason !== "other-call" ? "found" : "not-checked";
   }
   return "cant-check";
 }

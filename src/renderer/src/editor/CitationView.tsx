@@ -209,8 +209,10 @@ export function CitationView({
   const place = useTabPlace();
   const state = citationState(attributes, documents, kept, keptInside);
   // A help reply's check never reads another call's Transcript, so Check again can't change it.
+  const otherCalls = useContext(OtherCallsContext);
   const otherCall =
-    useContext(OtherCallsContext).has(state.documentId ?? "") && state.check === "not-checked";
+    state.check === "not-checked" &&
+    (state.reason === "other-call" || otherCalls.has(state.documentId ?? ""));
   const liveVersion = useAppStore(
     (store) => store.documents.find((each) => each.id === state.documentId)?.contentHash,
   );
@@ -941,7 +943,7 @@ function CitationCard({
     state.check === "checking"
       ? t("citation.reason.checking")
       : otherCall
-        ? t("citation.reason.otherCall")
+        ? t("citation.reason.other-call")
         : (limited ??
           (state.reason === "small-model"
             ? t("citation.reason.small-model")
