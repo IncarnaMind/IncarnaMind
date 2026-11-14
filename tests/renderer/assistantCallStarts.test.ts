@@ -203,6 +203,7 @@ function answerCiting(...citations: MarkedCitation[]): ConversationAnswer {
     errorKind: null,
     errorMessage: null,
     errorSignInRoute: null,
+    errorTooLong: null,
     citationSupport: "tools",
     toolCalls: [search],
     textOrigin: null,

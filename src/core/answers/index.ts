@@ -388,6 +388,7 @@ import {
   meetingInstructions,
   mindInstructions,
   mindsLine,
+  onScreenLine,
   selectedTextBlock,
   signInNeededInstructions,
   skillInstructions,
@@ -754,9 +755,9 @@ export interface AnswersOptions {
   resolveScope(scope: SearchScope, mindId?: string | null): string[] | null;
   /**
    * With no Search scope, what an Answer asked from `mindId` in the assistant
-   * searches: the examples until the User has a Document of their own, theirs
-   * alone from then on (#1942); an example's Mind searches every Document.
-   * Null: every Document.
+   * searches: the examples until the User has a Document of their own, then
+   * theirs and the examples `mindId` cites (#1942, #3083); an example's Mind
+   * searches every Document. Null: every Document.
    */
   unscopedDocuments?(mindId: string | null): string[] | null;
   /** What a Question from a Mind searches, by the one rule (`mindSearchScope`); null: every Document. */
@@ -1360,6 +1361,8 @@ export function createAnswers(options: AnswersOptions) {
     ids?: ContextCitations;
     /** The line naming the User's Minds, for a pass that offers the Minds' Tools (see `AnswerRequest`). */
     mindsLine?: { line: string; asked: string };
+    /** The line naming the Documents on screen (see `AnswerRequest`). */
+    onScreenLine?: string;
     /** The Documents of the Question's Search scope; null with no Search scope (every Document). */
     documentIds: string[] | null;
     /** The User limited the Question to some Documents. Absent: `documentIds` names some. */
@@ -3779,6 +3782,7 @@ export function createAnswers(options: AnswersOptions) {
         question: context.question,
         ...(context.meetingFacts && { meetingFacts: context.meetingFacts }),
         ...(input.mindsLine && { mindsLine: input.mindsLine }),
+        ...(input.onScreenLine && { onScreenLine: input.onScreenLine }),
         model: prepared.model,
         ...(prepareQuick && { quickModel: () => prepareQuick(model, prepared) }),
         documents,
@@ -4457,10 +4461,15 @@ export function createAnswers(options: AnswersOptions) {
       text: kept.text,
       selection: kept.selection,
       ...(kept.pictures?.length && { pictures: kept.pictures }),
-      cut: (tokens) => reading.section(tokens, asking),
+      cut: (tokens, withSelection) => reading.section(tokens, asking, withSelection),
+      ...(kept.selection &&
+        reading.selection !== kept.selection && {
+          wholeSelection: reading.selection,
+        }),
     });
     start({
       ...(scopeText && { scopeLine: scopeText }),
+      ...(shown.length > 0 && { onScreenLine: onScreenLine(shown) }),
       ...(named.length > 0 && {
         mindsLine: {
           line: mindsLine(named),
@@ -4709,8 +4718,8 @@ export function createAnswers(options: AnswersOptions) {
    * What an Answer to `question` is written from: its context, and its Search
    * scope as it is now, resolved to the Documents it covers now. With no
    * scope it follows the one rule (#1942): the examples until the User has a
-   * Document of their own, theirs alone from then on; an example's own Note
-   * searches every Document.
+   * Document of their own, then theirs and the examples the Note cites (#3083);
+   * an example's own Note searches every Document.
    */
   const askedWith = (context: QuestionContext, question: Y.XmlElement, mindId: string) => {
     const chosen = searchScopeOf(question.getAttributes());

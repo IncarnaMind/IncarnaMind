@@ -115,5 +115,9 @@ export function cloudWindow({ facts }: ModelCapabilities): ContextWindow | undef
     LONGEST_OUTPUT,
   );
   const input = Math.min(maxInput && maxInput > 0 ? maxInput : context, context - output);
-  return { tokens: context, outputTokens: context - input };
+  return {
+    tokens: context,
+    outputTokens: context - input,
+    ...(maxInput && maxInput > 0 && maxInput < context && { maxInput }),
+  };
 }

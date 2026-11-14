@@ -12,6 +12,7 @@ import {
 import { EDIT_INSTRUCTIONS, EDIT_INSTRUCTIONS_NAMED } from "../../src/core/edits/prompt";
 import { changedMinds } from "../../src/renderer/src/changedMinds";
 import { writeAccepted } from "../../src/renderer/src/editor/arrivedChanges";
+import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
 import { resolveInEditor } from "../../src/renderer/src/editor/proposalReview";
 import { askedFor } from "../../src/shared/askedChanges";
@@ -437,7 +438,7 @@ describe("Use all, where the text went (#1171 review)", { timeout: 60_000 }, () 
     expect(shownWithChanges(client)).toEqual(fromTwo);
   });
 
-  // protects=Use all's text from every Document lands checked, as a first write's does: its cited sentences are checked and the card counts them (#1635); fails_when=the rewrite lands with found Citations and no check, which reads as checked; no_claim=the verdicts, which the written check's own tests hold.
+  // protects=Use all's text from every Document lands checked, as a first write's does: its cited sentences are checked and the card counts them (#1635), and those citing a Document the Note's Search scope leaves out are named, not judged (#3083); fails_when=the rewrite lands with found Citations and no check, which reads as checked, or a sentence reads Unsupported for want of a Document left out; no_claim=the verdicts, which the written check's own tests hold.
   test("Use all checks the text it writes again", async () => {
     const model = scriptedModel(
       (call) => (isCheckRun(call) ? checkReply(call, {}) : summaryOfShown(call)),
@@ -458,7 +459,17 @@ describe("Use all, where the text went (#1171 review)", { timeout: 60_000 }, () 
 
     const [change] = changesIn(rewritten);
     expect(change).toMatchObject({ mindId: made?.mindId, created: false });
-    expect(change?.selfCheck).toMatchObject({ cited: 7, sent: 7, failed: 0 });
+    // The Summary keeps its Folder of two as its Search scope: the five leases outside it are named,
+    // never judged for want of them (#3083).
+    expect(change?.selfCheck).toMatchObject({ cited: 7, sent: 7, checked: 2, failed: 5 });
+    await summary.settled();
+    expect(
+      claimSpans(readMind(summary)).map(({ check }) => [check.state, check.reason, check.detail]),
+    ).toEqual([
+      ["unsupported", null, null],
+      ["unsupported", null, null],
+      ...[3, 4, 5, 6, 7].map((lease) => ["not-checked", "outside-scope", `Lease ${lease}`]),
+    ]);
     expect(lastResult(model)).toContain(
       "IncarnaMind checks these sentences against the Documents itself",
     );

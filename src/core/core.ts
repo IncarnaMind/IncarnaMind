@@ -1894,15 +1894,21 @@ export function createCore(adapters: CoreAdapters): Core {
     // The examples are the User's Library until a Document of their own exists (#1942), a
     // meeting's Transcript among them: a first meeting's Note searches its own words only.
     const own = documents.ids({}).filter((id) => !left.has(id));
-    return own.length > 0 ? own : null;
+    if (own.length === 0) return null;
+    if (mindId === null) return own;
+    // A Note the User wrote against an example is their own work, so what it cites stays in its
+    // reach, for its checks, Answers and assistant alike (#3083).
+    const cited: CitedUnits[] = [];
+    content.peek(mindId, (blocks) => addCitedUnits(blocks, left, cited));
+    return [...new Set([...own, ...cited.map((each) => each.documentId)])];
   };
   /**
    * The Documents a Search scope covers; with no scope, "every Document": the examples' until the
-   * User has a Document of their own, and theirs alone from then on (#1942). An example's own Note
-   * always searches every Document. Every searching surface resolves a default scope here or
-   * through `unscopedDocuments` — a Question in a Mind goes through `resolveScope ??
-   * unscopedDocuments` — so all of them follow one rule; the Library count and the renderer state
-   * the same rule for browsing.
+   * User has a Document of their own, and from then on theirs and the examples `mindId` cites
+   * (#1942, #3083). An example's own Note always searches every Document. Every searching surface
+   * resolves a default scope here or through `unscopedDocuments` — a Question in a Mind goes
+   * through `resolveScope ?? unscopedDocuments` — so all of them follow one rule; the Library count
+   * and the renderer state the same rule for browsing.
    */
   const scopeDocuments = (
     scope: SearchScope | null,
@@ -6614,7 +6620,7 @@ export function createCore(adapters: CoreAdapters): Core {
       await evidence.ready(undefined, () => checked);
       const found = await evidence.search(
         query,
-        evidence.scope(mindId, scopeDocuments(scope), checked),
+        evidence.scope(mindId, scopeDocuments(scope, mindId), checked),
       );
       return { passages: found.passages.map(passageResult), excluded: found.excluded };
     },
