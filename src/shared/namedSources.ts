@@ -16,7 +16,8 @@ export interface NamedSource {
 const BRACKETED = /\[([^[\]]+)\](?!\()/g;
 const CHINESE_PAGES = /^第\s*(\d+)(?:\s*[-–—]\s*(\d+))?\s*页$/u;
 
-function sourceOf(inner: string): NamedSource | null {
+/** A source as written: its Document's name, then its Location after a comma; null for a bare number. */
+export function namedSource(inner: string): NamedSource | null {
   const text = inner.trim();
   if (/^\^?=?\d+$/.test(text)) return null;
   // A name may hold a comma itself: the first split whose rest reads as a Location.
@@ -44,7 +45,7 @@ export function linkSources(
 ): { text: string; unlinked: number } {
   let unlinked = 0;
   const linked = text.replace(BRACKETED, (whole, inner: string) => {
-    const source = sourceOf(inner);
+    const source = namedSource(inner);
     if (!source) return whole;
     const marker = link(source);
     if (marker !== null) return marker;
@@ -78,7 +79,7 @@ function recognised(text: string, known: (source: NamedSource) => boolean): Reco
     const space = match[1] ?? "";
     const at = match.index + space.length;
     if (text[at - 1] === "!" || kept.some(([from, to]) => at >= from && at < to)) return [];
-    const parts = (match[2] ?? match[3] ?? "").split(/[;；]/).map(sourceOf);
+    const parts = (match[2] ?? match[3] ?? "").split(/[;；]/).map(namedSource);
     const sources = parts.filter((part): part is NamedSource => part !== null);
     if (sources.length === 0 || sources.length < parts.length || !sources.every(known)) return [];
     return [

@@ -5064,7 +5064,7 @@ export function createAnswers(options: AnswersOptions) {
         answer.citations.filter((each) => each.check === "not-checked").map((each) => each.marker),
       );
       const rejudged = new Set(
-        citedSentences(answer.text, answer.figures)
+        citedSentences(answer.text, answer.figures, answer.citations)
           .filter((each) => !each.calculated && each.markers.some((marker) => again.has(marker)))
           .flatMap((each) => each.at),
       );

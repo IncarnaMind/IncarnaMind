@@ -31,6 +31,7 @@ import {
 import { perBlock } from "../../../shared/memo";
 import { readProposalAttribute, readProposalRef } from "../../../shared/proposals";
 import { INLINE_NODE, onlyNamesItsTable, sentenceSpans } from "../../../shared/sentences";
+import { type CitedSource, onlyNamesItsSource } from "../../../shared/sourceNames";
 import { textOriginOf } from "../../../shared/textOrigins";
 import {
   ANALYSIS_TABLE_ATTRIBUTE,
@@ -98,9 +99,17 @@ export interface SelectedSentence {
   projection?: InlineTextProjection;
 }
 
+/** A sentence that only names the Document it cites, which no check reads (#3093), where it stands. */
+export interface SourceNameSpan {
+  element: Y.XmlElement;
+  from: number;
+  to: number;
+}
+
+/** The sentences a selection asks to check, and the name-only ones it touched, whose earlier marks go. */
 export type SelectedSentences =
-  | { ok: true; sentences: SelectedSentence[]; waiting: WaitingSentences }
-  | { ok: false; reason: "nothing" };
+  | { ok: true; sentences: SelectedSentence[]; waiting: WaitingSentences; named: SourceNameSpan[] }
+  | { ok: false; reason: "nothing"; named: SourceNameSpan[] };
 
 /**
  * A sentence as its Note holds it, an inline node as U+FFFC: what its record cites are read in,
@@ -430,6 +439,10 @@ export const isTableCaption = (element: Y.XmlElement): boolean =>
     .some((node) => node instanceof Y.XmlElement && node.nodeName === ANALYSIS_TABLE_NODE) &&
   onlyNamesItsTable(textOf(element));
 
+/** A sentence that only names the Document it cites says where, not what: no check reads it (#3093). */
+const namesItsSourceOnly = (span: { text: string; citations: readonly CitedSource[] }) =>
+  onlyNamesItsSource(span.text, span.citations);
+
 /** A paragraph no check reads as sentences: a table's heading, an Analysis table's caption or cell. */
 const notSentences = (element: Y.XmlElement) =>
   inTableHeader(element) || inAnalysisTable(element) || isTableCaption(element);
@@ -447,6 +460,7 @@ export function selectedSentences(
   const idOf = (element: Y.XmlElement) => element.getAttribute(BLOCK_ID_ATTRIBUTE);
   const sentences: SelectedSentence[] = [];
   const waiting: WaitingSentences = { sentences: [], changeIds: [] };
+  const named: SourceNameSpan[] = [];
   const seen = new Set<string>();
   for (const { from, to } of stretches) {
     const first = all.findIndex(({ element }) => idOf(element) === from.blockId);
@@ -483,6 +497,10 @@ export function selectedSentences(
         const key = `${blockId}:${span.from}`;
         if (!touched || seen.has(key)) continue;
         seen.add(key);
+        if (namesItsSourceOnly(span)) {
+          named.push({ element, from: span.from, to: span.extent });
+          continue;
+        }
         const changes = changesIn(element, span.from, span.extent);
         if (changes.length > 0) {
           waiting.sentences.push({
@@ -509,8 +527,8 @@ export function selectedSentences(
     }
   }
   return sentences.length + waiting.sentences.length > 0
-    ? { ok: true, sentences, waiting }
-    : { ok: false, reason: "nothing" };
+    ? { ok: true, sentences, waiting, named }
+    : { ok: false, reason: "nothing", named };
 }
 
 /** Every paragraph's text in reading order, changes still waiting included: what record cites refer back through. */
@@ -553,7 +571,7 @@ export function everySentence(blocks: Y.XmlFragment): SelectedSentence[] {
       const words = span.text;
       const occurrence = occurrences.get(words) ?? 0;
       occurrences.set(words, occurrence + 1);
-      return changesIn(element, span.from, span.extent).length > 0
+      return changesIn(element, span.from, span.extent).length > 0 || namesItsSourceOnly(span)
         ? []
         : [
             {
@@ -572,6 +590,43 @@ export function everySentence(blocks: Y.XmlFragment): SelectedSentence[] {
           ];
     });
   });
+}
+
+/** Every sentence of the Note that only names the Document it cites (#3093), but those holding a change still waiting. */
+export function sourceNamesIn(blocks: Y.XmlFragment): SourceNameSpan[] {
+  return textBlocks(blocks).flatMap(({ element, busy }) => {
+    if (busy || element.nodeName !== "paragraph" || notSentences(element)) return [];
+    return claimFrame(element).spans.flatMap((span) =>
+      namesItsSourceOnly(span) && changesIn(element, span.from, span.extent).length === 0
+        ? [{ element, from: span.from, to: span.extent }]
+        : [],
+    );
+  });
+}
+
+/**
+ * Takes an earlier check's mark off each of `named`, which no check reads now (#3093); true when
+ * one had a mark.
+ */
+export function unmarkSourceNames(blocks: Y.XmlFragment, named: readonly SourceNameSpan[]) {
+  const marks = markedSentences(blocks);
+  let removed = false;
+  for (const { element, from, to } of named) {
+    for (const mark of marks) {
+      if (mark.element !== element || mark.from >= to || mark.to <= from) continue;
+      if (unmarkSentence(element, from, to, mark.check.action)) removed = true;
+    }
+  }
+  return removed;
+}
+
+/** Whether any of `named` carries an earlier check's mark. */
+export function marksASourceName(blocks: Y.XmlFragment, named: readonly SourceNameSpan[]) {
+  if (named.length === 0) return false;
+  const marks = markedSentences(blocks);
+  return named.some(({ element, from, to }) =>
+    marks.some((mark) => mark.element === element && mark.from < to && mark.to > from),
+  );
 }
 
 /** Puts a check's mark on `from`..`to` of a Block's text, in place of any check there. */

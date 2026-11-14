@@ -328,7 +328,11 @@ function carriedChecks(
 ): Map<string, (CarriedCheck | null)[]> {
   const byMarker = new Map(answer.citations.map((citation) => [citation.marker, citation]));
   const found = new Map<string, (CarriedCheck | null)[]>();
-  for (const cited of citedSentences(forPage(answer.text, question), answer.figures)) {
+  for (const cited of citedSentences(
+    forPage(answer.text, question),
+    answer.figures,
+    answer.citations,
+  )) {
     const citations = cited.markers
       .map((marker) => byMarker.get(marker))
       .filter((citation): citation is MarkedCitation => citation !== undefined);

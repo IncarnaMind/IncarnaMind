@@ -171,10 +171,12 @@ import {
   everySentence,
   markedSentences,
   markSentence,
+  marksASourceName,
   noteTextOf,
   recordCiteParagraphs,
   type SelectedSentence,
   selectedSentences,
+  unmarkSourceNames,
   updateCheck,
   writtenByAssistant,
 } from "./sentences";
@@ -1506,6 +1508,13 @@ export function createChecks(options: ChecksOptions) {
     const { mindId } = input;
     const stretches = [{ from: input.from, to: input.to }, ...input.more];
     const read = content.read(mindId, (blocks) => selectedSentences(blocks, stretches));
+    const named = (blocks: Y.XmlFragment) => selectedSentences(blocks, stretches).named;
+    // An earlier check's mark on a sentence that only names its source goes: none reads it now (#3093).
+    if (
+      read.named.length > 0 &&
+      content.read(mindId, (blocks) => marksASourceName(blocks, named(blocks)))
+    )
+      content.edit(mindId, (blocks) => unmarkSourceNames(blocks, named(blocks)));
     if (!read.ok) return { kind: read.reason };
     if (input.part) {
       const target = input.part;

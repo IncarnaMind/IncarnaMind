@@ -138,7 +138,7 @@ export interface AnswerCheckOptions {
 function sentencesToCheck(
   input: Pick<AnswerCheckInput, "text" | "citations" | "figures" | "waiting">,
 ): (CitedSentence & { found: MarkedCitation[] })[] {
-  return citedSentences(input.text, input.figures)
+  return citedSentences(input.text, input.figures, input.citations)
     .filter((each) => !each.calculated)
     .filter((each) => each.markers.some((marker) => input.waiting.has(marker)))
     .map((each) => ({
@@ -161,7 +161,7 @@ export function judgedMarkers(
   input: Pick<AnswerCheckInput, "text" | "citations" | "figures">,
 ): Set<number> {
   return new Set(
-    citedSentences(input.text, input.figures)
+    citedSentences(input.text, input.figures, input.citations)
       .filter((each) => !each.calculated)
       .flatMap((each) =>
         each.markers.filter(

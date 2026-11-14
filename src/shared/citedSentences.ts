@@ -6,6 +6,7 @@ import type { MarkedFigure } from "../core/api";
 import { MARKER } from "./answerSentences";
 import { FIGURE_MARKER } from "./figureMarkers";
 import { comparableSentence, INLINE_NODE, isClaim, sentenceSpans } from "./sentences";
+import { type CitedSource, onlyNamesItsSource } from "./sourceNames";
 
 export interface CitedSentence {
   /** The sentence without its Citation markers. */
@@ -38,10 +39,14 @@ const inlineNodes = (text: string) => text.split(INLINE_NODE).length - 1;
 const withoutMarkers = (text: string) =>
   comparableSentence(text.replace(BEFORE_MARKER, "").replaceAll(FIGURE_START, ""));
 
-/** The claims of an Answer's Markdown that hold a Citation marker, each with its markers. */
+/**
+ * The claims of an Answer's Markdown that hold a Citation marker, each with its markers. A
+ * sentence that only names the Document of its `citations` is none (#3093).
+ */
 export function citedSentences(
   text: string,
   figures: readonly Pick<MarkedFigure, "marker" | "shown">[] = [],
+  citations: readonly (CitedSource & { marker: number })[] = [],
 ): CitedSentence[] {
   const found: CitedSentence[] = [];
   let seen = 0;
@@ -70,7 +75,8 @@ export function citedSentences(
       const count = inlineNodes(marked.slice(from, to));
       const inside = markers.slice(before, before + count);
       const sentence = withoutMarkers(marked.slice(from, to));
-      if (inside.length > 0 && isClaim(sentence)) {
+      const cited = citations.filter((citation) => inside.includes(citation.marker));
+      if (inside.length > 0 && isClaim(sentence) && !onlyNamesItsSource(sentence, cited)) {
         const calculated = marked.slice(from, to).includes(FIGURE_START);
         const at = inside.map((_, index) => first + before + index);
         found.push({ sentence, context, markers: inside, at, calculated, inTable });
