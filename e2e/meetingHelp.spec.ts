@@ -7,7 +7,7 @@ import {
   createDataFolder,
   dismissChatSetup,
   expectBarOneRow,
-  expectMarksAsChecked,
+  expectQuoteLines,
   firstTranscriptLine,
   heldGlobalKeys as held,
   launchApp,
@@ -197,11 +197,12 @@ test("help during the call: the floating panel above the meeting gives one or tw
   await expect(want.getByTestId("help-heading")).toHaveText(
     "What do they want? · Read from what they said",
   );
-  // Its moment cites their line; its ✓ is wherever the check passed that line (#2847).
-  await expect(
-    want.getByTestId("help-option-note").first().getByTestId("help-citation"),
-  ).toHaveCount(1);
-  await expectMarksAsChecked(window, want);
+  // Its moment cites their line, its words kept, with ✓ once the app finds them there (#2847).
+  expect((await expectQuoteLines(window, want))[0]).toMatchObject({
+    state: "found",
+    numbers: ["1"],
+    found: true,
+  });
 
   // What to ask next writes options; Check what was said, up to three lines.
   await expectOptions(await pressHelp(panel, "What to ask next"));
@@ -490,8 +491,11 @@ test("help during the call: Answer their question cites the price sheet, checked
 
   const answer = await pressHelp(panel, "Answer their question");
   await expect(answer.getByTestId("help-option-say").first()).toContainText("$45 per seat");
-  // The price line states it, so the check passes the option's sentence: ✓ (#2847).
-  expect((await expectMarksAsChecked(window, answer))[0]).toMatchObject({ passed: true });
+  // Under it, the price line word for word, which the app found in the sheet: ✓ (#2847).
+  expect((await expectQuoteLines(window, answer))[0]).toMatchObject({
+    words: `“${PRICE}”`,
+    found: true,
+  });
   await expect(answer.getByTestId("help-source")).toHaveText([/^1 · Price sheet · /]);
   await shot(panel, "help-panel-answer-en");
 
@@ -619,7 +623,8 @@ test("help during the call: a reading that came without its → line stays once 
   await expect(reading.getByTestId("help-option-say")).toHaveText(
     "They want a firm date for the launch",
   );
-  await expect(reading.getByTestId("help-option-note")).toHaveCount(1);
+  // Its moment of the call is a plain one, drawn as a moment line (#2847).
+  await expect(reading.getByTestId("help-moment")).toHaveCount(1);
   await expect(reading.getByTestId("help-option-effect")).toHaveCount(0);
   await expect(suggestion.getByTestId("help-nothing")).toHaveCount(0);
   await app.close();

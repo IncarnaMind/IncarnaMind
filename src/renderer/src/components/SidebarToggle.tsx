@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useRef } from "react";
 import { shortcutLabel } from "../commands/keymap";
 import { files } from "../core";
+import { withKeys } from "../editor/withShortcut";
 import { useT } from "../i18n";
 import { useTaggingAlert } from "../taggingAlert";
 import { SidebarLineIcon } from "./lineIcons";
@@ -56,7 +57,7 @@ export function SidebarToggle({ place }: { place: "header" | "band" }) {
       aria-label={label}
       aria-expanded={!control.hidden}
       aria-controls="sidebar"
-      title={`${label} (${shortcutLabel("sidebar.toggle")})`}
+      title={withKeys(t, label, shortcutLabel("sidebar.toggle"))}
       onClick={control.toggle}
       data-needs-you={alert || undefined}
       className={`${iconButtonClass} sidebar-toggle relative text-ink-secondary`}

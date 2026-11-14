@@ -79,7 +79,7 @@ describe("The sidebar's status for an add", () => {
       "These pages were saved, but not into the Folder you chose: Tides (Contracts), 潮汐",
     );
     expect(savedOutsideLine(zh, "zh-CN", saved)).toBe(
-      "这些网页已保存，但没有存入你选择的文件夹：Tides (Contracts)、潮汐",
+      "这些网页已保存，但没有存入你选择的文件夹：Tides（Contracts）、潮汐",
     );
   });
 });
@@ -186,13 +186,13 @@ describe("The places a check's card lists for a Document it read whole", () => {
     const documents = [read("租约.pdf", [3, 5]), read("Notes.docx", [])];
     expect(readDocumentsText(documents, null, en, "en")).toBe("租约.pdf (p. 3, p. 5); Notes.docx");
     expect(readDocumentsText(documents, null, zh, "zh-CN")).toBe(
-      "租约.pdf (第 3 页、第 5 页)；Notes.docx",
+      "租约.pdf（第 3 页、第 5 页）；Notes.docx",
     );
   });
 
   test("a Document with one place has nothing to join", () => {
     expect(readDocumentsText([read("Lease.pdf", [3])], null, zh, "zh-CN")).toBe(
-      "Lease.pdf (第 3 页)",
+      "Lease.pdf（第 3 页）",
     );
   });
 });

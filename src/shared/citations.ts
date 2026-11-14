@@ -722,7 +722,7 @@ export const citationCheckRan = (check: CitationCheck): boolean =>
 
 /** The message key and parameters of a Citation's badge, its Location worded with `t`. */
 export function badgeMessage(
-  state: CitationState,
+  state: Pick<CitationState, "check" | "reason">,
   attributes: Partial<CitationAttributes>,
   t: Translate,
 ): { key: MessageKey; params?: Record<string, string> } {

@@ -16,7 +16,8 @@ import type { ConversationAnswer, Core, CoreAdapters, MeetingHelpKind } from "..
 import { toolTextIn } from "../../src/core/answers/toolText";
 import { createFakeCapture, type FakeCapture } from "../../src/core/meetings/fakeCapture";
 import type { TimingOutcome } from "../../src/core/timing/timings";
-import { citationNumbers, sentencePassed } from "../../src/renderer/src/helpReply";
+import { citationNumbers } from "../../src/renderer/src/helpReply";
+import { quoteState } from "../../src/shared/helpQuotes";
 import { type ReplyItem, readHelpReply, shownItems } from "../../src/shared/helpReplyRead";
 import { isTranscriptLocation } from "../../src/shared/locations";
 import { HELP_SHAPE } from "../../src/shared/meetingHelp";
@@ -29,7 +30,6 @@ import {
 } from "../../tests/helpers/transcription";
 import type { EvalDocument } from "../lib/evaluationSet";
 import { openLibrary } from "../lib/library";
-import { armNamed } from "./arms";
 import {
   CALL_HELP_CASES,
   type CallHelpCase,
@@ -367,15 +367,8 @@ async function press(
   answer: ConversationAnswer;
   firstWordsMs: number | null;
   firstOptionMs: number | null;
-  settledMs: number | null;
 }> {
   let stopPhase: () => void = () => undefined;
-  let answerId: string | null = null;
-  let finishedAt: number | null = null;
-  let settledAt: number | null = null;
-  const stopFinished = core.on("answer.finished", (event) => {
-    if (event.answerId === answerId) finishedAt ??= performance.now();
-  });
   let snapshotting = false;
   let beforeCheck: string | null = null;
   const shape = HELP_SHAPE[each.kind];
@@ -403,22 +396,12 @@ async function press(
         : first.effect !== null);
     if (whole) times.firstOptionMs ??= at;
     seen.set(message.id, times);
-    // Its marks have settled once it has ended and no Citation still waits for its check.
-    if (
-      message.id === answerId &&
-      finishedAt !== null &&
-      message.status !== "streaming" &&
-      !message.citations.some((citation) => citation.check === "checking")
-    ) {
-      settledAt ??= performance.now();
-    }
   });
   try {
     begin();
     start = performance.now();
     const asked = await core.askMeetingHelp({ meetingId, kind: each.kind as MeetingHelpKind });
     if (!asked.asked) throw new Error(`Not asked: ${JSON.stringify(asked)}`);
-    answerId = asked.answerId;
     // The check of the changes a reply claims runs once it is written: what it shows as it runs
     // is the text before the check, and what the Answer then holds is the text after it.
     stopPhase = core.on("answer.phase", (event) => {
@@ -456,51 +439,11 @@ async function press(
     const times = seen.get(answer.id) ?? { firstWordsMs: null, firstOptionMs: null };
     if (beforeCheck !== null && answer.text !== beforeCheck)
       rewrittenReplies.push({ item: each.id, before: beforeCheck, after: answer.text });
-    // `replyEnded` waits for the marks: none waited when they had settled as the reply ended.
-    const settledMs =
-      finishedAt === null ? null : settledAt === null ? 0 : Math.max(0, settledAt - finishedAt);
-    return { answer, ...times, settledMs };
+    return { answer, ...times };
   } finally {
     stop();
     stopPhase();
-    stopFinished();
   }
-}
-
-/**
- * What a reply's held Citations show: those with ✓, those the check gave a verdict, and why each
- * of the others shows none: its check, a not-checked one's reason, or "found" for a line the check
- * didn't judge though the Citation's other sentence passed.
- */
-function marksOf(
-  held: readonly ConversationAnswer["citations"][number][],
-  listed: readonly ConversationAnswer["citations"][number][],
-  showsCheck: (citation: ConversationAnswer["citations"][number]) => boolean,
-  settledMs: number | null,
-): Omit<NonNullable<Measured["marks"]>, "judge" | "numbers"> {
-  const missed: Record<string, number> = {};
-  let checked = 0;
-  let judged = 0;
-  for (const citation of held) {
-    const shows = showsCheck(citation);
-    if (shows) checked++;
-    if (shows || citation.check === "unsupported" || citation.check === "contradicted") judged++;
-    if (shows) continue;
-    const why =
-      citation.check === "not-checked"
-        ? `not-checked:${citation.checkReason ?? "no reason"}`
-        : citation.check;
-    missed[why] = (missed[why] ?? 0) + 1;
-  }
-  return {
-    held: held.length,
-    checked,
-    judged,
-    missed,
-    listed: listed.length,
-    listedChecked: listed.filter(showsCheck).length,
-    settledMs,
-  };
 }
 
 /** Every reply the change-claim check rewrote, with the text before the check and after it. */
@@ -513,9 +456,8 @@ function item(each: CallHelpCase, set: CallHelpSet): PairedGroup["items"][number
     kind: `${each.kind}-${each.needs}`,
     language: each.language,
     words: "item",
-    async run({ library, claimsJudge, meeting, choice, arm }) {
+    async run({ library, claimsJudge, meeting, choice }) {
       if (!meeting) throw new Error("The call-help set needs its Meeting.");
-      const quoteOnly = armNamed(arm).helpMarksQuoteOnly === true;
       // A press answers on the Answers model the User chose, as the panel's does.
       await library.core.updateSettings({ user: { chatModel: choice } });
       const since = new Date().toISOString();
@@ -532,7 +474,7 @@ function item(each: CallHelpCase, set: CallHelpSet): PairedGroup["items"][number
       } catch (error) {
         return failed(error instanceof Error ? error.message : String(error));
       }
-      const { answer, firstWordsMs, firstOptionMs, settledMs } = pressed;
+      const { answer, firstWordsMs, firstOptionMs } = pressed;
       const requests = requestsSince(library.dataDir, since);
       const done = answer.status === "done";
       const shown = shownItems(readHelpReply(answer.text), {
@@ -546,19 +488,10 @@ function item(each: CallHelpCase, set: CallHelpSet): PairedGroup["items"][number
       const citations = [...numbers.keys()].flatMap(
         (marker) => answer.citations.find((citation) => citation.marker === marker) ?? [],
       );
-      const places = shown.flatMap((each) =>
-        [each.lead, ...each.notes, each.effect ?? []]
-          .flat()
-          .flatMap((piece) => (piece.kind === "citation" ? [piece] : [])),
-      );
-      // A Citation shows ✓ as each arm's panel draws it, on any line it is shown on: main's beside a
-      // found quote, the branch's only where the sentence check passed that line's sentence (#2847).
+      // A Citation shows ✓ as the panel draws it: on its quote line, where the app found its quote
+      // in its place (#2847).
       const showsCheck = (citation: ConversationAnswer["citations"][number]) =>
-        quoteOnly
-          ? citation.check === "found"
-          : places.some(
-              (place) => place.marker === citation.marker && sentencePassed(citation, place.at),
-            );
+        quoteState(citation, "done") === "found";
       const found = citations.filter(quoteFound);
       const reply = shownReply(answer, shown, numbers);
       let judged: Judged | null = null;
@@ -590,21 +523,6 @@ function item(each: CallHelpCase, set: CallHelpSet): PairedGroup["items"][number
         const citation = shownAs(number);
         return citation !== undefined && showsCheck(citation);
       });
-      // A judge reply that couldn't be read says nothing of which quotes hold.
-      const read = judged !== null && judged.grade !== "unread";
-      const foundShown = (listed: boolean) =>
-        read
-          ? [...numbers.values()].flatMap((number) => {
-              const citation = shownAs(number);
-              return citation &&
-                quoteFound(citation) &&
-                judged?.unstated.includes(number) === listed
-                ? [citation]
-                : [];
-            })
-          : [];
-      const held = foundShown(false);
-      const listed = foundShown(true);
       return {
         status: done ? "done" : "failed",
         error: done ? null : `${answer.errorKind ?? answer.status}: ${answer.errorMessage ?? ""}`,
@@ -627,27 +545,6 @@ function item(each: CallHelpCase, set: CallHelpSet): PairedGroup["items"][number
         firstWordsMs,
         firstOptionMs,
         requests,
-        ...(read &&
-          judged && {
-            marks: {
-              ...marksOf(held, listed, showsCheck, settledMs),
-              judge: { grade: judged.grade, unstated: judged.unstated },
-              numbers: [...numbers].flatMap(([marker, number]) => {
-                const citation = answer.citations.find((each) => each.marker === marker);
-                return citation
-                  ? [
-                      {
-                        number,
-                        check: citation.check,
-                        found: quoteFound(citation),
-                        listed: judged.unstated.includes(number),
-                        passed: showsCheck(citation),
-                      },
-                    ]
-                  : [];
-              }),
-            },
-          }),
         // What each Citation rests on, so a reply citing another line than the case's shows as one.
         text: [
           reply,
