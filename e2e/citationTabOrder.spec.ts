@@ -129,11 +129,77 @@ const rested = (window: Page) =>
       }),
   );
 
+/** A dialog opens over the focused control and closes: the browser puts the focus back on it. */
+async function dialogOver(window: Page, control: Locator, how: "palette" | "settings") {
+  if (how === "palette") {
+    await window.keyboard.press("ControlOrMeta+k");
+    await expect(window.getByTestId("palette-search")).toBeFocused();
+    await window.keyboard.press("Escape");
+    await expect(window.getByTestId("palette")).toHaveCount(0);
+  } else {
+    await window.keyboard.press("ControlOrMeta+,");
+    await expect(window.locator("dialog[open]")).toHaveCount(1);
+    await window.keyboard.press("Escape");
+    await expect(window.locator("dialog[open]")).toHaveCount(0);
+  }
+  await expect(control).toBeFocused();
+}
+
+/**
+ * Coming back shows no card (#3102): the focus a dialog gives back to `control` opens nothing, so
+ * nothing covers the page; Space shows the card and goes in, so does the pointer on the control,
+ * and so does moving the focus away (`away`) and back (`back`). A card Space went into is kept as
+ * it is left by Esc.
+ */
+async function comesBackQuietly(
+  window: Page,
+  control: Locator,
+  card: Locator,
+  keys: { away: string; back: string },
+) {
+  const nothingShows = async () => {
+    await expect(control).toBeFocused();
+    await rested(window);
+    await expect(card).toHaveCount(0);
+    await rested(window);
+    await expect(card).toHaveCount(0);
+  };
+  await dialogOver(window, control, "palette");
+  await nothingShows();
+
+  await window.keyboard.press("Space");
+  await expect(card).toHaveCount(1);
+  await expect.poll(() => whereIsFocus(window)).toBe("card");
+  await window.keyboard.press("Escape");
+  await expect(control).toBeFocused();
+  await expect(card).toHaveCount(1);
+  await window.keyboard.press("Escape");
+  await expect(card).toHaveCount(0);
+
+  await dialogOver(window, control, "settings");
+  await nothingShows();
+  await control.hover();
+  await expect(card).toHaveCount(1);
+  await window.mouse.move(0, 0);
+  await expect(card).toHaveCount(0);
+
+  await dialogOver(window, control, "palette");
+  await nothingShows();
+  await window.keyboard.press(keys.away);
+  await expect(control).not.toBeFocused();
+  await window.keyboard.press(keys.back);
+  await expect(control).toBeFocused();
+  await expect(card).toHaveCount(1);
+}
+
 /** The Note as it is stored, so a key that typed into it shows. */
 const noteOf = (editor: Locator) =>
   editor.evaluate((dom) => JSON.stringify((dom as unknown as { editor: Editor }).editor.getJSON()));
 
-/** The ring on the focused stop: drawn for a key's focus, in the accent colour. */
+/**
+ * The ring on the focused stop: drawn for a key's focus, in the accent colour. A plot's bar is
+ * ringed by its fill going to the accent; everything else by an outline or a shadow in it.
+ */
 async function expectRing(window: Page, accent: string) {
   const ring = await window.evaluate(() => {
     const target = document.activeElement;
@@ -141,6 +207,8 @@ async function expectRing(window: Page, accent: string) {
     const style = getComputedStyle(target);
     return {
       keyboard: target.matches(":focus-visible"),
+      svg: target instanceof SVGElement,
+      fill: style.fill,
       line: style.outlineStyle,
       width: Number.parseFloat(style.outlineWidth),
       color: style.outlineColor,
@@ -148,8 +216,11 @@ async function expectRing(window: Page, accent: string) {
     };
   });
   expect(ring?.keyboard, "the focus is a key's").toBe(true);
-  const outlined = ring?.line !== "none" && (ring?.width ?? 0) > 0 && ring?.color === accent;
-  expect(outlined || (ring?.shadow ?? "none") !== "none", "the focus ring is drawn").toBe(true);
+  const drawn = ring?.svg
+    ? ring.fill === accent
+    : (ring?.line !== "none" && (ring?.width ?? 0) > 0 && ring?.color === accent) ||
+      (ring?.shadow ?? "").includes(accent);
+  expect(drawn, `the focus ring is drawn in the accent (${JSON.stringify(ring)})`).toBe(true);
 }
 
 const CHIP = "citation-chip";
@@ -333,6 +404,13 @@ for (const language of ["en", "zh-CN"] as const) {
     expect(untouched, "the key was left to the input method").toBe(true);
     await expect(chips.nth(1)).toBeFocused();
 
+    // Coming back from a dialog or a menu shows no card.
+    await window.keyboard.press("Shift+Tab");
+    await expect(chips.first()).toBeFocused();
+    await comesBackQuietly(window, chips.first(), card, { away: "Tab", back: "Shift+Tab" });
+    await window.keyboard.press("Tab");
+    await expect(chips.nth(1)).toBeFocused();
+
     // Enter on a chip still opens its page, beside the Note in a window this wide.
     await window.keyboard.press("Enter");
     await expect(window.getByTestId("viewer-title")).toHaveText("Tides");
@@ -457,24 +535,30 @@ for (const language of ["en", "zh-CN"] as const) {
       if ((await whereIsFocus(window)).startsWith(MARK)) await expect(card).toHaveCount(1);
       await motionSettled(window);
     };
-    const accent = await tokenColor(window, "--color-accent");
 
-    // At a person's pace, from the first sentence to the first mark, the second, and past it.
-    await caretAtStart(window, editor);
-    await logFocus(window);
-    for (let key = 0; key < 6 && (await whereIsFocus(window)) !== `${MARK} check-1`; key++) {
+    // At a person's pace, from the first sentence to the first mark, the second, and past it, with
+    // a ring on each mark in both themes.
+    let paced: string[] = [];
+    for (const scheme of ["light", "dark"] as const) {
+      await window.emulateMedia({ colorScheme: scheme });
+      const accent = await tokenColor(window, "--color-accent");
+      await window.keyboard.press("Escape");
+      await caretAtStart(window, editor);
+      await logFocus(window);
+      for (let key = 0; key < 6 && (await whereIsFocus(window)) !== `${MARK} check-1`; key++) {
+        await window.keyboard.press("Tab");
+        await settle();
+      }
+      await expect(marks.first()).toBeFocused();
+      await expectRing(window, accent);
       await window.keyboard.press("Tab");
       await settle();
+      await expect(marks.nth(1)).toBeFocused();
+      await expectRing(window, accent);
+      await window.keyboard.press("Tab");
+      await settle();
+      paced = await landed(window);
     }
-    await expect(marks.first()).toBeFocused();
-    await expectRing(window, accent);
-    await window.keyboard.press("Tab");
-    await settle();
-    await expect(marks.nth(1)).toBeFocused();
-    await expectRing(window, accent);
-    await window.keyboard.press("Tab");
-    await settle();
-    const paced = await landed(window);
     expect(paced.slice(-3, -1), "the two marks, with no card between").toEqual([
       `${MARK} check-1`,
       `${MARK} check-2`,
@@ -575,6 +659,10 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(marks.first()).toHaveAttribute("aria-expanded", "false");
     await expect(marks.nth(1)).toHaveAttribute("aria-expanded", "true");
     await expect(card).toHaveCount(1);
+
+    // Coming back from a dialog or a menu shows no card.
+    await window.mouse.move(0, 0);
+    await comesBackQuietly(window, marks.nth(1), card, { away: "Shift+Tab", back: "Tab" });
     await app.close();
   });
 }
@@ -590,7 +678,7 @@ for (const language of ["en", "zh-CN"] as const) {
     test.setTimeout(240_000);
     const t = (key: Parameters<typeof translate>[1]) => translate(language, key);
     await writeFile(join(sources, "Acme.pdf"), REPORT);
-    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    const { app, window } = await launchApp(dataDir, { fakeChat: true, systemColours: true });
     await dismissChatSetup(window);
     await useLocalChatModel(window);
     await setLanguage(window, language);
@@ -619,6 +707,17 @@ for (const language of ["en", "zh-CN"] as const) {
     const before = await viewers.count();
 
     const exercise = async (cited: Locator, uncited: Locator) => {
+      // The ring on a value the keys reach, in both themes.
+      for (const scheme of ["light", "dark"] as const) {
+        await window.emulateMedia({ colorScheme: scheme });
+        const accent = await tokenColor(window, "--color-accent");
+        await cited.focus();
+        await window.keyboard.press("ArrowRight");
+        await expectRing(window, accent);
+        await window.keyboard.press("ArrowLeft");
+        await expect(cited).toBeFocused();
+        await expectRing(window, accent);
+      }
       // The card is open as the focus lands, with no wait; Tab goes on past it, to the page's next stop.
       await window.mouse.move(0, 0);
       await logFocus(window);
@@ -659,6 +758,15 @@ for (const language of ["en", "zh-CN"] as const) {
       await window.keyboard.press("Escape");
       await expect(card).toHaveCount(0);
       await expect(cited).toBeFocused();
+
+      // Coming back from a dialog or a menu shows no card.
+      await window.keyboard.press("ArrowRight");
+      await window.keyboard.press("ArrowLeft");
+      await expect(cited).toBeFocused();
+      await expect(card).toHaveCount(1);
+      await comesBackQuietly(window, cited, card, { away: "ArrowRight", back: "ArrowLeft" });
+      await window.keyboard.press("Escape");
+      await expect(card).toHaveCount(0);
 
       // A value with no Citation has no control: no key hint, and Space keeps its card as it was.
       await uncited.focus();

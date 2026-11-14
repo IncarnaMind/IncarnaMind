@@ -494,12 +494,19 @@ export function ChartView({
     enter: (point, anchor) => {
       enteredBySpace.current = true;
       const shownHere = card && samePoint(card.point, point) && card.anchor === anchor;
-      // A value with no control keeps its card, as it always did.
-      if (!shownHere || focusablesIn(cardBody.current).length === 0) {
+      if (shownHere) {
+        // A value with no control keeps its card, as it always did.
+        if (focusablesIn(cardBody.current).length === 0) pin(point, anchor);
+        else if (!enterCard(cardBody.current)) enterWhenDrawn.current = true;
+        return;
+      }
+      // A focus that came back shows no card: Space shows it, and goes in.
+      if (!events.control(point)) {
         pin(point, anchor);
         return;
       }
-      if (!enterCard(cardBody.current)) enterWhenDrawn.current = true;
+      enterWhenDrawn.current = true;
+      peek(point, anchor, "focus", true);
     },
     control: (point) =>
       cited(listed[point.row]?.values[point.series]).some(({ state }) => state.documentId !== null),

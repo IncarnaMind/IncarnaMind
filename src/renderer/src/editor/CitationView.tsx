@@ -81,7 +81,7 @@ import { useKeptInside } from "../turnWall";
 import { pageDate } from "../webPages";
 import { CardKeyHint } from "./CardKeyHint";
 import { CitationQuotedWords } from "./CitationQuotedWords";
-import { enterCard, goingElsewhere, isSpaceKey, returnAtEnds } from "./cardFocus";
+import { cameBack, enterCard, goingElsewhere, isSpaceKey, returnAtEnds } from "./cardFocus";
 import {
   type ClusterPlace,
   citationClusters,
@@ -484,7 +484,10 @@ export function CitationView({
     // Not the click Space makes on a button, and not a space typed into the Note.
     event.preventDefault();
     enteredBySpace.current = true;
-    if (!event.repeat) enterWhenDrawn.current = !enterCard(cardRef.current);
+    if (event.repeat) return;
+    // A focus that came back shows no card: Space shows it, and goes in.
+    hold("focus", true, true);
+    enterWhenDrawn.current = !enterCard(cardRef.current);
   };
   const cardEntry = useRef({
     focus: () => {
@@ -635,7 +638,7 @@ export function CitationView({
         // The keyboard's focus shows the card at once; going to another stop takes it away at once.
         onFocus={(event) => {
           enteredBySpace.current = false;
-          if (isQuietFocus(event.currentTarget)) return;
+          if (isQuietFocus(event.currentTarget) || cameBack(event.nativeEvent)) return;
           if (event.currentTarget.matches(":focus-visible")) keyboardTakesOver(event.currentTarget);
           hold("focus", true, true);
         }}

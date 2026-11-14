@@ -95,6 +95,7 @@ import { ClaimOutline } from "./ClaimOutline";
 import { ClaimPartRows, citesMore, type PartCitations } from "./ClaimPartRows";
 import { CorrectButton, CorrectionConflict } from "./CorrectionOffer";
 import {
+  cameBack,
   focusFirstAction,
   goingElsewhere,
   isSpaceKey,
@@ -391,7 +392,7 @@ export function ClaimMark({
         aria-keyshortcuts={claim.kind === "chart" ? undefined : "Space Enter"}
         onFocus={(event) => {
           enteredFromMark.current = false;
-          if (isQuietFocus(event.currentTarget)) return;
+          if (isQuietFocus(event.currentTarget) || cameBack(event.nativeEvent)) return;
           if (event.currentTarget.matches(":focus-visible")) keyboardTakesOver(event.currentTarget);
           hold("focus", true, true);
         }}
@@ -403,6 +404,8 @@ export function ClaimMark({
           event.preventDefault();
           if (event.repeat) return;
           enteredFromMark.current = true;
+          // A focus that came back shows no card: Space or Enter shows it, and goes in.
+          hold("focus", true, true);
           setClaimFocus(place, id);
         }}
         onKeyUp={(event) => {
