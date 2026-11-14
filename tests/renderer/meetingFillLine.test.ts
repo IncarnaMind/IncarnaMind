@@ -423,38 +423,38 @@ describe("meeting notes that weren't filled in", () => {
     {
       error: "auth",
       providerId: "provider-1",
-      en: "The note wasn’t filled in. The key for Claude Haiku 5.5 was refused. · Check the key · Try again",
-      zh: "未能补全笔记。Claude Haiku 5.5 的密钥被拒绝了。· 检查密钥 · 重试",
+      en: "The note wasn’t filled in. The key for Claude Haiku 5.5 was refused · Check the key · Try again",
+      zh: "未能补全笔记。Claude Haiku 5.5 的密钥被拒绝了 · 检查密钥 · 重试",
       leads: () =>
         expect(actions.checkKey.mock.calls).toEqual([["provider-1", "claude-haiku-5-5", null]]),
     },
     {
       error: "out-of-credit",
       providerId: "provider-1",
-      en: "The note wasn’t filled in. No credit on this key. · Add credit ↗ · Try again",
-      zh: "未能补全笔记。这个密钥没有额度。· 充值 ↗ · 重试",
+      en: "The note wasn’t filled in. No credit on this key · Add credit ↗ · Try again",
+      zh: "未能补全笔记。这个密钥没有额度 · 充值 ↗ · 重试",
       leads: () =>
         expect(actions.openBilling.mock.calls).toEqual([["provider-1", actions.billing]]),
     },
     {
       error: "out-of-credit",
       providerId: "provider-2",
-      en: "The note wasn’t filled in. No credit on this key. · Choose another model · Try again",
-      zh: "未能补全笔记。这个密钥没有额度。· 换一个模型 · 重试",
+      en: "The note wasn’t filled in. No credit on this key · Choose another model · Try again",
+      zh: "未能补全笔记。这个密钥没有额度 · 换一个模型 · 重试",
       leads: () => expect(actions.openSettings.mock.calls).toEqual([["ai", undefined]]),
     },
     {
       error: "rate-limit",
       providerId: "provider-1",
-      en: "The note wasn’t filled in. Anthropic is limiting requests right now. · Try again",
-      zh: "未能补全笔记。Anthropic 暂时限制了请求。· 重试",
+      en: "The note wasn’t filled in. Anthropic is limiting requests right now · Try again",
+      zh: "未能补全笔记。Anthropic 暂时限制了请求 · 重试",
       leads: null,
     },
     {
       error: "network",
       providerId: "provider-1",
-      en: "The note wasn’t filled in. Couldn’t reach Anthropic. Check your internet connection. · Try again",
-      zh: "未能补全笔记。无法连接 Anthropic，请检查网络连接。· 重试",
+      en: "The note wasn’t filled in. Couldn’t reach Anthropic. Check your internet connection · Try again",
+      zh: "未能补全笔记。无法连接 Anthropic，请检查网络连接 · 重试",
       leads: null,
     },
     {
@@ -508,22 +508,22 @@ describe("meeting notes that weren't filled in", () => {
     [
       "auth",
       "en",
-      "The note wasn’t filled in. The key for Claude Haiku 5.5 was refused. · 1 Transcript part couldn’t be finished · Check the key · Try again",
+      "The note wasn’t filled in. The key for Claude Haiku 5.5 was refused · 1 Transcript part couldn’t be finished · Check the key · Try again",
     ],
     [
       "auth",
       "zh-CN",
-      "未能补全笔记。Claude Haiku 5.5 的密钥被拒绝了。· 1 段转写稿未处理完 · 检查密钥 · 重试",
+      "未能补全笔记。Claude Haiku 5.5 的密钥被拒绝了 · 1 段转写稿未处理完 · 检查密钥 · 重试",
     ],
     [
       "rate-limit",
       "en",
-      "The note wasn’t filled in. Anthropic is limiting requests right now. · 1 Transcript part couldn’t be finished · View Transcript · Try again",
+      "The note wasn’t filled in. Anthropic is limiting requests right now · 1 Transcript part couldn’t be finished · View Transcript · Try again",
     ],
     [
       "rate-limit",
       "zh-CN",
-      "未能补全笔记。Anthropic 暂时限制了请求。· 1 段转写稿未处理完 · 查看转写稿 · 重试",
+      "未能补全笔记。Anthropic 暂时限制了请求 · 1 段转写稿未处理完 · 查看转写稿 · 重试",
     ],
   ] as const)("a %s refusal with its part unfinished, in %s", async (error, language, text) => {
     actions.language.current = language;
@@ -549,9 +549,9 @@ describe("meeting notes that weren't filled in", () => {
   test.each([
     [
       "en",
-      "Your memo wasn’t written. The key for Claude Haiku 5.5 was refused. · Check the key · Try again",
+      "Your memo wasn’t written. The key for Claude Haiku 5.5 was refused · Check the key · Try again",
     ],
-    ["zh-CN", "未能写入语音备忘。Claude Haiku 5.5 的密钥被拒绝了。· 检查密钥 · 重试"],
+    ["zh-CN", "未能写入语音备忘。Claude Haiku 5.5 的密钥被拒绝了 · 检查密钥 · 重试"],
   ] as const)("a voice memo's refused key, in %s", async (language, text) => {
     actions.language.current = language;
     const meeting = meetingOf(
