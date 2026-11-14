@@ -17,8 +17,8 @@ import { CALL_HELP_TYPED_FRESH2 } from "../../eval/speed/callHelpTypedFresh2";
 import { CALL_HELP_TYPED_LANGUAGE } from "../../eval/speed/callHelpTypedLanguage";
 import { NO_JUDGE } from "../../eval/speed/judge";
 import { openLedger } from "../../eval/speed/ledger";
-import { runOnArm } from "../../eval/speed/paired";
-import { sentPair } from "../../eval/speed/pairedReport";
+import { runOnArm, setsNeedingJudge } from "../../eval/speed/paired";
+import { type PairedRow, pairedSection, sentPair } from "../../eval/speed/pairedReport";
 import type { CoreAdapters } from "../../src/core";
 import { createFakeEmbedder } from "../../src/core/embedding/fake";
 import { readHelpReply, shownItems } from "../../src/shared/helpReplyRead";
@@ -467,6 +467,59 @@ describe("The typed question's language slice (#2925)", { timeout: 120_000 }, ()
     );
 
   // protects=the slice is the seven questions of the language table, each typed on the first round's English call after its button, read with no judge; fails_when=a question or the call differs, or a run with no judge asks one; no_claim=what a real model writes.
+  // protects=only a set read by hand runs with no judge: the language slice does, and its report says it wasn't judged where a count would be; a judged call-help set given none stops before its first request, naming the set; fails_when=a judged set runs with no judge and prints 0 unstated sentences, the slice can't run without one, or its report shows a count it never measured; no_claim=what a real model writes.
+  test("a judged call-help set given no judge stops before any request, naming the set; the language slice runs, its report saying it wasn't judged", async () => {
+    const items = (set: Parameters<typeof callHelpSet>[0]) =>
+      callHelpSet(set).flatMap((group) => group.items);
+    expect(setsNeedingJudge(items("call-help-typed-language"), false)).toEqual([]);
+    expect(setsNeedingJudge([...items("call-help-typed"), ...items("call-help")], false)).toEqual([
+      "call-help-typed",
+      "call-help",
+    ]);
+    const sent: ModelCall[] = [];
+    const refused = await pressed(
+      "en-typed-price",
+      "Towels are laundered at €1.50 per kilo.",
+      null,
+      undefined,
+      "call-help-typed",
+      (quote) => helping(quote, sent),
+    );
+    expect(refused.run.status).toBe("failed");
+    expect(refused.run.error).toContain('The set "call-help-typed" needs a judge');
+    expect(sent).toEqual([]);
+
+    const { run } = await pressed(
+      "en-language-terms",
+      "Contracts run for 24 months.",
+      null,
+      undefined,
+      "call-help-typed-language",
+      inToldLanguage,
+    );
+    expect(run.status).toBe("done");
+    expect(run.falseSupported).toBeNull();
+    const row: PairedRow = {
+      set: "call-help-typed-language",
+      id: "en-language-terms",
+      kind: "question-short",
+      language: "en",
+      model: "ollama/local-model",
+      run: 1,
+      first: 0,
+      baseline: run,
+      candidate: run,
+    };
+    const section = pairedSection([row], ["today", "today"]);
+    expect(section).toContain(
+      "| False Supported | not judged, read by hand | not judged, read by hand | – | – |",
+    );
+    expect(section).toContain(
+      "| Judged right | not judged, read by hand | not judged, read by hand | – | – |",
+    );
+    expect(section).not.toMatch(/\| False Supported \| 0/);
+  });
+
   test("seven questions on the first round's English call, each after its button", () => {
     const call = CALL_HELP_TYPED.find((each) => each.id === "en-typed-said");
     expect(CALL_HELP_TYPED_LANGUAGE.map((each) => each.id)).toEqual(Object.keys(told));

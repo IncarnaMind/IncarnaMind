@@ -92,7 +92,7 @@ export function wentFirstByCell(
 
 /** The candidate gave a false Supported on an item the baseline didn't: the run stops there. */
 export const newFalseSupported = (row: Pick<PairedRow, "baseline" | "candidate">) =>
-  row.candidate.falseSupported > row.baseline.falseSupported;
+  (row.candidate.falseSupported ?? 0) > (row.baseline.falseSupported ?? 0);
 
 export interface Guard {
   name: string;
@@ -193,8 +193,8 @@ export function guards(
     guard(
       "False Supported",
       rows,
-      (run) => run.falseSupported > 0,
-      all,
+      (run) => (run.falseSupported ?? 0) > 0,
+      (run) => run.falseSupported !== null,
       false,
       0,
       falseSupportedCounted,
@@ -296,6 +296,16 @@ export function pairedSection(
     `${each.holds ? "yes" : "**no**"}${each.allowed > 0 ? ` (${each.allowed} fewer allowed)` : ""}`;
   const rule = (each: Guard) =>
     `| ${each.name} | ${each.baseline} | ${each.candidate} | ${each.lost} / ${each.gained} | ${judged ? holds(each) : "–"} |`;
+  const finished = rows
+    .flatMap((row) => [row.baseline, row.candidate])
+    .filter((run) => run.status === "done");
+  // A set read by hand has no judge's counts: a 0 there would read as measured.
+  const byHand =
+    finished.length > 0 && finished.every((run) => run.falseSupported === null)
+      ? ["Judged right", "False Supported"].map(
+          (name) => `| ${name} | not judged, read by hand | not judged, read by hand | – | – |`,
+        )
+      : [];
   return [
     `| | ${a} | ${b} | ${b} against ${a}, item by item |`,
     "|---|---|---|---|",
@@ -314,6 +324,7 @@ export function pairedSection(
     "",
     `| Guard, items both finished | ${a} | ${b} | lost / gained | holds |`,
     "|---|---|---|---|---|",
+    ...byHand,
     ...guards(rows, margin, falseSupportedCounted).map(rule),
   ].join("\n");
 }
@@ -325,7 +336,7 @@ export const outcomeOf = (run: ArmRun) =>
     run.cited === null ? null : run.cited ? "cited" : "not cited",
     run.grade,
     run.citations > 0 ? `found ${run.found}/${run.citations}` : null,
-    run.falseSupported > 0 ? `${run.falseSupported} false Supported` : null,
+    (run.falseSupported ?? 0) > 0 ? `${run.falseSupported} false Supported` : null,
     run.duplicate ? "twice" : null,
     ...run.failures,
   ]

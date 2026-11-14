@@ -20,7 +20,7 @@ import { armNamed, armSwitch, type SentRequest } from "./arms";
 import { callHelpSet, rewrittenReplies } from "./callHelp";
 import { earlierCallsSet } from "./earlierCalls";
 import { earlierCallsSection } from "./earlierCallsReport";
-import { gradeAnswer, judgeOf } from "./judge";
+import { gradeAnswer, judgeOf, NO_JUDGE } from "./judge";
 import { openLedger } from "./ledger";
 import { meetingNotesSet } from "./meetingNotes";
 import {
@@ -31,12 +31,14 @@ import {
   gatingSet,
   hardSet,
   type Language,
+  needsJudge,
   openForArms,
   type PairedGroup,
   type PairedItem,
   runOnArm,
   SET_IDS,
   type SetId,
+  setsNeedingJudge,
 } from "./paired";
 import {
   armTurns,
@@ -193,6 +195,10 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
       ),
     ),
   );
+  if (judge.model === NO_JUDGE) {
+    const [needing] = setsNeedingJudge(asked, arms[0].id === arms[1].id);
+    if (needing) throw new Error(needsJudge(needing));
+  }
   // A plan builds every setting the run reads, the judge's check against the models under test
   // included, and says what it would press: it sends nothing and opens no Library, so a plan that
   // passes means the run starts.

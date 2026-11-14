@@ -112,8 +112,11 @@ export interface ArmRun {
   cited: boolean | null;
   /** The judge's grade; null: the set has nothing to grade against. */
   grade: Grade | null;
-  /** Sentences that came back Supported though the Documents don't state them. */
-  falseSupported: number;
+  /**
+   * Sentences that came back Supported though the Documents don't state them; null: no judge read
+   * the run, as in a set read by hand.
+   */
+  falseSupported: number | null;
   /** The Answer says the same paragraph twice. */
   duplicate: boolean;
   /** The everyday guards it failed, by kind: "unbacked" is a change claimed that no Tool made. */
@@ -187,6 +190,12 @@ export interface ItemContext {
 export interface PairedItem {
   set: SetId;
   id: string;
+  /**
+   * When it runs with no judge (INCARNAMIND_EVAL_SPEED_JUDGE=none): `always`, a set read by hand;
+   * `pilot`, only in a run that pairs an arm with itself, whose report lists the replies for a hand
+   * read. Unset, it needs a judge.
+   */
+  withoutJudge?: "always" | "pilot";
   /** What a short run spreads over (INCARNAMIND_EVAL_SPEED_EACH): a difficulty, a group, a set. */
   kind: string;
   language: Language;
@@ -731,6 +740,21 @@ export function checksSet(root: string): PairedGroup[] {
 
 const WORDS: ReadonlySet<CoreEventName> = new Set(["answer.delta", "mind.update"]);
 const ENDS: readonly CoreEventName[] = ["answer.finished", "answer.failed"];
+
+/**
+ * The sets of `items` a run with no judge can't measure, so it refuses to start: all but those
+ * read by hand. `pilot`: the run pairs an arm with itself.
+ */
+export function setsNeedingJudge(items: Iterable<PairedItem>, pilot: boolean): SetId[] {
+  const needing = [...items].filter(
+    ({ withoutJudge }) => !(withoutJudge === "always" || (withoutJudge === "pilot" && pilot)),
+  );
+  return [...new Set(needing.map((item) => item.set))];
+}
+
+/** Why a set that needs a judge doesn't run with none. */
+export const needsJudge = (set: SetId) =>
+  `The set "${set}" needs a judge: INCARNAMIND_EVAL_SPEED_JUDGE=none runs only a set read by hand.`;
 
 /**
  * Runs an item on one arm, reading its times from the User's action, which the item marks with

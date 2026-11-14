@@ -77,8 +77,9 @@ const noJudge = (): never => {
 };
 
 /**
- * The judge of a run that asks for none: a set read by hand checks for it and skips its judging;
- * any request to it fails, so a set that needs a judge can't run without one.
+ * The judge of a run that asks for none: only a set read by hand starts with it, and skips its
+ * judging (`PairedItem.withoutJudge`); any other refuses before its first request, and any request
+ * to it fails.
  */
 export const NO_JUDGE: LanguageModelV4 = {
   specificationVersion: "v4",

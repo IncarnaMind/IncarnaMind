@@ -60,6 +60,7 @@ import {
   type GroupOptions,
   type Measured,
   NOTHING,
+  needsJudge,
   type OpenedGroup,
   type PairedGroup,
   type RequestTiming,
@@ -648,13 +649,16 @@ export function formFailures(each: CallHelpCase, shown: readonly ReplyItem[]): s
 export const rewrittenReplies: { item: string; before: string; after: string }[] = [];
 
 function item(each: CallHelpCase, set: CallHelpSet): PairedGroup["items"][number] {
+  const byHand = READ_BY_HAND.has(set);
   return {
     set,
     id: each.id,
     kind: each.typed ? `question-${each.typed.form}` : `${each.kind}-${each.needs}`,
     language: each.language,
     words: "item",
+    ...(byHand && { withoutJudge: "always" as const }),
     async run({ library, claimsJudge, meeting, choice }) {
+      if (claimsJudge === NO_JUDGE && !byHand) throw new Error(needsJudge(set));
       if (!meeting) throw new Error("The call-help set needs its Meeting.");
       // A press answers on the Answers model the User chose, as the panel's does.
       await library.core.updateSettings({ user: { chatModel: choice } });
@@ -760,7 +764,7 @@ function item(each: CallHelpCase, set: CallHelpSet): PairedGroup["items"][number
             )
           : null,
         grade: judged?.grade === "unread" ? null : (judged?.grade ?? null),
-        falseSupported: unstatedFound.length,
+        falseSupported: judged === null ? null : unstatedFound.length,
         duplicate: false,
         failures: [
           ...(toolTextIn(answer.text).length > 0 ? ["tool-text"] : []),
@@ -892,6 +896,9 @@ const CASES: Readonly<Record<CallHelpSet, readonly CallHelpCase[]>> = {
   "call-help-typed-fresh-2": CALL_HELP_TYPED_FRESH2,
   "call-help-typed-language": CALL_HELP_TYPED_LANGUAGE,
 };
+
+/** The sets read by hand, which run with no judge; every other needs one. */
+const READ_BY_HAND: ReadonlySet<CallHelpSet> = new Set(["call-help-typed-language"]);
 
 /** One group a case: its own Library, its own Meeting heard before the press. */
 export function callHelpSet(set: CallHelpSet = "call-help"): PairedGroup[] {
