@@ -229,6 +229,8 @@ function AnswerArticle({
           onRetryWith={(model) => void regenerateAnswer(answer.id, { model })}
           modelNow={modelNow}
           chooseHere
+          asked="assistant"
+          tooLong={answer.errorTooLong}
           question={
             question
               ? {

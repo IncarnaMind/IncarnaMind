@@ -28,9 +28,11 @@ const KINDS: ProviderErrorKind[] = [
   "plan-limit",
   "blocked",
   "too-long",
+  "window-too-small",
   "cost-cap",
   "no-answer",
   "cut-short",
+  "cut-short-small-window",
   "unknown",
 ];
 
@@ -227,6 +229,112 @@ describe("a failed Answer's problem line", () => {
     expect(answerProblem("too-long", "ollama")).toBe(ANSWER_PROBLEMS["too-long"]);
   });
 
+  // protects=a window too small says so where it was asked, local or hosted, in both languages, and offers another model, never a shorter Question: the assistant names the assistant, a Question names your Documents and the Question, anywhere else (a press, a check's run, the Models health line) the short-request sentence; fails_when=a line tells the User to shorten the Question, names the wrong place, or offers Retry; no_claim=which places reach it, which the core's tests show.
+  test("a window too small: one line for each place it was asked, local and hosted (#3045)", () => {
+    const words = (asked: "assistant" | "question" | "none", local: boolean) => {
+      const { line, fix } = answerProblem(
+        "window-too-small",
+        local ? "ollama" : "openrouter",
+        false,
+        {
+          local,
+          asked,
+        },
+      );
+      expect(fix).toEqual({ kind: "settings", page: "ai", label: "answer.error.chooseModel" });
+      return (["en", "zh-CN"] as const).map((language) =>
+        translate(language, line, { model: "Qwen 3.5 9B" }),
+      );
+    };
+    expect(words("assistant", true)).toEqual([
+      "Qwen 3.5 9B’s context window on this computer is too small for the assistant, however short the Question.",
+      "在这台电脑上，Qwen 3.5 9B 的上下文窗口太小，助手用不了它，问题再短也不行。",
+    ]);
+    expect(words("assistant", false)).toEqual([
+      "Qwen 3.5 9B’s context window is too small for the assistant, however short the Question.",
+      "Qwen 3.5 9B 的上下文窗口太小，助手用不了它，问题再短也不行。",
+    ]);
+    expect(words("question", true)).toEqual([
+      "Qwen 3.5 9B’s context window on this computer is too small to read your Documents, however short the Question.",
+      "在这台电脑上，Qwen 3.5 9B 的上下文窗口太小，读不了你的文档，问题再短也不行。",
+    ]);
+    expect(words("question", false)).toEqual([
+      "Qwen 3.5 9B’s context window is too small to read your Documents, however short the Question.",
+      "Qwen 3.5 9B 的上下文窗口太小，读不了你的文档，问题再短也不行。",
+    ]);
+    expect(words("none", true)).toEqual([
+      "Qwen 3.5 9B’s context window on this computer is too small for even a short request.",
+      "在这台电脑上，Qwen 3.5 9B 的上下文窗口太小，连很短的请求都放不下。",
+    ]);
+    expect(words("none", false)).toEqual([
+      "Qwen 3.5 9B’s context window is too small for even a short request.",
+      "Qwen 3.5 9B 的上下文窗口太小，连很短的请求都放不下。",
+    ]);
+    // Where it was asked isn't known (the Models health line): the short-request sentence.
+    expect(answerProblem("window-too-small", "ollama", false, { local: true }).line).toBe(
+      "answer.error.window-too-small.none",
+    );
+  });
+
+  // protects=a reply cut at the room the app lowered for a small window offers another model, local or hosted, in both languages, while a reply cut at the model's whole cap keeps today's line and Retry; fails_when=the lowered one offers Retry, or the whole-cap one changes; no_claim=when the cap is lowered, which the core's tests show.
+  test("a reply cut at a lowered cap offers another model; one cut at the whole cap, Retry (#3045)", () => {
+    const local = answerProblem("cut-short-small-window", "ollama", false, { local: true });
+    const hosted = answerProblem("cut-short-small-window", "openrouter", false, { local: false });
+    for (const { fix } of [local, hosted]) {
+      expect(fix).toEqual({ kind: "settings", page: "ai", label: "answer.error.chooseModel" });
+    }
+    const say = (line: MessageKey) =>
+      (["en", "zh-CN"] as const).map((language) =>
+        translate(language, line, { model: "Qwen 3.5 9B" }),
+      );
+    expect(say(local.line)).toEqual([
+      "Qwen 3.5 9B has little room to write on this computer, so its reply was cut short.",
+      "在这台电脑上，Qwen 3.5 9B 能写的篇幅很小，回复被截断了。",
+    ]);
+    expect(say(hosted.line)).toEqual([
+      "Qwen 3.5 9B has little room to write, so its reply was cut short.",
+      "Qwen 3.5 9B 能写的篇幅很小，回复被截断了。",
+    ]);
+    expect(answerProblem("cut-short", "ollama", false, { local: true })).toBe(
+      ANSWER_PROBLEMS["cut-short"],
+    );
+    expect(ANSWER_PROBLEMS["cut-short"].fix.kind).toBe("retry");
+  });
+
+  // protects=a selection too long to go with the Question at a small window says the selected text is too long and offers another model, local or hosted, in both languages, while a Question too long on its own keeps today's line; fails_when=it tells the User to shorten the Question, offers no action, or today's line changes; no_claim=when it is the selection, which the core's tests show.
+  test("a selection too long: its own line and another model; a Question too long keeps today's (#3045)", () => {
+    const local = answerProblem("too-long", "ollama", false, { local: true, tooLong: "selection" });
+    const hosted = answerProblem("too-long", "openrouter", false, {
+      local: false,
+      tooLong: "selection",
+    });
+    for (const { fix } of [local, hosted]) {
+      expect(fix).toEqual({ kind: "settings", page: "ai", label: "answer.error.chooseModel" });
+    }
+    expect([
+      translate("en", "answer.error.chooseModel"),
+      translate("zh-CN", "answer.error.chooseModel"),
+    ]).toEqual(["Choose another model", "换一个模型"]);
+    const say = (line: MessageKey) =>
+      (["en", "zh-CN"] as const).map((language) =>
+        translate(language, line, { model: "Qwen 3.5 9B" }),
+      );
+    expect(say(local.line)).toEqual([
+      "The selected text is too long for Qwen 3.5 9B on this computer. Select less, or choose another model.",
+      "选中的文字太长，在这台电脑上 Qwen 3.5 9B 放不下。请少选一些，或换一个模型。",
+    ]);
+    expect(say(hosted.line)).toEqual([
+      "The selected text is too long for Qwen 3.5 9B. Select less, or choose another model.",
+      "选中的文字太长，Qwen 3.5 9B 放不下。请少选一些，或换一个模型。",
+    ]);
+    expect(answerProblem("too-long", "ollama", false, { local: true })).toBe(
+      ANSWER_PROBLEMS["too-long"],
+    );
+    expect(answerProblem("too-long", "openrouter", false, { local: false }).line).toBe(
+      "answer.error.too-long.hosted",
+    );
+  });
+
   test("what the User can fix in Settings opens the page that fixes it", () => {
     expect(ANSWER_PROBLEMS.auth.fix).toMatchObject({ kind: "settings", page: "ai" });
     expect(ANSWER_PROBLEMS.model.fix).toMatchObject({ kind: "settings", page: "ai" });
@@ -316,8 +424,14 @@ describe("a failed Answer's problem line", () => {
     for (const language of ["en", "zh-CN"] as const) {
       for (const { kind, words, label } of labels(language)) {
         expect(words, `${language} ${kind}`).not.toMatch(/\{/);
-        // No full stop, so the action follows on the same line; but data retention and too long are two sentences, the second what to do.
-        if (kind !== "data-retention" && kind !== "too-long") {
+        // No full stop, so the action follows on the same line; but data retention and too long are
+        // two sentences, the second what to do, and a small window's lines are full sentences (#3045).
+        if (
+          kind !== "data-retention" &&
+          kind !== "too-long" &&
+          kind !== "window-too-small" &&
+          kind !== "cut-short-small-window"
+        ) {
           expect(words, `${language} ${kind}`).not.toMatch(/[.。]$/);
         }
         if (ANSWER_PROBLEMS[kind].fix.kind !== "none") expect(label).not.toBe("");

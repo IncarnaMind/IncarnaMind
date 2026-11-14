@@ -4208,6 +4208,26 @@ export const en = {
   "answer.error.ollama-not-running": "Ollama isn’t running on this computer",
   "answer.error.too-long": "This Question is too long for the model. Shorten it.",
   "answer.error.too-long.hosted": "This is too long for {model}",
+  "answer.error.too-long.selection":
+    "The selected text is too long for {model} on this computer. Select less, or choose another model.",
+  "answer.error.too-long.selection.hosted":
+    "The selected text is too long for {model}. Select less, or choose another model.",
+  "answer.error.window-too-small.assistant":
+    "{model}’s context window on this computer is too small for the assistant, however short the Question.",
+  "answer.error.window-too-small.assistant.hosted":
+    "{model}’s context window is too small for the assistant, however short the Question.",
+  "answer.error.window-too-small.question":
+    "{model}’s context window on this computer is too small to read your Documents, however short the Question.",
+  "answer.error.window-too-small.question.hosted":
+    "{model}’s context window is too small to read your Documents, however short the Question.",
+  "answer.error.window-too-small.none":
+    "{model}’s context window on this computer is too small for even a short request.",
+  "answer.error.window-too-small.none.hosted":
+    "{model}’s context window is too small for even a short request.",
+  "answer.error.cut-short-small-window":
+    "{model} has little room to write on this computer, so its reply was cut short.",
+  "answer.error.cut-short-small-window.hosted":
+    "{model} has little room to write, so its reply was cut short.",
   "answer.error.no-answer": "The model sent no Answer",
   "answer.error.cut-short": "The model’s reply reached its length limit and was cut short",
   "answer.error.unknown": "Something went wrong with {service}",

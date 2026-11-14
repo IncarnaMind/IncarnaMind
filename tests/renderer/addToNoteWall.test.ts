@@ -55,6 +55,7 @@ const answer: ConversationAnswer = {
   errorKind: null,
   errorMessage: null,
   errorSignInRoute: null,
+  errorTooLong: null,
   citationSupport: null,
   toolCalls: [],
   textOrigin: null,

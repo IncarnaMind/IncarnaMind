@@ -27,6 +27,12 @@ export function testErrorKey(kind: ProviderErrorKind): MessageKey {
     case "plan-limit":
     case "blocked":
       return `chatgpt.test.${kind}`;
+    // Only an Answer's own fitting finds these (src/core/answers/window.ts), never a test request;
+    // the too-long words already say the window is too small for even a short request.
+    case "window-too-small":
+      return "providers.test.too-long";
+    case "cut-short-small-window":
+      return "providers.test.cut-short";
     default:
       return `providers.test.${kind}`;
   }

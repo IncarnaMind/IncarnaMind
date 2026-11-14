@@ -82,6 +82,17 @@ export interface ChatModelSpec {
 export interface ContextWindow {
   tokens: number;
   outputTokens: number;
+  /**
+   * The least output cap an Answer's requests may be given where the window is small (see
+   * ../answers/window.ts): its default there when absent. A model that can only think keeps its
+   * whole cap, which its reasoning fills before the first word.
+   */
+  outputFloor?: number;
+  /**
+   * The most a request may send, where its provider declares a limit: an Answer's requests never
+   * pass it, even where the room to write gives way (#3045).
+   */
+  maxInput?: number;
 }
 
 export type ChatModelFactory = (spec: ChatModelSpec) => ChatLanguageModel;
