@@ -96,7 +96,7 @@ interface Frame {
   check: Box | null;
 }
 
-/** Every frame's boxes of the card and of the Check in its foot, until `stop`. */
+/** The boxes of the card and of the Check in its foot, as each frame is drawn, until `stop`. */
 const watch = (window: Page) =>
   window.evaluate(() => {
     const holder = globalThis as unknown as { frames: Frame[]; watching: boolean };
@@ -106,13 +106,19 @@ const watch = (window: Page) =>
       const rect = document.querySelector(selector)?.getBoundingClientRect();
       return rect ? [rect.x, rect.y, rect.width, rect.height] : null;
     };
+    // Read once the frame is drawn: a read inside the frame's own callback lays the page out
+    // before the observers of its size have run, and sees a state that is never drawn.
     const step = () => {
       if (!holder.watching) return;
-      holder.frames.push({
-        card: box('[data-testid="check-card"]'),
-        check: box('[data-testid="check-card"] [data-testid="badge-check-mind"]'),
-      });
-      requestAnimationFrame(step);
+      requestAnimationFrame(() =>
+        setTimeout(() => {
+          holder.frames.push({
+            card: box('[data-testid="check-card"]'),
+            check: box('[data-testid="check-card"] [data-testid="badge-check-mind"]'),
+          });
+          step();
+        }, 0),
+      );
     };
     step();
   });
