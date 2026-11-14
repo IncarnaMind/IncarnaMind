@@ -54,6 +54,8 @@ import { JUDGE_FAILED } from "./callHelpMarksReport";
 import { CALL_HELP_TYPED } from "./callHelpTyped";
 import { CALL_HELP_TYPED_FRESH } from "./callHelpTypedFresh";
 import { CALL_HELP_TYPED_FRESH2 } from "./callHelpTypedFresh2";
+import { CALL_HELP_TYPED_LANGUAGE } from "./callHelpTypedLanguage";
+import { NO_JUDGE } from "./judge";
 import {
   type GroupOptions,
   type Measured,
@@ -708,23 +710,24 @@ function item(each: CallHelpCase, set: CallHelpSet): PairedGroup["items"][number
         : null;
       let judged: Judged | null = null;
       try {
-        judged = done
-          ? await judge(
-              claimsJudge,
-              each,
-              [...(each.before ?? []), ...each.turns],
-              placed ? placed.text : reply,
-              placed
-                ? placed.places.flatMap((place, index) => {
-                    const citation = citationOf(place.marker);
-                    return citation ? [cites(index + 1, citation)] : [];
-                  })
-                : [...numbers].flatMap(([marker, number]) => {
-                    const citation = citationOf(marker);
-                    return citation ? [cites(number, citation)] : [];
-                  }),
-            )
-          : null;
+        judged =
+          done && claimsJudge !== NO_JUDGE
+            ? await judge(
+                claimsJudge,
+                each,
+                [...(each.before ?? []), ...each.turns],
+                placed ? placed.text : reply,
+                placed
+                  ? placed.places.flatMap((place, index) => {
+                      const citation = citationOf(place.marker);
+                      return citation ? [cites(index + 1, citation)] : [];
+                    })
+                  : [...numbers].flatMap(([marker, number]) => {
+                      const citation = citationOf(marker);
+                      return citation ? [cites(number, citation)] : [];
+                    }),
+              )
+            : null;
       } catch (error) {
         return failed(`${JUDGE_FAILED}: ${error instanceof Error ? error.message : String(error)}`);
       }
@@ -873,7 +876,8 @@ type CallHelpSet =
   | "call-help-marks-3"
   | "call-help-typed"
   | "call-help-typed-fresh"
-  | "call-help-typed-fresh-2";
+  | "call-help-typed-fresh-2"
+  | "call-help-typed-language";
 
 const CASES: Readonly<Record<CallHelpSet, readonly CallHelpCase[]>> = {
   "call-help": CALL_HELP_CASES,
@@ -886,6 +890,7 @@ const CASES: Readonly<Record<CallHelpSet, readonly CallHelpCase[]>> = {
   "call-help-typed": CALL_HELP_TYPED,
   "call-help-typed-fresh": CALL_HELP_TYPED_FRESH,
   "call-help-typed-fresh-2": CALL_HELP_TYPED_FRESH2,
+  "call-help-typed-language": CALL_HELP_TYPED_LANGUAGE,
 };
 
 /** One group a case: its own Library, its own Meeting heard before the press. */

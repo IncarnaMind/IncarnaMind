@@ -14,6 +14,8 @@ import { CALL_HELP_CASES, callOf, TRANSCRIPT } from "../../eval/speed/callHelpCa
 import { CALL_HELP_TYPED } from "../../eval/speed/callHelpTyped";
 import { CALL_HELP_TYPED_FRESH } from "../../eval/speed/callHelpTypedFresh";
 import { CALL_HELP_TYPED_FRESH2 } from "../../eval/speed/callHelpTypedFresh2";
+import { CALL_HELP_TYPED_LANGUAGE } from "../../eval/speed/callHelpTypedLanguage";
+import { NO_JUDGE } from "../../eval/speed/judge";
 import { openLedger } from "../../eval/speed/ledger";
 import { runOnArm } from "../../eval/speed/paired";
 import { sentPair } from "../../eval/speed/pairedReport";
@@ -21,7 +23,7 @@ import type { CoreAdapters } from "../../src/core";
 import { createFakeEmbedder } from "../../src/core/embedding/fake";
 import { readHelpReply, shownItems } from "../../src/shared/helpReplyRead";
 import { shownPassages } from "../helpers/citations";
-import { type ModelCall, scriptedModel } from "../helpers/models";
+import { type ModelCall, type ScriptedReply, scriptedModel } from "../helpers/models";
 
 const ENTERPRISE = "Enterprise plan: $45 per seat a month, single sign-on included.";
 const TEAM = "Team plan: $25 per seat a month.";
@@ -37,20 +39,22 @@ function helping(quote: string, calls: ModelCall[]) {
   return scriptedModel(
     (call) => {
       calls.push(call);
-      const [found] = shownPassages(block(call.prompt, "found-in-documents"));
-      if (found && !call.results.some((result) => result.tool === "cite")) {
-        return {
-          calls: [
-            { tool: "cite", input: { citations: [{ marker: 1, passage: found.id, quote }] } },
-          ],
-        };
-      }
-      return {
-        text: "★ Yes, Enterprise is $45 a seat with single sign-on [^1]\n→ answers at once\n\nI'll send the price sheet\n→ buys time",
-      };
+      return helpingReply(quote, call);
     },
     { judgesItsAnswers: true },
   );
+}
+
+function helpingReply(quote: string, call: ModelCall): ScriptedReply {
+  const [found] = shownPassages(block(call.prompt, "found-in-documents"));
+  if (found && !call.results.some((result) => result.tool === "cite")) {
+    return {
+      calls: [{ tool: "cite", input: { citations: [{ marker: 1, passage: found.id, quote }] } }],
+    };
+  }
+  return {
+    text: "★ Yes, Enterprise is $45 a seat with single sign-on [^1]\n→ answers at once\n\nI'll send the price sheet\n→ buys time",
+  };
 }
 
 /**
@@ -96,14 +100,21 @@ function judging(
   });
 }
 
-/** Presses the case's button once, on a scripted model that cites `quote`, judged as `judge` says. */
+/**
+ * Presses the case's button once, on a scripted model that cites `quote`, judged as `judge` says;
+ * null: with no judge, as a run read by hand.
+ */
 async function pressed(
   id: string,
   quote: string,
-  judge: { grade: string; unstated: number[]; first?: "prose" | "empty" },
+  judge: { grade: string; unstated: number[]; first?: "prose" | "empty" } | null,
   /** The arm switch a paired run sends through, to read the requests as it records them. */
   through?: ReturnType<typeof armSwitch>,
-  set: "call-help" | "call-help-typed" | "call-help-typed-fresh" = "call-help",
+  set:
+    | "call-help"
+    | "call-help-typed"
+    | "call-help-typed-fresh"
+    | "call-help-typed-language" = "call-help",
   /** The model answering; `helping`'s by default. */
   answering: (quote: string, calls: ModelCall[]) => ReturnType<typeof helping> = helping,
 ) {
@@ -145,7 +156,9 @@ async function pressed(
       model: "ollama/local-model",
       arm: "today",
       grade: async () => "unread",
-      claimsJudge: judging(judge.grade, judge.unstated, judged, judge.first, roles),
+      claimsJudge: judge
+        ? judging(judge.grade, judge.unstated, judged, judge.first, roles)
+        : NO_JUDGE,
     });
     return { run, calls, judged, roles };
   } finally {
@@ -428,6 +441,66 @@ describe("The typed question's confirming slice (#2925)", () => {
       CALL_HELP_TYPED_FRESH2.map((each) => `call-help-typed-fresh-2-${each.id}`),
     );
   });
+});
+
+describe("The typed question's language slice (#2925)", { timeout: 120_000 }, () => {
+  const told = {
+    "en-language-terms": "English",
+    "en-language-person": "English",
+    "en-language-short": "English",
+    "en-language-title": "English",
+    "fr-language": "French",
+    "de-language": "German",
+    "ja-language": "Japanese",
+  } as const;
+  /** A model that writes a typed reply in the language its request names, a button's as `helping`'s. */
+  const inToldLanguage = (quote: string, calls: ModelCall[]) =>
+    scriptedModel(
+      (call) => {
+        calls.push(call);
+        if (!call.prompt.includes("typed a question about it")) return helpingReply(quote, call);
+        if (call.json) return { text: JSON.stringify({ citations: [] }) };
+        const language = /- Write in ([^,]+), the language/.exec(call.prompt)?.[1] ?? "";
+        return { text: `Written in ${language}.` };
+      },
+      { judgesItsAnswers: true },
+    );
+
+  // protects=the slice is the seven questions of the language table, each typed on the first round's English call after its button, read with no judge; fails_when=a question or the call differs, or a run with no judge asks one; no_claim=what a real model writes.
+  test("seven questions on the first round's English call, each after its button", () => {
+    const call = CALL_HELP_TYPED.find((each) => each.id === "en-typed-said");
+    expect(CALL_HELP_TYPED_LANGUAGE.map((each) => each.id)).toEqual(Object.keys(told));
+    for (const each of CALL_HELP_TYPED_LANGUAGE) {
+      expect({ ...each, id: call?.id, typed: call?.typed }, each.id).toEqual(call);
+      expect(each.typed?.form, each.id).toBe("short");
+    }
+    expect(callHelpSet("call-help-typed-language").map((group) => group.name)).toEqual(
+      Object.keys(told).map((id) => `call-help-typed-language-${id}`),
+    );
+  });
+
+  // protects=each question of the slice runs through the runner as the paid run does, on the scripted model, with no judge: its button, then the question, told the language it is written in, and its reply kept in the run's record unjudged, written once; fails_when=the run needs a judge, the question is told another language, or a reply in the language it was told is written again; no_claim=what a real model writes.
+  test.each(Object.entries(told))(
+    "%s runs with no judge, told %s, and its reply is kept as written",
+    async (id, language) => {
+      const { run, calls } = await pressed(
+        id,
+        "Contracts run for 24 months.",
+        null,
+        undefined,
+        "call-help-typed-language",
+        inToldLanguage,
+      );
+      expect(run.status, run.error ?? "").toBe("done");
+      expect(run.grade).toBeNull();
+      const typed = calls.filter(
+        (call) => !call.json && call.prompt.includes("typed a question about it"),
+      );
+      expect(typed).toHaveLength(1);
+      expect(run.text).toContain(`Written in ${language}.`);
+      expect(run.text).not.toContain("[written before]");
+    },
+  );
 });
 
 describe("A typed reply's ✓ the judge finds unstated (#2925)", () => {
