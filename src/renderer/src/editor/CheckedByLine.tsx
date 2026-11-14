@@ -80,19 +80,15 @@ const WHEN = "";
 const MARKERS = /(\d+)|/gu;
 const STUCK = /^[,，、]/u;
 
-/** One model's name and the punctuation after it, whole when the line has room for it. */
+/**
+ * One model's name and the punctuation after it. A name with spaces wraps at them by itself when
+ * it is wider than the line (styles.css); one with none is cut in the middle to the line's room.
+ */
 function ModelName({ name, after, room }: { name: string; after: string; room: Room | null }) {
   const width = room?.measure(`${name}${after}`) ?? null;
-  if (!room || width === null || width <= room.width)
+  if (!room || width === null || width <= room.width || /\s/u.test(name))
     return (
       <span className="claim-card-checked-by-name">
-        {name}
-        {after}
-      </span>
-    );
-  if (/\s/u.test(name))
-    return (
-      <span className="claim-card-checked-by-name claim-card-checked-by-name--wide">
         {name}
         {after}
       </span>

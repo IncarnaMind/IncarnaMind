@@ -131,7 +131,7 @@ function firstCut(
   try {
     if (fits(0)) return 0;
     const places = cutPlaces(sentence, first.start);
-    // The latest start that keeps the most words before the mark, or right before it.
+    // The earliest start that fits keeps the most words before the mark; else it starts at the mark.
     let low = 0;
     let high = places.length - 1;
     let best = places.at(-1) ?? first.start;

@@ -265,6 +265,11 @@ for (const language of ["en", "zh-CN"] as const) {
       await window.keyboard.press("Escape");
       await runCommand(window, "mind.tieOut", t("figures.command"));
       const schedule = window.getByTestId("figure-schedule");
+      // Tie out's Check asks first when it can't be priced; too narrow for the two side by side,
+      // the schedule comes to the front once that is answered. Not now leaves the figures as they are.
+      const ask = window.getByTestId("mind-check-ask");
+      await expect(ask.or(schedule).first()).toBeVisible({ timeout: 30_000 });
+      if (await ask.isVisible()) await pointAndClick(window, ask.getByTestId("mind-check-cancel"));
       const rows = schedule.locator("tbody tr[data-figure-id]");
       await expect(rows).toHaveCount(3);
       const rowOf = (index: number) => rows.nth(index);

@@ -327,6 +327,7 @@ for (const [language, width] of [
       await expect(show).toHaveText(t("claim.parts.hide"));
       await expect(rows).toHaveCount(2);
       await expect(receipts).toHaveCount(3);
+      await expect(card.getByTestId("claim-parts-read").locator("li")).toHaveCount(2);
       // Marked in the sentence in its own colour while open; its words aren't written again.
       await expect(card.getByTestId("claim-sentence-mark")).toHaveCount(2);
       await expect(card.getByTestId("claim-sentence-mark").first()).toHaveAttribute(

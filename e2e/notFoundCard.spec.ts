@@ -250,6 +250,8 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(card.getByTestId(IDS.keep)).toHaveText(words.keep);
       await expect(card.getByTestId("claim-cut")).toHaveCount(0);
       for (const id of BUTTONS) expect(await inside(card.getByTestId(id), card)).toBe(true);
+      // It cites nothing, so there is no Citation to sign and no "Checked by me".
+      await expect(card.getByTestId("sign-off-toggle")).toHaveCount(0);
       // The rest under the one ⋯, in their order, Find sources among them: the Mind cites no paper or book.
       await expect(card.getByTestId(IDS.findSources)).toHaveCount(0);
       const menu = await openCardMenu(window, card);

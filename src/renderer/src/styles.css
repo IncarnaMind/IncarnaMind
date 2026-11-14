@@ -6501,13 +6501,15 @@
     color: var(--color-ink-meta);
   }
 
-  .claim-card-checked-by-name,
+  /* A name is one piece of its line, and one wider than the line wraps at its own spaces: by the
+     line's own width, so it is right in the first frame, before any script has measured the line
+     (a menu lays its items out only as it shows). */
+  .claim-card-checked-by-name {
+    display: inline-block;
+    max-width: 100%;
+  }
   .claim-card-checked-by-when {
     white-space: nowrap;
-  }
-
-  .claim-card-checked-by-name--wide {
-    white-space: normal;
   }
 
   /* A figure a check worked out (#707): how, then each input's Citation. */
