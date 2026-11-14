@@ -251,12 +251,10 @@ for (const width of [1600, 900] as const) {
         cards: document.querySelectorAll('[data-testid="citation-card"]').length,
         log: (globalThis as unknown as { log: string[] }).log.splice(0),
       }));
-      await test
-        .info()
-        .attach(`${width}-${label}.json`, {
-          body: JSON.stringify(info, null, 1),
-          contentType: "application/json",
-        });
+      await test.info().attach(`${width}-${label}.json`, {
+        body: JSON.stringify(info, null, 1),
+        contentType: "application/json",
+      });
     };
     // 1. A dialog closes over a focused chip.
     await caretAtStart(window, editor);
@@ -270,17 +268,25 @@ for (const width of [1600, 900] as const) {
     await expect(window.getByTestId("palette")).toHaveCount(0);
     await motionSettled(window);
     await state("3-palette-closed");
-    // 2. Click a Citation, so its source opens, then show the Note's tab again.
+    // 2. Open the page from the card (Tab to the chip, Space, Enter on Open), then show the Note's tab again.
     await window.keyboard.press("Escape");
-    await window.mouse.move(0, 0);
-    await pointAndClick(window, chips.first());
+    await window.keyboard.press("Escape");
+    await caretAtStart(window, editor);
+    await window.keyboard.press("Tab");
+    await expect(card).toHaveCount(1);
+    await window.keyboard.press("Space");
+    await expect(card.getByTestId("citation-open")).toBeFocused();
+    await window.keyboard.press("Enter");
     await motionSettled(window);
-    await state("4-clicked");
+    await state("4-opened-from-card");
     const tabs = window.getByTestId("mind-tab");
-    await expect(tabs.first()).toBeVisible();
     await pointAndClick(window, tabs.first());
     await motionSettled(window);
     await state("5-note-tab-shown-again");
+    // 3. The same by the keyboard: the page's tab closes with its own key.
+    await window.keyboard.press("ControlOrMeta+w");
+    await motionSettled(window);
+    await state("6-after-ctrl-w");
     await app.close();
   });
 }
