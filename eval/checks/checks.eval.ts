@@ -193,6 +193,7 @@ test("checks evaluation: Find support and verify", async () => {
     };
     const dir = await writeChecksReport(report, config.resultsDir);
     console.log(summaryLines(report, dir).join("\n"));
+    log(`Spent, at the app's own count: ${JSON.stringify((await core.getCostSummary()).spent)}`);
     if (GATING) {
       expect(
         report.gates.filter((gate) => !gate.met).map((gate) => gate.name),

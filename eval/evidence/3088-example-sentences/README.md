@@ -98,3 +98,56 @@ The evaluation's own tests (`tests/eval/checkPipeline.test.ts`, `checkCompare.te
   - in `eval/checks`, `INCARNAMIND_EVAL_SPEND_CAP` sets the app's monthly cap to what is left of the $9, so the app sends no request that could pass it.
 
   The gate also stops at the first arm-round that is void twice running, and when a probe shows 90% or less of the allowance left. When any stop fires, what is in is reported and nothing more is spent.
+
+## Results (2026-11-14, read after all 10 rounds and the four `eval/checks` runs)
+
+`main` at b283bc51c and the branch at 81f2c993e (the source every round and evaluation run measured; the later commits add only gate files) on Claude Haiku 5.5, meant and run, on one key, one run on it at a time. `results.md` is `score.ts`'s reading of `runs/*.jsonl`; `runs/eval-*-report.md` and `runs/eval-compare.md` are the evaluation's own.
+
+**Runs.**
+- **Arm-rounds:** 20, 10 for each arm, alternated. They sent 5,972 requests, with 0 refused, 0 failed, 0 timed out and 0 held at the stop, and none was void.
+- **Two starts before the first round** were not counted (`runs/start-*.log`). The first refused its own output path, which was under the repository rather than a temporary folder, after one example core. The second was stopped at once. Neither wrote a line of its own, so $0.10 is counted for them.
+- **`eval/checks`:** four runs, `main`, branch, `main`, branch. Each reached all 208 Find support sentences and 10 received documents, with 834, 830, 832 and 812 requests (counted from the reports' requests). No request failed or was refused, by the logs and the core's own reasons.
+
+**Spend, at the app's own count.**
+- the arm-rounds: $1.62 (the harness's own pricing matched it to the cent);
+- the two uncounted starts: $0.10, as above;
+- the evaluation runs: $1.01 and $1.02 where the meter was logged (runs 3 and 4). Runs 1 and 2 made as many requests but logged no meter, so about $1.01 each, and $1.50 each was held against the stop while they ran.
+
+That is **about $5.77 in all**, within the $9 stop.
+
+| Bar | `main` | branch | Result |
+|---|---|---|---|
+| 1. The issue's two sentences ✓, each set-up and language | 10, 10, 10, 10 (EN); 10, 10, 10, 9 (ZH) of 10 | 10, 10, 10, 10 (EN); 10, 9, 10, 10 (ZH) of 10 | met |
+| 1. The comparative part's first reply contradicted | 0 of 10 in each | 0 of 10 in each | met |
+| 1. The revenue figure Not checked, with the User's Document | 0 (EN), 1 (ZH) of 10 | 0, 0 of 10 | met |
+| 2. Any wrong sentence's ✓ more on the branch | the twins 0; held-out wrong: en-a2 7, zh-a2 1, others 0 of 10 | twins 0; en-a2 6, zh-a2 0, others 0 | met |
+| 3. Held-out right ✓, per case (fails at 3 fewer) | 97 in all | 117 in all; the largest loss is 1 (en-a3, zh-a2) | met |
+| 3. Held-out right ✓, in all (fails at a drop of max(6, 2 × 3) = 6) | 97 | 117 (a rise of 20) | met |
+| 4. Contradicted on sentences labelled contradicted, Find support | 48 + 47 = 95 of 108 | 48 + 40 = 88 of 108 | **missed** (needed 93, `main`'s spread 1, allowed 2) |
+| 4. Paired: Contradicted in both `main` runs, not in both branch runs | | fs-142, fs-151 | **missed** |
+
+**Fault 1 did not reproduce on `main`.** At b283bc51c, `main`'s first reply on "against £118 million a year earlier" said supported in 10 of 10 checks, with the example alone and beside a User's Document. In Chinese the real sort often didn't split the sentence at all. So the gate shows the part rule costs no ✓, and no wrong comparative passes because of it. It can't show the rule fixing a first reply that is already right.
+
+**Fault 2 shows on the held-out comma figures in a short Note.** `main` against the branch: en-b2 "Costs came to $1,075 million" 5 → 10, en-b3 "Headcount was 4,310" 2 → 10, zh-b3 (the same English Note under the Chinese interface) 2 → 10.
+
+**The wrong comparatives, read apart** (✓ and Contradicted of 10, `main` then branch):
+
+| Case | `main` | branch |
+|---|---|---|
+| en-a1 | 0 and 10 | 0 and 10 |
+| en-a2 | 7 and 3 | 6 and 4 |
+| en-a3 | 0 and 10 | 0 and 10 |
+| zh-a1 | 0 and 10 | 0 and 10 |
+| zh-a2 | 1 and 4 | 0 and 7 |
+| zh-a3 | 0 and 10 | 0 and 10 |
+
+Naming the whole sentence made no wrong clause pass more often. en-a2, "Occupancy averaged 82% in July, down from 76% a year before", is a ✓ for a wrong direction on both arms, 7 and 6 times of 10: a fault of `main`'s, which this change neither causes nor fixes.
+
+**Bar 4, read apart from its verdict.**
+- None of the sentences whose Contradicted differs between runs was checked in parts. For a whole sentence, the branch's instructions and message differ from `main`'s only when a figure in it has a separator the sentence doesn't settle: those readings are no longer offered.
+- fs-142 (3.0%) and fs-151 (78%) have no such figure, so they were sent the same on both arms. On the branch, fs-142's confirmation judged "same" and fs-151's reply gave no `cite`, in both runs.
+- Branch run 2 lost 10 contradicted sentences against branch run 1 and gained 2.
+  - 6 of the 10 ended Not checked the same way: a verdict given without `cite`, and the quote it gave when asked afterwards not found. 2 of those (fs-023 "£45,500", fs-046 "£3,210") have such a figure; the other 4 were sent the same as on `main`.
+  - Of the other 4, fs-121 gave no quote at all, fs-066's reply couldn't be read after the strict judgement, and fs-013 and fs-112 ended Unsupported. None of those 4 has such a figure.
+
+The bar is as written, and it stays missed.

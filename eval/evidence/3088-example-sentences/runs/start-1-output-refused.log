@@ -1,5 +1,5 @@
 
- RUN  v5.0.3 /Users/joeyxiong/Desktop/code/IncarnaMind/.claude/worktrees/agent-afeba8b81811843b6-main
+ RUN  v5.0.3 <main checkout>
 
 (node:10200) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
 (Use `node --trace-warnings ...` to show where the warning was created)
@@ -18,7 +18,7 @@ stdout | tests/live/exampleSentences.live.test.ts > the #3088 gate > one round o
 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
 
  FAIL  tests/live/exampleSentences.live.test.ts > the #3088 gate > one round of every case, each Note checked once
-Error: Refused a write under the real home folder: /Users/joeyxiong/Desktop/code/IncarnaMind/.claude/worktrees/agent-afeba8b81811843b6/eval/evidence/3088-example-sentences/runs/main-1-a.jsonl. Tests use temporary folders (docs/agents/testing.md).
+Error: Refused a write under the real home folder: <branch checkout>/eval/evidence/3088-example-sentences/runs/main-1-a.jsonl. Tests use temporary folders (docs/agents/testing.md).
  ❯ Object.check tests/helpers/home.ts:86:13
      84|       }
      85|       refused.push(path);
@@ -34,7 +34,7 @@ Error: Refused a write under the real home folder: /Users/joeyxiong/Desktop/code
 
  FAIL  tests/live/exampleSentences.live.test.ts > the #3088 gate > one round of every case, each Note checked once
 Error: Writes under the real home folder were refused; give the test a temporary folder instead:
-/Users/joeyxiong/Desktop/code/IncarnaMind/.claude/worktrees/agent-afeba8b81811843b6/eval/evidence/3088-example-sentences/runs/main-1-a.jsonl
+<branch checkout>/eval/evidence/3088-example-sentences/runs/main-1-a.jsonl
  ❯ failOnRefused tests/setup/home.ts:42:11
      40|   const refused = guard.takeRefused();
      41|   if (refused.length > 0) {
