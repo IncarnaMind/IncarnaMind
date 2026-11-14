@@ -111,10 +111,14 @@ const sameName = (name: string) => name.normalize("NFC").toLocaleLowerCase();
 /**
  * Where each Document stands among those it shares its shown name with (#1507), by id: the
  * fewest of its parent folders, nearest first, that tell it from the others ("2025", or
- * "Q1 / 2025"), or, where even its whole path doesn't, its place in their order ("(2)"). A
- * Document whose name nobody else's shown name matches has none. A web page goes by its site.
+ * "Q1 / 2025"), or, where even its whole path doesn't, its place in their order, written by
+ * `twin` ("2025 (2)"). A Document whose name nobody else's shown name matches has none. A web page
+ * goes by its site.
  */
-export function whereShown(documents: readonly NamedDocument[]): Map<string, string> {
+export function whereShown(
+  documents: readonly NamedDocument[],
+  twin: (place: string, count: number) => string,
+): Map<string, string> {
   const byName = new Map<string, NamedDocument[]>();
   for (const document of documents) {
     const key = sameName(displayName(document));
@@ -125,7 +129,7 @@ export function whereShown(documents: readonly NamedDocument[]): Map<string, str
   const where = new Map<string, string>();
   for (const named of byName.values()) {
     if (named.length < 2) continue;
-    // By id, so twins at one path take their "(2)" in an order that doesn't change.
+    // By id, so twins at one path take their count in an order that doesn't change.
     const group = [...named].sort((a, b) => a.id.localeCompare(b.id));
     const places = group.map((document) => {
       const host = document.web ? webHostOf(document.web.address) : null;
@@ -151,7 +155,7 @@ export function whereShown(documents: readonly NamedDocument[]): Map<string, str
       seen.set(place, count);
       where.set(
         document.id,
-        (twins.get(place) ?? 0) > 1 ? (count > 1 ? `${place} (${count})` : place) : place,
+        (twins.get(place) ?? 0) > 1 ? (count > 1 ? twin(place, count) : place) : place,
       );
     });
   }

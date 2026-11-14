@@ -217,7 +217,7 @@ test("every text in a Mind starts at one edge, its controls sit in the left marg
     .soft(composer.x, "the composer is right of the margin column")
     .toBeGreaterThan(edge + MEASURE + RIGHT_MARGIN);
   await texts.note.hover();
-  const handle = window.getByTestId("block-handle");
+  const handle = window.getByTestId("block-menu");
   await expect(handle).toBeVisible();
   await inLeftMargin(handle, "the block handle");
 
@@ -557,7 +557,7 @@ for (const language of ["en", "zh-CN"] as const) {
 
       const question = editor.getByTestId("question");
       const fold = question.getByTestId("question-fold");
-      const handle = window.getByTestId("block-handle");
+      const handle = window.getByTestId("block-menu");
       const edge = (await textColumn(editor)).x;
 
       // Hover the Question: the handle shows, in the outer half of the margin, and the
@@ -586,9 +586,9 @@ for (const language of ["en", "zh-CN"] as const) {
 
       // The mouse: the handle opens its menu.
       await (await slideToHandle(window, question)).click();
-      await expect(window.getByTestId("block-menu")).toBeVisible();
+      await expect(window.getByTestId("block-actions")).toBeVisible();
       await window.keyboard.press("Escape");
-      await expect(window.getByTestId("block-menu")).toHaveCount(0);
+      await expect(window.getByTestId("block-actions")).toBeHidden();
       await expect(editor).toBeFocused();
 
       // The keyboard: the chevron takes Enter, and Shift+F10 opens the Block's menu.
@@ -600,9 +600,9 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(fold).toHaveAttribute("aria-expanded", "true");
       await question.locator(".question-text").click();
       await window.keyboard.press("Shift+F10");
-      await expect(window.getByTestId("block-menu")).toBeVisible();
+      await expect(window.getByTestId("block-actions")).toBeVisible();
       await window.keyboard.press("Escape");
-      await expect(window.getByTestId("block-menu")).toHaveCount(0);
+      await expect(window.getByTestId("block-actions")).toBeHidden();
       await app.close();
     });
   }

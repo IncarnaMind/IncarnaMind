@@ -1,7 +1,7 @@
 import type { Editor } from "@tiptap/core";
 import { canInsertFootnote, insertFootnote } from "../editor/footnoteSchema";
-import { noteHolding } from "../editor/noteKeymap";
 import { mindEditor } from "../editor/openEditors";
+import { noteOfBlock } from "./blocks";
 import type { Command, CommandContext } from "./registry";
 import { mindInFront } from "./targets";
 
@@ -10,7 +10,7 @@ import { mindInFront } from "./targets";
  * ⌘K nothing does, and the Note in front takes it at its cursor.
  */
 function noteOf(ctx: CommandContext): Editor | null {
-  const editor = ctx.focus?.kind === "block" ? noteHolding(ctx.focus.id) : openNoteInFront();
+  const editor = ctx.focus?.kind === "block" ? noteOfBlock(ctx) : openNoteInFront();
   return editor && !editor.isDestroyed && editor.isEditable ? editor : null;
 }
 

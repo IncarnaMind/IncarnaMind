@@ -287,6 +287,7 @@ function TaskItem({ task, onOpen, onAct }: { task: Task; onOpen(): void; onAct()
               onClick={act(action.run)}
               className={buttonStyle("ghost", "sm")}
               {...withShortcut(
+                t,
                 action.label,
                 action.shortcut ? shortcutLabel(action.shortcut) : undefined,
               )}

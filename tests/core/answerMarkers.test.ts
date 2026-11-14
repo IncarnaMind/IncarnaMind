@@ -3,13 +3,15 @@
  * src/core/answers/markerPlacement.ts): the rules on their own, then through
  * the engine with scripted models, in the Tool loop and with structured output.
  */
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
+import type { ConversationAnswer } from "../../src/core";
 import {
   placeMissingMarkers,
   withFigureCitations,
   withMissingMarkers,
 } from "../../src/core/answers/markerPlacement";
 import {
+  answerEnded,
   askAndFinish,
   citationsIn,
   citingModel,
@@ -251,6 +253,56 @@ describe("The engine places the markers a model left out", { timeout: 30_000 }, 
     expect(withCitationsShown(client, answerId)).toBe(
       "Spring tides come at new and full moon[c]. The Moon raises two bulges.",
     );
+  });
+
+  // protects=an Answer in the assistant ends as it always has: a number the engine puts in for a Citation the model gave without one is written as soon as it is in, while the end's one request for the reply's other Citations is still out; only call help's reply holds its end's edits for its end (#2847); fails_when=the number waits for that request; no_claim=what the request gives.
+  test("in the assistant, a number put in for a Citation the model gave shows while the end's request is out", async () => {
+    let release = () => {};
+    const until = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const model = scriptedModel(
+      (call) => {
+        if (call.question === "unmarked-quotes") {
+          return { text: '{"citations":[]}', pause: { after: 0, until } };
+        }
+        const searches = call.results.filter((result) => result.tool === "search_documents");
+        if (searches.length === 0) {
+          return { calls: [{ tool: "search_documents", input: { query: "spring tides" } }] };
+        }
+        if (!call.results.some((result) => result.tool === "cite")) {
+          const passage = shownPassages(searches.at(-1)?.text ?? "").find((each) =>
+            each.text.includes(SPRING),
+          );
+          const citations = [{ marker: 1, passage: passage?.id, quote: SPRING }];
+          return { calls: [{ tool: "cite", input: { citations } }] };
+        }
+        // Its second number has no Citation, so the end asks once more for one.
+        return { text: "Spring tides come at new and full moon. Neap tides come later [^3]." };
+      },
+      { judgesItsAnswers: true },
+    );
+    const { core } = await setUpWithDocuments(model, [{ name: "Tides.md", contents: TIDES_MD }]);
+    const written: ConversationAnswer[] = [];
+    core.on("conversation.message", (message) => {
+      if (message.kind === "answer") written.push(message);
+    });
+    const asked = await core.askInConversation({ text: "When are spring tides?" });
+    if (!asked.asked) throw new Error("Not asked.");
+
+    const placed = await vi.waitFor(
+      () => {
+        const shown = written.find(
+          (each) => each.id === asked.answerId && each.text.includes("[^1]"),
+        );
+        expect(shown?.status).toBe("streaming");
+        return shown;
+      },
+      { timeout: 20_000, interval: 5 },
+    );
+    expect(placed?.citations.map((citation) => citation.marker)).toEqual([1]);
+    release();
+    await answerEnded(core, asked.answerId);
   });
 });
 

@@ -4,12 +4,12 @@ import { CHART_KINDS, type ChartKind } from "../../../shared/charts";
 import type { MessageKey } from "../../../shared/i18n";
 import { chartOfSelection, chartOfTable, insertChart, tableAround } from "../editor/chartCommands";
 import { chartHandles } from "../editor/chartHandles";
-import { noteHolding } from "../editor/noteKeymap";
 import { languageNow } from "../i18n";
+import { cursorInFocus, noteOfBlock } from "./blocks";
 import type { Command, CommandContext } from "./registry";
 
 function noteOf(ctx: CommandContext): Editor | null {
-  const editor = ctx.focus?.kind === "block" ? noteHolding(ctx.focus.id) : null;
+  const editor = noteOfBlock(ctx);
   return editor && !editor.isDestroyed && editor.isEditable ? editor : null;
 }
 
@@ -37,6 +37,7 @@ export const chartCommands: readonly Command[] = [
       return (
         editor !== null &&
         isInTable(editor.state) &&
+        cursorInFocus(editor, ctx) &&
         chartOfTable(editor.state, languageNow()) !== null
       );
     },

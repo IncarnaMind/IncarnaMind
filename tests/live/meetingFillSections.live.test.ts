@@ -2355,24 +2355,36 @@ function citesRightly(unit: Unit, fact: Fact, call: Call, cues: readonly Cue[]):
   });
 }
 
+interface Placements {
+  /** The places it is written: each counts once, however often its words match in it (#3013). */
+  count: number;
+  /** Matches beyond the first inside those places: one line that says it twice. */
+  repeats: number;
+  /** Not places: the Summary speaks for the whole call, and code writes the pointers. */
+  summary: number;
+  pointers: number;
+  inPlace: boolean;
+  cited: boolean;
+}
+
 /**
- * Where a fact is written: a unit that says all of it, or, for a decision, a
- * run of consecutive units in one place (one section, after the same line) that each say some of its
- * parts and together say all of them. A run counts as often as its most repeated part, so a part
- * written twice is a duplicate; a unit naming the call's rejected option is never in a run.
+ * Where a fact is written: a unit that says all of it, or, for a decision, a run of consecutive
+ * units in one place (one section, after the same line) that each say some of its parts and
+ * together say all of them; a unit naming the call's rejected option is never in a run. The
+ * Summary and the pointers are counted apart, never as places.
  */
 function placements(
   fact: Fact,
   units: readonly Unit[],
   call: Call,
   cues: readonly Cue[],
-): { count: number; inPlace: boolean; cited: boolean } {
+): Placements {
   // A decision or an action is written whole in its section; the typed line it answers then has
   // a short pointer citing the same turn (#2306).
   const isPointer = (unit: Unit) => pointsElsewhere(unit.text, call.language);
   const found = units
     .filter((unit) => unit.ai && says(fact, unit.text))
-    .map((unit) => ({ units: [unit], count: occurrences(fact, unit.text) }));
+    .map((unit) => ({ units: [unit], matches: occurrences(fact, unit.text) }));
   if (fact.kind === "decision") {
     let run: Unit[] = [];
     const close = () => {
@@ -2380,7 +2392,7 @@ function placements(
       if (run.length > 1 && says(fact, text))
         found.push({
           units: run,
-          count: Math.max(...parts(fact).map((pattern) => matchCount(pattern, text))),
+          matches: Math.max(...parts(fact).map((pattern) => matchCount(pattern, text))),
         });
       run = [];
     };
@@ -2409,15 +2421,25 @@ function placements(
       isPointer(unit) &&
       citesRightly(unit, fact, call, cues),
   );
+  const summary =
+    call.sectionHeadings?.summary ?? translate(call.language, "meetings.fill.section.summary");
+  const inSummary = found.filter((each) => each.units[0]?.section === summary);
+  const pointers = found.filter(
+    (each) => !inSummary.includes(each) && each.units.length === 1 && each.units.every(isPointer),
+  );
+  const places = found.filter((each) => !inSummary.includes(each) && !pointers.includes(each));
   return {
-    count: found.reduce((sum, each) => sum + each.count, 0),
+    count: places.length,
+    repeats: places.reduce((sum, each) => sum + each.matches - 1, 0),
+    summary: inSummary.length,
+    pointers: pointers.length,
     inPlace:
       fact.underLine === undefined ||
       found.some((each) => each.units[0]?.afterLine === fact.underLine) ||
       (fact.kind !== "figure" && found.length > 0 && pointed),
     cited:
-      found.length > 0 &&
-      found.every((each) => each.units.every((unit) => citesRightly(unit, fact, call, cues))),
+      places.length > 0 &&
+      places.every((each) => each.units.every((unit) => citesRightly(unit, fact, call, cues))),
   };
 }
 
@@ -2994,15 +3016,14 @@ test.each(["en", "zh-CN"] as const)(
     const { fact, unit, text, score } = splitDecision(language);
     expect(says(fact, text.budget)).toBe(false);
     expect(says(fact, text.deadline)).toBe(false);
-    const placed = { count: 1, inPlace: true, cited: true };
+    const placed = { count: 1, repeats: 0, summary: 0, pointers: 0, inPlace: true, cited: true };
     expect(score([unit(text.budget), unit(text.deadline)])).toEqual(placed);
     expect(score([unit(text.deadline), unit(text.budget)])).toEqual(placed);
     expect(score([unit(text.whole)])).toEqual(placed);
     const inSection = (each: Unit): Unit => ({ ...each, section: "Decisions", afterLine: null });
     expect(score([inSection(unit(text.budget)), inSection(unit(text.deadline))])).toEqual({
-      count: 1,
+      ...placed,
       inPlace: false,
-      cited: true,
     });
   },
 );
@@ -3016,6 +3037,9 @@ test.each(["en", "zh-CN"] as const)(
     const unrelated = language === "en" ? "The van is booked." : "车已经订好了。";
     expect(score([unit(pointer), inSection(unit(text.whole))])).toEqual({
       count: 1,
+      repeats: 0,
+      summary: 0,
+      pointers: 0,
       inPlace: true,
       cited: true,
     });
@@ -3026,15 +3050,24 @@ test.each(["en", "zh-CN"] as const)(
 );
 
 test.each(["en", "zh-CN"] as const)(
-  "meeting scores reject a split decision with a part missing or twice, a wrong Citation, another place or the rejected option (%s)",
+  "meeting scores reject a split decision with a part missing, a wrong Citation, another place or the rejected option, and count a part said again in it as a repeat (%s)",
   (language) => {
     const { fact, call, cues, unit, text, score } = splitDecision(language);
-    const missing = { count: 0, inPlace: false, cited: false };
+    const missing = { count: 0, repeats: 0, summary: 0, pointers: 0, inPlace: false, cited: false };
     expect(score([unit(text.budget)])).toEqual(missing);
-    expect(score([unit(text.budget), unit(text.budget), unit(text.deadline)]).count).toBe(2);
-    expect(score([unit(text.whole), unit(text.budget), unit(text.deadline)]).count).toBe(2);
+    expect(score([unit(text.budget), unit(text.budget), unit(text.deadline)])).toMatchObject({
+      count: 1,
+      repeats: 1,
+    });
+    expect(score([unit(text.whole), unit(text.budget), unit(text.deadline)])).toMatchObject({
+      count: 2,
+      repeats: 0,
+    });
     expect(score([unit(text.budget), unit(text.deadline, 0)])).toEqual({
       count: 1,
+      repeats: 0,
+      summary: 0,
+      pointers: 0,
       inPlace: true,
       cited: false,
     });
@@ -3050,6 +3083,134 @@ test.each(["en", "zh-CN"] as const)(
     expect(
       placements({ ...fact, kind: "action" }, [unit(text.budget), unit(text.deadline)], call, cues),
     ).toEqual(missing);
+  },
+);
+
+function writtenTwice(language: Language) {
+  const en = language === "en";
+  const turns = en
+    ? [me("Then we go with Mill Yard."), them("Fine, Mill Yard it is.")]
+    : [me("那就定江边仓库。"), them("好，就江边仓库。")];
+  const fact: Fact = {
+    name: "venue",
+    kind: "decision",
+    pattern: en ? [/Mill Yard/i, /agreed/i] : [/江边仓库/, /商定/],
+    said: [0, 1],
+  };
+  const call: Call = { id: "written-twice-scorer-only", language, notes: [], turns, facts: [fact] };
+  const cues: Cue[] = turns.map((turn, index) => ({
+    startMs: index * 1_000,
+    endMs: (index + 1) * 1_000,
+    text: turn.text,
+    speaker: turn.side === "me" ? "Me" : "Them",
+  }));
+  const title = (section: "summary" | "decisions") =>
+    translate(language, `meetings.fill.section.${section}`);
+  const unit = (text: string, section: string | null, turn = 0): Unit => {
+    const cue = cues[turn];
+    if (!cue) throw new Error("The venue's cue is missing.");
+    return {
+      text,
+      ai: true,
+      section,
+      afterLine: null,
+      citations: [
+        {
+          quote: cue.text,
+          from: cue.startMs,
+          to: cue.endMs,
+          speaker: cue.speaker ?? null,
+          check: "found",
+        },
+      ],
+    };
+  };
+  const text = en
+    ? {
+        decision: "We agreed on Mill Yard as the venue.",
+        again: "Dana and I agreed on Mill Yard.",
+        twiceInOne: "We agreed on Mill Yard: Mill Yard was agreed as the venue.",
+        pointer: "Mill Yard agreed — see below",
+        unpointed: "Mill Yard agreed",
+      }
+    : {
+        decision: "我们商定场地用江边仓库。",
+        again: "我和小丹商定了江边仓库。",
+        twiceInOne: "我们商定江边仓库：场地商定为江边仓库。",
+        pointer: "江边仓库已商定，详见下文",
+        unpointed: "江边仓库已商定",
+      };
+  const score = (units: Unit[]) => placements(fact, units, call, cues);
+  return { unit, text, title, score, topic: en ? "Venue" : "场地" };
+}
+
+test.each(["en", "zh-CN"] as const)(
+  "a decision written on two lines outside the Summary counts twice, and on one line once (%s)",
+  (language) => {
+    const { unit, text, title, score, topic } = writtenTwice(language);
+    const decision = unit(text.decision, title("decisions"));
+    expect(score([decision])).toMatchObject({ count: 1, repeats: 0, summary: 0, pointers: 0 });
+    expect(score([unit(text.again, topic), decision])).toMatchObject({
+      count: 2,
+      repeats: 0,
+      summary: 0,
+      pointers: 0,
+    });
+    expect(score([unit(text.decision, topic), decision]).count).toBe(2);
+  },
+);
+
+test.each(["en", "zh-CN"] as const)(
+  "a line that says a decision twice is one place matched again; the same words on two lines are two places (%s)",
+  (language) => {
+    const { unit, text, title, score } = writtenTwice(language);
+    expect(score([unit(text.twiceInOne, title("decisions"))])).toMatchObject({
+      count: 1,
+      repeats: 1,
+    });
+    const [first, second] = text.twiceInOne.split(/(?<=[:：])\s*/);
+    expect(
+      score([unit(first ?? "", title("decisions")), unit(second ?? "", title("decisions"))]),
+    ).toMatchObject({ count: 2, repeats: 0 });
+  },
+);
+
+test.each(["en", "zh-CN"] as const)(
+  "the Summary saying a decision is counted apart, and its Citation doesn't judge the decision's (%s)",
+  (language) => {
+    const { unit, text, title, score, topic } = writtenTwice(language);
+    const decision = unit(text.decision, title("decisions"));
+    const elsewhere = { ...unit(text.again, title("summary")), citations: [] };
+    expect(score([elsewhere, decision])).toEqual({
+      count: 1,
+      repeats: 0,
+      summary: 1,
+      pointers: 0,
+      inPlace: true,
+      cited: true,
+    });
+    expect(score([{ ...elsewhere, section: topic }, decision])).toMatchObject({
+      count: 2,
+      summary: 0,
+      cited: false,
+    });
+    expect(score([elsewhere])).toMatchObject({ count: 0, summary: 1, cited: false });
+  },
+);
+
+test.each(["en", "zh-CN"] as const)(
+  "a pointer that names a decision is counted apart; the same words without the pointer are a place (%s)",
+  (language) => {
+    const { unit, text, title, score, topic } = writtenTwice(language);
+    const decision = unit(text.decision, title("decisions"));
+    expect(score([unit(text.pointer, topic), decision])).toMatchObject({
+      count: 1,
+      pointers: 1,
+    });
+    expect(score([unit(text.unpointed, topic), decision])).toMatchObject({
+      count: 2,
+      pointers: 0,
+    });
   },
 );
 
@@ -3982,8 +4143,8 @@ describe.skipIf(LOADER_PREFLIGHT || (!KEY && !LOCAL_MODEL))(
         if (REPORT) {
           const rows = scored
             .map(
-              ({ fact, count, inClaims, cited, inPlace }) =>
-                `| ${fact.kind} | ${fact.name} | ${count} | ${cited ? "yes" : "no"} | ${inClaims} | ${fact.underLine ? (inPlace ? "yes" : "no") : "—"} |`,
+              ({ fact, count, inClaims, cited, inPlace, repeats, summary, pointers }) =>
+                `| ${fact.kind} | ${fact.name} | ${count} | ${cited ? "yes" : "no"} | ${inClaims} | ${fact.underLine ? (inPlace ? "yes" : "no") : "—"} | ${repeats} | ${summary} | ${pointers} |`,
             )
             .join("\n");
           await appendFile(
@@ -4006,8 +4167,8 @@ describe.skipIf(LOADER_PREFLIGHT || (!KEY && !LOCAL_MODEL))(
                 "Occurrence counts use component-match minima and can miss partial or anaphoric repeats. Subject-only matches do not add to these counts. An independent raw duplicate and topic audit is still required, including redundant deadline restatements and action references without declared subjects.",
                 `Transcript cues: ${JSON.stringify(cues)}`,
                 "",
-                "| Kind | Fact | Times in the note | Cited rightly | In the claims list | In place |",
-                "|---|---|---|---|---|---|",
+                "| Kind | Fact | Times in the note | Cited rightly | In the claims list | In place | Matched again in one place | In the Summary | In a pointer |",
+                "|---|---|---|---|---|---|---|---|---|",
                 rows,
                 "",
                 "```",

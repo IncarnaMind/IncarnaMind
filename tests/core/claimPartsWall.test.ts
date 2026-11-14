@@ -11,7 +11,7 @@ import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { isCheckRun, listedSentences, SAME_DETAIL, sentenceOf } from "../helpers/checks";
 import { setUpWithDocuments, shownPassages } from "../helpers/citations";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
-import { readMind, writeMind } from "../helpers/minds";
+import { editMind, readMind, writeMind } from "../helpers/minds";
 import { type ModelCall, type ScriptedReply, scriptedModel, unscripted } from "../helpers/models";
 
 const LANGUAGES = [
@@ -20,6 +20,7 @@ const LANGUAGES = [
     lease: "The lease ends in spring. The landlord pays for repairs.\n",
     memo: "The memo was approved by the board.\n",
     ends: "The lease ends in spring",
+    endsLater: "The lease ends in autumn",
     repairs: "the landlord pays for repairs",
     approved: "the memo was approved by the board",
     joined: (first: string, second: string) =>
@@ -30,6 +31,7 @@ const LANGUAGES = [
     lease: "租约在春季结束。房东负责维修。\n",
     memo: "备忘录已获董事会批准。\n",
     ends: "租约在春季结束",
+    endsLater: "租约在秋季结束",
     repairs: "房东负责维修",
     approved: "备忘录已获董事会批准",
     joined: (first: string, second: string) => `${first}，${second}。`,
@@ -40,7 +42,7 @@ type Example = (typeof LANGUAGES)[number];
 
 /** Every fact part of the sentence, in its order, as a model names them. */
 const factsIn = (example: Example, sentence: string) =>
-  [example.ends, example.repairs, example.approved]
+  [example.ends, example.endsLater, example.repairs, example.approved]
     .flatMap((words) => {
       const at = sentence.toLowerCase().indexOf(words.toLowerCase());
       return at < 0 ? [] : [{ at, text: sentence.slice(at, at + words.length) }];
@@ -316,5 +318,34 @@ describe.each(LANGUAGES)("a sentence in parts behind a Folder's wall ($language)
     expect(sent.runs).toBe(2);
     expect(sent.shown).toEqual([setup.memo.name]);
     expect(sent.text).not.toContain(setup.lease.name);
+  });
+
+  // protects=a sentence changed since its result, to words of the same length, is not given that result back when checked again from outside the wall its Passage is behind: it reads Kept inside, as a sentence never checked does, and nothing is read (#1934, #3087); fails_when=the earlier ✓ is kept for words no check read; no_claim=the card's wording.
+  test("a sentence changed since its result isn't given it back, read from outside", async () => {
+    const setup = await setUp(example);
+    const sentence = await writeCited(setup, example);
+    await checkSentence(setup, setup.mind.id, setup.client, sentence.length + 1);
+    expect(markOf(setup.client).state).toBe("supported");
+
+    await setup.wall();
+    const edited = sentence.replace(example.ends, example.endsLater);
+    editMind(setup.client, (blocks) =>
+      blocks.map((block) => ({
+        ...block,
+        content: block.content?.map((each) =>
+          each.text === sentence ? { ...each, text: edited } : each,
+        ),
+      })),
+    );
+    await setup.client.settled();
+    const from = setup.calls.length;
+    await checkSentence(setup, setup.mind.id, setup.client, edited.length + 1);
+
+    const after = markOf(setup.client);
+    expect(after).toMatchObject({ state: "not-checked", reason: "kept-inside" });
+    expect(after.parts?.map(({ verdict, reason }) => [verdict, reason])).toEqual([
+      ["not-checked", "kept-inside"],
+    ]);
+    expect(sentTo(setup.calls.slice(from)).runs).toBe(0);
   });
 });

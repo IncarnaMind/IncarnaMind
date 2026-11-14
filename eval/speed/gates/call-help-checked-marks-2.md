@@ -1,5 +1,7 @@
 # The gate for call help's ✓ only where the sentence check passed, second file (#2847)
 
+Retired on 2026-11-14 by #2847's second version: call help no longer shows a ✓ the sentence check gives, and a press sends no sentence check, so no run reads these bars. The record below stays as it was.
+
 Written and committed on 2026-11-09, before any run it gates. It replaces `call-help-checked-marks.md`, whose bars never ran on the slice: that file's one run was a pilot of 8 presses of the call-help set, which earlier runs had read. The slice `call-help-marks` (`../callHelpMarks.ts`) is still unread.
 
 ## The change, as it now stands

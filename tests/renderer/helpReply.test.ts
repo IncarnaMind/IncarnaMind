@@ -12,9 +12,7 @@ import {
   helpParts,
   helpToKeep,
   quoted,
-  sentencePassed,
   startedLabel,
-  uncheckedReason,
 } from "../../src/renderer/src/helpReply";
 import { citedSentences } from "../../src/shared/citedSentences";
 import {
@@ -321,67 +319,21 @@ describe("A help reply", () => {
     ]);
   });
 
-  // protects=a ✓ shows only where the sentence check passed the sentence a chip is cited in, counted as the core counts its markers (#2847); fails_when=a found or judged Citation alone shows ✓, a short line takes the ✓ its marker earned elsewhere, or the panel's places and the core's disagree; no_claim=what the check decides.
-  test("a Citation shows ✓ only where the check passed the sentence it is cited in, the places counted as the core counts them", () => {
-    const text =
-      "## Notes\n★ Yes, Enterprise is $45 a seat [^1]\n→ Same price [^1]\n\nI'll confirm it in writing today [^2][^1]\n→ buys time\n[^9]: a definition";
-    const chips = readHelpReply(text).flatMap((item) =>
-      [item.lead, ...item.notes, item.effect ?? []]
-        .flat()
-        .flatMap((piece) => (piece.kind === "citation" ? [piece] : [])),
-    );
-    expect(chips.map(({ marker, at }) => [marker, at])).toEqual([
-      [1, 0],
-      [1, 1],
-      [2, 2],
-      [1, 3],
-    ]);
-    // The core's count: the judged sentences hold the first and last two places, the short line none.
-    expect(citedSentences(text).map((each) => each.at)).toEqual([[0], [2, 3]]);
-
-    const judged = {
-      check: "unsupported" as const,
-      judgedAt: "2026-11-09T20:00:00.000Z",
-      passedAt: [0],
-    };
-    expect(chips.map((chip) => sentencePassed(judged, chip.at))).toEqual([
-      true,
-      false,
-      false,
-      false,
-    ]);
-    // Found by its quote, or judged as a Citation, it shows no ✓ without a place that passed.
-    const foundOnly = { check: "found" as const, passedAt: undefined };
-    const judgedOnly = {
-      check: "found" as const,
-      judgedAt: "2026-11-09T20:00:00.000Z",
-      passedAt: undefined,
-    };
-    expect(sentencePassed(foundOnly, 0)).toBe(false);
-    expect(sentencePassed(judgedOnly, 0)).toBe(false);
-  });
-
-  test("a chip names why its sentence was never checked only where the User can act on it", () => {
-    expect(uncheckedReason({ check: "not-checked", checkReason: "monthly-limit" })).toBe(
-      "monthly-limit",
-    );
-    expect(uncheckedReason({ check: "not-checked", checkReason: "answer-limit" })).toBe(
-      "answer-limit",
-    );
-    expect(uncheckedReason({ check: "not-checked", checkReason: "small-model" })).toBe(
-      "small-model",
-    );
-    // Kept too short by a limit to finish (#2962).
-    expect(uncheckedReason({ check: "not-checked", checkReason: "monthly-limit-unfinished" })).toBe(
-      "monthly-limit-unfinished",
-    );
-    expect(uncheckedReason({ check: "not-checked", checkReason: "answer-limit-unfinished" })).toBe(
-      "answer-limit-unfinished",
-    );
-    // A line the check doesn't judge, a quote not found, and a sentence it judged say nothing more.
-    expect(uncheckedReason({ check: "not-checked", checkReason: null })).toBeNull();
-    expect(uncheckedReason({ check: "not-found", checkReason: "quote-not-on-pages" })).toBeNull();
-    expect(uncheckedReason({ check: "unsupported", checkReason: null })).toBeNull();
+  // protects=an option's closing quotation mark comes straight after its words, before all its Citation numbers, in English and Chinese (#2847); fails_when=the closing mark sits between two numbers, as it did when a space separated them; no_claim=how the numbers look.
+  test.each([
+    [
+      "English",
+      "★ Yes, Enterprise is $45 a seat [^1] [^2]\n→ answers at once",
+      "“Yes, Enterprise is $45 a seat”[1] [2]",
+    ],
+    [
+      "Chinese",
+      "★ 包含，企业版带单点登录 [^1] [^2]\n→ 直接回答",
+      "“包含，企业版带单点登录”[1] [2]",
+    ],
+  ])("in %s, an option's closing mark comes before all its numbers", (_, text, shown) => {
+    const [item] = helpItems({ text, status: "done" }, "answer");
+    expect(textOf(quoted(item?.lead ?? []))).toBe(shown);
   });
 });
 

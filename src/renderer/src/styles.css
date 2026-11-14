@@ -7262,7 +7262,7 @@
   }
 
   /* The handle left of the Block under the mouse: drag it to move the Block, click it for its menu. */
-  .block-handle > button {
+  .block-grip {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -7280,14 +7280,27 @@
       outline: 2px solid var(--color-accent);
     }
   }
-  .block-handle[data-dragging="true"] > button {
+  /* A right-click or a key opens the menu with the handle hidden, which its children inherit. */
+  .block-handle [role="menu"] {
+    visibility: visible;
+    pointer-events: auto;
+  }
+  .block-handle[data-dragging="true"] .block-grip {
     cursor: grabbing;
   }
 
   /* The table menu's ⋯ button, inside the top-right corner of the cell the cursor is in (TableMenu). */
-  .table-menu-button {
+  .table-menu-anchor {
     position: absolute;
     z-index: 1;
+    width: 20px;
+    height: 20px;
+
+    &[hidden] {
+      display: none;
+    }
+  }
+  .table-menu-button {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -7301,9 +7314,6 @@
     &:is(:hover, [aria-expanded="true"]) {
       background: var(--color-hover);
       color: var(--color-ink);
-    }
-    &[hidden] {
-      display: none;
     }
   }
 
@@ -8150,14 +8160,100 @@
       color: var(--color-warning);
     }
   }
-  .help-citation-found {
-    width: 10px;
+  /*
+   * A Citation's own words under the line that cites it (#2847): smaller than the line to say and in
+   * the secondary text's ink, so it is quieter yet reads at 4.5:1 or better. Its room is one line
+   * from the moment the number shows, and the quote may wrap downward when it lands; a card's words
+   * stay on one line, the place's name shortening first.
+   */
+  .help-quote {
+    grid-column: 2;
+    min-height: 20px;
+    font-size: 12px;
+    line-height: 20px;
+    overflow-wrap: break-word;
+    color: var(--color-ink-secondary);
+
+    &[data-state="not-found"],
+    &[data-state="cant-check"],
+    &[data-state="not-checked"] {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      min-width: 0;
+      white-space: nowrap;
+    }
+  }
+  .help-quote-room {
+    display: inline-block;
+    width: 60%;
     height: 10px;
+    border-radius: 4px;
+    background: var(--color-chip);
+    vertical-align: -1px;
+  }
+  .help-quote-marks {
+    white-space: nowrap;
+  }
+  .help-quote-number {
+    display: inline-flex;
+    align-items: center;
+    height: 16px;
+    margin-left: 4px;
+    padding: 0 4px;
+    border-radius: 4px;
+    background: var(--color-chip);
+    font-size: 11px;
+    font-weight: 600;
+    vertical-align: 1px;
+    color: var(--color-ink-secondary);
+  }
+  .help-quote-found {
+    display: inline-flex;
+    margin-left: 3px;
+    border-radius: 2px;
+    vertical-align: -1px;
     color: var(--color-success);
+
+    & svg {
+      width: 10px;
+      height: 10px;
+    }
+  }
+  .help-quote-found--room {
     visibility: hidden;
   }
-  .help-citation[data-passed="true"] .help-citation-found {
-    visibility: visible;
+  .help-quote-said {
+    display: flex;
+    min-width: 0;
+    overflow: hidden;
+  }
+  .help-quote-said-fixed {
+    flex: none;
+    /* A flex item drops the space at its edge: "in " and " at" keep theirs before the name. */
+    white-space: pre;
+  }
+  .help-quote-said-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .help-moment {
+    min-height: 20px;
+
+    & .help-quote-room {
+      width: 140px;
+      max-width: 100%;
+    }
+
+    &[data-state="not-found"],
+    &[data-state="cant-check"],
+    &[data-state="not-checked"] {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      white-space: nowrap;
+    }
   }
   .help-sources {
     display: flex;

@@ -78,12 +78,19 @@ function cellOf(shown: string, label: UnitText["label"], ref: string): AnalysisC
   return shown;
 }
 
-/** Each row of a sheet (or of a CSV, `sheet` null) in a Document version's Units, by its number, cells from column A. */
-export function sheetRows(
+/** A sheet's row as its Unit shows it: its cells' text from its first column, and that Unit's label. */
+export interface ShownRow {
+  first: number;
+  shown: string[];
+  label: UnitText["label"];
+}
+
+/** Each row of a sheet (or of a CSV, `sheet` null) as its Units show it, by its number. */
+export function shownSheetRows(
   units: readonly UnitText[],
   sheet: string | null,
-): Map<number, AnalysisCell[]> {
-  const rows = new Map<number, AnalysisCell[]>();
+): Map<number, ShownRow> {
+  const rows = new Map<number, ShownRow>();
   for (const unit of units) {
     if (unit.kind !== "rows" || (unit.label?.sheet ?? null) !== sheet) continue;
     const numbers = unit.label?.rows ?? [];
@@ -91,12 +98,24 @@ export function sheetRows(
     unit.text.split("\n").forEach((line, index) => {
       const row = numbers[index];
       if (row === undefined || rows.has(row)) return;
-      const cells: AnalysisCell[] = new Array<AnalysisCell>(first).fill(null);
-      line.split("\t").forEach((shown, offset) => {
-        cells.push(cellOf(shown, unit.label, `${columnName(first + offset)}${row}`));
-      });
-      rows.set(row, cells);
+      rows.set(row, { first, shown: line.split("\t"), label: unit.label });
     });
+  }
+  return rows;
+}
+
+/** Each row of a sheet (or of a CSV, `sheet` null) in a Document version's Units, by its number, cells from column A. */
+export function sheetRows(
+  units: readonly UnitText[],
+  sheet: string | null,
+): Map<number, AnalysisCell[]> {
+  const rows = new Map<number, AnalysisCell[]>();
+  for (const [row, { first, shown, label }] of shownSheetRows(units, sheet)) {
+    const cells: AnalysisCell[] = new Array<AnalysisCell>(first).fill(null);
+    shown.forEach((text, offset) => {
+      cells.push(cellOf(text, label, `${columnName(first + offset)}${row}`));
+    });
+    rows.set(row, cells);
   }
   return rows;
 }

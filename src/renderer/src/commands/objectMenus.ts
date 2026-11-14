@@ -159,6 +159,35 @@ registerMenu("tab", ["mind.delete"], 2);
 
 registerMenu("answer", ["answer.copy", "answer.regenerate", "block.delete"]);
 
+// A Block's own actions show where its kind has them: a table's, a chart's, an Answer's source.
+registerMenu("block", [
+  "block.openSource",
+  "table.openCalculation",
+  "table.rowAbove",
+  "table.rowBelow",
+  "table.columnLeft",
+  "table.columnRight",
+  "table.headerRow",
+  "table.totalRow",
+  "table.totalColumn",
+  "chart.fromTable",
+  "table.convertToText",
+  "chart.table",
+  "chart.kind.bar",
+  "chart.kind.line",
+  "chart.kind.pie",
+  "chart.kind.scatter",
+  "chart.switch",
+  "chart.update",
+  "block.includeInContext",
+  "footnote.insert",
+  "chart.rename",
+  "table.deleteRow",
+  "table.deleteColumn",
+  "table.delete",
+  "block.delete",
+]);
+
 registerMenu("check", ["check.anyway", "check.useDocumentWording", "check.findSources"]);
 
 registerMenu("citation", [

@@ -53,11 +53,6 @@ export interface TestHooks {
    * seconds), so a test needn't wait for it.
    */
   setViewerOpenLimitMs(ms: number): void;
-  /**
-   * Opens the menu Shift+F10 opens for this Block, without moving the caret:
-   * a command naming one Block while the caret is in another list.
-   */
-  openBlockMenu(blockId: string): void;
   /** Home's Coming up shows these meetings, as a calendar would give them. */
   setComingUp(meetings: { id: string; title: string; start: string }[]): void;
   /**

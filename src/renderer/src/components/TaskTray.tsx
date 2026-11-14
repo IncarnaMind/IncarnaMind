@@ -91,7 +91,7 @@ function UnknownOutcomeCard({ task, effect }: { task: Task; effect: TaskEffect }
           data-allow
           onClick={() => answerTaskAsk(task.id, "redo")}
           className="approval-button approval-button--primary"
-          {...withShortcut(t("task.unknown.redo"), keysLabel(ALLOW_KEYS, mac))}
+          {...withShortcut(t, t("task.unknown.redo"), keysLabel(ALLOW_KEYS, mac))}
         >
           {t("task.unknown.redo")}
           <span className="approval-keys">{keysLabel(ALLOW_KEYS, mac)}</span>

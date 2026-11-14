@@ -13,14 +13,10 @@ import type {
   Core,
   MeetingHelpKind,
 } from "../../src/core";
-import {
-  callStarts,
-  citationNumbers,
-  sentencePassed,
-  startedLabel,
-} from "../../src/renderer/src/helpReply";
+import { callStarts, citationNumbers, startedLabel } from "../../src/renderer/src/helpReply";
 import { citedLocation } from "../../src/shared/citations";
 import { formatFullDateTime } from "../../src/shared/dates";
+import { quoteState } from "../../src/shared/helpQuotes";
 import { readHelpReply, shownItems } from "../../src/shared/helpReplyRead";
 import { translate } from "../../src/shared/i18n";
 import { HELP_SHAPE } from "../../src/shared/meetingHelp";
@@ -196,13 +192,14 @@ function readable(answer: ConversationAnswer, kind: MeetingHelpKind | null) {
       .flat()
       .flatMap((piece) => (piece.kind === "citation" ? [piece] : [])),
   );
+  // The panel's ✓ is on a Citation's quote line, where the app found its quote (#2847).
+  const shows = (citation: ConversationAnswer["citations"][number] | undefined) =>
+    citation !== undefined && quoteState(citation, "done") === "found";
   const passed = (marker: number) =>
-    places.some((place) => {
-      const citation = answer.citations.find((each) => each.marker === marker);
-      return (
-        place.marker === marker && citation !== undefined && sentencePassed(citation, place.at)
-      );
-    });
+    places.some(
+      (place) =>
+        place.marker === marker && shows(answer.citations.find((each) => each.marker === marker)),
+    );
   const lines = shown.flatMap((item) =>
     [item.lead, ...item.notes, item.effect ?? []].flatMap((pieces) => {
       const line = shownReply(
@@ -213,8 +210,7 @@ function readable(answer: ConversationAnswer, kind: MeetingHelpKind | null) {
       return pieces.flatMap((piece) => {
         if (piece.kind !== "citation") return [];
         const citation = answer.citations.find((each) => each.marker === piece.marker);
-        const passed = citation !== undefined && sentencePassed(citation, piece.at);
-        return [{ line, marker: piece.marker, passed }];
+        return [{ line, marker: piece.marker, passed: shows(citation) }];
       });
     }),
   );

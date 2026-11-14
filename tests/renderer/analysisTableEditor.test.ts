@@ -13,7 +13,9 @@ import * as Y from "yjs";
 import type { AnswerAnalysis } from "../../src/core/api";
 import { ANALYSIS_TABLE_ATTRIBUTE, ANALYSIS_TABLE_NODE, CITATION_NODE } from "../../src/core/api";
 import { readMindHandle } from "../../src/renderer/src/commands/handles";
-import { offered } from "../../src/renderer/src/commands/registry";
+import { buildMenu, isMenuItem } from "../../src/renderer/src/commands/menus";
+import "../../src/renderer/src/commands/objectMenus";
+import { commands, offered } from "../../src/renderer/src/commands/registry";
 import { tableCommands } from "../../src/renderer/src/commands/tables";
 import {
   convertAnalysisTable,
@@ -25,11 +27,7 @@ import { chartOfTable } from "../../src/renderer/src/editor/chartCommands";
 import { numberFootnotes } from "../../src/renderer/src/editor/citationNumbers";
 import { checkRows, noteHealth } from "../../src/renderer/src/editor/healthCounts";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
-import {
-  TABLE_ACTIONS,
-  tableMenuGroups,
-  tableSpot,
-} from "../../src/renderer/src/editor/tableCommands";
+import { TABLE_ACTIONS, tableSpot } from "../../src/renderer/src/editor/tableCommands";
 import { noAnalysisOutput } from "../../src/shared/analysis";
 import type { AnalysisTableShown } from "../../src/shared/analysisTables";
 import { installFigureRuns, retainFigureAnalysis } from "../../src/shared/figureRuns";
@@ -386,14 +384,35 @@ test("a caption below its table is still its table's: Convert to text from eithe
   expect(inAnalysisTable(fromMarker.state)).toBe(false);
 });
 
-test("the table's menu opens with Open calculation card, and keeps it and Convert to text whatever the table can do", () => {
-  expect(tableMenuGroups(true, false)[0]).toEqual(["openCalculation"]);
-  expect(tableMenuGroups(true, false).flat()).toContain("convertToText");
-  expect(tableMenuGroups(true, false).flat()).not.toContain("chart");
-  expect(tableMenuGroups(true, true).flat()).toContain("chart");
-  const typed = tableMenuGroups(false, true).flat();
-  expect(typed).not.toContain("openCalculation");
-  expect(typed).not.toContain("convertToText");
+test("the Block menu opens a table with Open calculation card, and keeps it and Convert to text to an Analysis's own", () => {
+  const editor = editorOf(NOTE);
+  intoTable(editor);
+  readMindHandle.current = { editor, mindId: "mind-1" } as unknown as NonNullable<
+    typeof readMindHandle.current
+  >;
+  const unregister = tableCommands.map((command) => commands.register(command));
+  try {
+    const palette = {
+      selection: [],
+      focus: { kind: "mind" as const, id: "mind-1" },
+      surface: "palette" as const,
+    };
+    const shown = () =>
+      buildMenu("block", palette).flatMap((entry) => (isMenuItem(entry) ? [entry.command.id] : []));
+    const analysis = shown();
+    expect(analysis[0]).toBe("table.openCalculation");
+    expect(analysis).toContain("table.convertToText");
+    expect(analysis.at(-1)).toBe("table.delete");
+    convertAnalysisTable(editor);
+    intoTable(editor);
+    const typed = shown();
+    expect(typed).not.toContain("table.openCalculation");
+    expect(typed).not.toContain("table.convertToText");
+    expect(typed).toContain("table.rowBelow");
+  } finally {
+    for (const remove of unregister) remove();
+    readMindHandle.current = null;
+  }
 });
 
 test("the cursor's table says whether it is an Analysis's own", () => {

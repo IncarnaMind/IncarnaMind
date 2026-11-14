@@ -240,7 +240,7 @@ for (const [language, width] of [
     // The table's menu makes the chart, inserted after the Answer.
     await pointAndClick(window, table.locator("td").filter({ hasText: /^Q2$/ }));
     await pointAndClick(window, window.getByTestId("table-menu"));
-    const chartItem = window.getByTestId("table-chart");
+    const chartItem = window.getByTestId("chart.fromTable");
     await expect(chartItem).toHaveText(words.chartFromTable);
     await pointAndClick(window, chartItem);
     const chart = editor.getByTestId("chart");
@@ -410,7 +410,7 @@ for (const [language, width] of [
     const { editor, table } = await askForFigures(window, language, question);
     await pointAndClick(window, table.locator("td").nth(3));
     await pointAndClick(window, window.getByTestId("table-menu"));
-    await pointAndClick(window, window.getByTestId("table-chart"));
+    await pointAndClick(window, window.getByTestId("chart.fromTable"));
     const chart = editor.getByTestId("chart");
     await pointAndClick(window, chart.getByTestId("chart-kind"));
     await pointAndClick(window, window.getByTestId("chart-kind-pie"));
@@ -465,7 +465,7 @@ for (const [language, width] of [
     await expect(table.locator("td").nth(1)).toContainText("$289.4 million");
     await pointAndClick(window, table.locator("td").filter({ hasText: /^Q4$/ }));
     await pointAndClick(window, window.getByTestId("table-menu"));
-    await pointAndClick(window, window.getByTestId("table-chart"));
+    await pointAndClick(window, window.getByTestId("chart.fromTable"));
     const chart = editor.getByTestId("chart");
     await pointAndClick(window, chart.getByTestId("chart-kind"));
     await pointAndClick(window, window.getByTestId("chart-kind-pie"));
@@ -475,7 +475,7 @@ for (const [language, width] of [
     // A fifth quarter, its 2025 typed in without "$" or "million"; then Update.
     await pointAndClick(window, table.locator("td").filter({ hasText: /^Q4$/ }));
     await pointAndClick(window, window.getByTestId("table-menu"));
-    await pointAndClick(window, window.getByTestId("table-actions").getByTestId("table-rowBelow"));
+    await pointAndClick(window, window.getByTestId("table-actions").getByTestId("table.rowBelow"));
     await expect(table.locator("tr")).toHaveCount(6);
     await pointAndClick(window, table.locator("tr").last().locator("td").first());
     await window.keyboard.type("Q5");
@@ -525,7 +525,7 @@ for (const [language, width] of [
     const { editor, table } = await askForFigures(window, language);
     await pointAndClick(window, table.locator("td").filter({ hasText: /^Q2$/ }));
     await pointAndClick(window, window.getByTestId("table-menu"));
-    await pointAndClick(window, window.getByTestId("table-chart"));
+    await pointAndClick(window, window.getByTestId("chart.fromTable"));
     const chart = editor.getByTestId("chart");
     const find = chart.getByTestId("chart-find-uncited");
     const card = window.getByTestId("chart-card");
@@ -576,7 +576,7 @@ for (const [language, width] of [
     // A fifth quarter with no Citations: three to find, one after another and round again.
     await pointAndClick(window, table.locator("td").filter({ hasText: /^Q4$/ }));
     await pointAndClick(window, window.getByTestId("table-menu"));
-    await pointAndClick(window, window.getByTestId("table-actions").getByTestId("table-rowBelow"));
+    await pointAndClick(window, window.getByTestId("table-actions").getByTestId("table.rowBelow"));
     await pointAndClick(window, table.locator("tr").last().locator("td").first());
     await window.keyboard.type("Q5");
     await window.keyboard.press("Tab");
@@ -607,7 +607,7 @@ test("the foot's button works from the keyboard alone, and Esc goes back to it",
   const { editor, table } = await askForFigures(window, "en");
   await pointAndClick(window, table.locator("td").filter({ hasText: /^Q2$/ }));
   await pointAndClick(window, window.getByTestId("table-menu"));
-  await pointAndClick(window, window.getByTestId("table-chart"));
+  await pointAndClick(window, window.getByTestId("chart.fromTable"));
   const chart = editor.getByTestId("chart");
   const find = chart.getByTestId("chart-find-uncited");
   const card = window.getByTestId("chart-card");
@@ -653,7 +653,7 @@ test("a chart cut at 500 values lists every row of its table in Show as table, a
   await expect(table.locator("tr")).toHaveCount(261);
   await pointAndClick(window, table.locator("td").filter({ hasText: /^Day 2$/ }));
   await pointAndClick(window, window.getByTestId("table-menu"));
-  await pointAndClick(window, window.getByTestId("table-chart"));
+  await pointAndClick(window, window.getByTestId("chart.fromTable"));
   const chart = editor.getByTestId("chart");
   await expect(chart.getByTestId("chart-point")).toHaveCount(500);
   await expect(chart.getByTestId("chart-cut")).toHaveText(
@@ -704,7 +704,7 @@ for (const [language, width] of [
     // the cell (its ⋯ shows there).
     await expect(window.getByTestId("table-menu")).toBeVisible();
     await window.keyboard.press("ControlOrMeta+/");
-    const chartItem = window.getByTestId("table-chart");
+    const chartItem = window.getByTestId("chart.fromTable");
     await expect(chartItem).toBeVisible();
     for (let press = 0; press < 12; press++) {
       if (await chartItem.evaluate((element) => element === document.activeElement)) break;
@@ -787,7 +787,7 @@ test("a chart exports to Word as a picture the app draws, with its caption and i
   const { editor, table } = await askForFigures(window, "en");
   await pointAndClick(window, table.locator("td").filter({ hasText: /^Q1$/ }));
   await pointAndClick(window, window.getByTestId("table-menu"));
-  await pointAndClick(window, window.getByTestId("table-chart"));
+  await pointAndClick(window, window.getByTestId("chart.fromTable"));
   await expect(editor.getByTestId("chart").getByTestId("chart-point")).toHaveCount(8);
 
   // The file's bytes, as Export writes them.

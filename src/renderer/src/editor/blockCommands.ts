@@ -1,8 +1,14 @@
-import { Extension } from "@tiptap/core";
+import { type Editor, Extension } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { type EditorState, Plugin, PluginKey, Selection } from "@tiptap/pm/state";
 import { yUndoPluginKey } from "@tiptap/y-tiptap";
-import { ANSWER_BLOCK, BLOCK_ID_ATTRIBUTE, QUESTION_BLOCK } from "../../../core/api";
+import {
+  ANSWER_BLOCK,
+  BLOCK_ID_ATTRIBUTE,
+  INCLUDE_IN_CONTEXT_ATTRIBUTE,
+  NOTE_BLOCK_TYPES,
+  QUESTION_BLOCK,
+} from "../../../core/api";
 
 /** Ends the Undo step being gathered, so the next change starts one of its own. */
 const stopUndoCapturing = (state: EditorState) =>
@@ -35,6 +41,33 @@ export function findBlock(
     if (!found && node.attrs[BLOCK_ID_ATTRIBUTE] === id) found = { node, pos };
   });
   return found;
+}
+
+/**
+ * Whether your text's Block with this ID is in the Question context, or null for a Block that
+ * isn't your text (a Question, an Answer), which has no such flag.
+ */
+export function contextFlag(editor: Editor, id: string): boolean | null {
+  const found = findBlock(editor.state.doc, id);
+  if (!found || !(NOTE_BLOCK_TYPES as readonly string[]).includes(found.node.type.name)) {
+    return null;
+  }
+  return found.node.attrs[INCLUDE_IN_CONTEXT_ATTRIBUTE] !== false;
+}
+
+/** Puts your text's Block with this ID in the Question context, or out of it, as one Undo step. */
+export function setContextFlag(editor: Editor, id: string, included: boolean): void {
+  const found = findBlock(editor.state.doc, id);
+  if (!found) return;
+  editor
+    .chain()
+    .focus()
+    .command(({ tr }) => {
+      // On is the default, so it isn't stored.
+      tr.setNodeAttribute(found.pos, INCLUDE_IN_CONTEXT_ATTRIBUTE, included ? null : false);
+      return true;
+    })
+    .run();
 }
 
 /** The Answer to the Question with this ID, wherever it is in the Mind. */

@@ -1,7 +1,6 @@
 import { type FormEvent, useEffect, useId, useState } from "react";
 import {
   type EmbeddingConnectionTestResult,
-  type EmbeddingProvider,
   type EmbeddingProviderKind,
   type EmbeddingSettings,
   type SaveEmbeddingProviderInput,
@@ -77,20 +76,6 @@ export function cloudServiceOf(kind: EmbeddingProviderKind, baseUrl: string, t: 
   } catch {
     return url;
   }
-}
-
-/** "Off", "Built-in model (multilingual-e5-small)", "OpenAI · text-embedding-3-small". */
-export function embeddingProviderLabel(provider: EmbeddingProvider, t: Translate): string {
-  if (provider.kind === "off") return t("embeddingProviders.settings.off");
-  if (provider.kind === "built-in") {
-    return t("embeddingProviders.settings.builtIn", { model: provider.modelId });
-  }
-  const kind = t(`embeddingProviders.kind.${provider.kind}`);
-  const server =
-    provider.kind === "openai-compatible" || provider.kind === "ollama"
-      ? ` (${provider.service?.name ?? t("providers.settings.local")})`
-      : "";
-  return `${kind}${server} · ${provider.modelId}`;
 }
 
 /**

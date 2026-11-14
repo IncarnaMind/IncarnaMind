@@ -27,9 +27,10 @@ import {
 } from "../core/api";
 import { type RecordCiteNote, shortFormsThrough } from "../core/recordCites/referents";
 import { citedInputs } from "./calculatedFigures";
-import { asCitedNow, type HeldCitation } from "./citedNow";
+import { asCitedNow, citesPassage, type HeldCitation } from "./citedNow";
 import {
   CLAIM_CHECK_FAILURES,
+  checkedCitation,
   checkWithParts,
   keepCheckAsView,
   leftOutByAssistant,
@@ -468,6 +469,35 @@ const LANDED: ReadonlySet<ClaimCheckBasis["state"]> = new Set([
 const backedByCitation = (check: ClaimCheckBasis): boolean =>
   restsOn(check).some((each) => each.documentId !== null);
 
+/**
+ * Whether a Supported or Contradicted result rests on a Passage the sentence's own Citations hold:
+ * it says what the cited Document says, whatever the Note's Search scope (#3087).
+ */
+export function restsOnItsCitation(
+  judged: Pick<ClaimCheckPart, "verdict" | "evidence" | "decidingEvidence">,
+  citations: readonly HeldCitation[],
+  sentence: string,
+): boolean {
+  if (judged.verdict !== "supported" && judged.verdict !== "contradicted") return false;
+  if (judged.decidingEvidence === null) return false;
+  const deciding = checkedCitation(judged.evidence[judged.decidingEvidence ?? 0]);
+  return deciding !== null && citesPassage(citations, deciding, sentence);
+}
+
+/** Whether every verdict of a check rests on the sentence's own Citations (`restsOnItsCitation`). */
+function standsOnItsCitations(
+  check: ClaimCheckBasis,
+  now: Omit<ClaimCheckNow, "footing">,
+): boolean {
+  const judged = check.parts
+    ? check.parts.filter((part) => part.verdict !== null)
+    : [{ verdict: check.state, evidence: check.evidence ? [check.evidence] : [] }];
+  return (
+    judged.length > 0 &&
+    judged.every((each) => restsOnItsCitation(each, now.citations ?? [], now.text))
+  );
+}
+
 /** Whether the check read whole Documents: an absence rests on the Folder's contents, and a move changes them (#2313). */
 function readWholeFolder(check: {
   readDocuments?: readonly ClaimReadDocument[];
@@ -713,7 +743,8 @@ function basisShown(check: ClaimCheckBasis, now: Omit<ClaimCheckNow, "footing">)
     // A carried check searched the Answer's Question, not this Note's scope: moving the Note
     // changes nothing it read (#2313).
     check.fromAnswer === undefined &&
-    scopeChanged(check.scope, now)
+    scopeChanged(check.scope, now) &&
+    !standsOnItsCitations(check, now)
   ) {
     return { state: "needs-recheck", why: "search-scope" };
   }

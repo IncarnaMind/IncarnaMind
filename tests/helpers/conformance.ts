@@ -7,5 +7,4 @@ import type { ObjectKind } from "../../src/renderer/src/objects";
  */
 export const NO_MENU_YET = {
   conversation: "the assistant's History rows, where it would show, have no menus yet (#258)",
-  block: "a Block's menu is the note handle's own, not yet on the shared menu (#608)",
 } as const satisfies Partial<Record<ObjectKind, string>>;

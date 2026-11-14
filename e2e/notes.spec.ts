@@ -128,11 +128,14 @@ test("Esc closes a Block's menu, and the handle then moves on to the Block under
 
   // Opened with the mouse, the menu takes the focus, so Esc closes it.
   await (await slideToHandle(window, paragraphs.nth(0))).click();
-  const menu = window.getByTestId("block-menu");
+  const menu = window.getByTestId("block-actions");
   await expect(menu).toBeVisible();
-  await expect(window.getByTestId("block-menu-context")).toBeFocused();
+  await expect(window.getByTestId("block.includeInContext")).toBeFocused();
   await window.keyboard.press("Escape");
-  await expect(menu).toHaveCount(0);
+  await expect(menu).toBeHidden();
+  // The Note has the focus again: typing goes into the Block the menu was about.
+  await window.keyboard.type("a");
+  await expect(paragraphs.nth(0)).toContainText("a");
 
   // The handle isn't stuck on the first Block: it follows the mouse to the third.
   const handle = await slideToHandle(window, paragraphs.nth(2));
@@ -140,6 +143,17 @@ test("Esc closes a Block's menu, and the handle then moves on to the Block under
   const third = await paragraphs.nth(2).boundingBox();
   if (!grip || !third) throw new Error("The handle or the Block isn't visible.");
   expect(Math.abs(grip.y + grip.height / 2 - (third.y + third.height / 2))).toBeLessThan(4);
+
+  // A right-click ON the grip opens the same menu; a button takes the focus on a right mouse
+  // button too, so Esc must still leave the Note typeable, with the cursor in that Block.
+  await handle.click({ button: "right" });
+  await expect(menu).toBeVisible();
+  await window.keyboard.press("Escape");
+  await expect(menu).toBeHidden();
+  await expect(editor).toBeFocused();
+  await window.keyboard.type("b");
+  await expect(paragraphs.nth(2)).toContainText("b");
+  await expect(paragraphs.nth(0)).not.toContainText("b");
   await app.close();
 });
 
@@ -161,9 +175,9 @@ test("a Block is deleted from its handle's menu, and with the keyboard", async (
 
   // Clicking the handle opens the Block's menu.
   await (await slideToHandle(window, paragraphs.nth(1))).click();
-  await expect(window.getByTestId("block-menu")).toBeVisible();
-  await window.getByTestId("block-menu-delete").click();
-  await expect(window.getByTestId("block-menu")).toHaveCount(0);
+  await expect(window.getByTestId("block-actions")).toBeVisible();
+  await window.getByTestId("block.delete").click();
+  await expect(window.getByTestId("block-actions")).toBeHidden();
   await expect(paragraphs).toHaveText(["Keep", "Delete with the keyboard"]);
 
   // Cmd/Ctrl+Shift+Backspace deletes the Block the cursor is in.

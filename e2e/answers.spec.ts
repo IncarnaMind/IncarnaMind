@@ -79,7 +79,7 @@ test("a Question asked in the assistant gets an Answer that streams in there, an
     .getByTestId("mind-editor")
     .locator(":scope > p", { hasText: "scripted" });
   await (await slideToHandle(second.window, added.first())).click();
-  await pointAndClick(second.window, second.window.getByTestId("block-menu-open-conversation"));
+  await pointAndClick(second.window, second.window.getByTestId("block.openSource"));
   const restored = assistantAnswers(second.window).first();
   await expect(restored).toHaveAttribute("data-status", "done");
   await expect(restored).toContainText("That is all.");
@@ -101,7 +101,7 @@ test("a Note switched out of Question context looks muted, and asking without a 
   // The Block menu switches the Note out of Question context.
   const sideNote = editor.locator("p").first();
   await (await slideToHandle(window, sideNote)).click();
-  const toggle = window.getByTestId("block-menu-context");
+  const toggle = window.getByTestId("block.includeInContext");
   await expect(toggle).toHaveAttribute("aria-checked", "true");
   await toggle.click();
   await expect(sideNote).toHaveClass(/context-off/);
@@ -153,7 +153,7 @@ test("in a Mind written before the assistant, a Question and its Answer are drag
 
   // Deleting the Question from its menu deletes its Answer too.
   await (await slideToHandle(window, question)).click();
-  await window.getByTestId("block-menu-delete").click();
+  await window.getByTestId("block.delete").click();
   await expect.poll(order).toEqual(["Intro", "Next thought", "Later"]);
   await app.close();
 });

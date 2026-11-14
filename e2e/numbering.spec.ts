@@ -9,7 +9,6 @@ import {
   launchApp,
   motionSettled,
   newMind,
-  openBlockMenuFor,
   pointAndClick,
   removeDataFolder,
   setLanguage,
@@ -534,7 +533,7 @@ for (const { language, width, items: words } of SETTINGS) {
     expect(eleventh.markerRight).toBeLessThanOrEqual(eleventh.textLeft - 8 + 0.5);
     // The handle stays 4px before the room's left edge, where the number starts.
     await itemText(items(editor).nth(10)).hover();
-    const handle = window.getByTestId("block-handle");
+    const handle = window.getByTestId("block-menu");
     await expect(handle).toBeVisible();
     const handleBox = await handle.boundingBox();
     expect(
@@ -635,7 +634,7 @@ for (const { language, width } of SETTINGS) {
     );
 
     // The handle stays 4px before the room's left edge, where the number starts.
-    const handle = window.getByTestId("block-handle");
+    const handle = window.getByTestId("block-menu");
     await itemText(listed.nth(11)).hover();
     await expect(handle).toBeVisible();
     const at = await drawn(listed.nth(11));
@@ -656,7 +655,7 @@ for (const { language, width } of SETTINGS) {
       note.commands.setTextSelection(tenth + 2);
     });
     await window.keyboard.press("Shift+F10");
-    const menu = window.getByTestId("block-menu");
+    const menu = window.getByTestId("block-actions");
     await expect(menu).toBeVisible();
     const [menuBox, item10, item1] = [
       await box(menu),
@@ -668,7 +667,7 @@ for (const { language, width } of SETTINGS) {
       "the keyboard menu opens by item 10, not the list's first item",
     ).toBeLessThan(Math.abs(menuBox.y - item1.y));
     await window.keyboard.press("Escape");
-    await expect(menu).toHaveCount(0);
+    await expect(menu).toBeHidden();
 
     // A clauses list's second level numbers in Roman: "(iv)" widens its own list's room, alone.
     const clauses = editor.locator(":scope > ol").nth(1);
@@ -691,44 +690,6 @@ for (const { language, width } of SETTINGS) {
       );
     }
 
-    // A command can name another Block while the caret is in a different list: the menu goes
-    // by the named Block's first line, never by the caret's item.
-    const named = await editor.evaluate((dom) => {
-      const note = (dom as unknown as { editor: Editor }).editor;
-      let id: string | null = null;
-      note.state.doc.forEach((node) => {
-        const found: unknown = node.attrs.id;
-        if (id === null && node.type.name === "orderedList" && typeof found === "string") {
-          id = found;
-        }
-      });
-      return id;
-    });
-    if (named === null) throw new Error("The list has no Block ID.");
-    await editor.evaluate((dom) => {
-      const note = (dom as unknown as { editor: Editor }).editor;
-      const items: { pos: number; text: string }[] = [];
-      note.state.doc.descendants((node, pos) => {
-        if (node.type.name === "listItem") items.push({ pos, text: node.textContent });
-        return true;
-      });
-      const fourth = items.find((item) => item.text === "Roman 4");
-      if (!fourth) throw new Error("No fourth Roman item.");
-      note.commands.setTextSelection(fourth.pos + 2);
-    });
-    await openBlockMenuFor(window, named);
-    await expect(menu).toBeVisible();
-    const [namedMenu, namedFirst, caretItem] = [
-      await box(menu),
-      await box(listed.first()),
-      await box(roman.nth(3)),
-    ];
-    expect(
-      Math.abs(namedMenu.y - namedFirst.y),
-      "a command naming another Block anchors at that Block, not at the caret's item in another list",
-    ).toBeLessThan(Math.abs(namedMenu.y - caretItem.y));
-    await window.keyboard.press("Escape");
-    await expect(menu).toHaveCount(0);
     await app.close();
   });
 }

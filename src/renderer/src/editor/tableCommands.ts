@@ -1,5 +1,5 @@
 import { type Editor, Extension, type JSONContent } from "@tiptap/core";
-import { type EditorState, Plugin, PluginKey, TextSelection } from "@tiptap/pm/state";
+import type { EditorState } from "@tiptap/pm/state";
 import {
   CellSelection,
   cellAround,
@@ -250,11 +250,8 @@ export function emptyTable(rows = 3, columns = 3): JSONContent {
 }
 
 export interface TableKeysStorage {
-  /**
-   * Opens the table menu (see `TableMenu`, which sets it), on the cell the
-   * cursor is in; `buttons`: the mouse buttons still held, for a right-click.
-   */
-  openMenu: ((buttons: number) => void) | null;
+  /** Opens the table menu (see `TableMenu`, which sets it), on the cell the cursor is in. */
+  openMenu: (() => void) | null;
 }
 
 declare module "@tiptap/core" {
@@ -265,8 +262,7 @@ declare module "@tiptap/core" {
 
 /**
  * Tab and Shift-Tab never take the focus out of the Mind from a table (as
- * Shift-Tab at its first cell would), and a right-click in a cell opens the
- * table menu there. The menu's keys are commands, in ../commands/tables.
+ * Shift-Tab at its first cell would). The table menu's keys are commands, in ../commands/tables.
  */
 export const TableKeys = Extension.create<Record<string, never>, TableKeysStorage>({
   name: "tableKeys",
@@ -281,66 +277,4 @@ export const TableKeys = Extension.create<Record<string, never>, TableKeysStorag
     const inTable = () => isInTable(this.editor.state);
     return { Tab: inTable, "Shift-Tab": inTable };
   },
-
-  addProseMirrorPlugins() {
-    const storage = this.storage;
-    return [
-      new Plugin({
-        key: new PluginKey("tableRightClick"),
-        props: {
-          handleDOMEvents: {
-            contextmenu: (view, event) => {
-              const open = storage.openMenu;
-              if (!open || !view.editable) return false;
-              const at = view.posAtCoords({ left: event.clientX, top: event.clientY });
-              const $cell = at && cellAround(view.state.doc.resolve(at.pos));
-              if (!at || !$cell) return false;
-              event.preventDefault();
-              const { selection } = view.state;
-              let onSelection = false;
-              if (selection instanceof CellSelection) {
-                selection.forEachCell((_cell, pos) => {
-                  if (pos === $cell.pos) onSelection = true;
-                });
-              } else {
-                const cellEnd = $cell.pos + ($cell.nodeAfter?.nodeSize ?? 0);
-                onSelection = selection.from > $cell.pos && selection.to < cellEnd;
-              }
-              if (!onSelection) {
-                view.dispatch(
-                  view.state.tr.setSelection(TextSelection.near(view.state.doc.resolve(at.pos))),
-                );
-              }
-              view.focus();
-              open(event.buttons);
-              return true;
-            },
-          },
-        },
-      }),
-    ];
-  },
 });
-
-// Open first, as every object's menu has it (docs/agents/interaction.md, rule 5).
-const MENU_GROUPS: readonly (readonly (TableActionId | "chart")[])[] = [
-  ["openCalculation"],
-  ["rowAbove", "rowBelow", "columnLeft", "columnRight"],
-  ["headerRow", "totalRow", "totalColumn"],
-  ["chart", "convertToText"],
-  ["deleteRow", "deleteColumn", "deleteTable"],
-];
-
-/**
- * The table menu's groups, each item on its own (#2378): only an Analysis's own table has a
- * calculation to open or convert to text, whatever else the table can do; Chart from table shows
- * where the table can be charted.
- */
-export function tableMenuGroups(
-  analysis: boolean,
-  chartable: boolean,
-): (TableActionId | "chart")[][] {
-  const shows = (id: TableActionId | "chart") =>
-    id === "chart" ? chartable : (id !== "openCalculation" && id !== "convertToText") || analysis;
-  return MENU_GROUPS.map((group) => group.filter(shows)).filter((group) => group.length > 0);
-}

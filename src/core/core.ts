@@ -2369,7 +2369,6 @@ export function createCore(adapters: CoreAdapters): Core {
     otherCallTranscripts: (mindId) => otherCallTranscripts(db, mindId),
     helpFormJudged: () => adapters.helpFormJudged?.() ?? false,
     quotesAsGiven: () => adapters.quotesAsGiven?.() ?? false,
-    helpMarksQuoteOnly: () => adapters.helpMarksQuoteOnly?.() ?? false,
     callsUnmarked: () => adapters.callsUnmarked?.() ?? false,
     providerExists: (providerId) => chat.exists(providerId),
     checkAnswer: (input) => checks.checkAnswer(input),
