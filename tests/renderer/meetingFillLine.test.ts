@@ -284,8 +284,11 @@ describe("meeting notes with omitted items", () => {
   });
 
   test.each([
-    ["en", "No notes added · 2 items couldn’t be added · View Transcript · Try again"],
-    ["zh-CN", "未添加笔记 · 2 项内容未能添加 · 查看转写稿 · 重试"],
+    [
+      "en",
+      "The note wasn’t filled in: the model couldn’t fill in the notes. · 2 items couldn’t be added · View Transcript · Try again",
+    ],
+    ["zh-CN", "未能补全笔记：模型未能补全笔记。· 2 项内容未能添加 · 查看转写稿 · 重试"],
   ] as const)(
     "with no safe additions in %s, never claims the notes were filled or offers Undo",
     async (language, text) => {
@@ -314,25 +317,63 @@ describe("meeting notes with omitted items", () => {
   );
 });
 
-describe("meeting notes retained before a later failure", () => {
+describe("meeting notes that weren't filled in", () => {
+  // protects=a note that wasn't filled in writes its reason on the line, in the interface's words now, where the keyboard reaches it and not only on hover: none of what the model wrote could be checked, or it found nothing to add (#3099); fails_when=the reason is hover text only, says only that the model couldn't fill in the notes, or keeps the language it was stored in; no_claim=which reason the core records, which tests/core/meetingFill.test.ts covers.
   test.each([
-    ["en", "Note partly filled in · View Transcript · Undo"],
-    ["zh-CN", "笔记未能全部补全 · 查看转写稿 · 撤销"],
+    [
+      "en",
+      "unchecked",
+      12,
+      "The note wasn’t filled in: none of what the model wrote could be checked against the transcript. · 12 items couldn’t be added · View Transcript · Try again",
+    ],
+    [
+      "zh-CN",
+      "unchecked",
+      12,
+      "未能补全笔记：模型写的内容都没能在转写稿中核对上。· 12 项内容未能添加 · 查看转写稿 · 重试",
+    ],
+    ["en", "empty", 0, "The note wasn’t filled in: the model found nothing to add. · Try again"],
+    ["zh-CN", "empty", 0, "未能补全笔记：模型没有找到可补充的内容。· 重试"],
   ] as const)(
-    "with no known counts in %s, reports partial results without provider text",
-    async (language, text) => {
+    "in %s, one whose reason is %s says why on the line",
+    async (language, kind, omitted, text) => {
       actions.language.current = language;
+      const stored = translate(language === "en" ? "zh-CN" : "en", `meetings.fill.problem.${kind}`);
+      const meeting = meetingOf(
+        fillOf({ state: "failed", omitted, problem: { kind, message: stored } }),
+      );
+      const line = await show(meeting);
+      expect(line?.textContent).toBe(text);
+      expect(line?.getAttribute("role")).toBe("alert");
+      expect(line?.getAttribute("title")).toBeNull();
+      await click("meeting-fill-again");
+      expect(actions.fillNotes.mock.calls).toEqual([[meeting.id]]);
+    },
+  );
+});
+
+describe("meeting notes retained before a later failure", () => {
+  // protects=a filled note with a problem recorded but nothing left out is whole: it never reads "partly filled in", and the page stays bare once no editor holds the fill (#3099); fails_when=a whole note shows the partly line; no_claim=when the core records a problem, which tests/core/meetingFacts.test.ts covers.
+  test.each(["en", "zh-CN"] as const)(
+    "with nothing left out in %s, a problem alone never reads as partly filled in",
+    async (language) => {
+      actions.language.current = language;
+      const { holdFillSteps } = await import("../../src/renderer/src/meetingFillSteps");
       for (const counts of [{}, { omitted: 0, unfinishedParts: 0 }]) {
-        const line = await show(
-          meetingOf(
-            fillOf({
-              ...counts,
-              problem: { kind: "model", message: "private provider diagnostic" },
-            }),
-          ),
+        const meeting = meetingOf(
+          fillOf({
+            ...counts,
+            problem: { kind: "model", message: "private provider diagnostic" },
+          }),
         );
-        expect(line?.textContent).toBe(text);
-        expect(line?.getAttribute("title")).toBeNull();
+        const release = holdFillSteps(meeting.id, EDITOR, heldSteps());
+        const held = await show(meeting);
+        expect(held?.textContent).toBe(
+          language === "en" ? "Note filled in from the call · Undo" : "已补全笔记 · 撤销",
+        );
+        expect(held?.getAttribute("title")).toBeNull();
+        await act(async () => release());
+        expect(await show(meeting)).toBeNull();
       }
     },
   );
@@ -352,21 +393,22 @@ describe("meeting notes retained before a later failure", () => {
   });
 
   test.each([
-    ["en", "Note partly filled in · View Transcript · Undo"],
-    ["zh-CN", "笔记未能全部补全 · 查看转写稿 · 撤销"],
+    ["en", "Note partly filled in · 1 item couldn’t be added · View Transcript · Undo"],
+    ["zh-CN", "笔记未能全部补全 · 1 项内容未能添加 · 查看转写稿 · 撤销"],
   ] as const)(
-    "unknown-size malformed output in %s has no invented item or part count",
+    "a malformed part that was dropped counts among the items that couldn't be added, in %s",
     async (language, text) => {
       actions.language.current = language;
       const line = await show(
         meetingOf(
           fillOf({
+            omitted: 1,
             problem: { kind: "model", message: "Malformed frame with no known item identity" },
           }),
         ),
       );
       expect(line?.textContent).toBe(text);
-      expect(line?.textContent).not.toMatch(/\d|quote|引用/);
+      expect(line?.textContent).not.toMatch(/quote|引用/);
     },
   );
 });
@@ -792,7 +834,7 @@ describe("meeting-fill Undo notice", () => {
   test.each([
     { omitted: 1 },
     { unfinishedParts: 2 },
-    { problem: { kind: "model", message: "Unknown-size malformed frame" } },
+    { omitted: 1, problem: { kind: "model", message: "A malformed part was dropped" } },
   ] satisfies Partial<MeetingFill>[])(
     "retained partial results %j have an honest notice and one Undo",
     async (fill) => {
@@ -811,10 +853,14 @@ describe("meeting-fill Undo notice", () => {
     },
   );
 
-  test.each(["meeting", "memo"] as const)(
-    "a complete %s keeps its ordinary completion notice",
-    (kind) => {
-      completed({ ...meetingOf(fillOf()), kind });
+  test.each([
+    ["meeting", null],
+    ["memo", null],
+    ["meeting", { kind: "model", message: "the model couldn’t fill in the notes." }],
+  ] as const)(
+    "a complete %s keeps its ordinary completion notice (problem: %j)",
+    (kind, problem) => {
+      completed({ ...meetingOf(fillOf({ problem })), kind });
       const change = actions.push.mock.calls[0]?.[0];
       if (!change) throw new Error("No Undo offered for completed additions");
       expect(said(change, "en")).toBe(

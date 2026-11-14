@@ -1578,7 +1578,7 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
         },
       );
       const fill = await settledFill(core, meeting);
-      expect(fill).toMatchObject({ state: "failed", problem: { kind: "model", message: reason } });
+      expect(fill).toMatchObject({ state: "failed", problem: { kind: "empty", message: reason } });
       core.close();
     },
   );
@@ -1611,7 +1611,11 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
       );
       const before = exactly(client);
       const fill = await settledFill(core, meeting);
-      expect(fill).toMatchObject({ state: "failed", problem: { kind: "model", message: reason } });
+      expect(fill).toMatchObject({
+        state: "failed",
+        omitted: 2,
+        problem: { kind: "unchecked", message: reason },
+      });
       expect(exactly(client)).toEqual(before);
       core.close();
     },
@@ -2657,7 +2661,12 @@ for (const call of CALLS) {
         );
         const before = exactly(client);
         const fill = await settledFill(core, meeting);
-        expect(fill).toMatchObject({ state: "filled" });
+        expect(fill).toMatchObject({
+          state: "filled",
+          omitted: 0,
+          unfinishedParts: 0,
+          problem: null,
+        });
         await vi.waitFor(() => expect(shown(client)).toContain(ai(written.ACTIONS)));
         expect(shown(client).filter((line) => line === ai(written.ACTIONS))).toHaveLength(1);
         expect(shown(client)).toContain(`«${titles[2]}»`);
@@ -2934,7 +2943,7 @@ for (const call of CALLS) {
           state: target === "H1" ? "failed" : "filled",
           mode: "notes",
         });
-        if (target === "H1") expect(fill.problem?.kind).toBe("model");
+        if (target === "H1") expect(fill.problem?.kind).toBe("unchecked");
         else {
           const lines = shown(client);
           expect(lines.indexOf(ai(written.L1))).toBe(lines.indexOf(`«${call.topics.price}»`) + 1);

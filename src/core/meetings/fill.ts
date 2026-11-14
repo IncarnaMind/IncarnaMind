@@ -638,19 +638,16 @@ export function createMeetingFill(options: MeetingFillOptions) {
         ...parsed.facts.flatMap((fact) => fact.sections.map((section) => section.toUpperCase())),
         ...(parsed.facts.some((fact) => fact.claim) ? ["CLAIMS"] : []),
       ];
+      // A section that no heading of the User's can take goes under its own title with every fact:
+      // nothing is missing, so it isn't a problem (#3099).
       const routed = headingRoutes(answer.markdown, markers, lines);
-      if (routed === null) {
-        problem ??= { kind: "model", message: words("meetings.fill.problem.model") };
-        log.warn("meeting.fillRoutingFailed", { meetingId: meeting.id });
-      }
+      if (routed === null) log.warn("meeting.fillRoutingFailed", { meetingId: meeting.id });
       for (const [section, heading] of routed ?? []) {
         const conflicts =
           (destinations.has(section) && destinations.get(section) !== heading) ||
           [...destinations].some(([other, target]) => other !== section && target === heading);
-        if (conflicts) {
-          problem ??= { kind: "model", message: words("meetings.fill.problem.model") };
-          log.warn("meeting.fillRoutingFailed", { meetingId: meeting.id });
-        } else destinations.set(section, heading);
+        if (conflicts) log.warn("meeting.fillRoutingFailed", { meetingId: meeting.id });
+        else destinations.set(section, heading);
       }
       if (answer.status === "failed") {
         unfinishedParts = parts.length - index;
@@ -670,7 +667,8 @@ export function createMeetingFill(options: MeetingFillOptions) {
       });
     }
     const { overview } = ledger;
-    const omitted = ledger.omitted(unfinishedParts === 0);
+    // A malformed part has no id to count it by, but it was left out all the same (#3099).
+    const omitted = ledger.omitted(unfinishedParts === 0) + ledger.invalidFrames;
     if (omitted > 0) {
       log.warn("meeting.fillItemsOmitted", {
         meetingId: meeting.id,
@@ -681,14 +679,10 @@ export function createMeetingFill(options: MeetingFillOptions) {
     set(meeting.id, { omitted, unfinishedParts });
     if (ledger.facts.length === 0 && overview === null) {
       throw new FillProblemError(
-        problem ?? {
-          kind: "model",
-          message: words(
-            ledger.omitted(false) > 0
-              ? "meetings.fill.problem.unchecked"
-              : "meetings.fill.problem.empty",
-          ),
-        },
+        problem ??
+          (ledger.omitted(false) > 0
+            ? { kind: "unchecked", message: words("meetings.fill.problem.unchecked") }
+            : { kind: "empty", message: words("meetings.fill.problem.empty") }),
       );
     }
     const retained = ledger.facts;
@@ -811,7 +805,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
     }
     const note = tidiedNote(replies);
     if (note.paragraphs.length === 0) {
-      throw new FillProblemError({ kind: "model", message: words("meetings.fill.problem.empty") });
+      throw new FillProblemError({ kind: "empty", message: words("meetings.fill.problem.empty") });
     }
     const said = passages.map((passage) => passage.text).join("\n");
     const added = wordsAdded(note.paragraphs.map(textOf).join("\n"), said);

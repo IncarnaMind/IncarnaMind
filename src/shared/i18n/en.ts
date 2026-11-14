@@ -6964,7 +6964,6 @@ export const en = {
   "meetings.fill.fillingLocal": "Filling in the note on this computer…",
   "meetings.fill.filled": "Note filled in from the call",
   "meetings.fill.partial": "Note partly filled in",
-  "meetings.fill.noAdditions": "No notes added",
   "meetings.fill.omitted.one": "{count} item couldn’t be added",
   "meetings.fill.omitted": "{count} items couldn’t be added",
   "meetings.fill.unfinishedParts.one": "{count} Transcript part couldn’t be finished",

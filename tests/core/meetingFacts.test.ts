@@ -194,14 +194,19 @@ async function capture(
 }
 
 for (const language of ["en", "zh-CN"] as const) {
+  // protects=a reply whose heading the note can't take, or with one malformed part, still writes every checked fact once; only the dropped part counts among the items that couldn't be added, and a section under its own title is no problem (#3099); fails_when=a fact is lost or doubled, the malformed part goes uncounted, or a whole note records a problem; no_claim=the line's and the notification's words, which tests/core/meetingFillNotifications.test.ts and tests/renderer/meetingFillLine.test.ts cover.
   test.each(["malformedFrame", "badRouting"] as const)(
-    `a %s failure is disclosed without inventing an omitted fact count (${language})`,
+    `a %s reply keeps every checked fact, and only a dropped part counts as left out (${language})`,
     async (failure) => {
       const { core, meeting, client, before, fill, words } = await capture(language, {
         [failure]: true,
       });
       try {
-        expect(fill).toMatchObject({ state: "filled", omitted: 0, problem: { kind: "model" } });
+        expect(fill).toMatchObject(
+          failure === "malformedFrame"
+            ? { state: "filled", omitted: 1, unfinishedParts: 0, problem: { kind: "model" } }
+            : { state: "filled", omitted: 0, unfinishedParts: 0, problem: null },
+        );
         for (const full of [words.decision, words.first, words.second]) {
           expect(readMind(client).textContent.split(full)).toHaveLength(2);
         }

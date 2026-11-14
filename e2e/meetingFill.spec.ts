@@ -72,7 +72,8 @@ const LINES = {
     decisions: "Decisions",
     actions: "Action items",
     partial: "Note partly filled in",
-    noAdditions: "No notes added",
+    notFilled:
+      "The note wasn’t filled in: none of what the model wrote could be checked against the transcript.",
     omittedOne: "1 item couldn’t be added",
     omittedTwo: "2 items couldn’t be added",
     transcript: "View Transcript",
@@ -93,7 +94,7 @@ const LINES = {
     decisions: "决定",
     actions: "待办",
     partial: "笔记未能全部补全",
-    noAdditions: "未添加笔记",
+    notFilled: "未能补全笔记：模型写的内容都没能在转写稿中核对上。",
     omittedOne: "1 项内容未能添加",
     omittedTwo: "2 项内容未能添加",
     transcript: "查看转写稿",
@@ -275,7 +276,7 @@ async function ownTranscriptRoundTrip(
   });
   try {
     const serialized = await retained.evaluate(({ document }) => JSON.stringify(document));
-    for (const status of [words.filled, words.partial, words.noAdditions]) {
+    for (const status of [words.filled, words.partial, words.notFilled]) {
       expect(serialized).not.toContain(status);
     }
     await expect(panel.getByTestId("meeting-view-chip")).toHaveText(words.recordedChip);
@@ -480,10 +481,9 @@ for (const language of ["en", "zh-CN"] as const) {
         }, language);
         await pointAndClick(window, bar.getByTestId("meeting-stop"));
         const line = window.getByTestId("meeting-fill-line");
-        await expect(line).toContainText(
-          outcome === "partial" ? words.partial : words.noAdditions,
-          { timeout: 30_000 },
-        );
+        await expect(line).toContainText(outcome === "partial" ? words.partial : words.notFilled, {
+          timeout: 30_000,
+        });
         await expect(line).toContainText(
           outcome === "partial" ? words.omittedOne : words.omittedTwo,
         );
@@ -593,7 +593,7 @@ for (const language of ["en", "zh-CN"] as const) {
             await expect
               .poll(() => attempt.evaluate(({ observed }) => observed), { timeout: 30_000 })
               .toEqual({ filling: true, failed: true });
-            await expect(line).toContainText(words.noAdditions);
+            await expect(line).toContainText(words.notFilled);
             await expect(line).toContainText(words.omittedTwo);
             await expect(line).not.toContainText(words.filled);
             await expect(line).toHaveAttribute("role", "alert");

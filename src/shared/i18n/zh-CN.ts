@@ -6579,7 +6579,6 @@ export const zhCN = {
   "meetings.fill.fillingLocal": "正在这台电脑上补全笔记…",
   "meetings.fill.filled": "已补全笔记",
   "meetings.fill.partial": "笔记未能全部补全",
-  "meetings.fill.noAdditions": "未添加笔记",
   "meetings.fill.omitted.one": "{count} 项内容未能添加",
   "meetings.fill.omitted": "{count} 项内容未能添加",
   "meetings.fill.unfinishedParts.one": "{count} 段转写稿未处理完",

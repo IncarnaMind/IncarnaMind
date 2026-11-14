@@ -12,6 +12,8 @@ import { useTabPlace } from "./tabs/tabItems";
 
 const REASONS = {
   model: "meetings.fill.problem.model",
+  empty: "meetings.fill.problem.empty",
+  unchecked: "meetings.fill.problem.unchecked",
   stopped: "meetings.fill.problem.stopped",
   "local-mode": "meetings.fill.problem.localMode",
   "not-allowed": "meetings.fill.problem.notAllowed",
@@ -193,7 +195,7 @@ export function MeetingFillLine({ meeting, editor }: { meeting: Meeting; editor?
         }
         also={filled ? undo : again(t("meetings.fill.tryAgain"))}
       >
-        {t(filled ? "meetings.fill.partial" : "meetings.fill.noAdditions")}
+        {filled ? t("meetings.fill.partial") : t(words.failed, { reason: reasonOf(fill.problem) })}
       </ProblemLine>
     );
   }
