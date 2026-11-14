@@ -8,11 +8,15 @@ import { findBlock } from "./blockCommands";
 
 const openNotes = new Set<Editor>();
 
+/** Every open note holding the Block: the same Note open in two panes is held by two editors. */
+export function notesHolding(blockId: string): Editor[] {
+  return [...openNotes].filter(
+    (editor) => !editor.isDestroyed && findBlock(editor.state.doc, blockId) !== null,
+  );
+}
+
 export function noteHolding(blockId: string): Editor | null {
-  for (const editor of openNotes) {
-    if (!editor.isDestroyed && findBlock(editor.state.doc, blockId)) return editor;
-  }
-  return null;
+  return notesHolding(blockId)[0] ?? null;
 }
 
 /** The note the element is in, whose own undo ⌘Z reaches there. */

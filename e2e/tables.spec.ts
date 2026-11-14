@@ -187,7 +187,12 @@ for (const language of ["en", "zh-CN"] as const) {
 
     // ⌘/ opens it from the keyboard, and Esc goes back to the cell; the arrows reach "Delete
     // column", and Enter does it.
-    await clickCell(table.locator("tr").first().locator("th").nth(2));
+    const heading = table.locator("tr").first().locator("th").nth(2);
+    await clickCell(heading);
+    // The ⋯ goes with the cell's focus, so the focus can't be left on it: ⌘/ is the keyboard's way.
+    await button.focus();
+    await expect(button).toBeHidden();
+    await clickCell(heading);
     await window.keyboard.press("ControlOrMeta+/");
     await expect(menu).toBeVisible();
     await expect(menu.getByTestId("table.rowAbove")).toBeFocused();

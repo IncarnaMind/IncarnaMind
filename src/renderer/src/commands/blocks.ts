@@ -2,7 +2,7 @@ import type { Editor } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import type { CommandId } from "../../../shared/commands";
 import { contextFlag, setContextFlag } from "../editor/blockCommands";
-import { blockAt, noteHolding } from "../editor/noteKeymap";
+import { blockAt, notesHolding } from "../editor/noteKeymap";
 import { readMindHandle } from "./handles";
 import type { Command, CommandContext } from "./registry";
 
@@ -12,7 +12,9 @@ import type { Command, CommandContext } from "./registry";
  */
 export function blockIn(ctx: CommandContext): { editor: Editor; id: string } | null {
   if (ctx.focus?.kind === "block") {
-    const editor = noteHolding(ctx.focus.id);
+    // The Note open in two panes is held by two editors; the key acts in the one it was pressed in.
+    const holding = notesHolding(ctx.focus.id);
+    const editor = holding.find((each) => each.view.hasFocus()) ?? holding[0];
     return editor ? { editor, id: ctx.focus.id } : null;
   }
   const inFront = readMindHandle.current;
