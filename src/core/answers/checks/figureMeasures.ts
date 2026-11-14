@@ -157,38 +157,71 @@ export function tableAt(
   head: number;
   end: number;
 } | null {
-  const lineStart = text.lastIndexOf("\n", at - 1) + 1;
-  const { lines, numbered } = rowsOf(text);
-  const index = text.slice(0, lineStart).split("\n").length - 1;
+  const { lines, starts, lineAt, runOf } = linesOf(text);
+  const index = lineAt(at);
   const line = lines[index] ?? "";
   if (!isRow(line)) return null;
-  // A reader writes no line for a blank row, so two tables can run on as one: a row with no
-  // number (a heading, a rule, a caption) starts the number's own table, and the rows of no number
-  // just above it are its headings.
-  let top = index;
-  while (top > 0 && numbered(top - 1)) top--;
-  let head = top;
-  while (head > 0 && isRow(lines[head - 1] ?? "") && !numbered(head - 1)) head--;
-  let end = index;
-  while (numbered(end + 1)) end++;
-  return { lines, index, column: cellAt(line, at - lineStart), top, head, end };
+  return { lines, index, column: cellAt(line, at - (starts[index] ?? 0)), ...runOf(index) };
 }
 
-// The unit check reads a long table's rows for each of its numbers it meets: each row once.
-const rowsOf = memoized(
+/**
+ * `text`'s lines, where each starts, and which holds an offset, read once for all the numbers of a
+ * long table the unit check meets; with the run of rows around a row (`tableAt`).
+ */
+export const linesOf = memoized(
   4,
   (text: string) => text,
   (text: string) => {
     const lines = text.split("\n");
+    const starts: number[] = [];
+    let offset = 0;
+    for (const line of lines) {
+      starts.push(offset);
+      offset += line.length + 1;
+    }
+    const lineAt = (at: number): number => {
+      let [low, high] = [0, starts.length - 1];
+      while (low < high) {
+        const middle = Math.ceil((low + high) / 2);
+        if ((starts[middle] ?? 0) <= at) low = middle;
+        else high = middle - 1;
+      }
+      return low;
+    };
     const known = new Map<number, boolean>();
+    const cells = new Map<string, boolean>();
+    const holds = (cell: string) => {
+      const found = cells.get(cell) ?? holdsNumber(cell);
+      cells.set(cell, found);
+      return found;
+    };
+    // A row's numbers stand mostly to the right of its label, so its cells are read from the right.
     const numbered = (at: number): boolean => {
       const row = lines[at];
       if (row === undefined) return false;
-      const found = known.get(at) ?? (isRow(row) && cellsOf(row).some(holdsNumber));
+      const found = known.get(at) ?? (isRow(row) && cellsOf(row).reverse().some(holds));
       known.set(at, found);
       return found;
     };
-    return { lines, numbered };
+    const runs = new Map<number, { top: number; head: number; end: number }>();
+    // A reader writes no line for a blank row, so two tables can run on as one: a row with no
+    // number (a heading, a rule, a caption) starts the number's own table, and the rows of no
+    // number just above it are its headings.
+    const runOf = (index: number) => {
+      const read = runs.get(index);
+      if (read) return read;
+      let top = index;
+      while (top > 0 && numbered(top - 1)) top--;
+      let head = top;
+      while (head > 0 && isRow(lines[head - 1] ?? "") && !numbered(head - 1)) head--;
+      let end = index;
+      while (numbered(end + 1)) end++;
+      const run = { top, head, end };
+      // Every row of a run of numbered rows has the same run; a row of no number has its own.
+      if (numbered(index)) for (let at = top; at <= end; at++) runs.set(at, run);
+      return run;
+    };
+    return { lines, starts, lineAt, runOf };
   },
 );
 
@@ -250,14 +283,20 @@ export function possibleLabels(table: Table, units = -1): string[] {
 }
 
 /**
- * The cells of its row that label `table`'s number: the nearest that may name it, a note number
- * and all ("原煤产量（万吨）（注1）"), and its cell of the table's units column.
+ * The cells of its row that label `table`'s number for its unit: the nearest that may name it, a
+ * note number and all ("原煤产量（万吨）（注1）"), where a cell left of the number holds a bracket
+ * or a slash, and its cell of the table's units column.
  */
 export function rowLabels(table: Table): { label: string; unit: string } {
   const units = unitsColumn(table);
   const cells = cellsOf(table.lines[table.index] ?? "");
+  // Only a bracket or a slash states a unit in a label, and a long table's labels mostly hold none:
+  // reading each to find which is the number's would cost its every row a figure reading.
+  const marked = cells
+    .slice(0, table.column)
+    .some((cell, at) => at !== units && /[(（[［【〔/／]/u.test(cell));
   return {
-    label: possibleLabels(table, units)[0] ?? "",
+    label: marked ? (possibleLabels(table, units)[0] ?? "") : "",
     unit: units >= 0 && units !== table.column ? (cells[units] ?? "") : "",
   };
 }

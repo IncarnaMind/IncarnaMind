@@ -19,6 +19,7 @@ import {
   unsaidDollars,
   writesMeasure,
 } from "../../../shared/figures";
+import { memoized } from "../../../shared/memo";
 import { INTEGER_WORDS, NUMBER_WORD, SCALES, wholeNumberWords } from "../../../shared/numberWords";
 import type { TextRange } from "../../../shared/quoteMatch";
 import { documentFigureContext, mayLeaveOut } from "../calculations";
@@ -26,6 +27,7 @@ import {
   type CellNames,
   cellNames,
   isRow,
+  linesOf,
   ownNames,
   possibleLabels,
   rowLabels,
@@ -174,6 +176,8 @@ function figuresToCheck(claim: string, context: FigureContext): Figure[] {
 interface Read {
   text: CheckedText;
   cited: string;
+  document: string | null;
+  stated: StatedUnit[] | null;
   context: FigureContext;
   figures: Figure[];
   named: Set<string> | null;
@@ -183,11 +187,16 @@ interface Read {
   language: string | null;
 }
 
+const documentOf = (each: Read) => (each.document ??= each.text.document());
+
+const statedInDocument = (each: Read) =>
+  (each.stated ??= readStatedUnits(documentOf(each), each.context));
+
 const namedInCited = (each: Read) =>
   (each.named ??= namedCurrencies(each.cited, each.context, each.figures));
 
 const namedInDocument = (each: Read) =>
-  (each.inDocument ??= namedCurrencies(each.text.document(), each.context, null));
+  (each.inDocument ??= namedCurrencies(documentOf(each), each.context, null));
 
 const named = (each: Read, code: string) =>
   namedInCited(each).has(code) || namedInDocument(each).has(code);
@@ -195,7 +204,7 @@ const named = (each: Read, code: string) =>
 function namesWhich(each: Read, code: string): boolean {
   each.which ??= namedCurrencies(each.cited, each.context, each.figures, true);
   if (each.which.has(code)) return true;
-  each.whichInDocument ??= namedCurrencies(each.text.document(), each.context, null, true);
+  each.whichInDocument ??= namedCurrencies(documentOf(each), each.context, null, true);
   return each.whichInDocument.has(code);
 }
 
@@ -416,7 +425,7 @@ function givenOtherwise(
         yen !== codes.has("CNY") &&
         !namesWhich(each, yen ? "JPY" : "CNY")
       ) {
-        each.language ??= documentFigureContext([{ text: each.text.document() }]).language ?? "";
+        each.language ??= documentFigureContext([{ text: documentOf(each) }]).language ?? "";
         if (each.language.startsWith("ja")) return { found, as: yen ? "agrees" : "differs" };
         if (each.language.startsWith("zh")) return { found, as: yen ? "yuan sign" : "agrees" };
       }
@@ -458,13 +467,13 @@ function givenOtherwise(
   const written = plain.some(
     ({ each }) =>
       writesMeasure(each.cited, measure, figure.unit) ||
-      writesMeasure(each.text.document(), measure, figure.unit),
+      writesMeasure(documentOf(each), measure, figure.unit),
   );
   if (written) return null;
   // A label that reaches one of them names the unit: under a column headed "瓦" a 31 is 31瓦. With
   // none, a line that heads its rows may say it: "本报告产量以瓦计。" over its table.
   const labelNamesIt = plain.some(({ each, number }) => {
-    const labels = labelsOf(each.text, number.start, each.context);
+    const labels = labelsOf(each, number.start);
     if (labels.length > 0)
       return labels.some(
         (label) => ofOneUnit(label.unit, figure.unit) && atOneScale(label, figure) === true,
@@ -480,11 +489,7 @@ function givenOtherwise(
   // the Answer's reading leaves it to the model (#2997). A label over one of two numbers written
   // the same may label another figure, so labels state another unit only where each has one.
   // A share's rival ("Change (pp)" beside a percent) is stated otherwise.
-  if (
-    plain.every(({ each, number }) =>
-      anotherUnitStatedFor(each.text, number.start, each.context, measure),
-    )
-  )
+  if (plain.every(({ each, number }) => anotherUnitStatedFor(each, number.start, measure)))
     return given(plain);
   const rival =
     figure.unit.kind === "percent" ? "points" : figure.unit.kind === "points" ? "percent" : null;
@@ -492,7 +497,7 @@ function givenOtherwise(
     plain.filter(
       ({ each }) =>
         rival !== null &&
-        (writesMeasure(each.cited, rival) || writesMeasure(each.text.document(), rival)),
+        (writesMeasure(each.cited, rival) || writesMeasure(documentOf(each), rival)),
     ),
   );
 }
@@ -687,6 +692,143 @@ const namesTwoUnits = (units: readonly StatedUnit[]) =>
 
 const AFTER_NUMBER = /^[\d０-９][\d０-９.,，]*[ \u00a0]*([(（][^()（）\n]{1,24}[)）])/u;
 
+/**
+ * What the unit check reads of a text once for all the numbers it meets there, under one figure
+ * context: a line's figures, a column's cells of words, what a cell or a line states, the run of
+ * tab-separated lines and the blank line above a line, and where a line stands (#2997).
+ */
+interface TextReading {
+  lines: string[];
+  lineAt(at: number): number;
+  figuresAt(at: number): Figure[];
+  /** The first of the tab-separated lines that run on down to line `at`. */
+  tabsFrom(at: number): number;
+  /** The last blank line above line `at`, or -1. */
+  blankAbove(at: number): number;
+  /** Each line of words in `column` of the tab-separated lines, with its line. */
+  cellsOf(column: number): { at: number; cell: string }[];
+  labelsOfCell(cell: string): Label[];
+  unitsOf(line: string): StatedUnit[];
+  /** Where `line` stands among the lines. */
+  linesLike(line: string): number[];
+  /** The lines of words that state a unit in brackets and give no value, with what they state. */
+  wordLines(): { line: string; units: StatedUnit[] }[];
+}
+
+const textReadings = memoized(
+  4,
+  (text: string) => text,
+  () => new WeakMap<FigureContext, TextReading>(),
+);
+
+function textReadingOf(text: string, context: FigureContext): TextReading {
+  const byContext = textReadings(text);
+  const known = byContext.get(context);
+  if (known) return known;
+  const { lines, lineAt } = linesOf(text);
+  const figures = new Map<number, Figure[]>();
+  const once = <T>(read: () => T) => {
+    let value: T | undefined;
+    return () => (value ??= read());
+  };
+  const tabs = once(() => {
+    const from: number[] = [];
+    lines.forEach((line, at) => {
+      from.push(
+        line.includes("\t") && at > 0 && lines[at - 1]?.includes("\t") ? (from[at - 1] ?? at) : at,
+      );
+    });
+    return from;
+  });
+  const blanks = once(() => {
+    const last: number[] = [];
+    let blank = -1;
+    for (const line of lines) {
+      last.push(blank);
+      if (line.trim() === "") blank = last.length - 1;
+    }
+    return last;
+  });
+  const columns = new Map<number, { at: number; cell: string }[]>();
+  const cells = new Map<string, Label[]>();
+  const units = new Map<string, StatedUnit[]>();
+  const where = once(() => {
+    const map = new Map<string, number[]>();
+    for (const [at, line] of lines.entries()) {
+      const found = map.get(line);
+      if (found) found.push(at);
+      else map.set(line, [at]);
+    }
+    return map;
+  });
+  const scaled = (part: string) =>
+    statesScale(part, context) ||
+    bracketedUnits(part, context).some((statement) => statement.scaleWord !== null);
+  const reading: TextReading = {
+    lines,
+    lineAt,
+    figuresAt: (at) => {
+      const found = figures.get(at) ?? readFigures(lines[at] ?? "", context);
+      figures.set(at, found);
+      return found;
+    },
+    tabsFrom: (at) => tabs()[at] ?? at,
+    blankAbove: (at) => blanks()[at] ?? -1,
+    cellsOf: (column) => {
+      const known = columns.get(column);
+      if (known) return known;
+      const found = lines.flatMap((line, at) => {
+        if (!line.includes("\t")) return [];
+        const cell = line.split("\t")[column]?.trim();
+        // A cell of digits alone states no unit, and a long table's column is mostly such cells.
+        return cell && !/^[\d.,，\s+\-−()（）]*$/u.test(cell) ? [{ at, cell }] : [];
+      });
+      columns.set(column, found);
+      return found;
+    },
+    labelsOfCell: (cell) => {
+      const known = cells.get(cell);
+      if (known) return known;
+      // A merged heading over columns of two units ("亿美元 / 亿SDR") states neither; a heading cell
+      // is read as its own unit line too: "亿SDR" states 亿 though SDR is unread.
+      const found =
+        cell.split(/[/／、]/u).filter(scaled).length < 2
+          ? [
+              ...readStatedUnits(cell, context),
+              ...asUnitLine(cell, context).map((statement) => ({ ...statement, chars: cell })),
+              ...bracketedUnits(cell, context),
+            ].map((statement) => ({ ...statement, own: false, line: cell }))
+          : [];
+      cells.set(cell, found);
+      return found;
+    },
+    unitsOf: (line) => {
+      const found = units.get(line) ?? unitsOnLine(line, context);
+      units.set(line, found);
+      return found;
+    },
+    linesLike: (line) => where().get(line) ?? [],
+    wordLines: once(() =>
+      lines.flatMap((line, at) => {
+        if (line.includes("\t")) return [];
+        const stated = bracketedUnits(line, context);
+        if (stated.length === 0 || reading.figuresAt(at).length > 0) return [];
+        // One unit at two scales on a line ("各月产量（万吨）/（亿吨）") leaves its scale unsaid.
+        const kept = stated.filter(
+          ({ scale, unit }) =>
+            !stated.some(
+              (other) =>
+                other.scale !== scale && JSON.stringify(other.unit) === JSON.stringify(unit),
+            ),
+        );
+        return [{ line, units: kept }];
+      }),
+    ),
+  };
+  byContext.set(context, reading);
+  return reading;
+}
+
 // A sentence's end in either language; "1.20" holds no end.
 const SENTENCE_END = /[。；;！？!?]|\.(?!\d)/u;
 
@@ -707,15 +849,16 @@ const SENTENCE_END = /[。；;！？!?]|\.(?!\d)/u;
  * above it.
  */
 function labelled(text: string, start: number, context: FigureContext): Label[] {
+  const reading = textReadingOf(text, context);
+  const { lines } = reading;
+  const index = reading.lineAt(start);
   const from = text.lastIndexOf("\n", start - 1) + 1;
-  const end = text.indexOf("\n", start);
-  const inTable = text.slice(from, end < 0 ? undefined : end).includes("\t");
+  const inTable = (lines[index] ?? "").includes("\t");
   const before = text.slice(from, start);
   const column = before.split("\t").length - 1;
   const own = inTable ? (before.split("\t").at(-1) ?? "") : before;
   const ownWords = own.split(SENTENCE_END).at(-1) ?? "";
-  const above = text.slice(0, Math.max(0, from - 1)).split("\n");
-  const cells = inTable ? columnLabels(above, column, context) : [];
+  const cells = inTable ? columnLabels(reading, index, column) : [];
   // A bracket right after the number is its own too: "8月: 126（万千瓦时）".
   const after = AFTER_NUMBER.exec(text.slice(start))?.[1] ?? "";
   const ownCell = [
@@ -733,8 +876,8 @@ function labelled(text: string, start: number, context: FigureContext): Label[] 
   let label: StatedUnit[] = [];
   let labelLine = "";
   let named = false;
-  for (let at = above.length - 1; ownLabel.length === 0 && label.length === 0 && at >= 0; at--) {
-    const line = above[at] ?? "";
+  for (let at = index - 1; ownLabel.length === 0 && label.length === 0 && at >= 0; at--) {
+    const line = lines[at] ?? "";
     if (line.trim() === "") break;
     if (inTable) {
       if (/\p{N}/u.test(line)) break;
@@ -745,7 +888,7 @@ function labelled(text: string, start: number, context: FigureContext): Label[] 
       label = units.slice(-1);
       continue;
     }
-    if (readFigures(line, context).length > 0) {
+    if (reading.figuresAt(at).length > 0) {
       if (named) break;
       continue;
     }
@@ -762,30 +905,15 @@ function labelled(text: string, start: number, context: FigureContext): Label[] 
   ];
 }
 
-/** What the cells above a number in its column of tab-separated rows state of its unit. */
-function columnLabels(above: readonly string[], column: number, context: FigureContext): Label[] {
-  const scaled = (part: string) =>
-    statesScale(part, context) ||
-    bracketedUnits(part, context).some((statement) => statement.scaleWord !== null);
-  const cells: string[] = [];
-  for (let at = above.length - 1; at >= 0 && above[at]?.includes("\t"); at--) {
-    const cell = above[at]?.split("\t")[column]?.trim();
-    // A cell of digits alone states no unit, and a long table's column is mostly such cells.
-    if (cell && !/^[\d.,，\s+\-−()（）]*$/u.test(cell)) cells.push(cell);
-  }
-  return (
-    cells
-      // A merged heading over columns of two units ("亿美元 / 亿SDR") states neither.
-      .filter((cell) => cell.split(/[/／、]/u).filter(scaled).length < 2)
-      // A heading cell is read as its own unit line too: "亿SDR" states 亿 though SDR is unread.
-      .flatMap((cell) =>
-        [
-          ...readStatedUnits(cell, context),
-          ...asUnitLine(cell, context).map((statement) => ({ ...statement, chars: cell })),
-          ...bracketedUnits(cell, context),
-        ].map((statement) => ({ ...statement, own: false, line: cell })),
-      )
-  );
+/** What the cells above line `index` in its column of tab-separated rows state of its unit. */
+function columnLabels(reading: TextReading, index: number, column: number): Label[] {
+  if (!reading.lines[index - 1]?.includes("\t")) return [];
+  const first = reading.tabsFrom(index - 1);
+  return reading
+    .cellsOf(column)
+    .filter(({ at }) => at >= first && at < index)
+    .reverse()
+    .flatMap(({ cell }) => reading.labelsOfCell(cell));
 }
 
 /** What the row of the number at `start` of a table states of its unit (`rowLabels`), as its own. */
@@ -797,7 +925,7 @@ function rowUnits(text: string, start: number, context: FigureContext): Label[] 
     ...bracketedUnits(label, context)
       .slice(-1)
       .map((statement) => ({ ...statement, own: true, line: label })),
-    ...asUnitLine(unit, context, true).map((statement) => ({
+    ...(unit === "" ? [] : asUnitLine(unit, context, true)).map((statement) => ({
       ...statement,
       chars: unit.trim(),
       own: true,
@@ -827,36 +955,20 @@ function ownFirst(labels: readonly Label[], keep: (label: Label) => boolean): La
  * (`section`), a group heading over its sub-heading among them.
  */
 function wordLineUnits(
-  text: CheckedText,
+  each: Read,
   start: number,
-  context: FigureContext,
-  section: readonly string[] = [],
+  section: { from: number; to: number } | null = null,
 ): StatedUnit[] {
-  const cited = text.cited();
-  const itsLine = cited
-    .slice(cited.lastIndexOf("\n", start - 1) + 1)
-    .split("\n")[0]
-    ?.trim();
-  return text
-    .document()
-    .split("\n")
-    .filter(
-      (line) =>
-        !line.includes("\t") &&
-        line.trim() !== itsLine &&
-        (section.length === 0 || section.includes(line)),
-    )
-    .flatMap((line) => {
-      const units = bracketedUnits(line, context);
-      if (units.length === 0 || readFigures(line, context).length > 0) return [];
-      // One unit at two scales on a line ("各月产量（万吨）/（亿吨）") leaves its scale unsaid.
-      return units.filter(
-        ({ scale, unit }) =>
-          !units.some(
-            (other) => other.scale !== scale && JSON.stringify(other.unit) === JSON.stringify(unit),
-          ),
-      );
-    });
+  const cited = textReadingOf(each.cited, each.context);
+  const itsLine = cited.lines[cited.lineAt(start)]?.trim();
+  const inSection = (line: string) =>
+    section === null ||
+    section.from >= section.to ||
+    cited.linesLike(line).some((at) => at >= section.from && at < section.to);
+  return textReadingOf(documentOf(each), each.context)
+    .wordLines()
+    .filter(({ line }) => line.trim() !== itsLine && inSection(line))
+    .flatMap(({ units }) => units);
 }
 
 // A unit line's unit is read as a label's is, as a sentence writes it after a number: "单位：千克"
@@ -935,22 +1047,17 @@ function headingLines(
   context: FigureContext,
   table = tableAt(text, start),
 ): string[] {
-  const lines = text.split("\n");
-  const givesValue = (line: string) => readFigures(line, context).length > 0;
-  let at = table ? table.head - 1 : text.slice(0, start).split("\n").length - 2;
+  const reading = textReadingOf(text, context);
+  const { lines } = reading;
+  const givesValue = (at: number) => reading.figuresAt(at).length > 0;
+  let at = table ? table.head - 1 : reading.lineAt(start) - 1;
   if (!table)
-    while (
-      at >= 0 &&
-      lines[at]?.trim() !== "" &&
-      !isRow(lines[at] ?? "") &&
-      givesValue(lines[at] ?? "")
-    )
-      at--;
+    while (at >= 0 && lines[at]?.trim() !== "" && !isRow(lines[at] ?? "") && givesValue(at)) at--;
   const heads: string[] = [];
   for (; at >= 0; at--) {
     const line = lines[at] ?? "";
     if (line.trim() === "" || isRow(line)) break;
-    const [value] = readFigures(line, context);
+    const [value] = reading.figuresAt(at);
     if (value) {
       // A caption that gives a value of its own ("全年销量（万辆）合计 99") heads its table with
       // what it says before that value.
@@ -970,9 +1077,10 @@ function headingUnits(
   table = tableAt(text, start),
   heads = headingLines(text, start, context, table),
 ): Label[] {
+  const reading = textReadingOf(text, context);
   return heads
     .flatMap((line) =>
-      unitsOnLine(line, context).map((statement) => ({ ...statement, own: false, line })),
+      reading.unitsOf(line).map((statement) => ({ ...statement, own: false, line })),
     )
     .filter((statement) => !leavesOut(statement, text, start, table));
 }
@@ -980,22 +1088,22 @@ function headingUnits(
 /**
  * What states the unit of the plain number at `start`, as the unit gate reads `text`: its labels;
  * else the lines that head its rows, its own table's alone (#2997), whether or not they state a
- * unit. Where lines head it, a line beyond its section (`section`: up to a blank line above it),
- * another table's caption, gives it none. `heading` when heading lines give the labels.
+ * unit. Where lines head it, a line beyond its section (`section`: the lines up to a blank line
+ * above it), another table's caption, gives it none. `heading` when heading lines give the labels.
  */
 function reaching(
   text: string,
   start: number,
   context: FigureContext,
-): { labels: Label[]; section: string[]; heading: boolean } {
+): { labels: Label[]; section: { from: number; to: number } | null; heading: boolean } {
   const labels = labelled(text, start, context);
-  if (labels.length > 0) return { labels, section: [], heading: false };
+  if (labels.length > 0) return { labels, section: null, heading: false };
   const table = tableAt(text, start);
   const heads = headingLines(text, start, context, table);
   const units = headingUnits(text, start, context, table, heads);
-  const above = text.slice(0, Math.max(0, text.lastIndexOf("\n", start - 1))).split("\n");
-  const blank = above.map((line) => line.trim()).lastIndexOf("");
-  const section = heads.length > 0 ? above.slice(blank + 1) : [];
+  const reading = textReadingOf(text, context);
+  const index = reading.lineAt(start);
+  const section = heads.length > 0 ? { from: reading.blankAbove(index) + 1, to: index } : null;
   return { labels: units, section, heading: true };
 }
 
@@ -1045,13 +1153,8 @@ function namesFigure(statement: StatedUnit, figure: Figure, after: string): bool
  * on a line of words elsewhere states nothing for it: the gate can't tell which table a caption
  * heads (#2997).
  */
-function anotherUnitStatedFor(
-  text: CheckedText,
-  start: number,
-  context: FigureContext,
-  measure: string,
-): boolean {
-  const labels = labelsOf(text, start, context);
+function anotherUnitStatedFor(each: Read, start: number, measure: string): boolean {
+  const labels = labelsOf(each, start);
   return (
     labels.length > 0 &&
     labels.every(({ unit }) => unit.kind !== "plain" && measureInFull(unit) !== measure)
@@ -1059,8 +1162,8 @@ function anotherUnitStatedFor(
 }
 
 /** The labels that reach the cited number at `start`, where the gate reads labels. */
-const labelsOf = (text: CheckedText, start: number, context: FigureContext): Label[] =>
-  text.gateReads === true ? labelled(text.cited(), start, context) : [];
+const labelsOf = (each: Read, start: number): Label[] =>
+  each.text.gateReads === true ? labelled(each.cited, start, each.context) : [];
 
 /** A figure's number as it is written: its scale word left off, a share in its own notation. */
 export const writtenOf = (figure: Figure) =>
@@ -1206,6 +1309,8 @@ export function unitNotStated(
     return {
       text,
       cited,
+      document: null,
+      stated: null,
       context,
       figures: text.gateReads
         ? [...readFigures(cited, context).map(withPointsAfter(cited)), ...sharesInWords(cited)]
@@ -1242,8 +1347,9 @@ export function unitNotStated(
             })),
         ),
       );
-    const sameWritten = read.flatMap(({ text, context, figures }) =>
-      figures.flatMap((each) => {
+    const sameWritten = read.flatMap((source) => {
+      const { text, context, figures } = source;
+      return figures.flatMap((each) => {
         // Read as its context reads it, "1,200" is the same written number as the sentence's
         // "$1,200" (#2997); the calculation gate leaves it unsettled.
         const settled = (kind: string) =>
@@ -1267,7 +1373,7 @@ export function unitNotStated(
         // caption's 吨 is 31; a currency named alone ("（人民币）") leaves the header's scale.
         const own =
           readings.some((reading) => reading !== each) && plain && text.gateReads
-            ? reaching(text.cited(), each.start, context).labels.filter(
+            ? reaching(source.cited, each.start, context).labels.filter(
                 (label) => label.scaleWord !== null || label.unit.kind !== "currency",
               )
             : [];
@@ -1279,6 +1385,7 @@ export function unitNotStated(
               own.some((label) => atOneScale(label, reading) === true),
           )
           .map((reading) => ({
+            source,
             text,
             start: each.start,
             context,
@@ -1295,8 +1402,8 @@ export function unitNotStated(
               (reading.scale !== each.scale &&
                 (reading.unit.kind === "plain" || reading.unit.kind === figure.unit.kind)),
           }));
-      }),
-    );
+      });
+    });
     const ofFigure = (unit: FigureUnit) =>
       unit.kind === "plain" ||
       figure.unit.kind === "plain" ||
@@ -1323,12 +1430,12 @@ export function unitNotStated(
             statement.unit.kind === "plain" ||
             (statement.unit.kind === "other" &&
               measureInFull(statement.unit) === measureInFull(figure.unit));
-      const reaches = sameWritten.map(({ text, start, context, plain }) =>
+      const reaches = sameWritten.map(({ source, text, start, context, plain }) =>
         !text.gateReads
-          ? { labels: [], section: [], heading: false }
+          ? { labels: [], section: null, heading: false }
           : plain
-            ? reaching(text.cited(), start, context)
-            : { labels: labelled(text.cited(), start, context), section: [], heading: false },
+            ? reaching(source.cited, start, context)
+            : { labels: labelled(source.cited, start, context), section: null, heading: false },
       );
       const reached = reaches.map(({ labels }) => labels);
       // A plain number with a label of its own takes that label's scale, not a Document line's
@@ -1346,13 +1453,13 @@ export function unitNotStated(
               (ofOneUnit(statement.unit, figure.unit) ||
                 (measureInFull(figure.unit) !== null &&
                   measureInFull(statement.unit) === measureInFull(figure.unit))));
-      const statements = sameWritten.flatMap(({ text, context, start }, at) => {
+      const statements = sameWritten.flatMap(({ source, text, start }, at) => {
         const own = labels[at] ?? [];
         if (own.length > 0) return ownFirst(own, ofItsMeasure);
         const bracketed = text.gateReads
-          ? wordLineUnits(text, start, context, reaches[at]?.section).filter(sameUnit)
+          ? wordLineUnits(source, start, reaches[at]?.section).filter(sameUnit)
           : [];
-        return [...readStatedUnits(text.document(), context), ...bracketed];
+        return [...statedInDocument(source), ...bracketed];
       });
       const stated = statements.some(
         (statement) =>
@@ -1417,9 +1524,9 @@ export function unitNotStated(
     const ownLabels =
       isShare(figure.unit) || bound || asWritten
         ? []
-        : sameWritten.flatMap(({ text, start, context, chars, scale, plain }) => {
+        : sameWritten.flatMap(({ source, text, start, context, chars, scale, plain }) => {
             if (!text.gateReads || !plain || scale !== figure.scale) return [];
-            const { labels: reached, heading } = reaching(text.cited(), start, context);
+            const { labels: reached, heading } = reaching(source.cited, start, context);
             // A line heading the rows holds them to its unit's scale where it is a measure's; a
             // currency's scale there may leave out per-share rows it doesn't name (#2997).
             const labels = ownFirst(
@@ -1436,8 +1543,7 @@ export function unitNotStated(
                 ),
             );
             // No label reaches it and no unit line is the Document's: its unit is stated nowhere.
-            const bare =
-              reached.length === 0 && readStatedUnits(text.document(), context).length === 0;
+            const bare = reached.length === 0 && statedInDocument(source).length === 0;
             return [{ text, start, chars, labels, gives, bare }];
           });
     // Of two numbers written the same the gate can't tell which the sentence reads: where one's
