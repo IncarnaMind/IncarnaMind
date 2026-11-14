@@ -766,8 +766,8 @@ describe("Help during the call", { timeout: 60_000 }, () => {
     },
   );
 
-  // protects=a typed question is told the language the app reads it in, as an Answer's Question is: an English question naming a Chinese Document or person is English, a French, German or Japanese one its own; where the reader can't tell, its script; an acronym, the interface's; and on an English call a reply written as it was told is never asked anew (#2925); fails_when=a Chinese name makes an English question Chinese, another language is told English or Chinese, an acronym follows the call or not the interface, or such a reply is sent again; no_claim=how a real model follows the line.
-  test("a typed question is told the language it is written in, a Chinese name in it or not; an acronym, the interface's; and its reply, written so, isn't asked anew (#2925)", async () => {
+  // protects=a typed question is told the language the app reads it in, as an Answer's Question is: an English question naming a Chinese Document or person is English, a French, German or Japanese one its own; where the reader can't tell, its script, but a question holding both Chinese characters and Latin words is told no language, only to write in the language of the User's own words, a quoted name or term not changing it; an acronym, the interface's; and on an English call a reply written as it was told is never asked anew (#2925); fails_when=a Chinese name makes an English question Chinese, a Chinese sentence carrying English names is told English, another language is told English or Chinese, an acronym follows the call or not the interface, or such a reply is sent again; no_claim=how a real model follows the line.
+  test("a typed question is told the language it is written in, a Chinese name in it or not; in both scripts with the reader unsure, the language of its own words; an acronym, the interface's; and its reply, written so, isn't asked anew (#2925)", async () => {
     const told = (prompt: string) =>
       prompt.split("\n").findLast((line) => line.startsWith("- Write in ")) ?? "";
     const answering = (calls: ModelCall[]) =>
@@ -794,14 +794,23 @@ describe("Help during the call", { timeout: 60_000 }, () => {
       const asked = typedCalls(calls).slice(before);
       return { question, told: told(asked[0]?.prompt ?? ""), requests: asked.length };
     };
-    const line = (language: string, call: string) =>
-      `- Write in ${language}, the language the User typed the Question in. An option to say is in ${call}, the call's language, its "→" line too.`;
+    const option = (call: string) =>
+      `An option to say is in ${call}, the call's language, its "→" line too.`;
+    const line = (language: string | null, call: string) =>
+      language === null
+        ? `- Write in the language of the User's own words in the Question: a name or a term it quotes from another language doesn't change it. ${option(call)}`
+        : `- Write in ${language}, the language the User typed the Question in. ${option(call)}`;
 
     const english = await setUp(undefined, {}, answering);
+    // null: the reader can't tell, and the question holds Chinese characters and Latin words.
     const rows = [
       ["What does 合同条款 say?", "English"],
       ["What did 王总 ask about the deposit?", "English"],
-      ["Does 合同 mention a deposit?", "English"],
+      ["Does 合同 mention a deposit?", null],
+      ["Does 王总 want monthly invoices?", null],
+      ["Enterprise plan 的 single sign-on 和 audit log 包含吗？", null],
+      ["Lease 2 和 Lease 3 的 monthly rent 一样吗？", null],
+      ["Price sheet 里 Enterprise plan per seat 多少钱？", null],
       ["Which clause of 《租赁合同》 covers late rent?", "English"],
       ["Quel est le loyer mensuel du bail ?", "French"],
       ["Wie hoch ist die monatliche Miete?", "German"],

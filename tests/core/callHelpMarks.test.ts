@@ -794,12 +794,17 @@ describe("a question typed during the call (#2925)", { timeout: 60_000 }, () => 
   test.each([
     {
       language: "English",
+      question: "How much is the Enterprise plan per seat?",
       reply: "- Enterprise is $45 a seat a month [^1]\n- The lease also covers parking [^2].",
     },
-    { language: "Chinese", reply: "- 企业版每个席位每月 45 美元 [^1]\n- 租约还包括停车位 [^2]。" },
+    {
+      language: "Chinese",
+      question: "Enterprise plan 每个席位多少钱？",
+      reply: "- 企业版每个席位每月 45 美元 [^1]\n- 租约还包括停车位 [^2]。",
+    },
   ])(
     "in $language, while the reply is written a quote found at the cite shows its ✓, one not found shows none, and the end keeps both",
-    async ({ reply }) => {
+    async ({ question, reply }) => {
       const { written, ended } = await pausedPress(
         {
           reply,
@@ -809,7 +814,7 @@ describe("a question typed during the call (#2925)", { timeout: 60_000 }, () => 
           ],
         },
         reply.length - 1,
-        { typed: "How much is the Enterprise plan per seat?" },
+        { typed: question },
         undefined,
         2,
       );
