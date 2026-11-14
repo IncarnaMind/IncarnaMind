@@ -32,6 +32,7 @@ export const PROMPT_TAGS = [
   "selection",
   "sentence",
   "tool-record",
+  "whole-sentence",
 ] as const;
 
 export type PromptTag = (typeof PROMPT_TAGS)[number];

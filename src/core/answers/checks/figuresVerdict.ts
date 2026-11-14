@@ -3,7 +3,7 @@
  * rest of its words on its own verdict, and one result for the sentence from them.
  */
 import { citedInputs } from "../../../shared/calculatedFigures";
-import { readFigures } from "../../../shared/figures";
+import { decimalMarkOf, readFigures } from "../../../shared/figures";
 import { translate } from "../../../shared/i18n";
 import type {
   CheckFigure,
@@ -23,6 +23,7 @@ import { comparesOtherWords, type RunTranscript } from "./checkRun";
 import { type CourtDecisions, citedSources } from "./checkSetup";
 import type {
   AtomicClaimCheckResult,
+  CheckedCitation,
   ClaimCheckDependencies,
   ClaimCheckRequest,
 } from "./claimCheck";
@@ -55,7 +56,7 @@ export async function figuresVerdict(
   >,
   request: Pick<
     ClaimCheckRequest,
-    "claim" | "context" | "model" | "originalClaim" | "scope" | "signal"
+    "claim" | "context" | "model" | "originalClaim" | "scope" | "signal" | "cited"
   > & { figures: readonly CheckFigure[] },
   check: {
     transcript: RunTranscript;
@@ -177,6 +178,7 @@ export async function figuresVerdict(
   };
   const verdictText = readVerdict(text) === null ? (askedAbout ?? text) : text;
   const said = readVerdict(verdictText);
+  let citedMark: "." | "," | null | undefined;
   const checkedFigures = await checkFigureReply({
     requested: request.figures,
     claim: request.claim,
@@ -226,6 +228,14 @@ export async function figuresVerdict(
       uncovered: null,
       found: true,
     }),
+    decimalMarks: {
+      cited: () => {
+        if (citedMark === undefined)
+          citedMark = citedDecimalMark(deps.documents, request.cited ?? []);
+        return citedMark;
+      },
+      interface: decimalMarkOf({ language: deps.language() }),
+    },
     signal,
     remainder: (remainder) =>
       judged(
@@ -391,6 +401,27 @@ export async function figuresVerdict(
   };
   const absence = await absenceFor(said?.absence ?? null, figureResult.verdict);
   return absence ?? withCorrection(figureResult);
+}
+
+/**
+ * How the Documents a sentence cites write decimals, as their own figures are read: their telling
+ * numbers, else their language (`documentFigureContext`). Null when none tells, or they disagree.
+ */
+function citedDecimalMark(
+  documents: Pick<AnswerDocuments, "citationSource" | "pageTexts">,
+  cited: readonly CheckedCitation[],
+): "." | "," | null {
+  const marks = new Set(
+    cited.flatMap((each) => {
+      const source = each.passageId ? documents.citationSource(each.passageId) : null;
+      if (!source) return [];
+      const units = documents.pageTexts(source.documentId, source.contentHash, null, null);
+      const mark = decimalMarkOf(documentFigureContext(units));
+      return mark ? [mark] : [];
+    }),
+  );
+  const [only] = marks;
+  return marks.size === 1 && only ? only : null;
 }
 
 /**

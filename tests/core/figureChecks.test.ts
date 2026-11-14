@@ -1667,14 +1667,17 @@ test.each([
 );
 
 test.each([undefined, 99])(
-  "missing or out-of-range own reading %j stays unread",
+  "missing or out-of-range own reading %j is read two ways",
   async (reading) => {
     const { result } = await checkWith({
       figures: [noteChoice("4980", "£m")],
       body: "Revenue £4980000000",
       text: reply([{ ...item(), reading }]),
     });
-    expect(result.figures?.[0]?.result).toMatchObject({ verdict: "not-checked", reason: "unread" });
+    expect(result.figures?.[0]?.result).toMatchObject({
+      verdict: "not-checked",
+      reason: "two-readings",
+    });
     expect(result.figures?.[0]?.reading.ambiguous.length).toBeGreaterThan(0);
   },
 );
@@ -1687,7 +1690,10 @@ test("multiple own ambiguity axes are never combined by guessing", async () => {
     body: "Revenue £4980000000",
     text: reply([{ ...item(), reading: 1 }]),
   });
-  expect(result.figures?.[0]?.result).toMatchObject({ verdict: "not-checked", reason: "unread" });
+  expect(result.figures?.[0]?.result).toMatchObject({
+    verdict: "not-checked",
+    reason: "two-readings",
+  });
 });
 
 test.each([undefined, []])(

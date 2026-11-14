@@ -1507,6 +1507,8 @@ export const zhCN = {
   "claim.reason.figures-not-read.whole": "无法读取“{document}”中的数字。",
   "claim.reason.figures-not-read.unknown": "无法读取某个文档中的数字。",
   "claim.reason.sentence-figures-not-read": "无法读取这句话中的数字。",
+  "claim.reason.two-readings": "“{shown}”可能是 {first}，也可能是 {second}，所以未核对。",
+  "claim.reason.two-readings.unknown": "这里的数字有多种读法，所以未核对。",
   "claim.reason.library-unsettled": "只能核对资料库的数量、名称和类型。",
   "claim.readBudget.continue": "读取其余部分",
   "claim.readBudget.readRest": "读取其余部分 · 最多 {most}",

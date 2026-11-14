@@ -7301,6 +7301,10 @@ export type ClaimVerdict = "supported" | "unsupported" | "contradicted";
  * - "figures-not-read": the figures in a text of a Document the check read couldn't be read; its
  *   detail is where, as `src/shared/unreadFigures.ts` writes it, or null when that isn't known.
  * - "sentence-figures-not-read": the figures in the sentence itself couldn't be read.
+ * - "two-readings": a figure of the sentence reads more than one way and nothing settles which
+ *   (#3088): "¥" as yuan or yen, or a separator the interface language alone reads where the other
+ *   reading would agree with the source; its detail is the figure and its readings, as
+ *   `src/shared/twoReadings.ts` writes them.
  * - "library-unsettled": a sentence about the Library that its facts can't settle, such as a
  *   reading of its Documents' names (#2525). No check can change that.
  * - "assistant-conclusion": every part the check judged is supported, but the assistant wrote the
@@ -7348,6 +7352,7 @@ export type ClaimCheckFailure =
   | "workbook-text"
   | "figures-not-read"
   | "sentence-figures-not-read"
+  | "two-readings"
   /** A figure's equal number that the quoted table gives in another row's or column's cell. */
   | "other-cell"
   | "library-unsettled"

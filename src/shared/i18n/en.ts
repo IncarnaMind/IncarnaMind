@@ -1564,6 +1564,9 @@ export const en = {
   "claim.reason.figures-not-read.whole": "The figures in “{document}” couldn’t be read.",
   "claim.reason.figures-not-read.unknown": "The figures in a Document couldn’t be read.",
   "claim.reason.sentence-figures-not-read": "The figures in this sentence couldn’t be read.",
+  "claim.reason.two-readings": "“{shown}” could mean {first} or {second}, so it wasn’t checked.",
+  "claim.reason.two-readings.unknown":
+    "A figure here could be read more than one way, so it wasn’t checked.",
   "claim.reason.library-unsettled": "Only your Library’s counts, names and kinds can be checked.",
   "claim.readBudget.continue": "Read the rest",
   "claim.readBudget.readRest": "Read the rest · up to {most}",

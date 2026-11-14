@@ -2,14 +2,18 @@ import { MARKER } from "../../../shared/answerSentences";
 import { aggregateFigureResults } from "../../../shared/figureChecks";
 import { quotedSourceText } from "../../../shared/figureSchedule";
 import {
+  type Ambiguity,
   type Figure,
   type FigureUnit,
   namedCurrencies,
+  type Reading,
   readFigures,
   readStatedUnits,
+  separatorReadingFor,
 } from "../../../shared/figures";
 import { evaluateFormula, sameNumber, showResult } from "../../../shared/formula";
 import { escapedInStrings } from "../../../shared/jsonText";
+import { twoReadingsDetail } from "../../../shared/twoReadings";
 import type { UnitText } from "../../../shared/units";
 import type {
   CalculatedFigure,
@@ -20,6 +24,7 @@ import type {
   ClaimJudgment,
   FigureCheckResult,
   FigureInput,
+  InputNumber,
   LimitRelation,
   UnsupportedReason,
   WorkbookKeptReason,
@@ -32,7 +37,14 @@ import { linesSayFrame, namingHolds } from "./analysisNaming";
 import { agreesAtShownPrecision, comparedFigure } from "./calculated";
 import { type FigureMeasure, measureFinding, readMeasure } from "./figureMeasures";
 import { isPropertyPassage } from "./fileProperties";
-import { FIGURES, figureHandle, ownDetailDiffers, type ReadVerdict, readVerdict } from "./prompt";
+import {
+  FIGURES,
+  figureHandle,
+  ownDetailDiffers,
+  type ReadVerdict,
+  readingWords,
+  readVerdict,
+} from "./prompt";
 import type { BoundNumber } from "./units";
 
 export interface FigureReplyItem extends ReadVerdict {
@@ -434,6 +446,12 @@ export interface FigureCheckOptions {
   misnamed(label: string): UnsupportedReason;
   /** The walled Folder that keeps a Document inside it, outside this check's scope; null otherwise. */
   keptInside(documentId: string): string | null;
+  /**
+   * The decimal marks a separator the Note doesn't settle is read by (#3088): the one the
+   * Documents the sentence cites write, null when none tells or they disagree; the interface
+   * language's.
+   */
+  decimalMarks: { cited(): "." | "," | null; interface: "." | "," | null };
   signal: AbortSignal;
 }
 
@@ -582,6 +600,71 @@ function inSourceFrame(
       ...framed,
       ambiguous: reading.ambiguous.filter((each) => each.kind !== "scale"),
     },
+  };
+}
+
+/**
+ * `current` with its digits read as `to` reads them rather than `from`, two readings of the same
+ * digits: its value and shown precision move with them, whatever scale or unit it has taken since.
+ */
+function readAs<T extends Reading>(current: T, from: Reading, to: Reading): T {
+  if (from === to || from.value === 0) return current;
+  return {
+    ...current,
+    value: current.value * (to.value / from.value),
+    decimals: to.decimals,
+    precision:
+      typeof to.precision === "number" && typeof from.precision === "number" && from.precision > 0
+        ? scaledPrecision(current.precision, to.precision / from.precision)
+        : current.precision,
+  };
+}
+
+/** A shown precision times `factor`, kept a power of ten as `agreesAtShownPrecision` needs. */
+const scaledPrecision = (precision: number | null | undefined, factor: number) =>
+  typeof precision === "number" && precision > 0
+    ? 10 ** Math.round(Math.log10(precision * factor))
+    : precision;
+
+/** `reading` read as `chosen`, one of its separator's readings: its other ambiguities follow it. */
+function withSeparatorReading(reading: Figure, separator: Ambiguity, chosen: Reading): Figure {
+  const [first] = separator.readings;
+  const moved = (each: Reading) => (first ? readAs(each, first, chosen) : each);
+  return {
+    ...reading,
+    ...chosen,
+    rangeTo:
+      reading.rangeTo === null || !first || first.value === 0
+        ? reading.rangeTo
+        : reading.rangeTo * (chosen.value / first.value),
+    ambiguous: reading.ambiguous
+      .filter((each) => each.kind !== "separator")
+      .map((each) => ({ ...each, readings: each.readings.map(moved) })),
+  };
+}
+
+/**
+ * The Note's figure as its source reads it, when the source writes it identically: the same
+ * digits and separators, unit, currency and scale. Null when it writes it any other way.
+ */
+function asWrittenIn(figure: Figure, source: InputNumber): Figure | null {
+  const written = (chars: string) => chars.normalize("NFKC").replace(/\s+/gu, " ").trim();
+  if (written(figure.chars) !== written(source.chars)) return null;
+  const unit = JSON.stringify(source.unit);
+  const like = [figure, ...figure.ambiguous.flatMap((each) => each.readings)].find(
+    (each) => each.scale === source.scale && JSON.stringify(each.unit) === unit,
+  );
+  if (!like) return null;
+  return {
+    ...figure,
+    ...like,
+    value: source.value,
+    decimals: source.decimals,
+    precision:
+      like.value === 0
+        ? like.precision
+        : scaledPrecision(like.precision, Math.abs(source.value / like.value)),
+    ambiguous: figure.ambiguous.filter((each) => each.kind === "range"),
   };
 }
 
@@ -744,11 +827,29 @@ export function readFigureSource(
 
 export async function checkFigureReply(options: FigureCheckOptions): Promise<ClaimCheckResult> {
   const { requested, calculations } = options;
-  const unavailable = (reason: ClaimCheckFailure = "no-evidence"): ClaimJudgment => ({
+  const unavailable = (
+    reason: ClaimCheckFailure = "no-evidence",
+    detail: string | null = null,
+  ): ClaimJudgment => ({
     verdict: "not-checked",
     reason,
-    detail: null,
+    detail,
     ...options.facts(),
+  });
+  const readTwoWays = (
+    figure: CheckFigure,
+    ambiguity: Ambiguity,
+    source: Citation | null,
+  ): FigureCheckResult => ({
+    ...finding(figure),
+    source,
+    result: unavailable(
+      "two-readings",
+      twoReadingsDetail({
+        shown: figure.reading.chars,
+        readings: ambiguity.readings.map((each) => readingWords(each, figure.reading.chars)),
+      }),
+    ),
   });
   const parsed = readFigureReply(options.reply, requested, options.claim);
   if (!parsed) return uncheckedFigureResults(requested, unavailable("malformed"));
@@ -778,20 +879,37 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
       continue;
     }
     const cited = item.source?.citation ? options.citation(item.source.citation) : null;
+    // Separators the Note doesn't settle are the app's to read, never the model's (#3088): by the
+    // way the Documents the sentence cites write numbers, else by the interface language. Below,
+    // a Passage that writes the figure identically settles it before either.
+    const separator = original.reading.ambiguous.find((each) => each.kind === "separator");
+    const citedMark = separator ? options.decimalMarks.cited() : null;
+    const mark = citedMark ?? options.decimalMarks.interface;
+    const read = separator && mark ? separatorReadingFor(separator, mark) : undefined;
+    // What the interface language alone reads never gives a verdict the other reading would undo.
+    let unsure =
+      read && citedMark === null ? separator?.readings.find((each) => each !== read) : undefined;
+    if (separator && read)
+      target = { ...target, reading: withSeparatorReading(target.reading, separator, read) };
     const ambiguities = target.reading.ambiguous.filter((reading) => reading.kind !== "range");
     const selected = ambiguities[0]?.readings[(item.reading ?? 0) - 1];
     // Bare digits under the note's own "(£m)" need no reading named: their source's frame
     // settles which one they are (`inSourceFrame`), as it does for the model. With no source,
     // an Unsupported one needs no reading either.
     const framedLater = ambiguities.length === 1 && ambiguities[0]?.kind === "scale";
-    if (
-      (ambiguities.length > 0 && target.reading.ambiguous.length > 1) ||
-      (ambiguities.length === 1 && !selected && !framedLater)
-    ) {
-      rows.push({ ...finding(target), source: cited, result: unavailable("unread") });
+    const unreadOne =
+      separator && !read
+        ? separator
+        : (ambiguities.length > 0 && target.reading.ambiguous.length > 1) ||
+            (ambiguities.length === 1 && !selected && !framedLater)
+          ? ambiguities[0]
+          : undefined;
+    const replayed = target.calculated !== null && !target.calculated.figure.analysis;
+    if (unreadOne && (replayed || !item.source)) {
+      rows.push(readTwoWays(original, unreadOne, cited));
       continue;
     }
-    if (selected)
+    if (selected && !unreadOne)
       target = {
         ...target,
         reading: {
@@ -800,20 +918,11 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
           ambiguous: target.reading.ambiguous.filter((reading) => reading.kind === "range"),
         },
       };
-    // Of digits whose separators the Note doesn't settle ("8.214"), the reading listed first is the
-    // one English and Chinese write. Another, a thousand times from it, chosen because it agrees,
-    // rests on the digits' scale as a unit would: it is never Supported (#2864).
-    const [separators] = ambiguities;
-    const asWrittenFirst =
-      separators?.kind === "separator" && selected && selected !== separators.readings[0]
-        ? separators.readings[0]
-        : undefined;
     let sourceInput: FigureInput | null = null;
     let pageUnread = false;
     let calculation: CalculatedFigure | null = null;
     // A saved calculation is checked by working it out again from its own inputs: a source or a
     // calculation the model names beside it would give the verdict one number and the card another.
-    const replayed = target.calculated !== null && !target.calculated.figure.analysis;
     const savedFigure = target.calculated?.figure;
     if (replayed && savedFigure?.workbook) {
       const again = await replayWorkbook(savedFigure, options);
@@ -851,6 +960,16 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
       else if (calculation)
         calculation = comparedFigure(target.reading, calculation, options.costs(item.calculation));
     }
+    // A Passage that writes it identically gives the very figure, whatever the Note's language
+    // makes of it: a German Note copying "£1,284 million" from an English report (#3088).
+    const asSource = sourceInput ? asWrittenIn(original.reading, sourceInput.number) : null;
+    if (asSource) {
+      target = { ...target, reading: asSource };
+      unsure = undefined;
+    } else if (unreadOne) {
+      rows.push(readTwoWays(original, unreadOne, cited));
+      continue;
+    }
     const framed = inSourceFrame(
       original,
       target,
@@ -860,8 +979,16 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
           ? frameOf(calculation.inputs, calculation.unit)
           : null,
     );
-    if (framedLater && !selected && framed === target && (sourceInput || calculation)) {
-      rows.push({ ...finding(target), source: cited, result: unavailable("unread") });
+    const [scale] = ambiguities;
+    if (
+      scale &&
+      framedLater &&
+      !selected &&
+      !asSource &&
+      framed === target &&
+      (sourceInput || calculation)
+    ) {
+      rows.push(readTwoWays(original, scale, cited));
       continue;
     }
     target = framed;
@@ -966,15 +1093,6 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
       });
       continue;
     }
-    if (
-      item.verdict === "unsupported" ||
-      item.topic !== "found" ||
-      item.scope !== "same" ||
-      item.roles !== "same"
-    ) {
-      rows.push({ ...base, sourceInput, result: unbacked(evidence) });
-      continue;
-    }
     const compared =
       target.calculated && !target.calculated.figure.analysis && !sourceInput
         ? calculation
@@ -988,6 +1106,31 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
           : calculation;
     const relation: LimitRelation | undefined =
       item.relation === "equals" ? undefined : item.relation;
+    // Read by the interface language alone, a figure the other reading would back is neither ✓,
+    // Contradicted nor Unsupported, whatever the model made of it: nothing says which is meant.
+    if (
+      separator &&
+      read &&
+      unsure &&
+      item.topic === "found" &&
+      item.scope === "same" &&
+      item.roles === "same" &&
+      compared &&
+      agreesAtShownPrecision(target.reading, compared, { relation }) === false &&
+      agreesAtShownPrecision(readAs(target.reading, read, unsure), compared, { relation }) === true
+    ) {
+      rows.push(readTwoWays(original, separator, cited));
+      continue;
+    }
+    if (
+      item.verdict === "unsupported" ||
+      item.topic !== "found" ||
+      item.scope !== "same" ||
+      item.roles !== "same"
+    ) {
+      rows.push({ ...base, sourceInput, result: unbacked(evidence) });
+      continue;
+    }
     const agrees = compared ? agreesAtShownPrecision(target.reading, compared, { relation }) : null;
     if (agrees === null || !compared || typeof compared.value !== "number" || !evidence) {
       rows.push({ ...base, sourceInput, result: unavailable() });
@@ -1047,15 +1190,6 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
     }
     if (agrees && noteSays === false) {
       rows.push(unitsDiffer());
-      continue;
-    }
-    if (agrees && asWrittenFirst) {
-      rows.push(
-        unitsDiffer({
-          ...original,
-          reading: { ...original.reading, ...asWrittenFirst, ambiguous: [] },
-        }),
-      );
       continue;
     }
     const difference = target.reading.value - compared.value;

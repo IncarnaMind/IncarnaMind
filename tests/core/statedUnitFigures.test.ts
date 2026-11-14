@@ -308,7 +308,7 @@ describe("Contradicted keeps its meaning", () => {
   });
 });
 
-describe("a separator reading a thousand times away is never Supported", () => {
+describe("a separator reading a thousand times away is never Supported or Contradicted", () => {
   /**
    * The judge cites the quote, then reads the figure's digits as `reading` (2: "." grouping
    * thousands), bound to the Document's 8,214 under its unit line.
@@ -349,8 +349,8 @@ describe("a separator reading a thousand times away is never Supported", () => {
       };
     };
 
-  // protects="8.214 thousand pounds" against 8,214 in GBP thousands (8,214,000) needs a look when the judge reads its "." as grouping thousands to make it agree, and the reading English writes stays the one shown; fails_when=that reading makes it Supported; no_claim=a Note whose separators its other numbers settle, which offers no such reading.
-  test("8.214 thousand read as 8,214 thousand needs a look", async () => {
+  // protects="8.214 thousand pounds" against 8,214 in GBP thousands (8,214,000), read by the interface language alone, is Not checked with both readings named whatever reading the judge gives, since the other reading agrees (#2864, #3088); fails_when=it reads Supported, Contradicted or "Units may differ"; no_claim=a Note whose separators its other numbers settle, which reads it one way.
+  test("8.214 thousand, which 8,214 thousand would back, is read two ways", async () => {
     const claim = "Room revenue was 8.214 thousand pounds.";
     const result = await check(
       claim,
@@ -361,10 +361,7 @@ describe("a separator reading a thousand times away is never Supported", () => {
       },
       { reply: readsAs(2) },
     );
-    expect(result).toMatchObject({
-      state: "unsupported",
-      unsupported: { kind: "units", reason: "Units may differ: the source gives 8,214 thousand" },
-    });
+    expect(result).toMatchObject({ state: "not-checked", reason: "two-readings" });
     expect(result.figures?.[0]?.reading.value).toBe(8214);
   });
 });
