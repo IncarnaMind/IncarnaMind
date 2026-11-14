@@ -587,7 +587,7 @@ export type AnswerEngineEvent =
     }
   /**
    * The model's text is all written: what the engine changes from here on (the markers and
-   * Citations it adds, the app's own lines) is the end's own, and lands with "finished".
+   * Citations it adds, the app's own lines) is the end's own, which call help writes with its end.
    */
   | { type: "ending" }
   /** The engine put in `count` Citation markers the model left out of its text (see ./markerPlacement). */

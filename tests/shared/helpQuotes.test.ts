@@ -232,6 +232,46 @@ describe("The quote lines under a line", () => {
     expect(pair(section(), section())).toEqual([[1, 2]]);
   });
 
+  // protects=two quotes of one Passage from other Units never join, though their places read alike (two parts of a long section, or two sections whose headings read alike): each keeps its line and draws its own table cells; quotes of the same Units still join (#2847); fails_when=a number joins a line drawn from another Unit, or a line draws another Citation's cells; no_claim=how often a Passage holds two Units under one heading.
+  test("quotes of other Units of one Passage keep a line each and their own cells, however alike their places", () => {
+    const place = { kind: "section" as const, heading: "Pricing" };
+    const named = [
+      { name: "Plan", value: "Enterprise" },
+      { name: "Price", value: "$45 per seat a month" },
+      { name: "Sign-on", value: "Yes" },
+    ];
+    const other = [
+      { name: "Tier", value: "Enterprise" },
+      { name: "Cost", value: "$45 per seat a month" },
+    ];
+    const outer = cited(1, "Enterprise $45 per seat a month Yes", {
+      location: place,
+      pageFrom: 3,
+      pageTo: 3,
+      cells: named,
+    });
+    const inner = cited(2, "Enterprise $45 per seat a month", {
+      location: place,
+      pageFrom: 5,
+      pageTo: 5,
+      cells: other,
+    });
+    const drawn = (citations: readonly QuotedCitation[]) =>
+      quoteLines(
+        citations.map((each) => each.marker),
+        (marker) => citations.find((each) => each.marker === marker),
+        "done",
+      ).map((line) => ({ markers: line.markers, cells: line.cells }));
+    expect(drawn([outer, inner])).toEqual([
+      { markers: [1], cells: named },
+      { markers: [2], cells: other },
+    ]);
+    expect(drawn([outer, { ...inner, pageFrom: 3, pageTo: 3 }])).toEqual([
+      { markers: [1, 2], cells: named },
+    ]);
+    expect(drawn([outer, { ...inner, pageFrom: null, pageTo: null }])).toHaveLength(2);
+  });
+
   test("on a call, a quote joins only one said within the other's time", () => {
     const whole = said(1, "We need single sign-on. And audit logs for compliance.", 2000, 9000);
     expect(linesOf([whole, said(2, "And audit logs for compliance.", 5000, 9000)])).toEqual([

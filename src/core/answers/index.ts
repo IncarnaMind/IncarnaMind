@@ -1541,8 +1541,9 @@ export function createAnswers(options: AnswersOptions) {
     let timer: ReturnType<typeof setTimeout> | null = null;
     let finished = false;
     /**
-     * The model's text is all written: what the end adds is written with the end alone (#2847), so
-     * a number the app adds never shows before its quote line, nor in a reply still being written.
+     * Call help's reply alone (#2847): the model's text is all written, and what the end adds is
+     * written with the end, so a number the app adds never shows before its quote line, nor in a
+     * reply still being written. Every other Answer ends as it always has.
      */
     let ending = false;
     /** Ends the Answer's mark on its provider (`AnswersOptions.repliesOut`). */
@@ -3976,6 +3977,7 @@ export function createAnswers(options: AnswersOptions) {
             showPhase();
             break;
           case "ending":
+            if (help === undefined) break;
             ending = true;
             if (timer) clearTimeout(timer);
             timer = null;

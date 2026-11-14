@@ -29,6 +29,9 @@ export interface QuotedCitation {
   passageId: string;
   /** Where it points; a call's time, for a quote of a Transcript. */
   location: CitationLocation | null;
+  /** The Units of its Passage it cites, as its Document numbers them; none where a record lacks them. */
+  pageFrom?: number | null;
+  pageTo?: number | null;
   quote: string;
   check: CitationCheck;
   checkReason: CitationCheckReason | null;
@@ -188,15 +191,30 @@ export const markersOf = (pieces: readonly (readonly ReplyPiece[])[]): number[] 
 
 /**
  * Whether a found quote lies wholly inside another found quote of the same place, so its number
- * joins that quote's line (#2847): the same Passage of the same Document, its words inside the
- * other's as the quote check compares them, and on a call its time within the other's. The same
- * words in another Document, or said again later in the call, aren't inside; nor is a quote that
- * only overlaps another, since no line draws words no one Citation gave.
+ * joins that quote's line (#2847): the same Passage of the same Document, the same Units of it,
+ * its words inside the other's as the quote check compares them, and on a call its time within the
+ * other's. The same words in another Document or another Unit, or said again later in the call,
+ * aren't inside; nor is a quote that only overlaps another, since no line draws words no one
+ * Citation gave.
  */
 function inside(inner: QuotedCitation, outer: QuotedCitation): boolean {
   if (inner.documentId !== outer.documentId || inner.passageId !== outer.passageId) return false;
-  if (!placedWithin(inner.location, outer.location)) return false;
+  if (!unitsWithin(inner, outer) || !placedWithin(inner.location, outer.location)) return false;
   return comparedWords(outer.quote).includes(comparedWords(inner.quote));
+}
+
+/**
+ * Whether a quote's Units lie within another's. Two parts of a long section, or two sections whose
+ * headings read alike, give the same place, so only the Units tell them apart. A record without its
+ * Units (a replay of saved records) is told by its place alone.
+ */
+function unitsWithin(inner: QuotedCitation, outer: QuotedCitation): boolean {
+  const { pageFrom: from, pageTo: to } = inner;
+  const { pageFrom: outerFrom, pageTo: outerTo } = outer;
+  if (from == null || to == null || outerFrom == null || outerTo == null) {
+    return (from ?? null) === (outerFrom ?? null) && (to ?? null) === (outerTo ?? null);
+  }
+  return from >= outerFrom && to <= outerTo;
 }
 
 /** A range `inner` inside `outer`; with only one of them given, it can't be shown to be. */
@@ -211,9 +229,9 @@ function rangeWithin(
 /**
  * Whether a Citation's place lies within another's: the same kind of place, a sheet's rows on the
  * same sheet, its pages, slides, rows, lines or call's time inside the other's. A section's is the
- * same section and part of it (its speaker notes, a comment, a picture, or the body), its paragraphs
- * inside the other's where both give them; where only one does, it isn't shown to lie within. Two
- * Citations with no place of their own share their Passage's.
+ * same section and part of it (before its heading, its speaker notes, a comment, a picture, or the
+ * body), its paragraphs inside the other's where both give them; where only one does, it isn't
+ * shown to lie within. Two Citations with no place of their own share their Passage's.
  */
 function placedWithin(a: CitationLocation | null, b: CitationLocation | null): boolean {
   if (a === null || b === null) return a === b;
@@ -229,6 +247,7 @@ function placedWithin(a: CitationLocation | null, b: CitationLocation | null): b
       return (
         b.kind === "section" &&
         a.heading === b.heading &&
+        (a.start ?? false) === (b.start ?? false) &&
         (a.notes ?? false) === (b.notes ?? false) &&
         (a.comment === undefined) === (b.comment === undefined) &&
         a.comment?.author === b.comment?.author &&
