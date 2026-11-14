@@ -39,8 +39,6 @@ export interface Arm {
   helpFormJudged?: boolean;
   /** Whether found quotes show as the model gave them, as before #2739; unset: their whole sentences. */
   quotesAsGiven?: boolean;
-  /** Whether call help's ✓ comes from a found quote alone, its sentences not judged (#2847); unset: judged. */
-  helpMarksQuoteOnly?: boolean;
   /** Whether an earlier call's Transcript is sent and shown unmarked, as before #3005; unset: marked. */
   callsUnmarked?: boolean;
 }
@@ -188,11 +186,6 @@ export const ARMS: readonly Arm[] = [
     quotesAsGiven: true,
   },
   {
-    id: "help-marks-quote-only",
-    label: "call help's ✓ beside every found quote, its sentences not judged",
-    helpMarksQuoteOnly: true,
-  },
-  {
     id: "calls-unmarked",
     label: "an earlier call's Transcript sent and shown like this call's, as before #3005",
     callsUnmarked: true,
@@ -263,7 +256,6 @@ export function armSwitch() {
     notesBeforeSpeakers: () => current?.notes?.beforeSpeakers,
     helpFormJudged: () => current?.helpFormJudged,
     quotesAsGiven: () => current?.quotesAsGiven,
-    helpMarksQuoteOnly: () => current?.helpMarksQuoteOnly,
     callsUnmarked: () => current?.callsUnmarked,
     /** The requests sent since it was last asked, oldest first. */
     takeSent: (): SentRequest[] => sent.splice(0),
