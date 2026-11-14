@@ -5,7 +5,11 @@
  * whole Passages.
  */
 import { describe, expect, test } from "vitest";
-import { estimateTokens, fitQuestionContext } from "../../src/core/answers/context";
+import {
+  estimateTokens,
+  fitQuestionContext,
+  type RequestMind,
+} from "../../src/core/answers/context";
 import { type AnswerMessage, createAiSdkAnswerEngine } from "../../src/core/answers/engine";
 import {
   createWindowBudget,
@@ -292,6 +296,74 @@ describe("A small window's output cap and its problems (#3045)", () => {
     const sent = budgetAt(edge + 100).fit(withShown);
     expect(sent.ok && sent.messages.at(-1)?.content).toBe(`${shown}\n\n${question}`);
   });
+
+  // protects=where it reads, a selection is sent whole or not asked at every window, a token at a time across the point where it stops fitting beside three Passages at the floor, where the cap gives way for it and where it fits at the whole cap: on a first Question with the Mind's text in the message and without it, and on a follow-up whose turn is too long to keep, with and without it; the Mind's cut is never asked to keep the selection, which goes with the Question; fails_when=at any window the selection is cut, left out or refused as anything else, or the Mind's cut is asked to keep it; no_claim=the Mind's own cut, which the Mind's tests cover; the band it found on adc164c4c, where the Mind's cut shortened it at the whole cap, is why it walks every token.
+  test.each([
+    ["a first Question, the Mind's text in the message", true, false],
+    ["a first Question, no Mind text in the message", false, false],
+    ["a follow-up whose turn is too long to keep, the Mind's text in the message", true, true],
+    ["a follow-up whose turn is too long to keep, no Mind text in the message", false, true],
+  ] as const)(
+    "a selection goes whole or not at all at every window: %s",
+    (_, withText, followUp) => {
+      const instructions = block("Instructions", 1_000);
+      const question = "Make this shorter.";
+      const words = "berth ".repeat(240).trim();
+      const selection = `<selection>\n${words}\n</selection>`;
+      const mindText = `<mind name="Notes">\n${"note ".repeat(160).trim()}\n</mind>`;
+      const keptBy: string[] = [];
+      const mind: RequestMind = {
+        text: mindText,
+        selection,
+        // As the Mind's own cut would at its tightest: it shortens a selection it is asked to keep.
+        cut: (tokens, withSelection = true) => {
+          if (withSelection) keptBy.push(`cut(${tokens}, true)`);
+          return {
+            text: `<mind name="Notes">\n[…]\n</mind>`,
+            selection: withSelection
+              ? `<selection>\n${words.slice(0, Math.max(0, tokens * 2))}…\n</selection>`
+              : "",
+            share: 0,
+          };
+        },
+      };
+      const asked = `${selection}\n\nSearch scope: All Documents (1)\n\n${question}`;
+      const opening = (text: string) => (withText ? `${mindText}\n\n${text}` : text);
+      const messages: AnswerMessage[] = followUp
+        ? [
+            { role: "user", content: opening("When are spring tides?") },
+            { role: "assistant", content: "At new moon and at full moon." },
+            { role: "user", content: "And neap tides?" },
+            { role: "assistant", content: `At the quarter moons. ${"pilot ".repeat(3_200)}` },
+            { role: "user", content: asked },
+          ]
+        : [{ role: "user", content: opening(asked) }];
+      const asking = { ...reading(instructions, question), messages, mind };
+      const caps = new Set<number>();
+      let refused = 0;
+      for (let tokens = 4_500; tokens <= 11_500; tokens++) {
+        const budget = createWindowBudget({ tokens, outputTokens: 4_096 });
+        const fitted = budget.fit(asking);
+        expect(keptBy, `window ${tokens}`).toEqual([]);
+        if (fitted.ok) {
+          const sent = fitted.messages.map((message) => message.content).join("\n\n");
+          expect(sent.includes(selection), `window ${tokens}`).toBe(true);
+          expect(sent.includes("…\n</selection>"), `window ${tokens}`).toBe(false);
+          caps.add(budget.window.outputTokens);
+        } else {
+          expect(fitted.error, `window ${tokens}`).toMatchObject({
+            kind: "too-long",
+            tooLong: "selection",
+          });
+          refused++;
+        }
+      }
+      // The walk crossed the refusal, the cap giving way for the selection, and the whole cap.
+      expect(refused).toBeGreaterThan(0);
+      expect(Math.min(...caps)).toBe(OUTPUT_FLOOR_TOKENS);
+      expect(caps.has(4_096)).toBe(true);
+    },
+  );
 
   // protects=the output cap gives way only as far as the first search's room needs, never below the floor, and not at all where it fits: the cap sent is the one the budget counted with; fails_when=it drops straight to the floor, moves where it fits, or goes below the floor; no_claim=what a model writes at the cap.
   test("the cap gives way as far as the first search's room needs, never below the floor", () => {
