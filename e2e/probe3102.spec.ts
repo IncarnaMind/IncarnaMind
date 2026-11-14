@@ -208,85 +208,58 @@ async function openThreeChips(language: "en" | "zh-CN") {
   return { app, window, editor };
 }
 
-for (const width of [1600, 900] as const) {
-  test(`probe: who focuses a Citation when the Note comes back (${width})`, async () => {
-    test.setTimeout(240_000);
-    const { app, window, editor } = await openThreeChips("en");
-    await setWindowSize(app, window, width, 900);
-    await window.evaluate(() => {
-      const holder = globalThis as unknown as { log: string[] };
-      holder.log = [];
-      const note = (what: string) => holder.log.push(`${Math.round(performance.now())} ${what}`);
-      const real = HTMLElement.prototype.focus;
-      HTMLElement.prototype.focus = function (this: HTMLElement, ...args: [FocusOptions?]) {
-        if (this.getAttribute("data-testid") === "citation-chip") {
-          note(
-            `focus() on chip by ${new Error().stack
-              ?.split("\n")
-              .slice(2, 5)
-              .map((l) => l.trim().replace(/\(.*[\\/]/, "("))
-              .join(" <- ")}`,
-          );
+test("probe: where a Citation's focus comes from", async () => {
+  test.setTimeout(240_000);
+  const { app, window, editor } = await openThreeChips("en");
+  await window.evaluate(() => {
+    const holder = globalThis as unknown as { log: string[] };
+    holder.log = [];
+    const name = (element: EventTarget | null) => {
+      if (!(element instanceof Element)) return String(element);
+      return `${element.getAttribute("data-testid") ?? element.tagName}{connected:${element.isConnected},visible:${element.checkVisibility()},inClosedDialog:${element.closest("dialog:not([open])") !== null},inOpenDialog:${element.closest("dialog[open]") !== null}}`;
+    };
+    document.addEventListener(
+      "focusin",
+      (event) => {
+        const target = event.target instanceof Element ? event.target : null;
+        if (target?.getAttribute("data-testid") === "citation-chip") {
+          holder.log.push(`chip focusin from ${name(event.relatedTarget)}`);
         }
-        return real.apply(this, args);
-      };
-      document.addEventListener(
-        "focusin",
-        (event) => {
-          const target = event.target instanceof Element ? event.target : null;
-          if (target?.getAttribute("data-testid") === "citation-chip") note("focusin chip");
-        },
-        true,
-      );
-    });
-    const chips = window.getByTestId("citation-chip");
-    const card = window.getByTestId("citation-card");
-    const state = async (label: string) => {
-      const info = await window.evaluate(() => ({
-        active:
-          document.activeElement?.getAttribute("data-testid") ?? document.activeElement?.tagName,
-        chip: [...document.querySelectorAll('[data-testid="citation-chip"]')].map((c) =>
-          c.getAttribute("aria-expanded"),
-        ),
-        cards: document.querySelectorAll('[data-testid="citation-card"]').length,
-        log: (globalThis as unknown as { log: string[] }).log.splice(0),
-      }));
-      await test.info().attach(`${width}-${label}.json`, {
-        body: JSON.stringify(info, null, 1),
+      },
+      true,
+    );
+  });
+  const log = async (label: string) => {
+    const lines = await window.evaluate(() =>
+      (globalThis as unknown as { log: string[] }).log.splice(0),
+    );
+    await test
+      .info()
+      .attach(`${label}.json`, {
+        body: JSON.stringify(lines, null, 1),
         contentType: "application/json",
       });
-    };
-    // 1. A dialog closes over a focused chip.
-    await caretAtStart(window, editor);
-    await window.keyboard.press("Tab");
-    await expect(card).toHaveCount(1);
-    await state("1-focused");
-    await window.keyboard.press("ControlOrMeta+k");
-    await expect(window.getByTestId("palette-search")).toBeFocused();
-    await state("2-palette-open");
-    await window.keyboard.press("Escape");
-    await expect(window.getByTestId("palette")).toHaveCount(0);
-    await motionSettled(window);
-    await state("3-palette-closed");
-    // 2. Open the page from the card (Tab to the chip, Space, Enter on Open), then show the Note's tab again.
-    await window.keyboard.press("Escape");
-    await window.keyboard.press("Escape");
-    await caretAtStart(window, editor);
-    await window.keyboard.press("Tab");
-    await expect(card).toHaveCount(1);
-    await window.keyboard.press("Space");
-    await expect(card.getByTestId("citation-open")).toBeFocused();
-    await window.keyboard.press("Enter");
-    await motionSettled(window);
-    await state("4-opened-from-card");
-    const tabs = window.getByTestId("mind-tab");
-    await pointAndClick(window, tabs.first());
-    await motionSettled(window);
-    await state("5-note-tab-shown-again");
-    // 3. The same by the keyboard: the page's tab closes with its own key.
-    await window.keyboard.press("ControlOrMeta+w");
-    await motionSettled(window);
-    await state("6-after-ctrl-w");
-    await app.close();
-  });
-}
+  };
+  const chips = window.getByTestId("citation-chip");
+  await caretAtStart(window, editor);
+  await window.keyboard.press("Tab");
+  await expect(chips.first()).toBeFocused();
+  await log("a-tab-from-the-text");
+  await window.keyboard.press("Tab");
+  await window.keyboard.press("Shift+Tab");
+  await log("b-tab-then-shift-tab");
+  await window.keyboard.press("ControlOrMeta+k");
+  await expect(window.getByTestId("palette-search")).toBeFocused();
+  await window.keyboard.press("Escape");
+  await expect(window.getByTestId("palette")).toHaveCount(0);
+  await expect(chips.first()).toBeFocused();
+  await log("c-palette-closed-by-escape");
+  await window.keyboard.press("ControlOrMeta+,");
+  await expect(window.locator("dialog[open]")).toHaveCount(1);
+  await window.keyboard.press("Escape");
+  await expect(window.locator("dialog[open]")).toHaveCount(0);
+  await log("d-settings-closed");
+  await chips.first().focus();
+  await log("e-programmatic-focus");
+  await app.close();
+});
