@@ -693,7 +693,7 @@ test("in Chinese, the line and the timeline; after a restart the steps are still
   await (
     await slideToHandle(window, window.getByTestId("mind-editor").locator(":scope > *").first())
   ).click();
-  await pointAndClick(window, window.getByTestId("block-menu-open-conversation"));
+  await pointAndClick(window, window.getByTestId("block.openSource"));
   answer = assistantAnswers(window).first();
   const line = answer.getByTestId("answer-steps");
   await expect(line).toHaveText("已搜索全部文档 · 1 个来源");

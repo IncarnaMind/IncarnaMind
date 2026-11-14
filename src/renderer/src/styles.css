@@ -7262,7 +7262,7 @@
   }
 
   /* The handle left of the Block under the mouse: drag it to move the Block, click it for its menu. */
-  .block-handle > button {
+  .block-grip {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -7280,14 +7280,27 @@
       outline: 2px solid var(--color-accent);
     }
   }
-  .block-handle[data-dragging="true"] > button {
+  /* A right-click or a key opens the menu with the handle hidden, which its children inherit. */
+  .block-handle [role="menu"] {
+    visibility: visible;
+    pointer-events: auto;
+  }
+  .block-handle[data-dragging="true"] .block-grip {
     cursor: grabbing;
   }
 
   /* The table menu's ⋯ button, inside the top-right corner of the cell the cursor is in (TableMenu). */
-  .table-menu-button {
+  .table-menu-anchor {
     position: absolute;
     z-index: 1;
+    width: 20px;
+    height: 20px;
+
+    &[hidden] {
+      display: none;
+    }
+  }
+  .table-menu-button {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -7301,9 +7314,6 @@
     &:is(:hover, [aria-expanded="true"]) {
       background: var(--color-hover);
       color: var(--color-ink);
-    }
-    &[hidden] {
-      display: none;
     }
   }
 

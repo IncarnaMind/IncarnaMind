@@ -129,7 +129,7 @@ for (const each of CASES) {
     // A chart made from that table: every value carries the Citation.
     await pointAndClick(window, table.locator("td").nth(1));
     await pointAndClick(window, window.getByTestId("table-menu"));
-    await pointAndClick(window, window.getByTestId("table-chart"));
+    await pointAndClick(window, window.getByTestId("chart.fromTable"));
     const chart = editor.getByTestId("chart");
     await expect(chart).toHaveCount(1);
     await expect(chart.getByTestId("chart-point")).toHaveCount(2);

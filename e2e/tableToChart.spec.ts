@@ -175,7 +175,7 @@ for (const [language, width] of [
 
     await pointAndClick(window, grid.locator("td").filter({ hasText: words.firstMetric }));
     await pointAndClick(window, window.getByTestId("table-menu"));
-    const chartItem = window.getByTestId("table-chart");
+    const chartItem = window.getByTestId("chart.fromTable");
     await expect(chartItem).toHaveText(words.chartFromTable);
     await pointAndClick(window, chartItem);
     await expect(window.getByTestId("table-actions")).toBeHidden();
@@ -275,7 +275,7 @@ for (const [language, width] of [
 
     await pointAndClick(window, grid.locator("td").first());
     await pointAndClick(window, window.getByTestId("table-menu"));
-    await pointAndClick(window, window.getByTestId("table-chart"));
+    await pointAndClick(window, window.getByTestId("chart.fromTable"));
     await expect(window.getByTestId("table-actions")).toBeHidden();
     const chart = editor.getByTestId("chart");
     await expect(chart).toHaveCount(1);
@@ -343,7 +343,7 @@ for (const [language, width] of [
 
     await pointAndClick(window, grid.locator("td").first());
     await pointAndClick(window, window.getByTestId("table-menu"));
-    await pointAndClick(window, window.getByTestId("table-chart"));
+    await pointAndClick(window, window.getByTestId("chart.fromTable"));
     const chart = editor.getByTestId("chart");
     await expect(chart.getByTestId("chart-point")).toHaveCount(3);
     await expect(point(chart, 1, 0)).toHaveAttribute("aria-label", /2,?000/);
@@ -363,8 +363,8 @@ for (const [language, width] of [
     await pointAndClick(window, grid.locator("td").first());
     await pointAndClick(window, window.getByTestId("table-menu"));
     await expect(window.getByTestId("table-actions")).toBeVisible();
-    await expect(window.getByTestId("table-rowBelow")).toBeVisible();
-    await expect(window.getByTestId("table-chart")).toHaveCount(0);
+    await expect(window.getByTestId("table.rowBelow")).toBeVisible();
+    await expect(window.getByTestId("chart.fromTable")).toHaveCount(0);
     await window.keyboard.press("Escape");
     await expect(window.getByTestId("table-actions")).toBeHidden();
     await app.close();

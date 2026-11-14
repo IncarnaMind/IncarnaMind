@@ -1,4 +1,6 @@
+import type { Editor } from "@tiptap/core";
 import {
+  type ComponentType,
   Fragment,
   type KeyboardEvent,
   type MouseEvent,
@@ -66,7 +68,8 @@ const ROW = "[data-object-row]";
 
 function focusRow(from: HTMLElement | null): void {
   const row = from?.closest<HTMLElement>(ROW);
-  if (!row) return;
+  // A row that holds text, such as a Note's, has nothing of its own to take the focus.
+  if (!row || row.hasAttribute("data-keeps-focus")) return;
   const own = row.getAttribute("tabindex") !== null;
   (own
     ? row
@@ -188,10 +191,22 @@ export function ObjectMenu({
   more,
   aside,
   foot,
+  icon: Icon = MoreLineIcon,
+  hint,
+  onOpenChange,
+  note,
 }: {
   target: ObjectRef;
+  /** For a Block's menu: the Note's editor it is opened in, which its commands act in. */
+  note?: Editor;
   /** What the button and the menu are called: "More for Board minutes". */
   label: string;
+  /** In place of the ⋯, for a button that is the object's own handle. */
+  icon?: ComponentType<{ className?: string }>;
+  /** What the button's tooltip says, where its label alone doesn't. */
+  hint?: string;
+  /** Called as the menu opens and closes, for a place that keeps something still while it is open. */
+  onOpenChange?: (open: boolean) => void;
   selection?: readonly ObjectRef[];
   here?: CommandContext["here"];
   className?: string;
@@ -223,6 +238,14 @@ export function ObjectMenu({
   const button = menu.buttonProps.ref;
   const hereNow = useRef(here);
   hereNow.current = here;
+  const openChanged = useRef(onOpenChange);
+  openChanged.current = onOpenChange;
+  const wasOpen = useRef(false);
+  useEffect(() => {
+    if (menu.open === wasOpen.current) return;
+    wasOpen.current = menu.open;
+    openChanged.current?.(menu.open);
+  }, [menu.open]);
   useEffect(() => {
     const element = button.current;
     if (!element) return;
@@ -241,6 +264,7 @@ export function ObjectMenu({
     focus: target,
     surface,
     here: { ...tagsHere(target, button.current, chosen), ...here },
+    ...(note && { note }),
   };
   const mixed = new Set(forSelection.selection.map((each) => each.kind)).size > 1;
   const selectionEntries = !menu.open
@@ -325,11 +349,11 @@ export function ObjectMenu({
         type="button"
         data-testid={`${prefix}-menu`}
         aria-label={label}
-        title={label}
+        title={hint ?? label}
         {...(tabIndex !== undefined && { tabIndex })}
         className={className}
       >
-        <MoreLineIcon className="size-4" />
+        <Icon className="size-4" />
       </button>
       <div
         {...menu.menuProps}

@@ -27,7 +27,7 @@ import { randomUUID } from "node:crypto";
 import type * as Y from "yjs";
 import { caseCitations } from "../../../shared/caseCitations";
 import { type LiveDocument, withShownName } from "../../../shared/citations";
-import { keepRecordCites, restsOn } from "../../../shared/claimChecks";
+import { keepRecordCites, restsOn, restsOnItsCitation } from "../../../shared/claimChecks";
 import {
   boundedCheck,
   boundedCheckParts,
@@ -715,6 +715,32 @@ function partsKeptInside(
   return kept ? next : null;
 }
 
+/**
+ * `parts`, each keeping the Supported or Contradicted result it had when a check again left its
+ * cited Document out of the Note's Search scope, while that result rests on the sentence's own
+ * Citation in the version its Document has now (#3087); null when none did.
+ */
+function partsStanding(
+  parts: readonly ClaimCheckPart[],
+  before: readonly ClaimCheckPart[],
+  stands: (part: ClaimCheckPart) => boolean,
+): ClaimCheckPart[] | null {
+  let kept = false;
+  const next = parts.map((part) => {
+    if (part.verdict !== "not-checked" || part.reason !== "outside-scope") return part;
+    const prior = before.find(
+      (each) =>
+        each.kind === part.kind &&
+        each.span.start === part.span.start &&
+        each.span.end === part.span.end,
+    );
+    if (!prior || !stands(prior)) return part;
+    kept = true;
+    return prior;
+  });
+  return kept ? next : null;
+}
+
 function chooseInput(value: unknown): ChooseRecordCiteSourceInput {
   if (!isRecord(value)) throw new InvalidInputError({ key: "error.recordCite.choiceInvalid" });
   const { mindId, checkId, raw, documentId, from, to } = value;
@@ -799,8 +825,10 @@ export function createChecks(options: ChecksOptions) {
     sourceText = check.text,
     priorParts?: readonly ClaimCheckPart[],
     previous: ClaimCheckAttributes | null = null,
+    sameTextParts?: readonly ClaimCheckPart[],
   ): ClaimCheckAttributes {
-    const before = previous ?? check;
+    // An earlier result is kept for the words it judged only: words edited since are new (#3087).
+    const before = previous?.text === check.text ? previous : check;
     const behindAnotherWall = (citation: CitationAttributes | null | undefined) => {
       const wall = citation?.documentId ? options.walledDocument(citation.documentId) : null;
       return wall !== null && wall !== options.walledFolder(mindId);
@@ -826,6 +854,27 @@ export function createChecks(options: ChecksOptions) {
       before.parts &&
       partsKeptInside(result.parts, before.parts, behindAnotherWall);
     if (keptParts) result = resultFromParts(keptParts);
+    const leftOut = result.parts?.some(
+      (part) => part.verdict === "not-checked" && part.reason === "outside-scope",
+    );
+    const held =
+      leftOut && sameTextParts
+        ? checkedSentences(blocks).find((each) => each.check.id === check.id)
+        : undefined;
+    if (held && sameTextParts && result.parts) {
+      const versions = options.watch.documentVersions();
+      const stands = (part: ClaimCheckPart) => {
+        const deciding =
+          part.decidingEvidence === null ? undefined : part.evidence[part.decidingEvidence ?? 0];
+        return (
+          deciding?.documentId != null &&
+          versions.get(deciding.documentId) === deciding.contentHash &&
+          restsOnItsCitation(part, held.citations, held.sentence)
+        );
+      };
+      const standing = partsStanding(result.parts, sameTextParts, stands);
+      if (standing) result = resultFromParts(standing);
+    }
     // A mark not in the Note yet is the assistant's own write's, which says whose it is itself.
     const assistant = assistantWrote(blocks, check.id);
     if (result.parts && assistant !== null)
@@ -1416,6 +1465,7 @@ export function createChecks(options: ChecksOptions) {
                   begun.queued.claim,
                   begun.queued.priorParts,
                   begun.queued.before,
+                  begun.queued.previous,
                 )
               : notCheckedMark(
                   begun.pending,
@@ -1540,6 +1590,7 @@ export function createChecks(options: ChecksOptions) {
                     sentence.claim,
                     sentence.priorParts,
                     sentence.before,
+                    sentence.previous,
                   )
                 : notCheckedMark(
                     check,
@@ -1710,7 +1761,7 @@ export function createChecks(options: ChecksOptions) {
     quickModel: quickModelOf,
     firstLook,
     claimCheck,
-    scopeOf: (mindId) => scopeOf(mindId, false),
+    scopeOf: (mindId, allDocuments) => scopeOf(mindId, allDocuments),
     evidenceReady,
     citedNow,
     withResult: noteResult,
