@@ -611,15 +611,21 @@ for (const [language, width] of [
             !parent.checkVisibility({ visibilityProperty: true })
           )
             continue;
-          // From the first to the last character a person sees: the spaces around a separator's
-          // dot are no ink.
+          // From the first to the last character a person sees, the spaces around a separator's
+          // dot being no ink; and each line one em tall about its middle, as a fallback font's
+          // taller box around a curly quote is no ink either.
           const words = node.textContent ?? "";
           const range = document.createRange();
           range.setStart(node, words.search(/\S/));
           range.setEnd(node, words.trimEnd().length);
+          const em = Number.parseFloat(getComputedStyle(parent).fontSize);
           for (const line of Array.from(range.getClientRects())) {
+            const middle = (line.top + line.bottom) / 2;
             const across = Math.max(box.left - grow - line.right, line.left - box.right - grow);
-            const down = Math.max(box.top - grow - line.bottom, line.top - box.bottom - grow);
+            const down = Math.max(
+              box.top - grow - (middle + em / 2),
+              middle - em / 2 - box.bottom - grow,
+            );
             room = Math.min(room, Math.max(across, down));
           }
         }
