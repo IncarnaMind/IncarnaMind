@@ -90,7 +90,7 @@ Every phase runs under the key's lease and the void rule below. The stop is the 
 | Phase | Model, key | Flows, rounds | Margin for right sentences | Stop |
 |---|---|---|---|--:|
 | A | Claude Haiku 5.5, the Anthropic key | `main` against `main`: the held-out Note, EN and ZH; the pilot, round 2, and round 3 only if round 2 counted and what is left covers round 2's own cost plus 5% | (sets it) | US$1.50 |
-| B | Claude Haiku 5.5, the Anthropic key | `main` against `search-first`, EN and ZH, in this order: a full round (the held-out Note, the 10-sentence Note, a write, an Answer), a reduced round (the reduced set, below), a full round, then up to three more reduced rounds, then the list's readings (Bar 1). At least two full and two reduced rounds, or B stops and comes back. No room to run a void round again: after a void round, B stops and reports | the thresholds below, for B's rounds | US$3.00 |
+| B | Claude Haiku 5.5, the second direct Anthropic key (the first stayed with another paired run), both arms and every round on it | `main` against `search-first`, EN and ZH, in this order: a full round (the held-out Note, the 10-sentence Note, a write, an Answer), a reduced round (the reduced set, below), a full round, then up to three more reduced rounds, then the list's readings (Bar 1). At least two full and two reduced rounds, or B stops and comes back. No room to run a void round again: after a void round, B stops and reports | the thresholds below, for B's rounds | US$3.00 |
 | C | DeepSeek V4.1 Flash, the DeepSeek key, off-peak hours only, priced at the hour it runs | the reduced set, both arms, 3 rounds, EN and ZH, then the list's readings | Haiku's thresholds for 3 rounds, never under 2 | US$1.50 |
 | D | GPT-6.1 Sol, the OpenAI key, after B passes | a priced pilot: six English sentences of the reduced set, two of each kind, both arms, ruling on no bar; its numbers go to the lead before the round. The round: the reduced set, both arms, EN and ZH, its rounds set from the pilot's price (3 rounds catch a third of the row lost 9 times in 10, below) | Haiku's thresholds for its rounds, never under 2 | the pilot US$1.00; the round US$18.00 (the owner's yes) |
 | E | Claude Sonnet 5.5, the Anthropic key, after B passes | the reduced set's wrong twins and absent sentences, `search-first`'s arm only, 1 round, EN and ZH, then ten readings on each path of each it Supports | (no right sentences) | US$1.50 |
@@ -232,4 +232,42 @@ A model is listed in `SEARCH_FIRST` only when Bars 1 to 5 all hold on it. A bar 
 
 **B's money, inside US$3.00:** at A's prices, a full round should cost about US$0.77–0.94 and a reduced one US$0.26–0.32, if `search-first` costs 0.6–0.9 of `main`'s. The first full round is B's own price; each next round starts only if what is left covers it at that price, with the list's readings (about US$0.05 a sentence, at least `en-tyre-condition`) kept back first. So B should read its four required rounds and one or two more reduced ones.
 
-_Phase by phase as each finishes: then B and on._
+**Phase B: fails** (2026-11-14, 22:06–22:44 UTC, Claude Haiku 5.5 on the second direct Anthropic key, `main` against `search-first` paired and alternated in one process a step):
+
+- **Rounds and spend:** full, reduced, full, then three reduced, then the list's ten readings on each arm: US$0.679, US$0.294, US$0.673, US$0.309, US$0.282, US$0.278 and US$0.027, so **US$2.542 of US$3.00**. By arm: `main` US$1.483, `search-first` US$1.059. Each round started only once what was left covered it at B's own price with the list kept back. 68 arm-runs, 0 void, no request refused or failed, every state cell 0; the probe read every limit at 100% before every batch.
+- **Bar 2, the gating row, fails past strict in both languages** (6 rounds of each arm):
+
+  | Bar | How far past | Written, plain / strict | Recomputed from B's `main` | Read against | Reading | Changed by the recomputed |
+  |---|--:|--:|--:|--:|---|---|
+  | Bar 1, the wrong sentences | −7 | 4 / 6 | 6 / 10 | 4 / 6 | within | no |
+  | The gating row, English | 19 | 7 / 9 | 7 / 10 | 7 / 9 | past strict | no |
+  | The gating row, Chinese | 18 | 9 / 12 | 8 / 12 | 8 / 12 | past strict | no |
+
+  - Supported, `main` and `search-first`: English 34 and 15 of 66 readings, Chinese 44 and 26 of 96.
+  - By writer, the loss is the second unaware writer's low-rank and split sentences: English 34 → 15, Chinese 39 → 25. The builder's right sentences held (English 16 → 16, Chinese 18 → 17); the first unaware writer's went 9 → 10 and 17 → 11.
+  - Rule 2 (6 rounds): one lost in English, a cross-language sentence; none in Chinese. Holds.
+  - The other right sentences, reported: English 25 and 26, Chinese 30 and 27.
+- **Bar 1 holds:** `search-first` Supported no wrong twin or absent sentence in any reading; `main` Supported `en-tyre-condition` (the twin that drops a condition, the one A saw) 4 times in 6 rounds and 3 times in its 10 list readings, 7 in all. It was the only sentence on the list. What the bar could see is as written: a path five times as wrong as `main` is caught about 3 times in 4.
+- **The 10-sentence Note's unstated sentences:** none Supported on either arm; no line goes first.
+- **Bar 3 holds:** Not checked, `main` and `search-first`: full Note English 17 and 13, Chinese 7 and 11 (4 allowed over); reduced English 10 and 9, Chinese 10 and 7 (1 allowed over).
+- **Bar 4 doesn't hold on the held-out Note in English:** done, medians, `main` and `search-first`: held-out Note English 57.6 and 68.4 s, Chinese 85.0 and 81.3 s; reduced English 41.4 and 46.3 s, Chinese 45.6 and 51.5 s; the 10-sentence Note English 17.7 and 14.2 s, Chinese 19.0 and 14.8 s; a write English 35.5 and 36.2 s, Chinese 42.2 and 37.3 s; an Answer 8.6 and 8.2 s, 7.9 and 9.5 s. First marks on the held-out Note: English 6.7 and 3.0 s, Chinese 8.9 and 17.8 s. The machine's load was 10 to 20 on 12 cores through B.
+- **Why, from the record:** the first reply settled few parts on this model: right sentences 9 of 100 sentence-rounds in English and 28 of 130 in Chinese; 80–88% went on to their Runs. Those Runs start from the four Passages handed over, and on the sentences whose support ranks low or splits across Passages, they marked fewer Supported than today's Run, which searches from the start. `search-first` cost about 0.7 of `main` a sentence (US$0.00185 against US$0.00260 on the English held-out Note) with as many requests.
+- **So:** no ship for Haiku on this path, and B's failure stops C, D and E until the second reader decides. The numbers went to the lead first.
+
+**Why the gating row was lost: a free analysis of B's records** (no request sent). Here a lost sentence-round is a round in which `main` Supported a gating-row sentence and `search-first` didn't. There were 52, against the search-only ranks measured again on the same merged code.
+
+| | Not found: a stating line ranked 5th or lower, or the first search never found it | Found: both lines in the four Passages handed over |
+|---|--:|--:|
+| English | 20 (low-rank: 4 sentences across languages) | 7 (split: `l-en-tp-02`, `-04`, `-05`) |
+| Chinese | 20 (low-rank: 3 across languages, 4 on two pages with a line ranked 6th, 7th or not found) | 5 (split: `l-zh-tp-03`, `-05`) |
+| **In all** | **40 (77%)** | **12 (23%)** |
+
+- **Not found (40):** `l-en-cl-01` to `-04`, `l-zh-cl-06`, `l-zh-cl-08`, `w-cross-zh-en`, `l-zh-tp-01`, `-04`, `-08`, `-09`.
+  - On these, `search-first`'s Run searched once, against `main`'s twice. Its verdict was Unsupported or Not checked.
+  - `main`'s Run searched twice in every one of these rounds. On the cross-language sentences, it cited the Document in the other language.
+  - The records keep each request's count of searches, not its words, so which of `main`'s searches found the Passage, and with what words, isn't in them.
+- **Found and missed (12):** the split sentences. Both lines were handed over, and `search-first`'s Run made no further search. It marked them Unsupported (6), Not checked (4) or Contradicted (1). The first reply had said Unsupported, figures-sources or Contradicted, or couldn't be read.
+- **A third fault, in the reply itself:** over all of B, 375 of `search-first`'s 551 first-reply parts were "reply-unreadable". The reply ended normally in all 532 first-reply requests (none cut off), but in a form the reader doesn't accept. That was 32 of the 52 lost rounds. The scripted model of the free runs writes the expected form, so no free check could show it.
+- **Reading:** most lost rounds (77%) are a first search that doesn't find the Passage, not a reply that misses one it was given. By the CEO's ruling, that points to the reworked shape: `main`'s check, given the first search's results in its first request, with its search tool kept. Nothing is built until the CEO rules.
+
+_Phase by phase as each finishes._
