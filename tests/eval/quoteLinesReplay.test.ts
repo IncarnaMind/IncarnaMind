@@ -427,10 +427,33 @@ describe("The quote lines' replay", () => {
       keptChanged: 1,
       keptClosed: 0,
       keptNotFound: 1,
+      roomsGrew: 0,
+      movingByRooms: 0,
+      linesMovedByRooms: 0,
       textRowsChanged: 0,
       linesMoved: 0,
       atTheFoot: 2,
       linesAppeared: 0,
+    });
+  });
+
+  // protects=#3098's measure of what it leaves as #2847 drew it: a room of one row kept while written whose own quote lands with the end and wraps is counted apart, with the lines it moves; fails_when=such a room goes uncounted, or is counted as the end's Citations moving a line; no_claim=how often it happens, which the saved records give.
+  test("a room whose quote lands with the end and wraps is counted apart", () => {
+    const long =
+      "Enterprise contracts are billed annually, and every seat after the first fifty is billed at a lower price.";
+    const room = press({
+      id: "en-room",
+      button: "answer",
+      written: "★ Yes, billed annually [^1]\n→ answers at once\n\nAsk about the term\n→ moves on",
+      text: "★ Yes, billed annually [^1]\n→ answers at once\n\nAsk about the term\n→ moves on",
+      citations: [sheet(1, long, { from: "request" })],
+    });
+    expect(replay([room]).counts.atTheEnd).toMatchObject({
+      moving: 0,
+      linesMoved: 0,
+      roomsGrew: 1,
+      movingByRooms: 1,
+      linesMovedByRooms: 3,
     });
   });
 

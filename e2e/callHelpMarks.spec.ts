@@ -255,9 +255,13 @@ for (const call of CALLS) {
       first: await topOf(rows.nth(0)),
       second: await topOf(rows.nth(1)),
     };
-    for (const part of ["heading", "say", "first", "second"] as const) {
+    for (const part of ["heading", "say", "first"] as const) {
       expect(Math.abs(after[part].y - before[part].y), part).toBeLessThan(0.5);
     }
+    // The second row stays right under the first, whose quote may take a second row as it lands in
+    // its room (#2847).
+    const gap = (rows: typeof before) => rows.second.y - (rows.first.y + rows.first.height);
+    expect(Math.abs(gap(after) - gap(before))).toBeLessThan(0.5);
     expect((await expectQuoteLines(window, reply))[0]).toMatchObject({
       words: `“${call.cited}”`,
       numbers: ["1"],
