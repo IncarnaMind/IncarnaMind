@@ -52,6 +52,7 @@ import { memoized } from "../../../shared/memo";
 import { sentenceKey } from "../../../shared/mindCheck";
 import { readProposalAttribute } from "../../../shared/proposals";
 import { INLINE_NODE, isClaim, onlyNamesItsTable } from "../../../shared/sentences";
+import { onlyNamesItsSource } from "../../../shared/sourceNames";
 import {
   claimPlaces,
   foundElsewhere,
@@ -296,8 +297,17 @@ function eachSentence(
     const figures = inline.filter(({ node }) => node.type.name === CALCULATED_FIGURE_NODE);
     for (const span of sentences) {
       const { from, to } = span;
-      const claim = input.claims.find((each) => each.from < to && each.to > from) ?? null;
       const words = span.text;
+      const cited = citations.filter((each) => each.pos >= from && each.pos < to);
+      // As the core reads it: a sentence that only names its source is no check's (#3093).
+      if (
+        onlyNamesItsSource(
+          words,
+          cited.map((each) => each.attributes),
+        )
+      )
+        continue;
+      const claim = input.claims.find((each) => each.from < to && each.to > from) ?? null;
       const hasFigures =
         figures.some(({ at }) => at >= span.start && at < span.end) || holdsFigures(words);
       const state = checkedSentence({
@@ -315,7 +325,7 @@ function eachSentence(
         to,
         text: words,
         claim,
-        citations: citations.filter((each) => each.pos >= from && each.pos < to),
+        citations: cited,
         blockId,
         inTable: table,
         state,

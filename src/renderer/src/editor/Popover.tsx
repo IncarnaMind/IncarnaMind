@@ -31,6 +31,11 @@ interface PopoverProps extends HTMLAttributes<HTMLDivElement> {
    */
   still?: boolean;
   /**
+   * Hung by its bottom edge: a change of its height moves its top and nothing below it, in the
+   * frame it happens, before the next placement catches up (the check card's foot, #2313).
+   */
+  fromBottom?: boolean;
+  /**
    * Called on Esc, wherever the focus is, or on a press outside both the
    * popover and `anchor`.
    */
@@ -41,6 +46,12 @@ interface PopoverProps extends HTMLAttributes<HTMLDivElement> {
   returnFocus?: boolean;
   children: ReactNode;
 }
+
+/** Records the height the popover was placed at. */
+const heightPlaced: Middleware = {
+  name: "heightPlaced",
+  fn: ({ rects }) => ({ data: { height: rects.floating.height } }),
+};
 
 /** Native popovers that are open, in the order they opened. */
 const openPopovers: HTMLElement[] = [];
@@ -67,6 +78,7 @@ export function Popover({
   middleware,
   follows,
   still = false,
+  fromBottom = false,
   onDismiss,
   initialFocus,
   returnFocus = false,
@@ -106,13 +118,22 @@ export function Popover({
       void computePosition(anchor, element, {
         placement,
         strategy: "fixed",
-        middleware: placing.current?.() ?? [offset(4), flip(), shift({ padding: 8 })],
+        middleware: [
+          ...(placing.current?.() ?? [offset(4), flip(), shift({ padding: 8 })]),
+          ...(fromBottom ? [heightPlaced] : []),
+        ],
       }).then(({ x, y, middlewareData }) => {
         // With `hide()` among its middleware, it goes while its anchor is scrolled out of view.
         const away = middlewareData.hide?.referenceHidden === true;
+        // The height it was placed at, not the one it has now: it can have changed since.
+        const placedAt = (middlewareData.heightPlaced as { height: number } | undefined)?.height;
+        const edge =
+          fromBottom && placedAt !== undefined
+            ? { top: "auto", bottom: `${document.documentElement.clientHeight - (y + placedAt)}px` }
+            : { top: `${y}px` };
         Object.assign(element.style, {
           left: `${x}px`,
-          top: `${y}px`,
+          ...edge,
           visibility: away ? "hidden" : "visible",
         });
         if (!shown) {
@@ -179,7 +200,7 @@ export function Popover({
       document.removeEventListener("keydown", dismissOnEscape, true);
       if (element.matches(":popover-open")) element.hidePopover();
     };
-  }, [anchor, placement, still]);
+  }, [anchor, placement, still, fromBottom]);
 
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: it has a role, a dialog's unless the caller gives another (e.g. menu).

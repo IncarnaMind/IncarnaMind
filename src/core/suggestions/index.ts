@@ -34,7 +34,6 @@ import type {
   ChatReadiness,
   Citation,
   ExternalService,
-  SearchScope,
   Suggestion,
   SuggestionOutcome,
   SuggestionRequest,
@@ -49,6 +48,7 @@ import { parseIds, parseMindId } from "../minds";
 import { givesStructuredOutput } from "../providers/capabilities";
 import type { PreparedChatModel } from "../providers/chat";
 import { outputTokens } from "../providers/outputLimits";
+import type { WorkWall } from "../workWall";
 import {
   continuationOf,
   numbersBacked,
@@ -165,10 +165,7 @@ export interface SuggestionsOptions {
   citing: Citing;
   /** Throws `NotFoundError` unless the Mind exists. */
   requireMind(mindId: string): void;
-  /** The Documents a Search scope covers; with none, the User's own (`scopeDocuments`). */
-  scopeDocuments(scope: SearchScope | null, mindId: string | null): string[] | null;
-  /** What a suggestion in a Mind searches, by the one rule (`mindSearchScope`); null: every Document. */
-  searchedScope(scope: SearchScope, mindId: string): SearchScope | null;
+  wall: Pick<WorkWall, "scopeDocuments" | "searchedScope">;
   /** How many of these Documents (null: all) have Passages to search. */
   searchableCount(documentIds: readonly string[] | null): number;
   /** Who's who in a Transcript (#138), so its Passages are placed by the names the User gave. */
@@ -385,8 +382,8 @@ export function createSuggestions(options: SuggestionsOptions) {
       const request = parseRequest(input);
       options.requireMind(request.mindId);
       cancelCurrent();
-      const searched = options.searchedScope(request.scope, request.mindId);
-      const documentIds = options.scopeDocuments(searched, request.mindId);
+      const searched = options.wall.searchedScope(request.scope, request.mindId);
+      const documentIds = options.wall.scopeDocuments(searched, request.mindId);
       if (!options.enabled()) {
         return { kind: "off", scopeHasDocuments: options.searchableCount(documentIds) > 0 };
       }
