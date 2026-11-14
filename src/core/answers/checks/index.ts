@@ -825,8 +825,10 @@ export function createChecks(options: ChecksOptions) {
     sourceText = check.text,
     priorParts?: readonly ClaimCheckPart[],
     previous: ClaimCheckAttributes | null = null,
+    sameTextParts?: readonly ClaimCheckPart[],
   ): ClaimCheckAttributes {
-    const before = previous ?? check;
+    // An earlier result is kept for the words it judged only: words edited since are new (#3087).
+    const before = previous?.text === check.text ? previous : check;
     const behindAnotherWall = (citation: CitationAttributes | null | undefined) => {
       const wall = citation?.documentId ? options.walledDocument(citation.documentId) : null;
       return wall !== null && wall !== options.walledFolder(mindId);
@@ -852,15 +854,14 @@ export function createChecks(options: ChecksOptions) {
       before.parts &&
       partsKeptInside(result.parts, before.parts, behindAnotherWall);
     if (keptParts) result = resultFromParts(keptParts);
-    const earlier = previous?.parts ?? priorParts;
     const leftOut = result.parts?.some(
       (part) => part.verdict === "not-checked" && part.reason === "outside-scope",
     );
     const held =
-      leftOut && earlier
+      leftOut && sameTextParts
         ? checkedSentences(blocks).find((each) => each.check.id === check.id)
         : undefined;
-    if (held && earlier && result.parts) {
+    if (held && sameTextParts && result.parts) {
       const versions = options.watch.documentVersions();
       const stands = (part: ClaimCheckPart) => {
         const deciding =
@@ -871,7 +872,7 @@ export function createChecks(options: ChecksOptions) {
           restsOnItsCitation(part, held.citations, held.sentence)
         );
       };
-      const standing = partsStanding(result.parts, earlier, stands);
+      const standing = partsStanding(result.parts, sameTextParts, stands);
       if (standing) result = resultFromParts(standing);
     }
     // A mark not in the Note yet is the assistant's own write's, which says whose it is itself.
@@ -1464,6 +1465,7 @@ export function createChecks(options: ChecksOptions) {
                   begun.queued.claim,
                   begun.queued.priorParts,
                   begun.queued.before,
+                  begun.queued.previous,
                 )
               : notCheckedMark(
                   begun.pending,
@@ -1588,6 +1590,7 @@ export function createChecks(options: ChecksOptions) {
                     sentence.claim,
                     sentence.priorParts,
                     sentence.before,
+                    sentence.previous,
                   )
                 : notCheckedMark(
                     check,

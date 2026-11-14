@@ -7,6 +7,7 @@
 import { randomUUID } from "node:crypto";
 import type { JSONContent } from "@tiptap/core";
 import { expect, test } from "vitest";
+import * as Y from "yjs";
 import type { Core, Document } from "../../src/core";
 import type { Language } from "../../src/core/language";
 import { reasonText } from "../../src/renderer/src/cost";
@@ -45,6 +46,45 @@ const PLANS_DEPOT = "Harbour Foods plans a new depot in Leeds.";
 const SELLS_PART = "Harbour Foods sells through its own shops and online";
 const DEPOT_PART = "it plans a new depot in Leeds";
 const BOTH = `${SELLS_PART}, and ${DEPOT_PART}.`;
+const ZH = "海港食品通过自有门店和网店销售。";
+const DERBY = DEPOT_PART.replace("Leeds", "Derby");
+const BOTH_EDITED = BOTH.replace("Leeds", "Derby");
+const FARMS = SELLS.replace("shops", "farms");
+/** The edits the User makes since a sentence's check, each beside a twin left as it was. */
+const EDITS = [
+  {
+    kind: "a word of the same length",
+    line: "line-0",
+    original: SELLS,
+    from: "shops",
+    to: "farms",
+    twin: EBITDA,
+  },
+  {
+    kind: "a figure of the same length",
+    line: "line-1",
+    original: EBITDA,
+    from: "£12",
+    to: "£19",
+    twin: SELLS,
+  },
+  {
+    kind: "words of another length",
+    line: "line-0",
+    original: SELLS,
+    from: "online",
+    to: "on the web",
+    twin: EBITDA,
+  },
+  {
+    kind: "Chinese words of the same length",
+    line: "line-2",
+    original: ZH,
+    from: "门店",
+    to: "工厂",
+    twin: SELLS,
+  },
+].map((each) => ({ ...each, edited: each.original.replace(each.from, each.to) }));
 
 const PLANS: Record<string, Plan> = {
   [SELLS]: { verdict: "supported", quote: SELLS },
@@ -58,10 +98,21 @@ const PLANS: Record<string, Plan> = {
   [DEPOT]: { verdict: "supported", quote: DEPOT },
   [SELLS_PART]: { verdict: "supported", quote: SELLS },
   [DEPOT_PART]: { verdict: "unsupported" },
+  [ZH]: { verdict: "supported", quote: ZH },
+  [DERBY]: { verdict: "unsupported" },
+  ...Object.fromEntries(
+    [...EDITS.map((each) => each.edited), BOTH_EDITED].map((text): [string, Plan] => [
+      text,
+      { verdict: "unsupported" },
+    ]),
+  ),
 };
 
 /** The parts a model names: two in the joined sentence, the whole of any other. */
-const PARTS: Record<string, string[]> = { [BOTH]: [SELLS_PART, DEPOT_PART] };
+const PARTS: Record<string, string[]> = {
+  [BOTH]: [SELLS_PART, DEPOT_PART],
+  [BOTH_EDITED]: [SELLS_PART, DERBY],
+};
 
 /**
  * A check Run that searches with its sentence, cites the shown Passage holding its plan's quote and
@@ -146,7 +197,7 @@ async function setUp() {
     await writeSourceFile(
       sources,
       `${PACK}.md`,
-      `# ${PACK}\n\n${SELLS}\n\n${EBITDA}\n\n${DEPOT}\n`,
+      `# ${PACK}\n\n${SELLS}\n\n${EBITDA}\n\n${DEPOT}\n\n${ZH}\n`,
     ),
     await writeSourceFile(sources, "Other memo.md", "The memo was approved by the board.\n"),
   ]);
@@ -392,5 +443,117 @@ test("a cited Document changed since: it asks, and isn't kept", async () => {
   await checkNote(core, mindId, client);
 
   expect((await cards(core, client)).get(SELLS)).toEqual(OUTSIDE);
+  core.close();
+});
+
+/** Replaces `from` with `to` in a line's text, as typing over a selection does, keeping its marks. */
+function replaceWords(client: MindClient, blockId: string, from: string, to: string) {
+  const block = client.blocks
+    .toArray()
+    .find((each) => each instanceof Y.XmlElement && each.getAttribute("id") === blockId);
+  const text = block instanceof Y.XmlElement ? block.get(0) : undefined;
+  if (!(text instanceof Y.XmlText)) throw new Error(`${blockId} has no text.`);
+  const runs = text.toDelta() as { insert: unknown; attributes?: Record<string, unknown> }[];
+  const at = runs
+    .map((run) => (typeof run.insert === "string" ? run.insert : ""))
+    .join("")
+    .indexOf(from);
+  if (at < 0) throw new Error(`${blockId} doesn't say "${from}".`);
+  const [run] = runs;
+  client.doc.transact(() => {
+    text.delete(at, from.length);
+    text.insert(at, to, run?.attributes ?? {});
+  }, "editor");
+}
+
+/** A Note of the sentences the User edits, each checked once with no scope, then scoped to the memos. */
+async function editableNote(setup: Setup) {
+  const { core, pack } = setup;
+  const cites = (line: string) => citation(core, pack, line);
+  const note = await noteWith(core, [
+    [SELLS, await cites(SELLS)],
+    [EBITDA, await cites(EBITDA)],
+    [ZH, await cites(ZH)],
+    [BOTH, await cites(SELLS)],
+  ]);
+  await checkNote(core, note.mindId, note.client);
+  const first = await cards(core, note.client);
+  setMindScope(note.client.doc, folderScope(setup.memos.id));
+  await note.client.settled();
+  return { ...note, first };
+}
+
+// protects=a sentence the User changed since its ✓, a figure and Chinese among them and whatever the length, is judged as new words when the Note's Search scope leaves its cited Document out: Check this Note leaves it Not checked with the reason, as a sentence never checked, and no card shows a ✓ for it, while its unchanged twin keeps its ✓; neither is sent to the model (#3087); fails_when=the earlier ✓ is kept for words no check read, or the twin loses its ✓; no_claim=the card between the edit and the check.
+test.each(EDITS)(
+  "$kind changed since its ✓ isn't given it back; the unchanged twin keeps its own",
+  async ({ line, original, from, to, edited, twin }) => {
+    const setup = await setUp();
+    const { core, calls } = setup;
+    const { mindId, client, first } = await editableNote(setup);
+    expect(first.get(twin)).toEqual({ state: "supported", ...SETTLED });
+    expect(first.get(original)).toEqual({ state: "supported", ...SETTLED });
+
+    replaceWords(client, line, from, to);
+    await client.settled();
+    const before = calls.length;
+    await checkNote(core, mindId, client);
+    const after = await cards(core, client);
+
+    expect(after.get(edited)).toEqual(OUTSIDE);
+    expect(after.get(twin)).toEqual(first.get(twin));
+    expect(askedAbout(calls, before, edited)).toBe(false);
+    expect(askedAbout(calls, before, twin)).toBe(false);
+    core.close();
+  },
+);
+
+// protects=an edit inside one part of a two-part sentence gives back neither part's earlier result when the scope leaves the cited Document out: an earlier part is kept only from a check of the sentence's words as they are now (#3087); fails_when=a part keeps a verdict from before the edit; no_claim=keeping a part whose own words are unchanged.
+test("an edit inside one part: neither part keeps its earlier result", async () => {
+  const setup = await setUp();
+  const { core } = setup;
+  const { mindId, client } = await editableNote(setup);
+
+  replaceWords(client, "line-3", "Leeds", "Derby");
+  await client.settled();
+  await checkNote(core, mindId, client);
+
+  const [both] = claimsOf(readMind(client), {
+    footing: "not-yet-known",
+    versions: null,
+    folderId: null,
+    scope: mindScopeOf(client.doc),
+  }).claims.filter((claim) => claim.sentence.text === BOTH_EDITED);
+  expect(both?.reads.parts?.map((part) => [part.verdict, part.reason])).toEqual([
+    ["not-checked", "outside-scope"],
+    ["not-checked", "outside-scope"],
+  ]);
+  expect((await cards(core, client)).get(BOTH_EDITED)).toEqual(OUTSIDE);
+  core.close();
+});
+
+// protects=Undo of an edit made since a ✓ brings the words back but not the ✓, since the sentence's mark is now the check of the edited words: the card asks for its recheck, and Check this Note settles it Not checked with the reason without a request (#3087); fails_when=the ✓ returns on a mark that judged other words, or the card asks for a recheck Check again can't settle; no_claim=the editor's own Undo step.
+test("Undo of the edit brings the words back, and the ✓ only with its mark", async () => {
+  const setup = await setUp();
+  const { core, calls } = setup;
+  const { mindId, client } = await editableNote(setup);
+  const undo = new Y.UndoManager(client.blocks, { trackedOrigins: new Set(["editor"]) });
+  replaceWords(client, "line-0", "shops", "farms");
+  await client.settled();
+  await checkNote(core, mindId, client);
+  expect((await cards(core, client)).get(FARMS)).toEqual(OUTSIDE);
+
+  undo.undo();
+  await client.settled();
+  expect((await cards(core, client)).get(SELLS)).toEqual({
+    state: "needs-recheck",
+    line: "The sentence has changed since it was checked.",
+    action: "Check again",
+  });
+  const from = calls.length;
+  await checkNote(core, mindId, client);
+
+  expect((await cards(core, client)).get(SELLS)).toEqual(OUTSIDE);
+  expect(askedAbout(calls, from, SELLS)).toBe(false);
+  undo.destroy();
   core.close();
 });
