@@ -28,8 +28,10 @@ import {
   isRow,
   ownNames,
   possibleLabels,
+  rowLabels,
   saysName,
   tableAt,
+  UNIT_WORD,
 } from "./figureMeasures";
 
 export type UnitNotStated =
@@ -545,13 +547,16 @@ const measureInFull = (unit: FigureUnit) => measureOf(inFull({ scale: 1, unit })
 // "（瓦）" is 31瓦, never 31千瓦. A bare "（度）" may be degrees.
 const spellsItsScale = (unit: FigureUnit) => SPELLING_MEASURES.has(measureOf(unit) ?? "");
 
-// One base unit, as English and Chinese write it.
+// One base unit, as English and Chinese write it, and one thing counted in another word: a vehicle
+// in 台 or 部 as in 辆, a person in 名 or 位 as in 人.
 const BASE_UNITS = [
   "t|tonnes?|吨",
   "g|grams?|克",
   "m|met(?:re|er)s?|米",
   "W|watts?|瓦",
   "Wh|watt[- ]hours?|瓦时",
+  "辆|台|部",
+  "人|名|位",
 ].map((words) => new RegExp(`^(?:${words})$`, "u"));
 
 const oneUnit = (a: string, b: string) =>
@@ -562,7 +567,8 @@ const oneUnit = (a: string, b: string) =>
  * scale of a label's "（千克）" and "31 kt" at that of "(thousand tonnes)", and "31克" at neither.
  * In two units of a measure their scale words are compared, where both units spell the same scale
  * or none ("吨" and "tons"). Null where it can't be told without converting one unit into another
- * ("吨" under "（千克）", "miles" under "(km)"), which isn't attempted.
+ * ("吨" under "（千克）", "miles" under "(km)"), which isn't attempted, and for counts of two
+ * things ("万人次" under "（万人）", "万家" under "（万人）").
  */
 function atOneScale(
   a: Pick<Reading, "scale" | "unit">,
@@ -571,6 +577,7 @@ function atOneScale(
   const [one, other] = [inFull(a), inFull(b)];
   if (one.unit.kind !== "other" || other.unit.kind !== "other") return a.scale === b.scale;
   if (oneUnit(one.unit.word, other.unit.word)) return sameValue(one.scale, other.scale);
+  if (measureOf(one.unit) === null && measureOf(other.unit) === null) return null;
   return sameValue(one.scale * b.scale, other.scale * a.scale) ? a.scale === b.scale : null;
 }
 
@@ -579,6 +586,18 @@ function ofOneUnit(a: FigureUnit, b: FigureUnit): boolean {
   const [one, other] = [inFull({ scale: 1, unit: a }).unit, inFull({ scale: 1, unit: b }).unit];
   return one.kind === "other" && other.kind === "other" && oneUnit(one.word, other.word);
 }
+
+const words = new Intl.Segmenter("zh", { granularity: "word" });
+
+/**
+ * Whether `text` goes on at `at` with more of the word before it: "吨位", "人口", "米其林", "吨数",
+ * but not "吨标准煤" or "吨CO2e", whose unit a word of its own follows.
+ */
+const goesOnInWord = (text: string, at: number) => {
+  if (!/^\p{L}/u.test(text.slice(at))) return false;
+  const next = [...words.segment(text)].find(({ index }) => index === at)?.segment ?? "";
+  return next.length < 2 && /^\p{Script=Han}/u.test(next || text.slice(at));
+};
 
 /**
  * What a piece of a heading states, read as a sentence writes it after a number ("万千瓦时" as in
@@ -589,23 +608,33 @@ function ofOneUnit(a: FigureUnit, b: FigureUnit): boolean {
  * ("瓦" beside "千瓦"): then it is at scale one. A bare unit word that goes on
  * with more of a word ("人口", "吨位", "人口普查") is another word and states nothing; a piece with
  * a scale word states its unit, whatever follows ("万吨标准煤", "亿元人民币"), and a scale word
- * before a unit the reader doesn't know ("亿SDR") still states its scale.
+ * before a unit the reader doesn't know ("亿SDR") still states its scale. Where the piece stands
+ * as a unit (`asUnit`: in brackets, on a unit line, in a units column), a bare unit followed by
+ * words of their own states its unit as a sentence's "31吨标准煤" does: "吨标准煤" is 吨.
  */
-function asUnitLine(piece: string, context: FigureContext): StatedUnit[] {
+function asUnitLine(piece: string, context: FigureContext, asUnit = false): StatedUnit[] {
   const line = `单位：${piece}`;
   const stated = readStatedUnits(line, context).filter(
     (statement) =>
       statement.unit.kind === "plain" ||
       statement.scaleWord !== null ||
-      !/^\p{L}/u.test(line.slice(statement.end)),
+      !/^\p{L}/u.test(line.slice(statement.end)) ||
+      (asUnit && !goesOnInWord(line, statement.end)),
   );
+  // As a unit, the words after it are the unit line's to read where it reads them ("人民币百万元",
+  // "USD millions"); where it reads none, the unit stands before them ("tonnes CO2e").
+  const goesOn = (text: string, at: number) =>
+    /^\s*\p{L}/u.test(text.slice(at)) && (!asUnit || stated.length > 0 || goesOnInWord(text, at));
   const written = piece.trim();
   if (!/^[\p{L}%％‰]/u.test(written)) return stated;
   const after = `1${/^[A-Za-z]/.test(written) ? " " : ""}${written}`;
   const [said] = readFigures(after, { ...context, header: null, headerRead: null });
   if (said?.start !== 0 || !sameValue(said.value, said.scale)) return stated;
   const scaled = said.scaleWord !== null;
-  if (!scaled && (said.unit.kind === "plain" || /^\s*\p{L}/u.test(after.slice(said.end))))
+  if (
+    !scaled &&
+    (said.unit.kind === "plain" || goesOn(written, said.end - (after.length - written.length)))
+  )
     return stated;
   if (!scaled && stated.length === 0 && !spellsItsScale(said.unit)) return stated;
   const { scale, scaleWord, unit } = said;
@@ -628,17 +657,33 @@ const statesScale = (piece: string, context: FigureContext) =>
 
 // A unit in brackets states what its words do: "（万千瓦时）" as "万千瓦时"; "（预计）" states none,
 // and neither does a bracket of two units ("（万吨/亿吨）"), where a rate has one ("（万吨/年）").
-const bracketedUnits = (written: string, context: FigureContext): StatedUnit[] =>
-  [...written.matchAll(/[(（]([^()（）\n]{1,24})[)）]/gu)].flatMap(([bracket, inner = ""]) =>
-    inner.split(/[/／、]/u).filter((piece) => statesScale(piece, context)).length > 1
-      ? []
-      : asUnitLine(inner, context).map((statement) => ({ ...statement, chars: bracket })),
-  );
+// Square brackets ("[kt]", "【万辆】") state theirs, and so does a unit after a slash at the end of
+// a name ("销量/万辆", "Output / kt"), where a rate's "元/吨" names no measure before its slash.
+const BRACKETS = /[(（]([^()（）\n]{1,24})[)）]|\[([^[\]\n]{1,24})\]|【([^【】\n]{1,24})】/gu;
+const AFTER_SLASH =
+  /(\p{L}[^/／\n\d]*?)[ \u00a0]*[/／][ \u00a0]*([^/／\s()（）[\]【】:：，,。；;、]{1,12})[ \u00a0]*[:：]?[ \u00a0]*$/u;
+const bracketedUnits = (written: string, context: FigureContext): StatedUnit[] => {
+  const slashed = AFTER_SLASH.exec(written);
+  const [, name = "", unit = ""] = slashed ?? [];
+  return [
+    ...[...written.matchAll(BRACKETS)].flatMap(([bracket, ...inners]) => {
+      const inner = inners.find((each) => each !== undefined) ?? "";
+      return inner.split(/[/／、]/u).filter((piece) => statesScale(piece, context)).length > 1
+        ? []
+        : asUnitLine(inner, context, true).map((statement) => ({ ...statement, chars: bracket }));
+    }),
+    ...(slashed && asUnitLine(name, context).length === 0
+      ? asUnitLine(unit, context, true).map((statement) => ({ ...statement, chars: unit }))
+      : []),
+  ];
+};
 
 // A heading whose brackets state two units ("各月产量（万吨）/（亿吨）", "产量（万吨）及同比（%）")
 // doesn't say which of them a number under it is in.
 const namesTwoUnits = (units: readonly StatedUnit[]) =>
   new Set(units.map(({ scale, unit }) => JSON.stringify([scale, unit]))).size > 1;
+
+const AFTER_NUMBER = /^[\d０-９][\d０-９.,，]*[ \u00a0]*([(（][^()（）\n]{1,24}[)）])/u;
 
 // A sentence's end in either language; "1.20" holds no end.
 const SENTENCE_END = /[。；;！？!?]|\.(?!\d)/u;
@@ -648,7 +693,9 @@ const SENTENCE_END = /[。；;！？!?]|\.(?!\d)/u;
  * unit in brackets before it in its own sentence (in a table, its own cell); else the heading it
  * stands under ("各月充电量（万千瓦时）" over "7月: 118" and "8月: 126"); and, in a table of
  * tab-separated rows, each cell above it in its own column, as far as the table goes ("亿美元" over
- * each month's figure).
+ * each month's figure). Where its column's cells state no unit, its row's do, as its own: the last
+ * unit in brackets of the row's label ("原煤产量（万吨）"), as a row of bars or spaces gives its
+ * label's, and its cell of a units column ("万吨" under 单位); two units there state neither.
  *
  * Out of a table, the rows above it are passed over up to a blank line or a heading: a line with no
  * value of its own ("2024年各月充电量（万千瓦时）": a year isn't one) whose last bracket states a
@@ -665,10 +712,24 @@ function labelled(text: string, start: number, context: FigureContext): Label[] 
   const column = before.split("\t").length - 1;
   const own = inTable ? (before.split("\t").at(-1) ?? "") : before;
   const ownWords = own.split(SENTENCE_END).at(-1) ?? "";
-  const ownLabel = bracketedUnits(ownWords, context).slice(-1);
+  const above = text.slice(0, Math.max(0, from - 1)).split("\n");
+  const cells = inTable ? columnLabels(above, column, context) : [];
+  // A bracket right after the number is its own too: "8月: 126（万千瓦时）".
+  const after = AFTER_NUMBER.exec(text.slice(start))?.[1] ?? "";
+  const ownCell = [
+    ...bracketedUnits(ownWords, context)
+      .slice(-1)
+      .map((statement) => ({ ...statement, own: true, line: ownWords })),
+    ...bracketedUnits(after, context).map((statement) => ({
+      ...statement,
+      own: true,
+      line: after,
+    })),
+  ].slice(0, 1);
+  const ownLabel =
+    ownCell.length > 0 || cells.length > 0 ? ownCell : rowUnits(text, start, context);
   let label: StatedUnit[] = [];
   let labelLine = "";
-  const above = text.slice(0, Math.max(0, from - 1)).split("\n");
   let named = false;
   for (let at = above.length - 1; ownLabel.length === 0 && label.length === 0 && at >= 0; at--) {
     const line = above[at] ?? "";
@@ -692,11 +753,15 @@ function labelled(text: string, start: number, context: FigureContext): Label[] 
     labelLine = line;
     named = true;
   }
-  const mine = [
-    ...ownLabel.map((statement) => ({ ...statement, own: true, line: ownWords })),
+  return [
+    ...ownLabel,
     ...label.map((statement) => ({ ...statement, own: false, line: labelLine })),
+    ...cells,
   ];
-  if (!inTable) return mine;
+}
+
+/** What the cells above a number in its column of tab-separated rows state of its unit. */
+function columnLabels(above: readonly string[], column: number, context: FigureContext): Label[] {
   const scaled = (part: string) =>
     statesScale(part, context) ||
     bracketedUnits(part, context).some((statement) => statement.scaleWord !== null);
@@ -706,10 +771,9 @@ function labelled(text: string, start: number, context: FigureContext): Label[] 
     // A cell of digits alone states no unit, and a long table's column is mostly such cells.
     if (cell && !/^[\d.,，\s+\-−()（）]*$/u.test(cell)) cells.push(cell);
   }
-  return [
-    ...mine,
-    // A merged heading over columns of two units ("亿美元 / 亿SDR") states neither.
-    ...cells
+  return (
+    cells
+      // A merged heading over columns of two units ("亿美元 / 亿SDR") states neither.
       .filter((cell) => cell.split(/[/／、]/u).filter(scaled).length < 2)
       // A heading cell is read as its own unit line too: "亿SDR" states 亿 though SDR is unread.
       .flatMap((cell) =>
@@ -718,8 +782,27 @@ function labelled(text: string, start: number, context: FigureContext): Label[] 
           ...asUnitLine(cell, context).map((statement) => ({ ...statement, chars: cell })),
           ...bracketedUnits(cell, context),
         ].map((statement) => ({ ...statement, own: false, line: cell })),
-      ),
+      )
+  );
+}
+
+/** What the row of the number at `start` of a table states of its unit (`rowLabels`), as its own. */
+function rowUnits(text: string, start: number, context: FigureContext): Label[] {
+  const table = tableAt(text, start);
+  if (!table) return [];
+  const { label, unit } = rowLabels(table);
+  const units = [
+    ...bracketedUnits(label, context)
+      .slice(-1)
+      .map((statement) => ({ ...statement, own: true, line: label })),
+    ...asUnitLine(unit, context, true).map((statement) => ({
+      ...statement,
+      chars: unit.trim(),
+      own: true,
+      line: unit,
+    })),
   ];
+  return namesTwoUnits(units) ? [] : units;
 }
 
 /**
@@ -738,9 +821,15 @@ function ownFirst(labels: readonly Label[], keep: (label: Label) => boolean): La
 /**
  * The units in brackets on the Document's lines of words ("表7 各厂产量（万吨）" over its table, a
  * heading on another page): one on a line that gives a value, the number's own or a table's row,
- * labels another series (#2997).
+ * labels another series (#2997). Where lines head the number's rows, only those of its own section
+ * (`section`), a group heading over its sub-heading among them.
  */
-function wordLineUnits(text: CheckedText, start: number, context: FigureContext): StatedUnit[] {
+function wordLineUnits(
+  text: CheckedText,
+  start: number,
+  context: FigureContext,
+  section: readonly string[] = [],
+): StatedUnit[] {
   const cited = text.cited();
   const itsLine = cited
     .slice(cited.lastIndexOf("\n", start - 1) + 1)
@@ -749,7 +838,12 @@ function wordLineUnits(text: CheckedText, start: number, context: FigureContext)
   return text
     .document()
     .split("\n")
-    .filter((line) => !line.includes("\t") && line.trim() !== itsLine)
+    .filter(
+      (line) =>
+        !line.includes("\t") &&
+        line.trim() !== itsLine &&
+        (section.length === 0 || section.includes(line)),
+    )
     .flatMap((line) => {
       const units = bracketedUnits(line, context);
       if (units.length === 0 || readFigures(line, context).length > 0) return [];
@@ -765,11 +859,15 @@ function wordLineUnits(text: CheckedText, start: number, context: FigureContext)
 
 // A unit line's unit is read as a label's is, as a sentence writes it after a number: "单位：千克"
 // is 千克, never 克 at a thousand, and "Unit: kW" is kW.
-const UNIT_LINE = /^\s*(?:(?:计量|金额|货币|数量)?单位|units?)\s*[:：]\s*(\S.*?)\s*$/iu;
+const UNIT_LINE = new RegExp(`^\\s*${UNIT_WORD}\\s*[:：]\\s*(\\S.*?)\\s*$`, "iu");
 // "库存以吨计。", "本报告产量以瓦计。": prose that says what its Document's figures are counted in,
 // as "以千元列示" says it of money; "所以" begins no such clause, and "以克计划" goes on as a word.
 const UNIT_SAID =
-  /(?<!所)以[ \u00a0]?([^\s以计，,。；;：:()（）]{1,8}?)[ \u00a0]?(?:列示|计|为单位|為單位)(?!\p{Script=Han})/gu;
+  /(?<!所)以[ \u00a0]?([^\s以计，,。；;：:()（）]{1,8}?)[ \u00a0]?(?:列示|计|为单位|為單位)(?!\p{Script=Han})|(?:计量|金额|货币|数量)?单位(?:为|是)[ \u00a0]?([^\s，,。；;：:()（）]{1,8})/gu;
+// "Output is given in tonnes.", "in thousand tonnes": a measure's unit a clause of prose ends on;
+// money and plain scales said so ("in thousands of US dollars") are the stated units' to read.
+const MEASURE_SAID =
+  /(?<![A-Za-z])in[ \u00a0]+([A-Za-z]+(?:[ \u00a0](?!(?:and|or)\b)[A-Za-z]+){0,2})[ \u00a0]*(?=[.;,:)]|$)/gu;
 
 /**
  * Whether one bracket of `words` names two units, as "（亿元，%）" does, so it gives a number
@@ -778,8 +876,8 @@ const UNIT_SAID =
 const bracketNamesTwo = (words: string, context: FigureContext) =>
   [...words.matchAll(/[(（]([^()（）\n]{1,24})[)）]/gu)].some(
     ([, inner = ""]) =>
-      inner.split(/[，,、；;]/u).filter((piece) => asUnitLine(piece, context).length > 0).length >
-      1,
+      inner.split(/[，,、；;]/u).filter((piece) => asUnitLine(piece, context, true).length > 0)
+        .length > 1,
   );
 
 /**
@@ -788,12 +886,18 @@ const bracketNamesTwo = (words: string, context: FigureContext) =>
  */
 function unitsOnLine(line: string, context: FigureContext): StatedUnit[] {
   const piece = UNIT_LINE.exec(line)?.[1];
-  if (piece !== undefined) return bracketNamesTwo(piece, context) ? [] : asUnitLine(piece, context);
+  if (piece !== undefined)
+    return bracketNamesTwo(piece, context) ? [] : asUnitLine(piece, context, true);
   if (bracketNamesTwo(line, context)) return [];
   const units = [
     ...readStatedUnits(line, context),
     ...bracketedUnits(line, context),
-    ...[...line.matchAll(UNIT_SAID)].flatMap(([, said = ""]) => asUnitLine(said, context)),
+    ...[...line.matchAll(UNIT_SAID)].flatMap(([, by, is]) =>
+      asUnitLine(by ?? is ?? "", context, true),
+    ),
+    ...[...line.matchAll(MEASURE_SAID)].flatMap(([, said = ""]) =>
+      asUnitLine(said, context, true).filter(({ unit }) => measureOf(unit) !== null),
+    ),
   ];
   return namesTwoUnits(units) ? [] : units;
 }
@@ -818,17 +922,17 @@ function leavesOut(
 }
 
 /**
- * What the lines that head the rows of the number at `start` state of its unit: the lines giving
- * no value directly above its own table (its rows and heading rows, `tableAt`), or above the lines
- * of a list that give a value, up to a blank line or a row that gives a value, which is another
- * table's (#2997). A line that heads other rows, or stands apart from them, states nothing here.
+ * The lines that head the rows of the number at `start`: the lines giving no value directly above
+ * its own table (its rows and heading rows, `tableAt`), or above the lines of a list that give a
+ * value, up to a blank line or a row that gives a value, which is another table's (#2997). A line
+ * that heads other rows, or stands apart from them, heads nothing here.
  */
-function headingUnits(
+function headingLines(
   text: string,
   start: number,
   context: FigureContext,
   table = tableAt(text, start),
-): StatedUnit[] {
+): string[] {
   const lines = text.split("\n");
   const givesValue = (line: string) => readFigures(line, context).length > 0;
   let at = table ? table.head - 1 : text.slice(0, start).split("\n").length - 2;
@@ -840,13 +944,57 @@ function headingUnits(
       givesValue(lines[at] ?? "")
     )
       at--;
-  const units: StatedUnit[] = [];
+  const heads: string[] = [];
   for (; at >= 0; at--) {
     const line = lines[at] ?? "";
-    if (line.trim() === "" || isRow(line) || givesValue(line)) break;
-    units.push(...unitsOnLine(line, context));
+    if (line.trim() === "" || isRow(line)) break;
+    const [value] = readFigures(line, context);
+    if (value) {
+      // A caption that gives a value of its own ("全年销量（万辆）合计 99") heads its table with
+      // what it says before that value.
+      if (table && heads.length === 0) heads.push(line.slice(0, value.start));
+      break;
+    }
+    heads.push(line);
   }
-  return units.filter((statement) => !leavesOut(statement, text, start, table));
+  return heads;
+}
+
+/** What the lines that head the rows of the number at `start` (`headingLines`) state of its unit. */
+function headingUnits(
+  text: string,
+  start: number,
+  context: FigureContext,
+  table = tableAt(text, start),
+  heads = headingLines(text, start, context, table),
+): Label[] {
+  return heads
+    .flatMap((line) =>
+      unitsOnLine(line, context).map((statement) => ({ ...statement, own: false, line })),
+    )
+    .filter((statement) => !leavesOut(statement, text, start, table));
+}
+
+/**
+ * What states the unit of the plain number at `start`, as the unit gate reads `text`: its labels;
+ * else the lines that head its rows, its own table's alone (#2997), whether or not they state a
+ * unit. Where lines head it, a line beyond its section (`section`: up to a blank line above it),
+ * another table's caption, gives it none. `heading` when heading lines give the labels.
+ */
+function reaching(
+  text: string,
+  start: number,
+  context: FigureContext,
+): { labels: Label[]; section: string[]; heading: boolean } {
+  const labels = labelled(text, start, context);
+  if (labels.length > 0) return { labels, section: [], heading: false };
+  const table = tableAt(text, start);
+  const heads = headingLines(text, start, context, table);
+  const units = headingUnits(text, start, context, table, heads);
+  const above = text.slice(0, Math.max(0, text.lastIndexOf("\n", start - 1))).split("\n");
+  const blank = above.map((line) => line.trim()).lastIndexOf("");
+  const section = heads.length > 0 ? above.slice(blank + 1) : [];
+  return { labels: units, section, heading: true };
 }
 
 // A rate after a unit: "万吨/年" is 万吨 a year, and "barrels per day" barrels a day.
@@ -1101,15 +1249,32 @@ export function unitNotStated(
         if (each.ambiguous.some(({ kind }) => !settled(kind))) return [];
         if (!isAmount(each.unit)) return [];
         if (bound && !bound.some(({ chars }) => chars === each.chars)) return [];
+        // Only a number with no sign, unit word or scale of its own takes its label's.
+        const plain =
+          each.unit.kind === "plain" && each.currency === null && each.scaleWord === null;
         const readings = [
           each,
           ...each.ambiguous
             .filter(({ kind }) => kind === "scale")
             .flatMap(({ readings }) => readings),
-        ];
+        ].filter((reading) =>
+          sameValue(reading.value / reading.scale, figure.value / figure.scale),
+        );
+        // What gives a number its unit or scale outranks its page's header: under 人 in its units
+        // column, 80 isn't 80万 for the 万元 another row's unit gives the page, nor under its own
+        // caption's 吨 is 31; a currency named alone ("（人民币）") leaves the header's scale.
+        const own =
+          readings.some((reading) => reading !== each) && plain && text.gateReads
+            ? reaching(text.cited(), each.start, context).labels.filter(
+                (label) => label.scaleWord !== null || label.unit.kind !== "currency",
+              )
+            : [];
         return readings
-          .filter((reading) =>
-            sameValue(reading.value / reading.scale, figure.value / figure.scale),
+          .filter(
+            (reading) =>
+              reading === each ||
+              own.length === 0 ||
+              own.some((label) => atOneScale(label, reading) === true),
           )
           .map((reading) => ({
             text,
@@ -1117,8 +1282,9 @@ export function unitNotStated(
             context,
             chars: each.chars,
             scale: reading.scale,
-            // Only a number with no sign, unit word or scale of its own takes its label's.
-            plain: each.unit.kind === "plain" && each.currency === null && each.scaleWord === null,
+            unit: reading.unit,
+            alternative: reading !== each,
+            plain,
             // Its own sign or scale word, or a header's scale for its kind of figure, says what
             // scale the Document gives it: a "（亿元）" row heading is no scale for tonnes.
             says:
@@ -1129,10 +1295,21 @@ export function unitNotStated(
           }));
       }),
     );
+    const ofFigure = (unit: FigureUnit) =>
+      unit.kind === "plain" ||
+      figure.unit.kind === "plain" ||
+      (unit.kind === figure.unit.kind &&
+        (unit.kind !== "other" ||
+          ofOneUnit(unit, figure.unit) ||
+          (measureInFull(unit) !== null && measureInFull(unit) === measureInFull(figure.unit))));
     if (
       !isShare(figure.unit) &&
       sameWritten.length > 0 &&
-      sameWritten.every(({ scale }) => scale !== figure.scale) &&
+      // A page header's 万元 reads a 31 as 31万元, which is no 31万吨, and its 万人 no 31万人次.
+      sameWritten.every(
+        ({ scale, unit, alternative }) =>
+          scale !== figure.scale || (alternative && !ofFigure(unit)),
+      ) &&
       !bound?.some(({ scale }) => scale === figure.scale)
     ) {
       // A label's "（万千瓦时）" states the scale of energy, not of tonnes nor of money, and one's
@@ -1144,11 +1321,16 @@ export function unitNotStated(
             statement.unit.kind === "plain" ||
             (statement.unit.kind === "other" &&
               measureInFull(statement.unit) === measureInFull(figure.unit));
-      const reached = sameWritten.map(({ text, start, context }) =>
-        text.gateReads ? labelled(text.cited(), start, context) : [],
+      const reaches = sameWritten.map(({ text, start, context, plain }) =>
+        !text.gateReads
+          ? { labels: [], section: [], heading: false }
+          : plain
+            ? reaching(text.cited(), start, context)
+            : { labels: labelled(text.cited(), start, context), section: [], heading: false },
       );
+      const reached = reaches.map(({ labels }) => labels);
       // A plain number with a label of its own takes that label's scale, not a Document line's
-      // ("各月收入（万元）" over another heading's numbers).
+      // ("各月收入（万元）" over another heading's numbers), and so does one whose rows lines head.
       const labels = reached.map((found, at) => (sameWritten[at]?.plain ? found : []));
       const headings = labels.flat();
       // A unit in brackets on a line of words in the Document ("表7 各厂产量（万吨）" over its
@@ -1159,14 +1341,14 @@ export function unitNotStated(
           ? statement.unit.kind === "currency"
           : figure.unit.kind !== "other" ||
             (statement.unit.kind === "other" &&
-              (statement.unit.word === figure.unit.word ||
+              (ofOneUnit(statement.unit, figure.unit) ||
                 (measureInFull(figure.unit) !== null &&
                   measureInFull(statement.unit) === measureInFull(figure.unit))));
       const statements = sameWritten.flatMap(({ text, context, start }, at) => {
         const own = labels[at] ?? [];
         if (own.length > 0) return ownFirst(own, ofItsMeasure);
         const bracketed = text.gateReads
-          ? wordLineUnits(text, start, context).filter(sameUnit)
+          ? wordLineUnits(text, start, context, reaches[at]?.section).filter(sameUnit)
           : [];
         return [...readStatedUnits(text.document(), context), ...bracketed];
       });
@@ -1235,8 +1417,13 @@ export function unitNotStated(
         ? []
         : sameWritten.flatMap(({ text, start, context, chars, scale, plain }) => {
             if (!text.gateReads || !plain || scale !== figure.scale) return [];
-            const reached = labelled(text.cited(), start, context);
-            const labels = ownFirst(reached, ofItsKind);
+            const { labels: reached, heading } = reaching(text.cited(), start, context);
+            // A line heading the rows holds them to its unit's scale where it is a measure's; a
+            // currency's scale there may leave out per-share rows it doesn't name (#2997).
+            const labels = ownFirst(
+              heading ? reached.filter(({ unit }) => measureInFull(unit) !== null) : reached,
+              ofItsKind,
+            );
             // A unit line that holds the label ("单位：吨（万吨）") leaves the scale open; one
             // elsewhere in the Document doesn't outrank the label.
             const gives = labels.some(

@@ -158,23 +158,39 @@ export function tableAt(
   end: number;
 } | null {
   const lineStart = text.lastIndexOf("\n", at - 1) + 1;
-  const lines = text.split("\n");
+  const { lines, numbered } = rowsOf(text);
   const index = text.slice(0, lineStart).split("\n").length - 1;
   const line = lines[index] ?? "";
   if (!isRow(line)) return null;
   // A reader writes no line for a blank row, so two tables can run on as one: a row with no
   // number (a heading, a rule, a caption) starts the number's own table, and the rows of no number
   // just above it are its headings.
-  const numbered = (row: string | undefined) =>
-    row !== undefined && isRow(row) && cellsOf(row).some(holdsNumber);
   let top = index;
-  while (top > 0 && numbered(lines[top - 1])) top--;
+  while (top > 0 && numbered(top - 1)) top--;
   let head = top;
-  while (head > 0 && isRow(lines[head - 1] ?? "") && !numbered(lines[head - 1])) head--;
+  while (head > 0 && isRow(lines[head - 1] ?? "") && !numbered(head - 1)) head--;
   let end = index;
-  while (numbered(lines[end + 1])) end++;
+  while (numbered(end + 1)) end++;
   return { lines, index, column: cellAt(line, at - lineStart), top, head, end };
 }
+
+// The unit check reads a long table's rows for each of its numbers it meets: each row once.
+const rowsOf = memoized(
+  4,
+  (text: string) => text,
+  (text: string) => {
+    const lines = text.split("\n");
+    const known = new Map<number, boolean>();
+    const numbered = (at: number): boolean => {
+      const row = lines[at];
+      if (row === undefined) return false;
+      const found = known.get(at) ?? (isRow(row) && cellsOf(row).some(holdsNumber));
+      known.set(at, found);
+      return found;
+    };
+    return { lines, numbered };
+  },
+);
 
 type Table = NonNullable<ReturnType<typeof tableAt>>;
 
@@ -197,16 +213,32 @@ const alignedHeadings = ({ lines, index, top, head }: Table): string[] =>
         !isRule(heading) && cellsOf(heading).length === cellsOf(lines[index] ?? "").length,
     );
 
+/** The words that name a unit: "单位：万吨" states one, and a column headed 单位 or Unit holds each row's. */
+export const UNIT_WORD = "(?:(?:计量|金额|货币|数量)?单位|units?)";
+const UNIT_HEADING = new RegExp(`^\\s*${UNIT_WORD}\\s*$`, "iu");
+
+/** The column that `table`'s headings name its units column, or -1: of two, none says whose. */
+function unitsColumn(table: Table): number {
+  const columns = new Set(
+    alignedHeadings(table).flatMap((heading) =>
+      cellsOf(heading).flatMap((cell, at) => (UNIT_HEADING.test(cell) ? [at] : [])),
+    ),
+  );
+  const [only] = columns;
+  return columns.size === 1 && only !== undefined ? only : -1;
+}
+
 /**
  * The cells that may name `table`'s number in its row: from the nearest named cell to its left,
  * each named cell up to its label or to a cell that names nothing (another panel's value). One
  * that holds a digit is a value or a label with a note number ("Earnings per share (note 7)"), and
  * nothing in the cell says which: the label rule leaves it out, and a reader that must not miss a
- * name reads it too.
+ * name reads it too. Read for a unit, a units column's cell (`units`) names nothing.
  */
-export function possibleLabels(table: Table): string[] {
+export function possibleLabels(table: Table, units = -1): string[] {
   const left = cellsOf(table.lines[table.index] ?? "")
     .slice(0, table.column)
+    .filter((_, at) => at !== units)
     .reverse();
   const names: string[] = [];
   for (const cell of left.slice(Math.max(left.findIndex(namesSomething), 0))) {
@@ -215,6 +247,19 @@ export function possibleLabels(table: Table): string[] {
     if (!/\p{Nd}/u.test(cell)) break;
   }
   return names;
+}
+
+/**
+ * The cells of its row that label `table`'s number: the nearest that may name it, a note number
+ * and all ("原煤产量（万吨）（注1）"), and its cell of the table's units column.
+ */
+export function rowLabels(table: Table): { label: string; unit: string } {
+  const units = unitsColumn(table);
+  const cells = cellsOf(table.lines[table.index] ?? "");
+  return {
+    label: possibleLabels(table, units)[0] ?? "",
+    unit: units >= 0 && units !== table.column ? (cells[units] ?? "") : "",
+  };
 }
 
 /** The names `table` gives its number: the nearest named cell to its left and the heading of its own column. */
