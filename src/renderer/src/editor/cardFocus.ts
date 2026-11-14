@@ -1,7 +1,7 @@
-const FOCUSABLE =
+export const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
-function focusablesIn(container: Element | null): HTMLElement[] {
+export function focusablesIn(container: Element | null): HTMLElement[] {
   if (!container) return [];
   return [...container.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((each) =>
     each.checkVisibility(),
@@ -47,4 +47,62 @@ export function focusFirstAction(
   fallback: HTMLElement | null,
 ): void {
   (focusablesIn(container)[0] ?? fallback)?.focus();
+}
+
+/**
+ * Cards that show on keyboard focus (#3102, docs/agents/interaction.md): Tab and Shift+Tab move
+ * between the page's stops as if the card weren't there; Space on its control goes into it, where
+ * they move through its controls and, past either end, back to the control. Esc goes back to the
+ * control.
+ */
+export function enterCard(card: Element | null): boolean {
+  focusablesIn(card)[0]?.focus();
+  return card?.contains(document.activeElement) ?? false;
+}
+
+/** Past either end of a card's controls the focus goes back to its control; it does not wrap. */
+export function returnAtEnds(
+  event: TabPress,
+  card: Element,
+  control: { focus(): void } | null,
+): void {
+  if (event.key !== "Tab" || event.ctrlKey || event.metaKey || event.altKey || !control) return;
+  const stops = focusablesIn(card);
+  const edge = event.shiftKey ? stops[0] : stops.at(-1);
+  if (!edge || event.target !== edge) return;
+  event.preventDefault();
+  control.focus();
+}
+
+/**
+ * Whether the focus leaving a control or its card goes somewhere else, so the card goes at once
+ * instead of staying beside the card of the control the focus reaches. Into the card, or back to its
+ * control, it stays.
+ */
+export function goingElsewhere(
+  to: EventTarget | null,
+  ...stays: (Element | null | undefined)[]
+): boolean {
+  return to instanceof Node && !stays.some((each) => each?.contains(to));
+}
+
+/** Space, alone and not while an input method composes: the key that goes into a card. */
+export function isSpaceKey(event: {
+  key: string;
+  shiftKey: boolean;
+  ctrlKey: boolean;
+  metaKey: boolean;
+  altKey: boolean;
+  keyCode?: number;
+  nativeEvent?: { isComposing: boolean };
+}): boolean {
+  return (
+    event.key === " " &&
+    !event.shiftKey &&
+    !event.ctrlKey &&
+    !event.metaKey &&
+    !event.altKey &&
+    event.nativeEvent?.isComposing !== true &&
+    event.keyCode !== 229
+  );
 }

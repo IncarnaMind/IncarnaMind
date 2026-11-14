@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { ReactNode, Ref } from "react";
 import type { CitationAttributes } from "../../../core/api";
 import { badgeMessage, type CitationState, citationSource } from "../../../shared/citations";
 import { useLanguage, useT } from "../i18n";
@@ -17,7 +17,9 @@ export function ChartPointCard({
   citations,
   figure,
   onOpen,
+  ref,
 }: {
+  ref?: Ref<HTMLDivElement>;
   title: string;
   /** Which of the values with no Citation the foot found this is: "1 of 3"; null for one, or a value found otherwise. */
   position: string | null;
@@ -61,7 +63,7 @@ export function ChartPointCard({
   );
   if (figure) {
     return (
-      <div className="chart-card chart-card--calculated" data-testid="chart-card-body">
+      <div ref={ref} className="chart-card chart-card--calculated" data-testid="chart-card-body">
         {heading}
         {notes}
         {figure}
@@ -70,7 +72,7 @@ export function ChartPointCard({
     );
   }
   return (
-    <div className="chart-card" data-testid="chart-card-body">
+    <div ref={ref} className="chart-card" data-testid="chart-card-body">
       {heading}
       <p className="chart-card-value" data-testid="chart-card-value">
         {value}

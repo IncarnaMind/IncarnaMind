@@ -41,12 +41,14 @@ import { useLanguage, useT } from "../i18n";
 import { openCited, quoteSaysSo } from "../openCited";
 import { useAppStore } from "../store";
 import { useKeptInsideOf } from "../turnWall";
+import { CardKeyHint } from "./CardKeyHint";
 import { ChartFoot } from "./ChartFoot";
 import { ChartKindMenu } from "./ChartKindMenu";
 import { ChartPlot, type PointEvents, type PointRef, samePoint } from "./ChartPlot";
 import { ChartPointCard } from "./ChartPointCard";
 import { ChartValueFigure } from "./ChartValueFigure";
 import { ChartValues } from "./ChartValues";
+import { enterCard, focusablesIn, returnAtEnds } from "./cardFocus";
 import { calculatedFrom } from "./chartCalculated";
 import { chartCardPlace } from "./chartCardPlace";
 import {
@@ -73,12 +75,21 @@ interface Card {
 
 function usePointCard() {
   const [card, setCard] = useState<Card | null>(null);
+  /** Shown only because of the keyboard's focus: no pointer asks for it (#3102). */
+  const [keyboardOnly, setKeyboardOnly] = useState(false);
   const askers = useRef(new Set<string>());
   const wanted = useRef<{ point: PointRef; anchor: Element } | null>(null);
   const timer = useRef<number | undefined>(undefined);
+  const sync = useCallback(() => {
+    setKeyboardOnly(
+      askers.current.size > 0 &&
+        [...askers.current].every((each) => each === "focus" || each === "card-focus"),
+    );
+  }, []);
+  /** At once for the keyboard's focus, which shows the card as it lands (#3102). */
   const settle = useCallback((delay: number) => {
     window.clearTimeout(timer.current);
-    timer.current = window.setTimeout(() => {
+    const show = () => {
       setCard((shown) => {
         const asked = askers.current.size > 0;
         if (!asked) return shown?.pinned ? shown : null;
@@ -88,11 +99,14 @@ function usePointCard() {
           return shown;
         return { ...next, pinned: false };
       });
-    }, delay);
+    };
+    if (delay === 0) show();
+    else timer.current = window.setTimeout(show, delay);
   }, []);
   useEffect(() => () => window.clearTimeout(timer.current), []);
   return {
     card,
+    keyboardOnly,
     peek: (point: PointRef, anchor: Element, source: string, on: boolean) => {
       if (on) {
         askers.current.add(source);
@@ -102,6 +116,7 @@ function usePointCard() {
         askers.current.delete(source);
         settle(HIDE_MS);
       }
+      sync();
     },
     hold: (source: string, on: boolean) => {
       if (on) {
@@ -111,6 +126,7 @@ function usePointCard() {
         askers.current.delete(source);
         settle(HIDE_MS);
       }
+      sync();
     },
     pin: (point: PointRef, anchor: Element) => {
       wanted.current = { point, anchor };
@@ -121,6 +137,7 @@ function usePointCard() {
       askers.current.clear();
       window.clearTimeout(timer.current);
       setCard(null);
+      setKeyboardOnly(false);
     },
   };
 }
@@ -202,7 +219,23 @@ export function ChartView({
   );
   /** The Mind's group: the Document opens in the group to its right. */
   const place = useTabPlace();
-  const { card, peek, hold, pin, dismiss } = usePointCard();
+  const { card, keyboardOnly, peek, hold, pin, dismiss } = usePointCard();
+  /** The card's body, which Space on a value goes into, and where the focus is while it is in (#3102). */
+  const cardBody = useRef<HTMLDivElement>(null);
+  const [inCard, setInCard] = useState(false);
+  // A card taken away with the focus in it sends no blur.
+  useEffect(() => {
+    if (!card) setInCard(false);
+  }, [card]);
+  /** Space came before the card was drawn: it takes the focus as it is. */
+  const enterWhenDrawn = useRef(false);
+  const cardEntry = useRef({
+    focus: () => {
+      if (!enterWhenDrawn.current) return;
+      enterWhenDrawn.current = false;
+      enterCard(cardBody.current);
+    },
+  });
 
   /** Every Citation a value rests on with its state, in its order: an Analysis over two Documents (#2378). */
   const cited = useCallback(
@@ -430,6 +463,17 @@ export function ChartView({
       // A quote that wasn't found opens from its card's Open, as a Citation's does.
       if (state && state.check !== "not-found") openValue(point);
     },
+    enter: (point, anchor) => {
+      const shownHere = card && samePoint(card.point, point) && card.anchor === anchor;
+      // A value with no control keeps its card, as it always did.
+      if (!shownHere || focusablesIn(cardBody.current).length === 0) {
+        pin(point, anchor);
+        return;
+      }
+      if (!enterCard(cardBody.current)) enterWhenDrawn.current = true;
+    },
+    control: (point) =>
+      cited(listed[point.row]?.values[point.series]).some(({ state }) => state.documentId !== null),
     label: (point) => {
       const source = sourceText(listed[point.row]?.values[point.series]);
       const noUnit = unitlessRows(chart.data, point.series).has(point.row);
@@ -613,12 +657,30 @@ export function ChartView({
             }}
             aria-label={events.label(card.point)}
             data-testid="chart-card"
+            initialFocus={cardEntry}
             onPointerEnter={() => hold("card", true)}
             onPointerLeave={() => hold("card", false)}
-            onFocus={() => hold("card-focus", true)}
-            onBlur={() => hold("card-focus", false)}
+            onFocus={() => {
+              setInCard(true);
+              hold("card-focus", true);
+            }}
+            onBlur={() => {
+              setInCard(false);
+              hold("card-focus", false);
+            }}
+            onKeyDown={(event) => {
+              const value = card.anchor;
+              const back =
+                value instanceof HTMLElement || value instanceof SVGElement ? value : null;
+              returnAtEnds(event, event.currentTarget, back);
+              // Esc goes back to the value, which a second Esc closes the card from.
+              if (event.key !== "Escape" || event.nativeEvent.isComposing) return;
+              event.preventDefault();
+              back?.focus();
+            }}
           >
             <ChartPointCard
+              ref={cardBody}
               title={titleOf(card.point)}
               position={
                 foundShown && foundShown.total > 1
@@ -663,6 +725,10 @@ export function ChartView({
           </Popover>,
           document.body,
         )}
+      <CardKeyHint
+        card={cardBody}
+        shown={card !== null && keyboardOnly && !card.pinned && !inCard}
+      />
     </NodeViewWrapper>
   );
 }

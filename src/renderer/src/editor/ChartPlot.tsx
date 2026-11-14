@@ -4,6 +4,7 @@ import type { ChartAttributes, ChartUnitGroup } from "../../../shared/charts";
 import type { FigureUnit } from "../../../shared/figures";
 import type { MessageKey } from "../../../shared/i18n";
 import { useT } from "../i18n";
+import { isSpaceKey } from "./cardFocus";
 
 export interface PointRef {
   row: number;
@@ -15,8 +16,31 @@ export const samePoint = (a: PointRef | null, b: PointRef | null) =>
 
 export interface PointEvents {
   peek(point: PointRef, anchor: Element, source: "pointer" | "focus", on: boolean): void;
+  /** A click or Enter: the card stays, and a Citation's page opens. */
   activate(point: PointRef, anchor: Element): void;
+  /** Space: the focus goes into the card when it has a control; with none, the card stays. */
+  enter(point: PointRef, anchor: Element): void;
+  /** Whether its card has a control, which Space goes into. */
+  control(point: PointRef): boolean;
   label(point: PointRef): string;
+}
+
+/** Enter and Space on a value; true when the key was one of them, so the caller leaves it. */
+export function pressOnPoint(
+  event: KeyboardEvent<Element>,
+  point: PointRef,
+  events: PointEvents,
+): boolean {
+  if (event.nativeEvent.isComposing) return false;
+  if (event.key === "Enter") {
+    event.preventDefault();
+    events.activate(point, event.currentTarget);
+    return true;
+  }
+  if (!isSpaceKey(event)) return false;
+  event.preventDefault();
+  if (!event.repeat) events.enter(point, event.currentTarget);
+  return true;
 }
 
 let canvas: CanvasRenderingContext2D | null | undefined;
@@ -94,11 +118,7 @@ function ChartPanel({
   const onKeyDown = (event: KeyboardEvent<SVGElement>, index: number) => {
     const point = points[index];
     if (!point) return;
-    if (event.key === "Enter" || event.key === " ") {
-      event.preventDefault();
-      events.activate(point, event.currentTarget);
-      return;
-    }
+    if (pressOnPoint(event, point, events)) return;
     const next = nextPoint(points, index, event.key, byRow);
     if (next === null) return;
     event.preventDefault();
@@ -196,6 +216,7 @@ function ChartPanel({
               tabIndex: index === at ? 0 : -1,
               "aria-label": events.label(point),
               "aria-haspopup": "dialog" as const,
+              "aria-keyshortcuts": events.control(point) ? "Space" : undefined,
               onPointerEnter: (event: { currentTarget: Element }) =>
                 events.peek(point, event.currentTarget, "pointer", true),
               onPointerLeave: (event: { currentTarget: Element }) =>

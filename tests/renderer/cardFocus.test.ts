@@ -1,7 +1,11 @@
 import { parseHTML } from "linkedom";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import {
+  enterCard,
+  goingElsewhere,
+  isSpaceKey,
   keepFocusInside,
+  returnAtEnds,
   type TabPress,
   wrappedFocus,
 } from "../../src/renderer/src/editor/cardFocus";
@@ -126,5 +130,86 @@ describe("the wrap decision (#1762)", () => {
   test("the focus on the card itself goes to its first or last action", () => {
     expect(wrappedFocus(-1, 3, false)).toBe(0);
     expect(wrappedFocus(-1, 3, true)).toBe(2);
+  });
+});
+
+describe("a card shown on keyboard focus (#3102)", () => {
+  const control = { focus: vi.fn() };
+  beforeEach(() => control.focus.mockClear());
+
+  test("Tab from the last control, and Shift+Tab from the first, go back to the control", () => {
+    const forward = press({ target: last });
+    returnAtEnds(forward.event, card, control);
+    expect(forward.prevented()).toBe(true);
+    const backward = press({ target: first, shiftKey: true });
+    returnAtEnds(backward.event, card, control);
+    expect(backward.prevented()).toBe(true);
+    expect(control.focus).toHaveBeenCalledTimes(2);
+  });
+
+  test("a Tab between the controls is the browser's, and none wraps", () => {
+    const middle = press({ target: second });
+    returnAtEnds(middle.event, card, control);
+    const firstBack = press({ target: first });
+    returnAtEnds(firstBack.event, card, control);
+    const lastForward = press({ target: last, shiftKey: true });
+    returnAtEnds(lastForward.event, card, control);
+    expect(middle.prevented() || firstBack.prevented() || lastForward.prevented()).toBe(false);
+    expect(control.focus).not.toHaveBeenCalled();
+  });
+
+  test("a modified Tab, another key and a card with no control are left alone", () => {
+    for (const over of [{ ctrlKey: true }, { metaKey: true }, { altKey: true }, { key: "Enter" }]) {
+      const other = press({ target: last, ...over });
+      returnAtEnds(other.event, card, control);
+      expect(other.prevented()).toBe(false);
+    }
+    const none = press({ target: last });
+    returnAtEnds(none.event, card, null);
+    expect(none.prevented()).toBe(false);
+    expect(control.focus).not.toHaveBeenCalled();
+  });
+
+  test("Space goes into the card's first control, and says whether it landed", () => {
+    first.focus = vi.fn(() => {
+      active = first;
+    });
+    active = outside;
+    expect(enterCard(card)).toBe(true);
+    first.focus = vi.fn();
+    active = outside;
+    expect(enterCard(card)).toBe(false);
+    expect(enterCard(null)).toBe(false);
+  });
+
+  test("Space is the key into a card only alone and not while an input method composes", () => {
+    const key = {
+      key: " ",
+      shiftKey: false,
+      ctrlKey: false,
+      metaKey: false,
+      altKey: false,
+      keyCode: 32,
+    };
+    expect(isSpaceKey(key)).toBe(true);
+    expect(isSpaceKey({ ...key, nativeEvent: { isComposing: false } })).toBe(true);
+    expect(isSpaceKey({ ...key, nativeEvent: { isComposing: true } })).toBe(false);
+    expect(isSpaceKey({ ...key, keyCode: 229 })).toBe(false);
+    for (const over of [
+      { shiftKey: true },
+      { ctrlKey: true },
+      { metaKey: true },
+      { altKey: true },
+    ]) {
+      expect(isSpaceKey({ ...key, ...over })).toBe(false);
+    }
+    expect(isSpaceKey({ ...key, key: "Enter" })).toBe(false);
+  });
+
+  test("the focus going to the card or back to its control stays; anywhere else goes", () => {
+    expect(goingElsewhere(second, card, outside)).toBe(false);
+    expect(goingElsewhere(outside, card, outside)).toBe(false);
+    expect(goingElsewhere(outside, card, null)).toBe(true);
+    expect(goingElsewhere(null, card, outside)).toBe(false);
   });
 });

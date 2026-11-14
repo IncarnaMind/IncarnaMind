@@ -29,6 +29,7 @@ import { PEEK_WIDTH, placePeek } from "../peekPlace";
 import { scanningStatus } from "../scanStatus";
 import { refOfKey } from "../selectionModel";
 import { useAppStore } from "../store";
+import { KeyCap } from "./KeyCap";
 import { ChevronDownLineIcon, DocumentLineIcon } from "./lineIcons";
 import { MoveToPicker } from "./MoveToPicker";
 import { PathText } from "./PathText";
@@ -266,11 +267,7 @@ function PeekCard({ target }: { target: PeekTarget }) {
         >
           {name}
         </p>
-        {key && (
-          <kbd className="inline-flex h-[18px] shrink-0 items-center rounded-sm bg-chip px-[5px] font-sans text-[11px] leading-[18px] font-semibold text-ink-secondary">
-            {key}
-          </kbd>
-        )}
+        {key && <KeyCap>{key}</KeyCap>}
       </div>
       <div className="px-3.5 pt-2.5">
         <PeekPage document={document} settled={settled} />

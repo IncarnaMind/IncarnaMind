@@ -4718,6 +4718,7 @@ export const en = {
   "citation.openAnyway.time": "Open the transcript anyway",
   "citation.remove": "Remove the Citation",
   "citation.more": "More for this Citation",
+  "card.useKey": "to use",
   "command.citation.open": "Open cited page",
   "command.viewer.openCurrentVersion": "Open the current version",
   "citation.regenerate": "Regenerate the Answer",
