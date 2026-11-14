@@ -766,6 +766,74 @@ describe("Help during the call", { timeout: 60_000 }, () => {
     },
   );
 
+  // protects=a typed question is told the language the app reads it in, as an Answer's Question is: an English question naming a Chinese Document or person is English, a French, German or Japanese one its own; where the reader can't tell, its script; an acronym, the interface's; and on an English call a reply written as it was told is never asked anew (#2925); fails_when=a Chinese name makes an English question Chinese, another language is told English or Chinese, an acronym follows the call or not the interface, or such a reply is sent again; no_claim=how a real model follows the line.
+  test("a typed question is told the language it is written in, a Chinese name in it or not; an acronym, the interface's; and its reply, written so, isn't asked anew (#2925)", async () => {
+    const told = (prompt: string) =>
+      prompt.split("\n").findLast((line) => line.startsWith("- Write in ")) ?? "";
+    const answering = (calls: ModelCall[]) =>
+      scriptedModel(
+        (call) => {
+          calls.push(call);
+          if (call.json) return { text: JSON.stringify({ citations: [] }) };
+          return {
+            text: told(call.prompt).startsWith("- Write in Simplified Chinese")
+              ? "月租金是一千一百欧元。"
+              : "The rent is eleven hundred euros a month.",
+          };
+        },
+        { judgesItsAnswers: true },
+      );
+    const typedCalls = (calls: ModelCall[]) =>
+      calls.filter((call) => !call.json && call.prompt.includes("typed a question about it"));
+    const askedIn = async (
+      { core, meeting, calls }: Awaited<ReturnType<typeof setUp>>,
+      question: string,
+    ) => {
+      const before = typedCalls(calls).length;
+      await ask(core, meeting, question);
+      const asked = typedCalls(calls).slice(before);
+      return { question, told: told(asked[0]?.prompt ?? ""), requests: asked.length };
+    };
+    const line = (language: string, call: string) =>
+      `- Write in ${language}, the language the User typed the Question in. An option to say is in ${call}, the call's language, its "→" line too.`;
+
+    const english = await setUp(undefined, {}, answering);
+    const rows = [
+      ["What does 合同条款 say?", "English"],
+      ["What did 王总 ask about the deposit?", "English"],
+      ["Does 合同 mention a deposit?", "English"],
+      ["Which clause of 《租赁合同》 covers late rent?", "English"],
+      ["Quel est le loyer mensuel du bail ?", "French"],
+      ["Wie hoch ist die monatliche Miete?", "German"],
+      ["毎月の家賃はいくらですか？", "Japanese"],
+      ["What is the monthly rent?", "English"],
+      ["月租金是多少？", "Simplified Chinese"],
+      ["Lease 2 的租金是多少？", "Simplified Chinese"],
+    ] as const;
+    const seen = [];
+    for (const [question] of rows) seen.push(await askedIn(english, question));
+    expect(seen).toEqual(
+      rows.map(([question, language]) => ({
+        question,
+        told: line(language, "English"),
+        requests: 1,
+      })),
+    );
+
+    const chinese = await setUp(
+      undefined,
+      {
+        lines: ["我们先看一下报价。", "团队版每个席位每月二十五美元。"],
+        theirLines: ["企业版能便宜一点吗？", "四十个席位一共多少钱？"],
+      },
+      answering,
+    );
+    expect((await askedIn(chinese, "SSO?")).told).toBe(line("English", "Chinese"));
+    await chinese.core.updateSettings({ user: { language: "zh-CN" } });
+    expect((await askedIn(chinese, "SSO?")).told).toBe(line("Simplified Chinese", "Chinese"));
+    expect((await askedIn(chinese, "1100?")).told).toBe(line("Simplified Chinese", "Chinese"));
+  });
+
   test("a blank question, or one after Stop, is refused (#2925)", async () => {
     const { core, meeting } = await setUp();
     await expect(core.askMeetingQuestion({ meetingId: meeting.id, text: "  " })).rejects.toThrow(

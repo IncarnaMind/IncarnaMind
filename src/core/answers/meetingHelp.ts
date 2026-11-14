@@ -245,6 +245,17 @@ export function anewInItsLanguage(
 export const LIVE_TEXT_BEHIND_NOTE =
   "- The live text fell behind: <live-transcript> holds the lines written so far, and what was said since isn't in it. A line saying so already starts the reply: don't repeat it, and answer from these lines.";
 
+/**
+ * The language a typed question's reply is written in, by name: the question's own, as an Answer's
+ * Question is read, else its script's, else, for an acronym or a figure, the interface's.
+ */
+function typedIn(asked: string, language: Language): string {
+  const own = questionLanguage(asked);
+  if (own !== null) return own === "Chinese" ? LANGUAGE_NAMES["zh-CN"] : own;
+  const script = scriptOf(asked);
+  return LANGUAGE_NAMES[script === null ? language : script === "han" ? "zh-CN" : "en"];
+}
+
 /** A sentence that answers a question of fact, in the language the question was typed in. */
 const FACT_EXAMPLE = {
   en: "Single sign-on is included in Enterprise at no extra cost [^1]",
@@ -258,13 +269,17 @@ const FACT_EXAMPLE = {
  */
 function questionInstructions(
   asked: string,
-  { found, callLanguage }: { found: boolean; callLanguage: string | null },
+  {
+    found,
+    language,
+    callLanguage,
+  }: { found: boolean; language: Language; callLanguage: string | null },
 ): string {
-  const typed = /\p{Script=Han}/u.test(asked) ? "zh" : "en";
-  const call = callLanguage === null ? typed : callLanguage === "Chinese" ? "zh" : "en";
   // Named, not "the Question's": a request of the app's in English, after it, reads as the
   // newest question (#2925).
-  const written = LANGUAGE_NAMES[typed === "zh" ? "zh-CN" : "en"];
+  const written = typedIn(asked, language);
+  const typed = written === LANGUAGE_NAMES["zh-CN"] ? "zh" : "en";
+  const call = callLanguage === null ? typed : callLanguage === "Chinese" ? "zh" : "en";
   return [
     "The User is in a call and typed a question about it: the Question is what they typed. They will read your reply in a second or two while the call goes on.",
     "Reply in the shortest form that answers it, with nothing before or after it: start with its first line, and add no heading, introduction, plan, remark on the transcript or closing line. Say what you found; never say where you looked or what you didn't find.",
@@ -307,7 +322,7 @@ export function meetingHelpInstructions(
     asked = "",
   }: { found: boolean; language: Language; callLanguage: string | null; asked?: string },
 ): string {
-  if (kind === "question") return questionInstructions(asked, { found, callLanguage });
+  if (kind === "question") return questionInstructions(asked, { found, language, callLanguage });
   const shape = HELP_SHAPE[kind];
   const task = TASKS[kind];
   const documents = HELP_DOCUMENTS[kind];
