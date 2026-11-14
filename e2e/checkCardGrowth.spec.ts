@@ -92,9 +92,13 @@ async function land(window: Page, sentences: readonly string[], from: number) {
 
 type Box = [number, number, number, number];
 
-/** What the browser says moved in a drawn frame: the owner's test id, and where it was and is. */
+/**
+ * What the browser says moved in a drawn frame: the owner's test id, where it was and is, and
+ * whether it is something inside the card (the card's own box is drawn with its shadow).
+ */
 interface Shift {
   test: string;
+  inside: boolean;
   previous: Box;
   current: Box;
 }
@@ -106,28 +110,40 @@ interface ShiftEntry {
 /** Every layout shift the browser draws until `stop`: only what was drawn, never a state between frames. */
 const watch = (window: Page) =>
   window.evaluate(() => {
-    const holder = globalThis as unknown as { shifts: Shift[]; shifting?: PerformanceObserver };
+    const holder = globalThis as unknown as {
+      shifts: Shift[];
+      shifting?: PerformanceObserver;
+      collect(entries: PerformanceEntryList): void;
+    };
     holder.shifts = [];
     const box = (rect: DOMRectReadOnly): Box => [rect.x, rect.y, rect.width, rect.height];
-    holder.shifting = new PerformanceObserver((list) => {
-      for (const entry of list.getEntries() as unknown as ShiftEntry[]) {
+    holder.collect = (entries) => {
+      for (const entry of entries as unknown as ShiftEntry[]) {
         for (const source of entry.sources) {
-          const owner =
-            source.node instanceof Element ? source.node.closest("[data-testid]") : null;
+          const element = source.node instanceof Element ? source.node : null;
+          const owner = element?.closest("[data-testid]") ?? null;
           holder.shifts.push({
             test: owner?.getAttribute("data-testid") ?? "",
+            inside: element?.closest(".check-card") != null && !element.matches(".check-card"),
             previous: box(source.previousRect),
             current: box(source.currentRect),
           });
         }
       }
-    });
+    };
+    holder.shifting = new PerformanceObserver((list) => holder.collect(list.getEntries()));
     holder.shifting.observe({ type: "layout-shift" });
   });
 
 const stop = (window: Page) =>
   window.evaluate(() => {
-    const holder = globalThis as unknown as { shifts: Shift[]; shifting?: PerformanceObserver };
+    const holder = globalThis as unknown as {
+      shifts: Shift[];
+      shifting?: PerformanceObserver;
+      collect(entries: PerformanceEntryList): void;
+    };
+    // What the browser drew but has not delivered yet.
+    if (holder.shifting) holder.collect(holder.shifting.takeRecords());
     holder.shifting?.disconnect();
     return holder.shifts;
   });
@@ -195,17 +211,18 @@ for (const language of ["en", "zh-CN"] as const) {
         const grown = await boxOf(card);
         await still("after");
 
-        // What was drawn: the Check and its foot never shifted, and the card never covered its badge.
+        // What was drawn: the Check never shifted, and nothing in the card was drawn over the badge.
+        const badgeNow = await boxOf(badge);
         const trail = shifts
           .map(
             (shift) =>
-              `${shift.test} ${shift.previous.map(Math.round)} to ${shift.current.map(Math.round)}`,
+              `${shift.test}${shift.inside ? " (in the card)" : ""} ${shift.previous.map(Math.round)} to ${shift.current.map(Math.round)}`,
           )
           .join("  >  ");
         for (const shift of shifts) {
           expect(shift.test, `the Check shifted: ${trail}`).not.toBe("badge-check-mind");
-          if (shift.test === "check-card")
-            expect(overlap(shift.current, anchor), `the card covered its badge: ${trail}`).toBe(
+          if (shift.inside)
+            expect(overlap(shift.current, badgeNow), `the card covered its badge: ${trail}`).toBe(
               false,
             );
         }
