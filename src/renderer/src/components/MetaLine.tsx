@@ -34,7 +34,7 @@ export function MetaLine({
   className = "",
   children,
   ...rest
-}: { parts: readonly ReactNode[]; as?: "p" | "div" } & HTMLAttributes<HTMLElement>) {
+}: { parts: readonly ReactNode[]; as?: "p" | "div" | "span" } & HTMLAttributes<HTMLElement>) {
   const shown = parts.filter(
     (part) => part !== null && part !== undefined && part !== false && part !== "",
   );

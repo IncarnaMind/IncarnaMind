@@ -86,9 +86,9 @@ export function ProblemLine({
   title?: string | undefined;
   className?: string;
 }) {
-  const buttons = [action, also].filter(
-    (each): each is ProblemAction => each !== undefined && each.label !== "",
-  );
+  const buttons = [action, also]
+    .filter((each): each is ProblemAction => each !== undefined && each.label !== "")
+    .map((each) => <LineAction key={each.label} action={each} />);
   return (
     <div
       role={role}
@@ -101,7 +101,11 @@ export function ProblemLine({
         parts={[
           children,
           ...details,
-          ...buttons.map((each) => <LineAction key={each.label} action={each} />),
+          // Two actions are one part: the row breaks before them, never between, unless the pair
+          // alone is wider than the line (#3099).
+          ...(buttons.length > 1
+            ? [<MetaLine key="actions" as="span" parts={buttons} />]
+            : buttons),
           disclosure?.toggle,
         ]}
       />
