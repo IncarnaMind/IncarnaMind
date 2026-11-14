@@ -143,17 +143,10 @@ function useTimeOf(): (citation: MarkedCitation | undefined) => string | null {
  * One quote line: the quote and its numbers with ✓, the card's words, or the room it keeps. As a
  * reading's moment (`moment`), the quote comes after its Citation's own time.
  */
-function QuoteRow({
-  line,
-  moment,
-  late,
-  ...shown
-}: Shown & { line: QuoteLine; moment: boolean; late: ReadonlySet<number> }) {
+function QuoteRow({ line, moment, ...shown }: Shown & { line: QuoteLine; moment: boolean }) {
   const timeOf = useTimeOf();
   const citation = citationOf(shown.answer, line.drawn);
   const time = moment ? timeOf(citation) : null;
-  const own = (markers: readonly number[]) => markers.filter((marker) => !late.has(marker));
-  const added = [...line.markers, ...line.more].filter((marker) => late.has(marker));
   return (
     <span
       data-testid={moment ? "help-moment" : "help-quote"}
@@ -171,20 +164,13 @@ function QuoteRow({
         <CardWords citation={citation} state={line.state} />
       )}
       <span className="help-quote-marks">
-        {own(line.markers).map((marker) => (
+        {line.markers.map((marker) => (
           <QuoteNumber key={marker} marker={marker} {...shown} />
         ))}
         {line.state === "found" && citation && <Found citation={citation} />}
-        {own(line.more).map((marker) => (
+        {line.more.map((marker) => (
           <QuoteNumber key={marker} marker={marker} {...shown} />
         ))}
-        {added.length > 0 && (
-          <span className="help-citation-late">
-            {added.map((marker) => (
-              <QuoteNumber key={marker} marker={marker} {...shown} />
-            ))}
-          </span>
-        )}
       </span>
     </span>
   );
@@ -210,23 +196,17 @@ export function QuoteRows({
   return <QuoteLineRows lines={lines} moment={moment} {...shown} />;
 }
 
-const NONE: ReadonlySet<number> = new Set();
-
-/**
- * Quote lines as drawn: under their line, or at the reply's foot (#3098). A number the reply's end
- * added to a line kept while it was written (`late`) takes none of its row's room.
- */
+/** Quote lines as drawn: under their line, or at the reply's foot (#3098). */
 export function QuoteLineRows({
   lines,
   moment = false,
-  late = NONE,
   ...shown
-}: Shown & { lines: readonly QuoteLine[]; moment?: boolean; late?: ReadonlySet<number> }) {
+}: Shown & { lines: readonly QuoteLine[]; moment?: boolean }) {
   return (
     <>
       {lines.map((line) => (
         // A joined number comes after the line's first, so the line stays the same element.
-        <QuoteRow key={line.markers[0]} line={line} moment={moment} late={late} {...shown} />
+        <QuoteRow key={line.markers[0]} line={line} moment={moment} {...shown} />
       ))}
     </>
   );
@@ -243,7 +223,7 @@ export function LineQuotes({
   ...shown
 }: Shown & {
   markers: readonly number[];
-  ended?: Pick<EndedLine, "rows" | "missing" | "late"> | undefined;
+  ended?: Pick<EndedLine, "rows" | "missing"> | undefined;
 }) {
   const lines =
     ended?.rows ??
@@ -255,7 +235,7 @@ export function LineQuotes({
     );
   return (
     <>
-      <QuoteLineRows lines={lines} late={ended ? new Set(ended.late) : NONE} {...shown} />
+      <QuoteLineRows lines={lines} {...shown} />
       {Array.from({ length: ended?.missing ?? 0 }, (_, index) => (
         // biome-ignore lint/suspicious/noArrayIndexKey: kept rows, in the order they were kept.
         <QuoteNotFound key={index} />

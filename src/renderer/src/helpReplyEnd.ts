@@ -132,17 +132,18 @@ function endedLine(
     written.status,
     (marker) => written.numbers.has(marker),
   ).length;
-  // The end's Citations after the line's own: one that repeats a quote drawn joins its line, a third
-  // keeps its number at the end of the second, and the rest take the rows left. Two quotes the end
-  // first finds one inside the other keep the rows they were written in.
-  const lines = (join: boolean) =>
-    quoteLines([...shown.values(), ...late], ended.citationOf, ended.status, ended.numbered, join);
-  const joined = lines(true);
-  const drawn = joined.length < kept - gone.size ? lines(false) : joined;
-  const rows = drawn.slice(0, kept);
+  // Two quotes the end first finds one inside the other keep the rows they were written in. The
+  // end's own quotes take the rows left, then go to the foot: none joins a row drawn, whose words
+  // may fill it.
+  const lines = (markers: readonly number[], join = true) =>
+    quoteLines(markers, ended.citationOf, ended.status, ended.numbered, join);
+  const joined = lines([...shown.values()]);
+  const own = joined.length < kept - gone.size ? lines([...shown.values()], false) : joined;
+  const added = lines(late);
+  const rows = [...own.slice(0, kept), ...added.splice(0, Math.max(0, kept - own.length))];
   return {
     line: { pieces: writtenPieces, shown, gone, late, rows, missing: kept - rows.length },
-    foot: drawn.slice(kept),
+    foot: [...own.slice(kept), ...added],
   };
 }
 

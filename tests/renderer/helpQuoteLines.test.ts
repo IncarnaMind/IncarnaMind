@@ -574,30 +574,31 @@ describe("Under each line of call help, the app draws its Citations' quotes (#28
       ).toBe("1");
     });
 
-    // protects=#3098 and #2847's join: a Citation the end adds that repeats a quote its line draws takes that quote line, its number after the line's own in room the line kept, so no line is added and nothing moves; fails_when=the quote line is replaced, a line is added, or its quote shows at the foot; no_claim=how the core places the number, which the core test pins.
-    test("one that repeats a drawn quote of the same place joins its line, and nothing moves", async () => {
+    // protects=#3098: a Citation the end adds that repeats a quote its line already draws joins no row drawn, whose words may fill it: its number goes at the end of its line and its quote at the foot, so nothing moves; drawn anew, it joins that quote's line (#2847); fails_when=a row of the line changes or is added, or the reply drawn anew keeps it apart; no_claim=how the core places the number, which the core test pins.
+    test("one that repeats a drawn quote of the same place goes to the foot, and joins its line drawn anew", async () => {
       const said = `★ Yes, it's $45 a seat [^1]. As the sheet puts it, “${PRICE}”\n→ answers at once`;
       const whole = sheet(1, PRICE);
       await show("answer", answerOf(`${said}${LATER}`, [whole], "streaming"));
       const before = screen();
       expect(drawn()[0]?.map((row) => row.numbers)).toEqual([["1"]]);
 
-      await show(
-        "answer",
-        answerOf(
-          `${said.replace("”\n", "” [^2]\n")}${LATER}`,
-          [whole, { ...sheet(2, PRICE), passageId: whole.passageId }],
-          "done",
-        ),
+      const ended = answerOf(
+        `${said.replace("”\n", "” [^2]\n")}${LATER}`,
+        [whole, { ...sheet(2, PRICE), passageId: whole.passageId }],
+        "done",
       );
+      await show("answer", ended);
       screen().forEach((nodes, index) => {
         expectSameNodes(nodes, before[index] ?? []);
       });
-      expect(drawn()).toEqual([
-        [{ as: "quote", state: "found", words: `“${PRICE}”`, numbers: ["1", "2"], found: true }],
-        [],
-      ]);
-      expect(foot()).toEqual([]);
+      const row = { as: "quote", state: "found", words: `“${PRICE}”`, found: true };
+      expect(drawn()).toEqual([[{ ...row, numbers: ["1"] }], []]);
+      expect(atLineEnd()).toEqual([["2"], []]);
+      expect(foot()).toEqual([{ ...row, numbers: ["2"] }]);
+
+      await act(async () => root?.render(null));
+      await show("answer", ended);
+      expect(drawn()).toEqual([[{ ...row, numbers: ["1", "2"] }], []]);
     });
 
     // protects=#3098: two numbers whose quotes are first found with the reply's end, one inside the other, each keep the row they were written in, so none closes and nothing moves; drawn anew they join in one line (#2847); fails_when=a row closes once the reply has ended, or the reply drawn anew keeps two lines; no_claim=a join while the reply is written, which another test pins.
