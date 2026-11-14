@@ -35,7 +35,7 @@ import { useT } from "../../i18n";
 import { useModelNames, useServiceName } from "../../modelNames";
 import { answerProblem } from "../../problems";
 import { DocumentLineIcon } from "../lineIcons";
-import { KeptQuote, MomentRoom, PlainMoment, QuoteLineRows, QuoteRows } from "./HelpQuotes";
+import { LineQuotes, MomentRoom, PlainMoment, QuoteLineRows, QuoteRows } from "./HelpQuotes";
 
 /**
  * A help Answer, as the core writes it: loaded once, then each write as it streams. Only this
@@ -253,28 +253,8 @@ function ReplyLine({
   /** The line as it was written, once the reply has ended in the panel that showed it written. */
   ended?: EndedLine | undefined;
 }) {
-  if (ended) {
-    const late = ended.late.length > 0 && className === "help-option-note";
-    return (
-      <>
-        <span
-          data-testid={testId}
-          className={late ? `${className} help-option-note--late` : className}
-        >
-          <Pieces
-            pieces={ended.pieces}
-            answer={answer}
-            numbers={numbers}
-            starts={starts}
-            ended={ended}
-          />
-        </span>
-        <KeptRows ended={ended} answer={answer} numbers={numbers} starts={starts} />
-      </>
-    );
-  }
-  if (reading && open && momentBegun(pieces)) return <MomentRoom />;
-  const moment = reading && !open ? momentOf(pieces) : null;
+  if (!ended && reading && open && momentBegun(pieces)) return <MomentRoom />;
+  const moment = !ended && reading && !open ? momentOf(pieces) : null;
   if (moment?.kind === "plain") {
     return (
       <PlainMoment
@@ -297,25 +277,28 @@ function ReplyLine({
       />
     );
   }
+  const late = ended !== undefined && ended.late.length > 0 && className === "help-option-note";
   return (
     <>
-      <span data-testid={testId} className={className}>
-        <Pieces pieces={pieces} answer={answer} numbers={numbers} starts={starts} />
+      <span
+        data-testid={testId}
+        className={late ? `${className} help-option-note--late` : className}
+      >
+        <Pieces
+          pieces={ended?.pieces ?? pieces}
+          answer={answer}
+          numbers={numbers}
+          starts={starts}
+          ended={ended}
+        />
       </span>
-      <QuoteRows markers={markersOf([pieces])} answer={answer} numbers={numbers} starts={starts} />
-    </>
-  );
-}
-
-/** A line's kept quote rows once its reply has ended, drawn as `ReplyLine` draws them. */
-function KeptRows({ ended, ...shown }: Shown & { ended: EndedLine }) {
-  return (
-    <>
-      <QuoteLineRows lines={ended.rows} {...shown} />
-      {Array.from({ length: ended.missing + ended.empty }, (_, index) => (
-        // biome-ignore lint/suspicious/noArrayIndexKey: kept rows, in the order they were kept.
-        <KeptQuote key={index} empty={index >= ended.missing} />
-      ))}
+      <LineQuotes
+        markers={markersOf([pieces])}
+        ended={ended}
+        answer={answer}
+        numbers={numbers}
+        starts={starts}
+      />
     </>
   );
 }
@@ -395,16 +378,13 @@ function Item({
               ended={effect}
             />
           </span>
-          {effect ? (
-            <KeptRows ended={effect} answer={answer} numbers={numbers} starts={starts} />
-          ) : (
-            <QuoteRows
-              markers={markersOf([item.effect])}
-              answer={answer}
-              numbers={numbers}
-              starts={starts}
-            />
-          )}
+          <LineQuotes
+            markers={markersOf([item.effect])}
+            ended={effect}
+            answer={answer}
+            numbers={numbers}
+            starts={starts}
+          />
         </>
       )}
     </div>

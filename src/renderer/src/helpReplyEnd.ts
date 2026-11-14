@@ -56,8 +56,6 @@ export interface EndedLine {
   rows: QuoteLine[];
   /** Kept rows after `rows` whose number ended with no Citation: each reads "Quote not found". */
   missing: number;
-  /** Kept rows after those whose quote another line of it now holds: each stays, empty. */
-  empty: number;
 }
 
 export interface EndedReply {
@@ -134,22 +132,17 @@ function endedLine(
     written.status,
     (marker) => written.numbers.has(marker),
   ).length;
-  const drawn = quoteLines([...shown.values()], ended.citationOf, ended.status, ended.numbered);
-  const lateRows = quoteLines(late, ended.citationOf, ended.status, ended.numbered);
+  // The end's Citations after the line's own: one that repeats a quote drawn joins its line, a third
+  // keeps its number at the end of the second, and the rest take the rows left. Two quotes the end
+  // first finds one inside the other keep the rows they were written in.
+  const lines = (join: boolean) =>
+    quoteLines([...shown.values(), ...late], ended.citationOf, ended.status, ended.numbered, join);
+  const joined = lines(true);
+  const drawn = joined.length < kept - gone.size ? lines(false) : joined;
   const rows = drawn.slice(0, kept);
-  rows.push(...lateRows.splice(0, kept - rows.length));
-  const missing = Math.min(kept - rows.length, gone.size);
   return {
-    line: {
-      pieces: writtenPieces,
-      shown,
-      gone,
-      late,
-      rows,
-      missing,
-      empty: kept - rows.length - missing,
-    },
-    foot: [...drawn.slice(kept), ...lateRows],
+    line: { pieces: writtenPieces, shown, gone, late, rows, missing: kept - rows.length },
+    foot: drawn.slice(kept),
   };
 }
 

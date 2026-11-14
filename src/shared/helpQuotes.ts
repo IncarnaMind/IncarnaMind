@@ -299,13 +299,14 @@ function joinInside(groups: Group[], order: readonly number[]): void {
 
 /**
  * The quote lines under a line that cites `markers`, in the order cited. A marker `numbered` doesn't
- * show takes none.
+ * show takes none. With `join` false, a quote inside another keeps a line of its own.
  */
 export function quoteLines(
   markers: readonly number[],
   citationOf: (marker: number) => QuotedCitation | undefined,
   status: AnswerStatus,
   numbered: (marker: number) => boolean = () => true,
+  join = true,
 ): QuoteLine[] {
   const groups: Group[] = [];
   for (const marker of markers) {
@@ -319,7 +320,7 @@ export function quoteLines(
       found: state === "found" && citation !== undefined,
     });
   }
-  joinInside(groups, markers);
+  if (join) joinInside(groups, markers);
   const lines = groups.slice(0, 2).map(({ markers: cited, citation }): QuoteLine => {
     const state = quoteState(citation, status) ?? "waiting";
     const fitted = state === "found" && citation ? fittedQuote(citation.quote) : null;

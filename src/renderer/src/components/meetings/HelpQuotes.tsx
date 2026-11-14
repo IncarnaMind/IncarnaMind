@@ -12,6 +12,7 @@ import {
 } from "../../../../shared/helpQuotes";
 import type { ReplyPiece } from "../../../../shared/helpReplyRead";
 import { formatLocation, isTranscriptLocation } from "../../../../shared/locations";
+import type { EndedLine } from "../../helpReplyEnd";
 import { useT } from "../../i18n";
 import { CheckLineIcon } from "../lineIcons";
 import { TipPopover } from "../TipPopover";
@@ -142,10 +143,17 @@ function useTimeOf(): (citation: MarkedCitation | undefined) => string | null {
  * One quote line: the quote and its numbers with ✓, the card's words, or the room it keeps. As a
  * reading's moment (`moment`), the quote comes after its Citation's own time.
  */
-function QuoteRow({ line, moment, ...shown }: Shown & { line: QuoteLine; moment: boolean }) {
+function QuoteRow({
+  line,
+  moment,
+  late,
+  ...shown
+}: Shown & { line: QuoteLine; moment: boolean; late: ReadonlySet<number> }) {
   const timeOf = useTimeOf();
   const citation = citationOf(shown.answer, line.drawn);
   const time = moment ? timeOf(citation) : null;
+  const own = (markers: readonly number[]) => markers.filter((marker) => !late.has(marker));
+  const added = [...line.markers, ...line.more].filter((marker) => late.has(marker));
   return (
     <span
       data-testid={moment ? "help-moment" : "help-quote"}
@@ -163,13 +171,20 @@ function QuoteRow({ line, moment, ...shown }: Shown & { line: QuoteLine; moment:
         <CardWords citation={citation} state={line.state} />
       )}
       <span className="help-quote-marks">
-        {line.markers.map((marker) => (
+        {own(line.markers).map((marker) => (
           <QuoteNumber key={marker} marker={marker} {...shown} />
         ))}
         {line.state === "found" && citation && <Found citation={citation} />}
-        {line.more.map((marker) => (
+        {own(line.more).map((marker) => (
           <QuoteNumber key={marker} marker={marker} {...shown} />
         ))}
+        {added.length > 0 && (
+          <span className="help-citation-late">
+            {added.map((marker) => (
+              <QuoteNumber key={marker} marker={marker} {...shown} />
+            ))}
+          </span>
+        )}
       </span>
     </span>
   );
@@ -195,17 +210,55 @@ export function QuoteRows({
   return <QuoteLineRows lines={lines} moment={moment} {...shown} />;
 }
 
-/** Quote lines as drawn: under their line, or at the reply's foot (#3098). */
+const NONE: ReadonlySet<number> = new Set();
+
+/**
+ * Quote lines as drawn: under their line, or at the reply's foot (#3098). A number the reply's end
+ * added to a line kept while it was written (`late`) takes none of its row's room.
+ */
 export function QuoteLineRows({
   lines,
   moment = false,
+  late = NONE,
   ...shown
-}: Shown & { lines: readonly QuoteLine[]; moment?: boolean }) {
+}: Shown & { lines: readonly QuoteLine[]; moment?: boolean; late?: ReadonlySet<number> }) {
   return (
     <>
       {lines.map((line) => (
         // A joined number comes after the line's first, so the line stays the same element.
-        <QuoteRow key={line.markers[0]} line={line} moment={moment} {...shown} />
+        <QuoteRow key={line.markers[0]} line={line} moment={moment} late={late} {...shown} />
+      ))}
+    </>
+  );
+}
+
+/**
+ * The quote lines under a line of the model's: as `QuoteRows` draws them, or once its reply has
+ * ended in the panel that showed it written (`ended`), the rows it kept then (#3098). Either way
+ * the same rows, so a row drawn stays the same element.
+ */
+export function LineQuotes({
+  markers,
+  ended,
+  ...shown
+}: Shown & {
+  markers: readonly number[];
+  ended?: Pick<EndedLine, "rows" | "missing" | "late"> | undefined;
+}) {
+  const lines =
+    ended?.rows ??
+    quoteLines(
+      markers,
+      (marker) => citationOf(shown.answer, marker),
+      shown.answer.status,
+      (marker) => shown.numbers.has(marker),
+    );
+  return (
+    <>
+      <QuoteLineRows lines={lines} late={ended ? new Set(ended.late) : NONE} {...shown} />
+      {Array.from({ length: ended?.missing ?? 0 }, (_, index) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: kept rows, in the order they were kept.
+        <QuoteNotFound key={index} />
       ))}
     </>
   );
@@ -213,13 +266,13 @@ export function QuoteLineRows({
 
 /**
  * A quote line kept for a number the reply's end gave no Citation (#3098): it keeps its row and
- * says so, with no number and no ✓; `empty`, one whose quote another line of its line now holds.
+ * says so, with no number and no ✓.
  */
-export function KeptQuote({ empty = false }: { empty?: boolean }) {
+function QuoteNotFound() {
   const t = useT();
   return (
-    <span data-testid="help-quote" data-state={empty ? "kept" : "not-found"} className="help-quote">
-      {!empty && <span className="help-quote-said">{t("claim.why.quoteNotFound")}</span>}
+    <span data-testid="help-quote" data-state="not-found" className="help-quote">
+      <span className="help-quote-said">{t("claim.why.quoteNotFound")}</span>
     </span>
   );
 }

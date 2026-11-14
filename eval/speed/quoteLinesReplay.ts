@@ -170,6 +170,8 @@ export interface EndChanges {
   keptChanged: number;
   /** Quote lines kept while written that the end took away. */
   keptClosed: number;
+  /** Quote lines kept while written whose number ended with no Citation: "Quote not found". */
+  keptNotFound: number;
   /** Lines whose own words took more or fewer rows at the end: a number added or taken away. */
   textRowsChanged: number;
   /** The panel's lines below a change that moved: a line of the reply, or a quote line. */
@@ -191,6 +193,7 @@ const noEndChanges = (): EndChanges => ({
   quoteLinesAdded: 0,
   keptChanged: 0,
   keptClosed: 0,
+  keptNotFound: 0,
   textRowsChanged: 0,
   linesMoved: 0,
   atTheFoot: 0,
@@ -607,6 +610,9 @@ interface PanelLine {
   rows: string[];
 }
 
+/** A kept quote line that reads "Quote not found" (`EndedLine`). */
+const MISSING = "missing|";
+
 /** A quote line as the end counts read it: its state and its words. */
 const rowOf = (line: QuoteLine) =>
   `${line.state}|${line.cells ? cellsText(line.cells) : (line.quote ?? "")}`;
@@ -673,11 +679,7 @@ function endedLines(written: DrawnReply, ended: DrawnReply): { lines: PanelLine[
       return {
         key,
         textRows: textRows(kept.pieces, chipOf, kind),
-        rows: [
-          ...kept.rows.map(rowOf),
-          ...Array.from({ length: kept.missing }, () => "missing|"),
-          ...Array.from({ length: kept.empty }, () => "kept|"),
-        ],
+        rows: [...kept.rows.map(rowOf), ...Array.from({ length: kept.missing }, () => MISSING)],
       };
     }),
   );
@@ -729,6 +731,7 @@ function endChanges(press: SavedPress, counts: EndChanges): void {
       counts.quoteLinesAdded += line.rows.length - rows.length;
     }
     counts.keptClosed += Math.max(0, rows.length - line.rows.length);
+    counts.keptNotFound += line.rows.filter((row) => row === MISSING).length;
     if (changed.length > 0 || line.rows.length > rows.length) late = true;
     if (line.rows.length !== rows.length) moving = true;
     shift += line.textRows + line.rows.length - (was.textRows + rows.length);

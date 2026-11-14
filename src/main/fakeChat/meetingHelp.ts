@@ -341,6 +341,22 @@ function withCitationsWhenAsked(prompt: Prompt, parts: StreamPart[]): StreamPart
   return textParts(`${OWN_WORDS[language]}\n\n${OPTIONS[language].second}`);
 }
 
+/**
+ * For a model id ending "-number-not-given": a help reply's first option comes in its own words
+ * with a number and no cite call, and asked once more for the reply's Citations, the model gives
+ * none (#3098).
+ */
+function withNumberNotGiven(prompt: Prompt, parts: StreamPart[]): StreamPart[] {
+  const asked = lastUserText(prompt);
+  if (asksForCitations(prompt)) return textParts(JSON.stringify({ citations: [] }));
+  const help = block(asked, "help");
+  if (!HELP.test(help) || shapeOf(help) !== "options") return parts;
+  if (!parts.some((part) => part.type === "tool-call" && part.toolName === "cite")) return parts;
+  const { language } = callOf(asked);
+  const first = OWN_WORDS[language].replace("\n→", " [^1]\n→");
+  return textParts(`${first}\n\n${OPTIONS[language].second}`);
+}
+
 /** For a model id ending "-help-held": a help reply writes nothing until it is stopped. */
 export const holdsHelp = (modelId: string, prompt: Prompt): boolean =>
   modelId.endsWith("-help-held") && HELP.test(block(lastUserText(prompt), "help"));
@@ -354,5 +370,6 @@ export function helpModelParts(modelId: string, prompt: Prompt, parts: StreamPar
   if (modelId.endsWith("-cites-the-note")) return withNoteCited(prompt, parts);
   if (modelId.endsWith("-writes-before-it-cites")) return withTextBeforeCite(prompt, parts);
   if (modelId.endsWith("-cites-when-asked")) return withCitationsWhenAsked(prompt, parts);
+  if (modelId.endsWith("-number-not-given")) return withNumberNotGiven(prompt, parts);
   return parts;
 }

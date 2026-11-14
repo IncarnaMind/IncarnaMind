@@ -8164,7 +8164,8 @@
     width: 0;
     white-space: nowrap;
 
-    & .help-citation + .help-citation {
+    & .help-citation + .help-citation,
+    & .help-quote-number + .help-quote-number {
       margin-left: 2px;
     }
   }
@@ -8238,6 +8239,10 @@
   }
   .help-quote-marks {
     white-space: nowrap;
+  }
+  /* A quote line keeps the same room after its marks, for a number the end joins to it (#3098). */
+  .help-quote > .help-quote-marks {
+    padding-inline-end: var(--late-room);
   }
   .help-quote-number {
     display: inline-flex;
