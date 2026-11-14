@@ -223,7 +223,7 @@ export function LineQuotes({
   ...shown
 }: Shown & {
   markers: readonly number[];
-  ended?: Pick<EndedLine, "rows" | "missing"> | undefined;
+  ended?: Pick<EndedLine, "rows"> | undefined;
 }) {
   const lines =
     ended?.rows ??
@@ -235,11 +235,15 @@ export function LineQuotes({
     );
   return (
     <>
-      <QuoteLineRows lines={lines} {...shown} />
-      {Array.from({ length: ended?.missing ?? 0 }, (_, index) => (
-        // biome-ignore lint/suspicious/noArrayIndexKey: kept rows, in the order they were kept.
-        <QuoteNotFound key={index} />
-      ))}
+      {lines.map((line, index) =>
+        line ? (
+          // A joined number comes after the line's first, so the line stays the same element.
+          <QuoteRow key={line.markers[0]} line={line} moment={false} {...shown} />
+        ) : (
+          // biome-ignore lint/suspicious/noArrayIndexKey: a kept row, in the place it was kept.
+          <QuoteNotFound key={`kept-${index}`} />
+        ),
+      )}
     </>
   );
 }

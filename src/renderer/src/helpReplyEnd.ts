@@ -52,10 +52,11 @@ export interface EndedLine {
   gone: ReadonlyMap<number, number>;
   /** The Citations the end added to the line, their numbers drawn at its end. */
   late: number[];
-  /** Its quote lines, in the rows it kept while it was written. */
-  rows: QuoteLine[];
-  /** Kept rows after `rows` whose number ended with no Citation: each reads "Quote not found". */
-  missing: number;
+  /**
+   * The rows it kept while it was written, each with its quote line, or null where its numbers
+   * ended with no Citation: that row reads "Quote not found".
+   */
+  rows: (QuoteLine | null)[];
 }
 
 export interface EndedReply {
@@ -126,24 +127,29 @@ function endedLine(
     }
   }
   const late = after.flatMap(({ marker }) => (taken.has(marker) ? [] : [marker]));
-  const kept = quoteLines(
+  const lines = (markers: readonly number[]) =>
+    quoteLines(markers, ended.citationOf, ended.status, ended.numbered);
+  // Each row kept while written draws its own numbers' quotes, so two quotes the end first finds
+  // one inside the other keep their rows; a row whose numbers all stand for no Citation is free.
+  const foot: QuoteLine[] = [];
+  const rows = quoteLines(
     before.map(({ marker }) => marker),
     written.citationOf,
     written.status,
     (marker) => written.numbers.has(marker),
-  ).length;
-  // Two quotes the end first finds one inside the other keep the rows they were written in. The
-  // end's own quotes take the rows left, then go to the foot: none joins a row drawn, whose words
-  // may fill it.
-  const lines = (markers: readonly number[], join = true) =>
-    quoteLines(markers, ended.citationOf, ended.status, ended.numbered, join);
-  const joined = lines([...shown.values()]);
-  const own = joined.length < kept - gone.size ? lines([...shown.values()], false) : joined;
+  ).map((row): QuoteLine | null => {
+    const markers = [...row.markers, ...row.more].flatMap((marker) => shown.get(marker) ?? []);
+    const [first, ...more] = lines(markers);
+    foot.push(...more);
+    return first ?? null;
+  });
+  // The end's own quotes take the free rows, in order, then go to the foot: none joins a row
+  // drawn, whose words may fill it. A free row left reads "Quote not found".
   const added = lines(late);
-  const rows = [...own.slice(0, kept), ...added.splice(0, Math.max(0, kept - own.length))];
+  const filled = rows.map((row) => row ?? added.shift() ?? null);
   return {
-    line: { pieces: writtenPieces, shown, gone, late, rows, missing: kept - rows.length },
-    foot: [...own.slice(kept), ...added],
+    line: { pieces: writtenPieces, shown, gone, late, rows: filled },
+    foot: [...foot, ...added],
   };
 }
 

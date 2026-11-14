@@ -634,18 +634,20 @@ const rowOf = (line: QuoteLine) =>
  * How many rows a quote line takes: one for its room or the card's words, which stay on one; a
  * found quote's words, its numbers and its ✓ wrapped as a line's words are, at 12 px.
  */
-function quoteRows(line: QuoteLine): number {
+function quoteRows(line: QuoteLine, numbers: ReadonlyMap<number, number>): number {
   if (line.state !== "found") return 1;
   const words = line.cells ? cellsText(line.cells) : `“${line.quote ?? ""}” ✓`;
-  const numbers = [...line.markers, ...line.more].map(
+  const marks = [...line.markers, ...line.more].map(
     (marker): ReplyPiece => ({ kind: "citation", marker, at: 0 }),
   );
-  return textRows([{ kind: "text", text: words }, ...numbers], (marker) => marker, "quote");
+  const chipOf = (marker: number) => numbers.get(marker) ?? null;
+  return textRows([{ kind: "text", text: words }, ...marks], chipOf, "quote");
 }
 
-const drawnRows = (lines: readonly QuoteLine[]) => ({
-  rows: lines.map(rowOf),
-  heights: lines.map(quoteRows),
+/** Quote lines as the end counts read them; a null is a kept row that reads "Quote not found". */
+const drawnRows = (lines: readonly (QuoteLine | null)[], numbers: ReadonlyMap<number, number>) => ({
+  rows: lines.map((line) => (line ? rowOf(line) : MISSING)),
+  heights: lines.map((line) => (line ? quoteRows(line, numbers) : 1)),
 });
 
 /** A saved reply as one draw of the panel reads it: written (`streaming`), or ended. */
@@ -679,6 +681,7 @@ function panelLines(reply: DrawnReply): PanelLine[] {
         quoteLines(markersOf([pieces]), reply.citationOf, reply.status, (marker) =>
           numbers.has(marker),
         ),
+        numbers,
       ),
     })),
   );
@@ -706,18 +709,16 @@ function endedLines(written: DrawnReply, ended: DrawnReply): { lines: PanelLine[
             quoteLines(markersOf([pieces]), ended.citationOf, ended.status, (marker) =>
               end.numbers.has(marker),
             ),
+            end.numbers,
           ),
         };
       }
       const chipOf = (marker: number) =>
         kept.gone.get(marker) ?? end.numbers.get(kept.shown.get(marker) ?? marker) ?? null;
-      const { rows, heights } = drawnRows(kept.rows);
-      const missing = Array.from({ length: kept.missing });
       return {
         key,
         textRows: textRows(kept.pieces, chipOf, kind),
-        rows: [...rows, ...missing.map(() => MISSING)],
-        heights: [...heights, ...missing.map(() => 1)],
+        ...drawnRows(kept.rows, end.numbers),
       };
     }),
   );
@@ -740,7 +741,9 @@ function endChanges(press: SavedPress, counts: EndChanges): void {
   );
   const ended = drawnReply(press, press.text, press.status ?? "done", press.citations);
   const before = panelLines(written);
-  const { lines: after, foot } = endedLines(written, ended);
+  // A reply stopped or failed is drawn as everywhere, as the panel draws it.
+  const { lines: after, foot } =
+    ended.status === "done" ? endedLines(written, ended) : { lines: panelLines(ended), foot: 0 };
   counts.presses++;
   counts.atTheFoot += foot;
   let shift = 0;
@@ -766,9 +769,18 @@ function endChanges(press: SavedPress, counts: EndChanges): void {
       continue;
     }
     const { rows } = was;
+    const above = shift !== 0 || roomShift !== 0;
     if (was.textRows !== line.textRows) {
       counts.textRowsChanged++;
       moving = true;
+      if (!above) counts.linesMoved += line.rows.length;
+    }
+    // A quote line kept above another in the same line, its own quote wrapping, moves it.
+    let grown = 0;
+    for (const [index, rowsNow] of line.heights.entries()) {
+      if (index >= rows.length) break;
+      if (grown !== 0 && !above && was.textRows === line.textRows) counts.linesMovedByRooms++;
+      grown += rowsNow - (was.heights[index] ?? 1);
     }
     const changed = line.rows.filter((row, index) => index < rows.length && row !== rows[index]);
     counts.keptChanged += changed.length;

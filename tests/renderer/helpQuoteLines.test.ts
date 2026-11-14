@@ -575,6 +575,21 @@ describe("Under each line of call help, the app draws its Citations' quotes (#28
       ]);
     });
 
+    // protects=#3098: each row kept while written keeps its own number's quote: when the first of two numbers on a line ends with no Citation, its row reads Quote not found and the second's quote stays in the second row; fails_when=the second quote moves up into the first row, or the rows swap; no_claim=the numbers, which another test pins.
+    test("of two kept rows, the first with nothing reads Quote not found and the second keeps its quote", async () => {
+      const reply = `★ Enterprise has single sign-on [^1] and is billed annually [^2]\n→ answers at once${LATER}`;
+      const billed = sheet(2, "Enterprise contracts are billed annually.");
+      await show("answer", answerOf(reply, [], "streaming"));
+      expect(drawn()[0]?.map((row) => row.state)).toEqual(["waiting", "waiting"]);
+
+      await show("answer", answerOf(reply, [billed], "done"));
+      expect(drawn()[0]?.map(({ state, words }) => [state, words])).toEqual([
+        ["not-found", "Quote not found"],
+        ["found", "“Enterprise contracts are billed annually.”"],
+      ]);
+      expect(foot()).toEqual([]);
+    });
+
     // protects=#3098: the numbers the User saw while the reply was written keep their numbers when the end adds a Citation to a line above them, the end's taking the next; fails_when=a number already shown changes; no_claim=the numbers of a reply drawn anew, which count from its first line.
     test("a number shown while written keeps it when the end adds one above it", async () => {
       const lines = `★ Yes, Enterprise is $45 a seat\n→ answers at once\n\nIt's billed annually [^1]\n→ sets the term`;
