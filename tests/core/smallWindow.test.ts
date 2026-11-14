@@ -9,6 +9,7 @@ import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test, vi } from "vitest";
 import type { Core, ProviderError } from "../../src/core";
 import { failureOf } from "../../src/core/answers/checks/checkResults";
+import { answerProblem } from "../../src/renderer/src/problems";
 import { cellProblemMessage } from "../../src/shared/comparisons";
 import { translate } from "../../src/shared/i18n";
 import { answerEnded } from "../helpers/citations";
@@ -632,6 +633,127 @@ describe("A selection at a small window (#3045)", { timeout: 90_000 }, () => {
       expect(sent.last.endsWith(ASK_ABOUT_SELECTION[language])).toBe(true);
     },
   );
+});
+
+/**
+ * A core asking `modelId` on OpenRouter (its window from the catalog), answered by a scripted model
+ * that searches and then answers, with a Note to select in. `ask` asks the assistant about a
+ * selection of `tokens` estimated tokens: what the model was first sent, or why nothing was.
+ */
+async function hostedSelection(modelId: string) {
+  const model = scriptedModel(
+    (call) =>
+      call.results.some((result) => result.tool === "search_documents")
+        ? { text: "At new moon and at full moon." }
+        : { calls: [{ tool: "search_documents", input: { query: "spring tides" } }] },
+    { judgesItsAnswers: true },
+  );
+  const core = startCore(await createTempDataFolder(), {
+    createChatModel: scriptedModels(model).createChatModel,
+  });
+  await core.saveChatProvider({ kind: "openrouter", modelId, apiKey: "sk-or-test" });
+  const sources = await createTempDataFolder();
+  await addAndProcess(core, [await writeSourceFile(sources, "Tides.md", TIDES)]);
+  const mind = await core.createMind({ title: "Tides" });
+  const client = await connectToMind(core, mind.id);
+  const ask = async (tokens: number) => {
+    // Four characters an estimated token.
+    const selection = "tide".repeat(tokens);
+    const selected = note(selection);
+    writeMind(client, [note("Notes on the harbour."), selected]);
+    await client.settled();
+    const from = model.doStreamCalls.length;
+    const asked = await core.askInConversation({
+      text: "Make this shorter.",
+      mindId: mind.id,
+      focus: { selection, blockIds: [String(selected.attrs?.id)] },
+    });
+    if (!asked.asked) throw new Error("Not asked.");
+    const ended = await answerEnded(core, asked.answerId);
+    const first = model.doStreamCalls[from];
+    const sent = JSON.stringify(first?.prompt ?? "");
+    return {
+      ended,
+      asked: first !== undefined,
+      whole: sent.includes(`<selection>\\n${selection}\\n</selection>`),
+      cut: sent.includes("…\\n</selection>"),
+    };
+  };
+  return { ask };
+}
+
+/**
+ * Asks `modelId` about a selection of `tokens` estimated tokens on a core of its own: an Answer's
+ * count of a request teaches the next one's estimate, so each is asked as the first.
+ */
+const askedFirst = async (modelId: string, tokens: number) =>
+  (await hostedSelection(modelId)).ask(tokens);
+
+/** The largest selection, in estimated tokens up to `most`, sent whole to `modelId`: found by halving. */
+async function largestWhole(modelId: string, most: number): Promise<number> {
+  let fits = 0;
+  let over = most;
+  while (over - fits > 1) {
+    const middle = Math.floor((fits + over) / 2);
+    if ((await askedFirst(modelId, middle)).whole) fits = middle;
+    else over = middle;
+  }
+  return fits;
+}
+
+describe("A selection the Mind's own limits would cut (#3045)", { timeout: 180_000 }, () => {
+  // protects=on a hosted model whose window the app knows, a selection over the quarter of the window the Mind's own limit keeps goes whole where it fits, never cut with "…": one token over that quarter on a 32k and a 200k window; fails_when=it is cut, left out or refused; no_claim=what the model writes.
+  test.each([
+    ["a 32k window", "mistralai/mistral-saba", 8_192],
+    ["a 200k window", "anthropic/claude-haiku-4.5", 50_000],
+  ] as const)(
+    "on %s, a selection one token over the Mind's quarter goes whole",
+    async (_, modelId, quarter) => {
+      const sent = await askedFirst(modelId, quarter + 1);
+      expect(sent).toMatchObject({ asked: true, whole: true, cut: false });
+      expect(sent.ended.event).toBe("finished");
+    },
+  );
+
+  // protects=on a hosted model, the largest selection that fits goes whole, and one token more fails before anything is sent, as the selection's too-long with the hosted line, never cut with "…": at 32k and at 16k; fails_when=the larger is cut, sent, or refused as anything else, or the smaller isn't sent whole; no_claim=where exactly the edge falls, which the window's instructions decide.
+  test.each([
+    ["a 32k window", "mistralai/mistral-saba", 40_000],
+    ["a 16k window", "openai/gpt-3.5-turbo", 20_000],
+  ] as const)(
+    "on %s, one token over what fits is refused with the selection's line",
+    async (_, modelId, most) => {
+      const edge = await largestWhole(modelId, most);
+      expect(edge).toBeGreaterThan(0);
+      expect(await askedFirst(modelId, edge)).toMatchObject({
+        asked: true,
+        whole: true,
+        cut: false,
+      });
+      const over = await askedFirst(modelId, edge + 1);
+      expect(over).toMatchObject({ asked: false, cut: false });
+      const error = over.ended.event === "failed" ? over.ended.payload.error : null;
+      expect(error).toMatchObject({ kind: "too-long", tooLong: "selection" });
+      expect(
+        answerProblem("too-long", "openrouter", false, {
+          local: false,
+          tooLong: error?.tooLong,
+        }).line,
+      ).toBe("answer.error.too-long.selection.hosted");
+    },
+  );
+
+  // protects=on a model on this computer at 32k, a selection over the Mind's own limit of 50,000 tokens is refused as the selection's too-long with the local line, never cut to the limit and sent; fails_when=it is sent in part; no_claim=none beyond protects.
+  test("on a model on this computer at 32k, a selection over 50,000 tokens is refused", async () => {
+    const sent = await askedAboutSelection(64, "en", selectedText("en", 36_000));
+    expect(sent.ended.event === "failed" && sent.ended.payload.error).toMatchObject({
+      kind: "too-long",
+      tooLong: "selection",
+    });
+    expect(sent.sent).toEqual([]);
+    expect(
+      answerProblem("too-long", "ollama", false, { local: true, tooLong: "selection" }).line,
+    ).toBe("answer.error.too-long.selection");
+  });
 });
 
 describe("Places that keep their own lines (#3045)", () => {

@@ -18,6 +18,7 @@ import {
   OUTPUT_FLOOR_TOKENS,
   SEARCH_RESERVE_TOKENS,
 } from "../../src/core/answers/window";
+import { cloudWindow, resolveCapabilities } from "../../src/core/providers/capabilities";
 import { scriptedModel } from "../helpers/models";
 
 /** About `tokens` tokens of text, labelled. */
@@ -295,6 +296,74 @@ describe("A small window's output cap and its problems (#3045)", () => {
     expect(tooLong.ok === false && tooLong.error.tooLong).toBeUndefined();
     const sent = budgetAt(edge + 100).fit(withShown);
     expect(sent.ok && sent.messages.at(-1)?.content).toBe(`${shown}\n\n${question}`);
+  });
+
+  // protects=a request that doesn't read, whose last message holds more than its Question (a call-help press adds its help after it), is sized by all of it: at a window it can't fit, today's too-long and nothing sent, never a request over the window; at one it fits, it goes whole; fails_when=it is let through over the window, or refused where it fits; no_claim=the press's own words.
+  test("a request that doesn't read is sized by its whole last message", () => {
+    const instructions = block("Instructions", 2_000);
+    const question = "What should I ask next?";
+    const asked = `${question}\n\n<help>\n${"word ".repeat(4_000)}\n</help>`;
+    const pressing = {
+      instructions,
+      messages: [{ role: "user" as const, content: asked }],
+      question,
+    };
+    const fitAt = (tokens: number) =>
+      createWindowBudget({ tokens, outputTokens: 2_048 }).fit(pressing);
+
+    expect(fitAt(6_000)).toMatchObject({ ok: false, error: { kind: "too-long" } });
+    const sent = fitAt(12_000);
+    expect(sent.ok && sent.messages.at(-1)?.content).toBe(asked);
+  });
+
+  // protects=a cloud model whose provider declares an input limit below its window less its reply is never sent more than that limit, even where the room to write gives way: the budget never lets the instructions, the Question and the Passages pass it; where everything fits, its reply keeps its whole room; fails_when=what a request would send passes the declared input limit; no_claim=the provider's own count.
+  test("a declared input limit is never passed, even where the room to write gives way", () => {
+    const window = cloudWindow(
+      resolveCapabilities({ catalog: { context: 400_000, maxInput: 272_000, maxOutput: 128_000 } }),
+    );
+    if (!window) throw new Error("No window.");
+    const question = "Where does the second chapter disagree with the first?";
+    const budget = createWindowBudget(window);
+    // Instructions and a Question that leave less than the first search's room under the limit.
+    const fitted = budget.fit(reading(block("Instructions", 216_200), question));
+    if (!fitted.ok) throw new Error(`Not sent: ${fitted.error.kind}`);
+    const many = Array.from({ length: 400 }, (_, at) => passage(`P${at + 1}`, 500)).join("\n\n");
+    const shown = budget.loop(fitted.estimated).passages(many, 400);
+
+    expect(fitted.estimated + budget.tokens(shown.text)).toBeLessThanOrEqual(272_000);
+    expect(budget.window.outputTokens).toBeGreaterThanOrEqual(400_000 - 272_000);
+  });
+
+  // protects=required context that reads (a Meeting's notes, which search) is sent as main sends it where it fits at the whole cap; where it doesn't, the room to write gives way for it only as far as leaves room for its first search, one Passage and the step that asks, or it isn't sent; fails_when=it goes with no room to search, is refused where it fits whole, or its cap moves where it fits; no_claim=what the search finds.
+  test("required context that reads keeps room for its first search, or is too long", () => {
+    const instructions = block("Instructions", 3_200);
+    const required = (tokens: number) => ({
+      instructions,
+      messages: [{ role: "user" as const, content: block("Transcript", tokens) }],
+      question: "Fill in the notes.",
+      reserve: SEARCH_RESERVE_TOKENS,
+      reads: true as const,
+      requiredContext: true as const,
+    });
+    const fitAt = (tokens: number) => {
+      const budget = createWindowBudget({ tokens: 16_384, outputTokens: 4_096 });
+      const fitted = budget.fit(required(tokens));
+      return {
+        fitted,
+        cap: budget.window.outputTokens,
+        room: fitted.ok ? 16_384 - budget.window.outputTokens - MARGIN - fitted.estimated : 0,
+      };
+    };
+
+    // Fits at the whole cap: as main sends it.
+    expect(fitAt(6_000)).toMatchObject({ fitted: { ok: true }, cap: 4_096 });
+    // Over it: the cap gives way, and the first search keeps its room.
+    const lowered = fitAt(8_000);
+    expect(lowered.fitted.ok).toBe(true);
+    expect(lowered.cap).toBeLessThan(4_096);
+    expect(lowered.room).toBeGreaterThanOrEqual(ONE_PASSAGE);
+    // Too long for that even at the floor: not sent.
+    expect(fitAt(8_800).fitted).toMatchObject({ ok: false, error: { kind: "too-long" } });
   });
 
   // protects=where it reads, a selection is sent whole or not asked at every window, a token at a time across the point where it stops fitting beside three Passages at the floor, where the cap gives way for it and where it fits at the whole cap: on a first Question with the Mind's text in the message and without it, and on a follow-up whose turn is too long to keep, with and without it; the Mind's cut is never asked to keep the selection, which goes with the Question; fails_when=at any window the selection is cut, left out or refused as anything else, or the Mind's cut is asked to keep it; no_claim=the Mind's own cut, which the Mind's tests cover; the band it found on adc164c4c, where the Mind's cut shortened it at the whole cap, is why it walks every token.
