@@ -143,7 +143,12 @@ import {
   settleReply,
   type TurnCheck,
 } from "./turnChecks";
-import { citeUnmarked, missingMarkerEvents, textEdits } from "./unmarkedQuotes";
+import {
+  citeUnmarked,
+  missingMarkerEvents,
+  recordMarkedSentences,
+  textEdits,
+} from "./unmarkedQuotes";
 import { createWindowBudget, SEARCH_RESERVE_TOKENS, type WindowBudget } from "./window";
 import { wroteWorking } from "./workingText";
 
@@ -450,6 +455,12 @@ export interface AnswerRequest {
    * flow was declined), the Answer's model makes them.
    */
   quickModel?(): Promise<ChatLanguageModel>;
+  /**
+   * For a Meeting fill: its own model, asked to skip thinking, for the one small call that stays
+   * with it, the ask for its reply's Citation records (#3099). Its other small calls go to
+   * `quickModel`, as an Answer's do.
+   */
+  ownQuickModel?(): Promise<ChatLanguageModel>;
   /** Searching and citing the Documents: the Documents' Tools, and the search of a model without Tools. */
   documents: AnswerTools;
   /** The Passage ids a search actually fitted into the model's request, for exact whole-read coverage. */
@@ -2177,6 +2188,15 @@ async function* toolLoop(
           yield* citeUnmarked(request, placed, temperature, budget, () =>
             nudges.take("unmarked-quotes"),
           );
+        } else if (
+          cite !== null &&
+          cited.length === 0 &&
+          ![...calls.values()].includes(cite) &&
+          MARKER.test(keptText)
+        ) {
+          // A fill's facts are read only by their records: a reply that never called cite would
+          // lose every one (#3099).
+          await recordMarkedSentences(request, keptText, temperature, budget);
         }
       }
     }

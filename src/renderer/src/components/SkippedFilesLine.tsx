@@ -4,7 +4,7 @@ import { core } from "../core";
 import { showFileLabelKey } from "../fileInfo";
 import { useT } from "../i18n";
 import { type SkippedFileInfo, useAppStore } from "../store";
-import { MetaLine } from "./MetaLine";
+import { actionParts, MetaLine } from "./MetaLine";
 import { LineAction, ProblemLine } from "./ProblemLine";
 
 /**
@@ -172,28 +172,30 @@ function SkippedFileRow({ file, converter }: { file: SkippedFileInfo; converter:
               ),
             })}
           </>,
-          convertible && (
-            <LineAction
-              action={{
-                label: t(converting ? "skipped.converting" : "skipped.convert"),
-                testId: "skipped-convert",
-                disabled: converting,
-                onClick: () => void convert(),
-              }}
-            />
-          ),
-          file.path !== null && (
-            <LineAction
-              action={{
-                label: t(showFileLabelKey(navigator.platform)),
-                testId: "skipped-show",
-                onClick: () =>
-                  void core
-                    .showSkippedFile(file.path ?? "")
-                    .catch((error: unknown) => reportError(error)),
-              }}
-            />
-          ),
+          ...actionParts([
+            convertible && (
+              <LineAction
+                action={{
+                  label: t(converting ? "skipped.converting" : "skipped.convert"),
+                  testId: "skipped-convert",
+                  disabled: converting,
+                  onClick: () => void convert(),
+                }}
+              />
+            ),
+            file.path !== null && (
+              <LineAction
+                action={{
+                  label: t(showFileLabelKey(navigator.platform)),
+                  testId: "skipped-show",
+                  onClick: () =>
+                    void core
+                      .showSkippedFile(file.path ?? "")
+                      .catch((error: unknown) => reportError(error)),
+                }}
+              />
+            ),
+          ]),
           failed && <span data-testid="skipped-convert-failed">{t("skipped.convert.failed")}</span>,
         ]}
       />

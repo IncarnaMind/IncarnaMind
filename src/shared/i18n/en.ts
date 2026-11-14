@@ -4666,7 +4666,7 @@ export const en = {
   "citation.reason.monthly-limit-unfinished.unnamed":
     "Not checked: your monthly limit was reached before this sentence’s check finished.",
   "citation.reason.notChecked": "Whether the quote supports this sentence couldn’t be checked.",
-  "citation.reason.otherCall":
+  "citation.reason.other-call":
     "The quote is from another call. A call help reply is checked against its own call and your Documents.",
   "citation.reason.small-model":
     "This model on this computer is too small to judge whether the quote supports the sentence.",
@@ -6968,7 +6968,6 @@ export const en = {
   "meetings.fill.fillingLocal": "Filling in the note on this computer…",
   "meetings.fill.filled": "Note filled in from the call",
   "meetings.fill.partial": "Note partly filled in",
-  "meetings.fill.noAdditions": "No notes added",
   "meetings.fill.omitted.one": "{count} item couldn’t be added",
   "meetings.fill.omitted": "{count} items couldn’t be added",
   "meetings.fill.unfinishedParts.one": "{count} Transcript part couldn’t be finished",
@@ -6993,22 +6992,24 @@ export const en = {
   "meetings.fill.undone": "Fill-in undone",
   "meetings.fill.again": "Fill in again",
   "meetings.fill.failed": "The note wasn’t filled in: {reason}",
+  "meetings.fill.failed.provider": "The note wasn’t filled in. {problem}",
   "meetings.fill.tryAgain": "Try again",
-  "meetings.fill.problem.noTranscript": "the transcript has no lines.",
-  "meetings.fill.problem.model": "the model couldn’t fill in the notes.",
-  "meetings.fill.problem.empty": "the model found nothing to add.",
+  "meetings.fill.problem.noTranscript": "the transcript has no lines",
+  "meetings.fill.problem.model": "the model couldn’t fill in the notes",
+  "meetings.fill.problem.empty": "the model found nothing to add",
   "meetings.fill.problem.unchecked":
-    "none of what the model wrote could be checked against the transcript.",
+    "none of what the model wrote could be checked against the transcript",
   "meetings.fill.reference.above": "{topic} — see above",
   "meetings.fill.reference.below": "{topic} — see below",
-  "meetings.fill.problem.stopped": "IncarnaMind closed before they were done.",
+  "meetings.fill.problem.stopped": "IncarnaMind closed before they were done",
   "meetings.fill.problem.localMode":
-    "“Keep everything on this computer” is on, and this note’s model isn’t on this computer.",
+    "“Keep everything on this computer” is on, and this note’s model isn’t on this computer",
   "meetings.fill.problem.notAllowed":
-    "you haven’t allowed sending to {service} yet. Ask a Question in the assistant to allow it, then Try again.",
-  "meetings.fill.problem.noModel": "choose an AI model first.",
+    "you haven’t allowed sending to {service} yet. Ask a Question in the assistant to allow it, then Try again",
+  "meetings.fill.problem.noModel": "choose an AI model first",
   "meetings.fill.problem.modelRemoved":
-    "this note’s model was removed. Choose another in the assistant, then Try again.",
+    "this note’s model was removed. Choose another in the assistant, then Try again",
+  "meetings.fill.problem.alone": "{reason}.",
   "meetings.fill.undoName": "Fill in the note",
   "meetings.fill.notify": "Note filled in: {meeting}",
   "meetings.fill.notify.partial": "Note partly filled in for {meeting}",
@@ -7029,8 +7030,9 @@ export const en = {
   "memos.fill.undone": "Memo undone",
   "memos.fill.again": "Write it again",
   "memos.fill.failed": "Your memo wasn’t written: {reason}",
-  "memos.fill.problem.added": "the tidied note had words you didn’t say.",
-  "memos.fill.problem.notAllowed": "you haven’t allowed sending to {service} yet.",
+  "memos.fill.failed.provider": "Your memo wasn’t written. {problem}",
+  "memos.fill.problem.added": "the tidied note had words you didn’t say",
+  "memos.fill.problem.notAllowed": "you haven’t allowed sending to {service} yet",
   "memos.fill.undoName": "Write memo",
   "memos.fill.notify": "Memo written: {memo}",
   "transcript.live": "Live",

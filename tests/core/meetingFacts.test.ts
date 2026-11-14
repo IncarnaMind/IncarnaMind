@@ -16,16 +16,47 @@ function frame(
   citation: number,
   section: string,
   lines = ["L1"],
+  {
+    opening = id,
+    end = id,
+    gap = " ",
+    openFence = false,
+  }: { opening?: string; end?: string; gap?: string; openFence?: boolean } = {},
 ) {
   return [
-    `### FACT ${id}`,
+    `### FACT${gap}${opening}`,
     "```json",
     JSON.stringify({ topic, citations: [citation], lines, sections: [section], claim: false }),
-    "```",
+    ...(openFence ? [] : ["```"]),
     `${text} [^${citation}].`,
-    `### END ${id}`,
+    `### END ${end}`,
   ].join("\n");
 }
+
+/**
+ * How a reply opens and closes its fact frames: as asked, with a title after each id (#3106), and
+ * so with the second frame's first word no id, or its closing line naming another id; titled with
+ * each json fence left open; or a tab after the second frame's FACT.
+ */
+type FrameForm =
+  | "as asked"
+  | "titled"
+  | "titled, one with no id"
+  | "titled, one closed by another id"
+  | "titled, fences left open"
+  | "a tab after FACT";
+
+/** How the second frame's title is written, in a titled reply. */
+type TitleMark = "plain text" | "bold" | "italic" | "a link" | "inline code";
+
+const marked = (title: string, mark: TitleMark) =>
+  ({
+    "plain text": title,
+    bold: `**${title}**`,
+    italic: `*${title}*`,
+    "a link": `[${title}](https://example.com/notes)`,
+    "inline code": `\`${title}\``,
+  })[mark];
 
 function overview(text: string) {
   return [
@@ -47,13 +78,17 @@ async function capture(
     nestedLine = false,
     malformedFrame = false,
     badRouting = false,
+    form = "as asked",
+    titleMark = "plain text",
   }: {
     badSibling?: boolean;
     withoutIds?: boolean;
     splitHeading?: "user" | "empty" | "generated";
     nestedLine?: boolean;
-    malformedFrame?: boolean;
+    malformedFrame?: boolean | "tab";
     badRouting?: boolean;
+    form?: FrameForm;
+    titleMark?: TitleMark;
   } = {},
 ) {
   const words =
@@ -65,6 +100,7 @@ async function capture(
           first: "Dana will send the draft on Monday",
           second: "Alex will bring the checklist on Tuesday",
           topics: ["review date", "draft", "checklist"],
+          title: "Point noted",
           pointer: (topic: string, direction: "above" | "below") => `${topic} — see ${direction}`,
         }
       : {
@@ -74,15 +110,43 @@ async function capture(
           first: "王芳周一发草稿",
           second: "李明周二带来检查清单",
           topics: ["评审日期", "草稿", "检查清单"],
+          title: "记下的要点",
           pointer: (topic: string, direction: "above" | "below") =>
             `${topic}，详见${direction === "above" ? "上" : "下"}文`,
         };
+  const framing = (id: string) =>
+    form === "as asked"
+      ? {}
+      : form === "a tab after FACT"
+        ? id === "F2"
+          ? { gap: "\t" }
+          : {}
+        : {
+            opening:
+              form === "titled, one with no id" && id === "F2"
+                ? `${id}: ${words.title}`
+                : `${id} — ${id === "F2" ? marked(words.title, titleMark) : words.title}`,
+            end: form === "titled, one closed by another id" && id === "F2" ? "F3" : id,
+            openFence: form === "titled, fences left open",
+          };
   const text = [
     badRouting ? "HEADINGS: H9=NONE" : splitHeading ? "HEADINGS: H1=ACTIONS" : "HEADINGS: H1=NONE",
-    ...(malformedFrame ? ["### FACT 1invalid\nThis frame has no valid identity."] : []),
-    frame("F1", words.topics[0] ?? "", words.decision, 1, "decisions"),
-    frame("F2", words.topics[1] ?? "", words.first, badSibling ? 99 : 2, "actions"),
-    frame("F3", words.topics[2] ?? "", words.second, 3, "actions"),
+    ...(malformedFrame
+      ? [
+          `### FACT${malformedFrame === "tab" ? "\t" : " "}1invalid\nThis frame has no valid identity.`,
+        ]
+      : []),
+    frame("F1", words.topics[0] ?? "", words.decision, 1, "decisions", undefined, framing("F1")),
+    frame(
+      "F2",
+      words.topics[1] ?? "",
+      words.first,
+      badSibling ? 99 : 2,
+      "actions",
+      undefined,
+      framing("F2"),
+    ),
+    frame("F3", words.topics[2] ?? "", words.second, 3, "actions", undefined, framing("F3")),
     overview(words.purpose),
   ].join("\n\n");
   const feedback: string[] = [];
@@ -194,20 +258,108 @@ async function capture(
 }
 
 for (const language of ["en", "zh-CN"] as const) {
+  // protects=a reply whose heading the note can't take, or with one malformed part, still writes every checked fact once; only the dropped part counts among the items that couldn't be added, and a section under its own title is no problem (#3099); fails_when=a fact is lost or doubled, the malformed part goes uncounted, or a whole note records a problem; no_claim=the line's and the notification's words, which tests/core/meetingFillNotifications.test.ts and tests/renderer/meetingFillLine.test.ts cover.
   test.each(["malformedFrame", "badRouting"] as const)(
-    `a %s failure is disclosed without inventing an omitted fact count (${language})`,
+    `a %s reply keeps every checked fact, and only a dropped part counts as left out (${language})`,
     async (failure) => {
       const { core, meeting, client, before, fill, words } = await capture(language, {
         [failure]: true,
       });
       try {
-        expect(fill).toMatchObject({ state: "filled", omitted: 0, problem: { kind: "model" } });
+        expect(fill).toMatchObject(
+          failure === "malformedFrame"
+            ? { state: "filled", omitted: 1, unfinishedParts: 0, problem: { kind: "model" } }
+            : { state: "filled", omitted: 0, unfinishedParts: 0, problem: null },
+        );
         for (const full of [words.decision, words.first, words.second]) {
           expect(readMind(client).textContent.split(full)).toHaveLength(2);
         }
         expect(readMind(client).textContent).not.toContain("This frame has no valid identity.");
         await core.undoMeetingFill(meeting.id);
         await vi.waitFor(() => expect(exactly(client)).toEqual(before));
+      } finally {
+        core.close();
+      }
+    },
+  );
+
+  // protects=a malformed frame with a tab after FACT is counted as the one with a space is, never dropped unsaid (#3099); fails_when=it goes with no count; no_claim=a well-formed frame with a tab, which the next table holds.
+  test(`a malformed frame with a tab after FACT is counted (${language})`, async () => {
+    const { core, client, fill, words } = await capture(language, { malformedFrame: "tab" });
+    try {
+      expect(fill).toMatchObject({ state: "filled", omitted: 1, problem: { kind: "model" } });
+      for (const full of [words.decision, words.first, words.second]) {
+        expect(readMind(client).textContent.split(full)).toHaveLength(2);
+      }
+    } finally {
+      core.close();
+    }
+  });
+
+  // protects=a reply that writes a title after each fact's id on its opening line fills the note with every fact and its Citation, the title written nowhere, its json fences closed or left open; a frame whose first word after FACT is no id, an id with a colon glued to it among them, is still dropped and counted, as is one whose closing line names another id; a tab after FACT reads as a space (#3106, #3099); fails_when=a titled frame is dropped, its title reaches the note, a frame with a tab after FACT goes, or a frame with no id or another closing id is kept or goes uncounted; no_claim=how often a model writes titles there.
+  test.each([
+    ["as asked", 0],
+    ["titled", 0],
+    ["titled, one with no id", 1],
+    ["titled, one closed by another id", 1],
+    ["titled, fences left open", 0],
+    ["a tab after FACT", 0],
+  ] as const)(`a reply with frames %s leaves out %i (${language})`, async (form, omitted) => {
+    const { core, meeting, client, before, fill, words } = await capture(language, { form });
+    try {
+      expect(fill).toMatchObject({ state: "filled", omitted, unfinishedParts: 0 });
+      const kept =
+        omitted === 0
+          ? [words.decision, words.first, words.second]
+          : [words.decision, words.second];
+      await vi.waitFor(() => {
+        const doc = readMind(client);
+        for (const full of kept) expect(doc.textContent.split(full)).toHaveLength(2);
+        if (omitted > 0) expect(doc.textContent).not.toContain(words.first);
+        expect(doc.textContent).not.toContain(words.title);
+        const cited: string[] = [];
+        doc.descendants((node) => {
+          if (node.type.name !== "paragraph") return true;
+          let found = false;
+          node.descendants((child) => {
+            if (child.type.name !== CITATION_NODE) return true;
+            expect(child.attrs.check).toBe("found");
+            found = true;
+            return true;
+          });
+          if (found) cited.push(node.textContent);
+          return false;
+        });
+        for (const full of kept)
+          expect(cited.filter((text) => text.includes(full))).toHaveLength(1);
+      });
+      await core.undoMeetingFill(meeting.id);
+      await vi.waitFor(() => expect(exactly(client)).toEqual(before));
+    } finally {
+      core.close();
+    }
+  });
+
+  // protects=a pinned cost, not a wish (#3106): a title with marks after a fact's id makes its opening line no control line, as the guard reads it, so that one fact is dropped and counted among the items that couldn't be added, never dropped unsaid, and the same title in plain text is written; fails_when=a marked title's fact is dropped with nothing counted, or the plain twin is dropped; no_claim=that dropping it is right, which is the cost this pins.
+  test.each([
+    ["plain text", 0],
+    ["bold", 1],
+    ["italic", 1],
+    ["a link", 1],
+    ["inline code", 1],
+  ] as const)(
+    `pinned cost: a title in %s after a fact's id leaves out %i (${language})`,
+    async (titleMark, omitted) => {
+      const { core, client, fill, words } = await capture(language, { form: "titled", titleMark });
+      try {
+        expect(fill).toMatchObject({ state: "filled", omitted, unfinishedParts: 0, problem: null });
+        await vi.waitFor(() => {
+          const text = readMind(client).textContent;
+          for (const full of [words.decision, words.second])
+            expect(text.split(full)).toHaveLength(2);
+          expect(text.split(words.first)).toHaveLength(omitted === 0 ? 2 : 1);
+          expect(text).not.toContain(words.title);
+        });
       } finally {
         core.close();
       }

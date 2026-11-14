@@ -84,7 +84,9 @@ async function expectApprovalButtons(window: Page, name: string) {
   );
   // The hint is dropped from the label, not from the button's name.
   await expect(tray.locator(".approval-keys").first()).toBeHidden();
-  await expect(tray.getByTestId("approval-allow-once")).toHaveAccessibleName(/\(.+\)$/);
+  await expect(tray.getByTestId("approval-allow-once")).toHaveAccessibleName(
+    name === "Chinese" ? /（.+）$/ : /\(.+\)$/,
+  );
 }
 
 /** The x of each thing that should sit on the edge, with the panel's own. */

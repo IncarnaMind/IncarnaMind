@@ -727,11 +727,13 @@ export interface AnswersOptions {
   /**
    * The model for the calls that don't write the Answer, asked to skip thinking:
    * the quick-tasks model for an Answer asked with `answers`, which may be
-   * `answers` itself.
+   * `answers` itself; with `own`, always `answers` itself, for the one call that stays with the
+   * model that wrote the reply: a Meeting fill's ask for its reply's Citation records (#3099).
    */
   prepareQuickModel?(
     answers: ChatModelChoice,
     prepared: PreparedChatModel,
+    own?: boolean,
   ): Promise<PreparedChatModel["model"]>;
   /** Whether this model writes the Answer, then cites it, in the Tool loop, in this flow (#489). */
   writesThenCites?(prepared: PreparedChatModel, flow: AnswerFlow): boolean;
@@ -1007,6 +1009,13 @@ interface Quoted {
   passages: WindowedPassage[];
 }
 
+/**
+ * A Citation Check again judges: one not checked, except a call help press's Citation of another
+ * call, which is never checked (#3005).
+ */
+const checkedAgain = (citation: MarkedCitation) =>
+  citation.check === "not-checked" && citation.checkReason !== "other-call";
+
 const holdsUnitsOf = (passage: WindowedPassage, cited: CitationRecheck) =>
   cited.pageFrom === null || cited.pageTo === null
     ? passage.passageId === cited.passageId
@@ -1199,6 +1208,36 @@ export function createAnswers(options: AnswersOptions) {
     );
     // A reply outlives its Note in the conversation; with no Note of its own no call is its own.
     return answer.steps?.pressed !== undefined ? pressScope(documentIds, mindId) : documentIds;
+  };
+
+  /**
+   * An ended press's reply with each Citation of another call's Transcript not checked for that
+   * reason, as Check again reads it (#3005): by its stored reason, and by the press's other calls
+   * for a reply stored before the reason was. Nothing found or passed stays on it.
+   */
+  const withOtherCalls = (
+    question: ConversationQuestion,
+    answer: ConversationAnswer,
+  ): ConversationAnswer => {
+    const pressed = answer.steps?.pressed !== undefined && !options.callsUnmarked?.();
+    const others = new Set(
+      pressed ? (options.otherCallTranscripts?.(judgedMind(question)) ?? []) : [],
+    );
+    const citations = answer.citations.map((citation): MarkedCitation => {
+      if (citation.checkReason !== "other-call" && !others.has(citation.documentId)) {
+        return citation;
+      }
+      const {
+        passedAt: _passed,
+        quotedWordsFound: _found,
+        quotedWords: _words,
+        judgedAt: _judged,
+        verdict: _verdict,
+        ...rest
+      } = citation;
+      return { ...rest, check: "not-checked", checkReason: "other-call" };
+    });
+    return { ...answer, citations };
   };
 
   /** The judgements of Answers' sentences running, by Answer (#2311): stopping one ends it. */
@@ -1723,6 +1762,8 @@ export function createAnswers(options: AnswersOptions) {
     };
     /** Whether the Answer offers a workbook's formula Tools, decided with its Tools. */
     let workbookToolsOffered = false;
+    /** The other calls' Transcripts a press reads none of (#3005), listed once it cites. */
+    let otherCalls: ReadonlySet<string> | null = null;
     const session = createCitationSession(
       searched,
       {
@@ -1738,6 +1779,12 @@ export function createAnswers(options: AnswersOptions) {
           input.callIn === undefined || unmarked
             ? undefined
             : options.noteCall?.(input.callIn)?.transcript === documentId,
+        // Its quote may still be found there, through a Citation the Note keeps: it isn't checked.
+        checkedWithout: (documentId) => {
+          if (help === undefined || options.callsUnmarked?.()) return false;
+          otherCalls ??= new Set(options.otherCallTranscripts?.(mindIn) ?? []);
+          return otherCalls.has(documentId);
+        },
       },
       original
         ? {
@@ -3786,7 +3833,10 @@ export function createAnswers(options: AnswersOptions) {
         ...(input.mindsLine && { mindsLine: input.mindsLine }),
         ...(input.onScreenLine && { onScreenLine: input.onScreenLine }),
         model: prepared.model,
-        ...(prepareQuick && { quickModel: () => prepareQuick(model, prepared) }),
+        ...(prepareQuick && {
+          quickModel: () => prepareQuick(model, prepared),
+          ...(context.meetingFacts && { ownQuickModel: () => prepareQuick(model, prepared, true) }),
+        }),
         documents,
         tools: [
           ...provided,
@@ -5073,16 +5123,22 @@ export function createAnswers(options: AnswersOptions) {
      */
     async checkAnswerAgain(input: unknown): Promise<void> {
       const { answerId, question } = options.conversations.questionOf(input);
-      const answer = options.conversations.answer(answerId);
-      if (!answer || answer.status === "streaming") return;
-      if (!answer.citations.some((each) => each.check === "not-checked")) return;
+      const stored = options.conversations.answer(answerId);
+      if (!stored || stored.status === "streaming") return;
+      const answer = withOtherCalls(question, stored);
+      const relabelled = answer.citations.some(
+        (citation, index) => citation.checkReason !== stored.citations[index]?.checkReason,
+      );
+      if (!answer.citations.some(checkedAgain)) {
+        if (relabelled)
+          options.conversations.writeCitations(answerId, answer.text, answer.citations);
+        return;
+      }
       const limit = isRecord(input) ? moneyOf(input.limit) : null;
       const documentIds = judgedScope(question, answer);
       // The sentences judged again lose the ✓ an earlier check gave them, on every Citation they
       // cite, until this judgement passes them again (#2847).
-      const again = new Set(
-        answer.citations.filter((each) => each.check === "not-checked").map((each) => each.marker),
-      );
+      const again = new Set(answer.citations.filter(checkedAgain).map((each) => each.marker));
       const rejudged = new Set(
         citedSentences(answer.text, answer.figures, answer.citations)
           .filter((each) => !each.calculated && each.markers.some((marker) => again.has(marker)))
@@ -5096,7 +5152,7 @@ export function createAnswers(options: AnswersOptions) {
         if (off.length > 0) taken.set(citation.marker, off);
         return {
           ...rest,
-          ...(citation.check === "not-checked" && { check: "checking" }),
+          ...(checkedAgain(citation) && { check: "checking" }),
           ...(kept.length > 0 && { passedAt: kept }),
         };
       });
@@ -5116,11 +5172,10 @@ export function createAnswers(options: AnswersOptions) {
      */
     async estimateAnswerCheck(input: unknown): Promise<RunEstimate | null> {
       const { answerId, question } = options.conversations.questionOf(input);
-      const answer = options.conversations.answer(answerId);
-      if (!answer?.model || answer.status === "streaming") return null;
-      const waiting = new Set(
-        answer.citations.filter((each) => each.check === "not-checked").map((each) => each.marker),
-      );
+      const stored = options.conversations.answer(answerId);
+      if (!stored?.model || stored.status === "streaming") return null;
+      const answer = withOtherCalls(question, stored);
+      const waiting = new Set(answer.citations.filter(checkedAgain).map((each) => each.marker));
       if (waiting.size === 0) return null;
       const estimate =
         (await options.estimateAnswerCheck?.({
@@ -5130,7 +5185,7 @@ export function createAnswers(options: AnswersOptions) {
           waiting,
           mindId: judgedMind(question),
           documentIds: judgedScope(question, answer),
-          model: answer.model,
+          model: stored.model,
         })) ?? null;
       if (estimate?.billing !== "per-token" || !estimate.upTo?.cost) return estimate;
       const most = estimate.upTo.cost;

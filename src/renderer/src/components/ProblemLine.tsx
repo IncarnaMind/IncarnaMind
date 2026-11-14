@@ -1,6 +1,6 @@
 import type { MouseEvent, ReactNode, Ref } from "react";
 import { ExclamationIcon } from "../viewer/icons";
-import { MetaLine } from "./MetaLine";
+import { actionParts, MetaLine } from "./MetaLine";
 
 /**
  * The amber "!" that leads the words of an error (DESIGN.md, Colors: Red,
@@ -86,9 +86,9 @@ export function ProblemLine({
   title?: string | undefined;
   className?: string;
 }) {
-  const buttons = [action, also].filter(
-    (each): each is ProblemAction => each !== undefined && each.label !== "",
-  );
+  const buttons = [action, also]
+    .filter((each): each is ProblemAction => each !== undefined && each.label !== "")
+    .map((each) => <LineAction key={each.label} action={each} />);
   return (
     <div
       role={role}
@@ -98,12 +98,7 @@ export function ProblemLine({
     >
       <MetaLine
         as="div"
-        parts={[
-          children,
-          ...details,
-          ...buttons.map((each) => <LineAction key={each.label} action={each} />),
-          disclosure?.toggle,
-        ]}
+        parts={[children, ...details, ...actionParts(buttons), disclosure?.toggle]}
       />
       {disclosure?.panel}
     </div>
