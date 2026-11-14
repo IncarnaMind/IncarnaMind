@@ -341,6 +341,62 @@ export function toggleCitationSignOff(editor: Editor, pos: number | string, sign
   );
 }
 
+/**
+ * One "Checked by me" for a whole check card (#2869): marks each of its Citations the User hasn't
+ * checked as it is now, as pressing each did, or, `off`, takes their marks off; one step of Undo.
+ */
+export function setCitationSignOffs(
+  editor: Editor,
+  ids: readonly string[],
+  off: boolean,
+  signer: Signer,
+): void {
+  const doc = noteDocOf(editor);
+  if (!doc || !editor.isEditable) return;
+  const records = signOffsOf(doc);
+  const versions = liveVersions();
+  const chosen = ids.flatMap((id) => {
+    const owner = partCitationOwner(editor.state.doc, id);
+    if (!owner) return [];
+    const now = citationSignOff(
+      records,
+      editor.state.doc,
+      id,
+      owner.citation,
+      versions,
+      signer.personId,
+    );
+    if (off ? now?.mine !== true : checkedByMe(now)) return [];
+    return [{ id, owner, mine: now?.mine === true }];
+  });
+  if (chosen.length === 0) return;
+  const count = chosen.length;
+  inEditor(
+    editor,
+    (note) => {
+      const at = new Date().toISOString();
+      for (const { id, owner, mine } of chosen) {
+        const target: SignOffTarget = { kind: "citation", id };
+        if (mine) removeSignOff(note, target, at, signer.personId);
+        if (!off)
+          addSignOff(
+            note,
+            markBy(
+              target,
+              citationSignOffBasis(owner.sentence, owner.citation),
+              [owner.citation],
+              signer,
+            ),
+          );
+      }
+    },
+    (t) =>
+      count === 1
+        ? t(off ? "signOff.removed" : "signOff.added")
+        : t(off ? "signOff.removedCount" : "signOff.addedCount", { count }),
+  );
+}
+
 /** A figure to mark: its id, what its mark rests on now, the Citations it rests on, and its mark. */
 export interface FigureMark {
   id: string;

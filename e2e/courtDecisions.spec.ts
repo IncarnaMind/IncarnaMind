@@ -12,6 +12,7 @@ import {
   dismissChatSetup,
   launchApp,
   newMind,
+  openCardMenu,
   pointAndClick,
   removeDataFolder,
   setLanguage,
@@ -120,18 +121,25 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(card.getByTestId("claim-badge")).toHaveText(words.title);
     await expect(card.getByTestId("claim-court-decision")).toHaveText(words.body);
     await expect(card.getByTestId("claim-nothing")).toHaveCount(0);
-    await expect(card.getByTestId("claim-find-sources")).toHaveCount(0);
-    await expect(card.getByTestId("claim-search-web")).toHaveCount(0);
-    await expect(card.getByTestId("claim-cut-sentence")).toHaveCount(0);
     await expect(card.getByTestId("claim-keep")).toHaveCount(0);
+    // Its one action is its one button; its ⋯ holds no way to look elsewhere (#2869).
+    await expect(card.locator(".citation-card-actions button")).toHaveCount(1);
     await expect(card.getByTestId("claim-remove")).toBeVisible();
+    const menu = await openCardMenu(window, card);
+    for (const gone of ["check.findSources", "claim-search-web", "claim-cut-sentence"])
+      await expect(menu.getByTestId(gone)).toHaveCount(0);
+    await window.keyboard.press("Escape");
+    await expect(menu).toBeHidden();
 
     await window.keyboard.press("Escape");
     await expect(card).toHaveCount(0);
     await pointAndClick(window, marks.nth(1));
     await expect(card.getByTestId("claim-nothing")).toHaveText(words.nothing);
     await expect(card.getByTestId("claim-court-decision")).toHaveCount(0);
-    await expect(card.getByTestId("claim-search-web")).toBeVisible();
+    const elsewhere = await openCardMenu(window, card);
+    await expect(elsewhere.getByTestId("claim-search-web")).toBeVisible();
+    await window.keyboard.press("Escape");
+    await expect(elsewhere).toBeHidden();
 
     await window.keyboard.press("Escape");
     await expect(card).toHaveCount(0);

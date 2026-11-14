@@ -12,6 +12,7 @@ import {
   launchApp,
   motionSettled,
   newMind,
+  openCardMenu,
   pointAndClick,
   removeDataFolder,
   setLanguage,
@@ -232,13 +233,14 @@ for (const [language, width] of [
     await expect(card.getByTestId("claim-badge")).toHaveText(words.heading);
     await expect(card.getByTestId("claim-not-yet-cited")).toHaveText(words.line);
     await expect(card.getByTestId("claim-quote")).toHaveText(NEAP);
-    await expect(card.getByTestId("claim-checked-by")).toBeVisible();
-    await expect(card.getByTestId("claim-checked-in")).toBeVisible();
-    await expect(card.getByTestId("claim-limit")).toBeVisible();
     await expect(card.getByTestId("claim-check-again")).toHaveCount(0);
-    await expect(card.getByTestId("claim-add-citation")).toHaveClass(
-      /citation-card-action--primary/,
-    );
+    // Add as Citation is a link on the quote's Location line; how it was checked is under ⋯ (#2869).
+    await expect(card.getByTestId("claim-where").getByTestId("claim-add-citation")).toBeVisible();
+    const about = (await openCardMenu(window, card)).getByTestId("claim-about");
+    for (const line of ["claim-checked-by", "claim-checked-in", "claim-limit"])
+      await expect(about.getByTestId(line)).toBeVisible();
+    await window.keyboard.press("Escape");
+    await expect(about).toBeHidden();
     await screenshot(window, `${language}-card`);
     await pointAndClick(window, card.getByTestId("claim-add-citation"));
     await expect(marks(window).nth(0)).toHaveAttribute("data-check", "supported");

@@ -12,6 +12,7 @@ import {
   launchApp,
   nameMind,
   newMind,
+  openCardMenu,
   pointAndClick,
   removeDataFolder,
   setLanguage,
@@ -174,18 +175,17 @@ test("most sentences unsupported says so once; an unsupported card offers its th
 
   await pointAndClick(window, marks.first());
   const card = window.getByTestId("claim-card");
-  // Find sources waits in the card's ⋯: the Mind cites no paper or book.
-  await expect(card.getByTestId("claim-find-sources")).toHaveCount(0);
-  await pointAndClick(window, card.getByTestId("check-menu"));
-  await expect(card.getByTestId("check.findSources")).toHaveText("Find sources…");
-  await window.keyboard.press("Escape");
-  await expect(card.getByTestId("claim-search-web")).toHaveText("Search the web");
-  await expect(card.getByTestId("claim-remove")).toHaveText("Remove the mark");
+  // Find sources, Search the web and Remove the mark wait in the card's one ⋯: the Mind cites no
+  // paper or book.
+  const more = await openCardMenu(window, card);
+  await expect(more.getByTestId("check.findSources")).toHaveText("Find sources…");
+  await expect(more.getByTestId("claim-search-web")).toHaveText("Search the web");
+  await expect(more.getByTestId("claim-remove")).toHaveText("Remove the mark");
   // With web search off (the default) Search the web says why, and where to turn it on.
-  await pointAndClick(window, card.getByTestId("claim-search-web"));
+  await pointAndClick(window, more.getByTestId("claim-search-web"));
   await expect(card.getByTestId("claim-web-off")).toContainText("Turn on web search");
   await expect(card.getByTestId("claim-web-off-settings")).toBeVisible();
-  await pointAndClick(window, card.getByTestId("claim-remove"));
+  await pointAndClick(window, (await openCardMenu(window, card)).getByTestId("claim-remove"));
   await expect(marks).toHaveCount(1);
   await app.close();
 });
@@ -214,11 +214,10 @@ test("in Chinese, the card's ⋯ item and the panel it opens share one name, 查
 
   await pointAndClick(window, marks.first());
   const card = window.getByTestId("claim-card");
-  await expect(card.getByTestId("claim-find-sources")).toHaveCount(0);
-  await pointAndClick(window, card.getByTestId("check-menu"));
-  const item = card.getByTestId("check.findSources");
+  const more = await openCardMenu(window, card);
+  const item = more.getByTestId("check.findSources");
   await expect(item).toHaveText("查找资料…");
-  await expect(card.getByTestId("claim-search-web")).toHaveText("联网搜索");
+  await expect(more.getByTestId("claim-search-web")).toHaveText("联网搜索");
   await pointAndClick(window, item);
   await expect(window.getByTestId("find-sources").getByRole("heading")).toHaveText("查找资料");
   await app.close();

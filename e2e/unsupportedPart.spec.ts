@@ -165,6 +165,9 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(card.getByTestId("claim-covers")).toHaveText(words.covers);
     await expect(card.getByTestId("claim-nothing")).toHaveCount(0);
     const rows = card.getByTestId("claim-cited");
+    // One quote, and a count that opens the other Citation's (#2869).
+    await expect(rows).toHaveCount(1);
+    await pointAndClick(window, card.getByTestId("claim-cited-more"));
     await expect(rows).toHaveCount(2);
     await expect(rows.first().getByTestId("claim-cited-quote")).toHaveText(`“${QUOTE_ONE}”`);
     await expect(rows.last().getByTestId("claim-cited-quote")).toHaveText(`“${QUOTE_TWO}”`);

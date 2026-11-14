@@ -1381,6 +1381,25 @@ export async function openDocumentMenu(item: Locator): Promise<void> {
 }
 
 /**
+ * Opens a sentence's check card's one ⋯, which holds every action that isn't one of its buttons,
+ * then About this check (#2869), and gives back the menu. Esc closes it again.
+ */
+export async function openCardMenu(window: Page, card: Locator): Promise<Locator> {
+  await pointAndClick(window, card.getByTestId("check-menu"));
+  const menu = card.getByTestId("check-actions");
+  await expect(menu).toBeVisible();
+  return menu;
+}
+
+/** Opens a check card's folded rows, the parts that are fine and those left out, with Show (#2869). */
+export async function showFoldedParts(window: Page, card: Locator): Promise<void> {
+  const show = card.getByTestId("claim-parts-show");
+  await expect(show).toHaveAttribute("aria-expanded", "false");
+  await pointAndClick(window, show);
+  await expect(show).toHaveAttribute("aria-expanded", "true");
+}
+
+/**
  * Opens a Document's Tags menu in the sidebar and returns the Tags it has
  * (each a checked item, with `data-source`).
  * Esc closes the menu again.

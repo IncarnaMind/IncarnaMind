@@ -13,6 +13,7 @@ import {
   launchApp,
   motionSettled,
   newMind,
+  openCardMenu,
   pointAndClick,
   removeDataFolder,
   runCommand,
@@ -195,47 +196,45 @@ for (const language of ["en", "zh-CN"] as const) {
     // No Citation: its own card, with nothing of a Citation's part to cut (e2e/notFoundCard.spec.ts).
     await openCard(marks.nth(1));
     await expect(card.getByTestId("claim-nothing")).toHaveText(words.nothing);
-    // Find sources waits in the card's ⋯: the Mind cites no paper or book.
-    await expect(card.getByTestId("claim-find-sources")).toHaveCount(0);
-    await pointAndClick(window, card.getByTestId("check-menu"));
-    await expect(card.getByTestId("check.findSources")).toBeVisible();
-    await window.keyboard.press("Escape");
-    await expect(card.getByTestId("claim-remove")).toBeVisible();
     await expect(card.getByTestId("claim-cut")).toHaveCount(0);
-    await expect(card.getByTestId("claim-cut-sentence")).toBeVisible();
     await expect(card.getByTestId("claim-keep")).toBeVisible();
+    // The rest waits in the card's one ⋯, Find sources among them: the Mind cites no paper or book.
+    const nothingMenu = await openCardMenu(window, card);
+    for (const item of ["check.findSources", "claim-remove", "claim-cut-sentence"])
+      await expect(nothingMenu.getByTestId(item)).toBeVisible();
+    await window.keyboard.press("Escape");
+    await expect(nothingMenu).toBeHidden();
     await window.keyboard.press("Escape");
 
-    // With Citations: the three fixes, the first the primary one, inside the card at both widths.
+    // With Citations: Cut the unsupported part first, then Keep as my view, inside the card at both
+    // widths; Search all Documents waits under the card's ⋯ (#2869).
     for (const width of [1600, 1100]) {
       await setWindowSize(app, window, width, 900);
       await openCard(tutorialMark());
       await expect(card.getByTestId("claim-covers")).toBeVisible();
-      const fixes = [
-        card.getByTestId("claim-cut"),
-        card.getByTestId("claim-search-all"),
-        card.getByTestId("claim-keep"),
-      ];
+      const fixes = [card.getByTestId("claim-cut"), card.getByTestId("claim-keep")];
       await expect(fixes[0] as Locator).toHaveText(words.cutAction);
-      await expect(fixes[1] as Locator).toHaveText(words.searchAll);
-      await expect(fixes[2] as Locator).toHaveText(words.keep);
+      await expect(fixes[1] as Locator).toHaveText(words.keep);
       await expect(fixes[0] as Locator).toHaveClass(/citation-card-action--primary/);
       // Cut the unsupported part is the card's first action (#2830).
+      await expect(card.locator(".citation-card-actions button")).toHaveCount(2);
       await expect(card.locator(".citation-card-actions button").first()).toHaveAttribute(
         "data-testid",
         "claim-cut",
       );
       for (const fix of fixes) expect(await inside(fix, card)).toBe(true);
+      const menu = await openCardMenu(window, card);
+      await expect(menu.getByTestId("claim-search-all")).toHaveText(words.searchAll);
       for (const gone of [
         "claim-cut-sentence",
-        "claim-find-sources",
         "check.findSources",
         "claim-search-web",
         "claim-remove",
-        "check-menu",
       ]) {
-        await expect(card.getByTestId(gone)).toHaveCount(0);
+        await expect(menu.getByTestId(gone)).toHaveCount(0);
       }
+      await window.keyboard.press("Escape");
+      await expect(menu).toBeHidden();
       await window.keyboard.press("Escape");
     }
 
@@ -266,13 +265,16 @@ for (const language of ["en", "zh-CN"] as const) {
     // Search all Documents: the sentence is checked again in every Document, after which the card doesn't offer it.
     const before = await tutorialMark().getAttribute("data-claim");
     await openCard(tutorialMark());
-    await pointAndClick(window, card.getByTestId("claim-search-all"));
+    await pointAndClick(window, (await openCardMenu(window, card)).getByTestId("claim-search-all"));
     await expect(tutorialMark()).not.toHaveAttribute("data-claim", before ?? "");
     await expect(tutorialMark()).toHaveAttribute("data-check", "unsupported");
     await expectFoundMarkers();
     await openCard(tutorialMark());
     await expect(card.getByTestId("claim-keep")).toBeVisible();
-    await expect(card.getByTestId("claim-search-all")).toHaveCount(0);
+    const searched = await openCardMenu(window, card);
+    await expect(searched.getByTestId("claim-search-all")).toHaveCount(0);
+    await window.keyboard.press("Escape");
+    await expect(searched).toBeHidden();
     await window.keyboard.press("Escape");
 
     // From ⌘K, with the cursor in the sentence.

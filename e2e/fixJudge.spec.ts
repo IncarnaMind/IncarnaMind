@@ -168,16 +168,21 @@ for (const [language, width] of [
     // Before: the Document's own words for "after the onboarding redesign" are Supported, and the
     // figure's row offers the change.
     await pointAndClick(window, mark);
-    const timingRow = card.getByTestId("claim-part").nth(1);
-    await expect(timingRow).toContainText(words.supported);
-    const contradicting = card.getByTestId("claim-part").first();
-    await expect(contradicting.getByTestId("claim-part-correct")).toHaveText(words.fix);
+    // The supported part folds into the foot's line; the figure's change, the card's one fix, is
+    // its first button (#2869).
+    await expect(card.getByTestId("claim-part")).toHaveCount(1);
+    await expect(card.getByTestId("claim-parts-folded")).toContainText(
+      language === "en" ? "1 other part is supported" : "另外 1 处有依据",
+    );
+    const change = card.locator(".citation-card-actions button").first();
+    await expect(change).toHaveAttribute("data-testid", "claim-part-correct");
+    await expect(change).toHaveText(words.fix);
     await expect(card.getByTestId("claim-cut")).toHaveCount(0);
     await expect(card).not.toContainText(words.cut);
     await screenshot(window, `fix-judge-before-${language}-${width}`);
 
     const earlierId = await mark.getAttribute("data-claim");
-    await pointAndClick(window, contradicting.getByTestId("claim-part-correct"));
+    await pointAndClick(window, change);
     await expect(line).toContainText(words.to);
     await expect(line).not.toContainText(words.from);
     await expect(line.getByTestId("citation")).toHaveCount(1);

@@ -144,8 +144,12 @@ test("the parts card keeps one height as verdicts land, scrolls a longer result,
         },
       }),
     ]);
-    await expect(rows.nth(0)).toContainText("Supported");
-    await expect(rows.nth(1)).toContainText("Needs a look");
+    // The supported part folds into the foot's line; the one that needs a look stays open (#2869).
+    await expect(rows).toHaveCount(1);
+    await expect(rows.nth(0)).toContainText("The lease says costs rose.");
+    await expect(card.getByTestId("claim-parts-folded")).toHaveText(
+      "1 other part is supported · Show",
+    );
     await motionSettled(window);
     const after = await pane.boundingBox();
     if (!after) throw new Error("The parts card is gone.");
@@ -169,8 +173,11 @@ test("the parts card keeps one height as verdicts land, scrolls a longer result,
       part(0, 12, "supported", { evidence: [evidence] }),
       part(17, 27, "unsupported"),
     ]);
-    await expect(rows.nth(0)).toContainText("Supported");
-    await expect(rows.nth(1)).toContainText("Not found");
+    await expect(rows).toHaveCount(1);
+    await expect(rows.nth(0)).toContainText("I didn’t find this in “All Documents”.");
+    await expect(card.getByTestId("claim-parts-folded")).toHaveText(
+      "1 other part is supported · Show",
+    );
   } finally {
     await app.close();
   }

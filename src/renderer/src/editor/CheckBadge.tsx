@@ -101,8 +101,6 @@ export function CheckBadge(props: {
   mindId: string;
   verification: Verification | null;
   quiet: boolean;
-  /** How many figures the note's Figure schedule lists. */
-  figures: number;
 }) {
   return props.verification ? (
     <VerifyBadge {...props} verification={props.verification} />
@@ -116,13 +114,11 @@ function MindBadge({
   doc,
   mindId,
   quiet,
-  figures,
 }: {
   editor: Editor;
   doc: Y.Doc;
   mindId: string;
   quiet: boolean;
-  figures: number;
 }) {
   const t = useT();
   const checkedAll = useMindCheckRun(doc);
@@ -199,14 +195,7 @@ function MindBadge({
       }
     >
       <p className="check-card-title">{t("health.label")}</p>
-      <HealthCard
-        editor={editor}
-        doc={doc}
-        mindId={mindId}
-        health={health}
-        state={state}
-        figures={figures}
-      />
+      <HealthCard editor={editor} doc={doc} mindId={mindId} health={health} state={state} />
       <ContradictionLine doc={doc} mindId={mindId} />
     </BadgeFrame>
   );

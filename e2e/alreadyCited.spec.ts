@@ -264,14 +264,16 @@ test("Check on a note whose sentences cite their Passages: the ones that already
   const card = window.getByTestId("claim-card");
   await openCard(window, marks(window).nth(1));
   await expect(card.getByTestId("claim-badge")).toHaveText("Supported");
-  await expect(card.getByTestId("claim-already-cited")).toContainText("Already cited");
-  await expect(card.getByTestId("claim-already-chip")).toHaveText("2");
+  // "Already cited" is the Citation's number on the quote's Location line, not a line (#2869).
+  await expect(card.getByText("Already cited")).toHaveCount(0);
+  await expect(card.getByTestId("claim-where").getByTestId("claim-already-chip")).toHaveText("2");
   await expect(card.getByRole("button", { name: "Already cited: open citation 2" })).toBeVisible();
   await expect(card.getByTestId("claim-quote")).toHaveText("Spring tides happen at new moon");
   await expect(card.getByTestId("claim-add-citation")).toHaveCount(0);
-  await expect(card.getByTestId("claim-open")).toHaveClass(/citation-card-action--primary/);
-  await expectReadable(window, card.getByTestId("claim-open"), "primary-hover-en");
-  expect(await inside(card.getByTestId("claim-open"), card)).toBe(true);
+  // A ✓ card has no buttons: the quote opens the page.
+  await expect(card.locator(".citation-card-actions")).toHaveCount(0);
+  await expectReadable(window, card.getByTestId("claim-open-quote"), "quote-hover-en");
+  expect(await inside(card.getByTestId("claim-open-quote"), card)).toBe(true);
   await screenshot(window, "already-cited-en");
   await window.keyboard.press("Escape");
   await expect(card).toBeHidden();
@@ -289,11 +291,10 @@ test("Check on a note whose sentences cite their Passages: the ones that already
 
   for (const index of [3, 4]) {
     await openCard(window, marks(window).and(window.locator("[data-addable]")).first());
-    await expect(card.getByTestId("claim-already-cited")).toHaveCount(0);
-    await expect(card.getByTestId("claim-add-citation")).toBeVisible();
-    await expect(card.getByTestId("claim-add-citation")).toHaveClass(
-      /citation-card-action--primary/,
-    );
+    await expect(card.getByTestId("claim-already-chip")).toHaveCount(0);
+    // Add as Citation is a link on the quote's Location line (#2869).
+    await expect(card.getByTestId("claim-where").getByTestId("claim-add-citation")).toBeVisible();
+    await expect(card.getByTestId("claim-add-citation")).toHaveClass(/claim-quote-link/);
     await expectReadable(
       window,
       card.getByTestId("claim-add-citation"),
@@ -358,11 +359,12 @@ test("In Chinese and a narrow window: a Citation whose quote differs in punctuat
   await expect(marks(window).nth(1)).toHaveAttribute("data-addable", "true");
 
   const card = await openCard(window, marks(window).nth(0));
-  await expect(card.getByTestId("claim-already-cited")).toContainText("已引用");
-  await expect(card.getByTestId("claim-already-chip")).toHaveText("1");
+  await expect(card.getByText("已引用", { exact: true })).toHaveCount(0);
+  await expect(card.getByTestId("claim-where").getByTestId("claim-already-chip")).toHaveText("1");
   await expect(card.getByRole("button", { name: "已引用：打开引用 1" })).toBeVisible();
   await expect(card.getByTestId("claim-add-citation")).toHaveCount(0);
-  expect(await inside(card.getByTestId("claim-open"), card)).toBe(true);
+  expect(await inside(card.getByTestId("claim-open-quote"), card)).toBe(true);
+  expect(await inside(card.getByTestId("claim-where"), card)).toBe(true);
   await screenshot(window, "already-cited-zh-narrow");
   await window.keyboard.press("Escape");
 

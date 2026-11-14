@@ -329,20 +329,22 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(window.getByTestId("claim-mark")).toHaveCount(10);
     const card = window.getByTestId("claim-card");
 
+    // A card's quote opens the page and comes first in reading order, before its Location line
+    // and its buttons (#2869): it is read out by its words.
     const states = [
       {
         check: "supported",
         sentence: words.supported,
         starts: words.supported.slice(0, 20),
-        first: "claim-add-citation" as const,
-        label: "claim.addAsCitation" as MessageKey,
+        first: "claim-open-quote" as const,
+        name: passage.quote,
       },
       {
         check: "unsupported",
         sentence: partly,
         starts: words.partlyStart,
-        first: "claim-open" as const,
-        label: "citation.open.page" as MessageKey,
+        first: "claim-open-quote" as const,
+        name: passage.quote,
       },
       {
         check: "unsupported",
@@ -356,8 +358,8 @@ for (const language of ["en", "zh-CN"] as const) {
         check: "contradicted",
         sentence: words.contradicted,
         starts: words.contradicted.slice(0, 20),
-        first: "claim-open" as const,
-        label: "citation.open.page" as MessageKey,
+        first: "claim-open-quote" as const,
+        name: passage.quote,
       },
       {
         check: "not-checked",
@@ -392,18 +394,27 @@ for (const language of ["en", "zh-CN"] as const) {
         }),
       );
 
-      // The buttons the User can reach: a closed menu's items are in the card but not in the Tab order.
+      // The buttons the User can reach, in what is seen: the card's ⋯ on the verdict's line first,
+      // then the card's own (#2869). A closed menu's items are in the card but not in the Tab order.
       const actions = card.locator("button:visible");
       const count = await actions.count();
       expect(count, "the card has an action").toBeGreaterThan(0);
+      // A card with nothing under a ⋯, as Not checked, has none.
+      const start = (await card.getByTestId("check-menu").count()) > 0 ? 1 : 0;
+      if (start === 1) await expect(actions.first()).toHaveAttribute("data-testid", "check-menu");
       const firstName =
-        "number" in state ? t(state.label, { number: state.number }) : t(state.label);
-      // The first action in reading order takes the focus, and it is read out by name.
-      await expect(actions.first()).toBeFocused();
-      await expect(actions.first()).toHaveAccessibleName(firstName);
-      expect(await actions.first().getAttribute("data-testid")).toBe(state.first);
+        "name" in state
+          ? state.name
+          : "number" in state
+            ? t(state.label, { number: state.number })
+            : t(state.label);
+      // The first action after the ⋯ takes the focus, and it is read out by name.
+      const first = actions.nth(start);
+      await expect(first).toBeFocused();
+      await expect(first).toHaveAccessibleName(firstName);
+      expect(await first.getAttribute("data-testid")).toBe(state.first);
       if (index === 0) {
-        const ring = await actions.first().evaluate((element) => {
+        const ring = await first.evaluate((element) => {
           const style = getComputedStyle(element);
           return {
             shown: element.matches(":focus-visible"),
@@ -421,25 +432,31 @@ for (const language of ["en", "zh-CN"] as const) {
       }
       await screenshot(window, `card-keyboard-${index}-${language}`);
 
-      // Tab visits every action in reading order, then wraps to the first.
+      // Tab visits every action in reading order, then wraps to the ⋯ and on to the first action.
       for (let at = 1; at <= count; at++) {
         await window.keyboard.press("Tab");
-        await expect(actions.nth(at % count)).toBeFocused();
+        await expect(actions.nth((start + at) % count)).toBeFocused();
       }
-      // Shift+Tab from the first action wraps to the last.
+      // Shift+Tab goes back through them: from the ⋯, or the first, it wraps to the last.
+      if (start === 1) {
+        await window.keyboard.press("Shift+Tab");
+        await expect(actions.first()).toBeFocused();
+      }
       await window.keyboard.press("Shift+Tab");
       await expect(actions.last()).toBeFocused();
+      await window.keyboard.press("Tab");
+      await expect(actions.first()).toBeFocused();
 
       if (state.first === "claim-check-document") {
-        // The last action is the card's ⋯. Enter opens its menu; Tab leaves it, closing it, so the
-        // focus is back on an action and Esc closes the card, never a menu no longer holding the focus.
+        // On the card's ⋯, Enter opens its menu; Tab leaves it, closing it, so the focus is on an
+        // action and Esc closes the card, never a menu no longer holding the focus.
         await window.keyboard.press("Enter");
         const item = card.getByTestId("check.findSources");
         await expect(item).toBeVisible();
         await screenshot(window, `card-menu-${language}`);
         await window.keyboard.press("Tab");
         await expect(item).not.toBeVisible();
-        await expect(actions.first()).toBeFocused();
+        await expect(card.locator(":focus")).toHaveCount(1);
         await screenshot(window, `card-menu-after-tab-${language}`);
       }
 
@@ -449,24 +466,25 @@ for (const language of ["en", "zh-CN"] as const) {
       expect(await caretOf(editor), "the caret is where it was").toBe(caret);
     }
 
-    // A Citation already on the Passage, a wider clause to widen to, and a Citation to replace.
+    // A Citation already on the Passage, a wider clause to widen to, and a Citation to replace:
+    // the quote first, then what its Location line does with its Citation (#2869).
     const variants = [
       {
         sentence: words.alreadyCited,
         starts: words.alreadyStart,
-        first: "claim-cited",
+        second: "claim-cited",
         label: "claim.alreadyCited.open" as MessageKey,
       },
       {
         sentence: words.widenSentence,
         starts: words.widenStart,
-        first: "claim-widen-citation",
+        second: "claim-widen-citation",
         label: "claim.widenCitation" as MessageKey,
       },
       {
         sentence: words.replaceSentence,
         starts: words.replaceStart,
-        first: "claim-replace-citation",
+        second: "claim-replace-citation",
         label: "claim.replaceCitation" as MessageKey,
       },
     ] as const;
@@ -479,19 +497,24 @@ for (const language of ["en", "zh-CN"] as const) {
       // The buttons the User can reach: a closed menu's items are in the card but not in the Tab order.
       const actions = card.locator("button:visible");
       const count = await actions.count();
-      await expect(actions.first()).toBeFocused();
-      expect(await actions.first().getAttribute("data-testid")).toBe(variant.first);
+      await expect(actions.first()).toHaveAttribute("data-testid", "check-menu");
+      await expect(actions.nth(1)).toBeFocused();
+      expect(await actions.nth(1).getAttribute("data-testid")).toBe("claim-open-quote");
+      await expect(actions.nth(1)).toHaveAccessibleName(variant.sentence);
+      expect(await actions.nth(2).getAttribute("data-testid")).toBe(variant.second);
       const name =
-        variant.first === "claim-cited"
+        variant.second === "claim-cited"
           ? t(variant.label, {
               number: (await card.getByTestId("claim-already-chip").textContent()) ?? "",
             })
           : t(variant.label);
-      await expect(actions.first()).toHaveAccessibleName(name);
+      await expect(actions.nth(2)).toHaveAccessibleName(name);
       for (let at = 1; at <= count; at++) {
         await window.keyboard.press("Tab");
-        await expect(actions.nth(at % count)).toBeFocused();
+        await expect(actions.nth((1 + at) % count)).toBeFocused();
       }
+      await window.keyboard.press("Shift+Tab");
+      await expect(actions.first()).toBeFocused();
       await window.keyboard.press("Shift+Tab");
       await expect(actions.last()).toBeFocused();
       await window.keyboard.press("Escape");
@@ -506,7 +529,7 @@ for (const language of ["en", "zh-CN"] as const) {
     const caret = await caretOf(editor);
     await window.keyboard.press("ControlOrMeta+Shift+KeyK");
     await expect(card).toHaveAttribute("data-check", "supported");
-    await expect(card.locator("button").first()).toBeFocused();
+    await expect(card.getByTestId("claim-open-quote")).toBeFocused();
 
     // ⌘K, on top of the card: Esc closes the palette, the innermost thing open, not the card behind it.
     await window.keyboard.press("ControlOrMeta+k");
@@ -533,7 +556,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(mark).toBeFocused();
     await window.keyboard.press("Enter");
     await expect(card).toHaveAttribute("data-check", "supported");
-    await expect(card.locator("button").first()).toBeFocused();
+    await expect(card.getByTestId("claim-open-quote")).toBeFocused();
     await window.keyboard.press("Escape");
     await expect(card).toHaveCount(0);
     await expect(editor).toBeFocused();
@@ -623,7 +646,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await cursorIn(editor, words.supported.slice(0, 20));
     await focusSettled(window, editor);
     await showCheckFromCommand(window, t("claim.showCard"));
-    await expect(card.locator("button").first()).toBeFocused();
+    await expect(card.getByTestId("claim-open-quote")).toBeFocused();
     await screenshot(window, `card-keyboard-narrow-${language}`);
     await window.keyboard.press("Escape");
     await expect(card).toHaveCount(0);

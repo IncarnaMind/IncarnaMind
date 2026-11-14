@@ -17,6 +17,7 @@ import {
   leaveText,
   motionSettled,
   newMind,
+  openCardMenu,
   pointAndClick,
   removeDataFolder,
   setLanguage,
@@ -222,10 +223,18 @@ for (const [language, width] of [
     await pointAndClick(window, marks.nth(0));
     const correct = card.getByTestId("claim-correct");
     await expect(correct).toHaveText(translate(language, "claim.correction", { wording: "38.6%" }));
+    // The fix first, then Keep as my view; Open the page is first under the card's ⋯ (#2869).
     const actions = card.locator(".citation-card-actions button");
+    await expect(actions).toHaveCount(2);
     await expect(actions.nth(0)).toHaveAttribute("data-testid", "claim-correct");
-    await expect(actions.nth(1)).toHaveAttribute("data-testid", "claim-open");
-    await expect(actions.nth(2)).toHaveAttribute("data-testid", "claim-keep");
+    await expect(actions.nth(1)).toHaveAttribute("data-testid", "claim-keep");
+    const more = await openCardMenu(window, card);
+    await expect(more.locator('[role="menuitem"]').first()).toHaveAttribute(
+      "data-testid",
+      "claim-open",
+    );
+    await window.keyboard.press("Escape");
+    await expect(more).toBeHidden();
     await withinCard(window);
     await screenshot(window, `correction-card-${language}`);
     await pointAndClick(window, correct);
@@ -267,10 +276,11 @@ for (const [language, width] of [
     await pointAndClick(window, window.getByTestId("undo-action"));
 
     await pointAndClick(window, marks.nth(3));
-    // A check without a correction keeps what it offered before: Open and Keep as my view.
+    // A check without a correction keeps what it offered before: Keep as my view, and Open the
+    // page under the card's ⋯.
     await expect(card.getByTestId("claim-correct")).toHaveCount(0);
-    await expect(card.getByTestId("claim-open")).toBeVisible();
     await expect(card.getByTestId("claim-keep")).toBeVisible();
+    await expect((await openCardMenu(window, card)).getByTestId("claim-open")).toBeVisible();
     await app.close();
   });
 

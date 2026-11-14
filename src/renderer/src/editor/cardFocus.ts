@@ -42,9 +42,12 @@ export function keepFocusInside(event: TabPress, container: HTMLElement): void {
   focusables[next]?.focus();
 }
 
+/** `skip`: controls Tab reaches in their place but the focus starts on only when there is no other, such as a card's ⋯. */
 export function focusFirstAction(
   container: HTMLElement | null,
   fallback: HTMLElement | null,
+  skip?: string,
 ): void {
-  (focusablesIn(container)[0] ?? fallback)?.focus();
+  const all = focusablesIn(container);
+  (all.find((each) => !skip || !each.matches(skip)) ?? all[0] ?? fallback)?.focus();
 }

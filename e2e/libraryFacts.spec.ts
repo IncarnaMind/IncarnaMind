@@ -30,6 +30,7 @@ import {
   removeDataFolder,
   setLanguage,
   setWindowSize,
+  showFoldedParts,
 } from "./app";
 
 /*
@@ -333,7 +334,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(countRow).toHaveText(words.rows.count);
       expect(await inside(countRow, card)).toBe(true);
       // The facts are no Document's: nothing to open, and no Citation to add.
-      await expect(card.getByTestId("claim-open")).toHaveCount(0);
+      await expect(card.getByTestId("claim-open-quote")).toHaveCount(0);
       await expect(card.getByTestId("claim-add-citation")).toHaveCount(0);
       await screenshot(window, `library-count-${language}-${width}`);
       await window.keyboard.press("Escape");
@@ -357,10 +358,13 @@ for (const language of ["en", "zh-CN"] as const) {
 
       await pointAndClick(window, marks.nth(3));
       const rows = card.getByTestId("claim-part");
+      // The part about the note itself is open; the supported one folds behind Show (#2869).
+      await expect(rows).toHaveCount(1);
+      await expect(rows.nth(0)).toContainText(words.rows.itself);
+      await showFoldedParts(window, card);
       await expect(rows).toHaveCount(2);
-      await expect(rows.nth(0).getByTestId("claim-part-library")).toHaveText(words.rows.notes);
-      await expect(rows.nth(1)).toContainText(words.rows.itself);
-      expect(await inside(rows.nth(0).getByTestId("claim-part-library"), card)).toBe(true);
+      await expect(rows.nth(1).getByTestId("claim-part-library")).toHaveText(words.rows.notes);
+      expect(await inside(rows.nth(1).getByTestId("claim-part-library"), card)).toBe(true);
       await screenshot(window, `library-parts-${language}-${width}`);
       await window.keyboard.press("Escape");
     }

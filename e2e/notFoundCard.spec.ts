@@ -14,6 +14,7 @@ import {
   launchApp,
   motionSettled,
   newMind,
+  openCardMenu,
   pointAndClick,
   removeDataFolder,
   runCommand,
@@ -92,17 +93,18 @@ const IDS = {
   keep: "claim-keep",
   searchWeb: "claim-search-web",
   remove: "claim-remove",
-  menu: "check-menu",
   findSources: "check.findSources",
 } as const;
 
-/** The card's actions, in the order they are drawn; Find sources waits in its ⋯. */
-const ORDER = [
-  IDS.searchAll,
+/** The card's two buttons: its main action, then Keep as my view (#2869). */
+const BUTTONS = [IDS.searchAll, IDS.keep];
+
+/** Every other action, under the card's one ⋯ in the order the card has always had them. */
+const IN_MENU = [
   IDS.checkDocument,
   IDS.chooseCitation,
   IDS.cut,
-  IDS.keep,
+  IDS.findSources,
   IDS.searchWeb,
   IDS.remove,
 ];
@@ -242,25 +244,27 @@ for (const language of ["en", "zh-CN"] as const) {
       const shown = await card
         .locator(".citation-card-actions button")
         .evaluateAll((all) => all.map((each) => each.getAttribute("data-testid")));
-      expect(shown).toEqual(ORDER);
+      expect(shown).toEqual(BUTTONS);
       await expect(card.getByTestId(IDS.searchAll)).toHaveText(words.searchAll);
-      await expect(card.getByTestId(IDS.checkDocument)).toHaveText(words.checkDocument);
-      await expect(card.getByTestId(IDS.chooseCitation)).toHaveText(words.chooseCitation);
-      await expect(card.getByTestId(IDS.cut)).toHaveText(words.cut);
+      await expect(card.getByTestId(IDS.searchAll)).toHaveClass(/citation-card-action--primary/);
       await expect(card.getByTestId(IDS.keep)).toHaveText(words.keep);
-      await expect(card.getByTestId(IDS.searchWeb)).toHaveText(words.searchWeb);
-      await expect(card.getByTestId(IDS.remove)).toHaveText(words.remove);
-      await expect(card.getByTestId(IDS.cut)).not.toHaveClass(/citation-card-action--primary/);
       await expect(card.getByTestId("claim-cut")).toHaveCount(0);
-      for (const id of ORDER) expect(await inside(card.getByTestId(id), card)).toBe(true);
-      // Find sources waits in the card's ⋯, with no button: the Mind cites no paper or book.
-      await expect(card.getByTestId("claim-find-sources")).toHaveCount(0);
-      await expect(card.getByTestId(IDS.findSources)).not.toBeVisible();
-      await pointAndClick(window, card.getByTestId(IDS.menu));
-      await expect(card.getByTestId(IDS.findSources)).toHaveText(words.findSources);
-      await expect(card.getByTestId(IDS.findSources)).toBeVisible();
+      for (const id of BUTTONS) expect(await inside(card.getByTestId(id), card)).toBe(true);
+      // The rest under the one ⋯, in their order, Find sources among them: the Mind cites no paper or book.
+      await expect(card.getByTestId(IDS.findSources)).toHaveCount(0);
+      const menu = await openCardMenu(window, card);
+      const listed = await menu
+        .locator('[role="menuitem"]:not([data-testid="claim-about-lines"])')
+        .evaluateAll((all) => all.map((each) => each.getAttribute("data-testid")));
+      expect(listed).toEqual(IN_MENU);
+      await expect(menu.getByTestId(IDS.checkDocument)).toHaveText(words.checkDocument);
+      await expect(menu.getByTestId(IDS.chooseCitation)).toHaveText(words.chooseCitation);
+      await expect(menu.getByTestId(IDS.cut)).toHaveText(words.cut);
+      await expect(menu.getByTestId(IDS.findSources)).toHaveText(words.findSources);
+      await expect(menu.getByTestId(IDS.searchWeb)).toHaveText(words.searchWeb);
+      await expect(menu.getByTestId(IDS.remove)).toHaveText(words.remove);
       await window.keyboard.press("Escape");
-      await expect(card.getByTestId(IDS.findSources)).not.toBeVisible();
+      await expect(menu).toBeHidden();
       await window.keyboard.press("Escape");
       await expect(card).toHaveCount(0);
     }
@@ -271,7 +275,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await clickEndOf(window, lines.nth(1));
     const cursor = await cursorOf(editor);
     await openCard(marks.nth(2));
-    await pointAndClick(window, card.getByTestId(IDS.cut));
+    await pointAndClick(window, (await openCardMenu(window, card)).getByTestId(IDS.cut));
     await expect.poll(() => wordsOf(lines.nth(0))).toBe(`${OWN} ${ELSEWHERE}`);
     await expect(marks).toHaveCount(3);
     await expect(card).toHaveCount(0);
@@ -387,8 +391,11 @@ for (const language of ["en", "zh-CN"] as const) {
     expect(await listedHere()).toEqual([true, true, true]);
     await openCard(marks.nth(2));
     await expect(card.getByTestId(IDS.searchAll)).toBeVisible();
-    await expect(card.getByTestId(IDS.cut)).toBeVisible();
     await expect(card.getByTestId(IDS.keep)).toBeVisible();
+    const menu = await openCardMenu(window, card);
+    await expect(menu.getByTestId(IDS.cut)).toBeVisible();
+    await window.keyboard.press("Escape");
+    await expect(menu).toBeHidden();
     await window.keyboard.press("Escape");
 
     // Search all Documents from ⌘K finds it elsewhere, as the card's does.
@@ -403,9 +410,12 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(marks.nth(2)).toHaveAttribute("data-check", "unsupported");
     await expect(marks.nth(2)).toHaveAttribute("data-claim", /.+/);
     await openCard(marks.nth(2));
-    await expect(card.getByTestId(IDS.searchAll)).toHaveCount(0);
-    await expect(card.getByTestId(IDS.cut)).toBeVisible();
     await expect(card.getByTestId(IDS.keep)).toBeVisible();
+    const searched = await openCardMenu(window, card);
+    await expect(searched.getByTestId(IDS.searchAll)).toHaveCount(0);
+    await expect(searched.getByTestId(IDS.cut)).toBeVisible();
+    await window.keyboard.press("Escape");
+    await expect(searched).toBeHidden();
     await window.keyboard.press("Escape");
     await cursorIn(editor, NOTHING);
     expect(await listedHere()).toEqual([true, true, false]);
@@ -422,7 +432,7 @@ test("Cut it and Keep as my view are reached and run with the keyboard alone: �
   await marks.nth(2).focus();
   await window.keyboard.press("Enter");
   await expect(card).toBeVisible();
-  await expect(card.getByTestId(IDS.cut)).toBeVisible();
+  await expect(card.getByTestId(IDS.keep)).toBeVisible();
   await window.keyboard.press("Escape");
   await expect(card).toHaveCount(0);
   await expect(editor).toBeFocused();
@@ -490,7 +500,7 @@ test("Cut it in a paragraph with footnotes takes out exactly the sentence, its o
   for (const edge of ["left", "right", "top", "bottom"] as const) {
     expect(Math.abs(over[edge] - under[edge])).toBeLessThan(4);
   }
-  await pointAndClick(window, card.getByTestId("claim-cut-sentence"));
+  await pointAndClick(window, (await openCardMenu(window, card)).getByTestId(IDS.cut));
   await expect.poll(() => paragraphOf(editor)).toBe(`${ELSEWHERE}[${FIRST}] ${NOTHING}[${SECOND}]`);
   await expect(marks).toHaveCount(2);
   await expect(window.getByTestId("undo-line")).toContainText("Cut the sentence");
@@ -510,7 +520,7 @@ test("Cut it in a paragraph with footnotes takes out exactly the sentence, its o
 
   // The first one, with its footnote, from its card.
   await openCard(marks.nth(0));
-  await pointAndClick(window, card.getByTestId("claim-cut-sentence"));
+  await pointAndClick(window, (await openCardMenu(window, card)).getByTestId(IDS.cut));
   await expect.poll(() => paragraphOf(editor)).toBe(`${NOTHING}[${SECOND}] ${ALONE}`);
   await focusSettled(window, editor);
   await window.keyboard.press("ControlOrMeta+z");

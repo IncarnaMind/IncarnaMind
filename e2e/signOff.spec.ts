@@ -260,8 +260,10 @@ for (const language of ["en", "zh-CN"] as const) {
         "found",
         { timeout: 30_000 },
       );
-      const health = await checkCard(window);
-      await pointAndClick(window, health.getByTestId("health-open-schedule"));
+      // The badge's card counts no figures (#2869): Tie out figures opens them.
+      await expect((await checkCard(window)).getByTestId("health-figures")).toHaveCount(0);
+      await window.keyboard.press("Escape");
+      await runCommand(window, "mind.tieOut", t("figures.command"));
       const schedule = window.getByTestId("figure-schedule");
       const rows = schedule.locator("tbody tr[data-figure-id]");
       await expect(rows).toHaveCount(3);

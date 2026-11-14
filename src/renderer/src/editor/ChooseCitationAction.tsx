@@ -18,10 +18,16 @@ export function ChooseCitationAction({
   mindId,
   claim,
   onChosen,
+  offer = true,
+  anchor,
 }: {
   mindId: string;
   claim: ShownClaim;
   onChosen(): void;
+  /** The card draws the action itself, or holds it under its ⋯, and asks for it with `requestCitationPicker`. */
+  offer?: boolean;
+  /** What the picker opens beside when the action isn't drawn here. */
+  anchor?: () => HTMLElement | null;
 }) {
   const t = useT();
   const [button, setButton] = useState<HTMLButtonElement | null>(null);
@@ -46,21 +52,24 @@ export function ChooseCitationAction({
     requestCitationPicker(null);
     startNow.current();
   }, [asked]);
+  const pickerAnchor = picking ? (button ?? anchor?.() ?? null) : null;
   return (
     <>
-      <button
-        ref={setButton}
-        type="button"
-        data-testid="claim-choose-citation"
-        className="citation-card-action"
-        disabled={running}
-        onClick={start}
-      >
-        {t("claim.chooseCitation")}
-      </button>
-      {picking && button && !running && (
+      {offer && (
+        <button
+          ref={setButton}
+          type="button"
+          data-testid="claim-choose-citation"
+          className="citation-card-action"
+          disabled={running}
+          onClick={start}
+        >
+          {t("claim.chooseCitation")}
+        </button>
+      )}
+      {pickerAnchor && !running && (
         <CitationDocumentPicker
-          anchor={button}
+          anchor={pickerAnchor}
           mindId={mindId}
           startsOnScreen
           onChoose={(documentId) => {
