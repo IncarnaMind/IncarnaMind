@@ -160,12 +160,14 @@ function fits(written: RequestedLocation, at: CitationLocation | null): boolean 
   }
 }
 
+/**
+ * A Document's name without its file's extension, which starts with a letter: "Lease 2.1" and
+ * "Minutes 2026.11.14" keep their numbers, "Lease 2.1.pdf" loses ".pdf".
+ */
+export const withoutExtension = (name: string) => name.replace(/\.[a-z][a-z0-9]{0,4}$/i, "");
+
 const nameKey = (name: string) =>
-  name
-    .replace(/\.[a-z0-9]{1,5}$/i, "")
-    .replace(/\s+/g, " ")
-    .trim()
-    .toLocaleLowerCase();
+  withoutExtension(name).replace(/\s+/g, " ").trim().toLocaleLowerCase();
 
 /** Whether `name` is one of `names`, as a source written in brackets names a Document: its extension may be left out. */
 export const namesOneOf = (name: string, names: readonly string[]): boolean =>

@@ -7,7 +7,7 @@
 import type { CitationLocation } from "../core/api";
 import { readFigures } from "./figures";
 import { citationLocation, type RequestedLocation } from "./locations";
-import { citesSource, namedSource } from "./namedSources";
+import { citesSource, namedSource, withoutExtension } from "./namedSources";
 import { INLINE_NODE } from "./sentences";
 
 /** What a Citation says of its Document and its place, as a Note's or an Answer's carries it. */
@@ -20,17 +20,23 @@ export interface CitedSource {
 
 const END = /[\s.。!！?？;；:：,，、]+$/u;
 const ENCLOSED = /^[([（【]([^()[\]（）【】]+)[)\]）】]$/u;
-/** A file's extension starts with a letter: the ".1" of "Lease 2.1" is part of its name. */
-const EXTENSION = /\.[a-z][a-z0-9]{0,4}$/i;
 /**
  * The one list of words: the labels a reference writes before the name it gives ("Source: Lease 2",
  * "见附件2"). No rule of shape alone tells them from a claim: "Void: Lease 2" states something.
  */
 const SOURCE_LABEL =
   /^(?:(?:see\s+also|sources?|see|from|reference|ref|per|cf)\.?(?:\s*[:：]\s*|\s+)|(?:资料来源|数据来源|来源|出处|参见|详见|见)[：:]?\s*)/iu;
-const QUOTED = /^[“"《「『‘']\s*([^“”"《》「」『』‘’']+?)\s*[”"》」』’']$/u;
-const PLACE_IN_BRACKETS =
-  /^(.+?)\s*[(（]\s*(p\.\s*\d+(?:\s*[-–—]\s*\d+)?|第\s*\d+(?:\s*[-–—]\s*\d+)?\s*页)\s*[)）]$/u;
+/** Each quotation or title mark that may open round a name, and the one that closes it. */
+const MARKS: Readonly<Record<string, string>> = {
+  "“": "”",
+  '"': '"',
+  "‘": "’",
+  "'": "'",
+  "《": "》",
+  "「": "」",
+  "『": "』",
+};
+const IN_BRACKETS = /^(.+?)\s*[(（]([^()（）]+)[)）]$/u;
 
 /** A number with no unit, currency, percent or scale of its own. */
 const plainNumber = (figure: { unit: { kind: string }; currency: string | null; scale: number }) =>
@@ -51,11 +57,27 @@ function placeOf(citation: CitedSource): CitationLocation | null {
   });
 }
 
-/** The name the words give, its quotation or title marks off and a place in brackets after it read as after a comma. */
-function nameOf(words: string): string {
-  const inner = (QUOTED.exec(words)?.[1] ?? words).trim();
-  const placed = PLACE_IN_BRACKETS.exec(inner);
-  return (placed ? `${placed[1]}, ${placed[2]}` : inner).replace(END, "");
+/**
+ * Each way the words may give a name and its place, for the one reader of places (`namedSource`):
+ * as they stand; the name inside its quotation or title marks, what follows the closing mark read
+ * as its place ("《附件3》第2页"); and what brackets after a name hold, read as after a comma.
+ */
+function namesIn(words: string): string[] {
+  const found = [words];
+  const close = MARKS[words[0] ?? ""];
+  const end = close === undefined ? -1 : words.indexOf(close, 1);
+  if (end > 1) {
+    const place = words.slice(end + 1).replace(/^[\s,，]+/u, "");
+    const held = /^[(（](.+)[)）]$/u.exec(place)?.[1] ?? place;
+    const name = words.slice(1, end).trim();
+    found.push(held ? `${name}, ${held.trim()}` : name);
+  }
+  for (const each of [...found]) {
+    const bracketed = IN_BRACKETS.exec(each);
+    if (bracketed?.[1] && bracketed[2])
+      found.push(`${bracketed[1].trim()}, ${bracketed[2].trim()}`);
+  }
+  return found.map((each) => each.replace(END, "").trim()).filter(Boolean);
 }
 
 /**
@@ -71,12 +93,14 @@ export function onlyNamesItsSource(words: string, cited: readonly CitedSource[])
   const whole = (ENCLOSED.exec(bare)?.[1] ?? bare).trim().replace(END, "");
   const label = SOURCE_LABEL.exec(whole);
   const written = [
-    { name: nameOf(whole), labelled: false },
-    ...(label ? [{ name: nameOf(whole.slice(label[0].length).trim()), labelled: true }] : []),
+    ...namesIn(whole).map((name) => ({ name, labelled: false })),
+    ...(label
+      ? namesIn(whole.slice(label[0].length).trim()).map((name) => ({ name, labelled: true }))
+      : []),
   ];
   return written.some(({ name, labelled }) => {
-    const source = name ? namedSource(name) : null;
-    if (!source || !/\p{L}/u.test(source.name.replace(EXTENSION, ""))) return false;
+    const source = namedSource(name);
+    if (!source || !/\p{L}/u.test(withoutExtension(source.name))) return false;
     if (!labelled && readFigures(source.name).some((figure) => !plainNumber(figure))) return false;
     return cited.some(
       (citation) =>
@@ -91,7 +115,7 @@ const escaped = (text: string) =>
 
 /** The name as a pattern: a Latin edge never runs into the word beside it, a number never into more digits. */
 function namePattern(name: string): RegExp | null {
-  const base = name.replace(EXTENSION, "").trim();
+  const base = withoutExtension(name).trim();
   if (!/\p{L}/u.test(base) || !/\p{N}/u.test(base)) return null;
   const first = base[0] ?? "";
   const last = base.at(-1) ?? "";

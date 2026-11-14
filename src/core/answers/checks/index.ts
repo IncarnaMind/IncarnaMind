@@ -1319,11 +1319,6 @@ export function createChecks(options: ChecksOptions) {
   }
 
   /**
-   * Check against a Document… (./wholeRead). A sentence's mark stays as it was until its read
-   * ends, so Stop or a crash leaves it so; a newer read of the sentence, or any change to its mark
-   * meanwhile, wins over the result.
-   */
-  /**
    * Takes an earlier check's mark off each sentence `stretches` touch that only names the Document
    * it cites: no check reads it now (#3093). An edit only when there is such a mark.
    */
@@ -1333,6 +1328,11 @@ export function createChecks(options: ChecksOptions) {
       content.edit(mindId, (blocks) => unmarkSourceNames(blocks, named(blocks)));
   }
 
+  /**
+   * Check against a Document… (./wholeRead). A sentence's mark stays as it was until its read
+   * ends, so Stop or a crash leaves it so; a newer read of the sentence, or any change to its mark
+   * meanwhile, wins over the result.
+   */
   async function readSentences(
     input: ParsedCheck,
     within: SearchScope,

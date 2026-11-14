@@ -679,3 +679,68 @@ describe.each(LANGUAGES)("a sentence that only names its source ($language)", (e
     setup.core.close();
   });
 });
+
+describe.each([
+  {
+    language: "en",
+    names: ["Lease 2", "Lease 2.1"],
+    write: "The deposit is 2600 euros [Lease 2.1, p. 3].",
+  },
+  {
+    language: "zh-CN",
+    names: ["附件2", "附件2.1"],
+    write: "押金为2600欧元[附件2.1，第3页]。",
+  },
+])("a source written in brackets, its name holding a version ($language)", ({ names, write }) => {
+  // protects=a bracketed source the assistant writes links to the Citation of the Document of that very name: "Lease 2.1, p. 3" to Lease 2.1, never to Lease 2, though both are cited at that page (#3093); fails_when=the version after the dot is taken for an extension and the write cites Lease 2; no_claim=how a real model writes its sources.
+  test("links to the Document of that name, not to the one without its version", async () => {
+    const quotes = [
+      "The deposit for unit 2 is 2200 euros.",
+      "The deposit for unit 2 is 2600 euros.",
+    ];
+    const model = scriptedModel(
+      (call) => {
+        if (isCheckRun(call)) return checkReply(call, {});
+        const searches = call.results.filter((result) => result.tool === "search_documents");
+        const next = quotes[searches.length];
+        if (next !== undefined)
+          return { calls: [{ tool: "search_documents", input: { query: next } }] };
+        if (!call.results.some((result) => result.tool === "cite")) {
+          const passages = searches.flatMap((each) => shownPassages(each.text));
+          const citations = quotes.map((quote, index) => ({
+            marker: index + 1,
+            passage: passages.find((each) => each.text.includes(quote))?.id,
+            quote,
+          }));
+          return { calls: [{ tool: "cite", input: { citations } }] };
+        }
+        // A source in brackets is refused once, and linked to its recorded Citation when written so again (#1075, #961).
+        const writes = call.results.filter((result) => result.tool === "create_mind");
+        if (writes.length < 2 && !writes.some((result) => !result.text.startsWith("Error")))
+          return { calls: [{ tool: "create_mind", input: { title: "Deposits", content: write } }] };
+        return { text: "Done." };
+      },
+      { generate: checkGenerate({}) },
+    );
+    const pages = (deposit: string) =>
+      buildPdf([{ lines: ["Lease terms."] }, { lines: ["Rent terms."] }, { lines: [deposit] }]);
+    const { core } = await setUpWithDocuments(model, [
+      { name: `${names[0]}.pdf`, contents: pages(quotes[0] ?? "") },
+      { name: `${names[1]}.pdf`, contents: pages(quotes[1] ?? "") },
+    ]);
+
+    const answer = await askAssistant(core, { text: "Write the deposits into a new note" });
+    const made = changesIn(answer).find((change) => change.created);
+    if (!made) throw new Error("No Note was made.");
+    const client = await connectToMind(core, made.mindId);
+    await client.settled();
+    const cited: { name: unknown; page: unknown }[] = [];
+    readMind(client).descendants((node) => {
+      if (node.type.name === "citation")
+        cited.push({ name: node.attrs.documentName, page: node.attrs.pageFrom });
+      return true;
+    });
+    expect(cited).toEqual([{ name: names[1], page: 3 }]);
+    core.close();
+  });
+});
