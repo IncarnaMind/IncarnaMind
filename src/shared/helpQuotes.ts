@@ -12,6 +12,7 @@ import type {
   CitationCheck,
   CitationCheckReason,
   CitationLocation,
+  QuoteCell,
 } from "../core/api";
 import { onlyMoment, type ReplyPiece } from "./helpReplyRead";
 import { CJK, normaliseText } from "./text";
@@ -31,6 +32,8 @@ export interface QuotedCitation {
   quote: string;
   check: CitationCheck;
   checkReason: CitationCheckReason | null;
+  /** Its found quote's table cells, as the cite found them; none for a reply kept before them. */
+  cells?: readonly QuoteCell[];
 }
 
 /**
@@ -55,6 +58,11 @@ export interface QuoteLine {
   quote: string | null;
   /** The quote was cut, and ends "…". */
   cut: boolean;
+  /**
+   * A found quote that is cells of a table, drawn cell by cell in place of `quote`, each whole
+   * after its column's name where the table gives one; null for any other.
+   */
+  cells: readonly QuoteCell[] | null;
 }
 
 /**
@@ -231,6 +239,7 @@ export function quoteLines(
       state,
       quote: fitted?.text ?? null,
       cut: fitted?.cut ?? false,
+      cells: state === "found" ? (citation?.cells ?? null) : null,
     };
   });
   const second = lines[1];
@@ -239,6 +248,17 @@ export function quoteLines(
 }
 
 const CJK_CHARACTER = new RegExp(`[${CJK}]`, "u");
+
+/**
+ * A table quote's cells as its line reads them (#2847): each value whole, in quotation marks, after
+ * its column's name where the table gives one, apart by " · ". A Chinese name takes no space.
+ */
+export const cellsText = (cells: readonly QuoteCell[]): string =>
+  cells
+    .map(({ name, value }) =>
+      name === null ? `“${value}”` : `${name}${CJK_CHARACTER.test(name) ? "" : " "}“${value}”`,
+    )
+    .join(" · ");
 /** A character that counts toward a quote's length in Chinese: any but a space or a mark. */
 const COUNTED = /[\p{L}\p{N}]/u;
 /** Where a clause may end: after these, unless the mark sits inside a number ("42,000", "3.5"). */

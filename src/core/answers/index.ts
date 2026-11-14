@@ -1726,6 +1726,7 @@ export function createAnswers(options: AnswersOptions) {
         marksFormulas: () => workbookToolsOffered,
         defuses: CALL_TAGS,
         quotesStateClaims: () => !options.quotesAsGiven?.(),
+        tableCells: () => help !== undefined,
         // Read as each Transcript is shown: a quote can come before listening, and the Meeting's
         // Transcript can appear after it.
         thisCall: (documentId) =>

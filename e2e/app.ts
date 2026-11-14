@@ -30,7 +30,7 @@ import type { FakeTranscriberOptions } from "../src/core/transcription/fake";
 import { LOG_FILE } from "../src/main/log";
 import { EVENT_CHANNEL } from "../src/shared/bridge";
 import type { DocumentLocation } from "../src/shared/documentViewer";
-import { fittedQuote, momentFound } from "../src/shared/helpQuotes";
+import { cellsText, fittedQuote, momentFound } from "../src/shared/helpQuotes";
 import { translate } from "../src/shared/i18n";
 import { defaultHelpKeys, HELP_SHORTCUTS, type HelpKeys } from "../src/shared/meetingHelp";
 import type { TestHooks } from "../src/shared/testHooks";
@@ -543,9 +543,10 @@ export async function expectQuoteLines(
     const { messages } = await bridge.getConversation(conversationId);
     const answer = messages.find((message) => message.id === answerId);
     if (answer?.kind !== "answer") return [];
-    return answer.citations.map(({ quote, quotedWordsFound }) => ({
+    return answer.citations.map(({ quote, quotedWordsFound, cells }) => ({
       quote,
       quotedWordsFound: quotedWordsFound ?? [],
+      cells: cells ?? null,
     }));
   }, help);
   await expect(
@@ -565,12 +566,14 @@ export async function expectQuoteLines(
     const found = (await row.getByTestId("help-quote-found").count()) > 0;
     if (found) {
       await expect(row.getByTestId("help-quote-found")).toBeVisible();
-      const bare = words.replace(/^\d{1,2}:\d{2}(?::\d{2})?\s*/, "").replace(/^“|”$/gu, "");
+      const untimed = words.replace(/^\d{1,2}:\d{2}(?::\d{2})?\s*/, "");
+      const bare = untimed.replace(/^“|”$/gu, "");
       expect(
         citations.some(
           (citation) =>
             fittedQuote(citation.quote).text === bare ||
-            momentFound(bare, { quotedWordsFound: citation.quotedWordsFound }),
+            momentFound(bare, { quotedWordsFound: citation.quotedWordsFound }) ||
+            (citation.cells !== null && cellsText(citation.cells) === untimed),
         ),
         `a ✓ beside "${bare}", which no Citation's found words are`,
       ).toBe(true);

@@ -265,6 +265,32 @@ describe("The quote lines' replay", () => {
     ]);
   });
 
+  test("a quote of a table's row in its Passage is drawn cell by cell, named where the table proves it", () => {
+    const table = "| Plan | Price |\n|---|---|\n| Team | $25 |\n| Enterprise | $45 |";
+    const { counts, drawn } = replay([
+      press({
+        id: "en-cells",
+        button: "answer",
+        text: "★ Enterprise is $45 a seat [^1]\n→ answers at once",
+        citations: [sheet(1, "| Enterprise | $45 |", { passageText: table })],
+      }),
+      press({
+        id: "en-bare-cells",
+        button: "answer",
+        text: "★ Enterprise is $45 a seat [^1]\n→ answers at once",
+        citations: [
+          sheet(1, "Enterprise | $45", { passageText: "Plan | Price\nEnterprise | $45" }),
+        ],
+      }),
+    ]);
+    expect(counts.rows).toMatchObject({ "cells-named": 1, "cells-as-quoted": 1 });
+    expect(drawn.map((line) => line.rows)).toEqual([
+      ["Plan “Enterprise” · Price “$45” 1 ✓"],
+      ["“Enterprise” · “$45” 1 ✓"],
+    ]);
+    expect(counts.quoteNotAsGiven).toBe(0);
+  });
+
   test("the readers' file holds the drawn lines and nothing of their kind; its key says which", () => {
     const { drawn } = replay(ALL);
     const { text, key } = readersFile(drawn);

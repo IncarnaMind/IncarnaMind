@@ -31,6 +31,8 @@ const fake = vi.hoisted(() => {
     command: null as null | ((command: string) => void),
     /** What the panel asked of the keyboard, in order: true takes it, false gives it back (#2925). */
     keyboard: [] as boolean[],
+    /** What the panel told its window of itself: folded, and whether its latest is pinned. */
+    states: [] as unknown[],
     /** The unsent line the core holds for the Meeting, as a panel opening asks for it (#2925). */
     held: null as null | { text: string; atMs: number | null },
     language: "en" as "en" | "zh-CN",
@@ -121,7 +123,9 @@ const panelBridge = {
     return () => undefined;
   },
   resize: () => undefined,
-  state: () => undefined,
+  state: (value: unknown) => {
+    fake.states.push(value);
+  },
   close: () => undefined,
   setUp: () => undefined,
   keyboard: (take: boolean) => fake.keyboard.push(take),
@@ -219,6 +223,7 @@ beforeEach(async () => {
   fake.holdAdding = false;
   fake.reported.length = 0;
   fake.keyboard.length = 0;
+  fake.states.length = 0;
   fake.held = null;
   fake.language = "en";
   container = document.createElement("div", {});
@@ -652,4 +657,31 @@ describe("A Citation of an earlier call in a reply (#3005)", () => {
       expect(title).not.toContain(foreign);
     },
   );
+});
+
+describe("A reply whose Citation is cells of a table (#2847)", () => {
+  // protects=Pin keeps a suggestion's ids and tells its window only whether it is pinned, and Add to note writes the reply's own text and Citations, so neither carries a quote's cells anywhere: they stay on the call help Citation the panel draws; fails_when=the cells, or a heading only they hold, reach the Note's blocks or the window's state; no_claim=how the panel draws the cells.
+  test("Pin and Add to note carry none of its cells", async () => {
+    const cells = [
+      { name: "Plan", value: "Enterprise" },
+      { name: "Price", value: "$45 per seat a month" },
+      { name: "Sign-on", value: "Yes" },
+    ];
+    const answer = {
+      ...answerOf("answer-cells", "★ Enterprise is $45 a seat [^1]\n→ answers at once", "done"),
+      citations: [
+        { ...SAID, quote: "Enterprise\t$45 per seat a month\tYes", location: null, cells },
+      ],
+    } as unknown as ConversationAnswer;
+    await changed(helpOf("answer", "answer-cells"));
+    await loaded([answer]);
+    expect(container.textContent).toContain("Sign-on “Yes”");
+    await click(all("help-pin")[0]);
+    await addToNote([answer]);
+    expect(fake.added).toHaveLength(1);
+    expect(fake.added[0]).not.toContain("cells");
+    expect(fake.added[0]).not.toContain("Sign-on");
+    expect(JSON.stringify(fake.states)).not.toContain("Sign-on");
+    expect(fake.states.at(-1)).toEqual({ folded: false, pinned: true });
+  });
 });

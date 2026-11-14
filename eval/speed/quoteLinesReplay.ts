@@ -13,6 +13,7 @@
  * apart.
  */
 import { readFileSync, writeFileSync } from "node:fs";
+import { quoteCells } from "../../src/core/answers/quoteCells";
 import {
   CITATION_CHECK_REASONS,
   type CitationCheck,
@@ -23,6 +24,7 @@ import { citationNumbers, helpParts, quoted } from "../../src/renderer/src/helpR
 import { badgeMessage } from "../../src/shared/citations";
 import { clockTime } from "../../src/shared/clock";
 import {
+  cellsText,
   comparedWords,
   type Moment,
   markersOf,
@@ -184,6 +186,13 @@ const quoteFound = (citation: SavedCitation): boolean =>
 function quotedOf(citation: SavedCitation): QuotedCitation {
   const start = startOf(citation.location);
   const short = citation.found !== undefined;
+  // The record holds its Passage's text alone, so only a table written in it is read for cells.
+  const cells =
+    citation.passageText === undefined
+      ? null
+      : quoteCells(citation.quote, [
+          { page: 1, kind: "section", text: citation.passageText, label: null },
+        ]);
   return {
     marker: citation.marker,
     documentId: citation.document ?? citation.place ?? "",
@@ -193,6 +202,7 @@ function quotedOf(citation: SavedCitation): QuotedCitation {
     quote: citation.quote,
     check: short ? (citation.found ? "found" : "not-found") : citation.check,
     checkReason: short ? null : (citation.checkReason ?? null),
+    ...(cells && { cells }),
   };
 }
 
@@ -242,9 +252,13 @@ const rowKind = (line: QuoteLine): RowKind =>
     ? "not-found"
     : line.state === "cant-check"
       ? "cant-check"
-      : line.cut
-        ? "cut-at-a-clause"
-        : "word-for-word";
+      : line.cells
+        ? line.cells.some((cell) => cell.name !== null)
+          ? "cells-named"
+          : "cells-as-quoted"
+        : line.cut
+          ? "cut-at-a-clause"
+          : "word-for-word";
 
 /** A Document's line marks, which a quote line leaves out (`fittedQuote`). */
 const LINE_MARKS = /^(?:[-*+•]\s+|\d{1,3}[.)]\s+|#{1,6}\s+|>\s*)+/u;
@@ -283,13 +297,19 @@ export function drawPress(press: SavedPress, counts: ReplayCounts): DrawnLine[] 
     if (line.state === "found" && record) {
       const given = record.quote.trim().replace(LINE_MARKS, "");
       const shown = (line.quote ?? "").replace(/…$/u, "");
-      if (line.cut ? !given.startsWith(shown) : shown !== given) counts.quoteNotAsGiven++;
+      const asGiven = line.cells
+        ? line.cells.every((cell) => given.includes(cell.value))
+        : line.cut
+          ? given.startsWith(shown)
+          : shown === given;
+      if (!asGiven) counts.quoteNotAsGiven++;
     }
     const start = moment ? startOf(record?.location) : null;
     if (moment && start === null) counts.momentsWithNoTime++;
     if (line.state === "found") {
       const time = start === null ? "" : `${clockTime(start)} `;
-      return [`${time}“${line.quote ?? ""}”`, ...marks].join(" ");
+      const words = line.cells ? cellsText(line.cells) : `“${line.quote ?? ""}”`;
+      return [`${time}${words}`, ...marks].join(" ");
     }
     const at = startOf(record?.location);
     const { key, params } = badgeMessage(

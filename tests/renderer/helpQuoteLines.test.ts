@@ -9,7 +9,7 @@ import { act, type ComponentType, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { ConversationAnswer, MeetingHelp, MeetingHelpKind } from "../../src/core/api";
-import { fittedQuote, momentFound } from "../../src/shared/helpQuotes";
+import { cellsText, fittedQuote, momentFound } from "../../src/shared/helpQuotes";
 import { type MessageKey, type MessageParams, translate } from "../../src/shared/i18n";
 
 const fake = vi.hoisted(() => ({ language: "en" as "en" | "zh-CN" }));
@@ -189,9 +189,15 @@ function expectEveryMarkOnFoundWords(answer: ConversationAnswer) {
     }
     expect(row).not.toBeNull();
     const words = unquoted((row?.querySelector(".help-quote-words")?.textContent ?? "").trim());
+    const drawnWords = (row?.querySelector(".help-quote-words")?.textContent ?? "")
+      .trim()
+      .replace(MOMENT, "");
     expect(
       answer.citations.some(
-        (citation) => fittedQuote(citation.quote).text === words || momentFound(words, citation),
+        (citation) =>
+          fittedQuote(citation.quote).text === words ||
+          momentFound(words, citation) ||
+          (citation.cells !== undefined && cellsText(citation.cells) === drawnWords),
       ),
     ).toBe(true);
   }
@@ -238,6 +244,45 @@ describe("Under each line of call help, the app draws its Citations' quotes (#28
     expect(all("help-citation").map((chip) => chip.textContent)).toEqual(["1", "2", "3"]);
     expectEveryMarkOnFoundWords(answer);
   });
+
+  // protects=a found quote that is cells of a table is drawn cell by cell, each value whole after its column's name where the table gave one, in English and Chinese; one kept before cells were read draws as quoted (#2847); fails_when=a cell's value or name differs from what the cite found, a cell takes a name it had none of, or a reply without cells draws otherwise than its quote; no_claim=how the cells were read.
+  test.each([
+    {
+      language: "en" as const,
+      quote: "Enterprise\t$45 per seat a month\tYes",
+      cells: [
+        { name: "Plan", value: "Enterprise" },
+        { name: "Price", value: "$45 per seat a month" },
+        { name: null, value: "Yes" },
+      ],
+      drawn: "Plan “Enterprise” · Price “$45 per seat a month” · “Yes”",
+    },
+    {
+      language: "zh-CN" as const,
+      quote: "企业版\t每个席位每月 45 美元\t是",
+      cells: [
+        { name: "方案", value: "企业版" },
+        { name: "价格", value: "每个席位每月 45 美元" },
+        { name: null, value: "是" },
+      ],
+      drawn: "方案“企业版” · 价格“每个席位每月 45 美元” · “是”",
+    },
+  ])(
+    "a table's row is drawn cell by cell under its column's names ($language)",
+    async ({ language, quote, cells, drawn: words }) => {
+      fake.language = language;
+      const reply = "★ Enterprise is $45 a seat, with sign-on [^1]\n→ answers at once";
+      const answer = answerOf(reply, [sheet(1, quote, { cells })]);
+      await show("answer", answer);
+      expect(drawn()).toEqual([
+        [{ as: "quote", state: "found", words, numbers: ["1"], found: true }],
+      ]);
+      expectEveryMarkOnFoundWords(answer);
+      // Kept before cells were read: its quote as given.
+      await show("answer", answerOf(reply, [sheet(1, quote)]));
+      expect(drawn()[0]?.[0]?.words).toBe(`“${quote}”`);
+    },
+  );
 
   test("a third and later Citation keep their numbers at the end of the second line", async () => {
     await show(

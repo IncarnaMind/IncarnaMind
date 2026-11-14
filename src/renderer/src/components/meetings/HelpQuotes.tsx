@@ -2,6 +2,7 @@ import { useRef } from "react";
 import type { ConversationAnswer, MarkedCitation } from "../../../../core/api";
 import { badgeMessage, citationSource } from "../../../../shared/citations";
 import {
+  cellsText,
   type Moment,
   momentFound,
   momentWords,
@@ -147,7 +148,8 @@ function QuoteRow({ line, moment, ...shown }: Shown & { line: QuoteLine; moment:
       {line.state === "waiting" && <span aria-hidden="true" className="help-quote-room" />}
       {line.state === "found" && (
         <span className="help-quote-words">
-          {time && `${time} `}“{line.quote}”
+          {time && `${time} `}
+          {line.cells ? cellsText(line.cells) : `“${line.quote}”`}
         </span>
       )}
       {(line.state === "not-found" || line.state === "cant-check") && citation && (

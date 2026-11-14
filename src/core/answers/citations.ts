@@ -71,6 +71,7 @@ import {
   type CitedSelection,
   type DocumentKind,
   MAX_CITED_PAGES,
+  type QuoteCell,
   type QuotedWordsCheck,
   type RejectedRecord,
   type SelectedPart,
@@ -78,6 +79,7 @@ import {
 } from "../api";
 import type { CitationSource, DocumentDate } from "../documents";
 import { BOILERPLATE_PARAMETERS } from "../documents/boilerplate";
+import { HEADER_ROWS } from "../documents/formats/grid";
 import type { PageText } from "../documents/passages";
 import { unsureSpansIn } from "../documents/scan/layout";
 import type { WindowedPassage } from "../documents/search";
@@ -103,6 +105,7 @@ import type {
   UnfoundQuote,
 } from "./engine";
 import { NOT_CITED_ATTRIBUTE } from "./prompt";
+import { quoteCells } from "./quoteCells";
 import {
   nearestPlace,
   type QuotedSentence,
@@ -1875,6 +1878,8 @@ interface Accepted {
   quotedWords?: QuotedWordsCheck;
   /** The words of the Answer's quotation marks this record's Units state (#2602). */
   quotedWordsFound?: string[];
+  /** Its found quote's table cells, as the cite found them (`quoteCells`), for call help (#2847). */
+  cells?: QuoteCell[];
   /** A Citation of the Question context, kept as it is (#1800): there is nothing of it to fix. */
   kept?: true;
   /**
@@ -1926,6 +1931,7 @@ const toCitation = (record: Accepted, result: CheckResult | null, asShown = true
   ...(result?.unsure && result.unsure.length > 0 && { unsure: result.unsure }),
   ...(record.quotedWords && { quotedWords: record.quotedWords }),
   ...(record.quotedWordsFound && { quotedWordsFound: record.quotedWordsFound }),
+  ...(record.cells && { cells: record.cells }),
 });
 
 export interface CitationSessionEvents {
@@ -1945,6 +1951,11 @@ export interface CitationSessionEvents {
    * quotes as given. A check's own evidence keeps its quote.
    */
   quotesStateClaims?(): boolean;
+  /**
+   * Whether a found quote that is cells of a table keeps them, read once as it is cited: call
+   * help's, whose quote line draws them (#2847).
+   */
+  tableCells?(): boolean;
   /**
    * Whether a Document is the Transcript of the call the Answer is asked during (#3005); undefined
    * when it is asked during none, so no Passage is marked with its call.
@@ -2080,6 +2091,50 @@ export function createCitationSession(
     titles.set(key, text);
     return text;
   }
+
+  /**
+   * The Units a sheet's header row may be in, by Document version and sheet, read once: the Units
+   * of its first rows, which `headerRow` looks among.
+   */
+  const heads = new Map<string, PageText[]>();
+  function headUnits(record: Pick<Accepted, "source">, sheet: string | null): PageText[] {
+    const key = `${record.source.documentId}\n${record.source.contentHash}\n${sheet ?? ""}`;
+    const known = heads.get(key);
+    if (known) return known;
+    const units = documents
+      .pageTexts(record.source.documentId, record.source.contentHash, null, null)
+      .filter(
+        (unit) =>
+          unit.kind === "rows" &&
+          (unit.label?.sheet ?? null) === sheet &&
+          (unit.label?.rows ?? []).some((row) => row <= HEADER_ROWS),
+      );
+    heads.set(key, units);
+    return units;
+  }
+
+  /** A found quote's table cells (`quoteCells`), from the Units it cites and its sheet's header. */
+  const cellsOf = (record: Accepted): QuoteCell[] | null => {
+    const cited = citedText(record);
+    const sheets = new Set(
+      cited.filter((unit) => unit.kind === "rows").map((unit) => unit.label?.sheet ?? null),
+    );
+    const above = [...sheets].flatMap((sheet) =>
+      headUnits(record, sheet).filter((unit) => !cited.some((each) => each.page === unit.page)),
+    );
+    return quoteCells(record.shown ?? record.quote, [...above, ...cited]);
+  };
+
+  /**
+   * What a record's cite found, kept as it lands: its quote's check and, for call help, its found
+   * quote's table cells, which nothing reads again.
+   */
+  const keepAtCite = (record: Accepted, result: CheckResult) => {
+    record.atCite = result;
+    if (result.check !== "found" || !events.tableCells?.()) return;
+    const cells = cellsOf(record);
+    if (cells) record.cells = cells;
+  };
 
   /**
    * The check, with the Document as it is now: it may have been deleted since
@@ -2444,7 +2499,7 @@ export function createCitationSession(
       }
       const { record, source, passageUnits } = taken;
       const { marker } = record;
-      record.atCite = check(record);
+      keepAtCite(record, check(record));
       records.set(marker, record);
       recorded.push(marker);
       events.onRecord(marker, toCitation(record, null));
@@ -2907,7 +2962,7 @@ export function createCitationSession(
       if (!taken.ok || !taken.record.quote) return false;
       const result = check(taken.record);
       if (!located(result)) return false;
-      taken.record.atCite = result;
+      keepAtCite(taken.record, result);
       records.set(marker, taken.record);
       toFix.delete(marker);
       events.onRecord(marker, toCitation(taken.record, null));
