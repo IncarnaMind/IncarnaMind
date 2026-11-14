@@ -106,6 +106,7 @@ const REASONS = [
   "monthly-limit-unfinished",
   "small-model",
   "unsure-word",
+  "other-call",
 ] as const satisfies readonly CitationCheckReason[];
 
 // The lists follow their types: a new check or reason fails the type-check until it is listed.

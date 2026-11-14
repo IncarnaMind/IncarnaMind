@@ -4453,7 +4453,7 @@ export const zhCN = {
   "citation.reason.monthly-limit-unfinished": "未核对：{model} 还没核对完这句，就已达每月上限。",
   "citation.reason.monthly-limit-unfinished.unnamed": "未核对：这句还没核对完，就已达每月上限。",
   "citation.reason.notChecked": "未能核对引文是否支持这句话。",
-  "citation.reason.otherCall": "引文出自另一场会议。通话助手的回复只对照这场会议和你的文档核对。",
+  "citation.reason.other-call": "引文出自另一场会议。通话助手的回复只对照这场会议和你的文档核对。",
   "citation.reason.small-model": "这台电脑上的模型太小，无法核对引文是否支持这句话。",
   "citation.where": "{document}，{location}",
   "citation.where.scan": "{document}（扫描件），{location}",
