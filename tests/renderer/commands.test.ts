@@ -498,6 +498,38 @@ describe("keys", () => {
     }
   });
 
+  // protects=outside text, ⌘Z and ⇧⌘Z are the app's even with nothing of the app's to take back: the key's default is prevented, so the browser never undoes the last typing in a Note that may not show, as one behind its Transcript (#3099); fails_when=the key falls through to the browser's own undo; no_claim=⌘Z in text, which the text's own undo takes.
+  test("⌘Z and ⇧⌘Z outside text, with nothing to take back, keep the browser's own undo away", async () => {
+    const { runShortcut } = await import("../../src/renderer/src/commands/keymap");
+    const { useUndo } = await import("../../src/renderer/src/undo");
+    useUndo.setState({ done: [], undone: [], aside: [], running: null, making: 0 });
+    const globals = globalThis as unknown as { document?: unknown };
+    const page = globals.document;
+    globals.document = { querySelector: () => null, activeElement: null };
+    for (const name of ["HTMLElement", "HTMLInputElement", "HTMLTextAreaElement"]) {
+      vi.stubGlobal(name, class {});
+    }
+    const mac = /Mac|iPhone|iPad/.test(navigator.platform);
+    try {
+      for (const shift of [false, true]) {
+        let prevented = 0;
+        const event = {
+          ...press(shift ? "Z" : "z", "KeyZ", { meta: mac, ctrl: !mac, shift }),
+          target: null,
+          getModifierState: () => false,
+          preventDefault: () => {
+            prevented += 1;
+          },
+        } as unknown as KeyboardEvent;
+        expect(runShortcut(event, NOWHERE)).toBe(true);
+        expect(prevented).toBe(1);
+      }
+    } finally {
+      vi.unstubAllGlobals();
+      globals.document = page;
+    }
+  });
+
   test("AltGr+M types µ, not Comment, though Ctrl+Alt+M is Comment's key on Windows and Linux", async () => {
     const { runShortcut } = await import("../../src/renderer/src/commands/keymap");
     let ran = 0;

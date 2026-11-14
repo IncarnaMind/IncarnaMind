@@ -18,12 +18,18 @@ describe("partial meeting-fill status", () => {
     expect(isPartialMeetingFill(fillOf({ omitted: 0, unfinishedParts: 0 }))).toBe(false);
   });
 
+  test("a problem with nothing left out is a whole note (#3099)", () => {
+    const problem = { kind: "model", message: "the model couldn’t fill in the notes." } as const;
+    expect(isPartialMeetingFill(fillOf({ problem }))).toBe(false);
+    expect(isPartialMeetingFill(fillOf({ problem, omitted: 0, unfinishedParts: 0 }))).toBe(false);
+  });
+
   test.each([
     { omitted: 1 },
     { omitted: 3 },
     { unfinishedParts: 1 },
     { unfinishedParts: 2 },
-    { problem: { kind: "model", message: "Unknown-size malformed frame" } },
+    { omitted: 1, problem: { kind: "model", message: "A malformed part was dropped" } },
     { omitted: 1, unfinishedParts: 2 },
   ] satisfies Partial<MeetingFill>[])("recognizes the producer's signal %j", (fill) => {
     expect(isPartialMeetingFill(fillOf(fill))).toBe(true);

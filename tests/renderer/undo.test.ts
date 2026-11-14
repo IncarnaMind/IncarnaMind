@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import type { Language } from "../../src/core/language";
 import { saidInLine } from "../../src/renderer/src/lineNames";
 import {
@@ -336,6 +336,91 @@ describe("the undo stack", () => {
     useUndo.getState().withdraw(accepted);
     expect(names(useUndo.getState().done)).toEqual(["A"]);
     expect(useUndo.getState().line).toBeNull();
+  });
+});
+
+// protects=a change set aside keeps its place on either stack while ⌘Z, ⇧⌘Z and Edit › Undo's name pass over it, and an Undo or Redo of it by name still runs; a change offered in place of another takes its place, and one in place of a change not on the stack goes last (#3099); fails_when=a set-aside change is taken by ⌘Z or named, moves, or stays set aside once off the stack; no_claim=which changes are set aside, which tests/renderer/meetingFillUndo.test.ts holds.
+describe("a change set aside, and a change offered in place of another", () => {
+  afterEach(() => {
+    useUndo.setState({ aside: [] });
+  });
+  const setAside = (each: Undoable, aside = true) => useUndo.getState().setAside(each, aside);
+
+  test("⌘Z and ⇧⌘Z pass over a change set aside, which keeps its place", async () => {
+    const log: string[] = [];
+    const [a, hidden, c] = [change("A", log), change("Hidden", log), change("C", log)];
+    for (const each of [a, hidden, c]) push(each);
+    setAside(hidden);
+    await undo();
+    await undo();
+    await undo();
+    expect(log).toEqual(["undo C", "undo A"]);
+    expect(names(useUndo.getState().done)).toEqual(["Hidden"]);
+    await redo();
+    await redo();
+    await redo();
+    expect(log).toEqual(["undo C", "undo A", "redo A", "redo C"]);
+    expect(names(useUndo.getState().done)).toEqual(["Hidden", "A", "C"]);
+
+    setAside(hidden, false);
+    await undo();
+    await undo();
+    await undo();
+    expect(log.slice(4)).toEqual(["undo C", "undo A", "undo Hidden"]);
+    setAside(hidden);
+    await redo();
+    expect(log.at(-1)).toBe("redo A");
+  });
+
+  test("what ⌘Z and ⇧⌘Z reach next, and so Edit › Undo's name, skip a change set aside", async () => {
+    const log: string[] = [];
+    const [a, hidden] = [change("A", log), change("Hidden", log)];
+    push(a);
+    push(hidden);
+    setAside(hidden);
+    expect(nextToUndo(useUndo.getState())).toBe(a);
+    setAside(a);
+    expect(nextToUndo(useUndo.getState())).toBeUndefined();
+    expect(undoReady(useUndo.getState())).toBe(false);
+    setAside(a, false);
+    await undo();
+    expect(nextToRedo(useUndo.getState())).toBe(a);
+    setAside(a);
+    expect(nextToRedo(useUndo.getState())).toBeUndefined();
+  });
+
+  test("an Undo or Redo of a change set aside, by name, still runs", async () => {
+    const log: string[] = [];
+    const hidden = change("Hidden", log);
+    push(hidden);
+    setAside(hidden);
+    await useUndo.getState().undo(hidden);
+    await useUndo.getState().redo(hidden);
+    expect(log).toEqual(["undo Hidden", "redo Hidden"]);
+  });
+
+  test("a change withdrawn is no longer set aside, and one not on the stack can't be", () => {
+    const log: string[] = [];
+    const hidden = change("Hidden", log);
+    push(hidden);
+    setAside(hidden);
+    useUndo.getState().withdraw(hidden);
+    expect(useUndo.getState().aside).toEqual([]);
+    setAside(change("Elsewhere", log));
+    expect(useUndo.getState().aside).toEqual([]);
+  });
+
+  test("a change offered in place of another takes its place; in place of one not on the stack, it goes last", () => {
+    const log: string[] = [];
+    const [a, held, c] = [change("A", log), change("Held", log), change("C", log)];
+    for (const each of [a, held, c]) push(each);
+    setAside(held);
+    const core = change("Core", log);
+    useUndo.getState().offer(core, held);
+    expect(names(useUndo.getState().done)).toEqual(["A", "Core", "C"]);
+    expect(useUndo.getState().aside).toEqual([]);
+    useUndo.getState().offer(change("Last", log), held);
+    expect(names(useUndo.getState().done)).toEqual(["A", "Core", "C", "Last"]);
   });
 });
 
