@@ -527,7 +527,13 @@ for (const language of ["en", "zh-CN"] as const) {
     // Tab out of the text reaches the margin mark (past the sentence's Citation chip); Enter on it
     // opens the card with the focus on its first action.
     const mark = window.getByTestId("claim-mark").first();
+    // The browser starts Tab from where the User last clicked or focused, which a caret set by the
+    // page doesn't always move: sometimes it started past the mark and ended in a Citation's card.
+    const sentence = await editor.locator(":scope > p").first().boundingBox();
+    if (!sentence) throw new Error("The first sentence isn't drawn.");
+    await window.mouse.click(sentence.x + 2, sentence.y + sentence.height / 2);
     await focusSettled(window, editor);
+    const markCaret = await caretOf(editor);
     for (
       let pressed = 0;
       pressed < 5 && !(await mark.evaluate((each) => each === document.activeElement));
@@ -542,7 +548,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await window.keyboard.press("Escape");
     await expect(card).toHaveCount(0);
     await expect(editor).toBeFocused();
-    expect(await caretOf(editor)).toBe(caret);
+    expect(await caretOf(editor)).toBe(markCaret);
 
     // A card still checking has no action: its mark keeps the focus, and Tab moves on past the card.
     await cursorIn(editor, words.checking.slice(0, 20));
