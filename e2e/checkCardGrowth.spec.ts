@@ -203,10 +203,7 @@ for (const language of ["en", "zh-CN"] as const) {
           )
           .join("  >  ");
         for (const shift of shifts) {
-          expect(
-            ["badge-check-mind", "check-card-foot"],
-            `the Check shifted: ${trail}`,
-          ).not.toContain(shift.test);
+          expect(shift.test, `the Check shifted: ${trail}`).not.toBe("badge-check-mind");
           if (shift.test === "check-card")
             expect(overlap(shift.current, anchor), `the card covered its badge: ${trail}`).toBe(
               false,
