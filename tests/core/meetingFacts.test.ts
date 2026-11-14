@@ -38,6 +38,18 @@ type FrameForm =
   | "titled, one with no id"
   | "titled, one closed by another id";
 
+/** How the second frame's title is written, in a titled reply. */
+type TitleMark = "plain text" | "bold" | "italic" | "a link" | "inline code";
+
+const marked = (title: string, mark: TitleMark) =>
+  ({
+    "plain text": title,
+    bold: `**${title}**`,
+    italic: `*${title}*`,
+    "a link": `[${title}](https://example.com/notes)`,
+    "inline code": `\`${title}\``,
+  })[mark];
+
 function overview(text: string) {
   return [
     "### OVERVIEW",
@@ -59,6 +71,7 @@ async function capture(
     malformedFrame = false,
     badRouting = false,
     form = "as asked",
+    titleMark = "plain text",
   }: {
     badSibling?: boolean;
     withoutIds?: boolean;
@@ -67,6 +80,7 @@ async function capture(
     malformedFrame?: boolean;
     badRouting?: boolean;
     form?: FrameForm;
+    titleMark?: TitleMark;
   } = {},
 ) {
   const words =
@@ -99,7 +113,7 @@ async function capture(
           opening:
             form === "titled, one with no id" && id === "F2"
               ? `${id}: ${words.title}`
-              : `${id} — ${words.title}`,
+              : `${id} — ${id === "F2" ? marked(words.title, titleMark) : words.title}`,
           end: form === "titled, one closed by another id" && id === "F2" ? "F3" : id,
         };
   const text = [
@@ -293,6 +307,32 @@ for (const language of ["en", "zh-CN"] as const) {
       core.close();
     }
   });
+
+  // protects=a pinned cost, not a wish (#3106): a title with marks after a fact's id makes its opening line no control line, as the guard reads it, so that one fact is dropped and counted among the items that couldn't be added, never dropped unsaid, and the same title in plain text is written; fails_when=a marked title's fact is dropped with nothing counted, or the plain twin is dropped; no_claim=that dropping it is right, which is the cost this pins.
+  test.each([
+    ["plain text", 0],
+    ["bold", 1],
+    ["italic", 1],
+    ["a link", 1],
+    ["inline code", 1],
+  ] as const)(
+    `pinned cost: a title in %s after a fact's id leaves out %i (${language})`,
+    async (titleMark, omitted) => {
+      const { core, client, fill, words } = await capture(language, { form: "titled", titleMark });
+      try {
+        expect(fill).toMatchObject({ state: "filled", omitted, unfinishedParts: 0, problem: null });
+        await vi.waitFor(() => {
+          const text = readMind(client).textContent;
+          for (const full of [words.decision, words.second])
+            expect(text.split(full)).toHaveLength(2);
+          expect(text.split(words.first)).toHaveLength(omitted === 0 ? 2 : 1);
+          expect(text).not.toContain(words.title);
+        });
+      } finally {
+        core.close();
+      }
+    },
+  );
 
   test.each([false, true])(
     `an ordinary list line is filled in place, with exact Undo (missing ids: %s, ${language})`,
