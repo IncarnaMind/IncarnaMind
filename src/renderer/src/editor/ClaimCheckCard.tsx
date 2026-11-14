@@ -1,6 +1,7 @@
 import type { Editor } from "@tiptap/core";
 import {
   type CSSProperties,
+  type ReactNode,
   type RefObject,
   useCallback,
   useContext,
@@ -486,6 +487,7 @@ export function ClaimMark({
             }}
           >
             <ClaimCard
+              hint={<CardKeyHint shown={byKeyboard && !pinned && !inCard} />}
               rootRef={card}
               claim={claim}
               heading={heading}
@@ -605,7 +607,6 @@ export function ClaimMark({
           </Popover>,
           document.body,
         )}
-      <CardKeyHint card={card} shown={open && byKeyboard && !pinned && !inCard} />
     </>
   );
 }
@@ -735,6 +736,7 @@ function WorkingInput({
  * named, with Count it.
  */
 export function ClaimCard({
+  hint,
   rootRef,
   claim,
   heading,
@@ -772,6 +774,8 @@ export function ClaimCard({
   use,
   onUse,
 }: {
+  /** The key that goes into the card, the last thing in it (#3102). */
+  hint: ReactNode;
   rootRef: RefObject<HTMLDivElement | null>;
   claim: ShownClaim;
   heading: string;
@@ -1042,6 +1046,7 @@ export function ClaimCard({
             offer={false}
           />
         </div>
+        {hint}
       </div>
     );
   }
@@ -1683,6 +1688,7 @@ export function ClaimCard({
           align="end"
         />
       )}
+      {hint}
     </div>
   );
 }

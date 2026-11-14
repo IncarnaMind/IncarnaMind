@@ -719,6 +719,7 @@ export function ChartView({
           >
             <ChartPointCard
               ref={cardBody}
+              hint={<CardKeyHint shown={keyboardOnly && !card.pinned && !inCard} />}
               title={titleOf(card.point)}
               position={
                 foundShown && foundShown.total > 1
@@ -763,10 +764,6 @@ export function ChartView({
           </Popover>,
           document.body,
         )}
-      <CardKeyHint
-        card={cardBody}
-        shown={card !== null && keyboardOnly && !card.pinned && !inCard}
-      />
     </NodeViewWrapper>
   );
 }

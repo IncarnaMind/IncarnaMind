@@ -225,7 +225,7 @@ async function expectRing(window: Page, accent: string) {
 
 const CHIP = "citation-chip";
 
-/** A Note with three Citations in one paragraph, in a window wide enough for Enter to open the page. */
+/** A Note with three Citations in one paragraph, in a window wide enough for two groups (below 1,000 px, or a Note area under 736 px, the groups share one strip). */
 async function openThreeChips(language: "en" | "zh-CN") {
   await writeFile(join(sources, "Tides.pdf"), TIDES);
   const { app, window } = await launchApp(dataDir, { fakeChat: true, systemColours: true });
@@ -352,7 +352,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect.poll(() => whereIsFocus(window)).toBe("card");
     expect(await noteOf(editor), "Space typed nothing into the Note").toBe(note);
     await expect(window.getByTestId("viewer"), "Space opened no page").toHaveCount(0);
-    await expect(hint).toHaveCount(0);
+    await expect(hint).toBeHidden();
     const controls = await card.locator('button:visible:not([tabindex="-1"])').count();
     expect(controls, "the card has controls").toBeGreaterThan(0);
 
@@ -499,7 +499,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await dismissChatSetup(window);
     await useLocalChatModel(window);
     await setLanguage(window, language);
-    await setWindowSize(app, window, 1100, 900);
+    await setWindowSize(app, window, 1600, 900);
     await newMind(window);
     const editor = window.getByTestId("mind-editor");
     const checkedAt = new Date(Date.now() + 60_000).toISOString();
@@ -596,7 +596,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await window.keyboard.press(key);
       await expect.poll(() => whereIsFocus(window)).toBe("card");
       expect(await noteOf(editor), `${key} typed nothing into the Note`).toBe(note);
-      await expect(hint).toHaveCount(0);
+      await expect(hint).toBeHidden();
       const controls = await card.locator('button:visible:not([tabindex="-1"])').count();
       expect(controls, "the card has controls").toBeGreaterThan(0);
 
@@ -682,7 +682,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await dismissChatSetup(window);
     await useLocalChatModel(window);
     await setLanguage(window, language);
-    await setWindowSize(app, window, 1100, 900);
+    await setWindowSize(app, window, 1600, 900);
     await addDocuments(window, [join(sources, "Acme.pdf")]);
     await newMind(window);
     const editor = window.getByTestId("mind-editor");
@@ -739,7 +739,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect.poll(() => whereIsFocus(window)).toBe("card");
       await expect(card.getByTestId("chart-card-open")).toBeFocused();
       await expect(viewers, "Space opened no page").toHaveCount(before);
-      await expect(hint).toHaveCount(0);
+      await expect(hint).toBeHidden();
 
       // Tab from its last control, and Shift+Tab from its first, go back to the value.
       await window.keyboard.press("Tab");
@@ -771,7 +771,7 @@ for (const language of ["en", "zh-CN"] as const) {
       // A value with no Citation has no control: no key hint, and Space keeps its card as it was.
       await uncited.focus();
       await expect(card).toHaveCount(1);
-      await expect(hint).toHaveCount(0);
+      await expect(hint).toBeHidden();
       await expect(uncited).not.toHaveAttribute("aria-keyshortcuts", /.+/);
       await window.keyboard.press("Space");
       await expect(uncited).toBeFocused();

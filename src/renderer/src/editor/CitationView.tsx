@@ -2,6 +2,7 @@ import { NodeViewWrapper, type ReactNodeViewProps } from "@tiptap/react";
 import { ySyncPluginKey } from "@tiptap/y-tiptap";
 import {
   type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
   type RefObject,
   useCallback,
   useContext,
@@ -790,11 +791,11 @@ export function CitationView({
               note={noteOf(formatting, inCluster)}
               signOff={signOff}
               onSignOff={canSignOff ? toggleSignOff : null}
+              hint={<CardKeyHint shown={byKeyboard && !pinned && !inCard} />}
             />
           </Popover>,
           document.body,
         )}
-      <CardKeyHint card={cardRef} shown={cardShown && byKeyboard && !pinned && !inCard} />
     </NodeViewWrapper>
   );
 }
@@ -923,9 +924,12 @@ function CitationCard({
   menu,
   signOff,
   onSignOff,
+  hint,
 }: {
   /** The card's own element, for Tab from the marker to reach its buttons. */
   card: RefObject<HTMLDivElement | null>;
+  /** The key that goes into the card, the last thing in it (#3102). */
+  hint: ReactNode;
   /** The User's own check of it (#1933), apart from IncarnaMind's. */
   signOff: SignOffNow | null;
   /** Null where it can't be marked, such as an Answer in the assistant. */
@@ -1324,6 +1328,7 @@ function CitationCard({
           </button>
         )}
       </div>
+      {hint}
     </div>
   );
 }
