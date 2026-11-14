@@ -437,7 +437,6 @@ describe("The quote lines' replay", () => {
     });
   });
 
-  // protects=#3098's measure of what it leaves as #2847 drew it: a room of one row kept while written whose own quote lands with the end and wraps is counted apart, with the lines it moves; fails_when=such a room goes uncounted, or is counted as the end's Citations moving a line; no_claim=how often it happens, which the saved records give.
   // protects=#3098: the replay draws a stopped or failed reply as the panel does, as everywhere, with nothing at the foot and no row kept for a number with no Citation; fails_when=it counts a foot or a kept row the User doesn't see; no_claim=what Stop does to the quotes, which #2847's tests pin.
   test("a stopped reply is drawn as everywhere: nothing at the foot, no kept row", () => {
     const stopped = press({
@@ -451,7 +450,8 @@ describe("The quote lines' replay", () => {
     expect(replay([stopped]).counts.atTheEnd).toMatchObject({ atTheFoot: 0, keptNotFound: 0 });
   });
 
-  test("a room whose quote lands with the end and wraps is counted apart", () => {
+  // protects=#3098: a room of one row kept while written whose own quote lands with the end holds to that row, so a long quote moves nothing; fails_when=the room grows or a line below moves; no_claim=pixels, which the spec measures.
+  test("a room whose long quote lands with the end holds to its row, and nothing moves", () => {
     const long =
       "Enterprise contracts are billed annually, and every seat after the first fifty is billed at a lower price.";
     const room = press({
@@ -464,9 +464,10 @@ describe("The quote lines' replay", () => {
     expect(replay([room]).counts.atTheEnd).toMatchObject({
       moving: 0,
       linesMoved: 0,
-      roomsGrew: 1,
-      movingByRooms: 1,
-      linesMovedByRooms: 3,
+      keptChanged: 1,
+      roomsGrew: 0,
+      movingByRooms: 0,
+      linesMovedByRooms: 0,
     });
   });
 
