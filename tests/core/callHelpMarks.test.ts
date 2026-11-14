@@ -217,8 +217,11 @@ async function repliedTo(core: Core, ask: () => Promise<ConversationAskResult>) 
 async function pausedPress(
   given: Omit<Marking, "pause">,
   after: number | ((text: string) => number),
-  kind: MeetingHelpKind = "answer",
+  /** A button, or a question typed in the panel's field (#2925). */
+  kind: MeetingHelpKind | { typed: string } = "answer",
   meanwhile?: (core: Core, sheet: string) => Promise<void>,
+  /** How many Citations the reply holds by its pause, read once all are there. */
+  holds = 1,
 ) {
   let release = () => {};
   let reached = () => {};
@@ -229,7 +232,10 @@ async function pausedPress(
     reached = resolve;
   });
   const set = await setUp({ ...given, pause: { after, until, reached } });
-  const asked = await set.core.askMeetingHelp({ meetingId: set.meeting.id, kind });
+  const asked =
+    typeof kind === "string"
+      ? await set.core.askMeetingHelp({ meetingId: set.meeting.id, kind })
+      : await set.core.askMeetingQuestion({ meetingId: set.meeting.id, text: kind.typed });
   if (!asked.asked) throw new Error("Not asked.");
   await there;
   const ids = { conversationId: asked.conversation.id, answerId: asked.answerId };
@@ -238,7 +244,7 @@ async function pausedPress(
       const answer = await answerOf(set.core, ids.conversationId, ids.answerId);
       expect(answer.status).toBe("streaming");
       expect(answer.text.length).toBeGreaterThan(0);
-      expect(answer.citations.length).toBeGreaterThan(0);
+      expect(answer.citations.length).toBeGreaterThanOrEqual(holds);
       return answer;
     },
     { timeout: 20_000, interval: 5 },
@@ -781,6 +787,46 @@ describe("a question typed during the call (#2925)", { timeout: 60_000 }, () => 
       ]);
       expect(quoteRows(end)).toEqual([[{ markers: [end.citations[0]?.marker], state: "found" }]]);
       expect(withoutNumbers(end.text)).toBe(reply);
+    },
+  );
+
+  // protects=a question typed in the panel is drawn as a press is while its reply is still written: a quote the app found at the cite reads found with its ✓ at once, a quote it didn't find shows in its room with no ✓, and the end keeps both as they were, in English and Chinese; fails_when=a found quote waits for the end, a ✓ shows beside a quote not found, or a ✓ comes or goes at the end; no_claim=how soon a real model cites.
+  test.each([
+    {
+      language: "English",
+      reply: "- Enterprise is $45 a seat a month [^1]\n- The lease also covers parking [^2].",
+    },
+    { language: "Chinese", reply: "- 企业版每个席位每月 45 美元 [^1]\n- 租约还包括停车位 [^2]。" },
+  ])(
+    "in $language, while the reply is written a quote found at the cite shows its ✓, one not found shows none, and the end keeps both",
+    async ({ reply }) => {
+      const { written, ended } = await pausedPress(
+        {
+          reply,
+          records: [
+            { marker: 1, from: "sheet" },
+            { marker: 2, from: "nowhere" },
+          ],
+        },
+        reply.length - 1,
+        { typed: "How much is the Enterprise plan per seat?" },
+        undefined,
+        2,
+      );
+      const checks = (answer: ConversationAnswer) =>
+        answer.citations.map(({ marker, check }) => ({ marker, check }));
+
+      expect(written.status).toBe("streaming");
+      expect(checks(written)).toEqual([
+        { marker: 1, check: "found" },
+        { marker: 2, check: "not-found" },
+      ]);
+      expect(quoteRows(written)).toEqual([
+        [{ markers: [1], state: "found" }],
+        [{ markers: [2], state: "not-found" }],
+      ]);
+      expect(checks(ended)).toEqual(checks(written));
+      expect(quoteRows(ended)).toEqual(quoteRows(written));
     },
   );
 
