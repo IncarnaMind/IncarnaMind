@@ -3261,6 +3261,11 @@ function readAround(
   // A list's number: "1." or "1)" or "1、" at the start of a line.
   let indent = left;
   while (s[indent - 1] === " " || s[indent - 1] === "\t") indent--;
+  // A Markdown heading's marks come before its section number ("# 3. Output (kt)") (#2997).
+  if (indent < left) {
+    const marks = /#{1,6}$/.exec(s.slice(Math.max(0, indent - 6), indent))?.[0].length ?? 0;
+    indent -= marks;
+  }
   const lineStart = s[indent - 1] === "\n" || prepared.lineStarts.has(indent);
   const mark = s[found.to];
   const afterMark = s[found.to + 1];
