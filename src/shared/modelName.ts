@@ -6,6 +6,7 @@ import {
   providersWithModels,
   withoutDateSuffix,
 } from "../core/providers/catalog";
+import { DECISION_HOST_ENTRIES } from "../core/providers/catalog/decisions";
 import { LOCAL_MODELS } from "../core/providers/catalog/local";
 
 /** What names a model: the provider it runs on, and the names that provider's own list gives. */
@@ -56,14 +57,20 @@ function catalogName(modelId: string, { kind, endpoint }: ModelSource): string |
   return LOCAL_MODELS.find((model) => model.tag === modelId)?.name;
 }
 
+/** A decision model's name on any host that lists it: a check names the model that read a sentence (#3118). */
+const decisionName = (modelId: string): string | undefined =>
+  Object.values(DECISION_HOST_ENTRIES)
+    .flatMap((host) => host.models)
+    .find((model) => model.id === modelId)?.name;
+
 /**
  * The name to show for a model, in every language (names aren't translated):
- * the provider catalog's, else the provider's own list's, else the id itself,
+ * the provider catalog's, else the provider's own list's, else a decision host's, else the id itself,
  * for one nothing names (an Ollama tag, an OpenAI-compatible server's model).
  * Without a provider the catalog is searched whole.
  */
 export function modelName(modelId: string, source: ModelSource = {}): string {
-  const found = catalogName(modelId, source) ?? source.names?.[modelId];
+  const found = catalogName(modelId, source) ?? source.names?.[modelId] ?? decisionName(modelId);
   return (found && tidy(found)) || modelId;
 }
 

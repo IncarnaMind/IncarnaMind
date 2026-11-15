@@ -2,10 +2,13 @@ import { useState } from "react";
 import type { CheckDecisionStatus } from "../../../../core/api";
 import { core } from "../../core";
 import { useLanguage, useT } from "../../i18n";
+import { useSettingsTarget } from "../../settingsTarget";
 import { useAppStore } from "../../store";
 import { hostName } from "../providers/DecisionKeyForm";
 import { SettingsRow, SettingsSwitch } from "../settings/SettingsGroup";
 import { buttonStyle } from "../ui";
+
+const TARGET = ["check-decision"] as const;
 
 /**
  * Checking sentences (#3118): a switch for the one measured decision model that reads each
@@ -30,6 +33,9 @@ export function CheckDecisionRow({
   const { model, reads, blocked } = status;
   const host = hostName({ name: status.hostName }, language);
   const on = !blocked && (asked?.of === status ? asked.on : reads !== null);
+  const row = useSettingsTarget<HTMLDivElement>(TARGET, true, () =>
+    queueMicrotask(() => document.getElementById(id)?.focus({ preventScroll: true })),
+  );
 
   const turn = (next: boolean) => {
     setAsked({ on: next, of: status });
@@ -45,6 +51,7 @@ export function CheckDecisionRow({
 
   return (
     <SettingsRow
+      ref={row}
       data-testid="check-decision-settings"
       data-reads={reads ?? "off"}
       label={t("ai.jobs.checks")}

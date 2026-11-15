@@ -6,9 +6,11 @@ import { type ElectronApplication, expect, type Locator, type Page, test } from 
 import type { CoreBridge } from "../src/core/api";
 import {
   acceptPlainTextKeys,
+  checkCard,
   createDataFolder,
   dismissChatSetup,
   launchApp,
+  newMindAndType,
   openSettings,
   pointAndClick,
   removeDataFolder,
@@ -45,6 +47,9 @@ const WORDS = {
     unused: "On with your checks to OpenRouter · not used yet",
     turnOff: "Turn off",
     turnedOff: "Turned off Checks by a decision model",
+    faster: "Check faster with Decider v1.2",
+    fasterAction: "Turn on in Settings ›",
+    sentence: "Underlying EBITDA was 96 million in the quarter.",
   },
   "zh-CN": {
     label: "核对句子",
@@ -58,6 +63,9 @@ const WORDS = {
     unused: "随发往 OpenRouter 的核对一并开启 · 尚未使用",
     turnOff: "关闭",
     turnedOff: "已关闭“决策模型核对”",
+    faster: "用 Decider v1.2 更快核对",
+    fasterAction: "去设置开启 ›",
+    sentence: "本季度基础 EBITDA 为 9,600 万。",
   },
 } as const;
 
@@ -263,3 +271,60 @@ test("Privacy says it is on with the User's checks, and Turn off can be undone",
   );
   expect(sentToHost()).toEqual([]);
 });
+
+for (const language of ["en", "zh-CN"] as const) {
+  const words = WORDS[language];
+
+  // protects=a User who holds the host's key and never touched the switch reads one line in the check card that a decision model can read first; it opens Settings at the switch, with the keyboard on it and the line that says what goes, and turns nothing on; ✕ ends the line for good; fails_when=the line shows without a key, turns the model on itself, comes back after ✕, or pushes anything out of the card; no_claim=the User who turned the switch off or on, which the line's unit test covers.
+  test(`the check card points at the switch once, and ✕ ends it for good (${language})`, async () => {
+    const window = await launch(false, 1440);
+    await setLanguage(window, language);
+    await newMindAndType(window, words.sentence);
+    const card = await checkCard(window);
+    // No key for its host: nothing to turn on, so no line.
+    await expect(card.getByTestId("check-faster")).toHaveCount(0);
+    await window.keyboard.press("Escape");
+    await expect(card).toBeHidden();
+
+    await addOpenRouter(window);
+    await checkCard(window);
+    const line = card.getByTestId("check-faster");
+    await expect(line).toContainText(words.faster);
+    const action = line.getByTestId("check-faster-settings");
+    await expect(action).toHaveText(words.fasterAction);
+    // The link is whole on one row, whichever row the line's break leaves it on.
+    expect((await action.boundingBox())?.height).toBeLessThanOrEqual(20);
+    // The line stays inside the card, whose press stays in view under it.
+    const [cardBox, lineBox] = [await card.boundingBox(), await line.boundingBox()];
+    if (!cardBox || !lineBox) throw new Error("The card isn't laid out.");
+    expect(lineBox.x).toBeGreaterThanOrEqual(cardBox.x);
+    expect(lineBox.x + lineBox.width).toBeLessThanOrEqual(cardBox.x + cardBox.width + 1);
+    await expect(card.getByTestId("badge-check-mind")).toBeInViewport();
+    await shot(window, `check-faster-line-${language}-1440`);
+
+    // The keyboard reaches it, and it opens Settings at the switch: nothing is turned on.
+    await action.focus();
+    await window.keyboard.press("Enter");
+    const row = window.getByTestId("check-decision-settings");
+    await expect(row).toBeInViewport();
+    await expect(row.getByTestId("check-decision-switch")).toBeFocused();
+    await expect(row.getByTestId("check-decision-switch")).not.toBeChecked();
+    await expect(row.getByTestId("check-decision-sends")).toHaveText(words.sends);
+    expect(await chosen(window)).toBeNull();
+    await shot(window, `check-faster-settings-${language}-1440`);
+    await window.keyboard.press("Escape");
+    await expect(row).toBeHidden();
+
+    // ✕ ends it for good: on this card, and the next time it opens.
+    await checkCard(window);
+    await pointAndClick(window, line.getByTestId("tip-close"));
+    await expect(line).toHaveCount(0);
+    await window.keyboard.press("Escape");
+    await expect(card).toBeHidden();
+    await checkCard(window);
+    await expect(card.getByTestId("badge-check-mind")).toBeVisible();
+    await expect(line).toHaveCount(0);
+    expect(await chosen(window)).toBeNull();
+    expect(sentToHost()).toEqual([]);
+  });
+}

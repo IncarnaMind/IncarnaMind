@@ -62,6 +62,7 @@ import { openFigureSchedule } from "../figures";
 import { useFindSources } from "../findSources";
 import { translateNow, useLanguage, useT } from "../i18n";
 import { groupsMerged } from "../layoutSlice";
+import { useModelNames } from "../modelNames";
 import { useFade } from "../motion";
 import { useNotices } from "../notices";
 import { citationStepOpen } from "../nudges";
@@ -130,6 +131,7 @@ import { useReadableQuote } from "./citationScan";
 import { badgeCorner, claimCardPlace } from "./claimCardPlace";
 import {
   claimPartRows,
+  firstReadingShown,
   foundElsewhere,
   markOf,
   type ShownClaim,
@@ -137,7 +139,7 @@ import {
 } from "./claimChecks";
 import { sentenceMarks } from "./claimSentenceMarks";
 import { DocumentCheckAction } from "./DocumentCheckAction";
-import { ClaimMarkIcon, type ClaimMarkState } from "./icons";
+import { ClaimMarkIcon, type ClaimMarkState, FirstReadingIcon } from "./icons";
 import { LibrarySource } from "./LibrarySource";
 import {
   ConversationIdContext,
@@ -203,10 +205,11 @@ function searchTheWeb(mindId: string, sentence: string): void {
  * first line: a quiet tick with "+" when the Passage found can become its
  * Citation (a plain tick when the card changes the sentence's own Citation
  * instead), an amber "!", an outlined red "≠", a grey ring when it wasn't
- * checked, ↻ when it needs a re-check. Hovering or focusing it shows its card,
- * and clicking keeps the card until it is dismissed; Esc closes it and puts
- * the caret back in the sentence. While the card is open, its sentence is
- * outlined.
+ * checked, ↻ when it needs a re-check, a dashed ring around what a decision
+ * model's first reading leans to while no verdict stands (#3118). Hovering or
+ * focusing it shows its card, and clicking keeps the card until it is
+ * dismissed; Esc closes it and puts the caret back in the sentence. While the
+ * card is open, its sentence is outlined.
  */
 export function ClaimMark({
   claim,
@@ -239,8 +242,10 @@ export function ClaimMark({
   // Supported by the User's own notes alone: a box, so shape says it as well as colour (#335).
   const ownNoteOnly = mark === "supported" && supportedByOwnNotesOnly(claim.reads);
   const awaiting = foundElsewhere(claim);
+  // What a decision model's first reading leans to, while no verdict stands behind it (#3118).
+  const leaning = reading || rewriting ? null : firstReadingShown(claim);
   // A sentence not checked yet has no mark on the page (D276): its button stays, unseen, as its card's anchor (#1941).
-  const silent = mark === "not-checked" && !awaiting;
+  const silent = mark === "not-checked" && !awaiting && !leaning;
   const id = claim.check.id;
   const place = useCardPlace(mindId);
   const [button, setButton] = useState<HTMLButtonElement | null>(null);
@@ -420,6 +425,7 @@ export function ClaimMark({
         data-guided={guided || undefined}
         data-addable={plus || undefined}
         data-waiting={awaiting || undefined}
+        data-leaning={leaning?.verdict}
         data-own-note={ownNoteOnly || undefined}
         className={`margin-check claim-mark ${inline ? "claim-mark--inline" : ""} ${reveal ? "margin-check--reveal" : ""}`}
         style={style}
@@ -474,8 +480,12 @@ export function ClaimMark({
           if (event.target === event.currentTarget && reveal) onRevealed();
         }}
       >
-        {!silent && (
-          <ClaimMarkIcon state={mark} ownNoteOnly={ownNoteOnly} className="margin-check-icon" />
+        {leaning ? (
+          <FirstReadingIcon verdict={leaning.verdict} className="margin-check-icon" />
+        ) : (
+          !silent && (
+            <ClaimMarkIcon state={mark} ownNoteOnly={ownNoteOnly} className="margin-check-icon" />
+          )
         )}
         {plus && <span aria-hidden="true">+</span>}
       </button>
@@ -1030,14 +1040,29 @@ export function ClaimCard({
       : null;
   const unreadLocation = unread ? citationLocation(unread) : null;
   // Supported, not yet cited says so in its own line, by the source, as Widen's and Replace's notes do.
+  const notCheckedWhy =
+    shown.state !== "not-checked" || (widened && !consentWaiting) || awaiting
+      ? null
+      : sentenceReasonText(t, language, shown, check, { cap: SENTENCES_CHECKED_AT_MOST });
+  // A first reading is named as one, with the model that made it: checked still, or left unconfirmed (#3118).
+  const leaning = firstReadingShown(claim);
+  const nameOf = useModelNames();
+  const decisionModel = leaning ? nameOf(leaning.modelId, leaning.providerId).name : null;
   const reason =
-    shown.state === "not-checked"
-      ? (widened && !consentWaiting) || awaiting
-        ? null
-        : sentenceReasonText(t, language, shown, check, { cap: SENTENCES_CHECKED_AT_MOST })
-      : shown.state === "needs-recheck"
-        ? t(`claim.recheck.${shown.why}`)
-        : null;
+    shown.state === "checking"
+      ? decisionModel && check.modelId
+        ? t("claim.firstReading.checking", {
+            decision: decisionModel,
+            model: nameOf(check.modelId, check.providerId).name,
+          })
+        : null
+      : shown.state === "not-checked"
+        ? decisionModel && notCheckedWhy
+          ? t("claim.firstReading.unconfirmed", { decision: decisionModel, reason: notCheckedWhy })
+          : notCheckedWhy
+        : shown.state === "needs-recheck"
+          ? t(`claim.recheck.${shown.why}`)
+          : null;
   const reading = useChecks((store) => {
     const read = store.running[mindId ?? ""]?.read;
     return read !== undefined && read.checkId === check.id;
@@ -1428,8 +1453,17 @@ export function ClaimCard({
   }
 
   const badge = (
-    <p data-testid="claim-badge" data-check={mark} className="citation-badge">
-      <ClaimMarkIcon state={mark} ownNoteOnly={ownNoteOnly} className="citation-badge-icon" />
+    <p
+      data-testid="claim-badge"
+      data-check={mark}
+      data-leaning={leaning?.verdict}
+      className="citation-badge"
+    >
+      {leaning ? (
+        <FirstReadingIcon verdict={leaning.verdict} className="citation-badge-icon" />
+      ) : (
+        <ClaimMarkIcon state={mark} ownNoteOnly={ownNoteOnly} className="citation-badge-icon" />
+      )}
       <span>
         {decisionMissing
           ? t("claim.courtDecision.title")

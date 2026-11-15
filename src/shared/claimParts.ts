@@ -704,6 +704,11 @@ export function withFirstReading(
   };
 }
 
+/** The decision model's first reading of the sentence a check is about (#3118), as its fact keeps it. */
+export const firstReadingOf = (
+  check: Pick<ClaimCheckAttributes, "parts">,
+): ClaimFirstReading | null => check.parts?.find((part) => part.firstReading)?.firstReading ?? null;
+
 /**
  * Whether the check's evidence only places its Passage in the Document: a decision model's verdict
  * that rests on the Passage (`ClaimCheckPart.restsOnPassage`), whose line nothing shows as a quote.

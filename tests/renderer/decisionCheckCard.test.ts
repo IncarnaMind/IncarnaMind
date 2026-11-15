@@ -1,15 +1,26 @@
 /**
- * The card of a Mark that rests on its Passage (#3118): the decision model confirmed the Passage
- * and isn't sure its stored line settles the sentence alone, so the card shows no quote. It names
- * the Document and the place, which opens; nothing writes the line into a Citation; and a Citation
- * the sentence already has on that place is still named.
+ * A decision model's reading on a sentence's card (#3118).
+ *
+ * A Mark that rests on its Passage: the model confirmed the Passage and isn't sure its stored line
+ * settles the sentence alone, so the card shows no quote. It names the Document and the place,
+ * which opens; nothing writes the line into a Citation; and a Citation the sentence already has on
+ * that place is still named.
+ *
+ * A first reading: what the model leans to while the AI model still checks the sentence, or after
+ * that check ended with no verdict. It is named as a reading and by its model, never as a verdict.
  */
 import { Editor, type JSONContent } from "@tiptap/core";
 import { DOMParser } from "linkedom";
 import { act, type ComponentType, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import type { CitationAttributes, ClaimCheckAttributes, ClaimCheckPart } from "../../src/core/api";
+import type {
+  CitationAttributes,
+  ClaimCheckAttributes,
+  ClaimCheckFailure,
+  ClaimCheckPart,
+} from "../../src/core/api";
+import { modelName } from "../../src/shared/modelName";
 
 const FIRST = "Spring tides come twice a month";
 const SECOND = "neaps fall between them";
@@ -50,20 +61,29 @@ const part = (sentence: string, words: string, more: Partial<ClaimCheckPart>): C
   };
 };
 
-const checkOf = (sentence: string, parts: ClaimCheckPart[]): ClaimCheckAttributes => ({
+/** How the sentence's check stands: a verdict, still running, or ended with no verdict and why. */
+type Standing =
+  | { state: "supported" | "checking" }
+  | { state: "not-checked"; reason: ClaimCheckFailure; detail: string | null };
+
+const checkOf = (
+  sentence: string,
+  parts: ClaimCheckPart[],
+  standing: Standing,
+): ClaimCheckAttributes => ({
   id: "check",
   request: "request",
   action: "check-against-documents",
-  state: "supported",
+  state: standing.state,
   text: sentence,
   evidence: parts[0]?.evidence[0] ?? null,
   says: null,
   unsupported: null,
   calculation: null,
-  reason: null,
-  detail: null,
-  providerId: "openrouter",
-  modelId: "decider",
+  reason: standing.state === "not-checked" ? standing.reason : null,
+  detail: standing.state === "not-checked" ? standing.detail : null,
+  providerId: "anthropic",
+  modelId: "claude-haiku-5-5",
   citedCaseUnchecked: false,
   citedCaseFound: false,
   scope: { folderId: null, widened: false },
@@ -151,6 +171,7 @@ async function card(
   sentence: string,
   parts: ClaimCheckPart[],
   decision: Record<string, unknown>,
+  standing: Standing = { state: "supported" },
 ) {
   openCited.mockClear();
   const { useAppStore } = await import("../../src/renderer/src/store");
@@ -164,14 +185,14 @@ async function card(
     extensions: noteExtensions(),
     content: { type: "doc", content },
   });
-  const check = checkOf(sentence, parts);
+  const check = checkOf(sentence, parts, standing);
   const claim = {
     check,
     reads: check,
     from: 1,
     to: 1 + sentence.length,
     sentence: { from: 1, to: 1 + sentence.length, text: sentence },
-    shown: { state: "supported" as const },
+    shown: standing,
   };
   const noop = () => undefined;
   const onOpen = vi.fn();
@@ -221,7 +242,10 @@ async function card(
   );
   const one = (testId: string) => container.querySelector(`[data-testid="${testId}"]`);
   const all = (testId: string) => [...container.querySelectorAll(`[data-testid="${testId}"]`)];
-  return { one, all, onOpen, text: container.textContent ?? "" };
+  const { checkStateKey } = await import("../../src/renderer/src/unsupportedFixes");
+  const { translate } = await import("../../src/shared/i18n");
+  const heading = translate(language, checkStateKey(editor, claim as never));
+  return { one, all, onOpen, heading, text: container.textContent ?? "" };
 }
 
 describe.each(["en", "zh-CN"] as const)("the card of a Mark on its Passage (%s)", (language) => {
@@ -316,5 +340,153 @@ describe.each(["en", "zh-CN"] as const)("the card of a Mark on its Passage (%s)"
     expect(sure?.querySelector('[data-testid="claim-part-add-citation"]')?.textContent).toBe(
       ADD[language],
     );
+  });
+});
+
+const READING = {
+  providerId: "openrouter",
+  modelId: "perplexity/pplx-decider-v1.2",
+} as const;
+const AI_MODEL = modelName("claude-haiku-5-5", { kind: "anthropic" });
+const WORDS = {
+  en: {
+    supported: "Likely supported",
+    contradicted: "Likely contradicted",
+    checking: `A first reading by Decider v1.2. ${AI_MODEL} is checking it.`,
+    unconfirmed:
+      "A first reading by Decider v1.2, not confirmed. The model didn’t reply within 60 seconds.",
+    timedOut: "The model didn’t reply within 60 seconds.",
+    checkingPlain: "Checking…",
+    notChecked: "Not checked",
+  },
+  "zh-CN": {
+    supported: "可能有依据",
+    contradicted: "可能与文档矛盾",
+    checking: `由 Decider v1.2 初步判断，${AI_MODEL} 正在核对。`,
+    unconfirmed: "由 Decider v1.2 初步判断，未确认：模型在 60 秒内没有回复。",
+    timedOut: "模型在 60 秒内没有回复。",
+    checkingPlain: "正在核对…",
+    notChecked: "未核对",
+  },
+} as const;
+
+describe.each(["en", "zh-CN"] as const)("the card of a first reading (%s)", (language) => {
+  const sentence = `${FIRST}.`;
+  const words = WORDS[language];
+  const read = (verdict: "supported" | "contradicted", standing: "checking" | "not-checked") =>
+    part(sentence, FIRST, {
+      verdict: standing,
+      ...(standing === "not-checked" && { reason: "timed-out", detail: "60" }),
+      firstReading: { verdict, ...READING },
+    });
+  const dashed = (badge: Element | null) => badge?.querySelector("circle[stroke-dasharray]");
+
+  // protects=a first reading is never shown as the verdict it leans to: its own words, its dashed ring and the two models named, with nothing from a Passage and nothing that acts on a verdict (#3118); fails_when=the card reads Supported or Contradicted, shows a quote, an Add, a correction or a sign-off, or names the decision model by its id.
+  test.each(["supported", "contradicted"] as const)(
+    "while the AI model checks, says what the reading leans to (%s) and who is checking",
+    async (verdict) => {
+      const shown = await card(
+        language,
+        sentence,
+        [read(verdict, "checking")],
+        { kind: "none" },
+        {
+          state: "checking",
+        },
+      );
+      expect(shown.heading).toBe(words[verdict]);
+      const badge = shown.one("claim-badge");
+      expect(badge?.getAttribute("data-leaning")).toBe(verdict);
+      expect(dashed(badge)).not.toBeNull();
+      expect(shown.one("claim-reason")?.textContent).toBe(words.checking);
+      expect(shown.text).not.toContain(READING.modelId);
+      for (const absent of [
+        "claim-quote",
+        "claim-source",
+        "claim-add-citation",
+        "claim-open-place",
+        "claim-correct",
+        "claim-check-again",
+      ])
+        expect(shown.one(absent), absent).toBeNull();
+      expect(container.querySelector(".claim-sign")).toBeNull();
+    },
+  );
+
+  // protects=a first reading nothing confirmed stays on the card with why the check ended, and keeps Check again; it is never a verdict (#3118); fails_when=the unconfirmed card drops the reason or Check again, or reads as Not checked with no reading.
+  test("left unconfirmed, says so with why the check ended, and offers Check again", async () => {
+    const shown = await card(
+      language,
+      sentence,
+      [read("supported", "not-checked")],
+      { kind: "none" },
+      {
+        state: "not-checked",
+        reason: "timed-out",
+        detail: "60",
+      },
+    );
+    expect(shown.heading).toBe(words.supported);
+    const badge = shown.one("claim-badge");
+    expect(badge?.getAttribute("data-check")).toBe("not-checked");
+    expect(dashed(badge)).not.toBeNull();
+    expect(shown.one("claim-reason")?.textContent).toBe(words.unconfirmed);
+    expect(shown.one("claim-check-again")).not.toBeNull();
+    expect(shown.one("claim-quote")).toBeNull();
+    expect(container.querySelector(".claim-sign")).toBeNull();
+  });
+
+  // protects=the controls: a sentence no decision model read shows as before, and a verdict keeps its first reading only as a record; fails_when=the dashed ring or the reading's words show without a first reading, or over a verdict.
+  test("shows nothing of a reading where there is none, or where a verdict stands", async () => {
+    const plain = part(sentence, FIRST, { verdict: "checking" });
+    const ended = part(sentence, FIRST, {
+      verdict: "not-checked",
+      reason: "timed-out",
+      detail: "60",
+    });
+    const checking = await card(
+      language,
+      sentence,
+      [plain],
+      { kind: "none" },
+      {
+        state: "checking",
+      },
+    );
+    expect(checking.heading).toBe(words.checkingPlain);
+    expect(checking.one("claim-reason")).toBeNull();
+    expect(dashed(checking.one("claim-badge"))).toBeNull();
+    await act(() => root?.render(null));
+
+    const failed = await card(
+      language,
+      sentence,
+      [ended],
+      { kind: "none" },
+      {
+        state: "not-checked",
+        reason: "timed-out",
+        detail: "60",
+      },
+    );
+    expect(failed.heading).toBe(words.notChecked);
+    expect(failed.one("claim-reason")?.textContent).toBe(words.timedOut);
+    expect(dashed(failed.one("claim-badge"))).toBeNull();
+    await act(() => root?.render(null));
+
+    const judged = await card(
+      language,
+      sentence,
+      [
+        part(sentence, FIRST, {
+          evidence: [passage(LINE)],
+          firstReading: { verdict: "contradicted", ...READING },
+        }),
+      ],
+      { kind: "add" },
+    );
+    expect(judged.one("claim-badge")?.getAttribute("data-leaning")).toBeNull();
+    expect(dashed(judged.one("claim-badge"))).toBeNull();
+    expect(judged.one("claim-quote")?.textContent).toContain(LINE);
   });
 });
