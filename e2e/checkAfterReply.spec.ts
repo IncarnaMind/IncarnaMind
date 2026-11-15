@@ -4,12 +4,14 @@ import { type ElectronApplication, expect, type Locator, type Page, test } from 
 import {
   addDocuments,
   assistantAnswers,
+  checkAssistantWrites,
   createDataFolder,
   dismissChatSetup,
   enterContent,
   launchApp,
   nameMind,
   newMind,
+  openSettings,
   removeDataFolder,
   setLanguage,
   setWindowSize,
@@ -23,6 +25,10 @@ import {
  * the check still finishes. The write here cites in the step after it (#1635), so its check starts
  * as the Answer ends. The scripted model holds each sentence's check until the test releases it.
  * Set INCARNAMIND_SCREENSHOTS to a folder to also save screenshots.
+ *
+ * That is with "Check what the assistant writes" on. On a fresh profile it is off (#3154): no
+ * check follows the write, the line under the card says how many sentences wait, and its Check
+ * is Check this Note.
  */
 
 const SCREENSHOTS = process.env.INCARNAMIND_SCREENSHOTS;
@@ -58,6 +64,9 @@ const WORDS = {
     checking: /^Checking: 0 of 2 sentences done$/,
     badge: /^Checking 0 of 2/,
     checked: /^Checked 2 sentences/,
+    waiting: /^2 sentences not checked yet/,
+    check: "Check",
+    setting: "Check what the assistant writes",
   },
   "zh-CN": {
     ask: "添加核对用的收入表格，写完再引用",
@@ -65,6 +74,9 @@ const WORDS = {
     checking: /^正在核对：已完成 0\/2 句$/,
     badge: /^正在核对 0\/2/,
     checked: /^已核对 2 句/,
+    waiting: /^2 句待核对/,
+    check: "核对",
+    setting: "自动核对助手写入的内容",
   },
 } as const;
 
@@ -149,6 +161,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await dismissChatSetup(window);
     await useLocalChatModel(window);
     await setLanguage(window, language);
+    await checkAssistantWrites(window);
     await addDocuments(window, [join(sources, "Annual report.md")]);
     await newMind(window);
     await nameMind(window, "Harbour notes");
@@ -203,6 +216,51 @@ for (const language of ["en", "zh-CN"] as const) {
     });
     await expect(line).toHaveCount(0);
     await expect(window.getByTestId("badge-progress")).toHaveCount(0);
+    await app.close();
+  });
+
+  test(`on a fresh profile no check follows the write: the line says how many sentences wait, and Check checks the Note, in ${language}`, async () => {
+    test.setTimeout(120_000);
+    await writeFile(join(sources, "Annual report.md"), REVENUE);
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    await setWindowSize(app, window, 1440, 900);
+    await dismissChatSetup(window);
+    await useLocalChatModel(window);
+    const settings = await openSettings(window, "ai");
+    await setLanguage(window, language);
+    const row = settings.getByTestId("check-writes-settings");
+    await expect(row.locator("label")).toHaveText(words.setting);
+    await expect(row.getByTestId("check-writes-switch")).not.toBeChecked();
+    if (SCREENSHOTS) {
+      await row.scrollIntoViewIfNeeded();
+      await window.screenshot({ path: join(SCREENSHOTS, `check-writes-setting-${language}.png`) });
+    }
+    await window.keyboard.press("Escape");
+    await expect(settings).toBeHidden();
+    await addDocuments(window, [join(sources, "Annual report.md")]);
+    await newMind(window);
+    await nameMind(window, "Harbour notes");
+    await enterContent(window);
+    await window.keyboard.type(NOTES[0] ?? "");
+
+    await holdChecks(app);
+    const answer = await ask(window, words.ask);
+    await expect(answer).toHaveAttribute("data-status", "done", { timeout: 60_000 });
+    const waiting = answer.getByTestId("self-check-left");
+    await expect(waiting).toHaveText(words.waiting);
+    await expect(answer.getByTestId("self-check-left-action")).toHaveText(words.check);
+    await expect(answer.getByTestId("self-check-checking")).toHaveCount(0);
+    await expect(window.getByTestId("badge-progress")).toHaveCount(0);
+    // Nothing was sent for the sentences it wrote: no step of a check is held.
+    expect(await heldSteps(app)).toBe(0);
+    if (SCREENSHOTS) {
+      await window.screenshot({ path: join(SCREENSHOTS, `write-not-checked-${language}.png`) });
+    }
+
+    await releaseChecks(app);
+    await answer.getByTestId("self-check-left-action").click();
+    // The Note's own check covers them: the line goes once none is left.
+    await expect(waiting).toHaveCount(0, { timeout: 60_000 });
     await app.close();
   });
 }

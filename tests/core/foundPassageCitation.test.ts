@@ -245,6 +245,7 @@ async function assistantWrites() {
   const core = startCore(await createTempDataFolder(), {
     createChatModel: scriptedModels(writingModel()).createChatModel,
   });
+  await core.updateSettings({ user: { checkAssistantWrites: true } });
   core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
   const saved = await core.saveChatProvider({
     kind: "anthropic",

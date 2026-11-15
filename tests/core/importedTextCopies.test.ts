@@ -102,6 +102,7 @@ async function importedNote(
     });
   const core = start();
   await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+  await core.updateSettings({ user: { checkAssistantWrites: true } });
   const folder = await createSourceFolder();
   const write = async (name: string, bytes: Uint8Array) => {
     const path = join(folder, name);

@@ -17,9 +17,11 @@
  *   Question's Search scope when that is one Folder, else in none, holding
  *   the text the model wrote, if any.
  *
- * The sentences a call writes, new or as `edit_mind`'s content, are checked
- * once they land, and marked as each check ends; the call and the reply don't
- * wait for it (../../answers/checks/written, #1111, #2830).
+ * The sentences a call writes, new or as `edit_mind`'s content, are checked when
+ * the User asks, as any sentence is (#3154). Where the User turned on checking
+ * what the assistant writes, they are checked once they land, and marked as each
+ * check ends; the call and the reply don't wait for it
+ * (../../answers/checks/written, #1111, #2830).
  *
  * A Mind is named by its name; left out, it is the one in focus. A call that
  * changed a Mind says so on its card (`MindChange`), and one that changed
@@ -81,7 +83,11 @@ import {
   syncContent,
   topLevelBlocks,
 } from "../../answers/blocks";
-import type { CheckWrittenInput, WrittenCheck } from "../../answers/checks/written";
+import {
+  type CheckWrittenInput,
+  checkableSentences,
+  type WrittenCheck,
+} from "../../answers/checks/written";
 import type { ContextCitations } from "../../answers/contextCitations";
 import type { ParagraphAsked } from "../../answers/paragraphAsked";
 import { withoutPointersBack } from "../../answers/pointersBack";
@@ -237,6 +243,8 @@ export interface MindsForTools {
   }>;
   /** Begins the check of the sentences a call wrote, which goes on after it (../../answers/checks/written). */
   checkWritten(input: CheckWrittenInput): Promise<WrittenCheck | null>;
+  /** Whether the User has what the assistant writes checked as it lands (#3154); else it waits for their Check. */
+  checksWritten(): boolean;
 }
 
 export interface MindToolsOptions {
@@ -1102,6 +1110,29 @@ function checkingNotes(checked: boolean): string[] {
         "IncarnaMind checks these sentences against the Documents itself, apart from your reply, and marks each one in the Note: don't say in your reply that they were checked, verified or supported, or what a check found.",
       ]
     : [];
+}
+
+/** What the model reads of a write no check follows (#3154): its reply never calls the text checked. */
+const NOT_CHECKED_NOTES = [
+  "What you wrote isn't checked against the Documents until the User asks for a check: don't say in your reply that it was checked, verified or supported.",
+];
+
+/** A write's sentences as no check has read them, for the line under its card (#3154). */
+function notChecked(written: Pick<Written, "blocks"> & { change: MindChange }): MindChange {
+  const sentences = checkableSentences(written.blocks.blocks);
+  if (sentences.length === 0) return written.change;
+  return {
+    ...written.change,
+    selfCheck: {
+      request: written.change.request,
+      blocks: [...written.blocks.ids],
+      checkable: sentences.length,
+      cited: sentences.filter((sentence) => sentence.cited.length > 0).length,
+      sent: 0,
+      checked: 0,
+      failed: 0,
+    },
+  };
 }
 
 const isChecked = (checked: WrittenCheck | null, written: Pick<Written, "unrecorded">) =>
@@ -2175,6 +2206,11 @@ export function mindTools(options: MindToolsOptions): {
   ): Promise<WrittenCheck | null> => {
     const { mindId, ids, blocks } = written.blocks;
     if (ids.length !== blocks.length) return null;
+    if (!minds.checksWritten()) {
+      written.change = notChecked(written);
+      if (written.change.selfCheck) options.changed(toolCallId, written.change);
+      return null;
+    }
     const recorded = (check: WrittenCheck) => {
       written.change = { ...written.change, selfCheck: selfCheckOf(check) };
     };
@@ -2214,6 +2250,9 @@ export function mindTools(options: MindToolsOptions): {
     }
     return ended ?? latest ?? checked;
   };
+
+  const checkNotes = (checked: WrittenCheck | null, written: Pick<Written, "unrecorded">) =>
+    minds.checksWritten() ? checkingNotes(isChecked(checked, written)) : NOT_CHECKED_NOTES;
 
   /** By call: text written with markers `cite` hadn't recorded yet. */
   const unsettled = new Map<
@@ -2388,7 +2427,7 @@ export function mindTools(options: MindToolsOptions): {
       outcome,
       ...writtenNotes(written),
       ...(written.charted ? [written.charted] : []),
-      ...checkingNotes(isChecked(checked, written)),
+      ...checkNotes(checked, written),
     ].join(" ");
   };
 
@@ -2780,7 +2819,7 @@ export function mindTools(options: MindToolsOptions): {
           ...tableNotes(written.change),
           ...writtenNotes(written),
           ...droppedSaid(written.dropped),
-          ...checkingNotes(isChecked(checked, written)),
+          ...checkNotes(checked, written),
           // Asked once already: what lands bare is said, so the reply never calls it all cited.
           ...(added.length > 0
             ? [
@@ -3072,7 +3111,7 @@ export function mindTools(options: MindToolsOptions): {
       now.outcome,
       ...tableNotes(written.change),
       ...writtenNotes(written),
-      ...checkingNotes(isChecked(checked, written)),
+      ...checkNotes(checked, written),
     ].join(" ");
   };
 

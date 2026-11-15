@@ -183,6 +183,7 @@ async function writtenThenApplied(takesOut: boolean) {
   const core: Core = startCore(await createTempDataFolder(), {
     createChatModel: scriptedModels(writer(applied, takesOut)).createChatModel,
   });
+  await core.updateSettings({ user: { checkAssistantWrites: true } });
   core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
   const saved = await core.saveChatProvider({
     kind: "anthropic",

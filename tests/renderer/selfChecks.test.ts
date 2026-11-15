@@ -502,3 +502,48 @@ describe("How a write's check goes, and what it left to do", () => {
     expect(checksWaitIn(flows("declined", "2026-11-06T09:00:00.000Z"))).toBe(false);
   });
 });
+
+describe("A write no check followed (#3154)", () => {
+  // protects=under a write whose sentences wait for the User's Check, one line says how many are left, in English and Chinese, with the one Check; it counts live once the Note is open, and goes once nothing is left, where the Note's badge says how the check went; fails_when=the line reads as a check that ran ("Checked 0 sentences"), has no Check, keeps the saved count over the live one, or stays once every sentence is checked; no_claim=that the Check it names is Check this Note, which the smoke spec presses.
+  test("the line says how many sentences wait, with Check, and goes once none is left", () => {
+    const unchecked = {
+      mindId: "mind-1",
+      request: "w",
+      blocks: ["block-1"],
+      checkable: 3,
+      cited: 2,
+      sent: 0,
+      checked: 0,
+      failed: 0,
+    };
+    const lines = (language: "en" | "zh-CN", left?: number) =>
+      selfCheckLines(
+        unchecked,
+        say(language),
+        language,
+        new Date("2026-11-15T09:00:00.000Z"),
+        left,
+      ).map(({ kind, text, details, action }) => ({ kind, text, details, action }));
+
+    expect(lines("en")).toEqual([
+      {
+        kind: "left",
+        text: "3 sentences not checked yet",
+        details: [],
+        action: { label: "Check", does: "check" },
+      },
+    ]);
+    expect(lines("zh-CN")).toEqual([
+      { kind: "left", text: "3 句待核对", details: [], action: { label: "核对", does: "check" } },
+    ]);
+    expect(lines("en", 1)).toEqual([
+      {
+        kind: "left",
+        text: "1 sentence not checked yet",
+        details: [],
+        action: { label: "Check", does: "check" },
+      },
+    ]);
+    expect(lines("en", 0)).toEqual([]);
+  });
+});

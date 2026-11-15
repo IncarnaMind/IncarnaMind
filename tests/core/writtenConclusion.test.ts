@@ -130,6 +130,7 @@ describe("The assistant's own conclusion, checked after the reply", { timeout: 6
       createChatModel: scriptedModels(writingModel(language, ended)).createChatModel,
     });
     core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
+    await core.updateSettings({ user: { checkAssistantWrites: true } });
     core.on("answer.finished", () => replied());
     const saved = await core.saveChatProvider({
       kind: "anthropic",

@@ -213,6 +213,7 @@ const SETTING_NAMES: Readonly<Record<string, MessageKey>> = {
   newNoteTextSize: "commands.setting.newNoteTextSize",
   exportFormat: "commands.setting.exportFormat",
   leaveOutOwnFiles: "evidence.settings.switch",
+  checkAssistantWrites: "ai.jobs.checkWrites",
   keepWebPageLook: "webPages.add.keepLook",
   meetingSystemAudio: "commands.setting.meetingSystemAudio",
   meetingPanel: "meetings.callHelp.show",

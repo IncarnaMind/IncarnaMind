@@ -126,6 +126,7 @@ async function write(writing: Writing) {
     ...(writing.checkPaths && { checkPaths: writing.checkPaths }),
     ...(writing.timeLimitMs && { contradictionWatch: { claimTimeLimitMs: writing.timeLimitMs } }),
   });
+  await core.updateSettings({ user: { checkAssistantWrites: true } });
   core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
   const saved = await core.saveChatProvider({
     kind: "anthropic",

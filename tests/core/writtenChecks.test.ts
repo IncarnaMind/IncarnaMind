@@ -244,6 +244,7 @@ async function harbour(
     ...(sortTimeLimit && { contradictionWatch: { sortTimeLimit } }),
     ...(keychain && { keychain }),
   });
+  await core.updateSettings({ user: { checkAssistantWrites: true } });
   let service: string | undefined;
   if (cloud) {
     core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
@@ -3248,5 +3249,80 @@ describe("A write's check waits behind a reply on its provider", () => {
     expect(await checkEnds(progress)).toMatchObject({ done: 1, total: 1 });
     expect(clock.pauses()).toEqual([1000]);
     expect((await marksIn(core, client)).map(({ check }) => check.state)).toEqual(["supported"]);
+  });
+});
+
+/** What the model reads after a write no check follows. */
+const NOT_CHECKED = "isn't checked against the Documents until the User asks";
+
+/** The switch off, as a fresh profile has it (settings.test). */
+const leftToTheUser = async ({ core }: { core: Core }) => {
+  await core.updateSettings({ user: { checkAssistantWrites: false } });
+};
+
+describe("What the assistant writes waits for the User's Check, unless they have it checked as it lands (#3154)", () => {
+  // protects=with the switch off, a write into a new Note or the one in front starts no check: no check request is made, no progress is told, no sentence is marked, the write's record says how many sentences wait with none sent, the model is told the text isn't checked, and Check this Note then finds them to check; fails_when=a check request is made, a sentence lands marked or being checked, the record is absent or reads as a check that ran, or the model is told the app checks them; no_claim=what a real model's reply says, which the pull request's real-model run shows.
+  test.each([
+    { name: "a new Note", into: false },
+    { name: "the Note in front", into: true },
+  ])("a write into $name sends no check and marks no sentence", async ({ into }) => {
+    const progress: WrittenCheckProgress[] = [];
+    const { core, model, calls, change, client } = await write(
+      {
+        content: `## Tides\n\nSpring tides come at new and full moon [^1]. ${UNBACKED} [^1].`,
+        into,
+        cloud: { kind: "anthropic", modelId: "claude-haiku-5-5" },
+      },
+      async (started) => {
+        started.core.on("writtenCheck.progress", (event) => progress.push(event));
+        await leftToTheUser(started);
+      },
+    );
+
+    expect(calls.filter(isCheckRun)).toEqual([]);
+    expect(progress).toEqual([]);
+    expect(await marksIn(core, client)).toEqual([]);
+    expect(change?.selfCheck).toEqual({
+      request: change?.request,
+      blocks: expect.any(Array),
+      checkable: 2,
+      cited: 2,
+      sent: 0,
+      checked: 0,
+      failed: 0,
+    });
+    expect(lastResult(model)).toContain(NOT_CHECKED);
+    expect(lastResult(model)).not.toContain(CHECKED_AFTER);
+    // Applied, as the window applies a change the User asked for: Check this Note has them to check.
+    await resolveChanges(client, "accept");
+    expect(await core.planMindCheck(change?.mindId ?? "", "changed")).toMatchObject({
+      kind: "ready",
+      sentences: 2,
+    });
+  });
+
+  // protects=a write made before cite, whose Citations go in after the Run, waits for the User's Check too: nothing is sent once they are in, and its record says how many sentences wait; fails_when=the check after the Run still starts, or the write has no record; no_claim=none beyond protects.
+  test("a write made before cite waits too, once its Citations are in", async () => {
+    const { core, calls, change, client } = await write(
+      {
+        content: `Spring tides come at new and full moon [^1]. ${UNBACKED} [^1].`,
+        into: true,
+        citesAfter: "next-step",
+        cloud: { kind: "anthropic", modelId: "claude-haiku-5-5" },
+      },
+      leftToTheUser,
+    );
+
+    expect(calls.filter(isCheckRun)).toEqual([]);
+    expect(await marksIn(core, client)).toEqual([]);
+    expect(change?.selfCheck).toMatchObject({ checkable: 2, sent: 0, checked: 0, failed: 0 });
+  });
+
+  // protects=a write that holds no sentence a check reads leaves no record, so no line shows under its card; fails_when=a heading alone leaves a line saying sentences wait; no_claim=none beyond protects.
+  test("a write with nothing to check leaves no record", async () => {
+    const { change } = await write({ content: "## Tides", into: true }, leftToTheUser);
+
+    expect(change).toBeDefined();
+    expect(change).not.toHaveProperty("selfCheck");
   });
 });

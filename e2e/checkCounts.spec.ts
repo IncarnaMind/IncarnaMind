@@ -6,6 +6,7 @@ import {
   acceptPlainTextKeys,
   addDocuments,
   askInAssistant,
+  checkAssistantWrites,
   checkCard,
   createDataFolder,
   dismissChatSetup,
@@ -115,6 +116,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await acceptPlainTextKeys(window);
     await useCloudChatModel(window);
     await setLanguage(window, language);
+    await checkAssistantWrites(window);
     await setWindowSize(app, window, 1440, 900);
     await addDocuments(window, [join(sources, "Annual report.md")]);
     await newMind(window);

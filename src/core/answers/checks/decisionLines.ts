@@ -9,9 +9,11 @@ import type { DecisionHost } from "../../providers/catalog/decisions";
 
 export interface DecisionLines {
   /**
-   * A score at or over a line, clear of `band`, is the sentence's verdict. `band` is the widest a
-   * score moved between two runs of the same request: a score that near a line is a first reading.
-   * `sameAmount` is the line for a number of the sentence the Passage writes another way.
+   * A score at or over a line, clear of `band`, is the sentence's verdict, where its Passage asked
+   * about alone scores clear of the same line again. `band` is the widest a score moved between
+   * two runs of the same request: a score that near a line is a first reading. `quote` holds the
+   * lines for the Passage's line shown as the verdict's quote, measured apart and higher: what a
+   * User reads as the proof. `sameAmount` is the line for a number the Passage writes another way.
    * Unsupported needs every Passage under `unsupported` on both questions: a score between it and
    * a first reading's line is a Passage about the sentence that doesn't settle it (a figure it
    * gives by a sum, a "may" for a "must"), which the AI model's check reads. Absent for a model
@@ -21,6 +23,7 @@ export interface DecisionLines {
     supported: number;
     contradicted: number;
     band: number;
+    quote: { supported: number; contradicted: number };
     sameAmount: number;
     unsupported: number;
   };
@@ -44,9 +47,12 @@ export const MEASURED_DECISION_MODELS: readonly [
     modelId: "perplexity/pplx-decider-v1.2",
     lines: {
       verdict: {
+        // No lower: a sentence that drops its Passage's condition, or widens its subject, scored
+        // 0.965 to 0.984 on that Passage asked about alone (#3118).
         supported: 0.98,
-        contradicted: 0.9,
+        contradicted: 0.85,
         band: 0.005,
+        quote: { supported: 0.98, contradicted: 0.9 },
         sameAmount: 0.92,
         unsupported: 0.25,
       },
@@ -121,15 +127,18 @@ export function passagesAbout(
   );
 }
 
+type Side = "supported" | "contradicted";
+type Alone = Pick<PassageScores, "states" | "opposes">;
+
+const clear = (side: Side, alone: Alone, lines: Record<Side, number>, band: number) =>
+  side === "contradicted"
+    ? alone.opposes >= lines.contradicted + band
+    : alone.states >= lines.supported + band && alone.opposes < lines.contradicted - band;
+
 /** Whether a verdict the Passages' scores gave still holds when its Passage is asked about alone. */
-export function standsAlone(
-  side: "supported" | "contradicted",
-  alone: Pick<PassageScores, "states" | "opposes">,
-  { verdict }: DecisionLines,
-): boolean {
-  if (!verdict) return false;
-  return side === "contradicted"
-    ? alone.opposes >= verdict.contradicted + verdict.band
-    : alone.states >= verdict.supported + verdict.band &&
-        alone.opposes < verdict.contradicted - verdict.band;
-}
+export const standsAlone = (side: Side, alone: Alone, { verdict }: DecisionLines): boolean =>
+  verdict !== undefined && clear(side, alone, verdict, verdict.band);
+
+/** Whether a line of the verdict's Passage, asked about alone, may be shown as the verdict's quote. */
+export const quoteStands = (side: Side, alone: Alone, { verdict }: DecisionLines): boolean =>
+  verdict !== undefined && clear(side, alone, verdict.quote, verdict.band);

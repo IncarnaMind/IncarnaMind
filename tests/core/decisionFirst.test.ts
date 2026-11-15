@@ -28,7 +28,14 @@ import { readMind, writeMind } from "../helpers/minds";
 import { type ModelCall, scriptedModel, scriptedModels } from "../helpers/models";
 
 const LINES = {
-  verdict: { supported: 0.98, contradicted: 0.9, band: 0.005, sameAmount: 0.92, unsupported: 0.25 },
+  verdict: {
+    supported: 0.98,
+    contradicted: 0.9,
+    band: 0.005,
+    quote: { supported: 0.98, contradicted: 0.9 },
+    sameAmount: 0.92,
+    unsupported: 0.25,
+  },
   firstReading: { supported: 0.8, contradicted: 0.5 },
 };
 
@@ -517,10 +524,12 @@ describe("Check this Note with a decision model chosen (#3118)", { timeout: 30_0
     });
   });
 
-  // protects=Passages that state or oppose the sentence only together give it a first reading, never a verdict: its own check reads it; a host that can't be asked about them gives it no Unsupported either; fails_when=the sentence is marked Unsupported, Supported or Contradicted on the decision model's word, or shows no first reading where the Passages together lean; no_claim=that a real model reads several Passages together right, which the gate's real-model run measured.
+  // protects=Passages that state or oppose the sentence only together, surely or leaning, give it a first reading, never a verdict: its own check reads it; Passages that together are about it without settling it (a real model scored 0.76 for a summary its Passages bear out), or that the host can't be asked about, give it no Unsupported either; fails_when=the sentence is marked Unsupported, Supported or Contradicted on the decision model's word, or shows no first reading where the Passages together lean; no_claim=that a real model reads several Passages together right, which the gate's real-model run measured.
   test.each([
     ["state it", { B: 0.995, C: 0.02 }, "supported"],
+    ["lean to stating it", { B: 0.85, C: 0.02 }, "supported"],
     ["oppose it", { B: 0.03, C: 0.97 }, "contradicted"],
+    ["are about without settling it", { B: 0.4, C: 0.02 }, null],
     ["can't be asked about", { status: 429 }, null],
   ] as const)(
     "a sentence its Passages only together %s goes to the AI model",
@@ -590,6 +599,30 @@ describe("Check this Note with a decision model chosen (#3118)", { timeout: 30_0
     });
   });
 
+  // protects=a sentence its Passage opposes less surely than a quote needs still gets the decision model's Contradicted where the Passage, asked about alone, opposes it as surely: the Mark rests on its Passage, says no quote, and the AI model is never asked (a real model scored 0.85 to 0.9 alone for nine such sentences, all labelled Contradicted); fails_when=such a sentence waits for the AI model, or its line is said as a quote under the quote's own line; no_claim=that the lines are right, which the real-model replays measure.
+  test("a Contradicted surer than its quote rests on its Passage", async () => {
+    const { core, client, host, run, readByAiModel } = await setUp([MOON, YEARLY]);
+    await choose(core);
+    host.answers((asked) => {
+      const given = sure(asked);
+      return "C" in given ? { ...given, C: Math.min(given.C, 0.87) } : given;
+    });
+
+    await core.checkMind(run());
+
+    expect(readByAiModel()).toEqual([]);
+    expect(await marks(client)).toEqual({
+      [MOON]: { state: "supported", quote: MOON, by: DECIDER.modelId },
+      [YEARLY]: {
+        state: "contradicted",
+        quote: WEEKLY,
+        by: DECIDER.modelId,
+        restsOnPassage: true,
+      },
+    });
+    expect(said(client, YEARLY)).toEqual([null, null]);
+  });
+
   // protects=Documents that disagree about a sentence give it no verdict and no first reading from the decision model: its own check reads it; fails_when=the sentence is marked on the Passage that states it, or on the one that opposes it; no_claim=how the card should show Documents that disagree.
   test("a sentence one Document states and another opposes goes to the AI model unread", async () => {
     const { core, client, host, run, readByAiModel, aiModelId } = await setUp([BOTH]);
@@ -655,7 +688,7 @@ describe("Check this Note with a decision model chosen (#3118)", { timeout: 30_0
     await choose(core);
     host.answers((asked) => {
       const given = sure(asked);
-      return "B" in given ? { B: Math.min(given.B, 0.983), C: Math.min(given.C, 0.903) } : given;
+      return "B" in given ? { B: Math.min(given.B, 0.983), C: Math.min(given.C, 0.853) } : given;
     });
     const release = holdAiModel();
 

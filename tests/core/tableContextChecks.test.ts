@@ -190,6 +190,7 @@ async function budgetMind(budget: Budget, model: ReturnType<typeof scriptedModel
   const adapters = { createChatModel: scriptedModels(model).createChatModel };
   const core = startCore(dataDir, adapters);
   await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+  await core.updateSettings({ user: { checkAssistantWrites: true } });
   await core.updateSettings({ user: { language: budget.language } });
   const sources = await createTempDataFolder();
   const documents = await addAndProcess(core, [
@@ -430,6 +431,7 @@ describe("A sentence's check reads the Passage its Citation quotes", () => {
       const dataDir = await createTempDataFolder();
       const core = startCore(dataDir, { createChatModel: scriptedModels(model).createChatModel });
       await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+      await core.updateSettings({ user: { checkAssistantWrites: true } });
       await core.updateSettings({ user: { language } });
       const sources = await createTempDataFolder();
       const documents = await addAndProcess(core, [
