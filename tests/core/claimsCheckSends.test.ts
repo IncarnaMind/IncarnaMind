@@ -248,25 +248,25 @@ async function recordSent(
 }
 
 describe("The record the check is sent, by name (#2969)", () => {
-  // protects=two Notes that share a name stay two in the record, and the Note the User is in is the one of them it is; fails_when=they read as one Note, so a claim about one is backed by a change to the other, or an id is sent to tell them apart; no_claim=which of the two the reply names.
-  test("two Notes with one name are told apart by a number, the focused one the same", async () => {
+  // protects=two Notes that share a name reach the check by that name alone, as the reply names them, with no id and no number; fails_when=an id goes with them, or a number makes a name the reply doesn't use, which flagged an honest reply 3 times in 3 on Claude Haiku 5.5 (the gate of #2969); no_claim=which of the two the reply names.
+  test("two Notes with one name are sent by that name, with no id and no number", async () => {
     const sent = await recordSent(
       [mindCall("edit_mind", "q3-a"), mindCall("edit_mind", "q3-b")],
       "q3-b",
     );
 
-    expect(sent).toContain("Q3 review (1)");
-    expect(sent).toContain("Q3 review (2)");
-    expect(sent.match(/Q3 review \(2\)/g)).toHaveLength(2);
+    // Two edits and the Note the User was in, each named as the reply names it.
+    expect(sent.match(/\\"name\\": ?\\"Q3 review\\"/g)).toHaveLength(3);
+    expect(sent).not.toContain("Q3 review (");
     expect(sent).not.toContain("q3-a");
     expect(sent).not.toContain("q3-b");
   });
 
-  // protects=a Note with no name reaches the check as an unnamed Note with a number; fails_when=its id goes in its place; no_claim=none.
+  // protects=a Note with no name reaches the check as an unnamed Note; fails_when=its id goes in its place; no_claim=none.
   test("a Note with no name is an unnamed Note, not its id", async () => {
     const sent = await recordSent([mindCall("add_to_mind", "gone-1")]);
 
-    expect(sent).toContain("unnamed Note 1");
+    expect(sent).toContain("unnamed Note");
     expect(sent).not.toContain("gone-1");
   });
 

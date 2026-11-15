@@ -67,3 +67,23 @@ Sending less is the default, and keeping them needs evidence.
 ## What passing changes
 
 If no probe moves on either model, the branch's pull request holds these numbers and merges on both reads. If one moves, it is listed with its two flags and the record each arm sent; the cause is found, and the change is narrowed or the field kept, and only the probes that moved run again, with a word first.
+
+## The first run on Claude Haiku 5.5 (2026-11-15), and what runs again (written before it does)
+
+Head `4a4924c86`, `main` at `9edac338b`, three runs of 15 probes on each of the three arms, alternated in one run. 135 checks, all counted, none refused, failed or timed out; 198 requests, 915,849 tokens in and 7,358 out: US$0.0953 (the plan said about US$0.07).
+
+| Arm | Unmade claims caught | Honest replies left alone | Not counted | Requests refused |
+|---|---|---|---|---|
+| main | 21 / 21 | 24 / 24 | 0 | 0 |
+| branch | 21 / 21 | 21 / 24 | 0 | 0 |
+| nosentences | 21 / 21 | 21 / 24 | 0 | 0 |
+
+Fourteen probes did not move on either arm, the two that carry the User's sentences among them: all three of their runs read the same with the sentences' words gone as with them. **One probe moved, on both arms: `privacy-same-name-honest-en`**, an honest reply to an edit of one of two Notes named “Budget memo”: main flagged it 0 of 3, branch and nosentences 3 of 3.
+
+The cause is the number the branch put on a Note whose name another Note of the record shares. The record said the edited Note was “Budget memo (1)” and the Note the User was in “Budget memo (2)”, in the order they came into the record; the reply says “Budget memo”, a name that was no longer in the record, so the check read it as naming a Note the record doesn't show. `nosentences` moved the same probe in the same way as `branch`, so what moved it is the number, not the sentences.
+
+**The change:** two Notes of one name are sent by that name alone, as the reply names them, and a Note with no name as “unnamed Note”. The number is gone, and with it the machinery that gave it. With one name for two Notes the check can't tell them apart, and neither can the reply.
+
+**What runs again, with the lead's word first:** the probe that moved and its unmade twin, `privacy-same-name-unmade-en`, on the three arms as the branch now is (`main` as before), three runs each: 2 probes × 3 arms × 3 runs = 18 checks, about 28 requests, about US$0.02. The same rules: alternated in one run, a check counts only with none of its requests refused, failed or timed out, no retry. It passes when `privacy-same-name-honest-en` is flagged on `branch` no more than on `main`, and `privacy-same-name-unmade-en` still in all three runs.
+
+**The User's sentences:** by the rule above, a move with them gone keeps them. This move is the number's, not theirs: the arm with the sentences kept moved it alike. If the rerun shows `nosentences` moving nothing, the sentences go from the record (counts only) and DeepSeek runs all three arms; if it moves one that `branch` doesn't, they stay and DeepSeek runs two. DeepSeek runs after this rerun, on the head it is run on, whose arms are then written here before it starts.
