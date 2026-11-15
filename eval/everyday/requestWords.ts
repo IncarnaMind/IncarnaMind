@@ -1,6 +1,7 @@
 import type { LanguageModelMiddleware } from "ai";
 import { questionOf, replyJson } from "../../src/core/answers/judge";
 import { isRecord } from "../../src/shared/record";
+import { type ReplyPart, replyTextOf } from "../lib/replyText";
 
 /**
  * The two words the question of whether a reply says the request is done gave (#2878), as the
@@ -13,20 +14,8 @@ export interface RequestWords {
   text?: string;
 }
 
-interface ReplyPart {
-  type: string;
-  text?: unknown;
-  input?: unknown;
-}
-
-const partText = (part: ReplyPart) => {
-  if (part.type === "text" && typeof part.text === "string") return part.text;
-  if (part.type === "tool-call" && typeof part.input === "string") return part.input;
-  return "";
-};
-
 export function requestWordsOf(content: readonly ReplyPart[]): RequestWords {
-  const text = content.map(partText).join("");
+  const text = replyTextOf(content);
   const value = replyJson(text);
   const word = (key: string) => {
     const found = isRecord(value) ? value[key] : undefined;

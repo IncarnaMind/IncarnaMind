@@ -351,7 +351,7 @@ describe("What the record tells the check of a part and a rewrite (#2769)", () =
     expect(UNCHANGED_PART_RULE).toContain("A call with nothingChangedIn failed");
   });
 
-  // protects=the rule about an edit's counts is sent only beside a record that holds them, and the claims check's instructions are otherwise exactly what they were; fails_when=the rule goes with every record, which moved verdicts on the others the last time a rule did (#2769); no_claim=the judge's verdicts (the probes and runs).
+  // protects=the rule about an edit's counts is sent only beside a record that holds them, set right after the line that says what a claim is, and the claims check's instructions are otherwise exactly what they were; fails_when=the rule goes with every record, which moved verdicts on the others the last time a rule did (#2769); no_claim=the judge's verdicts (the probes and runs).
   test("the rule about an edit's counts is sent only beside a record that has them", async () => {
     const touched = {
       edited: 0,
@@ -370,7 +370,16 @@ describe("What the record tells the check of a part and a rewrite (#2769)", () =
     expect(plain).not.toContain("A change's touched says");
     expect(none).not.toContain("A change's touched says");
     expect(plain).toContain(written(CLAIM_CHECK_INSTRUCTIONS));
-    expect(counted).toContain(written(CLAIM_CHECK_INSTRUCTIONS));
+    // Set right after the line that says what a claim is, before the rule for what is applied.
+    const claimIs = counted.indexOf("A claim is the reply saying what the assistant did");
+    const rule = counted.indexOf(written(KIND_OF_CHANGE_RULE));
+    const applied = counted.indexOf("A change whose state is applied counts as made");
+    expect(claimIs).toBeGreaterThan(-1);
+    expect(rule).toBeGreaterThan(claimIs);
+    expect(applied).toBeGreaterThan(rule);
+    expect(counted.replace(`${written(KIND_OF_CHANGE_RULE)}\\n`, "")).toContain(
+      written(CLAIM_CHECK_INSTRUCTIONS),
+    );
   });
 
   // protects=a part is named unchanged only where it is in the Note: a section a change reached through a part nested in it, either way round, a part not found now, a change to a part not found now, and a failure that never found its part name none; fails_when=two names for one place read as two places, and an honest "the summary is longer" is flagged; no_claim=how edit_mind finds a part (its own tests).
@@ -1132,8 +1141,8 @@ describe("What the judge says the sentence is about (#2194)", () => {
   const english = "I've sorted out what the Volunteer Handbook says.";
   const chinese = "我整理了手册的要点。";
 
-  // protects=the four values the judge uses for what a claim is not about each drop it, in English and Chinese; fails_when=a claim it calls the reply's, a Document's, an offer or a negation is flagged; no_claim=what a real judge answers (the pull request's runs).
-  test.each(["reply", "document", "offer_or_question", "negation"] as const)(
+  // protects=the five values the judge uses for what a claim is not about each drop it, in English and Chinese; fails_when=a claim it calls the reply's, a Document's, an offer, a negation or someone else's change is flagged; no_claim=what a real judge answers (the pull request's runs).
+  test.each(["reply", "document", "offer_or_question", "negation", "someone_else"] as const)(
     "about %s finds nothing",
     async (about) => {
       for (const reply of [english, chinese]) {
@@ -1172,6 +1181,46 @@ describe("What the judge says the sentence is about (#2194)", () => {
       }
     },
   );
+});
+
+describe("The app's own marks: the record decides whether they count (#2970)", () => {
+  const marks = [
+    "Two sentences are marked in the Note as not supported by their citations.",
+    "笔记里有两句话被标出：引用不支持它们。",
+  ];
+
+  const begun = { request: "r", cited: 1, sent: 2, checked: 2, failed: 0 };
+  const waiting = { request: "r", cited: 1, sent: 0, checked: 0, failed: 0 };
+
+  // protects=a sentence the judge files as the app's marks never counts after this Answer wrote in a Note whose check began (sent, or running), and counts as a Note's claim when nothing was written, a failed write included, and when a write's check never began, which is its default since #3154, in English and Chinese; fails_when=the condition is left to the model, a failed write lets a mark go, or a write nothing checked lets a "marked" sentence pass; no_claim=where a real judge files it (the gate's runs).
+  test.each([
+    ["an applied write whose check began", [mindCall("add_to_mind", { selfCheck: begun })], []],
+    [
+      "an applied write whose check is running",
+      [mindCall("add_to_mind", { selfCheck: { ...waiting, running: true } })],
+      [],
+    ],
+    [
+      "an applied write whose check never began",
+      [mindCall("add_to_mind", { selfCheck: waiting })],
+      ["added"],
+    ],
+    ["an applied write with no check recorded", [mindCall("add_to_mind", {})], ["added"]],
+    ["a write that failed", [mindCall("add_to_mind", null)], ["added"]],
+    ["no call", [], ["added"]],
+  ])("after %s", async (_case, calls, flagged) => {
+    for (const reply of marks) {
+      const result = await check(
+        judge({
+          claims: [{ sentence: reply, kind: "added", about: "check_marks", backed: false }],
+        }),
+        reply,
+        calls,
+      );
+      expect(result.claims).toEqual(flagged);
+      expect(result.failed).toBeUndefined();
+    }
+  });
 });
 
 describe("A claim of something done in the app (#2407)", () => {

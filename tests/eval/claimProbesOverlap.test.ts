@@ -74,7 +74,7 @@ const PROBE_TEXTS: ProbeText[] = [
 
 describe("the instructions of whether a reply says the request is done", () => {
   test("share no run of words with any probe's request or reply", () => {
-    expect(PROBE_TEXTS).toHaveLength(402);
+    expect(PROBE_TEXTS).toHaveLength(434);
     expect(sharedWith(REQUEST_DONE_INSTRUCTIONS, PROBE_TEXTS)).toEqual([]);
   });
 
