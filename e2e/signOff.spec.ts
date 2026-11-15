@@ -308,16 +308,18 @@ for (const language of ["en", "zh-CN"] as const) {
         t("signOff.count.mine", { count: 3 }),
       );
 
-      // Tie out figures starts the Note's Check where figures need one, asking first when it can't
-      // be priced; Not now still brings the schedule to the front, as wide or as narrow.
+      // Tie out figures starts the Note's Check where figures need one, asking first as no model
+      // can price it here; Not now still brings the schedule back, as wide or as narrow.
       await window.keyboard.press("Escape");
+      const figuresTab = window.getByRole("tab", { name: new RegExp(`^${t("figures.title")}`) });
+      await pointAndClick(window, figuresTab.getByTestId("tab-close"));
+      await expect(schedule).toHaveCount(0);
       await runCommand(window, "mind.tieOut", t("figures.command"));
-      await expect(ask.or(schedule).first()).toBeVisible({ timeout: 30_000 });
-      if (await ask.isVisible()) await pointAndClick(window, ask.getByTestId("mind-check-cancel"));
+      await expect(ask).toBeVisible({ timeout: 30_000 });
+      await pointAndClick(window, ask.getByTestId("mind-check-cancel"));
+      await expect(ask).toHaveCount(0);
       await expect(schedule).toBeVisible();
-      await expect(
-        window.getByRole("tab", { name: new RegExp(`^${t("figures.title")}`) }),
-      ).toHaveAttribute("aria-selected", "true");
+      await expect(figuresTab).toHaveAttribute("aria-selected", "true");
     } finally {
       await app.close();
     }
