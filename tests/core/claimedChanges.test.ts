@@ -351,7 +351,7 @@ describe("What the record tells the check of a part and a rewrite (#2769)", () =
     expect(UNCHANGED_PART_RULE).toContain("A call with nothingChangedIn failed");
   });
 
-  // protects=the rule about an edit's counts is sent only beside a record that holds them, and the claims check's instructions are otherwise exactly what they were; fails_when=the rule goes with every record, which moved verdicts on the others the last time a rule did (#2769); no_claim=the judge's verdicts (the probes and runs).
+  // protects=the rule about an edit's counts is sent only beside a record that holds them, set right after the line that says what a claim is, and the claims check's instructions are otherwise exactly what they were; fails_when=the rule goes with every record, which moved verdicts on the others the last time a rule did (#2769); no_claim=the judge's verdicts (the probes and runs).
   test("the rule about an edit's counts is sent only beside a record that has them", async () => {
     const touched = {
       edited: 0,
@@ -370,7 +370,16 @@ describe("What the record tells the check of a part and a rewrite (#2769)", () =
     expect(plain).not.toContain("A change's touched says");
     expect(none).not.toContain("A change's touched says");
     expect(plain).toContain(written(CLAIM_CHECK_INSTRUCTIONS));
-    expect(counted).toContain(written(CLAIM_CHECK_INSTRUCTIONS));
+    // Set right after the line that says what a claim is, before the rule for what is applied.
+    const claimIs = counted.indexOf("A claim is the reply saying what the assistant did");
+    const rule = counted.indexOf(written(KIND_OF_CHANGE_RULE));
+    const applied = counted.indexOf("A change whose state is applied counts as made");
+    expect(claimIs).toBeGreaterThan(-1);
+    expect(rule).toBeGreaterThan(claimIs);
+    expect(applied).toBeGreaterThan(rule);
+    expect(counted.replace(`${written(KIND_OF_CHANGE_RULE)}\\n`, "")).toContain(
+      written(CLAIM_CHECK_INSTRUCTIONS),
+    );
   });
 
   // protects=a part is named unchanged only where it is in the Note: a section a change reached through a part nested in it, either way round, a part not found now, a change to a part not found now, and a failure that never found its part name none; fails_when=two names for one place read as two places, and an honest "the summary is longer" is flagged; no_claim=how edit_mind finds a part (its own tests).
