@@ -56,8 +56,18 @@ import {
 } from "./memo";
 import { withUserName } from "./userName";
 
-/** The most of a Transcript one Run reads: about two hours of talk. */
-export const FILL_PART_TOKENS = 24_000;
+/**
+ * The most of a Transcript one request reads: about twenty minutes of talk, for every model. A
+ * 45-minute call dense with decisions, some 15,000 tokens asked for whole, spent Claude Haiku
+ * 5.5's whole reply thinking and got no notes (#3151).
+ */
+export const FILL_PART_TOKENS = 6_000;
+
+/**
+ * The least of a Transcript asked for again after a cut reply: about five minutes of talk. A call
+ * that short and dense with decisions took well under half a reply, so a smaller ask wouldn't help.
+ */
+const FILL_PART_FLOOR_TOKENS = 1_500;
 
 /** What a call agrees, sets someone to do or leaves open: never a claim to check. */
 const AGREED: ReadonlySet<FillSection> = new Set(["decisions", "actions", "questions"]);
@@ -91,7 +101,7 @@ export interface MeetingFillOptions {
     unfinishedFills(): { meetingId: string; fill: StoredFill }[];
     isDeleted(meetingId: string): boolean;
   };
-  /** The Transcript's Passages, in reading order, once its newest version has them. */
+  /** The Transcript's Passages, in reading order and each line once, once its newest version has them. */
   transcript(documentId: string): Promise<WindowedPassage[]>;
   /** The model to fill with: the one the Mind uses (#1379), as Local mode and consent allow. */
   route(mindId: string): Promise<FillRoute>;
@@ -432,6 +442,27 @@ export function transcriptParts(
   return parts;
 }
 
+/** `part` as two of about the same size, in reading order; null where neither would reach the floor. */
+export function halved(
+  part: readonly WindowedPassage[],
+): [WindowedPassage[], WindowedPassage[]] | null {
+  const costs = part.map((passage) => estimateTokens(passage.text));
+  const total = costs.reduce((sum, cost) => sum + cost, 0);
+  if (part.length < 2 || total < 2 * FILL_PART_FLOOR_TOKENS) return null;
+  let first = 1;
+  let used = costs[0] ?? 0;
+  while (first < part.length - 1 && used + (costs[first] ?? 0) <= total / 2) {
+    used += costs[first] ?? 0;
+    first += 1;
+  }
+  return [part.slice(0, first), part.slice(first)];
+}
+
+/** A reply that ran out of room, while thinking or part-way through what it wrote. */
+const cutShort = (answer: CellAnswer): boolean =>
+  answer.status === "failed" &&
+  (answer.error?.kind === "cut-short" || answer.error?.kind === "cut-short-small-window");
+
 /**
  * What `promise` gives, or `stopped` as soon as the fill is stopped. Its listener goes once
  * `promise` settles: a fill checks dozens of claims on one signal.
@@ -582,7 +613,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
     };
     set(meeting.id, filling);
     const passages = await passagesOf(transcriptId);
-    const parts = partsFor(passages, route);
+    const waiting = partsFor(passages, route);
     // The notes, their section titles and the question that steers an Answer's language are in
     // the call's language, whatever the interface's (#2770).
     const spoken = callLanguage(passages);
@@ -596,9 +627,11 @@ export function createMeetingFill(options: MeetingFillOptions) {
     let unfinishedParts = 0;
     let problem: MeetingFillProblem | null = null;
     const destinations = new Map<FillSection, string>();
-    for (const [index, part] of parts.entries()) {
+    let asked = 0;
+    for (let part = waiting.shift(); part; part = waiting.shift()) {
+      asked += 1;
       const history = {
-        part: index + 1,
+        part: asked,
         facts: ledger.facts.map((fact) => ({
           id: fact.id,
           topic: fact.topic,
@@ -621,7 +654,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
       } catch (error) {
         if (signal.aborted || (ledger.facts.length === 0 && ledger.overview === null)) throw error;
         if (error instanceof FillProblemError && error.problem.kind === "stopped") throw error;
-        unfinishedParts = parts.length - index;
+        unfinishedParts = waiting.length + 1;
         problem =
           error instanceof FillProblemError
             ? error.problem
@@ -629,7 +662,12 @@ export function createMeetingFill(options: MeetingFillOptions) {
         log.warn("meeting.fillPartFailed", { meetingId: meeting.id, parts: unfinishedParts });
         break;
       }
-      ledger.accept(parsed);
+      // A part whose reply was cut is asked again as two, and what the reply did write is kept:
+      // what it left out is read again, so it isn't counted as missing (#3151).
+      const halves = cutShort(answer) ? halved(part) : null;
+      ledger.accept(
+        halves ? { ...parsed, omittedIds: [], invalidFrames: 0, overviewOmitted: null } : parsed,
+      );
       const markers = [
         "SUMMARY",
         ...parsed.facts.flatMap((fact) => fact.sections.map((section) => section.toUpperCase())),
@@ -646,8 +684,13 @@ export function createMeetingFill(options: MeetingFillOptions) {
         if (conflicts) log.warn("meeting.fillRoutingFailed", { meetingId: meeting.id });
         else destinations.set(section, heading);
       }
+      if (halves) {
+        log.info("meeting.fillPartHalved", { meetingId: meeting.id, waiting: waiting.length + 2 });
+        waiting.unshift(...halves);
+        continue;
+      }
       if (answer.status === "failed") {
-        unfinishedParts = parts.length - index;
+        unfinishedParts = waiting.length + 1;
         problem = failure(answer, route);
         log.warn("meeting.fillPartFailed", { meetingId: meeting.id, parts: unfinishedParts });
         break;
@@ -687,7 +730,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
       problem,
       omitted,
       unfinishedParts,
-      parts: parts.length,
+      parts: asked,
       place: (blocks) => {
         const matched = lines.map((line) => ({ line, element: findLine(blocks, line) }));
         const current = userLines(blocks, true);

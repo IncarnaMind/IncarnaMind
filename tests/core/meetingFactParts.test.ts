@@ -1,5 +1,6 @@
 import { describe, expect, test, vi } from "vitest";
 import type { Core, Meeting, MeetingFill, SystemNotifications } from "../../src/core";
+import { withoutOverlap } from "../../src/core/answers/documentText";
 import { buildPassages } from "../../src/core/documents/passages";
 import type { WindowedPassage } from "../../src/core/documents/search";
 import type { Language } from "../../src/core/language";
@@ -18,7 +19,7 @@ const FINAL = "The review is on Thursday";
 const PURPOSE = "The workshop settles the review schedule";
 const UNFINISHED = "Dana will distribute the review checklist";
 const OVERVIEW = "The workshop covered the review schedule";
-const LONG_CUES = 128;
+const LONG_CUES = 40;
 
 function fact(
   id: string,
@@ -128,7 +129,19 @@ async function capture(
   model: ReturnType<typeof modelFor>,
   long = false,
   name: string | null = null,
-  { language, notifications }: { language?: Language; notifications?: SystemNotifications } = {},
+  {
+    language,
+    notifications,
+    short,
+    linesRepeated,
+  }: {
+    language?: Language;
+    notifications?: SystemNotifications;
+    /** This many lines of ordinary length, a sentence or two each, instead of one. */
+    short?: number;
+    /** The evaluation's arm for the notes as they were asked for before #3151. */
+    linesRepeated?: boolean;
+  } = {},
 ) {
   const { schedule } = model;
   const padding =
@@ -139,11 +152,16 @@ async function capture(
         (_, index) =>
           `Workshop item ${index + 1}: ${index < 4 ? schedule.earlier : schedule.final}. ${PURPOSE}. ${UNFINISHED}. ${padding}`,
       )
-    : [`Workshop item 1: ${schedule.earlier}. ${PURPOSE}. ${UNFINISHED}.`];
+    : Array.from(
+        { length: short ?? 1 },
+        (_, index) =>
+          `Workshop item ${index + 1}: ${index < 4 ? schedule.earlier : schedule.final}. ${PURPOSE}. ${UNFINISHED}.`,
+      );
   const { core, record } = await transcribingCore(await createTempDataFolder(), {
     model: model.model,
     engine: { lines: [...lines, "The workshop is closed"], maxSpeechMs: 500 },
     ...(notifications && { notifications }),
+    ...(linesRepeated && { notesLinesRepeated: () => true }),
   });
   await core.saveLibrarySettings({ ...(await core.getLibrary()).settings, automatic: false });
   await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
@@ -176,7 +194,7 @@ async function capture(
     const read = await core.readDocumentText(transcript.documentId);
     expect(read.pages.length).toBeGreaterThan(0);
     expect(read.pages.map((page) => page.text).join("\n")).toContain(
-      `Workshop item ${long ? LONG_CUES : 1}:`,
+      `Workshop item ${lines.length}:`,
     );
     return read;
   });
@@ -189,9 +207,18 @@ async function capture(
     documentKind: "transcript",
     contentHash: text.contentHash,
   }));
-  const parts = transcriptParts(passages, FILL_PART_TOKENS);
+  const parts = transcriptParts(withoutOverlap(passages), FILL_PART_TOKENS);
   expect(parts).toHaveLength(long ? 3 : 1);
   return { core, meeting, client, before, parts, text };
+}
+
+/** The workshop items a part's request showed the model, in the order shown. */
+function itemsShown(model: ReturnType<typeof modelFor>, part: number): number[] {
+  const asked = model.calls.find((each) => each.part === part);
+  if (!asked) throw new Error(`Part ${part} was never asked.`);
+  return shownPassages(asked.call.prompt).flatMap((passage) =>
+    [...passage.text.matchAll(/Workshop item (\d+):/g)].map((match) => Number(match[1])),
+  );
 }
 
 async function fillOf(core: Core, meeting: Meeting): Promise<MeetingFill | null> {
@@ -503,6 +530,109 @@ describe("Meeting fact frames across provider failures and Transcript parts", ()
       expectRequests(model, [2, 1]);
     } finally {
       release();
+      core.close();
+    }
+  });
+});
+
+describe("A long call's Transcript, each line once, in parts a reply has room for (#3151)", () => {
+  // protects=a call's notes are asked for with each Transcript line once, where the Passages' overlap sent two lines in five twice (#3151); fails_when=a line reaches the model twice in one request or across the parts, or a line is never sent; no_claim=what a real model writes from them.
+  test("every line of the call is sent to the model once", async () => {
+    const model = modelFor(() => ({ text: `${fact("P1_review", EARLIER)}\n\n${overview()}` }));
+    const items = 80;
+    const { core, meeting } = await capture(model, false, null, { short: items });
+    try {
+      expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", problem: null });
+      expect(itemsShown(model, 1)).toEqual(Array.from({ length: items }, (_, index) => index + 1));
+    } finally {
+      core.close();
+    }
+  });
+
+  // protects=the evaluation's arm for the notes as before #3151 really sends the Passages as they overlap, so a paired run compares what it says it does; fails_when=the arm sends each line once, like today's path, or drops a line; no_claim=what the overlap costs a real model.
+  test("the evaluation's as-before arm sends the lines the Passages share twice", async () => {
+    const model = modelFor(() => ({ text: `${fact("P1_review", EARLIER)}\n\n${overview()}` }));
+    const items = 80;
+    const { core, meeting } = await capture(model, false, null, {
+      short: items,
+      linesRepeated: true,
+    });
+    try {
+      expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", problem: null });
+      const shown = itemsShown(model, 1);
+      expect(shown.length).toBeGreaterThan(items);
+      expect([...new Set(shown)]).toEqual(Array.from({ length: items }, (_, index) => index + 1));
+    } finally {
+      core.close();
+    }
+  });
+
+  // protects=a part whose reply is cut off is asked again as two, in reading order and each line once; the facts and overview the cut reply closed are kept and shown to both halves, the item it never closed isn't counted as left out since its lines are read again, and the note ends with no problem and exact Undo (#3151); fails_when=the fill stops at the cut reply, a kept fact is lost or written twice, the unfinished item is counted, or a line of the part is skipped or repeated; no_claim=how often a real model's reply is cut.
+  test("a part whose reply is cut off is asked again as two, and what it wrote is kept", async () => {
+    const model = modelFor((part) =>
+      part === 1
+        ? {
+            text: [
+              fact("P1_review", EARLIER),
+              overview(),
+              fact("P1_checklist", UNFINISHED).replace("### END P1_checklist", ""),
+            ].join("\n\n"),
+            cutOff: true,
+          }
+        : { text: overview() },
+    );
+    const captured = await capture(model, true);
+    const { core, meeting, client, parts } = captured;
+    try {
+      expect(await settledFill(core, meeting)).toMatchObject({
+        state: "filled",
+        omitted: 0,
+        unfinishedParts: 0,
+        problem: null,
+      });
+      expectRetained(client, EARLIER, [UNFINISHED]);
+      const halves = [itemsShown(model, 2), itemsShown(model, 3)];
+      for (const half of halves) expect(half.length).toBeGreaterThan(0);
+      expect(halves.flat()).toEqual(itemsShown(model, 1));
+      for (const part of [2, 3]) {
+        expect(model.calls.find((each) => each.part === part)?.call.prompt).toContain(
+          '"id":"P1_review"',
+        );
+      }
+      expectRequests(
+        model,
+        Array.from({ length: parts.length + 2 }, () => 2),
+      );
+      const asked = Array.from({ length: parts.length + 1 }, (_, index) => index + 2);
+      expect(asked.flatMap((part) => itemsShown(model, part))).toEqual(
+        Array.from({ length: LONG_CUES }, (_, index) => index + 1),
+      );
+      await undo(captured);
+    } finally {
+      core.close();
+    }
+  });
+
+  // protects=a part cut off every time is asked again smaller only down to the floor: the fill then ends on the model's own problem and writes nothing (#3151); fails_when=the same part is asked again whole, the asks never end, the problem is of another kind, or the Note changes; no_claim=the floor's size in minutes.
+  test("a part cut off every time is asked smaller down to the floor, then the fill ends on the model's problem", async () => {
+    const model = modelFor(() => ({ text: "", cutOff: true }));
+    const captured = await capture(model, true);
+    const { core, meeting, client, before } = captured;
+    try {
+      expect(await settledFill(core, meeting)).toMatchObject({
+        state: "failed",
+        problem: { kind: "model", error: "cut-short" },
+      });
+      const asked = [...new Set(model.calls.map((each) => each.part))];
+      expect(asked.length).toBeGreaterThan(1);
+      const sizes = asked.map((part) => itemsShown(model, part).length);
+      for (const [index, size] of sizes.entries()) {
+        if (index > 0) expect(size).toBeLessThan(sizes[index - 1] as number);
+      }
+      expect(itemsShown(model, asked.at(-1) as number)[0]).toBe(1);
+      expect(exactly(client)).toEqual(before);
+      expect(mindCitations(client)).toEqual([]);
+    } finally {
       core.close();
     }
   });

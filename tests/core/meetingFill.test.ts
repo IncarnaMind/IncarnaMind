@@ -20,7 +20,7 @@ import type {
 import { CITE_RETRY_INSTRUCTIONS, QUOTE_RETRY_INSTRUCTIONS } from "../../src/core/answers/prompt";
 import type { WindowedPassage } from "../../src/core/documents/search";
 import type { FakeCaptureOptions } from "../../src/core/meetings/fakeCapture";
-import { FILL_PART_TOKENS, orStopped, transcriptParts } from "../../src/core/meetings/fill";
+import { FILL_PART_TOKENS, halved, orStopped, transcriptParts } from "../../src/core/meetings/fill";
 import type { FillSection } from "../../src/core/meetings/fillPrompt";
 import { createFakeChatModel } from "../../src/main/fakeChat";
 import { citationAttributesOf } from "../../src/shared/citations";
@@ -1202,8 +1202,8 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
     core.close();
   });
 
-  // protects=on a model on this computer at a 16k window, a Transcript part that doesn't fit beside the whole output cap is sent with the cap lowered, never below its floor of 1,024, where main failed it as too long; a reply cut at that cap isn't asked again with more room, which the window can't give, and the fill ends on its own problem, which its line words as "the model couldn't fill in the notes", never a window line, and writes nothing (#3045); fails_when=nothing is sent, the cap isn't lowered or goes below the floor, a second request asks for more room, the problem is of another kind, or the Note changes; no_claim=how often a real model's reply reaches the lowered cap.
-  test("at a 16k window, a fill cut at its lowered cap isn't asked again, and says so in its own line", async () => {
+  // protects=on a model on this computer whose window can't hold a Transcript part beside the whole output cap, the part is sent with the cap lowered, never below its floor of 1,024, where main failed it as too long (#3045); a reply cut at that cap is asked again as two smaller parts, which leave the reply more room, never with a cap above the model's own, and when a part at the floor is cut too the fill ends on the model's problem, never a window line, and writes nothing (#3151); fails_when=nothing is sent, the cap isn't lowered or goes below the floor, the cut part is asked again whole or with a cap above the model's, the problem is of another kind, or the Note changes; no_claim=how often a real model's reply reaches the lowered cap.
+  test("at a small window, a fill cut at its lowered cap is asked again in smaller parts, then ends on the model's problem", async () => {
     const limits: (number | undefined)[] = [];
     const model = scriptedModel((call) => {
       if (isCheckRun(call)) return checkReply(call, {});
@@ -1213,10 +1213,10 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
     });
     // A Transcript whose one part fits beside the instructions only with the cap lowered.
     const long = (line: string) =>
-      `${line}, ${"and we went through each of the figures again ".repeat(56)}`.trim();
+      `${line}, ${"and we went through each of the figures again ".repeat(66)}`.trim();
     const { core, meeting, client } = await recorded(model, NOTES, undefined, undefined, {
       lines: { mine: MY_LINES.map(long), theirs: THEIR_LINES.map(long) },
-      // The app's first local pick on a 32 GB computer: a 16k window and an output cap of 4,096.
+      // A 12k window and an output cap of 4,096: at the app's 16k pick a part fits beside the cap.
       ollamaModels: {
         describe: async () => ({
           digest: null,
@@ -1226,7 +1226,7 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
           support: "tools",
           chat: true,
           remote: false,
-          settings: { numCtx: 16_384, outputTokens: 4_096, keepAlive: "5m", think: false },
+          settings: { numCtx: 12_288, outputTokens: 4_096, keepAlive: "5m", think: false },
         }),
         loaded: async () => true,
         running: async () => true,
@@ -1237,9 +1237,14 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
     const fill = await settledFill(core, meeting);
 
     expect(fill).toMatchObject({ state: "failed", problem: { kind: "model" } });
-    expect(limits).toHaveLength(1);
-    expect(limits[0]).toBeGreaterThanOrEqual(1_024);
-    expect(limits[0]).toBeLessThan(4_096);
+    const [first = 0, ...later] = limits.map((limit) => limit ?? 0);
+    expect(first).toBeGreaterThanOrEqual(1_024);
+    expect(first).toBeLessThan(4_096);
+    expect(later.length).toBeGreaterThan(0);
+    for (const limit of later) {
+      expect(limit).toBeGreaterThan(first);
+      expect(limit).toBeLessThanOrEqual(4_096);
+    }
     expect(shown(client)).toEqual(before);
     core.close();
   });
@@ -3474,12 +3479,28 @@ describe("A long Transcript is read in parts", () => {
   const passage = (index: number, words: number): WindowedPassage =>
     ({ text: "word ".repeat(words), seq: index }) as unknown as WindowedPassage;
 
-  // protects=a two-hour Transcript fits one part on a model with a large window, and a longer one or a small window is split, every Passage kept once in order; fails_when=a Passage is dropped or repeated, or a short Transcript is split; no_claim=the token estimate's accuracy.
+  // protects=a Transcript of about a quarter of an hour fits one part, and a longer one or a small window is split, every Passage kept once in order (#3151); fails_when=a Passage is dropped or repeated, or a short Transcript is split; no_claim=the token estimate's accuracy.
   test("parts fit the budget and keep every Passage once, in order", () => {
-    const twoHours = Array.from({ length: 120 }, (_, index) => passage(index, 120));
-    expect(transcriptParts(twoHours, FILL_PART_TOKENS)).toHaveLength(1);
-    const parts = transcriptParts(twoHours, 4_000);
-    expect(parts.length).toBeGreaterThan(1);
-    expect(parts.flat().map((each) => each.seq)).toEqual(twoHours.map((each) => each.seq));
+    const quarterHour = Array.from({ length: 30 }, (_, index) => passage(index, 120));
+    expect(transcriptParts(quarterHour, FILL_PART_TOKENS)).toHaveLength(1);
+    const twoHours = Array.from({ length: 240 }, (_, index) => passage(index, 120));
+    for (const parts of [
+      transcriptParts(twoHours, FILL_PART_TOKENS),
+      transcriptParts(twoHours, 4_000),
+    ]) {
+      expect(parts.length).toBeGreaterThan(1);
+      expect(parts.flat().map((each) => each.seq)).toEqual(twoHours.map((each) => each.seq));
+    }
+  });
+
+  // protects=a part asked again is two parts of about the same size, every Passage once in order, and a part too small for either half to reach the floor isn't split (#3151); fails_when=a Passage is dropped or repeated, a half is empty, or a short part is split; no_claim=the floor's size in minutes.
+  test("a part is halved with every Passage once, in order, and not below the floor", () => {
+    const part = Array.from({ length: 40 }, (_, index) => passage(index, 120));
+    const halves = halved(part);
+    if (!halves) throw new Error("A full part wasn't halved.");
+    expect(halves.flat().map((each) => each.seq)).toEqual(part.map((each) => each.seq));
+    expect(Math.abs(halves[0].length - halves[1].length)).toBeLessThanOrEqual(1);
+    expect(halved(part.slice(0, 15))).toBeNull();
+    expect(halved(part.slice(0, 1))).toBeNull();
   });
 });
