@@ -19,7 +19,7 @@ export function HelpButtons({
   const t = useT();
   const settings = useAppStore((state) => state.settings);
   const pending = useMeetingHelp((state) => state.pending[meeting.id]);
-  const pressed = pending ?? meeting.help?.kind;
+  const pressed = pending?.kind ?? meeting.help?.kind;
   return (
     <fieldset
       aria-label={t("meetings.help.label")}

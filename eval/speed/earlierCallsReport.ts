@@ -169,7 +169,7 @@ function gateSection(rows: readonly PairedRow[], model: string, set: EarlierCall
   const right = (run: ArmRun) => run.grade === "right";
   const mainRight = count(both(buttons), "baseline", right);
   const branchRight = count(both(buttons), "candidate", right);
-  const withFalse = (run: ArmRun) => run.falseSupported > 0;
+  const withFalse = (run: ArmRun) => (run.falseSupported ?? 0) > 0;
   const mainFalse = count(both(rows), "baseline", withFalse);
   const branchFalse = count(both(rows), "candidate", withFalse);
   const newFalse = both(rows).filter(

@@ -7,6 +7,7 @@ import type {
   AnswerSteps,
   ConversationQuestion,
   MarkedCitation,
+  MarkedFigure,
   Meeting,
 } from "../../core/api";
 import type { Language } from "../../core/language";
@@ -18,7 +19,24 @@ import {
   type ReplyPiece,
 } from "../../shared/helpReplyRead";
 import { isTranscriptLocation, type Translate } from "../../shared/locations";
-import type { MeetingHelpKind } from "../../shared/meetingHelp";
+import type { CallHelpKind } from "../../shared/meetingHelp";
+
+/** The text a reply's pieces show, its figures as worked out, without its Citations, for a line that names it. */
+export const piecesText = (
+  shown: readonly ReplyPiece[],
+  figures: readonly Pick<MarkedFigure, "marker" | "shown">[],
+): string =>
+  shown
+    .flatMap((piece) =>
+      piece.kind === "text"
+        ? [piece.text]
+        : piece.kind === "figure"
+          ? [figures.find((each) => each.marker === piece.marker)?.shown ?? ""]
+          : [],
+    )
+    .join("")
+    .replace(/\s+/g, " ")
+    .trim();
 
 /**
  * An option's sentence as the User would say it, in quotation marks of the panel's own: its reader
@@ -37,7 +55,7 @@ export function quoted(lead: readonly ReplyPiece[]): ReplyPiece[] {
     let text = piece.text;
     if (index === first) text = `“${text.trimStart()}`;
     if (index === last) text = `${text.trimEnd()}”`;
-    return { kind: "text", text };
+    return { ...piece, text };
   });
 }
 
@@ -49,7 +67,7 @@ type HelpAnswer = { text: string; status: AnswerStatus; steps?: { textBehind?: t
  */
 export function helpParts(
   answer: HelpAnswer,
-  kind: MeetingHelpKind,
+  kind: CallHelpKind,
 ): { lead: ReplyItem[]; options: ReplyItem[] } {
   const { lead, options } = helpReplyRead(
     answer.text,
@@ -58,7 +76,7 @@ export function helpParts(
   return { lead, options };
 }
 
-export function helpItems(answer: HelpAnswer, kind: MeetingHelpKind): ReplyItem[] {
+export function helpItems(answer: HelpAnswer, kind: CallHelpKind): ReplyItem[] {
   const { lead, options } = helpParts(answer, kind);
   return [...lead, ...options];
 }
@@ -68,7 +86,7 @@ export function helpItems(answer: HelpAnswer, kind: MeetingHelpKind): ReplyItem[
  * reading or short line, or with the lead-in of "Am I leading them?", which is its answer; the
  * app's own line that the live text is behind isn't.
  */
-export function helpToKeep(answer: HelpAnswer, kind: MeetingHelpKind): boolean {
+export function helpToKeep(answer: HelpAnswer, kind: CallHelpKind): boolean {
   const { lead, options } = helpParts(answer, kind);
   return (
     answer.status === "done" && (options.length > 0 || (kind === "leading" && lead.length > 0))

@@ -392,6 +392,58 @@ describe("The quote lines' replay", () => {
     expect(readersFile(drawn, 3).key).toHaveLength(3);
   });
 
+  // protects=a question typed in the panel (#2925) is replayed by the same rules as a press: its sentences and options carry their quote lines, ✓ only beside a quote found (#2847); fails_when=a typed reply is refused, drawn by other rules, or a ✓ stands beside a quote not found; no_claim=the saved typed replies' own counts.
+  test("a typed question's reply is drawn as a press's, in English and Chinese", () => {
+    const { counts, drawn } = replay([
+      press({
+        id: "en-typed",
+        set: "typed",
+        button: "question",
+        text: "Enterprise is $45 per seat a month [^1]. It's billed annually [^2].",
+        citations: [
+          sheet(1, "Enterprise plan: $45 per seat a month, with single sign-on and audit logs."),
+          sheet(2, "Enterprise contracts are billed annually."),
+        ],
+      }),
+      press({
+        id: "zh-typed",
+        set: "typed",
+        button: "question",
+        language: "zh-CN",
+        text: "企业版每个席位每月 40 美元 [^1]\n\n★ 我们按年签约 [^2]\n→ 说明期限",
+        citations: [
+          {
+            marker: 1,
+            quote: "企业版每个席位每月 40 美元。",
+            check: "not-found",
+            found: false,
+            place: "价格表",
+          },
+          {
+            marker: 2,
+            quote: "企业版合同按年付费。",
+            check: "found",
+            found: true,
+            place: "价格表",
+          },
+        ],
+      }),
+    ]);
+    expect(counts.presses).toEqual({ typed: 2 });
+    expect(counts.lines).toEqual({ answer: 2, "lead-ins": 1 });
+    expect(drawn.map((line) => line.rows)).toEqual([
+      [
+        "“Enterprise plan: $45 per seat a month, with single sign-on and audit logs.” 1 ✓",
+        "“Enterprise contracts are billed annually.” 2 ✓",
+      ],
+      ["未在“价格表”中找到引文 1"],
+      ["“企业版合同按年付费。” 2 ✓"],
+    ]);
+    expect(counts.checkBesideUnfoundWords).toBe(0);
+    expect(counts.quoteNotAsGiven).toBe(0);
+    expect(counts.linesWithNoCitation).toBe(0);
+  });
+
   // protects=#3098's proof: the replay draws a saved reply as the panel drew it written and as the panel that saw it written draws it ended, and counts any line or row that moves: the end's own Citations land at the foot, a kept quote line with nothing reads Quote not found in its row, and a number the end adds takes no row; fails_when=a press with the end's Citations counts a line moved, a row changed or a kept line closed, or the foot or the kept rows aren't counted; no_claim=pixels, which the spec measures.
   test("what the reply's end changes: its own quotes at the foot, a kept line with nothing in its row, and nothing moved", () => {
     const asked = press({

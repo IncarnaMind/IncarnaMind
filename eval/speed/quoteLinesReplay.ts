@@ -5,9 +5,10 @@
  * file named it also writes a hundred drawn lines for blind readers, with nothing in them that
  * tells which shape or rule made a line, and their key beside them (`<file>.key.json`).
  *
- * Each input file is a JSON list of presses (`SavedPress`). A record that holds its Passage's text
- * also has its quote looked for in it here, and a count says where that and the record differ. A
- * Transcript's place is given by its start alone, so "said within the other's time" reads as
+ * Each input file is a JSON list of presses (`SavedPress`), a question typed in the panel's field
+ * among them (#2925), drawn by the same rules. A record that holds its Passage's text also has its
+ * quote looked for in it here, and a count says where that and the record differ. A Transcript's
+ * place is given by its start alone, so "said within the other's time" reads as
  * "starting no earlier, in the same Passage". A plain moment's words count as found when they are
  * inside its Citation's quote or, where the record holds it, its Passage's text, the second counted
  * apart.
@@ -44,7 +45,7 @@ import {
 } from "../../src/shared/helpQuotes";
 import type { ReplyPiece } from "../../src/shared/helpReplyRead";
 import { translate } from "../../src/shared/i18n";
-import { HELP_SHAPE, isMeetingHelpKind, type MeetingHelpKind } from "../../src/shared/meetingHelp";
+import { type CallHelpKind, HELP_SHAPE, isMeetingHelpKind } from "../../src/shared/meetingHelp";
 
 /** A Citation as a saved press records it. */
 export interface SavedCitation {
@@ -72,7 +73,8 @@ export interface SavedPress {
   set: string;
   model?: string;
   language: Language;
-  button: MeetingHelpKind;
+  /** The button pressed, or "question" for a question typed in the panel's field (#2925). */
+  button: CallHelpKind;
   /** The reply's own text, its numbers as "[^n]", with no footnote lines. */
   text: string;
   /** Null for a record that tests the reader of shapes only. */
@@ -113,7 +115,7 @@ export type RowKind =
 
 export interface DrawnLine {
   press: SavedPress;
-  shape: "options" | "lead-ins" | "readings" | "lines";
+  shape: "options" | "lead-ins" | "readings" | "lines" | "answer";
   /** The model's line as the panel shows it; null where a moment line takes its place. */
   written: string | null;
   /** What the panel draws under the line, or in its place, each as shown. */
@@ -909,7 +911,9 @@ export function pressesIn(value: unknown, file = "input"): SavedPress[] {
       throw new Error(`${where}: needs its id, set and text.`);
     }
     if (language !== "en" && language !== "zh-CN") throw new Error(`${where}: unknown language.`);
-    if (!isMeetingHelpKind(button)) throw new Error(`${where}: unknown button.`);
+    if (button !== "question" && !isMeetingHelpKind(button)) {
+      throw new Error(`${where}: unknown button.`);
+    }
     if (citations !== null && !Array.isArray(citations)) {
       throw new Error(`${where}: citations must be a list or null.`);
     }
