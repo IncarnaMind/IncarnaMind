@@ -141,11 +141,15 @@ const historyOf = (doc: Y.Doc) =>
  * A step the User makes in the Note ends what the app's Redo would do again, as any new change
  * does: ⇧⌘Z in the Note's text goes on to the app's Redo once the Note has nothing to do again.
  * The Note's own Undo and Redo add their reverse step with the history as the origin, and a step
- * the app's Undo or Redo writes is part of that change.
+ * the app's Undo or Redo writes is part of that change. A line still offering that Redo goes too.
  */
 function endAppRedoOnNewStep(history: Y.UndoManager): void {
   const made = ({ origin }: { origin: unknown }) => {
-    if (origin !== history && !useUndo.getState().running) useUndo.setState({ undone: [] });
+    if (origin === history || useUndo.getState().running) return;
+    useUndo.setState(({ line }) => ({
+      undone: [],
+      ...(line?.told && line.redoes && { line: null }),
+    }));
   };
   history.on("stack-item-added", made);
   history.on("stack-item-updated", made);

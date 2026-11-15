@@ -453,21 +453,29 @@ describe("a tab's copy of its Note", () => {
       redo: async () => {
         moved += 1;
       },
+      takenBack: () => () => "Moved 3 Documents back",
+    };
+    const offersRedo = () => {
+      const { line } = useUndo.getState();
+      return line?.told ? line.redoes : undefined;
     };
     moved += 1;
     useUndo.getState().push(move);
     await useUndo.getState().undo();
     expect(moved).toBe(0);
     expect(useUndo.getState().undone).toEqual([move]);
+    expect(offersRedo()).toBe(move);
 
     expect(undoInNote(shown.editor)).toBeUndefined();
     await settled(shown.editor, ["Mine:", "Theirs:"]);
     expect(redoInNote(shown.editor)).toBeUndefined();
     await settled(shown.editor, ["Mine: one", "Theirs:"]);
     expect(useUndo.getState().undone).toEqual([move]);
+    expect(offersRedo()).toBe(move);
 
     typeIn(shown.editor, "Mine:", " two");
     expect(useUndo.getState().undone).toEqual([]);
+    expect(useUndo.getState().line).toBeNull();
     typeIn(shown.editor, "Mine:", " three");
     await redoInNote(shown.editor);
     expect(moved).toBe(0);
@@ -477,10 +485,13 @@ describe("a tab's copy of its Note", () => {
   // protects=a step the app's own Undo writes into the Note is part of that change, not a new one: the changes taken back before it stay on the app's Redo (#3115); fails_when=an app change whose Undo writes in the Note empties the app's Redo of the changes taken back before it; no_claim=which app changes write in a Note as they are taken back.
   test("a step the app's Undo writes into the Note leaves the app's Redo as it was", async () => {
     const shown = await showInTab("tab-1");
+    let movedAgain = 0;
     const earlier = {
       said: () => "Moved 3 Documents",
       undo: async () => undefined,
-      redo: async () => undefined,
+      redo: async () => {
+        movedAgain += 1;
+      },
     };
     const writes = {
       said: () => "Changed the Note",
@@ -493,6 +504,8 @@ describe("a tab's copy of its Note", () => {
     await useUndo.getState().undo(writes);
     await settled(shown.editor, ["Mine: as before", "Theirs:"]);
     expect(useUndo.getState().undone).toEqual([earlier, writes]);
+    await useUndo.getState().redo(earlier);
+    expect(movedAgain).toBe(1);
   });
 });
 
