@@ -8,7 +8,7 @@ import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 import type { JSONContent } from "@tiptap/core";
 import { describe, expect, onTestFinished, test } from "vitest";
-import type { CheckDecisionModel, CheckMindInput, Core } from "../../src/core";
+import type { CheckDecisionModel, CheckMindInput, Core, Reranker } from "../../src/core";
 import {
   type PassageScores,
   type Reading,
@@ -18,6 +18,7 @@ import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { calculatedFigureNode } from "../../src/shared/calculatedFigures";
 import { FORMULA_VERSION } from "../../src/shared/formula";
 import { checkGenerate, checkReply, isCheckRun, type Plan, sentenceOf } from "../helpers/checks";
+import { shownPassages } from "../helpers/citations";
 import { createMemoryKeychain, createTempDataFolder, startCore } from "../helpers/core";
 import { recordRows } from "../helpers/csv";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
@@ -213,7 +214,11 @@ const text = (value: string): JSONContent => ({ type: "text", text: value });
 /** A core with the two Documents, a Note of `sentences`, an AI model on OpenRouter and its decision host. */
 async function setUp(
   sentences: readonly string[] = [MOON, YEARLY, PENGUINS],
-  { readsByDefault = false, asShipped = false } = {},
+  {
+    readsByDefault = false,
+    asShipped = false,
+    reranker,
+  }: { readsByDefault?: boolean; asShipped?: boolean; reranker?: Reranker } = {},
 ) {
   const host = await startDecisionHost();
   const checks: ModelCall[] = [];
@@ -231,6 +236,7 @@ async function setUp(
     keychain: createMemoryKeychain(),
     decisionOrigins: { openrouter: host.url },
     ...(!asShipped && { decisionReadsByDefault: readsByDefault }),
+    ...(reranker && { reranker }),
   });
   let accepts = true;
   core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, accepts));
@@ -269,6 +275,13 @@ async function setUp(
       .filter((call) => isCheckRun(call))
       .map((call) => JSON.stringify([call.system, call.prompt, call.tools, call.results]))
       .sort();
+  /** The Documents the AI model's latest search showed it, the first shown first. */
+  const shownBySearch = () => {
+    const found = checks
+      .flatMap((call) => call.results.filter((result) => result.tool === "search_documents"))
+      .at(-1);
+    return [...new Set(shownPassages(found?.text ?? "").map((passage) => passage.document))];
+  };
   return {
     core,
     client,
@@ -276,6 +289,7 @@ async function setUp(
     run,
     readByAiModel,
     sentToAiModel,
+    shownBySearch,
     aiRequests: () => checks.length,
     holdAiModel,
     aiModelId: AI_MODEL,
@@ -708,7 +722,7 @@ describe("Check this Note with a decision model chosen (#3118)", { timeout: 30_0
     expect(await running).toMatchObject({ kind: "checked", checked: MOONS.length });
   });
 
-  // protects=a first reading is display only: the AI model's check of the sentence is sent what it is sent with no decision model chosen; fails_when=a reading adds to, or changes, a request to the AI model; no_claim=that the AI model's answers are the same, which a real model's run measures.
+  // protects=a first reading adds nothing to what the AI model is asked: the check of the sentence is sent the instructions, the question and the tools it is sent with no decision model chosen, and each sentence is still checked once; fails_when=a reading adds to, or changes, a request to the AI model, or a sentence is checked twice; no_claim=that the AI model's answers are the same, which a real model's run measures, or the order of a search's Passages where the reading and search disagree, which the next test covers.
   test("a first reading changes nothing the AI model is asked", async () => {
     const { core, host, run, sentToAiModel, aiRequests } = await setUp([MOON, PENGUINS]);
     await core.checkMind(run("first"));
@@ -724,6 +738,32 @@ describe("Check this Note with a decision model chosen (#3118)", { timeout: 30_0
     expect(host.asked.length).toBeGreaterThan(0);
     expect(plain.length).toBeGreaterThan(0);
     expect(sentToAiModel(third)).toEqual(plain);
+  });
+
+  // protects=a sentence the decision model read and left to the AI model is checked without the reranking model: each of its searches shows first the Document whose Passage the reading found to be about the sentence, whichever that is, while a sentence the decision model didn't read is reranked as before (#2532); fails_when=the reranking model is asked about a read sentence's search, the AI model is shown the Documents in search's own order, or an unread sentence's search is no longer reranked; no_claim=which order serves a real model better, which the real-model comparison measures.
+  test("a sentence it read is checked in the reading's order, with no reranking model", async () => {
+    const reranked: string[] = [];
+    const { core, host, run, shownBySearch } = await setUp([BOTH], {
+      reranker: async (query, candidates) => {
+        reranked.push(query);
+        return [...candidates];
+      },
+    });
+    await core.checkMind(run("no decision model"));
+    expect(reranked).toEqual([BOTH]);
+    expect(shownBySearch().sort()).toEqual(["Harbour office", "Tides"]);
+
+    await choose(core);
+    for (const about of ["Tides", "Harbour office"]) {
+      host.answers(({ passage }) => ({ B: passage.document === about ? 0.9 : 0.02, C: 0.01 }));
+      await core.checkMind(run(`leans on ${about}`));
+      expect(shownBySearch()[0]).toBe(about);
+    }
+    expect(reranked).toEqual([BOTH]);
+
+    host.answers(() => ({ status: 500 }));
+    await core.checkMind(run("unread"));
+    expect(reranked).toEqual([BOTH, BOTH]);
   });
 
   // protects=the Passages a sentence cites are read by the decision model with those its search finds, once each, and a sentence that cites one is never Unsupported on the decision model's word: what its own Citation fails to say is its check's to explain; fails_when=a cited Passage isn't sent, is sent twice, or a citing sentence nothing leans to is marked without the AI model; no_claim=what the AI model's check does with a Citation.

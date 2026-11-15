@@ -161,7 +161,10 @@ export function withoutDocumentLeftOut(
 
 export function setUpRun(
   deps: Pick<ClaimCheckDependencies, "documents" | "evidence" | "fileProperties" | "libraryFacts">,
-  request: Pick<ClaimCheckRequest, "claim" | "originalClaim" | "cited" | "scope" | "window">,
+  request: Pick<
+    ClaimCheckRequest,
+    "claim" | "originalClaim" | "cited" | "scope" | "window" | "about"
+  >,
   results: Pick<CheckResults, "readVersion" | "leftOut">,
 ) {
   const { scope } = request;
@@ -184,6 +187,7 @@ export function setUpRun(
             query,
             within ? { ...scope, documentIds: [...within] } : scope,
             searchSignal,
+            request.about,
           );
       // A web search's result never settles a citation of a court decision.
       const matched = (request.window ?? found?.passages ?? []).filter(

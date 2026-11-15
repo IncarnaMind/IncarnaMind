@@ -22,6 +22,10 @@
  * Passages together: shown at once, and confirmed or changed by the AI model's check, which is
  * asked nothing differently for it.
  *
+ * A sentence the reading leaves to its check takes the reading with it: each of that check's
+ * searches puts the Passages the decision model found to be about the sentence first, the surest
+ * first, and no reranking model scores them again.
+ *
  * A sentence the decision model can't read goes to its check unread: one of more than one part or
  * of none that is a fact, one checked in part, one whose check reads more than Passages (a record
  * cite, a court decision, a whole read), one whose Documents disagree, and one the decision model
@@ -50,7 +54,13 @@ import { sentencesOfLines } from "../wholeSentences";
 import { createCheckResults } from "./checkResults";
 import { asPassage, citedOutsideScope, citedSources, keptInside } from "./checkSetup";
 import { type ClaimCheckDependencies, type ClaimCheckRequest, lineLocation } from "./claimCheck";
-import { type DecisionLines, type PassageScores, readingOf, standsAlone } from "./decisionLines";
+import {
+  type DecisionLines,
+  type PassageScores,
+  passagesAbout,
+  readingOf,
+  standsAlone,
+} from "./decisionLines";
 import { quotableLines } from "./nearest";
 import { type CheckRuns, checkRunOf, recordCheck } from "./runCheck";
 import { numbersNotWritten } from "./writtenNumbers";
@@ -365,12 +375,13 @@ function citationAt(source: Source, { units, matching }: Place, quote: string): 
 }
 
 /**
- * What the decision model's reading of a sentence comes to: its check's result, only what it
- * leans to, or nothing.
+ * What the decision model's reading of a sentence comes to: its check's result; or, for a
+ * sentence left to its check, what the reading leans to, if anything, and the Passages it found
+ * to be about the sentence (`ClaimCheckRequest.about`); or nothing, for a sentence it didn't read.
  */
 export type FirstReading =
   | { result: ClaimCheckResult }
-  | { firstReading: ClaimFirstReading }
+  | { firstReading: ClaimFirstReading | null; about: ReadonlyMap<string, number> }
   | null;
 
 /** Reads a queued sentence with `reader` before its check. */
@@ -420,10 +431,11 @@ export function createFirstReading(deps: Dependencies) {
     for (const each of found.excluded) results.leftOut(each);
     const scores = await scoresOfEach(reader, request, passages, signal);
     if (!scores) return null;
-    const reading = readingOf(
-      scores.map((each, at) => ({ passageId: passages[at]?.passageId ?? "", ...each })),
-      reader.lines,
-    );
+    const scored = scores.map((each, at) => ({
+      passageId: passages[at]?.passageId ?? "",
+      ...each,
+    }));
+    const reading = readingOf(scored, reader.lines);
     const record = checkRunOf(deps, request.model, signal, request.mindId ?? null).record;
     const verdictOf = (
       verdict: ClaimVerdict,
@@ -447,7 +459,7 @@ export function createFirstReading(deps: Dependencies) {
     };
     const unsettled = (firstReading: ClaimFirstReading | null): FirstReading => {
       recordCheck(record, reader.model, null);
-      return firstReading && { firstReading };
+      return { firstReading, about: passagesAbout(scored, reader.lines) };
     };
     if (!reading) return unsettled(null);
     if (reading.verdict === "unsupported") {

@@ -104,6 +104,23 @@ export function readingOf(scores: readonly PassageScores[], lines: DecisionLines
   return verdict && about < verdict.unsupported ? { verdict: "unsupported" } : null;
 }
 
+/**
+ * The Passages a reading found to be about the sentence, one way or the other, each with how
+ * surely: those scored at or over the model's Unsupported line on either question, or, for a
+ * model without that line, at or over the lower of its first reading's lines.
+ */
+export function passagesAbout(
+  scores: readonly PassageScores[],
+  { verdict, firstReading }: DecisionLines,
+): Map<string, number> {
+  const line = verdict?.unsupported ?? Math.min(firstReading.supported, firstReading.contradicted);
+  return new Map(
+    scores
+      .map((each) => [each.passageId, Math.max(each.states, each.opposes)] as const)
+      .filter(([, about]) => about >= line),
+  );
+}
+
 /** Whether a verdict the Passages' scores gave still holds when its Passage is asked about alone. */
 export function standsAlone(
   side: "supported" | "contradicted",

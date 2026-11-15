@@ -22,7 +22,7 @@ import type {
 import type { MindContent } from "../../mindContent";
 import type { PreparedChatModel } from "../../providers/chat";
 import type { RecordCitePlace } from "../../recordCites/referents";
-import { asCheckWork, readingPlace } from "../../reranking/order";
+import { asCheckWork } from "../../reranking/order";
 import { type Slots, slots } from "../../runs/stop";
 import type { ClaimCheckRequest } from "./claimCheck";
 import type { DecisionReader, FirstReading } from "./decisionFirst";
@@ -186,18 +186,24 @@ export const checkClaim = (
   request: ClaimCheckRequest,
 ): Promise<ClaimCheckResult> => asCheckWork(() => claimCheck(request));
 
-/** A request as a key: what it sends, without its signal, its run's limit and its model (the run's own). */
-function requestKey({ signal: _signal, slots: _slots, model: _model, ...sent }: ClaimCheckRequest) {
+/**
+ * A request as a key: what it sends, without its signal, its run's limit and its model (the run's
+ * own), and without what its reading found, which the rest of it decides.
+ */
+function requestKey({
+  signal: _signal,
+  slots: _slots,
+  model: _model,
+  about: _about,
+  ...sent
+}: ClaimCheckRequest) {
   return JSON.stringify(sent, (_key, value: unknown) =>
     value instanceof Map ? [...value] : value instanceof Set ? [...value] : value,
   );
 }
 
-/** A request's reading by a decision model; `hurry` says a check waits for it now. */
-type ReadFirst = (request: ClaimCheckRequest) => {
-  reading: Promise<FirstReading>;
-  hurry(): void;
-};
+/** A request's reading by a decision model. */
+type ReadFirst = (request: ClaimCheckRequest) => Promise<FirstReading>;
 
 /**
  * A run's sentences read by `reader` in front of their checks (#3118). What a request sends is
@@ -210,34 +216,34 @@ export function readingsFirst(
   reader: DecisionReader,
   mindId: string,
 ): ReadFirst {
-  const made = new Map<string, ReturnType<ReadFirst> & { signal: AbortSignal }>();
+  const made = new Map<string, { reading: Promise<FirstReading>; signal: AbortSignal }>();
   return (request) => {
     const key = requestKey(request);
     const before = made.get(key);
-    if (before && !before.signal.aborted) return before;
-    const { run, hurry } = readingPlace();
-    const reading = run(() => read(request, reader)).catch((error: unknown) => {
+    if (before && !before.signal.aborted) return before.reading;
+    const reading = read(request, reader).catch((error: unknown) => {
       if (!request.signal.aborted)
         console.error(`A decision model's reading of a sentence in Note ${mindId} failed:`, error);
       return null;
     });
-    const now = { reading, hurry, signal: request.signal };
-    made.set(key, now);
-    return now;
+    made.set(key, { reading, signal: request.signal });
+    return reading;
   };
 }
 
-/** `claimCheck` behind the run's decision model: a sentence its reading marks never reaches the check. */
+/**
+ * `claimCheck` behind the run's decision model: a sentence its reading marks never reaches the
+ * check, and one it read without marking is checked with what the reading found to be about it.
+ */
 function behindReading(
   { readFirst }: ChecksRun,
   claimCheck: RunChecksOptions["claimCheck"],
 ): RunChecksOptions["claimCheck"] {
   if (!readFirst) return claimCheck;
   return async (request) => {
-    const { reading, hurry } = readFirst(request);
-    hurry();
-    const read = await reading;
-    return read && "result" in read ? read.result : claimCheck(request);
+    const read = await readFirst(request);
+    if (!read) return claimCheck(request);
+    return "result" in read ? read.result : claimCheck({ ...request, about: read.about });
   };
 }
 
@@ -295,7 +301,7 @@ export function earlyChecks(
         AbortSignal.any([run.signal, stop.signal]),
       );
       const key = requestKey(request);
-      const reading = run.readFirst?.(request).reading;
+      const reading = run.readFirst?.(request);
       if (reading) {
         beingRead++;
         void reading.then(() => beingRead--);
@@ -409,8 +415,10 @@ export async function runChecks(
         marked.add(claim);
         return;
       }
-      leaning.set(claim, read.firstReading);
-      write(claim.id, (each) => withFirstReading(each, read.firstReading));
+      const { firstReading } = read;
+      if (!firstReading) return;
+      leaning.set(claim, firstReading);
+      write(claim.id, (each) => withFirstReading(each, firstReading));
     } catch (error) {
       // The sentence's check lands its Mark, and says so if that can't be written either.
       console.error(`A decision model's reading for Note ${mindId} couldn't be written:`, error);
@@ -420,19 +428,15 @@ export async function runChecks(
   const { readFirst } = run;
   const readings = new Map(
     (readFirst ? run.queued : []).flatMap((claim) => {
-      const { reading, hurry } = readFirst?.(requestOf(claim)) ?? {};
-      return reading && hurry
-        ? [[claim, { hurry, shown: reading.then((read) => show(claim, read)) }] as const]
-        : [];
+      const reading = readFirst?.(requestOf(claim));
+      return reading ? [[claim, reading.then((read) => show(claim, read))] as const] : [];
     }),
   );
   const claimCheck = behindReading(run, options.claimCheck);
   const { stop, outcomeError } = await runClaimChecks(
     run.queued,
     async (claim, check) => {
-      const reading = readings.get(claim);
-      reading?.hurry();
-      await reading?.shown;
+      await readings.get(claim);
       return check((request) => checkClaim(claimCheck, request), requestOf(claim));
     },
     {
