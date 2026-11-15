@@ -124,6 +124,8 @@ export interface AskedAlone {
   states: number;
   opposes: number;
   same?: number;
+  /** How surely the sentence drops a condition or limit its Passage sets, where asked. */
+  leavesOut?: number;
 }
 
 /**
@@ -138,7 +140,14 @@ export function askedAlone(later: readonly HostLater[]): AskedAlone | null {
   if (alone?.answers.B === undefined || alone.answers.C === undefined) return null;
   const same = later.find(({ several, answers }) => several === 0 && answers.N !== undefined)
     ?.answers.N;
-  return { states: alone.answers.B, opposes: alone.answers.C, ...(same !== undefined && { same }) };
+  const leavesOut = later.find(({ several, answers }) => several === 0 && answers.L !== undefined)
+    ?.answers.L;
+  return {
+    states: alone.answers.B,
+    opposes: alone.answers.C,
+    ...(same !== undefined && { same }),
+    ...(leavesOut !== undefined && { leavesOut }),
+  };
 }
 
 /** Why a sure score gave no Mark, from what the model said of its Passage asked about alone. */
