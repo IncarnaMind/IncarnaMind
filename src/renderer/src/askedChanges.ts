@@ -100,6 +100,12 @@ interface HeadlessChange {
 
 const asked = new Map<string, Asked>();
 const askedHere = new Set<string>();
+/**
+ * The Answers asked again, until the core says each began again. The Answer's earlier generation
+ * can still write it in that time (its checks land after it ends), and what it writes is not the
+ * end of the Answer asked for now (#3123).
+ */
+const restarting = new Set<string>();
 /** By Answer: the place in front when this window asked for it (#2572). */
 const askedFromHere = new Map<string, TabItem | null>();
 const finishing = new Map<string, Promise<unknown>>();
@@ -333,6 +339,19 @@ async function makeWayForAnswer(
   return outcome;
 }
 
+/**
+ * An Answer about to be asked again: until the core says it began again, or answers that it did,
+ * what is written to the Answer is its earlier generation's.
+ */
+export function expectRestart(answerId: string): void {
+  restarting.add(answerId);
+}
+
+/** The core has begun the Answer again, so what it writes next is the new generation's. */
+export function sawRestart(answerId: string): void {
+  restarting.delete(answerId);
+}
+
 /** An Answer this window has just asked for: what it was asked to write or change applies here. */
 export function applyWhatIsAsked(answerId: string, askedFromItem: TabItem | null): void {
   askedHere.add(answerId);
@@ -344,6 +363,7 @@ export function applyWhatIsAsked(answerId: string, askedFromItem: TabItem | null
 export function applyNotAsked(answerId: string): void {
   forgetMindsMadeBy(answerId);
   askedFromHere.delete(answerId);
+  restarting.delete(answerId);
   if (!askedHere.delete(answerId)) return;
   syncArriving();
 }
@@ -746,6 +766,10 @@ export function reviewAsked(answerId: string, mindId: string): void {
 
 core.on("conversation.message", (message) => {
   if (message.kind !== "answer" || !askedHere.has(message.id)) return;
+  if (restarting.has(message.id)) {
+    if (message.status !== "streaming") return;
+    restarting.delete(message.id);
+  }
   const answer = message;
   for (const row of changedMinds(answer)) follow(row);
   if (answer.status === "streaming") return;
