@@ -56,14 +56,50 @@ export interface Peek {
   on: boolean;
 }
 
-export const peekCitation = (marker: HTMLElement, source: string, on: boolean) =>
+export const peekCitation = (marker: EventTarget, source: string, on: boolean) =>
   marker.dispatchEvent(new CustomEvent<Peek>(PEEK, { detail: { source, on } }));
 
 /** Listens on a marker for those asking to show or hide its card. */
-export function onPeek(marker: HTMLElement, listener: (peek: Peek) => void): () => void {
+export function onPeek(marker: EventTarget, listener: (peek: Peek) => void): () => void {
   const handle = (event: Event) => {
     if (event instanceof CustomEvent) listener(event.detail as Peek);
   };
   marker.addEventListener(PEEK, handle);
   return () => marker.removeEventListener(PEEK, handle);
+}
+
+/**
+ * The card the pointer over a Citation's marker asks for: the marker's own, which it holds with
+ * `hold`, or, over a neighbour's words in the cluster the marker draws, that neighbour's.
+ */
+export function pointedCard(
+  own: () => EventTarget | null,
+  hold: (source: string, on: boolean) => void,
+) {
+  let pointed: EventTarget | null = null;
+  const ask = (target: EventTarget, on: boolean) => {
+    if (target === own()) hold("pointer", on);
+    else peekCitation(target, "cluster", on);
+  };
+  return {
+    /** The pointer is over `target`'s words, or no one's: that card shows and the one it left goes. */
+    pointAt(target: EventTarget | null) {
+      if (target === pointed) return;
+      const before = pointed;
+      pointed = target;
+      if (before) ask(before, false);
+      if (target) ask(target, true);
+    },
+    /**
+     * The keyboard's focus took over (#3102): a neighbour's card the pointer asked for goes, so the
+     * next move over its words asks for it again. The marker's own hold goes only when the focus
+     * went to another control (`ownToo`); the caller drops it.
+     */
+    keyboardTookOver(ownToo: boolean) {
+      if (pointed !== null && pointed !== own()) {
+        peekCitation(pointed, "cluster", false);
+        pointed = null;
+      } else if (ownToo) pointed = null;
+    },
+  };
 }

@@ -23,8 +23,15 @@ let heldBack = false;
 const droppers = new Set<(taker: unknown) => void>();
 let listening = false;
 
-/** Notes where the pointer is: a changed place, or a press, is the User using it. */
+/**
+ * Notes where the pointer is: a changed place, or a press, is the User using it. A cancelled
+ * pointer, a touch the browser turned into a scroll, is pressed no longer, whatever its buttons say.
+ */
 export function trackPointer(event: PointerLike): void {
+  if (event.type === "pointercancel") {
+    pressed = false;
+    return;
+  }
   pressed = event.buttons !== 0;
   if (event.type !== "pointerdown" && event.clientX === at.x && event.clientY === at.y) return;
   at = { x: event.clientX, y: event.clientY };
@@ -49,7 +56,13 @@ export function keyboardTakesOver(taker: unknown, now = performance.now()): void
 export function onKeyboardTakesOver(drop: (taker: unknown) => void): () => void {
   if (!listening && typeof document !== "undefined") {
     listening = true;
-    for (const type of ["pointermove", "pointerdown", "pointerup", "pointerover"]) {
+    for (const type of [
+      "pointermove",
+      "pointerdown",
+      "pointerup",
+      "pointercancel",
+      "pointerover",
+    ]) {
       document.addEventListener(type, (event) => trackPointer(event as PointerEvent), true);
     }
   }

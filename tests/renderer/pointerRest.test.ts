@@ -63,6 +63,14 @@ describe("the keyboard taking a card from the pointer", () => {
     expect(drop).toHaveBeenCalledTimes(1);
   });
 
+  test("a press the browser cancels, as a touch it turns into a scroll, holds nothing after", () => {
+    trackPointer(at(40, 50, 0, "pointerdown", 1));
+    trackPointer(at(40, 50, 100, "pointercancel", 1));
+    keyboardTakesOver({}, 1_000);
+    expect(drop).toHaveBeenCalledTimes(1);
+    expect(pointerMayAsk()).toBe(false);
+  });
+
   test("a pointer that is moving keeps its card", () => {
     trackPointer(at(40, 50, 980));
     keyboardTakesOver({}, 1_000);

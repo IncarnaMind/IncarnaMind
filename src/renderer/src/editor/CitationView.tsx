@@ -8,6 +8,7 @@ import {
   useContext,
   useEffect,
   useId,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -112,7 +113,7 @@ import {
   useCitedOrigin,
 } from "./mindContext";
 import { Popover } from "./Popover";
-import { onPeek, peekCitation, useCitationPeek } from "./peek";
+import { onPeek, pointedCard, useCitationPeek } from "./peek";
 import { keyboardTakesOver, onKeyboardTakesOver, pointerMayAsk } from "./pointerRest";
 import { isQuietFocus } from "./quietFocus";
 import { SignOffLine, SignOffToggle } from "./SignOff";
@@ -293,8 +294,7 @@ export function CitationView({
   const judging = state.check === "checking" && judgedAnswer !== null && !writing && !answering;
   const dot = useRef<SVGSVGElement>(null);
   useBreathing(dot, state.check === "checking" && (writing || answering));
-  /** The marker whose card the pointer over this one asks for: its own, or a neighbour's. */
-  const pointed = useRef<HTMLElement | null>(null);
+  const pointer = useMemo(() => pointedCard(() => marker.current, hold), [hold]);
   const formatting = useMindFormatting(mindId);
   const dismiss = useCallback(() => {
     clearPeek();
@@ -318,15 +318,14 @@ export function CitationView({
     const element = marker.current;
     const stop = element && onPeek(element, ({ source, on }) => hold(source, on));
     const letGo = onKeyboardTakesOver((taker) => {
-      if (taker === element) return;
-      pointed.current = null;
-      dropPointer();
+      pointer.keyboardTookOver(taker !== element);
+      if (taker !== element) dropPointer();
     });
     return () => {
       stop?.();
       letGo();
     };
-  }, [hold, dropPointer]);
+  }, [hold, dropPointer, pointer]);
 
   /**
    * Opens the cited place, or the Document; amber when opened anyway after "not found".
@@ -578,17 +577,10 @@ export function CitationView({
     inCluster === null || work === null || work === inCluster.member
       ? marker.current
       : memberMarker(editor.view.dom, inCluster.cluster, work);
-  /** Shows the card of the Citation the pointer is over, and hides the one it left. */
   const pointAt = (target: HTMLElement | null) => {
     // A pointer the keyboard took the card from asks again only when it moves (#3102).
     if (target && !pointerMayAsk()) return;
-    const before = pointed.current;
-    if (before === target) return;
-    pointed.current = target;
-    if (before === marker.current) hold("pointer", false);
-    else if (before) peekCitation(before, "cluster", false);
-    if (target === marker.current) hold("pointer", true);
-    else if (target) peekCitation(target, "cluster", true);
+    pointer.pointAt(target);
   };
 
   return (
