@@ -119,25 +119,37 @@ export type HeldBackStep =
   | { step: "its Passage alone"; states: number; opposes: number }
   | { step: "the amount"; same: number };
 
+/** What the model said of one Passage asked about alone, and of its amounts where that was asked. */
+export interface AskedAlone {
+  states: number;
+  opposes: number;
+  same?: number;
+}
+
 /**
- * Why a sure score gave no Mark, from the requests that followed the sentence's first: its Passage
- * asked about alone is the first about one Passage with both questions, sent before any about a
- * line alone.
+ * What the model said of a sentence's Passage asked about alone, from the requests that followed
+ * the sentence's first: the first about one Passage with both questions, sent before any about a
+ * line alone. For a sentence no Passage is about, it is the nearest ones joined.
  */
-export function heldBackBy(
-  side: "supported" | "contradicted",
-  later: readonly HostLater[],
-  lines: DecisionLines,
-): HeldBackStep {
+export function askedAlone(later: readonly HostLater[]): AskedAlone | null {
   const alone = later.find(
     ({ several, answers }) => several === 0 && answers.B !== undefined && answers.C !== undefined,
   );
-  if (alone?.answers.B === undefined || alone.answers.C === undefined)
-    return { step: "not asked again" };
-  const scores = { states: alone.answers.B, opposes: alone.answers.C };
-  if (!standsAlone(side, scores, lines)) return { step: "its Passage alone", ...scores };
+  if (alone?.answers.B === undefined || alone.answers.C === undefined) return null;
   const same = later.find(({ several, answers }) => several === 0 && answers.N !== undefined)
     ?.answers.N;
+  return { states: alone.answers.B, opposes: alone.answers.C, ...(same !== undefined && { same }) };
+}
+
+/** Why a sure score gave no Mark, from what the model said of its Passage asked about alone. */
+export function heldBackBy(
+  side: "supported" | "contradicted",
+  alone: AskedAlone | null,
+  lines: DecisionLines,
+): HeldBackStep {
+  if (!alone) return { step: "not asked again" };
+  const { states, opposes, same } = alone;
+  if (!standsAlone(side, alone, lines)) return { step: "its Passage alone", states, opposes };
   if (same !== undefined && same < (lines.verdict?.sameAmount ?? Number.POSITIVE_INFINITY))
     return { step: "the amount", same };
   return { step: "no line to rest on" };

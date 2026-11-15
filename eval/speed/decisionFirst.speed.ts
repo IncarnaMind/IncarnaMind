@@ -29,7 +29,9 @@
  *   benchmark's own PDFs, eval/citations/documents), and
  *   INCARNAMIND_EVAL_SPEED_EMBEDDINGS=off searches by keyword alone, as the app does until the
  *   User turns embeddings on. A Note that names Documents (`scope`, their keys) is checked in
- *   that Search scope, as a Note the User set to them.
+ *   that Search scope, as a Note the User set to them. INCARNAMIND_EVAL_SPEED_LINES (the lines as
+ *   JSON) reads with other lines than the measured model's, to measure where a line can sit:
+ *   marks.json keeps what each sentence's Passage scored when asked about alone.
  *
  * INCARNAMIND_EVAL_SPEED_ARMS (as `main,decision,decision,main`, the default) names each run's arm
  * in turn, INCARNAMIND_EVAL_SPEED_SENTENCES how many sentences the Note holds (33 by default, the
@@ -44,14 +46,18 @@ import type { AddressInfo } from "node:net";
 import { loadavg, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
-import { test } from "vitest";
+import { test, vi } from "vitest";
 import {
   type ChatModelChoice,
   type CheckDecisionModel,
   type Core,
   MIND_CONTENT_FIELD,
 } from "../../src/core";
-import { decisionLinesFor, readingOf } from "../../src/core/answers/checks/decisionLines";
+import {
+  type DecisionLines,
+  decisionLinesFor,
+  readingOf,
+} from "../../src/core/answers/checks/decisionLines";
 import { BUILT_IN_RERANKING_MODEL } from "../../src/core/reranking/model";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { setMindScope } from "../../src/shared/mindScope";
@@ -72,6 +78,7 @@ import { createLog } from "../lib/log";
 import { createWorkerCrossEncoder } from "../lib/rerank";
 import { SETS, writeDocuments } from "../repeats/cases";
 import {
+  askedAlone,
   asLabelled,
   decisionUsd,
   type HostLater,
@@ -84,6 +91,19 @@ import {
   shapesOf,
 } from "./decisionFirstScore";
 import { env, list, modelsAsked, spentUsd } from "./settings";
+
+/* A measurement of where a line can sit reads with other lines than the measured model's. */
+vi.mock("../../src/core/answers/checks/decisionLines", async (importOriginal) => {
+  const real = await importOriginal<typeof import("../../src/core/answers/checks/decisionLines")>();
+  const other = process.env.INCARNAMIND_EVAL_SPEED_LINES;
+  if (!other) return real;
+  const lines: DecisionLines = JSON.parse(other);
+  return {
+    ...real,
+    decisionLinesFor: (...model: Parameters<typeof real.decisionLinesFor>) =>
+      real.decisionLinesFor(...model) && lines,
+  };
+});
 
 const ROOT = resolve(__dirname, "../..");
 const DECIDER: CheckDecisionModel = { host: "openrouter", modelId: "perplexity/pplx-decider-v1.2" };
@@ -767,6 +787,9 @@ test.skipIf(mode !== "replay" && mode !== "replay-dry" && mode !== "replay-main"
                 decisionLines,
               );
             const read = host.passagesRead(sentence.text.trim());
+            const alone = askedAlone(
+              host.later().filter((each) => each.sentence.trim() === sentence.text.trim()),
+            );
             return {
               note: labelled.id,
               // The highest score any Passage got on each question, in the sentence's first request.
@@ -802,12 +825,10 @@ test.skipIf(mode !== "replay" && mode !== "replay-dry" && mode !== "replay-main"
                 reading.verdict !== "unsupported" &&
                 reading.final &&
                 !byDecision
-                  ? heldBackBy(
-                      reading.verdict,
-                      host.later().filter((each) => each.sentence.trim() === sentence.text.trim()),
-                      decisionLines,
-                    )
+                  ? heldBackBy(reading.verdict, alone, decisionLines)
                   : null,
+              // Its Passage asked about alone, whatever Mark followed.
+              alone,
               kind: sentence.kind ?? null,
               id: sentence.id,
               text: sentence.text,
