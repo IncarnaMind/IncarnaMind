@@ -57,17 +57,19 @@ import {
 import { withUserName } from "./userName";
 
 /**
- * The most of a Transcript one request reads: about twenty minutes of talk, for every model. A
- * 45-minute call dense with decisions, some 15,000 tokens asked for whole, spent Claude Haiku
- * 5.5's whole reply thinking and got no notes (#3151).
+ * The most of a Transcript one request reads: about ten minutes of talk, for every model. A
+ * 45-minute call dense with decisions, some 15,000 tokens, spent Claude Haiku 5.5's whole reply
+ * thinking and got no notes, asked for whole and again in parts of 6,000; its parts of about
+ * 3,000 were answered (#3151).
  */
-export const FILL_PART_TOKENS = 6_000;
+export const FILL_PART_TOKENS = 3_000;
 
 /**
- * The least of a Transcript asked for again after a cut reply: about five minutes of talk. A call
- * that short and dense with decisions took well under half a reply, so a smaller ask wouldn't help.
+ * The least of a Transcript asked for again after a cut reply: about two and a half minutes of
+ * talk, so a full part is halved once. A call of four minutes dense with decisions took well
+ * under half a reply, so a smaller ask wouldn't help.
  */
-const FILL_PART_FLOOR_TOKENS = 1_500;
+const FILL_PART_FLOOR_TOKENS = 750;
 
 /** What a call agrees, sets someone to do or leaves open: never a claim to check. */
 const AGREED: ReadonlySet<FillSection> = new Set(["decisions", "actions", "questions"]);

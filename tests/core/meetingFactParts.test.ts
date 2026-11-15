@@ -22,7 +22,7 @@ const FINAL = "The review is on Thursday";
 const PURPOSE = "The workshop settles the review schedule";
 const UNFINISHED = "Dana will distribute the review checklist";
 const OVERVIEW = "The workshop covered the review schedule";
-const LONG_CUES = 40;
+const LONG_CUES = 20;
 
 function fact(
   id: string,
@@ -156,12 +156,12 @@ async function capture(
     ? Array.from(
         { length: LONG_CUES },
         (_, index) =>
-          `Workshop item ${index + 1}: ${index < 4 ? schedule.earlier : schedule.final}. ${PURPOSE}. ${UNFINISHED}. ${padding}`,
+          `Workshop item ${index + 1}: ${index < 2 ? schedule.earlier : schedule.final}. ${PURPOSE}. ${UNFINISHED}. ${padding}`,
       )
     : Array.from(
         { length: short ?? 1 },
         (_, index) =>
-          `Workshop item ${index + 1}: ${index < 4 ? schedule.earlier : schedule.final}. ${PURPOSE}. ${UNFINISHED}.`,
+          `Workshop item ${index + 1}: ${index < 2 ? schedule.earlier : schedule.final}. ${PURPOSE}. ${UNFINISHED}.`,
       );
   const said = asides
     ? lines.flatMap((line, index) => [
@@ -561,7 +561,7 @@ describe("A long call's Transcript, each line once, in parts a reply has room fo
   // protects=a call's notes are asked for with each Transcript line once, where the Passages' overlap sent two lines in five twice (#3151); fails_when=a line reaches the model twice in one request or across the parts, or a line is never sent; no_claim=what a real model writes from them.
   test("every line of the call is sent to the model once", async () => {
     const model = modelFor(() => ({ text: `${fact("P1_review", EARLIER)}\n\n${overview()}` }));
-    const items = 80;
+    const items = 50;
     const { core, meeting } = await capture(model, false, null, { short: items });
     try {
       expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", problem: null });
@@ -574,14 +574,14 @@ describe("A long call's Transcript, each line once, in parts a reply has room fo
   // protects=every line of a call's notes request carries its own time, when short replies ("Yeah.") come between the lines and other lines start with the same word (#3151); fails_when=a line reaches the model with no time, or with an earlier line's; no_claim=who the model says spoke.
   test("each line is sent with its own time when short replies repeat", async () => {
     const model = modelFor(() => ({ text: `${fact("P1_review", EARLIER)}\n\n${overview()}` }));
-    const { core, meeting, text } = await capture(model, false, null, { short: 60, asides: true });
+    const { core, meeting, text } = await capture(model, false, null, { short: 40, asides: true });
     try {
       expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", problem: null });
       const file = (await core.listDocuments()).find((each) => each.id === text.documentId);
       const heard = readVtt(readFileSync(file?.path ?? "", "utf8")).cues.map(
         (cue) => `${clockTime(cue.startMs)} ${cue.text}`,
       );
-      expect(heard).toHaveLength(121);
+      expect(heard).toHaveLength(81);
       expect(linesShown(model, 1)).toEqual(heard);
     } finally {
       core.close();
@@ -591,7 +591,7 @@ describe("A long call's Transcript, each line once, in parts a reply has room fo
   // protects=the evaluation's arm for the notes as before #3151 really sends the Passages as they overlap, so a paired run compares what it says it does; fails_when=the arm sends each line once, like today's path, or drops a line; no_claim=what the overlap costs a real model.
   test("the evaluation's as-before arm sends the lines the Passages share twice", async () => {
     const model = modelFor(() => ({ text: `${fact("P1_review", EARLIER)}\n\n${overview()}` }));
-    const items = 80;
+    const items = 50;
     const { core, meeting } = await capture(model, false, null, {
       short: items,
       linesRepeated: true,

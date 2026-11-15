@@ -13,7 +13,7 @@ import { transcribingCore } from "../helpers/transcription";
 const CALL = fileURLToPath(new URL("../fixtures/meetings/long-dense-call.txt", import.meta.url));
 
 /** The most Transcript lines the scripted model answers in one reply: past it, its reply is cut while thinking. */
-const ROOM_LINES = 120;
+const ROOM_LINES = 60;
 
 const OVERVIEW = "The call went through the rollout";
 

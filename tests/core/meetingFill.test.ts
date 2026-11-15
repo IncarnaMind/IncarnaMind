@@ -3479,14 +3479,14 @@ describe("A long Transcript is read in parts", () => {
   const passage = (index: number, words: number): WindowedPassage =>
     ({ text: "word ".repeat(words), seq: index }) as unknown as WindowedPassage;
 
-  // protects=a Transcript of about a quarter of an hour fits one part, and a longer one or a small window is split, every Passage kept once in order (#3151); fails_when=a Passage is dropped or repeated, or a short Transcript is split; no_claim=the token estimate's accuracy.
+  // protects=a Transcript of about ten minutes fits one part, and a longer one or a small window is split, every Passage kept once in order (#3151); fails_when=a Passage is dropped or repeated, or a short Transcript is split; no_claim=the token estimate's accuracy.
   test("parts fit the budget and keep every Passage once, in order", () => {
-    const quarterHour = Array.from({ length: 30 }, (_, index) => passage(index, 120));
-    expect(transcriptParts(quarterHour, FILL_PART_TOKENS)).toHaveLength(1);
+    const tenMinutes = Array.from({ length: 18 }, (_, index) => passage(index, 120));
+    expect(transcriptParts(tenMinutes, FILL_PART_TOKENS)).toHaveLength(1);
     const twoHours = Array.from({ length: 240 }, (_, index) => passage(index, 120));
     for (const parts of [
       transcriptParts(twoHours, FILL_PART_TOKENS),
-      transcriptParts(twoHours, 4_000),
+      transcriptParts(twoHours, 2_000),
     ]) {
       expect(parts.length).toBeGreaterThan(1);
       expect(parts.flat().map((each) => each.seq)).toEqual(twoHours.map((each) => each.seq));
@@ -3495,12 +3495,12 @@ describe("A long Transcript is read in parts", () => {
 
   // protects=a part asked again is two parts of about the same size, every Passage once in order, and a part too small for either half to reach the floor isn't split (#3151); fails_when=a Passage is dropped or repeated, a half is empty, or a short part is split; no_claim=the floor's size in minutes.
   test("a part is halved with every Passage once, in order, and not below the floor", () => {
-    const part = Array.from({ length: 40 }, (_, index) => passage(index, 120));
+    const part = Array.from({ length: 20 }, (_, index) => passage(index, 120));
     const halves = halved(part);
     if (!halves) throw new Error("A full part wasn't halved.");
     expect(halves.flat().map((each) => each.seq)).toEqual(part.map((each) => each.seq));
     expect(Math.abs(halves[0].length - halves[1].length)).toBeLessThanOrEqual(1);
-    expect(halved(part.slice(0, 15))).toBeNull();
+    expect(halved(part.slice(0, 9))).toBeNull();
     expect(halved(part.slice(0, 1))).toBeNull();
   });
 });
