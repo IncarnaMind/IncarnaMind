@@ -93,6 +93,12 @@ export interface EvidenceDependencies {
     query: string,
     options: Pick<SearchToolOptions, "documentIds" | "parameters" | "signal">,
   ): Promise<WindowedPassage[]>;
+  /** Hybrid search's best `limit` Passages, the best first, each alone and as search ranks it. */
+  best(
+    query: string,
+    limit: number,
+    documentIds: readonly string[] | undefined,
+  ): Promise<WindowedPassage[]>;
 }
 
 export type Evidence = ReturnType<typeof createEvidence>;
@@ -348,35 +354,59 @@ export function createEvidence(deps: EvidenceDependencies) {
         documentIds: scope.documentIds ?? undefined,
         signal,
       });
-      if (scope.excluded.size === 0) return { passages, excluded: [] };
-      const matched = await deps.search(query, {
-        documentIds: [...scope.excluded.keys()],
-        parameters: EXCLUDED_PARAMETERS,
-        signal,
-      });
-      // The search Tool gives its Passages by Document, the best Document first.
-      const byDocument = new Map<string, ExcludedEvidence>();
-      const add = (passage: PassageSearchResult) => {
-        const reason = scope.excluded.get(passage.documentId);
-        if (!reason) return;
-        const entry = byDocument.get(passage.documentId) ?? {
-          documentId: passage.documentId,
-          documentName: passage.documentName,
-          reason,
-          passages: [],
-        };
-        entry.passages.push(passage);
-        byDocument.set(passage.documentId, entry);
-      };
-      for (const passage of matched) add(passageResult(passage));
-      // Search shows the Passages of identical files once (see `distinctPassages`): each copy
-      // left out is named too, where the one shown matched.
-      for (const found of [...byDocument.values()]) {
-        for (const copy of copiesOf(found, scope.excluded)) add(copy);
-      }
-      return { passages, excluded: [...byDocument.values()] };
+      return { passages, excluded: await excludedMatches(query, scope, signal) };
+    },
+
+    /**
+     * A search for a reader that reads every Passage it is given: the `limit` Passages hybrid
+     * search ranks highest over the scope, the best first, with no reranker to order them and
+     * no neighbours beside them; then the small search of the Documents left out.
+     */
+    async best(
+      query: string,
+      scope: EvidenceScope,
+      limit: number,
+      signal?: AbortSignal,
+    ): Promise<EvidenceSearch> {
+      const passages = await deps.best(query, limit, scope.documentIds ?? undefined);
+      return { passages, excluded: await excludedMatches(query, scope, signal) };
     },
   };
+
+  /** Where the Documents a check leaves out matched `query`, the best first: a small search of them. */
+  async function excludedMatches(
+    query: string,
+    scope: EvidenceScope,
+    signal?: AbortSignal,
+  ): Promise<ExcludedEvidence[]> {
+    if (scope.excluded.size === 0) return [];
+    const matched = await deps.search(query, {
+      documentIds: [...scope.excluded.keys()],
+      parameters: EXCLUDED_PARAMETERS,
+      signal,
+    });
+    // The search Tool gives its Passages by Document, the best Document first.
+    const byDocument = new Map<string, ExcludedEvidence>();
+    const add = (passage: PassageSearchResult) => {
+      const reason = scope.excluded.get(passage.documentId);
+      if (!reason) return;
+      const entry = byDocument.get(passage.documentId) ?? {
+        documentId: passage.documentId,
+        documentName: passage.documentName,
+        reason,
+        passages: [],
+      };
+      entry.passages.push(passage);
+      byDocument.set(passage.documentId, entry);
+    };
+    for (const passage of matched) add(passageResult(passage));
+    // Search shows the Passages of identical files once (see `distinctPassages`): each copy
+    // left out is named too, where the one shown matched.
+    for (const found of [...byDocument.values()]) {
+      for (const copy of copiesOf(found, scope.excluded)) add(copy);
+    }
+    return [...byDocument.values()];
+  }
 
   /** The same Passages in the other Documents left out that hold the same file as `found`. */
   function copiesOf(

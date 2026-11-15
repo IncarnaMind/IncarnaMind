@@ -25,6 +25,8 @@ export const REPLAY_OUTCOMES = [
   "marked supported, wrong",
   "marked contradicted, right",
   "marked contradicted, wrong",
+  "marked unsupported, right",
+  "marked unsupported, wrong",
   "first reading supported, right",
   "first reading supported, wrong",
   "first reading contradicted, right",
@@ -46,14 +48,16 @@ export interface ReplayShown {
 
 /**
  * One labelled sentence's outcome. A Mark or a first reading is right only when it is the label
- * itself: on a sentence labelled Unsupported both verdicts are wrong.
+ * itself: on a sentence labelled Unsupported a first reading either way is wrong.
  */
 export function replayOutcome(expected: string, shown: ReplayShown | null): ReplayOutcome {
   if (!shown) return "not found in the Note";
+  const right = (verdict: string) => (verdict === expected ? "right" : "wrong");
+  if (shown.byDecision && shown.state === "unsupported")
+    return `marked unsupported, ${right(shown.state)}`;
   const verdict = shown.byDecision ? shown.state : shown.firstReading;
   if (verdict !== "supported" && verdict !== "contradicted") return "no reading";
-  const what = shown.byDecision ? "marked" : "first reading";
-  return `${what} ${verdict}, ${verdict === expected ? "right" : "wrong"}`;
+  return `${shown.byDecision ? "marked" : "first reading"} ${verdict}, ${right(verdict)}`;
 }
 
 /** The gate's own reading of "a sentence with a figure", apart from the app's: any digit. */

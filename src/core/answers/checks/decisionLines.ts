@@ -11,9 +11,19 @@ export interface DecisionLines {
   /**
    * A score at or over a line, clear of `band`, is the sentence's verdict. `band` is the widest a
    * score moved between two runs of the same request: a score that near a line is a first reading.
-   * Absent for a model whose verdicts weren't measured to hold.
+   * `sameAmount` is the line for a number of the sentence the Passage writes another way.
+   * Unsupported needs every Passage under `unsupported` on both questions: a score between it and
+   * a first reading's line is a Passage about the sentence that doesn't settle it (a figure it
+   * gives by a sum, a "may" for a "must"), which the AI model's check reads. Absent for a model
+   * whose verdicts weren't measured to hold.
    */
-  verdict?: { supported: number; contradicted: number; band: number };
+  verdict?: {
+    supported: number;
+    contradicted: number;
+    band: number;
+    sameAmount: number;
+    unsupported: number;
+  };
   /** A score at or over these is a first reading, which the User's AI model confirms or changes. */
   firstReading: { supported: number; contradicted: number };
 }
@@ -28,7 +38,13 @@ export const MEASURED_DECISION_MODELS: readonly {
     host: "openrouter",
     modelId: "perplexity/pplx-decider-v1.2",
     lines: {
-      verdict: { supported: 0.98, contradicted: 0.9, band: 0.005 },
+      verdict: {
+        supported: 0.98,
+        contradicted: 0.9,
+        band: 0.005,
+        sameAmount: 0.92,
+        unsupported: 0.25,
+      },
       firstReading: { supported: 0.8, contradicted: 0.5 },
     },
   },
@@ -48,14 +64,14 @@ export interface PassageScores {
 
 /**
  * What the scores of a sentence's Passages come to: a verdict or a first reading resting on one
- * Passage, or nothing. A Passage that says the opposite outranks one that states the sentence, as
- * measured.
+ * Passage, Unsupported when none of them is about it either way, or nothing. Nothing too where one
+ * Passage states the sentence and another says the opposite, both clear of their lines: the
+ * Documents disagree, which no single Passage's score settles.
  */
-export type Reading = {
-  verdict: "supported" | "contradicted";
-  passageId: string;
-  final: boolean;
-} | null;
+export type Reading =
+  | { verdict: "supported" | "contradicted"; passageId: string; final: boolean }
+  | { verdict: "unsupported" }
+  | null;
 
 const best = (scores: readonly PassageScores[], of: "states" | "opposes") =>
   scores.reduce<PassageScores | null>(
@@ -68,18 +84,31 @@ export function readingOf(scores: readonly PassageScores[], lines: DecisionLines
   const opposing = best(scores, "opposes");
   if (!stating || !opposing) return null;
   const { verdict, firstReading } = lines;
-  if (verdict && opposing.opposes >= verdict.contradicted + verdict.band)
-    return { verdict: "contradicted", passageId: opposing.passageId, final: true };
-  if (
-    verdict &&
-    stating.states >= verdict.supported + verdict.band &&
-    opposing.opposes < verdict.contradicted - verdict.band
-  )
+  const sureStates = verdict !== undefined && stating.states >= verdict.supported + verdict.band;
+  const sureOpposes =
+    verdict !== undefined && opposing.opposes >= verdict.contradicted + verdict.band;
+  if (sureStates && sureOpposes) return null;
+  if (sureOpposes) return { verdict: "contradicted", passageId: opposing.passageId, final: true };
+  if (verdict && sureStates && opposing.opposes < verdict.contradicted - verdict.band)
     return { verdict: "supported", passageId: stating.passageId, final: true };
   const states = stating.states >= firstReading.supported;
   const opposes = opposing.opposes >= firstReading.contradicted;
-  if (states === opposes) return null;
-  return states
-    ? { verdict: "supported", passageId: stating.passageId, final: false }
-    : { verdict: "contradicted", passageId: opposing.passageId, final: false };
+  if (states && opposes) return null;
+  if (states) return { verdict: "supported", passageId: stating.passageId, final: false };
+  if (opposes) return { verdict: "contradicted", passageId: opposing.passageId, final: false };
+  const about = Math.max(stating.states, opposing.opposes);
+  return verdict && about < verdict.unsupported ? { verdict: "unsupported" } : null;
+}
+
+/** Whether a verdict the Passages' scores gave still holds when its Passage is asked about alone. */
+export function standsAlone(
+  side: "supported" | "contradicted",
+  alone: Pick<PassageScores, "states" | "opposes">,
+  { verdict }: DecisionLines,
+): boolean {
+  if (!verdict) return false;
+  return side === "contradicted"
+    ? alone.opposes >= verdict.contradicted + verdict.band
+    : alone.states >= verdict.supported + verdict.band &&
+        alone.opposes < verdict.contradicted - verdict.band;
 }

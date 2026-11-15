@@ -13,6 +13,36 @@ Check this Note with a decision model reading each sentence first (`src/core/ans
 
 What the gate does not cover: any other decision model (none can be chosen until it is measured), and the screens.
 
+## The build since 2026-11-15
+
+The reading changed after this file was written. Points 1 to 3 above and the bars below describe the earlier build; **parts A and B have not been run on this one**, and the model still reads only where the User chose it.
+
+1. **One search, one request.** The sentence's 30 best Passages by the plain search (no reranker, no neighbouring Passages), with any it cites first, go to the decision model in one request with the two questions of each.
+2. **A Mark from the decision model** where a score is clear of the line, the Passage asked about alone scores clear again, and a number of the sentence the Passage writes another way is the same amount by the model's own answer (0.92). A sentence with a figure can get one. The quote is the line of that Passage the model scores highest on the verdict's question.
+3. **Unsupported from the decision model** where every Passage scores under 0.25 on both questions and the sentence cites nothing.
+4. **No reading** where one Passage states the sentence and another says the opposite, both clear of their lines: the sentence goes to the AI model unread.
+5. **A first reading** for any other score that leans, as before.
+
+Two bars cannot be read on this build as they are written: **A2** (it marks sentences with a figure by design) and the first reading "for every sentence with a figure" of point 3 above.
+
+**What a pressure test of this build gave**, in the app, on public test text only (`replay` and `real`, Decider v1.2, 2026-11-15). The 106 sentences are the half of the checks evaluation's set (`eval/checks`) the request's shape was worked out on, over that set's Folder (921 Passages, keyword search):
+
+| | Count |
+|---|---|
+| A Passage the label rests on among the 30 read | 86 of 86 |
+| Supported from the decision model | 47, all as labelled |
+| Contradicted from the decision model | 24, all as labelled |
+| Unsupported from the decision model | 21: 20 as labelled, 1 not (a figure its Document gives by a subtraction) |
+| First readings | 14: 12 the label's way, 2 not (both calculations) |
+| The 71 quotes that hold the label's own line | 68; the other 3 are another line of the same Document, 2 of them a PDF's line that cuts the sentence |
+| Requests to the host | 269, all answered; 53 sentences in 6.5 s and in 5.4 s |
+
+- **That run had no Unsupported line**: any sentence no Passage leaned to was Unsupported. On a Note of 33 sentences (`eval/repeats`) it also marked 2 sentences Unsupported that are labelled Contradicted ("must" for the Document's "may", and the reverse).
+- **The 0.25 line was set on those results**, not on new text: those three wrong ones, and a fourth sentence an earlier measurement missed the same way, had a highest score of 0.38 to 0.70; of the 20 right ones on this half, 18 were at 0.113 or under, the others at 0.238 and 0.492. By those scores the line sends all four and one right one to the AI model. It has not been run again since.
+- The same Notes over a Folder without their Documents (869 Passages): no Supported or Contradicted, 104 Unsupported, 2 sentences with no Passage found left to the AI model.
+- A Note of 33 sentences with Claude Haiku 5.5 behind: the decision model's Marks landed at 4.4 to 5.8 s, the AI model's first at 8.7 s and its last at 35.3 s; 50 requests to the host, all answered. With a host too slow to answer in 5 s, no reading shows and the check ends 5 s later than with no decision model (free run, scripted AI model).
+- The quotes were compared with the labels' lines by a script, not read blind.
+
 ## What the gate decides
 
 Whether the decision model reads **by default** for a User whose check's AI model already runs on its host's service (ADR-0022's amendment for #3118), or only where the User chose it. It is on by default only if all four hold:

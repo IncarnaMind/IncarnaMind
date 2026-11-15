@@ -23,6 +23,11 @@
  *   labels. It prints counts only; each sentence's Mark goes to marks.json for a blind reading,
  *   and the run fails as void if the host refused a request, answered later or not.
  *   `replay-dry` is the same on the host on this computer, to try the run for nothing.
+ *   INCARNAMIND_EVAL_SPEED_LIBRARY adds Documents to that Library, any of `mixed` (the mixed
+ *   sample set), `checks` (the checks evaluation's Folder, for Notes labelled against it) and
+ *   `repeats` (the English sets' Documents of eval/repeats), and
+ *   INCARNAMIND_EVAL_SPEED_EMBEDDINGS=off searches by keyword alone, as the app does until the
+ *   User turns embeddings on.
  *
  * INCARNAMIND_EVAL_SPEED_ARMS (as `main,decision,decision,main`, the default) names each run's arm
  * in turn, INCARNAMIND_EVAL_SPEED_SENTENCES how many sentences the Note holds (33 by default, the
@@ -53,6 +58,7 @@ import { queryDatabase } from "../../tests/helpers/core";
 import { connectToMind } from "../../tests/helpers/mindClient";
 import { heading, note, readMind, writeMind } from "../../tests/helpers/minds";
 import { scriptedModel } from "../../tests/helpers/models";
+import { readChecksSet } from "../checks/lib/set";
 import { reports } from "../everyday/asking";
 import { readConfig } from "../lib/config";
 import { createWorkerEmbedder } from "../lib/embedder";
@@ -89,11 +95,12 @@ async function noteOf(folder: string, count: number) {
 }
 
 /**
- * A decision host on this computer: every sentence's first Passage leans to stating it, no other;
- * for a sentence in `sure` its score is clear of the verdict's line.
+ * A decision host on this computer: the first Passage, or line, of every request about several
+ * leans to stating the sentence and no other does; for a sentence in `sure` its score is clear of
+ * the verdict's line, and so is its Passage's when asked about alone.
  */
 async function startHost(answerMs: number, sure: ReadonlySet<string> = new Set()) {
-  const leaning = new Set<string>();
+  const read = new Map<string, HostPassage[]>();
   const scores: HostScore[] = [];
   let asked = 0;
   const server = createServer(async (request, response) => {
@@ -104,18 +111,23 @@ async function startHost(answerMs: number, sure: ReadonlySet<string> = new Set()
       response.end(JSON.stringify(payload));
     };
     if (request.method === "GET") return send({ data: [] });
-    const body = JSON.parse(text) as { model: unknown; state: { sentence: string } };
+    const body = JSON.parse(text) as { model: unknown; state: HostState; questions: object };
     asked++;
-    const first = !leaning.has(body.state.sentence);
-    leaning.add(body.state.sentence);
     await sleep(answerMs);
-    const states = first ? (sure.has(body.state.sentence) ? 0.995 : 0.9) : 0.02;
-    scores.push({ sentence: body.state.sentence, states, opposes: 0.01 });
-    send({
-      model: body.model,
-      answers: { B: { type: "noul", noul: states }, C: { type: "noul", noul: 0.01 } },
-      usage: { input_tokens: 10, output_tokens: 0 },
-    });
+    const { sentence } = body.state;
+    const top = sure.has(sentence) ? 0.995 : 0.9;
+    const answers = Object.fromEntries(
+      Object.keys(body.questions).map((question) => {
+        const [kind, name] = question.split("_");
+        const noul = kind === "C" ? 0.01 : name === undefined || name === "p1" ? top : 0.02;
+        return [question, { type: "noul", noul }];
+      }),
+    );
+    if (body.state.passages && !read.has(sentence)) {
+      read.set(sentence, Object.values(body.state.passages));
+      scores.push(...scoresOfEach(sentence, answers));
+    }
+    send({ model: body.model, answers, usage: { input_tokens: 10, output_tokens: 0 } });
   });
   await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
   return {
@@ -123,8 +135,9 @@ async function startHost(answerMs: number, sure: ReadonlySet<string> = new Set()
     asked: () => asked,
     inputTokens: () => 0,
     scores: () => scores,
+    passagesRead: (sentence: string) => read.get(sentence) ?? null,
     refused: (): number[] => [],
-    forget: () => leaning.clear(),
+    forget: () => read.clear(),
     close: () =>
       new Promise<void>((done) => {
         server.closeAllConnections();
@@ -135,11 +148,32 @@ async function startHost(answerMs: number, sure: ReadonlySet<string> = new Set()
 
 type DecisionHost = Awaited<ReturnType<typeof startHost>> | Awaited<ReturnType<typeof startRelay>>;
 
-/** The two scores of one answered request, by the sentence it was asked of. */
+/** One Passage's two scores in a sentence's first request, the one about all its Passages. */
 interface HostScore {
   sentence: string;
   states: number;
   opposes: number;
+}
+
+interface HostPassage {
+  document: string;
+  text: string;
+}
+
+interface HostState {
+  sentence: string;
+  passages?: Record<string, HostPassage>;
+}
+
+/** Each Passage's scores in the answers to one request about several, in the order asked. */
+function scoresOfEach(sentence: string, answers: Record<string, { noul?: number }>): HostScore[] {
+  const scores: HostScore[] = [];
+  for (let at = 1; ; at++) {
+    const states = answers[`B_p${at}`]?.noul;
+    const opposes = answers[`C_p${at}`]?.noul;
+    if (states === undefined || opposes === undefined) return scores;
+    scores.push({ sentence, states, opposes });
+  }
 }
 
 const OPENROUTER = "https://openrouter.ai";
@@ -151,6 +185,7 @@ const OPENROUTER = "https://openrouter.ai";
 async function startRelay(origin: string) {
   let asked = 0;
   let inputTokens = 0;
+  const read = new Map<string, HostPassage[]>();
   const scores: HostScore[] = [];
   const refused: number[] = [];
   const server = createServer(async (request, response) => {
@@ -182,12 +217,13 @@ async function startRelay(origin: string) {
         };
         inputTokens += usage?.input_tokens ?? 0;
         const { state } = JSON.parse(Buffer.concat(chunks).toString("utf8")) as {
-          state?: { sentence?: string };
+          state?: Partial<HostState>;
         };
-        const states = answers?.B?.noul;
-        const opposes = answers?.C?.noul;
-        if (state?.sentence && states !== undefined && opposes !== undefined)
-          scores.push({ sentence: state.sentence, states, opposes });
+        // A later request about several is about the lines of the verdict's Passage.
+        if (state?.sentence && state.passages && answers && !read.has(state.sentence)) {
+          read.set(state.sentence, Object.values(state.passages));
+          scores.push(...scoresOfEach(state.sentence, answers));
+        }
       } else refused.push(reply.status);
     }
     const retryAfter = reply.headers.get("retry-after");
@@ -203,8 +239,9 @@ async function startRelay(origin: string) {
     asked: () => asked,
     inputTokens: () => inputTokens,
     scores: () => scores,
+    passagesRead: (sentence: string) => read.get(sentence) ?? null,
     refused: () => refused,
-    forget: () => {},
+    forget: () => read.clear(),
     close: () =>
       new Promise<void>((done) => {
         server.closeAllConnections();
@@ -479,6 +516,8 @@ interface LabelledSentence {
   expected: "supported" | "contradicted" | "unsupported" | "no-mark" | "unknown";
   kind?: string;
   citation: { file: string; quote: string } | null;
+  /** Where its Documents settle it, when the label says. */
+  evidence?: { file: string; quote: string }[];
 }
 
 interface LabelledNote {
@@ -561,6 +600,10 @@ test.skipIf(mode !== "replay" && mode !== "replay-dry" && mode !== "replay-main"
       .flatMap((each) => each.blocks.flatMap((block) => block.sentences))
       .filter((each) => each.expected !== "no-mark")
       .map((each) => each.text);
+    const added = list("LIBRARY") ?? [];
+    const checks = added.includes("checks")
+      ? (await readChecksSet(ROOT)).folder.map((each) => ({ ...each, path: join(ROOT, each.path) }))
+      : [];
     const host: DecisionHost =
       mode === "replay" ? await startRelay(OPENROUTER) : await startHost(0);
     const scripted = alone ? null : scriptedCheck(claims, 0);
@@ -569,7 +612,19 @@ test.skipIf(mode !== "replay" && mode !== "replay-dry" && mode !== "replay-main"
       embedder: createWorkerEmbedder(),
       modelCache: join(config.cacheDir, "models"),
       reranker: createWorkerCrossEncoder(config.rerankOnCpu),
-      documents: loadEvaluationSet(ROOT).documents,
+      documents: [
+        ...loadEvaluationSet(ROOT).documents,
+        ...(added.includes("mixed") ? await reports() : []),
+        ...(added.includes("repeats")
+          ? (await noteOf(await mkdtemp(join(tmpdir(), "incarnamind-decision-first-")), 0))
+              .documents
+          : []),
+        ...checks.filter((each) => !each.address).map(({ name, path }) => ({ key: name, path })),
+      ],
+      webPages: checks.flatMap(({ name, path, address }) =>
+        address ? [{ key: name, address, html: readFileSync(path, "utf8") }] : [],
+      ),
+      ...(env("EMBEDDINGS") === "off" && { embeddings: false }),
       keep: config.keepData,
       log,
       ...(scripted && { chatModels: () => () => scripted }),
@@ -603,12 +658,15 @@ test.skipIf(mode !== "replay" && mode !== "replay-dry" && mode !== "replay-main"
           break;
         }
         const { mindId, client } = await writeLabelled(library, labelled);
+        host.forget();
+        const started = performance.now();
         await core.checkMind({
           requestId: `replay-${labelled.id}-${Date.now()}`,
           mindId,
           mode: "all",
           model: { providerId: provider.id, modelId: AI_MODEL },
         });
+        const checkedMs = performance.now() - started;
         const spans = claimSpans(
           readMind({ blocks: client.doc.getXmlFragment(MIND_CONTENT_FIELD) }),
         );
@@ -620,18 +678,44 @@ test.skipIf(mode !== "replay" && mode !== "replay-dry" && mode !== "replay-main"
             const part = span?.check.parts?.[0];
             const byDecision = part?.modelId === DECIDER.modelId;
             const evidence = byDecision ? part?.evidence?.[0] : undefined;
+            const scores = host
+              .scores()
+              .filter((each) => each.sentence.trim() === sentence.text.trim());
             const reading =
               decisionLines &&
               readingOf(
-                host
-                  .scores()
-                  .filter((each) => each.sentence.trim() === sentence.text.trim())
-                  .map((each, at) => ({ ...each, passageId: String(at) })),
+                scores.map((each, at) => ({ ...each, passageId: String(at) })),
                 decisionLines,
               );
+            const read = host.passagesRead(sentence.text.trim());
             return {
               note: labelled.id,
-              sure: reading?.final ? reading.verdict : null,
+              // The highest score any Passage got on each question, in the sentence's first request.
+              top:
+                scores.length > 0
+                  ? {
+                      states: Math.max(...scores.map((each) => each.states)),
+                      opposes: Math.max(...scores.map((each) => each.opposes)),
+                    }
+                  : null,
+              // Whether a Passage the label rests on was among those the decision model read.
+              inReach:
+                read && sentence.evidence?.length
+                  ? sentence.evidence.some(({ file, quote }) =>
+                      read.some(
+                        (each) =>
+                          bareName(each.document) === bareName(file) &&
+                          findQuote(each.text, quote, {
+                            numbers: "if-needed",
+                            lostLigatures: true,
+                          }) !== null,
+                      ),
+                    )
+                  : null,
+              sure:
+                reading && reading.verdict !== "unsupported" && reading.final
+                  ? reading.verdict
+                  : null,
               kind: sentence.kind ?? null,
               id: sentence.id,
               text: sentence.text,
@@ -655,8 +739,11 @@ test.skipIf(mode !== "replay" && mode !== "replay-dry" && mode !== "replay-main"
             figure: hasDigit(each.text),
             outcome: replayOutcome(each.expected, each.shown),
           });
+        const labelledPassage = scored.filter((each) => each.inReach !== null);
         lines.push(
           `## ${labelled.id}`,
+          "",
+          `${scored.length} sentences checked in ${seconds(checkedMs)}. A Passage the label rests on was among those read for ${labelledPassage.filter((each) => each.inReach).length} of ${labelledPassage.length}.`,
           "",
           `${sentences.length} sentences, ${scored.length} labelled with a Mark.`,
           "",

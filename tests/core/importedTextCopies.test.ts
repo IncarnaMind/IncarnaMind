@@ -513,6 +513,7 @@ describe("A read of the kept file that fails", () => {
       log: { info() {}, warn: (event) => warned.push(event), error() {} },
       leaveOutOwnFiles: () => true,
       search: async () => [],
+      best: async () => [],
     });
     const file = (digit: string) => () => ({ contentHashes: [digit.repeat(64)] });
 

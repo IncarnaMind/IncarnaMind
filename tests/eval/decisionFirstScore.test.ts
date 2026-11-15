@@ -33,6 +33,8 @@ describe("Scoring a decision model's Marks against labels (#3118)", () => {
     expect(replayOutcome("unsupported", marked("contradicted"))).toBe("marked contradicted, wrong");
     expect(replayOutcome("contradicted", marked("supported"))).toBe("marked supported, wrong");
     expect(replayOutcome("supported", marked("contradicted"))).toBe("marked contradicted, wrong");
+    expect(replayOutcome("unsupported", marked("unsupported"))).toBe("marked unsupported, right");
+    expect(replayOutcome("supported", marked("unsupported"))).toBe("marked unsupported, wrong");
   });
 
   // protects=a sentence the AI model marks is scored by its first reading, never by the AI model's Mark, and one with no reading or not on the page gets its own cell; fails_when=the AI model's verdict is counted as the decision model's, or a missing sentence is counted as read; no_claim=the AI model's Marks.
@@ -78,6 +80,8 @@ describe("Scoring a decision model's Marks against labels (#3118)", () => {
       "marked supported, wrong": 1,
       "marked contradicted, right": 0,
       "marked contradicted, wrong": 0,
+      "marked unsupported, right": 0,
+      "marked unsupported, wrong": 0,
       "first reading supported, right": 1,
       "first reading supported, wrong": 0,
       "first reading contradicted, right": 0,

@@ -316,7 +316,7 @@ export interface ChecksOptions
   resolveScope(scope: SearchScope, mindId?: string | null): string[] | null;
   /** The Documents a Search scope covers; with none, the User's own (`scopeDocuments`). */
   scopeDocuments(scope: SearchScope | null, mindId: string | null): string[] | null;
-  evidence: Pick<Evidence, "ready" | "scope" | "search">;
+  evidence: Pick<Evidence, "ready" | "scope" | "search" | "best">;
   documents: ClaimCheckDependencies["documents"] &
     MindCheckOptions["documents"] &
     Pick<RecordCiteSource, "batesHolders"> & {

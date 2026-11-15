@@ -7,7 +7,11 @@ import type { AddressInfo } from "node:net";
 import type { JSONContent } from "@tiptap/core";
 import { describe, expect, onTestFinished, test } from "vitest";
 import type { CheckDecisionModel, CheckMindInput, Core } from "../../src/core";
-import { type PassageScores, readingOf } from "../../src/core/answers/checks/decisionLines";
+import {
+  type PassageScores,
+  type Reading,
+  readingOf,
+} from "../../src/core/answers/checks/decisionLines";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { checkGenerate, checkReply, isCheckRun, type Plan, sentenceOf } from "../helpers/checks";
 import { createMemoryKeychain, createTempDataFolder, startCore } from "../helpers/core";
@@ -17,39 +21,46 @@ import { readMind, writeMind } from "../helpers/minds";
 import { type ModelCall, scriptedModel, scriptedModels } from "../helpers/models";
 
 const LINES = {
-  verdict: { supported: 0.98, contradicted: 0.9, band: 0.005 },
+  verdict: { supported: 0.98, contradicted: 0.9, band: 0.005, sameAmount: 0.92, unsupported: 0.25 },
   firstReading: { supported: 0.8, contradicted: 0.5 },
 };
 
 const scores = (...each: [states: number, opposes: number][]): PassageScores[] =>
   each.map(([states, opposes], index) => ({ passageId: `p${index}`, states, opposes }));
 
+const told = (reading: Reading): string =>
+  !reading
+    ? "nothing"
+    : reading.verdict === "unsupported"
+      ? "unsupported"
+      : `${reading.verdict} ${reading.passageId} ${reading.final ? "final" : "first reading"}`;
+
 describe("What a sentence's scores come to", () => {
-  // protects=a verdict needs a score clear of its line by the band, a Passage that says the opposite outranks one that states the sentence, and a lower score is only a first reading; fails_when=a score inside the band, or a Supported beside a Passage that opposes, becomes a verdict; no_claim=that the lines themselves are right, which the gate's real-model run measures.
+  // protects=a verdict needs a score clear of its line by the band, a lower score is only a first reading, Passages that disagree give no reading, and a sentence is Unsupported only when every Passage scores under the Unsupported line on both questions; fails_when=a score inside the band becomes a verdict, a sentence one Passage states and another opposes gets a reading, or a sentence a Passage scores between the Unsupported line and a first reading reads Unsupported; no_claim=that the lines themselves are right, which the gate's real-model run measures.
   test.each([
     ["states it, clear of the line", scores([0.99, 0.01], [0.2, 0.02]), "supported p0 final"],
     ["states it, inside the band", scores([0.983, 0.01]), "supported p0 first reading"],
     ["states it, below the line", scores([0.85, 0.01]), "supported p0 first reading"],
-    ["one states it, one opposes", scores([0.99, 0.01], [0.1, 0.95]), "contradicted p1 final"],
+    ["opposes, clear of the line", scores([0.1, 0.95], [0.2, 0.02]), "contradicted p0 final"],
+    ["one states it, one opposes", scores([0.99, 0.01], [0.1, 0.95]), "nothing"],
     ["states it, one nearly opposes", scores([0.99, 0.01], [0.1, 0.897]), "nothing"],
     ["opposes, inside the band", scores([0.1, 0.903]), "contradicted p0 first reading"],
     ["opposes, below the line", scores([0.1, 0.6]), "contradicted p0 first reading"],
     ["both lean", scores([0.85, 0.6]), "nothing"],
-    ["neither", scores([0.3, 0.1]), "nothing"],
+    ["nothing is about it", scores([0.1, 0.05], [0.02, 0.2]), "unsupported"],
+    ["one half states it", scores([0.4, 0.05], [0.02, 0.01]), "nothing"],
+    ["one half opposes", scores([0.02, 0.01], [0.05, 0.4]), "nothing"],
+    ["at the Unsupported line", scores([0.25, 0.01]), "nothing"],
     ["no Passage", scores(), "nothing"],
   ])("%s", (_, given, expected) => {
-    const reading = readingOf(given, LINES);
-    expect(
-      reading
-        ? `${reading.verdict} ${reading.passageId} ${reading.final ? "final" : "first reading"}`
-        : "nothing",
-    ).toBe(expected);
+    expect(told(readingOf(given, LINES))).toBe(expected);
   });
 
-  // protects=a model with no measured verdict lines never gives a verdict; fails_when=its high score is final; no_claim=which models have lines.
+  // protects=a model with no measured verdict lines never gives a verdict, Unsupported included; fails_when=its high score is final, or a sentence none of its Passages leans to reads Unsupported; no_claim=which models have lines.
   test("a model without verdict lines only gives a first reading", () => {
-    const reading = readingOf(scores([0.999, 0.001]), { firstReading: LINES.firstReading });
-    expect(reading).toEqual({ verdict: "supported", passageId: "p0", final: false });
+    const unmeasured = { firstReading: LINES.firstReading };
+    expect(told(readingOf(scores([0.999, 0.001]), unmeasured))).toBe("supported p0 first reading");
+    expect(told(readingOf(scores([0.03, 0.01]), unmeasured))).toBe("nothing");
   });
 });
 
@@ -71,6 +82,8 @@ const MOON = "Spring tides come at new and full moon.";
 const YEARLY = "The harbour office publishes the times of high water every year.";
 const PENGUINS = "Penguins nest on the cliffs above the harbour.";
 const TONNES = "The harbour office handled 54,000 tonnes of cargo.";
+// A sentence whose search finds both Documents.
+const BOTH = "The harbour office publishes the times of spring tides.";
 
 // More sentences than a cloud model checks at once, and more requests than the host is sent at once.
 const MOONS = [
@@ -105,15 +118,31 @@ const PLANS: Record<string, Plan> = {
   },
   [PENGUINS]: { verdict: "unsupported" },
   [TONNES]: { verdict: "unsupported" },
+  [BOTH]: { verdict: "unsupported" },
 };
 
-interface Asked {
-  sentence: string;
-  context?: { paragraph: string };
-  passage: { document: string; page?: string; text: string };
+interface Shown {
+  document: string;
+  page?: string;
+  text: string;
 }
 
-type Answer = { B: number; C: number } | { status: number };
+/** A request's state: the sentence with one Passage, or with several, each under its name. */
+interface State {
+  sentence: string;
+  context?: { paragraph: string };
+  passage?: Shown;
+  passages?: Record<string, Shown>;
+}
+
+/** One question as the host is asked it: the sentence, and the Passage or the line it is about, alone or among others. */
+interface Asked {
+  sentence: string;
+  passage: Shown;
+  among: boolean;
+}
+
+type Answer = { B: number; C: number; N?: number } | { status: number };
 
 /** What the decision model says by default: sure of the two sentences the Documents decide. */
 const sure = ({ sentence, passage }: Asked): Answer => ({
@@ -122,8 +151,8 @@ const sure = ({ sentence, passage }: Asked): Answer => ({
 });
 
 async function startDecisionHost() {
-  const asked: { model: unknown; state: Asked; questions: string[] }[] = [];
-  let answer: (state: Asked) => Answer | Promise<Answer> = sure;
+  const asked: { model: unknown; state: State; questions: string[] }[] = [];
+  let answer: (asked: Asked) => Answer | Promise<Answer> = sure;
   const server = createServer(async (request, response) => {
     let text = "";
     for await (const chunk of request) text += chunk;
@@ -132,18 +161,23 @@ async function startDecisionHost() {
       response.end(JSON.stringify(payload));
     };
     if (request.method === "GET") return send(200, { data: [] });
-    const body = JSON.parse(text) as { model: unknown; state: Asked; questions: object };
-    asked.push({ model: body.model, state: body.state, questions: Object.keys(body.questions) });
-    const given = await answer(body.state);
-    if ("status" in given) return send(given.status, { error: { message: "Refused." } });
-    send(200, {
-      model: body.model,
-      answers: {
-        B: { type: "noul", noul: given.B },
-        C: { type: "noul", noul: given.C },
-      },
-      usage: { input_tokens: 10, output_tokens: 0 },
-    });
+    const body = JSON.parse(text) as { model: unknown; state: State; questions: object };
+    const questions = Object.keys(body.questions);
+    asked.push({ model: body.model, state: body.state, questions });
+    const answers: Record<string, { type: "noul"; noul: number }> = {};
+    for (const question of questions) {
+      const [kind, name] = question.split("_") as ["B" | "C" | "N", string | undefined];
+      const passage = name ? body.state.passages?.[name] : body.state.passage;
+      if (!passage) return send(400, { error: { message: `No Passage for ${question}.` } });
+      const given = await answer({
+        sentence: body.state.sentence,
+        passage,
+        among: name !== undefined,
+      });
+      if ("status" in given) return send(given.status, { error: { message: "Refused." } });
+      answers[question] = { type: "noul", noul: given[kind] ?? 0.95 };
+    }
+    send(200, { model: body.model, answers, usage: { input_tokens: 10, output_tokens: 0 } });
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   onTestFinished(
@@ -264,9 +298,9 @@ async function marks(client: MindClient) {
 }
 
 describe("Check this Note with a decision model chosen (#3118)", { timeout: 30_000 }, () => {
-  // protects=a sentence one Passage clearly states or contradicts gets its verdict from the decision model, with that Passage's own line as its quote and the decision model named on it, and costs no request to the AI model; every other sentence goes to the AI model's check; fails_when=the AI model is asked about a sentence the decision model decided, the quote isn't a line of the Passage, or an undecided sentence gets no check; no_claim=that a real decision model's scores are right, which the gate's real-model run measures.
-  test("the decision model gives the clear verdicts and the AI model checks the rest", async () => {
-    const { core, client, host, run, readByAiModel, aiModelId } = await setUp();
+  // protects=a sentence one Passage clearly states or contradicts gets its verdict from the decision model, with the line of that Passage the model scores highest as its quote and the decision model named on it; a sentence none of its Passages leans to is Unsupported by the decision model; none of them costs a request to the AI model; fails_when=the AI model is asked about a sentence the decision model decided, the quote isn't the Passage's top line, or a sentence nothing supports waits for the AI model; no_claim=that a real decision model's scores are right, which the gate's real-model run measures.
+  test("the decision model gives the clear verdicts, and Unsupported where no Passage leans", async () => {
+    const { core, client, host, run, readByAiModel } = await setUp();
     await choose(core);
 
     const result = await core.checkMind(run());
@@ -276,37 +310,92 @@ describe("Check this Note with a decision model chosen (#3118)", { timeout: 30_0
     expect(await marks(client)).toEqual({
       [MOON]: { state: "supported", quote: TIDES_LINE, by: DECIDER.modelId },
       [YEARLY]: { state: "contradicted", quote: WEEKLY, by: DECIDER.modelId },
-      [PENGUINS]: { state: "unsupported", quote: null, by: aiModelId },
+      [PENGUINS]: { state: "unsupported", quote: null, by: DECIDER.modelId },
     });
-    expect(readByAiModel()).toEqual([PENGUINS]);
-    const pairs = host.asked.map(({ state }) => `${state.sentence}\n${state.passage.text}`);
-    expect(new Set(pairs).size).toBe(pairs.length);
+    expect(readByAiModel()).toEqual([]);
     expect(host.asked.every((each) => each.model === DECIDER.modelId)).toBe(true);
-    expect(host.asked.every((each) => each.questions.join() === "B,C")).toBe(true);
+    expect(
+      host.asked.flatMap((each) => each.questions).every((q) => /^[BC](_p\d+)?$/.test(q)),
+    ).toBe(true);
+    // One request reads a sentence against all its Passages; a verdict costs two more.
+    const requests = (sentence: string) =>
+      host.asked.filter(({ state }) => state.sentence === sentence).length;
+    expect([requests(MOON), requests(YEARLY), requests(PENGUINS)]).toEqual([3, 3, 1]);
   });
 
-  // protects=what goes to the decision model's host is the sentence, its paragraph and one Passage with its Document's name, and nothing else of the Note or the Library; fails_when=a request carries another field; no_claim=what the AI model's own check sends.
-  test("a request holds one sentence, its paragraph and one Passage", async () => {
-    const { core, host, run } = await setUp();
+  // protects=what goes to the decision model's host is the sentence, its paragraph and its Passages with their Documents' names, and nothing else of the Note or the Library; fails_when=a request carries another field; no_claim=what the AI model's own check sends.
+  test("a request holds one sentence, its paragraph and its Passages", async () => {
+    const { core, host, run } = await setUp([BOTH]);
     await choose(core);
+    host.answers(({ passage }) => ({ B: passage.text.includes(MOON) ? 0.995 : 0.03, C: 0.02 }));
     await core.checkMind(run());
 
-    const moon = host.asked.find(
-      ({ state }) => state.sentence === MOON && state.passage.text.includes(MOON),
+    const [first] = host.asked;
+    expect(first?.state).toEqual({
+      sentence: BOTH,
+      context: { paragraph: BOTH },
+      passages: expect.any(Object),
+    });
+    expect(Object.keys(first?.state.passages ?? {}).sort()).toEqual(["p1", "p2"]);
+    expect(Object.values(first?.state.passages ?? {})).toEqual(
+      expect.arrayContaining([
+        { document: "Tides", page: "1", text: expect.stringContaining(MOON) },
+        { document: "Harbour office", page: "1", text: expect.stringContaining(WEEKLY) },
+      ]),
     );
-    expect(moon?.state).toEqual({
-      sentence: MOON,
-      context: { paragraph: `${MOON} ${YEARLY} ${PENGUINS}` },
+    expect(first?.questions).toEqual(["B_p1", "C_p1", "B_p2", "C_p2"]);
+    const alone = host.asked.find(({ state }) => state.passage);
+    expect(alone?.state).toEqual({
+      sentence: BOTH,
+      context: { paragraph: BOTH },
       passage: { document: "Tides", page: "1", text: expect.stringContaining(MOON) },
     });
+  });
+
+  // protects=a verdict rests on its Passage twice: one the Passage doesn't hold when asked about alone is only a first reading, and the AI model checks the sentence; fails_when=the first request's score alone marks the sentence; no_claim=how often a real model's two answers differ.
+  test("a verdict its Passage doesn't hold alone is a first reading", async () => {
+    const { core, client, host, run, readByAiModel, aiModelId } = await setUp([MOON]);
+    await choose(core);
+    host.answers((asked) => {
+      const given = sure(asked);
+      return "B" in given && !asked.among ? { ...given, B: Math.min(given.B, 0.9) } : given;
+    });
+
+    await core.checkMind(run());
+
+    expect(readByAiModel()).toEqual([MOON]);
+    expect((await marks(client))[MOON]).toEqual({
+      state: "supported",
+      quote: MOON,
+      by: aiModelId,
+      firstReading: "supported",
+    });
+  });
+
+  // protects=Documents that disagree about a sentence give it no verdict and no first reading from the decision model: its own check reads it; fails_when=the sentence is marked on the Passage that states it, or on the one that opposes it; no_claim=how the card should show Documents that disagree.
+  test("a sentence one Document states and another opposes goes to the AI model unread", async () => {
+    const { core, client, host, run, readByAiModel, aiModelId } = await setUp([BOTH]);
+    await choose(core);
+    host.answers(({ passage }) => ({
+      B: passage.text.includes(MOON) ? 0.995 : 0.03,
+      C: passage.text.includes(WEEKLY) ? 0.97 : 0.02,
+    }));
+
+    await core.checkMind(run());
+
+    expect(host.asked).toHaveLength(1);
+    expect(readByAiModel()).toEqual([BOTH]);
+    const mark = (await marks(client))[BOTH];
+    expect(mark).toMatchObject({ state: "unsupported", by: aiModelId });
+    expect(mark).not.toHaveProperty("firstReading");
   });
 
   // protects=a score inside the band of its line is a first reading, not a verdict: the Mark shows it while the AI model checks the sentence, and keeps it as the record once the AI model has answered; fails_when=a score just over the line marks the sentence, the first reading isn't on the Mark while the check runs, or it is gone afterwards; no_claim=how wide the band should be, or how the card draws a first reading.
   test("a score too near its line is a first reading the AI model confirms", async () => {
     const { core, client, host, run, readByAiModel, holdAiModel, aiModelId } = await setUp();
     await choose(core);
-    host.answers((state) => {
-      const given = sure(state);
+    host.answers((asked) => {
+      const given = sure(asked);
       return "B" in given ? { B: Math.min(given.B, 0.983), C: Math.min(given.C, 0.903) } : given;
     });
     const release = holdAiModel();
@@ -321,7 +410,7 @@ describe("Check this Note with a decision model chosen (#3118)", { timeout: 30_0
     release();
     await running;
 
-    expect(readByAiModel().sort()).toEqual([MOON, PENGUINS, YEARLY].sort());
+    expect(readByAiModel().sort()).toEqual([MOON, YEARLY].sort());
     expect(await marks(client)).toEqual({
       [MOON]: { state: "supported", quote: MOON, by: aiModelId, firstReading: "supported" },
       [YEARLY]: {
@@ -330,7 +419,7 @@ describe("Check this Note with a decision model chosen (#3118)", { timeout: 30_0
         by: aiModelId,
         firstReading: "contradicted",
       },
-      [PENGUINS]: { state: "unsupported", quote: null, by: aiModelId },
+      [PENGUINS]: { state: "unsupported", quote: null, by: DECIDER.modelId },
     });
   });
 
@@ -384,10 +473,7 @@ describe("Check this Note with a decision model chosen (#3118)", { timeout: 30_0
     const plain = sentToAiModel(second);
 
     await choose(core);
-    host.answers(({ sentence, passage }) => ({
-      B: sentence === MOON && passage.text.includes(MOON) ? 0.9 : 0.02,
-      C: 0.01,
-    }));
+    host.answers(() => ({ B: 0.9, C: 0.01 }));
     await core.checkMind(run("first reading"));
 
     expect(host.asked.length).toBeGreaterThan(0);
@@ -395,21 +481,20 @@ describe("Check this Note with a decision model chosen (#3118)", { timeout: 30_0
     expect(sentToAiModel(third)).toEqual(plain);
   });
 
-  // protects=the Passages a sentence cites are read by the decision model with those its search finds, so a verdict never rests on the search alone while the cited Passage says otherwise; fails_when=a cited Passage the search didn't return isn't sent to the decision model; no_claim=what the AI model's check does with a Citation.
-  test("the Passage a sentence cites is read too, though the search doesn't find it", async () => {
-    const { core, client, host, run } = await setUp([MOON]);
+  // protects=the Passages a sentence cites are read by the decision model with those its search finds, once each, and a sentence that cites one is never Unsupported on the decision model's word: what its own Citation fails to say is its check's to explain; fails_when=a cited Passage isn't sent, is sent twice, or a citing sentence nothing leans to is marked without the AI model; no_claim=what the AI model's check does with a Citation.
+  test("the Passage a sentence cites is read too, and its sentence is never Unsupported unread", async () => {
+    const { core, client, host, run, readByAiModel } = await setUp([PENGUINS]);
     const [log] = await addAndProcess(core, [
       await writeSourceFile(await createTempDataFolder(), LOG.name, LOG.contents),
     ]);
     const [lamp] = await core.searchPassages("lighthouse lamp", { mode: "keyword" });
     if (!log || !lamp?.text.includes(LAMP)) throw new Error("The log wasn't added.");
-    expect((await core.searchPassages(MOON)).some((each) => each.text.includes(LAMP))).toBe(false);
     writeMind(client, [
       {
         type: "paragraph",
         attrs: { id: "one" },
         content: [
-          text(`${MOON} `),
+          text(`${PENGUINS} `),
           {
             type: "citation",
             attrs: {
@@ -432,31 +517,68 @@ describe("Check this Note with a decision model chosen (#3118)", { timeout: 30_0
 
     await core.checkMind(run());
 
-    const read = host.asked.filter(({ state }) => state.sentence === MOON);
-    expect(read.filter(({ state }) => state.passage.text.includes(LAMP))).toHaveLength(1);
-    expect(read.length).toBeGreaterThan(1);
+    const [read, ...more] = host.asked.filter(({ state }) => state.sentence === PENGUINS);
+    expect(more).toEqual([]);
+    const passages = Object.values(read?.state.passages ?? {});
+    expect(passages[0]?.text).toContain(LAMP);
+    expect(passages.filter((each) => each.text.includes(LAMP))).toHaveLength(1);
+    expect(passages.length).toBeGreaterThan(1);
+    expect(readByAiModel()).toEqual([PENGUINS]);
   });
 
-  // protects=a sentence with a figure never gets its verdict from the decision model, however sure it is: it shows a first reading and its own check, which ties each figure to its source's, gives the Mark; fails_when=a sentence with a figure is marked by the decision model; no_claim=the figure check itself.
-  test("a sentence with a figure gets only a first reading", async () => {
+  // protects=a number the Passage writes another way is the sentence's amount only on the decision model's own answer to that question: without it the sentence gets a first reading and its check; a number written as the sentence writes it costs no such question; fails_when=a sentence is marked Supported on a Passage that doesn't hold its number as written, with the amounts question unasked or answered no; no_claim=that a real model tells the same amount from another, which the gate's real-model run measures.
+  test.each([
+    ["written another way, the same amount", "54 thousand", 0.95, "decision model", true],
+    ["written another way, not surely the same", "54 thousand", 0.6, "AI model", true],
+    ["written as the sentence writes it", "54,000", 0.01, "decision model", false],
+  ])("a sentence's number %s", async (_, written, sameAmount, by, asksAmount) => {
     const { core, client, host, run, readByAiModel, aiModelId } = await setUp([TONNES]);
+    const line = `The harbour office handled ${written} tonnes of cargo.`;
+    await addAndProcess(core, [
+      await writeSourceFile(await createTempDataFolder(), "Cargo.md", `# Cargo\n\n${line}\n`),
+    ]);
     await choose(core);
-    host.answers(() => ({ B: 0.999, C: 0.01 }));
+    host.answers(({ passage }) => ({
+      B: passage.text.includes("cargo") ? 0.999 : 0.02,
+      C: 0.01,
+      N: sameAmount,
+    }));
 
     await core.checkMind(run());
 
-    expect(readByAiModel()).toEqual([TONNES]);
-    expect((await marks(client))[TONNES]).toMatchObject({
-      by: aiModelId,
-      firstReading: "supported",
-    });
+    expect(host.asked.some((each) => each.questions.join() === "N")).toBe(asksAmount);
+    const mark = (await marks(client))[TONNES];
+    if (by === "decision model") {
+      expect(mark).toEqual({ state: "supported", quote: line, by: DECIDER.modelId });
+      expect(readByAiModel()).toEqual([]);
+    } else {
+      expect(mark).toMatchObject({ by: aiModelId, firstReading: "supported" });
+      expect(readByAiModel()).toEqual([TONNES]);
+    }
+  });
+
+  // protects=a sentence a Passage is about without settling it (a real model scored 0.36 to 0.70 where the Passage gave the figure by a sum, or said "may" for the sentence's "must") is never Unsupported on the decision model's word: its own check reads it, with no first reading shown; fails_when=such a sentence is marked without the AI model, or shows a first reading; no_claim=that the AI model then reads it right, or that the line is right for another model.
+  test.each([
+    ["half states it", { B: 0.4, C: 0.05 }],
+    ["half opposes", { B: 0.05, C: 0.4 }],
+  ])("a sentence a Passage %s goes to the AI model unread", async (_, answer) => {
+    const { core, client, host, run, readByAiModel, aiModelId } = await setUp([PENGUINS]);
+    await choose(core);
+    host.answers(() => answer);
+
+    await core.checkMind(run());
+
+    expect(readByAiModel()).toEqual([PENGUINS]);
+    const mark = (await marks(client))[PENGUINS];
+    expect(mark).toMatchObject({ state: "unsupported", by: aiModelId });
+    expect(mark).not.toHaveProperty("firstReading");
   });
 
   // protects=a first reading the AI model never confirmed stays on the Mark, which reads not checked for the reason the check gave; fails_when=the first reading is lost with the failed check, or the sentence reads Supported on it; no_claim=the words the card puts to it.
   test("a first reading stays when the AI model's check is stopped", async () => {
     const { core, client, host, run, holdAiModel } = await setUp([MOON]);
     await choose(core);
-    host.answers((state) => ({ B: state.passage.text.includes(MOON) ? 0.9 : 0.02, C: 0.01 }));
+    host.answers(({ passage }) => ({ B: passage.text.includes(MOON) ? 0.9 : 0.02, C: 0.01 }));
     holdAiModel();
 
     const running = core.checkMind(run("stopped"));
@@ -546,7 +668,7 @@ describe("Check this Note with a decision model chosen (#3118)", { timeout: 30_0
       PENGUINS,
     ]);
     await choose(core);
-    host.answers((state) => (state.sentence === YEARLY ? { status: 429 } : sure(state)));
+    host.answers((asked) => (asked.sentence === YEARLY ? { status: 429 } : sure(asked)));
 
     const result = await core.checkMind(run());
 
@@ -559,9 +681,9 @@ describe("Check this Note with a decision model chosen (#3118)", { timeout: 30_0
     });
     const marked = await marks(client);
     expect(marked[YEARLY]).toEqual({ state: "contradicted", quote: WEEKLY, by: aiModelId });
-    expect(marked[PENGUINS]).toMatchObject({ state: "unsupported", by: aiModelId });
+    expect(marked[PENGUINS]?.state).toBe("unsupported");
     expect(marked[MOON]?.state).toBe("supported");
-    expect(readByAiModel()).toEqual(expect.arrayContaining([YEARLY, PENGUINS]));
+    expect(readByAiModel()).toContain(YEARLY);
   });
 
   // protects=only a model with measured lines can be chosen, and none while everything stays on this computer; fails_when=an unmeasured model or a host with no key is saved as the choice; no_claim=which models are measured.
@@ -589,7 +711,7 @@ describe("A decision model that reads by default (#3118)", { timeout: 30_000 }, 
 
   // protects=a User who never chose reads with the measured model where their check's AI model already runs on its host's service, and Privacy lists that from the first run; fails_when=nothing reads, the AI model is asked about a sentence the decision model decided, or Privacy doesn't list the flow; no_claim=that reading by default ships, which is one value, or that the model's scores are right.
   test("it reads where the check's AI model runs on its host's service, and Privacy lists it", async () => {
-    const { core, client, run, readByAiModel, aiModelId, service } = await setUp(undefined, {
+    const { core, client, run, readByAiModel, service } = await setUp(undefined, {
       readsByDefault: true,
     });
     expect(await listed(core)).toEqual([`${service?.id} not-asked`]);
@@ -599,9 +721,9 @@ describe("A decision model that reads by default (#3118)", { timeout: 30_000 }, 
     expect(await marks(client)).toEqual({
       [MOON]: { state: "supported", quote: TIDES_LINE, by: DECIDER.modelId },
       [YEARLY]: { state: "contradicted", quote: WEEKLY, by: DECIDER.modelId },
-      [PENGUINS]: { state: "unsupported", quote: null, by: aiModelId },
+      [PENGUINS]: { state: "unsupported", quote: null, by: DECIDER.modelId },
     });
-    expect(readByAiModel()).toEqual([PENGUINS]);
+    expect(readByAiModel()).toEqual([]);
     expect(await listed(core)).toEqual([`${service?.id} accepted`]);
     expect((await core.getSettings()).device.checkDecisionModel).toBeNull();
   });

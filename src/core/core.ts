@@ -1932,6 +1932,7 @@ export function createCore(adapters: CoreAdapters): Core {
         ...options,
         rerank: timedRerank(adapters.reranker ?? rerank.active()),
       }),
+    best: (query, limit, documentIds) => documents.bestPassages(query, limit, documentIds),
   });
 
   // Web search through the Answer's model's provider (#128): asked for once per provider, as
