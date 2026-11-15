@@ -147,6 +147,7 @@ const delegatedBridge = {
     return () => registered.delete(listener);
   },
   applyAskedChanges: (input: ApplyAskedChangesInput) => activeApply(input),
+  recordAiUse: async () => undefined,
   changeLayout: (_windowId: string, change: LayoutChange) => activeLayout(change),
   undoAskedChanges: (undoId: string) => {
     if (!activeUndoBridge) throw new Error("No Undo bridge.");
@@ -1681,4 +1682,110 @@ describe("A regenerate that never starts (#1325)", () => {
       open: false,
     });
   });
+});
+
+/**
+ * A Note's copy in an open editor that holds only its own paragraph and the record of the change
+ * the Answer asked for first, and the update that brings the change `request` into it.
+ */
+function noteAskedForTwice(request: string): { copy: Y.Doc; arrives: () => void } {
+  const parse = (content: JSONContent[]) => {
+    const source = new Editor({
+      element: null,
+      extensions: noteExtensions(),
+      content: { type: "doc", content },
+    });
+    const doc = new Y.Doc();
+    prosemirrorToYXmlFragment(source.state.doc, doc.getXmlFragment(MIND_CONTENT_FIELD));
+    source.destroy();
+    return doc;
+  };
+  const record = {
+    source: "answer-added",
+    requested: "write",
+    providerId: "local",
+    modelId: "local",
+    createdAt: "2026-01-01T00:00:00.000Z",
+  } as const;
+  const core = parse([
+    { type: "paragraph", attrs: { id: "original" }, content: [{ type: "text", text: "Original" }] },
+  ]);
+  recordProposalRequest(core, "first", record);
+  const copy = new Y.Doc();
+  Y.applyUpdate(copy, Y.encodeStateAsUpdate(core));
+  const written = parse([
+    {
+      type: "paragraph",
+      attrs: { id: "added", [PROPOSAL_ATTRIBUTE]: { id: "change", request, kind: "insert" } },
+      content: [{ type: "text", text: "AI text" }],
+    },
+  ]);
+  const block = written.getXmlFragment(MIND_CONTENT_FIELD).get(0);
+  if (!(block instanceof Y.XmlElement)) throw new Error("No written paragraph.");
+  core.getXmlFragment(MIND_CONTENT_FIELD).insert(1, [block.clone()]);
+  recordProposalRequest(core, request, record);
+  written.destroy();
+  return {
+    copy,
+    arrives: () => Y.applyUpdate(copy, Y.encodeStateAsUpdate(core, Y.encodeStateVector(copy))),
+  };
+}
+
+// Value: protects=Use all's rewrite applies, with Undo, though the first generation writes its Answer once more after Use all began and before the core says it began again; fails_when=that late write of the Answer it left is taken for the rewrite's end, which takes the Answer out of what this window applies, so the rewrite's changes wait with no Undo; why_new=#3123: the first generation's checks write the Answer after it ended, and a write landing in that gap showed as a revision to accept; seam=regenerateAnswer, and the Answer's messages in the order the core sends them when Use all comes while the first generation's checks are still landing; no_claim=which write of the first generation lands there.
+test.each([
+  { late: false, title: "with no late write" },
+  { late: true, title: "though the first generation writes its Answer once more first" },
+])("Use all's rewrite applies with Undo, $title (#3123)", async ({ late }) => {
+  mountDom({
+    undoAskedChanges: async () => null,
+    redoAskedChanges: async () => null,
+    releaseAskedChanges: async () => undefined,
+  });
+  const { applyNotAsked, applyWhatIsAsked, useAskedChanges } = await import(
+    "../../src/renderer/src/askedChanges"
+  );
+  const { regenerateAnswer, useConversations } = await import(
+    "../../src/renderer/src/conversations"
+  );
+  // Nothing from an earlier test is still on its way when this one starts.
+  for (const id of useAskedChanges.getState().arriving) applyNotAsked(id);
+  useConversations.setState({ openId: "conversation" });
+  const { copy, arrives } = noteAskedForTwice("second");
+  const editor = editorWith(copy);
+  onTestFinished(registerMindEditor("mind", editor));
+  const first = conversationWithChange({
+    undoId: "unused",
+    reviewBefore: new Uint8Array(),
+    afterVector: new Uint8Array(),
+    afterFingerprint: "",
+    accepted: [],
+    requests: ["first"],
+    held: false,
+  });
+  const [call] = first.toolCalls;
+  const change = call?.mindChange;
+  if (!call || !change) throw new Error("No change.");
+  first.toolCalls = [{ ...call, mindChange: { ...change, request: "first" } }];
+  applyWhatIsAsked(first.id, null);
+  emitConversation(first);
+  for (let index = 0; index < 10; index++) await Promise.resolve();
+  // The core, in the order it sends: a write of the Answer it ended, then the Answer begun again,
+  // its change reaching the Note, and its end.
+  activeRegenerate = async () => {
+    if (late) emitConversation({ ...first, updatedAt: "2026-01-01T00:00:01.000Z" });
+    emitConversation({ ...first, status: "streaming", toolCalls: [], text: "" });
+    arrives();
+    emitConversation({
+      ...first,
+      toolCalls: [{ ...call, mindChange: { ...change, request: "second" } }],
+    });
+    return askedAs(first);
+  };
+
+  await regenerateAnswer(first.id, { clearScope: true });
+
+  await eventually(() => useAskedChanges.getState().outcomes[first.id]?.mind ?? null);
+  expect(useAskedChanges.getState().outcomes[first.id]?.mind).toBe("applied");
+  expect(useUndo.getState().done).toHaveLength(1);
+  copy.destroy();
 });
