@@ -23,6 +23,13 @@ import {
 } from "../../src/core/api";
 import type { Language } from "../../src/core/language";
 import { citationNumbers, helpParts, quoted } from "../../src/renderer/src/helpReply";
+import {
+  type DrawnReply,
+  itemLines,
+  type LinePlace,
+  lineKey,
+  replyAtEnd,
+} from "../../src/renderer/src/helpReplyEnd";
 import { badgeMessage } from "../../src/shared/citations";
 import { clockTime } from "../../src/shared/clock";
 import {
@@ -36,7 +43,7 @@ import {
   type QuoteLine,
   quoteLines,
 } from "../../src/shared/helpQuotes";
-import type { ReplyItem, ReplyPiece } from "../../src/shared/helpReplyRead";
+import type { ReplyPiece } from "../../src/shared/helpReplyRead";
 import { translate } from "../../src/shared/i18n";
 import { type CallHelpKind, HELP_SHAPE, isMeetingHelpKind } from "../../src/shared/meetingHelp";
 
@@ -147,26 +154,64 @@ export interface ReplayCounts {
 }
 
 /**
- * The end's Citations land in one write with the end (#2847): what that write changes in the panel,
- * line by line, the reply as written drawn while its text is all there and the end's request out.
+ * What the write that ends a reply changes in the panel, line by line (#3098): the reply drawn as
+ * its text stood once written, with the end's request out, then as it ended. A line's rows are its
+ * own words' rows in the panel's width (`textRows`) and the quote lines under it.
  */
 export interface EndChanges {
   /** Presses read: those whose record gives the text as written. */
   presses: number;
   /** Of them, those where a quote line came or changed only at the end. */
   late: number;
-  /** Of them, those where the end moved a line below. */
+  /** Of them, those where the end changed a line's rows or moved a line. */
   moving: number;
   /** Lines of the reply that gained a quote line under them at the end. */
   linesGained: number;
   quoteLinesAdded: number;
   /** Quote lines kept while written whose words came or changed at the end, in their place. */
   keptChanged: number;
-  /** Quote lines kept while written that the end took away, as a number no Citation backs. */
+  /** Quote lines kept while written that the end took away. */
   keptClosed: number;
+  /** Quote lines kept while written whose number ended with no Citation: "Quote not found". */
+  keptNotFound: number;
+  /**
+   * Apart from the end's Citations (#2847's rooms): quote lines kept while written as one row's room
+   * whose own quote, landing with the end, takes another row; the presses where only they moved a
+   * line, and the panel's lines below them that moved.
+   */
+  roomsGrew: number;
+  movingByRooms: number;
+  linesMovedByRooms: number;
+  /** Lines whose own words took more or fewer rows at the end: a number added or taken away. */
+  textRowsChanged: number;
   /** The panel's lines below a change that moved: a line of the reply, or a quote line. */
   linesMoved: number;
+  /** Quote lines the end drew at the reply's foot, under its last line. */
+  atTheFoot: number;
+  /**
+   * Lines drawn only once the reply ended, with nothing drawn of them while it was written: what
+   * the reader holds back until it can tell it is a lead-in.
+   */
+  linesAppeared: number;
 }
+
+const noEndChanges = (): EndChanges => ({
+  presses: 0,
+  late: 0,
+  moving: 0,
+  linesGained: 0,
+  quoteLinesAdded: 0,
+  keptChanged: 0,
+  keptClosed: 0,
+  keptNotFound: 0,
+  roomsGrew: 0,
+  movingByRooms: 0,
+  linesMovedByRooms: 0,
+  textRowsChanged: 0,
+  linesMoved: 0,
+  atTheFoot: 0,
+  linesAppeared: 0,
+});
 
 export const emptyCounts = (): ReplayCounts => ({
   presses: {},
@@ -199,16 +244,7 @@ export const emptyCounts = (): ReplayCounts => ({
   unrecordedNumbers: 0,
   quoteCheckDiffers: 0,
   citationsAsked: 0,
-  atTheEnd: {
-    presses: 0,
-    late: 0,
-    moving: 0,
-    linesGained: 0,
-    quoteLinesAdded: 0,
-    keptChanged: 0,
-    keptClosed: 0,
-    linesMoved: 0,
-  },
+  atTheEnd: noEndChanges(),
 });
 
 const add = (counts: Record<string, number>, key: string) => {
@@ -516,71 +552,266 @@ export function drawPress(press: SavedPress, counts: ReplayCounts): DrawnLine[] 
 const addedAtEnd = (citation: SavedCitation) =>
   citation.from === "request" || citation.from === "app-unmarked";
 
-/** Each line of the reply with what is drawn under it, as `quoteLines` draws it, by its words. */
-function lineRows(
+/** The width of a reply's line in the panel, 408 px less its sides and its mark's column. */
+const LINE_WIDTH = 358;
+/** Each kind of line's type size in px, and what a note's pill takes off the width. */
+const LINE_FONT = { say: 14.5, note: 12, effect: 12.5, quote: 12 } as const;
+const PILL_SIDES = 12;
+/** The room every line keeps after its last word for the end's numbers (`--late-room`). */
+const LATE_ROOM = 25;
+/** A Citation's number as its chip takes room: its margin, its sides and each digit. */
+const chipWidth = (number: number) => 4 + 10 + 6.6 * String(number).length;
+const WIDE_CHARACTERS = "\\u2e80-\\u9fff\\uf900-\\ufaff\\uff00-\\uffef\\u3000-\\u303f";
+const WIDE = new RegExp(`[${WIDE_CHARACTERS}]`, "u");
+/** A run of spaces, one Chinese character, or a word. */
+const TOKEN = new RegExp(`\\s+|[${WIDE_CHARACTERS}]|[^\\s${WIDE_CHARACTERS}]+`, "gu");
+
+/**
+ * How many rows a line's words take in the panel, by a model of its type: each Chinese character
+ * an em, a space 0.28 em and any other character 0.53 em, wrapped at spaces, or anywhere in
+ * Chinese, with each number's chip whole (`chipOf` gives the number a marker's chip shows, or null
+ * for none). The room the line keeps after its last word goes with that word; a note keeps it by
+ * its width. The end's numbers, which land in that room, take none of the line's own.
+ */
+export function textRows(
+  pieces: readonly ReplyPiece[],
+  chipOf: (marker: number) => number | null,
+  kind: keyof typeof LINE_FONT,
+): number {
+  const em = LINE_FONT[kind];
+  const width = kind === "note" ? LINE_WIDTH - PILL_SIDES - LATE_ROOM : LINE_WIDTH;
+  const tokens: { width: number; space: boolean }[] = [];
+  const text = (words: string) => {
+    for (const [token] of words.matchAll(TOKEN)) {
+      if (/^\s/u.test(token)) tokens.push({ width: 0.28 * em, space: true });
+      else if (WIDE.test(token)) tokens.push({ width: em, space: false });
+      else tokens.push({ width: 0.53 * em * [...token].length, space: false });
+    }
+  };
+  if (kind === "effect") text("→ ");
+  for (const piece of pieces) {
+    if (piece.kind === "text") text(piece.text);
+    if (piece.kind !== "citation") continue;
+    const number = chipOf(piece.marker);
+    if (number !== null) tokens.push({ width: chipWidth(number), space: false });
+  }
+  const last = tokens.findLastIndex((token) => !token.space);
+  const lastToken = tokens[last];
+  if (lastToken && (kind === "say" || kind === "effect")) lastToken.width += LATE_ROOM;
+  let rows = 1;
+  let x = 0;
+  for (const token of tokens) {
+    if (token.space) {
+      if (x > 0) x += token.width;
+      continue;
+    }
+    if (x > 0 && x + token.width > width) {
+      rows++;
+      x = 0;
+    }
+    x += token.width;
+    // A word wider than the line breaks where it must.
+    for (; x > width; x -= width) rows++;
+  }
+  return rows;
+}
+
+interface PanelLine {
+  key: string;
+  textRows: number;
+  /** What is drawn under it, by its state and words. */
+  rows: string[];
+  /** How many rows each of those takes. */
+  heights: number[];
+}
+
+/** A kept quote line that reads "Quote not found" (`EndedLine`). */
+const MISSING = "missing|";
+
+/** A quote line as the end counts read it: its state and its words. */
+const rowOf = (line: QuoteLine) =>
+  `${line.state}|${line.cells ? cellsText(line.cells) : (line.quote ?? "")}`;
+
+/**
+ * How many rows a quote line takes: one for its room or the card's words, which stay on one; a
+ * found quote's words, its numbers and its ✓ wrapped as a line's words are, at 12 px.
+ */
+function quoteRows(line: QuoteLine, numbers: ReadonlyMap<number, number>): number {
+  if (line.state !== "found") return 1;
+  const words = line.cells ? cellsText(line.cells) : `“${line.quote ?? ""}” ✓`;
+  const marks = [...line.markers, ...line.more].map(
+    (marker): ReplyPiece => ({ kind: "citation", marker, at: 0 }),
+  );
+  const chipOf = (marker: number) => numbers.get(marker) ?? null;
+  return textRows([{ kind: "text", text: words }, ...marks], chipOf, "quote");
+}
+
+/** Quote lines as the end counts read them; a null is a kept row that reads "Quote not found". */
+const drawnRows = (lines: readonly (QuoteLine | null)[], numbers: ReadonlyMap<number, number>) => ({
+  rows: lines.map((line) => (line ? rowOf(line) : MISSING)),
+  heights: lines.map((line) => (line ? quoteRows(line, numbers) : 1)),
+});
+
+/** A saved reply as one draw of the panel reads it: written (`streaming`), or ended. */
+function drawnReply(
   press: SavedPress,
   text: string,
   status: AnswerStatus,
   records: readonly SavedCitation[],
-): { words: string; rows: string[] }[] {
+): DrawnReply {
   const { lead, options } = helpParts({ text, status }, press.button);
-  const items: ReplyItem[] = [...lead, ...options];
   const recordOf = (marker: number) => records.find((each) => each.marker === marker);
-  const numbers = citationNumbers(
-    items,
-    (marker) => status === "streaming" || recordOf(marker) !== undefined,
-  );
-  const citationOf = (marker: number) => {
-    const record = recordOf(marker);
-    return record && quotedOf(record);
+  return {
+    items: [...lead, ...options],
+    citationOf: (marker) => {
+      const record = recordOf(marker);
+      return record && quotedOf(record);
+    },
+    numbered: (marker) => status === "streaming" || recordOf(marker) !== undefined,
+    status,
   };
-  return items.flatMap((item) =>
-    [
-      item.said ? quoted(item.lead) : item.lead,
-      ...item.notes,
-      ...(item.effect ? [item.effect] : []),
-    ].map((pieces) => ({
-      words: comparedWords(textOf(pieces)),
-      rows: quoteLines(markersOf([pieces]), citationOf, status, (marker) =>
-        numbers.has(marker),
-      ).map((line) => `${line.state}|${line.cells ? cellsText(line.cells) : (line.quote ?? "")}`),
+}
+
+/** Each line of a reply drawn as everywhere: its words' rows and what is drawn under it. */
+function panelLines(reply: DrawnReply): PanelLine[] {
+  const numbers = citationNumbers(reply.items, reply.numbered);
+  return reply.items.flatMap((item, index) =>
+    itemLines(item).map(({ place, pieces, note }) => ({
+      key: lineKey(index, place),
+      textRows: textRows(pieces, (marker) => numbers.get(marker) ?? null, lineKind(place, note)),
+      ...drawnRows(
+        quoteLines(markersOf([pieces]), reply.citationOf, reply.status, (marker) =>
+          numbers.has(marker),
+        ),
+        numbers,
+      ),
     })),
   );
 }
 
+const lineKind = (place: LinePlace, note: boolean) =>
+  note ? "note" : place === "effect" ? "effect" : "say";
+
 /**
- * What the reply's end changes (#3098), drawn as its text stood once written, the end's own
- * Citations not yet there, then as it ended: each line keeps its place unless a line above it
- * gained or lost a quote line.
+ * Each line of a reply as the panel that drew it `written` draws it once `ended` (`replyAtEnd`),
+ * and the quote lines it draws at the reply's foot.
+ */
+function endedLines(written: DrawnReply, ended: DrawnReply): { lines: PanelLine[]; foot: number } {
+  const end = replyAtEnd(written, ended, { reading: false, open: null });
+  const lines = ended.items.flatMap((item, index) =>
+    itemLines(item).map(({ place, pieces, note }) => {
+      const key = lineKey(index, place);
+      const kept = end.lines.get(key);
+      const kind = lineKind(place, note);
+      if (!kept) {
+        return {
+          key,
+          textRows: textRows(pieces, (marker) => end.numbers.get(marker) ?? null, kind),
+          ...drawnRows(
+            quoteLines(markersOf([pieces]), ended.citationOf, ended.status, (marker) =>
+              end.numbers.has(marker),
+            ),
+            end.numbers,
+          ),
+        };
+      }
+      const chipOf = (marker: number) =>
+        kept.gone.get(marker) ?? end.numbers.get(kept.shown.get(marker) ?? marker) ?? null;
+      const { rows, heights } = drawnRows(
+        kept.rows.map((row) => row?.line ?? null),
+        end.numbers,
+      );
+      return {
+        key,
+        textRows: textRows(kept.pieces, chipOf, kind),
+        rows,
+        // A quote held to its room takes the one row the room kept.
+        heights: heights.map((rowsTaken, index) => (kept.rows[index]?.held ? 1 : rowsTaken)),
+      };
+    }),
+  );
+  return { lines, foot: end.foot.length };
+}
+
+/**
+ * What the reply's end changes (#3098): the reply drawn as its text stood once written, the end's
+ * own Citations not yet there, then as the panel that drew it written draws it ended. A line keeps
+ * its place unless a line above it took more or fewer rows. A record holds no reading, so no line
+ * is a moment of the call.
  */
 function endChanges(press: SavedPress, counts: EndChanges): void {
   if (press.written === undefined || press.citations === null) return;
-  const written = press.citations.filter((citation) => !addedAtEnd(citation));
-  const before = lineRows(press, press.written, "streaming", written);
-  const after = lineRows(press, press.text, press.status ?? "done", press.citations);
+  const written = drawnReply(
+    press,
+    press.written,
+    "streaming",
+    press.citations.filter((citation) => !addedAtEnd(citation)),
+  );
+  const ended = drawnReply(press, press.text, press.status ?? "done", press.citations);
+  const before = panelLines(written);
+  // A reply stopped or failed is drawn as everywhere, as the panel draws it.
+  const { lines: after, foot } =
+    ended.status === "done" ? endedLines(written, ended) : { lines: panelLines(ended), foot: 0 };
   counts.presses++;
+  counts.atTheFoot += foot;
   let shift = 0;
-  let late = false;
+  let late = foot > 0;
   let moving = false;
+  const height = (line: PanelLine) => line.heights.reduce((all, each) => all + each, 0);
+  // What a room's own quote does as it lands in it, apart from what the end's Citations do.
+  let roomShift = 0;
+  let movedByRooms = false;
   for (const line of after) {
-    const at = before.findIndex((each) => each.words === line.words);
-    const was = at === -1 ? [] : (before.splice(at, 1)[0]?.rows ?? []);
+    const was = before.find((each) => each.key === line.key);
+    // A line that wasn't on screen while written appears; it doesn't move.
+    if (!was) {
+      counts.linesAppeared++;
+      shift += line.textRows + line.rows.length;
+      roomShift += height(line) - line.rows.length;
+      continue;
+    }
     if (shift !== 0) {
       counts.linesMoved += 1 + line.rows.length;
       moving = true;
+    } else if (roomShift !== 0) {
+      counts.linesMovedByRooms += 1 + line.rows.length;
+      movedByRooms = true;
     }
-    const changed = line.rows.filter((row, index) => index < was.length && row !== was[index]);
+    const { rows } = was;
+    const above = shift !== 0 || roomShift !== 0;
+    if (was.textRows !== line.textRows) {
+      counts.textRowsChanged++;
+      moving = true;
+      if (!above) counts.linesMoved += line.rows.length;
+    }
+    // A quote line kept above another in the same line, its own quote wrapping, moves it.
+    let grown = 0;
+    for (const [index, rowsNow] of line.heights.entries()) {
+      if (index >= rows.length) break;
+      if (grown !== 0 && !above && was.textRows === line.textRows) counts.linesMovedByRooms++;
+      grown += rowsNow - (was.heights[index] ?? 1);
+    }
+    const changed = line.rows.filter((row, index) => index < rows.length && row !== rows[index]);
     counts.keptChanged += changed.length;
-    if (line.rows.length > was.length) {
+    const grew = line.heights.filter(
+      (rowsNow, index) => index < rows.length && rowsNow !== (was.heights[index] ?? 1),
+    ).length;
+    counts.roomsGrew += grew;
+    if (line.rows.length > rows.length) {
       counts.linesGained++;
-      counts.quoteLinesAdded += line.rows.length - was.length;
+      counts.quoteLinesAdded += line.rows.length - rows.length;
     }
-    counts.keptClosed += Math.max(0, was.length - line.rows.length);
-    if (changed.length > 0 || line.rows.length > was.length) late = true;
-    shift += line.rows.length - was.length;
+    counts.keptClosed += Math.max(0, rows.length - line.rows.length);
+    counts.keptNotFound += line.rows.filter((row) => row === MISSING).length;
+    if (changed.length > 0 || line.rows.length > rows.length) late = true;
+    if (line.rows.length !== rows.length) moving = true;
+    if (grew > 0) movedByRooms = true;
+    shift += line.textRows + line.rows.length - (was.textRows + rows.length);
+    roomShift += height(line) - line.rows.length - (height(was) - rows.length);
   }
   if (late) counts.late++;
   if (moving) counts.moving++;
+  else if (movedByRooms) counts.movingByRooms++;
 }
 
 /** Every press drawn, and the counts of what was drawn. */
