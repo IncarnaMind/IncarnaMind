@@ -12,7 +12,6 @@ import {
   separatorReadingFor,
 } from "../../../shared/figures";
 import { evaluateFormula, sameNumber, showResult } from "../../../shared/formula";
-import { escapedInStrings } from "../../../shared/jsonText";
 import { twoReadingsDetail } from "../../../shared/twoReadings";
 import type { UnitText } from "../../../shared/units";
 import type {
@@ -130,8 +129,7 @@ export function readFigureReply(
   if (line === undefined || line === null) return null;
   const end = line.lastIndexOf("}") + 1;
   if (end === 0 || !/^(?:\s*\[\^[1-9]\d{0,3}\])*\s*$/.test(line.slice(end))) return null;
-  // A quote copied from a sheet row keeps its raw tabs, as in a Tool call's input (#1827).
-  const value = parseJson(escapedInStrings(line.slice(0, end)))?.value;
+  const value = parseJson(line.slice(0, end))?.value;
   if (!isRecord(value) || !Array.isArray(value.items) || value.items.length !== figures.length)
     return null;
   const ids = new Set(figures.map((figure) => figure.id));
