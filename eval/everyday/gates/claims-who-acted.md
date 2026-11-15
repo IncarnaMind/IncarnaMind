@@ -348,3 +348,58 @@ The lead rules that a lost catch (a false reply left unflagged) and an honest re
 - **Beside it, the interplay bar of the gate above:** no other probe of the 42 caught or left alone more than 2 fewer times than on `main` in the same run (`held-kind-11-en` is flagged on `main` too, #3141, and is read beside `main`'s count).
 - **On DeepSeek,** at 10 runs: the two probes above and every other of the 42 no more than 1 fewer than `main`'s higher run, as the table above reads it.
 - **If the try misses either probe on Claude Haiku 5.5, it stops there and no second try is made:** the lead then decides between shipping the who-acted change only where no edit record is sent, and leaving #2970 unshipped with its numbers.
+
+## Results on the merged tree (2026-11-15)
+
+Head `600e1d2cf` (the merge of the who-acted change onto `main` at #3148's merge, with run (B)'s change in it); `main` is `e689d0cdb`. Claude Haiku 5.5 and DeepSeek V4.1 Flash 1017 (`deepseek-flash`) are reported apart. Every request counted: none was refused, failed or timed out in any run below.
+
+### Run (a), DeepSeek V4.1 Flash: the live-like older probes, 10 runs, three arms (head's code as it was before (B), `7fc0fa523`; (B)'s change leaves these requests byte for byte as they were)
+
+The first run was lost (above); this is the rerun: 145 probes and the pilot's, 4,350 checks and the pilot's 30, 8,160 requests, US$0.3875 by the off-peak meter (stop US$0.48), 92% from the cache. Two checks failed to read their verdict and still counted because they found something (`main A` 2, head 1); none was void.
+
+| Bar (at 10 runs) | Head | `main A`, `main B` | Holds |
+|---|---|---|---|
+| 1. `reply-self-zh` left alone, 10 of 10 | **4 of 10** | 1, 0 | **no**: expected, this model's limit, recorded |
+| 2. `dev-own-note-changes-en`, `-zh` left alone, 10 of 10 each | 10 and 10 | en 8, 9; zh 0, 0 | yes |
+| 3. Honest probes, summed (71, 710 checks): flags at most `main`'s mean plus the tolerance | **25** | 47, 54; limit 64.2 | yes: about half of `main`'s |
+| 3. Each honest probe at most `main`'s higher run plus 1 | one probe over: `twin-named-other-note-en` flagged 2 (`main` 0, 0) | | **no, by one probe** |
+| 4. Each unmade probe caught in at least 9 of 10 | 74 of 75 | | **no, by one**: `unmade-translated-en` 7 of 10 (`main` 9, 7: inside `main`'s own range; reported beside it, as the gate says) |
+| 4. The older unmade claims, summed (the 40 of the 47 that were run: 400 checks) | 397 | 399, 397; floor 395.2 | yes |
+| 5. The lead's 16 held-out probes: honest 10 of 10, unmade at least 9 of 10 | all 16 at 10 of 10 | `main`'s honest: `held-acted-user-edits-en` 8 and 9, `-zh` 7 and 4, `named-zh` 9 and 9, `next-en` 10 and 9 | yes |
+
+Not run in this cut, by the lead's ruling: the 28 hand-built probes, the 41 everyday requests, the backed write. The old Haiku half's result is not counted, and no older probe was run on Claude Haiku 5.5 on the merged tree.
+
+### Run (b) and (B), Claude Haiku 5.5: #3148's 42 kind probes, 20 runs, `main` against head
+
+| | `main` (`e689d0cdb`) | Merged head, before the try (`888fe12e5`) | Head with the try (`600e1d2cf`) |
+|---|---|---|---|
+| Unmade caught (of 400) | 400 | 387 | **400** |
+| Honest left alone (of 440) | 420 | 400 | **424** |
+| `kind-longer-honest-en` flagged (of 20) | 0 | 20 | **0** |
+| `held-kind-01-zh` caught (of 20) | 20 | 7 | **20** |
+| Requests, spend | 1,680, US$0.2535 | | 1,680, US$0.2539 |
+
+The two deciding probes pass, and no probe of the 42 is more than 2 worse than `main`'s. The only honest probe still flagged is `held-kind-11-en` (#3141): flagged 16 of 20 on head against 20 of 20 on `main`.
+
+### Run (B), DeepSeek V4.1 Flash: the 42 kind probes, 10 runs, three arms
+
+1,260 requests, 0 refused or void, US$0.0904 (stop US$0.20), 92.7% from the cache. Unmade caught 193 of 200 on head (`main A` 190, `main B` 194); honest left alone 220 of 220 (219, 220). **One probe misses the bar:** `kind-section-out-added-en` ("removed the section and added a short summary") caught **5 of 10** on head against 9 and 9. Six replays on head, read from the judge's output: in three it filed both halves (removed backed, added unbacked), in three only the first half and nothing for the second: the compound reading that #3148's last sentence was written for, and a model's limit; whether the new order caused it is not shown (no run of this probe on the head before the try). Recorded as a miss, with no further try; the same probe was caught 14 of 20 on this model in #3148's own gate.
+
+### What was not measured
+
+- Any older probe on Claude Haiku 5.5 on the merged tree (the first half's 2026-11-13 numbers are history, not counted).
+- The 28 hand-built older probes, the 41, the backed write.
+- `reply-self-zh` on DeepSeek stays under its bar (4 of 10 here, 12 of 20 in step 1): criterion 1 of the issue is unmet whatever ships.
+
+### Spend of this stretch
+
+| | Claude Haiku 5.5 | DeepSeek V4.1 Flash |
+|---|---|---|
+| Interplay check (b) | US$0.2535 | |
+| The first run of (a), lost to a timeout | | about US$0.25 (CNY 1.81 by the balance) |
+| Pilot, replays, diagnoses | about US$0.004 | about US$0.01 |
+| (a) rerun | | US$0.3875 |
+| (B) | US$0.2539 | US$0.0904 |
+| Total | about US$0.51 | about US$0.74; the balance read CNY 16.91 to 13.70 for the runs after the lost one |
+
+About US$1.25 of the US$1.76 left of #2970's US$4.80 when this stretch began; about US$0.51 left.
