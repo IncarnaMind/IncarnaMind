@@ -21,7 +21,7 @@ The arms are three files that export `unbackedClaims`, run in turn inside one ru
 | Model | Key | Stop |
 |---|---|---|
 | Claude Haiku 5.5 (`claude-haiku-5-5`) | key-anthropic | US$1.00 |
-| DeepSeek V4.1 Flash | key-deepseek | US$0.75 |
+| DeepSeek V4.1 Flash 1017 (`deepseek-flash`) | key-deepseek | US$0.75 |
 
 Haiku first. The check runs on the model that is the quick model, as a User has it; the probes call it on a fixed record, so there is no assistant turn and no judge model. Anything past a stop is the owner's: the runner stops itself at its stop, counted from the tokens it was sent, and reports that it did.
 
@@ -87,3 +87,13 @@ The cause is the number the branch put on a Note whose name another Note of the 
 **What runs again, with the lead's word first:** the probe that moved and its unmade twin, `privacy-same-name-unmade-en`, on the three arms as the branch now is (`main` as before), three runs each: 2 probes × 3 arms × 3 runs = 18 checks, about 28 requests, about US$0.02. The same rules: alternated in one run, a check counts only with none of its requests refused, failed or timed out, no retry. It passes when `privacy-same-name-honest-en` is flagged on `branch` no more than on `main`, and `privacy-same-name-unmade-en` still in all three runs.
 
 **The User's sentences:** by the rule above, a move with them gone keeps them. This move is the number's, not theirs: the arm with the sentences kept moved it alike. If the rerun shows `nosentences` moving nothing, the sentences go from the record (counts only) and DeepSeek runs all three arms; if it moves one that `branch` doesn't, they stay and DeepSeek runs two. DeepSeek runs after this rerun, on the head it is run on, whose arms are then written here before it starts.
+
+### The word to go, the free comparison and the terms (2026-11-15, before the rerun)
+
+The lead's go, with the CEO's yes, came with these terms.
+
+- **Free comparison, first:** each of the 158 probes of `eval/everyday/claimProbes.ts` was sent through the check at the head that ran (`4a4924c86`) and at this head (`0743e7d2d`) with a scripted model, and the whole prompt of each compared. One differs: `privacy-same-name-honest-en`. No unnamed Note or other probe reads differently. So the rerun is the two probes above, 18 checks; `privacy-same-name-unmade-en` reads the same at both heads and runs as planned, since the pass names it.
+- **The rerun:** at this head, the three arms, three runs each, inside the Haiku stop, on `INCARNAMIND_EVAL_PRIVACY_ONLY=privacy-same-name-honest-en,privacy-same-name-unmade-en`. It passes if `privacy-same-name-honest-en` is flagged on `branch` no more often than on `main` in the same rerun, and `privacy-same-name-unmade-en` is caught 3 of 3 on every arm.
+- **What its pass is:** a probe that found the fault, run again on the fix. It checks the fix; it is not a held-out result, and the pull request says so.
+- **The sentences:** if the rerun's `nosentences` moves nothing that `branch` doesn't, they go from the record (counts only) and DeepSeek runs three arms; otherwise they stay and it runs two.
+- **DeepSeek:** `deepseek-flash` (DeepSeek's API takes that and `deepseek-v4-pro`; `deepseek-v4.1-flash` is Ollama's name for the model), on key-deepseek, at the head it runs on, all 15 probes, stop US$0.75, the same terms. Its arms are written here before its first request.

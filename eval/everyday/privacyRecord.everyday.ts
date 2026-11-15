@@ -60,11 +60,21 @@ test.skipIf(process.env.INCARNAMIND_EVAL_EVERYDAY !== "privacy-record")(
       prompt: [{ role: "user", content: [{ type: "text", text: "Reply with the word ok." }] }],
     });
 
-    const probes = PRIVACY_PROBES.map((id) => {
-      const probe = ALL_PROBES.find((each) => each.id === id);
-      if (!probe) throw new Error(`The probe ${id} isn't there.`);
-      return probe;
-    });
+    // A rerun of the probes that moved names them here, comma-separated (the gate's "only the probes that moved").
+    const only = (process.env.INCARNAMIND_EVAL_PRIVACY_ONLY ?? "")
+      .split(",")
+      .map((id) => id.trim())
+      .filter(Boolean);
+    const known: readonly string[] = PRIVACY_PROBES;
+    const unknown = only.filter((id) => !known.includes(id));
+    if (unknown.length > 0) throw new Error(`Not a probe of the gate: ${unknown.join(", ")}.`);
+    const probes = PRIVACY_PROBES.filter((id) => only.length === 0 || only.includes(id)).map(
+      (id) => {
+        const probe = ALL_PROBES.find((each) => each.id === id);
+        if (!probe) throw new Error(`The probe ${id} isn't there.`);
+        return probe;
+      },
+    );
     const { rows, stopped } = await runArms({ arms, probes, runs, stop, model, meter, dollarsOf });
 
     const armNames = arms.map((arm) => arm.name);
