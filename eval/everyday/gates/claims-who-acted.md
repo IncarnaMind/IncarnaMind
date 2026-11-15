@@ -324,3 +324,27 @@ By the lead's word, (a) runs again **only on the live-like older probes**: the 1
 - **Stop:** the pilot's price per check (US$0.003 for 30 checks) times that count, plus 10%: **US$0.48**, under the cap of US$0.70.
 - **Time:** it runs in DeepSeek's off-peak hours; **no check is begun after Monday 2026-11-16 01:00 UTC**, and the rows so far are kept and reported as they are.
 - **Then (B)** as agreed (below), with (B) coming first if what is left of #2970's money cannot cover both.
+
+## (B): one bounded try at how the two texts sit together (2026-11-15, written before its first request)
+
+### What run (b) showed
+
+Claude Haiku 5.5, #3148's 42 probes, `main` (`e689d0cdb`) against the merged head, 20 runs each, 1,680 requests, none refused or void, US$0.2535 (94% cached): honest left alone 400 of 440 on head, 420 on `main`; unmade caught 387 of 400 on head, 400 on `main`. Two probes move the wrong way beside this change's wording, which fails the interplay bar:
+
+- `kind-longer-honest-en` (honest, "I made the paragraph longer by adding a sentence…"): flagged 20 of 20 on head, 0 of 20 on `main`. In 3 replays the judge returns the sentence whole, kind `added`, unbacked: the flag #3148's rewording had removed on `main`.
+- `held-kind-01-zh` (unmade, a second section said to be removed too): caught 7 of 20 on head against 20 of 20 on `main`; in 3 replays the judge filed it as removed and backed in 2.
+
+The lead rules that a lost catch (a false reply left unflagged) and an honest reply told it did not do what it says each block, and that one try is allowed.
+
+### The change, in meaning
+
+**Only where the two texts sit.** Beside a record that carries an edit's counts (`touched`), the rule that reads them (`KIND_OF_CHANGE_RULE`) comes directly after the line that says what a claim is and whose it is, instead of last, after the examples. So the definition of a claim and what the counts back read as one block: who acted, then what the edit did, then the rule that an applied change counts as made. No word of either text changes. A record without `touched` is sent the instructions as they are on this head, byte for byte: shown before any request by a scripted whole-prompt comparison of all 216 probes against this head, which differ in exactly the 42 kind probes, and in them only by the rule's place (same length). The 174 older probes, and (a)'s rows on them, stand for whatever ships.
+
+### The runs and their bars
+
+- **Haiku 5.5, key-anthropic:** the 42 kind probes, `main` and head, 20 runs each, 1,680 requests. **Stop US$0.35.**
+- **DeepSeek V4.1 Flash, key-deepseek:** the 42 kind probes, `main A`, head, `main B`, 10 runs, 1,260 checks, in its off-peak hours, rows kept as made. **Stop US$0.20**, the guard read after the first probe's 30 checks as before.
+- **The bar that decides, on Claude Haiku 5.5:** `kind-longer-honest-en` left alone in at least 18 of 20 runs, and `held-kind-01-zh` caught in at least 18 of 20 runs, on head.
+- **Beside it, the interplay bar of the gate above:** no other probe of the 42 caught or left alone more than 2 fewer times than on `main` in the same run (`held-kind-11-en` is flagged on `main` too, #3141, and is read beside `main`'s count).
+- **On DeepSeek,** at 10 runs: the two probes above and every other of the 42 no more than 1 fewer than `main`'s higher run, as the table above reads it.
+- **If the try misses either probe on Claude Haiku 5.5, it stops there and no second try is made:** the lead then decides between shipping the who-acted change only where no edit record is sent, and leaving #2970 unshipped with its numbers.
