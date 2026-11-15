@@ -8273,6 +8273,11 @@
     display: flex;
     flex-direction: column;
     gap: 10px;
+    /*
+     * The room a line keeps after its last character for numbers the reply's end adds, one
+     * number's chip (#3098): they land in it, so no row is added and nothing below moves.
+     */
+    --late-room: 25px;
   }
   .help-heading {
     display: flex;
@@ -8299,7 +8304,8 @@
   }
   .help-option {
     display: grid;
-    grid-template-columns: 16px 1fr;
+    /* No wider than the panel: a long link or word breaks rather than widen it (#3098). */
+    grid-template-columns: 16px minmax(0, 1fr);
     column-gap: 6px;
     row-gap: 2px;
   }
@@ -8331,6 +8337,40 @@
     line-height: 20px;
     overflow-wrap: break-word;
     color: var(--color-ink-meta);
+
+    /* A note keeps the room by its width, so its pill can grow into it without its words moving. */
+    &:not(.help-moment) {
+      max-width: calc(100% - var(--late-room));
+    }
+  }
+  .help-option-note.help-option-note--late {
+    max-width: 100%;
+    padding-right: calc(6px + var(--late-room));
+  }
+  .help-line-end {
+    white-space: nowrap;
+  }
+  .help-late-room,
+  .help-citation-late {
+    display: inline-block;
+    width: var(--late-room);
+    white-space: nowrap;
+
+    & .help-citation + .help-citation {
+      margin-left: 2px;
+    }
+  }
+  .help-citation-late {
+    width: 0;
+  }
+  .help-citation--gone {
+    visibility: hidden;
+  }
+  .help-foot {
+    display: grid;
+    grid-template-columns: 16px minmax(0, 1fr);
+    column-gap: 6px;
+    row-gap: 2px;
   }
   .help-option-effect {
     grid-column: 2;
@@ -8350,6 +8390,8 @@
     background: var(--color-chip);
     font-size: 11px;
     font-weight: 600;
+    /* Every digit as wide, so a number the end changes takes the room it had. */
+    font-variant-numeric: tabular-nums;
     vertical-align: 1px;
     color: var(--color-ink-secondary);
 
@@ -8379,6 +8421,24 @@
       gap: 4px;
       min-width: 0;
       white-space: nowrap;
+    }
+  }
+  /*
+   * A quote that first lands as the reply ends, in a room of one row (#3098): it holds to that row,
+   * cut at its end, with its numbers and ✓ after it, so nothing below moves.
+   */
+  .help-quote[data-held] {
+    display: flex;
+    align-items: baseline;
+    white-space: nowrap;
+
+    & .help-quote-words {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    & .help-quote-marks {
+      flex: none;
     }
   }
   .help-quote-room {

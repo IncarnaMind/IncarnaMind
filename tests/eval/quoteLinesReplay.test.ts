@@ -9,7 +9,9 @@ import {
   replay,
   type SavedCitation,
   type SavedPress,
+  textRows,
 } from "../../eval/speed/quoteLinesReplay";
+import type { ReplyPiece } from "../../src/shared/helpReplyRead";
 
 const SHEET = [
   "# Pricing 2026",
@@ -388,6 +390,103 @@ describe("The quote lines' replay", () => {
     expect(text).toContain("“Enterprise contracts are billed annually.” 2 ✓");
     expect(key[0]).toEqual(expect.objectContaining({ line: 1, id: expect.any(String) }));
     expect(readersFile(drawn, 3).key).toHaveLength(3);
+  });
+
+  // protects=#3098's proof: the replay draws a saved reply as the panel drew it written and as the panel that saw it written draws it ended, and counts any line or row that moves: the end's own Citations land at the foot, a kept quote line with nothing reads Quote not found in its row, and a number the end adds takes no row; fails_when=a press with the end's Citations counts a line moved, a row changed or a kept line closed, or the foot or the kept rows aren't counted; no_claim=pixels, which the spec measures.
+  test("what the reply's end changes: its own quotes at the foot, a kept line with nothing in its row, and nothing moved", () => {
+    const asked = press({
+      id: "en-asked",
+      button: "followUp",
+      asked: true,
+      // The first option is asked about with no number, the second's number gets no Citation.
+      written:
+        "★ Could you walk me through what the Monday team lunches look like, and why the team gathers then, every single week\n→ invites detail\n\nWhat do people do with their coffee [^2]\n→ probes the habit",
+      text: "★ Could you walk me through what the Monday team lunches look like, and why the team gathers then, every single week [^1]\n→ invites detail\n\nWhat do people do with their coffee\n→ probes the habit",
+      citations: [
+        sheet(1, "Enterprise plan: $45 per seat a month, with single sign-on and audit logs.", {
+          from: "request",
+        }),
+      ],
+    });
+    const quoted = press({
+      id: "en-quoted",
+      button: "say",
+      written:
+        "★ As the sheet says, “contracts are billed annually”\n→ answers at once\n\nAsk about the term\n→ moves on",
+      text: "★ As the sheet says, “contracts are billed annually” [^1]\n→ answers at once\n\nAsk about the term\n→ moves on",
+      citations: [sheet(1, "Enterprise contracts are billed annually.", { from: "app-unmarked" })],
+    });
+    const { counts } = replay([asked, quoted, OPTIONS]);
+    expect(counts.citationsAsked).toBe(1);
+    expect(counts.atTheEnd).toEqual({
+      presses: 2,
+      late: 2,
+      moving: 0,
+      linesGained: 0,
+      quoteLinesAdded: 0,
+      keptChanged: 1,
+      keptClosed: 0,
+      keptNotFound: 1,
+      roomsGrew: 0,
+      movingByRooms: 0,
+      linesMovedByRooms: 0,
+      textRowsChanged: 0,
+      linesMoved: 0,
+      atTheFoot: 2,
+      linesAppeared: 0,
+    });
+  });
+
+  // protects=#3098: the replay draws a stopped or failed reply as the panel does, as everywhere, with nothing at the foot and no row kept for a number with no Citation; fails_when=it counts a foot or a kept row the User doesn't see; no_claim=what Stop does to the quotes, which #2847's tests pin.
+  test("a stopped reply is drawn as everywhere: nothing at the foot, no kept row", () => {
+    const stopped = press({
+      id: "en-stopped",
+      button: "answer",
+      status: "stopped",
+      written: "★ Yes, billed annually [^1]\n→ answers at once\n\nAsk about the term\n→ moves on",
+      text: "★ Yes, billed annually [^1]\n→ answers at once\n\nAsk about the term [^2]\n→ moves on",
+      citations: [sheet(2, "Enterprise contracts are billed annually.", { from: "request" })],
+    });
+    expect(replay([stopped]).counts.atTheEnd).toMatchObject({ atTheFoot: 0, keptNotFound: 0 });
+  });
+
+  // protects=#3098: a room of one row kept while written whose own quote lands with the end holds to that row, so a long quote moves nothing; fails_when=the room grows or a line below moves; no_claim=pixels, which the spec measures.
+  test("a room whose long quote lands with the end holds to its row, and nothing moves", () => {
+    const long =
+      "Enterprise contracts are billed annually, and every seat after the first fifty is billed at a lower price.";
+    const room = press({
+      id: "en-room",
+      button: "answer",
+      written: "★ Yes, billed annually [^1]\n→ answers at once\n\nAsk about the term\n→ moves on",
+      text: "★ Yes, billed annually [^1]\n→ answers at once\n\nAsk about the term\n→ moves on",
+      citations: [sheet(1, long, { from: "request" })],
+    });
+    expect(replay([room]).counts.atTheEnd).toMatchObject({
+      moving: 0,
+      linesMoved: 0,
+      keptChanged: 1,
+      roomsGrew: 0,
+      movingByRooms: 0,
+      linesMovedByRooms: 0,
+    });
+  });
+
+  // protects=#3098: the replay's row model counts a number added to a line as a row only where its chip takes room, so the measure can fail: a number drawn inline at the end of a full line adds a row, and the end's own number, which lands in the room the line keeps, adds none; fails_when=the model can't tell the two apart; no_claim=the panel's real widths, which the spec measures.
+  test("a number takes a row in the model only where its chip takes room", () => {
+    const line = (text: string): ReplyPiece[] => [
+      { kind: "text", text },
+      { kind: "citation", marker: 1, at: text.length },
+    ];
+    const wraps: number[] = [];
+    for (let letters = 1; letters <= 12; letters++) {
+      const text = `${Array.from({ length: 9 }, () => "word").join(" ")} ${"x".repeat(letters)}`;
+      if (textRows(line(text), () => 1, "say") > textRows(line(text), () => null, "say")) {
+        wraps.push(letters);
+      }
+    }
+    // A last word that leaves room for the line's kept room but not for a chip as well.
+    expect(wraps.length).toBeGreaterThan(0);
+    expect(wraps.length).toBeLessThan(12);
   });
 
   test("a file not in the saved records' shape is refused with where it fails", () => {

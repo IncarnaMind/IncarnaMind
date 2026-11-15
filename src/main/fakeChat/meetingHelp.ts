@@ -314,31 +314,90 @@ const textParts = (text: string): StreamPart[] => [
  * number, the first in its own words, as Claude Haiku 5.5 sometimes writes them (#2847); asked once
  * more for the reply's Citations, it gives the first option the line of the Passage it says.
  */
+/** The one request's Citation for `sentence`: the line of a Passage it was given that shares most words with it. */
+function citationFor(asked: string, sentence: string) {
+  const said = wordsIn(sentence);
+  const lines = [...asked.matchAll(/<passage id="([^"]+)">\n([\s\S]*?)\n<\/passage>/g)].flatMap(
+    ([, passage = "", text = ""]) =>
+      text.split("\n").map((line) => {
+        const quote = line.replace(UNIT_MARK, "").trim();
+        const shared = [...wordsIn(quote)].filter((word) => said.has(word)).length;
+        return { passage, quote, shared };
+      }),
+  );
+  const best = lines.reduce<(typeof lines)[number] | null>(
+    (top, each) => (each.shared > (top?.shared ?? 0) ? each : top),
+    null,
+  );
+  return best ? [{ sentence, passage: best.passage, quote: best.quote }] : [];
+}
+
 function withCitationsWhenAsked(prompt: Prompt, parts: StreamPart[]): StreamPart[] {
   const asked = lastUserText(prompt);
   if (asksForCitations(prompt)) {
     const sentence = (block(asked, "answer").split("\n")[0] ?? "").replace(/^★\s*/u, "");
-    const said = wordsIn(sentence);
-    const lines = [...asked.matchAll(/<passage id="([^"]+)">\n([\s\S]*?)\n<\/passage>/g)].flatMap(
-      ([, passage = "", text = ""]) =>
-        text.split("\n").map((line) => {
-          const quote = line.replace(UNIT_MARK, "").trim();
-          const shared = [...wordsIn(quote)].filter((word) => said.has(word)).length;
-          return { passage, quote, shared };
-        }),
-    );
-    const best = lines.reduce<(typeof lines)[number] | null>(
-      (top, each) => (each.shared > (top?.shared ?? 0) ? each : top),
-      null,
-    );
-    const citations = best ? [{ sentence, passage: best.passage, quote: best.quote }] : [];
-    return textParts(JSON.stringify({ citations }));
+    return textParts(JSON.stringify({ citations: citationFor(asked, sentence) }));
   }
   const help = block(asked, "help");
   if (!HELP.test(help) || shapeOf(help) !== "options") return parts;
   if (!parts.some((part) => part.type === "tool-call" && part.toolName === "cite")) return parts;
   const { language } = callOf(asked);
   return textParts(`${OWN_WORDS[language]}\n\n${OPTIONS[language].second}`);
+}
+
+/**
+ * For a model id ending "-number-not-given": a help reply's first option comes in its own words
+ * with a number and no cite call, and asked once more for the reply's Citations, the model gives
+ * none (#3098); ending "-number-given-late", it gives the option its line of the price sheet.
+ */
+function withNumberNotGiven(prompt: Prompt, parts: StreamPart[], given = false): StreamPart[] {
+  const asked = lastUserText(prompt);
+  if (asksForCitations(prompt)) {
+    const sentence = (block(asked, "answer").split("\n")[0] ?? "")
+      .replace(/^★\s*/u, "")
+      .replace(/\s*\[\^\d+\]/gu, "");
+    return textParts(JSON.stringify({ citations: given ? citationFor(asked, sentence) : [] }));
+  }
+  const help = block(asked, "help");
+  if (!HELP.test(help) || shapeOf(help) !== "options") return parts;
+  if (!parts.some((part) => part.type === "tool-call" && part.toolName === "cite")) return parts;
+  const { language } = callOf(asked);
+  const first = OWN_WORDS[language].replace("\n→", " [^1]\n→");
+  return textParts(`${first}\n\n${OPTIONS[language].second}`);
+}
+
+/** Two options in their own words, the first ending in a link and the second in one long word. */
+const LONG_LAST = {
+  en: [
+    "★ Yes, Enterprise is $45 per seat each month with single sign-on, as the price sheet says at https://pricing.example.com/enterprise/plans/single-sign-on-included-per-seat-each-month-2026",
+    "Single sign-on comes with each Enterprise seat, in the plan they call Enterprisesinglesignonincludedforeveryseatofeveryteameverymonth",
+  ],
+  zh: [
+    "★ 是的，企业版每个席位每月 45 美元，含单点登录，价目表见 https://pricing.example.com/enterprise/plans/single-sign-on-included-per-seat-each-month-2026",
+    "企业版每个席位都含单点登录，套餐叫 Enterprisesinglesignonincludedforeveryseatofeveryteameverymonth",
+  ],
+};
+
+/**
+ * For a model id ending "-long-last-word": a help reply's two options come in their own words with
+ * no number, one ending in a link and one in a long word; asked once more for the reply's
+ * Citations, the model gives each its line of the price sheet (#3098).
+ */
+function withLongLastWords(prompt: Prompt, parts: StreamPart[]): StreamPart[] {
+  const asked = lastUserText(prompt);
+  if (asksForCitations(prompt)) {
+    const sentences = block(asked, "answer")
+      .split("\n")
+      .filter((line) => line.trim() !== "" && !line.startsWith("→"))
+      .map((line) => line.replace(/^★\s*/u, ""));
+    const citations = sentences.flatMap((sentence) => citationFor(asked, sentence));
+    return textParts(JSON.stringify({ citations }));
+  }
+  const help = block(asked, "help");
+  if (!HELP.test(help) || shapeOf(help) !== "options") return parts;
+  if (!parts.some((part) => part.type === "tool-call" && part.toolName === "cite")) return parts;
+  const [first, second] = LONG_LAST[callOf(asked).language];
+  return textParts(`${first}\n→ answers at once\n\n${second}\n→ names the plan`);
 }
 
 /** For a model id ending "-help-held": a help reply writes nothing until it is stopped. */
@@ -354,5 +413,8 @@ export function helpModelParts(modelId: string, prompt: Prompt, parts: StreamPar
   if (modelId.endsWith("-cites-the-note")) return withNoteCited(prompt, parts);
   if (modelId.endsWith("-writes-before-it-cites")) return withTextBeforeCite(prompt, parts);
   if (modelId.endsWith("-cites-when-asked")) return withCitationsWhenAsked(prompt, parts);
+  if (modelId.endsWith("-number-not-given")) return withNumberNotGiven(prompt, parts);
+  if (modelId.endsWith("-number-given-late")) return withNumberNotGiven(prompt, parts, true);
+  if (modelId.endsWith("-long-last-word")) return withLongLastWords(prompt, parts);
   return parts;
 }
