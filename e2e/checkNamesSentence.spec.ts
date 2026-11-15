@@ -13,6 +13,7 @@ import {
   launchApp,
   motionSettled,
   newMind,
+  openCardMenu,
   pointAndClick,
   removeDataFolder,
   setLanguage,
@@ -139,6 +140,15 @@ async function box(locator: Locator) {
   if (!found) throw new Error("The element isn't visible.");
   return found;
 }
+
+/** What comes right under a card's verdict, past its ⋯, which is drawn at the end of that line (#2869). */
+const underTitle = (card: Locator) =>
+  card.getByTestId("claim-badge").evaluate((title) => {
+    let next = title.nextElementSibling;
+    while (next && (next.hasAttribute("data-object-menu") || next.getAttribute("role") === "menu"))
+      next = next.nextElementSibling;
+    return next?.getAttribute("data-testid");
+  });
 
 for (const language of ["en", "zh-CN"] as const) {
   const words = SENTENCES[language];
@@ -279,22 +289,22 @@ for (const language of ["en", "zh-CN"] as const) {
       const line = card.getByTestId("claim-sentence");
       await expect(line).toHaveText(`“${sentence}”`);
       expect(await card.getAttribute("aria-label")).toContain(sentence);
-      expect(
-        await card
-          .getByTestId("claim-badge")
-          .evaluate((title) => title.nextElementSibling?.getAttribute("data-testid")),
-      ).toBe("claim-sentence");
+      expect(await underTitle(card)).toBe("claim-sentence");
       await expect(line).toHaveCSS("font-size", "13px");
       await expect(line).toHaveCSS("color", metaInk);
       const checkedBy = card.getByTestId("claim-checked-by");
-      // A card that needs a re-check keeps its last check's line as it was.
-      if (kind === "not-checked") await expect(checkedBy).toHaveCount(0);
+      // The model and the time are under the card's ⋯, in About this check (#2869). A card that
+      // needs a re-check keeps its last check's line as it was.
+      if (kind === "not-checked") await expect(card.getByTestId("check-menu")).toHaveCount(0);
       else {
-        await expect(checkedBy).toHaveText(
+        const about = (await openCardMenu(window, card)).getByTestId("claim-about");
+        await expect(about.getByTestId("claim-checked-by")).toHaveText(
           CHECKED_BY[language](formatDateTime(CHECKED_AT, language, clock)),
         );
         await expect(checkedBy).toHaveCSS("font-size", "12px");
         await expect(checkedBy).toHaveCSS("color", metaInk);
+        await window.keyboard.press("Escape");
+        await expect(about).toBeHidden();
       }
       const shape = await line.evaluate((element) => {
         const lineHeight = Number.parseFloat(getComputedStyle(element).lineHeight);
@@ -331,13 +341,9 @@ for (const language of ["en", "zh-CN"] as const) {
 
     await pointAndClick(window, marks.nth(5));
     await expect(card).toHaveAttribute("data-check", "supported");
-    await expect(card.getByTestId("claim-already-cited")).toBeVisible();
+    await expect(card.getByTestId("claim-where").getByTestId("claim-already-chip")).toBeVisible();
     await expect(card.getByTestId("claim-sentence")).toHaveText(`“${words.cited}”`);
-    expect(
-      await card
-        .getByTestId("claim-badge")
-        .evaluate((title) => title.nextElementSibling?.getAttribute("data-testid")),
-    ).toBe("claim-sentence");
+    expect(await underTitle(card)).toBe("claim-sentence");
     expect((await outlinesWords(paragraphOf(words.cited))).encloses).toBe(true);
     await screenshot(window, `card-already-cited-${language}-900`);
     await window.keyboard.press("Escape");
@@ -585,11 +591,17 @@ for (const language of ["en", "zh-CN"] as const) {
     const card = window.getByTestId("claim-card");
     const line = card.getByTestId("claim-checked-by");
     const markOf = (id: string) => window.locator(`[data-testid="claim-mark"][data-claim="${id}"]`);
+    // The line is in About this check, under the card's ⋯ (#2869).
     const open = async (id: string) => {
+      if (await card.getByTestId("check-actions").isVisible()) {
+        await window.keyboard.press("Escape");
+        await expect(card.getByTestId("check-actions")).toBeHidden();
+      }
       await window.keyboard.press("Escape");
       await expect(card).toHaveCount(0);
       await pointAndClick(window, markOf(id));
       await expect(card).toHaveAttribute("data-check", "supported");
+      await openCardMenu(window, card);
       await motionSettled(window);
     };
     /** How many lines an element of the card's last line takes: its words' line boxes. */
@@ -764,8 +776,13 @@ for (const language of ["en", "zh-CN"] as const) {
       expect((await overrun(name))?.line ?? 1).toBeLessThanOrEqual(0.5);
     }
 
-    // While the card opens it is drawn smaller; a name must keep its line count all the way.
+    // While the menu holding the line opens it is drawn smaller; a name must keep its line count
+    // all the way.
     const linesWhileOpening = async (id: string) => {
+      if (await card.getByTestId("check-actions").isVisible()) {
+        await window.keyboard.press("Escape");
+        await expect(card.getByTestId("check-actions")).toBeHidden();
+      }
       await window.keyboard.press("Escape");
       await expect(card).toHaveCount(0);
       const sampled = window.evaluate(
@@ -795,6 +812,8 @@ for (const language of ["en", "zh-CN"] as const) {
           }),
       );
       await pointAndClick(window, markOf(id));
+      await expect(card).toBeVisible();
+      await pointAndClick(window, card.getByTestId("check-menu"));
       return sampled;
     };
     for (const { id, lines } of edge.slice(0, 2)) {
@@ -805,11 +824,11 @@ for (const language of ["en", "zh-CN"] as const) {
       );
     }
 
-    // The line can narrow while its card is open, as when a scrollbar comes: its names are
-    // measured again, and one that no longer fits wraps.
+    // The line can narrow while its menu is open: its names are measured again, and one that no
+    // longer fits wraps.
     const under = line.locator(".claim-card-checked-by-name");
     expect(await linesOf(under)).toBe(1);
-    await card.locator(".citation-card").evaluate((element) => {
+    await card.getByTestId("claim-about-lines").evaluate((element) => {
       (element as HTMLElement).style.width = `${element.getBoundingClientRect().width - 40}px`;
     });
     await expect.poll(() => linesOf(under), "a name that no longer fits wraps").toBe(2);

@@ -1,10 +1,22 @@
 import type { ClaimCorrection } from "../../../core/api";
 import { shownDocumentName } from "../../../shared/citations";
+import type { MessageKey, MessageParams } from "../../../shared/i18n";
 import { useT } from "../i18n";
 import { useAppStore } from "../store";
 
 /** Past this many characters, the Document's wording doesn't fit on a button. */
 const BUTTON_WORDING = 40;
+
+/** "Change to 38.6%", or "Use the Document's wording" where the wording doesn't fit a button. */
+export function correctionLabel(
+  correction: ClaimCorrection,
+  t: (key: MessageKey, params?: MessageParams) => string,
+): string {
+  const wording = correction.choices[0]?.wording ?? "";
+  return wording.length > BUTTON_WORDING
+    ? t("claim.useDocumentWording")
+    : t("claim.correction", { wording });
+}
 
 /** "Change to 38.6%": a contradicted sentence's or part's correction from the Documents (#1481). */
 export function CorrectButton({
@@ -17,7 +29,6 @@ export function CorrectButton({
   testId: string;
 }) {
   const t = useT();
-  const wording = correction.choices[0]?.wording ?? "";
   return (
     <button
       type="button"
@@ -25,9 +36,7 @@ export function CorrectButton({
       className="citation-card-action citation-card-action--primary"
       onClick={onCorrect}
     >
-      {wording.length > BUTTON_WORDING
-        ? t("claim.useDocumentWording")
-        : t("claim.correction", { wording })}
+      {correctionLabel(correction, t)}
     </button>
   );
 }

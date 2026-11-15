@@ -260,9 +260,18 @@ for (const language of ["en", "zh-CN"] as const) {
         "found",
         { timeout: 30_000 },
       );
-      const health = await checkCard(window);
-      await pointAndClick(window, health.getByTestId("health-open-schedule"));
+      // The badge's card counts no figures (#2869): ⌘K's Figure schedule opens them as they stand,
+      // with no Check started.
+      await expect((await checkCard(window)).getByTestId("health-figures")).toHaveCount(0);
+      await window.keyboard.press("Escape");
+      await runCommand(window, "mind.figures", t("figures.title"));
       const schedule = window.getByTestId("figure-schedule");
+      const ask = window.getByTestId("mind-check-ask");
+      await expect(schedule).toBeVisible();
+      await expect(
+        window.getByRole("tab", { name: new RegExp(`^${t("figures.title")}`) }),
+      ).toHaveAttribute("aria-selected", "true");
+      await expect(ask).toHaveCount(0);
       const rows = schedule.locator("tbody tr[data-figure-id]");
       await expect(rows).toHaveCount(3);
       const rowOf = (index: number) => rows.nth(index);
@@ -298,6 +307,19 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect((await checkCard(window)).getByTestId("health-sign-offs")).toHaveText(
         t("signOff.count.mine", { count: 3 }),
       );
+
+      // Tie out figures starts the Note's Check where figures need one, asking first as no model
+      // can price it here; Not now still brings the schedule back, as wide or as narrow.
+      await window.keyboard.press("Escape");
+      const figuresTab = window.getByRole("tab", { name: new RegExp(`^${t("figures.title")}`) });
+      await pointAndClick(window, figuresTab.getByTestId("tab-close"));
+      await expect(schedule).toHaveCount(0);
+      await runCommand(window, "mind.tieOut", t("figures.command"));
+      await expect(ask).toBeVisible({ timeout: 30_000 });
+      await pointAndClick(window, ask.getByTestId("mind-check-cancel"));
+      await expect(ask).toHaveCount(0);
+      await expect(schedule).toBeVisible();
+      await expect(figuresTab).toHaveAttribute("aria-selected", "true");
     } finally {
       await app.close();
     }

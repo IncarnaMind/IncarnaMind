@@ -148,23 +148,48 @@ async function rows(language: string, text: string, parts: readonly ClaimCheckPa
   };
   // Loaded by path, as the other component tests are: the node typecheck reads no JSX.
   const rowsPath = "../../src/renderer/src/editor/ClaimPartRows.tsx";
-  const { ClaimPartRows }: { ClaimPartRows: ComponentType<Record<string, unknown>> } = await import(
-    rowsPath
-  );
+  const {
+    cardParts,
+    PartBlock,
+  }: {
+    cardParts(input: Record<string, unknown>): { key: string; words: string }[];
+    PartBlock: ComponentType<Record<string, unknown>>;
+  } = await import(rowsPath);
+  // Every row opened, as Show opens the folded ones, with each of its quotes.
+  const shown = cardParts({
+    state: editor.state,
+    text,
+    sentence: text,
+    parts,
+    stale: false,
+    checking: false,
+  });
   await act(() =>
     root.render(
-      createElement(ClaimPartRows, {
-        editor,
-        id: "check",
-        text,
-        parts,
-        onCheck: () => undefined,
-        onOpen: () => undefined,
-      }),
+      createElement(
+        "ol",
+        {},
+        shown.map((row) =>
+          createElement(PartBlock, {
+            key: row.key,
+            editor,
+            row,
+            stale: false,
+            checking: false,
+            lookedIn: "",
+            allQuotes: true,
+            more: null,
+            checkId: "check",
+            fix: null,
+            drawsFix: false,
+            onOpen: () => undefined,
+          }),
+        ),
+      ),
     ),
   );
-  return [...container.querySelectorAll('[data-testid="claim-part"]')].map((row) => ({
-    words: row.querySelector(".claim-part-words")?.textContent ?? "",
+  return [...container.querySelectorAll('[data-testid="claim-part"]')].map((row, index) => ({
+    words: shown[index]?.words ?? "",
     text: row.textContent ?? "",
   }));
 }

@@ -9,7 +9,7 @@ import { originOf } from "../editor/blockOrigins";
 import { goToCitation } from "../editor/citationMark";
 import { blockAt } from "../editor/noteKeymap";
 import { openOrigin } from "../editor/originActions";
-import { tieOutFigures } from "../figures";
+import { openFigureSchedule, tieOutFigures } from "../figures";
 import { useFindSources } from "../findSources";
 import { useHistory } from "../history";
 import { translateNow } from "../i18n";
@@ -357,6 +357,19 @@ const appCommands: readonly Command[] = [
     run: (ctx) => {
       const mindId = mindShown(ctx);
       if (mindId) return tieOutFigures(mindId);
+    },
+  },
+  {
+    // The Note's figures as they stand, without starting a Check: the check badge's card no longer
+    // links to them (#2869).
+    id: "mind.figures",
+    label: "figures.title",
+    group: "main",
+    reversible: true,
+    when: (ctx) => onlyOne(ctx) && mindShown(ctx) !== null,
+    run: (ctx) => {
+      const mindId = mindShown(ctx);
+      if (mindId) return openFigureSchedule(mindId);
     },
   },
   {
