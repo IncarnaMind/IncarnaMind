@@ -70,6 +70,7 @@ export const PARTS = {
   edges: ["issue", "edge"],
   points: ["points"],
   headings: ["heading"],
+  organisations: ["colon"],
 } as const;
 
 export const rowsOf = (part: keyof typeof PARTS) =>
