@@ -288,6 +288,32 @@ describe("The record the check is sent, by name (#2969)", () => {
     expect(sent).toContain('\\"paragraphs\\": 4');
   });
 
+  // protects=the sentences an edit took out or rewrote reach the check as counts, not as the User's words, in English and Chinese; fails_when=a sentence of the User's, or its words, is in the request; no_claim=what the model is told in the call's result, which still names them to report from.
+  test.each([
+    { gone: "Each costs 800 a month.", rewritten: "Spaces are allocated by the landlord." },
+    { gone: "每个车位每月 800 元。", rewritten: "车位由房东分配。" },
+  ])(
+    "the User's sentences an edit took out or rewrote are counts only: $gone",
+    async ({ gone, rewritten }) => {
+      const sent = await recordSent([
+        mindCall("edit_mind", "q3-a", {
+          sentences: {
+            kept: 2,
+            takenOut: 1,
+            shortened: 0,
+            rewritten: 1,
+            written: 1,
+            named: { takenOut: [gone], rewritten: [rewritten] },
+          },
+        }),
+      ]);
+
+      expect(sent).toContain("1 taken out whole; 1 rewritten as 1; 2 kept word for word");
+      expect(sent).not.toContain(gone);
+      expect(sent).not.toContain(rewritten);
+    },
+  );
+
   // protects=a path in a setting's old or new value, on any system, reaches the check as the folder's last part; fails_when=the path itself is sent, with the User's folders above it; no_claim=every setting.
   test.each([
     { from: "/Users/ana/Documents/IncarnaMind", to: "/Volumes/Work/Reports", last: "Reports" },

@@ -183,7 +183,7 @@ describe("An edit asked only to take text out that rewrites what it keeps waits 
 describe("What an edit did to the User's sentences is said from the change, not the reply (#2356)", {
   timeout: 30_000,
 }, () => {
-  // protects=an edit called without removes_only applies as before, and what it did is said from the change itself wherever it is read: the model's result, the record a reply is checked against and the line it is asked again from, the Answer's card and the line over the Note say it changed the paragraph, never that a sentence went, though the reply says one was deleted; English and Chinese; fails_when=the result or record says a sentence was taken out, the card or line says removed or deleted, or the change waits; no_claim=how a real model words its reply, or how the check judges it.
+  // protects=an edit called without removes_only applies as before, and what it did is said from the change itself wherever it is read: the model's result, the record a reply is checked against and the line it is asked again from (in words), the request the claims check is sent (as counts, #2969), the Answer's card and the line over the Note say it changed the paragraph, never that a sentence went, though the reply says one was deleted; English and Chinese; fails_when=the result or record says a sentence was taken out, the card or line says removed or deleted, or the change waits; no_claim=how a real model words its reply, or how the check judges it.
   test.each([
     {
       case: "English 7, its reply saying the others stayed",
@@ -193,6 +193,9 @@ describe("What an edit did to the User's sentences is said from the change, not 
       reply:
         'Deleted "Spaces are allocated by the landlord." from the Parking paragraph in "Lease terms", leaving the other two sentences in place.',
       said: "What it does to the User's sentences there: 1 taken out whole (“Spaces are allocated by the landlord.”); 2 joined and rewritten as 1 (“Parking: the tenant may use six underground spaces.”, “Each costs 800 a month.”).",
+      counted:
+        "What it does to the User's sentences there: 1 taken out whole; 2 joined and rewritten as 1.",
+      unsent: "Parking: the tenant may use six underground spaces.",
       card: "Changed 1 paragraph in “Lease terms”",
       line: "Changed 1 paragraph",
     },
@@ -204,6 +207,9 @@ describe("What an edit did to the User's sentences is said from the change, not 
       reply:
         "已在「租赁条款」的停车位一段删去关于车位数量的一句话；其余两句（车位费用、车位由出租方分配）保留。",
       said: "What it does to the User's sentences there: none taken out whole; 3 joined and rewritten as 1 (“停车位：承租方可使用地下停车位 6 个。”, “每个车位每月 800 元。”, “车位由出租方分配。”). None of them went.",
+      counted:
+        "What it does to the User's sentences there: none taken out whole; 3 joined and rewritten as 1. None of them went.",
+      unsent: "停车位：承租方可使用地下停车位 6 个。",
       card: "已修改“租赁条款”中的 1 段",
       line: "修改了 1 个段落",
     },
@@ -238,7 +244,8 @@ describe("What an edit did to the User's sentences is said from the change, not 
       mind.id,
       { model: judge, request: each.request, names, signal: new AbortController().signal },
     );
-    expect(judged.join("")).toContain(each.said);
+    expect(judged.join("")).toContain(each.counted);
+    expect(judged.join("")).not.toContain(each.unsent);
     const t = (key: Parameters<typeof translate>[1], params?: Parameters<typeof translate>[2]) =>
       translate(each.language === "zh" ? "zh-CN" : "en", key, params);
     const [row] = changedMinds(answer);

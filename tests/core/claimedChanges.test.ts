@@ -561,8 +561,8 @@ describe("What the record tells the check of a part and a rewrite (#2769)", () =
     });
   });
 
-  // protects=what an edit did to the User's sentences reaches the check in the record's words, so a sentence taken out with new ones written reads as a rewrite's record, not as "rewritten": 0; fails_when=the counts go to the judge, which flagged an honest "I rewrote it" in every run; no_claim=the judge's verdicts.
-  test("a rewrite read as sentences taken out and written new is told in words", async () => {
+  // protects=what an edit did to the User's sentences reaches the check in the record's words, so a sentence taken out with new ones written reads as a rewrite's record, not as "rewritten": 0, and without the sentences themselves (#2969); fails_when=the counts go to the judge, which flagged an honest "I rewrote it" in every run, or the User's sentence goes with them; no_claim=the judge's verdicts.
+  test("a rewrite read as sentences taken out and written new is told in counts", async () => {
     const prompt = await recordRead([
       partCall("a", "下周要跟客户开会", {
         proposals: 1,
@@ -578,8 +578,9 @@ describe("What the record tells the check of a part and a rewrite (#2769)", () =
       }),
     ]);
     expect(prompt).toContain(
-      "What it does to the User's sentences there: 1 taken out whole (“下周要跟客户开会，聊聊合同的事。”); 2 sentences written new.",
+      "What it does to the User's sentences there: 1 taken out whole; 2 sentences written new.",
     );
+    expect(prompt).not.toContain("聊聊合同的事");
     expect(prompt).not.toContain('rewritten\\": 0');
   });
 });

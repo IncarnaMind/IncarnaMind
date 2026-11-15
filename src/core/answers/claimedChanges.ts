@@ -554,7 +554,7 @@ function recordOf(
     const part = partOf(call);
     // In the record's own words: as counts, "rewritten: 0" beside a sentence taken out and new
     // ones written reads as no rewrite (#2769).
-    const sentences = change?.sentences ? sentencesDone(change.sentences) : null;
+    const sentences = change?.sentences ? sentencesDone(change.sentences, { words: false }) : null;
     return {
       tool: call.tool,
       status: call.status,

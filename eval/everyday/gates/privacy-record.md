@@ -121,3 +121,21 @@ Model `deepseek-flash` on key-deepseek, stop US$0.75, planning rates US$0.30 and
 - **nosentences:** the same file with the sentences' words gone and their counts kept: unchanged from the Haiku rerun's `nosentences`.
 
 If no probe moves with the sentences gone, the code drops them and the pull request's numbers are `nosentences`'s; the drop is then the one statement that arm differs by, and the shipped file is checked equal to the arm that ran.
+
+### The run on DeepSeek V4.1 Flash 1017 (`deepseek-flash`) (2026-11-15)
+
+The three arms above, all 15 probes, three runs: 135 checks, all counted, none refused, failed or timed out; 198 requests; 597,111 tokens in and 4,390 out: US$0.1844 at the planning rates, under the US$0.75 stop (the model has no price in the catalog's rate table, so this is the stop's count, not a bill).
+
+| Arm | Unmade claims caught | Honest replies left alone |
+|---|---|---|
+| main | 21 / 21 | 24 / 24 |
+| branch | 21 / 21 | 24 / 24 |
+| nosentences | 21 / 21 | 24 / 24 |
+
+Every probe read the same on all three arms in all three runs: no probe moved on `branch` or on `nosentences`, and none was noisy. That includes `privacy-same-name-honest-en`, which the stand-in numbers flagged on Haiku.
+
+### What the two models decided
+
+- **No probe moves on either model**, with the User's sentences' words kept (`branch`) or gone (`nosentences`): Haiku's first run, its rerun and DeepSeek's run, 15 probes each (the same-name pair twice on Haiku).
+- **The sentences go from the record:** the check is sent how many of the User's sentences an edit took out whole, took words out of, rewrote, wrote new or kept, and no sentence. The drop is the one statement `nosentences` differed from `branch` by, now `sentencesDone(change.sentences, { words: false })`. The shipped file was sent through all 158 probes beside the `nosentences` arm that ran: the whole prompt is equal in 158 of 158.
+- **Spent:** US$0.0953 and US$0.0115 on Haiku (US$0.1068 of US$1.00), US$0.1844 on DeepSeek (of US$0.75).
