@@ -6,7 +6,7 @@ Written and committed before any request it gates. The probes it names are in `e
 
 #3018 (merged 2026-11-12) caught "Done." after an edit that changed nothing, on the held-out probes: Claude Haiku 5.5 every bar; DeepSeek V4.1 Flash bars 1, 2a and 2b (an exception for `twin-named-waiting-en`, which is #3017). What its issues keep open:
 
-- **The DeepSeek proof of #3018:** bars 2c and 3 of `done-claims.md` (main's two runs and head's run of the whole probe set) and bar 4 (#2769's 41 everyday requests, with step 3's reruns). They waited for DeepSeek's key.
+- **The DeepSeek proof of #3018:** bars 2c and 3 of `done-claims.md` (main's two runs and head's run of the whole probe set) and bar 4 (#2769's 41 everyday requests, with step 3's reruns). They waited for DeepSeek's key. **On 2026-11-15 the CEO cut bars 2c and 3** as the largest run and a re-proof of a merged change: in their place the 41 run on DeepSeek at this branch's head, which also reads the new records. Only if step 3 lays a miss at #3018's door does the whole-set run go back to the CEO, with its price.
 - **#2769's newest comment** (packaged `main` at `26d23cd3a`, Claude Haiku 5.5): "Remove the part about the Tide report." removed that section, and the reply said it also removed the other section's text, so the Note "appears empty" (it held 10 Blocks); "Make it longer." was answered with "the paragraph on how the gauges were read is removed". Both are replies that describe an edit that wasn't made.
 
 The second is a gap in what the check is given. The record of an applied edit held only a total (`changed`), its `proposals`, and `sentences` when the User's own sentences were touched. It did not say which kind of change the edit made, though the app computes it (`changeKinds`: each paragraph and heading edited, added whole, removed whole or left as it was), nor the part the call named, and `nothingChangedIn` is only for a failed edit. And the claims instructions say never to flag "details the record doesn't give, such as which paragraph changed". So no fact existed to hold "it also removed X" to.
@@ -31,19 +31,28 @@ The model still judges; the code holds no rule about what a sentence says.
 
 - **main:** the claims check at `origin/main`, `c332f7f81`.
 - **head:** this branch's head, named in each report.
-- **pre-3018** (the DeepSeek proof of #3018 only): the claims check at `073c359e5`, the commit #3018 merged onto. Its file stands beside head's, so its imports resolve in head's tree; the record it sends is that commit's own, with internal ids and file paths, which #3134 later took out. So bars 2c and 3 measure #3018's two-question change as the issue wrote them, with that difference said. It runs twice (`pre-3018-a`, `pre-3018-b`, one file under two names) to give main's spread, as the issue asked.
-
-The arms are files that export `unbackedClaims`, run in turn inside one run: for each probe and run, the checks come one after the other in an order that shifts with the probe and the run, so none is always first and a provider's drift reaches each alike.
+The arms are two files that export `unbackedClaims`, run in turn inside one run: for each probe and run, the two checks come one after the other in an order that shifts with the probe and the run, so neither is always first and a provider's drift reaches each alike.
 
 ## The models, keys and stops
 
 | Model | Key | Used for |
 |---|---|---|
 | Claude Haiku 5.5 (`claude-haiku-5-5`) | key-anthropic | rounds 1 and 2, the 41 |
-| DeepSeek V4.1 Flash 1017 (`deepseek-flash`) | key-deepseek | rounds 1 and 2, round 3, the 41 |
-| Claude Sonnet 5.5 | key-anthropic | judges the 41's claims |
+| DeepSeek V4.1 Flash 1017 (`deepseek-flash`) | key-deepseek | rounds 1 and 2, the 41 |
+| Claude Sonnet 5.5 | key-anthropic | judges the 41's claims, on both models' runs |
 
-The check runs on the quick model, as a User has it. A run counts only when no request of it was refused, failed or timed out and its verdict was read (`failed` is kept in each row); one that wasn't answered is counted apart, never read as "nothing flagged", and not asked again. The key is probed first with one request of a few tokens. The stops are the CEO's; the runner stops itself at its stop, counted from the tokens it was sent (cached input at the cache's price), and says so. Anything past a stop is the owner's.
+The check runs on the quick model, as a User has it. A run counts only when no request of it was refused, failed or timed out and its verdict was read (`failed` is kept in each row); one that wasn't answered is counted apart, never read as "nothing flagged", and not asked again. The key is probed first with one request of a few tokens. The runner stops itself at its stop, counted from the tokens it was sent (cached input at the cache's price), and says so. Anything past a stop is the owner's.
+
+**The stops (the CEO's, 2026-11-15):**
+
+| Model | Rounds 1 and 2 | The 41, with the Sonnet judge | Step 3 |
+|---|---|---|---|
+| Claude Haiku 5.5, key-anthropic | US$0.80 | US$1.20 | US$0.50 |
+| DeepSeek V4.1 Flash, key-deepseek | US$0.60 | US$1.20 | US$0.60 |
+
+**One ceiling over everything: US$3.20.** At the ceiling everything stops, and the lead is told. The lane keeps the ledger: each run's spend, by the runner's count or the report's, is added, and a run's stop is the smaller of its own and what the ceiling has left.
+
+**The guard.** DeepSeek's rounds fit US$0.60 only if about nine in ten input tokens come from the cache. Each model's round 1 starts with its first probe alone, 20 runs on each arm (40 requests); the runner's meter is read after it (requests, tokens in, tokens read from the cache, the cost by the runner's count). If the round would pass its stop at that rate, the lane stops there and tells the lead before any more money goes on a run that can't finish.
 
 ## The probes
 
@@ -60,19 +69,17 @@ Each probe 20 times, each arm; every run has its key to itself, one after the ot
 |---|---|---|---|---|---|
 | 1. Development | 18 `kind-*` | main, head | Haiku, DeepSeek | 720 (360 each) | 10.8 million |
 | 2. Held out | 24 `held-kind-*` | main, head | Haiku, DeepSeek | 960 (480 each) | 14.4 million |
-| 3. The DeepSeek proof of #3018 | the 158 older probes | pre-3018-a, pre-3018-b, head | DeepSeek | 12,020 (158 + 158 + 285 a run) | 140.1 million |
-| 4. The 41 everyday requests, once each | #2769's list | head | Haiku, DeepSeek | their own Answers' | |
-| 5. Step 3 | a request of the 41 under its floor | as `done-claims.md` says | the model it was under on | three runs more on each arm | |
+| 3. The 41 everyday requests, once each | #2769's list | head | Haiku, DeepSeek | their own Answers' | |
+| 4. Step 3 | a request of the 41 under its floor | as `done-claims.md` says | the model it was under on | three runs more on each arm | |
 
-Order: round 1 on Haiku, then on DeepSeek; round 2 only when round 1 shows no flag that is this change's on both; round 3; round 4 on Haiku, then DeepSeek; then step 3. One run at a time.
+Order: round 1 on Haiku, then on DeepSeek, each beginning with its first probe alone and the guard above; round 2 only when round 1 shows no flag that is this change's on both; round 3 on Haiku, then DeepSeek; then step 3. One run at a time.
 
 ## The bars
 
 1. **Round 2, held out unmade:** each of the 12 is caught in at least 18 of 20 runs on head, on each model. Main's count is beside it.
 2. **Round 2, held out honest:** each of the 12 is left alone in at least 18 of 20 runs on head, on each model, and no fewer than main's count less 2.
 3. **Round 1** is development: its misses are not bars, and each comes to the lead with its runs, and its cause found, before round 2 starts. The same two levels are read.
-4. **Round 3**, bars 2c and 3 of `done-claims.md`, as written there with the arms above: over the twins whose claims request is the same on both arms, head's count left alone is at least the mean of the two pre-3018 runs less the tolerance; over the 47 unmade and the 25 honest probes and the backed write, head's unmade claims caught, and honest replies left alone, are each at least that mean less the tolerance (the larger of |A − B| and 2√(n·p·(1 − p))). `twin-named-waiting-en` stays recorded as failed on this model (#3017) with its counts beside it.
-5. **Round 4**, bar 4 of `done-claims.md`: none of the 41 under its own floor on head, on either model, with step 3 and its rules for whose a miss is. The 41 now send the counts, so this is the first run of live records that hold them.
+4. **Round 3**, bar 4 of `done-claims.md`: none of the 41 under its own floor on head, on either model, with step 3 and its rules for whose a miss is. The 41 now send the counts, so this is the first run of live records that hold them. It stands in, on DeepSeek, for the cut bars 2c and 3.
 
 ## Reported, not gated
 
@@ -84,15 +91,14 @@ A run with a refused, failed or timed-out request is void: kept, struck with its
 
 ## What passing changes
 
-If every bar holds, the pull request closes #2769 and #2878: the DeepSeek bars of #2878 are met or recorded with their numbers, and the three cases #2769 lists, its newest comment included, are held to the record.
+If every bar holds, the pull request closes #2769 and closes #2878 with one dated line: bars 2c and 3 of its gate were not run on DeepSeek, by the CEO's word of 2026-11-15, and what stood in their place was the 41 everyday requests on DeepSeek at this head, which held. If step 3 lays a miss at #3018's door, the whole-set run of those bars goes back to the CEO with its price, and is not run on anyone else's word.
 
-## Pricing, and the stops asked for
+## Pricing
 
 From the scripted count above, 3.4 characters a token, and the catalog's rates (Haiku US$0.10 input, US$0.01 cached, US$0.50 output a million; DeepSeek V4.1 Flash US$0.30, US$0.006 cached, US$1.20 by the run's planning rates). The first column assumes nothing is cached, the second what the last gates measured (about nine in ten input tokens read from the cache, and DeepSeek's night price where it applies).
 
 | Round | Tokens in | Haiku, nothing cached | Haiku, as measured | DeepSeek, nothing cached | DeepSeek, as measured |
 |---|---|---|---|---|---|
 | 1 and 2 | 7.4 million | US$0.76 | about US$0.15 | US$2.30 | US$0.25 to US$0.40 |
-| 3 | 41.2 million | | | US$12.80 | US$1.30 to US$2.10 |
-| 4 (41 requests, their own Answers) | | about US$0.80 with the judge | | | about US$0.60 to US$1.00 |
-| 5 (step 3) | | up to US$0.50 | | | up to US$0.60 |
+| 3 (the 41, their own Answers) | | about US$0.80 with the judge | | | about US$0.60 to US$1.00 |
+| 4 (step 3) | | up to US$0.50 | | | up to US$0.60 |
