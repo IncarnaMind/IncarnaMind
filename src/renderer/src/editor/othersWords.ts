@@ -3,7 +3,8 @@
  * adds or takes out words or Blocks inside a Block a step of this copy's history inserted, and the
  * step's Undo or Redo would delete that Block, taking those words with it, the step leaves the
  * history, and ⌘Z goes on to the User's own step before it. A paragraph that isn't empty is never
- * deleted by Undo, which takes back only the User's own words in it, so its step stays. Marks and
+ * deleted by Undo, which takes back only the User's own words in it, so its step stays; so does a
+ * step whose Block was deleted whole, which has nothing of anyone's left in it. Marks and
  * attributes, as a check's result sets, leave every step in place. As shown as hidden: the history
  * a tab keeps (../tabCopies).
  */
@@ -34,19 +35,28 @@ export function keepOthersWords(doc: Y.Doc, history: UndoStack): () => void {
 
 function guardOf(doc: Y.Doc, history: UndoStack): Guard {
   const note = doc.getXmlFragment(MIND_CONTENT_FIELD);
+  const touched = new Set<UndoStep>();
   const written = (events: Y.YEvent<Y.AbstractType<unknown>>[], transaction: Y.Transaction) => {
     if (transaction.origin !== FROM_CORE) return;
     const steps = [...history.undoStack, ...history.redoStack];
-    takeOutOfHistory(
-      history,
-      stepsWrittenIn(events, steps, (item) => history.deleteFilter(item)),
-    );
+    const deletes = (item: Y.Item) => !item.deleted && history.deleteFilter(item);
+    for (const step of stepsWrittenIn(events, steps, deletes)) touched.add(step);
+  };
+  // Once every observer has run: an editor of the copy draws the change in its own, and redrawing
+  // the editor before then, as a step's line going does, writes its older Note back over the change.
+  const settled = () => {
+    if (touched.size === 0) return;
+    const steps = new Set(touched);
+    touched.clear();
+    takeOutOfHistory(history, steps);
   };
   note.observeDeep(written);
+  doc.on("afterTransaction", settled);
   const guard: Guard = {
     holders: 0,
     stop: () => {
       note.unobserveDeep(written);
+      doc.off("afterTransaction", settled);
       if (guards.get(history) === guard) guards.delete(history);
     },
   };

@@ -7,6 +7,7 @@ import {
   dragTabTo,
   firstTranscriptLine,
   focusSettled,
+  gettingStarted,
   launchApp,
   mindWrittenBefore,
   motionSettled,
@@ -737,6 +738,106 @@ test("a right-click on the shown tab, its menu closed or an item chosen, leaves 
     await expect(menu).toBeHidden();
     await expect(tab).toHaveAttribute("data-pinned", "true");
     await expect(tab).toBeFocused();
+  } finally {
+    await app.close();
+  }
+});
+
+// protects=back in a Note by a click on its tab, the cursor where it was is the one ⌘J and Esc come back to from the assistant, not the Note's end (#3115); fails_when=Esc from the composer puts the cursor at the Note's end; no_claim=what the assistant does with the Question.
+test("back in a Note by its tab, ⌘J then Esc come back to the cursor where it was", async () => {
+  const { app, window } = await launched();
+  try {
+    await newMind(window);
+    await window.keyboard.type("First line here.");
+    await window.keyboard.press("Enter");
+    await window.keyboard.type("Second line here.");
+    const editor = shownEditor(window);
+    await pointAndClick(window, paragraphs(editor).first());
+    await focusSettled(window, editor);
+    for (let step = 0; step < 6; step++) await window.keyboard.press("ArrowLeft");
+    const at = await caret(window);
+    expect(at).toEqual({ words: "First line here.", offset: "First line here.".length - 6 });
+
+    const note = window.getByTestId("mind-tab").first();
+    await showNewTab(window);
+    await backTo(window, note);
+    expect(await caret(window)).toEqual(at);
+    await window.keyboard.press("ControlOrMeta+j");
+    await expect(window.getByTestId("composer-input")).toBeFocused();
+    await window.keyboard.press("Escape");
+    await expect(shownEditor(window)).toBeFocused();
+    expect(await caret(window)).toEqual(at);
+  } finally {
+    await app.close();
+  }
+});
+
+/** The getting-started steps shown, as on a first run, so their Hide is a change of the app's with Undo. */
+const showSteps = (window: Page) =>
+  window.evaluate(async () => {
+    const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    const now = (await core.getSettings()).device.gettingStarted;
+    await core.updateSettings({
+      device: { gettingStarted: { ...now, started: true, hidden: false } },
+    });
+  });
+
+const stepsHidden = async (window: Page) => (await gettingStarted(window)).hidden;
+
+// protects=in a Note's text ⌘Z takes back the Note's own typing first and, with nothing of the Note's left, the app's change; ⇧⌘Z does the typing again first and then the app's change, each once; a tab's name field keeps ⌘Z for its own text, the app's change staying (#3115); fails_when=⌘Z in the text stops at the Note's history, takes the app's change first, a step is done twice or lost, or the name field's ⌘Z takes back the app's change; no_claim=the Edit menu's names.
+test("in a Note's text ⌘Z takes back the typing, then the app's change, ⇧⌘Z the same way round, and a tab's name field keeps its own", async () => {
+  const { app, window } = await launched();
+  try {
+    await showSteps(window);
+    await newMind(window);
+    const editor = shownEditor(window);
+    await window.keyboard.type("Typed.");
+    await window.keyboard.press("ControlOrMeta+k");
+    await expect(window.getByTestId("palette-search")).toBeFocused();
+    await window.keyboard.type("Hide the getting-started steps");
+    await expect(window.getByTestId("palette-item").first()).toContainText(
+      "Hide the getting-started steps",
+    );
+    await window.keyboard.press("Enter");
+    await expect.poll(() => stepsHidden(window)).toBe(true);
+    await expect(editor).toBeFocused();
+
+    await window.keyboard.press("ControlOrMeta+z");
+    await expect(editor).not.toContainText("Typed.");
+    expect(await stepsHidden(window)).toBe(true);
+    await window.keyboard.press("ControlOrMeta+z");
+    await expect.poll(() => stepsHidden(window)).toBe(false);
+    await expect(editor).not.toContainText("Typed.");
+
+    await window.keyboard.press("ControlOrMeta+Shift+z");
+    await expect(paragraphs(editor)).toHaveText(["Typed."]);
+    expect(await stepsHidden(window)).toBe(false);
+    await window.keyboard.press("ControlOrMeta+Shift+z");
+    await expect.poll(() => stepsHidden(window)).toBe(true);
+    await expect(paragraphs(editor)).toHaveText(["Typed."]);
+
+    await shownTabs(window).first().getByTestId("tab-title").dblclick();
+    const name = window.getByTestId("tab-rename");
+    await expect(name).toBeFocused();
+    const taken = await window.evaluate(() => {
+      const mac = /Mac/.test(navigator.platform);
+      const event = new KeyboardEvent("keydown", {
+        key: "z",
+        code: "KeyZ",
+        metaKey: mac,
+        ctrlKey: !mac,
+        bubbles: true,
+        cancelable: true,
+      });
+      document.activeElement?.dispatchEvent(event);
+      return event.defaultPrevented;
+    });
+    expect(taken).toBe(false);
+    await window.keyboard.press("ControlOrMeta+z");
+    await window.keyboard.press("Escape");
+    await expect(name).toHaveCount(0);
+    expect(await stepsHidden(window)).toBe(true);
+    await expect(paragraphs(editor)).toHaveText(["Typed."]);
   } finally {
     await app.close();
   }

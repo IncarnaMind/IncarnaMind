@@ -8,7 +8,7 @@ import {
 import { shortcutLabel } from "../../commands/keymap";
 import { activeTabOf, focusedGroupOf, groupOfTab, groupsMerged } from "../../layoutSlice";
 import { useAppStore } from "../../store";
-import { focusShownContent, focusTab } from "../../tabFocus";
+import { focusShownContent, focusTab, forgetContentFocus } from "../../tabFocus";
 import { tabTitle } from "../../tabs";
 import { makeInTurn, type Undoable, UndoRefused } from "../../undo";
 
@@ -177,6 +177,7 @@ export function cycleTabs(step: 1 | -1, { focus = true }: { focus?: boolean } = 
   const next = group.tabs[(index + step + group.tabs.length) % group.tabs.length];
   if (!next) return;
   if (focus) focusShownContent(next.id, next.item.kind);
+  else forgetContentFocus();
   void store.changeLayout({ type: "show", tabId: next.id });
 }
 
@@ -201,5 +202,6 @@ export async function showTabByNumber(
   const tab = tabByNumber(number);
   if (!tab) return;
   if (focus) focusShownContent(tab.id, tab.item.kind);
+  else forgetContentFocus();
   await useAppStore.getState().changeLayout({ type: "show", tabId: tab.id });
 }

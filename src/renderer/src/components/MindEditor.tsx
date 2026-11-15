@@ -124,6 +124,7 @@ import {
 import { ListMenu } from "../editor/NumberingMenu";
 import { NoteKeymap } from "../editor/noteKeymap";
 import { noteExtensions } from "../editor/noteSchema";
+import { NoteUndoKeys } from "../editor/noteUndoKeys";
 import { registerMindEditor } from "../editor/openEditors";
 import { pageBreakView, relabelBreaks } from "../editor/PageBreakView";
 import { PageMenu } from "../editor/PageMenu";
@@ -137,12 +138,12 @@ import { askInEditor, QuestionCommands } from "../editor/questionCommands";
 import { QuestionFold } from "../editor/questionFold";
 import { ReferencesBlock } from "../editor/ReferencesBlock";
 import { ReviewFold, ReviewPane } from "../editor/ReviewPane";
-import { RedoKeys } from "../editor/redoKeys";
 import { ReviewPick } from "../editor/reviewPick";
 import { ScopePicker } from "../editor/ScopePicker";
 import { type SelectionAction, SelectionMenu } from "../editor/SelectionMenu";
 import { SlashMenu } from "../editor/SlashMenu";
 import { ShiftClickSelection } from "../editor/shiftClickSelection";
+import { type CursorAtLeaving, cursorAtLeaving, cursorToKeep } from "../editor/shownSelection";
 import { useSignOffs } from "../editor/signOffActions";
 import {
   citeWhileWritingItems,
@@ -304,14 +305,20 @@ function useTabPlaceKept(editor: Editor, mindId: string, tabId: string | undefin
         editor.view.focus();
       }
     });
+    let left: CursorAtLeaving | null = null;
+    const leaving = () => {
+      left = cursorAtLeaving(editor);
+    };
+    editor.view.dom.addEventListener("focusout", leaving);
     return () => {
       stopFocus();
       release();
+      editor.view.dom.removeEventListener("focusout", leaving);
       const bound = editor.isDestroyed ? null : ySyncPluginKey.getState(editor.state)?.binding;
       if (!bound) return;
       const relative = (position: number) =>
         absolutePositionToRelativePosition(position, bound.type, bound.mapping);
-      const { anchor, head } = editor.state.selection;
+      const { anchor, head } = cursorToKeep(editor, left);
       const view = scroller();
       rememberPlace(tabId, mindId, {
         anchor: relative(anchor),
@@ -677,7 +684,7 @@ function MindEditorView({
           field: MIND_CONTENT_FIELD,
           ...(history && { yUndoOptions: { undoManager: history } }),
         }),
-        RedoKeys,
+        NoteUndoKeys,
         MyNotes,
         MyNotesHistory.configure({
           fillNext: fillNextIn,
@@ -1064,6 +1071,11 @@ function MindEditorView({
         cursorInMind.current = false;
       }
     };
+    // A Note shown again in its tab takes the focus as it is drawn, before this listens.
+    if (editor.view.dom.contains(document.activeElement)) {
+      cursorInMind.current = true;
+      cursorPlaced.current = true;
+    }
     document.addEventListener("focusin", onFocusIn);
     return () => document.removeEventListener("focusin", onFocusIn);
   }, [editor, dock]);

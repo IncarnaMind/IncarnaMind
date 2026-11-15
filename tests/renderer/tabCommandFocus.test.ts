@@ -99,4 +99,21 @@ describe("a tab shown by a command", () => {
       expect(window.taken).toEqual([wanted]);
     },
   );
+
+  // protects=a click that asked for a Note's text while its editor wasn't drawn yet asks nothing more once another tab is shown without the User asking, as the assistant shows one: the Note drawn later leaves the focus where it is (#3115); fails_when=a Note shown later takes the focus because of the old click; no_claim=the tab strip's own keys, which tabFocus.test.ts holds.
+  test("a tab the assistant shows ends what an earlier click asked of another tab's text", async () => {
+    const window = await threeNotes();
+    const late: string[] = [];
+    const first = window.tab(0);
+    tabFocus.takeContentFocus(first, () => undefined)();
+    Object.defineProperty(document, "activeElement", {
+      configurable: true,
+      get: () => document.body,
+    });
+    tabFocus.focusShownContent(first, "mind");
+    await registry.commands.run("tab.show2", BY_THE_ASSISTANT);
+    await vi.waitFor(() => expect(window.shown()).toBe(window.tab(1)));
+    tabFocus.takeContentFocus(first, () => late.push(first))();
+    expect(late).toEqual([]);
+  });
 });

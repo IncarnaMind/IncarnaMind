@@ -62,6 +62,10 @@ vi.mock("../../src/renderer/src/core", () => ({
     },
     recordAiUse: async () => undefined,
     saveCheckpoint: async () => undefined,
+    undoComparisonStructure: async ({ step }: { step: string }) => {
+      bridge.calls.push(`undoComparisonStructure:${step}`);
+      return { moved: true };
+    },
     watchComparisonMind: async () => undefined,
     unwatchComparisonMind: async () => undefined,
   },
@@ -71,6 +75,12 @@ const { flushMindUpdates, openMindCopy } = await import("../../src/renderer/src/
 const { holdTabCopy, tabCopyNow } = await import("../../src/renderer/src/tabCopies");
 const { drawHistory, keptHistory } = await import("../../src/renderer/src/editor/keptHistories");
 const { followSteps, offerEditorUndo } = await import("../../src/renderer/src/editor/editorUndo");
+const { cursorAtLeaving, cursorToKeep, shownSelection } = await import(
+  "../../src/renderer/src/editor/shownSelection"
+);
+const { offerStructureUndo, reserveStructureStep, undoNoteHistory } = await import(
+  "../../src/renderer/src/editor/comparisonStructureUndo"
+);
 const { useUndo, nextToUndo } = await import("../../src/renderer/src/undo");
 const { useAppStore } = await import("../../src/renderer/src/store");
 const { noteExtensions } = await import("../../src/renderer/src/editor/noteSchema");
@@ -711,6 +721,80 @@ describe("someone else's words in what the User made", () => {
   });
 });
 
+/** A heading an edit asked for wrote, waiting as a Proposal. */
+const PROPOSED_HEADING: JSONContent = {
+  type: "heading",
+  attrs: {
+    level: 2,
+    id: "added",
+    [PROPOSAL_ATTRIBUTE]: { id: "change", request: "request", kind: "insert" },
+  },
+  content: [{ type: "text", text: "AI heading" }],
+};
+
+/** An edit asked for in the tab's editor, written by the core as `content` and applied there. */
+async function appliedEdit(content: JSONContent[]) {
+  const shown = await showInTab("tab-1", true);
+  const edit = startApplying(shown.editor, MIND, "req-1");
+  if (!edit) throw new Error("The edit didn't start.");
+  fromCore((note) => writeAs(note, content), {
+    requestId: "req-1",
+    request: "request",
+    apply: true,
+  });
+  expect(await finishApplying(edit, proposed(false))).toMatchObject({ applied: {} });
+  expect(appliedLineIn(shown.editor.state)?.kind).toBe("applied");
+  return shown;
+}
+
+/** The Note's lines as the core keeps them. */
+function linesOfDoc(doc: Y.Doc): string[] {
+  const lines: string[] = [];
+  const walk = (element: Y.XmlElement | Y.XmlFragment) => {
+    for (const child of element.toArray()) {
+      if (!(child instanceof Y.XmlElement)) continue;
+      const texts = child.toArray().filter((each) => each instanceof Y.XmlText);
+      if (texts.length > 0) lines.push(texts.map((each) => each.toString()).join(""));
+      else walk(child);
+    }
+  };
+  walk(doc.getXmlFragment(MIND_CONTENT_FIELD));
+  return lines;
+}
+
+describe("the core writing in what an edit made", () => {
+  // protects=words the core writes into a heading an applied edit made, in one change with a paragraph of its own, reach the editor and the Note whole, while the edit's step leaves the history and its line goes: the step is taken out once the editor has drawn the change, not in the middle of it, where redrawing the line would write the editor's older Note back over the change (#3115); fails_when=the core's paragraph or words are lost from the editor or written back out of the Note, or the step and its line stay; no_claim=which edits the core revises in place, the assistant's.
+  test("the core's words in a heading an edit made, with a paragraph of its own, reach the Note whole and take the edit's step out", async () => {
+    serverWith([ORIGINAL]);
+    const shown = await appliedEdit([ORIGINAL, PROPOSED_HEADING]);
+    const steps = shown.history.undoStack.length;
+    fromCore((note) => {
+      firstText(note, 1).insert("AI heading".length, " and more");
+      note.push([paragraph("Core line")]);
+    });
+    const lines = ["Original", "AI heading and more", "Core line"];
+    await settled(shown.editor, lines);
+    await flushMindUpdates(MIND);
+    expect(linesOfDoc(server)).toEqual(lines);
+    expect(shown.history.undoStack).toHaveLength(steps - 1);
+    expect(appliedLineIn(shown.editor.state)).toBeNull();
+  });
+
+  // protects=a Block an edit made, which the core then deletes whole, as it does writing a part again, leaves the edit's step where it is: nothing anyone wrote is inside it any more, so its Undo takes nothing of theirs, and ⌘Z still takes the edit back (#3115); fails_when=the core's deleting a Block an edit made takes the edit's step out of the history; no_claim=what Undo brings back of a Block the core deleted, Yjs's.
+  test("a Block an edit made, deleted whole by the core, leaves the edit's step in the history", async () => {
+    serverWith([ORIGINAL]);
+    const shown = await appliedEdit([ORIGINAL, PROPOSED_HEADING, PROPOSED]);
+    const steps = shown.history.undoStack.length;
+    fromCore((note) => note.delete(1, 1));
+    await settled(shown.editor, ["Original", "AI text"]);
+    await flushMindUpdates(MIND);
+    expect(linesOfDoc(server)).toEqual(["Original", "AI text"]);
+    expect(shown.history.undoStack).toHaveLength(steps);
+    expect(shown.editor.commands.undo()).toBe(true);
+    await settled(shown.editor, ["Original"]);
+  });
+});
+
 describe("what follows a tab's history", () => {
   // protects=what follows the steps of a tab's history listens through one set of listeners however many there are, and stops once its steps are off both stacks: twenty edits, each followed and offered, leave the history's listeners as they were after the first (#3115); fails_when=each edit adds listeners to the history for as long as the tab is open; no_claim=the memory the editors held, which the window's measurements report.
   test("twenty edits followed leave the history's listeners as they were", async () => {
@@ -738,5 +822,81 @@ describe("what follows a tab's history", () => {
     expect(undone?.state()).toBe("undone");
     typeIn(shown.editor, "Theirs:", " new");
     expect(undone?.state()).toBe("undone");
+  });
+});
+
+describe("the place a tab keeps", () => {
+  // protects=the cursor kept for a Note's tab is where the page shows it: an arrow key moves the page's cursor at once and the editor's state a moment later, so a tab switch in between keeps the place after the last keys, not before them; outside the Note's text, the editor's own place counts (#3115); fails_when=the place kept is the editor's older one while the page's cursor has moved on; no_claim=how the browser moves its cursor.
+  test("is the page's cursor when the editor's state hasn't caught up with it", async () => {
+    const shown = await showInTab("tab-1");
+    typeIn(shown.editor, "Mine:", " typed");
+    const end = shown.editor.state.selection.anchor;
+    const text = shown.editor.view.dom.querySelector("p")?.firstChild ?? null;
+    if (!text) throw new Error("No text in the Note.");
+    const at = (node: Node, offset: number) => () => ({
+      anchorNode: node,
+      anchorOffset: offset,
+      focusNode: node,
+      focusOffset: offset,
+    });
+    Object.assign(document, { getSelection: at(text, 4) });
+    expect(shownSelection(shown.editor)).toEqual({ anchor: 1 + 4, head: 1 + 4 });
+    expect(shown.editor.state.selection.anchor).toBe(end);
+    Object.assign(document, { getSelection: at(document.body, 0) });
+    expect(shownSelection(shown.editor)).toEqual({ anchor: end, head: end });
+  });
+
+  // protects=the focus leaving the editor, as ⌘T moves it to make a Note, takes the page's cursor along before the editor's state has caught up with the last keys: the place the page showed as the focus left is the one kept, and a change made to the editor's selection while it had no focus wins over it (#3115); fails_when=the place kept is the editor's older one after ⌘T, or an old place outlives a selection set since; no_claim=where ⌘T puts the focus.
+  test("is the page's cursor as the focus left, unless the editor's selection moved since", async () => {
+    const shown = await showInTab("tab-1");
+    typeIn(shown.editor, "Mine:", " typed");
+    const end = shown.editor.state.selection.anchor;
+    const text = shown.editor.view.dom.querySelector("p")?.firstChild ?? null;
+    if (!text) throw new Error("No text in the Note.");
+    const at = (node: Node, offset: number) => () => ({
+      anchorNode: node,
+      anchorOffset: offset,
+      focusNode: node,
+      focusOffset: offset,
+    });
+    Object.assign(document, { getSelection: at(text, 4) });
+    const left = cursorAtLeaving(shown.editor);
+    Object.assign(document, { getSelection: at(document.body, 0) });
+    expect(shown.editor.state.selection.anchor).toBe(end);
+    expect(cursorToKeep(shown.editor, left)).toEqual({ anchor: 1 + 4, head: 1 + 4 });
+
+    shown.editor.commands.setTextSelection(2);
+    expect(cursorToKeep(shown.editor, left)).toEqual({ anchor: 2, head: 2 });
+    expect(cursorToKeep(shown.editor, null)).toEqual({ anchor: 2, head: 2 });
+  });
+});
+
+describe("an edit that ends with nothing to keep", () => {
+  // protects=the steps a failed edit wrote leave the Note's history the way every step does, so what orders the Note's steps with a Comparison's column changes hears it: ⌘Z after an edit that failed takes back the column change made before it, not the typing before that (#3115); fails_when=a failed edit's steps go without a word, and ⌘Z then skips the column change; no_claim=why the edit failed, the core's.
+  test("a failed edit's steps leave the history, and ⌘Z takes back the column change before it", async () => {
+    serverWith([ORIGINAL]);
+    const shown = await showInTab("tab-1", true);
+    typeIn(shown.editor, "Original", " typed");
+    shown.history.stopCapturing();
+    const seq = reserveStructureStep(shown.editor);
+    offerStructureUndo(
+      shown.editor,
+      { mindId: MIND, tableId: "table", step: "column", said: (t) => t("aiText.markedAsMine") },
+      seq,
+    );
+    const edit = startApplying(shown.editor, MIND, "req-1");
+    if (!edit) throw new Error("The edit didn't start.");
+    fromCore(
+      (note) => writeAs(note, [{ ...ORIGINAL, content: [made("Original typed")] }, PROPOSED]),
+      {
+        requestId: "req-1",
+        request: "request",
+        apply: true,
+      },
+    );
+    expect(await finishApplying(edit, { kind: "cancelled" })).toBeNull();
+    expect(undoNoteHistory(shown.editor)).toBe(true);
+    await vi.waitFor(() => expect(bridge.calls).toContain("undoComparisonStructure:column"));
+    expect(linesOf(shown.editor)[0]).toBe("Original typed");
   });
 });

@@ -62,6 +62,7 @@ import {
   keepInSight,
   offerEditorUndo,
   onTakenOut,
+  takeOutOfHistory,
   type UndoStep,
   undoStackOf,
 } from "./editor/editorUndo";
@@ -214,10 +215,7 @@ function foldSteps(edit: Applying): void {
 /** The core took back what a failed edit wrote: its steps would undo nothing. */
 function dropSteps(edit: Applying): void {
   const stack = undoStackOf(edit.editor);
-  for (const step of edit.steps) {
-    const index = stack?.undoStack.indexOf(step) ?? -1;
-    if (index >= 0) stack?.undoStack.splice(index, 1);
-  }
+  if (stack) takeOutOfHistory(stack, new Set(edit.steps));
   edit.steps = [];
 }
 

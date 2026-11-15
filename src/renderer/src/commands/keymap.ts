@@ -27,6 +27,12 @@ const SELECTABLE_LIST =
 /** A row of an object (a Document, a Folder) counts as a list's, the sidebar's and the Library's having no roles. */
 const ROW = "[data-object-row]";
 
+/** A Note's own text, not a field drawn in it or beside it. */
+const inNoteText = (target: EventTarget | null) =>
+  target instanceof HTMLElement &&
+  target.isContentEditable &&
+  target.closest('[data-testid="mind-editor"]') !== null;
+
 const inList = (target: EventTarget | null) =>
   target instanceof Element &&
   !typesText(target) &&
@@ -124,8 +130,8 @@ export function runShortcut(
     if (!keys.some((each) => pressed(each, event, isMac))) continue;
     if (shortcut.list && !inList(event.target)) continue;
     if (shortcut.outsideText && typesText(event.target)) continue;
-    if (shortcut.notInText && typesText(event.target)) {
-      // On macOS the menu takes a key the page leaves alone, and would run the command from the text.
+    if (shortcut.notInFields && typesText(event.target) && !inNoteText(event.target)) {
+      // On macOS the menu takes a key the page leaves alone, and would run the command from the field.
       event.preventDefault();
       return true;
     }
