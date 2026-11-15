@@ -1059,11 +1059,11 @@ describe("The app's own marks, counted from the record (#2970)", { timeout: 30_0
     return askAssistant(core, { text: "add risks", mindId: mind.id });
   }
 
-  // protects=a sentence about marks, after a write in this Answer, never counts, whatever the model says of its backing, in English; fails_when=the line shows under an honest reply about the app's own marks; no_claim=how a real model files it (the gate's runs).
-  test("after a write, a sentence about the marks keeps no line", async () => {
+  // protects=with the default setting nothing checks what the assistant writes (#3154), so nothing is marked and a sentence saying marks were made keeps its line after a write too; the case where a check began and the sentence never counts is the unit rows of "The app's own marks: the record decides whether they count"; fails_when=a write nothing checked lets a "marked" sentence pass, which says a check ran that never began; no_claim=how a real model files it (the gate's runs).
+  test("after a write nothing checked, a sentence about the marks keeps the line", async () => {
     const answer = await answered(true, `${ADDED} ${MARKS}`);
 
-    expect(answer.steps?.unbackedClaims).toBeUndefined();
+    expect(answer.steps?.unbackedClaims).toEqual(["added"]);
   });
 
   // protects=with nothing written, a sentence saying text was marked counts as a claim about a Note, so the line shows; fails_when=a mark said with no write keeps no line; no_claim=how a real model files it.
@@ -1074,10 +1074,10 @@ describe("The app's own marks, counted from the record (#2970)", { timeout: 30_0
   });
 
   // protects=beside a sentence about marks after a write, another unbacked claim in the same reply still keeps its line; fails_when=the marks value lets the reply's other claim go; no_claim=none beyond protects.
-  test("after a write, another unbacked claim beside the marks keeps its line", async () => {
+  test("after a write nothing checked, another unbacked claim beside the marks keeps its line too", async () => {
     const answer = await answered(true, `${ADDED} ${MARKS} ${RENAMED}`, RENAMED);
 
-    expect(answer.steps?.unbackedClaims).toEqual(["changed"]);
+    expect(answer.steps?.unbackedClaims).toEqual(["added", "changed"]);
   });
 });
 

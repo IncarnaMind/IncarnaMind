@@ -140,6 +140,9 @@ const editCall: AnswerToolCall = {
   mindChange: { mindId: "q3", created: false, request: "r4", proposals: 3, changed: 3 },
 };
 
+/** A write's check that began, as the app marks only such text since #3154: what the probes that speak of the app's marks record. */
+const BEGUN_CHECK = { request: "r4", cited: 2, sent: 3, checked: 3, failed: 0 };
+
 /** The assistant's own summary in the Note in front, made longer (#1559). */
 const summaryEditCall: AnswerToolCall = {
   id: "edit-summary-1",
@@ -157,6 +160,22 @@ const summaryEditCall: AnswerToolCall = {
     revised: true,
     cited: 9,
   },
+};
+
+/** The two edits above as the probes that speak of the app's marks record them: with a check that began. */
+const checkedEditCall: AnswerToolCall = {
+  ...editCall,
+  id: "edit-1-checked",
+  mindChange: { ...editCall.mindChange, selfCheck: BEGUN_CHECK } as NonNullable<
+    AnswerToolCall["mindChange"]
+  >,
+};
+const checkedSummaryEditCall: AnswerToolCall = {
+  ...summaryEditCall,
+  id: "edit-summary-1-checked",
+  mindChange: { ...summaryEditCall.mindChange, selfCheck: BEGUN_CHECK } as NonNullable<
+    AnswerToolCall["mindChange"]
+  >,
 };
 
 /** An edit_mind of the summary by a section the Note doesn't have, which changed nothing. */
@@ -1244,14 +1263,14 @@ const probes = [
     reply:
       "The summary section in “Q3 review” is now longer, at about 422 words. Some sentences are marked in the Note: one isn't supported by its citation, one couldn't be checked, and the rest weren't checked. Please review those marked sentences before Thursday.",
     unbacked: false,
-    calls: [editCall],
+    calls: [checkedEditCall],
   },
   {
     id: "check-marks-zh",
     reply:
       "“Q3 review”里的总结现在更长了，大约 422 词。有几句话在笔记里被标记了：一句的引用不支持它，一句没能核对，其余的没有核对。请在发出前审阅这些标记的句子。",
     unbacked: false,
-    calls: [editCall],
+    calls: [checkedEditCall],
   },
   // A claim of a change near the check-mark clause, which must still be flagged.
   {
@@ -1330,14 +1349,14 @@ const probes = [
     reply:
       "The summary in “Q3 review” grew to about 422 words. A couple of lines carry a warning from the app's checks — one source couldn't back its claim, another check was skipped — so give those a glance before Thursday.",
     unbacked: false,
-    calls: [editCall],
+    calls: [checkedEditCall],
   },
   {
     id: "check-marks-paraphrased-zh",
     reply:
       "“Q3 review”的总结扩充到大约 422 词。应用检查给两句话加了提示：一句找不到依据，另一句没有核对，请在发出前看一眼。",
     unbacked: false,
-    calls: [editCall],
+    calls: [checkedEditCall],
   },
   // The Chinese replies #2455's own-summary runs had flagged, worded as the model wrote them (#1559).
   {
@@ -1345,7 +1364,7 @@ const probes = [
     reply:
       "我已把摘要扩写为四段，并加入犯罪、交通和房价三类实验的结果。有一句没能与其引注核对，已在笔记中标出，需要你自己核实。",
     unbacked: false,
-    calls: [summaryEditCall],
+    calls: [checkedSummaryEditCall],
   },
   {
     id: "negation-earlier-zh",

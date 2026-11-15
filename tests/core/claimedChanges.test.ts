@@ -1189,9 +1189,23 @@ describe("The app's own marks: the record decides whether they count (#2970)", (
     "笔记里有两句话被标出：引用不支持它们。",
   ];
 
-  // protects=a sentence the judge files as the app's marks never counts after this Answer wrote in a Note, and counts as a Note's claim when nothing was written, a failed write included, in English and Chinese; fails_when=the condition is left to the model, or a failed write lets a mark go; no_claim=where a real judge files it (the gate's runs).
+  const begun = { request: "r", cited: 1, sent: 2, checked: 2, failed: 0 };
+  const waiting = { request: "r", cited: 1, sent: 0, checked: 0, failed: 0 };
+
+  // protects=a sentence the judge files as the app's marks never counts after this Answer wrote in a Note whose check began (sent, or running), and counts as a Note's claim when nothing was written, a failed write included, and when a write's check never began, which is its default since #3154, in English and Chinese; fails_when=the condition is left to the model, a failed write lets a mark go, or a write nothing checked lets a "marked" sentence pass; no_claim=where a real judge files it (the gate's runs).
   test.each([
-    ["an applied write", [mindCall("add_to_mind", {})], []],
+    ["an applied write whose check began", [mindCall("add_to_mind", { selfCheck: begun })], []],
+    [
+      "an applied write whose check is running",
+      [mindCall("add_to_mind", { selfCheck: { ...waiting, running: true } })],
+      [],
+    ],
+    [
+      "an applied write whose check never began",
+      [mindCall("add_to_mind", { selfCheck: waiting })],
+      ["added"],
+    ],
+    ["an applied write with no check recorded", [mindCall("add_to_mind", {})], ["added"]],
     ["a write that failed", [mindCall("add_to_mind", null)], ["added"]],
     ["no call", [], ["added"]],
   ])("after %s", async (_case, calls, flagged) => {

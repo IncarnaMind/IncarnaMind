@@ -711,7 +711,11 @@ function verdictOf(
 export const claimsReply = (reply: string, wrote: boolean) =>
   structured(verdictSchema, "change-claims", (value) => verdictOf(value, reply, wrote));
 
-/** Whether this Answer wrote or edited text in a Note: the only text the app's own checks mark. */
+/**
+ * Whether this Answer wrote or edited text in a Note whose check began: the only text the app's own
+ * checks mark. Since #3154 a write is checked only once the User turned that on, so a write whose
+ * check hasn't begun (nothing sent, not running) has no mark to say anything of.
+ */
 const wroteInANote = (calls: readonly AnswerToolCall[]) =>
   calls.some(
     (call) =>
@@ -719,7 +723,9 @@ const wroteInANote = (calls: readonly AnswerToolCall[]) =>
       NOTE_WRITES.has(call.tool) &&
       call.status === "done" &&
       call.mindChange !== undefined &&
-      (call.mindChange.proposals > 0 || call.mindChange.revised === true),
+      (call.mindChange.proposals > 0 || call.mindChange.revised === true) &&
+      call.mindChange.selfCheck !== undefined &&
+      (call.mindChange.selfCheck.sent > 0 || call.mindChange.selfCheck.running === true),
   );
 
 /** The judge's word for what a reply tells the User of their request, in structured output. */
