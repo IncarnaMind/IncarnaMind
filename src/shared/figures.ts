@@ -1327,8 +1327,10 @@ const FOOTNOTE_AFTER = new RegExp(
 const REFERENCE_BEFORE =
   /(?:(?<![A-Za-z])(?:p|pp|pages?|[Nn]otes?|[Ss]ections?|[Ss]ec|[Tt]ables?|[Ff]igures?|[Ff]ig|[Cc]hapters?|[Cc]h|[Ii]tems?|[Aa]rticles?|[Aa]rt|[Ee]xhibits?|[Aa]ppendix|[Ss]chedules?|IFRS|IAS|ISO|ASC|ASU|[Ll]evel|[Tt]ier|[Ss]cope|[Pp]hase|[Ss]tage|[Vv]ersion|[Ss]tep|[Rr]ule|[Pp]art|[Nn]o|[Nn]os|[Vv]ol|[Vv]olume|[Ii]ssue|[Cc]lause|[Pp]aragraph|[Pp]ara|[Ll]ine|[Rr]ow|[Cc]olumn|[Ss]lides?|S&P|FTSE|Russell|Nikkei|Fortune|Nasdaq|CSI|Top|[Bb]ullet)\.? ?|#|№|第|附注|沪深|中证|上证|深证|代码[:：]?)$/;
 /**
- * Words that make a number in Chinese numerals after them a vague count ("数十亿", "几十家").
- * Digits after them are a label's figure, as 人数, 用户数 and 指数 end in 数 ("人数215人", #3109).
+ * Words that make a count after them vague when it starts with its scale ("数十亿", "几十家").
+ * A number in digits or one that starts with a digit numeral is a label's figure, as 人数, 用户数
+ * and 指数 end in 数 ("人数215人", "人数三百人", #3109). "总数十万人" can't be told from 总/数十万
+ * by its characters, so it stays no figure.
  */
 const VAGUE_BEFORE = /(?:数|几|若干)$/;
 /** "表3", "图1", "注2": references, unless a measure follows, as in "代表3名" (represents 3). */
@@ -3179,7 +3181,9 @@ function readAround(
     left -= marker[0].length;
   }
   const words = s.slice(Math.max(floor, left - 24), left);
-  if (REFERENCE_BEFORE.test(words) || (found.chinese && VAGUE_BEFORE.test(words))) return null;
+  const mayBeVague =
+    found.chinese && found.percent === null && found.fraction === null && !isCnDigit(s[found.from]);
+  if (REFERENCE_BEFORE.test(words) || (mayBeVague && VAGUE_BEFORE.test(words))) return null;
   const looseReference = LOOSE_REFERENCE_BEFORE.test(s.slice(floor, left));
   // A list's number: "1." or "1)" or "1、" at the start of a line.
   let indent = left;

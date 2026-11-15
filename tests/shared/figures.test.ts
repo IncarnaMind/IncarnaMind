@@ -900,7 +900,7 @@ const GOLDEN: { name: string; context: FigureContext; cases: Case[] }[] = [
     ],
   },
   {
-    name: "a number in digits right after a label ending in 数 (#3109)",
+    name: "a number right after a label ending in 数 (#3109)",
     context: ZH,
     cases: [
       ["参会人数215人。", [f("215人", 215, { unit: "人" })]],
@@ -923,10 +923,20 @@ const GOLDEN: { name: string; context: FigureContext; cases: Case[] }[] = [
       ["員工人數215人。", [f("215人", 215, { unit: "人" })]],
       ["門店數54家。", [f("54家", 54, { unit: "家" })]],
       ["用戶數860萬。", [f("860萬", 8600000, { scale: "萬" })]],
+      ["员工总数五千二百人。", [f("五千二百人", 5200, { unit: "人" })]],
+      ["人数三百人。", [f("三百人", 300, { unit: "人" })]],
+      ["人数两万。", [f("两万", 20000, { scale: "万" })]],
+      ["人数三百余人。", [f("三百余人", 300, { unit: "人", approx: true })]],
+      ["总数三千。", [f("三千", 3000)]],
+      ["员工总数伍仟贰佰人。", [f("伍仟贰佰人", 5200, { unit: "人" })]],
+      ["人數兩萬。", [f("兩萬", 20000, { scale: "萬" })]],
+      ["倍数三倍。", [f("三倍", 3, { unit: "x" })]],
+      ["占总人数百分之三十。", [f("百分之三十", 0.3, { unit: "%" })]],
+      ["占总人数十分之一。", [f("十分之一", 0.1)]],
     ],
   },
   {
-    name: "a vague count in Chinese numerals after 数, 几 or 若干 is no figure (#3109)",
+    name: "a vague count after 数, 几 or 若干, which starts with its scale, is no figure (#3109)",
     context: ZH,
     cases: [
       ["数十亿", []],
@@ -940,6 +950,11 @@ const GOLDEN: { name: string; context: FigureContext; cases: Case[] }[] = [
       ["投資數十億元。", []],
       ["數百家", []],
       ["幾十萬", []],
+      ["数千万元", []],
+      ["几百万", []],
+      ["数万人", []],
+      ["十几家", []],
+      ["数一数二的企业", []],
     ],
   },
   {
@@ -1056,6 +1071,14 @@ describe("the words before a number that make it a reference or a vague count (#
     expect(readFigures(bare, ZH)).toHaveLength(1);
     expect(readFigures(vague, ZH)).toEqual([]);
   });
+
+  // A known cost: the characters alone can't tell 总数 / 十万 from 总 / 数十万, and no figure is the safe side.
+  test.each(["总数十万人。", "人数千人。"])(
+    "%s, a count that starts with its scale, stays no figure",
+    (text) => {
+      expect(readFigures(text, ZH)).toEqual([]);
+    },
+  );
 
   test.each([
     "p. 12",
