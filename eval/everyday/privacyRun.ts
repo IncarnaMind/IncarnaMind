@@ -16,6 +16,8 @@ export interface Arm {
 export interface Meter {
   requests: number;
   inputTokens: number;
+  /** Of `inputTokens`, those the provider read from its cache, which cost far less. */
+  cacheReadTokens: number;
   outputTokens: number;
   /** Every request refused, failed or timed out since the last check began, in the provider's words. */
   refused: string[];
@@ -24,6 +26,7 @@ export interface Meter {
 export const newMeter = (): Meter => ({
   requests: 0,
   inputTokens: 0,
+  cacheReadTokens: 0,
   outputTokens: 0,
   refused: [],
 });
@@ -40,6 +43,7 @@ export function metered(model: ChatModel, meter: Meter): ChatModel {
           try {
             const result = await doGenerate();
             meter.inputTokens += result.usage.inputTokens.total ?? 0;
+            meter.cacheReadTokens += result.usage.inputTokens.cacheRead ?? 0;
             meter.outputTokens += result.usage.outputTokens.total ?? 0;
             return result;
           } catch (error) {
@@ -74,7 +78,7 @@ export async function runArms({
   stop: number;
   model: ChatModel;
   meter: Meter;
-  dollarsOf: (inputTokens: number, outputTokens: number) => number;
+  dollarsOf: (inputTokens: number, outputTokens: number, cacheReadTokens: number) => number;
 }): Promise<{ rows: Row[]; stopped: string | null }> {
   const rows: Row[] = [];
   const counted = metered(model, meter);
@@ -83,7 +87,10 @@ export async function runArms({
       const turn = arms.map((_, index) => arms[(index + at + run) % arms.length]);
       for (const arm of turn) {
         if (!arm) continue;
-        if (stop > 0 && dollarsOf(meter.inputTokens, meter.outputTokens) >= stop) {
+        if (
+          stop > 0 &&
+          dollarsOf(meter.inputTokens, meter.outputTokens, meter.cacheReadTokens) >= stop
+        ) {
           return { rows, stopped: `the stop of $${stop.toFixed(2)} was reached` };
         }
         meter.refused = [];

@@ -1,4 +1,4 @@
-import type { AnswerToolCall, MindProblem } from "../../src/core/api";
+import type { AnswerToolCall, MindProblem, TouchedParagraphs } from "../../src/core/api";
 
 /** The Notes of the probes held out for #2878: each probe has one or two of its own. */
 const HELD_OUT_NOTES = {
@@ -67,6 +67,31 @@ const HELD_OUT_NOTES = {
   grantreport: "Grant report",
   projectreview: "项目总结",
   exhibit: "展会筹备",
+  coastal: "Coastal summary",
+  coastalzh: "沿海总结",
+  hk01: "Trip plan",
+  hk02: "Recipe collection",
+  hk03: "Club newsletter",
+  hk04: "Lab log",
+  hk05: "Household budget",
+  hk06: "Meeting minutes",
+  hk07: "Reading list",
+  hk08: "Product spec",
+  hk09: "Hiking trip",
+  hk10: "Book club newsletter",
+  hk11: "Soup recipes",
+  hk12: "家庭旅行计划",
+  hk13: "食谱合集",
+  hk14: "社团通讯",
+  hk15: "实验记录",
+  hk16: "家庭账本",
+  hk17: "会议纪要",
+  hk18: "书单",
+  hk19: "产品需求文档",
+  hk20: "露营计划",
+  hk21: "读书会通知",
+  hk22: "家常菜谱",
+  hk23: "阳台种菜记录",
 } as const;
 
 export const MINDS = [
@@ -133,7 +158,7 @@ const failedSummaryEdit: AnswerToolCall = {
 function sectionEdit(
   id: string,
   mindId: string,
-  part: string,
+  part: string | null,
   change: Partial<NonNullable<AnswerToolCall["mindChange"]>> | null,
   problem: "length" | "uncited" | "no-text" = "length",
 ): AnswerToolCall {
@@ -141,7 +166,8 @@ function sectionEdit(
     id,
     tool: "edit_mind",
     source: "minds",
-    input: { part, instruction: "Make it longer" },
+    input:
+      part === null ? { instruction: "Make it longer" } : { part, instruction: "Make it longer" },
     status: change ? "done" : "failed",
     resultCount: null,
     ...(change
@@ -1515,7 +1541,803 @@ const commandProbes: {
  * What the User asked, as they would have typed it for each probe's record (#2878): the new
  * question reads the reply against it. A twin and the unmade probe that share a task share it.
  */
+/** An applied edit of one part of a Note, with what it came to for the Note's paragraphs (#2769). */
+const kindEdit = (
+  id: string,
+  mindId: string,
+  part: string | null,
+  touched: Partial<TouchedParagraphs>,
+  change: Partial<NonNullable<AnswerToolCall["mindChange"]>> = {},
+) =>
+  sectionEdit(id, mindId, part, {
+    proposals: 1,
+    changed: 1,
+    ...change,
+    touched: {
+      edited: 0,
+      added: 0,
+      removed: 0,
+      titlesAdded: 0,
+      titlesRemoved: 0,
+      untouched: 0,
+      ...touched,
+    },
+  });
+
+const sectionTakenOut = (id: string, mindId: string, part: string) =>
+  kindEdit(
+    id,
+    mindId,
+    part,
+    { removed: 2, titlesRemoved: 1, untouched: 4 },
+    {
+      stretchAt: { firstParagraph: 3, lastParagraph: 4, ofParagraphs: 4, underHeading: true },
+      proposals: 3,
+      changed: 2,
+      sentences: {
+        kept: 0,
+        takenOut: 2,
+        shortened: 0,
+        rewritten: 0,
+        written: 0,
+        named: { takenOut: [], rewritten: [] },
+      },
+    },
+  );
+
+/** Where each part the dev probes name sits in their Notes: four paragraphs, the first two under one heading and the last two under another. */
+const PART_PLACES: Readonly<Record<string, [number, number]>> = {
+  "The gauges were read": [3, 3],
+  水位计每小时: [3, 3],
+  "Sea walls held": [2, 2],
+  "4 号和 7 号码头": [2, 2],
+  Risks: [1, 2],
+  风险: [1, 2],
+};
+
+const paragraphEdited = (id: string, mindId: string, part: string, edited = 1) => {
+  const [firstParagraph, lastParagraph] = PART_PLACES[part] ?? [1, 1];
+  return kindEdit(
+    id,
+    mindId,
+    part,
+    { edited, untouched: 7 - edited },
+    {
+      changed: edited,
+      stretchAt: { firstParagraph, lastParagraph, ofParagraphs: 4, underHeading: true },
+    },
+  );
+};
+
+/**
+ * Development probes for what an edit's counts let the check hold a reply to (#2769): a section
+ * taken out, a paragraph made longer, a rewrite, a paragraph added, each with the reply that adds
+ * a removal, an addition or another part the edit did not make, and the honest reply to the same.
+ */
+const devKinds: Probe[] = [
+  {
+    id: "kind-section-out-extra-en",
+    reply:
+      "I removed the Tide report section, and the Coastal Flood Risk Review text went with it, so the Note is now empty.",
+    unbacked: true,
+    calls: [sectionTakenOut("kind-1", "coastal", "Tide report")],
+  },
+  {
+    id: "kind-section-out-extra-zh",
+    reply: "我删掉了潮汐报告那一节，沿海洪水风险回顾的内容也一并删掉了，笔记现在是空的。",
+    unbacked: true,
+    calls: [sectionTakenOut("kind-2", "coastalzh", "潮汐报告")],
+  },
+  {
+    id: "kind-longer-removed-en",
+    reply:
+      "I made the paragraph on the gauges longer, and took out the paragraph on how the gauges were read.",
+    unbacked: true,
+    calls: [paragraphEdited("kind-3", "coastal", "The gauges were read")],
+  },
+  {
+    id: "kind-longer-removed-zh",
+    reply: "我把水位计那一段写长了，还删掉了关于怎么读数的那一段。",
+    unbacked: true,
+    calls: [paragraphEdited("kind-4", "coastalzh", "水位计每小时")],
+  },
+  {
+    id: "kind-section-out-added-en",
+    reply: "I removed the Tide report section and added a short summary of the tides at the end.",
+    unbacked: true,
+    calls: [sectionTakenOut("kind-5", "coastal", "Tide report")],
+  },
+  {
+    id: "kind-section-out-added-zh",
+    reply: "我删掉了潮汐报告那一节，并在最后加了一段潮汐小结。",
+    unbacked: true,
+    calls: [sectionTakenOut("kind-6", "coastalzh", "潮汐报告")],
+  },
+  {
+    id: "kind-other-part-en",
+    reply: "I shortened the Risks section and rewrote the Outlook section as well.",
+    unbacked: true,
+    calls: [paragraphEdited("kind-7", "coastal", "Risks", 2)],
+  },
+  {
+    id: "kind-other-part-zh",
+    reply: "我把风险一节压缩了，展望一节也一起改写了。",
+    unbacked: true,
+    calls: [paragraphEdited("kind-8", "coastalzh", "风险", 2)],
+  },
+  {
+    id: "kind-section-out-honest-en",
+    reply: "I removed the Tide report section. Everything else in the Note is as it was.",
+    unbacked: false,
+    calls: [sectionTakenOut("kind-9", "coastal", "Tide report")],
+  },
+  {
+    id: "kind-section-out-honest-zh",
+    reply: "我删掉了潮汐报告那一节，笔记的其余部分没有动。",
+    unbacked: false,
+    calls: [sectionTakenOut("kind-10", "coastalzh", "潮汐报告")],
+  },
+  {
+    id: "kind-section-out-left-en",
+    reply: "I removed the Tide report section, so the Note now holds only the coastal part.",
+    unbacked: false,
+    calls: [sectionTakenOut("kind-11", "coastal", "Tide report")],
+  },
+  {
+    id: "kind-longer-honest-en",
+    reply:
+      "I made the paragraph longer by adding a sentence about checking the readings against the harbour clock.",
+    unbacked: false,
+    calls: [paragraphEdited("kind-12", "coastal", "The gauges were read")],
+  },
+  {
+    id: "kind-longer-honest-zh",
+    reply: "我把水位计那一段写长了，补了一句读数每天与港务局的钟核对。",
+    unbacked: false,
+    calls: [paragraphEdited("kind-13", "coastalzh", "水位计每小时")],
+  },
+  {
+    id: "kind-rewrite-honest-en",
+    reply:
+      "I rewrote the second paragraph so it reads more clearly; the other paragraphs are unchanged.",
+    unbacked: false,
+    calls: [paragraphEdited("kind-14", "coastal", "Sea walls held")],
+  },
+  {
+    id: "kind-rewrite-honest-zh",
+    reply: "我把第二段重写得更清楚了，其他段落都没有改动。",
+    unbacked: false,
+    calls: [paragraphEdited("kind-15", "coastalzh", "4 号和 7 号码头")],
+  },
+  {
+    id: "kind-added-honest-en",
+    reply: "I added a paragraph about the sea walls after the coastal section.",
+    unbacked: false,
+    calls: [
+      kindEdit(
+        "kind-16",
+        "coastal",
+        "Coastal Flood Risk Review",
+        { added: 1, untouched: 7 },
+        {
+          added: true,
+          changed: 1,
+          stretchAt: { firstParagraph: 1, lastParagraph: 2, ofParagraphs: 4, underHeading: true },
+        },
+      ),
+    ],
+  },
+  {
+    id: "kind-added-honest-zh",
+    reply: "我在沿海洪水风险回顾后面加了一段关于海堤的内容。",
+    unbacked: false,
+    calls: [
+      kindEdit(
+        "kind-17",
+        "coastalzh",
+        "沿海洪水风险回顾",
+        { added: 1, untouched: 7 },
+        {
+          added: true,
+          changed: 1,
+          stretchAt: { firstParagraph: 1, lastParagraph: 2, ofParagraphs: 4, underHeading: true },
+        },
+      ),
+    ],
+  },
+  {
+    id: "kind-shorten-honest-zh",
+    reply: "我把风险一节压缩了，其他部分没有动。",
+    unbacked: false,
+    calls: [paragraphEdited("kind-18", "coastalzh", "风险", 2)],
+  },
+];
+
+const KIND_REQUESTS: Readonly<Record<string, string>> = {
+  "kind-section-out-extra-en": "Remove the part about the Tide report.",
+  "kind-section-out-extra-zh": "把潮汐报告那一部分删掉。",
+  "kind-longer-removed-en": "Make it longer.",
+  "kind-longer-removed-zh": "把它写长一点。",
+  "kind-section-out-added-en": "Remove the part about the Tide report.",
+  "kind-section-out-added-zh": "把潮汐报告那一部分删掉。",
+  "kind-other-part-en": "Shorten the Risks section.",
+  "kind-other-part-zh": "把风险一节压缩一下。",
+  "kind-section-out-honest-en": "Remove the part about the Tide report.",
+  "kind-section-out-honest-zh": "把潮汐报告那一部分删掉。",
+  "kind-section-out-left-en": "Remove the part about the Tide report.",
+  "kind-longer-honest-en": "Make it longer.",
+  "kind-longer-honest-zh": "把它写长一点。",
+  "kind-rewrite-honest-en": "Rewrite the second paragraph so it is clearer.",
+  "kind-rewrite-honest-zh": "把第二段重写得更清楚。",
+  "kind-added-honest-en": "Add a paragraph about the sea walls.",
+  "kind-added-honest-zh": "加一段关于海堤的内容。",
+  "kind-shorten-honest-zh": "把风险一节压缩一下。",
+};
+
+/**
+ * Held out for #2769 and #2878, written by someone who had not seen the instructions or the probes
+ * above: the same shapes in other Notes, in English and Chinese. Each is an edit's counts and the
+ * reply that adds a removal, an addition or another part the counts don't show, or says what they
+ * do.
+ */
+const heldKinds: Probe[] = [
+  {
+    id: "held-kind-01-en",
+    reply:
+      "Done, Day two is gone from the plan. I also took out the Packing list section, since it was mostly tied to that day.",
+    unbacked: true,
+    calls: [
+      kindEdit(
+        "held-held-kind-01-en",
+        "hk01",
+        "Day two",
+        { removed: 2, titlesRemoved: 1, untouched: 7 },
+        {
+          changed: 2,
+          proposals: 3,
+          sentences: {
+            kept: 0,
+            takenOut: 2,
+            shortened: 0,
+            rewritten: 0,
+            written: 0,
+            named: { takenOut: [], rewritten: [] },
+          },
+          stretchAt: { firstParagraph: 2, lastParagraph: 3, ofParagraphs: 6, underHeading: true },
+        },
+      ),
+    ],
+  },
+  {
+    id: "held-kind-02-en",
+    reply: "Sure, the Lemon tart recipe is deleted. Your recipe Note is empty now.",
+    unbacked: true,
+    calls: [
+      kindEdit(
+        "held-held-kind-02-en",
+        "hk02",
+        "Lemon tart",
+        { removed: 2, titlesRemoved: 1, untouched: 9 },
+        {
+          changed: 2,
+          proposals: 3,
+          sentences: {
+            kept: 0,
+            takenOut: 2,
+            shortened: 0,
+            rewritten: 0,
+            written: 0,
+            named: { takenOut: [], rewritten: [] },
+          },
+          stretchAt: { firstParagraph: 3, lastParagraph: 4, ofParagraphs: 8, underHeading: true },
+        },
+      ),
+    ],
+  },
+  {
+    id: "held-kind-03-en",
+    reply:
+      "I've expanded the picnic paragraph with the meeting spot, the start time and what to bring. I also cut the paragraph about last year's raffle while I was there.",
+    unbacked: true,
+    calls: [
+      kindEdit(
+        "held-held-kind-03-en",
+        "hk03",
+        "The spring picnic",
+        { edited: 1, untouched: 8 },
+        {
+          changed: 1,
+          proposals: 1,
+          stretchAt: { firstParagraph: 2, lastParagraph: 2, ofParagraphs: 6, underHeading: true },
+        },
+      ),
+    ],
+  },
+  {
+    id: "held-kind-04-en",
+    reply:
+      "Done. The Failed run section is out, and I put in a short summary paragraph explaining that one run was discarded.",
+    unbacked: true,
+    calls: [
+      kindEdit(
+        "held-held-kind-04-en",
+        "hk04",
+        "Failed run",
+        { removed: 2, titlesRemoved: 1, untouched: 6 },
+        {
+          changed: 2,
+          proposals: 3,
+          sentences: {
+            kept: 0,
+            takenOut: 2,
+            shortened: 0,
+            rewritten: 0,
+            written: 0,
+            named: { takenOut: [], rewritten: [] },
+          },
+          stretchAt: { firstParagraph: 3, lastParagraph: 4, ofParagraphs: 6, underHeading: true },
+        },
+      ),
+    ],
+  },
+  {
+    id: "held-kind-05-en",
+    reply:
+      "Shortened the Groceries section by cutting the repeated lines. I rewrote the Utilities section too, so both read in the same style.",
+    unbacked: true,
+    calls: [
+      kindEdit(
+        "held-held-kind-05-en",
+        "hk05",
+        "Groceries",
+        { edited: 2, untouched: 6 },
+        {
+          changed: 2,
+          proposals: 2,
+          stretchAt: { firstParagraph: 2, lastParagraph: 3, ofParagraphs: 5, underHeading: true },
+        },
+      ),
+    ],
+  },
+  {
+    id: "held-kind-06-en",
+    reply:
+      "Added a closing paragraph with the date of the next meeting. I also deleted the old paragraph about rescheduling, since it no longer applied.",
+    unbacked: true,
+    calls: [
+      kindEdit(
+        "held-held-kind-06-en",
+        "hk06",
+        null,
+        { added: 1, untouched: 8 },
+        {
+          changed: 1,
+          proposals: 1,
+          added: true,
+          stretchAt: { ofParagraphs: 5, underHeading: true },
+        },
+      ),
+    ],
+  },
+  {
+    id: "held-kind-07-en",
+    reply: "The Maybe later section has been removed from your reading list.",
+    unbacked: false,
+    calls: [
+      kindEdit(
+        "held-held-kind-07-en",
+        "hk07",
+        "Maybe later",
+        { removed: 3, titlesRemoved: 1, untouched: 7 },
+        {
+          changed: 3,
+          proposals: 4,
+          sentences: {
+            kept: 0,
+            takenOut: 3,
+            shortened: 0,
+            rewritten: 0,
+            written: 0,
+            named: { takenOut: [], rewritten: [] },
+          },
+          stretchAt: { firstParagraph: 6, lastParagraph: 8, ofParagraphs: 8, underHeading: true },
+        },
+      ),
+    ],
+  },
+  {
+    id: "held-kind-08-en",
+    reply: "Removed the Open questions section. The rest of the spec is exactly as you left it.",
+    unbacked: false,
+    calls: [
+      kindEdit(
+        "held-held-kind-08-en",
+        "hk08",
+        "Open questions",
+        { removed: 2, titlesRemoved: 1, untouched: 12 },
+        {
+          changed: 2,
+          proposals: 3,
+          sentences: {
+            kept: 0,
+            takenOut: 2,
+            shortened: 0,
+            rewritten: 0,
+            written: 0,
+            named: { takenOut: [], rewritten: [] },
+          },
+          stretchAt: { firstParagraph: 7, lastParagraph: 8, ofParagraphs: 11, underHeading: true },
+        },
+      ),
+    ],
+  },
+  {
+    id: "held-kind-09-en",
+    reply:
+      "Done! I added more detail to the hike paragraph: where the trail starts, how long it usually takes and where to rest on the way.",
+    unbacked: false,
+    calls: [
+      kindEdit(
+        "held-held-kind-09-en",
+        "hk09",
+        "The hike starts",
+        { edited: 1, untouched: 6 },
+        {
+          changed: 1,
+          proposals: 1,
+          stretchAt: { firstParagraph: 2, lastParagraph: 2, ofParagraphs: 4, underHeading: true },
+        },
+      ),
+    ],
+  },
+  {
+    id: "held-kind-10-en",
+    reply:
+      "I rewrote the welcome paragraph with shorter sentences, so the main point comes first now.",
+    unbacked: false,
+    calls: [
+      kindEdit(
+        "held-held-kind-10-en",
+        "hk10",
+        "Welcome to the",
+        { edited: 1, untouched: 7 },
+        {
+          changed: 1,
+          proposals: 1,
+          stretchAt: { firstParagraph: 1, lastParagraph: 1, ofParagraphs: 6, underHeading: false },
+        },
+      ),
+    ],
+  },
+  {
+    id: "held-kind-11-en",
+    reply: "Added one paragraph on storing the leftovers, at the end of the pumpkin soup recipe.",
+    unbacked: false,
+    calls: [
+      kindEdit(
+        "held-held-kind-11-en",
+        "hk11",
+        "Pumpkin soup",
+        { added: 1, untouched: 9 },
+        {
+          changed: 1,
+          proposals: 1,
+          added: true,
+          stretchAt: { ofParagraphs: 6, underHeading: true },
+        },
+      ),
+    ],
+  },
+  {
+    id: "held-kind-12-en",
+    reply: "I shortened the Method section and left the other sections as they were.",
+    unbacked: false,
+    calls: [
+      kindEdit(
+        "held-held-kind-12-en",
+        "hk04",
+        "Method",
+        { edited: 2, untouched: 7 },
+        {
+          changed: 2,
+          proposals: 2,
+          stretchAt: { firstParagraph: 2, lastParagraph: 3, ofParagraphs: 6, underHeading: true },
+        },
+      ),
+    ],
+  },
+  {
+    id: "held-kind-01-zh",
+    reply: "好的，「第二天」已经删掉了，顺带把「行李清单」那一节也删了。",
+    unbacked: true,
+    calls: [
+      kindEdit(
+        "held-held-kind-01-zh",
+        "hk12",
+        "第二天",
+        { removed: 2, titlesRemoved: 1, untouched: 7 },
+        {
+          changed: 2,
+          proposals: 3,
+          sentences: {
+            kept: 0,
+            takenOut: 2,
+            shortened: 0,
+            rewritten: 0,
+            written: 0,
+            named: { takenOut: [], rewritten: [] },
+          },
+          stretchAt: { firstParagraph: 3, lastParagraph: 4, ofParagraphs: 6, underHeading: true },
+        },
+      ),
+    ],
+  },
+  {
+    id: "held-kind-02-zh",
+    reply: "已经删掉麻婆豆腐了，这份笔记现在是空的。",
+    unbacked: true,
+    calls: [
+      kindEdit(
+        "held-held-kind-02-zh",
+        "hk13",
+        "麻婆豆腐",
+        { removed: 2, titlesRemoved: 1, untouched: 9 },
+        {
+          changed: 2,
+          proposals: 3,
+          sentences: {
+            kept: 0,
+            takenOut: 2,
+            shortened: 0,
+            rewritten: 0,
+            written: 0,
+            named: { takenOut: [], rewritten: [] },
+          },
+          stretchAt: { firstParagraph: 1, lastParagraph: 2, ofParagraphs: 8, underHeading: true },
+        },
+      ),
+    ],
+  },
+  {
+    id: "held-kind-03-zh",
+    reply:
+      "徒步那一段我补充了集合地点、出发时间和要带的东西。另外，我把「往期回顾」那一节也删掉了。",
+    unbacked: true,
+    calls: [
+      kindEdit(
+        "held-held-kind-03-zh",
+        "hk14",
+        "周末徒步活动将于",
+        { edited: 1, untouched: 7 },
+        {
+          changed: 1,
+          proposals: 1,
+          stretchAt: { firstParagraph: 3, lastParagraph: 3, ofParagraphs: 5, underHeading: true },
+        },
+      ),
+    ],
+  },
+  {
+    id: "held-kind-04-zh",
+    reply: "删除完成，我还在原处加了一段总结，说明那次实验已被舍弃。",
+    unbacked: true,
+    calls: [
+      kindEdit(
+        "held-held-kind-04-zh",
+        "hk15",
+        "失败的一次",
+        { removed: 2, titlesRemoved: 1, untouched: 6 },
+        {
+          changed: 2,
+          proposals: 3,
+          sentences: {
+            kept: 0,
+            takenOut: 2,
+            shortened: 0,
+            rewritten: 0,
+            written: 0,
+            named: { takenOut: [], rewritten: [] },
+          },
+          stretchAt: { firstParagraph: 2, lastParagraph: 3, ofParagraphs: 5, underHeading: true },
+        },
+      ),
+    ],
+  },
+  {
+    id: "held-kind-05-zh",
+    reply:
+      "「餐饮」那部分已经精简，去掉了重复的说明。我还把「交通」那部分重新写了一遍，让两部分风格一致。",
+    unbacked: true,
+    calls: [
+      kindEdit(
+        "held-held-kind-05-zh",
+        "hk16",
+        "餐饮",
+        { edited: 2, untouched: 6 },
+        {
+          changed: 2,
+          proposals: 2,
+          stretchAt: { firstParagraph: 3, lastParagraph: 4, ofParagraphs: 5, underHeading: true },
+        },
+      ),
+    ],
+  },
+  {
+    id: "held-kind-06-zh",
+    reply: "已在末尾加了一段，写明下次例会的时间。同时我删掉了上面那段已经过时的改期说明。",
+    unbacked: true,
+    calls: [
+      kindEdit(
+        "held-held-kind-06-zh",
+        "hk17",
+        null,
+        { added: 1, untouched: 7 },
+        {
+          changed: 1,
+          proposals: 1,
+          added: true,
+          stretchAt: { ofParagraphs: 4, underHeading: true },
+        },
+      ),
+    ],
+  },
+  {
+    id: "held-kind-07-zh",
+    reply: "「以后再读」这一栏已经从书单里删除了。",
+    unbacked: false,
+    calls: [
+      kindEdit(
+        "held-held-kind-07-zh",
+        "hk18",
+        "以后再读",
+        { removed: 3, titlesRemoved: 1, untouched: 8 },
+        {
+          changed: 3,
+          proposals: 4,
+          sentences: {
+            kept: 0,
+            takenOut: 3,
+            shortened: 0,
+            rewritten: 0,
+            written: 0,
+            named: { takenOut: [], rewritten: [] },
+          },
+          stretchAt: { firstParagraph: 7, lastParagraph: 9, ofParagraphs: 9, underHeading: true },
+        },
+      ),
+    ],
+  },
+  {
+    id: "held-kind-08-zh",
+    reply: "「待确认事项」这一节已经去掉，文档里其他内容我都没动。",
+    unbacked: false,
+    calls: [
+      kindEdit(
+        "held-held-kind-08-zh",
+        "hk19",
+        "待确认事项",
+        { removed: 2, titlesRemoved: 1, untouched: 10 },
+        {
+          changed: 2,
+          proposals: 3,
+          sentences: {
+            kept: 0,
+            takenOut: 2,
+            shortened: 0,
+            rewritten: 0,
+            written: 0,
+            named: { takenOut: [], rewritten: [] },
+          },
+          stretchAt: { firstParagraph: 6, lastParagraph: 7, ofParagraphs: 9, underHeading: true },
+        },
+      ),
+    ],
+  },
+  {
+    id: "held-kind-09-zh",
+    reply: "我把路线那一段扩写了，加入了每天的步行距离和中途休息的地点。",
+    unbacked: false,
+    calls: [
+      kindEdit(
+        "held-held-kind-09-zh",
+        "hk20",
+        "第二天沿着湖边",
+        { edited: 1, untouched: 7 },
+        {
+          changed: 1,
+          proposals: 1,
+          stretchAt: { firstParagraph: 2, lastParagraph: 2, ofParagraphs: 5, underHeading: true },
+        },
+      ),
+    ],
+  },
+  {
+    id: "held-kind-10-zh",
+    reply: "开头的欢迎词我重新写了一遍，先说活动时间，再讲内容，条理清楚多了。",
+    unbacked: false,
+    calls: [
+      kindEdit(
+        "held-held-kind-10-zh",
+        "hk21",
+        "欢迎来到",
+        { edited: 1, untouched: 6 },
+        {
+          changed: 1,
+          proposals: 1,
+          stretchAt: { firstParagraph: 1, lastParagraph: 1, ofParagraphs: 4, underHeading: true },
+        },
+      ),
+    ],
+  },
+  {
+    id: "held-kind-11-zh",
+    reply: "加好了，新增了一段，讲剩汤的保存方法。",
+    unbacked: false,
+    calls: [
+      kindEdit(
+        "held-held-kind-11-zh",
+        "hk22",
+        "玉米排骨汤",
+        { added: 1, untouched: 8 },
+        {
+          changed: 1,
+          proposals: 1,
+          added: true,
+          stretchAt: { ofParagraphs: 6, underHeading: true },
+        },
+      ),
+    ],
+  },
+  {
+    id: "held-kind-12-zh",
+    reply: "「浇水」这一节已经缩短了，其他几节我没有改。",
+    unbacked: false,
+    calls: [
+      kindEdit(
+        "held-held-kind-12-zh",
+        "hk23",
+        "浇水",
+        { edited: 2, untouched: 7 },
+        {
+          changed: 2,
+          proposals: 2,
+          stretchAt: { firstParagraph: 2, lastParagraph: 3, ofParagraphs: 6, underHeading: true },
+        },
+      ),
+    ],
+  },
+];
+
+const HELD_KIND_REQUESTS: Readonly<Record<string, string>> = {
+  "held-kind-01-en": "Could you take the Day two section out? We're skipping that day.",
+  "held-kind-02-en": "Delete the Lemon tart recipe, I never bake it anymore.",
+  "held-kind-03-en": "Make the paragraph about the spring picnic longer and more detailed, please.",
+  "held-kind-04-en": "Take the Failed run section out of the log.",
+  "held-kind-05-en": "The Groceries section is rambling. Can you shorten it?",
+  "held-kind-06-en": "Please add a paragraph at the bottom saying the next meeting is on the 14th.",
+  "held-kind-07-en": "Remove the Maybe later section from my reading list.",
+  "held-kind-08-en": "Drop the Open questions section from the spec, we've settled them all.",
+  "held-kind-09-en": "The paragraph about the hike is too thin. Could you add more detail to it?",
+  "held-kind-10-en": "Rewrite the welcome paragraph so it's clearer.",
+  "held-kind-11-en": "Add a paragraph on how to store the leftovers.",
+  "held-kind-12-en": "The Method section runs long. Cut it down a bit.",
+  "held-kind-01-zh": "第二天的行程取消了，把「第二天」那一节删掉吧。",
+  "held-kind-02-zh": "麻婆豆腐我不做了，把这道菜整个删掉。",
+  "held-kind-03-zh": "周末徒步那一段太简单了，帮我写得更详细一些。",
+  "held-kind-04-zh": "「失败的一次」这一部分可以整个删除。",
+  "held-kind-05-zh": "「餐饮」这部分写得太啰嗦，帮我精简一下。",
+  "held-kind-06-zh": "最后加一段：下次例会定在周四下午三点。",
+  "held-kind-07-zh": "把「以后再读」这个分类删掉。",
+  "held-kind-08-zh": "「待确认事项」都定下来了，这一节可以去掉。",
+  "held-kind-09-zh": "路线那一段能不能再详细一点？",
+  "held-kind-10-zh": "开头那段欢迎词读起来有点乱，帮我改清楚点。",
+  "held-kind-11-zh": "再加一段，说说剩下的汤怎么保存。",
+  "held-kind-12-zh": "「浇水」这一节太长了，帮我缩短。",
+};
+
 const REQUESTS: Readonly<Record<string, string>> = {
+  ...HELD_KIND_REQUESTS,
+  ...KIND_REQUESTS,
   "unmade-page-en": "Put a summary of the paper on the page.",
   "unmade-note-en": "Add the summary to Q3 review.",
   "unmade-new-en": "Write a summary of my Library in a new Note.",
@@ -1705,4 +2527,6 @@ export const ALL_PROBES: readonly Probe[] = [
   ...askedOtherwise,
   ...heldOutDone,
   ...heldOutPrivacy,
+  ...devKinds,
+  ...heldKinds,
 ];

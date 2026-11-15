@@ -1572,6 +1572,42 @@ export interface RemovedParagraphs {
   start: string;
 }
 
+/**
+ * What a change came to for each paragraph and heading of the Mind, each counted once
+ * (`touchedBy`): numbers only, no text of the User's. The check of what a reply says it changed is
+ * told them, so a sentence that says text was removed from a part, or a Note is empty, is held to
+ * what the edit did (#2769).
+ */
+export interface TouchedParagraphs {
+  /** Paragraphs whose words it changes where they stand. */
+  edited: number;
+  /** Paragraphs it adds whole. */
+  added: number;
+  /** Paragraphs it takes out whole. */
+  removed: number;
+  /** Headings it adds. */
+  titlesAdded: number;
+  /** Headings it takes out. */
+  titlesRemoved: number;
+  /** Paragraphs and headings it leaves as they were. */
+  untouched: number;
+}
+
+/**
+ * Where the stretch an edit was made on sits in the Mind, by number and never by any of its text
+ * (#2769): the paragraphs it covers, counted from 1 among all the Mind's paragraphs (a heading is
+ * not one), read before the edit, and whether a heading stands at or above it. A reply that says
+ * "the second paragraph" is checked against this, not against the first words the call named it by.
+ */
+export interface PlaceInNote {
+  /** The first and last paragraph the stretch covers. Absent: it covers none (a heading alone). */
+  firstParagraph?: number;
+  lastParagraph?: number;
+  /** How many paragraphs the Mind held. */
+  ofParagraphs: number;
+  underHeading: boolean;
+}
+
 /** Figure markers a Note's text marks as missing, for lack of a figure: how many, and which of the Analyses' figures got no marker (#2577). */
 export interface FiguresLeftOut {
   count: number;
@@ -1600,6 +1636,10 @@ export interface MindChange {
   sentences?: SentenceChanges;
   /** It only removes whole paragraphs, none of the User's other text changed (`onlyRemoves`). */
   removed?: RemovedParagraphs;
+  /** What it came to for each paragraph and heading of the Mind (`touchedBy`). Absent: the call wrote no edit, or revised its own text. */
+  touched?: TouchedParagraphs;
+  /** Where the stretch it edited sits in the Mind (`placeOf`). Absent: with `touched`. */
+  stretchAt?: PlaceInNote;
   /** How many paragraphs the whole Blocks it wrote hold (a heading or a table holds none). Absent: none. */
   paragraphs?: number;
   /** How many tables it added. Absent: none. */

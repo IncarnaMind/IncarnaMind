@@ -26,6 +26,7 @@ import {
   type ProposalRef,
   type ProposalRequest,
   type RecordAiUseInput,
+  type TouchedParagraphs,
 } from "../core/api";
 import { originOf, restoreOrigins } from "./blockOrigins";
 import { keyedMarkOf, markValueOf } from "./markKeys";
@@ -541,6 +542,27 @@ export function countChanged(kinds: Iterable<ChangeKind>): number {
   }
   close();
   return count;
+}
+
+/** How many paragraphs and headings of a change were edited, added, taken out or left as they were: counts, never text. */
+export function touchedBy(kinds: Iterable<ChangeKind>): TouchedParagraphs {
+  const touched: TouchedParagraphs = {
+    edited: 0,
+    added: 0,
+    removed: 0,
+    titlesAdded: 0,
+    titlesRemoved: 0,
+    untouched: 0,
+  };
+  for (const kind of kinds) {
+    if (kind === "edited") touched.edited++;
+    else if (kind === "added") touched.added++;
+    else if (kind === "removed") touched.removed++;
+    else if (kind === "title-added") touched.titlesAdded++;
+    else if (kind === "title-removed") touched.titlesRemoved++;
+    else if (kind === "kept") touched.untouched++;
+  }
+  return touched;
 }
 
 /**

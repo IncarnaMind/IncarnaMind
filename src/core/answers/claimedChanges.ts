@@ -193,6 +193,14 @@ export const REQUEST_DONE_INSTRUCTIONS = [
 export const UNCHANGED_PART_RULE =
   "A call with nothingChangedIn failed on that part of its Note, a heading or a paragraph's first words, and no call of this Answer changed that part: a sentence saying that part was changed, made longer or shorter, rewritten or added to is unbacked, even when another part of the same Note changed. / 带 nothingChangedIn 的调用在笔记的那一部分（一个标题，或某段开头的几个字）失败了，这次回答也没有别的调用改过那里：说那一部分改了、加长了、缩短了、改写了或加了内容的句子没有依据，即使同一篇笔记的别处改了。";
 
+/**
+ * Told only beside a record that holds an edit's counts, so every other record is sent the claims
+ * check's rules as they were: with them the check holds a sentence about what was taken out, added
+ * or emptied to what the edit did, which the record could not say before (#2769).
+ */
+export const KIND_OF_CHANGE_RULE =
+  "A change's touched says what that call did to the Note's paragraphs and headings, each counted once. Its part, when it has one, names where it was made, and its place gives the same part by position: firstParagraph to lastParagraph, counted from 1 among all ofParagraphs of the Note's paragraphs (a heading is not one), and whether a heading stands at or above it. edited paragraphs had their words changed where they stand, added and removed ones were put in or taken out whole, titlesAdded and titlesRemoved are headings, and untouched is everything it left as it was. These counts are what the call did, whatever the reply says. A sentence saying a whole paragraph, section or heading was taken out is unbacked when removed and titlesRemoved are both 0 and nothing was edited; one saying a whole new paragraph, section or heading was added, when added and titlesAdded are both 0 and nothing was edited. Words or sentences taken out of or put into paragraphs that were edited are edits, and a sentence saying so is backed. A sentence that reports more than one change is judged on each: when the counts contradict any one of them, it is unbacked, with that change's kind. A sentence saying the whole Note was emptied is unbacked when untouched is above 0. A sentence saying a part other than the part it names was changed, taken out or emptied is unbacked unless another call of the record did that; the reply may name the part by its first words, its heading or its position, and each is read against part and place. A sentence these counts don't contradict is backed, and so are the details they don't give. / 变更里的 touched 说明这次调用对笔记的段落和标题做了什么，每项只数一次。part（有的话）说明改动做在哪里，place 用位置说明同一处：从 firstParagraph 到 lastParagraph 段，在笔记全部 ofParagraphs 个段落中从 1 数起（标题不算段落），以及它的上方或本身是否有标题。edited 是原地改了字的段落，added 和 removed 是整段加入或整段删去的段落，titlesAdded 和 titlesRemoved 是标题，untouched 是保持原样的所有段落和标题。这些数字是调用实际做的事，不管回复怎么说。说整段、整节或整个标题被删去的句子，在 removed 和 titlesRemoved 都是 0 且没有段落被编辑时没有依据；说整段、整节或整个标题是新加的句子，在 added 和 titlesAdded 都是 0 且没有段落被编辑时没有依据。在被编辑的段落里删去或加入字词、句子属于编辑，这样说的句子有依据。一句话报告了不止一处改动时，逐处判断：数字与其中任何一处矛盾，这句话就没有依据，kind 按那一处改动算。说整篇笔记被清空的，在 untouched 大于 0 时没有依据。说 part 之外的部分被改动、删去或清空的句子没有依据，除非记录里另一个调用做了；回复可以用开头的几个字、标题或位置来指称这一处，每种说法都对照 part 和 place 来读。这些数字不矛盾的句子有依据，数字没有给出的细节也一样。";
+
 const DONE_BY_COMMAND =
   "is backed when the record shows a command done and names nothing that call didn’t do.";
 
@@ -591,6 +599,13 @@ function recordOf(
           proposals: change.proposals,
           // An add leaves `changed` unset, and carries what it wrote as `paragraphs`: said in an edit's terms, it isn't a change of nothing (#2969).
           changed: change.changed ?? (call.tool === "add_to_mind" ? (change.paragraphs ?? 0) : 0),
+          // The part goes with the counts that say what the call did there, and with the rule that
+          // reads both: told alone, it moved the verdicts of records that hold neither (#2769).
+          ...(change.touched && {
+            ...(part !== null && { part }),
+            ...(change.stretchAt && { place: change.stretchAt }),
+            touched: change.touched,
+          }),
           paragraphs: change.paragraphs ?? 0,
           tables: change.tables ?? 0,
           charts: change.charts ?? 0,
@@ -716,6 +731,9 @@ export async function unbackedClaims(
             ? CLAIM_CHECK_INSTRUCTIONS.replace(DONE_BY_COMMAND, DONE_BY_NOTE_CHANGE)
             : CLAIM_CHECK_INSTRUCTIONS,
           ...(record.some((each) => "nothingChangedIn" in each) ? [UNCHANGED_PART_RULE] : []),
+          ...(record.some((each) => each.change && "touched" in each.change)
+            ? [KIND_OF_CHANGE_RULE]
+            : []),
         ].join("\n"),
       },
       parts: [

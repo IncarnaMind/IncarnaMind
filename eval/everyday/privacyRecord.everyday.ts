@@ -49,15 +49,18 @@ test.skipIf(process.env.INCARNAMIND_EVAL_EVERYDAY !== "privacy-record")(
       currency: "USD" as const,
       input: Number(process.env.INCARNAMIND_EVAL_PRICE_IN ?? "0.3"),
       output: Number(process.env.INCARNAMIND_EVAL_PRICE_OUT ?? "1.2"),
-      cacheRead: 0,
+      cacheRead: Number(process.env.INCARNAMIND_EVAL_PRICE_CACHE ?? "0.006"),
     };
     if (rate.currency !== "USD") {
       throw new Error(
         `${config.chat.modelId} is priced in ${rate.currency}, and this run's stop counts dollars.`,
       );
     }
-    const dollarsOf = (input: number, output: number) =>
-      (input * rate.input + output * rate.output) / 1_000_000;
+    const dollarsOf = (input: number, output: number, cached: number) =>
+      ((input - cached) * rate.input +
+        cached * (rate.cacheRead ?? rate.input) +
+        output * rate.output) /
+      1_000_000;
 
     const meter = newMeter();
     const model = createAiSdkChatModel({ ...chatModelSpecOf(config.chat), thinking: "off" });
@@ -113,7 +116,8 @@ test.skipIf(process.env.INCARNAMIND_EVAL_EVERYDAY !== "privacy-record")(
       requests: meter.requests,
       inputTokens: meter.inputTokens,
       outputTokens: meter.outputTokens,
-      dollars: dollarsOf(meter.inputTokens, meter.outputTokens),
+      cacheReadTokens: meter.cacheReadTokens,
+      dollars: dollarsOf(meter.inputTokens, meter.outputTokens, meter.cacheReadTokens),
       pricedBy: RATES[config.chat.modelId] ? "the catalog" : "the planning rates in this run",
       catalog: RATES[config.chat.modelId]
         ? spendOf(

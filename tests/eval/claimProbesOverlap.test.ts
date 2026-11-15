@@ -8,6 +8,7 @@ import {
 import {
   CLAIM_CHECK_INSTRUCTIONS,
   DONE_BY_NOTE_CHANGE,
+  KIND_OF_CHANGE_RULE,
   REQUEST_DONE_INSTRUCTIONS,
   UNCHANGED_PART_RULE,
 } from "../../src/core/answers/claimedChanges";
@@ -73,7 +74,7 @@ const PROBE_TEXTS: ProbeText[] = [
 
 describe("the instructions of whether a reply says the request is done", () => {
   test("share no run of words with any probe's request or reply", () => {
-    expect(PROBE_TEXTS).toHaveLength(318);
+    expect(PROBE_TEXTS).toHaveLength(402);
     expect(sharedWith(REQUEST_DONE_INSTRUCTIONS, PROBE_TEXTS)).toEqual([]);
   });
 
@@ -102,6 +103,7 @@ const CLAIMS_INSTRUCTIONS = [
   CLAIM_CHECK_INSTRUCTIONS,
   DONE_BY_NOTE_CHANGE,
   UNCHANGED_PART_RULE,
+  KIND_OF_CHANGE_RULE,
 ].join("\n");
 
 // Shared on 2026-11-12, when this list was made: probes mostly written from the instructions'
