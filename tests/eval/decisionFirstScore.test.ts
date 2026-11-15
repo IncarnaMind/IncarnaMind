@@ -7,9 +7,12 @@ import { describe, expect, test } from "vitest";
 import {
   asLabelled,
   decisionUsd,
+  type ReplayRow,
   type ReplayShown,
+  replayByLabel,
   replayOutcome,
   replayTally,
+  shapesOf,
 } from "../../eval/speed/decisionFirstScore";
 
 const marked = (state: string): ReplayShown => ({ byDecision: true, state, firstReading: null });
@@ -102,5 +105,98 @@ describe("Scoring a decision model's Marks against labels (#3118)", () => {
   test("the decision model's dollars are its input tokens at the listed price", () => {
     expect(decisionUsd(0)).toBe(0);
     expect(decisionUsd(400_000)).toBeCloseTo(0.008, 6);
+  });
+});
+
+const row = (
+  id: string,
+  text: string,
+  expected: string,
+  shown: ReplayShown | null,
+  sure: string | null = null,
+): ReplayRow => ({ note: "n", id, text, expected, cited: false, shown, sure });
+
+describe("Scoring the shapes of the check on the same sentences (#3118)", () => {
+  // protects=the by-label table puts each sentence in one cell by its label and by a digit or none, and a sure score a rule held back is counted under the rule that held it (a digit, else no line to quote) with how many were the label; fails_when=a Mark is counted as a first reading, a held-back sentence lands under the other rule, or one the decision model marked is counted as held back; no_claim=what the app calls a figure.
+  test("a sure score a rule held back is counted by rule and by its label", () => {
+    const { counts, heldBack } = replayByLabel([
+      row("1", "The lease runs for a term.", "supported", marked("supported"), "supported"),
+      row("2", "Rent is 12,000 a year.", "supported", read("supported"), "supported"),
+      row("3", "Rent rose 4% in 2025.", "contradicted", read("supported"), "supported"),
+      row("4", "The tenant may sublet.", "contradicted", read("contradicted"), "contradicted"),
+      row("5", "The landlord insures it.", "unsupported", read("supported")),
+      row("6", "The roof is slate.", "unsupported", read(null)),
+    ]);
+
+    expect(counts.find((each) => each.label === "supported" && each.figure)).toEqual({
+      label: "supported",
+      figure: true,
+      sentences: 1,
+      marked: 0,
+      readingRight: 1,
+      readingWrong: 0,
+      none: 0,
+    });
+    expect(counts.find((each) => each.label === "supported" && !each.figure)?.marked).toBe(1);
+    expect(counts.find((each) => each.label === "contradicted" && each.figure)?.readingWrong).toBe(
+      1,
+    );
+    expect(counts.find((each) => each.label === "unsupported" && !each.figure)).toMatchObject({
+      sentences: 2,
+      readingWrong: 1,
+      none: 1,
+    });
+    expect(counts.reduce((sum, each) => sum + each.sentences, 0)).toBe(6);
+    expect(heldBack).toEqual([
+      { rule: "a figure", sentences: 2, asLabelled: 1 },
+      { rule: "no line to quote", sentences: 1, asLabelled: 1 },
+    ]);
+  });
+
+  // protects=the three shapes are scored on the sentences both runs hold: the AI model alone by the main run's Marks, the decision model alone by its Mark or first reading, and both by the reading where it leans on a sentence with no digit and the AI model's Mark elsewhere; fails_when=a shape takes the other run's verdict, a sentence with a digit keeps the decision model's reading under "both", or a wrong verdict is counted right; no_claim=which shape ships.
+  test("each shape takes its verdict from the right run", () => {
+    const decision = [
+      row("1", "The lease runs for a term.", "supported", marked("supported")),
+      row("2", "Rent is 12,000 a year.", "supported", read("contradicted")),
+      row("3", "The tenant may sublet.", "unsupported", read("supported")),
+      row("4", "The roof is slate.", "supported", read(null)),
+      row("5", "Only in the first run.", "supported", marked("supported")),
+    ];
+    const main = [
+      row("1", "The lease runs for a term.", "supported", read(null, "unsupported")),
+      row("2", "Rent is 12,000 a year.", "supported", read(null, "supported")),
+      row("3", "The tenant may sublet.", "unsupported", read(null, "unsupported")),
+      row("4", "The roof is slate.", "supported", read(null, "not-checked")),
+    ];
+
+    expect(shapesOf(decision, main)).toEqual([
+      {
+        shape: "the AI model alone",
+        right: 2,
+        wrongSupported: 0,
+        wrongContradicted: 0,
+        wrongUnsupported: 1,
+        nothing: 1,
+        toAiModel: 4,
+      },
+      {
+        shape: "the decision model alone",
+        right: 1,
+        wrongSupported: 1,
+        wrongContradicted: 1,
+        wrongUnsupported: 0,
+        nothing: 1,
+        toAiModel: 0,
+      },
+      {
+        shape: "both",
+        right: 2,
+        wrongSupported: 1,
+        wrongContradicted: 0,
+        wrongUnsupported: 0,
+        nothing: 1,
+        toAiModel: 2,
+      },
+    ]);
   });
 });
