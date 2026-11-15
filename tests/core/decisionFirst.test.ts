@@ -82,6 +82,7 @@ const MOON = "Spring tides come at new and full moon.";
 const YEARLY = "The harbour office publishes the times of high water every year.";
 const PENGUINS = "Penguins nest on the cliffs above the harbour.";
 const TONNES = "The harbour office handled 54,000 tonnes of cargo.";
+const FERRY = "The ferry to the island leaves the harbour at seven every morning.";
 // A sentence whose search finds both Documents.
 const BOTH = "The harbour office publishes the times of spring tides.";
 
@@ -118,6 +119,7 @@ const PLANS: Record<string, Plan> = {
   },
   [PENGUINS]: { verdict: "unsupported" },
   [TONNES]: { verdict: "unsupported" },
+  [FERRY]: { verdict: "unsupported" },
   [BOTH]: { verdict: "unsupported" },
 };
 
@@ -291,11 +293,23 @@ async function marks(client: MindClient) {
           quote: part?.evidence?.[0]?.quote ?? null,
           by: part?.modelId ?? check.modelId,
           ...(part?.firstReading && { firstReading: part.firstReading.verdict }),
+          ...(part?.restsOnPassage && { restsOnPassage: true }),
         },
       ];
     }),
   );
 }
+
+/** What the stored check of `sentence` says its Document says, on the check and on its part. */
+function said(client: MindClient, sentence: string) {
+  const check = claimSpans(readMind(client)).find(
+    (each) => each.sentence.text.trim() === sentence,
+  )?.check;
+  return [check?.says ?? null, check?.parts?.[0]?.says ?? null];
+}
+
+/** Whether a request asks about one line alone: a Passage alone comes with its page. */
+const lineAlone = ({ among, passage }: Asked) => !among && passage.page === undefined;
 
 describe("Check this Note with a decision model chosen (#3118)", { timeout: 30_000 }, () => {
   // protects=a sentence one Passage clearly states or contradicts gets its verdict from the decision model, with the sentence of that Passage the model scores highest as its quote and the decision model named on it; a sentence none of its Passages leans to, alone or together, is Unsupported by the decision model; none of them costs a request to the AI model; fails_when=the AI model is asked about a sentence the decision model decided, the quote is the whole paragraph or another sentence of it, or a sentence nothing supports waits for the AI model; no_claim=that a real decision model's scores are right, which the gate's real-model run measures.
@@ -317,11 +331,64 @@ describe("Check this Note with a decision model chosen (#3118)", { timeout: 30_0
     expect(
       host.asked.flatMap((each) => each.questions).every((q) => /^[BC](_p\d+)?$/.test(q)),
     ).toBe(true);
-    // One request reads a sentence against all its Passages; a verdict costs two more, and
+    expect(said(client, YEARLY)).toEqual([WEEKLY, WEEKLY]);
+    // One request reads a sentence against all its Passages; a verdict costs three more, and
     // Unsupported one more.
     const requests = (sentence: string) =>
       host.asked.filter(({ state }) => state.sentence === sentence).length;
-    expect([requests(MOON), requests(YEARLY), requests(PENGUINS)]).toEqual([3, 3, 2]);
+    expect([requests(MOON), requests(YEARLY), requests(PENGUINS)]).toEqual([4, 4, 2]);
+  });
+
+  // protects=the line under a decision model's verdict is asked about alone, under its Document's name, after the Passage's lines are scored; where it doesn't pass what a Passage alone must, or the host can't be asked, the verdict stays the decision model's and rests on its Passage: the Mark says so, says no quote, and keeps the line only to place the Passage; fails_when=the line is never asked alone, a line that fails alone is still said as the quote, the Mark doesn't say it rests on its Passage, or the sentence loses the decision model's verdict; no_claim=how the card shows such a Mark, or how often a real model's line fails alone, which the gate's real-model run counted.
+  test.each([
+    ["doesn't hold the verdict alone", { B: 0.9, C: 0.6 }],
+    ["can't be asked about alone", { status: 429 }],
+  ] as const)("a verdict whose line %s rests on its Passage", async (_, alone) => {
+    const { core, client, host, run, readByAiModel } = await setUp([MOON, YEARLY]);
+    await choose(core);
+    host.answers((asked) => (lineAlone(asked) ? alone : sure(asked)));
+
+    await core.checkMind(run());
+
+    expect(await marks(client)).toEqual({
+      [MOON]: { state: "supported", quote: MOON, by: DECIDER.modelId, restsOnPassage: true },
+      [YEARLY]: {
+        state: "contradicted",
+        quote: WEEKLY,
+        by: DECIDER.modelId,
+        restsOnPassage: true,
+      },
+    });
+    expect(said(client, YEARLY)).toEqual([null, null]);
+    expect(readByAiModel()).toEqual([]);
+    const last = host.asked.findLast(({ state }) => state.sentence === MOON);
+    expect(last?.questions).toEqual(["B", "C"]);
+    expect(last?.state).toEqual({
+      sentence: MOON,
+      context: { paragraph: `${MOON} ${YEARLY}` },
+      passage: { document: "Tides", text: MOON },
+    });
+  });
+
+  // protects=a line longer than a check stores is never said as a quote: the verdict rests on its Passage, with no request about the line alone, and the stored line is cut as any receipt's; fails_when=a cut line is said as the quote, or the host is asked about a line no one will be shown whole; no_claim=that 200 characters is the right length.
+  test("a verdict whose line is longer than a check stores rests on its Passage", async () => {
+    const long = `${FERRY.slice(0, -1)}, ${"and calls at the old pier, ".repeat(8)}and comes back at dusk.`;
+    const { core, client, host, run } = await setUp([FERRY]);
+    await addAndProcess(core, [
+      await writeSourceFile(await createTempDataFolder(), "Ferry.md", `# Ferry\n\n${long}\n`),
+    ]);
+    await choose(core);
+    host.answers(({ passage }) => ({ B: passage.text.includes("ferry") ? 0.995 : 0.03, C: 0.02 }));
+
+    await core.checkMind(run());
+
+    expect(long.length).toBeGreaterThan(200);
+    const mark = (await marks(client))[FERRY];
+    expect(mark).toMatchObject({ state: "supported", by: DECIDER.modelId, restsOnPassage: true });
+    expect(mark?.quote).toMatch(/^The ferry to the island.*…$/);
+    expect(
+      host.asked.filter(({ state }) => state.passage?.page === undefined && state.passage),
+    ).toEqual([]);
   });
 
   // protects=before a sentence reads Unsupported the decision model is asked once more about the Passages nearest to stating it, at most five, joined as one Passage in the order of their scores, each under its Document's name and page; fails_when=the request is missing, holds more than five Passages, another order, or a Passage without its Document's name; no_claim=that five is the right number, which the gate's real-model run measured.

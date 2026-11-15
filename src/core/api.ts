@@ -7546,6 +7546,13 @@ export interface ClaimCheckPart
    * judged the part, as the record of what was read first, and on a part whose check never ended.
    */
   firstReading?: ClaimFirstReading;
+  /**
+   * A decision model's verdict that rests on the Passage its deciding Citation is in, not on that
+   * Citation's line (#3118): the line, asked about alone, doesn't pass what a Passage alone must,
+   * or is longer than a check stores. The line only places the Passage in its Document; it isn't
+   * shown as a quote, and the part says nothing in `says`.
+   */
+  restsOnPassage?: true;
   figures?: ClaimPartFigure[];
   remainder?: ClaimPartJudgment | null;
   evidence: CitationAttributes[];

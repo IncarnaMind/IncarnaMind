@@ -8,7 +8,9 @@
  * of that model's measured line (./decisionLines) is the sentence's verdict once its Passage,
  * asked about alone, scores clear of the line again, and a number the Passage writes another way
  * is the same amount. The verdict's quote is the sentence of that Passage the model scores highest
- * on the verdict's question; a table's row is quoted whole.
+ * on the verdict's question; a table's row is quoted whole. Where that line, asked about alone,
+ * doesn't score clear of the same line, or is longer than a check stores, the verdict rests on its
+ * Passage and says no quote: the line only places it in the Document.
  *
  * Where every Passage scores under the model's Unsupported line on both questions, the Passages
  * nearest to stating the sentence are asked about once more, together as one: a sentence that sums
@@ -25,7 +27,12 @@
  * couldn't be asked about.
  */
 import { caseCitations } from "../../../shared/caseCitations";
-import { partWithResult, readPartPlans, resultFromParts } from "../../../shared/claimParts";
+import {
+  CHECK_QUOTE_CHARS_AT_MOST,
+  partWithResult,
+  readPartPlans,
+  resultFromParts,
+} from "../../../shared/claimParts";
 import type {
   Citation,
   ClaimCheckResult,
@@ -263,6 +270,29 @@ async function topLine(
 }
 
 /**
+ * Whether `line` may be shown as the verdict's quote: a check stores it whole, and asked about
+ * alone it passes what a Passage alone must.
+ */
+async function mayQuote(
+  reader: DecisionReader,
+  request: Asked,
+  side: "supported" | "contradicted",
+  documentName: string,
+  line: string,
+  signal: AbortSignal,
+): Promise<boolean> {
+  if (line.length > CHECK_QUOTE_CHARS_AT_MOST) return false;
+  // Under its Document's name and no page, as the rule was measured.
+  const alone = await scoresAlone(
+    reader,
+    request,
+    { documentName, pageFrom: null, pageTo: null, text: line },
+    signal,
+  );
+  return alone !== null && standsAlone(side, alone, reader.lines);
+}
+
+/**
  * The sentence's one part, when it is a fact and the whole sentence but for the spaces and
  * punctuation around it: what the lines were measured on.
  */
@@ -339,13 +369,17 @@ export type FirstReading =
 
 /** Reads a queued sentence with `reader` before its check. */
 export function createFirstReading(deps: Dependencies) {
-  /** The verdict's quote, once its Passage holds the verdict alone; null where it doesn't or has no line to quote. */
-  async function quoteOf(
+  /**
+   * What the verdict rests on, once its Passage holds the verdict alone: the Passage's line the
+   * model scores highest, and whether that line is the verdict's quote. Null where the Passage
+   * doesn't hold it or has no such line.
+   */
+  async function restsOn(
     request: ClaimCheckRequest,
     reader: DecisionReader,
     side: "supported" | "contradicted",
     passage: WindowedPassage,
-  ): Promise<Citation | null> {
+  ): Promise<{ citation: Citation; quoted: boolean } | null> {
     const source = quotable(deps, passage);
     if (!source) return null;
     const read = { ...passage, text: source.text };
@@ -353,11 +387,15 @@ export function createFirstReading(deps: Dependencies) {
     // A PDF's printed line cuts its sentence: no User reads half of one as a quote.
     const sentences = sentencesOfLines(quotableLines(source.text), place.units);
     // Both are asked at once: neither answer changes what the other is asked.
-    const [holds, quote] = await Promise.all([
+    const [holds, line] = await Promise.all([
       holdsAlone(reader, request, side, read, request.signal),
       topLine(reader, request, side, read, sentences, request.signal),
     ]);
-    return holds && quote !== null ? citationAt(source, place, quote) : null;
+    if (!holds || line === null) return null;
+    const citation = citationAt(source, place, line);
+    if (!citation) return null;
+    const quoted = await mayQuote(reader, request, side, source.documentName, line, request.signal);
+    return { citation, quoted };
   }
 
   return async (request: ClaimCheckRequest, reader: DecisionReader): Promise<FirstReading> => {
@@ -381,18 +419,23 @@ export function createFirstReading(deps: Dependencies) {
       reader.lines,
     );
     const record = checkRunOf(deps, request.model, signal, request.mindId ?? null).record;
-    const verdictOf = (verdict: ClaimVerdict, evidence: Citation | null): FirstReading => {
+    const verdictOf = (
+      verdict: ClaimVerdict,
+      rests: Awaited<ReturnType<typeof restsOn>>,
+    ): FirstReading => {
       const part = partWithResult(plan, {
         verdict,
-        evidence,
-        says: evidence?.quote ?? null,
+        evidence: rests?.citation ?? null,
+        says: rests?.quoted ? rests.citation.quote : null,
         unsupported: null,
         calculation: null,
         citedCaseUnchecked: false,
         citedCaseFound: false,
         ...results.facts(),
       });
-      const result = resultFromParts([{ ...part, ...reader.model }]);
+      const result = resultFromParts([
+        { ...part, ...reader.model, ...(rests && !rests.quoted && { restsOnPassage: true }) },
+      ]);
       recordCheck(record, reader.model, result);
       return { result };
     };
@@ -414,8 +457,8 @@ export function createFirstReading(deps: Dependencies) {
     }
     const leaning = { verdict: reading.verdict, ...reader.model };
     const passage = passages.find((each) => each.passageId === reading.passageId);
-    const evidence =
-      reading.final && passage ? await quoteOf(request, reader, reading.verdict, passage) : null;
-    return evidence ? verdictOf(reading.verdict, evidence) : unsettled(leaning);
+    const rests =
+      reading.final && passage ? await restsOn(request, reader, reading.verdict, passage) : null;
+    return rests ? verdictOf(reading.verdict, rests) : unsettled(leaning);
   };
 }

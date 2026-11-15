@@ -18,7 +18,7 @@ What the gate does not cover: any other decision model (none can be chosen until
 The reading changed after this file was written. Points 1 to 3 above and the bars below describe the earlier build; **parts A and B have not been run on this one**, and the model still reads only where the User chose it.
 
 1. **One search, one request.** The sentence's 30 best Passages by the plain search (no reranker, no neighbouring Passages), with any it cites first, go to the decision model in one request with the two questions of each.
-2. **A Mark from the decision model** where a score is clear of the line, the Passage asked about alone scores clear again, and a number of the sentence the Passage writes another way is the same amount by the model's own answer (0.92). A sentence with a figure can get one. The quote is the sentence of that Passage the model scores highest on the verdict's question; a heading, a table's row and a sheet's row are quoted as one line.
+2. **A Mark from the decision model** where a score is clear of the line, the Passage asked about alone scores clear again, and a number of the sentence the Passage writes another way is the same amount by the model's own answer (0.92). A sentence with a figure can get one. The quote is the sentence of that Passage the model scores highest on the verdict's question; a heading, a table's row and a sheet's row are quoted as one line. Since the commit after part B, the Mark says that line as its quote only where the line, asked about alone, passes too ("In the check code since", below).
 3. **Unsupported from the decision model** where every Passage scores under 0.25 on both questions and the sentence cites nothing. Since commit aed5b2c80, only after one more question ("Changed after part A again", below).
 4. **No reading** where one Passage states the sentence and another says the opposite, both clear of their lines: the sentence goes to the AI model unread.
 5. **A first reading** for any other score that leans, as before.
@@ -401,6 +401,16 @@ Written on 2026-11-15, before its first request. No bar, and no build has this r
 
 - In part A again the rule withholds all 12 quotes the readers rejected, and 10 they accepted: 2 cut at 200 characters and 8 by the score. 29 of 51 Marks would show a quote, 22 would name the Document and place only.
 - The rule was fixed before these requests, at lines measured for another question (a Passage asked about alone). Part A again's 51 are the text the rule was thought of on; part B's 10 and the 139 are not.
+
+### In the check code since: a verdict whose line fails alone rests on its Passage
+
+The rule of the row above is in the check, and not yet in the card.
+
+- **What the check does.** Once the confirming Passage's lines are scored, the line the model scores highest is asked about alone, under its Document's name without the page, as the row measured it. It is one more request for each verdict the decision model gives, sent after the lines' answer.
+- **What the Mark keeps.** Where the line alone passes the lines a Passage alone must pass, nothing changes. Where it doesn't, where it is longer than the 200 characters a check stores (never asked), or where the host can't be asked, the verdict stays the decision model's: the Mark says it rests on its Passage, and says no quote. Its receipt keeps the line, which places the Passage in its Document.
+- **What a User sees today.** The card still shows the stored line, so this commit changes one thing on screen: a Contradicted Mark that rests on its Passage has no line of what the Document says.
+- **Not measured on this build.** No bar was run again. A3 is read again once the card shows no quote for such a Mark, and T4 with the extra request.
+- **Saved by the runs.** Each Mark of a `real` or `dry` run says whether its quote is shown (`quoteShown`).
 
 ### Part M
 

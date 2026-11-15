@@ -791,6 +791,7 @@ export function readClaimParts(
     if (coverage === null) return null;
     const correction = verdict === "contradicted" ? readClaimCorrection(each.correction) : null;
     if (each.kept !== undefined && each.kept !== true) return null;
+    if (each.restsOnPassage !== undefined && each.restsOnPassage !== true) return null;
     const firstReading = readFirstReading(each.firstReading);
     if (each.firstReading !== undefined && !firstReading) return null;
     const figures: ClaimPartFigure[] = [];
@@ -842,6 +843,7 @@ export function readClaimParts(
       ...(each.kept === true && { kept: true }),
       ...(each.byAssistant === true && plan.kind === "opinion" && { byAssistant: true }),
       ...(firstReading && { firstReading }),
+      ...(each.restsOnPassage === true && { restsOnPassage: true }),
       ...(each.figures !== undefined && { figures }),
       ...(remainder !== undefined && { remainder }),
       ...(typeof each.checkedAt === "string" && { checkedAt: each.checkedAt }),
