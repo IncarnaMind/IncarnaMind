@@ -605,7 +605,9 @@ test.skipIf(mode !== "replay" && mode !== "replay-dry" && mode !== "replay-main"
       ? (await readChecksSet(ROOT)).folder.map((each) => ({ ...each, path: join(ROOT, each.path) }))
       : [];
     const host: DecisionHost =
-      mode === "replay" ? await startRelay(OPENROUTER) : await startHost(0);
+      mode === "replay"
+        ? await startRelay(OPENROUTER)
+        : await startHost(0, new Set(env("HOST_SURE_EVERY") === "1" ? claims : []));
     const scripted = alone ? null : scriptedCheck(claims, 0);
     const library = await openLibrary({
       name: "decision-first-replay",

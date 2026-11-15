@@ -68,7 +68,7 @@ const DECIDER: CheckDecisionModel = { host: "openrouter", modelId: "perplexity/p
 const KEY = "sk-or-test";
 const AI_MODEL = "anthropic/claude-haiku-5.5";
 
-// A Passage's line is its paragraph: the quote a decision verdict shows is the whole of it.
+// A paragraph of two sentences: a decision verdict quotes the one its model scores highest.
 const TIDES_LINE = "Spring tides come at new and full moon. Neap tides come at the quarter moons.";
 const TIDES = { name: "Tides.md", contents: `# Tides\n\n${TIDES_LINE}\n` };
 const OFFICE = {
@@ -298,7 +298,7 @@ async function marks(client: MindClient) {
 }
 
 describe("Check this Note with a decision model chosen (#3118)", { timeout: 30_000 }, () => {
-  // protects=a sentence one Passage clearly states or contradicts gets its verdict from the decision model, with the line of that Passage the model scores highest as its quote and the decision model named on it; a sentence none of its Passages leans to is Unsupported by the decision model; none of them costs a request to the AI model; fails_when=the AI model is asked about a sentence the decision model decided, the quote isn't the Passage's top line, or a sentence nothing supports waits for the AI model; no_claim=that a real decision model's scores are right, which the gate's real-model run measures.
+  // protects=a sentence one Passage clearly states or contradicts gets its verdict from the decision model, with the sentence of that Passage the model scores highest as its quote and the decision model named on it; a sentence none of its Passages leans to is Unsupported by the decision model; none of them costs a request to the AI model; fails_when=the AI model is asked about a sentence the decision model decided, the quote is the whole paragraph or another sentence of it, or a sentence nothing supports waits for the AI model; no_claim=that a real decision model's scores are right, which the gate's real-model run measures.
   test("the decision model gives the clear verdicts, and Unsupported where no Passage leans", async () => {
     const { core, client, host, run, readByAiModel } = await setUp();
     await choose(core);
@@ -308,7 +308,7 @@ describe("Check this Note with a decision model chosen (#3118)", { timeout: 30_0
     expect(result).toMatchObject({ kind: "checked", sentences: 3, checked: 3 });
     expect(result).not.toHaveProperty("decisionStopped");
     expect(await marks(client)).toEqual({
-      [MOON]: { state: "supported", quote: TIDES_LINE, by: DECIDER.modelId },
+      [MOON]: { state: "supported", quote: MOON, by: DECIDER.modelId },
       [YEARLY]: { state: "contradicted", quote: WEEKLY, by: DECIDER.modelId },
       [PENGUINS]: { state: "unsupported", quote: null, by: DECIDER.modelId },
     });
@@ -719,7 +719,7 @@ describe("A decision model that reads by default (#3118)", { timeout: 30_000 }, 
     await core.checkMind(run());
 
     expect(await marks(client)).toEqual({
-      [MOON]: { state: "supported", quote: TIDES_LINE, by: DECIDER.modelId },
+      [MOON]: { state: "supported", quote: MOON, by: DECIDER.modelId },
       [YEARLY]: { state: "contradicted", quote: WEEKLY, by: DECIDER.modelId },
       [PENGUINS]: { state: "unsupported", quote: null, by: DECIDER.modelId },
     });

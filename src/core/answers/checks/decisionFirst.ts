@@ -7,8 +7,8 @@
  * two questions of each: does it state the sentence, and does it say the opposite. A score clear
  * of that model's measured line (./decisionLines) is the sentence's verdict once its Passage,
  * asked about alone, scores clear of the line again, and a number the Passage writes another way
- * is the same amount. The verdict's quote is the line of that Passage the model scores highest on
- * the verdict's question. Where every Passage scores under the model's Unsupported line on both
+ * is the same amount. The verdict's quote is the sentence of that Passage the model scores highest
+ * on the verdict's question; a table's row is quoted whole. Where every Passage scores under the model's Unsupported line on both
  * questions the sentence is Unsupported, unless it cites a Passage. A sentence with a verdict
  * never reaches the AI model.
  *
@@ -34,6 +34,7 @@ import type { WindowedPassage } from "../../documents/search";
 import type { JevNoulQuestion } from "../../providers/jev";
 import { recordCiteSpans } from "../../recordCites/parser";
 import { matchingOf } from "../citations";
+import { sentencesOfLines } from "../wholeSentences";
 import { createCheckResults } from "./checkResults";
 import { asPassage, citedOutsideScope, citedSources, keptInside } from "./checkSetup";
 import { type ClaimCheckDependencies, type ClaimCheckRequest, lineLocation } from "./claimCheck";
@@ -194,15 +195,15 @@ async function holdsAlone(
   );
 }
 
-/** The line of `passage` the model scores highest on the verdict's question; null when it has none or can't be asked. */
+/** The one of `passage`'s `lines` the model scores highest on the verdict's question; null when it has none or can't be asked. */
 async function topLine(
   reader: DecisionReader,
   request: Asked,
   side: "supported" | "contradicted",
   passage: PassageText,
+  lines: readonly string[],
   signal: AbortSignal,
 ): Promise<string | null> {
-  const lines = quotableLines(passage.text);
   if (lines.length <= 1) return lines[0] ?? null;
   const scores = await scoresOfEach(
     reader,
@@ -253,25 +254,33 @@ function quotable(deps: ClaimCheckDependencies, passage: WindowedPassage): Sourc
     : source;
 }
 
-/** A Citation of `line` in the Passage; null when the Document doesn't hold the line where the Passage says. */
-function citationAt(deps: ClaimCheckDependencies, source: Source, line: string): Citation | null {
-  const { documentId, documentName, contentHash, pageFrom, pageTo } = source;
+type Place = Pick<ReturnType<typeof placeOf>, "units" | "matching">;
+
+/** The Units the Passage stands in, and how a quote is matched in its Document. */
+function placeOf(deps: ClaimCheckDependencies, source: Source) {
+  const { documentId, contentHash, pageFrom, pageTo } = source;
   const document = deps.documents.pageTexts(documentId, contentHash, null, null);
   const units =
     pageFrom === null || pageTo === null
       ? document
       : deps.documents.pageTexts(documentId, contentHash, pageFrom, pageTo);
-  const location = lineLocation(units, line, matchingOf(document));
+  return { units, matching: matchingOf(document) };
+}
+
+/** A Citation of `quote` in the Passage; null when the Document doesn't hold it where the Passage says. */
+function citationAt(source: Source, { units, matching }: Place, quote: string): Citation | null {
+  const location = lineLocation(units, quote, matching);
   if (!location) return null;
+  const { passageId, documentId, documentName, contentHash, pageFrom, pageTo } = source;
   return {
-    passageId: source.passageId,
+    passageId,
     documentId,
     documentName,
     contentHash,
     pageFrom,
     pageTo,
     location,
-    quote: line,
+    quote,
     check: "found",
     checkReason: null,
   };
@@ -298,12 +307,15 @@ export function createFirstReading(deps: Dependencies) {
     const source = quotable(deps, passage);
     if (!source) return null;
     const read = { ...passage, text: source.text };
+    const place = placeOf(deps, source);
+    // A PDF's printed line cuts its sentence: no User reads half of one as a quote.
+    const sentences = sentencesOfLines(quotableLines(source.text), place.units);
     // Both are asked at once: neither answer changes what the other is asked.
-    const [holds, line] = await Promise.all([
+    const [holds, quote] = await Promise.all([
       holdsAlone(reader, request, side, read, request.signal),
-      topLine(reader, request, side, read, request.signal),
+      topLine(reader, request, side, read, sentences, request.signal),
     ]);
-    return holds && line !== null ? citationAt(deps, source, line) : null;
+    return holds && quote !== null ? citationAt(source, place, quote) : null;
   }
 
   return async (request: ClaimCheckRequest, reader: DecisionReader): Promise<FirstReading> => {
