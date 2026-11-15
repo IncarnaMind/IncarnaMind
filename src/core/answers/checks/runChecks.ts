@@ -36,6 +36,7 @@ import {
   runClaimChecks,
 } from "./runCheck";
 import { updateCheck } from "./sentences";
+import { waitLine } from "./waitLine";
 
 export function pendingParts(
   plans: readonly ClaimPartPlan[],
@@ -139,6 +140,8 @@ export function notCheckedMark(
 /** What a run of checks shares: where its claims are checked, by which model, and when it stops. */
 export interface ChecksRun {
   mindId: string;
+  /** The check's request, whose line says when it waits on a rate limit (#2944). */
+  requestId?: string;
   scope: ClaimCheckRequest["scope"];
   searched?: ClaimCheckRequest["searched"];
   prepared: PreparedChatModel;
@@ -146,6 +149,12 @@ export interface ChecksRun {
   readFirst?: ReadFirst;
   thirdParty?: readonly ThirdPartyReason[];
   signal: AbortSignal;
+  /**
+   * The run of checks (./runCheck) its caller made, whose `prepared` already waits behind replies:
+   * the checks it started early and the run share its held time (#2944). Left out, the run makes
+   * its own and has `prepared` wait.
+   */
+  checking?: ReturnType<typeof checkRunOf>;
 }
 
 /** What a queued claim's check sends, in `run`. */
@@ -369,6 +378,10 @@ export async function runChecks(
   },
 ): Promise<{ checked: number; stop: RunStop | null }> {
   const { mindId, prepared, signal } = run;
+  const requestId = run.requestId ?? "";
+  const ran = run.checking ?? checkRunOf(options, prepared, signal, mindId);
+  // Every request of the run, a reading first's included, waits behind a reply (#2944).
+  const requests = run.checking ? run : { ...run, prepared: ran.replies.model(prepared) };
   const write = (
     id: string,
     change: (check: ClaimCheckAttributes, blocks: Y.XmlFragment) => ClaimCheckAttributes,
@@ -384,7 +397,7 @@ export async function runChecks(
   let checked = 0;
   const atOnce = claimsAtOnce(prepared);
   const limit = run.slots ?? slots(atOnce);
-  const requestOf = (claim: QueuedClaim) => checkRequestOf(claim, run, limit, signal);
+  const requestOf = (claim: QueuedClaim) => checkRequestOf(claim, requests, limit, signal);
   /** What the decision model's reading left a sentence: its Mark, or only what it leans to. */
   const marked = new Set<QueuedClaim>();
   const leaning = new Map<QueuedClaim, ClaimFirstReading>();
@@ -440,8 +453,12 @@ export async function runChecks(
       return check((request) => checkClaim(claimCheck, request), requestOf(claim));
     },
     {
-      ...checkRunOf(options, prepared, signal, mindId),
+      ...ran,
       concurrency: atOnce,
+      ...(run.requestId !== undefined &&
+        options.waiting && {
+          onPause: waitLine(ran.timers.now, (until) => options.waiting?.(requestId, until)),
+        }),
       onOutcome(claim, outcome) {
         if (marked.has(claim)) return;
         if ("result" in outcome) {

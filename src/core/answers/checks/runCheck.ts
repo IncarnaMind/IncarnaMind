@@ -67,6 +67,8 @@ export interface CheckRuns {
   timers?: PaceTimers;
   /** Where an Answer marks its provider while it is written: a check's requests wait behind it (./repliesFirst). */
   repliesOut?: RepliesOut;
+  /** Says that what `id` started waits on a rate limit until (ms since the epoch), or no longer does (#2944). */
+  waiting?(id: string, until: number | null): void;
   /** How long one check may take, in ms; `CLAIM_TIME_LIMIT_MS` when left out. */
   claimTimeLimitMs?: number;
   recordAiUse(inputs: RecordAiUseInput[]): void;

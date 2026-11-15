@@ -11,10 +11,9 @@
  * An item that sends its requests through the run (`RunRequests`, a check's, #2944) has a
  * request refused with a stated wait sent again inside it instead.
  */
-import { APICallError } from "ai";
 import type { ProviderError, RunStop } from "../api";
 import { classifyProviderError } from "../providers/providerErrors";
-import { SHORTEST_RATE_LIMIT_WAIT_MS, statedWaitMs } from "../providers/rateLimitWait";
+import { sendWaiting } from "./requestWait";
 
 /** The stop a failure means, or null for a failure that leaves the next item free to try. */
 export function runStopOf(error: ProviderError): RunStop | null {
@@ -54,9 +53,6 @@ export class RunItemGaveWay extends Error {
 
 /** The pauses before trying an item the provider limited again, the first first. */
 export const RATE_LIMIT_PAUSES_MS = [1_000, 2_000, 4_000, 8_000, 16_000] as const;
-
-/** The most one request sent through a run waits on stated rate limits in all, before it is given up (#2944). */
-export const REQUEST_WAIT_LIMIT_MS = 2 * 60_000;
 
 /** How an item sends its requests through its run (#2944), so a refused one goes again inside it. */
 export interface RunRequests {
@@ -110,22 +106,6 @@ const sleep = (ms: number, signal?: AbortSignal) =>
 
 const failureOf = (thrown: unknown): ProviderError =>
   thrown instanceof RunItemError ? thrown.error : classifyProviderError(thrown);
-
-/** `error`, so the AI SDK doesn't send its request again sooner than the run waits (#2944). */
-const notRetried = (error: unknown): unknown =>
-  APICallError.isInstance(error) && error.isRetryable
-    ? new APICallError({
-        message: error.message,
-        url: error.url,
-        requestBodyValues: error.requestBodyValues,
-        ...(error.statusCode !== undefined && { statusCode: error.statusCode }),
-        ...(error.responseHeaders && { responseHeaders: error.responseHeaders }),
-        ...(error.responseBody !== undefined && { responseBody: error.responseBody }),
-        cause: error.cause,
-        isRetryable: false,
-        data: error.data,
-      })
-    : error;
 
 /**
  * Runs a run's items (a comparison table's cells, verify's sentences…),
@@ -190,49 +170,38 @@ export async function runItems<I, T>(
   const requests = (): RunRequests & { met(): boolean } => {
     let limited = false;
     let met = false;
-    // As for an item's limit that outlasted every pause, the items not started yet aren't sent.
-    const giveUp = (thrown: unknown): never => {
-      limited = true;
-      limitedOut ??= classifyProviderError(thrown);
-      throw thrown;
-    };
     return {
       limited: () => limited,
       met: () => met,
-      async send(request, options = {}) {
+      send(request, options = {}) {
         const stopped = options.signal
           ? signal
             ? AbortSignal.any([signal, options.signal])
             : options.signal
           : signal;
-        /** How long it has waited since its first refusal, in ms. */
-        let waited = 0;
-        for (;;) {
-          try {
-            return await request();
-          } catch (error) {
-            const stated = statedWaitMs(error, now());
-            if (stated === undefined || stopped?.aborted) throw error;
-            met = true;
-            calm = 0;
-            if (stated === null) throw error;
-            const asks = Math.max(stated, SHORTEST_RATE_LIMIT_WAIT_MS);
-            if (waited + asks > REQUEST_WAIT_LIMIT_MS) giveUp(notRetried(error));
-            const until = now() + asks;
-            waits.add(until);
-            announce();
-            options.waiting?.(true);
-            try {
-              await (options.sleep ?? wait)(asks, stopped);
-            } finally {
-              waits.delete(until);
-              options.waiting?.(false);
+        return sendWaiting(
+          request,
+          {
+            now,
+            wait,
+            met() {
+              met = true;
+              calm = 0;
+            },
+            waiting(until, on) {
+              if (on) waits.add(until);
+              else waits.delete(until);
+              options.waiting?.(on);
               announce();
-            }
-            waited += asks;
-            stopped?.throwIfAborted();
-          }
-        }
+            },
+            // As for an item's limit that outlasted every pause, the items not started yet aren't sent.
+            gaveUp(error) {
+              limited = true;
+              limitedOut ??= classifyProviderError(error);
+            },
+          },
+          { ...(stopped && { signal: stopped }), ...(options.sleep && { sleep: options.sleep }) },
+        );
       },
     };
   };

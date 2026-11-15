@@ -108,6 +108,7 @@ import {
   writtenByAssistant,
 } from "./sentences";
 import type { CheckScope } from "./verify";
+import { waitLine } from "./waitLine";
 
 const UNCHECKED: ReadonlySet<string> = new Set(["question", "codeBlock", "blockMath", "heading"]);
 
@@ -1383,6 +1384,9 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
       runClaimChecks(items, checkOne, {
         ...run,
         concurrency: claimsAtOnce(prepared),
+        ...(options.waiting && {
+          onPause: waitLine(run.timers.now, (until) => options.waiting?.(request, until)),
+        }),
         // The run hears a throw once and returns it, so a mark that can't land is never its
         // sentence's failure. Refusing stays here: once one edit is refused the rest aren't tried.
         onOutcome(sentence, outcome) {
