@@ -463,18 +463,24 @@ async function noteOf(
   return { client, mindId: mind.id };
 }
 
-/** The first verdict a check Run of `part`, in the Note whose sentence is `sentence`, wrote. */
-function firstReplyOf(part: string, sentence: string): string | null {
-  const reply = heard.replies.find(
-    (each) =>
-      each.sentence === part && each.prompt.includes(sentence) && /Verdict:/i.test(each.text),
-  );
-  return reply ? (readVerdict(reply.text)?.verdict ?? "unread") : null;
+/**
+ * The first verdict a check Run of `part`, in the Note whose sentence is `sentence`, wrote, of the
+ * replies heard since `from`: one core's, since a round's set-ups check the same sentences.
+ */
+function firstReplyOf(part: string, sentence: string, from: number): string | null {
+  const reply = heard.replies
+    .slice(from)
+    .find(
+      (each) =>
+        each.sentence === part && each.prompt.includes(sentence) && readVerdict(each.text) !== null,
+    );
+  return reply ? (readVerdict(reply.text)?.verdict ?? null) : null;
 }
 
 async function checkAll(core: Core, language: Language, notes: readonly Written[]) {
   const t = (key: Parameters<typeof translate>[1], params?: Parameters<typeof translate>[2]) =>
     translate(language, key, params);
+  const from = heard.replies.length;
   const rows: Record<string, unknown>[] = [];
   for (let at = 0; at < notes.length; at += AT_ONCE) {
     await Promise.all(
@@ -515,7 +521,8 @@ async function checkAll(core: Core, language: Language, notes: readonly Written[
             ...(probe.part && {
               part: probe.part,
               partVerdict: part?.verdict ?? null,
-              firstReply: firstReplyOf(probe.part, probe.sentence),
+              firstReply: firstReplyOf(probe.part, probe.sentence, from),
+              firstReplyFrom: "its own core",
             }),
           });
         }

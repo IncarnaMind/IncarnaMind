@@ -13,6 +13,7 @@ import type {
   FigureCheckResult,
   FigureInput,
 } from "../../api";
+import type { CitationSource } from "../../documents";
 import type { PageText } from "../../documents/passages";
 import { documentFigureContext } from "../calculations";
 import type { AnswerDocuments, createCitationSession } from "../citations";
@@ -23,7 +24,6 @@ import { comparesOtherWords, type RunTranscript } from "./checkRun";
 import { type CourtDecisions, citedSources } from "./checkSetup";
 import type {
   AtomicClaimCheckResult,
-  CheckedCitation,
   ClaimCheckDependencies,
   ClaimCheckRequest,
 } from "./claimCheck";
@@ -231,7 +231,10 @@ export async function figuresVerdict(
     decimalMarks: {
       cited: () => {
         if (citedMark === undefined)
-          citedMark = citedDecimalMark(deps.documents, request.cited ?? []);
+          citedMark = citedDecimalMark(
+            deps.documents,
+            citedSources(request.cited ?? [], scope, deps.documents),
+          );
         return citedMark;
       },
       interface: decimalMarkOf({ language: deps.language() }),
@@ -408,13 +411,11 @@ export async function figuresVerdict(
  * numbers, else their language (`documentFigureContext`). Null when none tells, or they disagree.
  */
 function citedDecimalMark(
-  documents: Pick<AnswerDocuments, "citationSource" | "pageTexts">,
-  cited: readonly CheckedCitation[],
+  documents: Pick<AnswerDocuments, "pageTexts">,
+  sources: readonly CitationSource[],
 ): "." | "," | null {
   const marks = new Set(
-    cited.flatMap((each) => {
-      const source = each.passageId ? documents.citationSource(each.passageId) : null;
-      if (!source) return [];
+    sources.flatMap((source) => {
       const units = documents.pageTexts(source.documentId, source.contentHash, null, null);
       const mark = decimalMarkOf(documentFigureContext(units));
       return mark ? [mark] : [];

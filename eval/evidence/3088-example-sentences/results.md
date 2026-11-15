@@ -26,8 +26,8 @@ Priced in all: $1.7241
 
 ## Cases
 
-| Case | Arm | ✓ | part ✓ | first reply contradicted | a figure Not checked |
-|---|---|---|---|---|---|
+| Group | Language | Set-up or kind | Case | Expected | Arm | ✓ | part ✓ | first reply contradicted | a figure Not checked |
+|---|---|---|---|---|---|---|---|---|---|
 | example | en | example | note-comparative | right | branch | 10/10 | 10/10 | 0/10 | 0/10 |
 | example | en | example | note-comparative | right | main | 10/10 | 10/10 | 0/10 | 0/10 |
 | example | en | example | note-figure | right | branch | 10/10 | 0/10 | 0/10 | 0/10 |
@@ -38,14 +38,14 @@ Priced in all: $1.7241
 | example | en | example | twin-2 | wrong | main | 0/10 | 0/10 | 10/10 | 0/10 |
 | example | en | example | twin-3 | wrong | branch | 0/10 | 0/10 | 0/10 | 0/10 |
 | example | en | example | twin-3 | wrong | main | 0/10 | 0/10 | 0/10 | 8/10 |
-| example | en | example+own | note-comparative | right | branch | 10/10 | 10/10 | 0/10 | 0/10 |
-| example | en | example+own | note-comparative | right | main | 10/10 | 10/10 | 0/10 | 0/10 |
+| example | en | example+own | note-comparative | right | branch | 10/10 | 10/10 | not measured | 0/10 |
+| example | en | example+own | note-comparative | right | main | 10/10 | 10/10 | not measured | 0/10 |
 | example | en | example+own | note-figure | right | branch | 10/10 | 0/10 | 0/10 | 0/10 |
 | example | en | example+own | note-figure | right | main | 10/10 | 0/10 | 0/10 | 0/10 |
-| example | en | example+own | twin-1 | wrong | branch | 0/10 | 0/10 | 10/10 | 0/10 |
-| example | en | example+own | twin-1 | wrong | main | 0/10 | 0/10 | 10/10 | 0/10 |
-| example | en | example+own | twin-2 | wrong | branch | 0/10 | 0/10 | 10/10 | 0/10 |
-| example | en | example+own | twin-2 | wrong | main | 0/10 | 0/10 | 10/10 | 1/10 |
+| example | en | example+own | twin-1 | wrong | branch | 0/10 | 0/10 | not measured | 0/10 |
+| example | en | example+own | twin-1 | wrong | main | 0/10 | 0/10 | not measured | 0/10 |
+| example | en | example+own | twin-2 | wrong | branch | 0/10 | 0/10 | not measured | 0/10 |
+| example | en | example+own | twin-2 | wrong | main | 0/10 | 0/10 | not measured | 1/10 |
 | example | en | example+own | twin-3 | wrong | branch | 0/10 | 0/10 | 0/10 | 0/10 |
 | example | en | example+own | twin-3 | wrong | main | 0/10 | 0/10 | 0/10 | 5/10 |
 | example | zh-CN | example | note-comparative | right | branch | 10/10 | 6/10 | 0/10 | 0/10 |
@@ -58,14 +58,14 @@ Priced in all: $1.7241
 | example | zh-CN | example | twin-2 | wrong | main | 0/10 | 0/10 | 10/10 | 0/10 |
 | example | zh-CN | example | twin-3 | wrong | branch | 0/10 | 0/10 | 0/10 | 1/10 |
 | example | zh-CN | example | twin-3 | wrong | main | 0/10 | 0/10 | 0/10 | 0/10 |
-| example | zh-CN | example+own | note-comparative | right | branch | 10/10 | 4/10 | 0/10 | 0/10 |
-| example | zh-CN | example+own | note-comparative | right | main | 10/10 | 7/10 | 0/10 | 0/10 |
+| example | zh-CN | example+own | note-comparative | right | branch | 10/10 | 4/10 | not measured | 0/10 |
+| example | zh-CN | example+own | note-comparative | right | main | 10/10 | 7/10 | not measured | 0/10 |
 | example | zh-CN | example+own | note-figure | right | branch | 10/10 | 0/10 | 0/10 | 0/10 |
 | example | zh-CN | example+own | note-figure | right | main | 9/10 | 0/10 | 0/10 | 1/10 |
-| example | zh-CN | example+own | twin-1 | wrong | branch | 0/10 | 0/10 | 10/10 | 0/10 |
-| example | zh-CN | example+own | twin-1 | wrong | main | 0/10 | 0/10 | 10/10 | 0/10 |
-| example | zh-CN | example+own | twin-2 | wrong | branch | 0/10 | 0/10 | 10/10 | 0/10 |
-| example | zh-CN | example+own | twin-2 | wrong | main | 0/10 | 0/10 | 10/10 | 0/10 |
+| example | zh-CN | example+own | twin-1 | wrong | branch | 0/10 | 0/10 | not measured | 0/10 |
+| example | zh-CN | example+own | twin-1 | wrong | main | 0/10 | 0/10 | not measured | 0/10 |
+| example | zh-CN | example+own | twin-2 | wrong | branch | 0/10 | 0/10 | not measured | 0/10 |
+| example | zh-CN | example+own | twin-2 | wrong | main | 0/10 | 0/10 | not measured | 0/10 |
 | example | zh-CN | example+own | twin-3 | wrong | branch | 0/10 | 0/10 | 0/10 | 0/10 |
 | example | zh-CN | example+own | twin-3 | wrong | main | 0/10 | 0/10 | 0/10 | 0/10 |
 | held-out | en | comparative | en-a1-right | right | branch | 10/10 | 9/10 | 0/10 | 0/10 |
@@ -119,18 +119,21 @@ Priced in all: $1.7241
 
 ## Bars
 
+- met: main: 10 counted rounds (10)
+- met: branch: 10 counted rounds (10)
+- met: 44 cases (44)
 - met: example | en | example | note-comparative | right: ✓ in at least 9 of 10 (10/10)
 - met: example | en | example | note-comparative | right: first reply contradicted in at most 1 (0/10)
 - met: example | en | example | note-figure | right: ✓ in at least 9 of 10 (10/10)
 - met: example | en | example+own | note-comparative | right: ✓ in at least 9 of 10 (10/10)
-- met: example | en | example+own | note-comparative | right: first reply contradicted in at most 1 (0/10)
+- not measured: example | en | example+own | note-comparative | right: first reply contradicted in at most 1 (10 of 10 rows may hold another set-up's reply; README)
 - met: example | en | example+own | note-figure | right: ✓ in at least 9 of 10 (10/10)
 - met: example | en | example+own | note-figure | right: no figure Not checked (0/10)
 - met: example | zh-CN | example | note-comparative | right: ✓ in at least 9 of 10 (10/10)
 - met: example | zh-CN | example | note-comparative | right: first reply contradicted in at most 1 (0/10)
 - met: example | zh-CN | example | note-figure | right: ✓ in at least 9 of 10 (9/10)
 - met: example | zh-CN | example+own | note-comparative | right: ✓ in at least 9 of 10 (10/10)
-- met: example | zh-CN | example+own | note-comparative | right: first reply contradicted in at most 1 (0/10)
+- not measured: example | zh-CN | example+own | note-comparative | right: first reply contradicted in at most 1 (10 of 10 rows may hold another set-up's reply; README)
 - met: example | zh-CN | example+own | note-figure | right: ✓ in at least 9 of 10 (10/10)
 - met: example | zh-CN | example+own | note-figure | right: no figure Not checked (0/10)
 - met: example | en | example | twin-1 | wrong: no ✓ gained (main 0/10, branch 0/10)
@@ -173,8 +176,8 @@ Priced in all: $1.7241
 
 ## Wrong comparatives, read apart
 
-| Wrong comparative | Arm | ✓ | Contradicted |
-|---|---|---|---|
+| Group | Language | Kind | Case | Expected | Arm | ✓ | Contradicted |
+|---|---|---|---|---|---|---|---|
 | held-out | en | comparative | en-a1-wrong | wrong | branch | 0/10 | 10/10 |
 | held-out | en | comparative | en-a1-wrong | wrong | main | 0/10 | 10/10 |
 | held-out | en | comparative | en-a2-wrong | wrong | branch | 6/10 | 4/10 |

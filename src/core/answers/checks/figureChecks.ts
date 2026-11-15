@@ -580,13 +580,13 @@ function frameOf(
  * doesn't offer leaves the digits as written.
  */
 function inSourceFrame(
-  original: CheckFigure,
+  separated: CheckFigure,
   target: CheckFigure,
   frame: { scale: number; unit: string } | null,
 ): CheckFigure {
   const { reading } = target;
   if (!frame || reading.unit.kind !== "plain" || reading.scale !== 1) return target;
-  const framed = original.reading.ambiguous
+  const framed = separated.reading.ambiguous
     .find((each) => each.kind === "scale")
     ?.readings.find(
       (each) =>
@@ -917,6 +917,8 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
       read && citedMark === null ? separator?.readings.find((each) => each !== read) : undefined;
     if (separator && read)
       target = { ...target, reading: withSeparatorReading(target.reading, separator, read) };
+    // Its source's frame is applied to the figure as its separator is read, before a reading named.
+    const separated = target;
     const ambiguities = target.reading.ambiguous.filter((reading) => reading.kind !== "range");
     const selected = ambiguities[0]?.readings[(item.reading ?? 0) - 1];
     // Bare digits under the note's own "(£m)" need no reading named: their source's frame
@@ -1015,7 +1017,7 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
       continue;
     }
     const framed = inSourceFrame(
-      original,
+      separated,
       target,
       sourceInput
         ? frameOf([sourceInput], sourceInput.number.unit)

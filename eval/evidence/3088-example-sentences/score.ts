@@ -23,6 +23,8 @@ interface Row {
   part?: string;
   partVerdict?: string | null;
   firstReply?: string | null;
+  /** Whose replies `firstReply` was read from; absent in rows written before 2026-11-15 (README). */
+  firstReplyFrom?: "its own core";
   requests?: number;
   refused?: number;
   failed?: number;
@@ -82,6 +84,8 @@ interface Tally {
   contradicted: number;
   partSupported: number;
   firstContradicted: number;
+  /** Rows whose first reply may be another set-up's: written before 2026-11-15 (README). */
+  firstUnmeasured: number;
   figureNotChecked: number;
 }
 const tallies = new Map<string, Map<string, Tally>>();
@@ -103,6 +107,7 @@ for (const row of counted) {
     contradicted: 0,
     partSupported: 0,
     firstContradicted: 0,
+    firstUnmeasured: 0,
     figureNotChecked: 0,
   };
   byArm.set(row.arm, tally);
@@ -111,20 +116,22 @@ for (const row of counted) {
   if (row.state === "contradicted") tally.contradicted++;
   if (row.partVerdict === "supported") tally.partSupported++;
   if (row.firstReply === "contradicted") tally.firstContradicted++;
+  if (row.setup === "example+own" && row.part !== undefined && row.firstReplyFrom === undefined)
+    tally.firstUnmeasured++;
   if ((row.figures ?? []).some((figure) => figure.state === "not-checked"))
     tally.figureNotChecked++;
 }
 
 const lines: string[] = [
-  "| Case | Arm | ✓ | part ✓ | first reply contradicted | a figure Not checked |",
-  "|---|---|---|---|---|---|",
+  "| Group | Language | Set-up or kind | Case | Expected | Arm | ✓ | part ✓ | first reply contradicted | a figure Not checked |",
+  "|---|---|---|---|---|---|---|---|---|---|",
 ];
 for (const [key, byArm] of [...tallies].sort(([a], [b]) => a.localeCompare(b)))
   for (const arm of arms) {
     const t = byArm.get(arm);
     if (t)
       lines.push(
-        `| ${key} | ${arm} | ${t.supported}/${t.checks} | ${t.partSupported}/${t.checks} | ${t.firstContradicted}/${t.checks} | ${t.figureNotChecked}/${t.checks} |`,
+        `| ${key} | ${arm} | ${t.supported}/${t.checks} | ${t.partSupported}/${t.checks} | ${t.firstUnmeasured > 0 ? "not measured" : `${t.firstContradicted}/${t.checks}`} | ${t.figureNotChecked}/${t.checks} |`,
       );
   }
 
@@ -132,6 +139,21 @@ const tally = (key: string, arm: string) => tallies.get(key)?.get(arm);
 const bars: string[] = [];
 const bar = (name: string, met: boolean, detail: string) =>
   bars.push(`- ${met ? "met" : "**missed**"}: ${name} (${detail})`);
+
+// Every bar reads ten counted rounds of each arm, each case checked once in each (README, "The
+// bars"): a round or a case missing, or counted twice, is a bar missed, never a bar met.
+const ROUNDS = 10;
+const CASES = 44;
+for (const arm of ["main", "branch"]) {
+  const rounds = new Set(counted.filter((row) => row.arm === arm).map((row) => row.round)).size;
+  bar(`${arm}: ${ROUNDS} counted rounds`, rounds === ROUNDS, `${rounds}`);
+}
+bar(`${CASES} cases`, tallies.size === CASES, `${tallies.size}`);
+for (const [key, byArm] of tallies)
+  for (const arm of ["main", "branch"]) {
+    const checks = byArm.get(arm)?.checks ?? 0;
+    if (checks !== ROUNDS) bar(`${key}: ${arm} checks it once a round`, false, `${checks}`);
+  }
 
 // Bar 1: on the branch, each language and set-up, the issue's two sentences.
 for (const [key, byArm] of tallies) {
@@ -143,7 +165,11 @@ for (const [key, byArm] of tallies) {
     t.supported >= 9 && t.checks >= 10,
     `${t.supported}/${t.checks}`,
   );
-  if (key.includes("| note-comparative |"))
+  if (key.includes("| note-comparative |") && t.firstUnmeasured > 0)
+    bars.push(
+      `- not measured: ${key}: first reply contradicted in at most 1 (${t.firstUnmeasured} of ${t.checks} rows may hold another set-up's reply; README)`,
+    );
+  else if (key.includes("| note-comparative |"))
     bar(
       `${key}: first reply contradicted in at most 1`,
       t.firstContradicted <= 1,
@@ -210,8 +236,8 @@ const named =
     : [];
 
 const comparatives: string[] = [
-  "| Wrong comparative | Arm | ✓ | Contradicted |",
-  "|---|---|---|---|",
+  "| Group | Language | Kind | Case | Expected | Arm | ✓ | Contradicted |",
+  "|---|---|---|---|---|---|---|---|",
 ];
 for (const [key, byArm] of [...tallies].sort(([a], [b]) => a.localeCompare(b))) {
   if (!key.includes("| comparative |") || !key.endsWith("| wrong")) continue;

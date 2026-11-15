@@ -124,7 +124,8 @@ That is **about $5.77 in all**, within the $9 stop.
 | Bar | `main` (b283bc51c) | branch (f99379156) | Result |
 |---|---|---|---|
 | 1. The issue's two sentences ✓, each set-up and language | 10, 10, 10, 10 (EN); 10, 10, 10, 9 (ZH) of 10 | 10, 10, 10, 10 (EN); 10, 9, 10, 10 (ZH) of 10 | met |
-| 1. `note-comparative`'s part: first reply contradicted | 0 of 10 in each | 0 of 10 in each | met |
+| 1. `note-comparative`'s part: first reply contradicted, the example alone | 0 of 10 (EN, ZH) | 0 of 10 (EN, ZH) | met |
+| 1. The same, beside the User's Document | not measured (below) | not measured (below) | not measured |
 | 1. `note-figure`'s figure Not checked, with the User's Document | 0 (EN), 1 (ZH) of 10 | 0, 0 of 10 | met |
 | 2. Any wrong sentence's ✓ more on the branch | the twins 0; held-out wrong: en-a2 7, zh-a2 1, others 0 of 10 | twins 0; en-a2 6, zh-a2 0, others 0 | met |
 | 3. Held-out right ✓, per case (fails at 3 fewer) | 97 in all | 117 in all; the largest loss is 1 (en-a3, zh-a2) | met |
@@ -141,7 +142,13 @@ That is **about $5.77 in all**, within the $9 stop.
 | `main` 2 | b283bc51c | 1,481 | $1.01 | 47 | Contradicted | Contradicted | Contradicted | `runs/eval-main-2-report.md`, `runs/eval-main-2.log` |
 | branch 2 | f99379156 | 1,459 | $1.02 | 40 | Unsupported | Not checked | Not checked | `runs/eval-branch-2-report.md`, `runs/eval-branch-2.log` |
 
-**Fault 1 did not reproduce on `main`.** At b283bc51c, `main`'s first reply on `note-comparative`'s part said supported in 10 of 10 checks, with the example alone and beside a User's Document. In Chinese the real sort often didn't split the sentence at all. So the gate shows the part rule costs no ✓, and no wrong comparative passes because of it. It can't show the rule fixing a first reply that is already right.
+**Fault 1 did not reproduce on `main`, with the example alone.** At b283bc51c, `main`'s first reply on `note-comparative`'s part said supported in 10 of 10 checks with the example alone. In Chinese the real sort often didn't split the sentence at all. So the gate shows the part rule costs no ✓, and no wrong comparative passes because of it. It can't show the rule fixing a first reply that is already right.
+
+**2026-11-15, after the runs: bar 1's first replies beside the User's Document weren't measured.**
+- Both set-ups of an arm-round ran in one process, the example alone first. `firstReplyOf` searched the arm-round's one list of replies, and the two set-ups check the same sentence and part. So the first reply recorded beside the User's Document is the example alone's, in 111 of its 120 rows over both arms.
+- In the other 9 (Chinese, where the example alone's sentence wasn't split into parts), it is its own, and it said supported.
+- The run files keep each check's verdicts, not the model's replies, so those first replies can't be recounted.
+- The harness now reads only the replies of the core that checks the sentence, and takes the first reply whose verdict the check's own reader reads, in any form it accepts. The run files above were written before that change.
 
 **Fault 2 shows on the held-out comma figures in a short Note.** The right sentence's ✓ of 10, `main` against the branch: en-b2 5 → 10, en-b3 2 → 10, and zh-b3 (en-b3's Note under the Chinese interface) 2 → 10.
 
@@ -160,7 +167,7 @@ Naming the whole sentence made no wrong clause pass more often. en-a2's wrong se
 
 **Bar 4, read apart from its verdict.**
 - None of the sentences whose Contradicted differs between runs was checked in parts.
-- For a whole sentence, the branch's instructions and message differ from `main`'s only when a figure in it has a separator the sentence doesn't settle: those readings are no longer offered. fs-142 and fs-151 have no such figure. What fs-151 is sent was captured later and is byte-identical on both arms (below); fs-142's was not captured.
+- For a whole sentence, the branch's instructions and message differ from `main`'s only when a figure in it has a separator the sentence doesn't settle: those readings are no longer offered. fs-142 and fs-151 have no such figure. What fs-151's check sends was later captured and replayed, below; fs-142's was not.
 - Branch run 2 lost 10 contradicted sentences against branch run 1 and gained 2.
   - 6 of the 10 ended Not checked the same way: a verdict given without `cite`, and the quote it gave when asked afterwards not found. 2 of those, fs-023 and fs-046, have such a figure; the other 4 don't.
   - Of the other 4, fs-121 gave no quote at all, fs-066's reply couldn't be read after the strict judgement, and fs-013 and fs-112 ended Unsupported. None of those 4 has such a figure.
@@ -205,10 +212,34 @@ On Claude Haiku 5.5, meant and run, on the first Anthropic key: `main` at 23df13
 | Paired: Contradicted in both `main` runs, not in both branch runs | | fs-151 | **missed** |
 | The other way: Contradicted in both branch runs, not in both `main` runs | fs-046 | | (reported) |
 
-**The paired rule is missed,** in the first gate (fs-142 and fs-151) and again here (fs-151). No cause is claimed for it beyond what the capture below shows: what fs-151's check is sent is byte-identical on both arms. If this change ships, it ships as a dated exception, with the bar recorded as missed.
+**The paired rule is missed,** in the first gate (fs-142 and fs-151) and again here (fs-151). If this change ships, it ships as a dated exception, with the bar recorded as missed. What was shown about fs-151 follows, all of it free, with scripted models and nothing sent. The evaluation keeps each request's kind, reply and Tool calls, but not what the request sent, so nothing here is a real run's request.
 
-**fs-151's capture** (2026-11-14, after the confirming run; free, with a scripted model and nothing sent):
+**1. A one-row capture** (2026-11-14, after the confirming run).
 - **The test:** a throwaway test, not committed. It sets up a core with the unit tests' helpers (`setUpWithDocuments`), with a scripted model that searches once and replies unsupported (`checkGenerate({})`). It adds one CSV, a copy of fs-151's table with only its header row and fs-151's own row, sets the interface to Chinese, and checks fs-151's sentence with `checkClaim`. It writes each check Run's instructions and message to a file.
 - **The command:** `SENT_OUT=<file> npx vitest run <the test>`, with a temporary HOME, once in each checkout.
-- **The checkouts:** `main` at 23df13e89; the branch with b0734765d's changes in place, before they were committed (b0734765d has `main` at 23df13e89 merged in); and the branch again, as committed with this file.
-- **The result:** three files of 38,786 bytes, each with sha256 `579f10b33b19fccb6fc766bc2254519733834e4359d541483a95bf9f1bd3e8a8`, byte for byte the same, ids included. The files hold the case's words, so they aren't committed.
+- **The checkouts:** `main` at 23df13e89; the branch with b0734765d's changes in place, before they were committed (b0734765d has `main` at 23df13e89 merged in); and the branch again at 618ff6223.
+- **The result:** three files of 38,786 bytes, each with sha256 `579f10b33b19fccb6fc766bc2254519733834e4359d541483a95bf9f1bd3e8a8`, the same bytes, ids included. The files hold the case's words, so they aren't committed.
+
+**2. A replay of the eight saved runs** (2026-11-15).
+- **What it replays:** each run's saved replies for fs-151, in order: its searches, replies, cite calls and evidence reply. Each request a code makes is answered with the saved reply of its kind, the kind the evaluation named it by, from its instructions.
+- **How:** through `main` at 23df13e89 and through the branch at 618ff6223. It runs against the evaluation's own copy of fs-151's Document, with the evaluation's provider and model (Anthropic, `claude-haiku-5-5`).
+- **The result:** each run came back with its saved outcome on both codes, with the same requests in the same order and every saved reply used. Both codes read all eight the same way.
+
+| Saved run | Outcome, saved and replayed on both codes | Requests, by kind and order |
+|---|---|---|
+| First gate, `main` 1 | Contradicted | check, check, check, confirm, strict |
+| First gate, branch 1 | Not checked (no-evidence) | check, check, evidence |
+| First gate, `main` 2 | Contradicted | check, check, check (asked to calculate first), confirm, strict |
+| First gate, branch 2 | Not checked (no-evidence) | check, check, evidence |
+| Confirming, `main` 1 | Contradicted | check, check, confirm, strict |
+| Confirming, branch 1 | Not checked (no-evidence) | check, check, evidence |
+| Confirming, `main` 2 | Contradicted | check, check, check, confirm, strict |
+| Confirming, branch 2 | Not checked (no-evidence) | check, check, evidence |
+
+**3. The replay's full requests.** Each request's instructions and whole prompt were compared, as the two codes sent them in the replay. That covers every message, the Passages its searches returned, and its Tool results, tools and response format. In all, 31 requests and 961,828 bytes on each code, the same on both, in all eight runs. These are the requests the two codes make when given the same replies.
+
+**4. What ends the branch's four runs Not checked.**
+- In each, the model gave its verdict without a record the reader takes, and the app asked for its evidence.
+- The evidence reply quoted the table's row with its raw tabs, inside a JSON string. The judged replies' shared JSON reader doesn't read a raw tab in a string, so the reply was unreadable (#3125).
+- With only the tabs escaped, both codes read the reply, and the sentence ends Contradicted. With only its location changed to the Passage's own, it still reads not found.
+- The same fault ends contradicted labels no-evidence on both arms: 13 on `main` over its four runs and 12 on the branch over its four. fs-046 on `main` in both confirming runs is one of them.

@@ -255,6 +255,8 @@ async function checkWith(options: {
   /** Asked once more for its record, it gives this quote, under the markers asked for if any. */
   recordWhenAsked?: string;
   scope?: { documentIds: string[] | null; excluded: Map<string, "own-file"> };
+  /** The sentence also cites another Document's Passage, of this text, which no search finds. */
+  alsoCited?: { text: string; documentDeleted?: boolean; notCited?: boolean };
 }) {
   const body =
     options.body ?? "Revenue in 2024 was £20; revenue in 2025 was £21. The licence has expired.";
@@ -380,6 +382,18 @@ async function checkWith(options: {
     notCited: false,
     yourNoteAt: null,
   };
+  const other: CitationSource | null = options.alsoCited
+    ? {
+        ...source,
+        passageId: "passage-2",
+        documentId: "document-2",
+        documentName: "Kennzahlen",
+        contentHash: "hash-2",
+        text: options.alsoCited.text,
+        documentDeleted: options.alsoCited.documentDeleted ?? false,
+        notCited: options.alsoCited.notCited ?? false,
+      }
+    : null;
   const engine = createAiSdkAnswerEngine();
   const check = createClaimCheck({
     language: () => "en",
@@ -413,8 +427,12 @@ async function checkWith(options: {
       passagesBetween: () => [{ ...source, seq: 1, position: 0, windowFrom: 0, windowTo: 0 }],
       savedBySearch: () => false,
       unitCounts: () => new Map([[source.documentId, 1]]),
-      citationSource: (id) => (id === source.passageId ? source : null),
-      pageTexts: () => options.units ?? [{ page: 1, text: body, kind: "page", label: null }],
+      citationSource: (id) =>
+        id === source.passageId ? source : id === other?.passageId ? other : null,
+      pageTexts: (documentId) =>
+        other && documentId === other.documentId
+          ? [{ page: 1, text: other.text, kind: "page", label: null }]
+          : (options.units ?? [{ page: 1, text: body, kind: "page", label: null }]),
       documentDate: () => null,
     },
   });
@@ -422,14 +440,12 @@ async function checkWith(options: {
     claim: options.claim ?? "Revenue in 2024 was £20 and revenue in 2025 was £20.",
     figures: options.figures,
     scope: options.scope ?? { documentIds: null, excluded: new Map() },
-    ...(options.citeSentence && {
-      cited: [
-        {
-          documentName: source.documentName,
-          quote: source.text,
-          passageId: source.passageId,
-        },
-      ],
+    ...((options.citeSentence || other) && {
+      cited: [...(options.citeSentence ? [source] : []), ...(other ? [other] : [])].map((each) => ({
+        documentName: each.documentName,
+        quote: each.text,
+        passageId: each.passageId,
+      })),
     }),
     model: prepared,
     signal: new AbortController().signal,
@@ -1225,6 +1241,73 @@ test("a German cell under “(£m)” copied from an English one reads two ways"
   expect(line("en")).toBe("“1.284” could mean 1.284 or 1,284, so it wasn’t checked.");
   expect(line("zh-CN")).toBe("“1.284”可能是 1.284，也可能是 1284，所以未核对。");
 });
+
+// protects=a bare cell whose separator and scale its Note both leave open, read the "," way because the Document the sentence cites writes "," for decimals, is compared in its source's frame as that reading: "1.284" under "(£m)" is £1,284m (#3088); fails_when=the frame is applied to the cell as first read, £1.284m, and it reads Contradicted; no_claim=a separator the Note settles, or a frame its source doesn't state (the tests above).
+test("a separator the cited Document's way reads survives its source's frame", async () => {
+  const body =
+    "All figures in £m\nSegment\tQ3 2026\tQ3 2025\nClothing\t1284\t1310\nCash held\t1.284.000\t1.310.000";
+  const reading = readFigures("1.284", { header: "Q3 2026 (£m)" })[0];
+  if (!reading) throw new Error("Missing cell reading");
+  expect(reading.ambiguous.map((each) => each.kind).sort()).toEqual(["scale", "separator"]);
+  const { result } = await checkWith({
+    figures: [{ ...target("f1", "1.284", "Clothing Q3 2026"), reading }],
+    body,
+    units: segments(body),
+    quotes: ["Clothing\t1284\t1310", "All figures in £m"],
+    citeSentence: true,
+    text: reply([
+      {
+        ...item(),
+        source: { citation: 1, number: "1284", reading: null, unitQuote: "All figures in £m" },
+      },
+    ]),
+  });
+  expect(result.figures?.[0]?.result.verdict).toBe("supported");
+});
+
+/** A Document that writes "," for decimals and "." for thousands, in no language the app tells. */
+const KENNZAHLEN = "Northwind\nRevenue GBP 1.284\nCash GBP 1.284.000\nCosts GBP 1.234.567";
+
+// protects=a figure whose separators its Note leaves open is read the way a Document the sentence cites writes numbers only when the check may use that Document: a deleted, uncited, left-out or out-of-scope one never decides it, and the interface language reads it (#3088); fails_when=such a Document reads "1.284" under "(£m)" as £1,284m and it reads Supported; no_claim=a cited Document the check may use, which decides it (the test above, and tests/core/separatorReadings.test.ts, step 3).
+test.each([
+  { name: "deleted", cited: { documentDeleted: true }, scope: undefined },
+  { name: "not to be cited", cited: { notCited: true }, scope: undefined },
+  {
+    name: "left out",
+    cited: {},
+    scope: { documentIds: null, excluded: new Map([["document-2", "own-file" as const]]) },
+  },
+  {
+    name: "outside the scope",
+    cited: {},
+    scope: { documentIds: ["document-1"], excluded: new Map<string, "own-file">() },
+  },
+])(
+  "a cited Document the check can't use never reads a figure's separators: $name",
+  async ({ cited, scope }) => {
+    const body = "All figures in £m\nSegment\tQ3 2026\tQ3 2025\nClothing\t1284\t1310";
+    const reading = readFigures("1.284", { header: "Q3 2026 (£m)" })[0];
+    if (!reading) throw new Error("Missing cell reading");
+    const { result } = await checkWith({
+      figures: [{ ...target("f1", "1.284", "Clothing Q3 2026"), reading }],
+      body,
+      units: segments(body),
+      quotes: ["Clothing\t1284\t1310", "All figures in £m"],
+      alsoCited: { text: KENNZAHLEN, ...cited },
+      ...(scope && { scope }),
+      text: reply([
+        {
+          ...item(),
+          source: { citation: 1, number: "1284", reading: null, unitQuote: "All figures in £m" },
+        },
+      ]),
+    });
+    expect(result.figures?.[0]?.result).toMatchObject({
+      verdict: "not-checked",
+      reason: "two-readings",
+    });
+  },
+);
 
 test("a figure given a currency its Document never states is Unsupported, and says which part (#1798)", async () => {
   const body = "The annual salary is 54,000, paid monthly in arrears.";
