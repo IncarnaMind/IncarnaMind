@@ -362,6 +362,15 @@ Four runs in one process, `main, decision, decision, main`, Claude Haiku 5.5 beh
 
 With A3 not met the decision model reads only where the User chose it, unless the owner decides otherwise with the 12 quotes in front of them.
 
+### One more reported row: when the model's own score would withhold a quote
+
+Written on 2026-11-15, before its first request. No bar, and no build has this rule: it measures one.
+
+- **The rule, fixed here:** a Mark's quote is "shown" when the quote, asked about alone with the two questions, passes the lines a Passage asked about alone must pass (stated 0.985 with the opposite under 0.895 for Supported; opposite 0.905 for Contradicted), and is not over 200 characters. Any other Mark would name its Document and place and claim no quote.
+- **Asked:** the 46 quotes of part A again that are not cut at 200 characters, and the 10 distinct quotes under the decision model's Marks in part B. The 5 cut quotes of part A again count as not shown and are not asked. The script outside the app asks, with its own context for the sentence, and names the quote's Document without the page the app would send. Stop US$0.01; one answered request first; a run with a request refused, failed or timed out is void.
+- **Reported, for part A again and part B apart:** shown or not shown, against accepted or rejected by the two blind readers whose answers are already in.
+- **Beside it, from scores saved before this gate, no request:** the same four cells for the 139 quotes of the checks evaluation's set read blind on 2026-11-15. There the score is the line's in a request about all its Passage's lines, not the line asked alone, and the quote was a printed line, not a sentence.
+
 ### Part M
 
 Part M spent nothing (above).
