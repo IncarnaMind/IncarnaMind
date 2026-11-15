@@ -1931,7 +1931,7 @@ export function createCore(adapters: CoreAdapters): Core {
     search: (query, options) =>
       documents.searchTool(query, {
         ...options,
-        rerank: timedRerank(adapters.reranker ?? rerank.active()),
+        rerank: options.rerank ?? timedRerank(adapters.reranker ?? rerank.active()),
       }),
     best: (query, limit, documentIds) => documents.bestPassages(query, limit, documentIds),
   });

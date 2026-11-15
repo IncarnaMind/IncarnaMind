@@ -29,7 +29,7 @@ import {
   pairIds,
   type SessionDevice,
 } from "../../src/core/reranking/onnx";
-import { asCheckWork, createRerankQueue, readingPlace } from "../../src/core/reranking/order";
+import { asCheckWork, createRerankQueue } from "../../src/core/reranking/order";
 import { createTempDataFolder, NO_MODEL_FILES } from "../helpers/core";
 import { startModelServer } from "../helpers/embedding";
 import { recordingLog } from "../helpers/log";
@@ -435,56 +435,6 @@ describe("The order searches are scored in", () => {
     expect(scored.slice(2)).toEqual(
       Array.from({ length: 9 }, (_, index) => `sentence ${index + 2}`),
     );
-    model.close();
-  });
-
-  // protects=a decision model's readings of a Note's sentences never hold up a check: a check's search asked while readings' searches wait is scored next, the readings keep their own order, and a reading a check waits for goes before the other readings (#3118); fails_when=a check's search waits behind readings asked before it, a check waits for its sentence's reading behind other sentences' readings, or the readings change order; no_claim=the one search being scored when the check asks, which ends first.
-  test("a check's search, and the reading a check waits for, are scored before other readings", async () => {
-    const dataDir = await createTempDataFolder();
-    const scored: string[] = [];
-    const open: (() => void)[] = [];
-    const model = createRerankingModel({
-      definition: BUILT_IN_RERANKING_MODEL,
-      source: NO_MODEL_FILES,
-      dataDir,
-      crossEncoder: {
-        load: async () => ({ device: "gpu" }),
-        score: async (query, texts) => {
-          scored.push(query);
-          await new Promise<void>((resolve) => open.push(resolve));
-          return texts.map(() => 0);
-        },
-        close: () => {},
-      },
-      emitStatus: () => {},
-    });
-    const hits = [
-      { documentName: "Tides", text: "Spring tides come at new moon." },
-      { documentName: "Harbour", text: "The harbour office opens at nine." },
-    ];
-    const places = Array.from({ length: 5 }, () => readingPlace());
-    const readings = places.map((place, index) =>
-      place.run(() => model.rerank(`reading ${index + 1}`, hits)),
-    );
-    await vi.waitFor(() => expect(scored).toEqual(["reading 1"]));
-
-    const checks = [1, 2].map((index) => asCheckWork(() => model.rerank(`check ${index}`, hits)));
-    places[3]?.hurry();
-    while (scored.length < 7 || open.length > 0) {
-      await vi.waitFor(() => expect(open.length).toBeGreaterThan(0));
-      open.shift()?.();
-    }
-    await Promise.all([...readings, ...checks]);
-
-    expect(scored).toEqual([
-      "reading 1",
-      "check 1",
-      "check 2",
-      "reading 4",
-      "reading 2",
-      "reading 3",
-      "reading 5",
-    ]);
     model.close();
   });
 });
