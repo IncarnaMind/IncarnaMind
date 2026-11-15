@@ -477,6 +477,7 @@ interface LabelledSentence {
   id: string;
   text: string;
   expected: "supported" | "contradicted" | "unsupported" | "no-mark" | "unknown";
+  kind?: string;
   citation: { file: string; quote: string } | null;
 }
 
@@ -631,6 +632,7 @@ test.skipIf(mode !== "replay" && mode !== "replay-dry" && mode !== "replay-main"
             return {
               note: labelled.id,
               sure: reading?.final ? reading.verdict : null,
+              kind: sentence.kind ?? null,
               id: sentence.id,
               text: sentence.text,
               expected: sentence.expected,
