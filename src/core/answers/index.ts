@@ -214,6 +214,7 @@ import { runCodeTool } from "../runCode/tool";
 import { currentTask } from "../runs/current";
 import type { GateDecision, TokenUsage } from "../runs/engine";
 import type { RepliesOut } from "../runs/replies";
+import { pendingWaits, REPLY_WAIT_LIMIT_MS, waitingOnLimits } from "../runs/requestWait";
 import type { SkillScript, SkillSession } from "../skills";
 import {
   parseScriptArgs,
@@ -224,6 +225,7 @@ import {
 } from "../skills/scripts";
 import { scriptCallInput, skillTools } from "../skills/tools";
 import { asksForSources } from "../sources/intent";
+import { type PaceTimers, realTimers } from "../sources/pace";
 import { inFlow, inStep } from "../timing/flows";
 import {
   ASK_TOOLS,
@@ -277,6 +279,7 @@ import {
   judgedMarkers,
   type SupportResult,
 } from "./checks/answerCheck";
+import { waitLine } from "./checks/waitLine";
 import {
   type AnswerDocuments,
   createCitationSession,
@@ -713,6 +716,10 @@ export interface AnswersOptions {
   ): Promise<PreparedChatModel>;
   /** Where an Answer marks its provider while it is written (../runs/replies). */
   repliesOut?: RepliesOut;
+  /** The clock a rate limit's wait is kept by; the real one when left out (#2944). */
+  timers?: PaceTimers;
+  /** Says that what `id` (an Answer) waits on a rate limit until (ms since the epoch), or no longer does (#2944). */
+  waiting?(id: string, until: number | null): void;
   /**
    * The model call help answers on under `answers` (#2526), of the same provider; null:
    * `answers` itself.
@@ -1128,6 +1135,7 @@ const pressOf = (help: CallHelpKind | null | undefined): MeetingHelpKind | null 
 
 export function createAnswers(options: AnswersOptions) {
   const { content, events, engine } = options;
+  const clock = options.timers ?? realTimers;
   /** Answers being written, by id. */
   const active = new Map<string, Generation>();
   /**
@@ -1379,12 +1387,14 @@ export function createAnswers(options: AnswersOptions) {
             onJudged: judged,
             onSentence: passed,
             onStop: (stop) => judged(null, null, stop),
+            onWait: waitLine(clock.now, (until) => options.waiting?.(answer.id, until)),
           }),
         );
       }
     } catch (error) {
       options.reportError(error);
     } finally {
+      options.waiting?.(answer.id, null);
       if (citations.some((citation) => citation.check === "checking")) judged(null, null);
       giveBack();
       if (judgements.get(answer.id)?.controller === controller) judgements.delete(answer.id);
@@ -1596,6 +1606,8 @@ export function createAnswers(options: AnswersOptions) {
     let ending = false;
     /** Ends the Answer's mark on its provider (`AnswersOptions.repliesOut`). */
     let replyEnded = () => {};
+    /** Whether its line says its request waits on a rate limit (#2944). */
+    let limitShown = false;
     let support: CitationSupport | null = null;
     /** Markers the engine put in for records the model gave without them. */
     let placedMarkers = 0;
@@ -2133,6 +2145,7 @@ export function createAnswers(options: AnswersOptions) {
       finished = true;
       finishedAt = Date.now();
       replyEnded();
+      if (limitShown) options.waiting?.(answerId, null);
       if (timer) clearTimeout(timer);
       active.delete(answerId);
       writingChanged();
@@ -2720,6 +2733,19 @@ export function createAnswers(options: AnswersOptions) {
         finish({ status: "failed", error: failureOf(error) });
         return;
       }
+      // A request a rate limit refused with a stated wait of a minute or less is sent again once
+      // it is over, once; any other refusal fails the Answer as it always has (#2944).
+      const limited = waitLine(clock.now, (until) => {
+        limitShown = until !== null;
+        options.waiting?.(answerId, until);
+      });
+      const told = pendingWaits(limited);
+      prepared = waitingOnLimits(prepared, {
+        now: clock.now,
+        wait: (ms, signal) => clock.sleep(ms, signal ?? controller.signal),
+        allows: (asks) => asks <= REPLY_WAIT_LIMIT_MS,
+        waiting: (until, on) => told.waiting(until, on),
+      });
       calculating = offersCalculate(prepared.capabilities);
       workbookToolsOffered =
         offersWorkbookTools(prepared.capabilities) &&

@@ -183,6 +183,7 @@ import {
 } from "./sentences";
 import { unitGate } from "./unitGate";
 import { createVerify, type NoDocuments, type VerifyOptions } from "./verify";
+import { waitLine } from "./waitLine";
 import { createContradictionWatch, type WatchOptions } from "./watch";
 import {
   createWholeRead,
@@ -265,8 +266,10 @@ export interface ChecksOptions
   >;
   /** Aborts once a write's claims sort has taken too long; a check's time limit unless given. */
   sortTimeLimit?: () => AbortSignal;
-  /** Where an Answer marks its provider while it is written, which a write's check waits behind. */
+  /** Where an Answer marks its provider while it is written, which a check's requests wait behind. */
   repliesOut?: RepliesOut;
+  /** Says that the check of `id` waits on a rate limit until (ms since the epoch), or no longer does (#2944). */
+  waiting?(id: string, until: number | null): void;
   /** Throws unless the Mind exists and this version may write to it. */
   requireMind(mindId: string): void;
   /** The Folder the Mind is in; null for none. */
@@ -1581,6 +1584,7 @@ export function createChecks(options: ChecksOptions) {
     }
 
     let checked = 0;
+    const ran = checkRunOf(options, ready.prepared, signal, mindId);
     const { outcomeError } = await runClaimChecks(
       queued,
       (sentence, attempt) =>
@@ -1589,7 +1593,10 @@ export function createChecks(options: ChecksOptions) {
           checkRequest(sentence, evidenceScope, ready.prepared, mindId, signal, check.wanted),
         ),
       {
-        ...checkRunOf(options, ready.prepared, signal, mindId),
+        ...ran,
+        ...(options.waiting && {
+          onPause: waitLine(ran.timers.now, (until) => options.waiting?.(input.requestId, until)),
+        }),
         onOutcome(sentence, outcome) {
           if (signal.aborted) return;
           if ("result" in outcome && outcome.result.verdict !== "not-checked") checked++;
@@ -1843,6 +1850,8 @@ export function createChecks(options: ChecksOptions) {
       options.documents.pageTexts(citation.documentId, citation.contentHash, null, null),
     unstatedUnit: unitGate(options, options.documents, figureContextIn(options.documents), false),
     claimTimeLimitMs: options.claimTimeLimitMs ?? CLAIM_TIME_LIMIT_MS,
+    ...(options.timers && { timers: options.timers }),
+    ...(options.repliesOut && { repliesOut: options.repliesOut }),
     mostOf: (model, request) => {
       const estimate = options.estimateRead(model, { likely: [request], most: [request] });
       return estimate?.billing === "per-token" ? (estimate.upTo?.cost ?? null) : null;

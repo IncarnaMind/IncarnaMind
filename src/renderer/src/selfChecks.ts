@@ -7,6 +7,7 @@
  */
 import type { AnswerToolCall, MindChange, RegisteredDataFlow } from "../../core/api";
 import type { Language } from "../../core/language";
+import { formatDateTime } from "../../shared/dates";
 import { formatResetTime } from "./cost";
 import type { Translate } from "./objects";
 
@@ -82,19 +83,27 @@ export interface SelfCheckProgress {
   total: number;
   /** Waiting for another write's check to end: one runs at a time. */
   waiting?: boolean;
+  /** Waiting on the model's rate limit until then (ISO 8601 UTC), in Tags' words (#2944). */
+  limitedUntil?: string | null;
 }
 
 // It counts the sentences done, as the Note's badge does, not the one being checked: several are
 // checked at once.
-function checkingLine(t: Translate, { done, total, waiting }: SelfCheckProgress): SelfCheckLine {
+function checkingLine(
+  t: Translate,
+  language: Language,
+  { done, total, waiting, limitedUntil }: SelfCheckProgress,
+): SelfCheckLine {
   return {
     kind: "checking",
     // A count that stands still while another write is checked would read as stuck (#2830).
-    text: waiting
-      ? t("selfCheck.waiting")
-      : total === 1
-        ? t("selfCheck.checking.one", { count: done })
-        : t("selfCheck.checking", { count: done, total }),
+    text: limitedUntil
+      ? t("status.rateLimited", { time: formatDateTime(limitedUntil, language) })
+      : waiting
+        ? t("selfCheck.waiting")
+        : total === 1
+          ? t("selfCheck.checking.one", { count: done })
+          : t("selfCheck.checking", { count: done, total }),
     details: [],
     action: null,
   };
@@ -120,7 +129,7 @@ export function selfCheckLines(
   /** Its sentences that need a look now, live from its Mind; null: not known, the record's count. */
   look: number | null = null,
 ): SelfCheckLine[] {
-  if (progress) return [checkingLine(t, progress)];
+  if (progress) return [checkingLine(t, language, progress)];
   // Recorded as it began, and not heard from since: this window hasn't heard how far it is yet,
   // or IncarnaMind stopped before it could say how it ended. Its sentences' marks say either way.
   if (check.running) return [];

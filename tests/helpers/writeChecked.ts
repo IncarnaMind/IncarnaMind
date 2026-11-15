@@ -5,6 +5,7 @@
  * the test moves.
  */
 import { vi } from "vitest";
+import type { Core } from "../../src/core";
 import { CLAIM_TIME_LIMIT_MS } from "../../src/core/answers/checks/runCheck";
 import type { PaceTimers } from "../../src/core/sources/pace";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
@@ -88,6 +89,7 @@ async function noteChecked(
   const { core, folder } = await coast(model, timers);
   let notes = 0;
   return {
+    core,
     /** Check this Note on a new Note of the session, which it gives once checked. */
     async check(): Promise<MindClient> {
       notes++;
@@ -146,6 +148,7 @@ async function writeChecked(
   const { core, folder } = await coast(model, timers);
   let notes = 0;
   return {
+    core,
     /** The write into a new Note of the session, which it gives once written. */
     async write(): Promise<MindClient> {
       notes++;
@@ -301,6 +304,8 @@ export interface KeyWrite {
   order: string[];
   /** The same, each with when it was sent from the write's start, in ms, and "refused" for one refused. */
   timeline: string[];
+  /** What its check said of its wait on a rate limit, in order: when it resumes from the write's start in ms, or null once it didn't wait. */
+  waits: (number | null)[];
 }
 
 /**
@@ -315,8 +320,8 @@ export const keyWrites = (
   writes = 2,
 ): Promise<KeyWrite[]> =>
   onKey(replyMs, key, false, writes, async (hold, timers) => {
-    const { write } = await writeChecked(count, hold, timers);
-    return write;
+    const { core, write } = await writeChecked(count, hold, timers);
+    return { core, run: write };
   });
 
 /**
@@ -333,8 +338,8 @@ export const keyNotes = (
   checks = 2,
 ): Promise<KeyWrite[]> =>
   onKey(replyMs, key, states, checks, async (hold, timers) => {
-    const { check } = await noteChecked(count, hold, timers);
-    return check;
+    const { core, check } = await noteChecked(count, hold, timers);
+    return { core, run: check };
   });
 
 /** `runs` runs of what `start` gives, one after another in one session, on a key shaped as `key`. */
@@ -346,7 +351,7 @@ async function onKey(
   start: (
     hold: (call: ModelCall, reply: ScriptedReply) => ScriptedReply,
     timers: PaceTimers,
-  ) => Promise<() => Promise<MindClient>>,
+  ) => Promise<{ core: Core; run(): Promise<MindClient> }>,
 ): Promise<KeyWrite[]> {
   const clock = virtualClock();
   const scripted = scriptedKey(key, replyMs);
@@ -355,8 +360,8 @@ async function onKey(
   let started = 0;
   const order: string[] = [];
   const timeline: string[] = [];
-  const run = await start((call, planned) => {
-    const answer = scripted.send(clock.now());
+  const { core, run } = await start((call, planned) => {
+    const answer = scripted.send(clock.now(), call.results.length);
     const request = `${numberOf(call)}:${call.results.length}`;
     order.push(request);
     timeline.push(`${clock.now() - started} ${request}${answer.fits ? "" : " refused"}`);
@@ -385,9 +390,19 @@ async function onKey(
       }),
     };
   }, clock.timers);
+  const waits: (number | null)[] = [];
+  core.on("rateLimit.waiting", ({ resumesAt }) =>
+    waits.push(resumesAt === null ? null : Date.parse(resumesAt) - started),
+  );
   const results: KeyWrite[] = [];
   for (let each = 0; each < runs; each++) {
-    const before = { refused, sent, order: order.length, timeline: timeline.length };
+    const before = {
+      refused,
+      sent,
+      order: order.length,
+      timeline: timeline.length,
+      waits: waits.length,
+    };
     scripted.newWrite();
     started = clock.now();
     const note = await clock.until(run);
@@ -400,6 +415,7 @@ async function onKey(
       marks,
       order: order.slice(before.order),
       timeline: timeline.slice(before.timeline),
+      waits: waits.slice(before.waits),
     });
   }
   return results;

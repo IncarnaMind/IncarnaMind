@@ -369,6 +369,127 @@ describe("Check for contradictions", () => {
   });
 });
 
+describe("The watch's checks beside a reply on their key (#2944)", { timeout: 30_000 }, () => {
+  /** A promise the test settles by hand. */
+  const gate = () => {
+    let open = () => {};
+    const opened = new Promise<void>((resolve) => {
+      open = resolve;
+    });
+    return { opened, open };
+  };
+
+  /**
+   * A model whose first check request waits for `first` and whose Answers wait for `replyHeld`:
+   * each check request is noted, and a reply says when it began.
+   */
+  function watchedAndAsked() {
+    const first = gate();
+    const replyHeld = gate();
+    const replyBegan = gate();
+    const checks: ModelCall[] = [];
+    const model = scriptedModel(
+      (call) => {
+        if (!isCheckRun(call)) {
+          return {
+            text: "High water comes twice a day.",
+            pause: { after: 0, until: replyHeld.opened, reached: replyBegan.open },
+          };
+        }
+        checks.push(call);
+        const planned = checkReply(call, PLANS);
+        return checks.length === 1
+          ? { ...planned, pause: { after: 0, until: first.opened } }
+          : planned;
+      },
+      { generate: checkGenerate(PLANS) },
+    );
+    return { first, replyHeld, replyBegan, checks, model };
+  }
+
+  // protects=a check for contradictions that has a request out when a reply begins on its key sends no new request until the reply's stream ends, then every verdict lands (#2944: the same holds for the contradiction watch); fails_when=its next request goes out beside the reply, or its marks are lost by the wait; no_claim=how long a reply takes.
+  test("a Check for contradictions waits for a reply that begins while it runs, then lands every mark", async () => {
+    const { first, replyHeld, replyBegan, checks, model } = watchedAndAsked();
+    const { core, tides, folder } = await setUp({ model });
+    const { mind, client } = await mindCiting(core, tides, folder.id);
+    const asked = question("When is high water?");
+    editMind(client, (blocks) => [...blocks, asked]);
+    await client.settled();
+
+    const checked = core.checkContradictions({ requestId: "r1", mindId: mind.id });
+    await vi.waitFor(() => expect(checks).toHaveLength(1));
+    const answer = await core.askQuestion({ mindId: mind.id, questionId: asked.attrs.id });
+    if (!answer.asked) throw new Error("The Question wasn't asked.");
+    await replyBegan.opened;
+
+    // Its request out finishes, but the next isn't sent beside the reply.
+    first.open();
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(checks).toHaveLength(1);
+
+    replyHeld.open();
+    expect(await checked).toMatchObject({
+      kind: "checked",
+      claims: 2,
+      checked: 2,
+      contradicted: 1,
+    });
+    expect(checks.length).toBeGreaterThan(1);
+  });
+
+  // protects=a check the background queue runs for a new version, with a request out on a cloud model when a reply begins on its key, sends no new request until the reply's stream ends, and then lands its marks (#2944: the same holds for the background queue); fails_when=its next request goes out beside the reply; no_claim=how the queue orders its jobs.
+  test("a background check in flight waits for a reply that begins on its key, then lands its marks", async () => {
+    const { first, replyHeld, replyBegan, checks, model } = watchedAndAsked();
+    const core = startCore(await createTempDataFolder(), {
+      createChatModel: scriptedModels(model).createChatModel,
+      contradictionWatch: { delayMs: 0 },
+    });
+    core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
+    const saved = await core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-ant-test",
+      modelId: "claude-haiku-5-5",
+    });
+    if (saved.service) {
+      for (const flow of ["chat", "checks"] as const) {
+        await core.allowDataFlow(flow, saved.service.id);
+      }
+    }
+    const sources = await createTempDataFolder();
+    const [tides, office] = (await addAndProcess(core, [
+      await writeSourceFile(sources, TIDES.name, TIDES.contents),
+      await writeSourceFile(sources, OFFICE.name, QUIET_OFFICE),
+    ])) as [Document, Document];
+    const folder = await core.createLibraryGroup({ name: "Harbours", description: "" });
+    await core.moveToFolder({ documentIds: [tides.id, office.id], folderId: folder.id });
+    const { mind, client } = await mindCiting(core, tides, folder.id);
+    const asked = question("When is high water?");
+    editMind(client, (blocks) => [...blocks, asked]);
+    await client.settled();
+
+    await writeFile(office.path, OFFICE.contents);
+    await core.reconcileDocuments();
+    await waitForProcessing(core, [office.id]);
+    await vi.waitFor(() => expect(checks).toHaveLength(1), { timeout: 10_000 });
+    const answer = await core.askQuestion({ mindId: mind.id, questionId: asked.attrs.id });
+    if (!answer.asked) throw new Error("The Question wasn't asked.");
+    await replyBegan.opened;
+
+    first.open();
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(checks).toHaveLength(1);
+
+    replyHeld.open();
+    await vi.waitFor(
+      async () =>
+        expect((await shownChecks(core, client, folder.id)).map((each) => each.shown)).toEqual([
+          { state: "contradicted" },
+        ]),
+      { timeout: 10_000 },
+    );
+  });
+});
+
 describe("A new version of a Document in the Folder", { timeout: 30_000 }, () => {
   test("has the Folder's Minds with cited claims checked in the background, and records what it found", async () => {
     const calls: ModelCall[] = [];
