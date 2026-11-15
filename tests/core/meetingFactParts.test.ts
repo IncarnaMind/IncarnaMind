@@ -1,10 +1,13 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, test, vi } from "vitest";
 import type { Core, Meeting, MeetingFill, SystemNotifications } from "../../src/core";
 import { withoutOverlap } from "../../src/core/answers/documentText";
+import { readVtt } from "../../src/core/documents/formats/vtt";
 import { buildPassages } from "../../src/core/documents/passages";
 import type { WindowedPassage } from "../../src/core/documents/search";
 import type { Language } from "../../src/core/language";
 import { FILL_PART_TOKENS, transcriptParts } from "../../src/core/meetings/fill";
+import { clockTime } from "../../src/shared/clock";
 import { translate } from "../../src/shared/i18n";
 import { mindName } from "../../src/shared/naming";
 import { mindCitations, shownPassages } from "../helpers/citations";
@@ -133,12 +136,15 @@ async function capture(
     language,
     notifications,
     short,
+    asides,
     linesRepeated,
   }: {
     language?: Language;
     notifications?: SystemNotifications;
     /** This many lines of ordinary length, a sentence or two each, instead of one. */
     short?: number;
+    /** After each line a short one: "Yeah.", or a line that starts with it. */
+    asides?: boolean;
     /** The evaluation's arm for the notes as they were asked for before #3151. */
     linesRepeated?: boolean;
   } = {},
@@ -157,9 +163,15 @@ async function capture(
         (_, index) =>
           `Workshop item ${index + 1}: ${index < 4 ? schedule.earlier : schedule.final}. ${PURPOSE}. ${UNFINISHED}.`,
       );
+  const said = asides
+    ? lines.flatMap((line, index) => [
+        line,
+        index % 2 ? "Yeah." : "Yeah. But the checklist comes first, doesn't it?",
+      ])
+    : lines;
   const { core, record } = await transcribingCore(await createTempDataFolder(), {
     model: model.model,
-    engine: { lines: [...lines, "The workshop is closed"], maxSpeechMs: 500 },
+    engine: { lines: [...said, "The workshop is closed"], maxSpeechMs: 500 },
     ...(notifications && { notifications }),
     ...(linesRepeated && { notesLinesRepeated: () => true }),
   });
@@ -174,8 +186,8 @@ async function capture(
   const before = exactly(client);
   await core.startMeeting({ meetingId: meeting.id, systemAudio: false });
   let recorded = 0;
-  while (recorded < lines.length + 1) {
-    const count = Math.min(20, lines.length + 1 - recorded);
+  while (recorded < said.length + 1) {
+    const count = Math.min(20, said.length + 1 - recorded);
     record(count * 500, ["microphone"]);
     recorded += count;
     await vi.waitFor(async () => {
@@ -219,6 +231,16 @@ function itemsShown(model: ReturnType<typeof modelFor>, part: number): number[] 
   return shownPassages(asked.call.prompt).flatMap((passage) =>
     [...passage.text.matchAll(/Workshop item (\d+):/g)].map((match) => Number(match[1])),
   );
+}
+
+/** A part's request as the model read the Transcript: each line's time, and what was said. */
+function linesShown(model: ReturnType<typeof modelFor>, part: number): string[] {
+  const asked = model.calls.find((each) => each.part === part);
+  if (!asked) throw new Error(`Part ${part} was never asked.`);
+  return shownPassages(asked.call.prompt)
+    .flatMap((passage) => passage.text.split("\n"))
+    .filter((line) => line.trim() !== "")
+    .map((line) => line.replace(/^\[(\d+:\d\d)[^\]]*\] /, "$1 "));
 }
 
 async function fillOf(core: Core, meeting: Meeting): Promise<MeetingFill | null> {
@@ -544,6 +566,23 @@ describe("A long call's Transcript, each line once, in parts a reply has room fo
     try {
       expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", problem: null });
       expect(itemsShown(model, 1)).toEqual(Array.from({ length: items }, (_, index) => index + 1));
+    } finally {
+      core.close();
+    }
+  });
+
+  // protects=every line of a call's notes request carries its own time, when short replies ("Yeah.") come between the lines and other lines start with the same word (#3151); fails_when=a line reaches the model with no time, or with an earlier line's; no_claim=who the model says spoke.
+  test("each line is sent with its own time when short replies repeat", async () => {
+    const model = modelFor(() => ({ text: `${fact("P1_review", EARLIER)}\n\n${overview()}` }));
+    const { core, meeting, text } = await capture(model, false, null, { short: 60, asides: true });
+    try {
+      expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", problem: null });
+      const file = (await core.listDocuments()).find((each) => each.id === text.documentId);
+      const heard = readVtt(readFileSync(file?.path ?? "", "utf8")).cues.map(
+        (cue) => `${clockTime(cue.startMs)} ${cue.text}`,
+      );
+      expect(heard).toHaveLength(121);
+      expect(linesShown(model, 1)).toEqual(heard);
     } finally {
       core.close();
     }

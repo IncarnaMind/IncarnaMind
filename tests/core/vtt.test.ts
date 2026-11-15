@@ -320,6 +320,40 @@ describe("Citations of a Transcript", () => {
     expect(withCueMarks(tail, units)).toMatch(/^\[12:20\] Two weeks/);
   });
 
+  // protects=a Passage that starts part way through its block marks each line with its own time, when a short cue before it ("Yeah.") also starts a later line (#3151); fails_when=a line gets an earlier cue's time, or the lines before it get none; no_claim=a Passage that starts inside a cue marks that first piece.
+  test("a short cue before the Passage isn't taken for a later line that starts with its words", () => {
+    const said = [
+      "Yeah.",
+      "Right, the menu opens on a right click.",
+      "So the double click picks the most common choice.",
+      "Yeah. But if you double-click on something, don't you expect something to happen?",
+      "Yeah.",
+      "Then that is the default",
+    ];
+    const block = transcriptUnits({
+      cues: said.map((text, index) => ({
+        startMs: 60_000 * (index + 1),
+        endMs: 60_000 * (index + 1) + 2000,
+        text,
+        speaker: null,
+      })),
+      gaps: [],
+    });
+    const from = (first: number) => said.slice(first).join("\n");
+    const marked = (first: number) =>
+      said
+        .slice(first)
+        .map((text, index) => `[${first + index + 1}:00] ${text}`)
+        .join("\n");
+    expect(withCueMarks(from(1), block)).toBe(marked(1));
+    expect(withCueMarks(from(4), block)).toBe(marked(4));
+    // A Passage that ends inside a cue marks the piece it holds; one that starts inside a cue doesn't mark that piece.
+    expect(withCueMarks(from(1).slice(0, -8), block)).toBe(marked(1).slice(0, -8));
+    expect(withCueMarks(`on a right click.\n${from(2)}`, block)).toBe(
+      `on a right click.\n${marked(2)}`,
+    );
+  });
+
   test("clock times read back", () => {
     expect(clockTime(0)).toBe("0:00");
     expect(clockTime(866_000)).toBe("14:26");
