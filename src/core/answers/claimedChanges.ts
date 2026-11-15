@@ -529,6 +529,9 @@ function commandRecordOf(done: CommandDone, noteName: (id: string) => string) {
   };
 }
 
+/** A command's name as the app writes it (`mind.export`): a path, which has a separator, is none. */
+const COMMAND_NAME = /^[\w.-]+$/;
+
 /**
  * What a command was asked, of the call's input: the command and the setting, format or style it
  * named, never the ids or paths it was given. The model writes these, and a schema's list isn't
@@ -541,7 +544,7 @@ function inputOf(input: AnswerToolCall["input"]) {
   const formatName = EXPORT_FORMATS.find((each) => each === format);
   const styleName = typeof style === "string" ? lastPart(style) : "";
   return {
-    ...(typeof command === "string" && { command }),
+    ...(typeof command === "string" && COMMAND_NAME.test(command) && { command }),
     ...(settingName !== undefined && { setting: settingName }),
     ...(formatName !== undefined && { format: formatName }),
     ...(styleName !== "" && { style: styleName }),

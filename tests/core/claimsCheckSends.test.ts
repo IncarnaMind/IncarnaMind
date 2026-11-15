@@ -302,6 +302,7 @@ describe("The record the check is sent, by name (#2969)", () => {
         undefined,
         { status: "failed" },
       ),
+      commandCall("/Users/ana/Documents/Acme.docx", {}, undefined, { status: "failed" }),
     ]);
 
     expect(sent).toContain("apa.csl");
