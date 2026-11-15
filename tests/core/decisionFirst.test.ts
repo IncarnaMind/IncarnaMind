@@ -298,7 +298,7 @@ async function marks(client: MindClient) {
 }
 
 describe("Check this Note with a decision model chosen (#3118)", { timeout: 30_000 }, () => {
-  // protects=a sentence one Passage clearly states or contradicts gets its verdict from the decision model, with the sentence of that Passage the model scores highest as its quote and the decision model named on it; a sentence none of its Passages leans to is Unsupported by the decision model; none of them costs a request to the AI model; fails_when=the AI model is asked about a sentence the decision model decided, the quote is the whole paragraph or another sentence of it, or a sentence nothing supports waits for the AI model; no_claim=that a real decision model's scores are right, which the gate's real-model run measures.
+  // protects=a sentence one Passage clearly states or contradicts gets its verdict from the decision model, with the sentence of that Passage the model scores highest as its quote and the decision model named on it; a sentence none of its Passages leans to, alone or together, is Unsupported by the decision model; none of them costs a request to the AI model; fails_when=the AI model is asked about a sentence the decision model decided, the quote is the whole paragraph or another sentence of it, or a sentence nothing supports waits for the AI model; no_claim=that a real decision model's scores are right, which the gate's real-model run measures.
   test("the decision model gives the clear verdicts, and Unsupported where no Passage leans", async () => {
     const { core, client, host, run, readByAiModel } = await setUp();
     await choose(core);
@@ -317,11 +317,70 @@ describe("Check this Note with a decision model chosen (#3118)", { timeout: 30_0
     expect(
       host.asked.flatMap((each) => each.questions).every((q) => /^[BC](_p\d+)?$/.test(q)),
     ).toBe(true);
-    // One request reads a sentence against all its Passages; a verdict costs two more.
+    // One request reads a sentence against all its Passages; a verdict costs two more, and
+    // Unsupported one more.
     const requests = (sentence: string) =>
       host.asked.filter(({ state }) => state.sentence === sentence).length;
-    expect([requests(MOON), requests(YEARLY), requests(PENGUINS)]).toEqual([3, 3, 1]);
+    expect([requests(MOON), requests(YEARLY), requests(PENGUINS)]).toEqual([3, 3, 2]);
   });
+
+  // protects=before a sentence reads Unsupported the decision model is asked once more about the Passages nearest to stating it, at most five, joined as one Passage in the order of their scores, each under its Document's name and page; fails_when=the request is missing, holds more than five Passages, another order, or a Passage without its Document's name; no_claim=that five is the right number, which the gate's real-model run measured.
+  test("a sentence no Passage is about is asked of the nearest five together", async () => {
+    const { core, host, run } = await setUp([PENGUINS]);
+    await addAndProcess(core, [
+      await writeSourceFile(await createTempDataFolder(), LOG.name, LOG.contents),
+    ]);
+    await choose(core);
+    const states = ({ text }: Shown) => 0.01 + 0.02 * Number(/Entry (\d)/.exec(text)?.[1] ?? 0);
+    host.answers(({ passage }) => ({ B: states(passage), C: 0.02 }));
+
+    await core.checkMind(run());
+
+    const [first, second, ...more] = host.asked;
+    expect(more).toEqual([]);
+    const read = Object.values(first?.state.passages ?? {});
+    expect(read.length).toBeGreaterThan(5);
+    const nearest = read
+      .map((passage) => ({ passage, score: states(passage) }))
+      .sort((one, other) => other.score - one.score)
+      .slice(0, 5)
+      .map(({ passage }) => passage);
+    expect(second?.questions).toEqual(["B", "C"]);
+    expect(second?.state).toEqual({
+      sentence: PENGUINS,
+      context: { paragraph: PENGUINS },
+      passage: {
+        document: [...new Set(nearest.map((each) => each.document))].join("; "),
+        text: nearest
+          .map((each) => `[${each.document}, p. ${each.page?.split("–")[0]}]\n${each.text}`)
+          .join("\n\n"),
+      },
+    });
+  });
+
+  // protects=Passages that state or oppose the sentence only together give it a first reading, never a verdict: its own check reads it; a host that can't be asked about them gives it no Unsupported either; fails_when=the sentence is marked Unsupported, Supported or Contradicted on the decision model's word, or shows no first reading where the Passages together lean; no_claim=that a real model reads several Passages together right, which the gate's real-model run measured.
+  test.each([
+    ["state it", { B: 0.995, C: 0.02 }, "supported"],
+    ["oppose it", { B: 0.03, C: 0.97 }, "contradicted"],
+    ["can't be asked about", { status: 429 }, null],
+  ] as const)(
+    "a sentence its Passages only together %s goes to the AI model",
+    async (_, asOne, firstReading) => {
+      const { core, client, host, run, readByAiModel, aiModelId } = await setUp([PENGUINS]);
+      await choose(core);
+      host.answers(({ among }) => (among ? { B: 0.03, C: 0.02 } : asOne));
+
+      await core.checkMind(run());
+
+      expect(readByAiModel()).toEqual([PENGUINS]);
+      expect((await marks(client))[PENGUINS]).toEqual({
+        state: "unsupported",
+        quote: null,
+        by: aiModelId,
+        ...(firstReading && { firstReading }),
+      });
+    },
+  );
 
   // protects=what goes to the decision model's host is the sentence, its paragraph and its Passages with their Documents' names, and nothing else of the Note or the Library; fails_when=a request carries another field; no_claim=what the AI model's own check sends.
   test("a request holds one sentence, its paragraph and its Passages", async () => {
