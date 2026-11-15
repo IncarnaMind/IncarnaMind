@@ -3,6 +3,7 @@ import type { Meeting, MeetingHelp, MeetingHelpKind, MeetingHelpTemplate } from 
 import type { MessageKey } from "../../../shared/i18n";
 import { GENERAL_HELP, MEETING_TEMPLATES, templateLabel } from "../../../shared/meetingHelp";
 import {
+  type FieldMode,
   type HeldKeys,
   MEETING_PANEL_BRIDGE_KEY,
   type MeetingPanelBridge,
@@ -16,26 +17,19 @@ import {
   MicOffLineIcon,
   MinusLineIcon,
 } from "../components/lineIcons";
-import {
-  HelpHeading,
-  HelpOutline,
-  HelpSuggestion,
-  useHelpAnswer,
-} from "../components/meetings/HelpSuggestion";
 import { LevelBars } from "../components/meetings/LevelBars";
 import { MicrophoneButton } from "../components/meetings/MicrophoneButton";
 import { ProblemLine } from "../components/ProblemLine";
-import { ReadinessExplanation } from "../components/providers/ChatReadinessNotice";
 import { core, files } from "../core";
-import { errorMessage } from "../errors";
-import { helpToKeep } from "../helpReply";
-import { translateNow, useT } from "../i18n";
-import { addHelpToNotes, askHelp, quickNotesHere, useMeetingHelp } from "../meetingHelp";
+import { useT } from "../i18n";
+import { askHelp, askQuestion, quickNotesHere, useMeetingHelp } from "../meetingHelp";
 import { isLive, isWaitingForPermission, useMeetings, useMeetingTime } from "../meetings";
 import { clockTime } from "../meetingTime";
 import { useAppStore } from "../store";
 import { AskBar } from "./AskBar";
+import { savedFieldMode, saveFieldMode } from "./fieldMode";
 import { type Draft, type QuickNotes, quickNotesFor } from "./quickNotes";
+import { Thread } from "./Thread";
 
 declare global {
   interface Window {
@@ -45,7 +39,8 @@ declare global {
 
 const bridge = window[MEETING_PANEL_BRIDGE_KEY];
 
-const ADDED_MS = 6000;
+/** The most of the screen's height the panel covers; its thread scrolls inside it (#2925). */
+const TALLEST = 0.6;
 
 function keyLabels(held: HeldKeys) {
   const labels: Partial<Record<MeetingHelpKind, string>> = {};
@@ -69,20 +64,30 @@ const giveKeyboardBack = () => bridge.keyboard(false);
 /**
  * The floating panel during a call: above the meeting app, never taking its focus by itself. Its
  * header says the recording and holds the template, collapse and close; then the ask bar with the
- * help prompts and the field for quick notes, and under it the latest suggestion, which a press
- * replaces unless it is pinned. Collapsed, it is a pill with the level bars, which become Stop
- * when pointed at.
+ * help prompts and the field for a quick note or a question, and under it the Meeting's thread
+ * (#2925). Collapsed, it is a pill with the level bars, which become Stop when pointed at.
  */
 export function MeetingPanel() {
   const meeting = useMeetings((state) => state.meetings.find((each) => isLive(each)));
   const [folded, setFolded] = useState(false);
-  const [pinned, setPinned] = useState<MeetingHelp[]>([]);
+  const [pinned, setPinned] = useState<string[]>([]);
   const [held, setHeld] = useState<HeldKeys>({});
-  const [noteWanted, setNoteWanted] = useState(false);
+  const [fieldWanted, setFieldWanted] = useState<FieldMode | null>(null);
   const root = useRef<HTMLDivElement>(null);
   // Here, not in the bar, which a collapse unmounts.
   const drafts = useRef(new Map<string, Draft>());
   const meetingId = meeting?.id;
+  const [modes, setModes] = useState<Readonly<Record<string, FieldMode>>>({});
+  const saved = useMemo(() => (meetingId ? savedFieldMode(meetingId) : "note"), [meetingId]);
+  const mode = (meetingId && modes[meetingId]) || saved;
+  const chooseMode = useCallback(
+    (chosen: FieldMode) => {
+      if (!meetingId) return;
+      setModes((now) => ({ ...now, [meetingId]: chosen }));
+      saveFieldMode(meetingId, chosen);
+    },
+    [meetingId],
+  );
   const notes = useMemo(
     () =>
       meetingId && quickNotesHere()
@@ -93,7 +98,8 @@ export function MeetingPanel() {
     [meetingId],
   );
   // A panel opening again shows the line the core still holds, one its Note refused, unless
-  // something is typed already; the bar shows it once it is shown again (`restored`).
+  // something is typed already; the bar shows it once it is shown again (`restored`), in Note,
+  // as the line is a note.
   const [restored, setRestored] = useState(0);
   useEffect(() => {
     if (!meetingId || !quickNotesHere()) return;
@@ -102,6 +108,7 @@ export function MeetingPanel() {
       (held) => {
         if (!current || !held || drafts.current.get(meetingId)?.text) return;
         drafts.current.set(meetingId, { text: held.text, began: { ms: held.atMs } });
+        chooseMode("note");
         setRestored((now) => now + 1);
       },
       (error: unknown) => useAppStore.getState().reportError(error),
@@ -109,7 +116,7 @@ export function MeetingPanel() {
     return () => {
       current = false;
     };
-  }, [meetingId]);
+  }, [meetingId, chooseMode]);
 
   useEffect(() => {
     // The innermost thing open took its Esc already; one left over gives the keyboard back.
@@ -158,16 +165,16 @@ export function MeetingPanel() {
   const togglePin = useCallback(
     (help: MeetingHelp) =>
       setPinned((now) =>
-        now.some((each) => each.answerId === help.answerId)
-          ? now.filter((each) => each.answerId !== help.answerId)
-          : [...now, help],
+        now.includes(help.answerId)
+          ? now.filter((each) => each !== help.answerId)
+          : [...now, help.answerId],
       ),
     [],
   );
-  const noteTaken = useCallback(() => setNoteWanted(false), []);
-  // While a press waits for its help, the Meeting's help is still the one before, which isn't shown.
+  const fieldTaken = useCallback(() => setFieldWanted(null), []);
+  // While a press waits for its help, the Meeting's help is still the one before, which isn't the newest.
   const asking = useMeetingHelp((state) => (meeting ? state.pending[meeting.id] : undefined));
-  const latestPinned = !asking && pinned.some((each) => each.answerId === meeting?.help?.answerId);
+  const latestPinned = !asking && pinned.includes(meeting?.help?.answerId ?? "");
   useEffect(() => bridge.state({ folded, pinned: latestPinned }), [folded, latestPinned]);
 
   const meetingRef = useRef(meeting);
@@ -182,9 +189,9 @@ export function MeetingPanel() {
       }),
       bridge.onCommand((command) => {
         if (command === "fold") setFolded((now) => !now);
-        if (command === "note") {
+        if (command === "note" || command === "ask") {
           setFolded(false);
-          setNoteWanted(true);
+          setFieldWanted(command);
         }
         const live = meetingRef.current;
         const waiting = live && useMeetingHelp.getState().pending[live.id];
@@ -208,8 +215,10 @@ export function MeetingPanel() {
           keys={labels}
           microphoneKeys={held.mic ? keysHere(held.mic) : null}
           pinned={pinned}
-          noteWanted={noteWanted}
-          onNoteTaken={noteTaken}
+          mode={mode}
+          onMode={chooseMode}
+          fieldWanted={fieldWanted}
+          onFieldTaken={fieldTaken}
           notes={notes}
           restored={restored}
           onPin={togglePin}
@@ -302,8 +311,10 @@ function Panel({
   keys,
   microphoneKeys,
   pinned,
-  noteWanted,
-  onNoteTaken,
+  mode,
+  onMode,
+  fieldWanted,
+  onFieldTaken,
   notes,
   restored,
   onPin,
@@ -312,9 +323,11 @@ function Panel({
   meeting: Meeting;
   keys: Partial<Record<MeetingHelpKind, string>>;
   microphoneKeys: string | null;
-  pinned: readonly MeetingHelp[];
-  noteWanted: boolean;
-  onNoteTaken(): void;
+  pinned: readonly string[];
+  mode: FieldMode;
+  onMode(mode: FieldMode): void;
+  fieldWanted: FieldMode | null;
+  onFieldTaken(): void;
   notes: QuickNotes | null;
   restored: number;
   onPin(help: MeetingHelp): void;
@@ -325,13 +338,13 @@ function Panel({
   const [choosing, setChoosing] = useState(false);
   const [reach, setReach] = useState(0);
   const problem = useMeetings((state) => state.problems[meeting.id]);
-  const help = meeting.help;
-  const asking = useMeetingHelp((state) => state.pending[meeting.id]);
-  const shownPinned = asking ? pinned : pinned.filter((each) => each.answerId !== help?.answerId);
   return (
     <section
       aria-label={t("meetings.help.label")}
-      style={reach > 0 ? { minHeight: reach } : undefined}
+      style={{
+        maxHeight: Math.round(window.screen.availHeight * TALLEST),
+        ...(reach > 0 && { minHeight: reach }),
+      }}
       className="panel"
     >
       <header className="panel-header panel-drag">
@@ -416,21 +429,17 @@ function Panel({
         key={`${meeting.id}-${restored}`}
         meeting={meeting}
         keys={keys}
-        noteWanted={noteWanted}
+        mode={mode}
+        onMode={onMode}
+        fieldWanted={fieldWanted}
         onAsk={(kind) => void askHelp(meeting, kind)}
+        onQuestion={(text) => askQuestion(meeting, text).then((asked) => asked !== null)}
         onReach={setReach}
         onTakeKeyboard={takeKeyboard}
-        onNoteTaken={onNoteTaken}
+        onFieldTaken={onFieldTaken}
         notes={notes}
       />
-      {shownPinned.map((each) => (
-        <Suggestion key={each.answerId} meeting={meeting} help={each} pinned onPin={onPin} />
-      ))}
-      <Latest
-        meeting={meeting}
-        pinned={pinned.some((each) => each.answerId === help?.answerId)}
-        onPin={onPin}
-      />
+      <Thread meeting={meeting} pinned={pinned} onPin={onPin} />
     </section>
   );
 }
@@ -460,168 +469,5 @@ function TemplateChoice({ meeting, onChosen }: { meeting: Meeting; onChosen(): v
         </button>
       ))}
     </fieldset>
-  );
-}
-
-function Latest({
-  meeting,
-  pinned,
-  onPin,
-}: {
-  meeting: Meeting;
-  pinned: boolean;
-  onPin(help: MeetingHelp): void;
-}) {
-  const t = useT();
-  const pending = useMeetingHelp((state) => state.pending[meeting.id]);
-  const blocked = useMeetingHelp((state) => state.blocked[meeting.id]);
-  if (pending) {
-    return (
-      <div className="panel-suggestion" data-testid="help-pending">
-        <HelpHeading kind={pending} />
-        <HelpOutline count={2} />
-      </div>
-    );
-  }
-  if (blocked) {
-    return (
-      <div className="panel-suggestion">
-        {"readiness" in blocked ? (
-          <p data-testid="help-set-up" className="panel-line">
-            {blocked.readiness.reason === "no-provider" ? (
-              t("meetings.help.setUp")
-            ) : (
-              <ReadinessExplanation readiness={blocked.readiness} inLine />
-            )}
-            <span aria-hidden="true"> · </span>
-            <button type="button" onClick={() => bridge.setUp()} className="panel-link">
-              {t("providers.readiness.setUp")}
-            </button>
-          </p>
-        ) : (
-          <p role="alert" data-testid="help-problem" className="panel-line">
-            {blocked.message}
-          </p>
-        )}
-      </div>
-    );
-  }
-  if (!meeting.help) return null;
-  // A help asked in the app's window replaces this one with no press here: what was added to the
-  // note, and its Undo, stay with the suggestion they were for.
-  return (
-    <Suggestion
-      key={meeting.help.answerId}
-      meeting={meeting}
-      help={meeting.help}
-      pinned={pinned}
-      onPin={onPin}
-    />
-  );
-}
-
-function Suggestion({
-  meeting,
-  help,
-  pinned,
-  onPin,
-}: {
-  meeting: Meeting;
-  help: MeetingHelp;
-  pinned: boolean;
-  onPin(help: MeetingHelp): void;
-}) {
-  const t = useT();
-  const answer = useHelpAnswer(help);
-  const [added, setAdded] = useState<{ blockIds: string[] } | null>(null);
-  const [problem, setProblem] = useState<string | null>(null);
-  const shown = useRef(true);
-  useEffect(() => {
-    shown.current = true;
-    return () => {
-      shown.current = false;
-    };
-  }, []);
-  // Replaced by another help before Add to note or its Undo ends: its failure is still told.
-  const failed = (error: unknown) => {
-    if (shown.current) setProblem(errorMessage(error, translateNow));
-    else useAppStore.getState().reportError(error);
-  };
-  useEffect(() => {
-    if (!added) return;
-    const timer = setTimeout(() => setAdded(null), ADDED_MS);
-    return () => clearTimeout(timer);
-  }, [added]);
-  if (!answer) {
-    return (
-      <div className="panel-suggestion">
-        <HelpHeading kind={help.kind} heard={help.heard} />
-        <HelpOutline count={2} />
-      </div>
-    );
-  }
-  const keeps = helpToKeep(answer, help.kind);
-  const addToNotes = async () => {
-    setProblem(null);
-    try {
-      const { blockIds } = await addHelpToNotes(meeting, help);
-      setAdded({ blockIds });
-    } catch (error) {
-      failed(error);
-    }
-  };
-  const undoAdd = (blockIds: string[]) => {
-    setAdded(null);
-    core.undoAddToNote({ mindId: meeting.mindId, blockIds }).catch(failed);
-  };
-  return (
-    <div className="panel-suggestion" data-pinned={pinned}>
-      <HelpSuggestion
-        help={help}
-        answer={answer}
-        onRetry={() => void askHelp(meeting, help.kind)}
-      />
-      {(keeps || pinned) && answer.status !== "streaming" && (
-        <div className="panel-actions">
-          <button
-            type="button"
-            data-testid="help-pin"
-            aria-pressed={pinned}
-            onClick={() => onPin(help)}
-            className="panel-ghost"
-          >
-            {t(pinned ? "meetings.help.unpin" : "meetings.help.pin")}
-          </button>
-          {keeps &&
-            (added ? (
-              <p role="status" data-testid="help-added" className="panel-line">
-                {t("meetings.help.added")}
-                <span aria-hidden="true"> · </span>
-                <button
-                  type="button"
-                  onClick={() => undoAdd(added.blockIds)}
-                  className="panel-link"
-                >
-                  {t("move.undo")}
-                </button>
-              </p>
-            ) : (
-              <button
-                type="button"
-                data-testid="help-add"
-                onClick={() => void addToNotes()}
-                className="panel-ghost"
-              >
-                {t("meetings.help.addToNotes")}
-              </button>
-            ))}
-        </div>
-      )}
-      {problem && (
-        <p role="alert" className="panel-line">
-          {problem}
-        </p>
-      )}
-    </div>
   );
 }

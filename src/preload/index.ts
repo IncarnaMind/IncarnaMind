@@ -29,6 +29,7 @@ import {
 } from "../shared/citedPage";
 import type { GeneralHelpKind } from "../shared/meetingHelp";
 import {
+  type ConversationAt,
   type HeldKeys,
   MEETING_PANEL_ARGUMENT,
   MEETING_PANEL_BRIDGE_KEY,
@@ -165,6 +166,8 @@ const files: FilesBridge = {
     return stop;
   },
   onSetUpModel: (listener) => listen<void>(FILES_CHANNELS.setUpModel, () => listener()),
+  onOpenConversation: (listener) =>
+    listen<ConversationAt>(FILES_CHANNELS.openConversation, listener),
   showPermissionGuide: (source) => invoke(FILES_CHANNELS.showPermissionGuide, source),
   closePermissionGuide: () => send(FILES_CHANNELS.closePermissionGuide),
   onPermissionGuide: (listener) => {
@@ -194,6 +197,7 @@ if (process.argv.includes(MEETING_PANEL_ARGUMENT)) {
     resize: (width, height) => send(MEETING_PANEL_CHANNELS.size, width, height),
     close: () => send(MEETING_PANEL_CHANNELS.close),
     setUp: () => send(MEETING_PANEL_CHANNELS.setUp),
+    openInAssistant: (at) => send(MEETING_PANEL_CHANNELS.openConversation, at),
     keys: () => invoke(MEETING_PANEL_CHANNELS.keys),
     onKeys: (listener) => listen<HeldKeys>(MEETING_PANEL_CHANNELS.keysChanged, listener),
     onHelp: (listener) => listen<GeneralHelpKind>(MEETING_PANEL_CHANNELS.help, listener),
