@@ -395,6 +395,11 @@ export function ClaimMark({
     const progress = app.settings?.device.gettingStarted;
     return state === "contradicted" && !progress?.mistakeSeen && citationStepOpen(progress);
   });
+  // In the example's red ≠: opening its card, by a click or with Space or Enter, records that the check was seen.
+  const sawCheck = () => {
+    if (state === "contradicted")
+      useAppStore.getState().updateGettingStarted({ mistakeSeen: true });
+  };
 
   /**
    * After an action the card goes, and the focus stays in the Mind.
@@ -460,6 +465,7 @@ export function ClaimMark({
           // A focus that came back shows no card: Space or Enter shows it, and goes in.
           hold("focus", true, true);
           setClaimFocus(place, id);
+          sawCheck();
         }}
         onKeyUp={(event) => {
           if (isSpaceKey(event)) event.preventDefault();
@@ -471,10 +477,7 @@ export function ClaimMark({
           }
           if (event.detail === 0) setClaimFocus(place, id);
           setOpenClaim(place, id);
-          // In the example's red ≠: opening it records that the check was seen.
-          if (state === "contradicted") {
-            useAppStore.getState().updateGettingStarted({ mistakeSeen: true });
-          }
+          sawCheck();
         }}
         onAnimationEnd={(event) => {
           if (event.target === event.currentTarget && reveal) onRevealed();
