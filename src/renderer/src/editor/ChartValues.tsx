@@ -9,7 +9,8 @@ import {
 } from "../../../shared/charts";
 import { useT } from "../i18n";
 import { ChartCheck } from "./ChartCheck";
-import { type PointEvents, type PointRef, samePoint } from "./ChartPlot";
+import { type PointEvents, type PointRef, pressOnPoint, samePoint } from "./ChartPlot";
+import { cameBack } from "./cardFocus";
 
 /** "Show as table": the way to read every value and its source without a pointer, one Tab stop as the chart's points are. */
 export function ChartValues({
@@ -54,11 +55,7 @@ export function ChartValues({
         (cell) => cell.series === point.series && cell.row === point.row + step,
       );
       next = found >= 0 ? found : index;
-    } else if (event.key === "Enter" || event.key === " ") {
-      event.preventDefault();
-      events.activate(point, event.currentTarget);
-      return;
-    }
+    } else if (pressOnPoint(event, point, events)) return;
     if (next === null) return;
     event.preventDefault();
     // At once, not after the next render: a second key pressed before it goes from here.
@@ -109,7 +106,12 @@ export function ChartValues({
                       tabIndex={position === at ? 0 : -1}
                       aria-label={events.label(point)}
                       aria-haspopup="dialog"
+                      aria-expanded={samePoint(point, active)}
+                      aria-keyshortcuts={events.control(point) ? "Space" : undefined}
                       onPointerEnter={(event) =>
+                        events.peek(point, event.currentTarget, "pointer", true)
+                      }
+                      onPointerMove={(event) =>
                         events.peek(point, event.currentTarget, "pointer", true)
                       }
                       onPointerLeave={(event) =>
@@ -117,7 +119,8 @@ export function ChartValues({
                       }
                       onFocus={(event) => {
                         setCurrent(position);
-                        events.peek(point, event.currentTarget, "focus", true);
+                        if (!cameBack(event.nativeEvent))
+                          events.peek(point, event.currentTarget, "focus", true);
                       }}
                       onBlur={(event) => events.peek(point, event.currentTarget, "focus", false)}
                       onClick={(event) => events.activate(point, event.currentTarget)}

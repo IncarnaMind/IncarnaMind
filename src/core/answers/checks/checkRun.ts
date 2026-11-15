@@ -34,6 +34,7 @@ import {
   type ReadVerdict,
   readVerdict,
   replyAcrossTurns,
+  sentenceItIsPartOf,
 } from "./prompt";
 import { searchAgain } from "./searchAgain";
 
@@ -203,7 +204,10 @@ function figuresReplied(
 }
 
 /** What a check Run starts from: its sentence, read in its paragraph, beside what it cites. */
-export type CheckStart = Pick<ClaimCheckRequest, "claim" | "context" | "cited" | "figures"> & {
+export type CheckStart = Pick<
+  ClaimCheckRequest,
+  "claim" | "originalClaim" | "context" | "cited" | "figures"
+> & {
   /** Its first turn names the sentence's parts (`ClaimCheckRequest.findParts`). */
   findsParts?: boolean;
   /** It may show the Library's facts (`ClaimCheckRequest.searched`), so it sorts as their checks do. */
@@ -223,6 +227,7 @@ function runStart(request: CheckStart, language: Language, calculating: boolean)
         request.findsParts === true,
         request.library === true,
         request.claim,
+        sentenceItIsPartOf(request.claim, request.originalClaim) !== null,
       ),
     prompt: (citedShown: string | null) => claimPrompt({ ...request, citedShown, language }),
   };

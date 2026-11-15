@@ -39,12 +39,15 @@ export function DocumentCheckAction({
   doc,
   claim,
   offer: offered,
+  anchor,
 }: {
   editor: Editor;
   mindId: string;
   doc: Y.Doc;
   claim: ShownClaim;
   offer: boolean;
+  /** What the picker opens beside where the card draws the action itself, or holds it under its ⋯. */
+  anchor?: () => HTMLElement | null;
 }) {
   const t = useT();
   const language = useLanguage();
@@ -135,6 +138,7 @@ export function DocumentCheckAction({
   );
 
   const plan = offer?.plan;
+  const pickerAnchor = picking ? (button ?? anchor?.() ?? null) : null;
   return (
     <>
       {offered && (
@@ -149,9 +153,9 @@ export function DocumentCheckAction({
           {t("claim.checkAgainstDocument")}
         </button>
       )}
-      {picking && button && wall !== undefined && !running && (
+      {picking && pickerAnchor && wall !== undefined && !running && (
         <DocumentOrFolderPicker
-          anchor={button}
+          anchor={pickerAnchor}
           wall={wall}
           startsOnScreen
           labels={{

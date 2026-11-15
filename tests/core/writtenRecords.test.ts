@@ -120,6 +120,16 @@ describe("A cite call written as code, and a record line holding two quotes", ()
     );
   });
 
+  // protects=a record written as JSON whose quote is a table row with its raw tabs is read with them, as the cite call itself would be (#3125); fails_when=the row's tabs make the JSON unreadable and the check asks again for a record the reply gave; no_claim=whether its quote is found.
+  test.each([
+    ["English", "North depot\t1,420\t£86,300"],
+    ["Chinese", "北区仓库\t1,420\t86.3万元"],
+  ])("read: a record written as JSON quoting a table row with its raw tabs, %s", (_, row) => {
+    const written = (body: string) => replying("[1]", body);
+    expect(writtenRecords(written(`{"citations":[${ROW(1, row)}]}`))).toEqual([record(1, row)]);
+    expect(writtenRecords(written(call(ROW(1, row))))).toEqual([record(1, row)]);
+  });
+
   // protects=a cite call written as code is read only as JSON: single quotes in place of double, or a quote holding "])", give no record; a line with two quotes beside an Evidence line naming two markers gives none, since a reply that writes one gives marker 2 a line of its own and both quotes are marker 1's (the 13-07-30 reply), in English and Chinese; fails_when=any of them is read as records, which would give marker 2 the quote the model gave for marker 1; no_claim=lines with one quote each, which the first test holds.
   test.each([
     [

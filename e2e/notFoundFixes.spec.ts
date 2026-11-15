@@ -14,6 +14,7 @@ import {
   launchApp,
   motionSettled,
   newMind,
+  openCardMenu,
   pointAndClick,
   removeDataFolder,
   runCommand,
@@ -196,7 +197,8 @@ for (const language of ["en", "zh-CN"] as const) {
     test.setTimeout(300_000);
     const { app, window, editor } = await launchNote(language, 1440, "Seabirds");
     const card = await checkSentence(window, editor, OWN);
-    const choose = card.getByTestId("claim-choose-citation");
+    // Under the card's ⋯, after its two buttons (#2869).
+    const choose = (await openCardMenu(window, card)).getByTestId("claim-choose-citation");
     await expect(choose).toHaveText(t("claim.chooseCitation"));
     await capture(window, `after-choose-offer-${language}-1440`);
     await film(window, async () => {
@@ -254,7 +256,10 @@ for (const language of ["en", "zh-CN"] as const) {
 
     // Words that don't back the sentence give it the card of a cited sentence nothing backs.
     const absent = await checkSentence(window, editor, ABSENT);
-    await pointAndClick(window, absent.getByTestId("claim-choose-citation"));
+    await pointAndClick(
+      window,
+      (await openCardMenu(window, absent)).getByTestId("claim-choose-citation"),
+    );
     await window.getByTestId("citation-document-search").fill("Harbour");
     await pointAndClick(
       window,
@@ -283,7 +288,10 @@ for (const language of ["en", "zh-CN"] as const) {
 
     // Cancel stops the wait.
     const third = await checkSentence(window, editor, "Gulls sleep on the old pier.");
-    await pointAndClick(window, third.getByTestId("claim-choose-citation"));
+    await pointAndClick(
+      window,
+      (await openCardMenu(window, third)).getByTestId("claim-choose-citation"),
+    );
     await window.getByTestId("citation-document-search").fill("Harbour");
     await pointAndClick(
       window,
@@ -303,7 +311,10 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(card.getByTestId("claim-differs")).toBeVisible();
     // Its words before the figure aren't the line's, so no rewrite could keep to the rules.
     await expect(card.getByTestId("claim-rewrite")).toHaveCount(0);
-    await pointAndClick(window, card.getByTestId("claim-choose-citation"));
+    await pointAndClick(
+      window,
+      (await openCardMenu(window, card)).getByTestId("claim-choose-citation"),
+    );
     // No picker: the close Passage's Document opens at the Passage, its words shown.
     const viewer = window.getByTestId("viewer").filter({ visible: true });
     await expect(viewer.getByTestId("viewer-header")).toContainText("Harbour times");
@@ -507,17 +518,27 @@ for (const language of ["en", "zh-CN"] as const) {
     test.setTimeout(180_000);
     const { app, window, editor } = await launchNote(language, 900, undefined, DRY_FILES);
     const card = await checkSentence(window, editor, DRY);
-    for (const [id, key] of [
-      ["claim-choose-citation", "claim.chooseCitation"],
-      ["claim-rewrite", "claim.rewrite"],
-    ] as const) {
-      const action = card.getByTestId(id);
-      await expect(action).toHaveText(t(key));
-      const [inner, outer] = [await action.boundingBox(), await card.boundingBox()];
-      if (!inner || !outer) throw new Error("The card isn't laid out.");
-      expect(inner.x + inner.width).toBeLessThanOrEqual(outer.x + outer.width + 1);
-    }
+    // The rewrite is the card's first button; Choose the Citation… waits under its ⋯ (#2869).
+    const rewrite = card.getByTestId("claim-rewrite");
+    await expect(rewrite).toHaveText(t("claim.rewrite"));
+    await expect(card.locator(".citation-card-actions button").first()).toHaveAttribute(
+      "data-testid",
+      "claim-rewrite",
+    );
+    const [inner, outer] = [await rewrite.boundingBox(), await card.boundingBox()];
+    if (!inner || !outer) throw new Error("The card isn't laid out.");
+    expect(inner.x + inner.width).toBeLessThanOrEqual(outer.x + outer.width + 1);
+    const menu = await openCardMenu(window, card);
+    const choose = menu.getByTestId("claim-choose-citation");
+    await expect(choose).toHaveText(t("claim.chooseCitation"));
+    const item = await choose.boundingBox();
+    if (!item) throw new Error("The menu isn't laid out.");
+    expect(item.x + item.width).toBeLessThanOrEqual(
+      await window.evaluate(() => globalThis.innerWidth),
+    );
     await capture(window, `after-rewrite-offer-${language}-900`);
+    await window.keyboard.press("Escape");
+    await expect(menu).toBeHidden();
     // ⌘K reaches it, for the sentence at the caret.
     await window.keyboard.press("Escape");
     await pointAndClick(window, editor.getByText("dry for"));
@@ -631,7 +652,10 @@ for (const [language, same, none] of [
       await expect(window.getByTestId("error-notice-message")).toHaveCount(0);
       expect(await noteText(editor)).toBe(`${OWN}\n${EACH_YEAR}`);
       await openCardAt(window, editor, words);
-      await expect(card.getByTestId("claim-choose-citation")).toBeVisible();
+      const menu = await openCardMenu(window, card);
+      await expect(menu.getByTestId("claim-choose-citation")).toBeVisible();
+      await window.keyboard.press("Escape");
+      await expect(menu).toBeHidden();
       await window.keyboard.press("Escape");
     }
     await app.close();
@@ -640,7 +664,10 @@ for (const [language, same, none] of [
 
 /** Chooses `name` in the card's picker of Documents for the sentence's Citation. */
 async function chooseIn(window: Page, card: Locator, name: string): Promise<void> {
-  await pointAndClick(window, card.getByTestId("claim-choose-citation"));
+  await pointAndClick(
+    window,
+    (await openCardMenu(window, card)).getByTestId("claim-choose-citation"),
+  );
   await window.getByTestId("citation-document-search").fill(name);
   await pointAndClick(
     window,
@@ -807,7 +834,10 @@ test("a Document filed behind a Folder wall the Note is outside is never cited o
   test.setTimeout(240_000);
   const { app, window, editor } = await launchNote("en");
   const card = await checkSentence(window, editor, DIFFERENT);
-  await pointAndClick(window, card.getByTestId("claim-choose-citation"));
+  await pointAndClick(
+    window,
+    (await openCardMenu(window, card)).getByTestId("claim-choose-citation"),
+  );
   const line = window.getByTestId("citation-pick-line");
   await expect(line).toBeVisible();
   // The close Passage's Document goes behind a wall while the sentence waits in it.
@@ -829,7 +859,9 @@ test("a Document filed behind a Folder wall the Note is outside is never cited o
   await window.keyboard.press("ControlOrMeta+Shift+K");
   await pointAndClick(
     window,
-    window.getByTestId("claim-card").getByTestId("claim-choose-citation"),
+    (await openCardMenu(window, window.getByTestId("claim-card"))).getByTestId(
+      "claim-choose-citation",
+    ),
   );
   const picker = window.getByTestId("citation-document-picker");
   await expect(picker).toBeVisible();

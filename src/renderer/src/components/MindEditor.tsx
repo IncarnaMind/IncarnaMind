@@ -205,6 +205,7 @@ import {
   tabCopyNow,
 } from "../tabCopies";
 import { resumeTabCloseFocus, takeContentFocus } from "../tabFocus";
+import { useWalls } from "../turnWall";
 import { useUndo } from "../undo";
 import { keptInsideName } from "../walls";
 import { forgetReadMind, publishReadMindEmpty } from "./assistant/readMind";
@@ -847,10 +848,10 @@ function MindEditorView({
         : null,
     [rows],
   );
-  const library = useAppStore((state) => state.library);
+  const walls = useWalls();
   const keptInside = useCallback(
-    (documentId: string) => keptInsideName(library, documentId, folderId),
-    [library, folderId],
+    (documentId: string) => keptInsideName(walls, documentId, folderId),
+    [walls, folderId],
   );
   useEffect(() => {
     if (!editor.isDestroyed)
@@ -1267,7 +1268,6 @@ function MindEditorView({
               mindId={mindId}
               verification={verification}
               quiet={firstOpen && isExample}
-              figures={schedule?.counts.total ?? 0}
             />,
             slots.badge,
           )}

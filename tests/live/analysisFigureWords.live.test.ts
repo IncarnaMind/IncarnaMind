@@ -33,6 +33,7 @@ import {
 import { writeXlsx } from "../../src/core/exports/xlsx";
 import { messageReference } from "../../src/core/references";
 import { homeReading, readNoteState } from "../../src/renderer/src/noteState";
+import { wallsOf } from "../../src/renderer/src/walls";
 import {
   type AnalysisCell,
   type AnalysisJob,
@@ -480,7 +481,11 @@ test.skipIf(!RUNS || (!SCRIPTED && KEY === undefined)).each(CASES.map((held) => 
       homeReading(stored, {
         documents,
         keptCitationTexts: [],
-        library: await core.getLibrary(),
+        library: wallsOf({
+          library: await core.getLibrary(),
+          documents,
+          minds: await core.listMinds(),
+        }),
         folderId: null,
       }).state?.kind ?? "none";
     core.close();
