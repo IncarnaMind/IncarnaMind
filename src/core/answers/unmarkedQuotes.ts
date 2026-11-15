@@ -43,6 +43,8 @@ import { sentenceSpans } from "../../shared/sentences";
 import { detectLanguage, LANGUAGE_SAMPLE } from "../documents/textLanguage";
 import { outputTokens } from "../providers/outputLimits";
 import type { AnswerEngineEvent, AnswerRequest, AnswerTools } from "./engine";
+import type { AskedLine } from "./helpCitations";
+import { fenceClosedBy, fenceOpened } from "./jsonFences";
 import { fieldsOf, judge, list, structured } from "./judge";
 import {
   answerTableUnits,
@@ -126,7 +128,13 @@ interface Match extends MarkerRecord {
  * record behind it, which the Citation takes, if it is the first sentence
  * to hold that marker.
  */
-type Found = Omit<Match, "marker"> & { marker?: number; start?: number; end?: number };
+type Found = Omit<Match, "marker"> & {
+  marker?: number;
+  start?: number;
+  end?: number;
+  /** A Citation its line shares with other list items, which this one replaces there (#2925). */
+  replaces?: number;
+};
 
 /** A number as written, without the separators between its groups of three: "£739,800" is "739800". */
 const LATIN_NUMBER = /\d+(?:[.,\s]\d+)*/g;
@@ -327,8 +335,11 @@ function takingMarkers(
   matched: readonly Found[],
 ): Found[] {
   const units = markedUnits(answer).map((unit) => ({ ...unit, words: wordsOf(unit.text) }));
-  const taken = new Set(
-    matched.flatMap((match) => (match.marker === undefined ? [] : [match.marker])),
+  /** Each marker taken, with the quote that took it. */
+  const taken = new Map(
+    matched.flatMap((match) =>
+      match.marker === undefined ? [] : [[match.marker, match.quote] as const],
+    ),
   );
   return asked.flatMap((match) => {
     const words = wordsOf(match.sentence);
@@ -344,11 +355,84 @@ function takingMarkers(
     if (own && (own.markers.some(recorded) || matched.some((each) => each.start === own?.start))) {
       return [];
     }
+    // A marker used in two sentences is given its quote twice: the second time it would take the
+    // sentence's other marker, citing a line that marker never named (#3099).
+    if (own?.markers.some((marker) => taken.get(marker) === match.quote)) return [];
     const orphan = own?.markers.find((marker) => !taken.has(marker));
     if (!own || orphan === undefined) return [match];
-    taken.add(orphan);
+    taken.set(orphan, match.quote);
     return [{ ...match, marker: orphan, start: own.start, end: own.end }];
   });
+}
+
+/** A sentence without its markers, punctuation and spaces, to tell whether one holds another. */
+const plainOf = (text: string) =>
+  text
+    .replace(MARKER, "")
+    .replace(/[\p{P}\p{S}\s]+/gu, "")
+    .toLowerCase();
+
+/**
+ * What the one request gave, taken on the lines it was asked about (#2925) and nowhere else: each
+ * Citation on the line its sentence is worded like, or is part of (a clause of a Chinese line).
+ * A line's marker with no record is the one its first Citation takes; a Citation the line shares
+ * with other list items is replaced, on that line alone, by the first it is given.
+ */
+function onLines(
+  asked: readonly Omit<Match, "marker">[],
+  lines: readonly AskedLine[],
+  recorded: (marker: number) => boolean,
+): Found[] {
+  const units = lines.map((line) => ({
+    line,
+    words: wordsOf(line.text),
+    plain: plainOf(line.text),
+  }));
+  const taken = new Set<number>();
+  const replaced = new Set<number>();
+  return asked.flatMap((match): Found[] => {
+    const words = wordsOf(match.sentence);
+    const plain = plainOf(match.sentence);
+    let own: AskedLine | undefined;
+    let best = 0;
+    for (const unit of units) {
+      const { score } = likeness(words, unit.words);
+      const alike = plain !== "" && unit.plain.includes(plain) ? 1 : score;
+      if (alike >= MIN_SIMILARITY && alike > best) {
+        best = alike;
+        own = unit.line;
+      }
+    }
+    if (!own) return [];
+    const placed = { ...match, sentence: own.text, start: own.start, end: own.end };
+    const orphan = [...own.text.matchAll(MARKER)]
+      .map((each) => Number(each[1]))
+      .find((marker) => !recorded(marker) && !taken.has(marker));
+    if (orphan !== undefined) {
+      taken.add(orphan);
+      return [{ ...placed, marker: orphan }];
+    }
+    if (own.replaces !== undefined && !replaced.has(own.start)) {
+      replaced.add(own.start);
+      return [{ ...placed, replaces: own.replaces }];
+    }
+    return [placed];
+  });
+}
+
+/** A shared Citation replaced, on each line an answer was taken on for it, by that line's own. */
+function replaceShared(text: string, records: readonly (Found & { marker: number })[]): string {
+  let out = text;
+  for (const record of records) {
+    if (record.replaces === undefined) continue;
+    const at = out.indexOf(record.sentence);
+    if (at === -1) continue;
+    const line = out
+      .slice(at, at + record.sentence.length)
+      .replace(`[^${record.replaces}]`, `[^${record.marker}]`);
+    out = out.slice(0, at) + line + out.slice(at + record.sentence.length);
+  }
+  return out;
 }
 
 const languageOf = (text: string) => detectLanguage(text.slice(0, LANGUAGE_SAMPLE));
@@ -558,6 +642,77 @@ async function askForCitations(
 }
 
 /**
+ * The lines of a reply that hold a Citation marker: its sentences, not its code, headings or
+ * footnotes. A marker written after its sentence's full stop is put before it: read as written,
+ * "Agreed. [^4]" leaves [^4] to no sentence, and no record could take it.
+ */
+function markedLines(reply: string): string {
+  const lines: string[] = [];
+  let fence: string | null = null;
+  for (const line of reply.split("\n")) {
+    if (fence !== null) {
+      if (fenceClosedBy(fence, line)) fence = null;
+      continue;
+    }
+    fence = fenceOpened(line);
+    if (fence === null && !/^ {0,3}(?:#|\[\^\d{1,4}\]:)/.test(line) && /\[\^\d{1,4}\]/.test(line))
+      lines.push(
+        line
+          .trim()
+          .replace(
+            /([.!?。！？]+)[ \t]*((?:\[\^\d{1,4}\][ \t]*)+)/gu,
+            (_, stop: string, markers: string) => ` ${markers.trim()}${stop}`,
+          ),
+      );
+  }
+  return lines.join("\n\n");
+}
+
+/**
+ * A Meeting fill's reply that wrote its Citation markers and called no `cite` (#3099): their
+ * records, asked for once in the one request for an Answer's Citations, of the model that wrote
+ * the reply. Its sentences stay as written: a record takes only a marker its sentence holds with no
+ * record, and only a quote the check finds is kept.
+ */
+export async function recordMarkedSentences(
+  request: Pick<AnswerRequest, "model" | "ownQuickModel" | "documents" | "signal">,
+  reply: string,
+  temperature: number | undefined,
+  budget?: WindowBudget | null,
+): Promise<void> {
+  const { documents, signal, ownQuickModel } = request;
+  if (!documents.shownPassages || !documents.quoteFound || !documents.hasRecord) return;
+  const passages = documents.shownPassages();
+  const sentences = markedLines(reply);
+  if (passages.length === 0 || sentences === "") return;
+  // The fill read every Passage of its part whole: only a window limits what the request shows.
+  const toAsk = budget ? passagesToAsk(sentences, passages, budget) : passages;
+  if (toAsk.length === 0) return;
+  const given = await askForCitations(
+    { model: request.model, signal, ...(ownQuickModel && { quickModel: ownQuickModel }) },
+    sentences,
+    toAsk,
+    temperature,
+  );
+  if (signal.aborted) return;
+  const found = given.filter((each) => documents.quoteFound?.(each.passage, each.quote) ?? false);
+  const recorded = (marker: number) => documents.hasRecord?.(marker) ?? false;
+  const records = takingMarkers(found, sentences, recorded, []).flatMap((each) =>
+    each.marker === undefined
+      ? []
+      : [{ marker: each.marker, passage: each.passage, quote: each.quote }],
+  );
+  if (records.length === 0) return;
+  try {
+    documents.cite(records, { structured: true });
+  } catch (error) {
+    console.error(
+      `The fill's asked Citations couldn't be recorded: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
+/**
  * Once an Answer (`answer`, its own records' markers placed) is written: adds
  * the Citations for what it quotes without markers, and when nothing matches
  * and it has no Citation, asks the model for them once. Yields the edits that
@@ -565,7 +720,7 @@ async function askForCitations(
  * nothing for an Answer that read no Passages. Returns the text.
  */
 export async function* citeUnmarked(
-  request: Pick<AnswerRequest, "model" | "quickModel" | "documents" | "signal">,
+  request: Pick<AnswerRequest, "model" | "quickModel" | "documents" | "signal" | "askedLines">,
   answer: string,
   temperature: number | undefined,
   budget?: WindowBudget | null,
@@ -580,22 +735,37 @@ export async function* citeUnmarked(
   const recorded = (marker: number) => documents.hasRecord?.(marker) ?? false;
   let matches = matchUnmarked(answer, passages, found, recorded);
   let asked = false;
-  const cited = [...answer.matchAll(MARKER)].some((each) => recorded(Number(each[1])));
-  const matchedMarkers = new Set(matches.map((match) => match.marker));
-  const unbacked = markedUnits(answer).some(
-    ({ markers }) =>
-      markers.length > 0 &&
-      !markers.some((marker) => recorded(marker) || matchedMarkers.has(marker)),
-  );
-  if (unbacked || (matches.length === 0 && !cited && mayDrawOn(answer, passages))) {
-    const toAsk = passagesToAsk(answer, passages, budget);
+  const lines = request.askedLines?.(answer, passages, recorded);
+  if (lines) {
+    const open = lines.filter((line) => !matches.some((match) => match.start === line.start));
+    const asking = open.map((line) => line.text).join("\n");
+    const toAsk = open.length > 0 ? passagesToAsk(asking, passages, budget) : [];
     if (toAsk.length > 0 && mayAsk()) {
       asked = true;
       yield { type: "phase", phase: "checking-quotes" };
-      const given = await askForCitations(request, answer, toAsk, temperature);
+      const given = await askForCitations(request, asking, toAsk, temperature);
       if (signal.aborted) return answer;
-      const asking = given.filter((each) => found(each.passage, each.quote));
-      matches = capped([...matches, ...takingMarkers(asking, answer, recorded, matches)]);
+      const taken = given.filter((each) => found(each.passage, each.quote));
+      matches = capped([...matches, ...onLines(taken, open, recorded)]);
+    }
+  } else {
+    const cited = [...answer.matchAll(MARKER)].some((each) => recorded(Number(each[1])));
+    const matchedMarkers = new Set(matches.map((match) => match.marker));
+    const unbacked = markedUnits(answer).some(
+      ({ markers }) =>
+        markers.length > 0 &&
+        !markers.some((marker) => recorded(marker) || matchedMarkers.has(marker)),
+    );
+    if (unbacked || (matches.length === 0 && !cited && mayDrawOn(answer, passages))) {
+      const toAsk = passagesToAsk(answer, passages, budget);
+      if (toAsk.length > 0 && mayAsk()) {
+        asked = true;
+        yield { type: "phase", phase: "checking-quotes" };
+        const given = await askForCitations(request, answer, toAsk, temperature);
+        if (signal.aborted) return answer;
+        const asking = given.filter((each) => found(each.passage, each.quote));
+        matches = capped([...matches, ...takingMarkers(asking, answer, recorded, matches)]);
+      }
     }
   }
   if (matches.length === 0) {
@@ -624,7 +794,7 @@ export async function* citeUnmarked(
     return answer;
   }
   const { text } = withMissingMarkers(
-    settleOrphans(answer, records),
+    replaceShared(settleOrphans(answer, records), records),
     records,
     (marker) => documents.hasRecord?.(marker) ?? false,
   );

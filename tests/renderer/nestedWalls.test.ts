@@ -1,13 +1,13 @@
 import { describe, expect, test } from "vitest";
-import type {
-  DocumentGroupAssignment,
-  LibraryGroup,
-  LibrarySnapshot,
-  SearchScope,
-} from "../../src/core/api";
+import type { DocumentGroupAssignment, LibraryGroup, SearchScope } from "../../src/core/api";
 import { keptFrom } from "../../src/renderer/src/components/documentOrFolder";
 import type { ScopeLibrary } from "../../src/renderer/src/scope";
-import { keptInsideName, scopeOutsideWalls } from "../../src/renderer/src/walls";
+import {
+  documentWalls,
+  keptInsideName,
+  scopeOutsideWalls,
+  type WallLibrary,
+} from "../../src/renderer/src/walls";
 
 /**
  * A Folder that keeps its work inside it covers the Folders inside it (#246): a Document in a
@@ -45,7 +45,9 @@ const filed = (documentId: string, groupId: string): DocumentGroupAssignment => 
 const library = {
   groups,
   assignments: [filed("lease", "sub"), filed("notice", "other")],
-} satisfies Pick<LibrarySnapshot, "groups" | "assignments">;
+  documents: [],
+  minds: [],
+} satisfies WallLibrary;
 const scopeLibrary: ScopeLibrary = {
   folders: [],
   groups,
@@ -95,5 +97,77 @@ describe("a wall around Folders inside a Folder", () => {
     };
     expect(keptFrom(scopeLibrary, document, "wall")).toBeNull();
     expect(keptFrom(scopeLibrary, document, "other")).toBe("outside");
+  });
+});
+
+/**
+ * A Folder keeping its work inside it, inside another that does, is a wall of its own, as the
+ * core reads it (`tests/core/nestedWallReads.test.ts`).
+ */
+describe("a wall inside a wall", () => {
+  const nested = [
+    folder("outer", "Client A", null, true),
+    folder("inner", "Sealed", "outer", true),
+    folder("drafts", "Drafts", "inner"),
+  ];
+  const walls = {
+    groups: nested,
+    assignments: [
+      filed("lease", "outer"),
+      filed("memo", "inner"),
+      filed("draft", "drafts"),
+      { ...filed("guess", "inner"), source: "automatic" },
+    ],
+    documents: [],
+    minds: [],
+  } satisfies WallLibrary;
+  const pickerLibrary: ScopeLibrary = {
+    folders: [],
+    groups: nested,
+    tags: [],
+    documents: [],
+    assignments: walls.assignments,
+  };
+  const choice = (kind: "folder" | "document", id: string) => ({ kind, id });
+
+  test("each Document is behind its nearest wall, and says whether the User filed it there", () => {
+    expect(Object.fromEntries(documentWalls(walls))).toEqual({
+      lease: { wallId: "outer", byUser: true },
+      memo: { wallId: "inner", byUser: true },
+      draft: { wallId: "inner", byUser: true },
+      guess: { wallId: "inner", byUser: false },
+    });
+  });
+
+  test.each([
+    ["the outer wall's Document from a Note in the inner wall", "lease", "inner", "Client A"],
+    [
+      "the outer wall's Document from a Folder inside the inner wall",
+      "lease",
+      "drafts",
+      "Client A",
+    ],
+    ["the inner wall's Document from a Note in the outer wall", "memo", "outer", "Sealed"],
+    ["the inner wall's Document from a Folder inside it", "memo", "drafts", null],
+    ["the outer wall's Document from a Note in the outer wall", "lease", "outer", null],
+  ])("a Citation to %s", (_name, documentId, folderId, keptInside) => {
+    expect(keptInsideName(walls, documentId, folderId)).toBe(keptInside);
+  });
+
+  test("the picker offers a Note its own wall's Folders and Documents only", () => {
+    expect(keptFrom(pickerLibrary, choice("folder", "outer"), "outer")).toBeNull();
+    expect(keptFrom(pickerLibrary, choice("document", "lease"), "outer")).toBeNull();
+    expect(keptFrom(pickerLibrary, choice("folder", "inner"), "outer")).toBe("outside");
+    expect(keptFrom(pickerLibrary, choice("folder", "drafts"), "outer")).toBe("outside");
+    expect(keptFrom(pickerLibrary, choice("document", "memo"), "outer")).toBe("outside");
+    expect(keptFrom(pickerLibrary, choice("folder", "outer"), "inner")).toBe("outside");
+    expect(keptFrom(pickerLibrary, choice("document", "lease"), "inner")).toBe("outside");
+    expect(keptFrom(pickerLibrary, choice("folder", "drafts"), "inner")).toBeNull();
+    expect(keptFrom(pickerLibrary, choice("document", "draft"), "inner")).toBeNull();
+    // One Organize filed there is the wall's, but a Note behind it doesn't search it.
+    expect(keptFrom(pickerLibrary, choice("document", "guess"), "inner")).toBe("outside");
+    expect(keptFrom(pickerLibrary, choice("document", "guess"), null)).toEqual({
+      inside: "Sealed",
+    });
   });
 });

@@ -27,8 +27,25 @@ vi.mock("../../src/renderer/src/meetings", () => ({
   ),
 }));
 vi.mock("../../src/renderer/src/meetingViews", () => ({ showMeetingNoteView: vi.fn() }));
+// The line names a provider's service and model, and opens its fix, from the stores the app's
+// window loads.
+vi.mock("../../src/renderer/src/answers", () => ({
+  useAnswers: (select: (state: unknown) => unknown) => select({ models: [] }),
+}));
+vi.mock("../../src/renderer/src/modelNames", () => ({
+  useServiceName: () => "This service",
+  useModelNames: () => (modelId: string) => ({ name: modelId, id: undefined }),
+}));
 vi.mock("../../src/renderer/src/components/tabs/tabItems", () => ({
   useTabPlace: () => ({ tabId: "meeting-tab", groupId: "meeting-group" }),
+}));
+vi.mock("../../src/renderer/src/keyRefusals", () => ({
+  billingUrlOfProvider: () => null,
+  useKeyRefusals: { getState: () => ({ check: vi.fn(), openBilling: vi.fn() }) },
+}));
+vi.mock("../../src/renderer/src/chatGptSignIn", () => ({ signInAgain: vi.fn() }));
+vi.mock("../../src/renderer/src/store", () => ({
+  useAppStore: { getState: () => ({ openSettings: vi.fn() }) },
 }));
 
 let editor: Editor | null = null;
@@ -312,6 +329,7 @@ const meetingOf = (fill: MeetingFill | null): Meeting => ({
   health: { realTimeFactor: null, measuredMs: 0, keepsUp: null, events: [] },
   microphonePausedAtMs: null,
   help: null,
+  helps: [],
   helpTemplate: null,
   fill,
   createdAt: "2026-11-04T10:00:00.000Z",

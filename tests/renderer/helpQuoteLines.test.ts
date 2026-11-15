@@ -505,70 +505,235 @@ describe("Under each line of call help, the app draws its Citations' quotes (#28
     const PRICE = "Enterprise plan: $45 per seat a month, with single sign-on and audit logs.";
     const LATER = "\n\nCould you tell me what matters most to you here?\n→ learns their priority";
 
-    // protects=the third movement allowed: numbers the app adds as the reply ends come with their quote lines in the one write that ends it, under the line they belong to, one line per Citation and two at most, so the heading, that option's own line and everything above stay the same elements, and a later line already on screen is kept, moved only down (#2847); fails_when=a line above or the option's own line is replaced, the quote lines land under another line, or more than two show; no_claim=pixels, which the spec measures.
-    test("their quote lines come under the line that gains them, which stays with all above it", async () => {
-      const first =
-        "★ Yes, Enterprise runs $45 per seat each month, with single sign-on built in\n→ answers at once";
-      await show("answer", answerOf(`${first}${LATER}`, [], "streaming"));
+    const FIRST =
+      "★ Yes, Enterprise runs $45 per seat each month, with single sign-on built in\n→ answers at once";
+    const ADDED = [
+      sheet(1, PRICE),
+      sheet(2, "Enterprise contracts are billed annually."),
+      sheet(3, "Volume discount: 10% off from 50 seats."),
+    ];
+    const NUMBERED = `${FIRST.replace(" built in", " built in [^1] [^2] [^3]")}${LATER}`;
+    /** The quote lines at the reply's foot. */
+    const foot = () => all("help-foot").flatMap((each) => rowsOf(each).map(read));
+    /** The numbers at the end of each option's line to say, which take none of its room. */
+    const atLineEnd = () =>
+      all("help-option-say").map((say) =>
+        Array.from(
+          say.querySelectorAll("[data-testid='help-end-numbers'] [data-testid='help-citation']"),
+        ).map((chip) => chip.textContent),
+      );
+    const FOOT = [
+      { as: "quote", state: "found", words: `“${PRICE}”`, numbers: ["1"], found: true },
+      {
+        as: "quote",
+        state: "found",
+        words: "“Enterprise contracts are billed annually.”",
+        numbers: ["2", "3"],
+        found: true,
+      },
+    ];
+
+    // protects=#3098: numbers the app adds as the reply ends land at the end of the line that gains them, in room it kept, and their quote lines at the reply's foot, so every line of the reply and every quote line stays the same element where it was: nothing the User is reading moves; fails_when=a line or quote line is replaced or added among the reply's lines, the numbers land elsewhere than the line's end, or the foot doesn't hold their quotes; no_claim=pixels, which the spec measures.
+    test("their numbers go at the end of the line that gains them and their quote lines at the foot, so nothing moves", async () => {
+      await show("answer", answerOf(`${FIRST}${LATER}`, [], "streaming"));
       const before = screen();
       expect(drawn()).toEqual([[], []]);
 
-      const numbered = first.replace(" built in", " built in [^1] [^2] [^3]");
-      await show(
-        "answer",
-        answerOf(
-          `${numbered}${LATER}`,
-          [
-            sheet(1, PRICE),
-            sheet(2, "Enterprise contracts are billed annually."),
-            sheet(3, "Volume discount: 10% off from 50 seats."),
-          ],
-          "done",
-        ),
-      );
-      const after = screen();
-      expectSameNodes(after[0] ?? [], before[0] ?? []);
-      expectSameNodes(after[1]?.slice(0, 1) ?? [], before[1] ?? []);
-      expectSameNodes(after[2] ?? [], before[2] ?? []);
-      expect(drawn()).toEqual([
-        [
-          { as: "quote", state: "found", words: `“${PRICE}”`, numbers: ["1"], found: true },
-          {
-            as: "quote",
-            state: "found",
-            words: "“Enterprise contracts are billed annually.”",
-            numbers: ["2", "3"],
-            found: true,
-          },
-        ],
-        [],
+      await show("answer", answerOf(NUMBERED, ADDED, "done"));
+      screen().forEach((nodes, index) => {
+        expectSameNodes(nodes, before[index] ?? []);
+      });
+      expect(drawn()).toEqual([[], []]);
+      expect(atLineEnd()).toEqual([["1", "2", "3"], []]);
+      expect(foot()).toEqual(FOOT);
+      expectEveryMarkOnFoundWords(answerOf(NUMBERED, ADDED, "done"));
+    });
+
+    // protects=#3098: a reply drawn anew, as the panel shown again draws it, puts each quote under its own line, with nothing at the foot and nothing kept of where the live panel put it; fails_when=a quote shows at the foot, or a line keeps its numbers in the room at its end; no_claim=the stored reply, which is the same either way.
+    test("drawn anew, the same reply puts each quote under its own line", async () => {
+      await show("answer", answerOf(NUMBERED, ADDED, "done"));
+      expect(foot()).toEqual([]);
+      expect(atLineEnd()).toEqual([[], []]);
+      expect(drawn()).toEqual([FOOT, []]);
+    });
+
+    // protects=#3098: the end's numbers hold to a line's last character as it is read, never a mark split from its letter, which would show on a dotted circle; fails_when=the box holds only the accent or the Thai vowel sign, or the line's words change; no_claim=how a font draws them.
+    test.each([
+      ["an accent written as its own mark", "Yes, they meet at the café", "é"],
+      ["a Thai vowel sign", "ใช่ ราคานี้รวมทุกอย่างแล้วทุกที่", "ที่"],
+    ])(
+      "a line ending in %s keeps the whole letter where its numbers hold",
+      async (_, line, last) => {
+        await show("answer", answerOf(`★ ${line}`, [], "done"));
+        const [say] = all("help-option-say");
+        expect(say?.querySelector(".help-line-end")?.childNodes[0]?.textContent).toBe(last);
+        expect(say?.textContent).toBe(line);
+      },
+    );
+
+    // protects=#3098: a number shown while the reply was written that ends with no Citation goes, and each number after it drops by one, as the sources number them: the line and the sources agree; fails_when=a number after it keeps its old number, or a line and its source show different numbers; no_claim=a number before it, which keeps its own.
+    test("a number after one that ends with no Citation drops by one, and the sources agree", async () => {
+      const lines = `★ Could you walk me through the Monday lunches [^1]\n→ invites detail\n\nIt's billed annually [^2]\n→ sets the term`;
+      const billed = sheet(2, "Enterprise contracts are billed annually.");
+      await show("answer", answerOf(lines, [billed], "streaming"));
+      expect(all("help-citation").map((chip) => chip.textContent)).toEqual(["1", "2"]);
+
+      await show("answer", answerOf(lines, [billed], "done"));
+      expect(all("help-citation").map((chip) => chip.textContent)).toEqual(["1"]);
+      expect(
+        all("help-option-say")[1]?.querySelector("[data-testid='help-citation']")?.textContent,
+      ).toBe("1");
+      expect(drawn()[1]?.map((row) => row.numbers)).toEqual([["1"]]);
+      expect(all("help-source").map((source) => source.textContent?.split(" · ")[0])).toEqual([
+        "1",
       ]);
     });
 
-    // protects=the join comes first: a Citation the app adds as the reply ends that repeats the quote of the same place a line already draws adds no line: the line's quote line stays the same element and gains the number, and nothing below it moves (#2847); fails_when=the quote line is replaced, a line is added, or a line below is replaced; no_claim=how the core places the number, which the core test pins.
-    test("one that repeats a drawn quote of the same place joins its line, and nothing moves", async () => {
+    // protects=#3098: a quote that first lands as the reply ends, in a room of one row its number kept, holds to that row (cut at its end, whole on hover, its number and ✓ after it), so nothing below moves; drawn anew it is whole; a quote that lands while the reply is written may wrap as before; fails_when=the late quote isn't held, a quote drawn anew or landed while written is held, or the number or ✓ goes; no_claim=pixels, which the spec measures.
+    test("a long quote landing at the end in a one-row room holds to it, and is whole drawn anew", async () => {
+      const long =
+        "Enterprise plan: $45 per seat a month, with single sign-on, audit logs and a named account manager for every team.";
+      const reply = `★ Yes, Enterprise has it all [^1]\n→ answers at once${LATER}`;
+      await show("answer", answerOf(reply, [], "streaming"));
+      expect(drawn()[0]?.map((row) => row.state)).toEqual(["waiting"]);
+
+      await show("answer", answerOf(reply, [sheet(1, long)], "done"));
+      const [row] = rowsOf(all("help-option")[0] ?? container);
+      expect(row?.getAttribute("data-held")).toBe("true");
+      expect(row && read(row)).toMatchObject({ state: "found", numbers: ["1"], found: true });
+      expect(row?.querySelector(".help-quote-words")?.getAttribute("title")).toBe(
+        `“${fittedQuote(long).text}”`,
+      );
+
+      await act(async () => root?.render(null));
+      await show("answer", answerOf(reply, [sheet(1, long)], "done"));
+      const [anew] = rowsOf(all("help-option")[0] ?? container);
+      expect(anew?.hasAttribute("data-held")).toBe(false);
+      expect(anew && read(anew)).toMatchObject({ state: "found", numbers: ["1"], found: true });
+
+      await act(async () => root?.render(null));
+      await show("answer", answerOf(reply, [sheet(1, long)], "streaming"));
+      await show("answer", answerOf(reply, [sheet(1, long)], "done"));
+      const [written] = rowsOf(all("help-option")[0] ?? container);
+      expect(written?.hasAttribute("data-held")).toBe(false);
+    });
+
+    // protects=#3098: each row kept while written keeps its own number's quote: when the first of two numbers on a line ends with no Citation, its row reads Quote not found and the second's quote stays in the second row; fails_when=the second quote moves up into the first row, or the rows swap; no_claim=the numbers, which another test pins.
+    test("of two kept rows, the first with nothing reads Quote not found and the second keeps its quote", async () => {
+      const reply = `★ Enterprise has single sign-on [^1] and is billed annually [^2]\n→ answers at once${LATER}`;
+      const billed = sheet(2, "Enterprise contracts are billed annually.");
+      await show("answer", answerOf(reply, [], "streaming"));
+      expect(drawn()[0]?.map((row) => row.state)).toEqual(["waiting", "waiting"]);
+
+      await show("answer", answerOf(reply, [billed], "done"));
+      expect(drawn()[0]?.map(({ state, words }) => [state, words])).toEqual([
+        ["not-found", "Quote not found"],
+        ["found", "“Enterprise contracts are billed annually.”"],
+      ]);
+      expect(foot()).toEqual([]);
+    });
+
+    // protects=#3098: the numbers the User saw while the reply was written keep their numbers when the end adds a Citation to a line above them, the end's taking the next; fails_when=a number already shown changes; no_claim=the numbers of a reply drawn anew, which count from its first line.
+    test("a number shown while written keeps it when the end adds one above it", async () => {
+      const lines = `★ Yes, Enterprise is $45 a seat\n→ answers at once\n\nIt's billed annually [^1]\n→ sets the term`;
+      const billed = sheet(1, "Enterprise contracts are billed annually.");
+      await show("answer", answerOf(lines, [billed], "streaming"));
+      expect(all("help-citation").map((chip) => chip.textContent)).toEqual(["1"]);
+      await show(
+        "answer",
+        answerOf(lines.replace("a seat", "a seat [^2]"), [billed, sheet(2, PRICE)], "done"),
+      );
+      expect(atLineEnd()).toEqual([["2"], []]);
+      expect(
+        all("help-option-say")[1]?.querySelectorAll("[data-testid='help-citation']")[0]
+          ?.textContent,
+      ).toBe("1");
+    });
+
+    // protects=#3098: a Citation the end adds that repeats a quote its line already draws joins no row drawn, whose words may fill it: its number goes at the end of its line and its quote at the foot, so nothing moves; drawn anew, it joins that quote's line (#2847); fails_when=a row of the line changes or is added, or the reply drawn anew keeps it apart; no_claim=how the core places the number, which the core test pins.
+    test("one that repeats a drawn quote of the same place goes to the foot, and joins its line drawn anew", async () => {
       const said = `★ Yes, it's $45 a seat [^1]. As the sheet puts it, “${PRICE}”\n→ answers at once`;
       const whole = sheet(1, PRICE);
       await show("answer", answerOf(`${said}${LATER}`, [whole], "streaming"));
       const before = screen();
       expect(drawn()[0]?.map((row) => row.numbers)).toEqual([["1"]]);
 
-      await show(
-        "answer",
-        answerOf(
-          `${said.replace("”\n", "” [^2]\n")}${LATER}`,
-          [whole, { ...sheet(2, PRICE), passageId: whole.passageId }],
-          "done",
-        ),
+      const ended = answerOf(
+        `${said.replace("”\n", "” [^2]\n")}${LATER}`,
+        [whole, { ...sheet(2, PRICE), passageId: whole.passageId }],
+        "done",
       );
+      await show("answer", ended);
       screen().forEach((nodes, index) => {
         expectSameNodes(nodes, before[index] ?? []);
       });
-      expect(drawn()).toEqual([
-        [{ as: "quote", state: "found", words: `“${PRICE}”`, numbers: ["1", "2"], found: true }],
-        [],
-      ]);
+      const row = { as: "quote", state: "found", words: `“${PRICE}”`, found: true };
+      expect(drawn()).toEqual([[{ ...row, numbers: ["1"] }], []]);
+      expect(atLineEnd()).toEqual([["2"], []]);
+      expect(foot()).toEqual([{ ...row, numbers: ["2"] }]);
+
+      await act(async () => root?.render(null));
+      await show("answer", ended);
+      expect(drawn()).toEqual([[{ ...row, numbers: ["1", "2"] }], []]);
     });
+
+    // protects=#3098: two numbers whose quotes are first found with the reply's end, one inside the other, each keep the row they were written in, so none closes and nothing moves; drawn anew they join in one line (#2847); fails_when=a row closes once the reply has ended, or the reply drawn anew keeps two lines; no_claim=a join while the reply is written, which another test pins.
+    test("two quotes first found at the end, one inside the other, keep their rows; drawn anew they join", async () => {
+      const reply = `★ Enterprise has single sign-on and audit logs [^1] [^2]\n→ answers at once${LATER}`;
+      const whole = sheet(1, PRICE, { check: "checking" });
+      const inner = sheet(2, "with single sign-on and audit logs", {
+        check: "checking",
+        passageId: whole.passageId,
+      });
+      await show("answer", answerOf(reply, [whole, inner], "streaming"));
+      const before = screen();
+      expect(drawn()[0]?.map((row) => row.state)).toEqual(["waiting", "waiting"]);
+
+      const found = [
+        { ...whole, check: "found" },
+        { ...inner, check: "found" },
+      ];
+      await show("answer", answerOf(reply, found, "done"));
+      screen().forEach((nodes, index) => {
+        expectSameNodes(nodes, before[index] ?? []);
+      });
+      expect(drawn()[0]?.map((row) => [row.state, row.numbers])).toEqual([
+        ["found", ["1"]],
+        ["found", ["2"]],
+      ]);
+
+      await act(async () => root?.render(null));
+      await show("answer", answerOf(reply, found, "done"));
+      expect(drawn()[0]?.map((row) => row.numbers)).toEqual([["1", "2"]]);
+    });
+
+    // protects=#3098: a quote line kept for a number the reply's end gave no Citation keeps its row and reads Quote not found in the existing words, with no number and no ✓, while the number goes from the line and leaves its room, in English and Chinese; fails_when=the row closes, shows a number or ✓, or the number still shows; no_claim=the words of a quote line not found that has a Citation.
+    test.each([
+      ["en" as const, "Quote not found"],
+      ["zh-CN" as const, "未找到引文"],
+    ])(
+      "%s: a kept quote line whose number ends with no Citation keeps its row and reads Quote not found",
+      async (language, words) => {
+        fake.language = language;
+        const reply = `★ Could you walk me through the Monday lunches [^1]\n→ invites detail${LATER}`;
+        await show("answer", answerOf(reply, [], "streaming"));
+        const before = screen();
+        expect(drawn()[0]?.map((row) => row.state)).toEqual(["waiting"]);
+
+        await show("answer", answerOf(reply, [], "done"));
+        screen().forEach((nodes, index) => {
+          expect(nodes).toHaveLength(before[index]?.length ?? 0);
+        });
+        expect(drawn()).toEqual([
+          [{ as: "quote", state: "not-found", words, numbers: [], found: false }],
+          [],
+        ]);
+        const [say] = all("help-option-say");
+        expect(say?.querySelectorAll("[data-testid='help-citation']")).toHaveLength(0);
+        expect(say?.querySelectorAll(".help-citation--gone")).toHaveLength(1);
+        expect(foot()).toEqual([]);
+      },
+    );
   });
 
   test("Stop closes a room whose quote never came; nothing else closes one", async () => {
@@ -687,6 +852,33 @@ describe("Under each line of call help, the app draws its Citations' quotes (#28
         [["found", "“Enterprise contracts are billed annually.”", true]],
       ]);
       expect(container.textContent).not.toContain(checking);
+    },
+  );
+
+  // protects=#3005: a press's Citation of another call is stored not checked for that reason, and on a reply that ended its quote line says Not checked with no ✓, while a found quote beside it keeps its ✓, in English and Chinese; fails_when=that line shows ✓ or its quote; no_claim=the card's words, which the card's test reads.
+  test.each([
+    ["en" as const, "Not checked"],
+    ["zh-CN" as const, "未核对"],
+  ])(
+    "%s: on a reply that ended, a quote stored not checked for another call reads not checked, with no ✓",
+    async (language, notChecked) => {
+      fake.language = language;
+      const answer = answerOf("★ Enterprise is $45 a seat [^1] [^2]\n→ answers at once", [
+        sheet(1, "Enterprise plan: $45 per seat a month.", {
+          check: "not-checked",
+          checkReason: "other-call",
+        }),
+        sheet(2, "Enterprise contracts are billed annually."),
+      ]);
+      await show("answer", answer);
+      expect(
+        drawn().map((rows) => rows.map(({ state, words, found }) => [state, words, found])),
+      ).toEqual([
+        [
+          ["not-checked", notChecked, false],
+          ["found", "“Enterprise contracts are billed annually.”", true],
+        ],
+      ]);
     },
   );
 });

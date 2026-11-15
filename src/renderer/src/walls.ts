@@ -5,28 +5,28 @@
 import {
   CITATION_NODE,
   type Document,
+  type DocumentGroupAssignment,
+  type LibraryGroup,
   type LibrarySnapshot,
   type Mind,
   type SearchScope,
 } from "../../core/api";
 import type { NodeJSON } from "../../shared/blockJson";
-import { folderWallOf, isInsideFolder } from "./folders";
+import { folderWallOf } from "./folders";
 import { withTranscriptsFiled } from "./meetingTranscript";
 import type { Translate } from "./objects";
 
 /**
- * What of the Library the walls are read from. With the Documents and the Notes, a meeting's
- * Transcript is behind its Note's wall (#2528).
+ * What of the Library the walls are read from. The Documents and the Notes are part of it: a
+ * meeting's Transcript is behind its Note's wall (#2528).
  */
-type Walls = {
-  groups: readonly Pick<
-    LibrarySnapshot["groups"][number],
-    "id" | "name" | "parentId" | "keepInside"
-  >[];
-  assignments: readonly Pick<LibrarySnapshot["assignments"][number], "documentId" | "groupId">[];
-  documents?: readonly Pick<Document, "id" | "meetingMindId">[];
-  minds?: readonly Pick<Mind, "id" | "folderId">[];
-} | null;
+export interface WallLibrary {
+  groups: readonly Pick<LibraryGroup, "id" | "name" | "parentId" | "keepInside">[];
+  assignments: readonly Pick<DocumentGroupAssignment, "documentId" | "groupId" | "source">[];
+  documents: readonly Pick<Document, "id" | "meetingMindId">[];
+  minds: readonly Pick<Mind, "id" | "folderId">[];
+}
+type Walls = WallLibrary | null;
 
 /** The walls as the store holds them, with its Documents and Notes. */
 export const wallsOf = (state: {
@@ -35,8 +35,32 @@ export const wallsOf = (state: {
   minds: readonly Mind[];
 }): Walls => state.library && { ...state.library, documents: state.documents, minds: state.minds };
 
-const filingsOf = (library: NonNullable<Walls>) =>
-  withTranscriptsFiled(library.assignments, library.documents ?? [], library.minds ?? []);
+/**
+ * The wall each Document is behind, as the window can tell: the nearest Folder keeping its work
+ * inside it around the Folder the Document is filed in (#246), a meeting's Transcript being where
+ * its Note is (#2528). `byUser`: the User filed it there, so a Note behind that wall searches it.
+ * A Document behind no wall is absent. Every picker, chip and Citation takes this one reading.
+ */
+export function documentWalls(
+  library: WallLibrary,
+): Map<string, { wallId: string; byUser: boolean }> {
+  const wallOfFolder = new Map<string, string | null>();
+  const found = new Map<string, { wallId: string; byUser: boolean }>();
+  for (const filing of withTranscriptsFiled(
+    library.assignments,
+    library.documents,
+    library.minds,
+  )) {
+    if (filing.groupId === null || found.has(filing.documentId)) continue;
+    let wallId = wallOfFolder.get(filing.groupId);
+    if (wallId === undefined) {
+      wallId = folderWallOf(library.groups, filing.groupId);
+      wallOfFolder.set(filing.groupId, wallId);
+    }
+    if (wallId !== null) found.set(filing.documentId, { wallId, byUser: filing.source === "user" });
+  }
+  return found;
+}
 
 /**
  * What a move across walls says after its own line, in the ruled words: the wall it entered and
@@ -66,21 +90,11 @@ export function wallLines(t: Translate, entered: string | null, left: readonly s
     : t("move.outOfWall.many", { folder: first, n: leaving.length - 1, total: leaving.length });
 }
 
-/** The walled Folder that keeps a Folder or a Document's Folder inside it; null outside every wall. */
-const wallBehind = (
-  library: Walls,
-  folderId: string | null,
-): { id: string; name: string } | null => {
-  if (library === null || folderId === null) return null;
-  const id = folderWallOf(library.groups, folderId);
-  if (id === null) return null;
-  return library.groups.find((group) => group.id === id) ?? null;
-};
-
 /**
  * The name of the walled Folder that keeps `documentId` inside it, when work in `folderId` (null:
- * no Folder) is outside that wall; null when it may use the Document. A Folder inside a walled
- * Folder is behind the same wall.
+ * no Folder) is behind another wall or none; null when it may use the Document. A Folder inside a
+ * walled Folder is behind the same wall, unless it keeps its own work inside it: then it is a
+ * wall of its own, as the core reads it.
  */
 export function keptInsideName(
   library: Walls,
@@ -88,13 +102,11 @@ export function keptInsideName(
   folderId: string | null,
 ): string | null {
   if (documentId === null || library === null) return null;
-  const groupId = filingsOf(library).find((each) => each.documentId === documentId)?.groupId;
-  const wall = wallBehind(library, groupId ?? null);
-  if (wall === null) return null;
-  const inside =
-    folderId !== null &&
-    (folderId === wall.id || isInsideFolder(library.groups, folderId, wall.id));
-  return inside ? null : wall.name;
+  const wallId = documentWalls(library).get(documentId)?.wallId;
+  if (wallId === undefined) return null;
+  const own = folderId === null ? null : folderWallOf(library.groups, folderId);
+  if (own === wallId) return null;
+  return library.groups.find((group) => group.id === wallId)?.name ?? null;
 }
 
 const citedIn = (node: NodeJSON): string[] => [
@@ -126,16 +138,13 @@ export function scopeOutsideWalls(
   scope: SearchScope | null,
   folderId: string | null,
 ): SearchScope | null {
-  if (scope === null) return null;
-  if (folderId !== null && wallBehind(library, folderId) !== null) return scope;
-  const walled = new Set(
-    (library ? filingsOf(library) : []).flatMap((each) =>
-      wallBehind(library, each.groupId) === null ? [] : [each.documentId],
-    ),
-  );
+  if (scope === null || library === null) return scope;
+  const groups = library.groups;
+  if (folderId !== null && folderWallOf(groups, folderId) !== null) return scope;
+  const walled = documentWalls(library);
   return {
     ...scope,
-    folderIds: scope.folderIds.filter((id) => wallBehind(library, id) === null),
+    folderIds: scope.folderIds.filter((id) => folderWallOf(groups, id) === null),
     documentIds: scope.documentIds.filter((id) => !walled.has(id)),
   };
 }

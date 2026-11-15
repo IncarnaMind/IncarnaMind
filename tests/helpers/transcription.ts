@@ -202,6 +202,7 @@ export async function transcribingCore(
     systemCalendar,
     linkedFolders,
     paceTimers,
+    notifications,
   }: {
     engine?: FakeTranscriberOptions;
     /** The cloud's connections, to watch them; the pretend service as `engine.cloud` says by default. */
@@ -246,6 +247,7 @@ export async function transcribingCore(
     linkedFolders?: CoreAdapters["linkedFolders"];
     /** The core's waits on a clock the test moves, e.g. between a Transcript's reads. */
     paceTimers?: CoreAdapters["paceTimers"];
+    notifications?: CoreAdapters["notifications"];
   } = {},
 ) {
   const clock = manualClock();
@@ -283,6 +285,7 @@ export async function transcribingCore(
     ...(systemCalendar && { systemCalendar }),
     ...(linkedFolders && { linkedFolders }),
     ...(paceTimers && { paceTimers }),
+    ...(notifications && { notifications }),
   });
   await core.updateSettings({ device: { meetingNoticeAccepted: true } });
   await core.setOutputLocation(join(dataDir, "Documents", "IncarnaMind"));

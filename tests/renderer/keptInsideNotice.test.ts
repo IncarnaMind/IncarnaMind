@@ -90,6 +90,18 @@ async function showInOutsideNote(card: ReactNode) {
 
 const NOT_SAID = ["no longer in the new version", "changed after"];
 
+type TurnWall = typeof import("../../src/renderer/src/turnWall");
+
+/** Says what both hooks read for the Transcript "call", and for a Document behind no wall. */
+function KeptInsideProbe({
+  useKeptInside,
+  useKeptInsideOf,
+}: Pick<TurnWall, "useKeptInside" | "useKeptInsideOf">) {
+  const one = useKeptInside("call");
+  const each = useKeptInsideOf();
+  return createElement("p", null, `one: ${one} · each: ${each("call")} · ${each("other")}`);
+}
+
 describe("a Citation kept inside a wall, its Document changed since", () => {
   test("the check card says Kept inside and nothing about the new version", async () => {
     // Loaded by path, as the other component tests are: the node typecheck reads no JSX.
@@ -129,5 +141,19 @@ describe("a Citation kept inside a wall, its Document changed since", () => {
     expect(text).toContain("Kept inside Client A");
     for (const said of NOT_SAID) expect(text).not.toContain(said);
     expect(recheck).not.toHaveBeenCalled();
+  });
+});
+
+describe("a meeting's Transcript, its Note in a walled Folder", () => {
+  // protects=a table's and a chart's Citations to a Transcript read its Note's wall, as a single Citation does (#2528); fails_when=the Transcript reads as behind no wall; no_claim=what the core reads of a Transcript.
+  test("is kept inside for every Document at once, as for one", async () => {
+    const { useAppStore } = await import("../../src/renderer/src/store");
+    const { useKeptInside, useKeptInsideOf } = await import("../../src/renderer/src/turnWall");
+    useAppStore.setState((state) => ({
+      documents: [...state.documents, { id: "call", meetingMindId: "meeting" } as Document],
+      minds: [...state.minds, { id: "meeting", title: "Weekly call", folderId: "a" } as Mind],
+    }));
+    await showInOutsideNote(createElement(KeptInsideProbe, { useKeptInside, useKeptInsideOf }));
+    expect(container.textContent).toBe("one: Client A · each: Client A · null");
   });
 });

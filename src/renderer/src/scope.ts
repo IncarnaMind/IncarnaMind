@@ -26,6 +26,7 @@ import {
   withTranscriptsFiled,
 } from "./meetingTranscript";
 import type { Translate } from "./objects";
+import { documentWalls, type WallLibrary } from "./walls";
 
 /** What a scope item gone without its name is called: "Deleted Folder". */
 export const DELETED_NAMES: Record<ScopeKind, MessageKey> = {
@@ -54,6 +55,18 @@ export interface ScopeLibrary {
 const filingsOf = (library: ScopeLibrary): DocumentGroupAssignment[] =>
   withTranscriptsFiled(library.assignments ?? [], library.documents, library.minds ?? []);
 
+/** The Library as the walls are read from it (`documentWalls`). */
+export const wallLibraryOf = (
+  library: Pick<ScopeLibrary, "groups" | "assignments"> &
+    Pick<WallLibrary, "documents"> &
+    Partial<Pick<WallLibrary, "minds">>,
+): WallLibrary => ({
+  groups: library.groups ?? [],
+  assignments: library.assignments ?? [],
+  documents: library.documents,
+  minds: library.minds ?? [],
+});
+
 /**
  * Whether a Note behind `wall` (null: outside every wall) may not pick this choice: one behind
  * another wall, or a Document behind its own that the User didn't file there. A meeting's
@@ -67,14 +80,7 @@ export function blockedFrom(
   if (item.walled === undefined || item.walled === null) return false;
   if (item.walled !== wall) return true;
   if (item.kind !== "document") return false;
-  const groups = library.groups ?? [];
-  return !filingsOf(library).some(
-    (each) =>
-      each.documentId === item.id &&
-      each.groupId !== null &&
-      each.source === "user" &&
-      folderWallOf(groups, each.groupId) === wall,
-  );
+  return documentWalls(wallLibraryOf(library)).get(item.id)?.byUser !== true;
 }
 
 /** A Meeting's Transcript as a scope names it: "Weekly call · Transcript", or null. */
@@ -139,16 +145,6 @@ export function scopeCounts(library: ScopeLibrary): Map<string, number> {
   const groups = library.groups ?? [];
   const assignments = filingsOf(library);
   const byId = new Map(groups.map((group) => [group.id, group]));
-  const insideWall = (id: string): boolean => {
-    const seen = new Set<string>();
-    let at: LibraryGroup | undefined = byId.get(id);
-    while (at && !seen.has(at.id)) {
-      seen.add(at.id);
-      if (at.keepInside) return true;
-      at = at.parentId === null ? undefined : byId.get(at.parentId);
-    }
-    return false;
-  };
   const sumUp = (
     ids: readonly string[],
     parentOf: (id: string) => string | null,
@@ -178,13 +174,14 @@ export function scopeCounts(library: ScopeLibrary): Map<string, number> {
   };
   const groupDirect = new Map<string, number>();
   for (const group of groups) {
+    const walled = folderWallOf(groups, group.id) !== null;
     groupDirect.set(
       group.id,
       assignments.filter(
         (each) =>
           each.groupId === group.id &&
           liveIds.has(each.documentId) &&
-          (!insideWall(group.id) || each.source === "user"),
+          (!walled || each.source === "user"),
       ).length,
     );
   }
@@ -219,22 +216,7 @@ export function scopeCounts(library: ScopeLibrary): Map<string, number> {
 function everything(library: ScopeLibrary): ScopeChoice[] {
   const counts = scopeCounts(library);
   const groups = library.groups ?? [];
-  const groupById = new Map(groups.map((group) => [group.id, group]));
-  const groupWall = (id: string): string | null => {
-    const seen = new Set<string>();
-    let at: LibraryGroup | undefined = groupById.get(id);
-    while (at && !seen.has(at.id)) {
-      seen.add(at.id);
-      if (at.keepInside) return at.id;
-      at = at.parentId === null ? undefined : groupById.get(at.parentId);
-    }
-    return null;
-  };
-  const filings = filingsOf(library);
-  const documentWall = (document: Document) => {
-    const filed = filings.find((each) => each.documentId === document.id);
-    return filed?.groupId ? groupWall(filed.groupId) : null;
-  };
+  const walls = documentWalls(wallLibraryOf(library));
   const names = new Map(library.folders.map((folder) => [folder.id, folder.name]));
   const parents = new Map(library.folders.map((folder) => [folder.id, folder.parentId]));
   const pathOf = (folder: Folder) => {
@@ -257,7 +239,7 @@ function everything(library: ScopeLibrary): ScopeChoice[] {
         path: folderPath(groups, folder.id).slice(0, -1),
         documentKind: null,
         count: counts.get(folder.id) ?? 0,
-        walled: groupWall(folder.id),
+        walled: folderWallOf(groups, folder.id),
       }),
     ),
     ...flattenFolderTree(buildFolderTree(library.folders)).map(
@@ -293,7 +275,7 @@ function everything(library: ScopeLibrary): ScopeChoice[] {
               path: [],
               documentKind: document.kind,
               ...(!isListedDocument(document) && { meeting: true }),
-              walled: documentWall(document),
+              walled: walls.get(document.id)?.wallId ?? null,
             },
           ];
     }),

@@ -16,7 +16,13 @@ import type {
 import { conversationModelOf } from "../../shared/mindModel";
 import { conversationName } from "../../shared/naming";
 import { settleAsk, useAnswers } from "./answers";
-import { applyNotAsked, applyWhatIsAsked, applyWhatWasAsked } from "./askedChanges";
+import {
+  applyNotAsked,
+  applyWhatIsAsked,
+  applyWhatWasAsked,
+  expectRestart,
+  sawRestart,
+} from "./askedChanges";
 import { watchCommands } from "./assistantCommands";
 import { watchMindsMadeBy } from "./assistantMinds";
 import { offeredCommands } from "./assistantWindow";
@@ -463,6 +469,7 @@ export async function regenerateAnswer(
   const { layout, libraryFolderId } = useAppStore.getState();
   const folderInFrontId = currentTabOf(layout)?.item.kind === "library" ? libraryFolderId : null;
   settleAsk(answerId, null);
+  expectRestart(answerId);
   try {
     const askedFromItem = currentTabOf(useAppStore.getState().layout)?.item ?? null;
     watchMindsMadeBy(answerId, askedFromItem);
@@ -483,7 +490,8 @@ export async function regenerateAnswer(
     });
     // A core that refuses to start (no model, or a forced Skill off) writes nothing, so nothing
     // of the Answer is on its way; its asked changes wait, and the Note's count must say so (#1325).
-    if (!result.asked) applyNotAsked(answerId);
+    if (result.asked) sawRestart(answerId);
+    else applyNotAsked(answerId);
     settleAsk(answerId, result);
     sayLeftOut(result);
   } catch (error) {

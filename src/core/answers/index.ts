@@ -78,7 +78,7 @@ import {
 import { holdsNothing, madeByAnswer } from "../../shared/madeMind";
 import { linkTableSources } from "../../shared/markdownTables";
 import { escapeMarkdownText } from "../../shared/markdownText";
-import { HELP_SHAPE, type MeetingHelpKind } from "../../shared/meetingHelp";
+import { type CallHelpKind, HELP_SHAPE, type MeetingHelpKind } from "../../shared/meetingHelp";
 import {
   MISSING_NUMBER_REFUSED,
   missingNumberWords,
@@ -345,6 +345,7 @@ import type {
   GatedCall,
   ToolSet,
 } from "./engine";
+import { helpAskedLines } from "./helpCitations";
 import { countingJudges } from "./judge";
 import {
   type LiveTranscript,
@@ -356,6 +357,7 @@ import {
 import { markdownToBlocks } from "./markdown";
 import { withFigureCitations } from "./markerPlacement";
 import {
+  anewInItsLanguage,
   FOUND_TOKEN_LIMIT,
   foundWithin,
   HELP_DOCUMENTS,
@@ -666,10 +668,14 @@ export interface AnswersOptions {
    */
   liveTranscript(mindId: string): Promise<LiveTranscript | null>;
   /**
-   * The help button a Question in a conversation is, asked from a Mind whose Meeting
-   * records or is paused: its text is the button's name. Null for any other Question.
+   * The help a Question in a conversation is, asked from a Mind whose Meeting records or is
+   * paused: a button, whose name its text is, or "question", one the User typed in the call-help
+   * panel (#2925), known by its id once it is kept. Null for any other Question.
    */
-  meetingHelp?(mindId: string, question: string): MeetingHelpKind | null;
+  meetingHelp?(
+    mindId: string,
+    question: Pick<ConversationQuestion, "text"> & Partial<Pick<ConversationQuestion, "id">>,
+  ): CallHelpKind | null;
   /**
    * A Note's call (#3005): whether its Meeting records or is paused, and that Meeting's Transcript
    * Document, null until it has one. Null for a Note with no call; a voice memo is none.
@@ -727,11 +733,13 @@ export interface AnswersOptions {
   /**
    * The model for the calls that don't write the Answer, asked to skip thinking:
    * the quick-tasks model for an Answer asked with `answers`, which may be
-   * `answers` itself.
+   * `answers` itself; with `own`, always `answers` itself, for the one call that stays with the
+   * model that wrote the reply: a Meeting fill's ask for its reply's Citation records (#3099).
    */
   prepareQuickModel?(
     answers: ChatModelChoice,
     prepared: PreparedChatModel,
+    own?: boolean,
   ): Promise<PreparedChatModel["model"]>;
   /** Whether this model writes the Answer, then cites it, in the Tool loop, in this flow (#489). */
   writesThenCites?(prepared: PreparedChatModel, flow: AnswerFlow): boolean;
@@ -1007,6 +1015,13 @@ interface Quoted {
   passages: WindowedPassage[];
 }
 
+/**
+ * A Citation Check again judges: one not checked, except a call help press's Citation of another
+ * call, which is never checked (#3005).
+ */
+const checkedAgain = (citation: MarkedCitation) =>
+  citation.check === "not-checked" && citation.checkReason !== "other-call";
+
 const holdsUnitsOf = (passage: WindowedPassage, cited: CitationRecheck) =>
   cited.pageFrom === null || cited.pageTo === null
     ? passage.passageId === cited.passageId
@@ -1107,6 +1122,10 @@ function failureOf(error: unknown): ProviderError {
   return classifyProviderError(error);
 }
 
+/** The button a call's help is pressed with: a question typed in its panel is no press (#2925). */
+const pressOf = (help: CallHelpKind | null | undefined): MeetingHelpKind | null =>
+  help === "question" || help === undefined ? null : help;
+
 export function createAnswers(options: AnswersOptions) {
   const { content, events, engine } = options;
   /** Answers being written, by id. */
@@ -1199,6 +1218,36 @@ export function createAnswers(options: AnswersOptions) {
     );
     // A reply outlives its Note in the conversation; with no Note of its own no call is its own.
     return answer.steps?.pressed !== undefined ? pressScope(documentIds, mindId) : documentIds;
+  };
+
+  /**
+   * An ended press's reply with each Citation of another call's Transcript not checked for that
+   * reason, as Check again reads it (#3005): by its stored reason, and by the press's other calls
+   * for a reply stored before the reason was. Nothing found or passed stays on it.
+   */
+  const withOtherCalls = (
+    question: ConversationQuestion,
+    answer: ConversationAnswer,
+  ): ConversationAnswer => {
+    const pressed = answer.steps?.pressed !== undefined && !options.callsUnmarked?.();
+    const others = new Set(
+      pressed ? (options.otherCallTranscripts?.(judgedMind(question)) ?? []) : [],
+    );
+    const citations = answer.citations.map((citation): MarkedCitation => {
+      if (citation.checkReason !== "other-call" && !others.has(citation.documentId)) {
+        return citation;
+      }
+      const {
+        passedAt: _passed,
+        quotedWordsFound: _found,
+        quotedWords: _words,
+        judgedAt: _judged,
+        verdict: _verdict,
+        ...rest
+      } = citation;
+      return { ...rest, check: "not-checked", checkReason: "other-call" };
+    });
+    return { ...answer, citations };
   };
 
   /** The judgements of Answers' sentences running, by Answer (#2311): stopping one ends it. */
@@ -1428,10 +1477,11 @@ export function createAnswers(options: AnswersOptions) {
     /** Pictures the User picked on pages to ask about (#118): their images go with the Question. */
     pictured?: readonly AskedQuote[];
     /**
-     * One-click help during the call: the button pressed. Its Answer is laid out as
-     * the panel reads it, and is offered the Documents' Tools only.
+     * One-click help during the call: the button pressed, or "question", one the User typed in the
+     * panel (#2925). Its Answer is laid out as the panel reads it, and is offered the Documents'
+     * Tools only.
      */
-    help?: MeetingHelpKind;
+    help?: CallHelpKind;
     /** Written for a Task (#126), which gives way to Answers itself (see ../runs/tasks). */
     task?: boolean;
     /** Offers web search's Tools whatever the Question says: a Research Task's Web source (#130). */
@@ -1532,8 +1582,10 @@ export function createAnswers(options: AnswersOptions) {
     let foundAhead = false;
     /** The language the call's newest lines are in, which a help Answer is written in. */
     let callLanguage: string | null = null;
-    // A press reads no other call (#3005), so it is sent no call marks and no rule about them.
-    const unmarked = (options.callsUnmarked?.() ?? false) || help !== undefined;
+    const pressed = pressOf(help);
+    // A press reads no other call (#3005), so it is sent no call marks and no rule about them. A
+    // question typed in the panel may read earlier calls, each marked with its call (#2925).
+    const unmarked = (options.callsUnmarked?.() ?? false) || pressed !== null;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let finished = false;
     /**
@@ -1686,7 +1738,7 @@ export function createAnswers(options: AnswersOptions) {
             ...(heard && transcripts.size > 0 && { transcript: true as const }),
           },
         }),
-        ...(help !== undefined && { pressed: help }),
+        ...(pressed && { pressed }),
       };
     };
     let skills: SkillSession | null = null;
@@ -1723,6 +1775,8 @@ export function createAnswers(options: AnswersOptions) {
     };
     /** Whether the Answer offers a workbook's formula Tools, decided with its Tools. */
     let workbookToolsOffered = false;
+    /** The other calls' Transcripts a press reads none of (#3005), listed once it cites. */
+    let otherCalls: ReadonlySet<string> | null = null;
     const session = createCitationSession(
       searched,
       {
@@ -1738,6 +1792,12 @@ export function createAnswers(options: AnswersOptions) {
           input.callIn === undefined || unmarked
             ? undefined
             : options.noteCall?.(input.callIn)?.transcript === documentId,
+        // Its quote may still be found there, through a Citation the Note keeps: it isn't checked.
+        checkedWithout: (documentId) => {
+          if (pressOf(help) === null || options.callsUnmarked?.()) return false;
+          otherCalls ??= new Set(options.otherCallTranscripts?.(mindIn) ?? []);
+          return otherCalls.has(documentId);
+        },
       },
       original
         ? {
@@ -2749,10 +2809,13 @@ export function createAnswers(options: AnswersOptions) {
           callDocuments?.push(...transcripts);
           if (help) callLanguage = languageSaid(kept);
         }
-        if (help && helpDocuments !== null && kept.length > 0) {
+        // A typed question is searched for itself, said yet or not; a button for the newest lines.
+        const ahead =
+          help === "question" ? context.question : kept.length > 0 ? newestSaid(kept) : null;
+        if (help && helpDocuments !== null && ahead !== null) {
           const transcript = new Set(kept.map((passage) => passage.documentId));
           try {
-            const found = await session.find(newestSaid(kept), controller.signal, {
+            const found = await session.find(ahead, controller.signal, {
               rerank: false,
             });
             const fitting = foundWithin(
@@ -3705,6 +3768,8 @@ export function createAnswers(options: AnswersOptions) {
       // A model cites as the write-then-cite list says, whichever way it searches, so it never
       // cites in a way that list didn't admit it to (#1633).
       const writeFirst = options.writesThenCites?.(prepared, flow) ?? false;
+      const asksAnew =
+        help === "question" ? anewInItsLanguage(context.question, callLanguage) : null;
       const events = engine.generate({
         instructions: (
           mode,
@@ -3775,6 +3840,7 @@ export function createAnswers(options: AnswersOptions) {
                   found: foundAhead,
                   language: options.interfaceLanguage(),
                   callLanguage,
+                  asked: context.question,
                 }),
                 ...(textBehind ? [LIVE_TEXT_BEHIND_NOTE] : []),
               ].join("\n\n"),
@@ -3786,7 +3852,10 @@ export function createAnswers(options: AnswersOptions) {
         ...(input.mindsLine && { mindsLine: input.mindsLine }),
         ...(input.onScreenLine && { onScreenLine: input.onScreenLine }),
         model: prepared.model,
-        ...(prepareQuick && { quickModel: () => prepareQuick(model, prepared) }),
+        ...(prepareQuick && {
+          quickModel: () => prepareQuick(model, prepared),
+          ...(context.meetingFacts && { ownQuickModel: () => prepareQuick(model, prepared, true) }),
+        }),
         documents,
         tools: [
           ...provided,
@@ -3804,6 +3873,8 @@ export function createAnswers(options: AnswersOptions) {
         toolSet: input.toolSet ?? (help ? "documents" : undefined),
         ...(help &&
           !options.helpFormJudged?.() && { ownLines: (text: string) => helpOwnLines(help, text) }),
+        ...(help === "question" && { askedLines: helpAskedLines }),
+        ...(asksAnew && { asksAnew }),
         ...(input.outputKind && { outputKind: input.outputKind }),
         ...(keepsQuestionsLanguage && {
           languageNote: () => (skillNamesNoLanguage ? skillLanguageNote(language) : null),
@@ -4083,6 +4154,16 @@ export function createAnswers(options: AnswersOptions) {
               writeSoon();
             }
             break;
+          case "made-anew":
+            session.anew();
+            figures.anew();
+            recordedFigures.clear();
+            recordedQuotes.clear();
+            quotesRecorded.clear();
+            if (calculated) toolCalls.splice(toolCalls.indexOf(calculated), 1);
+            calculated = null;
+            writeSoon();
+            break;
           case "finished":
             outcome = { status: "done" };
             break;
@@ -4344,7 +4425,7 @@ export function createAnswers(options: AnswersOptions) {
     scope: string[] | null,
     scopeEmpty: boolean,
     mind: MindToRead | null,
-    help: MeetingHelpKind | null,
+    help: CallHelpKind | null,
     onScreen: readonly string[],
     {
       quoted,
@@ -4359,13 +4440,14 @@ export function createAnswers(options: AnswersOptions) {
   ): ConversationAskResult {
     const { conversation, question, answer } = turn;
     const callOnly = help !== null && HELP_DOCUMENTS[help] === null;
-    const documentIds = help && mind ? pressScope(scope, mind.mindId) : scope;
+    const documentIds = pressOf(help) && mind ? pressScope(scope, mind.mindId) : scope;
     // With no Search scope there is no chosen scope to be empty, listed or not.
     const emptyScope =
       documentIds === scope || scope === null
         ? scopeEmpty
         : documentIds !== null && options.documents.searchableCount(documentIds) === 0;
-    // Each press of a help button stands alone: an earlier suggestion would only steer this one.
+    // Each press of a help button stands alone: an earlier suggestion would only steer this one. A
+    // typed question may follow up on one, so it reads the turns before it.
     // With no Note, the Folder in front (the Library's) is the turn's Folder: its wall is the one read.
     const wallId = mind
       ? options.wall.walledFolder(mind.mindId)
@@ -4400,16 +4482,17 @@ export function createAnswers(options: AnswersOptions) {
       }
       return { message, wall: turnWall };
     });
-    const earlier = help
-      ? []
-      : withWalls
-          .filter(
-            ({ message, wall }) =>
-              wall !== UNKNOWN_WALL &&
-              wall === wallId &&
-              !outsideTurns.has(message.kind === "question" ? message.id : message.questionId),
-          )
-          .map((each) => each.message);
+    const earlier =
+      help !== null && help !== "question"
+        ? []
+        : withWalls
+            .filter(
+              ({ message, wall }) =>
+                wall !== UNKNOWN_WALL &&
+                wall === wallId &&
+                !outsideTurns.has(message.kind === "question" ? message.id : message.questionId),
+            )
+            .map((each) => each.message);
     // A long Mind is cut to what the conversation's Questions are about, the earlier ones too: a
     // follow-up keeps the part the first one found, and so the same start for the prompt cache.
     const asking = [
@@ -4458,7 +4541,17 @@ export function createAnswers(options: AnswersOptions) {
             const picture = pickedPicture(quote);
             return picture ? [picture] : [];
           });
-    const { context, origins } = conversationContextOf(earlier, question.text, {
+    // A typed question reads the call's earlier Answers as words, their Citations left out: shown
+    // with ids, a fact it gives again was kept by id, which Claude Haiku 5.5 marked and didn't
+    // record, and the request to cite again that followed was answered instead (#2925). Its facts
+    // are cited from what is found for it, as a button's are.
+    const read =
+      help === "question"
+        ? earlier.map((message) =>
+            message.kind === "answer" ? { ...message, citations: [] } : message,
+          )
+        : earlier;
+    const { context, origins } = conversationContextOf(read, question.text, {
       mind: section,
       documents: contextDocuments,
       mindNames: options.readableMindName,
@@ -4508,7 +4601,7 @@ export function createAnswers(options: AnswersOptions) {
                 return null;
               const smaller = mind.reading.section(tokens, asking);
               return {
-                context: conversationContextOf(earlier, question.text, {
+                context: conversationContextOf(read, question.text, {
                   mind: smaller,
                   documents: contextDocuments,
                   mindNames: options.readableMindName,
@@ -4899,7 +4992,11 @@ export function createAnswers(options: AnswersOptions) {
         answerModel,
       );
       const quotes = checkQuotes(question.quotes, question.mind?.id ?? null);
-      const pressed = mind ? (options.meetingHelp?.(mind.mindId, question.text) ?? null) : null;
+      // A question typed in the call's panel is no press, whatever its words (#2925).
+      const pressed =
+        mind && !question.kept
+          ? pressOf(options.meetingHelp?.(mind.mindId, { text: question.text }) ?? null)
+          : null;
       const added = options.conversations.add(
         { ...question, scope, quotes: storedQuotes(quotes) },
         answerModel,
@@ -4918,6 +5015,9 @@ export function createAnswers(options: AnswersOptions) {
         pressed,
       );
       const { turn } = added;
+      question.kept?.(turn.question.id);
+      // Taken as it is asked: a call that stops while the model gets ready doesn't make it another.
+      const asked = mind ? (options.meetingHelp?.(mind.mindId, turn.question) ?? null) : null;
       let published = false;
       try {
         const ready = await readyModel(question.model, question.forcedSkill);
@@ -4942,14 +5042,14 @@ export function createAnswers(options: AnswersOptions) {
           question.mind?.id ?? null,
           readyMind ? null : wallOfTurn(added.turn.question),
         );
-        const help = readyMind ? pressed : null;
+        const help = readyMind ? asked : null;
         const readyTurn = options.conversations.restartAnswer(
           turn.answer.id,
           ready.model,
           readOf(readyMind),
           false,
           undefined,
-          help,
+          pressOf(help),
         );
         options.conversations.publish(readyTurn);
         published = true;
@@ -5020,14 +5120,14 @@ export function createAnswers(options: AnswersOptions) {
       } else if (front !== null) {
         origin = { folderId: front, scope: folderScope(front) };
       }
-      const help = mind ? (options.meetingHelp?.(mind.mindId, question.text) ?? null) : null;
+      const help = mind ? (options.meetingHelp?.(mind.mindId, question) ?? null) : null;
       const turn = options.conversations.restartAnswer(
         answerId,
         ready.model,
         readOf(mind),
         true,
         origin,
-        help,
+        pressOf(help),
       );
       const wall =
         mindId !== null
@@ -5073,16 +5173,22 @@ export function createAnswers(options: AnswersOptions) {
      */
     async checkAnswerAgain(input: unknown): Promise<void> {
       const { answerId, question } = options.conversations.questionOf(input);
-      const answer = options.conversations.answer(answerId);
-      if (!answer || answer.status === "streaming") return;
-      if (!answer.citations.some((each) => each.check === "not-checked")) return;
+      const stored = options.conversations.answer(answerId);
+      if (!stored || stored.status === "streaming") return;
+      const answer = withOtherCalls(question, stored);
+      const relabelled = answer.citations.some(
+        (citation, index) => citation.checkReason !== stored.citations[index]?.checkReason,
+      );
+      if (!answer.citations.some(checkedAgain)) {
+        if (relabelled)
+          options.conversations.writeCitations(answerId, answer.text, answer.citations);
+        return;
+      }
       const limit = isRecord(input) ? moneyOf(input.limit) : null;
       const documentIds = judgedScope(question, answer);
       // The sentences judged again lose the ✓ an earlier check gave them, on every Citation they
       // cite, until this judgement passes them again (#2847).
-      const again = new Set(
-        answer.citations.filter((each) => each.check === "not-checked").map((each) => each.marker),
-      );
+      const again = new Set(answer.citations.filter(checkedAgain).map((each) => each.marker));
       const rejudged = new Set(
         citedSentences(answer.text, answer.figures, answer.citations)
           .filter((each) => !each.calculated && each.markers.some((marker) => again.has(marker)))
@@ -5096,7 +5202,7 @@ export function createAnswers(options: AnswersOptions) {
         if (off.length > 0) taken.set(citation.marker, off);
         return {
           ...rest,
-          ...(citation.check === "not-checked" && { check: "checking" }),
+          ...(checkedAgain(citation) && { check: "checking" }),
           ...(kept.length > 0 && { passedAt: kept }),
         };
       });
@@ -5116,11 +5222,10 @@ export function createAnswers(options: AnswersOptions) {
      */
     async estimateAnswerCheck(input: unknown): Promise<RunEstimate | null> {
       const { answerId, question } = options.conversations.questionOf(input);
-      const answer = options.conversations.answer(answerId);
-      if (!answer?.model || answer.status === "streaming") return null;
-      const waiting = new Set(
-        answer.citations.filter((each) => each.check === "not-checked").map((each) => each.marker),
-      );
+      const stored = options.conversations.answer(answerId);
+      if (!stored?.model || stored.status === "streaming") return null;
+      const answer = withOtherCalls(question, stored);
+      const waiting = new Set(answer.citations.filter(checkedAgain).map((each) => each.marker));
       if (waiting.size === 0) return null;
       const estimate =
         (await options.estimateAnswerCheck?.({
@@ -5130,7 +5235,7 @@ export function createAnswers(options: AnswersOptions) {
           waiting,
           mindId: judgedMind(question),
           documentIds: judgedScope(question, answer),
-          model: answer.model,
+          model: stored.model,
         })) ?? null;
       if (estimate?.billing !== "per-token" || !estimate.upTo?.cost) return estimate;
       const most = estimate.upTo.cost;

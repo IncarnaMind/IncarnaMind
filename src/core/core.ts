@@ -113,6 +113,7 @@ import {
   type AddedToNote,
   type AnnotationColour,
   type AnswerPlace,
+  type CallHelpKind,
   type ChatModelChoice,
   type ChatProviderKind,
   type CheckRecordFailure,
@@ -140,7 +141,6 @@ import {
   type FirstOpenQuestion,
   type MarkAiTextChoice,
   type Meeting,
-  type MeetingHelpKind,
   MIND_CONTENT_FIELD,
   MIND_SETTINGS_FIELD,
   type Mind,
@@ -283,7 +283,7 @@ import {
   otherCallTranscripts,
 } from "./meetings";
 import { listParts, meetingFolder } from "./meetings/audioFiles";
-import { createMeetingFill } from "./meetings/fill";
+import { createMeetingFill, reasonAlone } from "./meetings/fill";
 import { createCaptureHealth } from "./meetings/health";
 import { type MemoCue, memoTitle } from "./meetings/memo";
 import { createMeetingOffers, offerAllowed } from "./meetings/offers";
@@ -2209,8 +2209,8 @@ export function createCore(adapters: CoreAdapters): Core {
       writesThenCites({ catalogId: provider.catalogId, modelId }, flow, adapters.answerPaths),
     retrievesFirst: ({ provider, modelId }, flow) =>
       retrievesFirst({ catalogId: provider.catalogId, modelId }, flow, adapters.answerPaths),
-    async prepareQuickModel(answers, prepared) {
-      const quick = chat.quickTasksModel(answers);
+    async prepareQuickModel(answers, prepared, own = false) {
+      const quick = own ? null : chat.quickTasksModel(answers);
       // An Answer on this computer keeps its small calls there too.
       const stayHere =
         !quick ||
@@ -4759,7 +4759,10 @@ export function createCore(adapters: CoreAdapters): Core {
   // Transcripts (#136): a Meeting is transcribed on this computer as it records, where this copy can.
   let listMeetings: (() => Meeting[]) | undefined;
   /** See `AnswersOptions.meetingHelp`; set once Meetings are. */
-  let meetingHelpOf = (_mindId: string, _question: string): MeetingHelpKind | null => null;
+  let meetingHelpOf = (
+    _mindId: string,
+    _question: { id?: string; text: string },
+  ): CallHelpKind | null => null;
   /** See `AnswersOptions.liveTranscript`; set once Meetings are. */
   let liveTranscriptOf = async (_mindId: string): Promise<LiveTranscript | null> => null;
   /** See `AnswersOptions.noteCall`; set once Meetings are. */
@@ -5015,41 +5018,81 @@ export function createCore(adapters: CoreAdapters): Core {
     }
   });
   transcriptionGateChanged = () => transcripts?.recheckCloud() ?? Promise.resolve();
+  /**
+   * The Questions typed in each live Meeting's panel (#2925), by id, not words: written again they
+   * are its help still, while the same words asked anywhere else, or a button's name pressed after
+   * it was typed, are not.
+   */
+  const typedQuestions = new Map<string, Set<string>>();
   meetingHelpOf = (mindId, question) => {
     const meeting = meetings.liveOf(mindId);
     if (!meeting) return null;
+    if (question.id !== undefined && typedQuestions.get(meeting.id)?.has(question.id)) {
+      return "question";
+    }
     return (
       helpKindsFor(meeting.helpTemplate).find((kind) =>
-        LANGUAGES.some((language) => translate(language, helpLabel(kind)) === question),
+        LANGUAGES.some((language) => translate(language, helpLabel(kind)) === question.text),
       ) ?? null
     );
   };
   /** The conversation each live Meeting's help went to last: the panel's goes on there. */
   const helpConversations = new Map<string, string>();
-  const askMeetingHelp = async (given: unknown): Promise<ConversationAskResult> => {
-    const input = isRecord(given) ? given : {};
-    const meeting = meetings.get(input.meetingId);
+  /** The Meeting of a call that records or is paused, whose help this is; never a voice memo's. */
+  const liveCall = (meetingId: unknown): Meeting => {
+    const meeting = meetings.get(meetingId);
     if (meeting.status !== "recording" && meeting.status !== "paused") {
       throw new InvalidInputError({ key: "error.meeting.notBeingRecorded" });
     }
     if (meeting.kind === "memo") {
       throw new InvalidInputError({ key: "error.meeting.memoHelp" });
     }
-    const { kind } = input;
-    if (!isMeetingHelpKind(kind) || !helpKindsFor(meeting.helpTemplate).includes(kind)) {
-      throw new InvalidInputError({ key: "error.meeting.helpButton" });
-    }
+    return meeting;
+  };
+  interface CallAsk {
+    conversationId?: unknown;
+    typed?: boolean;
+  }
+  /** Each live Meeting's ask under way, which the next waits for: so it goes on in its conversation. */
+  const asking = new Map<string, Promise<unknown>>();
+  /**
+   * Asks `text` from a live call's Mind, in `conversationId`, or where its help went last (a new
+   * conversation if that one was deleted), which the next ask goes on in; `typed`, as a question
+   * typed in its panel. Once the Meeting's ask before it has begun its Answer, and only while the
+   * call is still live.
+   */
+  const askInCall = (meeting: Meeting, text: string, how: CallAsk = {}) => {
+    const ask = (asking.get(meeting.id) ?? Promise.resolve()).then(() =>
+      askNow(liveCall(meeting.id), text, how),
+    );
+    // A failed ask is its caller's to tell; the next one goes on.
+    asking.set(
+      meeting.id,
+      ask.catch(() => undefined),
+    );
+    return ask;
+  };
+  const askNow = async (
+    meeting: Meeting,
+    text: string,
+    { conversationId, typed = false }: CallAsk,
+  ): Promise<ConversationAskResult> => {
     const { folderId } = minds.get(meeting.mindId);
-    const question = (conversationId: unknown) =>
-      conversations.parseQuestion({
-        conversationId,
-        text: translate(settings.get().language, helpLabel(kind)),
+    const kept = (questionId: string) => {
+      typedQuestions.set(meeting.id, new Set(typedQuestions.get(meeting.id)).add(questionId));
+    };
+    const question = (id: unknown): QuestionInput => ({
+      ...conversations.parseQuestion({
+        conversationId: id,
+        text,
         mindId: meeting.mindId,
         scope: folderId ? { folderIds: [folderId], tagIds: [], documentIds: [] } : null,
         model: modelInUseIn(meeting.mindId),
-      });
+      }),
+      ...(typed && { kept }),
+    });
     let asked: QuestionInput;
-    if (input.conversationId !== undefined) asked = question(input.conversationId);
+    if (conversationId !== undefined) asked = question(conversationId);
     else {
       try {
         asked = question(helpConversations.get(meeting.id) ?? null);
@@ -5060,12 +5103,25 @@ export function createCore(adapters: CoreAdapters): Core {
       }
     }
     const result = await answers.askInConversation(asked);
+    if (result.asked) helpConversations.set(meeting.id, result.conversation.id);
+    return result;
+  };
+  const askMeetingHelp = async (given: unknown): Promise<ConversationAskResult> => {
+    const input = isRecord(given) ? given : {};
+    const meeting = liveCall(input.meetingId);
+    const { kind } = input;
+    if (!isMeetingHelpKind(kind) || !helpKindsFor(meeting.helpTemplate).includes(kind)) {
+      throw new InvalidInputError({ key: "error.meeting.helpButton" });
+    }
+    const result = await askInCall(meeting, translate(settings.get().language, helpLabel(kind)), {
+      conversationId: input.conversationId,
+    });
     if (result.asked) {
-      helpConversations.set(meeting.id, result.conversation.id);
       const from = HEARD_FROM[kind];
       const newest = (speaker?: string) => transcripts?.newestLine(meeting.id, speaker) ?? null;
       meetings.helped(meeting.id, {
         kind,
+        question: null,
         conversationId: result.conversation.id,
         answerId: result.answerId,
         heard:
@@ -5074,6 +5130,23 @@ export function createCore(adapters: CoreAdapters): Core {
             : from === "anyone"
               ? newest()
               : (newest(from === "me" ? SPEAKER_ME : SPEAKER_THEM) ?? newest()),
+      });
+    }
+    return result;
+  };
+  const askMeetingQuestion = async (given: unknown): Promise<ConversationAskResult> => {
+    const input = isRecord(given) ? given : {};
+    const meeting = liveCall(input.meetingId);
+    const text = typeof input.text === "string" ? input.text.trim() : "";
+    if (text === "") throw new InvalidInputError({ key: "error.meeting.questionEmpty" });
+    const result = await askInCall(meeting, text, { typed: true });
+    if (result.asked) {
+      meetings.helped(meeting.id, {
+        kind: "question",
+        question: text,
+        conversationId: result.conversation.id,
+        answerId: result.answerId,
+        heard: null,
       });
     }
     return result;
@@ -5136,7 +5209,7 @@ export function createCore(adapters: CoreAdapters): Core {
         return {
           problem: {
             kind: "model-removed",
-            message: translate(language, "meetings.fill.problem.modelRemoved"),
+            message: reasonAlone(language, "meetings.fill.problem.modelRemoved"),
           },
         };
       }
@@ -5148,9 +5221,12 @@ export function createCore(adapters: CoreAdapters): Core {
             readiness.reason === "local-mode"
               ? {
                   kind: "local-mode",
-                  message: translate(language, "meetings.fill.problem.localMode"),
+                  message: reasonAlone(language, "meetings.fill.problem.localMode"),
                 }
-              : { kind: "no-model", message: translate(language, "meetings.fill.problem.noModel") },
+              : {
+                  kind: "no-model",
+                  message: reasonAlone(language, "meetings.fill.problem.noModel"),
+                },
         };
       }
       // Filling in never asks: a service the User hasn't allowed yet waits for an Answer to ask.
@@ -5159,7 +5235,7 @@ export function createCore(adapters: CoreAdapters): Core {
         return {
           problem: {
             kind: "not-allowed",
-            message: translate(language, "meetings.fill.problem.notAllowed", { service }),
+            message: reasonAlone(language, "meetings.fill.problem.notAllowed", { service }),
             service,
           },
         };
@@ -7617,6 +7693,7 @@ export function createCore(adapters: CoreAdapters): Core {
     allowTranscriptionWords: () => cloudTranscription.allowWords(),
     openAudioSettings: (source) => meetings.openSettings(source),
     askMeetingHelp,
+    askMeetingQuestion,
     setMeetingTemplate: async (input) => {
       const { meetingId, template } = isRecord(input) ? input : {};
       if (template !== null && !isMeetingTemplate(template)) {
