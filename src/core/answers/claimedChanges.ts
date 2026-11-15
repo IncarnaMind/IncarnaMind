@@ -332,7 +332,7 @@ function leftUndone(
   return !changed;
 }
 
-function targetOf(call: AnswerToolCall, names: MindNames) {
+function targetOf(call: AnswerToolCall, names: MindNames): Target {
   const problem: MindProblem | undefined = call.mindProblem;
   const id = call.mindChange?.mindId ?? (problem && "mindId" in problem ? problem.mindId : null);
   if (id) return { id, name: names(id) };
@@ -343,6 +343,42 @@ function targetOf(call: AnswerToolCall, names: MindNames) {
   );
   return named ? { name: named } : null;
 }
+
+type Target = { id?: string; name?: string | null } | null;
+
+/**
+ * What the record calls each Note: its name, with a number where two Notes it names share one, so
+ * a claim about one is still held against a change to the other, and "unnamed Note 1" where it has
+ * no name. The check is sent these and never a Note's id (#2969).
+ */
+function noteLabels(notes: readonly { id: string; name: string | null }[]): (id: string) => string {
+  const nameOf = new Map<string, string | null>();
+  for (const { id, name } of notes) {
+    const known = name !== null && name.trim() !== "" ? name : null;
+    if (!nameOf.has(id) || nameOf.get(id) === null) nameOf.set(id, known);
+  }
+  const labels = new Map<string, string>();
+  let unnamed = 0;
+  for (const [id, name] of nameOf) {
+    if (name === null) {
+      unnamed += 1;
+      labels.set(id, `unnamed Note ${unnamed}`);
+      continue;
+    }
+    const same = [...nameOf].filter(([, other]) => other === name);
+    labels.set(
+      id,
+      same.length > 1 ? `${name} (${same.findIndex(([other]) => other === id) + 1})` : name,
+    );
+  }
+  return (id) => labels.get(id) ?? "unnamed Note";
+}
+
+/** A path as its last part alone: the verdict needs a folder's or file's name, and a path says where on this computer it is. */
+const lastPartOfPath = (value: string): string =>
+  /^(?:[A-Za-z]:[\\/]|[\\/])/.test(value)
+    ? (value.split(/[\\/]/).filter(Boolean).at(-1) ?? "")
+    : value;
 
 /** The Minds each kind of change was made in, by id. */
 export interface ChangeLog {
@@ -453,9 +489,46 @@ function unchangedParts(calls: readonly AnswerToolCall[], spans?: PartSpans): Se
  * says nothing was filed, moved or tagged, and never gives the Folder the request named as where
  * Documents went.
  */
-function commandRecordOf(done: CommandDone) {
+function commandRecordOf(done: CommandDone, noteLabel: (id: string) => string) {
+  // Only what a verdict reads, by name: none of a command's ids, its Run, or where a file is saved.
+  const kept = {
+    command: done.command,
+    items: done.items.map(({ kind, name, renamed }) => ({
+      kind,
+      name,
+      ...(renamed !== undefined && { renamed }),
+    })),
+    ...(done.into && {
+      into: { kind: done.into.kind, name: done.into.name, made: done.into.made },
+    }),
+    ...(done.file && {
+      file: { name: done.file.name, inDefaultFolder: done.file.inDefaultFolder },
+    }),
+    ...(done.inOutputLocation !== undefined && { inOutputLocation: done.inOutputLocation }),
+    ...(done.marking && { marking: done.marking }),
+    ...(done.window && { window: done.window }),
+    ...(done.mindId !== undefined && { mind: noteLabel(done.mindId) }),
+    ...(done.yours && { yours: done.yours }),
+    ...(done.folder && { folder: { name: done.folder.name } }),
+    ...(done.setting && {
+      setting: {
+        name: done.setting.name,
+        from: lastPartOfPath(done.setting.from),
+        to: lastPartOfPath(done.setting.to),
+      },
+    }),
+    ...(done.folders && { folders: done.folders }),
+    ...(done.tags && { tags: done.tags }),
+    ...(done.unsorted !== undefined && { unsorted: done.unsorted }),
+    ...(done.untouched !== undefined && { untouched: done.untouched }),
+    ...(done.considered !== undefined && { considered: done.considered }),
+    ...(done.review && { review: done.review }),
+    ...(done.alsoAsked !== undefined && { alsoAsked: done.alsoAsked }),
+    ...(done.merges && { merges: done.merges }),
+    ...(done.tagCount && { tagCount: done.tagCount }),
+  };
   if (done.command === "documents.tagWithAi") {
-    const { tags, ...rest } = done;
+    const { tags, ...rest } = kept;
     return {
       ...rest,
       proposedTags: tags ?? [],
@@ -463,8 +536,8 @@ function commandRecordOf(done: CommandDone) {
         "nothing: no Tag was added to any Document; they wait in Suggested Tags until the User confirms them",
     };
   }
-  if (done.command !== "documents.organize") return done;
-  const { into: _into, folders, ...rest } = done;
+  if (done.command !== "documents.organize") return kept;
+  const { into: _into, folders, ...rest } = kept;
   return {
     ...rest,
     proposedFolders: folders ?? [],
@@ -473,15 +546,28 @@ function commandRecordOf(done: CommandDone) {
   };
 }
 
+/** What a command was asked, of the call's input: the command and the setting, format or style it named, never the ids or paths it was given. */
+function inputOf(input: AnswerToolCall["input"]) {
+  const { command, setting, format, style } = input;
+  return {
+    ...(command !== undefined && { command }),
+    ...(setting !== undefined && { setting }),
+    ...(format !== undefined && { format }),
+    ...(style !== undefined && { style }),
+  };
+}
+
 function recordOf(
   calls: readonly AnswerToolCall[],
-  names: MindNames,
+  targets: readonly Target[],
+  noteLabel: (id: string) => string,
   focused: string | null,
   states?: ChangeStates,
   spans?: PartSpans,
 ) {
   const unchanged = unchangedParts(calls, spans);
-  return calls.map((call) => {
+  return calls.map((call, index) => {
+    const target = targets[index] ?? null;
     const change = call.mindChange;
     const state = change ? states?.(change) : null;
     const part = partOf(call);
@@ -494,13 +580,12 @@ function recordOf(
       ...(call.source === "commands" && { outcome: outcomeOf(call) }),
       ...(call.approval && { approval: call.approval }),
       resultCount: call.resultCount,
-      target: targetOf(call, names),
+      target: target && { name: target.id !== undefined ? noteLabel(target.id) : target.name },
       ...(part !== null && unchanged.has(call.id) && { nothingChangedIn: part }),
       ...(call.mindProblem && { problem: call.mindProblem.kind }),
       ...(call.tool === "run_command" && {
-        input: call.input,
-        command: call.command ? commandRecordOf(call.command) : null,
-        ...(call.commandProblem && { commandProblem: call.commandProblem.message }),
+        input: inputOf(call.input),
+        command: call.command ? commandRecordOf(call.command, noteLabel) : null,
         ...(call.command?.merges?.length && {
           mergedTags:
             "in Recently deleted, where the User can restore them; every other Tag is unchanged",
@@ -510,7 +595,8 @@ function recordOf(
         change: {
           created: change.created,
           proposals: change.proposals,
-          changed: change.changed ?? 0,
+          // An add leaves `changed` unset, and carries what it wrote as `paragraphs`: said in an edit's terms, it isn't a change of nothing (#2969).
+          changed: change.changed ?? change.paragraphs ?? 0,
           paragraphs: change.paragraphs ?? 0,
           tables: change.tables ?? 0,
           charts: change.charts ?? 0,
@@ -622,7 +708,17 @@ export async function unbackedClaims(
   if (reply.trim() === "") return { claims: [], commands: [], usage: null, durationMs: 0 };
   const started = Date.now();
   const named: MindNames = (id) => names(id) ?? minds.find((mind) => mind.id === id)?.name ?? null;
-  const record = recordOf(calls, named, focused, states, parts);
+  const targets = calls.map((call) => targetOf(call, named));
+  const noteLabel = noteLabels([
+    ...targets.flatMap((target) =>
+      target?.id !== undefined ? [{ id: target.id, name: target.name ?? null }] : [],
+    ),
+    ...calls.flatMap(({ command }) =>
+      command?.mindId !== undefined ? [{ id: command.mindId, name: named(command.mindId) }] : [],
+    ),
+    ...(focused !== null ? [{ id: focused, name: named(focused) }] : []),
+  ]);
+  const record = recordOf(calls, targets, noteLabel, focused, states, parts);
   // Asked beside the claims, not after them, so the turn waits no longer than for one request.
   const [judged, told] = await Promise.all([
     judge({
@@ -640,7 +736,7 @@ export async function unbackedClaims(
         { tag: "tool-record", text: JSON.stringify(record, null, 2) },
         {
           tag: "focused-mind",
-          text: focused ? JSON.stringify({ id: focused, name: named(focused) }) : "none",
+          text: focused ? JSON.stringify({ name: noteLabel(focused) }) : "none",
         },
         { tag: "reply", text: reply },
       ],

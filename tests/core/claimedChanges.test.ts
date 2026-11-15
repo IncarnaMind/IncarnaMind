@@ -164,16 +164,17 @@ describe("The quick model's verdict", () => {
     expect(claimsPrompt(model)).toContain('\\"charts\\": 1');
   });
 
+  // protects=the Note the User is in reaches the check by its name alone (#2969); fails_when=its internal id goes with it; no_claim=what the judge makes of the name.
   test("a claim about the focused Mind is checked with its name", async () => {
     const reply = "我已把摘要写进你的笔记里。";
     const model = judge({ claims: [] });
     await check(model, reply, [mindCall("add_to_mind", {})], "q3");
     const prompt = claimsPrompt(model);
-    expect(prompt).toContain('\\"id\\": \\"q3\\"');
     expect(prompt).toContain('\\"name\\": \\"Q3 review\\"');
+    expect(prompt).not.toContain('\\"q3\\"');
   });
 
-  // Value: protects=the judge can distinguish completed and unmade Mind commands; fails_when=run_command loses its input, affected items or renamed target; why_new=review found generic command records; seam=the exact structured judge prompt; no_claim=model wording beyond the supplied record
+  // Value: protects=the judge can distinguish completed and unmade Mind commands; fails_when=run_command loses its command, affected items or renamed target, or sends the ids it was given or its Run (#2969); why_new=review found generic command records; seam=the exact structured judge prompt; no_claim=model wording beyond the supplied record
   test("run_command records carry the command, input and affected Mind items", async () => {
     const model = judge({ claims: [] });
     const calls: AnswerToolCall[] = [
@@ -212,7 +213,10 @@ describe("The quick model's verdict", () => {
     expect(prompt).toContain("mind.delete");
     expect(prompt).toContain("Q3 summary");
     expect(prompt).toContain("周报");
-    expect(prompt).toContain('\\"ids\\"');
+    expect(prompt).not.toContain('\\"ids\\"');
+    expect(prompt).not.toContain('\\"q3\\"');
+    expect(prompt).not.toContain('\\"weekly\\"');
+    expect(prompt).not.toContain('\\"r1\\"');
   });
 
   // protects=a Tag merge's record says the merged Tags are in Recently deleted, where a reply that says so is backed (#2252); fails_when=the record leaves it out and a true sentence is flagged after the reply was written; no_claim=the judge's verdicts.
