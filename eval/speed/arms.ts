@@ -5,7 +5,7 @@
  * as it is sent (a prompt's wording, a provider option), and which Answer paths a model takes
  * instead of the lists beside the catalog (src/core/providers/catalog/answerPaths).
  */
-import type { LanguageModelV4CallOptions } from "@ai-sdk/provider";
+import type { LanguageModelV4CallOptions, LanguageModelV4StreamPart } from "@ai-sdk/provider";
 import { type LanguageModelMiddleware, wrapLanguageModel } from "ai";
 import type {
   AnswerPathsOverride,
@@ -14,6 +14,7 @@ import type {
   Core,
 } from "../../src/core";
 import { estimateTokens } from "../../src/core/answers/context";
+import { CITE_RETRY_INSTRUCTIONS } from "../../src/core/answers/prompt";
 import type { ChatModelSpec } from "../../src/core/providers/models";
 
 export interface Arm {
@@ -218,12 +219,50 @@ export interface SentRequest {
   messages: string;
 }
 
+const CITATIONS_ASKED = CITE_RETRY_INSTRUCTIONS.split("\n")[0] ?? "";
+
+/**
+ * Each one request for an Answer's Citations, by any arm, oldest first: the text it replied, so a
+ * run's record shows what was given when a Citation wasn't taken (#2925). The arms run one at a
+ * time, so a press reads the ones made while it ran.
+ */
+export const citationsAsked: string[] = [];
+
+const asksForCitations = (params: LanguageModelV4CallOptions) =>
+  CITATIONS_ASKED !== "" && JSON.stringify(params.prompt).includes(CITATIONS_ASKED);
+
 /** The chat models and Answer paths of a core, as the arm it runs has them. */
 export function armSwitch() {
   let current: Arm | null = null;
   const sent: SentRequest[] = [];
   const middleware: LanguageModelMiddleware = {
     specificationVersion: "v4",
+    wrapStream: async ({ doStream, params }) => {
+      const result = await doStream();
+      if (!asksForCitations(params)) return result;
+      let reply = "";
+      const stream = result.stream.pipeThrough(
+        new TransformStream<LanguageModelV4StreamPart, LanguageModelV4StreamPart>({
+          transform(part, controller) {
+            if (part.type === "text-delta") reply += part.delta;
+            controller.enqueue(part);
+          },
+          flush() {
+            citationsAsked.push(reply);
+          },
+        }),
+      );
+      return { ...result, stream };
+    },
+    wrapGenerate: async ({ doGenerate, params }) => {
+      const result = await doGenerate();
+      if (asksForCitations(params)) {
+        citationsAsked.push(
+          result.content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join(""),
+        );
+      }
+      return result;
+    },
     transformParams: async ({ params, model }) => {
       const next = current?.request?.(params) ?? params;
       const { prompt, abortSignal: _signal, headers: _headers, ...rest } = next;

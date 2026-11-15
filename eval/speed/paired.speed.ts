@@ -20,7 +20,7 @@ import { armNamed, armSwitch, type SentRequest } from "./arms";
 import { callHelpSet, rewrittenReplies } from "./callHelp";
 import { earlierCallsSet } from "./earlierCalls";
 import { earlierCallsSection } from "./earlierCallsReport";
-import { gradeAnswer, judgeOf } from "./judge";
+import { gradeAnswer, judgeOf, NO_JUDGE } from "./judge";
 import { openLedger } from "./ledger";
 import { meetingNotesSet } from "./meetingNotes";
 import {
@@ -31,12 +31,14 @@ import {
   gatingSet,
   hardSet,
   type Language,
+  needsJudge,
   openForArms,
   type PairedGroup,
   type PairedItem,
   runOnArm,
   SET_IDS,
   type SetId,
+  setsNeedingJudge,
 } from "./paired";
 import {
   armTurns,
@@ -49,6 +51,7 @@ import {
   seconds,
   sentPair,
   timeTable,
+  typedTable,
   wentFirst,
   wentFirstByCell,
 } from "./pairedReport";
@@ -87,6 +90,12 @@ function groupsOf(set: SetId, cacheDir: string): PairedGroup[] {
     case "call-help-checks":
     case "call-help-marks":
     case "call-help-marks-3":
+    case "call-help-typed":
+    case "call-help-typed-fresh":
+    case "call-help-typed-fresh-2":
+    case "call-help-typed-language":
+    case "call-help-typed-mixed":
+    case "call-help-typed-saved":
       return callHelpSet(set);
     case "call-help-earlier-calls":
     case "call-help-earlier-calls-2":
@@ -188,6 +197,10 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
       ),
     ),
   );
+  if (judge.model === NO_JUDGE) {
+    const [needing] = setsNeedingJudge(asked, arms[0].id === arms[1].id);
+    if (needing) throw new Error(needsJudge(needing));
+  }
   // A plan builds every setting the run reads, the judge's check against the models under test
   // included, and says what it would press: it sends nothing and opens no Library, so a plan that
   // passes means the run starts.
@@ -352,6 +365,9 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
       "",
       ...(group.rows.some((row) => row.baseline.requests)
         ? ["Where the time went:", "", timeTable(group.rows, names), ""]
+        : []),
+      ...(group.rows.some((row) => row.baseline.pressedFirst)
+        ? ["A typed question beside its button:", "", typedTable(group.rows, names), ""]
         : []),
       ...(languages.length > 1
         ? languages.flatMap((language) => {

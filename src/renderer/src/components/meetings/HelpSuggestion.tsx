@@ -1,10 +1,9 @@
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import type {
   CitationCheckReason,
   ConversationAnswer,
   MarkedCitation,
   MeetingHelp,
-  MeetingHelpKind,
 } from "../../../../core/api";
 import { citationSource, citedLocation } from "../../../../shared/citations";
 import { withFigureText } from "../../../../shared/figureMarkers";
@@ -23,11 +22,19 @@ import { useAnswers } from "../../answers";
 import { useCallStarts } from "../../callStarts";
 import { core } from "../../core";
 import { citationNumbers, helpParts, quoted } from "../../helpReply";
+import {
+  type DrawnReply,
+  type EndedLine,
+  type LinePlace,
+  lineKey,
+  replyAtEnd,
+} from "../../helpReplyEnd";
 import { useT } from "../../i18n";
+import { helpAsked, type PendingHelp } from "../../meetingHelp";
 import { useModelNames, useServiceName } from "../../modelNames";
 import { answerProblem } from "../../problems";
 import { DocumentLineIcon } from "../lineIcons";
-import { MomentRoom, PlainMoment, QuoteRows } from "./HelpQuotes";
+import { LineQuotes, MomentRoom, PlainMoment, QuoteLineRows, QuoteRows } from "./HelpQuotes";
 
 /**
  * A help Answer, as the core writes it: loaded once, then each write as it streams. Only this
@@ -117,40 +124,130 @@ function CitationChip({
   );
 }
 
+const GRAPHEMES = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+
+/**
+ * A line's last character as it is read, a letter with its marks (a code point alone would split
+ * a Thai vowel sign or an accent from its letter), and the spaces after it. The end's numbers hold
+ * to only it, so a long last word or a link still breaks where it must.
+ */
+function lastCharacter(text: string): { character: string; space: string } {
+  const words = text.trimEnd();
+  let character = "";
+  for (const { segment } of GRAPHEMES.segment(words)) character = segment;
+  return { character, space: text.slice(words.length) };
+}
+
+/** Words of a text piece, in bold where the model marked them. */
+function wordsOf(piece: { bold?: true }, text: string, key: string) {
+  return piece.bold ? (
+    <b key={key} className="help-move">
+      {text}
+    </b>
+  ) : (
+    <span key={key}>{text}</span>
+  );
+}
+
+/**
+ * A line's words and numbers. Once its reply has ended (`ended`), as it was written: each number
+ * where it stood, one that stands for no Citation now kept as room, and the end's own numbers after
+ * its last character (#3098). They land in room the line keeps there from its first word (`room`),
+ * one number wide and held to that character, so they add no row; a note keeps it by its width.
+ */
 function Pieces({
   pieces,
   answer,
   numbers,
   starts,
+  ended,
+  room = true,
 }: {
   pieces: readonly ReplyPiece[];
   answer: ConversationAnswer;
   numbers: ReadonlyMap<number, number>;
   starts: ReadonlyMap<string, string>;
+  ended?: EndedLine | undefined;
+  room?: boolean;
 }) {
-  return (
-    <>
-      {pieces.map((piece, index) => {
-        const key = `${piece.kind}-${index}`;
-        if (piece.kind === "text") return <span key={key}>{piece.text}</span>;
-        // Figures are written into the text before it is read (`withFigureText`).
-        if (piece.kind === "figure") return null;
-        const citation = answer.citations.find((each) => each.marker === piece.marker);
-        const number = numbers.get(piece.marker);
-        // A marker with no Citation is left out, as the assistant shows an Answer.
-        if (number === undefined) return null;
-        return (
-          <CitationChip
-            key={key}
-            citation={citation}
-            number={number}
-            at={piece.at}
-            started={(citation && starts.get(citation.documentId)) ?? null}
-          />
-        );
-      })}
-    </>
+  const chip = (marker: number, at: number, key: string) => {
+    const citation = answer.citations.find((each) => each.marker === marker);
+    const number = numbers.get(marker);
+    // A marker with no Citation is left out, as the assistant shows an Answer.
+    if (number === undefined) return null;
+    return (
+      <CitationChip
+        key={key}
+        citation={citation}
+        number={number}
+        at={at}
+        started={(citation && starts.get(citation.documentId)) ?? null}
+      />
+    );
+  };
+  const drawn = (piece: ReplyPiece, key: string): ReactNode => {
+    if (piece.kind === "text") return wordsOf(piece, piece.text, key);
+    // Figures are written into the text before it is read (`withFigureText`).
+    if (piece.kind === "figure") return null;
+    const gone = ended?.gone.get(piece.marker);
+    if (gone !== undefined) {
+      return (
+        <span key={key} aria-hidden="true" className="help-citation help-citation--gone">
+          {gone}
+        </span>
+      );
+    }
+    return chip(ended?.shown.get(piece.marker) ?? piece.marker, piece.at, key);
+  };
+  const late = ended?.late ?? [];
+  if (!room && late.length === 0) {
+    return <>{pieces.map((piece, index) => drawn(piece, `${piece.kind}-${index}`))}</>;
+  }
+  const numbersAtEnd = (
+    <span
+      key="late"
+      data-testid="help-end-numbers"
+      className={room ? "help-late-room" : "help-citation-late"}
+    >
+      {late.map((marker) => chip(marker, -1, `late-${marker}`))}
+    </span>
   );
+  // The room holds to the last thing drawn, so no row can break before it.
+  let last = pieces.length - 1;
+  const shows = (piece: ReplyPiece, at: number) =>
+    piece.kind === "text" ? piece.text.trim() !== "" : drawn(piece, String(at)) !== null;
+  for (; last >= 0; last--) {
+    const piece = pieces[last];
+    if (piece && shows(piece, last)) break;
+  }
+  const lastPiece = pieces[last];
+  const nodes = pieces
+    .slice(0, Math.max(0, last))
+    .map((piece, index) => drawn(piece, `${piece.kind}-${index}`));
+  if (lastPiece?.kind === "text") {
+    const { character, space } = lastCharacter(lastPiece.text);
+    const head = lastPiece.text.slice(0, lastPiece.text.length - character.length - space.length);
+    // Each write's last character is drawn anew where it lands, not moved along the line: a node
+    // that moves reads as a layout shift while the reply streams, though no word on screen moves.
+    const at = `${last}-${head.length}`;
+    nodes.push(
+      wordsOf(lastPiece, head, `text-${last}`),
+      <span key={`end-${at}`} className="help-line-end">
+        {lastPiece.bold ? <b className="help-move">{character}</b> : character}
+        {numbersAtEnd}
+      </span>,
+      <span key={`space-${at}`}>{space}</span>,
+    );
+  } else {
+    nodes.push(
+      <span key="end" className="help-line-end">
+        {lastPiece && drawn(lastPiece, `${lastPiece.kind}-${last}`)}
+        {numbersAtEnd}
+      </span>,
+    );
+  }
+  nodes.push(...pieces.slice(last + 1).map((piece, index) => drawn(piece, `after-${index}`)));
+  return <>{nodes}</>;
 }
 
 /**
@@ -168,6 +265,7 @@ function ReplyLine({
   answer,
   numbers,
   starts,
+  ended,
 }: {
   pieces: readonly ReplyPiece[];
   testId: string;
@@ -179,9 +277,11 @@ function ReplyLine({
   answer: ConversationAnswer;
   numbers: ReadonlyMap<number, number>;
   starts: ReadonlyMap<string, string>;
+  /** The line as it was written, once the reply has ended in the panel that showed it written. */
+  ended?: EndedLine | undefined;
 }) {
-  if (reading && open && momentBegun(pieces)) return <MomentRoom />;
-  const moment = reading && !open ? momentOf(pieces) : null;
+  if (!ended && reading && open && momentBegun(pieces)) return <MomentRoom />;
+  const moment = !ended && reading && !open ? momentOf(pieces) : null;
   if (moment?.kind === "plain") {
     return (
       <PlainMoment
@@ -204,14 +304,37 @@ function ReplyLine({
       />
     );
   }
+  const late = ended !== undefined && ended.late.length > 0 && className === "help-option-note";
   return (
     <>
-      <span data-testid={testId} className={className}>
-        <Pieces pieces={pieces} answer={answer} numbers={numbers} starts={starts} />
+      <span
+        data-testid={testId}
+        className={late ? `${className} help-option-note--late` : className}
+      >
+        <Pieces
+          pieces={ended?.pieces ?? pieces}
+          answer={answer}
+          numbers={numbers}
+          starts={starts}
+          ended={ended}
+          room={className !== "help-option-note"}
+        />
       </span>
-      <QuoteRows markers={markersOf([pieces])} answer={answer} numbers={numbers} starts={starts} />
+      <LineQuotes
+        markers={markersOf([pieces])}
+        ended={ended}
+        answer={answer}
+        numbers={numbers}
+        starts={starts}
+      />
     </>
   );
+}
+
+interface Shown {
+  answer: ConversationAnswer;
+  numbers: ReadonlyMap<number, number>;
+  starts: ReadonlyMap<string, string>;
 }
 
 function Item({
@@ -221,16 +344,17 @@ function Item({
   answer,
   numbers,
   starts,
-}: {
+  ended,
+}: Shown & {
   item: ReplyItem;
   /** Which of its lines is the reply's last while it is still written, if any. */
-  open: "lead" | number | "effect" | null;
+  open: LinePlace | null;
   reading: boolean;
-  answer: ConversationAnswer;
-  numbers: ReadonlyMap<number, number>;
-  starts: ReadonlyMap<string, string>;
+  /** Each of its lines as it was written, once the reply has ended in the panel that showed it. */
+  ended: (place: LinePlace) => EndedLine | undefined;
 }) {
   const t = useT();
+  const effect = ended("effect");
   return (
     <div
       data-testid="help-option"
@@ -253,6 +377,7 @@ function Item({
         answer={answer}
         numbers={numbers}
         starts={starts}
+        ended={ended("lead")}
       />
       {item.notes.map((note, index) => (
         <ReplyLine
@@ -266,15 +391,24 @@ function Item({
           answer={answer}
           numbers={numbers}
           starts={starts}
+          ended={ended(index)}
         />
       ))}
       {item.effect && (
         <>
           <span data-testid="help-option-effect" className="help-option-effect">
-            → <Pieces pieces={item.effect} answer={answer} numbers={numbers} starts={starts} />
+            →{" "}
+            <Pieces
+              pieces={effect?.pieces ?? item.effect}
+              answer={answer}
+              numbers={numbers}
+              starts={starts}
+              ended={effect}
+            />
           </span>
-          <QuoteRows
+          <LineQuotes
             markers={markersOf([item.effect])}
+            ended={effect}
             answer={answer}
             numbers={numbers}
             starts={starts}
@@ -326,16 +460,26 @@ export function HelpOutline({ count }: { count: number }) {
 
 /**
  * The heading over a suggestion: the button, then the line it answers ("They said: …"), or for
- * "What do they want?" that it is read from what they said.
+ * "What do they want?" that it is read from what they said; for a question the User typed, the
+ * question (#2925).
  */
 export function HelpHeading({
-  kind,
+  asked,
   heard = null,
 }: {
-  kind: MeetingHelpKind;
+  asked: PendingHelp;
   heard?: MeetingHelp["heard"];
 }) {
   const t = useT();
+  const { kind } = asked;
+  if (kind === "question") {
+    const question = helpAsked(asked, t);
+    return (
+      <p data-testid="help-heading" className="help-heading help-heading--question">
+        <b title={question}>{question}</b>
+      </p>
+    );
+  }
   const said = heard
     ? t(
         isTheirs(heard.speaker)
@@ -426,14 +570,16 @@ function NoHelp({
 /**
  * A help button's Answer, laid out to be read in a second or two: the options with the
  * recommended first and starred, each with what it leads to; the Citations they rest on.
- * While it streams, the options still to come keep their outline.
+ * Until its first line streams in, its outline holds the place; the Citations' sources show once
+ * it ends. Nothing is drawn under a line still being written, so nothing moves while the User
+ * reads it (#2925).
  */
 export function HelpSuggestion({
   help,
   answer,
   onRetry,
 }: {
-  help: Pick<MeetingHelp, "kind" | "heard">;
+  help: Pick<MeetingHelp, "kind" | "question" | "heard">;
   answer: ConversationAnswer;
   onRetry(): void;
 }) {
@@ -461,20 +607,16 @@ export function HelpSuggestion({
       )
     : (answer.errorMessage ?? "");
   const streaming = answer.status === "streaming";
-  // A figure's own text is written in before the reply is read, so a word the model wrote before
-  // it ("about") isn't doubled.
-  const text = withFigureText(
-    answer.text,
-    (marker) => answer.figures.find((each) => each.marker === marker) ?? null,
-  );
-  const { lead, options } = helpParts({ ...answer, text }, help.kind);
-  const items = [...lead, ...options];
-  const open = openLine(text, answer.status, items.at(-1));
+  const { items, options, open } = drawnItems(answer, help.kind);
   const reading = HELP_SHAPE[help.kind] === "readings";
-  const numbers = citationNumbers(
-    items,
-    (marker) => streaming || answer.citations.some((each) => each.marker === marker),
-  );
+  const written = useAsWritten(answer);
+  const end = written && endOf(written, answer, help.kind, items);
+  const numbers =
+    end?.numbers ??
+    citationNumbers(
+      items,
+      (marker) => streaming || answer.citations.some((each) => each.marker === marker),
+    );
   const starts = useCallStarts(citedIn(answer, numbers).map(({ citation }) => citation));
   return (
     <div
@@ -483,7 +625,7 @@ export function HelpSuggestion({
       aria-busy={streaming}
       className="help-suggestion"
     >
-      <HelpHeading kind={help.kind} heard={help.heard} />
+      <HelpHeading asked={help} heard={help.heard} />
       {items.map((item, index) => (
         <Item
           // biome-ignore lint/suspicious/noArrayIndexKey: the options are in the order written.
@@ -494,9 +636,15 @@ export function HelpSuggestion({
           answer={answer}
           numbers={numbers}
           starts={starts}
+          ended={(place) => end?.lines.get(lineKey(index, place))}
         />
       ))}
-      {streaming && items.length < 2 && <HelpOutline count={items.length === 0 ? 2 : 1} />}
+      {streaming && items.length === 0 && <HelpOutline count={2} />}
+      {end && end.foot.length > 0 && (
+        <div data-testid="help-foot" className="help-foot">
+          <QuoteLineRows lines={end.foot} answer={answer} numbers={numbers} starts={starts} />
+        </div>
+      )}
       {answer.status === "failed" && (
         <NoHelp testId="help-failed" message={why} onRetry={onRetry} />
       )}
@@ -506,7 +654,54 @@ export function HelpSuggestion({
       {answer.status === "stopped" && options.length === 0 && (
         <NoHelp testId="help-stopped" message={t("answer.status.stopped")} onRetry={onRetry} />
       )}
-      <Sources answer={answer} numbers={numbers} starts={starts} />
+      {/* Once the reply ends, under the end's own quote lines: nothing shown moves for them. */}
+      {!streaming && <Sources answer={answer} numbers={numbers} starts={starts} />}
     </div>
   );
+}
+
+/** A reply's items as the panel draws them, and which line of its last is still written. */
+function drawnItems(answer: ConversationAnswer, kind: MeetingHelp["kind"]) {
+  // A figure's own text is written in before the reply is read, so a word the model wrote before
+  // it ("about") isn't doubled.
+  const text = withFigureText(
+    answer.text,
+    (marker) => answer.figures.find((each) => each.marker === marker) ?? null,
+  );
+  const { lead, options } = helpParts({ ...answer, text }, kind);
+  const items = [...lead, ...options];
+  return { items, options, open: openLine(text, answer.status, items.at(-1)) };
+}
+
+/**
+ * The reply as this panel last drew it being written, once it has ended (#3098); null while it is
+ * written, and for a reply this panel didn't see written: one drawn anew.
+ */
+function useAsWritten(answer: ConversationAnswer): ConversationAnswer | null {
+  const [written, setWritten] = useState<ConversationAnswer | null>(null);
+  const next = answer.status === "streaming" ? answer : written?.id === answer.id ? written : null;
+  if (next !== written) setWritten(next);
+  return answer.status === "done" ? next : null;
+}
+
+/** The ended reply drawn as the panel drew it written: each line keeps its rows. */
+function endOf(
+  written: ConversationAnswer,
+  ended: ConversationAnswer,
+  kind: MeetingHelp["kind"],
+  items: readonly ReplyItem[],
+) {
+  const before = drawnItems(written, kind);
+  const reply = (answer: ConversationAnswer, shown: readonly ReplyItem[]): DrawnReply => ({
+    items: shown,
+    citationOf: (marker) => answer.citations.find((each) => each.marker === marker),
+    numbered: (marker) =>
+      answer.status === "streaming" || answer.citations.some((each) => each.marker === marker),
+    status: answer.status,
+  });
+  const last = before.items.length - 1;
+  return replyAtEnd(reply(written, before.items), reply(ended, items), {
+    reading: HELP_SHAPE[kind] === "readings",
+    open: before.open === null ? null : lineKey(last, before.open),
+  });
 }

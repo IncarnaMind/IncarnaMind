@@ -64,6 +64,10 @@ const CALLS = [
     want: "What do they want?",
     check: "Check what was said",
     showPanel: "Show the call help panel",
+    quoteNotFound: "Quote not found",
+    // A line long enough that its quote line takes two rows.
+    longSheet:
+      "Price sheet 2026\n\nTeam plan: $25 per seat a month.\nEnterprise plan: $45 per seat a month, single sign-on included, with audit logs and a named account manager for every team.\n",
   },
   {
     language: "Chinese",
@@ -76,6 +80,9 @@ const CALLS = [
     want: "对方想要什么？",
     check: "核对刚才说的话",
     showPanel: "显示通话助手浮窗",
+    quoteNotFound: "未找到引文",
+    longSheet:
+      "企业版：每个席位每月 45 美元并含单点登录和审计日志，每个团队都配有专属客户经理。\n团队版：每个席位每月 25 美元。\n",
   },
 ];
 
@@ -216,8 +223,8 @@ for (const call of CALLS) {
     await app.close();
   });
 
-  // protects=a number written before its quote comes keeps a room under its option, and when its quote lands wholly inside the other's, of the same place, its number joins that line and its spare room closes: the option's line and everything above keep their place, in English and Chinese (#2847); fails_when=no room shows while the quote is on its way, the joined number keeps a line of its own, or the heading, the option's line or its first quote line moves; no_claim=pixels, which the stills show.
-  test(`call help in ${call.language}: a number written before its quote keeps its room, and a quote inside another joins its line`, async () => {
+  // protects=a number written before its quote comes keeps a room under its option (#2847); when its quote lands with the reply's end, wholly inside the other's, of the same place, each keeps the row it was written in, so nothing moves (#3098), and the panel shown again joins them in one line, in English and Chinese; fails_when=no room shows while the quote is on its way, a row closes or moves once the reply has ended, or the panel shown again keeps the joined number on a line of its own; no_claim=pixels, which the stills show.
+  test(`call help in ${call.language}: a number written before its quote keeps its room, and a quote inside another joins its line when drawn anew`, async () => {
     const { app, window, panel } = await callWithSheet(call, "fake-model-writes-before-it-cites");
 
     await holdModel(app, "holdCite", true);
@@ -236,40 +243,53 @@ for (const call of CALLS) {
       heading: await topOf(heading),
       say: await topOf(say),
       first: await topOf(rows.nth(0)),
+      second: await topOf(rows.nth(1)),
     };
     await shot(panel, `call-help-quotes-room-${call.interface}`);
 
     await holdModel(app, "holdCite", false);
     await expect(reply).toHaveAttribute("data-status", "done", { timeout: 20_000 });
-    await expect(rows).toHaveCount(1);
-    await expect(rows.first().getByTestId("help-quote-number")).toHaveText(["1", "2"]);
-    await expect(rows.first()).toHaveAttribute("data-state", "found");
+    await expect(rows).toHaveCount(2);
+    await expect(rows.nth(0).getByTestId("help-quote-number")).toHaveText(["1"]);
+    await expect(rows.nth(1).getByTestId("help-quote-number")).toHaveText(["2"]);
+    await expect(rows.nth(0)).toHaveAttribute("data-state", "found");
+    await expect(rows.nth(1)).toHaveAttribute("data-state", "found");
     const after = {
       heading: await topOf(heading),
       say: await topOf(say),
-      first: await topOf(rows.first()),
+      first: await topOf(rows.nth(0)),
+      second: await topOf(rows.nth(1)),
     };
-    expect(Math.abs(after.heading.y - before.heading.y)).toBeLessThan(0.5);
-    expect(Math.abs(after.say.y - before.say.y)).toBeLessThan(0.5);
-    // The first quote line still starts right under the option's line.
-    expect(
-      Math.abs(
-        after.first.y -
-          (after.say.y + after.say.height) -
-          (before.first.y - (before.say.y + before.say.height)),
-      ),
-    ).toBeLessThan(0.5);
+    for (const part of ["heading", "say", "first"] as const) {
+      expect(Math.abs(after[part].y - before[part].y), part).toBeLessThan(0.5);
+    }
+    // The second row stays right under the first, whose quote may take a second row as it lands in
+    // its room (#2847).
+    const gap = (rows: typeof before) => rows.second.y - (rows.first.y + rows.first.height);
+    expect(Math.abs(gap(after) - gap(before))).toBeLessThan(0.5);
     expect((await expectQuoteLines(window, reply))[0]).toMatchObject({
+      words: `“${call.cited}”`,
+      numbers: ["1"],
+      found: true,
+    });
+    await shot(panel, `call-help-quotes-kept-apart-${call.interface}`);
+
+    // Drawn anew, the quote inside the other joins its line.
+    const shown = await shownAgain(app, window, panel, call);
+    const again = shown.getByTestId("help-suggestion").last();
+    const joined = again.getByTestId("help-option").first().getByTestId("help-quote");
+    await expect(joined).toHaveCount(1);
+    expect((await expectQuoteLines(window, again))[0]).toMatchObject({
       words: `“${call.cited}”`,
       numbers: ["1", "2"],
       found: true,
     });
-    await shot(panel, `call-help-quotes-joined-${call.interface}`);
+    await shot(shown, `call-help-quotes-joined-${call.interface}`);
     await app.close();
   });
 
-  // protects=the third movement allowed while a reply is written: options that came with no number stand whole while the app's one request for their Citations is out, a later line on screen, and then the numbers, their quote lines and the reply's end land in one write, so the heading and the line that gains them keep their place, the later line moves only down, and the panel shown again draws the reply as it ended, in English and Chinese (#2847); fails_when=a number shows while the reply is still written or without its quote line, the heading or that line moves, the later line moves up, or the panel shown again draws otherwise; no_claim=how often a model leaves its Citations out, which the description counts.
-  test(`call help in ${call.language}: Citations the app asks for once more land with the reply's end, the line and all above in place`, async () => {
+  // protects=#3098: options that came with no number stand whole while the app's one request for their Citations is out, and then the numbers and the reply's end land in one write: the number at the end of the line that gains it, in room the line kept, its quote line at the reply's foot, so the heading, that line and the later line keep their place and their height; the panel shown again puts the quote under its own line, in English and Chinese; fails_when=a number shows while the reply is still written or without its quote line, the heading, either line or a line's height moves, the quote lands under its line in the panel that showed it written, or the panel shown again keeps it at the foot; no_claim=how often a model leaves its Citations out, which the description counts.
+  test(`call help in ${call.language}: Citations the app asks for once more land with the reply's end, their quotes at its foot, and nothing moves`, async () => {
     const { app, window, panel } = await callWithSheet(call, "fake-model-cites-when-asked");
 
     await holdModel(app, "holdAsked", true);
@@ -317,22 +337,182 @@ for (const call of CALLS) {
     expect(drawn).toEqual([
       { state: "found", words: `“${call.cited}”`, numbers: ["1"], found: true },
     ]);
-    await expect(options.nth(0).getByTestId("help-quote")).toHaveCount(1);
-    await expect(options.nth(1).getByTestId("help-quote")).toHaveCount(0);
+    await expect(options.getByTestId("help-quote")).toHaveCount(0);
+    await expect(reply.getByTestId("help-foot").getByTestId("help-quote")).toHaveCount(1);
+    await expect(first.getByTestId("help-end-numbers").getByTestId("help-citation")).toHaveText([
+      "1",
+    ]);
     const after = {
       heading: await topOf(heading),
       first: await topOf(first),
       later: await topOf(later),
     };
-    expect(Math.abs(after.heading.y - before.heading.y)).toBeLessThan(0.5);
-    expect(Math.abs(after.first.y - before.first.y)).toBeLessThan(0.5);
-    expect(after.later.y).toBeGreaterThan(before.later.y);
+    for (const part of ["heading", "first", "later"] as const) {
+      expect(Math.abs(after[part].y - before[part].y), part).toBeLessThan(0.5);
+      expect(Math.abs(after[part].height - before[part].height), part).toBeLessThan(0.5);
+    }
+    // The number sits on the line's last row, after its last word, inside the panel.
+    const number = await topOf(first.getByTestId("help-end-numbers").getByTestId("help-citation"));
+    expect(number.y + number.height).toBeLessThanOrEqual(after.first.y + after.first.height + 0.5);
+    const width = await panel.evaluate(() => document.documentElement.clientWidth);
+    expect(number.x + number.width).toBeLessThanOrEqual(width);
     await shot(panel, `call-help-quotes-asked-landed-${call.interface}`);
 
+    // Drawn anew, the quote is under its own line, and nothing is at the foot.
     const shown = await shownAgain(app, window, panel, call);
-    expect(await expectQuoteLines(window, shown.getByTestId("help-suggestion").last())).toEqual(
-      drawn,
+    const again = shown.getByTestId("help-suggestion").last();
+    expect(await expectQuoteLines(window, again)).toEqual(drawn);
+    await expect(again.getByTestId("help-option").first().getByTestId("help-quote")).toHaveCount(1);
+    await expect(again.getByTestId("help-foot")).toHaveCount(0);
+    await shot(shown, `call-help-quotes-asked-anew-${call.interface}`);
+    await app.close();
+  });
+
+  // protects=#3098: a number the model wrote keeps a room under its option while the reply is written; when the app's one request for its Citation gives none, the room keeps its row and reads Quote not found in the words the app already has, with no number and no ✓, and the number goes from the line, so nothing moves; the panel shown again keeps no such row, in English and Chinese; fails_when=the room closes, shows a number or ✓, the number stays, the heading, either line or a line's height moves, or the panel shown again keeps the row; no_claim=how often a model writes a number it gives no Citation for, which the description counts.
+  test(`call help in ${call.language}: a number given no Citation keeps its room, which reads Quote not found, and nothing moves`, async () => {
+    const { app, window, panel } = await callWithSheet(call, "fake-model-number-not-given");
+
+    await holdModel(app, "holdAsked", true);
+    await pressHelpPrompt(panel, call.answer);
+    const reply = panel.getByTestId("help-suggestion").last();
+    const options = reply.getByTestId("help-option");
+    await expect.poll(() => held(app), { timeout: 20_000 }).toBe(true);
+    await expect(options).toHaveCount(2);
+    const first = options.nth(0).getByTestId("help-option-say");
+    const later = options.nth(1).getByTestId("help-option-say");
+    const room = options.nth(0).getByTestId("help-quote");
+    await expect(room).toHaveAttribute("data-state", "waiting");
+    await expect(first.getByTestId("help-citation")).toHaveText(["1"]);
+    const heading = reply.getByTestId("help-heading");
+    const before = {
+      heading: await topOf(heading),
+      first: await topOf(first),
+      room: await topOf(room),
+      later: await topOf(later),
+    };
+    await shot(panel, `call-help-quotes-kept-room-${call.interface}`);
+
+    await holdModel(app, "holdAsked", false);
+    await expect(reply).toHaveAttribute("data-status", "done", { timeout: 20_000 });
+    await expect(room).toHaveAttribute("data-state", "not-found");
+    await expect(room).toHaveText(call.quoteNotFound);
+    await expect(room.getByTestId("help-quote-number")).toHaveCount(0);
+    await expect(room.getByTestId("help-quote-found")).toHaveCount(0);
+    await expect(first.getByTestId("help-citation")).toHaveCount(0);
+    const after = {
+      heading: await topOf(heading),
+      first: await topOf(first),
+      room: await topOf(room),
+      later: await topOf(later),
+    };
+    for (const part of ["heading", "first", "room", "later"] as const) {
+      expect(Math.abs(after[part].y - before[part].y), part).toBeLessThan(0.5);
+      expect(Math.abs(after[part].height - before[part].height), part).toBeLessThan(0.5);
+    }
+    await shot(panel, `call-help-quotes-kept-not-found-${call.interface}`);
+
+    const shown = await shownAgain(app, window, panel, call);
+    const again = shown.getByTestId("help-suggestion").last();
+    await expect(again).toHaveAttribute("data-status", "done");
+    await expect(again.getByTestId("help-quote")).toHaveCount(0);
+    await app.close();
+  });
+
+  // protects=#3098: a number the model wrote keeps a room of one row; when the app's one request for its Citation fills it as the reply ends, the quote holds to that row, cut at its end, with its number and ✓ in the row, so nothing moves; shown again, the quote is whole, in English and Chinese; fails_when=the row takes another row, the line below moves, the number or ✓ is missing, or the panel shown again keeps it cut; no_claim=how often a model writes a number before its Citation, which the description counts.
+  test(`call help in ${call.language}: a long quote that fills its room as the reply ends holds to the room's row, and is whole shown again`, async () => {
+    const { app, window, panel } = await callWithSheet(
+      { ...call, sheet: call.longSheet },
+      "fake-model-number-given-late",
     );
+
+    await holdModel(app, "holdAsked", true);
+    await pressHelpPrompt(panel, call.answer);
+    const reply = panel.getByTestId("help-suggestion").last();
+    const options = reply.getByTestId("help-option");
+    await expect.poll(() => held(app), { timeout: 20_000 }).toBe(true);
+    await expect(options).toHaveCount(2);
+    const room = options.nth(0).getByTestId("help-quote");
+    await expect(room).toHaveAttribute("data-state", "waiting");
+    const later = options.nth(1).getByTestId("help-option-say");
+    const before = { room: await topOf(room), later: await topOf(later) };
+
+    await holdModel(app, "holdAsked", false);
+    await expect(reply).toHaveAttribute("data-status", "done", { timeout: 20_000 });
+    await expect(room).toHaveAttribute("data-state", "found");
+    await expect(room).toHaveAttribute("data-held", "true");
+    await expect(room.getByTestId("help-quote-number")).toHaveText(["1"]);
+    await expect(room.getByTestId("help-quote-found")).toBeVisible();
+    const after = { room: await topOf(room), later: await topOf(later) };
+    for (const part of ["room", "later"] as const) {
+      expect(Math.abs(after[part].y - before[part].y), part).toBeLessThan(0.5);
+      expect(Math.abs(after[part].height - before[part].height), part).toBeLessThan(0.5);
+    }
+    // Cut, not whole: its words run past the row, and the ✓ stays inside the row.
+    const words = room.locator(".help-quote-words");
+    expect(await words.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
+    const check = await topOf(room.getByTestId("help-quote-found"));
+    expect(check.x + check.width).toBeLessThanOrEqual(after.room.x + after.room.width + 0.5);
+    await shot(panel, `call-help-quotes-held-${call.interface}`);
+
+    const shown = await shownAgain(app, window, panel, call);
+    const again = shown.getByTestId("help-suggestion").last();
+    const whole = again.getByTestId("help-option").first().getByTestId("help-quote");
+    await expect(whole).toHaveAttribute("data-state", "found");
+    expect(await whole.getAttribute("data-held")).toBeNull();
+    expect((await topOf(whole)).height).toBeGreaterThan(after.room.height);
+    await shot(shown, `call-help-quotes-held-anew-${call.interface}`);
+    await app.close();
+  });
+
+  // protects=#3098: the end's number holds to its line's last character only, so a line ending in a link or in one long word still breaks where it must: its number lands at its end, its rows stay, and nothing runs past the panel's edge, in English and Chinese; fails_when=a line takes another row, runs past its edge, or the panel scrolls sideways once the numbers land; no_claim=how often a reply ends a line so, which the description doesn't count.
+  test(`call help in ${call.language}: lines ending in a link or a long word keep their rows when the end's numbers land, and nothing runs past the edge`, async () => {
+    const { app, panel } = await callWithSheet(call, "fake-model-long-last-word");
+
+    await holdModel(app, "holdAsked", true);
+    await pressHelpPrompt(panel, call.answer);
+    const reply = panel.getByTestId("help-suggestion").last();
+    await expect.poll(() => held(app), { timeout: 20_000 }).toBe(true);
+    const lines = reply.getByTestId("help-option-say");
+    await expect(lines).toHaveCount(2);
+    const boxes = async () => [await topOf(lines.nth(0)), await topOf(lines.nth(1))];
+    const overflow = () =>
+      panel.evaluate(() =>
+        [
+          document.documentElement,
+          ...document.querySelectorAll<HTMLElement>("[data-testid='help-option-say']"),
+        ].some(
+          (element) =>
+            element.scrollWidth > element.clientWidth ||
+            element.getBoundingClientRect().right > document.documentElement.clientWidth,
+        ),
+      );
+    const before = await boxes();
+    expect(await overflow()).toBe(false);
+    await shot(panel, `call-help-quotes-long-last-written-${call.interface}`);
+
+    await holdModel(app, "holdAsked", false);
+    await expect(reply).toHaveAttribute("data-status", "done", { timeout: 20_000 });
+    await expect(reply.getByTestId("help-end-numbers").getByTestId("help-citation")).toHaveText([
+      "1",
+      "2",
+    ]);
+    await shot(panel, `call-help-quotes-long-last-${call.interface}`);
+    const after = await boxes();
+    after.forEach((box, index) => {
+      expect(Math.abs(box.y - (before[index]?.y ?? 0)), `line ${index + 1}`).toBeLessThan(0.5);
+      expect(Math.abs(box.height - (before[index]?.height ?? 0)), `line ${index + 1}`).toBeLessThan(
+        0.5,
+      );
+    });
+    expect(await overflow()).toBe(false);
+    const width = await panel.evaluate(() => document.documentElement.clientWidth);
+    for (const chip of await reply
+      .getByTestId("help-end-numbers")
+      .getByTestId("help-citation")
+      .all()) {
+      const box = await topOf(chip);
+      expect(box.x + box.width).toBeLessThanOrEqual(width);
+    }
     await app.close();
   });
 }
