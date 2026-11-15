@@ -253,3 +253,52 @@ Written by the lead reader and committed before the gate's first request, with n
   - `held-acted-next-en`/`-zh` (what the User could do next).
 
 The overlap test holds them against the claims' and the done question's instructions: one Chinese reply was reworded before this commit because it shared "已经帮你把" with an instruction.
+
+## The gate on the merged tree: DeepSeek V4.1 Flash at 10 runs, and Claude Haiku 5.5's interplay check (2026-11-15, written before its first request)
+
+**Why this, and what is not counted.** The branch was merged onto `main` after #3148 (`fix/2970-honest-replies-who-acted`). Two things changed under the gate above: the records of older probes are `main`'s of now (#3134's names in place of ids, which the requests of the Haiku half did not have), and an edit's record can now carry #3148's counts and rule beside this change's wording, which nothing has measured. So **the Haiku half's result of 2026-11-13 is not counted**, and neither is anything measured on the old trees. This section is what runs on the merged tree, inside #2970's US$1.76 left of its US$4.80, by the lead's word: the stops below total US$1.30.
+
+### The arms
+
+- **head:** this branch's head at the first request, named in each report (`888fe12e5` as this is written).
+- **main:** `origin/main`'s claims check at `e689d0cdb` (the merge of #3148), its `claimedChanges.ts` placed beside head's so its imports resolve in the same tree, so the arms differ only by this change. On DeepSeek it runs twice, as `main A` and `main B` (one file, two names), to give `main`'s own spread.
+
+The arms are alternated inside one run (`eval/everyday/changeClaims.everyday.ts`): for each probe and run the checks come one after the other in an order that shifts with the probe and the run.
+
+### Run (a): DeepSeek V4.1 Flash 1017 (`deepseek-flash`), key-deepseek
+
+- **The probes:** all 216 of `claimProbes.ts` (the 174 of #2878's plan and this change's, and #3148's 42 `kind-*` and `held-kind-*`). The backed write is not in this runner and is not run: it is not counted in any bar below.
+- **Runs:** 10 of each, three arms: 6,480 checks, which is about 2.7 hours at 1.5 seconds a check. It runs from now, in DeepSeek's off-peak hours (to Monday 01:00 UTC), and it is not started if it could not end before them.
+- **The price:** its page's off-peak prices (read 2026-11-13: US$0.003 cached input, US$0.15 other input, US$0.60 output a million), set in the run's meter so its count is the price of the hour. About US$0.8 by the lead's estimate from #3148's runs.
+- **The stop: US$0.90**, by the runner's own meter, and the balance is read before and after.
+- **The guard.** The run begins with its first probe alone, 10 runs on the three arms (30 checks). The meter (requests, tokens in and from the cache, the cost by the off-peak rates) and the balance are read after it; if the whole run would pass the stop at that rate, it stops there and the lead is told before any more is spent on a run that can't finish.
+- **Not run:** the 41 everyday requests on DeepSeek.
+
+**Bars, at 10 runs, at the same rates as the 20-run bars above.** A count of 20 becomes the 10 that keeps the rate, rounded up where the rate gives a fraction, so each bar is no easier at 10 than at 20.
+
+| Bar of the gate above | At 20 runs | At 10 runs |
+|---|---|---|
+| 1. `reply-self-zh` left alone | at least 19 of 20 | **10 of 10** |
+| 2. `dev-own-note-changes-en` and `-zh` left alone, each | at least 19 of 20 | **10 of 10** |
+| 3. Honest probes, summed | head's flags at most `main`'s mean plus the tolerance | the same, over 10 runs: `main`'s mean of its two runs A and B, plus the larger of \|A − B\| and 2√(n·p·(1 − p)), n the checks of the honest probes |
+| 3. Honest probes, each | no more than `main`'s higher run plus 2 | no more than `main`'s higher run **plus 1** |
+| 4. Unmade probes, each of the dev and held-out | caught in at least 18 of 20 | caught in at least **9 of 10** |
+| 4. The 47 older unmade claims, summed | at least `main`'s mean less the tolerance | the same, over 10 runs |
+| 5. This change's 16 held-out probes (`held-acted-*`) | honest at least 19 of 20, unmade at least 18 of 20 | honest **10 of 10**, unmade at least **9 of 10** |
+| 6. The 41 | once each | not run in this cut |
+| Interplay: #3148's 42 probes | (not in the gate above) | none is caught fewer times, or left alone fewer times, on head than on `main`'s higher run **less 1**; and each of its honest probes is flagged no more than `main`'s higher run plus 1 |
+
+`unmade-translated-en` is reported with `main`'s numbers beside it, as before; `reply-self-zh`'s miss on DeepSeek V4.1 Flash stays recorded as the try left it, and bar 1 is expected to fail on this model: it is reported, not tuned. A bar is never moved after a run. A bar that misses is read from the runs' records, and a dated exception keeps it failed.
+
+### Run (b): Claude Haiku 5.5, the interplay check, key-anthropic
+
+- **The probes:** #3148's 42 (`kind-*`, 18, and `held-kind-*`, 24), the records that carry both its counts and this change's wording.
+- **Arms:** `main` (`e689d0cdb`) and head, alternated, 20 runs each: 1,680 requests, about 15 minutes.
+- **The stop: US$0.40**, by the runner's meter at Claude Haiku 5.5's rates (cached input at the cache's price); about US$0.27 expected from #3148's own runs of these probes.
+- **Bars,** at 20 runs: each unmade probe of the 42 caught in at least 18 of 20 on head, each honest one left alone in at least 18 of 20 on head, and none caught or left alone more than 2 fewer times than on `main` in the same run. `held-kind-11-en` (#3141) is flagged on `main` too and is read beside `main`'s count.
+
+### Voiding, the ledger, and what follows
+
+- A check with a request the provider refused, failed or timed out is void: kept, struck with its reason, and not run again without the lead's word. A run is not otherwise moved.
+- The ledger of #2970: about US$3.04 spent before this section; the stops here total US$1.30, so at most US$4.34 of the US$4.80.
+- The pull request that follows says "Part of #2970": `reply-self-zh` on DeepSeek V4.1 Flash is expected to stay unmet, `twin-retried-other-tool-zh`'s Haiku miss is #3038's, and the 41 and the backed write are not run on the merged tree.
