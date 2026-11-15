@@ -213,6 +213,7 @@ function naming(
 /** A core whose chat model is `model`, billed per token on a service, or on this computer (`local`). */
 async function coreWith(model: Parameters<typeof wrapLanguageModel>[0]["model"], local = false) {
   const core = startCore(await createTempDataFolder(), { createChatModel: () => model });
+  await core.updateSettings({ user: { checkAssistantWrites: true } });
   if (local) {
     await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
     return core;

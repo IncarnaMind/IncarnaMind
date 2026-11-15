@@ -469,6 +469,7 @@ describe("Use all, where the text went (#1171 review)", { timeout: 60_000 }, () 
       { generate: judgesNothing },
     );
     const { core, mind, scope } = await inAFolderOfTwo(model);
+    await core.updateSettings({ user: { checkAssistantWrites: true } });
     const first = await askAssistant(core, {
       text: "Based on my files, write a summary",
       mindId: mind.id,
@@ -504,6 +505,7 @@ describe("Use all, where the text went (#1171 review)", { timeout: 60_000 }, () 
       { generate: judgesNothing },
     );
     const { core, mind, scope } = await inAFolderOfTwo(model);
+    await core.updateSettings({ user: { checkAssistantWrites: true } });
     const first = await askAssistant(core, {
       text: "Based on my files, write a summary",
       mindId: mind.id,
@@ -549,6 +551,7 @@ describe("Use all, where the text went (#1171 review)", { timeout: 60_000 }, () 
       { generate: judgesNothing },
     );
     const { core, mind, scope } = await inAFolderOfTwo(model);
+    await core.updateSettings({ user: { checkAssistantWrites: true } });
     const first = await askAssistant(core, {
       text: "Based on my files, write a summary",
       mindId: mind.id,

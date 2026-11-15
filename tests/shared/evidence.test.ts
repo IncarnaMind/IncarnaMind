@@ -11,6 +11,7 @@ const settings = (leaveOutOwnFiles: boolean): Pick<Settings, "user"> => ({
     callHelpModel: "answers",
     suggestWhileWriting: false,
     leaveOutOwnFiles,
+    checkAssistantWrites: false,
     exportOptions: {
       format: "docx",
       docx: {

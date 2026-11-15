@@ -632,7 +632,8 @@ timedChecks("where a check's time goes, on each model and language", async () =>
         "consent.requested",
         (request) => void core.respondToConsent(request.requestId, true),
       );
-      await core.updateSettings({ user: { language } });
+      // The writes timed here are the ones checked as they land (#3154).
+      await core.updateSettings({ user: { language, checkAssistantWrites: true } });
       // A first run's Library, as the paired checks set has it: the example's Documents beside.
       await core.createExamples();
       await vi.waitFor(

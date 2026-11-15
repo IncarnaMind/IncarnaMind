@@ -181,6 +181,7 @@ const userScope: Scope<UserSettings> = {
     callHelpModel: "answers",
     suggestWhileWriting: false,
     leaveOutOwnFiles: true,
+    checkAssistantWrites: false,
     // Word is the deliverable most asked for; the deliverables leave the Questions out.
     exportOptions: {
       format: "docx",
@@ -209,6 +210,7 @@ const userScope: Scope<UserSettings> = {
       CALL_HELP_MODELS.some((each) => each === value),
     suggestWhileWriting: isBoolean,
     leaveOutOwnFiles: isBoolean,
+    checkAssistantWrites: isBoolean,
     exportOptions: isExportPreferences,
     authorName: (value): value is string | null => value === null || isNonBlankText(value),
     personId: (value): value is string | null => value === null || isNonBlankText(value),

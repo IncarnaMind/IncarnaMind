@@ -629,6 +629,7 @@ describe.each(LANGUAGES)("a sentence that only names its source ($language)", (e
       quotes: [example.right.quote, item.quote, example.label.quote],
       write,
     });
+    await setup.core.updateSettings({ user: { checkAssistantWrites: true } });
     const answer = await askAssistant(setup.core, { text: "Write the rents into a new note" });
     const made = changesIn(answer).find((change) => change.created);
     if (!made) throw new Error("No Note was made.");

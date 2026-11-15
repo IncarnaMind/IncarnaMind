@@ -230,6 +230,7 @@ describe("A table the assistant writes into a Mind is a table", { timeout: 30_00
     );
     const { core, mind, client } = await setUp(model);
 
+    await core.updateSettings({ user: { checkAssistantWrites: true } });
     const answer = await askAssistant(core, { text: "Add a table of key terms", mindId: mind.id });
     await client.settled();
 

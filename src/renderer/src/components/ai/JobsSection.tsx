@@ -26,6 +26,7 @@ import {
   SettingsSwitch,
 } from "../settings/SettingsGroup";
 import { CheckDecisionRow } from "./CheckDecisionRow";
+import { CheckWritesRow } from "./CheckWritesRow";
 import { DocumentSearchRows } from "./DocumentSearchRows";
 import { OrganizeRows } from "./OrganizeRow";
 import { popUpWidth, type Role, RoleSelect, useModelRoles } from "./RoleSelect";
@@ -84,6 +85,7 @@ export function JobsSection({
         {checkDecision && (
           <CheckDecisionRow id={`${id}-checks`} status={checkDecision} onAddKey={onAddKey} />
         )}
+        <CheckWritesRow />
         <ModelRow
           id={`${id}-images`}
           job="imageModel"

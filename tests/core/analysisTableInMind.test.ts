@@ -262,6 +262,7 @@ describe("text written before cite, read as more Blocks once an Analysis has run
       for (const flow of ["chat", "checks"] as const) {
         if (saved.service) await core.allowDataFlow(flow, saved.service.id);
       }
+      await core.updateSettings({ user: { checkAssistantWrites: true } });
       const sources = await createTempDataFolder();
       await addAndProcess(core, [await writeSourceFile(sources, "sales.csv", SALES_CSV)]);
       const mind = await core.createMind({ title: "Revenue" });

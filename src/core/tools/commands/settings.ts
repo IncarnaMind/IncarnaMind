@@ -134,6 +134,11 @@ const SETTINGS: Readonly<Record<string, Setting>> = {
     (now) => now.user.leaveOutOwnFiles,
     (on) => ({ user: { leaveOutOwnFiles: on } }),
   ),
+  checkAssistantWrites: switchOf(
+    "checkAssistantWrites",
+    (now) => now.user.checkAssistantWrites,
+    (on) => ({ user: { checkAssistantWrites: on } }),
+  ),
   keepWebPageLook: switchOf(
     "keepWebPageLook",
     (now) => now.user.keepWebPageLook,

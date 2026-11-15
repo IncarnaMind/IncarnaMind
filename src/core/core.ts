@@ -2389,6 +2389,7 @@ export function createCore(adapters: CoreAdapters): Core {
       writing: (mindId, place) => events.emit("mind.writing", { mindId, place }),
       proposeInMind: (input) => edits.proposeInMind(input),
       checkWritten: (input) => checks.checkWritten(input),
+      checksWritten: () => settings.get().user.checkAssistantWrites,
     },
     withdrawChanges: (changes) => {
       // Last first: a revision taken back brings back what it replaced, which an earlier call of
