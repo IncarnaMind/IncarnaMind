@@ -3,7 +3,7 @@
  *
  * Lines are measured, for one model on one host and for the two questions in ./decisionFirst as
  * they are worded: a change to either wording, or another model, needs its own measurement. They
- * are data: a newly measured model adds a row here and nothing else.
+ * are data: a newly measured model adds an entry here and nothing else.
  */
 import type { DecisionHost } from "../../providers/catalog/decisions";
 
@@ -18,16 +18,26 @@ export interface DecisionLines {
   firstReading: { supported: number; contradicted: number };
 }
 
-const MEASURED: Readonly<Record<string, DecisionLines>> = {
-  "openrouter:perplexity/pplx-decider-v1.2": {
-    verdict: { supported: 0.98, contradicted: 0.9, band: 0.005 },
-    firstReading: { supported: 0.8, contradicted: 0.5 },
+/** Every measured model, the best first. */
+export const MEASURED_DECISION_MODELS: readonly {
+  host: DecisionHost;
+  modelId: string;
+  lines: DecisionLines;
+}[] = [
+  {
+    host: "openrouter",
+    modelId: "perplexity/pplx-decider-v1.2",
+    lines: {
+      verdict: { supported: 0.98, contradicted: 0.9, band: 0.005 },
+      firstReading: { supported: 0.8, contradicted: 0.5 },
+    },
   },
-};
+];
 
 /** The lines measured for a model on a host; null for one not measured, which reads nothing. */
 export const decisionLinesFor = (host: DecisionHost, modelId: string): DecisionLines | null =>
-  MEASURED[`${host}:${modelId}`] ?? null;
+  MEASURED_DECISION_MODELS.find((each) => each.host === host && each.modelId === modelId)?.lines ??
+  null;
 
 /** A Passage's two scores: how surely it states the sentence, and how surely it says the opposite. */
 export interface PassageScores {

@@ -309,8 +309,8 @@ const deviceScope: Scope<DeviceSettings> = {
     keepMeetingAudio: isBoolean,
     transcriptionRoute: (value): value is TranscriptionRoute | null =>
       value === null || TRANSCRIPTION_ROUTES.some((route) => route === value),
-    checkDecisionModel: (value): value is CheckDecisionModel | null =>
-      value === null || isDecisionModelChoice(value),
+    checkDecisionModel: (value): value is CheckDecisionModel | "off" | null =>
+      value === null || value === "off" || isDecisionModelChoice(value),
     modelSource: (value): value is ModelSourceChoice =>
       MODEL_SOURCE_CHOICES.some((choice) => choice === value),
     meetingNoticeAccepted: isBoolean,

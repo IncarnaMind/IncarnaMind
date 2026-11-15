@@ -3132,7 +3132,7 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     documentCheckProgress: (event) => events.emit("documentCheck.progress", event),
     checkingEarly: (event) => events.emit("mindCheck.early", event),
-    decision: () => decisionChoice.reader(),
+    decision: (service) => decisionChoice.reader(service),
     writtenProgress: (event) => events.emit("writtenCheck.progress", event),
     now: () => adapters.now?.() ?? new Date(),
   });
@@ -3499,6 +3499,10 @@ export function createCore(adapters: CoreAdapters): Core {
     hosts: decisionHosts,
     consent,
     localOnly: () => embedding.localOnly(),
+    checksService: () => chat.defaultService(),
+    ...(adapters.decisionReadsByDefault !== undefined && {
+      readsByDefault: adapters.decisionReadsByDefault,
+    }),
   });
   // Tagging on a plan goes gently, and waits while the plan's limit holds.
   const planPaceFor = (plan: Plan) =>
@@ -5966,7 +5970,7 @@ export function createCore(adapters: CoreAdapters): Core {
       const updated = settings.update(change);
       // Choosing a decision model for checks where its line says what goes to its host is the consent.
       if (choosesDecision) {
-        decisionChoice.chose(updated.device.checkDecisionModel);
+        await decisionChoice.chose(updated.device.checkDecisionModel);
         await dataFlowsChanged();
       }
       // Choosing a cloud service where its line says meeting audio goes to it is the consent (ADR-0022).
@@ -6741,6 +6745,10 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     revokeConsent: async (flowId, serviceId) => {
       const revokedAt = consent.revoke(flowId, serviceId);
+      // Taken back here, the decision model for checks is off: where it reads by default, a
+      // later check would otherwise put it back.
+      if (flowId === "decision-checks" && settings.get().device.checkDecisionModel !== "off")
+        settings.update({ device: { checkDecisionModel: "off" } });
       connectors.consentChanged();
       if (typeof flowId === "string" && typeof serviceId === "string") {
         cloudTranscription.revoked(flowId, serviceId);
@@ -7141,7 +7149,8 @@ export function createCore(adapters: CoreAdapters): Core {
         (classifier) => classifier.kind === "decision" && classifier.host === host,
       );
       // The model chosen for checks goes with its host's key: the AI model checks every sentence again.
-      if (settings.get().device.checkDecisionModel?.host === host)
+      const chosen = settings.get().device.checkDecisionModel;
+      if (chosen !== null && chosen !== "off" && chosen.host === host)
         events.emit("settings.changed", settings.update({ device: { checkDecisionModel: null } }));
       return decisionsChanged(await decisionHosts.removeKey(host));
     },

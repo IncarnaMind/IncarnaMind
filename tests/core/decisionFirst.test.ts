@@ -165,7 +165,10 @@ async function startDecisionHost() {
 const text = (value: string): JSONContent => ({ type: "text", text: value });
 
 /** A core with the two Documents, a Note of `sentences`, an AI model on OpenRouter and its decision host. */
-async function setUp(sentences: readonly string[] = [MOON, YEARLY, PENGUINS]) {
+async function setUp(
+  sentences: readonly string[] = [MOON, YEARLY, PENGUINS],
+  { readsByDefault = false } = {},
+) {
   const host = await startDecisionHost();
   const checks: ModelCall[] = [];
   let held: Promise<void> | null = null;
@@ -181,8 +184,10 @@ async function setUp(sentences: readonly string[] = [MOON, YEARLY, PENGUINS]) {
     createChatModel: scriptedModels(model).createChatModel,
     keychain: createMemoryKeychain(),
     decisionOrigins: { openrouter: host.url },
+    decisionReadsByDefault: readsByDefault,
   });
-  core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
+  let accepts = true;
+  core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, accepts));
   const provider = await core.saveChatProvider({
     kind: "openrouter",
     apiKey: KEY,
@@ -228,10 +233,15 @@ async function setUp(sentences: readonly string[] = [MOON, YEARLY, PENGUINS]) {
     aiRequests: () => checks.length,
     holdAiModel,
     aiModelId: AI_MODEL,
+    service: provider.service,
+    /** From now on the User declines whatever they are asked to allow. */
+    declineFromNow() {
+      accepts = false;
+    },
   };
 }
 
-const choose = (core: Core, model: CheckDecisionModel | null = DECIDER) =>
+const choose = (core: Core, model: CheckDecisionModel | "off" | null = DECIDER) =>
   core.updateSettings({ device: { checkDecisionModel: model } });
 
 /** Each sentence's Mark as stored: its verdict, its quote, the model that gave it and any first reading. */
@@ -322,6 +332,24 @@ describe("Check this Note with a decision model chosen (#3118)", { timeout: 30_0
       },
       [PENGUINS]: { state: "unsupported", quote: null, by: aiModelId },
     });
+  });
+
+  // protects=a first reading belongs to the run that made it: a sentence checked again with no decision model chosen shows none; fails_when=an old first reading stays on a Mark the AI model alone gave; no_claim=how the card draws a Mark.
+  test("a sentence checked again with no decision model keeps no old first reading", async () => {
+    const { core, client, host, run } = await setUp([MOON, PENGUINS]);
+    await choose(core);
+    host.answers(({ sentence, passage }) => ({
+      B: sentence === MOON && passage.text.includes(MOON) ? 0.9 : 0.02,
+      C: 0.01,
+    }));
+    await core.checkMind(run("with a decision model"));
+    expect((await marks(client))[MOON]).toMatchObject({ firstReading: "supported" });
+
+    await choose(core, null);
+    await core.checkMind(run("without one"));
+
+    expect((await marks(client))[MOON]).toMatchObject({ state: "supported" });
+    expect((await marks(client))[MOON]).not.toHaveProperty("firstReading");
   });
 
   // protects=every sentence is read by the decision model as the run starts, not as its check gets one of the AI model's places: each Mark shows its first reading while the AI model has answered nothing; fails_when=a sentence past the first six waits for a place before it is read; no_claim=how long a real host takes.
@@ -442,19 +470,17 @@ describe("Check this Note with a decision model chosen (#3118)", { timeout: 30_0
     });
   });
 
-  // protects=a decision host that refuses stops being asked for the rest of the run, the AI model checks every sentence, and the result says why the decision model stopped; fails_when=sentences stay unchecked, the host keeps being asked, or the failure is silent; no_claim=which failures a real host returns.
-  test("a host that refuses leaves every sentence to the AI model, and the run says so", async () => {
+  // protects=a decision host that refuses every request stops being asked for the rest of the run, the AI model checks every sentence, and the run ends as one with no decision model does, with no problem to show; fails_when=sentences stay unchecked, the host keeps being asked, or the result carries a failure; no_claim=which failures a real host returns, or how long a host that never answers is waited for.
+  test("a host that refuses every request leaves every sentence to the AI model, with no problem", async () => {
     const { core, client, host, run, readByAiModel } = await setUp(MOONS);
+    const plain = await core.checkMind(run("plain"));
     await choose(core);
     host.answers(() => ({ status: 401 }));
 
     const result = await core.checkMind(run());
 
-    expect(result).toMatchObject({
-      kind: "checked",
-      checked: MOONS.length,
-      decisionStopped: { kind: "auth" },
-    });
+    expect(result).toEqual(plain);
+    expect(result).toMatchObject({ kind: "checked", checked: MOONS.length });
     expect(readByAiModel().sort()).toEqual([...MOONS].sort());
     expect(Object.values(await marks(client)).map((mark) => mark.state)).toEqual(
       MOONS.map(() => "unsupported"),
@@ -512,6 +538,32 @@ describe("Check this Note with a decision model chosen (#3118)", { timeout: 30_0
     expect(await running).toEqual({ kind: "cancelled" });
   });
 
+  // protects=a host that refuses some requests costs no sentence its Mark: a sentence it read keeps its reading, every sentence it didn't goes to the AI model, and the run ends with no problem; fails_when=a sentence is left without a Mark, or the result carries a failure; no_claim=which sentences the host answered before it refused.
+  test("a host that refuses some requests still leaves every sentence a Mark", async () => {
+    const { core, client, host, run, readByAiModel, aiModelId } = await setUp([
+      MOON,
+      YEARLY,
+      PENGUINS,
+    ]);
+    await choose(core);
+    host.answers((state) => (state.sentence === YEARLY ? { status: 429 } : sure(state)));
+
+    const result = await core.checkMind(run());
+
+    expect(result).toEqual({
+      kind: "checked",
+      sentences: 3,
+      checked: 3,
+      smallModel: false,
+      stop: null,
+    });
+    const marked = await marks(client);
+    expect(marked[YEARLY]).toEqual({ state: "contradicted", quote: WEEKLY, by: aiModelId });
+    expect(marked[PENGUINS]).toMatchObject({ state: "unsupported", by: aiModelId });
+    expect(marked[MOON]?.state).toBe("supported");
+    expect(readByAiModel()).toEqual(expect.arrayContaining([YEARLY, PENGUINS]));
+  });
+
   // protects=only a model with measured lines can be chosen, and none while everything stays on this computer; fails_when=an unmeasured model or a host with no key is saved as the choice; no_claim=which models are measured.
   test("a model without measured lines, or a host without its key, can't be chosen", async () => {
     const { core } = await setUp();
@@ -525,5 +577,108 @@ describe("Check this Note with a decision model chosen (#3118)", { timeout: 30_0
     expect((await core.getSettings()).device.checkDecisionModel).toEqual(DECIDER);
     await choose(core, null);
     expect((await core.getSettings()).device.checkDecisionModel).toBeNull();
+  });
+});
+
+describe("A decision model that reads by default (#3118)", { timeout: 30_000 }, () => {
+  /** The decision-checks flow's services as Settings › Privacy lists them. */
+  const listed = async (core: Core) =>
+    (await core.listDataFlows())
+      .filter(({ flow }) => flow.id === "decision-checks")
+      .map(({ flow, consent }) => `${flow.service.id} ${consent}`);
+
+  // protects=a User who never chose reads with the measured model where their check's AI model already runs on its host's service, and Privacy lists that from the first run; fails_when=nothing reads, the AI model is asked about a sentence the decision model decided, or Privacy doesn't list the flow; no_claim=that reading by default ships, which is one value, or that the model's scores are right.
+  test("it reads where the check's AI model runs on its host's service, and Privacy lists it", async () => {
+    const { core, client, run, readByAiModel, aiModelId, service } = await setUp(undefined, {
+      readsByDefault: true,
+    });
+    expect(await listed(core)).toEqual([`${service?.id} not-asked`]);
+
+    await core.checkMind(run());
+
+    expect(await marks(client)).toEqual({
+      [MOON]: { state: "supported", quote: TIDES_LINE, by: DECIDER.modelId },
+      [YEARLY]: { state: "contradicted", quote: WEEKLY, by: DECIDER.modelId },
+      [PENGUINS]: { state: "unsupported", quote: null, by: aiModelId },
+    });
+    expect(readByAiModel()).toEqual([PENGUINS]);
+    expect(await listed(core)).toEqual([`${service?.id} accepted`]);
+    expect((await core.getSettings()).device.checkDecisionModel).toBeNull();
+  });
+
+  // protects=turning it off ends it and forgets what allowed it, before its first run too, and so does taking it back in Privacy, which no later run puts back by itself; fails_when=a run reads after either, Privacy still lists the flow, or the flow is allowed again without the User; no_claim=how Settings draws the switch.
+  test("off, or taken back in Privacy, ends it until the User turns it on again", async () => {
+    const { core, host, run, readByAiModel, service } = await setUp(undefined, {
+      readsByDefault: true,
+    });
+    const serviceId = service?.id ?? "";
+    const readsNow = async (id: string) => {
+      const before = host.asked.length;
+      await core.checkMind(run(id));
+      return host.asked.length > before;
+    };
+    await choose(core, "off");
+    expect(await listed(core)).toEqual([]);
+    expect(await readsNow("off before any run")).toBe(false);
+    expect(readByAiModel().sort()).toEqual([MOON, YEARLY, PENGUINS].sort());
+
+    await choose(core, null);
+    expect(await readsNow("on again")).toBe(true);
+    expect(await listed(core)).toEqual([`${serviceId} accepted`]);
+    await choose(core, "off");
+    expect(await listed(core)).toEqual([]);
+    expect(await readsNow("off after a run")).toBe(false);
+
+    await choose(core, null);
+    expect(await readsNow("on once more")).toBe(true);
+    await core.revokeConsent("decision-checks", serviceId);
+    expect((await core.getSettings()).device.checkDecisionModel).toBe("off");
+    expect(await listed(core)).toEqual([]);
+    expect(await readsNow("taken back")).toBe(false);
+  });
+
+  // protects=reading by default is only for a check whose AI model runs on the decision model's own service: a key to that service saved beside an AI model elsewhere sends it nothing, and neither does Local mode; fails_when=the host is asked for a check that goes to another service, or in Local mode; no_claim=which services host a measured model.
+  test("a check whose AI model runs elsewhere, or Local mode, sends the host nothing", async () => {
+    const { core, host, run } = await setUp(undefined, { readsByDefault: true });
+    const elsewhere = await core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-ant-test",
+      modelId: "claude-haiku-5-5",
+    });
+    if (elsewhere.service) await core.allowDataFlow("checks", elsewhere.service.id);
+
+    const checked = await core.checkMind({
+      ...run("elsewhere"),
+      model: { providerId: elsewhere.id, modelId: "claude-haiku-5-5" },
+    });
+    expect(checked).toMatchObject({ kind: "checked", checked: 3 });
+    expect(host.asked).toEqual([]);
+
+    await core.setLocalOnly(true);
+    await core.checkMind(run("local"));
+    expect(host.asked).toEqual([]);
+  });
+
+  // protects=reading by default rests on the User having allowed checks to that service: one who took that back, and declines when asked, sends the decision model's host nothing and Privacy lists no flow to it; fails_when=the host is asked, or the flow is listed or recorded; no_claim=what the check itself says when the User declines.
+  test("a User who hasn't allowed checks to that service sends the host nothing", async () => {
+    const { core, host, run, service, declineFromNow } = await setUp(undefined, {
+      readsByDefault: true,
+    });
+    await core.revokeConsent("checks", service?.id ?? "");
+    declineFromNow();
+    expect(await listed(core)).toEqual([]);
+
+    const result = await core.checkMind(run());
+
+    expect(result.kind).not.toBe("checked");
+    expect(host.asked).toEqual([]);
+    expect(await listed(core)).toEqual([]);
+  });
+
+  // protects=with reading by default not shipped, a User who never chose is read by no decision model; fails_when=the host is asked; no_claim=nothing more.
+  test("it reads nothing where it isn't on by default", async () => {
+    const { core, host, run } = await setUp();
+    await core.checkMind(run());
+    expect(host.asked).toEqual([]);
   });
 });

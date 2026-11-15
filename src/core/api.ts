@@ -3607,9 +3607,10 @@ export interface DeviceSettings {
   transcriptionRoute: TranscriptionRoute | null;
   /**
    * The decision model that reads each sentence of Check this Note first (#3118), on a host
-   * whose key this device holds. Null: none, so the AI model checks every sentence.
+   * whose key this device holds. "off": none, so the AI model checks every sentence. Null: the
+   * User hasn't said, so one reads only where it does by default.
    */
-  checkDecisionModel: CheckDecisionModel | null;
+  checkDecisionModel: CheckDecisionModel | "off" | null;
   /**
    * The User has read, once on this device, what a recording captures and
    * that the other people should be told. Recording waits for it.
@@ -8277,11 +8278,6 @@ export type CheckMindResult =
       checked: number;
       smallModel: boolean;
       stop: RunStop | null;
-      /**
-       * Why the decision model chosen for checks stopped reading part way (#3118): the AI model
-       * checked the sentences it hadn't read. Absent when it read them all, or none was chosen.
-       */
-      decisionStopped?: ProviderError;
     }
   /** The model couldn't name the claims: nothing was checked. */
   | { kind: "failed"; error: ProviderError }
@@ -9788,8 +9784,9 @@ export type DataKind = (typeof dataKinds)[number];
  *   asks; none in local mode. The Mac's own calendar is read on this computer and isn't a flow.
  * - "decision-checks": while Check this Note runs (#3118), each sentence it checks, with its
  *   paragraph, and each Passage the check's search finds for it, with its Document's name and
- *   page, to the host of the decision model the User chose for checks. Choosing the model, where
- *   its line says so, allows it; none before a model is chosen, and none in local mode.
+ *   page, to the host of the decision model that reads first. Choosing the model, where its line
+ *   says so, allows it; where one reads by default, the User's choice of that same service for
+ *   their checks does (ADR-0022). None in local mode.
  */
 export const dataFlowIds = [
   "chat",
