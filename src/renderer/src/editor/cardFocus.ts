@@ -1,7 +1,14 @@
-const FOCUSABLE =
+export const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
-function focusablesIn(container: Element | null): HTMLElement[] {
+/**
+ * Whether a card holds a control, however it is drawn just now: a card's own keycap is measured
+ * while the card is still being shown, when `checkVisibility` would call all of it hidden.
+ */
+export const holdsControl = (container: Element | null): boolean =>
+  container?.querySelector(FOCUSABLE) != null;
+
+export function focusablesIn(container: Element | null): HTMLElement[] {
   if (!container) return [];
   return [...container.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((each) =>
     each.checkVisibility(),
@@ -50,4 +57,78 @@ export function focusFirstAction(
 ): void {
   const all = focusablesIn(container);
   (all.find((each) => !skip || !each.matches(skip)) ?? all[0] ?? fallback)?.focus();
+}
+
+/**
+ * Cards that show on keyboard focus (#3102, docs/agents/interaction.md): Tab and Shift+Tab move
+ * between the page's stops as if the card weren't there; Space on its control goes into it, where
+ * they move through its controls and, past either end, back to the control. Esc goes back to the
+ * control.
+ */
+export function enterCard(card: Element | null): boolean {
+  focusablesIn(card)[0]?.focus();
+  return card?.contains(document.activeElement) ?? false;
+}
+
+/**
+ * Past either end of a card's controls the focus goes back to its control; it does not wrap.
+ * Says whether it went back.
+ */
+export function returnAtEnds(
+  event: TabPress,
+  card: Element,
+  control: { focus(): void } | null,
+): boolean {
+  if (event.key !== "Tab" || event.ctrlKey || event.metaKey || event.altKey || !control)
+    return false;
+  const stops = focusablesIn(card);
+  const edge = event.shiftKey ? stops[0] : stops.at(-1);
+  if (!edge || event.target !== edge) return false;
+  event.preventDefault();
+  control.focus();
+  return true;
+}
+
+/**
+ * Whether the focus leaving a control or its card goes somewhere else, so the card goes at once
+ * instead of staying beside the card of the control the focus reaches. Into the card, or back to its
+ * control, it stays.
+ */
+export function goingElsewhere(
+  to: EventTarget | null,
+  ...stays: (Element | null | undefined)[]
+): boolean {
+  return to instanceof Node && !stays.some((each) => each?.contains(to));
+}
+
+/**
+ * Whether the focus has come back to a control because what held it has closed (a dialog or a
+ * menu the browser or the app puts the focus back from), not because the User moved it there: what
+ * it comes from is gone or hidden. Such a focus shows no card, and Space, hovering or moving the
+ * focus away and back does (#3102).
+ */
+export function cameBack(event: { relatedTarget: EventTarget | null }): boolean {
+  const from = event.relatedTarget;
+  return from instanceof Element && (!from.isConnected || !from.checkVisibility());
+}
+
+/** Space, alone and not while an input method composes: the key that goes into a card. */
+export function isSpaceKey(event: {
+  key: string;
+  shiftKey: boolean;
+  ctrlKey: boolean;
+  metaKey: boolean;
+  altKey: boolean;
+  keyCode?: number;
+  nativeEvent?: { isComposing: boolean };
+}): boolean {
+  return (
+    event.key === " " &&
+    !event.shiftKey &&
+    !event.ctrlKey &&
+    !event.metaKey &&
+    !event.altKey &&
+    event.nativeEvent?.isComposing !== true &&
+    event.keyCode !== 229
+  );
 }
