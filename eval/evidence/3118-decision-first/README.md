@@ -18,7 +18,7 @@ What the gate does not cover: any other decision model (none can be chosen until
 The reading changed after this file was written. Points 1 to 3 above and the bars below describe the earlier build; **parts A and B have not been run on this one**, and the model still reads only where the User chose it.
 
 1. **One search, one request.** The sentence's 30 best Passages by the plain search (no reranker, no neighbouring Passages), with any it cites first, go to the decision model in one request with the two questions of each.
-2. **A Mark from the decision model** where a score is clear of the line, the Passage asked about alone scores clear again, and a number of the sentence the Passage writes another way is the same amount by the model's own answer (0.92). A sentence with a figure can get one. The quote is the line of that Passage the model scores highest on the verdict's question.
+2. **A Mark from the decision model** where a score is clear of the line, the Passage asked about alone scores clear again, and a number of the sentence the Passage writes another way is the same amount by the model's own answer (0.92). A sentence with a figure can get one. The quote is the sentence of that Passage the model scores highest on the verdict's question; a heading, a table's row and a sheet's row are quoted as one line.
 3. **Unsupported from the decision model** where every Passage scores under 0.25 on both questions and the sentence cites nothing.
 4. **No reading** where one Passage states the sentence and another says the opposite, both clear of their lines: the sentence goes to the AI model unread.
 5. **A first reading** for any other score that leans, as before.
@@ -42,6 +42,7 @@ Two bars cannot be read on this build as they are written: **A2** (it marks sent
 - The same Notes over a Folder without their Documents (869 Passages): no Supported or Contradicted, 104 Unsupported, 2 sentences with no Passage found left to the AI model.
 - A Note of 33 sentences with Claude Haiku 5.5 behind: the decision model's Marks landed at 4.4 to 5.8 s, the AI model's first at 8.7 s and its last at 35.3 s; 50 requests to the host, all answered. With a host too slow to answer in 5 s, no reading shows and the check ends 5 s later than with no decision model (free run, scripted AI model).
 - The quotes were compared with the labels' lines by a script, not read blind.
+- **The quote's unit was changed after that run**, from a Passage's lines to its sentences (commit c941ba5f3), and the 71 sentences with a Supported or Contradicted were run once more: all 71 got the same verdict, 215 requests, all answered, US$0.052 at the listed price. 70 quotes hold the label's line (68 before); both quotes that were a PDF's cut line are now the whole sentence, and the one left is a table's row, quoted whole, where the label also names the table's heading.
 
 ## What the gate decides
 
@@ -180,6 +181,26 @@ A check sends nothing to the AI model until its sentence is read, so that a sent
 - Models under test: Decider v1.2 and Claude Haiku 5.5. Readers: Claude Sonnet 5.5.
 - A part that reaches its stop ends there and is reported as it stands.
 - Since 2026-11-15 part M spends nothing (see part M), so the stops come to US$0.75.
+
+## The second run, on the build since 2026-11-15
+
+Written on 2026-11-15, before the second run's first paid request.
+
+- **The build** is commit c941ba5f3. No change to the check follows it until both parts are reported.
+- **Order.** Part A again, then part B. A Mark from the decision model that isn't its label in part A (A1) ends the run there, before part B.
+- **The bars are as written, but for A2.** A2 tested the figure rule, which this build does not have. The first run's A2 stays recorded as not met. In the second run a Mark on a sentence with a figure is counted in A1 like any other, and the Marks are reported by a figure and none.
+- **A3** reads the quote this build shows, the model's top sentence, in the same way: two fresh readers, as many decoys, a third reader on a split.
+- **B1 as written** counts every Mark from the decision model that isn't the sentence's label, an Unsupported among them.
+- **The Unsupported line is frozen at 0.25.** It was set on sentences of the checks evaluation's set and on four of `eval/repeats`, part B's Note among them. Part A's four Notes are the first text it is run on that it was not set on.
+- **One more row, with no bar:** "Unsupported shown where a Passage settles it", the sentences labelled Supported or Contradicted that show Unsupported. In part A, those the decision model marked. In part B, each run's count in both arms, and in the `decision` arm by which model gave the Mark.
+- **Part A's search** is the one the first run used: the gating set's Documents with embeddings on.
+
+| Part | Expected | Stop |
+|---|---|---|
+| A again | 208 sentences at the US$0.00068 a sentence this build measured, about US$0.14 at the listed price | US$0.18 |
+| B | as above | US$0.60 |
+
+The void rule and the one answered request before each part are as above. A void run is run again only inside its part's stop.
 
 ## Results
 
