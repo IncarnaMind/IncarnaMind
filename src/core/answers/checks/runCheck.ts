@@ -4,9 +4,12 @@
  * assistant's writing and the claim-check function. Each flow keeps its own order, landing and
  * what it does with the claims a stop leaves.
  *
- * - A provider that says to slow down has the claim sent again after each pause of
- *   `RATE_LIMIT_PAUSES_MS`, the run's other claims waiting too (../../runs/stop). Still limited
- *   after the last, it is "wait", and the run's later claims aren't sent.
+ * - A provider that says to slow down for a stated time has the refused request sent again inside
+ *   its check once that time is over (../../runs/stop, #2944), the time it waits no part of the
+ *   check's time limit (./heldTime); past two minutes of waiting it is "wait", and the run's later
+ *   claims aren't sent. One that doesn't say has the claim sent again after each pause of
+ *   `RATE_LIMIT_PAUSES_MS`, the run's other claims waiting too; still limited after the last, it
+ *   is "wait", and the run's later claims aren't sent.
  * - The monthly cap or a plan's limit is "stop": nothing more is sent, and the claim and every one
  *   after it are Not checked for its reason.
  * - A check with no reply within the time limit is given up on: "failed", timed out.
@@ -21,10 +24,13 @@ import type { PreparedChatModel } from "../../providers/chat";
 import { BEFORE_REPLY } from "../../providers/modelRefusal";
 import type { ChatLanguageModel } from "../../providers/models";
 import { classifyProviderError } from "../../providers/providerErrors";
-import { type ItemOutcome, RunItemError, runItems } from "../../runs/stop";
+import type { RepliesOut } from "../../runs/replies";
+import { type ItemOutcome, RunItemError, type RunRequests, runItems } from "../../runs/stop";
 import { type PaceTimers, realTimers } from "../../sources/pace";
 import { failureOf, runFailureOf } from "./checkResults";
 import type { ClaimCheckRequest } from "./claimCheck";
+import { type HeldTime, heldTime } from "./heldTime";
+import { type RepliesFirst, repliesFirst } from "./repliesFirst";
 
 /**
  * How long one check may take. A request whose reply never comes would otherwise hold its run, or
@@ -47,6 +53,10 @@ export interface CheckRun {
   timeLimitMs: number;
   /** The clock the pauses and the time limit are kept by. */
   timers: PaceTimers;
+  /** The time its requests wait on a rate limit, which `timers` leaves out; none when it isn't kept. */
+  held?: HeldTime;
+  /** Holds each of its requests while a reply is out on its provider (#2944); none: it never waits for one. */
+  replies?: RepliesFirst;
   /** Null when what the checks are part of is recorded instead: a whole read's sentence. */
   record: CheckRecord | null;
 }
@@ -55,6 +65,8 @@ export interface CheckRun {
 export interface CheckRuns {
   /** The real clock when left out. */
   timers?: PaceTimers;
+  /** Where an Answer marks its provider while it is written: a check's requests wait behind it (./repliesFirst). */
+  repliesOut?: RepliesOut;
   /** How long one check may take, in ms; `CLAIM_TIME_LIMIT_MS` when left out. */
   claimTimeLimitMs?: number;
   recordAiUse(inputs: RecordAiUseInput[]): void;
@@ -67,13 +79,19 @@ export const checkRunOf = (
   model: PreparedChatModel,
   signal: AbortSignal,
   mindId: string | null,
-): CheckRun => ({
-  model,
-  signal,
-  timeLimitMs: runs.claimTimeLimitMs ?? CLAIM_TIME_LIMIT_MS,
-  timers: runs.timers ?? realTimers,
-  record: mindId === null ? null : { mindId, recordAiUse: runs.recordAiUse, now: runs.now },
-});
+): CheckRun & { held: HeldTime; replies: RepliesFirst } => {
+  const base = runs.timers ?? realTimers;
+  const held = heldTime(base);
+  return {
+    model,
+    signal,
+    timeLimitMs: runs.claimTimeLimitMs ?? CLAIM_TIME_LIMIT_MS,
+    timers: held.timers,
+    held,
+    replies: repliesFirst(runs.repliesOut, base, held),
+    record: mindId === null ? null : { mindId, recordAiUse: runs.recordAiUse, now: runs.now },
+  };
+};
 
 /** A claim's result, or why it is Not checked; "wait" and "stop" end the run (see above). */
 export type CheckOutcome =
@@ -93,16 +111,21 @@ type StreamPart =
     ? Part
     : never;
 
+/** How a check's requests go out: straight away, or through its run (`RunRequests.send`). */
+type Send = <R>(request: () => PromiseLike<R>) => PromiseLike<R>;
+
 /** A model lent to a check: what to tell when a reply comes to it some other way, and whether one has. */
 const lent = new WeakMap<PreparedChatModel, { hear(): void; replied(): boolean }>();
 
 /**
  * `prepared`, and whether a reply from its model has begun: a request refused before it was
- * sent, or one its provider turned away, began none. `heard` hears the first.
+ * sent, or one its provider turned away, began none. `heard` hears the first; `send` sends each
+ * request.
  */
 export function heardFrom(
   prepared: PreparedChatModel,
   heard?: () => void,
+  send: Send = (request) => request(),
 ): {
   prepared: PreparedChatModel;
   replied(): boolean;
@@ -119,12 +142,12 @@ export function heardFrom(
       middleware: {
         specificationVersion: "v4",
         wrapGenerate: async ({ doGenerate }) => {
-          const result = await doGenerate();
+          const result = await send(doGenerate);
           hear();
           return result;
         },
         wrapStream: async ({ doStream }) => {
-          const result = await doStream();
+          const result = await send(doStream);
           const stream = result.stream.pipeThrough(
             new TransformStream<StreamPart, StreamPart>({
               transform(part, controller) {
@@ -208,16 +231,40 @@ const stopped = (): ClaimCheckResult => ({
   excluded: [],
 });
 
-/** The check, or `TimedOut` once the time limit passes; `read` hears its model reply. */
+/**
+ * The check, or `TimedOut` once the time limit passes; `read` hears its model reply. Its requests
+ * go through `requests` when given, and the time limit doesn't run while one waits on a rate limit
+ * or behind a reply.
+ */
 async function within(
   check: ClaimCheck,
   request: ClaimCheckRequest,
   run: CheckRun,
   read: () => void,
+  requests?: RunRequests,
 ): Promise<ClaimCheckResult> {
   const settled = new AbortController();
   const givenUp = new AbortController();
-  const heard = heardFrom(request.model, read);
+  const signal = AbortSignal.any([request.signal, givenUp.signal]);
+  const waits: (() => void)[] = [];
+  const waiting = (on: boolean) => {
+    if (!run.held) return;
+    if (on) waits.push(run.held.begin());
+    else waits.pop()?.();
+  };
+  const model = run.replies ? run.replies.model(request.model) : request.model;
+  const heard = heardFrom(
+    model,
+    read,
+    requests &&
+      ((send) =>
+        requests.send(send, {
+          signal,
+          waiting,
+          // The wait is the held time itself, so it is slept on the clock that leaves none out.
+          ...(run.held && { sleep: run.held.base.sleep }),
+        })),
+  );
   try {
     // A reply that never comes, even once its check is stopped, is given up on all the same.
     const ended = new Promise<ClaimCheckResult | TimedOut>((resolve) => {
@@ -235,17 +282,14 @@ async function within(
       });
     });
     const result = await Promise.race([
-      check({
-        ...request,
-        model: heard.prepared,
-        signal: AbortSignal.any([request.signal, givenUp.signal]),
-      }),
+      check({ ...request, model: heard.prepared, signal }),
       ended,
     ]);
     if (result instanceof TimedOut) throw result;
     return result;
   } finally {
     settled.abort();
+    for (const end of waits.splice(0)) end();
   }
 }
 
@@ -310,6 +354,8 @@ export async function runClaimChecks<I>(
   run: CheckRun & {
     concurrency?: number;
     onOutcome?(item: I, outcome: CheckOutcome): void;
+    /** Hears the run's wait after a rate limit: when it ends (ms since the epoch), or null once it has. */
+    onPause?(until: number | null): void;
   },
 ): Promise<{
   outcomes: (CheckOutcome | null)[];
@@ -319,11 +365,17 @@ export async function runClaimChecks<I>(
   /** Whether a model replied to each item's check, on any of its tries. */
   const read = items.map(() => false);
   const attempt =
-    (index: number): CheckTry =>
+    (index: number, requests: RunRequests): CheckTry =>
     async (check, request) => {
-      const result = await within(check, request, run, () => {
-        read[index] = true;
-      });
+      const result = await within(
+        check,
+        request,
+        run,
+        () => {
+          read[index] = true;
+        },
+        requests,
+      );
       const failure = runFailureOf(result);
       if (failure) throw new RunItemError(failure);
       return result;
@@ -331,9 +383,9 @@ export async function runClaimChecks<I>(
   const { onOutcome } = run;
   const { outcomes, stop, outcomeError } = await runItems(
     items.map((item, index) => ({ item, index })),
-    async ({ item, index }): Promise<CheckOutcome> => {
+    async ({ item, index }, requests): Promise<CheckOutcome> => {
       try {
-        return { result: await each(item, attempt(index)) };
+        return { result: await each(item, attempt(index, requests)) };
       } catch (error) {
         if (error instanceof RunItemError) throw error;
         if (error instanceof TimedOut) return timedOut(run);
@@ -344,6 +396,7 @@ export async function runClaimChecks<I>(
     },
     {
       concurrency: run.concurrency ?? 1,
+      ...(run.onPause && { onPause: run.onPause }),
       signal: run.signal,
       // A sleep rejects only when the run is stopped, which ends the pause.
       wait: (ms, signal) => run.timers.sleep(ms, signal ?? run.signal).catch(() => undefined),

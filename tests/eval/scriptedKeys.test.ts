@@ -106,3 +106,13 @@ test("the published tiers hold the services' numbers, and a second's bucket lets
   expect(sendAt(anthropic, 100, 1)).toEqual([refused(1)]);
   expect(sendAt(anthropic, 300, 3)).toEqual([FITS, FITS, refused(1)]);
 });
+
+// protects=a scripted key answers its first requests as it was told, in order, and every later one as it was told to answer the rest (#2944); fails_when=the order of its answers is lost, or the rest are answered with the first; no_claim=a real provider's refusal.
+test("a scripted key answers the first requests as told and the rest as told", () => {
+  const key = scriptedKey(
+    { kind: "script", answers: [refused(40), refused(null)], after: FITS },
+    1000,
+  );
+
+  expect(sendAt(key, 0, 4)).toEqual([refused(40), refused(null), FITS, FITS]);
+});

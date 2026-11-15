@@ -11,6 +11,8 @@
  *   per-minute limit"): the bucket goes below empty, and the refusal says how long until a request
  *   fits again;
  * - `at-once`: `atOnce` requests out at a time, whose refusal says nothing of how long;
+ * - `script`: the first requests are answered as `answers` says, in order, every later one as
+ *   `after` says: for a test of what a refusal's words do;
  * - `tokens`: a provider's published limits a minute (`requests`, `input` tokens, `output` tokens:
  *   null for none of its own), each a bucket holding `minutes` of it; each request costs `costs`
  *   tokens in and out, the first of a write `firstCosts` in (its prompt's cache written), and its
@@ -19,6 +21,7 @@
 export type KeyShape =
   | { kind: "bucket"; holds: number; refillsPerReply: number; countsRefused?: true }
   | { kind: "at-once"; atOnce: number }
+  | { kind: "script"; answers: readonly KeyAnswer[]; after: KeyAnswer }
   | {
       kind: "tokens";
       requests: number;
@@ -85,6 +88,14 @@ export function scriptedKey(key: KeyShape, replyMs: number): ScriptedKey {
       replied() {
         out--;
       },
+      newWrite: () => undefined,
+    };
+  }
+  if (key.kind === "script") {
+    let asked = 0;
+    return {
+      send: () => key.answers[asked++] ?? key.after,
+      replied: () => undefined,
       newWrite: () => undefined,
     };
   }

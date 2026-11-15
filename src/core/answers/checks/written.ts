@@ -82,14 +82,12 @@ import type { RecordCitePlace } from "../../recordCites/referents";
 import { asCheckWork } from "../../reranking/order";
 import type { RepliesOut } from "../../runs/replies";
 import { type Slots, slots } from "../../runs/stop";
-import { realTimers } from "../../sources/pace";
 import { inStep } from "../../timing/flows";
 import { marksOfRun, type NodeJSON, syncContent, topLevelBlocks } from "../blocks";
 import type { CheckedCitation, ClaimCheckRequest } from "./claimCheck";
 import { type FirstLook, type FirstLookResult, quickLook } from "./fastPaths";
 import { claimsAmong } from "./findClaims";
 import { recordOpinions } from "./opinions";
-import { repliesFirst } from "./repliesFirst";
 import {
   type CheckOutcome,
   type CheckRuns,
@@ -1259,13 +1257,12 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     };
     const failed = (sentence: Sentence, reason: ClaimCheckFailure, detail: string | null) =>
       landNow(failedLanding(sentence, reason, detail), "failed");
-    const behind = repliesFirst(options.repliesOut, options.timers ?? realTimers);
+    const ran = checkRunOf(options, prepared, signal, mindId);
+    const behind = ran.replies;
     const sending = behind.model(prepared);
     const quickSending = quick && behind.model(quick);
-    const ran = checkRunOf(options, prepared, signal, mindId);
     const run = {
       ...ran,
-      timers: behind.timers,
       // A request answered as IncarnaMind quits has no record left to go in.
       record: ran.record && {
         ...ran.record,

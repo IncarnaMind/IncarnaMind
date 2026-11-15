@@ -1,3 +1,4 @@
+import { APICallError } from "ai";
 import { describe, expect, test } from "vitest";
 import type { ProviderError } from "../../src/core";
 import { RATE_LIMIT_PAUSES_MS, RunItemError, runItems } from "../../src/core/runs/stop";
@@ -225,5 +226,147 @@ describe("Running a run's items", () => {
     });
     expect(run.outcomeError).not.toBeNull();
     expect(run.outcomeError?.error).toBeUndefined();
+  });
+});
+
+/** A service's rate limit, as the AI SDK throws it: `retryAfter` in seconds when it says how long. */
+const limited = (retryAfter?: string) =>
+  new APICallError({
+    message: "Rate limit reached.",
+    url: "https://api.example.com/v1/messages",
+    requestBodyValues: {},
+    statusCode: 429,
+    ...(retryAfter !== undefined && { responseHeaders: { "retry-after": retryAfter } }),
+    isRetryable: true,
+  });
+
+/** A clock that moves on by each wait at once, noting each, as a run's pauses keep it. */
+function steppedClock() {
+  let now = 0;
+  const waited: number[] = [];
+  return {
+    waited,
+    now: () => now,
+    wait: async (ms: number) => {
+      waited.push(ms);
+      now += ms;
+    },
+  };
+}
+
+describe("Sending an item's requests through its run (#2944)", () => {
+  // protects=a refused request waits as long as the service says, never less, and is sent again inside its item, which isn't tried again from its start; fails_when=the item is run again from its start, or the request goes sooner than the stated wait; no_claim=how a real service words its wait.
+  test("a refused request goes again inside its item once the service's stated wait is over", async () => {
+    const clock = steppedClock();
+    const sent: number[] = [];
+    let starts = 0;
+    const run = await runItems(
+      ["40 s", "half a second"],
+      async (item, requests) => {
+        starts++;
+        let refused = false;
+        return requests.send(async () => {
+          sent.push(clock.now());
+          if (refused) return item;
+          refused = true;
+          throw limited(item === "40 s" ? "40" : "0.5");
+        });
+      },
+      { wait: clock.wait, now: clock.now },
+    );
+
+    expect(run.outcomes.map((each) => each.status)).toEqual(["done", "done"]);
+    expect(starts).toBe(2);
+    // A stated wait under a second is held to a second.
+    expect(clock.waited).toEqual([40_000, 1_000]);
+    expect(sent).toEqual([0, 40_000, 40_000, 41_000]);
+  });
+
+  // protects=a rate limit that doesn't say how long is thrown as it came, so the AI SDK's own retries and then the run's pauses answer it as before (#2944: with no stated time, today's steps stay); fails_when=a limit with no stated time is waited out inside the item, or gets no pause; no_claim=the length of the pauses.
+  test("a limit that doesn't say how long is thrown as it came, and the item is tried again after the run's pause", async () => {
+    const clock = steppedClock();
+    let tries = 0;
+    const run = await runItems(
+      ["limited once"],
+      async (item, requests) => {
+        tries++;
+        return requests.send(async () => {
+          if (tries === 1) throw limited();
+          return item;
+        });
+      },
+      { wait: clock.wait, now: clock.now },
+    );
+
+    expect(run.outcomes.map((each) => each.status)).toEqual(["done"]);
+    expect(tries).toBe(2);
+    expect(clock.waited).toEqual([RATE_LIMIT_PAUSES_MS[0]]);
+  });
+
+  // protects=one request waits on rate limits two minutes in all at most: refused with a stated wait of 50 s a third time it is given up, its item fails for the rate limit, isn't tried again, and the items after it aren't sent (#2944); fails_when=it waits past two minutes, its item starts again from its start, or a later item is sent; no_claim=what a real key does after two minutes.
+  test("a request past two minutes of waiting is given up, and the items not started aren't sent", async () => {
+    const clock = steppedClock();
+    const sent: string[] = [];
+    const run = await runItems(
+      ["limited", "after it"],
+      async (item, requests) =>
+        requests.send(async () => {
+          sent.push(item);
+          if (item === "limited") throw limited("50");
+          return item;
+        }),
+      { wait: clock.wait, now: clock.now },
+    );
+
+    expect(clock.waited).toEqual([50_000, 50_000]);
+    expect(sent).toEqual(["limited", "limited", "limited"]);
+    expect(run.outcomes.map((each) => each.status)).toEqual(["failed", "failed"]);
+    expect(run.outcomes[0]).toMatchObject({ error: { kind: "rate-limit" } });
+    expect(run.outcomes[1]).toMatchObject({ error: { kind: "rate-limit" } });
+  });
+
+  // protects=a stopped run ends a request's wait at once: it is sent no more, and its item is stopped (#2944); fails_when=the request waits out the service's stated wait, or is sent after the stop; no_claim=how soon a real wait ends.
+  test("stopping the run ends a request's wait, and it isn't sent again", async () => {
+    const stop = new AbortController();
+    let sent = 0;
+    const run = await runItems(
+      ["limited"],
+      async (_, requests) =>
+        requests.send(async () => {
+          sent++;
+          throw limited("40");
+        }),
+      {
+        signal: stop.signal,
+        wait: (_, signal) =>
+          new Promise<void>((resolve) => {
+            signal?.addEventListener("abort", () => resolve(), { once: true });
+            stop.abort();
+          }),
+      },
+    );
+
+    expect(sent).toBe(1);
+    expect(run.outcomes.map((each) => each.status)).toEqual(["stopped"]);
+  });
+
+  // protects=the run says when its waiting ends while a request waits on a stated limit, and that it has ended after (#2944: the line reads "Rate limit reached · resumes at {time}" meanwhile); fails_when=nothing is heard, the time is not the end of the wait, or it is never heard to end; no_claim=how the line is worded.
+  test("the run says when a request's wait ends, and once it has", async () => {
+    const clock = steppedClock();
+    const heard: (number | null)[] = [];
+    await runItems(
+      ["limited"],
+      async (item, requests) => {
+        let refused = false;
+        return requests.send(async () => {
+          if (refused) return item;
+          refused = true;
+          throw limited("40");
+        });
+      },
+      { wait: clock.wait, now: clock.now, onPause: (until) => heard.push(until) },
+    );
+
+    expect(heard).toEqual([40_000, null]);
   });
 });
