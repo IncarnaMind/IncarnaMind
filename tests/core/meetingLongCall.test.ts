@@ -37,7 +37,7 @@ async function settledFill(core: Core, meeting: Meeting): Promise<MeetingFill> {
   );
 }
 
-// protects=a 45-minute call dense with decisions gets its notes when a reply has no room for it whole: the call is asked for in parts, a part whose reply is cut while thinking is asked again as two, every line of the call reaches the model once in order with its speaker among the answered parts, and the note has one overview, each part's fact once, checked Citations, no problem and exact Undo (#3151); fails_when=a cut reply ends the fill with no notes, a line is skipped or sent twice, the overview or a fact is repeated, or a problem is shown; no_claim=what a real model writes or how much it thinks, which the pull request's real-model runs show.
+// protects=a 45-minute call dense with decisions gets its notes when a reply has no room for it whole: the call is asked for in parts, a part whose reply is cut while thinking is asked again as two, every line of the call reaches the model once in order with its speaker among the answered parts, and the note has each answered part's overview and fact once, in the order the call was read, checked Citations, no problem and exact Undo (#3151); fails_when=a cut reply ends the fill with no notes, a line is skipped or sent twice, a part's overview or fact is missing, repeated or out of order, or a problem is shown; no_claim=what a real model writes or how much it thinks, which the pull request's real-model runs show.
 test("a 45-minute call gets its notes in parts, a part cut while thinking asked again as two", async () => {
   const call = (await readFile(CALL, "utf8")).trim().split("\n");
   const said = call.map((line) => {
@@ -71,7 +71,7 @@ test("a 45-minute call gets its notes in parts, a part cut while thinking asked 
           "```json",
           '{"citations":[1]}',
           "```",
-          `${OVERVIEW} [^1].`,
+          `${OVERVIEW}, point ${part} [^1].`,
           "### END OVERVIEW",
         ].join("\n"),
       };
@@ -148,7 +148,10 @@ test("a 45-minute call gets its notes in parts, a part cut while thinking asked 
       for (const half of halves) expect(half?.lines.length).toBeGreaterThan(0);
     }
     const note = readMind(client).textContent;
-    expect(note.split(OVERVIEW)).toHaveLength(2);
+    expect([...note.matchAll(/, point (\d+)/g)].map((match) => Number(match[1]))).toEqual(
+      answered.map((ask) => ask.part),
+    );
+    expect(note.split(OVERVIEW)).toHaveLength(answered.length + 1);
     for (const { part } of answered) {
       expect(note.split(`Point ${part} of the rollout was agreed`)).toHaveLength(2);
     }

@@ -12,27 +12,28 @@ export function createFactLedger() {
   const omitted = new Map<string, OmitReason | "changed" | "supersedes">();
   /** Ids a fact replaced: whether or not they were kept, they don't come back. */
   const retired = new Set<string>();
-  let overview: MeetingOverview | null = null;
+  /** One for each reply that wrote one, in the order the call was read. */
+  const overviews: MeetingOverview[] = [];
   let overviewOmitted: OverviewOmitReason = "missing";
   let invalidFrames = 0;
   return {
     get facts() {
       return [...facts.values()];
     },
-    get overview() {
-      return overview;
+    get overviews(): readonly MeetingOverview[] {
+      return overviews;
     },
     get invalidFrames() {
       return invalidFrames;
     },
     omitted(complete: boolean) {
-      return omitted.size + (complete && overview === null ? 1 : 0);
+      return omitted.size + (complete && overviews.length === 0 ? 1 : 0);
     },
     /** How many were left out for each reason, and why no overview was kept, for the log. */
     omittedReasons(complete: boolean): Record<string, number | string> {
       const counts: Record<string, number> = {};
       for (const reason of omitted.values()) counts[reason] = (counts[reason] ?? 0) + 1;
-      if (!complete || overview !== null) return counts;
+      if (!complete || overviews.length > 0) return counts;
       return { ...counts, overview: 1, overviewReason: overviewOmitted };
     },
     accept(reply: FactReply) {
@@ -44,7 +45,7 @@ export function createFactLedger() {
       // A part that wrote no overview doesn't hide why an earlier part's was left out.
       if (overviewOmitted === "missing" && reply.overviewOmitted !== null)
         overviewOmitted = reply.overviewOmitted;
-      overview ??= reply.overview;
+      if (reply.overview) overviews.push(reply.overview);
       const fresh = reply.facts.filter((fact) => {
         const before = accepted.get(fact.id);
         if (before && facts.has(fact.id) && JSON.stringify(before) !== JSON.stringify(fact))

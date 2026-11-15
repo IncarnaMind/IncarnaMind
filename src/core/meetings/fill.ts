@@ -652,7 +652,8 @@ export function createMeetingFill(options: MeetingFillOptions) {
         // A reply cut off after it closed some frames keeps them (#2306).
         parsed = parseFactReply(answer, addresses);
       } catch (error) {
-        if (signal.aborted || (ledger.facts.length === 0 && ledger.overview === null)) throw error;
+        if (signal.aborted || (ledger.facts.length === 0 && ledger.overviews.length === 0))
+          throw error;
         if (error instanceof FillProblemError && error.problem.kind === "stopped") throw error;
         unfinishedParts = waiting.length + 1;
         problem =
@@ -662,11 +663,14 @@ export function createMeetingFill(options: MeetingFillOptions) {
         log.warn("meeting.fillPartFailed", { meetingId: meeting.id, parts: unfinishedParts });
         break;
       }
-      // A part whose reply was cut is asked again as two, and what the reply did write is kept:
-      // what it left out is read again, so it isn't counted as missing (#3151).
+      // A part whose reply was cut is asked again as two, and the facts the reply did write are
+      // kept: what it left out is read again, so it isn't counted as missing, and each half
+      // writes the overview of its own lines (#3151).
       const halves = cutShort(answer) ? halved(part) : null;
       ledger.accept(
-        halves ? { ...parsed, omittedIds: [], invalidFrames: 0, overviewOmitted: null } : parsed,
+        halves
+          ? { ...parsed, overview: null, omittedIds: [], invalidFrames: 0, overviewOmitted: null }
+          : parsed,
       );
       const markers = [
         "SUMMARY",
@@ -706,7 +710,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
         frames: ledger.invalidFrames,
       });
     }
-    const { overview } = ledger;
+    const { overviews } = ledger;
     // A malformed part has no id to count it by, but it was left out all the same (#3099).
     const omitted = ledger.omitted(unfinishedParts === 0) + ledger.invalidFrames;
     if (omitted > 0) {
@@ -717,7 +721,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
       });
     }
     set(meeting.id, { omitted, unfinishedParts });
-    if (ledger.facts.length === 0 && overview === null) {
+    if (ledger.facts.length === 0 && overviews.length === 0) {
       throw new FillProblemError(
         problem ??
           (ledger.omitted(false) > 0
@@ -759,7 +763,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
         const routed = new Set(routes.values());
         const planned = placeFacts({
           facts: retained,
-          overview,
+          overviews,
           lines: present,
           headings: routes,
           topicHeadings: present.filter((line) => line.heading && !routed.has(line.marker)),

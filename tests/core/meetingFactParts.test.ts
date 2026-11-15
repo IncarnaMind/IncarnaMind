@@ -46,13 +46,13 @@ function fact(
   ].join("\n");
 }
 
-function overview(): string {
+function overview(part?: number): string {
   return [
     "### OVERVIEW",
     "```json",
     '{"citations":[2]}',
     "```",
-    `${OVERVIEW} [^2].`,
+    `${OVERVIEW}${part ? ` in part ${part}` : ""} [^2].`,
     "### END OVERVIEW",
   ].join("\n");
 }
@@ -266,10 +266,15 @@ function expectRequests(model: ReturnType<typeof modelFor>, counts: number[]): v
   expect(model.model.doGenerateCalls).toHaveLength(0);
 }
 
-function expectRetained(client: MindClient, full: string, absent: string[] = []): void {
+function expectRetained(
+  client: MindClient,
+  full: string,
+  absent: string[] = [],
+  overviews = 1,
+): void {
   const doc = readMind(client);
   expect(doc.textContent.split(full)).toHaveLength(2);
-  expect(doc.textContent.split(OVERVIEW)).toHaveLength(2);
+  expect(doc.textContent.split(OVERVIEW)).toHaveLength(overviews + 1);
   for (const text of absent) expect(doc.textContent).not.toContain(text);
   expect(doc.textContent).not.toMatch(/FACT P\d_|END P\d_|"supersedes"|"citations"/);
   expect(mindCitations(client).length).toBeGreaterThan(0);
@@ -369,7 +374,7 @@ describe("Meeting fact frames across provider failures and Transcript parts", ()
     },
   );
 
-  test("a later checked correction replaces the prior fact once, with its new Citation and one overview and Undo", async () => {
+  test("a later checked correction replaces the prior fact once, with its new Citation and each part's overview and Undo", async () => {
     const model = modelFor((part) => ({
       text: [
         ...(part === 1
@@ -389,7 +394,7 @@ describe("Meeting fact frames across provider failures and Transcript parts", ()
         unfinishedParts: 0,
         problem: null,
       });
-      expectRetained(client, FINAL, [EARLIER]);
+      expectRetained(client, FINAL, [EARLIER], parts.length);
       const quote = model.quotes.get(2);
       if (!quote) throw new Error("The later part did not record its review cue.");
       const citations = mindCitations(client).filter((citation) => citation.quote === quote);
@@ -465,10 +470,12 @@ describe("Meeting fact frames across provider failures and Transcript parts", ()
           unfinishedParts: 0,
           problem: null,
         });
-        expectRetained(client, EARLIER, [FINAL]);
-        expect(mindCitations(client).filter((citation) => citation.quote?.includes(FINAL))).toEqual(
-          [],
-        );
+        expectRetained(client, EARLIER, [FINAL], parts.length);
+        // The later parts' overviews quote that line with its purpose; the fact left out quoted
+        // it alone.
+        const rejected = model.quotes.get(2);
+        if (!rejected) throw new Error("The later part did not record its review cue.");
+        expect(mindCitations(client).filter((citation) => citation.quote === rejected)).toEqual([]);
         expectRequests(
           model,
           parts.map(() => 2),
@@ -496,7 +503,12 @@ describe("Meeting fact frames across provider failures and Transcript parts", ()
         unfinishedParts: 0,
         problem: null,
       });
-      expectRetained(client, `${name} noted that the review is on Tuesday`, ["{{me}}"]);
+      expectRetained(
+        client,
+        `${name} noted that the review is on Tuesday`,
+        ["{{me}}"],
+        parts.length,
+      );
       for (const part of [2, 3]) {
         const prompt = model.calls.find((each) => each.part === part)?.call.prompt;
         expect(prompt).toContain(`"text":"${kept}`);
@@ -606,19 +618,19 @@ describe("A long call's Transcript, each line once, in parts a reply has room fo
     }
   });
 
-  // protects=a part whose reply is cut off is asked again as two, in reading order and each line once, and the rest of the call is then asked at half the size; the facts and overview the cut reply closed are kept and shown to both halves, the item it never closed isn't counted as left out since its lines are read again, and the note ends with no problem and exact Undo (#3151); fails_when=the fill stops at the cut reply, a later part is asked at the size that was cut, a kept fact is lost or written twice, the unfinished item is counted, or a line of the part is skipped or repeated; no_claim=how often a real model's reply is cut.
+  // protects=a part whose reply is cut off is asked again as two, in reading order and each line once, and the rest of the call is then asked at half the size; the facts the cut reply closed are kept and shown to both halves, the item it never closed isn't counted as left out since its lines are read again, the Summary holds the overview of each answered part once in the order the call was read, the cut reply's giving way to its halves', and the note ends with no problem and exact Undo (#3151); fails_when=the fill stops at the cut reply, a later part is asked at the size that was cut, a kept fact is lost or written twice, the unfinished item is counted, a line of the part is skipped or repeated, or the Summary holds only the first overview, the cut reply's beside its halves', or the overviews out of order; no_claim=how often a real model's reply is cut.
   test("a part whose reply is cut off is asked again as two, and what it wrote is kept", async () => {
     const model = modelFor((part) =>
       part === 1
         ? {
             text: [
               fact("P1_review", EARLIER),
-              overview(),
+              overview(part),
               fact("P1_checklist", UNFINISHED).replace("### END P1_checklist", ""),
             ].join("\n\n"),
             cutOff: true,
           }
-        : { text: overview() },
+        : { text: overview(part) },
     );
     const captured = await capture(model, true);
     const { core, meeting, client, parts } = captured;
@@ -629,7 +641,6 @@ describe("A long call's Transcript, each line once, in parts a reply has room fo
         unfinishedParts: 0,
         problem: null,
       });
-      expectRetained(client, EARLIER, [UNFINISHED]);
       const halves = [itemsShown(model, 2), itemsShown(model, 3)];
       for (const half of halves) expect(half.length).toBeGreaterThan(0);
       expect(halves.flat()).toEqual(itemsShown(model, 1));
@@ -654,6 +665,12 @@ describe("A long call's Transcript, each line once, in parts a reply has room fo
       expect(asked.flatMap((part) => itemsShown(model, part))).toEqual(
         Array.from({ length: LONG_CUES }, (_, index) => index + 1),
       );
+      expectRetained(client, EARLIER, [UNFINISHED], asked.length);
+      expect(
+        [...readMind(client).textContent.matchAll(/in part (\d+)/g)].map((match) =>
+          Number(match[1]),
+        ),
+      ).toEqual(asked);
       await undo(captured);
     } finally {
       core.close();
@@ -704,7 +721,7 @@ describe("Post-fix public regressions for cross-part fact identities", () => {
         unfinishedParts: 0,
         problem: null,
       });
-      expectRetained(client, friday, [monday]);
+      expectRetained(client, friday, [monday], parts.length);
       const correctedQuote = model.quotes.get(2);
       const replayQuote = model.quotes.get(3);
       if (!correctedQuote || !replayQuote) {
