@@ -481,6 +481,57 @@ describe("the module", () => {
     expect(replyJson('```json\n{"a":1,"a":2}\n```')).toBeUndefined();
   });
 
+  describe.each([
+    ["English", "North depot\t1,420\t£86,300", "Table 2: stores"],
+    ["Chinese", "北区仓库\t1,420\t86.3万元", "表2：门店"],
+  ])("a quote copied from a table row with its raw tabs (%s, #3125)", (_, row, location) => {
+    const record = `{"passage":"P2","location":"${location}","quote":"${row}"}`;
+    const read = { passage: "P2", location, quote: row };
+
+    // protects=a reply whose JSON string holds a table row's raw tabs reads as the tabs, wherever the reader finds the JSON; fails_when=the reply is unreadable for "Bad control character in string literal"; no_claim=how often a model copies the tabs.
+    test("is read with its tabs, alone, in a code fence, after thinking or among words", () => {
+      expect(parseJson(record)).toEqual({ value: read });
+      expect(replyJson(`\`\`\`json\n${record}\n\`\`\``)).toEqual(read);
+      expect(replyJson(`<think>The row says so.</think>${record}`)).toEqual(read);
+      expect(replyJson(`Here is the record: ${record} as asked.`)).toEqual(read);
+      expect(replyJson(`He said "the row: ${record}`)).toEqual(read);
+    });
+
+    // protects=only the escaping changes: an escaped reply reads as before, and a reply broken another way, cut off, or giving a key two values is still unreadable (#2275, #2817); fails_when=the reader repairs or guesses at a reply the model didn't write whole; no_claim=none beyond protects.
+    test("reads as an escaped reply does, and one broken another way stays unreadable", () => {
+      expect(parseJson(JSON.stringify(read))).toEqual({ value: read });
+      expect(parseJson(record.slice(0, -10))).toBeNull();
+      expect(replyJson(`\`\`\`json\n${record.slice(0, -2)}\n\`\`\``)).toBeUndefined();
+      expect(parseJson(record.replace('","quote"', '" "quote"'))).toBeNull();
+      expect(parseJson(record.replace('{"passage"', "{'passage'"))).toBeNull();
+      expect(parseJson(record.replace("}", ",}"))).toBeNull();
+      expect(parseJson(record.replace("\t", "\\\t"))).toBeNull();
+      expect(parseJson(record.replace(":", ":\u0001"))).toBeNull();
+      expect(parseJson(`${record.slice(0, -1)},"quote":"${row} "}`)).toBeNull();
+      expect(parseJson(`${record.slice(0, -1)},"quote":"${row}"}`)).toEqual({ value: read });
+    });
+  });
+
+  // protects=every raw control character inside a JSON string is read as itself, as the Figures line and a Tool call's input read it (#1827); fails_when=a raw line feed, carriage return or other control character leaves the reply unreadable; no_claim=none beyond protects.
+  test("any raw control character inside a string is read as itself", () => {
+    for (const character of ["\n", "\r", "\u0000", "\u0001", "\u001f", "\u007f"]) {
+      expect(parseJson(`{"quote":"North${character}1,420"}`)).toEqual({
+        value: { quote: `North${character}1,420` },
+      });
+    }
+  });
+
+  // protects=a reply as long as a whole sheet's rows, each with its tabs, is read whole and in one pass; fails_when=a long reply is cut, slowed past the suite's time or left unread; no_claim=how long a real reply is.
+  test("a reply quoting thousands of rows is read whole", () => {
+    const rows = Array.from({ length: 20_000 }, (_, index) => `Store ${index}\t${index}\t门店`);
+    const quote = rows.join("\n");
+    expect(replyJson(`{"passage":"P1","location":null,"quote":"${quote}"}`)).toEqual({
+      passage: "P1",
+      location: null,
+      quote,
+    });
+  });
+
   // protects=a structured reply the provider parses itself is held to the rule a reply read from text is: a key given twice alike is read, one that changes its mind can't be (#2895); fails_when=the provider's parse keeps the last of the two values and the reply is read; no_claim=which provider parses its own replies.
   test.each([
     ["claimed-changes", []],

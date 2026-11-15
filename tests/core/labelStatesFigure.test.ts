@@ -12,6 +12,7 @@
 import { describe, expect, test } from "vitest";
 import type { Language } from "../../src/core/language";
 import { type File, type Read, readRows } from "../helpers/answerUnitsTable";
+import { buildPdf } from "../helpers/pdf";
 import { paragraph, table, wordFile } from "../helpers/word";
 
 type Wanted = (language: Language) => Read;
@@ -2560,6 +2561,296 @@ describe("A table's unit said in other ways is read (#2997)", { timeout: 120_000
         "2024\t31",
         "Gross hardware spend in 2024 was $31 billion.",
         caught("31", "$31 billion"),
+      ],
+    ]);
+  });
+});
+
+const STATEMENT = "项目\t本期金额\n营业收入\t5,200\n净利润\t310";
+const PROFIT = "净利润\t310";
+const WANHE = "编制单位：万禾股份有限公司";
+const ENERGY = "指标\t2024年\n综合能耗\t31\n购入能耗\t54";
+const SITES = "Site\tOutput\nA\t54\nB\t31";
+const PROFIT_EN = "Item\tAmount\nRevenue\t5,200\nNet profit\t310";
+const inYuan = (
+  document: string | File,
+  quote = PROFIT,
+): [string | File, string, string, Wanted][] => [
+  [document, quote, "净利润为310元。", TICK],
+  [document, quote, "净利润为310万元。", caught("310", "310万元")],
+];
+const inWan = (
+  document: string | File,
+  quote = PROFIT,
+): [string | File, string, string, Wanted][] => [
+  [document, quote, "净利润为310万元。", TICK],
+  [document, quote, "净利润为310亿元。", caught("310", "310亿元")],
+];
+const pdfOf = (lines: readonly string[]): File => ({
+  name: "Data.pdf",
+  base64: Buffer.from(
+    buildPdf([{ chineseLines: [...lines, "项目 本期金额", "营业收入 5,200", "净利润 310"] }]),
+  ).toString("base64"),
+});
+
+describe("An organisation named after a colon states no unit (#2997)", {
+  timeout: 120_000,
+}, () => {
+  // protects=a Chinese financial statement's 编制单位：万禾股份有限公司 beside its 单位：元 states no unit, so the unit line's 元 is the figure's: "净利润为310元。" keeps its ✓ and reads Supported, and "净利润为310万元。" is caught in both checks, with a full-width or half-width colon, a space on either side of it or none, the organisation's line over the unit line or under it, both on one line apart or joined, with a date or 币种 beside them, and over 单位：万元 (310万元 ✓, 310亿元 caught), also where a PDF's text joins the line before and the line after to 单位：万元 ("编制单位：万禾股份有限公司单位：万元项目…", "利润表单位：万元项目…"), beside the same rows under an organisation with no unit in its name and under the unit line alone; fails_when="净利润为310万元。" reads ✓ or Supported under 编制单位：万禾股份有限公司 over 单位：元, or "净利润为310元。" reads Not checked there; no_claim=an organisation named after 单位 alone ("单位：万禾股份有限公司"), the known costs below.
+  test("an organisation's line beside a unit line leaves the unit line's unit", async () => {
+    const statement = (head: string) => `利润表\n${head}\n${STATEMENT}`;
+    await readsAsWanted([
+      ...[
+        `${WANHE}\n单位：元`,
+        "编制单位:万禾股份有限公司\n单位：元",
+        "编制单位:万禾股份有限公司\n单位:元",
+        "编制单位： 万禾股份有限公司\n单位：元",
+        "编制单位 ：万禾股份有限公司\n单位：元",
+        "编制单位 万禾股份有限公司\n单位：元",
+        `单位：元\n${WANHE}`,
+        `${WANHE} 单位：元`,
+        `${WANHE}\u3000单位：元`,
+        `单位：元 ${WANHE}`,
+        `${WANHE}单位：元`,
+        `${WANHE} 2024年12月31日 单位：元`,
+        `${WANHE}\n单位：元 币种：人民币`,
+        `2024年度\n${WANHE}\n单位：元`,
+        "编制单位：甲乙股份有限公司\n单位：元",
+        "单位：元",
+      ].flatMap((head) => inYuan(statement(head))),
+      ...[`${WANHE}\n单位：万元`, `${WANHE} 单位：万元`, "单位：万元"].flatMap((head) =>
+        inWan(statement(head)),
+      ),
+      ...[`${WANHE}单位：万元项目`, "利润表单位：万元项目"].flatMap((head) =>
+        inWan(`${head}\t本期金额\n营业收入\t5,200\n净利润\t310`),
+      ),
+    ]);
+  });
+
+  // protects=every label a statement puts before a colon to name who made it, an organisation or a person, states no unit over 单位：元 (编制单位, 填报单位, 报送单位, 被审计单位, 主管单位, 制表单位, 填表单位, 申报单位, 编报单位, 会计主体, 公司名称, 单位名称, 企业名称, 纳税人名称, 单位负责人): "净利润为310元。" keeps its ✓ and "净利润为310万元。" is caught in both checks; fails_when=any label's 万禾股份有限公司 or 万志远 reads as the Document's 万; no_claim=a label that asks for a unit ("产量单位：万吨"), which the next tests read.
+  test("every label that names an organisation or a person before its colon states no unit", async () => {
+    await readsAsWanted(
+      [
+        ...[
+          "编制单位",
+          "填报单位",
+          "报送单位",
+          "被审计单位",
+          "主管单位",
+          "制表单位",
+          "填表单位",
+          "申报单位",
+          "编报单位",
+          "会计主体",
+          "公司名称",
+          "单位名称",
+          "企业名称",
+          "纳税人名称",
+        ].map((label) => `${label}：万禾股份有限公司`),
+        "单位负责人：万志远",
+      ].flatMap((head) => inYuan(`利润表\n${head}\n单位：元\n${STATEMENT}`)),
+    );
+  });
+
+  // protects=an organisation whose name begins with or holds a scale, a currency or a unit, after 编制单位, states none of them: 亿利集团, 百色市水泥厂, 美元基金公司, 千瓦科技有限公司, 千瓦科技, 千禾味业 and 万川集团 over 单位：元 ("净利润为310元。" ✓, 310万元 and 310亿元 caught), 元气森林食品有限公司, 元宝山电厂 and 人民币结算中心 over 单位：万元 (310万元 ✓, 310亿元 caught), 吨位检测中心 over 单位：万吨 (31万吨 ✓, 31吨 caught) and 千瓦科技有限公司 over 单位：吨 (31吨 ✓, 31千吨 caught), on two lines and on one; fails_when="净利润为310亿元。" reads ✓ or Supported under 编制单位：亿利集团 over 单位：元, or a right sentence there reads Not checked; no_claim=a sentence in the currency an organisation's name holds (310美元 under 美元基金公司), a known cost below.
+  test("a name that begins with or holds a unit or a scale states none", async () => {
+    const named = (name: string, unit: string, rows = STATEMENT) =>
+      `编制单位：${name}\n${unit}\n${rows}`;
+    await readsAsWanted([
+      ...[
+        "亿利集团",
+        "百色市水泥厂",
+        "美元基金公司",
+        "千瓦科技有限公司",
+        "千瓦科技",
+        "千禾味业",
+        "万川集团",
+      ].flatMap((name) => inYuan(named(name, "单位：元"))),
+      [named("亿利集团", "单位：元"), PROFIT, "净利润为310亿元。", caught("310", "310亿元")],
+      ...["元气森林食品有限公司", "元宝山电厂", "人民币结算中心"].flatMap((name) =>
+        inWan(named(name, "单位：万元")),
+      ),
+      [named("吨位检测中心", "单位：万吨", PLANTS), "二厂\t31", "二厂产量为31万吨。", TICK],
+      [
+        named("吨位检测中心", "单位：万吨", PLANTS),
+        "二厂\t31",
+        "二厂产量为31吨。",
+        caught("31 万吨", "31吨"),
+      ],
+      [named("千瓦科技有限公司", "单位：吨", PLANTS), "二厂\t31", "二厂产量为31吨。", TICK],
+      [
+        named("千瓦科技有限公司", "单位：吨", PLANTS),
+        "二厂\t31",
+        "二厂产量为31千吨。",
+        caught("31", "31千吨"),
+      ],
+      [`编制单位：亿利集团 单位：元\n${STATEMENT}`, PROFIT, "净利润为310元。", TICK],
+      [
+        `编制单位：亿利集团 单位：元\n${STATEMENT}`,
+        PROFIT,
+        "净利润为310亿元。",
+        caught("310", "310亿元"),
+      ],
+      ...inWan(`编制单位：元气森林食品有限公司 单位：万元\n${STATEMENT}`),
+    ]);
+  });
+
+  // protects=a unit line reads under an organisation's line as it reads alone: 单位：人民币万元, 金额单位：千元, 所有金额单位：千元, 本表金额单位：万元, 币种：美元 单位：百万元, 单位：万吨, 计量单位：吨, 产量单位：万吨 and 能耗单位：吨标准煤 under 编制单位：万禾股份有限公司, and Unit: kt, Unit: USD million and (Unit: RMB'000) under "Prepared by: Wanhe Co., Ltd.", "Reporting entity: Mt Isa Mines Limited" or "Business unit: Million Tonne Mining Co.": the right sentence keeps its ✓ and another scale is caught in both checks, beside each line alone; fails_when="净利润为31万元。" under 编制单位：万禾股份有限公司 over 金额单位：千元 reads Not checked, or "净利润为310万美元。" under 币种：美元 单位：百万元 reads ✓; no_claim=whether 币种：美元 makes 百万元 a million dollars, which the reader doesn't read.
+  test("a unit line under an organisation's line reads as it reads alone", async () => {
+    const both = (
+      unit: string,
+      rows: string,
+      quote: string,
+      sentences: readonly [string, Wanted][],
+      organisation = WANHE,
+    ) =>
+      [`${organisation}\n${unit}\n${rows}`, `${unit}\n${rows}`].flatMap((document) =>
+        sentences.map(([sentence, wanted]): [string, string, string, Wanted] => [
+          document,
+          quote,
+          sentence,
+          wanted,
+        ]),
+      );
+    const thousands: [string, Wanted][] = [
+      ["净利润为31万元。", TICK],
+      ["净利润为310万元。", caught("310", "310万元")],
+    ];
+    const prepared = "Prepared by: Wanhe Co., Ltd.";
+    await readsAsWanted([
+      ...["单位：人民币万元", "本表金额单位：万元"].flatMap((unit) =>
+        both(unit, STATEMENT, PROFIT, [
+          ["净利润为310万元。", TICK],
+          ["净利润为310亿元。", caught("310", "310亿元")],
+        ]),
+      ),
+      ...both("金额单位：千元", STATEMENT, PROFIT, thousands),
+      ...both("所有金额单位：千元", STATEMENT, PROFIT, thousands),
+      ...both("币种：美元 单位：百万元", STATEMENT, PROFIT, [
+        ["净利润为310万美元。", caught("310", "310万美元")],
+      ]),
+      ...both("单位：万吨", PLANTS, "二厂\t31", [
+        ["二厂产量为31万吨。", TICK],
+        ["二厂产量为31吨。", caught("31 万吨", "31吨")],
+      ]),
+      ...both("计量单位：吨", PLANTS, "二厂\t31", [
+        ["二厂产量为31吨。", TICK],
+        ["二厂产量为31万吨。", caught("31", "31万吨")],
+      ]),
+      ...both("产量单位：万吨", PLANTS, "二厂\t31", [
+        ["二厂产量为31万吨。", TICK],
+        ["二厂产量为31吨。", caught("31 单位：万吨", "31吨")],
+      ]),
+      ...both("能耗单位：吨标准煤", ENERGY, "综合能耗\t31", [
+        ["综合能耗为31吨标准煤。", TICK],
+        ["综合能耗为31万吨标准煤。", caught("31", "31万吨")],
+      ]),
+      ...[
+        prepared,
+        "Reporting entity: Mt Isa Mines Limited",
+        "Business unit: Million Tonne Mining Co.",
+      ].flatMap((organisation) =>
+        both(
+          "Unit: kt",
+          SITES,
+          "B\t31",
+          [
+            ["Site B's output was 31 kt.", TICK],
+            ["Site B's output was 31 Mt.", caught("31 kt", "31 Mt")],
+          ],
+          organisation,
+        ),
+      ),
+      ...both(
+        "Unit: USD million",
+        PROFIT_EN,
+        "Net profit\t310",
+        [
+          ["Net profit was USD 310 million.", TICK],
+          ["Net profit was USD 310 billion.", caught("310", "USD 310 billion")],
+        ],
+        prepared,
+      ),
+      ...both(
+        "(Unit: RMB'000)",
+        PROFIT_EN,
+        "Net profit\t310",
+        [
+          ["Net profit was RMB 310,000.", TICK],
+          ["Net profit was RMB 310 million.", caught("310", "RMB 310 million")],
+        ],
+        prepared,
+      ),
+    ]);
+  });
+
+  // protects=the organisation's line states no unit in a Markdown file (a table of bars or tab rows), a Word file (its lines as paragraphs over a table, apart and on one line) and a PDF (its lines over rows of spaces, apart and on one line): "净利润为310元。" keeps its ✓ and "净利润为310万元。" is caught in both checks; fails_when="净利润为310万元。" reads ✓ or Supported in any of them; no_claim=a PDF whose page joins the two lines into one, which reads as the text "编制单位：万禾股份有限公司单位：元" does above.
+  test("the same in Markdown, Word and PDF files", async () => {
+    const word = (heads: readonly string[]): File => ({
+      name: "Data.docx",
+      base64: wordFile({
+        body: [
+          ...heads.map((head) => paragraph(head)),
+          table([
+            ["项目", "本期金额"],
+            ["营业收入", "5,200"],
+            ["净利润", "310"],
+          ]),
+        ].join(""),
+      }).toString("base64"),
+    });
+    await readsAsWanted([
+      ...inYuan(
+        {
+          name: "Data.md",
+          text: `# 利润表\n\n${WANHE}\n\n单位：元\n\n| 项目 | 本期金额 |\n|---|---|\n| 营业收入 | 5,200 |\n| 净利润 | 310 |\n`,
+        },
+        "净利润 | 310",
+      ),
+      ...inYuan({ name: "Data.md", text: `# 利润表\n\n${WANHE}\n单位：元\n${STATEMENT}\n` }),
+      ...inYuan(word(["利润表", WANHE, "单位：元"])),
+      ...inYuan(word(["利润表", `${WANHE} 单位：元`])),
+      ...inYuan(pdfOf(["利润表", WANHE, "单位：元"]), "净利润 310"),
+      ...inYuan(pdfOf(["利润表", `${WANHE} 单位：元`]), "净利润 310"),
+    ]);
+  });
+
+  // protects=known costs, pinned at what they read: an organisation named after 单位 alone ("单位：万禾股份有限公司" over 单位：元) reads as on main, its 万 the Document's (310万元 ✓ and Supported, 310元 Not checked), since a bare unit label's unit may have the next line joined to it in a PDF's text ("单位：万元项目…"); a sentence in the currency an organisation's name holds ("净利润为310美元。" under 编制单位：美元基金公司 over 单位：元) reads Not checked and Supported, as on main, the name's 美元 being a currency the Document's words name; a name that begins with a scale and its unit ("编制单位：万元集团" over 单位：元) reads 万元 as main does, since a scale with its unit stands whatever follows it (310元 and 310万元 Not checked and Supported); and where the organisation's line is the only line that seemed to state a scale, the Document now states none, so in an Answer the model's ✓ stands, right sentence or wrong ("净利润为310万元。" under 编制单位：亿利集团, 310亿元 and 310万元 under 编制单位：元气森林食品有限公司, 31千吨 under 编制单位：千瓦科技有限公司), and Check against Documents reads Unsupported, where main caught the wrong ones in both checks by reading the name's first character; fails_when=any reads otherwise without this list changing; no_claim=that they are right.
+  test("known costs of an organisation named after a colon", async () => {
+    await readsAsWanted([
+      [`利润表\n单位：万禾股份有限公司\n单位：元\n${STATEMENT}`, PROFIT, "净利润为310万元。", TICK],
+      [
+        `利润表\n单位：万禾股份有限公司\n单位：元\n${STATEMENT}`,
+        PROFIT,
+        "净利润为310元。",
+        UNJUDGED,
+      ],
+      [`编制单位：美元基金公司\n单位：元\n${STATEMENT}`, PROFIT, "净利润为310美元。", UNJUDGED],
+      [`编制单位：万元集团\n单位：元\n${STATEMENT}`, PROFIT, "净利润为310元。", UNJUDGED],
+      [`编制单位：万元集团\n单位：元\n${STATEMENT}`, PROFIT, "净利润为310万元。", UNJUDGED],
+      [
+        `编制单位：亿利集团\n${STATEMENT}`,
+        PROFIT,
+        "净利润为310万元。",
+        leftToTheModel("310", "310万元"),
+      ],
+      [
+        `编制单位：元气森林食品有限公司\n${STATEMENT}`,
+        PROFIT,
+        "净利润为310万元。",
+        leftToTheModel("310", "310万元"),
+      ],
+      [
+        `编制单位：元气森林食品有限公司\n${STATEMENT}`,
+        PROFIT,
+        "净利润为310亿元。",
+        leftToTheModel("310", "310亿元"),
+      ],
+      [
+        `编制单位：千瓦科技有限公司\n${PLANTS}`,
+        "二厂\t31",
+        "二厂产量为31千吨。",
+        leftToTheModel("31", "31千吨"),
       ],
     ]);
   });

@@ -18,6 +18,7 @@ import { extractXlsx } from "../../src/core/documents/formats/xlsx";
 import { resolveCapabilities } from "../../src/core/providers/capabilities";
 import type { PreparedChatModel } from "../../src/core/providers/chat";
 import { workbookTools } from "../../src/core/workbooks/tool";
+import { reasonText } from "../../src/renderer/src/cost";
 import { MAX_CHART_VALUES } from "../../src/shared/charts";
 import { readFigures } from "../../src/shared/figures";
 import { translate } from "../../src/shared/i18n";
@@ -254,6 +255,8 @@ async function checkWith(options: {
   /** Asked once more for its record, it gives this quote, under the markers asked for if any. */
   recordWhenAsked?: string;
   scope?: { documentIds: string[] | null; excluded: Map<string, "own-file"> };
+  /** The sentence also cites another Document's Passage, of this text, which no search finds. */
+  alsoCited?: { text: string; documentDeleted?: boolean; notCited?: boolean };
 }) {
   const body =
     options.body ?? "Revenue in 2024 was £20; revenue in 2025 was £21. The licence has expired.";
@@ -379,6 +382,18 @@ async function checkWith(options: {
     notCited: false,
     yourNoteAt: null,
   };
+  const other: CitationSource | null = options.alsoCited
+    ? {
+        ...source,
+        passageId: "passage-2",
+        documentId: "document-2",
+        documentName: "Kennzahlen",
+        contentHash: "hash-2",
+        text: options.alsoCited.text,
+        documentDeleted: options.alsoCited.documentDeleted ?? false,
+        notCited: options.alsoCited.notCited ?? false,
+      }
+    : null;
   const engine = createAiSdkAnswerEngine();
   const check = createClaimCheck({
     language: () => "en",
@@ -412,8 +427,12 @@ async function checkWith(options: {
       passagesBetween: () => [{ ...source, seq: 1, position: 0, windowFrom: 0, windowTo: 0 }],
       savedBySearch: () => false,
       unitCounts: () => new Map([[source.documentId, 1]]),
-      citationSource: (id) => (id === source.passageId ? source : null),
-      pageTexts: () => options.units ?? [{ page: 1, text: body, kind: "page", label: null }],
+      citationSource: (id) =>
+        id === source.passageId ? source : id === other?.passageId ? other : null,
+      pageTexts: (documentId) =>
+        other && documentId === other.documentId
+          ? [{ page: 1, text: other.text, kind: "page", label: null }]
+          : (options.units ?? [{ page: 1, text: body, kind: "page", label: null }]),
       documentDate: () => null,
     },
   });
@@ -421,14 +440,12 @@ async function checkWith(options: {
     claim: options.claim ?? "Revenue in 2024 was £20 and revenue in 2025 was £20.",
     figures: options.figures,
     scope: options.scope ?? { documentIds: null, excluded: new Map() },
-    ...(options.citeSentence && {
-      cited: [
-        {
-          documentName: source.documentName,
-          quote: source.text,
-          passageId: source.passageId,
-        },
-      ],
+    ...((options.citeSentence || other) && {
+      cited: [...(options.citeSentence ? [source] : []), ...(other ? [other] : [])].map((each) => ({
+        documentName: each.documentName,
+        quote: each.text,
+        passageId: each.passageId,
+      })),
     }),
     model: prepared,
     signal: new AbortController().signal,
@@ -1190,6 +1207,108 @@ test.each([
   },
 );
 
+// protects=a Note whose language settles its separators one way but leaves its scale open, a German "1.284" under its "(£m)" heading, beside an English report's "1.284" under "All figures in £m", is Not checked with both readings named, never ✓ a thousand times off (#3088); fails_when=it reads Supported; no_claim=a bare cell its source frames the same way (the tests above).
+test("a German cell under “(£m)” copied from an English one reads two ways", async () => {
+  const body =
+    "All figures in £m\nThe figures are for the quarter and they are unaudited.\nSegment\tQ3 2026\tQ3 2025\nClothing\t1.284\t1.310";
+  const reading = readFigures("1.284", { language: "de", header: "Q3 2026 (£m)" })[0];
+  if (!reading) throw new Error("Missing cell reading");
+  expect(reading.ambiguous.map((each) => each.kind)).toEqual(["scale"]);
+  const { result } = await checkWith({
+    figures: [{ ...target("f1", "1.284", "Clothing Q3 2026"), reading }],
+    body,
+    units: segments(body),
+    quotes: ["Clothing\t1.284\t1.310", "All figures in £m"],
+    text: reply([
+      {
+        ...item(),
+        reading: 1,
+        source: { citation: 1, number: "1.284", reading: null, unitQuote: "All figures in £m" },
+      },
+    ]),
+  });
+  const figure = result.figures?.[0]?.result;
+  expect(figure).toMatchObject({ verdict: "not-checked", reason: "two-readings" });
+  const line = (language: "en" | "zh-CN") =>
+    figure?.verdict === "not-checked"
+      ? reasonText(
+          (key, params) => translate(language, key, params),
+          language,
+          figure.reason,
+          figure.detail,
+        )
+      : null;
+  expect(line("en")).toBe("“1.284” could mean 1.284 or 1,284, so it wasn’t checked.");
+  expect(line("zh-CN")).toBe("“1.284”可能是 1.284，也可能是 1284，所以未核对。");
+});
+
+// protects=a bare cell whose separator and scale its Note both leave open, read the "," way because the Document the sentence cites writes "," for decimals, is compared in its source's frame as that reading: "1.284" under "(£m)" is £1,284m (#3088); fails_when=the frame is applied to the cell as first read, £1.284m, and it reads Contradicted; no_claim=a separator the Note settles, or a frame its source doesn't state (the tests above).
+test("a separator the cited Document's way reads survives its source's frame", async () => {
+  const body =
+    "All figures in £m\nSegment\tQ3 2026\tQ3 2025\nClothing\t1284\t1310\nCash held\t1.284.000\t1.310.000";
+  const reading = readFigures("1.284", { header: "Q3 2026 (£m)" })[0];
+  if (!reading) throw new Error("Missing cell reading");
+  expect(reading.ambiguous.map((each) => each.kind).sort()).toEqual(["scale", "separator"]);
+  const { result } = await checkWith({
+    figures: [{ ...target("f1", "1.284", "Clothing Q3 2026"), reading }],
+    body,
+    units: segments(body),
+    quotes: ["Clothing\t1284\t1310", "All figures in £m"],
+    citeSentence: true,
+    text: reply([
+      {
+        ...item(),
+        source: { citation: 1, number: "1284", reading: null, unitQuote: "All figures in £m" },
+      },
+    ]),
+  });
+  expect(result.figures?.[0]?.result.verdict).toBe("supported");
+});
+
+/** A Document that writes "," for decimals and "." for thousands, in no language the app tells. */
+const KENNZAHLEN = "Northwind\nRevenue GBP 1.284\nCash GBP 1.284.000\nCosts GBP 1.234.567";
+
+// protects=a figure whose separators its Note leaves open is read the way a Document the sentence cites writes numbers only when the check may use that Document: a deleted, uncited, left-out or out-of-scope one never decides it, and the interface language reads it (#3088); fails_when=such a Document reads "1.284" under "(£m)" as £1,284m and it reads Supported; no_claim=a cited Document the check may use, which decides it (the test above, and tests/core/separatorReadings.test.ts, step 3).
+test.each([
+  { name: "deleted", cited: { documentDeleted: true }, scope: undefined },
+  { name: "not to be cited", cited: { notCited: true }, scope: undefined },
+  {
+    name: "left out",
+    cited: {},
+    scope: { documentIds: null, excluded: new Map([["document-2", "own-file" as const]]) },
+  },
+  {
+    name: "outside the scope",
+    cited: {},
+    scope: { documentIds: ["document-1"], excluded: new Map<string, "own-file">() },
+  },
+])(
+  "a cited Document the check can't use never reads a figure's separators: $name",
+  async ({ cited, scope }) => {
+    const body = "All figures in £m\nSegment\tQ3 2026\tQ3 2025\nClothing\t1284\t1310";
+    const reading = readFigures("1.284", { header: "Q3 2026 (£m)" })[0];
+    if (!reading) throw new Error("Missing cell reading");
+    const { result } = await checkWith({
+      figures: [{ ...target("f1", "1.284", "Clothing Q3 2026"), reading }],
+      body,
+      units: segments(body),
+      quotes: ["Clothing\t1284\t1310", "All figures in £m"],
+      alsoCited: { text: KENNZAHLEN, ...cited },
+      ...(scope && { scope }),
+      text: reply([
+        {
+          ...item(),
+          source: { citation: 1, number: "1284", reading: null, unitQuote: "All figures in £m" },
+        },
+      ]),
+    });
+    expect(result.figures?.[0]?.result).toMatchObject({
+      verdict: "not-checked",
+      reason: "two-readings",
+    });
+  },
+);
+
 test("a figure given a currency its Document never states is Unsupported, and says which part (#1798)", async () => {
   const body = "The annual salary is 54,000, paid monthly in arrears.";
   const { result } = await checkWith({
@@ -1667,17 +1786,58 @@ test.each([
 );
 
 test.each([undefined, 99])(
-  "missing or out-of-range own reading %j stays unread",
+  "missing or out-of-range own reading %j is read two ways",
   async (reading) => {
     const { result } = await checkWith({
       figures: [noteChoice("4980", "£m")],
       body: "Revenue £4980000000",
       text: reply([{ ...item(), reading }]),
     });
-    expect(result.figures?.[0]?.result).toMatchObject({ verdict: "not-checked", reason: "unread" });
+    const figure = result.figures?.[0]?.result;
+    expect(figure).toMatchObject({ verdict: "not-checked", reason: "two-readings" });
     expect(result.figures?.[0]?.reading.ambiguous.length).toBeGreaterThan(0);
+    // The scale's two readings, named in the card's line in both languages.
+    const line = (language: "en" | "zh-CN") =>
+      figure?.verdict === "not-checked"
+        ? reasonText(
+            (key, params) => translate(language, key, params),
+            language,
+            figure.reason,
+            figure.detail,
+          )
+        : null;
+    expect(line("en")).toBe("“4980” could mean 4,980 or 4,980m GBP, so it wasn’t checked.");
+    expect(line("zh-CN")).toBe("“4980”可能是 4980，也可能是 49.8亿英镑，所以未核对。");
   },
 );
+
+// protects=a scale read three ways (bare, the text's "in thousands", the heading's "£m"), its reading not named, says only that it reads several ways, in English and Chinese, never "could mean A or B / C" (#3088); fails_when=the two-readings line lists three or the unread-Documents line shows; no_claim=a scale with two readings, which names both (the test above).
+test("a scale read three ways says it reads several ways", async () => {
+  const requested = noteChoice("Revenue 4980 (in thousands)", "£m");
+  expect(requested.reading.ambiguous[0]?.readings).toHaveLength(3);
+  const { result } = await checkWith({
+    figures: [requested],
+    body: "Revenue £4980000000",
+    text: reply([{ ...item(), reading: null }]),
+  });
+  const figure = result.figures?.[0]?.result;
+  expect(figure).toMatchObject({
+    verdict: "not-checked",
+    reason: "readings-unsettled",
+    detail: "4980",
+  });
+  const line = (language: "en" | "zh-CN") =>
+    figure?.verdict === "not-checked"
+      ? reasonText(
+          (key, params) => translate(language, key, params),
+          language,
+          figure.reason,
+          figure.detail,
+        )
+      : null;
+  expect(line("en")).toBe("“4980” could be read several ways, so it wasn’t checked.");
+  expect(line("zh-CN")).toBe("“4980”有多种读法，所以未核对。");
+});
 
 test("multiple own ambiguity axes are never combined by guessing", async () => {
   const requested = noteChoice("(4980)", "£m");
@@ -1687,7 +1847,12 @@ test("multiple own ambiguity axes are never combined by guessing", async () => {
     body: "Revenue £4980000000",
     text: reply([{ ...item(), reading: 1 }]),
   });
-  expect(result.figures?.[0]?.result).toMatchObject({ verdict: "not-checked", reason: "unread" });
+  // A sign and a scale both unsettled read more ways than one choice can name.
+  expect(result.figures?.[0]?.result).toMatchObject({
+    verdict: "not-checked",
+    reason: "readings-unsettled",
+    detail: "(4980)",
+  });
 });
 
 test.each([undefined, []])(

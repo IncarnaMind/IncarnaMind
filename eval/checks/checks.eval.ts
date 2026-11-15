@@ -119,6 +119,9 @@ test("checks evaluation: Find support and verify", async () => {
       ...(chat.apiKey !== null && { apiKey: chat.apiKey }),
       ...(chat.baseUrl !== null && { baseUrl: chat.baseUrl }),
     });
+    const cap = Number(process.env.INCARNAMIND_EVAL_SPEND_CAP);
+    if (cap > 0)
+      await core.updateSettings({ user: { monthlyCap: { amount: cap, currency: "USD" } } });
     const pipeline = corePipeline({
       core,
       generate: chatGenerate(chat),
@@ -142,7 +145,8 @@ test("checks evaluation: Find support and verify", async () => {
     }
 
     const verified: VerifiedDocument[] = [];
-    for (const received of set.received) {
+    const findSupportOnly = process.env.INCARNAMIND_EVAL_CHECKS_FIND_SUPPORT_ONLY === "1";
+    for (const received of findSupportOnly ? [] : set.received) {
       const id = idOf(received.name);
       const text = library
         .pageTexts(id)
@@ -190,6 +194,7 @@ test("checks evaluation: Find support and verify", async () => {
     };
     const dir = await writeChecksReport(report, config.resultsDir);
     console.log(summaryLines(report, dir).join("\n"));
+    log(`Spent, at the app's own count: ${JSON.stringify((await core.getCostSummary()).spent)}`);
     if (GATING) {
       expect(
         report.gates.filter((gate) => !gate.met).map((gate) => gate.name),

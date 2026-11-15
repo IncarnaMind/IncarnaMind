@@ -11,6 +11,7 @@ import {
   launchApp,
   motionSettled,
   newMind,
+  openCardMenu,
   pointAndClick,
   removeDataFolder,
   setLanguage,
@@ -197,7 +198,10 @@ for (const [language, width] of [
       const rechecked = await marks.nth(0).getAttribute("data-claim");
       // The card's foot names the run that judged the corrected words.
       await pointAndClick(window, marks.nth(0));
-      await expect(card.getByTestId("claim-checked-by")).toContainText("Haiku");
+      const about = await openCardMenu(window, card);
+      await expect(about.getByTestId("claim-checked-by")).toContainText("Haiku");
+      await window.keyboard.press("Escape");
+      await expect(about).toBeHidden();
       await window.keyboard.press("Escape");
       await expect(card).toBeHidden();
       await screenshot(window, `use-figure-used-${language}`);

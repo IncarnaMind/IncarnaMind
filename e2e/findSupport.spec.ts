@@ -16,6 +16,7 @@ import {
   launchApp,
   motionSettled,
   newMind,
+  openCardMenu,
   pointAndClick,
   pointAt,
   removeDataFolder,
@@ -217,7 +218,7 @@ test("Check against Documents on two sentences with no Citation: one is supporte
   await expect(editor).toContainText("Gulls nest on the harbour cliffs.");
 });
 
-test("Find sources… waits in the card's ⋯, and is a button only in a Mind that cites a paper or book", async () => {
+test("Find sources… waits in the card's one ⋯, once, whether or not the Mind cites a paper or book", async () => {
   const { app, window } = await launchWithTides();
   await useLocalChatModel(window);
   const { line } = await mindWithSentences(window, [SUPPORTED, UNSUPPORTED]);
@@ -229,24 +230,24 @@ test("Find sources… waits in the card's ⋯, and is a button only in a Mind th
   const unsupported = marks(window).and(window.locator('[data-check="unsupported"]'));
   const card = window.getByTestId("claim-card");
 
-  // Before the Mind cites the paper, Find sources is only in the ⋯.
+  // Before the Mind cites the paper, Find sources is in the ⋯ and on no button.
   await pointAndClick(window, unsupported);
-  await expect(card.getByTestId("claim-find-sources")).toHaveCount(0);
-  await pointAndClick(window, card.getByTestId("check-menu"));
-  await expect(card.getByTestId("check.findSources")).toBeVisible();
+  await expect(card.getByTestId("check.findSources")).toHaveCount(0);
+  const before = await openCardMenu(window, card);
+  await expect(before.getByTestId("check.findSources")).toHaveCount(1);
+  await expect(before.getByTestId("check.findSources")).toHaveText("Find sources…");
   await window.keyboard.press("Escape");
   await window.keyboard.press("Escape");
   await expect(card).toBeHidden();
 
-  // A Citation of the paper makes the Mind one that cites a work.
+  // A Citation of the paper makes the Mind one that cites a work: still once, in the ⋯ (#2869).
   await pointAndClick(window, supported);
   await pointAndClick(window, card.getByTestId("claim-add-citation"));
   await expect(line.getByTestId("citation")).toHaveAttribute("data-check", "found");
   await pointAndClick(window, unsupported);
-  await expect(card.getByTestId("claim-find-sources")).toBeVisible();
-  await expect(card.getByTestId("claim-find-sources")).toHaveText("Find sources");
-  await pointAndClick(window, card.getByTestId("check-menu"));
-  await expect(card.getByTestId("check.findSources")).toBeVisible();
+  await expect(card.locator(".citation-card-actions").getByText("Find sources")).toHaveCount(0);
+  const after = await openCardMenu(window, card);
+  await expect(after.getByTestId("check.findSources")).toHaveCount(1);
   await app.close();
 });
 
@@ -503,8 +504,8 @@ test("A supported sentence's card names the Document as it is named now, after a
   await pointAt(window, supported);
   await expect(card.getByTestId("claim-source")).toHaveText(/^Tides · /);
 
-  // Open goes to the Document, whose header renames it.
-  await pointAndClick(window, card.getByTestId("claim-open"));
+  // The quote opens the Document at it, whose header renames it.
+  await pointAndClick(window, card.getByTestId("claim-open-quote"));
   const viewerTitle = window.getByTestId("viewer-title");
   await expect(viewerTitle).toHaveText("Tides");
   await expect(window.getByTestId("pdf-page-number")).toHaveValue("2");
@@ -718,7 +719,9 @@ test("a true absence is Supported after a whole read, and its card lists every p
 
   await pointAndClick(window, marks(window).and(window.locator('[data-check="supported"]')));
   const card = window.getByTestId("claim-card");
-  await expect(card.getByTestId("claim-read-documents")).toHaveText(
+  // What was read whole is how the check was made: under About this check (#2869).
+  const about = await openCardMenu(window, card);
+  await expect(about.getByTestId("claim-read-documents")).toHaveText(
     "Read whole: Lease (p. 1, p. 2)",
   );
   await screenshot(window, "absence-supported-en-1440");
@@ -742,7 +745,8 @@ test("a false absence is Contradicted with the clause found by the whole read", 
   await pointAndClick(window, marks(window).and(window.locator('[data-check="contradicted"]')));
   const card = window.getByTestId("claim-card");
   await expect(card).toContainText("Either party may end this lease");
-  await expect(card.getByTestId("claim-read-documents")).toHaveText(
+  const about = await openCardMenu(window, card);
+  await expect(about.getByTestId("claim-read-documents")).toHaveText(
     "Read whole: Lease (p. 1, p. 2)",
   );
   await screenshot(window, "absence-contradicted-en-1440");

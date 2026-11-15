@@ -1099,7 +1099,6 @@ function MindEditorView({
               mindId={mindId}
               verification={verification}
               quiet={firstOpen && isExample}
-              figures={schedule?.counts.total ?? 0}
             />,
             slots.badge,
           )}

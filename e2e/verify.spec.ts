@@ -14,6 +14,7 @@ import {
   interceptOpenDialog,
   launchApp,
   motionSettled,
+  openCardMenu,
   openExportOptions,
   openPageMenu,
   paletteOffers,
@@ -192,8 +193,12 @@ test("Verify a PDF: its Mind opens beside it, its claims are checked, and the co
   // Someone else's words: the claim can be kept as the User's view, never cut or given a
   // Citation the User chooses, on the card or from ⌘K (below).
   await expect(claimCard.getByTestId("claim-keep")).toBeVisible();
-  await expect(claimCard.getByTestId("claim-cut-sentence")).toHaveCount(0);
-  await expect(claimCard.getByTestId("claim-choose-citation")).toHaveCount(0);
+  // Nor under the card's ⋯ (#2869).
+  const more = await openCardMenu(window, claimCard);
+  await expect(more.getByTestId("claim-cut-sentence")).toHaveCount(0);
+  await expect(more.getByTestId("claim-choose-citation")).toHaveCount(0);
+  await window.keyboard.press("Escape");
+  await expect(more).toBeHidden();
   await window.keyboard.press("Escape");
 
   // A contradicted claim can be kept as the User's view too.

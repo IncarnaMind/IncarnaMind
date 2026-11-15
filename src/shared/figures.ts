@@ -893,6 +893,21 @@ function pageCut(before: string): boolean {
 /** The dashes the text read writes as "-" (./text), so the Document's text around it is read alike. */
 const DASHES = /[\u2010-\u2015\u2212]/g;
 
+/**
+ * The decimal mark a text read with `context` takes: its numbers' own, else its language's; null
+ * when neither tells, or they disagree.
+ */
+export const decimalMarkOf = (context: FigureContext): "." | "," | null => settle(context).decimal;
+
+/**
+ * The reading of a "separator" ambiguity a decimal mark gives: its first reading is the one "."
+ * gives, as English and Chinese write numbers (`readNumber`); a figure with one reading keeps it.
+ */
+export function separatorReadingFor(ambiguity: Ambiguity, decimal: "." | ","): Reading | undefined {
+  const [point, comma] = ambiguity.readings;
+  return decimal === "," && comma ? comma : point;
+}
+
 function settle(context: FigureContext): Settled {
   const byLanguage = context.language ? languageSeparators(context.language) : null;
   const byText = context.separators ?? null;
@@ -1323,9 +1338,16 @@ const FOOTNOTE_AFTER = new RegExp(
   "y",
 );
 
-/** Words before a number that make it a reference, an ordinal, a name or a vague count ("数十亿"), not a figure. */
+/** Words before a number that make it a reference, an ordinal or a name, not a figure. */
 const REFERENCE_BEFORE =
-  /(?:(?<![A-Za-z])(?:p|pp|pages?|[Nn]otes?|[Ss]ections?|[Ss]ec|[Tt]ables?|[Ff]igures?|[Ff]ig|[Cc]hapters?|[Cc]h|[Ii]tems?|[Aa]rticles?|[Aa]rt|[Ee]xhibits?|[Aa]ppendix|[Ss]chedules?|IFRS|IAS|ISO|ASC|ASU|[Ll]evel|[Tt]ier|[Ss]cope|[Pp]hase|[Ss]tage|[Vv]ersion|[Ss]tep|[Rr]ule|[Pp]art|[Nn]o|[Nn]os|[Vv]ol|[Vv]olume|[Ii]ssue|[Cc]lause|[Pp]aragraph|[Pp]ara|[Ll]ine|[Rr]ow|[Cc]olumn|[Ss]lides?|S&P|FTSE|Russell|Nikkei|Fortune|Nasdaq|CSI|Top|[Bb]ullet)\.? ?|#|№|第|附注|沪深|中证|上证|深证|代码[:：]?|数|几|若干)$/;
+  /(?:(?<![A-Za-z])(?:p|pp|pages?|[Nn]otes?|[Ss]ections?|[Ss]ec|[Tt]ables?|[Ff]igures?|[Ff]ig|[Cc]hapters?|[Cc]h|[Ii]tems?|[Aa]rticles?|[Aa]rt|[Ee]xhibits?|[Aa]ppendix|[Ss]chedules?|IFRS|IAS|ISO|ASC|ASU|[Ll]evel|[Tt]ier|[Ss]cope|[Pp]hase|[Ss]tage|[Vv]ersion|[Ss]tep|[Rr]ule|[Pp]art|[Nn]o|[Nn]os|[Vv]ol|[Vv]olume|[Ii]ssue|[Cc]lause|[Pp]aragraph|[Pp]ara|[Ll]ine|[Rr]ow|[Cc]olumn|[Ss]lides?|S&P|FTSE|Russell|Nikkei|Fortune|Nasdaq|CSI|Top|[Bb]ullet)\.? ?|#|№|第|附注|沪深|中证|上证|深证|代码[:：]?)$/;
+/**
+ * Words that make a count after them vague when it starts with its scale ("数十亿", "几十家").
+ * A number in digits or one that starts with a digit numeral is a label's figure, as 人数, 用户数
+ * and 指数 end in 数 ("人数215人", "人数三百人", #3109). "总数十万人" can't be told from 总/数十万
+ * by its characters, so it stays no figure.
+ */
+const VAGUE_BEFORE = /(?:数|几|若干)$/;
 /** "表3", "图1", "注2": references, unless a measure follows, as in "代表3名" (represents 3). */
 const LOOSE_REFERENCE_BEFORE = /[表图注]$/;
 
@@ -1497,19 +1519,65 @@ const CURRENCY_NOUNS =
 // A country's name before a currency's unit is capitalized ("Korean won", "New Taiwan dollars");
 // "contracts won" and "units and dollars" count something.
 const NAMED_MONEY = /^(?:\p{Lu}\S*[ \u00a0]+){0,3}\S+$/u;
+const UNIT_LINE_STATEMENT = new RegExp(
+  `(?:金额|货币|数量)?单位[:：]?(?<before>${HAN_CURRENCIES})?(?<scale>万亿|千亿|百亿|十亿|亿|千万|百万|十万|万|千|仟|百)?(?<unit>${CN_UNIT_WORDS}|吨|股|人次|人|户|家|个|%|辆|台|套)?`,
+  "dg",
+);
+// "单位：万平方米", "单位：万桶/日": a scale of any measure the line above doesn't name, so it is
+// read as that measure's and never as a plain scale an amount could take (#2365). A PDF joins
+// a CJK line to the next ("单位：万平方米收入"), so the common measures are known by name, and any
+// other only where its word ends.
+const UNIT_LINE_MEASURE = new RegExp(
+  `(?:金额|货币|数量)?单位[:：](?<scale>万亿|千亿|百亿|十亿|亿|千万|百万|十万|万|千|仟|百)(?<unit>(?:(?:${CN_MEASURE_WORDS})${CN_PER_TIME}?|(?!${CN_UNIT_WORDS}|[万亿千仟百十])[\\u4e00-\\u9fff]{1,4}${CN_PER_TIME}?(?![\\u4e00-\\u9fff])))`,
+  "dg",
+);
+const KNOWN_MEASURE = new RegExp(`^(?:${CN_MEASURE_WORDS})${CN_PER_TIME}?$`, "u");
+// A label that names a quantity, an amount or a count before 单位 ("计量单位", "产量单位",
+// "所有金额单位", "订单数单位"), or a currency ("货币单位"), asks for a unit as 单位 alone does.
+const ASKS_FOR_A_UNIT = /(?:[量额数]|货币)$/u;
+
+const words = new Intl.Segmenter("zh", { granularity: "word" });
+
+/**
+ * Whether a unit line's statement, read at `from`–`to` of `prepared`, stands where it was read
+ * (#2997). After 单位 alone, or a label that asks for a unit ("金额单位：", "产量单位："), it does,
+ * as it always has: a PDF may join the next line to its unit ("单位：万元项目…"). Any other label
+ * that ends in 单位 ("编制单位：", "填报单位：", "被审计单位：") may name an organisation, so what
+ * follows its colon states a unit only where it is one, and one the reader knows by name (`known`):
+ * a unit, a currency or a scale the value ends on ("能耗单位：万吨"); a scale with its unit or
+ * currency, whatever follows ("公司账目单位：新台币仟元", a title's line joined to the unit line and
+ * the unit line to the next); or a measure's unit before a word of its own ("能耗单位：吨标准煤").
+ * A scale, a currency or a unit alone at the start of a name states none ("万禾股份有限公司",
+ * "美元基金公司", "元气森林", "万川集团"), nor does a measure the word breaker reads as part of a
+ * longer word ("吨位检测中心").
+ */
+function standsOnItsLine(
+  prepared: Prepared,
+  from: number,
+  to: number,
+  scaled: boolean,
+  unit: FigureUnit,
+  known: boolean,
+): boolean {
+  const { s } = prepared;
+  const apart = (at: number) =>
+    prepared.lineStarts.has(at) || prepared.spaced.has(at) || prepared.tabbed.has(at);
+  const label = from + s.slice(from, to).indexOf("单位");
+  const before = apart(label) ? "" : s.slice(Math.max(0, label - 2), label);
+  if (!/\p{L}$/u.test(before) || ASKS_FOR_A_UNIT.test(before)) return true;
+  if (!known) return false;
+  if (to >= s.length || apart(to) || !/\p{L}/u.test(s[to] ?? "")) return true;
+  if (scaled && unit.kind !== "plain") return true;
+  if (measureOf(unit) === null) return false;
+  const end = to - label;
+  return ![...words.segment(s.slice(label, to + 12))].some(
+    ({ index, segment }) => index < end && index + segment.length > end,
+  );
+}
+
 const STATEMENTS: readonly RegExp[] = [
-  new RegExp(
-    `(?:金额|货币|数量)?单位[:：]?(?<before>${HAN_CURRENCIES})?(?<scale>万亿|千亿|百亿|十亿|亿|千万|百万|十万|万|千|仟|百)?(?<unit>${CN_UNIT_WORDS}|吨|股|人次|人|户|家|个|%|辆|台|套)?`,
-    "dg",
-  ),
-  // "单位：万平方米", "单位：万桶/日": a scale of any measure the line above doesn't name, so it is
-  // read as that measure's and never as a plain scale an amount could take (#2365). A PDF joins
-  // a CJK line to the next ("单位：万平方米收入"), so the common measures are known by name, and any
-  // other only where its word ends.
-  new RegExp(
-    `(?:金额|货币|数量)?单位[:：](?<scale>万亿|千亿|百亿|十亿|亿|千万|百万|十万|万|千|仟|百)(?<unit>(?:(?:${CN_MEASURE_WORDS})${CN_PER_TIME}?|(?!${CN_UNIT_WORDS}|[万亿千仟百十])[\\u4e00-\\u9fff]{1,4}${CN_PER_TIME}?(?![\\u4e00-\\u9fff])))`,
-    "dg",
-  ),
+  UNIT_LINE_STATEMENT,
+  UNIT_LINE_MEASURE,
   new RegExp(`币种[:：]?(?<before>${HAN_CURRENCIES})`, "dg"),
   new RegExp(
     `[(（](?<before>${HAN_CURRENCIES}|RMB|USD|HK\\$)?(?<scale>${CN_STATED_SCALES})?(?<unit>${CN_UNIT_WORDS}|股|%)[)）]`,
@@ -1730,6 +1798,18 @@ function statementsIn(prepared: Prepared, text: string, settled: Settled): State
           };
       }
       if (!scale && unit.kind === "plain") continue;
+      if (
+        (pattern === UNIT_LINE_STATEMENT || pattern === UNIT_LINE_MEASURE) &&
+        !standsOnItsLine(
+          prepared,
+          match.index,
+          match.index + match[0].length,
+          scale !== null,
+          unit,
+          pattern === UNIT_LINE_STATEMENT || KNOWN_MEASURE.test(groups.unit ?? ""),
+        )
+      )
+        continue;
       // A bracket naming two currencies states neither for its amounts (#2365).
       const bracket = bracketAround(prepared, match.index, match.index + match[0].length);
       if (bracket !== null && bracketCurrencies(bracket.content, settled).size > 1) continue;
@@ -3173,7 +3253,10 @@ function readAround(
     draft.signUnsure = true;
     left -= marker[0].length;
   }
-  if (REFERENCE_BEFORE.test(s.slice(Math.max(floor, left - 24), left))) return null;
+  const words = s.slice(Math.max(floor, left - 24), left);
+  const mayBeVague =
+    found.chinese && found.percent === null && found.fraction === null && !isCnDigit(s[found.from]);
+  if (REFERENCE_BEFORE.test(words) || (mayBeVague && VAGUE_BEFORE.test(words))) return null;
   const looseReference = LOOSE_REFERENCE_BEFORE.test(s.slice(floor, left));
   // A list's number: "1." or "1)" or "1、" at the start of a line.
   let indent = left;
