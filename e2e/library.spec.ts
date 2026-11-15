@@ -766,7 +766,7 @@ test("Auto routes text and scans with tags, reports failures, retries and preser
     };
     await discard();
     await organized(notes, "tev1:0.8b · Text");
-    await organized(scan, "clef-flash · Text + PDF pages");
+    await organized(scan, "Clef-Flash · Text + PDF pages");
     // Organize's requests ask for a Folder; the Document that waited for a model was tagged before it ran.
     const sorting = requests.filter((item) =>
       Object.values(item.questions).some((question) => question.type === "choice"),
@@ -808,7 +808,7 @@ test("Auto routes text and scans with tags, reports failures, retries and preser
         ? "tev1:0.8b · Text · Smaller model for memory limits"
         : "tev1:4b · Text",
     );
-    await organized(scan, /clef-flash/);
+    await organized(scan, /Clef-Flash/);
     // Explicit Clef override can include or omit PDF images; the choice persists.
     settings = await taggingSettings(window);
     const form = settings.getByTestId("tagging-other-form");
