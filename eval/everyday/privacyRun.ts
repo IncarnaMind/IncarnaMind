@@ -70,6 +70,7 @@ export async function runArms({
   model,
   meter,
   dollarsOf,
+  onRow,
 }: {
   arms: readonly Arm[];
   probes: readonly Probe[];
@@ -79,6 +80,8 @@ export async function runArms({
   model: ChatModel;
   meter: Meter;
   dollarsOf: (inputTokens: number, outputTokens: number, cacheReadTokens: number) => number;
+  /** Each row as it is made, so a run that is cut short keeps what it measured. */
+  onRow?: (row: Row) => void;
 }): Promise<{ rows: Row[]; stopped: string | null }> {
   const rows: Row[] = [];
   const counted = metered(model, meter);
@@ -117,7 +120,7 @@ export async function runArms({
         const failed = result.failed === true;
         // A failed check that found nothing is an unreadable verdict, not a "nothing flagged".
         const unanswered = meter.refused.length > 0 || (failed && (!result.usage || !flagged));
-        rows.push({
+        const row: Row = {
           probe: probe.id,
           run,
           arm: arm.name,
@@ -128,7 +131,9 @@ export async function runArms({
           refused: [...meter.refused],
           inputTokens: meter.inputTokens - before.input,
           outputTokens: meter.outputTokens - before.output,
-        });
+        };
+        rows.push(row);
+        onRow?.(row);
       }
     }
   }
