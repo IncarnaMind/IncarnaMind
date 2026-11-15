@@ -104,7 +104,6 @@ export interface MeetingFillOptions {
       documentIds: string[];
       model: ChatModelChoice;
       signal: AbortSignal;
-      retry?: true;
     }): Promise<CellAnswer>;
   };
   /**
@@ -520,7 +519,6 @@ export function createMeetingFill(options: MeetingFillOptions) {
     transcriptId: string,
     route: Routed,
     signal: AbortSignal,
-    retry = false,
   ): Promise<CellAnswer> {
     const answer = await options.answers.answerMeetingFill({
       context,
@@ -528,7 +526,6 @@ export function createMeetingFill(options: MeetingFillOptions) {
       documentIds: [transcriptId],
       model: route.model,
       signal,
-      ...(retry && { retry }),
     });
     if (answer.status === "stopped" || signal.aborted) {
       throw new FillProblemError({ kind: "stopped", message: "" });
@@ -619,20 +616,8 @@ export function createMeetingFill(options: MeetingFillOptions) {
       let parsed: FactReply;
       try {
         answer = await ask(context, part, transcriptId, route, signal);
+        // A reply cut off after it closed some frames keeps them (#2306).
         parsed = parseFactReply(answer, addresses);
-        // Cut off before it closed a frame, as when the thinking takes the room: asked once more
-        // with twice the room, which the cost cap sets aside only then. One that closed some keeps
-        // them (#2306).
-        if (
-          answer.status === "failed" &&
-          answer.error?.kind === "cut-short" &&
-          parsed.facts.length === 0 &&
-          parsed.overview === null
-        ) {
-          log.info("meeting.fillAskedWithMoreRoom", { meetingId: meeting.id });
-          answer = await ask(context, part, transcriptId, route, signal, true);
-          parsed = parseFactReply(answer, addresses);
-        }
       } catch (error) {
         if (signal.aborted || (ledger.facts.length === 0 && ledger.overview === null)) throw error;
         if (error instanceof FillProblemError && error.problem.kind === "stopped") throw error;
