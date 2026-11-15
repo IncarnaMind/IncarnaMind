@@ -3,7 +3,7 @@
  * into the run's free places, taken by the run only when it would send the same, and stopped at
  * once when it won't.
  */
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import type { ClaimCheckRequest } from "../../src/core/answers/checks/claimCheck";
 import type { DecisionReader } from "../../src/core/answers/checks/decisionFirst";
 import type { DecisionLines } from "../../src/core/answers/checks/decisionLines";
@@ -171,4 +171,32 @@ test("an early check waits for its sentence's reading, made once, and a marked s
   expect(read).toHaveLength(2);
   expect(sent.map((request) => request.claim)).toEqual([leaning.claim]);
   for (const done of finish) done();
+});
+
+// protects=a check waiting for its sentence's reading counts as one of the run's places, so with a decision model chosen no more checks start early than without one (#1618, #3118); fails_when=every claim named starts a check because none waiting on a reading has taken a place yet; no_claim=the order the readings end in.
+test("no more checks start early behind their readings than the run has places", async () => {
+  const read: string[] = [];
+  const ends: (() => void)[] = [];
+  const reader: DecisionReader = {
+    model: { providerId: null, modelId: "decision" },
+    lines: LINES,
+    ask: async () => null,
+  };
+  const { early, sent } = setUp(
+    2,
+    (request) => {
+      read.push(request.claim);
+      return new Promise((resolve) => ends.push(() => resolve(null)));
+    },
+    reader,
+  );
+
+  expect(early.start(claim("Spring tides come at new moon."), unchanged)).toBe(true);
+  expect(early.start(claim("Neap tides come at the quarter moons."), unchanged)).toBe(true);
+  expect(early.start(claim("High water comes twice a day."), unchanged)).toBe(false);
+  expect(read).toHaveLength(2);
+
+  for (const end of ends) end();
+  await vi.waitFor(() => expect(sent).toHaveLength(2));
+  expect(early.start(claim("High water comes twice a day."), unchanged)).toBe(false);
 });

@@ -22,7 +22,7 @@ import type {
 import type { MindContent } from "../../mindContent";
 import type { PreparedChatModel } from "../../providers/chat";
 import type { RecordCitePlace } from "../../recordCites/referents";
-import { asCheckWork, checkPlace } from "../../reranking/order";
+import { asCheckWork, readingPlace } from "../../reranking/order";
 import { type Slots, slots } from "../../runs/stop";
 import type { ClaimCheckRequest } from "./claimCheck";
 import type { DecisionReader, FirstReading } from "./decisionFirst";
@@ -193,10 +193,10 @@ function requestKey({ signal: _signal, slots: _slots, model: _model, ...sent }: 
   );
 }
 
-/** A request's reading by a decision model, and the place among the checks its check runs in. */
+/** A request's reading by a decision model; `hurry` says a check waits for it now. */
 type ReadFirst = (request: ClaimCheckRequest) => {
   reading: Promise<FirstReading>;
-  inPlace<T>(work: () => T): T;
+  hurry(): void;
 };
 
 /**
@@ -215,13 +215,13 @@ export function readingsFirst(
     const key = requestKey(request);
     const before = made.get(key);
     if (before && !before.signal.aborted) return before;
-    const inPlace = checkPlace();
-    const reading = inPlace(() => read(request, reader)).catch((error: unknown) => {
+    const { run, hurry } = readingPlace();
+    const reading = run(() => read(request, reader)).catch((error: unknown) => {
       if (!request.signal.aborted)
         console.error(`A decision model's reading of a sentence in Note ${mindId} failed:`, error);
       return null;
     });
-    const now = { reading, inPlace, signal: request.signal };
+    const now = { reading, hurry, signal: request.signal };
     made.set(key, now);
     return now;
   };
@@ -234,9 +234,10 @@ function behindReading(
 ): RunChecksOptions["claimCheck"] {
   if (!readFirst) return claimCheck;
   return async (request) => {
-    const { reading, inPlace } = readFirst(request);
+    const { reading, hurry } = readFirst(request);
+    hurry();
     const read = await reading;
-    return read && "result" in read ? read.result : inPlace(() => claimCheck(request));
+    return read && "result" in read ? read.result : claimCheck(request);
   };
 }
 
@@ -266,6 +267,9 @@ export function earlyChecks(
     taken: (() => void) | null;
   }
   const started = new Map<string, Early[]>();
+  // A check waiting for its sentence's reading has no place yet and takes one once it is read, so
+  // it counts as one taken: else every claim named would start a check (#3118).
+  let beingRead = 0;
   // One the run takes is its claim's own check, recorded by the run; one it doesn't is a claim of
   // its own, recorded here once it ends, when a model replied to it.
   const drop = (early: Early) => {
@@ -281,7 +285,7 @@ export function earlyChecks(
      * choices): it is taken only if that is unchanged. False when no place was free to start it.
      */
     start(claim: QueuedClaim, readNow: () => string): boolean {
-      if (limit.free() === 0) return false;
+      if (limit.free() <= beingRead) return false;
       const stop = new AbortController();
       const heard = heardFrom(run.prepared, () => early.taken?.());
       const request = checkRequestOf(
@@ -291,6 +295,11 @@ export function earlyChecks(
         AbortSignal.any([run.signal, stop.signal]),
       );
       const key = requestKey(request);
+      const reading = run.readFirst?.(request).reading;
+      if (reading) {
+        beingRead++;
+        void reading.then(() => beingRead--);
+      }
       const early: Early = {
         result: checkClaim(behindReading(run, claimCheck), request),
         stop,
@@ -410,16 +419,20 @@ export async function runChecks(
   // Every sentence is read at once, not as its check gets a place: a reading shows in seconds.
   const { readFirst } = run;
   const readings = new Map(
-    (readFirst ? run.queued : []).map((claim) => [
-      claim,
-      readFirst?.(requestOf(claim)).reading.then((read) => show(claim, read)),
-    ]),
+    (readFirst ? run.queued : []).flatMap((claim) => {
+      const { reading, hurry } = readFirst?.(requestOf(claim)) ?? {};
+      return reading && hurry
+        ? [[claim, { hurry, shown: reading.then((read) => show(claim, read)) }] as const]
+        : [];
+    }),
   );
   const claimCheck = behindReading(run, options.claimCheck);
   const { stop, outcomeError } = await runClaimChecks(
     run.queued,
     async (claim, check) => {
-      await readings.get(claim);
+      const reading = readings.get(claim);
+      reading?.hurry();
+      await reading?.shown;
       return check((request) => checkClaim(claimCheck, request), requestOf(claim));
     },
     {
