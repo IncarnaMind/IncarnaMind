@@ -273,6 +273,7 @@ async function setUp(
     aiRequests: () => checks.length,
     holdAiModel,
     aiModelId: AI_MODEL,
+    providerId: provider.id,
     service: provider.service,
     /** From now on the User declines whatever they are asked to allow. */
     declineFromNow() {
@@ -943,8 +944,8 @@ describe("A decision model that reads by default (#3118)", { timeout: 30_000 }, 
     expect(await readsNow("taken back")).toBe(false);
   });
 
-  // protects=reading by default is only for a check whose AI model runs on the decision model's own service: a key to that service saved beside an AI model elsewhere sends it nothing, and neither does Local mode; fails_when=the host is asked for a check that goes to another service, or in Local mode; no_claim=which services host a measured model.
-  test("a check whose AI model runs elsewhere, or Local mode, sends the host nothing", async () => {
+  // protects=reading by default is only for a check whose AI model runs on the decision model's own service: a key to that service saved beside an AI model elsewhere sends it nothing, and neither does Local mode; once the User turns it on themselves it reads every check, that one too; fails_when=the host is asked for a check that goes to another service under the default alone, or in Local mode, or isn't asked for it after the User's own choice; no_claim=which services host a measured model.
+  test("a check whose AI model runs elsewhere, or Local mode, sends the host nothing until the User turns it on", async () => {
     const { core, host, run } = await setUp(undefined, { readsByDefault: true });
     const elsewhere = await core.saveChatProvider({
       kind: "anthropic",
@@ -952,17 +953,112 @@ describe("A decision model that reads by default (#3118)", { timeout: 30_000 }, 
       modelId: "claude-haiku-5-5",
     });
     if (elsewhere.service) await core.allowDataFlow("checks", elsewhere.service.id);
-
-    const checked = await core.checkMind({
-      ...run("elsewhere"),
+    const withModelElsewhere = (id: string) => ({
+      ...run(id),
       model: { providerId: elsewhere.id, modelId: "claude-haiku-5-5" },
     });
+
+    const checked = await core.checkMind(withModelElsewhere("elsewhere"));
     expect(checked).toMatchObject({ kind: "checked", checked: 3 });
     expect(host.asked).toEqual([]);
 
     await core.setLocalOnly(true);
     await core.checkMind(run("local"));
     expect(host.asked).toEqual([]);
+
+    await core.setLocalOnly(false);
+    await choose(core);
+    await core.checkMind(withModelElsewhere("elsewhere, turned on"));
+    expect(new Set(host.asked.map(({ state }) => state.sentence))).toEqual(
+      new Set([MOON, YEARLY, PENGUINS]),
+    );
+  });
+
+  // protects=Settings is told the one model its switch turns on, its host by name, and whether it is set to read: by default where the User's checks go to its service, also before their first check has asked about checks, by choice once they turn it on, not at all when off, in Local mode, with the AI model elsewhere and no choice, or once the key it rides on is gone, which also forgets the choice; fails_when=the switch would show off where a check will be read, on where none will, or a model stays chosen with no key; no_claim=how Settings words it.
+  test("Settings is told whether it reads, by default or by choice, and why it can't", async () => {
+    const { core, providerId, service } = await setUp(undefined, { readsByDefault: true });
+    const shown = async () => {
+      const { reads, blocked } = await core.getCheckDecision();
+      return { reads, blocked };
+    };
+    expect(await core.getCheckDecision()).toEqual({
+      model: { ...DECIDER, name: "Decider v1.2" },
+      hostName: { en: "OpenRouter", zh: "OpenRouter" },
+      reads: "default",
+      blocked: null,
+    });
+    // Before the User's first check has asked about checks, the switch already shows what it
+    // will do, and Privacy lists nothing: nothing goes yet.
+    await core.revokeConsent("checks", service?.id ?? "");
+    expect(await shown()).toEqual({ reads: "default", blocked: null });
+    expect((await core.listDataFlows()).map(({ flow }) => flow.id)).not.toContain(
+      "decision-checks",
+    );
+    await core.allowDataFlow("checks", service?.id ?? "");
+    await choose(core, "off");
+    expect(await shown()).toEqual({ reads: null, blocked: null });
+    await choose(core);
+    expect(await shown()).toEqual({ reads: "chosen", blocked: null });
+    await core.setLocalOnly(true);
+    expect(await shown()).toEqual({ reads: null, blocked: "local-mode" });
+    await core.setLocalOnly(false);
+
+    const elsewhere = await core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-ant-test",
+      modelId: "claude-haiku-5-5",
+    });
+    await choose(core, null);
+    await core.updateSettings({
+      user: { chatModel: { providerId: elsewhere.id, modelId: "claude-haiku-5-5" } },
+    });
+    expect(await shown()).toEqual({ reads: null, blocked: null });
+    await choose(core);
+    expect(await shown()).toEqual({ reads: "chosen", blocked: null });
+
+    await core.deleteChatProvider(providerId);
+    expect(await shown()).toEqual({ reads: null, blocked: "no-key" });
+    expect((await core.getSettings()).device.checkDecisionModel).toBeNull();
+  });
+
+  // protects=Settings › Privacy can say the flow is on by default before anything was sent, and since when once it has read, from the same rule a run reads by and not from a record of an act; a User's own choice is not marked so; fails_when=the flow by default is listed as waiting to be allowed, carries a date before its first run, or the User's own choice is marked as the default; no_claim=the words Privacy uses.
+  test("Privacy is told it is on by default, and since when once it has read", async () => {
+    const { core, run } = await setUp(undefined, { readsByDefault: true });
+    const flow = async () => {
+      const found = (await core.listDataFlows()).find((each) => each.flow.id === "decision-checks");
+      return found && { byDefault: found.byDefault ?? false, since: found.decidedAt };
+    };
+    expect(await flow()).toEqual({ byDefault: true, since: null });
+
+    await core.checkMind(run());
+    expect(await flow()).toEqual({ byDefault: true, since: expect.any(String) });
+
+    await choose(core);
+    expect(await flow()).toEqual({ byDefault: false, since: expect.any(String) });
+  });
+
+  // protects=turning it off in Settings › Privacy can be undone: Undo puts the choice back as it was, by default or the User's own, with the date it had, before its first run too, when there is no decision to bring back; fails_when=Undo leaves it off, turns a default into a choice, or the first Turn off returns nothing to undo; no_claim=how Privacy offers Undo.
+  test.each([
+    ["on by default, before its first run", null, false],
+    ["on by default, after a run", null, true],
+    ["turned on by the User", DECIDER, true],
+  ] as const)("Privacy's Turn off is undone for one %s", async (_, chosen, ranFirst) => {
+    const { core, host, run, service } = await setUp(undefined, { readsByDefault: true });
+    const serviceId = service?.id ?? "";
+    if (chosen) await choose(core, chosen);
+    if (ranFirst) await core.checkMind(run("first"));
+    const before = await core.listDataFlows();
+
+    const at = await core.revokeConsent("decision-checks", serviceId);
+    expect((await core.getCheckDecision()).reads).toBeNull();
+    if (!at) throw new Error("Turn off gave nothing to undo.");
+    await core.restoreConsent("decision-checks", serviceId, at);
+
+    expect((await core.getSettings()).device.checkDecisionModel).toEqual(chosen);
+    expect(await core.listDataFlows()).toEqual(before);
+    const asked = host.asked.length;
+    await core.checkMind(run("after Undo"));
+    expect(host.asked.length).toBeGreaterThan(asked);
   });
 
   // protects=reading by default rests on the User having allowed checks to that service: one who took that back, and declines when asked, sends the decision model's host nothing and Privacy lists no flow to it; fails_when=the host is asked, or the flow is listed or recorded; no_claim=what the check itself says when the User declines.

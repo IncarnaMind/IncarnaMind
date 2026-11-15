@@ -2,6 +2,7 @@ import { useCallback, useId } from "react";
 import type {
   ChatModelGroup,
   ChatProvider,
+  CheckDecisionStatus,
   ModelRoles,
   RerankSettings,
 } from "../../../../core/api";
@@ -24,13 +25,14 @@ import {
   SettingsSection,
   SettingsSwitch,
 } from "../settings/SettingsGroup";
+import { CheckDecisionRow } from "./CheckDecisionRow";
 import { DocumentSearchRows } from "./DocumentSearchRows";
 import { OrganizeRows } from "./OrganizeRow";
 import { popUpWidth, type Role, RoleSelect, useModelRoles } from "./RoleSelect";
 
 /**
  * Settings › AI › What each job uses: one row and one picker per job, and no other place chooses
- * it. `services`, `sorting` and `rerank`: the page's one read of each.
+ * it. `services`, `sorting`, `rerank` and `checkDecision`: the page's one read of each.
  */
 export function JobsSection({
   groups,
@@ -39,6 +41,8 @@ export function JobsSection({
   sorting,
   rerank,
   onRerank,
+  checkDecision,
+  onAddKey,
 }: {
   groups: readonly ChatModelGroup[];
   providers: readonly ChatProvider[];
@@ -46,6 +50,8 @@ export function JobsSection({
   sorting: ReturnType<typeof useSorting>;
   rerank: RerankSettings | null;
   onRerank(rerank: RerankSettings): void;
+  checkDecision: CheckDecisionStatus | null;
+  onAddKey(): void;
 }) {
   const t = useT();
   const id = useId();
@@ -75,6 +81,9 @@ export function JobsSection({
           providers={providers}
           roles={roles}
         />
+        {checkDecision && (
+          <CheckDecisionRow id={`${id}-checks`} status={checkDecision} onAddKey={onAddKey} />
+        )}
         <ModelRow
           id={`${id}-images`}
           job="imageModel"

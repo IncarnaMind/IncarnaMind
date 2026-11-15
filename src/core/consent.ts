@@ -47,6 +47,8 @@ export interface DataFlowDefinition {
   background?: boolean;
   /** Whether a service the flow goes to runs on this computer, so Local mode doesn't stop it. Absent: none does. */
   onThisComputer?(serviceId: string): boolean;
+  /** Whether the flow goes to the service with no decision of its own (`DataFlowStatus.byDefault`). Absent: never. */
+  byDefault?(serviceId: string): boolean;
 }
 
 /** The registry of every external data flow. Registering an id again replaces it. */
@@ -289,7 +291,14 @@ export function createConsent(
         const flow = flowFor(definition.id, service);
         const { consent, decidedAt, chosen, missing } = statusOf(flow);
         const grown = consent === "not-asked" && decidedAt !== null && missing.length > 0;
-        return { flow, consent, decidedAt, chosen, ...(grown && { added: [...missing] }) };
+        return {
+          flow,
+          consent,
+          decidedAt,
+          chosen,
+          ...(definition.byDefault?.(service.id) && { byDefault: true as const }),
+          ...(grown && { added: [...missing] }),
+        };
       });
       result.push({ id: definition.id, sends: [...definition.sends], services });
     }

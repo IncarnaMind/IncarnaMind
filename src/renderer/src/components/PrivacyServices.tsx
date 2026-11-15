@@ -3,7 +3,13 @@ import type { DataFlowId, DataKind, RegisteredDataFlow } from "../../../core/api
 import { formatDate } from "../../../shared/dates";
 import { core } from "../core";
 import { useLanguage, useT } from "../i18n";
-import { decisionOf, groupByService, type ServiceGroup, type ServiceUse } from "../privacyServices";
+import {
+  decisionOf,
+  groupByService,
+  inEffect,
+  type ServiceGroup,
+  type ServiceUse,
+} from "../privacyServices";
 import { useAppStore } from "../store";
 import { type Undoable, useUndo } from "../undo";
 import { DetailsLine } from "./DetailsLine";
@@ -114,7 +120,7 @@ function ServiceItem({ group }: { group: ServiceGroup }) {
   };
   const stop = () =>
     run(() =>
-      stopped(withConsent("accepted"), (words) =>
+      stopped(uses.filter(inEffect), (words) =>
         words("privacy.flows.stopped", { service: service.name }),
       ),
     );
@@ -122,17 +128,19 @@ function ServiceItem({ group }: { group: ServiceGroup }) {
     run(() => {
       stopping.current = use.flow;
       return stopped([use], (words) =>
-        words("privacy.flows.stoppedFlow", {
-          flow: words(`consent.flow.${use.flow}`),
-          service: service.name,
-        }),
+        use.status.byDefault
+          ? words("privacy.flows.turnedOff", { flow: words(`consent.flow.${use.flow}`) })
+          : words("privacy.flows.stoppedFlow", {
+              flow: words(`consent.flow.${use.flow}`),
+              service: service.name,
+            }),
       );
     });
   const allow = () =>
     run(() =>
       allowAll(
         service.id,
-        uses.filter((use) => use.status.consent !== "accepted"),
+        uses.filter((use) => !inEffect(use)),
       ),
     );
   const askAgain = () => run(() => revokeAll(service.id, withConsent("declined")));
@@ -213,6 +221,7 @@ function ServiceItem({ group }: { group: ServiceGroup }) {
             details={
               <Uses
                 uses={uses}
+                service={service.name}
                 partly={decision.kind === "partly"}
                 onAllow={allowUse}
                 onStop={(use) => void stopUse(use)}
@@ -256,24 +265,31 @@ const waitingStatus = (use: ServiceUse, t: ReturnType<typeof useT>) =>
 
 function Uses({
   uses,
+  service,
   partly,
   onAllow,
   onStop,
 }: {
   uses: readonly ServiceUse[];
+  service: string;
   partly: boolean;
   onAllow(use: ServiceUse): void;
   onStop(use: ServiceUse): void;
 }) {
   const t = useT();
+  const language = useLanguage();
   // A service with one use has its button above: a second one would say the same.
   const eachOwn = uses.length > 1;
   return (
     <ul className="flex flex-col gap-2 pt-1.5">
       {uses.map((use) => {
-        const allowed = use.status.consent === "accepted";
+        const allowed = inEffect(use);
         const waiting = partly && !allowed;
         const flow = t(`consent.flow.${use.flow}`);
+        // On by default, the User allowed nothing by an act: the line says what it rests on, and
+        // since when it has been used, never that they allowed it (#3118).
+        const { byDefault = false, decidedAt } = use.status;
+        const stop = byDefault ? "privacy.flows.turnOff" : "consent.settings.revoke";
         return (
           <li
             key={use.flow}
@@ -290,16 +306,31 @@ function Uses({
             {eachOwn && (
               <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
                 {waiting && <span className="text-ink-meta">{waitingStatus(use, t)}</span>}
+                {byDefault && (
+                  <span data-testid="data-flow-by-default" className="text-ink-meta">
+                    {decidedAt
+                      ? t("privacy.flows.byDefault.since", {
+                          service,
+                          date: formatDate(decidedAt, language),
+                        })
+                      : t("privacy.flows.byDefault.unused", { service })}
+                  </span>
+                )}
                 <button
                   type="button"
                   data-testid={allowed ? "data-flow-revoke" : "data-flow-allow"}
-                  aria-label={t(allowed ? "privacy.flows.stopFlow" : "privacy.flows.allowFlow", {
-                    flow,
-                  })}
+                  aria-label={t(
+                    byDefault
+                      ? "privacy.flows.turnOffFlow"
+                      : allowed
+                        ? "privacy.flows.stopFlow"
+                        : "privacy.flows.allowFlow",
+                    { flow },
+                  )}
                   onClick={() => (allowed ? onStop(use) : onAllow(use))}
                   className={buttonStyle("secondary", "sm")}
                 >
-                  {t(allowed ? "consent.settings.revoke" : "privacy.flows.allow")}
+                  {t(allowed ? stop : "privacy.flows.allow")}
                 </button>
               </p>
             )}

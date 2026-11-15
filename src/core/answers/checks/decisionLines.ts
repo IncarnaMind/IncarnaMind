@@ -28,12 +28,17 @@ export interface DecisionLines {
   firstReading: { supported: number; contradicted: number };
 }
 
-/** Every measured model, the best first. */
-export const MEASURED_DECISION_MODELS: readonly {
+interface MeasuredDecisionModel {
   host: DecisionHost;
   modelId: string;
   lines: DecisionLines;
-}[] = [
+}
+
+/** Every measured model, the best first. */
+export const MEASURED_DECISION_MODELS: readonly [
+  MeasuredDecisionModel,
+  ...MeasuredDecisionModel[],
+] = [
   {
     host: "openrouter",
     modelId: "perplexity/pplx-decider-v1.2",

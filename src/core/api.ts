@@ -3562,6 +3562,21 @@ export interface CheckDecisionModel {
   modelId: string;
 }
 
+/** The decision model for checks as Settings › AI shows it (#3118). */
+export interface CheckDecisionStatus {
+  /** The model the User chose, else the measured one turning it on chooses. */
+  model: CheckDecisionModel & { name: string };
+  /** The host its requests go to, as the User reads it. */
+  hostName: Localized;
+  /**
+   * "chosen": it reads every check, because the User turned it on. "default": it reads the checks
+   * whose AI model already runs on its host's service, because they haven't said. Null: it reads none.
+   */
+  reads: "chosen" | "default" | null;
+  /** Why it can't read or be turned on now: Local mode, or its host has no key here. */
+  blocked: "local-mode" | "no-key" | null;
+}
+
 /** Settings that belong to this device and never sync (ADR-0003). */
 export interface DeviceSettings {
   /** Width of the left sidebar, in CSS pixels. */
@@ -9886,6 +9901,11 @@ export interface DataFlowStatus {
    * it (ADR-0022), rather than in a dialog or in Settings › Privacy.
    */
   chosen: boolean;
+  /**
+   * The flow goes to the service with no decision of its own: another flow the User allowed
+   * already sends the same there (#3118). `decidedAt` is then when it first did; null: not yet.
+   */
+  byDefault?: true;
   /** What the flow sends now that the User's acceptance didn't cover, when it has grown since. */
   added?: DataKind[];
 }
@@ -14183,6 +14203,12 @@ export interface CoreApi {
   setDecisionKey(input: SetDecisionKeyInput): Promise<DecisionHostStatus[]>;
   /** Forgets what a decision model host keeps on this device: its own key and its account. */
   removeDecisionKey(host: DecisionHost): Promise<DecisionHostStatus[]>;
+  /**
+   * The decision model that reads a check's sentences first (#3118), and whether it does now.
+   * "settings.changed", "decisions.changed", "privacy.changed" and "dataFlows.changed" events
+   * say when to read it again.
+   */
+  getCheckDecision(): Promise<CheckDecisionStatus>;
 
   /** Connectors that are not deleted, in name order (ignoring case), each with its state. */
   listConnectors(): Promise<Connector[]>;
@@ -15365,6 +15391,7 @@ const methods: Record<CoreApiMethod, true> = {
   listDecisionHosts: true,
   setDecisionKey: true,
   removeDecisionKey: true,
+  getCheckDecision: true,
   listConnectors: true,
   addConnector: true,
   getExamples: true,

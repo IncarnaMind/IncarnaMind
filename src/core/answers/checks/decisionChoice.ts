@@ -6,10 +6,10 @@
  * they choose the model, on the line that says what goes (ADR-0022); a run never asks. A model
  * with no measured lines (./decisionLines) can't be chosen: its answers would mean nothing.
  */
-import type { CheckDecisionModel, DataKind, ExternalService } from "../../api";
+import type { CheckDecisionModel, CheckDecisionStatus, DataKind, ExternalService } from "../../api";
 import type { Consent } from "../../consent";
 import { InvalidInputError, TaggingNotReadyError } from "../../errors";
-import { isDecisionModelChoice } from "../../providers/catalog/decisions";
+import { DECISION_HOST_ENTRIES, isDecisionModelChoice } from "../../providers/catalog/decisions";
 import { classifyProviderError } from "../../providers/providerErrors";
 import { slots } from "../../runs/stop";
 import type { DecisionHosts } from "../../tags/decisionHosts";
@@ -35,7 +35,7 @@ const AT_ONCE = 32;
 export interface DecisionChoiceOptions {
   /** What the User said: a model, "off", or nothing yet (null). */
   chosen(): CheckDecisionModel | "off" | null;
-  hosts: Pick<DecisionHosts, "asker" | "service">;
+  hosts: Pick<DecisionHosts, "asker" | "ready" | "service">;
   consent: Consent;
   localOnly(): boolean;
   /** The service the User's own AI model for checks runs on; null: none outside this computer. */
@@ -57,14 +57,18 @@ export function createDecisionChoice(options: DecisionChoiceOptions) {
       const service = inUse(options.checksService())?.service;
       return service ? [service] : [];
     },
+    byDefault: (serviceId) => {
+      const using = inUse(options.checksService());
+      return using?.byDefault === true && using.service.id === serviceId;
+    },
   });
 
   /**
-   * The model that reads a check whose AI model runs on `checksService`: the one the User chose,
+   * The model set to read a check whose AI model runs on `checksService`: the one the User chose,
    * else, where they haven't said, a measured one on that same service. `byDefault` marks the
    * second: it reads because the User's checks already go to that service.
    */
-  function inUse(
+  function standing(
     checksService: ExternalService | null,
   ): { choice: CheckDecisionModel; service: ExternalService; byDefault: boolean } | null {
     const chosen = options.chosen();
@@ -77,13 +81,46 @@ export function createDecisionChoice(options: DecisionChoiceOptions) {
     const measured = MEASURED_DECISION_MODELS.find(
       (each) => hosts.service(each.host)?.id === checksService.id,
     );
-    if (!measured || !consent.allows("checks", checksService)) return null;
+    if (!measured) return null;
     const { host, modelId } = measured;
     return { choice: { host, modelId }, service: checksService, byDefault: true };
   }
 
+  /**
+   * The model that reads such a check now. By default it rests on the User having allowed checks
+   * to that service: until they have, none reads and nothing is listed.
+   */
+  function inUse(checksService: ExternalService | null) {
+    const using = standing(checksService);
+    return using?.byDefault && !consent.allows("checks", using.service) ? null : using;
+  }
+
   return {
     inUse,
+
+    /**
+     * What Settings › AI shows: the model its switch turns on, and whether it is set to read. One
+     * that reads by default shows so before the User's first check, which asks about checks itself.
+     */
+    async status(): Promise<CheckDecisionStatus> {
+      const chosen = options.chosen();
+      const using = standing(options.checksService());
+      const { host, modelId } =
+        using?.choice ?? (chosen && chosen !== "off" ? chosen : MEASURED_DECISION_MODELS[0]);
+      const entry = DECISION_HOST_ENTRIES[host];
+      const name = entry.models.find((each) => each.id === modelId)?.name ?? modelId;
+      const blocked = options.localOnly()
+        ? "local-mode"
+        : (await hosts.ready()).includes(host)
+          ? null
+          : "no-key";
+      return {
+        model: { host, modelId, name },
+        hostName: entry.name,
+        reads: blocked || !using ? null : using.byDefault ? "default" : "chosen",
+        blocked,
+      };
+    },
 
     /** Throws, in the words the User reads, unless `choice` is one they can make now. */
     async check(choice: unknown): Promise<void> {

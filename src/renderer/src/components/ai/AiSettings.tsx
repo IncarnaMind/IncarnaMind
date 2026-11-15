@@ -8,6 +8,7 @@ import type {
   TranscriptionServiceStatus,
 } from "../../../../core/api";
 import { useAnswers } from "../../answers";
+import { useCheckDecision } from "../../checkDecision";
 import { useClaudeAccount } from "../../claudeSignIn";
 import { core } from "../../core";
 import { useDecisionHosts } from "../../decisionHosts";
@@ -83,6 +84,7 @@ export function AiSettings() {
   const [jev, setJev] = useJevSettings();
   const { rerank, setRerank, answered: rerankAnswered } = useRerank();
   const sorting = useSorting();
+  const checkDecision = useCheckDecision();
   // One read for the page: the Meeting transcription row and the transcription keys. The page
   // waits for its first answer only: a Try again after a failure keeps the page on screen.
   const services = useTranscriptionServicesRead();
@@ -95,6 +97,7 @@ export function AiSettings() {
     hosts !== null &&
     rerankAnswered &&
     sortingAnswered &&
+    checkDecision !== undefined &&
     (servicesAnswered || services.state !== "loading");
 
   const refresh = useCallback(() => {
@@ -207,6 +210,10 @@ export function AiSettings() {
     }
   };
 
+  const add = () => {
+    opener.current = "add-provider";
+    setAdding(true);
+  };
   // The entry's page opens once the sheet has closed: until then the sheet keeps everything else
   // out of reach, the page's first control too, which the page focuses.
   const openEntry = (entry: ServiceEntry) => {
@@ -289,6 +296,8 @@ export function AiSettings() {
             sorting={sorting}
             rerank={rerank}
             onRerank={setRerank}
+            checkDecision={checkDecision ?? null}
+            onAddKey={add}
           />
           <AccountsSection
             providers={providers}
@@ -312,10 +321,7 @@ export function AiSettings() {
             onOpen={(provider) =>
               open({ page: "provider", providerId: provider.id }, `provider:${provider.id}`)
             }
-            onAdd={() => {
-              opener.current = "add-provider";
-              setAdding(true);
-            }}
+            onAdd={add}
           />
           <LimitsSection />
         </>

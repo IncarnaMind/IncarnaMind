@@ -116,6 +116,7 @@ import {
   type CallHelpKind,
   type ChatModelChoice,
   type ChatProviderKind,
+  type CheckDecisionModel,
   type CheckRecordFailure,
   type CheckRecordFormat,
   type CitationAttributes,
@@ -4270,6 +4271,14 @@ export function createCore(adapters: CoreAdapters): Core {
   };
   let lastAutomatic = library.settings().automatic;
 
+  /** What the decision model for checks was set to when Settings › Privacy turned it off, for Undo. */
+  let checkDecisionTakenBack: { at: string; was: CheckDecisionModel | null } | null = null;
+  /** The model chosen for checks goes with its host's key: the AI model checks every sentence again. */
+  const checkDecisionKeyGone = (hosts: readonly DecisionHost[]) => {
+    const chosen = settings.get().device.checkDecisionModel;
+    if (chosen !== null && chosen !== "off" && hosts.includes(chosen.host))
+      events.emit("settings.changed", settings.update({ device: { checkDecisionModel: null } }));
+  };
   /** A decision model host's key or account was kept or forgotten: say so, and Documents waiting may go on. */
   const decisionsChanged = async (hosts: DecisionHostStatus[]) => {
     if (lifetime.signal.aborted) return hosts;
@@ -6564,6 +6573,7 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     deleteChatProvider: async (id) => {
       const riding = await hostsOnKeyOf(id);
+      checkDecisionKeyGone(riding);
       const forgot = await stopSortingWith(
         (classifier) =>
           (classifier.kind === "decision" && riding.includes(classifier.host)) ||
@@ -6821,11 +6831,16 @@ export function createCore(adapters: CoreAdapters): Core {
       await readinessChanged();
     },
     revokeConsent: async (flowId, serviceId) => {
-      const revokedAt = consent.revoke(flowId, serviceId);
+      let revokedAt = consent.revoke(flowId, serviceId);
       // Taken back here, the decision model for checks is off: where it reads by default, a
-      // later check would otherwise put it back.
-      if (flowId === "decision-checks" && settings.get().device.checkDecisionModel !== "off")
+      // later check would otherwise put it back. One that hadn't read yet has no decision to
+      // forget, and Undo still turns it on again.
+      const was = settings.get().device.checkDecisionModel;
+      if (flowId === "decision-checks" && was !== "off") {
         settings.update({ device: { checkDecisionModel: "off" } });
+        revokedAt ??= now();
+        checkDecisionTakenBack = { at: revokedAt, was };
+      }
       connectors.consentChanged();
       if (typeof flowId === "string" && typeof serviceId === "string") {
         cloudTranscription.revoked(flowId, serviceId);
@@ -6838,6 +6853,12 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     restoreConsent: async (flowId, serviceId, revokedAt) => {
       consent.restore(flowId, serviceId, revokedAt);
+      if (
+        flowId === "decision-checks" &&
+        checkDecisionTakenBack?.at === revokedAt &&
+        settings.get().device.checkDecisionModel === "off"
+      )
+        settings.update({ device: { checkDecisionModel: checkDecisionTakenBack.was } });
       // Undo may bring back the choice that let embeddings run: Documents waiting carry on.
       if (flowId === "embeddings") embedding.retry();
       connectors.consentChanged();
@@ -7225,12 +7246,10 @@ export function createCore(adapters: CoreAdapters): Core {
       await stopSortingWith(
         (classifier) => classifier.kind === "decision" && classifier.host === host,
       );
-      // The model chosen for checks goes with its host's key: the AI model checks every sentence again.
-      const chosen = settings.get().device.checkDecisionModel;
-      if (chosen !== null && chosen !== "off" && chosen.host === host)
-        events.emit("settings.changed", settings.update({ device: { checkDecisionModel: null } }));
+      checkDecisionKeyGone([host]);
       return decisionsChanged(await decisionHosts.removeKey(host));
     },
+    getCheckDecision: () => decisionChoice.status(),
 
     listConnectors: async () => connectors.list(),
     addConnector: async (input) => {

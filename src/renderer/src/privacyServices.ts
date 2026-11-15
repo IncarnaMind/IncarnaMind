@@ -32,18 +32,24 @@ export function groupByService(flows: readonly RegisteredDataFlow[]): ServiceGro
   return [...groups.values()];
 }
 
+/** Whether the use goes on now: the User allowed it, or it is on by default with another they allowed. */
+export const inEffect = ({ status }: ServiceUse): boolean =>
+  status.consent === "accepted" || status.byDefault === true;
+
 /**
  * A service the User allowed everywhere says so once, with the first date; one
  * allowed for some uses only says that; the rest say the worst of their uses
- * (declined, then asks again because it sends more, then not asked).
+ * (declined, then asks again because it sends more, then not asked). A use that is on by default
+ * rests on the others' decision and adds none of its own.
  */
 export function decisionOf(uses: readonly ServiceUse[]): ServiceDecision {
-  const accepted = uses.filter((use) => use.status.consent === "accepted");
+  const accepted = uses.filter(inEffect);
   if (accepted.length === uses.length && accepted.length > 0) {
-    const dates = accepted.flatMap((use) => use.status.decidedAt ?? []).sort();
+    const decided = accepted.filter((use) => !use.status.byDefault);
+    const dates = decided.flatMap((use) => use.status.decidedAt ?? []).sort();
     return {
       kind: "accepted",
-      chosen: accepted.every((use) => use.status.chosen),
+      chosen: decided.every((use) => use.status.chosen),
       at: dates[0] ?? null,
     };
   }

@@ -3727,6 +3727,11 @@ export const en = {
   "privacy.flows.stopFlow": "Stop allowing {flow}",
   "privacy.flows.allowFlow": "Allow {flow}",
   "privacy.flows.stoppedFlow": "Stopped allowing {flow} for {service}",
+  "privacy.flows.byDefault.unused": "On with your checks to {service} · not used yet",
+  "privacy.flows.byDefault.since": "On with your checks to {service}, since {date}",
+  "privacy.flows.turnOff": "Turn off",
+  "privacy.flows.turnOffFlow": "Turn off {flow}",
+  "privacy.flows.turnedOff": "Turned off {flow}",
   "privacy.traffic.title": "Other network traffic",
   "privacy.traffic.intro": "These services receive nothing of yours.",
   "privacy.traffic.on": "On",
@@ -3989,6 +3994,14 @@ export const en = {
   "ai.jobs.quick": "Quick tasks",
   "ai.jobs.quick.line":
     "Titles, Tag suggestions, search wording, Citation quotes and checking replies",
+  "ai.jobs.checks": "Checking sentences",
+  "ai.jobs.checks.line": "{model} reads each sentence first",
+  "ai.jobs.checks.tip":
+    "{model} gives each sentence a quick first reading and marks the few it is sure of; your AI model checks the rest.",
+  "ai.jobs.checks.sends":
+    "Checks send the note’s text and the passages found for it or cited in it to {host}",
+  "ai.jobs.checks.noKey": "Needs a key for {host}",
+  "ai.jobs.checks.addKey": "Add a key…",
   "ai.jobs.images": "Reading images",
   "ai.jobs.images.line": "Scans and a selected area",
   "ai.jobs.follows": "Follows Answers · {model}",
