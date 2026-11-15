@@ -9,7 +9,7 @@
  * `CALL_HELP_TYPED_MIXED`: six questions in both scripts that the reader of a Question's language
  * can't tell, typed on that English call and on its Chinese twin (`zh-typed-said`): three Chinese
  * sentences carrying English names and three English sentences naming a Chinese person or thing.
- * Each reply is read by hand for whether it is in its sentence's language.
+ * Each reply is read by hand for its language: such a question is told the interface's.
  */
 import type { CallHelpCase } from "./callHelpCases";
 import { CALL_HELP_TYPED } from "./callHelpTyped";

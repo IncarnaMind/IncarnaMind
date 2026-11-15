@@ -247,16 +247,17 @@ export const LIVE_TEXT_BEHIND_NOTE =
 
 /**
  * The language a typed question's reply is written in, by name: the question's own, as an Answer's
- * Question is read, else its script's, else, for an acronym or a figure, the interface's. Null when
- * the reader can't tell and it holds both Chinese characters and Latin words: a count of letters
- * can't tell a Chinese sentence carrying English names from an English one naming a Chinese thing,
- * and the model can.
+ * Question is read, else its script's, else, for an acronym, a figure or a question in both scripts,
+ * the interface's.
  */
-function typedIn(asked: string, language: Language): string | null {
+function typedIn(asked: string, language: Language): string {
   const own = questionLanguage(asked);
   if (own !== null) return own === "Chinese" ? LANGUAGE_NAMES["zh-CN"] : own;
-  if (/\p{Script=Han}/u.test(asked) && /\p{Script=Latin}{2,}/u.test(asked)) return null;
-  const script = scriptOf(asked);
+  // A count of letters can't tell a Chinese sentence carrying English names from an English one
+  // naming a Chinese thing, and Claude Haiku 5.5 told to follow the sentence's own language
+  // answered most Chinese ones in English (#2925).
+  const bothScripts = /\p{Script=Han}/u.test(asked) && /\p{Script=Latin}{2,}/u.test(asked);
+  const script = bothScripts ? null : scriptOf(asked);
   return LANGUAGE_NAMES[script === null ? language : script === "han" ? "zh-CN" : "en"];
 }
 
@@ -282,16 +283,8 @@ function questionInstructions(
   // Named, not "the Question's": a request of the app's in English, after it, reads as the
   // newest question (#2925).
   const written = typedIn(asked, language);
-  const typed = written === null ? null : written === LANGUAGE_NAMES["zh-CN"] ? "zh" : "en";
-  const call =
-    callLanguage === null
-      ? (typed ?? (language === "zh-CN" ? "zh" : "en"))
-      : callLanguage === "Chinese"
-        ? "zh"
-        : "en";
-  const option = callLanguage
-    ? ` An option to say is in ${callLanguage}, the call's language, its "→" line too.`
-    : "";
+  const typed = written === LANGUAGE_NAMES["zh-CN"] ? "zh" : "en";
+  const call = callLanguage === null ? typed : callLanguage === "Chinese" ? "zh" : "en";
   return [
     "The User is in a call and typed a question about it: the Question is what they typed. They will read your reply in a second or two while the call goes on.",
     "Reply in the shortest form that answers it, with nothing before or after it: start with its first line, and add no heading, introduction, plan, remark on the transcript or closing line. Say what you found; never say where you looked or what you didn't find.",
@@ -299,14 +292,9 @@ function questionInstructions(
     ...SHAPES.options,
     '- Otherwise answer it in one or two sentences, the most useful first, each at most 25 words, its Citation markers at its end, with no "★" or "→" line.',
     '- Only when the Question asks for more, such as a list, every item or more detail, write as many short lines as it needs, each starting with "- ", each one sentence, its Citation markers at its end. Each line cites the words of its own item, never a Citation another line has.',
-    // An example in one language would name it, where the question's own words are left to tell.
-    ...(typed === null
-      ? ["For example, to a question of what to say:"]
-      : [
-          "For example, to a question of fact:",
-          FACT_EXAMPLE[typed],
-          "And to a question of what to say:",
-        ]),
+    "For example, to a question of fact:",
+    FACT_EXAMPLE[typed],
+    "And to a question of what to say:",
     ...EXAMPLES[call].options,
     "- Base it on <live-transcript> for what was said in this call, the newest lines first, and on the User's Documents for facts.",
     "- A Document fact was not said in this call: distinguish it from the transcript, cite it, and never invent one.",
@@ -318,9 +306,9 @@ function questionInstructions(
           "- <found-in-documents> holds Passages of the User's Documents already found for the Question: cite them by id, and search only if they don't answer.",
         ]
       : []),
-    written === null
-      ? `- Write in the language of the User's own words in the Question: a name or a term it quotes from another language doesn't change it.${option}`
-      : `- Write in ${written}, the language the User typed the Question in.${option}`,
+    callLanguage
+      ? `- Write in ${written}, the language the User typed the Question in. An option to say is in ${callLanguage}, the call's language, its "→" line too.`
+      : `- Write in ${written}, the language the User typed the Question in.`,
   ].join("\n");
 }
 
