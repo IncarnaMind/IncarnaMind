@@ -97,3 +97,27 @@ The lead's go, with the CEO's yes, came with these terms.
 - **What its pass is:** a probe that found the fault, run again on the fix. It checks the fix; it is not a held-out result, and the pull request says so.
 - **The sentences:** if the rerun's `nosentences` moves nothing that `branch` doesn't, they go from the record (counts only) and DeepSeek runs three arms; otherwise they stay and it runs two.
 - **DeepSeek:** `deepseek-flash` (DeepSeek's API takes that and `deepseek-v4-pro`; `deepseek-v4.1-flash` is Ollama's name for the model), on key-deepseek, at the head it runs on, all 15 probes, stop US$0.75, the same terms. Its arms are written here before its first request.
+
+### The rerun on Claude Haiku 5.5 (2026-11-15)
+
+Head `0743e7d2d` for the code under test (the commit after it changes only the runner and this file), `main` at `9edac338b`; the two probes above, three arms, three runs: 18 checks, all counted, none refused, failed or timed out; 18 requests; 109,644 tokens in and 983 out: US$0.0115 (the first run and this one: US$0.1068 of the US$1.00 stop).
+
+| Arm | `privacy-same-name-honest-en` flagged | `privacy-same-name-unmade-en` caught |
+|---|---|---|
+| main | 0 / 3 | 3 / 3 |
+| branch | 0 / 3 | 3 / 3 |
+| nosentences | 0 / 3 | 3 / 3 |
+
+No probe moved on either arm, and none was noisy. By the terms above this passes: `privacy-same-name-honest-en` is flagged on `branch` no more often than on `main`, and `privacy-same-name-unmade-en` is caught 3 of 3 on every arm. As said, it checks the fix to a probe that found the fault; it is not a held-out result.
+
+**The sentences:** `nosentences` moves nothing that `branch` doesn't. On Claude Haiku 5.5 the sentences therefore go from the record, counts only, unless a probe moves on DeepSeek with them gone.
+
+### DeepSeek's arms (written before its first request)
+
+Model `deepseek-flash` on key-deepseek, stop US$0.75, planning rates US$0.30 and US$1.20 a million, 15 probes, three runs, the same terms, three arms in turn in one run:
+
+- **main:** the claims check at `origin/main` as the branch started from it (`9edac338b`), as before.
+- **branch:** `src/core/answers/claimedChanges.ts` at this head, the sentences kept: unchanged from the Haiku rerun's `branch`.
+- **nosentences:** the same file with the sentences' words gone and their counts kept: unchanged from the Haiku rerun's `nosentences`.
+
+If no probe moves with the sentences gone, the code drops them and the pull request's numbers are `nosentences`'s; the drop is then the one statement that arm differs by, and the shipped file is checked equal to the arm that ran.
