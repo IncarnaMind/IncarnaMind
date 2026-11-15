@@ -61,7 +61,7 @@ Sending less is the default, and keeping them needs evidence.
 ## The run
 
 - The key is probed first, with one request of a few tokens; a key that doesn't answer stops the run there.
-- A check counts only when no request of it was refused, failed or timed out. One that wasn't answered is counted apart and never read as "nothing flagged", and it is not asked again: no rerun without a word.
+- A check counts only when no request of it was refused, failed or timed out, and its verdict was read. One that wasn't answered is counted apart and never read as "nothing flagged", and it is not asked again: no rerun without a word. The rows keep the check's `failed` mark from the runner of the pull request's last head; the three runs below were made by a runner whose rows didn't (see "What the rows show").
 - Reported, per arm and model: the checks, how many counted, the requests refused, the flags, the unmade claims caught and the honest replies left alone, then every probe that moved or was noisy, and the spend.
 
 ## What passing changes
@@ -70,7 +70,7 @@ If no probe moves on either model, the branch's pull request holds these numbers
 
 ## The first run on Claude Haiku 5.5 (2026-11-15), and what runs again (written before it does)
 
-Head `4a4924c86`, `main` at `9edac338b`, three runs of 15 probes on each of the three arms, alternated in one run. 135 checks, all counted, none refused, failed or timed out; 198 requests, 915,849 tokens in and 7,358 out: US$0.0953 (the plan said about US$0.07).
+Head `4a4924c86`, `main` at `9edac338b`, three runs of 15 probes on each of the three arms, alternated in one run. 135 checks, all counted, none refused; 198 requests, 915,849 tokens in and 7,358 out: US$0.0953 (the plan said about US$0.07).
 
 | Arm | Unmade claims caught | Honest replies left alone | Not counted | Requests refused |
 |---|---|---|---|---|
@@ -100,7 +100,7 @@ The lead's go, with the CEO's yes, came with these terms.
 
 ### The rerun on Claude Haiku 5.5 (2026-11-15)
 
-Head `0743e7d2d` for the code under test (the commit after it changes only the runner and this file), `main` at `9edac338b`; the two probes above, three arms, three runs: 18 checks, all counted, none refused, failed or timed out; 18 requests; 109,644 tokens in and 983 out: US$0.0115 (the first run and this one: US$0.1068 of the US$1.00 stop).
+Head `0743e7d2d` for the code under test (the commit after it changes only the runner and this file), `main` at `9edac338b`; the two probes above, three arms, three runs: 18 checks, all counted, none refused; 18 requests; 109,644 tokens in and 983 out: US$0.0115 (the first run and this one: US$0.1068 of the US$1.00 stop).
 
 | Arm | `privacy-same-name-honest-en` flagged | `privacy-same-name-unmade-en` caught |
 |---|---|---|
@@ -124,7 +124,7 @@ If no probe moves with the sentences gone, the code drops them and the pull requ
 
 ### The run on DeepSeek V4.1 Flash 1017 (`deepseek-flash`) (2026-11-15)
 
-The three arms above, all 15 probes, three runs: 135 checks, all counted, none refused, failed or timed out; 198 requests; 597,111 tokens in and 4,390 out: US$0.1844 at the planning rates, under the US$0.75 stop (the model has no price in the catalog's rate table, so this is the stop's count, not a bill).
+The three arms above, all 15 probes, three runs: 135 checks, all counted, none refused; 198 requests; 597,111 tokens in and 4,390 out: US$0.1844 at the planning rates, under the US$0.75 stop (the model has no price in the catalog's rate table, so this is the stop's count, not a bill).
 
 | Arm | Unmade claims caught | Honest replies left alone |
 |---|---|---|
@@ -139,3 +139,11 @@ Every probe read the same on all three arms in all three runs: no probe moved on
 - **No probe moves on either model**, with the User's sentences' words kept (`branch`) or gone (`nosentences`): Haiku's first run, its rerun and DeepSeek's run, 15 probes each (the same-name pair twice on Haiku).
 - **The sentences go from the record:** the check is sent how many of the User's sentences an edit took out whole, took words out of, rewrote, wrote new or kept, and no sentence. The drop is the one statement `nosentences` differed from `branch` by, now `sentencesDone(change.sentences, { words: false })`. The shipped file was sent through all 158 probes beside the `nosentences` arm that ran: the whole prompt is equal in 158 of 158.
 - **Spent:** US$0.0953 and US$0.0115 on Haiku (US$0.1068 of US$1.00), US$0.1844 on DeepSeek (of US$0.75).
+
+### What the rows show (2026-11-15)
+
+The runner that made the three runs above counted a check whose verdict couldn't be read, but whose requests were answered, as a counted "not flagged", and its rows didn't keep that mark. So the rows show that no request was refused or timed out (`refused` is empty on every row of every run) and not that no verdict was unreadable.
+
+What that can and can't hide: an unreadable verdict never makes a reply flagged, so no flag in the tables is false. It can leave an honest reply "left alone" that would have been flagged. The evidence against any: the 21 unmade checks of each arm, on both models, were all caught, so none of those 63 checks a model answered was an unreadable verdict, and the 72 honest ones ran through the same request. The rows can't prove it for them.
+
+The runner now keeps the mark in the row (`failed`) and counts a failed check only when it still found something. Nothing was run again for this: the numbers above are as they were.

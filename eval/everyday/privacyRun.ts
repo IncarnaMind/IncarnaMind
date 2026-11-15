@@ -105,14 +105,19 @@ export async function runArms({
             signal: new AbortController().signal,
           },
         );
-        const unanswered = meter.refused.length > 0 || (result.failed === true && !result.usage);
+        const flagged =
+          result.claims.length + result.commands.length > 0 || result.unfinished === true;
+        const failed = result.failed === true;
+        // A failed check that found nothing is an unreadable verdict, not a "nothing flagged".
+        const unanswered = meter.refused.length > 0 || (failed && (!result.usage || !flagged));
         rows.push({
           probe: probe.id,
           run,
           arm: arm.name,
           expected: probe.unbacked,
-          flagged: result.claims.length + result.commands.length > 0 || result.unfinished === true,
+          flagged,
           counted: !unanswered,
+          failed,
           refused: [...meter.refused],
           inputTokens: meter.inputTokens - before.input,
           outputTokens: meter.outputTokens - before.output,

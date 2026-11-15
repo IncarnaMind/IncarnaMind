@@ -99,6 +99,36 @@ describe("The run of the gate's three arms", () => {
     expect(meter.requests).toBe(quiet.requests);
   });
 
+  test("a verdict that couldn't be read is counted apart, with its failed mark, never as nothing flagged", async () => {
+    const meter = newMeter();
+    let nth = 0;
+    const unreadable = scriptedModel(() => ({ text: "" }), {
+      generate: (call) => {
+        nth += 1;
+        if (call.question === "request-done")
+          return { text: '{"asks_change":"no","request":"none"}' };
+        return { text: nth === 1 ? "No verdict, sorry." : '{"claims":[]}' };
+      },
+    });
+
+    const { rows } = await runArms({
+      arms: ARMS,
+      probes: PROBES,
+      runs: 1,
+      stop: 0,
+      model: unreadable,
+      meter,
+      dollarsOf,
+    });
+
+    const failed = rows.filter((row) => row.failed);
+    expect(failed).toHaveLength(1);
+    expect(failed[0]?.counted).toBe(false);
+    expect(failed[0]?.flagged).toBe(false);
+    expect(rows.filter((row) => row.counted)).toHaveLength(rows.length - 1);
+    expect(meter.requests).toBeGreaterThan(rows.length - 1);
+  });
+
   test("it stops, and says so, when the spend reaches the stop", async () => {
     const meter = newMeter();
 

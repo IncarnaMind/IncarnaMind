@@ -9,6 +9,7 @@ const row = (probe: string, run: number, arm: string, flagged: boolean, counted 
   expected: true,
   flagged,
   counted,
+  failed: false,
   refused: [],
   inputTokens: 0,
   outputTokens: 0,

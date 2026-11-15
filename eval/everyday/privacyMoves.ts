@@ -28,8 +28,10 @@ export interface Row {
   arm: string;
   expected: boolean;
   flagged: boolean;
-  /** No request of the check was refused, failed or timed out: only such a check counts. */
+  /** No request of the check was refused, failed or timed out, and its verdict was read: only such a check counts. */
   counted: boolean;
+  /** The check's verdict couldn't be read, or its second question failed: it counts only if it still found something. */
+  failed: boolean;
   refused: string[];
   inputTokens: number;
   outputTokens: number;

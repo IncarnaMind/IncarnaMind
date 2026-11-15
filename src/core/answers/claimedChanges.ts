@@ -12,12 +12,14 @@ import {
   type ClaimedChange,
   type ClaimedCommand,
   type CommandDone,
+  EXPORT_FORMATS,
   type MindProblem,
 } from "../api";
 import { asData, type PromptTag } from "../promptData";
 import type { ChatLanguageModel } from "../providers/models";
 import type { TokenUsage } from "../runs/engine";
 import { COMMAND_TOOLS } from "../tools";
+import { SETTING_NAMES } from "../tools/commands/settings";
 import { sentencesDone } from "../tools/minds/sentencesSaid";
 import type { BlockSpan } from "../tools/minds/tools";
 import type { UnmadeFixes } from "./claimedFixes";
@@ -355,11 +357,11 @@ type Target = { id?: string; name?: string | null } | null;
 const noteNamed = (name: string | null | undefined): string =>
   name !== null && name !== undefined && name.trim() !== "" ? name : "unnamed Note";
 
+const lastPart = (value: string): string => value.split(/[\\/]/).filter(Boolean).at(-1) ?? "";
+
 /** A path as its last part alone: the verdict needs a folder's or file's name, and a path says where on this computer it is. */
 const lastPartOfPath = (value: string): string =>
-  /^(?:[A-Za-z]:[\\/]|[\\/])/.test(value)
-    ? (value.split(/[\\/]/).filter(Boolean).at(-1) ?? "")
-    : value;
+  /^(?:[A-Za-z]:[\\/]|[\\/])/.test(value) ? lastPart(value) : value;
 
 /** The Minds each kind of change was made in, by id. */
 export interface ChangeLog {
@@ -527,14 +529,22 @@ function commandRecordOf(done: CommandDone, noteName: (id: string) => string) {
   };
 }
 
-/** What a command was asked, of the call's input: the command and the setting, format or style it named, never the ids or paths it was given. */
+/**
+ * What a command was asked, of the call's input: the command and the setting, format or style it
+ * named, never the ids or paths it was given. The model writes these, and a schema's list isn't
+ * enforced where the call is recorded, so a setting or format that isn't one of the app's names is
+ * left out, and a style, which has no list, is its last part alone (#2969).
+ */
 function inputOf(input: AnswerToolCall["input"]) {
   const { command, setting, format, style } = input;
+  const settingName = SETTING_NAMES.find((each) => each === setting);
+  const formatName = EXPORT_FORMATS.find((each) => each === format);
+  const styleName = typeof style === "string" ? lastPart(style) : "";
   return {
     ...(command !== undefined && { command }),
-    ...(setting !== undefined && { setting }),
-    ...(format !== undefined && { format }),
-    ...(style !== undefined && { style }),
+    ...(settingName !== undefined && { setting: settingName }),
+    ...(formatName !== undefined && { format: formatName }),
+    ...(styleName !== "" && { style: styleName }),
   };
 }
 

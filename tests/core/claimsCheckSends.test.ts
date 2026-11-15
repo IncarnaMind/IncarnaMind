@@ -288,6 +288,26 @@ describe("The record the check is sent, by name (#2969)", () => {
     expect(sent).toContain('\\"paragraphs\\": 4');
   });
 
+  // protects=a format or setting the app has no name for, and a style written as a path, reach the check as nothing or as the style's last part, never a path; fails_when=the model's own value goes whole, with the User's folders in it; no_claim=which formats and settings exist.
+  test("a command's format, setting and style are names, not paths the model wrote", async () => {
+    const sent = await recordSent([
+      commandCall(
+        "mind.export",
+        {
+          format: "/Users/ana/Documents/Acme.docx",
+          setting: "C:\\Users\\Ana\\Acme",
+          style: "/Users/ana/Styles/apa.csl",
+        },
+        undefined,
+        { status: "failed" },
+      ),
+    ]);
+
+    expect(sent).toContain("apa.csl");
+    expect(sent).not.toContain("Users");
+    expect(sent).not.toContain("Acme");
+  });
+
   // protects=the sentences an edit took out or rewrote reach the check as counts, not as the User's words, in English and Chinese; fails_when=a sentence of the User's, or its words, is in the request; no_claim=what the model is told in the call's result, which still names them to report from.
   test.each([
     { gone: "Each costs 800 a month.", rewritten: "Spaces are allocated by the landlord." },

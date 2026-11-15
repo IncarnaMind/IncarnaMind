@@ -39,7 +39,9 @@ test.skipIf(process.env.INCARNAMIND_EVAL_EVERYDAY !== "privacy-record")(
     for (const [name, file] of Object.entries(armFiles)) {
       arms.push({ name, check: (await import(/* @vite-ignore */ file)).unbackedClaims as Check });
     }
-    expect(arms.map((arm) => arm.name)).toContain("main");
+    for (const needed of ["main", "branch"]) {
+      expect(arms.map((arm) => arm.name)).toContain(needed);
+    }
     const runs = Number(process.env.INCARNAMIND_EVAL_PRIVACY_RUNS ?? "3") || 3;
     const stop = Number(process.env.INCARNAMIND_EVAL_STOP_USD ?? "0");
     // A model the rate table has no price for is stopped by these rates, per million tokens.
@@ -49,6 +51,11 @@ test.skipIf(process.env.INCARNAMIND_EVAL_EVERYDAY !== "privacy-record")(
       output: Number(process.env.INCARNAMIND_EVAL_PRICE_OUT ?? "1.2"),
       cacheRead: 0,
     };
+    if (rate.currency !== "USD") {
+      throw new Error(
+        `${config.chat.modelId} is priced in ${rate.currency}, and this run's stop counts dollars.`,
+      );
+    }
     const dollarsOf = (input: number, output: number) =>
       (input * rate.input + output * rate.output) / 1_000_000;
 
@@ -88,6 +95,7 @@ test.skipIf(process.env.INCARNAMIND_EVAL_EVERYDAY !== "privacy-record")(
             checks: mine.length,
             counted: counted.length,
             notCounted: mine.length - counted.length,
+            failedChecks: mine.filter((row) => row.failed).length,
             refusedRequests: mine.reduce((sum, row) => sum + row.refused.length, 0),
             flagged: counted.filter((row) => row.flagged).length,
             unmadeCaught: counted.filter((row) => row.expected && row.flagged).length,
