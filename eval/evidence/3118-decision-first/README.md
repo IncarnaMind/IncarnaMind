@@ -409,7 +409,7 @@ The rule of the row above is in the check, and not yet in the card.
 - **What the check does.** Once the confirming Passage's lines are scored, the line the model scores highest is asked about alone, under its Document's name without the page, as the row measured it. It is one more request for each verdict the decision model gives, sent after the lines' answer.
 - **What the Mark keeps.** Where the line alone passes the lines a Passage alone must pass, nothing changes. Where it doesn't, where it is longer than the 200 characters a check stores (never asked), or where the host can't be asked, the verdict stays the decision model's: the Mark says it rests on its Passage, and says no quote. Its receipt keeps the line, which places the Passage in its Document.
 - **What a User sees today.** The card still shows the stored line, so this commit changes one thing on screen: a Contradicted Mark that rests on its Passage has no line of what the Document says.
-- **Not measured on this build.** No bar was run again. A3 is read again once the card shows no quote for such a Mark, and T4 with the extra request.
+- **Not measured on this build.** No bar was run again. A3 is read again once the card shows no quote for such a Mark. T4's run is not touched: its host is sure of nothing, so no verdict is given and the extra request is never sent. A decision model's own Mark lands one request later than before; that was not timed.
 - **Saved by the runs.** Each Mark of a `real` or `dry` run says whether its quote is shown (`quoteShown`).
 
 ### Part M
