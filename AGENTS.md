@@ -24,7 +24,7 @@ Single-context: `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/agents/
 ## Writing code
 
 1. **Read before you write.** Read the issue, the ADRs it touches and the code around the change. Use an existing module, helper or shared building block before adding one; when something is needed a second time, move it somewhere shared rather than copying it. When you take a work item (`docs/agents/issue-tracker.md`), read each member once and build them in one branch.
-2. **Make the smallest change that fully does the job.** Don't add abstractions, options or flags that nothing needs yet. Don't take a shortcut that leaves the User a worse experience either.
+2. **Make the smallest change that fully does the job.** Don't add abstractions, options or flags that nothing needs yet. Don't take a shortcut that leaves the User a worse experience either. Plan it as a short list of the concrete changes, not as a planning document.
 3. **Respect the layers.**
    - `src/core` is the product and never imports Electron; Biome enforces this. Pass a capability in as an adapter instead.
    - `src/main` is the Electron shell.
@@ -66,7 +66,7 @@ Read [`docs/agents/testing.md`](docs/agents/testing.md). Work is done when its p
   - wait for states rather than times;
   - keep wall-clock limits out of unit tests.
 - Test through the core's public interface, as the UI uses it, and assert what a User would see. Tests need no API keys and no network.
-- Automated tests use the scripted chat model. A change to AI behaviour (a prompt, a tool description, a model choice) is proven on a real model, Claude Haiku 5.5 (Sonnet 5.5 for a hard feature), and its pull request gives the numbers and the models.
+- Automated tests use the scripted chat model. A change to AI behaviour (a prompt, a tool description, a model choice) is proven on a real model, Claude Haiku 5.5 (Sonnet 5.5 for a hard feature), and its pull request gives the numbers and the models. Where the change moves no check's verdict, one small run is enough, about ten requests.
 
 ## UI
 
@@ -89,8 +89,8 @@ Read [`docs/agents/testing.md`](docs/agents/testing.md). Work is done when its p
 ## Commits and pull requests
 
 - Sign off every commit (`git commit -s`); see [`CONTRIBUTING.md`](CONTRIBUTING.md).
-- One feature or theme per pull request, built whole, with no line limit. A theme is one screen or one flow the User sees; split only when a part is another screen or flow, or another priority tier. Never mix a P0 or P1 issue with a P2 or P3 one, and a P0 or P1 never waits for a batch to fill.
-- Say what the User gets and why. List each issue's acceptance criteria with ticks: "Closes #123" only when all are met, otherwise "Part of #123" with a line "What is left".
+- One feature or theme per pull request, built whole, with no line limit. A theme is one screen or one flow the User sees; split only when a part is another screen or flow, or another priority tier. Never mix a P0 or P1 issue with a P2 or P3 one, and a P0 or P1 never waits for a batch to fill. A part of a request that is already decided ships at once as its own pull request; it doesn't wait for a part still to be decided.
+- Say what the User gets and why, in about ten lines. List each issue's acceptance criteria with ticks: "Closes #123" only when all are met, otherwise "Part of #123" with a line "What is left".
 - A bug you find in the screen or flow you are building is part of that pull request: fix it there and name it in the description. File an issue only when it is another screen or flow, needs a paid model run, a migration, a decision or a second reader the pull request wouldn't otherwise have, waits for unmerged work, or would hold up a P0 or P1. A reviewer asks for such a fix in the pull request under review.
 - File issues one per theme, as [`docs/agents/issue-tracker.md`](docs/agents/issue-tracker.md) › Filing an issue says.
 - Push when the feature is finished and fully tested, and open the pull request ready, so CI starts at once: one pull request for the whole feature, not a run of small ones, and as few pushes as you can. A fix for a broken `main` (a red check, or a regression a merge caused) doesn't wait: it lands at once, by itself. Merge `main` into your branch to resolve a conflict or to pick up something you need.
