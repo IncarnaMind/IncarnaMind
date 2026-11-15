@@ -119,6 +119,7 @@ describe("The assistant changes Minds as Proposals", { timeout: 30_000 }, () => 
           written: 0,
           named: { takenOut: [], rewritten: [] },
         },
+        stretchAt: { firstParagraph: 1, lastParagraph: 1, ofParagraphs: 1, underHeading: true },
         touched: {
           edited: 1,
           added: 0,

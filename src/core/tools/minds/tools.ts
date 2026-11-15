@@ -103,6 +103,7 @@ import {
   MIND_CONTENT_FIELD,
   type MindChange,
   type MindProblem,
+  type PlaceInNote,
   PROPOSAL_ATTRIBUTE,
   type RequestedChange,
   type TextPlace,
@@ -1159,6 +1160,29 @@ function writtenNotes({ notFound, unrecorded, searchTalk, pointersBack }: Writte
         ]
       : []),
   ];
+}
+
+/** Where a stretch sits in a Mind, by number: see `PlaceInNote`. Null when it isn't found. */
+function placeOf(blocks: Y.XmlFragment, { from, to }: Stretch): PlaceInNote | null {
+  const all = textBlocks(blocks).map((each) => each.element);
+  const first = all.findIndex((element) => idOf(element) === from.blockId);
+  const last = all.findIndex((element) => idOf(element) === to.blockId);
+  if (first < 0 || last < first) return null;
+  const isParagraph = (element: Y.XmlElement) =>
+    element.nodeName === "paragraph" && plainText(element).trim() !== "";
+  const paragraphs = all.filter(isParagraph);
+  const covered = all.slice(first, last + 1).filter(isParagraph);
+  const [start] = covered;
+  const end = covered.at(-1);
+  return {
+    ...(start &&
+      end && {
+        firstParagraph: paragraphs.indexOf(start) + 1,
+        lastParagraph: paragraphs.indexOf(end) + 1,
+      }),
+    ofParagraphs: paragraphs.length,
+    underHeading: all.slice(0, first + 1).some((element) => element.nodeName === "heading"),
+  };
 }
 
 function stretchElements(blocks: Y.XmlFragment, { from, to }: Stretch): Y.XmlElement[] {
@@ -2678,6 +2702,7 @@ export function mindTools(options: MindToolsOptions): {
           `Nothing was changed in “${mind.name}”: ${stretch.why}.${stretch.hint ? ` ${stretch.hint}` : ""}`,
         );
       }
+      const place = minds.read(mind.id, (blocks) => placeOf(blocks, stretch));
       const waiting = minds.read(mind.id, (blocks) =>
         waitingIn(blocks, stretch.from, stretch.to, ownRequests),
       );
@@ -2842,6 +2867,7 @@ export function mindTools(options: MindToolsOptions): {
             ...(changed > 0 && { changed }),
             ...(added && { added: true }),
             touched: touchedBy(kinds),
+            ...(place && { stretchAt: place }),
             ...(tables > 0 && { tables }),
             ...(sentences && { sentences }),
             ...(removed && { removed }),

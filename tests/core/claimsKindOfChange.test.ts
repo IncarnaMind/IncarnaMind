@@ -137,6 +137,12 @@ describe("The check is told what kind of change an applied edit made and the par
       titlesRemoved: 1,
       untouched: 4,
     });
+    expect(change?.place).toEqual({
+      firstParagraph: 3,
+      lastParagraph: 4,
+      ofParagraphs: 4,
+      underHeading: true,
+    });
   });
 
   // protects=an edit that made a paragraph longer reaches the check as one paragraph edited and none added or taken out; fails_when=the record can't say nothing was taken out, so "the paragraph is removed" for a request to make it longer stays unchallenged; no_claim=what the judge makes of the counts.
@@ -172,9 +178,15 @@ describe("The check is told what kind of change an applied edit made and the par
       titlesRemoved: 0,
       untouched: 6,
     });
+    expect(change?.place).toEqual({
+      firstParagraph: 3,
+      lastParagraph: 3,
+      ofParagraphs: 4,
+      underHeading: true,
+    });
   });
 
-  // protects=the counts hold no text of the User's, only numbers, and the part is the name the call gave; fails_when=a paragraph, a title or a sentence of the Note is in the request beside the counts; no_claim=the part's name, which the call wrote.
+  // protects=the counts and the place hold no text of the User's, only numbers and a yes or no, and the part is the name the call gave (a name the record has always sent: nothingChangedIn and a waiting change's state); fails_when=a paragraph, a title or a sentence of the Note is in the request beside them, or the heading a paragraph sits under; no_claim=the part's name, which the call wrote.
   test("a section taken out: none of the Note's words are sent", async () => {
     const each = REMOVAL.en;
     const { prompt } = await recordAfter("en", each.asked, [
@@ -188,5 +200,6 @@ describe("The check is told what kind of change an applied edit made and the par
     expect(prompt).not.toContain("The gauges were read each hour");
     expect(prompt).not.toContain("High tide reached");
     expect(prompt).not.toContain("Sea walls");
+    expect(prompt).not.toContain("Coastal Flood Risk Review");
   });
 });

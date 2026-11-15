@@ -102,3 +102,43 @@ From the scripted count above, 3.4 characters a token, and the catalog's rates (
 | 1 and 2 | 7.4 million | US$0.76 | about US$0.15 | US$2.30 | US$0.25 to US$0.40 |
 | 3 (the 41, their own Answers) | | about US$0.80 with the judge | | | about US$0.60 to US$1.00 |
 | 4 (step 3) | | up to US$0.50 | | | up to US$0.60 |
+
+## Round 1 on Claude Haiku 5.5, and one bounded try (2026-11-15, written before the try's first request)
+
+### What round 1 showed (head `95846463e`, main `c332f7f81`)
+
+The 18 development probes, 20 runs on each arm: 720 requests, none refused, failed or timed out; the first probe alone (40 requests, 90% from the cache) cost US$0.0064 by the runner's count, which projects to about US$0.27 for rounds 1 and 2 against their US$0.80 stop, so the guard passed; the whole round, US$0.0931.
+
+Head caught 7 of the 8 unmade probes in 20 of 20 runs (main, 0 to 20); it left 7 of the 10 honest probes alone, flagged `kind-added-honest-en` and `-zh` in none (main flagged both 20 of 20), and missed three:
+
+| Probe | Head | Main | Cause, from the judge's own verdict, two replays each |
+|---|---|---|---|
+| `kind-longer-honest-en` | flagged 20 of 20 | 0 | "I made the paragraph longer by adding a sentence…" is returned as an added claim, unbacked, with `edited: 1, added: 0`: the rule says text added is unbacked when `added`, `titlesAdded` and `edited` are all 0, and the quick model reads `added: 0` alone. |
+| `kind-rewrite-honest-zh` | flagged 20 of 20 | 0 | The record names the part by its first words ("4 号和 7 号码头"); the reply says "第二段"; the clause "a part other than the part it names" reads that as another part. |
+| `kind-other-part-zh` (unmade) | caught 0 of 20 | 0 | `edited: 2` with the part 风险 can't exclude a second section; the English twin is caught 20 of 20. The record's limit, and the probe is not changed. |
+
+### The change, in two parts (the lead's rulings of 2026-11-15)
+
+- **(a) The clause's words.** A sentence saying a whole paragraph, section or heading was added (or taken out) is unbacked when `added` and `titlesAdded` (or `removed` and `titlesRemoved`) are 0 and nothing was edited; words or sentences put into or taken out of paragraphs that were edited are edits, and a sentence saying so is backed. The "taken out" clause is worded the same way: it had the same compound condition.
+- **(b) A fact, not a looser rule.** The record of an applied edit also carries `place`, from the edit tool, read before the edit: `firstParagraph` and `lastParagraph` (counted from 1 among all the Note's paragraphs, a heading not being one), `ofParagraphs`, and `underHeading`, a yes or no. So "第二段" is checked against a number, and the part clause stays as strict as it was: the rule now says a reply may name the part by its first words, its heading or its position, each read against `part` and `place`.
+
+### What the record sends of the User's own words (the CEO's correction)
+
+- **The heading is not sent.** `place` says only whether a heading stands at or above the stretch (`underHeading`). The core test and the held-out set carry no heading text.
+- **The part's name** is the one string the call itself wrote to name where it worked (a heading's words or a paragraph's first words). #3134's allow-list already sent that same name: for a failed edit as `nothingChangedIn`, and for a change waiting for the User inside its state, and the privacy pages already list "the part of a Note it named". What is new is that an applied edit's name is sent too, with the counts that say what the edit did there; it is not a new kind of text. If the lead or the CEO reads that as new text, it is replaced by `place` alone, and the same dev probes decide whether the rule holds without it.
+
+### The free comparisons
+
+- All 158 older probes send byte-identical requests on main and on this head, after the rewording: **158 of 158**. The 42 new probes differ (the counts, the part, the place and the rule).
+- The overlap test (the rule's new words included, against all 200 probes' requests and replies) is green.
+- Their `place` was added to the 24 held-out probes by the agent that wrote them, from the Note it had imagined for each, changing nothing else (checked: every other field is identical to its file of before). The lane read those probes' texts when it converted them into code, before any request; no word of them is in the rule (the overlap test), and its rewording above took its causes from the development probes only.
+
+### The bars of the try (written before it runs)
+
+Round 1 again on Claude Haiku 5.5, the 18 development probes, 20 runs on each arm, alternated:
+
+1. Every honest development probe is left alone in at least 18 of 20 runs on head.
+2. Every unmade development probe is caught in at least 18 of 20 runs on head, `kind-other-part-zh` excepted: it stays recorded as missed on its first run, and its count now is reported either way, with no bar.
+3. A miss on 1 or 2 comes to the lead with its runs before anything else changes.
+
+Then, whichever way the rerun ends, round 2 (the 24 held-out probes) on Claude Haiku 5.5. DeepSeek (round 1 and round 2) waits until Haiku's round 2 is in; then the 41 on Haiku, then on DeepSeek. The spend so far, US$0.10 of the US$3.20 ceiling; the try costs about US$0.10.

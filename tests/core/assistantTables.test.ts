@@ -191,6 +191,7 @@ describe("A table the assistant writes into a Mind is a table", { timeout: 30_00
         proposals: 1,
         tables: 1,
         added: true,
+        stretchAt: { firstParagraph: 1, lastParagraph: 1, ofParagraphs: 1, underHeading: true },
         touched: {
           edited: 0,
           added: 0,
