@@ -1,0 +1,640 @@
+/**
+ * `INCARNAMIND_EVAL_SPEED_DECISION_FIRST=dry|real|replay|replay-dry npm run eval:speed` (README.md › A
+ * decision model in front of the check): Check this Note on one Note, with no decision model chosen and with one
+ * (#3118), the arms taking turns in one run over one Library, with the built-in reranker on this
+ * computer. Each run gives when the first and the last first reading showed, when the AI model's
+ * first and last Mark landed, and each sentence's Mark.
+ *
+ * - `dry` costs nothing: the AI model is scripted (it searches for the sentence, then answers, each
+ *   reply after INCARNAMIND_EVAL_SPEED_REPLY_MS, 3000 by default) and the decision model's host is
+ *   a server on this computer that answers after INCARNAMIND_EVAL_SPEED_HOST_MS (350 by default)
+ *   with a score that only leans, so every sentence still reaches the AI model. It measures what
+ *   the readings' searches cost the AI model's Marks at worst. INCARNAMIND_EVAL_SPEED_HOST_SURE_EVERY
+ *   (say 5) makes its score sure for every fifth sentence, so the decision model marks those it
+ *   can quote and they never reach the AI model: set it to give the share a real model marks.
+ * - `real` asks INCARNAMIND_EVAL_SPEED_MODELS' first model and the decision model on OpenRouter
+ *   (INCARNAMIND_EVAL_SPEED_KEY_OPENROUTER), and stops before a run once
+ *   INCARNAMIND_EVAL_SPEED_STOP_USD (1 by default) is spent, by the core's count. Each run counts
+ *   the requests that weren't answered, the decision host's through a relay on this computer.
+ * - `replay` checks each labelled Note of INCARNAMIND_EVAL_SPEED_NOTES (JSON files: blocks of
+ *   sentences, each with the Mark a check should give and the place it cites) over the gating
+ *   set's Documents (eval/retrieval), with the real decision model and an AI model that is scripted
+ *   and never decides: what the decision model marks and reads in the app, counted against the
+ *   labels. It prints counts only; each sentence's Mark goes to marks.json for a blind reading,
+ *   and the run fails as void if the host refused a request, answered later or not.
+ *   `replay-dry` is the same on the host on this computer, to try the run for nothing.
+ *
+ * INCARNAMIND_EVAL_SPEED_ARMS (as `main,decision,decision,main`, the default) names each run's arm
+ * in turn, INCARNAMIND_EVAL_SPEED_SENTENCES how many sentences the Note holds (33 by default, the
+ * English sets of eval/repeats over their Documents), and INCARNAMIND_EVAL_SPEED_LIBRARY=mixed
+ * adds the mixed sample set, so a search reranks as many Passages as in a real Library.
+ */
+import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
+import { loadavg, tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
+import { test } from "vitest";
+import {
+  type ChatModelChoice,
+  type CheckDecisionModel,
+  type Core,
+  MIND_CONTENT_FIELD,
+} from "../../src/core";
+import { BUILT_IN_RERANKING_MODEL } from "../../src/core/reranking/model";
+import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
+import { findQuote } from "../../src/shared/quoteMatch";
+import { checkGenerate, checkReply, isCheckRun, type Plan } from "../../tests/helpers/checks";
+import { queryDatabase } from "../../tests/helpers/core";
+import { connectToMind } from "../../tests/helpers/mindClient";
+import { heading, note, readMind, writeMind } from "../../tests/helpers/minds";
+import { scriptedModel } from "../../tests/helpers/models";
+import { reports } from "../everyday/asking";
+import { readConfig } from "../lib/config";
+import { createWorkerEmbedder } from "../lib/embedder";
+import { type EvalDocument, loadEvaluationSet } from "../lib/evaluationSet";
+import { type Library, openLibrary } from "../lib/library";
+import { createLog } from "../lib/log";
+import { createWorkerCrossEncoder } from "../lib/rerank";
+import { SETS, writeDocuments } from "../repeats/cases";
+import { asLabelled, decisionUsd, replayOutcome, replayTally } from "./decisionFirstScore";
+import { env, list, modelsAsked, spentUsd } from "./settings";
+
+const ROOT = resolve(__dirname, "../..");
+const DECIDER: CheckDecisionModel = { host: "openrouter", modelId: "perplexity/pplx-decider-v1.2" };
+const mode = env("DECISION_FIRST");
+type Arm = "main" | "decision";
+
+/** The English sets' sentences, each once, and the Documents their Libraries hold between them. */
+async function noteOf(folder: string, count: number) {
+  const sets = SETS.filter((set) => set.language === "en");
+  const byText = new Map(sets.flatMap((set) => set.sentences).map((each) => [each.text, each]));
+  const documents = new Map<string, EvalDocument>();
+  for (const set of sets)
+    for (const document of await writeDocuments(folder, set)) documents.set(document.key, document);
+  return { sentences: [...byText.values()].slice(0, count), documents: [...documents.values()] };
+}
+
+/**
+ * A decision host on this computer: every sentence's first Passage leans to stating it, no other;
+ * for a sentence in `sure` its score is clear of the verdict's line.
+ */
+async function startHost(answerMs: number, sure: ReadonlySet<string> = new Set()) {
+  const leaning = new Set<string>();
+  let asked = 0;
+  const server = createServer(async (request, response) => {
+    let text = "";
+    for await (const chunk of request) text += chunk;
+    const send = (payload: unknown) => {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify(payload));
+    };
+    if (request.method === "GET") return send({ data: [] });
+    const body = JSON.parse(text) as { model: unknown; state: { sentence: string } };
+    asked++;
+    const first = !leaning.has(body.state.sentence);
+    leaning.add(body.state.sentence);
+    await sleep(answerMs);
+    send({
+      model: body.model,
+      answers: {
+        B: { type: "noul", noul: first ? (sure.has(body.state.sentence) ? 0.995 : 0.9) : 0.02 },
+        C: { type: "noul", noul: 0.01 },
+      },
+      usage: { input_tokens: 10, output_tokens: 0 },
+    });
+  });
+  await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
+  return {
+    url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
+    asked: () => asked,
+    inputTokens: () => 0,
+    refused: (): number[] => [],
+    forget: () => leaning.clear(),
+    close: () =>
+      new Promise<void>((done) => {
+        server.closeAllConnections();
+        server.close(() => done());
+      }),
+  };
+}
+
+type DecisionHost = Awaited<ReturnType<typeof startHost>> | Awaited<ReturnType<typeof startRelay>>;
+
+const OPENROUTER = "https://openrouter.ai";
+
+/**
+ * A relay on this computer to the decision model's own host, which counts what the app can't see:
+ * a refused request the app asks again and gets answered still makes a paid run void.
+ */
+async function startRelay(origin: string) {
+  let asked = 0;
+  let inputTokens = 0;
+  const refused: number[] = [];
+  const server = createServer(async (request, response) => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of request) chunks.push(chunk as Buffer);
+    const asks = request.method === "POST";
+    const headers = Object.fromEntries(
+      ["authorization", "content-type", "accept"].flatMap((name) => {
+        const value = request.headers[name];
+        return typeof value === "string" ? [[name, value]] : [];
+      }),
+    );
+    // 0 stands for a request the app gave up on before its answer came.
+    response.on("close", () => {
+      if (asks && !response.writableEnded) refused.push(0);
+    });
+    const reply = await fetch(`${origin}${request.url ?? ""}`, {
+      method: request.method ?? "GET",
+      headers,
+      ...(asks && { body: Buffer.concat(chunks) }),
+    });
+    const text = await reply.text();
+    if (asks) {
+      asked++;
+      if (reply.ok) {
+        const { usage } = JSON.parse(text) as { usage?: { input_tokens?: number } };
+        inputTokens += usage?.input_tokens ?? 0;
+      } else refused.push(reply.status);
+    }
+    const retryAfter = reply.headers.get("retry-after");
+    response.writeHead(reply.status, {
+      "content-type": reply.headers.get("content-type") ?? "application/json",
+      ...(retryAfter && { "retry-after": retryAfter }),
+    });
+    response.end(text);
+  });
+  await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
+  return {
+    url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
+    asked: () => asked,
+    inputTokens: () => inputTokens,
+    refused: () => refused,
+    forget: () => {},
+    close: () =>
+      new Promise<void>((done) => {
+        server.closeAllConnections();
+        server.close(() => done());
+      }),
+  };
+}
+
+/** A model that checks each of `sentences` in two replies, a search and its answer, each after `replyMs`. */
+function scriptedCheck(sentences: readonly string[], replyMs: number) {
+  const plans: Record<string, Plan> = Object.fromEntries(
+    sentences.map((each) => [each, { verdict: "unsupported" }]),
+  );
+  return scriptedModel(
+    (call) => {
+      const reply = checkReply(call, plans);
+      return isCheckRun(call) ? { ...reply, pause: { after: 0, until: sleep(replyMs) } } : reply;
+    },
+    { generate: checkGenerate(plans) },
+  );
+}
+
+interface RunTimes {
+  arm: Arm;
+  sentences: number;
+  readings: number;
+  firstReadingMs: number | null;
+  lastReadingMs: number | null;
+  /** When the AI model's first Mark landed, and the last Mark of all. */
+  firstMarkMs: number | null;
+  lastMarkMs: number | null;
+  doneMs: number;
+  reranks: number;
+  rerankMs: number;
+  hostRequests: number;
+  /** Requests the AI model's provider or the decision host didn't answer: one makes a paid run void. */
+  unanswered: number;
+  /** Marks that are the verdict the Documents give their sentence, whoever gave them. */
+  asLabelled: number;
+  /** Marks the decision model gave, and those of them that aren't as labelled. */
+  decisionMarks: number;
+  decisionWrong: number;
+  usd: number;
+  /** What the decision host's own count of input tokens costs at its listed price. */
+  decisionUsd: number;
+  load: number;
+  marks: {
+    sentence: string;
+    state: string;
+    by: string | null;
+    quote: string | null;
+    firstReading: string | null;
+    /** When its first reading showed and its Mark landed, from the User's action. */
+    readMs: number | null;
+    landedMs: number | null;
+  }[];
+}
+
+/** One Check this Note of a new Note of `sentences`, timed from the User's action. */
+async function checkNote(
+  core: Core,
+  sentences: readonly string[],
+  choice: ChatModelChoice,
+  title: string,
+) {
+  const { id: mindId } = await core.createMind({ title });
+  const client = await connectToMind(core, mindId);
+  writeMind(
+    client,
+    sentences.map((sentence) => note(sentence)),
+  );
+  await client.settled();
+  const spans = () =>
+    claimSpans(readMind({ blocks: client.doc.getXmlFragment(MIND_CONTENT_FIELD) }));
+  const read = new Map<string, number>();
+  const landed = new Map<string, number>();
+  const started = performance.now();
+  const watch = () => {
+    const ms = performance.now() - started;
+    for (const { sentence, check } of spans()) {
+      const key = sentence.text.trim();
+      if (check.parts?.some((part) => part.firstReading) && !read.has(key)) read.set(key, ms);
+      if (check.state && check.state !== "checking" && !landed.has(key)) landed.set(key, ms);
+    }
+  };
+  client.doc.on("update", watch);
+  await core.checkMind({ requestId: `${title}-${Date.now()}`, mindId, mode: "all", model: choice });
+  const doneMs = performance.now() - started;
+  client.doc.off("update", watch);
+  const times = (each: Iterable<number>) => [...each].sort((a, b) => a - b);
+  const marks = spans().map(({ sentence, check }) => {
+    const part = check.parts?.[0];
+    return {
+      sentence: sentence.text.trim(),
+      state: check.state ?? "none",
+      by: part?.modelId ?? check.modelId ?? null,
+      quote: part?.evidence?.[0]?.quote ?? null,
+      firstReading: part?.firstReading?.verdict ?? null,
+      readMs: read.get(sentence.text.trim()) ?? null,
+      landedMs: landed.get(sentence.text.trim()) ?? null,
+    };
+  });
+  const byAiModel = marks.flatMap((mark) =>
+    mark.by !== DECIDER.modelId && mark.landedMs !== null ? [mark.landedMs] : [],
+  );
+  return {
+    sentences: landed.size,
+    readings: read.size,
+    firstReadingMs: times(read.values())[0] ?? null,
+    lastReadingMs: times(read.values()).at(-1) ?? null,
+    firstMarkMs: times(byAiModel)[0] ?? null,
+    lastMarkMs: times(landed.values()).at(-1) ?? null,
+    doneMs,
+    marks,
+  };
+}
+
+const seconds = (ms: number | null) => (ms === null ? "none" : `${(ms / 1000).toFixed(1)} s`);
+
+function report(runs: readonly RunTimes[], heading: string) {
+  const rows = runs.map(
+    (run, at) =>
+      `| ${at + 1} | ${run.arm} | ${run.sentences} | ${run.readings} | ${seconds(run.firstReadingMs)} | ${seconds(run.lastReadingMs)} | ${seconds(run.firstMarkMs)} | ${seconds(run.lastMarkMs)} | ${seconds(run.doneMs)} | ${run.reranks} | ${seconds(run.rerankMs)} | ${run.hostRequests} | ${run.unanswered} | ${run.asLabelled} | ${run.decisionMarks} | ${run.decisionWrong} | $${run.usd.toFixed(3)} | $${run.decisionUsd.toFixed(4)} | $${(run.usd + run.decisionUsd).toFixed(3)} | ${run.load.toFixed(1)} |`,
+  );
+  return [
+    `# ${heading}`,
+    "",
+    "| Run | Arm | Marks landed | First readings | First reading at | Last reading at | AI model's first Mark | Last Mark | Done | Reranks | Reranking | Requests to the decision host | Requests not answered | Marks as labelled | Decision model's Marks | Of them not as labelled | The AI model's cost | The decision model's cost | Both | Load |",
+    "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
+    ...rows,
+    "",
+  ].join("\n");
+}
+
+test.skipIf(mode !== "dry" && mode !== "real")(
+  "Check this Note with a decision model in front, beside the check alone",
+  async () => {
+    const config = readConfig(ROOT);
+    const log = createLog();
+    const arms = (list("ARMS") ?? ["main", "decision", "decision", "main"]).map((arm): Arm => {
+      if (arm !== "main" && arm !== "decision")
+        throw new Error(`INCARNAMIND_EVAL_SPEED_ARMS: "${arm}" isn't main or decision.`);
+      return arm;
+    });
+    const folder = await mkdtemp(join(tmpdir(), "incarnamind-decision-first-"));
+    const { sentences, documents } = await noteOf(folder, Number(env("SENTENCES") ?? "33"));
+    const texts = sentences.map((each) => each.text);
+    if (env("LIBRARY") === "mixed") documents.push(...(await reports()));
+    const every = Number(env("HOST_SURE_EVERY") ?? "0");
+    const sure = every > 0 ? texts.filter((_, at) => at % every === every - 1) : [];
+    const host: DecisionHost =
+      mode === "dry"
+        ? await startHost(Number(env("HOST_MS") ?? "350"), new Set(sure))
+        : await startRelay(OPENROUTER);
+    const scripted =
+      mode === "dry" ? scriptedCheck(texts, Number(env("REPLY_MS") ?? "3000")) : null;
+    const [asked] = modelsAsked();
+    const key = env("KEY_OPENROUTER");
+    if (mode === "real" && (!asked || !key))
+      throw new Error("A real run needs INCARNAMIND_EVAL_SPEED_MODELS and _KEY_OPENROUTER.");
+    const library = await openLibrary({
+      name: "decision-first",
+      embedder: createWorkerEmbedder(),
+      modelCache: join(config.cacheDir, "models"),
+      reranker: createWorkerCrossEncoder(config.rerankOnCpu),
+      documents,
+      embeddings: false,
+      keep: config.keepData,
+      log,
+      ...(scripted && { chatModels: () => () => scripted }),
+      decisionOrigins: { openrouter: host.url },
+    });
+    const runs: RunTimes[] = [];
+    let stopped: string | null = null;
+    try {
+      const { core, dataDir } = library;
+      core.on(
+        "consent.requested",
+        (request) => void core.respondToConsent(request.requestId, true),
+      );
+      // The decision host's key is the OpenRouter provider's, as in the app.
+      const openRouter = await core.saveChatProvider({
+        kind: "openrouter",
+        apiKey: key ?? "sk-or-dry-run",
+        modelId: "anthropic/claude-haiku-5.5",
+      });
+      const saved = asked && mode === "real" ? await core.saveChatProvider(asked) : openRouter;
+      const choice: ChatModelChoice = {
+        providerId: saved.id,
+        modelId: asked && mode === "real" ? asked.modelId : "anthropic/claude-haiku-5.5",
+      };
+      const stopUsd = Number(env("STOP_USD") ?? "1");
+      for (const [at, arm] of arms.entries()) {
+        const before = await spentUsd(core);
+        if (before >= stopUsd) {
+          stopped = `Stopped at $${before.toFixed(2)}, before run ${at + 1} (${arm}).`;
+          log(stopped);
+          break;
+        }
+        await core.updateSettings({
+          device: { checkDecisionModel: arm === "decision" ? DECIDER : null },
+        });
+        host.forget();
+        const hostBefore = host.asked();
+        const refusedBefore = host.refused().length;
+        const tokensBefore = host.inputTokens();
+        const load = loadavg()[0] ?? 0;
+        log(
+          `run ${at + 1}/${arms.length} · ${arm} · ${texts.length} sentences · load ${load.toFixed(1)}`,
+        );
+        const startedAt = new Date().toISOString();
+        const times = await checkNote(core, texts, choice, `Decision first ${at + 1} ${arm}`);
+        const labelled = times.marks.flatMap((mark) => {
+          const expected = sentences.find((each) => each.text.trim() === mark.sentence)?.expected;
+          return expected
+            ? [{ right: asLabelled(expected, mark.state), decided: mark.by === DECIDER.modelId }]
+            : [];
+        });
+        const reranks = queryDatabase<{ end_ms: number }>(
+          dataDir,
+          "SELECT end_ms FROM ai_timings WHERE kind = 'local' AND model_id = ? AND started_at >= ?",
+          [BUILT_IN_RERANKING_MODEL.name, startedAt],
+        );
+        const [failed] = queryDatabase<{ count: number }>(
+          dataDir,
+          "SELECT COUNT(*) AS count FROM ai_timings WHERE outcome = 'failed' AND started_at >= ?",
+          [startedAt],
+        );
+        const run: RunTimes = {
+          arm,
+          ...times,
+          reranks: reranks.length,
+          rerankMs: reranks.reduce((sum, each) => sum + each.end_ms, 0),
+          hostRequests: host.asked() - hostBefore,
+          unanswered: (failed?.count ?? 0) + host.refused().length - refusedBefore,
+          asLabelled: labelled.filter((each) => each.right).length,
+          decisionMarks: labelled.filter((each) => each.decided).length,
+          decisionWrong: labelled.filter((each) => each.decided && !each.right).length,
+          usd: (await spentUsd(core)) - before,
+          decisionUsd: decisionUsd(host.inputTokens() - tokensBefore),
+          load,
+        };
+        runs.push(run);
+        log(
+          `  readings ${run.readings} (${seconds(run.firstReadingMs)} to ${seconds(run.lastReadingMs)}), AI model's first Mark ${seconds(run.firstMarkMs)}, last Mark ${seconds(run.lastMarkMs)}, done ${seconds(run.doneMs)}, ${run.reranks} reranks in ${seconds(run.rerankMs)}`,
+        );
+      }
+    } finally {
+      await library.close();
+      await host.close();
+    }
+    const out = join(
+      config.resultsDir,
+      `decision-first-${new Date().toISOString().replace(/[:.]/gu, "-")}`,
+    );
+    await mkdir(out, { recursive: true });
+    const heading = `Check this Note with a decision model in front (${mode}, ${texts.length} sentences${env("LIBRARY") === "mixed" ? ", mixed Library" : ""})`;
+    const tokens = `The decision host read ${host.inputTokens()} input tokens in ${host.asked()} requests, US$${decisionUsd(host.inputTokens()).toFixed(4)} at its listed price.`;
+    const text = `${report(runs, heading)}\n${tokens}\n${stopped ? `\n${stopped}\n` : ""}`;
+    await writeFile(join(out, "report.md"), text);
+    await writeFile(
+      join(out, "report.json"),
+      JSON.stringify({ mode, expected: sentences, runs }, null, 2),
+    );
+    log(`\n${text}\nWritten to ${out}`);
+  },
+);
+
+interface LabelledSentence {
+  id: string;
+  text: string;
+  expected: "supported" | "contradicted" | "unsupported" | "no-mark" | "unknown";
+  citation: { file: string; quote: string } | null;
+}
+
+interface LabelledNote {
+  id: string;
+  language: "en" | "zh";
+  blocks: { heading: string | null; sentences: LabelledSentence[] }[];
+}
+
+const bareName = (name: string) => name.replace(/\.[A-Za-z0-9]{2,5}$/u, "").normalize("NFC");
+
+/** The Note as the app holds it: a block a paragraph, a sentence's Citation right after it. */
+async function writeLabelled(library: Library, labelled: LabelledNote) {
+  const { core } = library;
+  const documents = new Map((await core.listDocuments()).map((each) => [each.id, each]));
+  const passages = library.passages();
+  const citation = ({ file, quote }: NonNullable<LabelledSentence["citation"]>) => {
+    const passage = passages.find(
+      (each) =>
+        bareName(each.documentName) === bareName(file) &&
+        findQuote(each.text, quote, { numbers: "if-needed", lostLigatures: true }) !== null,
+    );
+    const document = passage && documents.get(passage.documentId);
+    if (!passage || !document) return [];
+    return [
+      {
+        type: "citation",
+        attrs: {
+          passageId: passage.passageId,
+          documentId: document.id,
+          documentName: passage.documentName,
+          contentHash: document.contentHash,
+          pageFrom: passage.pageFrom,
+          pageTo: passage.pageTo,
+          quote,
+          check: "found",
+          checkReason: null,
+        },
+      },
+    ];
+  };
+  const gap = labelled.language === "zh" ? "" : " ";
+  const { id: mindId } = await core.createMind({ title: `Replay ${labelled.id}` });
+  const client = await connectToMind(core, mindId);
+  writeMind(
+    client,
+    labelled.blocks.flatMap((block) => [
+      ...(block.heading ? [heading(2, block.heading)] : []),
+      {
+        type: "paragraph",
+        attrs: { id: randomUUID() },
+        content: block.sentences.flatMap((each, at) => [
+          { type: "text", text: at === 0 ? each.text : `${gap}${each.text}` },
+          ...(each.citation ? citation(each.citation) : []),
+        ]),
+      },
+    ]),
+  );
+  await client.settled();
+  return { mindId, client };
+}
+
+test.skipIf(mode !== "replay" && mode !== "replay-dry")(
+  "Labelled Notes read by the decision model in the app, counted against their labels",
+  async () => {
+    const config = readConfig(ROOT);
+    const log = createLog();
+    const paths = list("NOTES");
+    const key = env("KEY_OPENROUTER");
+    if (!paths) throw new Error("A replay needs INCARNAMIND_EVAL_SPEED_NOTES.");
+    if (mode === "replay" && !key)
+      throw new Error("A replay on the real host needs INCARNAMIND_EVAL_SPEED_KEY_OPENROUTER.");
+    const notes = paths.map(
+      (path) => JSON.parse(readFileSync(resolve(path), "utf8")) as LabelledNote,
+    );
+    const claims = notes
+      .flatMap((each) => each.blocks.flatMap((block) => block.sentences))
+      .filter((each) => each.expected !== "no-mark")
+      .map((each) => each.text);
+    const host: DecisionHost =
+      mode === "replay-dry" ? await startHost(0) : await startRelay(OPENROUTER);
+    const scripted = scriptedCheck(claims, 0);
+    const library = await openLibrary({
+      name: "decision-first-replay",
+      embedder: createWorkerEmbedder(),
+      modelCache: join(config.cacheDir, "models"),
+      reranker: createWorkerCrossEncoder(config.rerankOnCpu),
+      documents: loadEvaluationSet(ROOT).documents,
+      keep: config.keepData,
+      log,
+      chatModels: () => () => scripted,
+      decisionOrigins: { openrouter: host.url },
+    });
+    const lines: string[] = [];
+    const marks: unknown[] = [];
+    try {
+      const { core } = library;
+      core.on(
+        "consent.requested",
+        (request) => void core.respondToConsent(request.requestId, true),
+      );
+      const provider = await core.saveChatProvider({
+        kind: "openrouter",
+        apiKey: key ?? "sk-or-dry-run",
+        modelId: "anthropic/claude-haiku-5.5",
+      });
+      await core.updateSettings({ device: { checkDecisionModel: DECIDER } });
+      for (const labelled of notes) {
+        const { mindId, client } = await writeLabelled(library, labelled);
+        await core.checkMind({
+          requestId: `replay-${labelled.id}-${Date.now()}`,
+          mindId,
+          mode: "all",
+          model: { providerId: provider.id, modelId: "anthropic/claude-haiku-5.5" },
+        });
+        const spans = claimSpans(
+          readMind({ blocks: client.doc.getXmlFragment(MIND_CONTENT_FIELD) }),
+        );
+        const sentences = labelled.blocks.flatMap((block) => block.sentences);
+        const scored = sentences
+          .filter((each) => each.expected !== "no-mark" && each.expected !== "unknown")
+          .map((sentence) => {
+            const span = spans.find((each) => each.sentence.text.trim() === sentence.text.trim());
+            const part = span?.check.parts?.[0];
+            const byDecision = part?.modelId === DECIDER.modelId;
+            const evidence = byDecision ? part?.evidence?.[0] : undefined;
+            return {
+              id: sentence.id,
+              text: sentence.text,
+              expected: sentence.expected,
+              cited: sentence.citation !== null,
+              shown: span
+                ? {
+                    byDecision,
+                    state: span.check.state,
+                    firstReading: part?.firstReading?.verdict ?? null,
+                  }
+                : null,
+              quote: evidence?.quote ?? null,
+              document: evidence?.documentName ?? null,
+            };
+          });
+        const tally = replayTally(scored);
+        for (const each of scored)
+          marks.push({
+            note: labelled.id,
+            id: each.id,
+            sentence: each.text,
+            expected: each.expected,
+            outcome: replayOutcome(each.expected, each.shown),
+            quote: each.quote,
+            document: each.document,
+          });
+        lines.push(
+          `## ${labelled.id}`,
+          "",
+          `${sentences.length} sentences, ${scored.length} labelled with a Mark.`,
+          "",
+          "| What the decision model did | Sentences |",
+          "|---|---|",
+          ...Object.entries(tally.outcomes).map(([name, count]) => `| ${name} | ${count} |`),
+          `| marked, on a sentence with a digit | ${tally.markedWithDigit} |`,
+          `| marked, on a sentence with a Citation | ${tally.markedWithCitation} |`,
+          "",
+        );
+      }
+    } finally {
+      await library.close();
+      await host.close();
+    }
+    if (host.refused().length > 0)
+      throw new Error(
+        `Void: the decision host refused ${host.refused().length} requests (${[...new Set(host.refused())].join(", ")}).`,
+      );
+    const out = join(
+      config.resultsDir,
+      `decision-first-replay-${new Date().toISOString().replace(/[:.]/gu, "-")}`,
+    );
+    await mkdir(out, { recursive: true });
+    const text = [
+      `# Labelled Notes read by the decision model in the app (${mode})`,
+      "",
+      `The decision host answered ${host.asked()} requests, ${host.inputTokens()} input tokens, none refused.`,
+      "",
+      ...lines,
+    ].join("\n");
+    await writeFile(join(out, "report.md"), text);
+    await writeFile(join(out, "marks.json"), JSON.stringify(marks, null, 2));
+    log(`\n${text}\nWritten to ${out}`);
+  },
+);
