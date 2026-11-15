@@ -202,6 +202,8 @@ Written on 2026-11-15, before the second run's first paid request.
 
 The void rule and the one answered request before each part are as above. A void run is run again only inside its part's stop.
 
+**Added after part A again and before part B, with no bar: the joined question.** Part A again gave 41 Unsupported from the decision model, 7 of them on sentences labelled Supported. For those 41 sentences one more question is counted, as it was fixed before this gate on other text and with nothing new: the 5 Passages the model scored highest on "states the sentence" are joined under their Documents' names and the two questions are asked of them once, read at the verdict's lines. Reported: of the 7, how many turn Supported; of the 34 right ones, how many turn anything. It is asked by the script outside the app, with that script's own search: for the pair of 120 the answers are those saved on 2026-11-15 before part A again ran; for the pair of 88 they are asked now, stop US$0.02. It measures a rule, not a build that has it. Part B is held until this row is read.
+
 ## Results
 
 ### Part A, 2026-11-15
