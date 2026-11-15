@@ -207,7 +207,7 @@ const text = (value: string): JSONContent => ({ type: "text", text: value });
 /** A core with the two Documents, a Note of `sentences`, an AI model on OpenRouter and its decision host. */
 async function setUp(
   sentences: readonly string[] = [MOON, YEARLY, PENGUINS],
-  { readsByDefault = false } = {},
+  { readsByDefault = false, asShipped = false } = {},
 ) {
   const host = await startDecisionHost();
   const checks: ModelCall[] = [];
@@ -224,7 +224,7 @@ async function setUp(
     createChatModel: scriptedModels(model).createChatModel,
     keychain: createMemoryKeychain(),
     decisionOrigins: { openrouter: host.url },
-    decisionReadsByDefault: readsByDefault,
+    ...(!asShipped && { decisionReadsByDefault: readsByDefault }),
   });
   let accepts = true;
   core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, accepts));
@@ -342,6 +342,19 @@ describe("Check this Note with a decision model chosen (#3118)", { timeout: 30_0
     const requests = (sentence: string) =>
       host.asked.filter(({ state }) => state.sentence === sentence).length;
     expect([requests(MOON), requests(YEARLY), requests(PENGUINS)]).toEqual([4, 4, 2]);
+  });
+
+  // protects=a Mark the decision model gave is in the Note's record of AI use under that model, as the AI model's checks are under theirs (#3118); fails_when=the decision model's checks are missing from the record, or filed under the AI model that never saw the sentence; no_claim=how the AI use statement words them.
+  test("its Marks are in the record of AI use under its own name", async () => {
+    const { core, run } = await setUp();
+    await choose(core);
+
+    await core.checkMind(run());
+
+    const checked = (await core.listAiUse(run().mindId)).filter(
+      ({ kind }) => kind === "sentence-checked",
+    );
+    expect(checked.map(({ modelId }) => modelId)).toEqual(Array(3).fill(DECIDER.modelId));
   });
 
   // protects=the line under a decision model's verdict is asked about alone, under its Document's name, after the Passage's lines are scored; where it doesn't pass what a Passage alone must, the verdict stays the decision model's and rests on its Passage: the Mark says so, says no quote, and keeps the line only to place the Passage; the AI model's own check of the sentence, later, leaves no such flag; fails_when=the line is never asked alone, a line that fails alone is still said as the quote, the Mark doesn't say it rests on its Passage, the sentence loses the decision model's verdict, or the flag outlives the verdict it was given with; no_claim=how the card shows such a Mark, or how often a real model's line fails alone, which the gate's real-model run counted.
@@ -910,6 +923,18 @@ describe("A decision model that reads by default (#3118)", { timeout: 30_000 }, 
     });
     expect(readByAiModel()).toEqual([]);
     expect(await listed(core)).toEqual([`${service?.id} accepted`]);
+    expect((await core.getSettings()).device.checkDecisionModel).toBeNull();
+  });
+
+  // protects=the build ships with the measured model reading for a User who hasn't said, where their check already goes to its host's service (#3118); fails_when=the shipped value is off, so that User's check is read by nobody first; no_claim=anything of what the reading does, which the tests around this one show with the value set.
+  test("as shipped, it reads for a User who hasn't said", async () => {
+    const { core, host, run } = await setUp(undefined, { asShipped: true });
+
+    await core.checkMind(run());
+
+    expect(new Set(host.asked.map(({ state }) => state.sentence))).toEqual(
+      new Set([MOON, YEARLY, PENGUINS]),
+    );
     expect((await core.getSettings()).device.checkDecisionModel).toBeNull();
   });
 

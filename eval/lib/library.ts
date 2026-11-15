@@ -314,6 +314,9 @@ export async function openLibrary(options: LibraryOptions): Promise<Library> {
     ...(options.codeRuntime && { codeRuntime: options.codeRuntime }),
     ...(options.modelFacts && { modelFacts: options.modelFacts }),
     ...(options.decisionOrigins && { decisionOrigins: options.decisionOrigins }),
+    // A run measures the AI model's check alone, as its baselines did, unless it sets a decision
+    // model itself (#3118).
+    decisionReadsByDefault: false,
     ...options.meetings,
     // The Web pages come from a server on this computer, standing in for the web (./webPageServer).
     webPages: { fetch },

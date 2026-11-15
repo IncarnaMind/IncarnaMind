@@ -23,7 +23,7 @@ export const DECISION_CHECKS_FLOW_SENDS: readonly DataKind[] = ["checked-sentenc
  * runs on its host's service: the check sends the same text there, so nothing new leaves the
  * computer and nowhere new (ADR-0022). The one value that ships it on or off.
  */
-const READS_BY_DEFAULT = false;
+const READS_BY_DEFAULT = true;
 
 // A check waits for its sentence's reading, so a host is waited for once and no longer than no
 // measured answer took: of 13,179 at 32 at once the slowest came after 3.6 s, half within 0.3 s.

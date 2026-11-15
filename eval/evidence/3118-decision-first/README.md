@@ -15,7 +15,7 @@ What the gate does not cover: any other decision model (none can be chosen until
 
 ## The build since 2026-11-15
 
-The reading changed after this file was written. Points 1 to 3 above and the bars below describe the earlier build; **parts A and B have not been run on this one**, and the model still reads only where the User chose it.
+The reading changed after this file was written. Points 1 to 3 above and the bars below describe the earlier build. Parts A and B were run on this one later ("The second run", below), and what was decided since is at the end of this file ("The owner's decision, the card and one fresh blind reading").
 
 1. **One search, one request.** The sentence's 30 best Passages by the plain search (no reranker, no neighbouring Passages), with any it cites first, go to the decision model in one request with the two questions of each.
 2. **A Mark from the decision model** where a score is clear of the line, the Passage asked about alone scores clear again, and a number of the sentence the Passage writes another way is the same amount by the model's own answer (0.92). A sentence with a figure can get one. The quote is the sentence of that Passage the model scores highest on the verdict's question; a heading, a table's row and a sheet's row are quoted as one line. Since the commit after part B, the Mark says that line as its quote only where the line, asked about alone, passes too ("In the check code since", below).
@@ -404,14 +404,56 @@ Written on 2026-11-15, before its first request. No bar, and no build has this r
 
 ### In the check code since: a verdict whose line fails alone rests on its Passage
 
-The rule of the row above is in the check, and not yet in the card.
+The rule of the row above is in the check. The card followed ("The owner's decision, the card and one fresh blind reading", below).
 
 - **What the check does.** Once the confirming Passage's lines are scored, the line the model scores highest is asked about alone, under its Document's name without the page, as the row measured it. It is one more request for each verdict the decision model gives, sent after the lines' answer.
 - **What the Mark keeps.** Where the line alone passes the lines a Passage alone must pass, nothing changes. Where it doesn't, or where it is longer than the 200 characters a check stores (never asked), the verdict stays the decision model's: the Mark says it rests on its Passage, and says no quote. Its receipt keeps the line, which places the Passage in its Document. Where the host can't be asked about the line, the sentence keeps a first reading and goes to the AI model, as after any request that fails.
-- **What a User sees today.** The card still shows the stored line. Three things do change for a Mark that rests on its Passage: a Contradicted one has no line of what the Document says on its card, the check record's Quote cell is empty beside the Document and the place, and a comment in an exported file names the Document and the place without the line.
+- **What a User saw at that commit.** The card still showed the stored line. Three things do change for a Mark that rests on its Passage: a Contradicted one has no line of what the Document says on its card, the check record's Quote cell is empty beside the Document and the place, and a comment in an exported file names the Document and the place without the line.
 - **Read by a second reader** who had not seen the change's reasoning. The record, the exported comment and the failed request above are that reading's findings, fixed here.
 - **Not measured on this build.** No bar was run again. A3 is read again once the card shows no quote for such a Mark. T4's run is not touched: its host is sure of nothing, so no verdict is given and the extra request is never sent. A decision model's own Mark lands one request later than before: in the free run (`dry`, the scripted host at 350 ms a request, two runs of 4 such Marks, load 6.4 to 6.8) at 1.2 to 1.3 s, where the same run gave 0.9 to 1.0 s before this change, with 45 requests to the host where there were 41.
 - **Saved by the runs.** Each Mark of a `real` or `dry` run says whether its quote is shown (`quoteShown`).
+
+### The owner's decision, the card and one fresh blind reading
+
+**The decision.** With A3 not met and its 12 rejected quotes in front of them, the owner decided that reading by default goes on with the rule above (a Mark whose line fails alone says no quote), once the card shows no quote for such a Mark and one fresh blind reading of the quotes the card then shows has passed. What follows was fixed before that reading's first request.
+
+**The card.** A Mark that rests on its Passage shows no quote of the model's: the card names the Document and the place, and Open goes to the stored line. Nothing is offered that would write that line into a Citation (Add as Citation, Widen, Replace); a Citation the sentence already has on that place is still named. A first reading shows as a dashed ring in the meta ink, named "Likely supported" or "Likely contradicted" with the model it came from, and never counts as checked.
+
+**The text.** The citation benchmark's records (`eval/citations`) that rest only on the six PDFs no run of this gate had loaded: 71 records (28 English, 43 Chinese). To have Contradicted sentences, a model lane wrote one wrong-figure variant for each single-fact and table-figure answer, changing the figure only; a second reader, given variants and true answers mixed and unmarked, read 33 of 33 variants as contradicted and 32 of 33 true answers as stated (1 unclear). 3 of the 36 answers hold no figure and got no variant. That makes 104 Notes and 111 sentences by the app's splitter: 71 labelled Supported, 33 Contradicted, 7 Unsupported. A Note is one paragraph, the record's question and then its answer, in a Search scope of its own PDF. 12 answers are a bare figure under three words; they stay as written.
+
+**The terms.** One `replay` run in the app on commit 8099e501f, keyword search (the app's default). Bar: A3 as written, on the quotes the card shows, read against the verdict's side: none rejected by both readers. Two fresh readers who see a question, its sentence and a quote, and as many decoys (a sentence beside another Document's quote); a third reader on any split, before the key is opened. Reported, not a bar: the decision model's Marks against the labels. Stop US$0.10; one answered request first; a run with a request refused, failed or timed out is void; one run.
+
+**Result.** 235 requests, all answered, US$0.042 at the listed price, after 4 answered requests of a probe (US$0.0007).
+
+| The 111 sentences | Sentences |
+|---|---|
+| Not checked by the app (bare figures) | 2 |
+| Checked, no Passage found by keyword | 7 |
+| Read by the decision model | 102 |
+
+| Of the 102 read | Sentences | As labelled |
+|---|---|---|
+| Supported from the decision model | 15 | 15 |
+| Contradicted from the decision model | 15 | 15 |
+| Unsupported from the decision model | 9 | 6 |
+| First reading Supported | 47 | 47 |
+| First reading Contradicted | 10 | 10 |
+| No reading | 6 | |
+
+| The 30 Supported and Contradicted Marks | Under Supported | Under Contradicted |
+|---|---|---|
+| The card shows a quote | 10 | 12 |
+| The Mark rests on its Passage, no quote | 5 | 3 |
+| Quotes both readers accept | 10 of 10 | 12 of 12 |
+
+- **The bar is met**: no quote the card shows was rejected. The readers agreed on all 44 items, so there was no split and no third reader; neither accepted any of the 22 decoys.
+- All 12 quotes under Contradicted are on the written variants.
+- **The 3 Unsupported that are not as labelled** are all labelled Supported: en-022 and en-023 (multi-passage answers) and en-074 (a calculated answer). A Passage the label rests on was among those read for 95 of 95.
+- The 7 with no Passage found: 6 wrong-figure variants of table figures (5 of them bare figures) and one English answer about a Chinese Document. The first reading searches with the sentence alone (#3136).
+- The 12 bare figures: 2 not checked by the app, 5 with no Passage found, 4 a first reading Supported, 1 Supported from the decision model, resting on its Passage.
+- **Keyword ran.** In a free run with embeddings on, 109 of the 111 reach the decision model (70 Supported, 32 Contradicted, 7 Unsupported by label), against 102 by keyword (69, 26, 7). A3's first reading (part A again) was on embeddings and this one is not, so the two are not a like-for-like repeat.
+
+So reading by default is on in this build (`src/core/answers/checks/decisionChoice.ts`), for a User whose check's AI model already runs on the decision model's service and who hasn't said.
 
 ### Part M
 

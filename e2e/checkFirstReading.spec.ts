@@ -6,6 +6,7 @@ import {
   useLocalChatModel as chooseScriptedModel,
   createDataFolder,
   dismissChatSetup,
+  film,
   launchApp,
   motionSettled,
   newMind,
@@ -134,29 +135,38 @@ for (const language of ["en", "zh-CN"] as const) {
     await setWindowSize(app, window, 1440, 900);
     await newMind(window);
     const editor = window.getByTestId("mind-editor");
-    await editor.evaluate(
-      (dom, content) => {
-        (dom as unknown as { editor: Editor }).editor.commands.setContent(content);
-      },
-      {
-        type: "doc",
-        content: [
-          { text: words.likely, mark: unsettled("likely", words.likely, "checking", "supported") },
-          {
-            text: words.against,
-            mark: unsettled("against", words.against, "checking", "contradicted"),
-          },
-          {
-            text: words.unconfirmed,
-            mark: unsettled("unconfirmed", words.unconfirmed, "not-checked", "supported"),
-          },
-          { text: words.plain, mark: unsettled("plain", words.plain, "not-checked", null) },
-        ].map(({ text, mark }) => ({
-          type: "paragraph",
-          content: [{ type: "text", text, marks: [mark] }],
-        })),
-      },
-    );
+    const write = (read: boolean) =>
+      editor.evaluate(
+        (dom, content) => {
+          (dom as unknown as { editor: Editor }).editor.commands.setContent(content);
+        },
+        {
+          type: "doc",
+          content: (
+            [
+              ["likely", "checking", "supported"],
+              ["against", "checking", "contradicted"],
+              ["unconfirmed", "not-checked", "supported"],
+              ["plain", "not-checked", null],
+            ] as const
+          ).map(([id, state, leaning]) => ({
+            type: "paragraph",
+            content: [
+              {
+                type: "text",
+                text: words[id],
+                marks: [unsettled(id, words[id], state, read ? leaning : null)],
+              },
+            ],
+          })),
+        },
+      );
+    if (SCREENSHOTS) {
+      // The same sentences with no decision model reading: what the page showed before.
+      await write(false);
+      await screenshot(window, `first-reading-before-page-${language}`);
+    }
+    await write(true);
     const mark = (id: string) => window.locator(`[data-testid="claim-mark"][data-claim="${id}"]`);
     const card = window.getByTestId("claim-card");
     const names = { decision: "Decider v1.2", model: "Claude Haiku 5.5" };
@@ -245,7 +255,8 @@ for (const language of ["en", "zh-CN"] as const) {
     };
 
     await onThePage();
-    await inCard();
+    if (language === "en") await film(window, inCard);
+    else await inCard();
     await close();
 
     // Nobody read it: its card is Not checked, with the solid ring.
