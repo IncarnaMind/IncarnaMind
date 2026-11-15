@@ -32,6 +32,9 @@
  *   that Search scope, as a Note the User set to them. INCARNAMIND_EVAL_SPEED_LINES (the lines as
  *   JSON) reads with other lines than the measured model's, to measure where a line can sit:
  *   marks.json keeps what each sentence's Passage scored when asked about alone.
+ * - `lines` takes such replays' marks.json (INCARNAMIND_EVAL_SPEED_MARKS, one or several) and
+ *   prints the verdict lines their labelled sentences allow, each with the sentences that set it
+ *   (./measuredLines). It makes no request.
  *
  * INCARNAMIND_EVAL_SPEED_ARMS (as `main,decision,decision,main`, the default) names each run's arm
  * in turn, INCARNAMIND_EVAL_SPEED_SENTENCES how many sentences the Note holds (33 by default, the
@@ -90,6 +93,7 @@ import {
   replayTally,
   shapesOf,
 } from "./decisionFirstScore";
+import { measuredLines, measuredLinesTable, type ScoredRow } from "./measuredLines";
 import { env, list, modelsAsked, spentUsd } from "./settings";
 
 /* A measurement of where a line can sit reads with other lines than the measured model's. */
@@ -967,4 +971,24 @@ test.skipIf(mode !== "shapes")("The three shapes of the check, from two replays"
     ...readingLines(decision),
   ].join("\n");
   createLog()(`\n${text}`);
+});
+
+test.skipIf(mode !== "lines")("The verdict lines a replay's labelled sentences allow", () => {
+  const paths = list("MARKS");
+  const lines = decisionLinesFor(DECIDER.host, DECIDER.modelId);
+  if (!paths || !lines?.verdict)
+    throw new Error(
+      "INCARNAMIND_EVAL_SPEED_MARKS names no marks.json, or the decision model has no verdict lines to measure within.",
+    );
+  const rows = paths.flatMap(
+    (path) => JSON.parse(readFileSync(resolve(path), "utf8")) as ScoredRow[],
+  );
+  const within = {
+    firstReading: lines.firstReading,
+    band: lines.verdict.band,
+    joinedUnder: lines.verdict.unsupported,
+  };
+  createLog()(
+    `\n${[`# The lines ${rows.length} labelled sentences allow`, "", ...measuredLinesTable(measuredLines(rows, within))].join("\n")}`,
+  );
 });
