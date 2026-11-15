@@ -21,6 +21,7 @@ import {
   Output,
   streamText,
 } from "ai";
+import { escapedInStrings } from "../../shared/jsonText";
 import { isRecord } from "../../shared/record";
 import type { ProviderError } from "../api";
 import { asAttribute, asData, type PromptTag } from "../promptData";
@@ -247,11 +248,16 @@ function changesAKey(json: string): boolean {
   return changed;
 }
 
-/** JSON's value, unless it doesn't parse or gives a key two values; null then. */
+/**
+ * JSON's value, unless it doesn't parse or gives a key two values; null then. A raw control
+ * character inside a string is read as that character: a model copies a table row's tabs into a
+ * quote as the Passage gives them (#1827, #3125).
+ */
 export function parseJson(text: string): { value: unknown } | null {
+  const escaped = escapedInStrings(text);
   try {
-    const value: unknown = JSON.parse(text);
-    return changesAKey(text) ? null : { value };
+    const value: unknown = JSON.parse(escaped);
+    return changesAKey(escaped) ? null : { value };
   } catch {
     return null;
   }

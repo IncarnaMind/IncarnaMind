@@ -16,7 +16,7 @@ import type { Citation } from "../../api";
 import { isRecord } from "../../errors";
 import type { createCitationSession } from "../citations";
 import type { CitationRecordInput } from "../engine";
-import { withoutThinking } from "../judge";
+import { parseJson, withoutThinking } from "../judge";
 
 type Session = ReturnType<typeof createCitationSession>;
 
@@ -93,12 +93,7 @@ function fromLine(line: string): WrittenRecord[] {
 
 function fromJson(reply: string): WrittenRecord[] {
   return [...reply.matchAll(JSON_RECORDS)].flatMap((match) => {
-    let given: unknown;
-    try {
-      given = JSON.parse(match[1] ?? match[2] ?? match[3] ?? "");
-    } catch {
-      return [];
-    }
+    const given = parseJson(match[1] ?? match[2] ?? match[3] ?? "")?.value;
     return (Array.isArray(given) ? given : []).flatMap((each): WrittenRecord[] => {
       if (!isRecord(each)) return [];
       const { marker, passage, location, quote, pageFrom, pageTo } = each;
