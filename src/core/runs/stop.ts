@@ -58,11 +58,12 @@ export const RATE_LIMIT_PAUSES_MS = [1_000, 2_000, 4_000, 8_000, 16_000] as cons
 export interface RunRequests {
   /**
    * Sends `request`. A rate limit that says how long to wait has it sent again once that wait is
-   * over, never sooner and at least a second later, inside the item; once its waits since its
-   * first refusal would pass `REQUEST_WAIT_LIMIT_MS`, the limit is thrown, marked not to be
-   * retried: the item isn't tried again, and the items not started yet aren't sent. A rate limit
-   * that doesn't say is thrown as it came, for the AI SDK's own retries and then the run's pauses,
-   * as before. A stopped run, or `signal`, ends a wait and throws, unsent. `waiting` hears each
+   * over, never sooner and at least a second later, inside the item, once. A wait over
+   * `REQUEST_WAIT_LIMIT_MS` is given up: the limit is thrown, marked not to be retried, the item
+   * isn't tried again, and the items not started yet aren't sent. A request refused again after
+   * its wait is thrown the same way, for the run's pauses to answer; a limit that doesn't say how
+   * long is thrown as it came, for the AI SDK's own retries and then the run's pauses, as before.
+   * A stopped run, or `signal`, ends a wait and throws, unsent. `waiting` hears each
    * wait start (true) and end (false).
    */
   send<R>(
@@ -85,6 +86,8 @@ export interface RunItemsOptions<I, T> {
   onOutcome?(item: I, outcome: ItemOutcome<T>): void;
   /** Hears when the run waits on a rate limit until (ms since the epoch), or null once it no longer does. */
   onPause?(until: number | null): void;
+  /** Hears each rate limit a request sent through the run (`RunRequests`) met, said how long to wait or not. */
+  onLimit?(): void;
   /** Ends the run: items running or waiting are "stopped". */
   signal?: AbortSignal;
   /** Waits `ms` (or until `signal` aborts): the pause after a provider limited requests. */
@@ -131,6 +134,7 @@ export async function runItems<I, T>(
     concurrency = 1,
     onOutcome,
     onPause,
+    onLimit,
     signal,
     wait = sleep,
     now = Date.now,
@@ -187,6 +191,7 @@ export async function runItems<I, T>(
             met() {
               met = true;
               calm = 0;
+              onLimit?.();
             },
             waiting(until, on) {
               if (on) waits.add(until);

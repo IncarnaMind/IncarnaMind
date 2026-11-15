@@ -8,10 +8,10 @@ import { APICallError, wrapLanguageModel } from "ai";
 import type { PreparedChatModel } from "../providers/chat";
 import { SHORTEST_RATE_LIMIT_WAIT_MS, statedWaitMs } from "../providers/rateLimitWait";
 
-/** The most one check request waits on stated rate limits in all, before it is given up. */
+/** The longest stated wait a check's request is sent again after (#2944): a longer one gives it up. */
 export const REQUEST_WAIT_LIMIT_MS = 2 * 60_000;
 
-/** The longest one wait a reply's request is sent again after; a reply waits once. */
+/** The longest stated wait a reply's request is sent again after; a reply waits once. */
 export const REPLY_WAIT_LIMIT_MS = 60_000;
 
 /** What a sender of requests hears and keeps: the clock it waits by, and what it says of the waits. */
@@ -20,15 +20,15 @@ export interface WaitHooks {
   /** Waits `ms`, or until `signal` aborts. */
   wait(ms: number, signal?: AbortSignal): Promise<void>;
   /**
-   * Whether a request refused with a wait of `asks` ms, having waited `waited` ms in all already,
-   * is sent again. Left out: while the waits stay within `REQUEST_WAIT_LIMIT_MS`.
+   * Whether a request refused with a stated wait of `asks` ms is sent again after it. Left out:
+   * while `asks` is no more than `REQUEST_WAIT_LIMIT_MS`.
    */
-  allows?(asks: number, waited: number): boolean;
+  allows?(asks: number): boolean;
   /** A rate limit was met, with or without a stated wait. */
   met?(): void;
   /** A wait begins (until when, ms since the epoch) or ends. */
   waiting?(until: number, on: boolean): void;
-  /** A request's waits ran out: its limit is thrown, marked not to be sent again. */
+  /** A request is given up for a stated wait it won't wait: its limit is thrown, marked not to be sent again. */
   gaveUp?(error: unknown): void;
 }
 
@@ -50,9 +50,15 @@ export const notRetried = (error: unknown): unknown =>
 
 /**
  * Sends `request`. A rate limit that says how long to wait has it sent again once that wait is
- * over, never sooner and at least a second later; once `hooks.allows` says no, the limit is thrown,
- * not to be sent again. A limit that doesn't say is thrown as it came, for the AI SDK's own retries
- * and whatever follows them. `signal` ends a wait and throws, unsent.
+ * over, never sooner and at least a second later, once: a request waits on the key's stated time,
+ * and one refused again after it is thrown, marked not to be sent again by the AI SDK, for what
+ * answers a limit that holds on (the run's pauses, a reply's failure). A stated wait that
+ * `hooks.allows` refuses is given up at once. A limit that doesn't say is thrown as it came, for
+ * the AI SDK's own retries. `signal` ends a wait and throws, unsent.
+ *
+ * A key that counts its refused requests (OpenAI's "unsuccessful requests contribute to your
+ * per-minute limit") is never gone back to at each stated time by every request at once: that
+ * kept it refusing, and lost marks the pauses land (eval/speed/gates/new-account-limits.md).
  */
 export async function sendWaiting<R>(
   request: () => PromiseLike<R>,
@@ -60,9 +66,7 @@ export async function sendWaiting<R>(
   options: { signal?: AbortSignal; sleep?: WaitHooks["wait"] } = {},
 ): Promise<R> {
   const { signal } = options;
-  const allows = hooks.allows ?? ((asks, waited) => waited + asks <= REQUEST_WAIT_LIMIT_MS);
-  /** How long it has waited since its first refusal, in ms. */
-  let waited = 0;
+  let waited = false;
   for (;;) {
     try {
       return await request();
@@ -71,8 +75,9 @@ export async function sendWaiting<R>(
       if (stated === undefined || signal?.aborted) throw error;
       hooks.met?.();
       if (stated === null) throw error;
+      if (waited) throw notRetried(error);
       const asks = Math.max(stated, SHORTEST_RATE_LIMIT_WAIT_MS);
-      if (!allows(asks, waited)) {
+      if (!(hooks.allows ? hooks.allows(asks) : asks <= REQUEST_WAIT_LIMIT_MS)) {
         const given = notRetried(error);
         hooks.gaveUp?.(given);
         throw given;
@@ -84,7 +89,7 @@ export async function sendWaiting<R>(
       } finally {
         hooks.waiting?.(until, false);
       }
-      waited += asks;
+      waited = true;
       signal?.throwIfAborted();
     }
   }

@@ -358,6 +358,8 @@ export async function runClaimChecks<I>(
     onOutcome?(item: I, outcome: CheckOutcome): void;
     /** Hears the run's wait after a rate limit: when it ends (ms since the epoch), or null once it has. */
     onPause?(until: number | null): void;
+    /** Hears each rate limit a check's request met, said how long to wait or not. */
+    onLimit?(): void;
   },
 ): Promise<{
   outcomes: (CheckOutcome | null)[];
@@ -399,6 +401,7 @@ export async function runClaimChecks<I>(
     {
       concurrency: run.concurrency ?? 1,
       ...(run.onPause && { onPause: run.onPause }),
+      ...(run.onLimit && { onLimit: run.onLimit }),
       signal: run.signal,
       // A sleep rejects only when the run is stopped, which ends the pause.
       wait: (ms, signal) => run.timers.sleep(ms, signal ?? run.signal).catch(() => undefined),

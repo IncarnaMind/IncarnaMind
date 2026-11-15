@@ -116,3 +116,25 @@ test("a scripted key answers the first requests as told and the rest as told", (
 
   expect(sendAt(key, 0, 4)).toEqual([refused(40), refused(null), FITS, FITS]);
 });
+
+// protects=a token key refuses a request larger than its bucket could ever hold outright, saying no wait, as a service says a request is too large for its limit, so no wait is stated that could never end (#2944); fails_when=it states a wait for a request that will never fit, or refuses one that fits; no_claim=a real provider's words.
+test("a request larger than the bucket could ever hold is refused with no wait stated", () => {
+  const key = scriptedKey(
+    {
+      kind: "tokens",
+      requests: 4_000,
+      input: 60_000,
+      output: null,
+      minutes: 1 / 60,
+      costs: { input: 0, output: 0 },
+      firstCosts: 0,
+      byTurn: [500, 13_500],
+    },
+    1000,
+  );
+
+  // A second of 60,000 a minute holds 1,000: the second turn's 13,500 can never fit.
+  expect(key.send(0, 0)).toEqual(FITS);
+  expect(key.send(0, 1)).toEqual(refused(null));
+  expect(key.send(60_000, 1)).toEqual(refused(null));
+});

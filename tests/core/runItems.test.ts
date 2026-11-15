@@ -303,8 +303,26 @@ describe("Sending an item's requests through its run (#2944)", () => {
     expect(clock.waited).toEqual([RATE_LIMIT_PAUSES_MS[0]]);
   });
 
-  // protects=one request waits on rate limits two minutes in all at most: refused with a stated wait of 50 s a third time it is given up, its item fails for the rate limit, isn't tried again, and the items after it aren't sent (#2944); fails_when=it waits past two minutes, its item starts again from its start, or a later item is sent; no_claim=what a real key does after two minutes.
-  test("a request past two minutes of waiting is given up, and the items not started aren't sent", async () => {
+  // protects=a request refused again after its stated wait isn't waited for a second time: it is thrown, so the run's pauses answer it as for any limit that holds on, and the item goes again from its start after them (#2944: a key that counts refused requests was kept refusing by every request going back at each stated time); fails_when=a request waits a second stated time, or the item is not tried again; no_claim=the length of the pauses.
+  test("a request refused again after its wait falls to the run's pauses", async () => {
+    const clock = steppedClock();
+    let refusals = 0;
+    const run = await runItems(
+      ["limited twice"],
+      async (item, requests) =>
+        requests.send(async () => {
+          if (refusals++ < 2) throw limited("30");
+          return item;
+        }),
+      { wait: clock.wait, now: clock.now },
+    );
+
+    expect(run.outcomes.map((each) => each.status)).toEqual(["done"]);
+    expect(clock.waited).toEqual([30_000, RATE_LIMIT_PAUSES_MS[0]]);
+  });
+
+  // protects=a stated wait of more than two minutes is not waited: its request is given up at once, its item fails for the rate limit and isn't tried again, and the items after it aren't sent (#2944: past two minutes the sentence is Not checked with the rate-limit reason and the later ones aren't sent); fails_when=it waits, its item starts again, or a later item is sent; no_claim=what a real key does after two minutes.
+  test("a stated wait past two minutes is given up, and the items not started aren't sent", async () => {
     const clock = steppedClock();
     const sent: string[] = [];
     const run = await runItems(
@@ -312,17 +330,36 @@ describe("Sending an item's requests through its run (#2944)", () => {
       async (item, requests) =>
         requests.send(async () => {
           sent.push(item);
-          if (item === "limited") throw limited("50");
+          if (item === "limited") throw limited("150");
           return item;
         }),
       { wait: clock.wait, now: clock.now },
     );
 
-    expect(clock.waited).toEqual([50_000, 50_000]);
-    expect(sent).toEqual(["limited", "limited", "limited"]);
+    expect(clock.waited).toEqual([]);
+    expect(sent).toEqual(["limited"]);
     expect(run.outcomes.map((each) => each.status)).toEqual(["failed", "failed"]);
     expect(run.outcomes[0]).toMatchObject({ error: { kind: "rate-limit" } });
     expect(run.outcomes[1]).toMatchObject({ error: { kind: "rate-limit" } });
+  });
+
+  // protects=the run hears each rate limit its requests met, whether it said how long to wait or not (#2944); fails_when=a limit is missed, or counted twice; no_claim=what the run does about it.
+  test("the run hears each rate limit a request met", async () => {
+    const clock = steppedClock();
+    let limits = 0;
+    let sends = 0;
+    await runItems(
+      ["limited"],
+      async (item, requests) =>
+        requests.send(async () => {
+          if (sends++ === 0) throw limited("2");
+          if (sends === 2) throw limited();
+          return item;
+        }),
+      { wait: clock.wait, now: clock.now, onLimit: () => limits++ },
+    );
+
+    expect(limits).toBeGreaterThanOrEqual(2);
   });
 
   // protects=a stopped run ends a request's wait at once: it is sent no more, and its item is stopped (#2944); fails_when=the request waits out the service's stated wait, or is sent after the stop; no_claim=how soon a real wait ends.

@@ -30,6 +30,12 @@ export type KeyShape =
       minutes: number;
       costs: { input: number; output: number };
       firstCosts: number;
+      /**
+       * The tokens that count against the limit, by the request's turn in its sentence's check
+       * (the first request, the second…), the last for every later one: left out, every request
+       * costs `costs.input`, a write's first `firstCosts`.
+       */
+      byTurn?: readonly number[];
     };
 
 /** What a key answers a request: room for it, or a refusal with its `retry-after` in whole seconds. */
@@ -68,7 +74,8 @@ const MINUTE_MS = 60_000;
 
 /** A scripted key: `send` answers a request sent at `now`, ms on the caller's clock. */
 export interface ScriptedKey {
-  send(now: number): KeyAnswer;
+  /** `turn`: which request of its sentence's check this is, from 0. */
+  send(now: number, turn?: number): KeyAnswer;
   /** A request that fit has its reply: its place is free, and its output tokens are taken. */
   replied(): void;
   /** The next request is a write's first, whose prompt's cache is written. */
@@ -120,8 +127,15 @@ export function scriptedKey(key: KeyShape, replyMs: number): ScriptedKey {
     key.output === null ? null : bucket(key.output * key.minutes, key.output / MINUTE_MS);
   let firstOfWrite = true;
   return {
-    send(now) {
-      const costs = firstOfWrite ? key.firstCosts : key.costs.input;
+    send(now, turn = 0) {
+      const costs = key.byTurn
+        ? (key.byTurn[Math.min(turn, key.byTurn.length - 1)] ?? 0)
+        : firstOfWrite
+          ? key.firstCosts
+          : key.costs.input;
+      // A request the bucket could never hold is refused outright, with no wait to state: a
+      // service says it is too large for the limit.
+      if (costs > key.input * key.minutes) return refusal(null);
       const wait = Math.max(
         requests.until(now, 1),
         input.until(now, costs),
@@ -201,3 +215,22 @@ export const PUBLISHED_TIERS: readonly (readonly [
     }),
   ],
 ];
+
+/**
+ * Keys that count what a Note's check needs, not what a gate's small requests cost (#2944): each
+ * sentence's check sends three requests, whose counted input tokens (plain input and cache writes;
+ * cache reads don't count) are 1,000, 13,500 and 8,000, 22,500 a sentence, the least of the 540,000
+ * to 720,000 a 24-sentence Note needed in the 2026-11-14 measurement. `limit`: input tokens a minute.
+ */
+export const MEASURED_SENTENCE_TOKENS = [1_000, 13_500, 8_000] as const;
+
+export const measuredKey = (limit: number, minutes: number): KeyShape => ({
+  kind: "tokens",
+  requests: 4_000,
+  input: limit,
+  output: 400_000,
+  minutes,
+  costs: { input: 0, output: 237 },
+  firstCosts: 0,
+  byTurn: MEASURED_SENTENCE_TOKENS,
+});

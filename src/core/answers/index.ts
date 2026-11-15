@@ -2743,7 +2743,7 @@ export function createAnswers(options: AnswersOptions) {
       prepared = waitingOnLimits(prepared, {
         now: clock.now,
         wait: (ms, signal) => clock.sleep(ms, signal ?? controller.signal),
-        allows: (asks, waited) => waited === 0 && asks <= REPLY_WAIT_LIMIT_MS,
+        allows: (asks) => asks <= REPLY_WAIT_LIMIT_MS,
         waiting: (until, on) => told.waiting(until, on),
       });
       calculating = offersCalculate(prepared.capabilities);

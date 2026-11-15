@@ -280,7 +280,7 @@ export async function keyWrites(
   const { core, write } = await writeChecked(
     count,
     (call, planned) => {
-      const answer = scripted.send(clock.now());
+      const answer = scripted.send(clock.now(), call.results.length);
       const request = `${numberOf(call)}:${call.results.length}`;
       order.push(request);
       timeline.push(`${clock.now() - started} ${request}${answer.fits ? "" : " refused"}`);

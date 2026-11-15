@@ -29,6 +29,8 @@ function gate() {
 // protects=the check of an Answer's sentences sends no new request while the next Question's reply is being written on its key, and every verdict lands once that reply's stream ends (#2944: the check sends no new request until the reply's stream ends, then every verdict lands); fails_when=a batch is sent beside the reply, or a verdict is lost by the wait; no_claim=how long a reply takes.
 test("a Question asked while an Answer's sentences are checked holds the check's next batch until its reply ends", async () => {
   const batches: GenerateCall[] = [];
+  /** The claims checks, one for each reply the app checks for what it says it did: part of the reply itself. */
+  const claims: string[] = [];
   const firstBatches = gate();
   const secondReply = gate();
   const secondReplyBegan = gate();
@@ -59,7 +61,10 @@ test("a Question asked while an Answer's sentences are checked holds the check's
     },
     {
       generate: (call) => {
-        if (call.question === "claimed-changes") return { text: '{"claims":[]}' };
+        if (call.question === "claimed-changes") {
+          claims.push(call.prompt);
+          return { text: '{"claims":[]}' };
+        }
         if (call.question === "request-done") {
           return { text: '{"asks_change":"no","request":"none"}' };
         }
@@ -130,6 +135,9 @@ test("a Question asked while an Answer's sentences are checked holds the check's
   const answer = await answerJudged(core, first.conversation.id, first.answerId);
 
   expect(batches).toHaveLength(7);
+  // A check inside its own reply's turn is the reply's own, and never waits for that turn: each
+  // of the two replies had its claims checked, the second's while it was still out.
+  expect(claims).toHaveLength(2);
   expect(answer.citations.map((citation) => citation.check)).toEqual(
     Array(SENTENCES).fill("found"),
   );
