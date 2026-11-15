@@ -17,6 +17,7 @@ import type {
   EmbeddingModelStatus,
 } from "../../../../core/api";
 import { citedSpeakers, shownDocumentName } from "../../../../shared/citations";
+import { formatDateTime } from "../../../../shared/dates";
 import { citationLocation, formatLocation } from "../../../../shared/locations";
 import { mindName } from "../../../../shared/naming";
 import { NO_SCOPE } from "../../../../shared/searchScope";
@@ -55,7 +56,7 @@ import { CallRow, SkillRow } from "../../editor/AnswerView";
 import { CheckMarkIcon, RegenerateSmallIcon } from "../../editor/icons";
 import { useCitedOrigin } from "../../editor/mindContext";
 import { holdSteps, type ShownStep, type StepHold, takeOver } from "../../heldStep";
-import { useT } from "../../i18n";
+import { useLanguage, useT } from "../../i18n";
 import { useJudgementLimit } from "../../judgementLimit";
 import { stoppedLine } from "../../limitWords";
 import { useMeetings } from "../../meetings";
@@ -64,6 +65,7 @@ import type { Translate } from "../../objects";
 import { openCited, quoteSaysSo } from "../../openCited";
 import { useIsExampleDocument } from "../../ownDocuments";
 import { usePythonRuntime } from "../../pythonRuntime";
+import { useRateLimitResumes } from "../../rateLimitWaits";
 import { scopeChips } from "../../scope";
 import { skillTitle } from "../../skills";
 import { useAppStore } from "../../store";
@@ -112,6 +114,7 @@ export function AnswerSteps({
 }) {
   const t = useT();
   const phase = useAnswers((state) => state.phases[answer.id]);
+  const limitedUntil = useRateLimitResumes(answer.id);
   const askedFrom = question?.askedFrom ?? null;
   const askedInMeeting = useAskedInMeeting(question);
   const meeting = answer.steps?.sent ? answer.steps.sent.transcript === true : askedInMeeting;
@@ -147,6 +150,7 @@ export function AnswerSteps({
           scope={scopeOf(0)}
           askedFrom={askedFrom}
           wait={wait ? { usual: wait.usual, model: answer.model ?? null } : null}
+          limitedUntil={limitedUntil}
           toggle={{ open, onToggle, ref: toggle, ...focus }}
         />
         {open && (
@@ -216,6 +220,7 @@ export function LiveLine({
   scope,
   askedFrom = null,
   wait = null,
+  limitedUntil = null,
   toggle,
 }: {
   step: LiveStep;
@@ -224,6 +229,8 @@ export function LiveLine({
   askedFrom?: AskedFrom | null;
   /** How long this model usually takes, once the line has had no words long enough (#2530). */
   wait?: { usual: number | null; model: ChatModelChoice | null } | null;
+  /** While its requests wait on the model's rate limit, when they resume (ISO 8601 UTC): the line says so (#2944). */
+  limitedUntil?: string | null;
   /** Opens and folds the steps, by a button over the whole line. */
   toggle?: {
     open: boolean;
@@ -234,6 +241,7 @@ export function LiveLine({
   };
 }) {
   const t = useT();
+  const language = useLanguage();
   const shown = useHeldStep(step);
   const row = useRef<HTMLSpanElement | null>(null);
   const wholeMeasure = useRef<HTMLSpanElement | null>(null);
@@ -258,7 +266,9 @@ export function LiveLine({
   const stepKind = shown.kind;
   const waitingSeconds = useSecondsOn(stepKey);
   const summary = shown.kind === "thinking" ? shown.summary : "";
-  const label = liveText(t, shown, scope, mindOf, python);
+  const label = limitedUntil
+    ? t("status.rateLimited", { time: formatDateTime(limitedUntil, language) })
+    : liveText(t, shown, scope, mindOf, python);
   const waiting = shown.kind === "waiting" || shown.kind === "consent";
   const nameOf = useModelNames();
   const modelName = wait?.model ? nameOf(wait.model.modelId, wait.model.providerId).name : null;

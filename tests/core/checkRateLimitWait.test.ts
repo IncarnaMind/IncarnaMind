@@ -38,6 +38,24 @@ describe("A write's check on a key that states how long to wait", () => {
     expect(write.marks).toEqual({ supported: 1 });
   });
 
+  // protects=while a request waits on a stated limit the check says when it resumes, to the moment its wait ends, and says no more once it doesn't (#2944: the line reads "Rate limit reached · resumes at {time}" meanwhile); fails_when=nothing is said, the time isn't the wait's end, or it is never said to end; no_claim=how the line is worded.
+  test("while a request waits for 40 s the check says when it resumes, then says no more", async () => {
+    const write = await onKey(1, [refused(40)]);
+
+    const refusedAt = sentAt(write.timeline)[
+      write.timeline.findIndex((line) => line.endsWith("refused"))
+    ];
+    expect(write.waits).toEqual([(refusedAt ?? 0) + 40_000, null]);
+  });
+
+  // protects=a wait of a few seconds is never told, so the line doesn't change its words for a moment (#2944); fails_when=a stated wait of 2 s is told; no_claim=where the line's threshold is.
+  test("a wait of 2 s is not told", async () => {
+    const write = await onKey(1, [refused(2)]);
+
+    expect(write.waits).toEqual([]);
+    expect(write.marks).toEqual({ supported: 1 });
+  });
+
   // protects=a request refused past two minutes of waiting leaves its sentence Not checked for the rate limit, and the sentences after it aren't sent (#2944); fails_when=it waits on, its mark is another reason, or a later sentence is sent; no_claim=what a real key does after two minutes.
   test("refused past two minutes the sentence is Not checked, and the later ones aren't sent", async () => {
     const write = await onKey(9, [], refused(50));

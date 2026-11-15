@@ -99,6 +99,7 @@ async function writeChecked(
   await core.moveToFolder({ documentIds: documents.map((each) => each.id), folderId: folder.id });
   let notes = 0;
   return {
+    core,
     /** The write into a new Note of the session, which it gives once written. */
     async write(): Promise<MindClient> {
       notes++;
@@ -254,6 +255,8 @@ export interface KeyWrite {
   order: string[];
   /** The same, each with when it was sent from the write's start, in ms, and "refused" for one refused. */
   timeline: string[];
+  /** What its check said of its wait on a rate limit, in order: when it resumes from the write's start in ms, or null once it didn't wait. */
+  waits: (number | null)[];
 }
 
 /**
@@ -274,7 +277,7 @@ export async function keyWrites(
   let started = 0;
   const order: string[] = [];
   const timeline: string[] = [];
-  const { write } = await writeChecked(
+  const { core, write } = await writeChecked(
     count,
     (call, planned) => {
       const answer = scripted.send(clock.now());
@@ -298,9 +301,19 @@ export async function keyWrites(
     },
     clock.timers,
   );
+  const waits: (number | null)[] = [];
+  core.on("rateLimit.waiting", ({ resumesAt }) =>
+    waits.push(resumesAt === null ? null : Date.parse(resumesAt) - started),
+  );
   const results: KeyWrite[] = [];
   for (let each = 0; each < writes; each++) {
-    const before = { refused, sent, order: order.length, timeline: timeline.length };
+    const before = {
+      refused,
+      sent,
+      order: order.length,
+      timeline: timeline.length,
+      waits: waits.length,
+    };
     scripted.newWrite();
     started = clock.now();
     const note = await clock.until(write);
@@ -313,6 +326,7 @@ export async function keyWrites(
       marks,
       order: order.slice(before.order),
       timeline: timeline.slice(before.timeline),
+      waits: waits.slice(before.waits),
     });
   }
   return results;
