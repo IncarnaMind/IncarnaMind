@@ -155,11 +155,8 @@ interface UndoState {
   showPlace(place: string): () => void;
   /** Puts a change just made on the stack and shows its line; nothing more can be redone. */
   push(change: Undoable): void;
-  /**
-   * Tracks an existing change without showing a new line or clearing Redo: in the place of
-   * `inPlaceOf` when that is on the stack, else last.
-   */
-  offer(change: Undoable, inPlaceOf?: Undoable): void;
+  /** Tracks an existing change without showing a new line or clearing Redo. */
+  offer(change: Undoable): void;
   /** ⌘Z and ⇧⌘Z pass over a change on the stacks, or reach it again. */
   setAside(change: Undoable, aside: boolean): void;
   /** Shows a line that isn't a change, in place of what shows, as after a tab closes. */
@@ -337,16 +334,9 @@ export const useUndo = create<UndoState>()((set, get) => {
       if (get().done.at(-1) === change) return;
       set((state) => ({ done: [...state.done, change], undone: [], line: lineOf(change) }));
     },
-    offer(change, inPlaceOf) {
+    offer(change) {
       if (get().done.includes(change) || get().undone.includes(change)) return;
-      set((state) =>
-        inPlaceOf && state.done.includes(inPlaceOf)
-          ? {
-              done: state.done.map((each) => (each === inPlaceOf ? change : each)),
-              aside: state.aside.filter((each) => each !== inPlaceOf),
-            }
-          : { done: [...state.done, change] },
-      );
+      set((state) => ({ done: [...state.done, change] }));
     },
     setAside(change, aside) {
       set((state) => {

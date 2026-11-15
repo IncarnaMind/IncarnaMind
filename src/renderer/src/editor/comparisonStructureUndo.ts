@@ -3,7 +3,8 @@
  * its structure, so Undo and Redo ask the core, by step id, to take a change
  * back or do it again. One history in this window orders those steps with the
  * note's own text steps by when the User made them: ⌘Z takes back the later
- * of either, and a note edit never drops a column change.
+ * of either, and a note edit never drops a column change. In a tab that keeps
+ * the Note's history, so does this one, through a tab switch (#3115).
  */
 import type { Editor } from "@tiptap/core";
 import { clientId } from "../clientId";
@@ -11,7 +12,15 @@ import { useComparisonColumns } from "../comparisonColumnState";
 import { core } from "../core";
 import { flushMindUpdates } from "../mindCopies";
 import { type Undoable, UndoRefused, useUndo } from "../undo";
-import { type UndoStack, type UndoStep, undoStackOf } from "./editorUndo";
+import {
+  historyOwnerOf,
+  keepInSight,
+  onTakenOut,
+  type UndoStack,
+  type UndoStep,
+  undoStackOf,
+} from "./editorUndo";
+import { historyEditor, keptHistory, onHistoryEnd, onHistoryShown } from "./keptHistories";
 
 /** A column change the core made, and the column a line names. */
 export interface StructureChange {
@@ -40,7 +49,9 @@ interface History {
   pending: number;
 }
 
-const histories = new WeakMap<Editor, History>();
+/** Each note's history, by what keeps its text steps: its editor, or its tab's history. */
+const histories = new WeakMap<object, History>();
+const withKeys = new WeakSet<Editor>();
 
 async function applyStructure(change: StructureChange, step: "undo" | "redo"): Promise<void> {
   await flushMindUpdates(change.mindId);
@@ -72,7 +83,9 @@ async function applyStructure(change: StructureChange, step: "undo" | "redo"): P
 function historyOf(editor: Editor): History | null {
   const stack: UndoStack | undefined = undoStackOf(editor);
   if (!stack) return null;
-  const known = histories.get(editor);
+  installKeys(editor);
+  const owner = historyOwnerOf(editor);
+  const known = histories.get(owner);
   if (known) return known;
   const history: History = {
     undo: stack.undoStack.map((step, seq) => ({ seq, kind: "text", step })),
@@ -80,7 +93,7 @@ function historyOf(editor: Editor): History | null {
     next: stack.undoStack.length,
     pending: 0,
   };
-  histories.set(editor, history);
+  histories.set(owner, history);
   // An Undo or Redo of the note adds its reverse step with the manager itself as the origin.
   const added = (event: { stackItem: UndoStep; origin?: unknown }) => {
     if (event.origin === stack) return;
@@ -95,12 +108,23 @@ function historyOf(editor: Editor): History | null {
   };
   stack.on("stack-item-added", added);
   stack.on("stack-cleared", cleared);
-  editor.on("destroy", () => {
+  const stopTaken = onTakenOut(stack, (steps) => {
+    history.undo = history.undo.filter((token) => !token.step || !steps.has(token.step));
+  });
+  const end = () => {
     stack.off("stack-item-added", added);
     stack.off("stack-cleared", cleared);
-    histories.delete(editor);
-  });
-  installKeys(editor);
+    stopTaken();
+    histories.delete(owner);
+  };
+  if (keptHistory(owner)) {
+    onHistoryEnd(owner, end);
+    // The tab's next editor takes the keys that put a column change in its place.
+    onHistoryShown(owner, () => {
+      const shown = historyEditor(owner);
+      if (shown) installKeys(shown);
+    });
+  } else editor.on("destroy", end);
   return history;
 }
 
@@ -118,7 +142,7 @@ export function reserveStructureStep(editor: Editor): number {
 
 /** The ask made no change, or failed: its place in the history is dropped. */
 export function releaseStructureStep(editor: Editor): void {
-  const history = histories.get(editor);
+  const history = histories.get(historyOwnerOf(editor));
   if (history) history.pending = Math.max(0, history.pending - 1);
 }
 
@@ -147,7 +171,9 @@ export function offerStructureUndo(editor: Editor, change: StructureChange, seq:
   history.undo.sort((left, right) => left.seq - right.seq);
   history.redo = [];
   history.pending = Math.max(0, history.pending - 1);
+  const sight = keepInSight(historyOwnerOf(editor), entry);
   useUndo.getState().push(entry);
+  sight.recheck();
 }
 
 /**
@@ -156,7 +182,7 @@ export function offerStructureUndo(editor: Editor, change: StructureChange, seq:
  * false when it has none.
  */
 export function undoNoteHistory(editor: Editor): boolean {
-  const history = histories.get(editor);
+  const history = histories.get(historyOwnerOf(editor));
   const stack = undoStackOf(editor);
   if (!history || !stack) return false;
   if (history.pending > 0) return true;
@@ -203,7 +229,7 @@ export function undoNoteHistory(editor: Editor): boolean {
  * it did one, or while a column change is being written; false when it has none.
  */
 export function redoNoteHistory(editor: Editor): boolean {
-  const history = histories.get(editor);
+  const history = histories.get(historyOwnerOf(editor));
   if (!history) return false;
   if (history.pending > 0) return true;
   const state = useUndo.getState();
@@ -241,7 +267,8 @@ export function redoNoteHistory(editor: Editor): boolean {
 
 /** The note's keys, before its own Undo: while a column change is the latest step, ⌘Z asks the core. */
 function installKeys(editor: Editor): void {
-  if (typeof document === "undefined") return;
+  if (typeof document === "undefined" || withKeys.has(editor)) return;
+  withKeys.add(editor);
   const onKey = (event: KeyboardEvent) => {
     if (event.key.toLowerCase() !== "z" || event.altKey) return;
     if (!(event.metaKey || event.ctrlKey)) return;

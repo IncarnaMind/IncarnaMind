@@ -205,7 +205,7 @@ for (const language of ["en", "zh-CN"] as const) {
     }
   });
 
-  // protects=⌘Z after coming back, with nothing done in the Note since, takes the fill back through the core, as the line's Undo does (#3099); fails_when=⌘Z does nothing, or takes back more than the fill; no_claim=the Edit menu's name for it.
+  // protects=⌘Z after coming back, with nothing done in the Note since, takes the fill back as the Note's own step, as the line's Undo does (#3099, #3115); fails_when=⌘Z does nothing, or takes back more than the fill; no_claim=the Edit menu's name for it.
   test(`b: back from the Transcript's tab, ⌘Z takes the fill back (${language})`, async () => {
     const { app, window } = await launched(language);
     try {
@@ -238,7 +238,7 @@ for (const language of ["en", "zh-CN"] as const) {
     }
   });
 
-  // protects=a step the User went on from is no longer on top, so nothing is handed over: typed before a switch, no line comes back and ⌘Z there doesn't take the fill back (#3099); fails_when=a line, or the fill's Undo, comes back after the User typed; no_claim=the User's typing before a switch, whose Undo is #3115's.
+  // protects=a step the User went on from is no longer on top: typed before a switch, no line comes back and ⌘Z there doesn't take the fill back (#3099); fails_when=a line, or the fill's Undo, comes back after the User typed; no_claim=the User's typing before a switch, whose Undo is #3115's.
   test(`d: typed before a switch, no line comes back (${language})`, async () => {
     const { app, window } = await launched(language);
     try {
@@ -272,7 +272,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await window.keyboard.press("ControlOrMeta+z");
       await expect(own).toHaveText(original[0] ?? "");
       expect(await fillState(window)).toBe("filled");
-      // The Note's own history is empty now: the ⌘Z it leaves goes to the Edit menu's Undo.
+      // The fill is the Note's next step now, and the Edit menu's Undo takes it back.
       await clickEditItem(app, "edit.undo");
       await expect(blocks).toHaveText(original);
       expect(await fillState(window)).toBe("undone");
@@ -375,7 +375,7 @@ for (const language of ["en", "zh-CN"] as const) {
     }
   });
 
-  // protects=a fill handed to the tab keeps My notes' rule: ⌘Z in the note there leaves it and says to undo it from Notes; on Notes ⌘Z takes it back (#138, #3099); fails_when=⌘Z on My notes takes the handed-over fill back unseen; no_claim=the Transcript's tab, which g holds.
+  // protects=a fill kept in the tab's history through a tab switch keeps My notes' rule: ⌘Z in the note there leaves it and says to undo it from Notes; back on Notes, its line's Undo takes it back (#138, #3099, #3115); fails_when=⌘Z on My notes takes the fill back unseen; no_claim=the Transcript's tab, which g holds.
   test(`i: back from the Transcript's tab, My notes keeps the fill (${language})`, async () => {
     const { app, window } = await launched(language);
     try {

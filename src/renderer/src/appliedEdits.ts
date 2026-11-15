@@ -58,10 +58,14 @@ import {
   asOneStep,
   type FollowedSteps,
   followSteps,
+  historyOwnerOf,
+  keepInSight,
   offerEditorUndo,
+  onTakenOut,
   type UndoStep,
   undoStackOf,
 } from "./editor/editorUndo";
+import { historyEditor, keptHistory, onHistoryEnd, onHistoryShown } from "./editor/keptHistories";
 import {
   applyingIn,
   editorDoc,
@@ -84,9 +88,17 @@ class AcceptingEdit {}
 export interface Applying {
   requestId: string;
   mindId: string;
+  /**
+   * The editor that shows it: in a tab that keeps its Note's history, the one drawn now, or the
+   * last one while the tab shows something else (#3115).
+   */
   editor: Editor;
+  /** The history its tab keeps, which it follows from editor to editor; null outside a tab. */
+  kept: object | null;
   doc: Y.Doc;
   request: string | null;
+  /** The request its Proposals are being written for, drawn as applying until it applies. */
+  drawing: string | null;
   steps: UndoStep[];
   /** Later steps that belong to it: restoring a change, removing what it left out. */
   more: UndoStep[];
@@ -102,13 +114,71 @@ export interface Applying {
   forget(): void;
 }
 
-const latest = new WeakMap<Editor, Applying>();
+const latest = new WeakMap<object, Applying>();
 /**
  * The last edit that applied in each editor, which Review changes shows
- * after its line has gone (#1795), for as long as the editor lives: a
- * newer edit that fails or waits leaves it the last.
+ * after its line has gone (#1795), for as long as the editor lives, or its
+ * tab, where the tab keeps the Note's history: a newer edit that fails or
+ * waits leaves it the last.
  */
-const lastApplied = new WeakMap<Editor, Applying>();
+const lastApplied = new WeakMap<object, Applying>();
+
+/** Hears the edit's Note leave: its tab closed, or, outside a tab, its editor ended. */
+function onceGone(edit: Applying, listener: () => void): () => void {
+  if (edit.kept) return onHistoryEnd(edit.kept, listener);
+  const { editor } = edit;
+  editor.on("destroy", listener);
+  return () => void editor.off("destroy", listener);
+}
+
+const isGone = (edit: Applying) =>
+  edit.kept ? keptHistory(edit.kept) === undefined : edit.editor.isDestroyed;
+
+/** The line an editor of a kept history showed as it stopped showing, for the tab's next one. */
+const lineWhenHidden = new WeakMap<object, AppliedLine>();
+const historiesFollowed = new WeakSet<object>();
+
+/**
+ * A tab switch is no change to an edit (#3115): its line goes with the editor, and the tab's next
+ * editor takes over its last applied edit and its line, while the edit's steps are still on top,
+ * and the edit asked last, in whatever state it is: being written, held back or applied.
+ */
+function followHistory(history: object, editor: Editor): void {
+  if (historiesFollowed.has(history)) return;
+  historiesFollowed.add(history);
+  let shownIn: Editor | null = editor;
+  onHistoryShown(history, () => {
+    const next = historyEditor(history);
+    if (next === shownIn) return;
+    const line =
+      shownIn && !shownIn.isDestroyed
+        ? appliedLineIn(shownIn.state)
+        : (lineWhenHidden.get(history) ?? null);
+    shownIn = next;
+    if (!next) {
+      if (line) lineWhenHidden.set(history, line);
+      return;
+    }
+    lineWhenHidden.delete(history);
+    const applied = lastApplied.get(history);
+    if (applied) applied.editor = next;
+    const asking = latest.get(history);
+    if (asking) {
+      asking.editor = next;
+      // Being written, its Proposals aren't the User's to accept or reject one by one.
+      if (asking.drawing) drawApplying(next, asking.drawing, true);
+    }
+    if (line && lineHolds(line, applied)) setAppliedLine(next, line);
+  });
+  onHistoryEnd(history, () => {
+    historiesFollowed.delete(history);
+    lineWhenHidden.delete(history);
+  });
+}
+
+/** A line taken from an editor still says what is so: its edit still on top, or its changes waiting. */
+const lineHolds = (line: AppliedLine, applied: Applying | undefined) =>
+  line.kind === "held" || (applied?.followed?.onTop() ?? false);
 
 function asEditStep(edit: Applying, change: () => void): void {
   const stack = undoStackOf(edit.editor);
@@ -152,6 +222,7 @@ function dropSteps(edit: Applying): void {
 }
 
 function drawApplying(editor: Editor, request: string, applying: boolean): void {
+  if (editor.isDestroyed) return;
   const now = applyingIn(editor.state);
   if (now.has(request) === applying) return;
   const next = new Set(now);
@@ -166,7 +237,10 @@ export function startApplying(editor: Editor, mindId: string, requestId: string)
   if (!edit) return null;
   edit.stopTaking = takeEditUpdates(requestId, edit.doc, (update: Uint8Array, cause: EditCause) => {
     edit.request ??= cause.request;
-    if (cause.apply) drawApplying(editor, cause.request, true);
+    if (cause.apply) {
+      edit.drawing = cause.request;
+      drawApplying(edit.editor, cause.request, true);
+    }
     asEditStep(edit, () => Y.applyUpdate(edit.doc, update, EDIT_FROM_CORE));
   });
   return edit;
@@ -176,21 +250,34 @@ function beginEdit(editor: Editor, mindId: string, requestId: string): Applying 
   const doc = editorDoc(editor);
   const stack = undoStackOf(editor);
   if (!doc || !stack || editor.isDestroyed) return null;
-  latest.get(editor)?.forget();
+  const owner = historyOwnerOf(editor);
+  latest.get(owner)?.forget();
   setAppliedLine(editor, null);
   stack.addTrackedOrigin(EDIT_FROM_CORE);
   stack.addTrackedOrigin(AcceptingEdit);
   // A change written over Blocks gives them its origin, which its Undo takes back.
   stack.addToScope(originMaps(doc));
   const popped = ({ stackItem }: { stackItem: UndoStep }) => {
-    if (edit.steps.includes(stackItem) && latest.get(editor) === edit) setAppliedLine(editor, null);
+    if (!edit.steps.includes(stackItem) || latest.get(owner) !== edit) return;
+    setAppliedLine(edit.editor, null);
+    lineWhenHidden.delete(owner);
   };
+  // Someone else's words in what it wrote take its steps out of the Note's history, its line too.
+  const takenOut = (steps: ReadonlySet<UndoStep>) => {
+    if (!edit.steps.some((step) => steps.has(step)) || latest.get(owner) !== edit) return;
+    if (!edit.editor.isDestroyed) setAppliedLine(edit.editor, null);
+    lineWhenHidden.delete(owner);
+  };
+  const kept = owner === editor ? null : owner;
+  if (kept) followHistory(kept, editor);
   const edit: Applying = {
     requestId,
     mindId,
     editor,
+    kept,
     doc,
     request: null,
+    drawing: null,
     steps: [],
     more: [],
     followed: null,
@@ -202,11 +289,13 @@ function beginEdit(editor: Editor, mindId: string, requestId: string): Applying 
     forget: () => {
       edit.stopTaking();
       stack.off("stack-item-popped", popped);
-      if (latest.get(editor) === edit) latest.delete(editor);
+      stopTaken();
+      if (latest.get(owner) === edit) latest.delete(owner);
     },
   };
   stack.on("stack-item-popped", popped);
-  latest.set(editor, edit);
+  const stopTaken = onTakenOut(stack, takenOut);
+  latest.set(owner, edit);
   return edit;
 }
 
@@ -371,7 +460,7 @@ function apply(edit: Applying, request: string, parts?: number): ChangedBlocks {
   const changes = appliedChanges(editor.state, places);
   edit.followed = followSteps(editor, edit.steps);
   edit.changes = changes;
-  lastApplied.set(editor, edit);
+  lastApplied.set(historyOwnerOf(editor), edit);
   const changed = changedBlocksOf(editor.state, changes);
   setAppliedLine(editor, {
     kind: "applied",
@@ -468,26 +557,30 @@ function followCoreUndo(
   };
   const closed = () => {
     stop();
-    edit.editor.off("destroy", closed);
+    stopGone();
     void release();
     notify();
   };
   const clearLine = () => {
-    if (!edit.editor.isDestroyed && lastApplied.get(edit.editor) === edit) {
+    if (!edit.editor.isDestroyed && lastApplied.get(historyOwnerOf(edit.editor)) === edit) {
       setAppliedLine(edit.editor, null);
     }
   };
   const restoreLine = () => {
-    if (!edit.editor.isDestroyed && lineBeforeUndo && lastApplied.get(edit.editor) === edit) {
+    if (
+      !edit.editor.isDestroyed &&
+      lineBeforeUndo &&
+      lastApplied.get(historyOwnerOf(edit.editor)) === edit
+    ) {
       setAppliedLine(edit.editor, lineBeforeUndo);
     }
   };
   edit.doc.on("update", changedSince);
-  edit.editor.on("destroy", closed);
+  const stopGone = onceGone(edit, closed);
   return {
-    state: () => (edit.editor.isDestroyed ? "gone" : state),
-    onTop: () => state === "done" && onTop && !edit.editor.isDestroyed,
-    canRedo: () => state === "undone" && redoable && !edit.editor.isDestroyed,
+    state: () => (isGone(edit) ? "gone" : state),
+    onTop: () => state === "done" && onTop && !isGone(edit),
+    canRedo: () => state === "undone" && redoable && !isGone(edit),
     add: invalidate,
     settled: () => pending,
     release,
@@ -576,13 +669,15 @@ function offerCoreUndo(edit: Applying, followed: FollowedSteps, facts: ChangeCou
       if (redone === false) throw new UndoRefused((t) => t("edit.review.changedSince"), null);
     },
   };
+  const sight = keepInSight(edit.kept, change);
   let stopped = false;
   const forget = () => {
     if (stopped) return;
     stopped = true;
     stopFollowing();
     stopGlobal();
-    edit.editor.off("destroy", forget);
+    stopGone();
+    sight.stop();
     coreUndoRegistrations.delete(followed);
     useUndo.getState().withdraw(change);
     void followed.release?.();
@@ -606,9 +701,10 @@ function offerCoreUndo(edit: Applying, followed: FollowedSteps, facts: ChangeCou
       forget();
     }
   });
-  edit.editor.on("destroy", forget);
+  const stopGone = onceGone(edit, forget);
   coreUndoRegistrations.set(followed, { change, forget });
   useUndo.getState().push(change);
+  sight.recheck();
 }
 
 export function shareCoreUndo(followed: FollowedSteps, change: Undoable): void {
@@ -761,7 +857,7 @@ export function applyArrived(
     : appliedChanges(editor.state, anchorChanges(editor.state, planned));
   edit.changes = changes;
   edit.byAssistant = true;
-  lastApplied.set(editor, edit);
+  lastApplied.set(historyOwnerOf(editor), edit);
   const { followed } = edit;
   if (followed) {
     for (const listener of applied) listener(mindId, requests, { followed, accepted });
@@ -802,6 +898,7 @@ export async function finishApplying(
 ): Promise<{ applied: ChangedBlocks } | "held" | "late" | null> {
   if (result.kind !== "proposed") {
     edit.stopTaking();
+    edit.drawing = null;
     if (edit.request) drawApplying(edit.editor, edit.request, false);
     dropSteps(edit);
     return null;
@@ -809,9 +906,16 @@ export async function finishApplying(
   edit.request ??= result.request;
   const arrival = await whenArrived(edit, result.request, result.stateVector);
   edit.stopTaking();
-  if (arrival !== "closed") drawApplying(edit.editor, result.request, false);
+  edit.drawing = null;
+  drawApplying(edit.editor, result.request, false);
   // What came waits as changes to review, and what comes later joins them: nothing is lost.
   if (arrival === "late") return "late";
+  if (arrival === "closed") {
+    // Its tab showing something else as it came back, it waits to be reviewed: no step of the
+    // Note's Undo takes it out unseen.
+    dropSteps(edit);
+    return null;
+  }
   if (arrival !== "arrived") return null;
   edit.leftOut = result.leftOut ?? [];
   if (result.held) {
@@ -830,8 +934,9 @@ export async function finishApplying(
 }
 
 function undoEdit(editor: Editor): void {
+  const owner = historyOwnerOf(editor);
   const edit =
-    appliedLineIn(editor.state)?.kind === "review" ? lastApplied.get(editor) : latest.get(editor);
+    appliedLineIn(editor.state)?.kind === "review" ? lastApplied.get(owner) : latest.get(owner);
   if (!edit?.followed?.onTop()) return;
   void undoCoreChange(edit.followed);
   setAppliedLine(editor, null);
@@ -854,7 +959,7 @@ function redrawReview(editor: Editor): void {
  * can still be restored, its words untouched since.
  */
 export function canReviewApplied(editor: Editor, followed?: FollowedSteps | null): boolean {
-  const edit = lastApplied.get(editor);
+  const edit = lastApplied.get(historyOwnerOf(editor));
   if (editor.isDestroyed || !edit?.followed) return false;
   if (followed !== undefined && followed !== edit.followed) return false;
   const kind = appliedLineIn(editor.state)?.kind;
@@ -870,7 +975,7 @@ export const offersReview = (editor: Editor): boolean =>
 
 /** Review changes for the editor's last applied edit, at its first change: from its line, ⌘K, the Mind's ⋯ and the assistant's card. */
 export function reviewApplied(editor: Editor, { focus = false } = {}): void {
-  const edit = lastApplied.get(editor);
+  const edit = lastApplied.get(historyOwnerOf(editor));
   if (!edit || !canReviewApplied(editor)) return;
   const { followed, changes } = edit;
   const mind = useAppStore.getState().minds.find((each) => each.id === edit.mindId);
@@ -944,7 +1049,7 @@ export function restoreChange(editor: Editor, index: number): void {
     }
   });
   const top = undoStackOf(editor)?.undoStack.at(-1);
-  const edit = lastApplied.get(editor);
+  const edit = lastApplied.get(historyOwnerOf(editor));
   if (top && edit) {
     edit.more.push(top);
     edit.followed?.add(top);
@@ -961,7 +1066,7 @@ export function restoreChange(editor: Editor, index: number): void {
 function resolveHeld(editor: Editor, outcome: "accept" | "reject"): void {
   const line = appliedLineIn(editor.state);
   if (line?.kind !== "held") return;
-  const edit = latest.get(editor);
+  const edit = latest.get(historyOwnerOf(editor));
   const heldIn = line.asked?.mindId ?? (edit?.request === line.request ? edit.mindId : null);
   // Applied now, a change held back is accepted: a Checkpoint first, whoever wrote it (#113).
   // Not awaited: the core takes it before the change this sends next.
@@ -997,7 +1102,7 @@ function resolveHeld(editor: Editor, outcome: "accept" | "reject"): void {
 }
 
 function removeKept(editor: Editor): void {
-  const edit = latest.get(editor);
+  const edit = latest.get(historyOwnerOf(editor));
   const line = appliedLineIn(editor.state);
   if (!edit || line?.kind !== "applied" || editor.isDestroyed) return;
   const { doc } = editor.state;

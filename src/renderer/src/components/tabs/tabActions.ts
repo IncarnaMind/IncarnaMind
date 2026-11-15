@@ -8,7 +8,7 @@ import {
 import { shortcutLabel } from "../../commands/keymap";
 import { activeTabOf, focusedGroupOf, groupOfTab, groupsMerged } from "../../layoutSlice";
 import { useAppStore } from "../../store";
-import { focusTab } from "../../tabFocus";
+import { focusShownContent, focusTab } from "../../tabFocus";
 import { tabTitle } from "../../tabs";
 import { makeInTurn, type Undoable, UndoRefused } from "../../undo";
 
@@ -164,15 +164,20 @@ export async function closeSome(change: LayoutChange, tab: LayoutTab): Promise<v
   if (count > 0) store.showTabNotice({ kind: "closed", item: tab.item, count });
 }
 
-/** Shows the next or previous tab of the focused group (Ctrl+Tab, Ctrl+Shift+Tab). */
-export function cycleTabs(step: 1 | -1): void {
+/**
+ * Shows the next or previous tab of the focused group (Ctrl+Tab, Ctrl+Shift+Tab). `focus`: the
+ * User asked for it, so the focus goes into what the tab shows; not when the assistant did.
+ */
+export function cycleTabs(step: 1 | -1, { focus = true }: { focus?: boolean } = {}): void {
   const store = useAppStore.getState();
   if (!store.layout) return;
   const group = focusedGroupOf(store.layout);
   if (group.tabs.length === 0) return;
   const index = group.tabs.findIndex((tab) => tab.id === group.activeTabId);
   const next = group.tabs[(index + step + group.tabs.length) % group.tabs.length];
-  if (next) void store.changeLayout({ type: "show", tabId: next.id });
+  if (!next) return;
+  if (focus) focusShownContent(next.id, next.item.kind);
+  void store.changeLayout({ type: "show", tabId: next.id });
 }
 
 /**
@@ -188,7 +193,13 @@ export function tabByNumber(number: number): LayoutTab | null {
   return (number === 9 ? tabs.at(-1) : tabs[number - 1]) ?? null;
 }
 
-export async function showTabByNumber(number: number): Promise<void> {
+/** ⌃1–⌃9: shows a tab by its place, with the focus as `cycleTabs` moves it. */
+export async function showTabByNumber(
+  number: number,
+  { focus = true }: { focus?: boolean } = {},
+): Promise<void> {
   const tab = tabByNumber(number);
-  if (tab) await useAppStore.getState().changeLayout({ type: "show", tabId: tab.id });
+  if (!tab) return;
+  if (focus) focusShownContent(tab.id, tab.item.kind);
+  await useAppStore.getState().changeLayout({ type: "show", tabId: tab.id });
 }

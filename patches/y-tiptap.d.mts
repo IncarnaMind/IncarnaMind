@@ -5,6 +5,8 @@ export interface Parts {
 }
 export const VERSION: string;
 export const LIBRARY_ATTRIBUTES_TO_MARKS: string;
+export const LIBRARY_UNDO_VIEW: string;
+export const PATCHED_UNDO_VIEW: string;
 export function libraryUpdateYText(diff: string): string;
 export function patchedUpdateYText(diff: string, helpers: string): string;
 export function libraryMarksToAttributes(map: string): string;

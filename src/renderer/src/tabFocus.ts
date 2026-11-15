@@ -1,4 +1,4 @@
-import type { WindowLayout } from "../../core/api";
+import type { TabItem, WindowLayout } from "../../core/api";
 import { activeTabOf, focusedGroupOf, groupOfTab, groupsMerged } from "./layoutSlice";
 
 let pending: {
@@ -31,11 +31,58 @@ export function focusTab(
   tabId: string | null | undefined,
   { onlyIfLost = false }: { onlyIfLost?: boolean } = {},
 ): void {
+  forgetContentFocus();
   if (!tabId) return;
   focusOnceDrawn(
     () => document.querySelector<HTMLElement>(`[data-tab-id="${CSS.escape(tabId)}"]`),
     onlyIfLost,
   );
+}
+
+/** The Note's text drawn in each tab, as what puts the focus in it where the cursor was. */
+const contentTakers = new Map<string, () => void>();
+/** The tab whose Note is to take the focus once drawn, and where the focus was when that was asked. */
+let contentWanted: { tabId: string; origin: Element | null } | null = null;
+
+/**
+ * A click on a tab, or a shortcut that shows one, puts the focus in what it shows (#3115): a Note's
+ * text, its cursor where it was, now or once its editor is drawn. No other tab's content takes the
+ * focus when it opens, so the focus stays on the tab itself. A place the User focused meanwhile
+ * keeps it.
+ */
+export function focusShownContent(tabId: string, kind: TabItem["kind"]): void {
+  if (typeof document === "undefined") return;
+  contentWanted = null;
+  if (kind !== "mind") {
+    focusTab(tabId);
+    return;
+  }
+  const take = contentTakers.get(tabId);
+  if (take) take();
+  else contentWanted = { tabId, origin: document.activeElement };
+}
+
+/**
+ * The keyboard is on the tabs now: what a click or shortcut asked of a tab's content no longer
+ * holds, so a Note drawn later, as when its copy could only open later, leaves the focus there.
+ */
+export function forgetContentFocus(): void {
+  contentWanted = null;
+}
+
+/** The Note's text drawn in `tabId` takes the focus asked of the tab, until the function this returns is called. */
+export function takeContentFocus(tabId: string, focus: () => void): () => void {
+  contentTakers.set(tabId, focus);
+  const wanted = contentWanted;
+  if (wanted?.tabId === tabId) {
+    contentWanted = null;
+    // The place the focus was asked from may have gone with the tab's last content.
+    const now = document.activeElement;
+    if (now === wanted.origin || now === document.body || now === null) focus();
+  }
+  return () => {
+    if (contentTakers.get(tabId) === focus) contentTakers.delete(tabId);
+  };
 }
 
 /** Captures a closing tab's focus before its layout change removes the focused element (#1309). */
@@ -85,7 +132,8 @@ export function returnFocusAfterTabClose(
         const editor = pane.querySelector<HTMLElement>('[data-testid="mind-editor"]');
         if (!editor) return;
         stop();
-        editor.focus();
+        // Its cursor is where the User left it (#3115): coming back to it scrolls nothing.
+        editor.focus({ preventScroll: true });
       };
       pending = { groupId: next.id, tabId: nextTab.id, finish, stop };
       document.addEventListener("focusin", stop, true);

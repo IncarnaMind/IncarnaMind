@@ -339,8 +339,8 @@ describe("the undo stack", () => {
   });
 });
 
-// protects=a change set aside keeps its place on either stack while ⌘Z, ⇧⌘Z and Edit › Undo's name pass over it, and an Undo or Redo of it by name still runs; a change offered in place of another takes its place, and one in place of a change not on the stack goes last (#3099); fails_when=a set-aside change is taken by ⌘Z or named, moves, or stays set aside once off the stack; no_claim=which changes are set aside, which tests/renderer/meetingFillUndo.test.ts holds.
-describe("a change set aside, and a change offered in place of another", () => {
+// protects=a change set aside keeps its place on either stack while ⌘Z, ⇧⌘Z and Edit › Undo's name pass over it, and an Undo or Redo of it by name still runs (#3099); fails_when=a set-aside change is taken by ⌘Z or named, moves, or stays set aside once off the stack; no_claim=which changes are set aside, which tests/renderer/meetingFillUndo.test.ts and tests/renderer/tabCopies.test.ts hold.
+describe("a change set aside", () => {
   afterEach(() => {
     useUndo.setState({ aside: [] });
   });
@@ -408,19 +408,6 @@ describe("a change set aside, and a change offered in place of another", () => {
     expect(useUndo.getState().aside).toEqual([]);
     setAside(change("Elsewhere", log));
     expect(useUndo.getState().aside).toEqual([]);
-  });
-
-  test("a change offered in place of another takes its place; in place of one not on the stack, it goes last", () => {
-    const log: string[] = [];
-    const [a, held, c] = [change("A", log), change("Held", log), change("C", log)];
-    for (const each of [a, held, c]) push(each);
-    setAside(held);
-    const core = change("Core", log);
-    useUndo.getState().offer(core, held);
-    expect(names(useUndo.getState().done)).toEqual(["A", "Core", "C"]);
-    expect(useUndo.getState().aside).toEqual([]);
-    useUndo.getState().offer(change("Last", log), held);
-    expect(names(useUndo.getState().done)).toEqual(["A", "Core", "C", "Last"]);
   });
 });
 

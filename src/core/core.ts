@@ -3135,6 +3135,12 @@ export function createCore(adapters: CoreAdapters): Core {
     now: () => adapters.now?.() ?? new Date(),
   });
 
+  /** What an earlier run, or a check that threw, left as if something still worked on it. */
+  const settleUnfinished = (mindId: string) => {
+    answers.settleOrphans(mindId);
+    checks.settleStale(mindId);
+  };
+
   const windows = createWindowPresence(
     [
       {
@@ -5755,8 +5761,7 @@ export function createCore(adapters: CoreAdapters): Core {
       if (access === "read-only") return { mind, access, state: content.storedState(mind.id) };
       await wordImports.convertParts(mind.id);
       rebuildFigureRetention(mind.id);
-      answers.settleOrphans(mind.id);
-      checks.settleStale(mind.id);
+      settleUnfinished(mind.id);
       return { mind, access, state: content.state(mind.id) };
     },
     applyMindUpdate: async (mindId, update) => {
@@ -5770,6 +5775,12 @@ export function createCore(adapters: CoreAdapters): Core {
     takeLostChanges: async () => unsaved.takeLost(),
     closeMind: async (mindId) => {
       content.close(parseMindId(mindId));
+    },
+    settleUnfinished: async (mindId) => {
+      const mind = minds.get(mindId);
+      if (!isKnownKind(mind.kind)) return;
+      if (accessFor(mind.kind, content.contentVersion(mind.id)) === "read-only") return;
+      settleUnfinished(mind.id);
     },
     saveCheckpoint: async (mindId, reason) => checkpoints.save(mindId, reason),
     listCheckpoints: async (mindId) => checkpoints.list(mindId),
