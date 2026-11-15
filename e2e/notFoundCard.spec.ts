@@ -443,15 +443,19 @@ test("Cut it and Keep as my view are reached and run with the keyboard alone: ‚å
   test.setTimeout(180_000);
   const { app, window, editor, lines, marks, card } = await launchedWithFourSentences("en");
 
-  // Enter on a mark opens its card, and Esc closes it with the caret back in the text.
+  // Enter on a mark goes into its card; Esc goes back to the mark, and a second Esc closes the
+  // card with the caret where it was (#3102).
   const caret = await cursorOf(editor);
   await marks.nth(2).focus();
   await window.keyboard.press("Enter");
   await expect(card).toBeVisible();
   await expect(card.getByTestId(IDS.keep)).toBeVisible();
   await window.keyboard.press("Escape");
+  await expect(marks.nth(2)).toBeFocused();
+  await expect(card).toBeVisible();
+  await window.keyboard.press("Escape");
   await expect(card).toHaveCount(0);
-  await expect(editor).toBeFocused();
+  await expect(marks.nth(2)).toBeFocused();
   expect(await cursorOf(editor)).toBe(caret);
 
   const palette = window.getByTestId("palette");

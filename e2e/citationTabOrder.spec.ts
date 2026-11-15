@@ -613,11 +613,17 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect.poll(() => whereIsFocus(window)).toBe("card");
       expect(await noteOf(editor), `${key} typed nothing into the Note`).toBe(note);
       await expect(hint).toBeHidden();
-      const controls = await card.locator('button:visible:not([tabindex="-1"])').count();
+      const stops = card.locator('button:visible:not([tabindex="-1"])');
+      const controls = await stops.count();
       expect(controls, "the card has controls").toBeGreaterThan(0);
+      // The check card's ⋯ is its first stop, and going in starts on the action after it (#2869).
+      const start = await stops.evaluateAll((all) =>
+        all.findIndex((each) => each.matches(":focus")),
+      );
+      expect(start, "the focus is on one of the card's controls").toBeGreaterThanOrEqual(0);
 
       // Tab goes through the controls and, past the last one, back to the mark: it doesn't wrap.
-      for (let step = 1; step < controls; step++) {
+      for (let step = start + 1; step < controls; step++) {
         await window.keyboard.press("Tab");
         expect(await whereIsFocus(window)).toBe("card");
       }
@@ -635,9 +641,13 @@ for (const language of ["en", "zh-CN"] as const) {
       await window.keyboard.press("Escape");
       await expect(marks.first()).toBeFocused();
 
-      // Shift+Tab from the first control goes back to the mark.
+      // Shift+Tab goes back through the controls before it and, past the first, to the mark.
       await window.keyboard.press(key);
       await expect.poll(() => whereIsFocus(window)).toBe("card");
+      for (let step = 0; step < start; step++) {
+        await window.keyboard.press("Shift+Tab");
+        expect(await whereIsFocus(window)).toBe("card");
+      }
       await window.keyboard.press("Shift+Tab");
       await expect(marks.first()).toBeFocused();
 
