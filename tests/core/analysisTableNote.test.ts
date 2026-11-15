@@ -23,6 +23,7 @@ import {
   MIND_FIGURE_RUNS_FIELD,
 } from "../../src/core/api";
 import { homeReading, noteStateParts, readNoteState } from "../../src/renderer/src/noteState";
+import { wallsOf } from "../../src/renderer/src/walls";
 import { type AnalysisValue, noAnalysisOutput } from "../../src/shared/analysis";
 import { columnLine, differingLine, footedLine } from "../../src/shared/analysisTables";
 import type { NodeJSON } from "../../src/shared/blockJson";
@@ -280,6 +281,12 @@ async function walked(
 }
 
 const blocksOf = (client: MindClient): NodeJSON[] => topLevelBlocks(client.blocks).map(nodeOf);
+const wallsNow = async (core: Core) =>
+  wallsOf({
+    library: await core.getLibrary(),
+    documents: await core.listDocuments(),
+    minds: await core.listMinds(),
+  });
 
 /** Every claim check's mark in the Note, by the words it marks. */
 function marks(client: MindClient): { text: string; state: string; reason: string | null }[] {
@@ -1583,7 +1590,7 @@ describe.each(["en", "zh-CN"] as const)("%s: an Analysis figure's sentence (#237
     const home = homeReading(walled, {
       documents: await core.listDocuments(),
       keptCitationTexts: [],
-      library: await core.getLibrary(),
+      library: await wallsNow(core),
       folderId: null,
     });
     expect(home.health.supported).toBe(0);
@@ -1603,7 +1610,7 @@ describe.each(["en", "zh-CN"] as const)("%s: an Analysis figure's sentence (#237
     const out = homeReading(stored, {
       documents: await core.listDocuments(),
       keptCitationTexts: [],
-      library: await core.getLibrary(),
+      library: await wallsNow(core),
       folderId: null,
     });
     expect(out.health.supported).toBe(0);
@@ -1676,7 +1683,7 @@ describe.each(["en", "zh-CN"] as const)("%s: an Analysis figure's sentence (#237
     return homeReading(stored, {
       documents: await core.listDocuments(),
       keptCitationTexts: [],
-      library: await core.getLibrary(),
+      library: await wallsNow(core),
       folderId: null,
     });
   };

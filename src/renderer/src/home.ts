@@ -7,6 +7,7 @@ import { isListedDocument } from "./meetingTranscript";
 import { homeReading, type NoteReading } from "./noteState";
 import { useSelection } from "./selection";
 import { type AppState, exampleMindIds, useAppStore } from "./store";
+import { wallsOf } from "./walls";
 
 const NO_MINDS: readonly Mind[] = [];
 
@@ -114,6 +115,11 @@ export function useMindNoteStates(
       setStates(new Map());
       return;
     }
+    const walls = wallsOf({
+      library,
+      documents: documents ?? [],
+      minds: useAppStore.getState().minds,
+    });
     core
       .readMindContents(ids)
       .then((snapshots) => {
@@ -125,7 +131,7 @@ export function useMindNoteStates(
               homeReading(snapshot, {
                 documents,
                 keptCitationTexts,
-                library,
+                library: walls,
                 folderId: folders.get(snapshot.mindId) ?? null,
               }),
             );
