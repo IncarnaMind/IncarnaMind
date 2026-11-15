@@ -79,6 +79,8 @@ const FAILURES: Record<ClaimCheckFailure, true> = {
   "workbook-text": true,
   "figures-not-read": true,
   "sentence-figures-not-read": true,
+  "two-readings": true,
+  "readings-unsettled": true,
   "library-unsettled": true,
   "analysis-unnamed": true,
   "assistant-conclusion": true,
@@ -88,12 +90,14 @@ export const CLAIM_CHECK_FAILURES: readonly ClaimCheckFailure[] = Object.keys(FA
 );
 // A part the model answered that the check couldn't take: a limit or a stop on another part of the
 // sentence is its reason instead, so the run waits it out or stops (#3022). Among these, a number
-// no quote gives, or a quote the sentence's Citations don't hold (#3019), says what the User can
-// do, which "no-evidence" doesn't.
+// no quote gives, a quote the sentence's Citations don't hold (#3019) or a figure read more than
+// one way (#3088) says what the User can do, which "no-evidence" doesn't.
 const SAYS_WHAT_TO_DO: ReadonlySet<ClaimCheckFailure> = new Set([
   "number-unquoted",
   "number-not-worked-out",
   "found-elsewhere",
+  "two-readings",
+  "readings-unsettled",
 ]);
 const ANSWERED: ReadonlySet<ClaimCheckFailure> = new Set([
   ...SAYS_WHAT_TO_DO,

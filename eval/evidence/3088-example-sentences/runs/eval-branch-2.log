@@ -1,0 +1,63 @@
+
+> incarnamind@0.1.0-alpha.4 eval
+> vitest run --config eval/vitest.config.ts eval/checks
+
+
+ RUN  v5.0.3 <branch checkout>
+
+(node:38064) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[eval    0s] Checks: 208 sentences and 165 claims, over 21 Folder Documents and 10 received documents
+[eval    0s] The reranking model is ready (0.0 s)
+[eval    2s] 31 Documents, 98 Passages, in 2 s
+2026-11-14 08:40:36.341 node[38064:142859809] 2026-11-14 08:40:36.341033 [W:onnxruntime:, session_state.cc:1397 VerifyEachNodeIsAssignedToAnEp] Some nodes were not assigned to the preferred execution providers which may or may not have an negative impact on performance. e.g. ORT explicitly assigns shape related ops to CPU to improve perf.
+2026-11-14 08:40:36.341 node[38064:142859809] 2026-11-14 08:40:36.341113 [W:onnxruntime:, session_state.cc:1399 VerifyEachNodeIsAssignedToAnEp] Rerunning with verbose output on a non-minimal build will show node assignments.
+[eval  139s] Find support: 25 of 208 checked
+[eval  268s] Find support: 50 of 208 checked
+[eval  408s] Find support: 75 of 208 checked
+[eval  562s] Find support: 100 of 208 checked
+[eval  698s] Find support: 125 of 208 checked
+[eval  837s] Find support: 150 of 208 checked
+[eval  994s] Find support: 175 of 208 checked
+[eval 1119s] Find support: 200 of 208 checked
+(node:38064) Warning: AI SDK Warning System: To turn off warning logging, set the AI_SDK_LOG_WARNINGS global to false.
+(node:38064) Warning: AI SDK Warning (anthropic.messages / claude-haiku-5-5): The feature "temperature" is not supported. temperature is not supported by claude-haiku-5-5 and will be ignored
+[eval 1271s] Verify: Hartley Building progress report 3.pdf, 19 claims extracted
+(node:38064) Warning: AI SDK Warning (anthropic.messages / claude-haiku-5-5): The feature "temperature" is not supported. temperature is not supported by claude-haiku-5-5 and will be ignored
+[eval 1362s] Verify: Harbour Roasters press release draft.docx, 20 claims extracted
+(node:38064) Warning: AI SDK Warning (anthropic.messages / claude-haiku-5-5): The feature "temperature" is not supported. temperature is not supported by claude-haiku-5-5 and will be ignored
+[eval 1474s] Verify: Meridian Health Staffing proposal.pdf, 23 claims extracted
+(node:38064) Warning: AI SDK Warning (anthropic.messages / claude-haiku-5-5): The feature "temperature" is not supported. temperature is not supported by claude-haiku-5-5 and will be ignored
+[eval 1583s] Verify: Cityride September 2026 operator report.pptx, 22 claims extracted
+(node:38064) Warning: AI SDK Warning (anthropic.messages / claude-haiku-5-5): The feature "temperature" is not supported. temperature is not supported by claude-haiku-5-5 and will be ignored
+[eval 1699s] Verify: Northgate Advisory memo on the heat study.docx, 19 claims extracted
+(node:38064) Warning: AI SDK Warning (anthropic.messages / claude-haiku-5-5): The feature "temperature" is not supported. temperature is not supported by claude-haiku-5-5 and will be ignored
+[eval 1820s] Verify: 禾丰餐饮运营情况说明.docx, 20 claims extracted
+(node:38064) Warning: AI SDK Warning (anthropic.messages / claude-haiku-5-5): The feature "temperature" is not supported. temperature is not supported by claude-haiku-5-5 and will be ignored
+[eval 1920s] Verify: 江城公交第三季度新闻稿.pdf, 19 claims extracted
+(node:38064) Warning: AI SDK Warning (anthropic.messages / claude-haiku-5-5): The feature "temperature" is not supported. temperature is not supported by claude-haiku-5-5 and will be ignored
+[eval 2023s] Verify: 浙北乳品季度对账说明.pdf, 18 claims extracted
+(node:38064) Warning: AI SDK Warning (anthropic.messages / claude-haiku-5-5): The feature "temperature" is not supported. temperature is not supported by claude-haiku-5-5 and will be ignored
+[eval 2120s] Verify: 江城晚报绿地降温报道.docx, 18 claims extracted
+(node:38064) Warning: AI SDK Warning (anthropic.messages / claude-haiku-5-5): The feature "temperature" is not supported. temperature is not supported by claude-haiku-5-5 and will be ignored
+[eval 2204s] Verify: 冷链仓库第三方巡检报告.pdf, 19 claims extracted
+Checks (#86), reported only until #96 and #97:
+  met  Verify: claims extracted: 99.4% (≥ 90.0%)
+  met  Verify: "contradicted" precision: 90.9% (≥ 90.0%)
+  met  Verify: "contradicted" recall: 76.9% (≥ 70.0%)
+  met  Find support: "supported" precision: 100.0% (≥ 90.0%)
+  MISSED  Find support: "supported" recall: 70.2% (≥ 80.0%)
+  Find support misses: 50; verify misses: 42
+  Find support not checked: 30 (no evidence 25: quote not found 11, calculation not made 14; malformed reply 5; other 0)
+  Verify not checked: 26 (no evidence 21: quote not found 13, calculation not made 8; malformed reply 5; other 0)
+  Report: <results>/evalruns/branch-2/2026-11-14T08-40-32-211Z-checks/report.md
+  Every judge reply: <results>/evalruns/branch-2/2026-11-14T08-40-32-211Z-checks/replies.md
+[eval 2205s] Spent, at the app's own count: [{"currency":"USD","amount":1.016615805}]
+ ✓ eval/checks/checks.eval.ts (1 test) 2205652ms
+   ✓ checks evaluation: Find support and verify 2205651ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  08:40:26
+   Duration  2211.49s (tests 100%)
+
