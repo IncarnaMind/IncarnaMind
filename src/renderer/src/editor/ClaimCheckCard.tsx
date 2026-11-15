@@ -22,6 +22,7 @@ import {
   saysNotFound,
   supportedByOwnNotesOnly,
 } from "../../../shared/claimChecks";
+import { restsOnPassage } from "../../../shared/claimParts";
 import { hasKnownDomain } from "../../../shared/claimRows";
 import { quotedSourceText } from "../../../shared/figureSchedule";
 import { formulaText } from "../../../shared/formula";
@@ -946,11 +947,15 @@ export function ClaimCard({
   // The Library's facts decided it (#2525): its row names the fact and where it is from.
   const library = location?.kind === "library" ? location : null;
   const already = decision.kind === "already" ? decision.citation : null;
-  const citedQuote = already?.attributes.quote
-    ? already.attributes
-    : property || library
-      ? null
-      : evidence;
+  // A Mark that rests on its Passage shows no quote: the card names the place, which opens (#3118).
+  const resting = restsOnPassage(awaiting ? claim.check : check);
+  const citedQuote = resting
+    ? null
+    : already?.attributes.quote
+      ? already.attributes
+      : property || library
+        ? null
+        : evidence;
   const quote = useReadableQuote(citedQuote);
   const documents = useAppStore((store) => store.documents);
   const where =
@@ -1727,6 +1732,11 @@ export function ClaimCard({
                     </OpenCitation>
                   )}
                 </span>,
+                resting && openEvidence && (
+                  <QuoteLink key="open" testId="claim-open-place" onClick={openEvidence}>
+                    {t(`citation.open.${openKind(location)}`)}
+                  </QuoteLink>
+                ),
                 decision.kind === "add" && (
                   <QuoteLink key="add" testId="claim-add-citation" onClick={onAdd}>
                     {t("claim.addAsCitation")}

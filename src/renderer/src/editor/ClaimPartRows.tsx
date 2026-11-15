@@ -311,6 +311,13 @@ function PartQuote({
     );
     onOpen();
   };
+  // A part that rests on its Passage shows no quote: its place opens instead (#3118).
+  const openPlace =
+    part.restsOnPassage && citation.documentId ? (
+      <QuoteLink key="open" testId="claim-part-open-place" onClick={open}>
+        {t(`citation.open.${openKind(location)}`)}
+      </QuoteLink>
+    ) : null;
   const what = decision ?? { kind: "none" as const };
   const citing =
     what.kind === "already" ? (
@@ -373,6 +380,7 @@ function PartQuote({
       ) : (
         <>
           {citation.quote &&
+            !part.restsOnPassage &&
             (citation.documentId ? (
               <button
                 type="button"
@@ -402,6 +410,7 @@ function PartQuote({
                 {citing}
               </span>,
               more,
+              openPlace,
               link,
             ]}
           />
