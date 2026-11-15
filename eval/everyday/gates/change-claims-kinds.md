@@ -142,3 +142,32 @@ Round 1 again on Claude Haiku 5.5, the 18 development probes, 20 runs on each ar
 3. A miss on 1 or 2 comes to the lead with its runs before anything else changes.
 
 Then, whichever way the rerun ends, round 2 (the 24 held-out probes) on Claude Haiku 5.5. DeepSeek (round 1 and round 2) waits until Haiku's round 2 is in; then the 41 on Haiku, then on DeepSeek. The spend so far, US$0.10 of the US$3.20 ceiling; the try costs about US$0.10.
+
+## What the bounded try showed, and the last wording change (2026-11-15, written before its first request)
+
+### Claude Haiku 5.5, head `d2e4673e0` (the try's own wording, with `place`)
+
+- **Dev rerun** (the 18 probes, 20 runs, both arms, 720 requests, none refused or void, US$0.097): every bar held. Head caught all 8 unmade probes in 20 of 20 runs (main 0 to 20), `kind-other-part-zh` now 20 of 20 with `place`, and left all 10 honest ones alone in 20 of 20 (main flagged `kind-added-honest-en` and `-zh` 20 of 20).
+- **Held-out round 2** (the 24 probes, 20 runs, both arms, 960 requests, none refused or void, US$0.131), on that wording: unmade, head caught eleven in 20 of 20 and `held-kind-01-zh` in 19 (main 0 in eight, 13, 20, 20, 0); honest, head left eleven alone in 20 of 20 (main flagged `held-kind-07-zh` in 16 of 20). **Bar 2 failed for `held-kind-11-en` on Claude Haiku 5.5:** left alone 0 of 20 on head, and 0 of 20 on main, the claims check's own flag (the judge returns the whole sentence as an added claim, unbacked, with `added: 1` in the record). Filed as #3141. Its Chinese twin is left alone 20 of 20. This round is kept as it ran; because the wording changes below, both models' held-out rounds run again on the final wording.
+
+### DeepSeek V4.1 Flash 1017, the same head: development round
+
+The guard passed (the first probe alone: 40 requests, 95.7% from the cache, US$0.0056 by the runner's count, a projection of about US$0.235 for rounds 1 and 2 against their US$0.60 stop). The 18 probes, 20 runs, both arms, 720 requests, none refused or void, US$0.093: all 10 honest probes left alone in 20 of 20 on head (main flagged some of them 1 to 5 times); all 8 unmade probes caught more often than on main and none at the level of 18: `kind-section-out-extra` en 17 and zh 16 (main 0 and 3), `kind-longer-removed` en 10 and zh 15 (3 and 2), `kind-section-out-added` en 17 and zh 14 (8 and 10), `kind-other-part` en 13 and zh 12 (0 and 0).
+
+**The cause,** from 12 replays of three of the misses (the judge's own output): DeepSeek reads a reply that reports two changes as one claim, kind `changed`, and calls it backed because its first half is real ("it made the paragraph longer"), without judging the second half; `kind-longer-removed-en` came back as one backed claim in 3 of 4 replays, `kind-other-part-en` in 2 of 4. When it does split the sentence, it flags it (`kind-section-out-added-zh`, 4 of 4). The counts and the place are read right; the rule's words never say that a sentence reporting several changes is unbacked when any one is contradicted.
+
+### The last wording change (the lead's ruling)
+
+One sentence added to `KIND_OF_CHANGE_RULE`, said in meaning, in both languages: a sentence that reports more than one change is judged on each; when the counts contradict any one of them, it is unbacked, with that change's kind. Nothing from any probe is in it (the overlap test, run on it, is green), and its cause is read from development probes only. **It is the last change to the wording**: if DeepSeek's development round still misses after it, the wording is not tuned again, the held-out rounds run as they stand, and DeepSeek's misses are recorded with their counts as the model's limit. The pull request states Claude Haiku 5.5's numbers and DeepSeek's apart.
+
+Free, before this change's first request: all 158 older probes still send byte-identical requests on main and this head (158 of 158; the 42 new differ).
+
+### Bars of the try (written before it runs)
+
+1. **Development rounds** (the 18 probes, 20 runs, both arms), on Claude Haiku 5.5 and on DeepSeek: every honest probe is left alone in at least 18 of 20 runs on head, and every unmade probe is caught in at least 18 of 20.
+2. **Haiku's dev round** also shows no regression against its last numbers: no honest probe of the 10 falls below 18 of 20, and no unmade probe below 18 of 20.
+3. **DeepSeek's dev round** may miss on unmade probes: that is recorded, not tuned (see above), and bars 4 and 5 are then read on both models as they come.
+4. **Held-out rounds, on the final wording, both models, in this order: Haiku, then DeepSeek:** the bars 1 and 2 above, each model on its own numbers.
+5. **Round 3, the 41:** as above, Haiku then DeepSeek.
+
+Spend: the ledger at this point is about US$0.45 of the US$3.20 ceiling; this try's dev rounds about US$0.20, the held-out rounds about US$0.27.
