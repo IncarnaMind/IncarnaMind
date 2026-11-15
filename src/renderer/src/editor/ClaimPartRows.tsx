@@ -218,6 +218,8 @@ export function partReason(
   if (part.unsupported?.reason) return part.unsupported.reason;
   // Its quote is a Passage the check found that doesn't back it, as a one-part card's is (#770).
   if (part.evidence.length > 0) return t("claim.unsupported.differs");
+  // A Passage judged with nothing kept to quote is Unsupported, never Not found (#1608).
+  if (part.unsupported?.found) return t("claim.unsupported.noReason");
   if (read)
     return t(
       read.pages === read.of

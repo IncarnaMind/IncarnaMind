@@ -279,6 +279,25 @@ describe.each(["en", "zh-CN"] as const)("a part's reason (%s)", (language) => {
     );
     expect(parts[1]?.querySelector('[data-testid="claim-part-citation"]')).toBeNull();
   });
+
+  // protects=an unsupported part whose check judged a Passage about it with nothing kept to quote, and gave no reason, says so rather than that nothing was found (#2869); fails_when=such a part says it wasn't found in the scope; no_claim=the wording of a part with a reason.
+  test("says the check gave no reason where it found a Passage but kept no quote", async () => {
+    const unsupported = { reason: null, covered: null, uncovered: null };
+    await card(
+      language,
+      checkOf([
+        part(FIRST, { verdict: "unsupported", unsupported: { ...unsupported, found: true } }),
+        part(SECOND, { verdict: "unsupported", unsupported }),
+      ]),
+    );
+    const parts = [...container.querySelectorAll('[data-testid="claim-part"]')];
+    expect(
+      parts.map((row) => row.querySelector('[data-testid="claim-part-reason"]')?.textContent),
+    ).toEqual([
+      t("claim.unsupported.noReason"),
+      t("claim.unsupported.notFound", { scope: t("composer.scope.all") }),
+    ]);
+  });
 });
 
 describe.each([
