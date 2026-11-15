@@ -155,8 +155,9 @@ async function showLook(mindId: string, request: string): Promise<void> {
  * what it wrote runs, how far it is ("Checking 5 of 40 sentences"); then how
  * many it checked and how many need a look, with Show; how many it couldn't
  * check, with the one Check, or why not (the spending cap, with Change the
- * cap; a plan's limit, with when it resumes). The lines count this write's own
- * Blocks alone; the Note's other text is the one Check's.
+ * cap; a plan's limit, with when it resumes). Where no check followed the write
+ * (#3154), how many of its sentences wait, with the one Check. The lines count
+ * this write's own Blocks alone; the Note's other text is the one Check's.
  */
 export function SelfCheckLines({ answer }: { answer: Pick<ConversationAnswer, "toolCalls"> }) {
   return (

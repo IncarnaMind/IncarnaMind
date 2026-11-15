@@ -3840,6 +3840,8 @@ export const zhCN = {
   "ai.jobs.search.offLine": "按含义查找段落 · 135 MB，在这台电脑上",
   "ai.jobs.search.line": "按含义查找段落，在这台电脑上",
   "ai.jobs.search.server": "其他服务器…",
+  "ai.jobs.checkWrites": "自动核对助手写入的内容",
+  "ai.jobs.checkWrites.line": "写入后立即核对。关闭时，等你点“核对”后再核对。",
   "ai.jobs.web": "回答时搜索网页",
   "ai.jobs.web.line": "使用回答模型自带的搜索",
   "ai.payer.plan": "{plan}已包含",

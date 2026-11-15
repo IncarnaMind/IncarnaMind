@@ -1,0 +1,24 @@
+import { useT } from "../../i18n";
+import { useAppStore } from "../../store";
+import { SettingsSwitchRow } from "../settings/SettingsGroup";
+
+/**
+ * Settings › AI › Check what the assistant writes (#3154): a switch, off by default. Off, the
+ * sentences the assistant writes into a Note wait for the User's Check, as any sentence does.
+ */
+export function CheckWritesRow() {
+  const t = useT();
+  const on = useAppStore((state) => state.settings?.user.checkAssistantWrites);
+  const updateSettings = useAppStore((state) => state.updateSettings);
+  if (on === undefined) return null;
+  return (
+    <SettingsSwitchRow
+      testId="check-writes-settings"
+      label={t("ai.jobs.checkWrites")}
+      detail={t("ai.jobs.checkWrites.line")}
+      checked={on}
+      onChange={(next) => void updateSettings({ user: { checkAssistantWrites: next } })}
+      switchTestId="check-writes-switch"
+    />
+  );
+}

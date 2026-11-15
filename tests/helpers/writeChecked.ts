@@ -82,6 +82,7 @@ async function writeChecked(
     paceTimers: timers,
   });
   core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
+  await core.updateSettings({ user: { checkAssistantWrites: true } });
   const saved = await core.saveChatProvider({
     kind: "anthropic",
     apiKey: "sk-ant-test",

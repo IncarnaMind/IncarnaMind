@@ -1691,8 +1691,9 @@ export interface MindChange {
    * choice kept from being sent (the flow turned off, or Local mode), which
    * checking again can't change, or how many wait for the User to allow what
    * checks send now ("consent-widened"). `running` as it began, its counts not
-   * final yet; `undone` once an Undo took the write away and ended it. Absent:
-   * none was checked.
+   * final yet; `undone` once an Undo took the write away and ended it. With
+   * nothing sent, no check began: the sentences wait for the User's Check
+   * (#3154). Absent: none was checked, or the write holds none to check.
    */
   selfCheck?: {
     request: string;
@@ -3526,6 +3527,11 @@ export interface UserSettings {
    * everywhere. Copies of the document being checked are left out either way.
    */
   leaveOutOwnFiles: boolean;
+  /**
+   * What the assistant writes into a Note is checked as it lands (#3154): off until the User
+   * turns it on. Off, its sentences are checked when the User asks, as any sentence is.
+   */
+  checkAssistantWrites: boolean;
   /** How Export and ⇧⌘E export a Mind: the choices last saved in Export options (#100). */
   exportOptions: ExportPreferences;
   /**

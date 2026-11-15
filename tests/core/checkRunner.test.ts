@@ -478,6 +478,7 @@ async function worldOf(example: Example, flow: Flow, kind: Model = "cloud") {
     // A watch's record says when it ran: each run's is a later second.
     now: tickingClock(),
   });
+  await started.updateSettings({ user: { checkAssistantWrites: true } });
   reachCap = async () => {
     await started.updateSettings({ user: { monthlyCap: { amount: 0, currency: "USD" } } });
   };

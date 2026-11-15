@@ -44,6 +44,7 @@ async function setUp(model: MockLanguageModelV4) {
     createChatModel: scriptedModels(model).createChatModel,
   });
   await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+  await core.updateSettings({ user: { checkAssistantWrites: true } });
   const folder = await core.createLibraryGroup({ name: "Coast", description: "" });
   const sources = await createSourceFolder();
   const pdf = buildPdf([{ lines: ["Spring and neap tides", SPRING] }]);
