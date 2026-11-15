@@ -463,12 +463,19 @@ for (const [language, width] of [
     await pointAndClick(window, marks.nth(1));
     const sentence = card.getByTestId("claim-sentence");
     await expect(sentence).toContainText("…");
-    const [line, marked] = await Promise.all([
-      sentence.boundingBox(),
-      card.getByTestId("claim-sentence-mark").boundingBox(),
-    ]);
-    if (!line || !marked) throw new Error("The sentence isn't laid out.");
-    expect(marked.y + marked.height).toBeLessThanOrEqual(line.y + line.height + 1);
+    // The card grows in from its mark: both edges are read once it is at rest, in one frame.
+    await motionSettled(window);
+    const edges = await sentence.evaluate((element) => {
+      const mark = element.querySelector('[data-testid="claim-sentence-mark"]');
+      return mark
+        ? {
+            line: element.getBoundingClientRect().bottom,
+            marked: mark.getBoundingClientRect().bottom,
+          }
+        : null;
+    });
+    if (!edges) throw new Error("The sentence has no mark.");
+    expect(edges.marked).toBeLessThanOrEqual(edges.line + 1);
     expect(
       await sentence.evaluate((element) => {
         const height = Number.parseFloat(getComputedStyle(element).lineHeight);

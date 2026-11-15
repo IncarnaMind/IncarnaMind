@@ -6261,9 +6261,6 @@
       width: calc(100% + 4px);
       margin-left: -4px;
     }
-    .record-cite {
-      padding-left: 0;
-    }
     /* A focus ring never covers or touches the text beside it: a control set as text draws its
        ring close, and a reason's own action wraps with room above it. */
     :is(
@@ -6276,10 +6273,6 @@
     }
     .claim-card-says .meta-line {
       row-gap: 4px;
-    }
-    /* A button keeps its label on one line; the row of buttons wraps to a second row instead. */
-    .citation-card-action {
-      white-space: nowrap;
     }
   }
   /* A part that needs a look, marked in the sentence: its verdict's wash and a 2px line under it. */
@@ -6730,6 +6723,16 @@
       box-shadow: inset 0 0 0 1px var(--color-rule);
       color: var(--color-ink-placeholder);
       cursor: default;
+    }
+  }
+  /* The check card's own changes to these shared rules (#2869), after them. */
+  .claim-card {
+    .record-cite {
+      padding-left: 0;
+    }
+    /* A button keeps its label on one line; the row of buttons wraps to a second row instead. */
+    .citation-card-action {
+      white-space: nowrap;
     }
   }
   .citation-card-action--primary {
