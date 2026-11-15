@@ -227,13 +227,16 @@ function Pieces({
   if (lastPiece?.kind === "text") {
     const { character, space } = lastCharacter(lastPiece.text);
     const head = lastPiece.text.slice(0, lastPiece.text.length - character.length - space.length);
+    // Each write's last character is drawn anew where it lands, not moved along the line: a node
+    // that moves reads as a layout shift while the reply streams, though no word on screen moves.
+    const at = `${last}-${head.length}`;
     nodes.push(
       wordsOf(lastPiece, head, `text-${last}`),
-      <span key="end" className="help-line-end">
+      <span key={`end-${at}`} className="help-line-end">
         {lastPiece.bold ? <b className="help-move">{character}</b> : character}
         {numbersAtEnd}
       </span>,
-      <span key="space">{space}</span>,
+      <span key={`space-${at}`}>{space}</span>,
     );
   } else {
     nodes.push(
