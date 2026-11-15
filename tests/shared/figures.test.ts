@@ -900,6 +900,49 @@ const GOLDEN: { name: string; context: FigureContext; cases: Case[] }[] = [
     ],
   },
   {
+    name: "a number in digits right after a label ending in 数 (#3109)",
+    context: ZH,
+    cases: [
+      ["参会人数215人。", [f("215人", 215, { unit: "人" })]],
+      ["门店数54家。", [f("54家", 54, { unit: "家" })]],
+      ["用户数860万。", [f("860万", 8600000, { scale: "万" })]],
+      ["员工人数 215 人。", [f("215 人", 215, { unit: "人" })]],
+      ["用户数 860万。", [f("860万", 8600000, { scale: "万" })]],
+      ["总数215。", [f("215", 215)]],
+      ["总数 215。", [f("215", 215)]],
+      ["次数3次。", [f("3次", 3, { unit: "次" })]],
+      ["户数860户。", [f("860户", 860, { unit: "户" })]],
+      ["股数1000股。", [f("1000股", 1000, { unit: "股" })]],
+      ["指数3200点。", [f("3200", 3200)]],
+      ["系数0.85。", [f("0.85", 0.85)]],
+      ["分数92分。", [f("92", 92)]],
+      ["订单总数1200单，同比增长15%。", [f("1200", 1200), f("15%", 0.15, { unit: "%" })]],
+      ["用户数12.5亿。", [f("12.5亿", 1250000000, { scale: "亿" })]],
+      ["总数1,234,567,890。", [f("1,234,567,890", 1234567890)]],
+      ["用户数８６０万。", [f("８６０万", 8600000, { scale: "万" })]],
+      ["員工人數215人。", [f("215人", 215, { unit: "人" })]],
+      ["門店數54家。", [f("54家", 54, { unit: "家" })]],
+      ["用戶數860萬。", [f("860萬", 8600000, { scale: "萬" })]],
+    ],
+  },
+  {
+    name: "a vague count in Chinese numerals after 数, 几 or 若干 is no figure (#3109)",
+    context: ZH,
+    cases: [
+      ["数十亿", []],
+      ["投资数十亿元。", []],
+      ["数百家", []],
+      ["公司拥有数百家门店。", []],
+      ["几十家", []],
+      ["几十万", []],
+      ["若干十万", []],
+      ["數十億", []],
+      ["投資數十億元。", []],
+      ["數百家", []],
+      ["幾十萬", []],
+    ],
+  },
+  {
     name: "headings, lists, names and lines in English Documents",
     context: EN,
     cases: [
@@ -1000,6 +1043,104 @@ describe("the golden set", () => {
     test.each(OWN_CONTEXT)("%s with %j", (text, context, figures) => {
       expect(readFigures(text, context).map(shape)).toEqual(figures);
     });
+  });
+});
+
+describe("the words before a number that make it a reference or a vague count (#3109)", () => {
+  test.each([
+    ["投资数十亿元。", "投资十亿元。"],
+    ["若干十万", "十万"],
+    ["几十万", "十万"],
+    ["投資數十億元。", "投資十億元。"],
+  ])("%s is a vague count, though %s is a figure", (vague, bare) => {
+    expect(readFigures(bare, ZH)).toHaveLength(1);
+    expect(readFigures(vague, ZH)).toEqual([]);
+  });
+
+  test.each([
+    "p. 12",
+    "pp 3",
+    "page 4",
+    "Notes 5",
+    "Section 3",
+    "Sec. 2",
+    "Tables 3",
+    "Fig. 2",
+    "Figure 2",
+    "Chapter 4",
+    "Ch. 4",
+    "Item 7",
+    "Art. 5",
+    "Article 5",
+    "Exhibit 10",
+    "Appendix 2",
+    "Schedule 3",
+    "IFRS 16",
+    "IAS 36",
+    "ISO 9001",
+    "ASC 842",
+    "ASU 2016",
+    "Level 3",
+    "Tier 1",
+    "Scope 3",
+    "Phase 2",
+    "Stage 4",
+    "Version 2",
+    "Step 3",
+    "Rule 10",
+    "Part 2",
+    "No. 5",
+    "Nos. 5",
+    "Vol. 3",
+    "Volume 3",
+    "Issue 4",
+    "Clause 7",
+    "Para 3",
+    "Paragraph 3",
+    "Line 12",
+    "Row 4",
+    "Column 5",
+    "Slides 6",
+    "S&P 500",
+    "FTSE 100",
+    "Russell 2000",
+    "Nikkei 225",
+    "Fortune 500",
+    "Nasdaq 100",
+    "CSI 300",
+    "Top 10",
+    "Bullet 3",
+    "#3",
+    "№5",
+  ])("%s is still a reference", (text) => {
+    expect(readFigures(text, EN)).toEqual([]);
+  });
+
+  test.each([
+    "第3",
+    "附注5",
+    "沪深300",
+    "中证500",
+    "上证50",
+    "深证100",
+    "代码600000",
+    "代码：600000",
+    "表3",
+  ])("%s is still a reference", (text) => {
+    expect(readFigures(text, ZH)).toEqual([]);
+  });
+
+  test("a bracketed number after a label ending in 数 reads as after any other label", () => {
+    expect(readFigures("用户数(860)", ZH).map(shape)).toEqual(
+      readFigures("收入(860)", ZH).map(shape),
+    );
+  });
+
+  test.each([
+    ["天数30天。", "30天"],
+    ["应收账款周转天数45天。", "45天"],
+  ])("%s counts its days, as a sentence's period", (text, chars) => {
+    expect(figuresInClaim(text, ZH).map((figure) => figure.chars)).toEqual([chars]);
   });
 });
 
