@@ -9,6 +9,7 @@ import {
   launchApp,
   motionSettled,
   newMind,
+  openCardMenu,
   pointAndClick,
   removeDataFolder,
   setLanguage,
@@ -91,8 +92,12 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(card.getByTestId("claim-quote")).toHaveText(CLAUSE);
     await expect(card.getByTestId("claim-nothing")).toHaveCount(0);
     await expect(card.getByTestId("claim-differs")).toHaveCount(0);
-    await expect(card.getByTestId("claim-open")).toHaveText(words.open);
-    await pointAndClick(window, card.getByTestId("claim-open"));
+    // Open the page is the first item under the card's ⋯, and the quote opens it too (#2869).
+    const more = await openCardMenu(window, card);
+    await expect(more.getByTestId("claim-open")).toHaveText(words.open);
+    await window.keyboard.press("Escape");
+    await expect(more).toBeHidden();
+    await pointAndClick(window, card.getByTestId("claim-open-quote"));
     await expect(window.getByTestId("viewer")).toBeVisible();
 
     await pointAndClick(window, marks.nth(1));

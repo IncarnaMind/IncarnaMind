@@ -223,29 +223,39 @@ describe.each([
     reason: "The assistant’s own conclusion wasn’t checked. The rest of the sentence is supported.",
     opinion: "Left out as an opinion",
     anyway: "Check anyway",
+    folded: "1 other part is supported · Show",
   },
   {
     language: "zh-CN",
     reason: "助手自己的结论未核对。句子的其余部分有依据。",
     opinion: "视为观点，未纳入核对",
     anyway: "仍然核对",
+    folded: "另外 1 处有依据 · 查看",
   },
 ])("the card of the assistant's own conclusion ($language)", (example) => {
-  // protects=the card says in its own line, in English and Chinese, that the cited fact is supported and the rest is the assistant's own conclusion, unchecked; it lists the fact's row and the conclusion's row left out with Check anyway, which checks that part; and it offers no Check again; fails_when=the card reads as a failed check with Check again, or loses the conclusion's Check anyway; no_claim=the card's colours.
-  test("says why, keeps Check anyway, and offers no Check again", async () => {
+  // protects=the card says in its own line, in English and Chinese, that the cited fact is supported and the rest is the assistant's own conclusion, unchecked; the conclusion is the open part, marked in the sentence, with Check anyway as the card's one button, which checks that part; the supported fact folds behind Show; and it offers no Check again (#2869); fails_when=the card reads as a failed check with Check again, loses the conclusion's Check anyway, or folds the conclusion; no_claim=the card's colours.
+  test("says why, keeps Check anyway as its one button, and offers no Check again", async () => {
     const { checkAgain, checkPart } = await card(example.language);
     expect(container.querySelector('[data-testid="claim-reason"]')?.textContent).toBe(
       example.reason,
     );
     const rows = [...container.querySelectorAll('[data-testid="claim-part"]')];
-    expect(rows).toHaveLength(2);
-    expect(rows[1]?.textContent).toContain(example.opinion);
-    const anyway = container.querySelector<HTMLButtonElement>(
-      '[data-testid="claim-part-check-anyway"]',
-    );
-    expect(anyway?.textContent).toBe(example.anyway);
-    await act(() => anyway?.click());
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.getAttribute("data-verdict")).toBe("opinion");
+    expect(rows[0]?.textContent).toContain(example.opinion);
+    expect(
+      container.querySelector('[data-testid="claim-sentence-mark"]')?.textContent?.trim(),
+    ).toBe(OPINION);
+    const buttons = [...container.querySelectorAll(".citation-card-actions button")];
+    expect(buttons.map((button) => button.getAttribute("data-testid"))).toEqual([
+      "claim-part-check-anyway",
+    ]);
+    expect(buttons[0]?.textContent).toBe(example.anyway);
+    await act(() => (buttons[0] as HTMLButtonElement | undefined)?.click());
     expect(checkPart).toHaveBeenCalledTimes(1);
+    expect(container.querySelector('[data-testid="claim-parts-folded"]')?.textContent).toBe(
+      example.folded,
+    );
     expect(container.querySelector('[data-testid="claim-check-again"]')).toBeNull();
     expect(checkAgain).not.toHaveBeenCalled();
   });

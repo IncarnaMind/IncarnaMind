@@ -17,6 +17,7 @@ import {
   launchApp,
   nameMind,
   newMind,
+  openCardMenu,
   pointAndClick,
   removeDataFolder,
   setLanguage,
@@ -219,7 +220,11 @@ for (const language of ["en", "zh-CN"] as const) {
 
     // One row's add: its Passage after its own words, and ⌘Z takes back that add alone.
     await pointAndClick(window, mark);
-    await expect(card.getByTestId("claim-parts-add-all")).toBeVisible();
+    // Add all as Citations waits under the card's ⋯; each quote's Add is on its Location line (#2869).
+    const more = await openCardMenu(window, card);
+    await expect(more.getByTestId("claim-parts-add-all")).toBeVisible();
+    await window.keyboard.press("Escape");
+    await expect(more).toBeHidden();
     await pointAndClick(
       window,
       card.getByTestId("claim-part").first().getByTestId("claim-part-add-citation"),
@@ -230,7 +235,10 @@ for (const language of ["en", "zh-CN"] as const) {
 
     // Add all: each part's Passage after its words, as one step of Undo.
     await pointAndClick(window, mark);
-    await pointAndClick(window, card.getByTestId("claim-parts-add-all"));
+    await pointAndClick(
+      window,
+      (await openCardMenu(window, card)).getByTestId("claim-parts-add-all"),
+    );
     const cited = `${first}[first]${between}${second}[second]${end}`;
     await expect.poll(() => written(window)).toBe(cited);
     await window.keyboard.press("ControlOrMeta+z");

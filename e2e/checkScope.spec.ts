@@ -13,6 +13,7 @@ import {
   launchApp,
   motionSettled,
   newMind,
+  openCardMenu,
   openDocumentMenu,
   pointAndClick,
   removeDataFolder,
@@ -97,9 +98,18 @@ test("a check looks in the Mind's chosen scope, its card says where, and a chang
   await motionSettled(window);
   const card = window.getByTestId("claim-card");
 
+  // Where it looked is under the card's ⋯, in About this check (#2869).
+  const checkedIn = async () =>
+    (await openCardMenu(window, card)).getByTestId("claim-about").getByTestId("claim-checked-in");
+  const closeMenu = async () => {
+    await window.keyboard.press("Escape");
+    await expect(card.getByTestId("check-actions")).toBeHidden();
+  };
   await pointAndClick(window, marks.first());
-  await expect(card.getByTestId("claim-checked-in")).toHaveText("Checked against “Harbour times”");
+  await expect(card.getByTestId("claim-checked-in")).toHaveCount(0);
+  await expect(await checkedIn()).toHaveText("Checked against “Harbour times”");
   await screenshot(window, "checked-in-en");
+  await closeMenu();
   await window.keyboard.press("Escape");
 
   // Not found where it looked: the line that says so names the scope, and only it does.
@@ -107,23 +117,27 @@ test("a check looks in the Mind's chosen scope, its card says where, and a chang
   await expect(card.getByTestId("claim-nothing")).toHaveText(
     "I didn’t find this in “Harbour times”.",
   );
-  await expect(card.getByTestId("claim-checked-in")).toHaveCount(0);
+  await expect(await checkedIn()).toHaveCount(0);
+  await closeMenu();
   await screenshot(window, "not-found-in-scope-en");
   await pointAndClick(window, card.getByTestId("claim-search-all"));
   await expect(marks.nth(1)).toHaveAttribute("data-check", "supported");
   await pointAndClick(window, marks.nth(1));
-  await expect(card.getByTestId("claim-checked-in")).toHaveText("Checked against “All Documents”");
+  await expect(await checkedIn()).toHaveText("Checked against “All Documents”");
   await screenshot(window, "widened-en");
+  await closeMenu();
   await window.keyboard.press("Escape");
 
   await setLanguage(window, "zh-CN");
   await pointAndClick(window, marks.first());
-  await expect(card.getByTestId("claim-checked-in")).toHaveText("已对照“Harbour times”核对");
+  await expect(await checkedIn()).toHaveText("已对照“Harbour times”核对");
   await screenshot(window, "checked-in-zh");
+  await closeMenu();
   await window.keyboard.press("Escape");
   await pointAndClick(window, marks.nth(1));
-  await expect(card.getByTestId("claim-checked-in")).toHaveText("已对照“全部文档”核对");
+  await expect(await checkedIn()).toHaveText("已对照“全部文档”核对");
   await screenshot(window, "widened-zh");
+  await closeMenu();
   await window.keyboard.press("Escape");
 
   // Widened in the composer: the check made in the one Document needs a re-check; the one made

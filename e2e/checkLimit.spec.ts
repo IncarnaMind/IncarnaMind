@@ -10,6 +10,7 @@ import {
   launchApp,
   motionSettled,
   newMind,
+  openCardMenu,
   pointAndClick,
   pointAt,
   removeDataFolder,
@@ -103,23 +104,32 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(card.getByTestId("claim-badge")).toHaveText(
         translate(language, "claim.state.supported"),
       );
-      await expect(card.getByTestId("claim-checked-in")).toBeVisible();
+      // What a check can miss is said where the check is explained: About this check (#2869).
+      await expect(limit).toHaveCount(0);
+      const menu = await openCardMenu(window, card);
+      await expect(menu.getByTestId("claim-checked-in")).toBeVisible();
       await expect(limit).toHaveText(translate(language, "claim.limit"));
       const box = await limit.boundingBox();
+      const menuBox = await menu.boundingBox();
       const cardBox = await card.boundingBox();
-      if (!box || !cardBox) throw new Error("The line or its card isn't drawn.");
-      expect(box.x).toBeGreaterThanOrEqual(cardBox.x);
-      expect(box.x + box.width).toBeLessThanOrEqual(cardBox.x + cardBox.width + 1);
-      expect(box.y + box.height).toBeLessThanOrEqual(cardBox.y + cardBox.height);
-      expect(cardBox.x).toBeGreaterThanOrEqual(0);
-      expect(cardBox.x + cardBox.width).toBeLessThanOrEqual(width);
-      expect(cardBox.y).toBeGreaterThanOrEqual(0);
-      expect(cardBox.y + cardBox.height).toBeLessThanOrEqual(height);
+      if (!box || !menuBox || !cardBox)
+        throw new Error("The line, its menu or its card isn't drawn.");
+      expect(box.x).toBeGreaterThanOrEqual(menuBox.x);
+      expect(box.x + box.width).toBeLessThanOrEqual(menuBox.x + menuBox.width + 1);
+      expect(box.y + box.height).toBeLessThanOrEqual(menuBox.y + menuBox.height);
+      for (const each of [menuBox, cardBox]) {
+        expect(each.x).toBeGreaterThanOrEqual(0);
+        expect(each.x + each.width).toBeLessThanOrEqual(width);
+        expect(each.y).toBeGreaterThanOrEqual(0);
+        expect(each.y + each.height).toBeLessThanOrEqual(height);
+      }
       expect(await limit.evaluate((element) => element.scrollWidth - element.clientWidth)).toBe(0);
       expect(await window.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
         width,
       );
       await screenshot(window, `claim-limit-${language}-${width}`);
+      await window.keyboard.press("Escape");
+      await expect(menu).toBeHidden();
       await window.keyboard.press("Escape");
       await expect(card).toHaveCount(0);
     }
@@ -128,7 +138,10 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(card.getByTestId("claim-badge")).toHaveText(
       translate(language, "claim.state.contradicted"),
     );
+    await openCardMenu(window, card);
     await expect(limit).toHaveCount(0);
+    await window.keyboard.press("Escape");
+    await expect(card.getByTestId("check-actions")).toBeHidden();
     await window.keyboard.press("Escape");
     await expect(card).toHaveCount(0);
 
@@ -136,6 +149,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(card.getByTestId("claim-badge")).toHaveText(
       translate(language, "claim.state.notFound"),
     );
+    await openCardMenu(window, card);
     await expect(limit).toHaveCount(0);
   });
 }

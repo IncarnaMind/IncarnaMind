@@ -1,0 +1,42 @@
+
+> incarnamind@0.1.0-alpha.4 eval
+> vitest run --config eval/vitest.config.ts eval/checks
+
+
+ RUN  v5.0.3 <main checkout>
+
+(node:46067) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[eval    0s] Checks: 208 sentences and 165 claims, over 21 Folder Documents and 10 received documents
+[eval    0s] The reranking model is ready (0.0 s)
+[eval    2s] 31 Documents, 98 Passages, in 2 s
+2026-11-14 22:19:29.168 node[46067:146783619] 2026-11-14 22:19:29.168731 [W:onnxruntime:, session_state.cc:1397 VerifyEachNodeIsAssignedToAnEp] Some nodes were not assigned to the preferred execution providers which may or may not have an negative impact on performance. e.g. ORT explicitly assigns shape related ops to CPU to improve perf.
+2026-11-14 22:19:29.168 node[46067:146783619] 2026-11-14 22:19:29.168786 [W:onnxruntime:, session_state.cc:1399 VerifyEachNodeIsAssignedToAnEp] Rerunning with verbose output on a non-minimal build will show node assignments.
+[eval  178s] Find support: 25 of 208 checked
+[eval  392s] Find support: 50 of 208 checked
+[eval  588s] Find support: 75 of 208 checked
+[eval  779s] Find support: 100 of 208 checked
+[eval  960s] Find support: 125 of 208 checked
+[eval 1104s] Find support: 150 of 208 checked
+[eval 1293s] Find support: 175 of 208 checked
+[eval 1441s] Find support: 200 of 208 checked
+Checks (#86), reported only until #96 and #97:
+  MISSED  Verify: claims extracted: 0.0% (≥ 90.0%)
+  MISSED  Verify: "contradicted" precision: – (≥ 90.0%)
+  MISSED  Verify: "contradicted" recall: 0.0% (≥ 70.0%)
+  met  Find support: "supported" precision: 100.0% (≥ 90.0%)
+  MISSED  Find support: "supported" recall: 74.6% (≥ 80.0%)
+  Find support misses: 46; verify misses: 165
+  Find support not checked: 27 (no evidence 25: quote not found 10, calculation not made 15; malformed reply 2; other 0)
+  Verify not checked: 0 (no evidence 0: quote not found 0, calculation not made 0; malformed reply 0; other 0)
+  Report: <results>/confirm/main-2/2026-11-14T22-19-25-094Z-checks/report.md
+  Every judge reply: <results>/confirm/main-2/2026-11-14T22-19-25-094Z-checks/replies.md
+[eval 1498s] Spent, at the app's own count: [{"currency":"USD","amount":0.58534927}]
+ ✓ eval/checks/checks.eval.ts (1 test) 1498765ms
+   ✓ checks evaluation: Find support and verify 1498764ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  22:19:13
+   Duration  1510.81s (tests 99%, transform 1%)
+

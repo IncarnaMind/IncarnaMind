@@ -7,6 +7,182 @@
 import { describe, expect, test } from "vitest";
 import { PARTS, rowsOf, shows, TABLE } from "../helpers/answerUnitsTable";
 
+const inBothLanguages = (ids: readonly string[]) =>
+  ids.flatMap((id) => [`colon-${id}-en`, `colon-${id}-zh-CN`]);
+
+// An organisation named after a colon ("编制单位：万禾股份有限公司" over "单位：元") states no
+// unit, and the unit line beside it states the Document's own (#2997). Right sentences that gain
+// the ✓:
+const COLON_GAINED = inBothLanguages([
+  "case-1",
+  "half-colon-1",
+  "half-colons-1",
+  "space-after-1",
+  "space-before-1",
+  "reversed-1",
+  "one-line-1",
+  "one-line-wide-space-1",
+  "one-line-unit-first-1",
+  "one-line-glued-1",
+  "one-line-date-1",
+  "currency-line-1",
+  "year-line-1",
+  "no-colon-1",
+  "wan-0",
+  "wan-one-line-0",
+  "label-00-1",
+  "label-01-1",
+  "label-04-1",
+  "label-05-1",
+  "label-06-1",
+  "label-08-1",
+  "label-09-1",
+  "label-10-1",
+  "name-yili-1",
+  "name-baise-1",
+  "name-usd-fund-1",
+  "name-qianwa-1",
+  "name-qianwa-short-1",
+  "name-qianhe-1",
+  "name-wanchuan-1",
+  "name-yuanqi-0",
+  "name-yuanqi-alone-0",
+  "name-yuanbaoshan-0",
+  "name-yuanbaoshan-alone-0",
+  "name-rmb-centre-0",
+  "name-rmb-centre-alone-0",
+  "name-dunwei-0",
+  "name-dunwei-alone-0",
+  "name-qianwa-plants-0",
+  "name-yili-one-line-1",
+  "name-yuanqi-one-line-0",
+  "unit-yuan-0",
+  "unit-wanyuan-0",
+  "unit-rmb-wan-0",
+  "unit-wandun-0",
+  "unit-measure-dun-0",
+  "unit-output-wandun-0",
+  "unit-table-wan-0",
+  "markdown-1",
+  "markdown-lines-1",
+  "word-two-lines-1",
+  "word-one-line-1",
+  "pdf-two-lines-1",
+  "pdf-one-line-1",
+  "joined-org-0",
+]);
+// Right sentences that gain the ✓ and Check against Documents' Supported together, under
+// 金额单位：千元 and 所有金额单位：千元, where main read the name's 万 as a second scale:
+const COLON_GAINED_BOTH = inBothLanguages(["unit-amount-qian-0", "unit-all-qian-0"]);
+// Wrong sentences now caught, and rows that now read as the unit line alone reads them:
+const COLON_CHANGED = inBothLanguages([
+  "case-0",
+  "half-colon-0",
+  "half-colons-0",
+  "space-after-0",
+  "space-before-0",
+  "reversed-0",
+  "one-line-0",
+  "one-line-wide-space-0",
+  "one-line-unit-first-0",
+  "one-line-glued-0",
+  "one-line-date-0",
+  "currency-line-0",
+  "year-line-0",
+  "no-colon-0",
+  "label-00-0",
+  "label-01-0",
+  "label-04-0",
+  "label-05-0",
+  "label-06-0",
+  "label-08-0",
+  "label-09-0",
+  "label-10-0",
+  "name-yili-0",
+  "name-yili-alone-0",
+  "name-baise-alone-0",
+  "name-usd-fund-alone-0",
+  "name-usd-fund-alone-1",
+  "name-qianwa-alone-0",
+  "name-qianwa-short-alone-0",
+  "name-qianhe-alone-0",
+  "name-wanchuan-0",
+  "name-wanchuan-alone-0",
+  "name-yuanqi-alone-1",
+  "name-yuanbaoshan-alone-1",
+  "name-rmb-centre-alone-1",
+  "name-dunwei-1",
+  "name-dunwei-alone-1",
+  "name-qianwa-plants-1",
+  "name-yili-one-line-0",
+  "unit-yuan-1",
+  "unit-amount-qian-1",
+  "unit-usd-million-1",
+  "unit-measure-dun-1",
+  "unit-all-qian-1",
+  "markdown-0",
+  "markdown-lines-0",
+  "word-two-lines-0",
+  "word-one-line-0",
+  "pdf-two-lines-0",
+  "pdf-one-line-0",
+]);
+// Of those, the wrong sentences main ticks and Check against Documents calls Supported:
+const COLON_TAKEN = inBothLanguages([
+  "case-0",
+  "half-colon-0",
+  "half-colons-0",
+  "space-after-0",
+  "space-before-0",
+  "reversed-0",
+  "one-line-0",
+  "one-line-wide-space-0",
+  "one-line-unit-first-0",
+  "one-line-glued-0",
+  "one-line-date-0",
+  "currency-line-0",
+  "year-line-0",
+  "no-colon-0",
+  "label-00-0",
+  "label-01-0",
+  "label-04-0",
+  "label-05-0",
+  "label-06-0",
+  "label-08-0",
+  "label-09-0",
+  "label-10-0",
+  "name-yili-0",
+  "name-usd-fund-alone-0",
+  "name-wanchuan-0",
+  "name-rmb-centre-alone-1",
+  "name-yili-one-line-0",
+  "unit-yuan-1",
+  "unit-amount-qian-1",
+  "unit-usd-million-1",
+  "unit-all-qian-1",
+  "markdown-0",
+  "markdown-lines-0",
+  "word-two-lines-0",
+  "word-one-line-0",
+  "pdf-two-lines-0",
+  "pdf-one-line-0",
+]);
+// A cost: wrong sentences that gain the model's ✓ where the organisation's line is the only line
+// that seemed to state a scale. Main read the name's first character as the Document's scale and
+// caught them; here the Document states none, and in an Answer the model's verdict stands.
+const COLON_COSTS = inBothLanguages([
+  "name-yili-alone-2",
+  "name-baise-alone-2",
+  "name-usd-fund-alone-2",
+  "name-qianwa-alone-2",
+  "name-qianwa-short-alone-2",
+  "name-qianhe-alone-2",
+  "name-yuanqi-alone-2",
+  "name-yuanbaoshan-alone-2",
+  "name-rmb-centre-alone-2",
+  "name-qianwa-plants-alone-1",
+]);
+
 const GAINED = [
   "u120",
   "u125",
@@ -56,6 +232,7 @@ const GAINED = [
   "tbl-next1-039-zh-CN",
   "tbl-gain-01-en",
   "tbl-gain-01-zh-CN",
+  ...COLON_GAINED,
 ];
 
 // The rows that read otherwise than main in more than the ✓ they gain, where a table states its
@@ -234,6 +411,7 @@ const CHANGED = [
   "tbl-mark-05-zh-CN",
   "tbl-line-header-en",
   "tbl-line-header-zh-CN",
+  ...COLON_CHANGED,
 ];
 
 // A cost: wrong sentences that read ✓ or Supported here and not on main, as main already reads them
@@ -256,6 +434,7 @@ const COSTS = [
   "tbl-gain-09-zh-CN",
   "tbl-gain-10-en",
   "tbl-gain-10-zh-CN",
+  ...COLON_COSTS,
 ];
 
 // A cost: right sentences that lose main's ✓, beside a footnote letter that is a unit's symbol on a
@@ -291,10 +470,11 @@ const TAKEN = [
   "tbl-mark-01-zh-CN",
   "tbl-mark-04-en",
   "tbl-mark-04-zh-CN",
+  ...COLON_TAKEN,
 ];
 
 describe("#2997's measured table", () => {
-  // protects=the table itself: the rows that read ✓ here and not on main are exactly the listed ones, the right sentences a label, a unit line, a table's row label or units column, prose or the quote's unit in another word now states, and u252, whose dollar the Document states nowhere and the Answer leaves to the model (#2997); a listed row's Check against Documents reading is main's; the wrong sentences that read ✓ or Supported here and not on main are exactly the listed COSTS, a cost; the rows that read otherwise in more than that are exactly the listed CHANGED and LOSSES, and every other row reads as on main in both checks; the rows Check against Documents calls Supported on main that lose the Answer's ✓ are exactly the wrong ones now caught (TAKEN) and LOSSES, a cost; and every twin keeps the ✓ it had; fails_when=another row gains a ✓, one of these loses it, any row reads otherwise than main in either check beyond these lists, or a row of the table is changed to say otherwise; no_claim=what the code reads, which the part files run.
+  // protects=the table itself: the rows that read ✓ here and not on main are exactly the listed ones, the right sentences a label, a unit line, a table's row label or units column, prose or the quote's unit in another word now states, and u252, whose dollar the Document states nowhere and the Answer leaves to the model (#2997); a listed row's Check against Documents reading is main's, but for the listed right sentences that gain the ✓ and Supported together (COLON_GAINED_BOTH), which read both here and neither on main; the wrong sentences that read ✓ or Supported here and not on main are exactly the listed COSTS, a cost; the rows that read otherwise in more than that are exactly the listed CHANGED and LOSSES, and every other row reads as on main in both checks; the rows Check against Documents calls Supported on main that lose the Answer's ✓ are exactly the wrong ones now caught (TAKEN) and LOSSES, a cost; and every twin keeps the ✓ it had; fails_when=another row gains a ✓, one of these loses it, any row reads otherwise than main in either check beyond these lists, or a row of the table is changed to say otherwise; no_claim=what the code reads, which the part files run.
   test("gives a ✓ only to the listed sentences, and takes one from a sentence Check against Documents calls Supported only where listed", () => {
     const listed = (ids: readonly string[]) =>
       TABLE.rows.filter((row) => ids.includes(row.id)).map(({ id }) => id);
@@ -302,7 +482,7 @@ describe("#2997's measured table", () => {
       TABLE.rows
         .filter((row) => shows(row.here) && !shows(row.main) && !COSTS.includes(row.id))
         .map(({ id }) => id),
-    ).toEqual(GAINED);
+    ).toEqual(listed([...GAINED, ...COLON_GAINED_BOTH]));
     expect(
       TABLE.rows
         .filter(
@@ -311,7 +491,7 @@ describe("#2997's measured table", () => {
             (row.here.document.verdict === "supported" &&
               row.main.document.verdict !== "supported"),
         )
-        .filter((row) => !GAINED.includes(row.id) && !CHANGED.includes(row.id))
+        .filter((row) => ![...GAINED, ...COLON_GAINED_BOTH, ...CHANGED].includes(row.id))
         .map(({ id }) => id),
     ).toEqual(COSTS);
     expect(
@@ -327,11 +507,25 @@ describe("#2997's measured table", () => {
       TABLE.rows
         .filter(
           (row) =>
-            ![...GAINED, ...COSTS, ...LOSSES].includes(row.id) &&
+            ![...GAINED, ...COLON_GAINED_BOTH, ...COSTS, ...LOSSES].includes(row.id) &&
             JSON.stringify(row.here) !== JSON.stringify(row.main),
         )
         .map(({ id }) => id),
     ).toEqual(CHANGED);
+    expect(
+      TABLE.rows
+        .filter(
+          (row) =>
+            COLON_GAINED_BOTH.includes(row.id) &&
+            !(
+              shows(row.here) &&
+              row.here.document.verdict === "supported" &&
+              !shows(row.main) &&
+              row.main.document.verdict !== "supported"
+            ),
+        )
+        .map(({ id }) => id),
+    ).toEqual([]);
     expect(
       TABLE.rows
         .filter(

@@ -31,6 +31,7 @@ import {
   setLanguage,
   useLocalChatModel as setLocalChatModel,
   setWindowSize,
+  showFoldedParts,
   slideSelect,
 } from "./app";
 
@@ -265,35 +266,48 @@ for (const language of ["en", "zh-CN"] as const) {
           await pointAndClick(window, window.getByTestId("claim-mark"));
           const sourceCard = window.getByTestId("claim-card");
           const receipts = sourceCard.getByTestId("claim-part-receipt");
-          const firstToggle = receipts.nth(0).getByTestId("sign-off-toggle");
-          const secondToggle = receipts.nth(1).getByTestId("sign-off-toggle");
-          await expect(firstToggle).toHaveText(translate(language, "signOff.action"));
-          await pointAndClick(window, firstToggle);
-          await expect(firstToggle).toHaveAttribute("aria-pressed", "true");
-          await expect(secondToggle).toHaveAttribute("aria-pressed", "false");
-          await expect(receipts.nth(0).getByTestId("sign-off-line")).toHaveAttribute(
-            "data-state",
-            "checked",
+          // One quote, the other behind its count, and one "Checked by me" for both (#2869).
+          await expect(receipts).toHaveCount(1);
+          await expect(sourceCard.getByTestId("claim-part-more")).toHaveText(
+            translate(language, "claim.parts.more", { count: "1" }),
           );
+          const toggle = sourceCard.getByTestId("sign-off-toggle");
+          await expect(toggle).toHaveCount(1);
+          await expect(toggle).toHaveText(translate(language, "signOff.action"));
+          await pointAndClick(window, toggle);
+          // It signs every quote, and opens the one folded so the User sees what they signed.
+          await expect(toggle).toHaveAttribute("aria-pressed", "true");
+          await expect(toggle).toBeFocused();
+          await expect(receipts).toHaveCount(2);
           await screenshot(window, `opinions-part-signoff-${language}-${width}`);
+          // A second press takes it back from both.
+          await pointAndClick(window, toggle);
+          await expect(toggle).toHaveAttribute("aria-pressed", "false");
+          await pointAndClick(window, toggle);
+          await expect(toggle).toHaveAttribute("aria-pressed", "true");
           await pointAndClick(window, window.getByTestId("undo-action"));
           await expect(sourceCard).toHaveCount(0);
           await pointAndClick(window, window.getByTestId("claim-mark"));
-          await expect(firstToggle).toHaveAttribute("aria-pressed", "false");
+          await expect(toggle).toHaveAttribute("aria-pressed", "false");
+          // A quote's own menu still signs it alone, and says so on that quote.
           await pointAndClick(window, receipts.nth(0), { button: "right" });
           const humanMark = window.getByRole("menuitemcheckbox", {
             name: translate(language, "signOff.action"),
           });
           await expect(humanMark).toHaveAttribute("aria-checked", "false");
           await pointAndClick(window, humanMark);
-          await expect(firstToggle).toHaveAttribute("aria-pressed", "true");
-          await firstToggle.focus();
+          await expect(receipts.nth(0).getByTestId("sign-off-line")).toHaveAttribute(
+            "data-state",
+            "checked",
+          );
+          await expect(toggle).toHaveAttribute("aria-pressed", "false");
+          await receipts.nth(0).getByTestId("claim-part-citation").focus();
           await runCommand(window, "citation.signOffRemove", translate(language, "signOff.action"));
           await window.keyboard.press("Escape");
           await expect(sourceCard).toHaveCount(0);
           await pointAndClick(window, window.getByTestId("claim-mark"));
-          await expect(firstToggle).toHaveAttribute("aria-pressed", "false");
-          await expect(secondToggle).toHaveAttribute("aria-pressed", "false");
+          await expect(toggle).toHaveAttribute("aria-pressed", "false");
+          await expect(receipts.nth(0).getByTestId("sign-off-line")).toHaveCount(0);
           expect(await partsOfCheck(window, "multisource-check")).toEqual(sourceParts);
           await expect(sourceCard).toHaveAttribute("data-check", "supported");
           await window.keyboard.press("Escape");
@@ -304,6 +318,8 @@ for (const language of ["en", "zh-CN"] as const) {
           pending.state = "checking";
           await setContent(window, [paragraph("pending", mixed, pending)]);
           await window.getByTestId("claim-mark").click();
+          // The opinion folds behind Show, its Check anyway waiting for the check to finish.
+          await showFoldedParts(window, window.getByTestId("claim-card"));
           await expect(
             window.getByTestId("claim-card").getByTestId("claim-part-check-anyway"),
           ).toBeDisabled();
@@ -345,7 +361,9 @@ for (const language of ["en", "zh-CN"] as const) {
         await expect(window.getByTestId("claim-mark")).toContainText("+");
         await pointAndClick(window, health.getByTestId("opinions-show").first());
         const card = window.getByTestId("claim-card");
+        // Opened on the opinion, the card shows its folded row beside the supported part's quote.
         await allRowsVisible(window, 2);
+        await expect(card.getByTestId("claim-parts-show")).toHaveAttribute("aria-expanded", "true");
         await expect(window.getByTestId("selection-menu")).toBeHidden();
         expect(await selectedWords(window)).toBe(words.opinion);
         await screenshot(window, `opinions-mixed-${language}-${width}`);
@@ -520,16 +538,22 @@ for (const language of ["en", "zh-CN"] as const) {
           paragraph("summary", summary, checked("summary-check", summary, summaryParts)),
         ]);
         await window.getByTestId("claim-mark").click();
-        await allRowsVisible(window, 4);
+        // Every part supported: one quote, and a count of the other five that opens them (#2869).
+        await allRowsVisible(window, 1);
         await expect(card.getByTestId("claim-parts-coverage")).toHaveCount(0);
+        await expect(card.getByTestId("claim-parts-folded")).toHaveCount(0);
+        const more = card.getByTestId("claim-part-more");
+        await expect(more).toHaveText(translate(language, "claim.parts.more", { count: "5" }));
         await screenshot(window, `opinions-four-${language}-${width}`);
-        await card.getByTestId("claim-parts-more").focus();
+        await more.focus();
         await window.keyboard.press("Enter");
         await expect(card.getByTestId("claim-part")).toHaveCount(6);
-        // The first row it shows takes the focus, at its first action: its Add as Citation.
+        // The count keeps the focus, now as Hide, and each row has its Add as Citation.
+        await expect(more).toBeFocused();
+        await expect(more).toHaveText(translate(language, "claim.parts.hide"));
         await expect(
           card.getByTestId("claim-part").nth(4).getByTestId("claim-part-add-citation"),
-        ).toBeFocused();
+        ).toBeVisible();
         await screenshot(window, `opinions-more-${language}-${width}`);
         await pointAndClick(
           window,
@@ -567,11 +591,15 @@ for (const language of ["en", "zh-CN"] as const) {
             })),
           },
         };
-        // One part: its rows say what it covers, with no coverage line above them.
+        // One part: its rows say what it covers, with no coverage line above them. The quarter
+        // found nowhere is open, its reason starting with its name; the three found fold (#2869).
         await setContent(window, [
           paragraph("coverage", quantifier, checked("coverage-check", quantifier, [coveragePart])),
         ]);
         await window.getByTestId("claim-mark").click();
+        await allRowsVisible(window, 1);
+        await expect(card.getByTestId("claim-part-reason")).toContainText("“Q4”");
+        await showFoldedParts(window, card);
         await allRowsVisible(window, 4);
         await expect(card.getByTestId("claim-parts-coverage")).toHaveCount(0);
         await window.keyboard.press("Escape");
@@ -595,7 +623,15 @@ for (const language of ["en", "zh-CN"] as const) {
         await expect(card.getByTestId("claim-parts-coverage")).toContainText(
           language === "en" ? "Covers 3 of the 4 quarters" : "覆盖 4 项中的 3 项",
         );
-        await allRowsVisible(window, 4);
+        await allRowsVisible(window, 1);
+        // The three quarters found and the opinion fold into one line, the supported first.
+        await expect(card.getByTestId("claim-parts-folded")).toHaveText(
+          language === "en"
+            ? "3 other parts are supported · 1 opinion left out · Show"
+            : "另外 3 处有依据 · 1 处观点未纳入核对 · 查看",
+        );
+        await showFoldedParts(window, card);
+        await allRowsVisible(window, 5);
         await expect(
           card.getByTestId("claim-part").last().getByTestId("claim-part-reason"),
         ).toBeVisible();
@@ -622,7 +658,7 @@ for (const language of ["en", "zh-CN"] as const) {
             paragraph("long", quantifier, checked("long-check", quantifier, [long])),
           ]);
           await window.getByTestId("claim-mark").click();
-          await pointAndClick(window, card.getByTestId("claim-parts-more"));
+          await showFoldedParts(window, card);
           await expect(card.getByTestId("claim-part")).toHaveCount(12);
           const fits = async () => {
             const box = await card.boundingBox();
@@ -659,7 +695,10 @@ for (const language of ["en", "zh-CN"] as const) {
           await expect(card.getByTestId("claim-cited-case-unchecked")).toHaveText(
             translate(language, "claim.citedCaseUnchecked"),
           );
+          // Both parts supported: one quote, the second part's behind its count.
+          await pointAndClick(window, card.getByTestId("claim-part-more"));
           const rows = card.getByTestId("claim-part");
+          await expect(rows).toHaveCount(2);
           await expect(rows.first().getByTestId("claim-part-cited-case-unchecked")).toBeVisible();
           await expect(rows.last().getByTestId("claim-part-cited-case-unchecked")).toHaveCount(0);
           const badgeBox = await badge.boundingBox();
@@ -695,7 +734,8 @@ for (const language of ["en", "zh-CN"] as const) {
         ]);
         await window.getByTestId("claim-mark").click();
         await expect(card.getByTestId("claim-parts-coverage")).toHaveCount(0);
-        await expect(card.getByTestId("claim-part").first()).toContainText(quantifier);
+        // The part is the whole sentence: the sentence names it once, and its row says why.
+        await expect(card.getByTestId("claim-sentence")).toContainText(quantifier.slice(0, -1));
         await expect(
           card.getByTestId("claim-part").first().getByTestId("claim-part-reason"),
         ).toContainText(unknownCoverage.unsupported?.reason ?? "");
@@ -772,6 +812,9 @@ for (const language of ["en", "zh-CN"] as const) {
         ]);
         await applySettings(window, Array.from(Y.encodeStateAsUpdate(verifySettings)));
         await window.getByTestId("claim-mark").click();
+        // Two supported parts: one quote, and the other behind its count.
+        await allRowsVisible(window, 1);
+        await pointAndClick(window, card.getByTestId("claim-part-more"));
         await allRowsVisible(window, 2);
         await expect(card.getByTestId("claim-part-check-anyway")).toHaveCount(0);
         expect((await partsOfCheck(window, "attributed-check"))?.map((part) => part.kind)).toEqual([
@@ -914,7 +957,8 @@ for (const language of ["en", "zh-CN"] as const) {
             ? "The Document changed after this was cited."
             : "此文档在被引用后有改动。",
         );
-        await expect(changedCard.getByTestId("claim-part")).toHaveCount(multiple ? 2 : 0);
+        // Two parts: the supported one's quote, and the opinion folded behind Show (#2869).
+        await expect(changedCard.getByTestId("claim-part")).toHaveCount(multiple ? 1 : 0);
         await screenshot(
           window,
           `opinions-changed-${multiple ? "parts" : "legacy"}-${language}-900`,
