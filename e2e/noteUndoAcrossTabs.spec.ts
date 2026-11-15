@@ -842,3 +842,43 @@ test("in a Note's text ⌘Z takes back the typing, then the app's change, ⇧⌘
     await app.close();
   }
 });
+
+// protects=typing in a Note ends the app's Redo, as any new change does: an app change taken back before the typing is never done again by ⇧⌘Z or Ctrl+Y pressed in the Note's text once the Note has nothing left to do again (#3115); fails_when=the key pressed once too many does the earlier app change again; no_claim=the Edit menu's Redo item, which reads the same list.
+test("typing in a Note ends the app's Redo: ⇧⌘Z pressed once too many leaves an app change taken back before as it was", async () => {
+  const { app, window } = await launched();
+  try {
+    await showSteps(window);
+    await newMind(window);
+    const editor = shownEditor(window);
+    await window.keyboard.type("First.");
+    await window.keyboard.press("ControlOrMeta+k");
+    await expect(window.getByTestId("palette-search")).toBeFocused();
+    await window.keyboard.type("Hide the getting-started steps");
+    await expect(window.getByTestId("palette-item").first()).toContainText(
+      "Hide the getting-started steps",
+    );
+    await window.keyboard.press("Enter");
+    await expect.poll(() => stepsHidden(window)).toBe(true);
+    await expect(editor).toBeFocused();
+    await window.keyboard.press("ControlOrMeta+z");
+    await expect(editor).not.toContainText("First.");
+    await window.keyboard.press("ControlOrMeta+z");
+    await expect.poll(() => stepsHidden(window)).toBe(false);
+
+    await window.keyboard.type("Typed.");
+    await expect(editor).toContainText("Typed.");
+    await window.keyboard.press("ControlOrMeta+Shift+z");
+    expect(await stepsHidden(window)).toBe(false);
+
+    await window.keyboard.press("ControlOrMeta+z");
+    await expect(editor).not.toContainText("Typed.");
+    await window.keyboard.press("ControlOrMeta+Shift+z");
+    await expect(editor).toContainText("Typed.");
+    await window.keyboard.press("ControlOrMeta+Shift+z");
+    if (process.platform !== "darwin") await window.keyboard.press("Control+y");
+    expect(await stepsHidden(window)).toBe(false);
+    await expect(editor).toContainText("Typed.");
+  } finally {
+    await app.close();
+  }
+});

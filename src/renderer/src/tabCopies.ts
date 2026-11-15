@@ -14,6 +14,7 @@ import { keepHistory } from "./editor/keptHistories";
 import { keepOthersWords } from "./editor/othersWords";
 import { type OpenedCopy, openMindCopy } from "./mindCopies";
 import { useAppStore } from "./store";
+import { useUndo } from "./undo";
 
 export interface TabCopy {
   copy: OpenedCopy;
@@ -98,6 +99,7 @@ function open(tabId: string, mindId: string): Kept {
       if (history && copy.doc) {
         const end = keepHistory(history, tabId, mindId);
         const unguard = keepOthersWords(copy.doc, history);
+        endAppRedoOnNewStep(history);
         entry.endHistory = () => {
           unguard();
           end();
@@ -134,6 +136,20 @@ const historyOf = (doc: Y.Doc) =>
     deleteFilter: (item) => defaultDeleteFilter(item, defaultProtectedNodes),
     captureTransaction: (transaction) => transaction.meta.get("addToHistory") !== false,
   });
+
+/**
+ * A step the User makes in the Note ends what the app's Redo would do again, as any new change
+ * does: ⇧⌘Z in the Note's text goes on to the app's Redo once the Note has nothing to do again.
+ * The Note's own Undo and Redo add their reverse step with the history as the origin, and a step
+ * the app's Undo or Redo writes is part of that change.
+ */
+function endAppRedoOnNewStep(history: Y.UndoManager): void {
+  const made = ({ origin }: { origin: unknown }) => {
+    if (origin !== history && !useUndo.getState().running) useUndo.setState({ undone: [] });
+  };
+  history.on("stack-item-added", made);
+  history.on("stack-item-updated", made);
+}
 
 function end(entry: Kept): void {
   if (kept.get(keyOf(entry.tabId, entry.mindId)) !== entry) return;

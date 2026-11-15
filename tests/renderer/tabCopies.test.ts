@@ -82,6 +82,7 @@ const { offerStructureUndo, reserveStructureStep, undoNoteHistory } = await impo
   "../../src/renderer/src/editor/comparisonStructureUndo"
 );
 const { useUndo, nextToUndo } = await import("../../src/renderer/src/undo");
+const { redoInNote, undoInNote } = await import("../../src/renderer/src/editor/noteUndoKeys");
 const { useAppStore } = await import("../../src/renderer/src/store");
 const { noteExtensions } = await import("../../src/renderer/src/editor/noteSchema");
 const { ProposalReview, proposalsIn } = await import(
@@ -436,6 +437,41 @@ describe("a tab's copy of its Note", () => {
     showTabs(["tab-2"]);
     expect(useUndo.getState().done).toEqual([]);
     expect(useUndo.getState().undone).toEqual([]);
+  });
+
+  // protects=a step the User makes in the Note ends the app's Redo, as any new change does, so ⇧⌘Z in the Note's text pressed once too many never does again an app change taken back before the typing; the Note's own Undo and Redo leave the app's Redo as it was (#3115); fails_when=typing in a Note leaves the app's Redo list as it was, or the Note's own ⌘Z or ⇧⌘Z empties it; no_claim=the keys in a real window, which the smoke spec presses.
+  test("typing in the Note ends the app's Redo: ⇧⌘Z there never does again an app change taken back before", async () => {
+    const shown = await showInTab("tab-1");
+    typeIn(shown.editor, "Mine:", " one");
+    shown.history.stopCapturing();
+    let moved = 0;
+    const move = {
+      said: () => "Moved 3 Documents",
+      undo: async () => {
+        moved -= 1;
+      },
+      redo: async () => {
+        moved += 1;
+      },
+    };
+    moved += 1;
+    useUndo.getState().push(move);
+    await useUndo.getState().undo();
+    expect(moved).toBe(0);
+    expect(useUndo.getState().undone).toEqual([move]);
+
+    expect(undoInNote(shown.editor)).toBeUndefined();
+    await settled(shown.editor, ["Mine:", "Theirs:"]);
+    expect(redoInNote(shown.editor)).toBeUndefined();
+    await settled(shown.editor, ["Mine: one", "Theirs:"]);
+    expect(useUndo.getState().undone).toEqual([move]);
+
+    typeIn(shown.editor, "Mine:", " two");
+    expect(useUndo.getState().undone).toEqual([]);
+    typeIn(shown.editor, "Mine:", " three");
+    await redoInNote(shown.editor);
+    expect(moved).toBe(0);
+    await settled(shown.editor, ["Mine: one two three", "Theirs:"]);
   });
 });
 
