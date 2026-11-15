@@ -83,6 +83,8 @@ With parts A and M the three shapes of the check are scored on the same 120 sent
 
 For each shape the report gives: right, Supported that is wrong, Contradicted that is wrong, Unsupported that is wrong, nothing shown, how many sentences reach the AI model, and what the shape costs from the two runs' own counts. Which shape is built is the owner's decision; this part gives the counts.
 
+**Changed on 2026-11-15, before the shapes were scored: part M is not run afresh.** A run of the same check on the same pair of 120 sentences was saved on 2026-11-14: one run, `main` as it stood that day, Claude Haiku 5.5, US$0.415 by the app's count. The shapes are scored against it and part M spends nothing. One later merge touches the check's path (#3091, a table heading's unit), so the saved run is `main` of 2026-11-14 and not of today.
+
 ## Part T: time, measured free
 
 `=dry`, `LIBRARY=mixed`: a scripted AI model at 3 s a reply and a decision host on this computer at 0.35 s a request, five runs an arm, alternated, 33 sentences. Two cases of the host:
@@ -115,6 +117,22 @@ A check sends nothing to the AI model until its sentence is read, so that a sent
 - **T1 and T2 pass.** The whole check ends about 5 s sooner, because the sentences the decision model marks cost the AI model nothing.
 - **T3 passes:** the AI model's first Mark lands 0.4 s after `main`'s median.
 - **T4 is met in the run above and not yet shown on the final code:** with a model that marks nothing, each sentence's Mark landed 0.7 to 1.1 s later, the median sentence 1.0 s. That run came before the last change to the order of work (a reading a check waits for now goes ahead of other readings). The one worst-case session run since was on a computer under heavy other work (load 6 to 29) and is not a fair reading: there `main`'s own last Mark spread from 60.2 to 65.9 s, the AI model's first Mark landed 1.4 s later and the median sentence 1.8 s later. A busy computer stretches the wait, because a reading's search takes longer. The pull request gives T4 from its final head on a quiet computer, and the gate is not passed without it.
+- **On the final head, 2026-11-15, run once** (five runs an arm, alternated; load 9 to 16 in the worst case and 6 to 21 as measured):
+
+  | Case | | `main` | `decision` |
+  |---|---|---|---|
+  | As measured | First reading | | 0.7 to 1.9 (0.9) |
+  | | All readings in | | 11.4 to 26.8 (12.9) |
+  | | AI model's first Mark | 9.4 to 10.0 (9.6) | 10.1 to 12.7 (10.3) |
+  | | Last Mark | 60.1 to 63.6 (61.4) | 55.0 to 61.4 (55.9) |
+  | | Each sentence the AI model marks | | from 6.2 s earlier to 0.9 s later, median 0.7 s earlier |
+  | Worst | First reading | | 0.7 to 1.4 (0.9) |
+  | | All readings in | | 14.0 to 28.9 (20.8) |
+  | | AI model's first Mark | 9.4 to 9.9 (9.7) | 10.5 to 11.9 (10.6) |
+  | | Last Mark | 61.0 to 63.9 (62.1) | 62.0 to 65.2 (63.9) |
+  | | Each sentence | | 0.9 to 2.6 s later, median 1.8 |
+
+  **T1, T2 and T3 are met. T4 is not met:** with a host that is sure of nothing, 27 of the 33 sentences land more than 1.5 s later than in `main`, and the median sentence 1.8 s later against a bar of 1 s. The load was above the 12 the bar names for part of the run; the run is reported as it landed and was not repeated. Before the last change to the order of work the same case gave 0.7 to 1.1 s later (the table above), with every reading in by 10.3 to 12.9 s; after it the readings are in by 14.0 to 28.9 s.
 - Only the first six checks wait for their reading: the readings of the rest are in before their turn. A check's search can also wait behind the one reading's search the reranker has started, which it cannot drop.
 - A host that doesn't answer is waited for 5 s, once: then that check's readings end and the AI model checks every sentence. Of 13,179 answers measured from this host at 32 requests at once, half came within 0.3 s, 99 in 100 within 1.3 s, and the slowest after 3.6 s.
 
@@ -131,7 +149,60 @@ A check sends nothing to the AI model until its sentence is read, so that a sent
 - **A run with a request that was refused, failed or timed out is void**, the AI model's or the decision model's, answered on a second try or not: it is kept apart, not counted, and run again inside the stop. One answered request to each model is made before each part.
 - Models under test: Decider v1.2 and Claude Haiku 5.5. Readers: Claude Sonnet 5.5.
 - A part that reaches its stop ends there and is reported as it stands.
+- Since 2026-11-15 part M spends nothing (see part M), so the stops come to US$0.75.
 
 ## Results
 
-Not run yet.
+### Part A, 2026-11-15
+
+The real Decider v1.2 in the app on the four held-out Notes: 1,384 requests, 1,464,695 input tokens, every request answered. US$0.020 by the provider's credit count, US$0.029 at the listed price; the stop was US$0.15. 196 of the 208 sentences carry a label that is a Mark.
+
+| What the decision model did | Pair of 120 | Pair of 88 | All |
+|---|---|---|---|
+| Marked Supported, right | 4 | 1 | 5 |
+| Marked Supported, wrong | 0 | 0 | 0 |
+| Marked Contradicted, right | 3 | 5 | 8 |
+| Marked Contradicted, wrong | 0 | 0 | 0 |
+| First reading the label's way | 67 | 43 | 110 |
+| First reading the other way | 3 | 3 | 6 |
+| No reading | 35 | 30 | 65 |
+| Not found in the Note | 2 | 0 | 2 |
+
+| Label | A figure | Sentences | Marked | First reading the label's way | The other way | None |
+|---|---|---|---|---|---|---|
+| Supported | yes | 74 | 3 | 58 | 0 | 13 |
+| Supported | no | 21 | 2 | 15 | 0 | 4 |
+| Contradicted | yes | 33 | 2 | 27 | 1 | 3 |
+| Contradicted | no | 17 | 6 | 10 | 0 | 1 |
+| Unsupported | yes | 17 | 0 | 0 | 1 | 16 |
+| Unsupported | no | 34 | 0 | 0 | 4 | 30 |
+
+| A sure score a rule held back | Sentences | Of them as labelled |
+|---|---|---|
+| A figure | 42 | 42 |
+| No line to quote | 8 | 8 |
+
+| Bar | Result |
+|---|---|
+| A1 Wrong Mark | **Met.** 13 Marks, 13 their label. Zero wrong in 13 still allows a true share of up to 21 in 100 |
+| A2 Figures | **Not met.** 5 Marks sit on a sentence with a digit that the app's figure rule does not count as a figure. All 5 are their label |
+| A3 The quote | **Not met.** Both readers reject the quote under 4 of the 13 Marks (1 Supported, 3 Contradicted) and accept it under 9. Neither reader accepted a decoy and they agreed on every Mark, so no third reader was called |
+| A4 First readings | **Met.** 110 of 116 lean the label's way, 95 in 100. Of the 6 that don't, 5 are on sentences labelled Unsupported and 1 leans Supported on a Contradicted sentence with a figure |
+
+- **A3 missed is no ship as the gate is written.** The four Marks are right; the line shown under them is not the line that states the sentence or says the opposite. The decision model scores a whole Passage, and the line is then picked by its words alone, the Passage's nearest line to the sentence.
+- **The scores alone:** 63 sentences have a sure score (13 marked and 50 a rule held back), and all 63 are their label. Zero in 63 allows up to 4.6 in 100. On sentences with a figure, 47 sure scores and 47 their label: the figure rule held back no wrong Mark here.
+
+### The three shapes, on the 114 sentences the two runs share
+
+| Shape | Right | Supported, wrong | Contradicted, wrong | Unsupported, wrong | Nothing shown | Sentences to the AI model |
+|---|---|---|---|---|---|---|
+| The AI model alone | 83 | 1 | 0 | 11 | 19 | 114 |
+| The decision model alone | 74 | 3 | 0 | 0 | 37 | 0 |
+| Both | 86 | 2 | 0 | 9 | 17 | 94 |
+
+- The decision model alone counts its first readings as verdicts: its 3 wrong are first readings, not Marks. Its 37 with nothing shown are 26 sentences labelled Unsupported, 9 Supported and 2 Contradicted; this build gives no reading that says no Passage supports a sentence.
+- Cost: the AI model alone was US$0.415 for the pair of 120. The decision model read all 208 sentences for US$0.029 at its listed price.
+
+### Parts B and M
+
+Part M spent nothing (above). Part B has not run: it waits for the choice of shape.
