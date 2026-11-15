@@ -298,6 +298,28 @@ describe.each(["en", "zh-CN"] as const)("a part's reason (%s)", (language) => {
       t("claim.unsupported.notFound", { scope: t("composer.scope.all") }),
     ]);
   });
+
+  // protects=a one-part card whose check judged a Passage about it with nothing kept to quote, and gave no reason, says the check gave no reason, as such a part does, and one that found nothing says so (#2869); fails_when=such a card has no reason line or says it wasn't found; no_claim=the wording of a card with a reason.
+  test.each([
+    { found: true, says: "claim-why" },
+    { found: false, says: "claim-nothing" },
+  ])("a one-part card with nothing to quote (found: $found)", async ({ found, says }) => {
+    const unsupported = {
+      reason: null,
+      covered: null,
+      uncovered: null,
+      ...(found ? { found: true as const } : {}),
+    };
+    await card(language, { ...checkOf([]), state: "unsupported", unsupported });
+    expect(container.querySelectorAll('[data-testid="claim-part"]')).toHaveLength(0);
+    const line = container.querySelector(`[data-testid="${says}"]`);
+    expect(line?.textContent).toBe(
+      found
+        ? t("claim.unsupported.noReason")
+        : t("claim.unsupported.notFound", { scope: t("composer.scope.all") }),
+    );
+    expect(line?.className).toBe("claim-card-says");
+  });
 });
 
 describe.each([

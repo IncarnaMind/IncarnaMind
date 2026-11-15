@@ -1705,11 +1705,16 @@ export function ClaimCard({
                       : t("claim.unsupported.notFound", { scope: lookedIn })}
                 </p>
               )}
-              {!fixes && !covers && !ownWorkings && !nothingFound && check.unsupported?.reason && (
-                <p data-testid="claim-why" className="claim-card-says">
-                  {check.unsupported.reason}
-                </p>
-              )}
+              {!fixes &&
+                !covers &&
+                !ownWorkings &&
+                !nothingFound &&
+                (check.unsupported?.reason || check.unsupported?.found) && (
+                  // A Passage judged with nothing kept to quote and no reason, as a part's (#1608).
+                  <p data-testid="claim-why" className="claim-card-says">
+                    {check.unsupported.reason || t("claim.unsupported.noReason")}
+                  </p>
+                )}
             </>
           )}
         </>
