@@ -164,6 +164,17 @@ A check sends nothing to the AI model until its sentence is read, so that a sent
   | | Each sentence | | 0.9 to 2.6 s later, median 1.8 |
 
   **T1, T2 and T3 are met. T4 is not met:** with a host that is sure of nothing, 27 of the 33 sentences land more than 1.5 s later than in `main`, and the median sentence 1.8 s later against a bar of 1 s. The load was above the 12 the bar names for part of the run; the run is reported as it landed and was not repeated. Before the last change to the order of work the same case gave 0.7 to 1.1 s later (the table above), with every reading in by 10.3 to 12.9 s; after it the readings are in by 14.0 to 28.9 s.
+- **On commit aed5b2c80, 2026-11-15, the worst case run once** (five runs an arm, alternated; load 3.9 to 8.5):
+
+  | | `main` | `decision` |
+  |---|---|---|
+  | First reading | | 0.5 to 0.5 (0.5) |
+  | All readings in | | 0.9 to 0.9 (0.9) |
+  | AI model's first Mark | 9.4 to 9.6 (9.4) | 9.8 to 9.9 (9.9) |
+  | Last Mark | 60.0 to 60.4 (60.2) | 60.5 to 60.7 (60.6) |
+  | Each sentence | | 0.3 to 0.5 s later, median 0.4 |
+
+  **T4 is met on this build:** no sentence lands more than 1.5 s later than in `main` (the latest is 0.5 s) and the median sentence is 0.4 s later. The reading no longer uses the reranker, so every reading is in within a second and no check's search waits behind one. This host's scores only lean, so the run holds none of the one more request a sentence gets before it reads Unsupported; that request delays only the decision model's own Unsupported, never a Mark of the AI model. T1 to T3 were not run again with five runs an arm; the one scripted run of four on this build (above, "Changed after part A again") gave a last Mark at 54.0 and 53.8 s against 60.4 and 60.1 s, and the AI model's first Mark 0.4 s after `main`'s.
 - Only the first six checks wait for their reading: the readings of the rest are in before their turn. A check's search can also wait behind the one reading's search the reranker has started, which it cannot drop.
 - A host that doesn't answer is waited for 5 s, once: then that check's readings end and the AI model checks every sentence. Of 13,179 answers measured from this host at 32 requests at once, half came within 0.3 s, 99 in 100 within 1.3 s, and the slowest after 3.6 s.
 
@@ -357,7 +368,7 @@ Four runs in one process, `main, decision, decision, main`, Claude Haiku 5.5 beh
 | 1 | A4 first readings | Met, 91 in 100 |
 | 2 | B1, B2 | Met |
 | 3 | T1 to T3 | Met on the earlier head |
-| 3 | T4 | **Not met** on the earlier head; not run again on this build |
+| 3 | T4 | Met on this build (commit aed5b2c80): each sentence 0.3 to 0.5 s later |
 | 4 | B4 | Met |
 
 With A3 not met the decision model reads only where the User chose it, unless the owner decides otherwise with the 12 quotes in front of them.
@@ -370,6 +381,26 @@ Written on 2026-11-15, before its first request. No bar, and no build has this r
 - **Asked:** the 46 quotes of part A again that are not cut at 200 characters, and the 10 distinct quotes under the decision model's Marks in part B. The 5 cut quotes of part A again count as not shown and are not asked. The script outside the app asks, with its own context for the sentence, and names the quote's Document without the page the app would send. Stop US$0.01; one answered request first; a run with a request refused, failed or timed out is void.
 - **Reported, for part A again and part B apart:** shown or not shown, against accepted or rejected by the two blind readers whose answers are already in.
 - **Beside it, from scores saved before this gate, no request:** the same four cells for the 139 quotes of the checks evaluation's set read blind on 2026-11-15. There the score is the line's in a request about all its Passage's lines, not the line asked alone, and the quote was a printed line, not a sentence.
+
+**Result.** 115 requests with the one before it, all answered, no run void, US$0.001 at the listed price.
+
+| Part A again, 51 quotes | Accepted by both readers | Rejected |
+|---|---|---|
+| Shown | 29 | 0 |
+| Not shown | 10 | 12 |
+
+| Part B, the decision model's 10 quotes | Accepted by both readers | Rejected |
+|---|---|---|
+| Shown | 9 | 0 |
+| Not shown | 1 | 0 |
+
+| The checks evaluation's set, 139 quotes, saved scores | Accepted by both readers | Rejected |
+|---|---|---|
+| Shown | 123 | 1 |
+| Not shown | 12 | 3 |
+
+- In part A again the rule withholds all 12 quotes the readers rejected, and 10 they accepted: 2 cut at 200 characters and 8 by the score. 29 of 51 Marks would show a quote, 22 would name the Document and place only.
+- The rule was fixed before these requests, at lines measured for another question (a Passage asked about alone). Part A again's 51 are the text the rule was thought of on; part B's 10 and the 139 are not.
 
 ### Part M
 
