@@ -74,6 +74,11 @@ interface EarlyExit {
 }
 /** By data folder: how its last app's process ended, when nothing had asked it to close. */
 const endedEarly = new Map<string, EarlyExit>();
+/** By data folder: its last app, whether its connection has closed, and when its process ends. */
+const watched = new Map<
+  string,
+  { app: ElectronApplication; connectionClosed: boolean; exited: Promise<void> }
+>();
 
 /**
  * Keeps how the app's process ends, which is gone once it has: a test whose app dies under it
@@ -87,10 +92,37 @@ function watchExit(app: ElectronApplication, dataDir: string): void {
     closeAsked.add(app);
     return close();
   };
-  app.process().once("exit", (code, signal) => {
-    if (closeAsked.has(app)) return;
-    endedEarly.set(dataDir, { code, signal, seconds: (Date.now() - launchedAt) / 1000 });
+  const { promise: exited, resolve } = Promise.withResolvers<void>();
+  const watching = { app, connectionClosed: false, exited };
+  watched.set(dataDir, watching);
+  app.once("close", () => {
+    watching.connectionClosed = true;
   });
+  app.process().once("exit", (code, signal) => {
+    if (!closeAsked.has(app)) {
+      endedEarly.set(dataDir, { code, signal, seconds: (Date.now() - launchedAt) / 1000 });
+    }
+    resolve();
+  });
+}
+
+/**
+ * A page's connection closes as its process dies, a moment before the process's exit is heard, so a
+ * test that failed on it reaches its teardown first: wait for the exit of an app that went away
+ * without being asked to close.
+ */
+async function settleEarlyExit(dataDir: string): Promise<void> {
+  const last = watched.get(dataDir);
+  if (!last?.connectionClosed || closeAsked.has(last.app)) return;
+  let timer: NodeJS.Timeout | undefined;
+  const gone = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, 3_000);
+  });
+  try {
+    await Promise.race([last.exited, gone]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /**
@@ -3743,6 +3775,7 @@ async function closeOrKill(app: ElectronApplication): Promise<void> {
  */
 export async function removeDataFolder(dataDir: string): Promise<void> {
   const info = test.info();
+  if (info.status !== info.expectedStatus) await settleEarlyExit(dataDir);
   const ended = describeEarlyExit(dataDir);
   if (ended && info.status !== info.expectedStatus) {
     info.annotations.push({ type: "app-ended", description: ended });
