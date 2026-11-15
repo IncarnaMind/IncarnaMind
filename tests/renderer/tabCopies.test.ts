@@ -473,6 +473,27 @@ describe("a tab's copy of its Note", () => {
     expect(moved).toBe(0);
     await settled(shown.editor, ["Mine: one two three", "Theirs:"]);
   });
+
+  // protects=a step the app's own Undo writes into the Note is part of that change, not a new one: the changes taken back before it stay on the app's Redo (#3115); fails_when=an app change whose Undo writes in the Note empties the app's Redo of the changes taken back before it; no_claim=which app changes write in a Note as they are taken back.
+  test("a step the app's Undo writes into the Note leaves the app's Redo as it was", async () => {
+    const shown = await showInTab("tab-1");
+    const earlier = {
+      said: () => "Moved 3 Documents",
+      undo: async () => undefined,
+      redo: async () => undefined,
+    };
+    const writes = {
+      said: () => "Changed the Note",
+      undo: async () => typeIn(shown.editor, "Mine:", " as before"),
+      redo: async () => undefined,
+    };
+    useUndo.getState().push(earlier);
+    useUndo.getState().push(writes);
+    await useUndo.getState().undo(earlier);
+    await useUndo.getState().undo(writes);
+    await settled(shown.editor, ["Mine: as before", "Theirs:"]);
+    expect(useUndo.getState().undone).toEqual([earlier, writes]);
+  });
 });
 
 /** Writes the Note's Blocks as `content`, as an editor's binding writes them: only what differs. */
