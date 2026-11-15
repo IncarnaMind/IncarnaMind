@@ -3107,6 +3107,35 @@ for (const call of CALLS) {
       },
     );
 
+    // protects=a fact whose record has a stray line under it, inside its block, is placed like any other, and one whose record isn't whole on its first line is left out and counted; fails_when=the stray line loses the fact, or a broken record is placed; no_claim=how often a real model writes a stray line: one of four fills on Claude Haiku 5.5 (#3145).
+    test.each([
+      { record: "whole on its first line", placed: true },
+      { record: "split over lines", placed: false },
+    ])("a stray line under a fact's record, $record: placed $placed", async ({ placed }) => {
+      const security = item("P1_security", call.topics.security, written.ACTIONS, 5, {
+        sections: ["actions"],
+      }).replace("}\n```", "}\n500\n```");
+      const { core, meeting, client } = await recordedWith([note(call.typed[0])], undefined, {
+        reply: () =>
+          [
+            purpose(),
+            item("P1_price", call.topics.price, written.L1, 1, { lines: ["L1"] }),
+            placed ? security : security.replace(',"citations"', ',\n"citations"'),
+          ].join("\n\n"),
+      });
+      const before = exactly(client);
+      expect(await settledFill(core, meeting)).toMatchObject({
+        state: "filled",
+        omitted: placed ? 0 : 1,
+      });
+      await vi.waitFor(() => expect(shown(client)).toContain(ai(written.L1)));
+      expect(shown(client).includes(ai(written.ACTIONS))).toBe(placed);
+      expect(shown(client).join("\n")).not.toContain("500");
+      await core.undoMeetingFill(meeting.id);
+      await vi.waitFor(() => expect(exactly(client)).toEqual(before));
+      core.close();
+    });
+
     // protects=a Decisions bullet with a date the filled-out lines don't say stays, so the date is in the note and not only in a bullet that says it; fails_when=the bullet goes because most of its words are above; no_claim=a bullet that says only what is above, which the test below covers.
     test("a Decisions bullet with a date the filled-out lines don't say stays", async () => {
       const { core, meeting, client } = await recordedWith([note(call.typed[0])], undefined, {

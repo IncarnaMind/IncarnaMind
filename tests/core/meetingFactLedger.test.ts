@@ -20,6 +20,7 @@ function reply(facts: MeetingFact[] = [], omittedIds: string[] = []): FactReply 
     omittedIds,
     omittedReasons: Object.fromEntries(omittedIds.map((id) => [id, "citationNotFound" as const])),
     overview: null,
+    overviewOmitted: "missing",
     omitted: omittedIds.length + 1,
     invalidFrames: 0,
   };
@@ -111,7 +112,7 @@ test("unknown frames are not counted as known omitted additions", () => {
   expect(ledger.omitted(false)).toBe(1);
   expect(ledger.omitted(true)).toBe(2);
   const overview = { body: { type: "paragraph" }, citations: [] };
-  ledger.accept({ ...reply(), overview, omitted: 0 });
+  ledger.accept({ ...reply(), overview, overviewOmitted: null, omitted: 0 });
   expect(ledger.overview).toEqual(overview);
   expect(ledger.omitted(true)).toBe(1);
 });
@@ -119,8 +120,22 @@ test("unknown frames are not counted as known omitted additions", () => {
 test("the log learns why each item was left out, and the missing overview, never their words", () => {
   const ledger = createFactLedger();
   ledger.accept(reply([], ["A", "B"]));
-  expect(ledger.omittedReasons(true)).toEqual({ citationNotFound: 2, overview: 1 });
+  expect(ledger.omittedReasons(true)).toEqual({
+    citationNotFound: 2,
+    overview: 1,
+    overviewReason: "missing",
+  });
   expect(ledger.omittedReasons(false)).toEqual({ citationNotFound: 2 });
+});
+
+test("the log keeps why an overview was left out when a later part writes none (#3145)", () => {
+  const ledger = createFactLedger();
+  ledger.accept({ ...reply(), overviewOmitted: "markers" });
+  ledger.accept(reply());
+  expect(ledger.omittedReasons(true)).toEqual({ overview: 1, overviewReason: "markers" });
+  const overview = { body: { type: "paragraph" }, citations: [] };
+  ledger.accept({ ...reply(), overview, overviewOmitted: null, omitted: 0 });
+  expect(ledger.omittedReasons(true)).toEqual({});
 });
 
 test("a fact may replace one written after it in the same reply", () => {

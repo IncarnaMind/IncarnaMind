@@ -572,6 +572,38 @@ describe("Meeting fact protocol (#2306)", () => {
     expect(parsed.omitted).toBe(1);
   });
 
+  test("a reply says why it kept no overview, as a reason (#3145)", () => {
+    const reason = (markdown: string) => parseFactReply(answer(markdown)).overviewOmitted;
+    expect(reason(`${fact("Good")}\n${overview}`)).toBeNull();
+    expect(reason(fact("Good"))).toBe("missing");
+    expect(reason(overview.replace('{"citations":[1]}', '{"citations":[1],"topic":"call"}'))).toBe(
+      "metadata",
+    );
+    expect(reason(overview.replace(" [^1]", ""))).toBe("markers");
+    expect(reason(overview.replaceAll("1]", "2]"))).toBe("citationNotFound");
+    expect(
+      reason(`${overview}\n${overview.replace("The call covered", "The meeting settled")}`),
+    ).toBe("repeated");
+  });
+
+  test("a stray line under a whole record keeps the fact; a record not whole on its first line is left out (#3145)", () => {
+    const stray = fact("P1_F1").replace("}\n```", "}\n500\n```");
+    const kept = parseFactReply(answer(`${stray}\n${overview}`));
+    expect(kept.omitted).toBe(0);
+    expect(kept.facts.map((each) => each.id)).toEqual(["P1_F1"]);
+    expect(kept.facts[0]).toMatchObject({ topic: "review delivery", lines: ["L1"], claim: true });
+
+    const split = parseFactReply(
+      answer(`${stray.replace(',"citations"', ',\n"citations"')}\n${overview}`),
+    );
+    expect(split.facts).toEqual([]);
+    expect(split.omittedReasons).toEqual({ P1_F1: "metadata" });
+
+    const marked = parseFactReply(answer(`${stray.replace("\n500\n", "\n[^1]\n")}\n${overview}`));
+    expect(marked.facts).toEqual([]);
+    expect(marked.omittedReasons).toEqual({ P1_F1: "metadata" });
+  });
+
   test("an invalid repeated identity stays omitted once instead of reviving later", () => {
     const parsed = parseFactReply(
       answer(`${fact("F1")}\n${fact("F1", "No marker.")}\n${fact("F1")}\n${overview}`),
@@ -636,6 +668,7 @@ describe("Meeting fact protocol (#2306)", () => {
       expect(parseFactReply(input)).toEqual({
         facts: [],
         overview: null,
+        overviewOmitted: "frame",
         omitted: 1,
         omittedIds: [],
         omittedReasons: {},
