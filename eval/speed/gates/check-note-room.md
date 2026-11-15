@@ -30,6 +30,16 @@ A scripted reply's headers come as its request is sent; a service's come with th
 
 A bar that fails in a cell is reported with its cell. Twelve is not built on a failed bar.
 
+### Run 1, 2026-11-15: bar 4 failed, and the step changed
+
+The step as first built went to twelve at the first reply that stated room. Bars 1, 2, 3 and 5 held. Bar 4 failed on the keys that state a minute's room and take a second's: with 2,000,000 input tokens a minute held by the second, a Note of 12 ended 1.9 s after before (26 requests refused against 7) and a Note of 30 ended 8.8 s after (25 against 8). Every mark still landed. Such a key refuses the check's large requests, the ones carrying a search's results, already at six at once; at twelve it refused more of them, and each refusal costs the run a pause and a place.
+
+**The change, before run 2:** the run goes to twelve only once the service has also answered six requests carrying a search's results. A key that refuses those at six has refused before it is sent any more, and the run stays at six. Sentences whose Passages come with them, with no search, never widen the run.
+
+**One cell added, before run 2:** 6,000,000 input tokens a minute held by the second, which takes six large requests at once and not twelve. It is the key the change can't see coming.
+
+The bars are unchanged.
+
 ## Part 2: real models, paired (stop US$3.50)
 
 Claude Haiku 5.5 and Claude Sonnet 5.5 on a direct Anthropic key, the timing's `note` flow (10 sentences), English and Chinese, three rounds. Each round runs before and after for each model, the arms alternating in time (before, after, before, after), never one arm in a block. Before is the commit the change sits on; after is the change.
