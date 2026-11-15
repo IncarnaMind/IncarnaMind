@@ -48,6 +48,7 @@ import type {
   ClaimCheckAttributes,
   ClaimPartPlan,
   DocumentsAddedSince,
+  ExternalService,
   FindMindClaimsResult,
   MindCheckEarly,
   MindCheckPlan,
@@ -63,6 +64,7 @@ import type { PreparedChatModel } from "../../providers/chat";
 import { recordCiteSpans } from "../../recordCites/parser";
 import { type Slots, slots } from "../../runs/stop";
 import type { CheckedCitation } from "./claimCheck";
+import type { DecisionReader } from "./decisionFirst";
 import { cellHeadings, inTableCell, inValueCell, type TableLayout } from "./figureOccurrences";
 import { type ClaimsFound, claimsAmong } from "./findClaims";
 import { recordOpinions, type SortedSentence } from "./opinions";
@@ -74,6 +76,7 @@ import {
   pendingParts,
   type QueuedClaim,
   type RunChecksOptions,
+  readingsFirst,
   runChecks,
 } from "./runChecks";
 import {
@@ -132,6 +135,13 @@ export interface MindCheckOptions extends RunChecksOptions {
   libraryState(): string;
   /** The run's sentences checked before it marks them, for the window to draw (#1624). */
   checkingEarly(event: MindCheckEarly): void;
+  /**
+   * The decision model that reads a run's sentences first, for a run whose AI model runs on
+   * `service`; null: none reads now.
+   */
+  decision?(service: ExternalService | null): Promise<DecisionReader | null>;
+  /** A sentence's reading by that model, in front of its check (#3118). */
+  firstReading?: Parameters<typeof readingsFirst>[0];
 }
 
 const MODES: readonly CheckMindMode[] = ["all", "changed", "added"];
@@ -671,11 +681,16 @@ export function createMindCheck(options: MindCheckOptions) {
     // The first sentence's search would otherwise start the reranker and wait for its model.
     options.warmReranker?.();
 
+    const decision = (await options.decision?.(ready.prepared.provider.service)) ?? null;
     const run: ChecksRun = {
       mindId,
       scope: scope.scope,
       searched: scope.wanted,
       prepared: ready.prepared,
+      ...(decision &&
+        options.firstReading && {
+          readFirst: readingsFirst(options.firstReading, decision, mindId),
+        }),
       signal,
     };
     const limit = slots(claimsAtOnce(ready.prepared));

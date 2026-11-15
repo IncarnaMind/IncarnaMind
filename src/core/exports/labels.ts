@@ -147,13 +147,13 @@ export function exportLabels(language: Language): ExportLabels {
                 sentence.worked,
               )
             : t("export.comment.sentence.contradicted.plain");
+        if (!sentence.quoted) return done(said);
+        const { quote, source } = sentence.quoted;
+        const words = { said: said.replace(/[.。]$/u, ""), source };
         return done(
-          sentence.quoted
-            ? t("export.comment.sentence.quoted", {
-                said: said.replace(/[.。]$/u, ""),
-                ...sentence.quoted,
-              })
-            : said,
+          quote === null
+            ? t("export.comment.sentence.placed", words)
+            : t("export.comment.sentence.quoted", { ...words, quote }),
         );
       }
       if (sentence.nearest) {

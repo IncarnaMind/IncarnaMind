@@ -1983,6 +1983,15 @@
     margin: 0;
     padding: 0 8px 6px;
   }
+  /* The line about the decision model, last in the card's text column (#3118). */
+  .check-card-faster {
+    padding: 2px 4px 2px 8px;
+
+    /* The line breaks only between its two parts: its link stays whole on one row. */
+    & .meta-part button {
+      white-space: nowrap;
+    }
+  }
   /* The run's price, under the rows and in the card's text column (#1941). */
   .check-card-estimate {
     padding: 2px 8px 4px;
@@ -5921,8 +5930,9 @@
   }
   /* An unchecked sentence has no mark on the page (#1941): its button stays as its card's anchor,
      keeping its box and place, but draws nothing, takes no pointer or focus, and leaves the tab order.
-     One whose ✓ waits on the Passage its check found becoming a Citation shows, to add it (#3019). */
-  .margin-check[data-check="not-checked"]:not([data-waiting]) {
+     One whose ✓ waits on the Passage its check found becoming a Citation shows, to add it (#3019),
+     and so does one a decision model read first, whose reading nothing confirmed (#3118). */
+  .margin-check[data-check="not-checked"]:not([data-waiting], [data-leaning]) {
     visibility: hidden;
   }
   /* Each check's colours: on its mark, and on its card's state line and quote. */
@@ -5988,6 +5998,19 @@
 
     &[data-check="checking"] .margin-check-icon {
       animation: mind-pulse 1.6s ease-in-out infinite;
+    }
+  }
+  /* A decision model's first reading, with no verdict behind it (#3118): its dashed ring is the
+     whole mark, in the meta ink, with no wash and nothing moving, so it is never read as a verdict. */
+  .margin-check[data-leaning] {
+    --check-ink: var(--color-ink-meta);
+    --check-wash: none;
+    padding: 0 2px;
+
+    .margin-check-icon {
+      width: 16px;
+      height: 16px;
+      animation: none;
     }
   }
   /* An Answer just finished: its checks come in one after another, top to bottom. */

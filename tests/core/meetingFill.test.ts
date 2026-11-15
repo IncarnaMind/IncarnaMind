@@ -1181,40 +1181,24 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
     },
   );
 
-  // protects=a fill reply cut off at its output limit is asked once more with twice the room and fills the note in, while every first request sets aside only the usual room, so a fill still runs under a small monthly cap (#2306); fails_when=a cut-off fill fails without a second try, or a first request sets aside the larger room and passes the cap; no_claim=how often a real model's thinking reaches the limit.
-  test("a fill cut off at its output limit is asked once more with more room, and fills in", async () => {
+  // protects=a fill's request has room for 32,000 tokens, its thinking included, so a reply that thinks past 16,000 fits in one request, where two were made and the first thrown away (#2839); a reply cut off at that room before it wrote anything isn't asked again: the fill ends on the model's problem and writes nothing; fails_when=the request asks for another room, a cut-off reply is asked again, or the Note changes; no_claim=how often a real model's thinking reaches the room.
+  test("a fill's one request has room for 32,000 tokens, and a reply cut off there isn't asked again", async () => {
     const limits: (number | undefined)[] = [];
-    let cut = true;
     const model = scriptedModel((call) => {
       if (isCheckRun(call)) return checkReply(call, {});
       if (!isFill(call)) return { text: "OK" };
       limits.push(call.options.maxOutputTokens);
-      const shown = shownPassages(block(call.prompt, "live-transcript") ?? "");
-      const citations = transcriptCitations(call, shown, { 1: MY_LINES[0] as string });
-      if (citations) return citations;
-      const text = [
-        overview("The call settled the price [^1]."),
-        fact("P1_price", "price", "We agreed the enterprise price is 45 dollars a seat [^1].", {
-          heading: "Pricing",
-        }),
-      ].join("\n\n");
-      if (!cut) return { text };
-      cut = false;
       return { text: "", cutOff: true };
     });
     const { core, meeting, client } = await recorded(model, null);
+    const before = shown(client);
 
     expect(await settledFill(core, meeting)).toMatchObject({
-      state: "filled",
-      problem: null,
-      omitted: 0,
+      state: "failed",
+      problem: { kind: "model", error: "cut-short" },
     });
-    expect([...new Set(limits)]).toEqual([16_000, 32_000]);
-    await vi.waitFor(() =>
-      expect(outline(client)).toContain(
-        "- «We agreed the enterprise price is 45 dollars a seat »\uFFFC«.»",
-      ),
-    );
+    expect(limits).toEqual([32_000]);
+    expect(shown(client)).toEqual(before);
     core.close();
   });
 
@@ -1260,7 +1244,7 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
     core.close();
   });
 
-  test("a fill runs under a small monthly cap, each request setting aside only the usual room", async () => {
+  test("a fill runs under a small monthly cap that has room for its one request", async () => {
     const model = fillingModel(
       [
         overview("The call settled the price [^1]."),
@@ -1270,12 +1254,12 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
       ].join("\n\n"),
       { 1: MY_LINES[0] as string },
     );
-    // Claude Haiku 5.5 sets aside about $0.008 for 16,000 tokens out and $0.016 for 32,000.
+    // Claude Haiku 5.5 sets aside about $0.016 for 32,000 tokens out.
     const { core, meeting, client } = await recorded(
       model,
       null,
       async (core) => {
-        await core.updateSettings({ user: { monthlyCap: { amount: 0.012, currency: "USD" } } });
+        await core.updateSettings({ user: { monthlyCap: { amount: 0.02, currency: "USD" } } });
       },
       undefined,
       { cloud: true },
@@ -2499,9 +2483,9 @@ for (const call of CALLS) {
       expect(prompt).toContain("topic-only references");
       expect(prompt).toContain("do not write a second CLAIMS inventory");
       expect(prompt.indexOf("### OVERVIEW")).toBeGreaterThan(prompt.indexOf("### END P1_F1"));
-      // The lines and the sections, with the thinking before them, get twice an Answer's room.
+      // The lines and the sections, with the thinking before them, get four times an Answer's room.
       expect(limits.length).toBeGreaterThan(0);
-      expect(new Set(limits)).toEqual(new Set([16_000]));
+      expect(new Set(limits)).toEqual(new Set([32_000]));
       core.close();
     });
 

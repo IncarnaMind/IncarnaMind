@@ -16,7 +16,8 @@ import { meetingFillCause } from "../../src/shared/meetingFill";
 /*
  * A Meeting's fill as each copy of its Note takes it on its own Undo (#2527): two editors bound
  * to two copies of one Note, kept in step through a stand-in for the core that keeps the Note's
- * document and sends every change to every copy, as the core does.
+ * document and sends every change to every copy, as the core does. A tab's editors bind the copy
+ * and history the tab keeps (tabCopies, #3115).
  */
 
 const MIND = "meeting-note";
@@ -48,6 +49,7 @@ vi.mock("../../src/renderer/src/core", () => ({
     openMind: (mindId: string) => bridge.openMind(mindId),
     applyMindUpdate: (mindId: string, update: Uint8Array) => bridge.applyMindUpdate(mindId, update),
     closeMind: async () => undefined,
+    settleUnfinished: async () => undefined,
     watchComparisonMind: async () => undefined,
     unwatchComparisonMind: async () => undefined,
   },
@@ -71,15 +73,11 @@ vi.mock("../../src/renderer/src/meetings", async () => {
 
 const { openMindCopy, flushMindUpdates } = await import("../../src/renderer/src/mindCopies");
 const { takeFillInEditor } = await import("../../src/renderer/src/editor/meetingFillUndo");
-const {
-  endHandOver,
-  fillLineHandedTo,
-  fillNextIn,
-  fillStateIn,
-  fillStepIn,
-  letGoOfUndoneFill,
-  undoFillInEditor,
-} = await import("../../src/renderer/src/meetingFillSteps");
+const { holdTabCopy } = await import("../../src/renderer/src/tabCopies");
+const { drawHistory } = await import("../../src/renderer/src/editor/keptHistories");
+const { fillNextIn, fillStateIn, fillStepIn, letGoOfUndoneFill, undoFillInEditor } = await import(
+  "../../src/renderer/src/meetingFillSteps"
+);
 const { nextToRedo, nextToUndo, undoReady, useUndo } = await import("../../src/renderer/src/undo");
 const { useAppStore } = await import("../../src/renderer/src/store");
 const { showMeetingNoteView, useMeetingNoteViews } = await import(
@@ -168,7 +166,8 @@ beforeEach(() => {
 
 afterEach(() => {
   for (const cleanup of cleanups.splice(0).reverse()) cleanup();
-  endHandOver(MEETING);
+  // The tabs close, and with them the copies and histories they kept.
+  showTabs([]);
   useMeetingNoteViews.setState({ views: {}, focus: null, details: null });
   bridge.listeners.clear();
   vi.unstubAllGlobals();
@@ -255,6 +254,22 @@ function citationIn(note: Y.XmlFragment): Y.XmlElement {
   return found.value;
 }
 
+/** The text of the fill's bullet, as the core holds it. */
+function bulletIn(note: Y.XmlFragment): Y.XmlText {
+  const found = note
+    .createTreeWalker(
+      (each) =>
+        each instanceof Y.XmlElement &&
+        each.nodeName === "paragraph" &&
+        each.parent instanceof Y.XmlElement &&
+        each.parent.nodeName === "listItem",
+    )
+    .next();
+  const text = !found.done && found.value instanceof Y.XmlElement ? found.value.get(0) : null;
+  if (!(text instanceof Y.XmlText)) throw new Error("No bullet.");
+  return text;
+}
+
 /** What an Undo says, by its words' keys. */
 const saidBy = (
   change:
@@ -273,27 +288,54 @@ async function openEditor(mine = false): Promise<Editor> {
 }
 
 /**
- * A copy of the Note in a tab's editor, with what ends that editor as a tab switch does: the
- * effect holding the fill first, or the editor first, as either may come first.
+ * The Note in a tab: an editor bound to the copy and history the tab keeps, with what ends that
+ * editor as a tab switch does: the effect holding the fill first, or the editor first.
  */
 async function openInTab(tabId: string) {
   return mountEditor(false, tabId);
 }
 
-async function mountEditor(mine: boolean, tabId?: string) {
-  const doc = await new Promise<Y.Doc>((resolve, reject) => {
+/** A copy of the Note of its own, closed with the test. */
+function ownCopy(): Promise<{ doc: Y.Doc; history: Y.UndoManager | null }> {
+  return new Promise((resolve, reject) => {
     const close = openMindCopy(
       MIND,
-      (copy) => (copy.doc ? resolve(copy.doc) : reject(new Error("No copy."))),
+      (copy) =>
+        copy.doc ? resolve({ doc: copy.doc, history: null }) : reject(new Error("No copy.")),
       reject,
     );
     cleanups.push(close);
   });
+}
+
+/** The tab's copy of the Note and its history, kept until the tab closes. */
+function tabCopy(tabId: string): Promise<{ doc: Y.Doc; history: Y.UndoManager | null }> {
+  return new Promise((resolve, reject) => {
+    const stop = holdTabCopy(
+      tabId,
+      MIND,
+      ({ copy, history }) =>
+        copy.doc ? resolve({ doc: copy.doc, history }) : reject(new Error("No copy.")),
+      reject,
+    );
+    cleanups.push(stop);
+  });
+}
+
+/** Lets the window's own changes run, as after a tab switch's frame. */
+const ticked = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+async function mountEditor(mine: boolean, tabId?: string) {
+  const { doc, history } = tabId ? await tabCopy(tabId) : await ownCopy();
   const editor = new Editor({
     element: document.createElement("div"),
     extensions: [
       ...noteExtensions(),
-      Collaboration.configure({ document: doc, field: MIND_CONTENT_FIELD }),
+      Collaboration.configure({
+        document: doc,
+        field: MIND_CONTENT_FIELD,
+        ...(history && { yUndoOptions: { undoManager: history } }),
+      }),
       ...(mine
         ? [
             MyNotes,
@@ -307,6 +349,7 @@ async function mountEditor(mine: boolean, tabId?: string) {
     ],
   });
   editor.view.updateState(editor.state.reconfigure({ plugins: editor.extensionManager.plugins }));
+  const undraw = history ? drawHistory(history, editor) : () => undefined;
   const release = takeFillInEditor(editor, MEETING, tabId);
   let effect = true;
   /** The effect holding the fill ends, the editor still drawn. */
@@ -319,6 +362,7 @@ async function mountEditor(mine: boolean, tabId?: string) {
   const close = (first: "effect" | "editor" = "effect") => {
     if (!open) return;
     open = false;
+    undraw();
     if (first === "editor") editor.destroy();
     endEffect();
     if (first === "effect") editor.destroy();
@@ -556,45 +600,54 @@ describe.each(["en", "zh-CN"] as const)("the fill in two copies of one Note (%s)
     return opened;
   }
 
-  // protects=a tab switch is no typing: an editor that ends with the fill's step on top hands it to its tab, whose next editor offers the line, through any number of switches, and ⌘Z there takes back what the User did first and then the fill, through the core; while no editor of the tab shows, the fill's Undo keeps its place and ⌘Z passes over it (#3099); fails_when=the line is lost on a switch, comes back after the User acted, ⌘Z takes the fill back before the User's own step, or reaches it with no editor of its tab; no_claim=how the window draws the line, which the smoke spec shows.
+  // protects=a tab switch is no typing: the fill's step stays in the history the tab keeps, the tab's next editor holds it on top (its line shows), through any number of switches, and ⌘Z there takes back what the User did first and then the fill, in the Note; while no editor of the tab shows, the fill's Undo keeps its place and ⌘Z passes over it; another tab never held it (#3099, #3115); fails_when=the line is lost on a switch, comes back after the User acted, shows in another tab, ⌘Z takes the fill back before the User's own step, or reaches it with no editor of its tab; no_claim=how the window draws the line, which the smoke spec shows.
   test.each(["effect", "editor"] as const)(
-    "a tab's editor ending with the fill on top hands it to the tab, ⌘Z there taking the User's step first (%s ends first)",
+    "a tab switch ends only the editor: the tab's next editor holds the fill on top, ⌘Z there taking the User's step first (%s ends first)",
     async (first) => {
       const before = await filledInTab();
       expect(fillStepIn(MEETING, before.editor)).toBe("top");
 
       before.close(first);
-      expect(fillLineHandedTo(MEETING, "tab-1")).toBe(true);
-      expect(fillLineHandedTo(MEETING, "tab-2")).toBe(false);
+      await ticked();
       passedOver();
 
       const between = await openInTab("tab-1");
       await settled(between.editor, filledText);
+      await ticked();
+      expect(fillStepIn(MEETING, between.editor)).toBe("top");
       reached();
       between.close();
+      await ticked();
       passedOver();
       const after = await openInTab("tab-1");
       await settled(after.editor, filledText);
-      expect(fillStepIn(MEETING, after.editor)).toBeNull();
-      expect(fillLineHandedTo(MEETING, "tab-1")).toBe(true);
-
-      typeAfter(after.editor, words.own, words.typed);
-      expect(fillLineHandedTo(MEETING, "tab-1")).toBe(false);
+      await ticked();
+      expect(fillStepIn(MEETING, after.editor)).toBe("top");
       reached();
 
-      // ⌘Z in a Note: its own history first, then the app's (commands/edit.ts).
+      const elsewhere = await openInTab("tab-2");
+      await settled(elsewhere.editor, filledText);
+      expect(fillStepIn(MEETING, elsewhere.editor)).toBeNull();
+      elsewhere.close();
+      await ticked();
+
+      typeAfter(after.editor, words.own, words.typed);
+      expect(fillStepIn(MEETING, after.editor)).toBe("done");
+
+      // ⌘Z in a Note: its own history, the typing first, then the fill.
       expect(after.editor.commands.undo()).toBe(true);
       await settled(after.editor, filledText);
+      expect(bridge.follows).toEqual([]);
+      expect(after.editor.commands.undo()).toBe(true);
+      await settled(after.editor, words.own);
+      expect(bridge.follows).toEqual([[MEETING, true]]);
       expect(bridge.undoFills).toEqual([]);
-      expect(after.editor.commands.undo()).toBe(false);
-      await useUndo.getState().undo();
-      expect(bridge.undoFills).toEqual([MEETING]);
     },
   );
 
-  // protects=the core's Undo takes the place of the editor's on the app's stack, so a change made after the fill stays above it, whichever of the editor and its effect ends first: the editor's ending hands over before its own offer leaves the stack (#3099); fails_when=the fill jumps ahead of the later change, or the stack holds two Undos of the fill; no_claim=what the later change is.
+  // protects=the fill's Undo keeps its own place on the app's stack through a tab switch, so a change made after the fill stays above it, whichever of the editor and its effect ends first, and a change taken back while the Note is hidden can still be done again once it shows (#3099, #3115); fails_when=the fill jumps ahead of the later change, the stack holds two Undos of the fill, or Redo is emptied by the switch; no_claim=what the later change is.
   test.each(["effect", "editor"] as const)(
-    "a change made after the fill stays above it through a tab switch (%s ends first)",
+    "a change made after the fill stays above it through a tab switch, and Redo stays (%s ends first)",
     async (first) => {
       const log: string[] = [];
       const before = await filledInTab();
@@ -604,102 +657,146 @@ describe.each(["en", "zh-CN"] as const)("the fill in two copies of one Note (%s)
       expect(useUndo.getState().done).toEqual([fill, made]);
 
       before.close(first);
-      const [handed, after] = useUndo.getState().done;
-      expect(saidBy(handed)).toBe("meetings.fill.filled");
-      expect(handed).not.toBe(fill);
-      expect(after).toBe(made);
+      await ticked();
+      expect(useUndo.getState().done).toEqual([fill, made]);
       await useUndo.getState().undo();
       expect(log).toEqual(["undo later"]);
-      expect(bridge.undoFills).toEqual([]);
+      expect(bridge.follows).toEqual([]);
 
       const back = await openInTab("tab-1");
       await settled(back.editor, filledText);
+      await ticked();
+      expect(nextToRedo(useUndo.getState())).toBe(made);
+      await useUndo.getState().redo();
+      expect(log).toEqual(["undo later", "redo later"]);
       await useUndo.getState().undo();
-      expect(bridge.undoFills).toEqual([MEETING]);
+      await useUndo.getState().undo();
+      expect(log).toEqual(["undo later", "redo later", "undo later"]);
+      await settled(back.editor, words.own);
+      expect(bridge.follows).toEqual([[MEETING, true]]);
+      expect(bridge.undoFills).toEqual([]);
     },
   );
 
-  // protects=the hand-over also runs when the effect ends with its editor still drawn: the editor lets go of the fill's step, so its own ⌘Z can't reach it, and the stack holds one Undo of the fill, the core's, which the tab's next effect reaches (#3099); fails_when=the stack holds two Undos of one fill, or the note's own ⌘Z takes the step while the core's Undo is offered; no_claim=when React ends an effect early.
-  test("an effect that ends with its editor still drawn hands over once, and the editor lets the step go", async () => {
+  // protects=an effect that ends with its editor still drawn, then takes the fill again, as React may, and an editor drawn for the tab before the last one ended, as a tab moved to another group, keep the one step and the one Undo of the fill (#3099, #3115); fails_when=the stack holds two Undos of one fill, the step is dropped, or the moved tab's ⌘Z can't reach it; no_claim=when React ends an effect early.
+  test("an effect ending early, and a tab moved to another group, keep one step and one Undo of the fill", async () => {
     const opened = await filledInTab();
     opened.release();
+    const again = takeFillInEditor(opened.editor, MEETING, "tab-1");
+    cleanups.push(again);
     expect(
       useUndo.getState().done.filter((each) => saidBy(each).startsWith("meetings.fill")),
     ).toHaveLength(1);
-    passedOver();
-    expect(opened.editor.commands.undo()).toBe(false);
-    await settled(opened.editor, filledText);
-    const again = takeFillInEditor(opened.editor, MEETING, "tab-1");
-    reached();
-    await useUndo.getState().undo();
-    expect(bridge.undoFills).toEqual([MEETING]);
+    expect(fillStepIn(MEETING, opened.editor)).toBe("top");
+
+    const moved = await openInTab("tab-1");
+    await settled(moved.editor, filledText);
+    opened.close();
     again();
+    await ticked();
+    expect(fillStepIn(MEETING, moved.editor)).toBe("top");
+    reached();
+    expect(moved.editor.commands.undo()).toBe(true);
+    await settled(moved.editor, words.own);
+    expect(bridge.follows).toEqual([[MEETING, true]]);
   });
 
-  // protects=a closed tab is handed nothing: the layout drops the tab before its editor ends, and the fill's Undo then leaves the stack with the Note, as on main (#3099); fails_when=a line or an Undo of the fill is kept for a tab already closed; no_claim=Reopen closed tab.
-  test("an editor ending in a tab the layout has closed hands nothing over", async () => {
+  // protects=a closed tab keeps nothing: the layout drops the tab before its editor ends, and the fill's Undo leaves the stack with the tab's history (#3099, #3115); fails_when=a line or an Undo of the fill is kept for a tab already closed; no_claim=Reopen closed tab.
+  test("a tab the layout has closed keeps nothing of the fill", async () => {
     const before = await filledInTab();
     showTabs(["tab-2"]);
     before.close();
-    expect(fillLineHandedTo(MEETING, "tab-1")).toBe(false);
+    await ticked();
     expect(fillOnStack()).toBeUndefined();
+    expect(fillStepIn(MEETING, before.editor)).toBeNull();
     await useUndo.getState().undo();
     expect(bridge.undoFills).toEqual([]);
+    expect(bridge.follows).toEqual([]);
   });
 
-  // protects=only a step still on top is handed over: once the User typed after the fill, the editor ending hands the tab nothing, so no line comes back (#3099); fails_when=a line or an Undo of the fill comes back after the User typed; no_claim=the User's typed Undo across a tab switch, another issue (#3115).
-  test("a tab's editor the User typed in after the fill hands nothing over", async () => {
+  // protects=once the User typed after the fill, its step is no longer on top: the tab's next editor shows no line, and ⌘Z there takes back the typing, then the fill (#3099, #3115); fails_when=a line comes back after the User typed, or the typing's Undo is lost on the switch; no_claim=the Edit menu's names.
+  test("typed after the fill, the tab's next editor shows no line, and its ⌘Z takes back the typing, then the fill", async () => {
     const before = await filledInTab();
     typeAfter(before.editor, words.own, words.typed);
     expect(fillStepIn(MEETING, before.editor)).toBe("done");
+    const typedText = `${words.own}${words.typed}\n${words.heading}\n${words.bullet}`;
 
     before.close();
-    expect(fillLineHandedTo(MEETING, "tab-1")).toBe(false);
+    await ticked();
     const after = await openInTab("tab-1");
-    await settled(after.editor, `${words.own}${words.typed}\n${words.heading}\n${words.bullet}`);
-    expect(fillOnStack()).toBeUndefined();
+    await settled(after.editor, typedText);
+    await ticked();
+    expect(fillStepIn(MEETING, after.editor)).toBe("done");
+    expect(after.editor.commands.undo()).toBe(true);
+    await settled(after.editor, filledText);
+    expect(after.editor.commands.undo()).toBe(true);
+    await settled(after.editor, words.own);
+    expect(bridge.follows).toEqual([[MEETING, true]]);
   });
 
-  // protects=what a tab was handed goes once the fill moves on: taken back elsewhere, or filled anew, the line and the app's Undo of it go (#3099); fails_when=the tab keeps a line or an Undo for a fill that is gone; no_claim=the tab closing, which the smoke spec shows.
+  // protects=what a hidden tab keeps of the fill goes once the fill moves on: taken back elsewhere, or filled anew, the step leaves the tab's history and the app's Undo of it goes, though no editor of the tab shows (#3099, #3115); fails_when=the tab keeps a line, a step or an Undo for a fill that is gone; no_claim=the tab closing, which the smoke spec shows.
   test.each(["undone", "filling"] as const)(
-    "a fill %s elsewhere takes back what its tab was handed",
+    "a fill %s elsewhere while its tab is hidden leaves the tab's history",
     async (state) => {
       const before = await filledInTab();
       before.close();
-      expect(fillLineHandedTo(MEETING, "tab-1")).toBe(true);
+      await ticked();
+      setFill(state);
+      expect(fillOnStack()).toBeUndefined();
+
       const after = await openInTab("tab-1");
       await settled(after.editor, filledText);
-      reached();
-
-      setFill(state);
-      expect(fillLineHandedTo(MEETING, "tab-1")).toBe(false);
-      expect(fillOnStack()).toBeUndefined();
+      expect(fillStepIn(MEETING, after.editor)).toBeNull();
+      expect(after.editor.commands.undo()).toBe(false);
     },
   );
 
-  // protects=the fill's Undo is reached only while its text shows: with no editor of its tab open, as from the Transcript's own tab or another Note's, or from another tab that never held the fill, ⌘Z and Edit › Undo pass over it, Edit › Undo is off when it is the only change, and a held ⌘Z steps past it and stops; the tab's editor on Notes reaches it again, and it works (#3099); fails_when=⌘Z elsewhere takes the fill back out of sight, the menu names it or is on for it, or it isn't reached once the Note shows again; no_claim=the Edit menu's words, which the smoke spec reads.
-  test("⌘Z elsewhere passes over the handed-over fill, and the tab's editor reaches it again", async () => {
+  // protects=the rule that the fill's step leaves the history once another copy changes the words in its Blocks holds while its tab is hidden: back there, ⌘Z takes nothing of the fill, so it never deletes the words typed elsewhere (#2527, #3115); fails_when=⌘Z after coming back deletes a bullet another copy typed into; no_claim=the core's own Undo, which keeps typed Blocks.
+  test("words typed into the fill elsewhere while its tab is hidden take its step out of the tab's history", async () => {
     const before = await filledInTab();
     before.close();
+    await ticked();
+    fromCore((note) => {
+      bulletIn(note).insert(words.bullet.length, words.typed);
+    });
+    expect(fillOnStack()).toBeUndefined();
+    const after = await openInTab("tab-1");
+    const typedText = `${words.own}\n${words.heading}\n${words.bullet}${words.typed}`;
+    await settled(after.editor, typedText);
+    expect(fillStepIn(MEETING, after.editor)).toBeNull();
+    expect(after.editor.commands.undo()).toBe(false);
+    await settled(after.editor, typedText);
+  });
+
+  // protects=the fill's Undo is reached only while its text shows: with no editor of its tab drawn, as from the Transcript's own tab or another Note's, or from another tab that never held the fill, ⌘Z and Edit › Undo pass over it, Edit › Undo is off when it is the only change, and a held ⌘Z steps past it and stops; the tab's editor on Notes reaches it again, and it works (#3099, #3115); fails_when=⌘Z elsewhere takes the fill back out of sight, the menu names it or is on for it, or it isn't reached once the Note shows again; no_claim=the Edit menu's words, which the smoke spec reads.
+  test("⌘Z elsewhere passes over the fill a hidden tab keeps, and the tab's editor reaches it again", async () => {
+    const before = await filledInTab();
+    before.close();
+    await ticked();
     passedOver();
     expect(undoReady(useUndo.getState())).toBe(false);
     await useUndo.getState().undo();
     await useUndo.getState().undo();
-    expect(bridge.undoFills).toEqual([]);
+    expect(bridge.follows).toEqual([]);
 
     const elsewhere = await openInTab("tab-2");
     await settled(elsewhere.editor, filledText);
+    await ticked();
     passedOver();
     await useUndo.getState().undo();
-    expect(bridge.undoFills).toEqual([]);
+    expect(bridge.follows).toEqual([]);
     elsewhere.close();
+    await ticked();
 
     const after = await openInTab("tab-1");
     await settled(after.editor, filledText);
+    await ticked();
     reached();
     expect(undoReady(useUndo.getState())).toBe(true);
     await useUndo.getState().undo();
-    expect(bridge.undoFills).toEqual([MEETING]);
+    await settled(after.editor, words.own);
+    expect(bridge.follows).toEqual([[MEETING, true]]);
+    expect(bridge.undoFills).toEqual([]);
   });
 
   // protects=a held ⌘Z steps past a fill whose text doesn't show to the change below it, and stops; ⇧⌘Z the same way round (#3099); fails_when=⌘Z or ⇧⌘Z takes the hidden fill, or stops short of the change below it; no_claim=the order of changes made in other Notes.
@@ -764,28 +861,31 @@ describe.each(["en", "zh-CN"] as const)("the fill in two copies of one Note (%s)
     },
   );
 
-  // protects=the same for a fill handed to the tab: its editor reaches it on Notes only, never on the Transcript view or My notes (#3099); fails_when=the app's Undo takes the handed-over fill back while its text is hidden; no_claim=the line, which the smoke spec shows.
-  test("the tab's editor reaches the handed-over fill on Notes only", async () => {
+  // protects=the same after a tab switch: the tab's next editor reaches the fill on Notes only, never on the Transcript view or My notes (#3099, #3115); fails_when=the app's Undo takes the fill back while its text is hidden; no_claim=the line, which the smoke spec shows.
+  test("after a tab switch, the tab's next editor reaches the fill on Notes only", async () => {
     const before = await filledInTab();
     before.close();
+    await ticked();
 
     view("tab-1", "transcript");
     const after = await openInTab("tab-1");
     await settled(after.editor, filledText);
+    await ticked();
     passedOver();
     view("tab-1", "mine");
     passedOver();
     await useUndo.getState().undo();
-    expect(bridge.undoFills).toEqual([]);
+    expect(bridge.follows).toEqual([]);
 
     view("tab-1", "notes");
     reached();
     await useUndo.getState().undo();
-    expect(bridge.undoFills).toEqual([MEETING]);
+    await settled(after.editor, words.own);
+    expect(bridge.follows).toEqual([[MEETING, true]]);
   });
 
-  // protects=⌘Z in the note on My notes leaves the fill in place and says to undo it from Notes, whether the editor holds the fill or its tab was handed it; back on Notes the fill's Undo is reached again (#138, #3099); fails_when=⌘Z on My notes takes the fill back unseen, or says nothing; no_claim=the line's words, which the smoke spec reads.
-  test.each(["held by the editor", "handed to the tab"] as const)(
+  // protects=⌘Z in the note on My notes leaves the fill in place and says to undo it from Notes, whether the editor holds the fill or its tab kept it through a switch; back on Notes the fill's Undo is reached again (#138, #3099, #3115); fails_when=⌘Z on My notes takes the fill back unseen, or says nothing; no_claim=the line's words, which the smoke spec reads.
+  test.each(["held by the editor", "kept by its tab through a switch"] as const)(
     "⌘Z in My notes leaves the fill %s, and says to undo it from Notes",
     async (how) => {
       let editor: Editor;
@@ -798,8 +898,10 @@ describe.each(["en", "zh-CN"] as const)("the fill in two copies of one Note (%s)
       } else {
         const before = await filledInTab();
         before.close();
+        await ticked();
         editor = (await mountEditor(true, "tab-1")).editor;
         await settled(editor, filledText);
+        await ticked();
       }
 
       view("tab-1", "mine");
@@ -813,8 +915,8 @@ describe.each(["en", "zh-CN"] as const)("the fill in two copies of one Note (%s)
       showMyNotes(editor, false);
       reached();
       await useUndo.getState().undo();
-      if (how === "held by the editor") await settled(editor, words.own);
-      else expect(bridge.undoFills).toEqual([MEETING]);
+      await settled(editor, words.own);
+      expect(bridge.undoFills).toEqual([]);
     },
   );
 });

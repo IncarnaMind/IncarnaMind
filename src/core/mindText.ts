@@ -213,8 +213,11 @@ export type FailedSentence = {
       check: "contradicted";
       says: string | null;
       worked: (Pick<ClaimCalculation, "stated" | "relation"> & { shown: string }) | null;
-      /** The Passage that says otherwise, and its Document and Location, as its card shows them. */
-      quoted: { quote: string; source: string } | null;
+      /**
+       * The Passage that says otherwise, and its Document and Location, as its card shows them.
+       * No quote where the verdict rests on the Passage and no line of it is one (#3118).
+       */
+      quoted: { quote: string | null; source: string } | null;
     }
   | {
       check: "unsupported";

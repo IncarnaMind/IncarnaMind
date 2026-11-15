@@ -3,10 +3,16 @@ import { useLibraryFactsNow } from "../editor/libraryFactsNow";
 import { OpinionMenu } from "../editor/OpinionMenu";
 import { checkOpinion, opinionAt } from "../editor/opinionChecks";
 import "katex/dist/katex.min.css";
+import type { Editor } from "@tiptap/core";
 import Collaboration from "@tiptap/extension-collaboration";
 import { Focus, Placeholder } from "@tiptap/extensions";
-import { Selection } from "@tiptap/pm/state";
+import { Selection, TextSelection } from "@tiptap/pm/state";
 import { EditorContent, ReactNodeViewRenderer, useEditor, useEditorState } from "@tiptap/react";
+import {
+  absolutePositionToRelativePosition,
+  relativePositionToAbsolutePosition,
+  ySyncPluginKey,
+} from "@tiptap/y-tiptap";
 import {
   useCallback,
   useContext,
@@ -92,6 +98,7 @@ import { FigureEvidence } from "../editor/figureEvidence";
 import { FindInMind } from "../editor/findInMind";
 import { FootnoteKeys, focusNow } from "../editor/footnoteSchema";
 import { HeldSelection } from "../editor/heldSelection";
+import { drawHistory } from "../editor/keptHistories";
 import { LinkBubble } from "../editor/LinkBubble";
 import { ListKeys } from "../editor/listKeys";
 import { MarginChecks } from "../editor/MarginChecks";
@@ -117,6 +124,7 @@ import {
 import { ListMenu } from "../editor/NumberingMenu";
 import { NoteKeymap } from "../editor/noteKeymap";
 import { noteExtensions } from "../editor/noteSchema";
+import { NoteUndoKeys } from "../editor/noteUndoKeys";
 import { registerMindEditor } from "../editor/openEditors";
 import { pageBreakView, relabelBreaks } from "../editor/PageBreakView";
 import { PageMenu } from "../editor/PageMenu";
@@ -130,12 +138,12 @@ import { askInEditor, QuestionCommands } from "../editor/questionCommands";
 import { QuestionFold } from "../editor/questionFold";
 import { ReferencesBlock } from "../editor/ReferencesBlock";
 import { ReviewFold, ReviewPane } from "../editor/ReviewPane";
-import { RedoKeys } from "../editor/redoKeys";
 import { ReviewPick } from "../editor/reviewPick";
 import { ScopePicker } from "../editor/ScopePicker";
 import { type SelectionAction, SelectionMenu } from "../editor/SelectionMenu";
 import { SlashMenu } from "../editor/SlashMenu";
 import { ShiftClickSelection } from "../editor/shiftClickSelection";
+import { type CursorAtLeaving, cursorAtLeaving, cursorToKeep } from "../editor/shownSelection";
 import { useSignOffs } from "../editor/signOffActions";
 import {
   citeWhileWritingItems,
@@ -176,7 +184,7 @@ import {
   useMeetingNoteView,
   useMeetingViewFocus,
 } from "../meetingViews";
-import { type OpenedCopy, openMindCopy } from "../mindCopies";
+import { openMindCopy } from "../mindCopies";
 import { isWritingIn } from "../mindStatus";
 import { followMindStyle } from "../mindStyles";
 import { useMindTools } from "../mindTools";
@@ -188,7 +196,15 @@ import { holdShownPage } from "../shownPages";
 import { skillDescription, skillTitle } from "../skills";
 import { useAppStore } from "../store";
 import { askForSuggestion, describeSuggestion } from "../suggestions";
-import { resumeTabCloseFocus } from "../tabFocus";
+import {
+  holdTabCopy,
+  type NotePlace,
+  placeIn,
+  rememberPlace,
+  type TabCopy,
+  tabCopyNow,
+} from "../tabCopies";
+import { resumeTabCloseFocus, takeContentFocus } from "../tabFocus";
 import { useWalls } from "../turnWall";
 import { useUndo } from "../undo";
 import { keptInsideName } from "../walls";
@@ -200,32 +216,157 @@ import { MeetingFillAt } from "./MeetingFillAt";
 import { MindNotice } from "./MindNotice";
 import { useTabPlace } from "./tabs/tabItems";
 
+/** The Block at the top of the Note's view, and how far into it the view starts. */
+function blockAtTop(editor: Editor, view: HTMLElement): NotePlace["top"] {
+  const top = view.getBoundingClientRect().top;
+  for (const child of editor.view.dom.children) {
+    const box = child.getBoundingClientRect();
+    const blockId = child instanceof HTMLElement ? child.dataset.id : undefined;
+    if (blockId && box.bottom > top) return { blockId, into: top - box.top };
+  }
+  return null;
+}
+
+const MOVES_THE_VIEW = ["wheel", "pointerdown", "keydown", "touchstart"] as const;
+
+/**
+ * Brings the Block the view was at back to its top, and holds it there while Blocks drawn after
+ * the text, as an Answer or a table, take their size above it, until the User or the app moves the
+ * view. The browser's own anchoring waits meanwhile: it would move the view as well.
+ */
+function holdBlockAtTop(editor: Editor, view: HTMLElement, top: NonNullable<NotePlace["top"]>) {
+  const anchoring = view.style.overflowAnchor;
+  view.style.overflowAnchor = "none";
+  let held: number | null = null;
+  const align = () => {
+    if (held !== null && Math.abs(view.scrollTop - held) > 1) {
+      stop();
+      return;
+    }
+    const block = [...editor.view.dom.children].find(
+      (child) => child instanceof HTMLElement && child.dataset.id === top.blockId,
+    );
+    if (!block) return;
+    view.scrollTop +=
+      block.getBoundingClientRect().top - view.getBoundingClientRect().top + top.into;
+    held = view.scrollTop;
+  };
+  const moved = () => {
+    if (held !== null && Math.abs(view.scrollTop - held) > 1) stop();
+  };
+  const resized = new ResizeObserver(align);
+  const stop = () => {
+    resized.disconnect();
+    view.removeEventListener("scroll", moved);
+    for (const type of MOVES_THE_VIEW) window.removeEventListener(type, stop, true);
+    view.style.overflowAnchor = anchoring;
+  };
+  align();
+  resized.observe(editor.view.dom);
+  view.addEventListener("scroll", moved, { passive: true });
+  for (const type of MOVES_THE_VIEW) {
+    window.addEventListener(type, stop, { capture: true, passive: true });
+  }
+  return stop;
+}
+
+/**
+ * A Note shown again in its tab is as the User left it (#3115): the cursor where it was and the
+ * view, which putting the cursor back doesn't move; a click on the tab, or a shortcut that showed
+ * it, puts the focus there. On the Transcript view the notes don't show, so the focus stays put.
+ */
+function useTabPlaceKept(editor: Editor, mindId: string, tabId: string | undefined): void {
+  useLayoutEffect(() => {
+    if (!tabId || editor.isDestroyed) return;
+    const scroller = () => editor.view.dom.closest<HTMLElement>(".mind-scroller");
+    const binding = ySyncPluginKey.getState(editor.state)?.binding;
+    const place = placeIn(tabId, mindId);
+    let release: () => void = () => undefined;
+    if (place && binding) {
+      const at = (position: Y.RelativePosition) =>
+        relativePositionToAbsolutePosition(binding.doc, binding.type, position, binding.mapping);
+      const anchor = at(place.anchor);
+      const head = at(place.head);
+      const size = editor.state.doc.content.size;
+      if (anchor !== null && head !== null && anchor <= size && head <= size) {
+        const { doc } = editor.state;
+        const selection = TextSelection.between(doc.resolve(anchor), doc.resolve(head));
+        editor.view.dispatch(
+          editor.state.tr.setSelection(selection).setMeta("addToHistory", false),
+        );
+      }
+      const shown = scroller();
+      if (shown) {
+        shown.scrollTop = place.scrollTop;
+        if (place.top) release = holdBlockAtTop(editor, shown, place.top);
+      }
+    }
+    const stopFocus = takeContentFocus(tabId, () => {
+      if (!editor.isDestroyed && meetingNoteViewFor(tabId, mindId) !== "transcript") {
+        editor.view.focus();
+      }
+    });
+    let left: CursorAtLeaving | null = null;
+    const leaving = () => {
+      left = cursorAtLeaving(editor);
+    };
+    editor.view.dom.addEventListener("focusout", leaving);
+    return () => {
+      stopFocus();
+      release();
+      editor.view.dom.removeEventListener("focusout", leaving);
+      const bound = editor.isDestroyed ? null : ySyncPluginKey.getState(editor.state)?.binding;
+      if (!bound) return;
+      const relative = (position: number) =>
+        absolutePositionToRelativePosition(position, bound.type, bound.mapping);
+      const { anchor, head } = cursorToKeep(editor, left);
+      const view = scroller();
+      rememberPlace(tabId, mindId, {
+        anchor: relative(anchor),
+        head: relative(head),
+        scrollTop: view?.scrollTop ?? 0,
+        top: view ? blockAtTop(editor, view) : null,
+      });
+    };
+  }, [editor, mindId, tabId]);
+}
+
 /** Stands in for the hint's button in its translated words, which are split around it. */
 const ASK = "\uE000";
 
 /**
  * A local copy of the Mind's Yjs document, kept in step with the core's
- * (../mindCopies). Null until the state has arrived.
+ * (../mindCopies), and its Undo history. Null until the state has arrived. In a
+ * tab, the tab keeps both while it is open (../tabCopies), so the editor drawn
+ * when the Note shows again has them at once, its history whole (#3115).
  *
  * A Mind the core opens read-only (a newer version wrote it) is only a copy to
  * look at: the editor's binding deletes what its schema doesn't know from the
  * copy, and nothing is ever sent from it.
  */
-function useMindDocument(mindId: string, whenUnavailable: () => void): OpenedCopy | null {
-  const [opened, setOpened] = useState<OpenedCopy | null>(null);
+function useMindDocument(
+  mindId: string,
+  tabId: string | undefined,
+  whenUnavailable: () => void,
+): TabCopy | null {
+  const [opened, setOpened] = useState<TabCopy | null>(() =>
+    tabId ? tabCopyNow(tabId, mindId) : null,
+  );
   const reportError = useAppStore((state) => state.reportError);
 
   useEffect(() => {
-    const close = openMindCopy(mindId, setOpened, (error) => {
+    const failed = (error: unknown) => {
       // A copy that can't open means no editor will come to take a new Mind's keys.
       whenUnavailable();
       reportError(error);
-    });
+    };
+    if (tabId) return holdTabCopy(tabId, mindId, setOpened, failed);
+    const close = openMindCopy(mindId, (copy) => setOpened({ copy, history: null }), failed);
     return () => {
       close();
       setOpened(null);
     };
-  }, [mindId, reportError, whenUnavailable]);
+  }, [mindId, tabId, reportError, whenUnavailable]);
 
   return opened;
 }
@@ -258,10 +399,10 @@ const MY_NOTES_SAID = {
 
 /** The open Mind's Blocks, edited with Tiptap and saved through the core as they change. */
 export function MindEditor({ mindId }: { mindId: string }) {
-  const opened = useMindDocument(mindId, forgetNewMindKeys);
+  const opened = useMindDocument(mindId, useTabPlace()?.tabId, forgetNewMindKeys);
   // A copy to look at only has no editor either: the keys held for it go back where they were.
   useEffect(() => {
-    if (opened && !opened.doc) forgetNewMindKeys();
+    if (opened && !opened.copy.doc) forgetNewMindKeys();
   }, [opened]);
   // Its tab closed, or another shown, before its editor was drawn: no editor comes to take the
   // keys, and the Minds the User left must not stay uneditable.
@@ -272,9 +413,14 @@ export function MindEditor({ mindId }: { mindId: string }) {
     [mindId],
   );
   if (!opened) return null;
-  if (!opened.doc) return <MindNotice kind="update" />;
+  if (!opened.copy.doc) return <MindNotice kind="update" />;
   return (
-    <MindEditorView mindId={mindId} doc={opened.doc} readOnly={opened.access === "read-only"} />
+    <MindEditorView
+      mindId={mindId}
+      doc={opened.copy.doc}
+      readOnly={opened.copy.access === "read-only"}
+      history={opened.history}
+    />
   );
 }
 
@@ -375,11 +521,14 @@ function MindEditorView({
   mindId,
   doc,
   readOnly,
+  history,
 }: {
   mindId: string;
   doc: Y.Doc;
   /** A newer version wrote the Mind: shown, never written to, and no composer. */
   readOnly: boolean;
+  /** The Undo history the tab keeps for the Note; null: the editor's own, as outside a tab. */
+  history: Y.UndoManager | null;
 }) {
   const t = useT();
   const isExample = useIsExample(mindId);
@@ -531,8 +680,12 @@ function MindEditorView({
               Date.now(),
             ),
         }),
-        Collaboration.configure({ document: doc, field: MIND_CONTENT_FIELD }),
-        RedoKeys,
+        Collaboration.configure({
+          document: doc,
+          field: MIND_CONTENT_FIELD,
+          ...(history && { yUndoOptions: { undoManager: history } }),
+        }),
+        NoteUndoKeys,
         MyNotes,
         MyNotesHistory.configure({
           fillNext: fillNextIn,
@@ -619,8 +772,19 @@ function MindEditorView({
         }),
       ],
     },
-    [doc, readOnly],
+    [doc, readOnly, history],
   );
+  // Before the effects of what the editor holds, which find the history's steps by it.
+  useLayoutEffect(() => {
+    if (!history) return;
+    const undraw = drawHistory(history, editor);
+    return () => {
+      undraw();
+      // What is typed once the Note shows again is a step of its own.
+      history.stopCapturing();
+    };
+  }, [history, editor]);
+  useTabPlaceKept(editor, mindId, tabId);
 
   useEffect(() => {
     if (!editor.isDestroyed) editor.setEditable(!readOnly && !importing);
@@ -908,6 +1072,11 @@ function MindEditorView({
         cursorInMind.current = false;
       }
     };
+    // A Note shown again in its tab takes the focus as it is drawn, before this listens.
+    if (editor.view.dom.contains(document.activeElement)) {
+      cursorInMind.current = true;
+      cursorPlaced.current = true;
+    }
     document.addEventListener("focusin", onFocusIn);
     return () => document.removeEventListener("focusin", onFocusIn);
   }, [editor, dock]);

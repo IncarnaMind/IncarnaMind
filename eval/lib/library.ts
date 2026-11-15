@@ -110,6 +110,8 @@ export interface LibraryOptions {
   codeRuntime?: CoreAdapters["codeRuntime"];
   /** Facts laid over the catalog's, as a run that measures a Tool the catalog doesn't offer yet. */
   modelFacts?: CoreAdapters["modelFacts"];
+  /** Where a decision host is reached instead of its own address: a server on this computer, for a run that costs nothing. */
+  decisionOrigins?: CoreAdapters["decisionOrigins"];
   /** Wraps the chat model factory the core asks with, for a run that watches or stands in for its requests. */
   chatModels?: (inner: ChatModelFactory) => ChatModelFactory;
   /** What records and transcribes a Meeting: a fake capture and engine, for a run that asks during a call. */
@@ -311,6 +313,10 @@ export async function openLibrary(options: LibraryOptions): Promise<Library> {
     ...(options.executor && { executor: options.executor }),
     ...(options.codeRuntime && { codeRuntime: options.codeRuntime }),
     ...(options.modelFacts && { modelFacts: options.modelFacts }),
+    ...(options.decisionOrigins && { decisionOrigins: options.decisionOrigins }),
+    // A run measures the AI model's check alone, as its baselines did, unless it sets a decision
+    // model itself (#3118).
+    decisionReadsByDefault: false,
     ...options.meetings,
     // The Web pages come from a server on this computer, standing in for the web (./webPageServer).
     webPages: { fetch },

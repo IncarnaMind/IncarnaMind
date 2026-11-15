@@ -2719,6 +2719,13 @@ export function createDocuments(options: DocumentsOptions) {
       );
     },
 
+    /** Hybrid search's best `limit` live Passages, the best first: no reranker, no window. */
+    bestPassages: (
+      query: string,
+      limit: number,
+      documentIds?: readonly string[],
+    ): Promise<WindowedPassage[]> => candidates(query, limit, documentIds),
+
     /** A live Passage of a live Document, as search returns it; null for any other. */
     passage: (passageId: string): WindowedPassage | null => livePassage(db, passageId),
 

@@ -427,8 +427,13 @@ export interface CreateMindInput {
  *   card says so. An older editor would delete the attribute on save and the Citation would read as
  *   the writer's own, so it opens these Notes read-only. Older content is version 58 content as it
  *   is: a Citation without it is the writer's.
+ * - 60: a part of a check keeps `restsOnPassage` and `firstReading` (#3118): a Mark whose line
+ *   doesn't settle the sentence alone shows no quote, and a decision model's reading the AI model
+ *   hasn't confirmed is never a verdict. An older version would write the part again without them
+ *   and show the line as the Mark's quote, so it opens these Notes read-only. Older content is
+ *   version 59 content as it is: a part without them shows its quote and was never a first reading.
  */
-export const CONTENT_SCHEMA_VERSION = 59;
+export const CONTENT_SCHEMA_VERSION = 60;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
@@ -3596,6 +3601,30 @@ export interface GettingStarted {
   seen: boolean;
 }
 
+/** A decision model on a host, as the User chose it for checks. */
+export interface CheckDecisionModel {
+  host: DecisionHost;
+  modelId: string;
+}
+
+/** The decision model for checks as Settings › AI shows it (#3118). */
+export interface CheckDecisionStatus {
+  /** The model the User chose, else the measured one turning it on chooses. */
+  model: CheckDecisionModel & { name: string };
+  /** The host its requests go to, as the User reads it. */
+  hostName: Localized;
+  /** The company whose model it is, where the host passes its requests on to another's; else null. */
+  maker: string | null;
+  /**
+   * "chosen": it reads every check, because the User turned it on. "default": the User hasn't
+   * said, their own AI model for checks runs on its host's service, and it reads the checks that
+   * go there; a Note checked with a model elsewhere is not read. Null: it reads none.
+   */
+  reads: "chosen" | "default" | null;
+  /** Why it can't read or be turned on now: Local mode, or its host has no key here. */
+  blocked: "local-mode" | "no-key" | null;
+}
+
 /** Settings that belong to this device and never sync (ADR-0003). */
 export interface DeviceSettings {
   /** Width of the left sidebar, in CSS pixels. */
@@ -3650,6 +3679,12 @@ export interface DeviceSettings {
    * ask once cloud routes exist (#141).
    */
   transcriptionRoute: TranscriptionRoute | null;
+  /**
+   * The decision model that reads each sentence of Check this Note first (#3118), on a host
+   * whose key this device holds. "off": none, so the AI model checks every sentence. Null: the
+   * User hasn't said, so one reads only where it does by default.
+   */
+  checkDecisionModel: CheckDecisionModel | "off" | null;
   /**
    * The User has read, once on this device, what a recording captures and
    * that the other people should be told. Recording waits for it.
@@ -7566,6 +7601,16 @@ export interface ClaimPartCoverage {
   domainEvidence: CitationAttributes[];
 }
 
+/**
+ * A decision model's first reading of a sentence (#3118): what it leans to, shown while the AI
+ * model's check confirms or changes it.
+ */
+export interface ClaimFirstReading {
+  verdict: "supported" | "contradicted";
+  providerId: string | null;
+  modelId: string;
+}
+
 /** A part keeps the model and time that judged it: checking another part again changes neither (#1667). */
 export interface ClaimCheckPart
   extends ClaimPartPlan,
@@ -7578,6 +7623,18 @@ export interface ClaimCheckPart
    * still reads left out, and Check anyway judges it as any part.
    */
   byAssistant?: true;
+  /**
+   * The decision model's first reading of the part (#3118). It stays once the AI model has
+   * judged the part, as the record of what was read first, and on a part whose check never ended.
+   */
+  firstReading?: ClaimFirstReading;
+  /**
+   * A decision model's verdict that rests on the Passage its deciding Citation is in, not on that
+   * Citation's line (#3118): the line, asked about alone, doesn't pass what a Passage alone must,
+   * or is longer than a check stores. The line only places the Passage in its Document; it isn't
+   * shown as a quote, and the part says nothing in `says`.
+   */
+  restsOnPassage?: true;
   figures?: ClaimPartFigure[];
   remainder?: ClaimPartJudgment | null;
   evidence: CitationAttributes[];
@@ -9740,6 +9797,7 @@ export const dataKinds = [
   "absence-documents",
   "watched-sentences",
   "calendar-request",
+  "checked-sentences",
 ] as const;
 
 export type DataKind = (typeof dataKinds)[number];
@@ -9813,6 +9871,11 @@ export type DataKind = (typeof dataKinds)[number];
  *   Calendar or Microsoft 365, every few minutes while the app runs (#190). The events come back
  *   and stay on this computer. Connecting the account allows it; background work, which never
  *   asks; none in local mode. The Mac's own calendar is read on this computer and isn't a flow.
+ * - "decision-checks": while Check this Note runs (#3118), each sentence it checks, with its
+ *   paragraph, and each Passage the check's search finds for it, with its Document's name and
+ *   page, to the host of the decision model that reads first. Choosing the model, where its line
+ *   says so, allows it; where one reads by default, the User's choice of that same service for
+ *   their checks does (ADR-0022). None in local mode.
  */
 export const dataFlowIds = [
   "chat",
@@ -9834,6 +9897,7 @@ export const dataFlowIds = [
   "scan-images",
   "document-check",
   "calendars",
+  "decision-checks",
 ] as const;
 
 export type DataFlowId = (typeof dataFlowIds)[number];
@@ -9893,6 +9957,11 @@ export interface DataFlowStatus {
    * it (ADR-0022), rather than in a dialog or in Settings › Privacy.
    */
   chosen: boolean;
+  /**
+   * The flow goes to the service with no decision of its own: another flow the User allowed
+   * already sends the same there (#3118). `decidedAt` is then when it first did; null: not yet.
+   */
+  byDefault?: true;
   /** What the flow sends now that the User's acceptance didn't cover, when it has grown since. */
   added?: DataKind[];
 }
@@ -12795,6 +12864,12 @@ export interface CoreApi {
    * Mind's stored updates and free its memory. Editing the Mind again is fine.
    */
   closeMind(mindId: string): Promise<void>;
+  /**
+   * Settles what nothing works on any more in the Mind, as opening it does: an Answer left being
+   * written, a sentence left being checked. For a client that shows the Mind again from a copy it
+   * kept, without opening it again.
+   */
+  settleUnfinished(mindId: string): Promise<void>;
 
   /**
    * Saves a Checkpoint of the Mind as it is now (#113), and returns it. Call
@@ -14190,6 +14265,12 @@ export interface CoreApi {
   setDecisionKey(input: SetDecisionKeyInput): Promise<DecisionHostStatus[]>;
   /** Forgets what a decision model host keeps on this device: its own key and its account. */
   removeDecisionKey(host: DecisionHost): Promise<DecisionHostStatus[]>;
+  /**
+   * The decision model that reads a check's sentences first (#3118), and whether it does now.
+   * "settings.changed", "decisions.changed", "privacy.changed" and "dataFlows.changed" events
+   * say when to read it again.
+   */
+  getCheckDecision(): Promise<CheckDecisionStatus>;
 
   /** Connectors that are not deleted, in name order (ignoring case), each with its state. */
   listConnectors(): Promise<Connector[]>;
@@ -15082,6 +15163,7 @@ const methods: Record<CoreApiMethod, true> = {
   saveChangesAgain: true,
   takeLostChanges: true,
   closeMind: true,
+  settleUnfinished: true,
   saveCheckpoint: true,
   listCheckpoints: true,
   compareCheckpoints: true,
@@ -15372,6 +15454,7 @@ const methods: Record<CoreApiMethod, true> = {
   listDecisionHosts: true,
   setDecisionKey: true,
   removeDecisionKey: true,
+  getCheckDecision: true,
   listConnectors: true,
   addConnector: true,
   getExamples: true,

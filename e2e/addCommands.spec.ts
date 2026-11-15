@@ -20,9 +20,10 @@ import {
 
 /*
  * Add Documents… (⌘O, Ctrl+O) and Link a folder… are commands: ⌘K finds them by name and, in
- * Chinese, by pinyin; ⌘O runs Add Documents… from a Mind, the sidebar and the Library, and does
- * nothing while the focus is in text; the Library's Add menu and the File menu show the same
- * keys and run the same commands. The system's open dialog is stubbed, as in the other specs.
+ * Chinese, by pinyin; ⌘O runs Add Documents… from a Mind, the sidebar and the Library, the
+ * picker from a Note's text too, and does nothing while the focus is in a text field; the
+ * Library's Add menu and the File menu show the same keys and run the same commands. The
+ * system's open dialog is stubbed, as in the other specs.
  */
 
 let dataDir: string;
@@ -157,8 +158,10 @@ test("⌘O opens the picker from the sidebar, a Mind and the Library, and does n
     await newMind(window);
     await enterContent(window);
     await window.keyboard.press("ControlOrMeta+o");
+    await expect.poll(() => pickersAsked(app)).toBe(1);
+    // The page takes the key in the Note's text, so the menu doesn't run it a second time.
     expect(await takesKeys(window)).toBe(true);
-    expect(await pickersAsked(app)).toBe(0);
+    await expect.poll(() => pickersAsked(app)).toBe(2);
 
     await window.getByTestId("open-library").click();
     await expect(window.getByTestId("library-search")).toBeVisible();
@@ -166,19 +169,19 @@ test("⌘O opens the picker from the sidebar, a Mind and the Library, and does n
     await expect(window.getByTestId("library-search")).toBeFocused();
     await window.keyboard.press("ControlOrMeta+o");
     expect(await takesKeys(window)).toBe(true);
-    expect(await pickersAsked(app)).toBe(0);
+    expect(await pickersAsked(app)).toBe(2);
 
     await window.getByTestId("library-empty-add-files").focus();
     await window.keyboard.press("ControlOrMeta+o");
-    await expect.poll(() => pickersAsked(app)).toBe(1);
+    await expect.poll(() => pickersAsked(app)).toBe(3);
 
     await leaveText(window);
     await window.keyboard.press("ControlOrMeta+o");
-    await expect.poll(() => pickersAsked(app)).toBe(2);
+    await expect.poll(() => pickersAsked(app)).toBe(4);
 
     await pointAndClick(window, window.getByTestId("mind-tab").first());
     await window.keyboard.press("ControlOrMeta+o");
-    await expect.poll(() => pickersAsked(app)).toBe(3);
+    await expect.poll(() => pickersAsked(app)).toBe(5);
   } finally {
     await app.close();
   }

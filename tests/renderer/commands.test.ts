@@ -530,6 +530,62 @@ describe("keys", () => {
     }
   });
 
+  // protects=a picker's key opens the picker from a Note's text, where it writes nothing over the Note, and does nothing in a text field, where the key is still taken so no menu runs the command; a command that keeps the keys of text to the text runs from neither (#3115); fails_when=the picker's key is dropped in a Note's text or opens the picker over a text field, or a text's own key runs a command; no_claim=⌘Z in a Note's text, which the Note's own keys take.
+  test("a picker's key opens it from a Note's text and does nothing in a text field; a text's own key runs from neither", async () => {
+    const { runShortcut } = await import("../../src/renderer/src/commands/keymap");
+    const ran: string[] = [];
+    const command = (id: string, digit: number, rule: "outsideText" | "notInFields") =>
+      commands.register({
+        id: `test.${id}`,
+        label: "menu.newMind",
+        group: "main",
+        reversible: true,
+        shortcut: { keys: `Ctrl+Alt+${digit}`, [rule]: true },
+        run: () => {
+          ran.push(id);
+        },
+      });
+    const stops = [command("outside", 8, "outsideText"), command("picker", 9, "notInFields")];
+    class Text {
+      readonly isContentEditable = true;
+      constructor(private readonly note: boolean) {}
+      closest(): Text | null {
+        return this.note ? this : null;
+      }
+    }
+    vi.stubGlobal("HTMLElement", Text);
+    for (const name of ["HTMLInputElement", "HTMLTextAreaElement"]) vi.stubGlobal(name, class {});
+    const globals = globalThis as unknown as { document?: unknown };
+    const page = globals.document;
+    globals.document = { querySelector: () => null };
+    const typed = (digit: number, target: Text) => {
+      let prevented = false;
+      const event = {
+        ...press(String(digit), `Digit${digit}`, { ctrl: true, alt: true }),
+        target,
+        getModifierState: () => false,
+        preventDefault: () => {
+          prevented = true;
+        },
+      } as unknown as KeyboardEvent;
+      return { took: runShortcut(event, NOWHERE), prevented };
+    };
+    try {
+      const note = new Text(true);
+      const field = new Text(false);
+      expect(typed(8, note)).toEqual({ took: false, prevented: false });
+      expect(typed(9, note)).toEqual({ took: true, prevented: true });
+      expect(ran).toEqual(["picker"]);
+      expect(typed(8, field)).toEqual({ took: false, prevented: false });
+      expect(typed(9, field)).toEqual({ took: true, prevented: true });
+      expect(ran).toEqual(["picker"]);
+    } finally {
+      for (const stop of stops) stop();
+      vi.unstubAllGlobals();
+      globals.document = page;
+    }
+  });
+
   test("AltGr+M types µ, not Comment, though Ctrl+Alt+M is Comment's key on Windows and Linux", async () => {
     const { runShortcut } = await import("../../src/renderer/src/commands/keymap");
     let ran = 0;

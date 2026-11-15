@@ -297,6 +297,8 @@ export interface LaunchOptions {
   jev?: string;
   /** A stand-in for every decision model host (#1907), at this base URL. */
   decisions?: string;
+  /** Whether a measured decision model reads checks by default (#3118). Left out: as it ships. */
+  decisionsByDefault?: boolean;
   /**
    * A stand-in for Google Calendar and Microsoft 365 (#190), at this origin
    * (tests/helpers/fakeCalendars.ts). Without it a test build offers neither.
@@ -391,6 +393,7 @@ export async function launchApp(
     real = [],
     jev,
     decisions,
+    decisionsByDefault,
     calendars,
     systemCalendar,
     calendarSyncMs,
@@ -435,6 +438,8 @@ export async function launchApp(
     INCARNAMIND_TEST_COPILOT: copilot,
     INCARNAMIND_TEST_JEV: jev,
     INCARNAMIND_TEST_DECISIONS: decisions,
+    INCARNAMIND_TEST_DECISIONS_BY_DEFAULT:
+      decisionsByDefault === undefined ? undefined : decisionsByDefault ? "1" : "0",
     INCARNAMIND_TEST_CALENDARS: calendars,
     INCARNAMIND_TEST_SYSTEM_CALENDAR: systemCalendar && JSON.stringify(systemCalendar),
     INCARNAMIND_TEST_CALENDAR_SYNC_MS: calendarSyncMs ? String(calendarSyncMs) : undefined,

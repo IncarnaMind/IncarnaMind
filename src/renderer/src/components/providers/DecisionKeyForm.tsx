@@ -24,7 +24,7 @@ export const firstModelOf = (host: DecisionHostStatus): TaggingClassifier => ({
   modelId: host.models[0]?.id ?? "",
 });
 
-export const hostName = (host: DecisionHostStatus, language: string) =>
+export const hostName = (host: Pick<DecisionHostStatus, "name">, language: string) =>
   host.name[language === "zh-CN" ? "zh" : "en"];
 
 /**

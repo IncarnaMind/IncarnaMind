@@ -85,7 +85,7 @@ const showTabCommands = [1, 2, 3, 4, 5, 6, 7, 8, 9].map(
     group: "open",
     reversible: true,
     when: () => tabByNumber(number) !== null,
-    run: () => showTabByNumber(number),
+    run: (ctx) => showTabByNumber(number, { focus: !ctx.assistant }),
   }),
 );
 
@@ -126,7 +126,7 @@ const tabList: readonly Command[] = [
     shortcut: { keys: "Ctrl+Tab" },
     group: "open",
     reversible: true,
-    run: () => cycleTabs(1),
+    run: (ctx) => cycleTabs(1, { focus: !ctx.assistant }),
   },
   {
     id: "tab.previous",
@@ -134,7 +134,7 @@ const tabList: readonly Command[] = [
     shortcut: { keys: "Ctrl+Shift+Tab" },
     group: "open",
     reversible: true,
-    run: () => cycleTabs(-1),
+    run: (ctx) => cycleTabs(-1, { focus: !ctx.assistant }),
   },
   ...showTabCommands,
   ...focusGroupCommands,

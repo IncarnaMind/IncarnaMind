@@ -3,13 +3,16 @@
  * into the run's free places, taken by the run only when it would send the same, and stopped at
  * once when it won't.
  */
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import type { ClaimCheckRequest } from "../../src/core/answers/checks/claimCheck";
+import type { DecisionReader } from "../../src/core/answers/checks/decisionFirst";
+import type { DecisionLines } from "../../src/core/answers/checks/decisionLines";
 import {
   type ChecksRun,
   checkRequestOf,
   earlyChecks,
   type QueuedClaim,
+  readingsFirst,
 } from "../../src/core/answers/checks/runChecks";
 import type { ClaimCheckResult } from "../../src/core/api";
 import { resolveCapabilities } from "../../src/core/providers/capabilities";
@@ -24,7 +27,13 @@ const RESULT: ClaimCheckResult = {
   excluded: [],
 };
 
-function setUp(places: number) {
+const LINES: DecisionLines = { firstReading: { supported: 0.8, contradicted: 0.5 } };
+
+function setUp(
+  places: number,
+  read?: Parameters<typeof readingsFirst>[0],
+  reader?: DecisionReader,
+) {
   const run: ChecksRun = {
     mindId: "note-1",
     scope: { documentIds: null, excluded: new Map() },
@@ -44,6 +53,7 @@ function setUp(places: number) {
       summarizesReasoning: false,
       capabilities: resolveCapabilities({ catalog: { tools: true } }),
     },
+    ...(read && reader && { readFirst: readingsFirst(read, reader, "note-1") }),
     signal: new AbortController().signal,
   };
   const limit = slots(places);
@@ -124,4 +134,68 @@ test("an early check is stopped, not taken, when what it reads besides its reque
   expect(sent).toHaveLength(2);
   for (const done of finish) done();
   expect(await again).toBe(RESULT);
+});
+
+// protects=a sentence checked early is read by the run's decision model first and once, one that reading marks never reaches its check (#3118), and one it leaves to its check is checked with the Passages the reading found to be about it (#2532); fails_when=an early check asks the model before the reading ends, a marked sentence is checked all the same, the run reads again what an early check read, or the check is sent without what the reading found; no_claim=what the run writes on the Mark.
+test("an early check waits for its sentence's reading, made once, and a marked sentence has no check", async () => {
+  const marked = claim("Spring tides come at new moon.");
+  const leaning = claim("Neap tides come at the quarter moons.");
+  const supported = { verdict: "supported", providerId: null, modelId: "decision" } as const;
+  const leans = { firstReading: supported, about: new Map([["passage-1", 0.9]]) };
+  const read: string[] = [];
+  const ends: (() => void)[] = [];
+  const reader: DecisionReader = { model: supported, lines: LINES, ask: async () => null };
+  const { early, sent, finish, run, limit } = setUp(
+    2,
+    (request) => {
+      read.push(request.claim);
+      return new Promise((resolve) => {
+        ends.push(() => resolve(request.claim === marked.claim ? { result: RESULT } : leans));
+      });
+    },
+    reader,
+  );
+
+  early.start(marked, unchanged);
+  early.start(leaning, unchanged);
+  expect(read).toEqual([marked.claim, leaning.claim]);
+  expect(sent).toHaveLength(0);
+  early.keep([marked, leaning]);
+  const again = run.readFirst?.(checkRequestOf(leaning, run, limit, run.signal));
+  for (const end of ends) end();
+
+  expect(await again).toBe(leans);
+  expect(read).toHaveLength(2);
+  expect(sent.map((request) => [request.claim, request.about])).toEqual([
+    [leaning.claim, leans.about],
+  ]);
+  for (const done of finish) done();
+});
+
+// protects=a check waiting for its sentence's reading counts as one of the run's places, so with a decision model chosen no more checks start early than without one (#1618, #3118); fails_when=every claim named starts a check because none waiting on a reading has taken a place yet; no_claim=the order the readings end in.
+test("no more checks start early behind their readings than the run has places", async () => {
+  const read: string[] = [];
+  const ends: (() => void)[] = [];
+  const reader: DecisionReader = {
+    model: { providerId: null, modelId: "decision" },
+    lines: LINES,
+    ask: async () => null,
+  };
+  const { early, sent } = setUp(
+    2,
+    (request) => {
+      read.push(request.claim);
+      return new Promise((resolve) => ends.push(() => resolve(null)));
+    },
+    reader,
+  );
+
+  expect(early.start(claim("Spring tides come at new moon."), unchanged)).toBe(true);
+  expect(early.start(claim("Neap tides come at the quarter moons."), unchanged)).toBe(true);
+  expect(early.start(claim("High water comes twice a day."), unchanged)).toBe(false);
+  expect(read).toHaveLength(2);
+
+  for (const end of ends) end();
+  await vi.waitFor(() => expect(sent).toHaveLength(2));
+  expect(early.start(claim("High water comes twice a day."), unchanged)).toBe(false);
 });

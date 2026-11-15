@@ -111,6 +111,7 @@ const JOBS = {
   en: [
     "Answers and writing",
     "Quick tasks",
+    "Checking sentences",
     "Reading images",
     "Organize and Tags",
     "Meeting transcription",
@@ -120,6 +121,7 @@ const JOBS = {
   "zh-CN": [
     "回答和写作",
     "快速任务",
+    "核对句子",
     "读取图片",
     "整理和标签",
     "会议转写",
@@ -179,6 +181,7 @@ for (const width of [1440, 900] as const) {
 const JOB_PICKERS = {
   answers: "model-default-chatModel",
   quick: "model-default-quickTasksModel",
+  checks: "check-decision-switch",
   images: "model-default-imageModel",
   organize: "models-sorting",
   transcription: "meetings-route",

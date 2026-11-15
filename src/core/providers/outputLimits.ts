@@ -17,12 +17,10 @@ export const OUTPUT_LIMITS = {
   "answer-step": { most: 32_000 },
   "check-step": { most: 8_000 },
   // A Meeting's notes: the User's lines filled out and the sections after them, with the thinking
-  // before them, can pass an Answer's room (#2306).
-  "meeting-fill": { most: 16_000 },
-  // A Meeting's notes asked again after a reply that reached `meeting-fill`'s room, as DeepSeek
-  // V4.1 Flash's thinking on a call with typed notes did once: the cost cap sets aside a request's
-  // whole room, so only that retry gets this much (#2306).
-  "meeting-fill-retry": { most: 32_000 },
+  // before them, can pass an Answer's room (#2306). On a four-minute call Claude Haiku 5.5 thought
+  // and wrote 16,850 tokens: a reply cut off while it thinks has nothing to keep, so the room is
+  // one that reply fits in, not a smaller one with a second ask (#2839).
+  "meeting-fill": { most: 32_000 },
   "search-query": { most: 256 },
   tags: { most: 512 },
   // Several Documents tagged in one request, as Organize's run and Re-tag send them (#2339).

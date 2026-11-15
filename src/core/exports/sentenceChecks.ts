@@ -1,5 +1,6 @@
 import * as Y from "yjs";
 import { checkedScope, claimCheckShown, coveredPart, saysNotFound } from "../../shared/claimChecks";
+import { restsOnPassage } from "../../shared/claimParts";
 import { type ScopeKind, scopeName } from "../../shared/searchScope";
 import { verificationOf } from "../../shared/verification";
 import {
@@ -97,7 +98,10 @@ export function failedSentences(
               }
             : null,
         quoted: evidence?.quote
-          ? { quote: context.quoteOf(evidence), source: context.sourceOf(evidence) }
+          ? {
+              quote: restsOnPassage(check) ? null : context.quoteOf(evidence),
+              source: context.sourceOf(evidence),
+            }
           : null,
       });
     } else if (shown.state === "unsupported" && check.citedCaseUnchecked) {

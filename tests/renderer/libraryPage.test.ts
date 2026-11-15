@@ -293,7 +293,7 @@ describe("what Organize did, as Get info says it", () => {
       "tev1:4b · Text",
     );
     expect(organizeModel({ id: "clef-flash", images: true, reason: "visual" }, en)).toBe(
-      "clef-flash · Text + PDF pages",
+      "Clef-Flash · Text + PDF pages",
     );
     expect(organizeModel({ id: "tev1:0.8b", images: false, reason: "memory" }, en)).toBe(
       "tev1:0.8b · Text · Smaller model for memory limits",

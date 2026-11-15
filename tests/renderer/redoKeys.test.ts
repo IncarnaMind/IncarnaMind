@@ -48,7 +48,7 @@ const { default: Collaboration } = await import("@tiptap/extension-collaboration
 const Y = await import("yjs");
 const { MIND_CONTENT_FIELD } = await import("../../src/core/api");
 const { noteExtensions } = await import("../../src/renderer/src/editor/noteSchema");
-const { RedoKeys } = await import("../../src/renderer/src/editor/redoKeys");
+const { NoteUndoKeys } = await import("../../src/renderer/src/editor/noteUndoKeys");
 
 function noteWith(words: string) {
   const editor = new Editor({
@@ -56,7 +56,7 @@ function noteWith(words: string) {
     extensions: [
       ...noteExtensions(),
       Collaboration.configure({ document: new Y.Doc(), field: MIND_CONTENT_FIELD }),
-      RedoKeys,
+      NoteUndoKeys,
     ],
   });
   editor.view.updateState(editor.state.reconfigure({ plugins: editor.extensionManager.plugins }));

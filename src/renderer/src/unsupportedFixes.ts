@@ -26,6 +26,7 @@ import { makeMine } from "./editor/aiText";
 import { citationsOf } from "./editor/alreadyCited";
 import {
   claimPlaces,
+  firstReadingShown,
   foundElsewhere,
   markOf,
   placeInSentence,
@@ -110,10 +111,13 @@ export const sentenceOf = (editor: Editor, claim: ShownClaim): string =>
 /**
  * The word a check's mark and card are headed with: "Not found" or "Units may differ" apart from
  * "Unsupported", "Record cite" for a Supported sentence one of whose own record cites needs a
- * look, and "Supported, not yet cited" for one whose ✓ waits on its Passage (#3019).
+ * look, "Supported, not yet cited" for one whose ✓ waits on its Passage (#3019), and what a
+ * decision model's first reading leans to while no verdict stands (#3118).
  */
-export const checkStateKey = (editor: Editor, claim: ShownClaim): MessageKey =>
-  markOf(claim) !== claim.shown.state
+export const checkStateKey = (editor: Editor, claim: ShownClaim): MessageKey => {
+  const leaning = firstReadingShown(claim);
+  if (leaning) return `claim.state.likely.${leaning.verdict}`;
+  return markOf(claim) !== claim.shown.state
     ? "claim.state.recordCite"
     : foundElsewhere(claim)
       ? "claim.state.notYetCited"
@@ -122,6 +126,7 @@ export const checkStateKey = (editor: Editor, claim: ShownClaim): MessageKey =>
         : claim.shown.state === "unsupported" && claim.check.unsupported?.kind === "units"
           ? "claim.state.unitsMayDiffer"
           : `claim.state.${claim.shown.state}`;
+};
 
 export function offersKeepAsView(editor: Editor, claim: ShownClaim): boolean {
   return claim.kind !== "chart" && editor.isEditable && claim.shown.state === "contradicted";

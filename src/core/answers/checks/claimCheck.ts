@@ -143,6 +143,11 @@ export interface ClaimCheckRequest {
   cacheKey?: string;
   /** An explicit whole-read window (./wholeRead): every search in this Run stays within it. */
   window?: readonly WindowedPassage[];
+  /**
+   * The Passages the run's decision model found to be about the sentence, each with how surely
+   * (./decisionFirst). Given, they order each search's hits, and no reranking model runs.
+   */
+  about?: ReadonlyMap<string, number>;
   signal: AbortSignal;
   parts?: readonly ClaimPartPlan[];
   only?: ClaimPartSpan;
@@ -175,7 +180,7 @@ export type AtomicClaimCheckResult = ClaimCheckResult & {
  * Where `line` stands in `units`, from only the Units it covers: a page range never spans the whole
  * Document (#2226).
  */
-function lineLocation(
+export function lineLocation(
   units: ReturnType<ClaimCheckDependencies["documents"]["pageTexts"]>,
   line: string,
   matching: ReturnType<typeof matchingOf>,

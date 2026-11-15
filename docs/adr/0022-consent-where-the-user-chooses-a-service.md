@@ -55,3 +55,24 @@ Settings › Tagging and Settings › Models' sorting row are gone: the one choi
 - **Page images** are their own switch under the same row, "Read scans as page images", per service, as before.
 - **A reranking service the User's account already reaches** (Cohere on its account's key) asks before it is used: choosing it in Best results first shows what each search sends and to whom, and only Use this records the consent. While it is chosen, the row says where it sends. A service set up with a key of its own says so in its key form, as before.
 - **A company's last key going** sends Document search and Best results first on that company's account back to the built-in models, as sorting already went back to Automatic (#1907), so a key added later starts nothing on the old consent.
+
+## Amendment: a decision model reads a check's sentences first (2026-11-14, #3118)
+
+Check this Note can have a decision model read each sentence before the User's AI model does. That is the `decision-checks` flow, to the decision model's host. Every request holds one sentence and its paragraph, with Passages of the User's Documents or parts of them, each under its Document's name and page. The requests a sentence can cause:
+
+1. The sentence with its Passages: up to 30 the check's search finds, and every Passage the sentence cites.
+2. Before a verdict stands, the sentence with the verdict's Passage alone; once more with the same Passage where it writes one of the sentence's numbers another way.
+3. The sentence with each sentence of that Passage, to find the line a quote would be.
+4. The sentence with that one line alone, under its Document's name.
+5. Where no Passage is about the sentence, the sentence with the five nearest Passages joined as one.
+
+Nothing else goes: not the rest of the Note, another Note, a Folder's or Tag's name, an id or a file path.
+
+- **Chosen.** The User turns it on in Settings › AI, on the row whose line says what goes and to which service. Turning it on there is the consent, recorded in Settings › Privacy, and it then reads every check, also one whose AI model runs on another service. A key to the host saved for something else turns nothing on.
+- **By default, only where the check already goes.** For a User who hasn't said, a measured decision model reads only when the User's own AI model for checks runs on the same service as that model's host, and then only the checks that go to that service. The User asked for the check, and it already sends the Note's text and the Passages found for it to that service: no new kind of data goes, and to no new service. So the User's choice of that service for their checks covers it, and there is no dialog. Settings and Settings › Privacy show it by that same rule, so neither says off while a check is read: a Note checked with a model on another service is not read by default, whichever of the two services the decision model is on.
+- **Whose model it is.** A service can pass a request on to the company whose model it is: Decider v1.2 is Perplexity's, reached through OpenRouter. Where that company is not the service, the Settings row's tip and the flow's line in Settings › Privacy name it.
+- **Said where it lives.** The Settings row is a switch, shown on, with a line naming the model and a line saying which checks it reads and what they send to which service. It shows on before the User's first check too, which asks about checks itself; nothing is read until they allow that. A first reading's own explanation names the model; its service is named in Settings and in Settings › Privacy. Settings › Privacy lists the flow from the same rule once checks go to that service, before its first use too: on with the User's checks, never as something they allowed by an act. The first check that reads records the date, which Privacy then shows.
+- **Ended** by turning it off, in Settings or in Settings › Privacy, before any check or after: off forgets the record, and no later check turns it on again. Undo in Settings › Privacy brings it back as it was. Removing the host's key ends it too, and forgets a model the User chose. A check whose AI model runs on another service is not read by default. Local mode sends nothing.
+- **The record serves this flow only.** It is kept for `decision-checks` to that one service, and nothing reads it as consent to another flow or another kind of data.
+- **Never asked, never a problem.** A check never asks for this flow. A request the host refuses, or doesn't answer within 5 s (the slowest of 13,179 measured answers took 3.6 s), ends that check's readings and is logged: the AI model checks those sentences as it would with no decision model.
+- **One value ships it.** Reading by default is on by the gate in `eval/evidence/3118-decision-first`: its bars and, where one was not met, the owner's decision written there with the numbers. With the value off, the model reads only where the User chose it.

@@ -10,7 +10,7 @@ export const addDocumentCommands: readonly Command[] = [
     ...fromMenu("documents.add"),
     // It waits for the User's choice in a file picker; the assistant adds a folder's files itself.
     assistant: false,
-    shortcut: { keys: MENU_COMMANDS["documents.add"].keys, notInText: true },
+    shortcut: { keys: MENU_COMMANDS["documents.add"].keys, notInFields: true },
     keywords: ["documents.add.keywords"],
     group: "main",
     reversible: true,

@@ -18,6 +18,7 @@ import {
   CLAIM_CHECK_MARK,
   type ClaimCheckAttributes,
   type ClaimCheckPart,
+  type ClaimFirstReading,
   type RetainedFigureAnalysis,
   type SearchScope,
 } from "../../../core/api";
@@ -37,6 +38,7 @@ import {
   readClaimCheck,
   showsPartRows,
 } from "../../../shared/claimChecks";
+import { firstReadingOf } from "../../../shared/claimParts";
 import { type InlineTextPiece, inlineRange, projectInlineText } from "../../../shared/inlineText";
 import { ySyncOf } from "../../../shared/markKeys";
 import { sameScope } from "../../../shared/searchScope";
@@ -597,6 +599,19 @@ export const foundElsewhere = ({ shown, check }: Pick<ShownClaim, "shown" | "che
   shown.state === "not-checked" &&
   shown.reason === "found-elsewhere" &&
   check.state !== "not-checked";
+
+/**
+ * The decision model's first reading a sentence shows (#3118): while the AI model still checks
+ * it, and once that check ended with no verdict, which leaves the reading unconfirmed. A verdict
+ * shows as itself and keeps the reading only as its record, whatever it shows as now.
+ */
+export const firstReadingShown = ({
+  shown,
+  check,
+}: Pick<ShownClaim, "shown" | "check">): ClaimFirstReading | null =>
+  shown.state === check.state && (check.state === "checking" || check.state === "not-checked")
+    ? firstReadingOf(check)
+    : null;
 
 /** The parts of a check, as its Citations read them now, that are Supported, not yet cited (#3019). */
 export function waitingParts({

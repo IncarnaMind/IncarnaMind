@@ -199,7 +199,7 @@ test("a delayed close focus handoff keeps a control the User has since focused",
 
 for (const whileLoading of ["wait", "focus another editor", "close the loading tab"] as const) {
   test(`closing from an editor waits for its replacement in the same pane: ${whileLoading}`, async () => {
-    const { app, window } = await launchApp(dataDir);
+    let { app, window } = await launchApp(dataDir);
     let held: Awaited<ReturnType<typeof holdNextMindOpening>> | undefined;
     try {
       await setWindowSize(app, window, 1440, 900);
@@ -208,6 +208,13 @@ for (const whileLoading of ["wait", "focus another editor", "close the loading t
       await splitFromTabMenu(window);
       await newMind(window);
       await nameMind(window, "Delta");
+      // Shown once, a tab keeps its Note's copy (#3115): after a start with the tabs restored, the
+      // replacement has never shown its Note, so its copy has still to open.
+      await app.close();
+      ({ app, window } = await launchApp(dataDir));
+      await setWindowSize(app, window, 1440, 900);
+      // Home is in front at a start; ⌘W on it shows Delta again.
+      await window.keyboard.press("ControlOrMeta+w");
       const groups = window.getByTestId("tab-group");
       const firstEditor = groups.nth(0).getByTestId("mind-editor");
       const secondEditor = groups.nth(1).getByTestId("mind-editor");

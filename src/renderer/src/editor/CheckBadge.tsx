@@ -15,6 +15,7 @@ import { flushSync } from "react-dom";
 import type * as Y from "yjs";
 import { formatDateTime } from "../../../shared/dates";
 import type { Verification } from "../../../shared/verification";
+import { useCheckDecision } from "../checkDecision";
 import { setCheckCardOpen, stopCheck, useChecks } from "../checks";
 import { EstimateMeta } from "../components/EstimateSource";
 import { MetaLine } from "../components/MetaLine";
@@ -43,6 +44,7 @@ import { useGroupsMerged } from "../useWindowWidth";
 import { checkClaims, stopVerify } from "../verify";
 import { useWatchAddedDocuments } from "./AddedDocumentsLine";
 import { type Badge, type BadgeInput, badgeOf } from "./badgeState";
+import { CheckFasterLine } from "./CheckFasterLine";
 import { ContradictionAsk, ContradictionLine } from "./ContradictionLine";
 import { checkTitle, useCheckEstimate, useCheckThisMindPlan } from "./changedSentences";
 import {
@@ -154,6 +156,8 @@ function MindBadge({
   const planned = useCheckThisMindPlan(doc, mindId, running !== undefined || !open);
   const { line: estimate, state: estimateState } = useCheckEstimate(mindId, open ? planned : null);
   const state = noteStateOf(health, unread.length, narrowUnread.length);
+  // Read with the badge, not with the card: the card keeps the height it opens with.
+  const checkDecision = useCheckDecision();
   const input: BadgeInput = {
     marks: {
       contradicted: health.contradicted.length,
@@ -191,6 +195,7 @@ function MindBadge({
       <p className="check-card-title">{t("health.label")}</p>
       <HealthCard editor={editor} doc={doc} mindId={mindId} health={health} state={state} />
       <ContradictionLine doc={doc} mindId={mindId} />
+      <CheckFasterLine status={checkDecision} />
     </BadgeFrame>
   );
 }

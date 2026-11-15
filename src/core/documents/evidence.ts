@@ -31,7 +31,7 @@ import type {
 import { InvalidInputError, isRecord } from "../errors";
 import type { Database } from "../storage";
 import type { WindowedPassage } from "./search";
-import type { SearchToolOptions, SearchToolParameters } from "./searchTool";
+import type { Reranker, SearchToolOptions, SearchToolParameters } from "./searchTool";
 import type { TextCopies, TextVersion } from "./textCopies";
 
 /**
@@ -88,10 +88,16 @@ export interface EvidenceDependencies {
   log: Logger;
   /** Settings leaves IncarnaMind's own files out (`UserSettings.leaveOutOwnFiles`). */
   leaveOutOwnFiles(): boolean;
-  /** The search Tool, reranked as Answers are (see ./searchTool). */
+  /** The search Tool (see ./searchTool), reranked as Answers are unless `rerank` orders its hits. */
   search(
     query: string,
-    options: Pick<SearchToolOptions, "documentIds" | "parameters" | "signal">,
+    options: Pick<SearchToolOptions, "documentIds" | "parameters" | "signal" | "rerank">,
+  ): Promise<WindowedPassage[]>;
+  /** Hybrid search's best `limit` Passages, the best first, each alone and as search ranks it. */
+  best(
+    query: string,
+    limit: number,
+    documentIds: readonly string[] | undefined,
   ): Promise<WindowedPassage[]>;
 }
 
@@ -107,6 +113,23 @@ export const passageResult = (passage: WindowedPassage): PassageSearchResult => 
   position: passage.position,
   text: passage.text,
 });
+
+/**
+ * Orders a search's hits by a reader that has read Passages already: those in `about` first, the
+ * surest first, then the rest as search ranked them. A fused score is under 1 (reciprocal rank
+ * fusion), so 1 and over is first.
+ */
+const orderedByReading =
+  (about: ReadonlyMap<string, number>): Reranker =>
+  async (_query, candidates) =>
+    candidates
+      .map((each) => {
+        const sure = about.get(each.passageId);
+        return sure === undefined ? each : { ...each, score: 1 + sure };
+      })
+      .sort((a, b) => b.score - a.score);
+
+const AS_SEARCH_RANKS = orderedByReading(new Map());
 
 const inList = (column: string) => `${column} IN (SELECT value FROM json_each(?))`;
 
@@ -338,45 +361,82 @@ export function createEvidence(deps: EvidenceDependencies) {
     /**
      * One of a check's searches: the search Tool over its scope, then, if
      * any Documents are left out, a small search of those, for where they matched.
+     *
+     * `about` is the Passages a decision model that read the sentence found to be about it, each
+     * with how surely: given, they come first, the surest first, the rest follow as search ranks
+     * them, and the reranking model isn't asked (#2532).
      */
     async search(
       query: string,
       scope: EvidenceScope,
       signal?: AbortSignal,
+      about?: ReadonlyMap<string, number>,
     ): Promise<EvidenceSearch> {
+      const rerank = about && orderedByReading(about);
       const passages = await deps.search(query, {
         documentIds: scope.documentIds ?? undefined,
         signal,
+        ...(rerank && { rerank }),
       });
-      if (scope.excluded.size === 0) return { passages, excluded: [] };
-      const matched = await deps.search(query, {
-        documentIds: [...scope.excluded.keys()],
-        parameters: EXCLUDED_PARAMETERS,
-        signal,
-      });
-      // The search Tool gives its Passages by Document, the best Document first.
-      const byDocument = new Map<string, ExcludedEvidence>();
-      const add = (passage: PassageSearchResult) => {
-        const reason = scope.excluded.get(passage.documentId);
-        if (!reason) return;
-        const entry = byDocument.get(passage.documentId) ?? {
-          documentId: passage.documentId,
-          documentName: passage.documentName,
-          reason,
-          passages: [],
-        };
-        entry.passages.push(passage);
-        byDocument.set(passage.documentId, entry);
+      return { passages, excluded: await excludedMatches(query, scope, signal, rerank) };
+    },
+
+    /**
+     * A search for a reader that reads every Passage it is given: the `limit` Passages hybrid
+     * search ranks highest over the scope, the best first, with no reranker to order them and
+     * no neighbours beside them; then the small search of the Documents left out, as search ranks
+     * them too.
+     */
+    async best(
+      query: string,
+      scope: EvidenceScope,
+      limit: number,
+      signal?: AbortSignal,
+    ): Promise<EvidenceSearch> {
+      const passages = await deps.best(query, limit, scope.documentIds ?? undefined);
+      return {
+        passages,
+        excluded: await excludedMatches(query, scope, signal, AS_SEARCH_RANKS),
       };
-      for (const passage of matched) add(passageResult(passage));
-      // Search shows the Passages of identical files once (see `distinctPassages`): each copy
-      // left out is named too, where the one shown matched.
-      for (const found of [...byDocument.values()]) {
-        for (const copy of copiesOf(found, scope.excluded)) add(copy);
-      }
-      return { passages, excluded: [...byDocument.values()] };
     },
   };
+
+  /** Where the Documents a check leaves out matched `query`, the best first: a small search of them. */
+  async function excludedMatches(
+    query: string,
+    scope: EvidenceScope,
+    signal?: AbortSignal,
+    rerank?: Reranker,
+  ): Promise<ExcludedEvidence[]> {
+    if (scope.excluded.size === 0) return [];
+    const matched = await deps.search(query, {
+      documentIds: [...scope.excluded.keys()],
+      parameters: EXCLUDED_PARAMETERS,
+      signal,
+      ...(rerank && { rerank }),
+    });
+    // The search Tool gives its Passages by Document, the best Document first.
+    const byDocument = new Map<string, ExcludedEvidence>();
+    const add = (passage: PassageSearchResult) => {
+      const reason = scope.excluded.get(passage.documentId);
+      if (!reason) return;
+      const entry = byDocument.get(passage.documentId) ?? {
+        documentId: passage.documentId,
+        documentName: passage.documentName,
+        reason,
+        passages: [],
+      };
+      entry.passages.push(passage);
+      byDocument.set(passage.documentId, entry);
+    };
+    for (const passage of matched) add(passageResult(passage));
+    // Search shows the Passages of identical files once (see `distinctPassages`): each copy
+    // left out is named too, where the one shown matched.
+    for (const found of [...byDocument.values()]) {
+      for (const copy of copiesOf(found, scope.excluded)) add(copy);
+    }
+    return [...byDocument.values()];
+  }
 
   /** The same Passages in the other Documents left out that hold the same file as `found`. */
   function copiesOf(

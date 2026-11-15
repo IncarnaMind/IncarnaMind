@@ -166,7 +166,7 @@ export const hasReplied = (prepared: PreparedChatModel): boolean =>
  */
 export function recordCheck(
   record: CheckRecord | null,
-  model: PreparedChatModel,
+  model: PreparedChatModel | { providerId: string | null; modelId: string },
   result: ClaimCheckResult | null,
 ): void {
   if (!record) return;
@@ -175,7 +175,7 @@ export function recordCheck(
       {
         mindId: record.mindId,
         kind: result && result.verdict !== "not-checked" ? "sentence-checked" : "sentence-asked",
-        providerId: model.provider.id,
+        providerId: "provider" in model ? model.provider.id : model.providerId,
         modelId: model.modelId,
         characters: 0,
         occurredAt: record.now().toISOString(),
