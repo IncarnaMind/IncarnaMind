@@ -50,6 +50,8 @@ describe("What a sentence's scores come to", () => {
     ["states it, one nearly opposes", scores([0.99, 0.01], [0.1, 0.897]), "nothing"],
     ["states it, one leans to the opposite", scores([0.99, 0.01], [0.1, 0.5]), "nothing"],
     ["states it, one just under a lean", scores([0.99, 0.01], [0.1, 0.49]), "supported p0 final"],
+    ["opposes, one leans to stating it", scores([0.8, 0.01], [0.1, 0.95]), "nothing"],
+    ["opposes, one just under a lean", scores([0.79, 0.01], [0.1, 0.95]), "contradicted p1 final"],
     ["opposes, inside the band", scores([0.1, 0.903]), "contradicted p0 first reading"],
     ["opposes, below the line", scores([0.1, 0.6]), "contradicted p0 first reading"],
     ["both lean", scores([0.85, 0.6]), "nothing"],

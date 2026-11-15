@@ -457,7 +457,7 @@ So reading by default is on in this build (`src/core/answers/checks/decisionChoi
 
 ### Changed at the first read, after every run above
 
-Two rules changed when the pull request was read, both to the careful side. No request was sent for either.
+Three rules changed when the pull request was read, all to the careful side. No request was sent for any.
 
 - **A final Supported needs no Passage leaning to the opposite.** Before, a Passage that states the sentence clear of its line gave Supported unless another said the opposite at 0.895 or over. Now another Passage at 0.5 or over (a first reading's line for the opposite) sends the sentence to the AI model unread, as two leaning Passages already did: the Documents disagree. Counted free on the saved records of the three measured runs, by each sentence's highest opposite score among the Passages read:
 
@@ -468,6 +468,15 @@ Two rules changed when the pull request was read, both to the careful side. No r
   | The fresh reading | 15 | 0 | 0.017 |
 
   So the rule takes none of the 42 Supported Marks these runs gave, and no bar's count changes. It is not measured on text where Documents do disagree.
+- **A final Contradicted needs no Passage leaning to stating the sentence,** the same rule from the other side. Before, a Passage that says the opposite clear of its line gave Contradicted unless another stated the sentence clear of its own. Now another Passage at 0.8 or over on the first question (a first reading's line) sends the sentence to the AI model unread. Counted the same way, by each sentence's highest score on the first question:
+
+  | Run | Contradicted from the decision model | Of them with a Passage at 0.8 or over stating it | Their highest such score |
+  |---|---|---|---|
+  | Part A again, held-out Notes | 24 | 0 | 0.214 |
+  | Part B, two runs | 10 and 9 | not counted: the runs saved no scores | |
+  | The fresh reading | 15 | 0 | 0.157 |
+
+  So the rule takes none of the 39 Contradicted Marks whose scores were saved.
 - **By default it reads only the checks that go to the service of the User's own AI model for checks.** Before, a run was read by default when its own AI model ran on the decision model's service, while Settings and Privacy went by the User's default model: a Note with its own model there was read behind a switch that showed off. Now both go by the User's default model's service, and a run is read by default only when it goes to that same service. Every run of this gate had one AI model, the default, so none is touched.
 
 ### Part M

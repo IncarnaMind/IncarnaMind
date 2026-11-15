@@ -70,9 +70,9 @@ export interface PassageScores {
 /**
  * What the scores of a sentence's Passages come to: a verdict or a first reading resting on one
  * Passage, Unsupported when none of them is about it either way, or nothing. Nothing too where one
- * Passage states the sentence and another says the opposite, or only leans to it (an old Document
- * states it, a later amendment leans against it): the Documents disagree, which no single
- * Passage's score settles.
+ * Passage states the sentence and another says the opposite, each surely or only leaning (an old
+ * Document states it, a later amendment leans against it): the Documents disagree, which no
+ * single Passage's score settles.
  */
 export type Reading =
   | { verdict: "supported" | "contradicted"; passageId: string; final: boolean }
@@ -93,13 +93,11 @@ export function readingOf(scores: readonly PassageScores[], lines: DecisionLines
   const sureStates = verdict !== undefined && stating.states >= verdict.supported + verdict.band;
   const sureOpposes =
     verdict !== undefined && opposing.opposes >= verdict.contradicted + verdict.band;
-  if (sureStates && sureOpposes) return null;
-  if (sureOpposes) return { verdict: "contradicted", passageId: opposing.passageId, final: true };
-  if (sureStates && opposing.opposes < firstReading.contradicted)
-    return { verdict: "supported", passageId: stating.passageId, final: true };
-  const states = stating.states >= firstReading.supported;
-  const opposes = opposing.opposes >= firstReading.contradicted;
+  const states = sureStates || stating.states >= firstReading.supported;
+  const opposes = sureOpposes || opposing.opposes >= firstReading.contradicted;
   if (states && opposes) return null;
+  if (sureOpposes) return { verdict: "contradicted", passageId: opposing.passageId, final: true };
+  if (sureStates) return { verdict: "supported", passageId: stating.passageId, final: true };
   if (states) return { verdict: "supported", passageId: stating.passageId, final: false };
   if (opposes) return { verdict: "contradicted", passageId: opposing.passageId, final: false };
   const about = Math.max(stating.states, opposing.opposes);

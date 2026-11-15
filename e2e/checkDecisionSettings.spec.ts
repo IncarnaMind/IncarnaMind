@@ -1,11 +1,10 @@
-import { mkdir } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { join } from "node:path";
 import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
 import {
   acceptPlainTextKeys,
+  capture,
   checkCard,
   createDataFolder,
   dismissChatSetup,
@@ -25,11 +24,18 @@ import {
  * Set INCARNAMIND_SCREENSHOTS to a folder to also save screenshots.
  */
 
-const SCREENSHOTS = process.env.INCARNAMIND_SCREENSHOTS;
-async function shot(window: Page, name: string): Promise<void> {
-  if (!SCREENSHOTS) return;
-  await mkdir(SCREENSHOTS, { recursive: true });
-  await window.screenshot({ path: join(SCREENSHOTS, `${name}.png`) });
+/** A switch slides by a CSS transition, which the motion module's count of what moves leaves out. */
+async function picture(window: Page, name: string): Promise<void> {
+  await expect
+    .poll(() =>
+      window
+        .locator(".switch")
+        .evaluateAll((switches) =>
+          switches.reduce((moving, each) => moving + each.getAnimations().length, 0),
+        ),
+    )
+    .toBe(0);
+  await capture(window, name);
 }
 
 const DECIDER = { host: "openrouter", modelId: "perplexity/pplx-decider-v1.2" };
@@ -166,7 +172,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(row.getByTestId("check-decision-sends")).toHaveCount(0);
     await expect(toggle).toBeDisabled();
     await expect(toggle).not.toBeChecked();
-    await shot(window, `checks-row-no-key-${language}-900`);
+    await picture(window, `checks-row-no-key-${language}-900`);
     const addKey = row.getByTestId("check-decision-add-key");
     await expect(addKey).toHaveText(words.addKey);
     await pointAndClick(window, addKey);
@@ -184,14 +190,14 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(addKey).toHaveCount(0);
     expect(await chosen(window)).toBeNull();
     await holds(page, row);
-    await shot(window, `checks-row-on-by-default-${language}-900`);
+    await picture(window, `checks-row-on-by-default-${language}-900`);
 
     await pointAndClick(window, toggle);
     await expect(toggle).not.toBeChecked();
     await expect(row).toHaveAttribute("data-reads", "off");
     await expect(row.getByTestId("check-decision-sends")).toHaveText(words.sends);
     expect(await chosen(window)).toBe("off");
-    await shot(window, `checks-row-off-${language}-900`);
+    await picture(window, `checks-row-off-${language}-900`);
 
     // The keyboard turns it on as the pointer does.
     await toggle.focus();
@@ -204,7 +210,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(toggle).toBeDisabled();
     await expect(toggle).not.toBeChecked();
     await expect(row.getByTestId("check-decision-blocked")).toHaveText(words.localMode);
-    await shot(window, `checks-row-local-mode-${language}-900`);
+    await picture(window, `checks-row-local-mode-${language}-900`);
     await pointAndClick(window, settings.getByTestId("local-only"));
     await expect(toggle).toBeEnabled();
     await expect(toggle).toBeChecked();
@@ -228,7 +234,7 @@ test("off by default it waits for the User, and goes with its key", async () => 
   await pointAndClick(window, toggle);
   await expect(row).toHaveAttribute("data-reads", "chosen");
   expect(await chosen(window)).toEqual(DECIDER);
-  await shot(window, "checks-row-chosen-en-1440");
+  await picture(window, "checks-row-chosen-en-1440");
 
   await window.evaluate(async (id) => {
     const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
@@ -258,7 +264,7 @@ test("Privacy says it is on with the User's checks, and Turn off can be undone",
     await expect(use.getByTestId("data-flow-maker")).toHaveText(WORDS[language].maker);
     await expect(use.getByTestId("data-flow-revoke")).toHaveText(WORDS[language].turnOff);
     await use.scrollIntoViewIfNeeded();
-    await shot(window, `privacy-on-by-default-${language}-1440`);
+    await picture(window, `privacy-on-by-default-${language}-1440`);
   }
 
   await pointAndClick(window, use.getByTestId("data-flow-revoke"));
@@ -267,7 +273,7 @@ test("Privacy says it is on with the User's checks, and Turn off can be undone",
   expect(await chosen(window)).toBe("off");
   const undoLine = settings.getByTestId("consent-settings").getByTestId("undo-line-here");
   await expect(undoLine).toContainText(WORDS.en.turnedOff);
-  await shot(window, "privacy-turned-off-en-1440");
+  await picture(window, "privacy-turned-off-en-1440");
   await undoLine.getByTestId("undo-action").click();
   await expect(use.getByTestId("data-flow-by-default")).toHaveText(WORDS.en.unused);
   expect(await chosen(window)).toBeNull();
@@ -308,7 +314,7 @@ for (const language of ["en", "zh-CN"] as const) {
     expect(lineBox.x).toBeGreaterThanOrEqual(cardBox.x);
     expect(lineBox.x + lineBox.width).toBeLessThanOrEqual(cardBox.x + cardBox.width + 1);
     await expect(card.getByTestId("badge-check-mind")).toBeInViewport();
-    await shot(window, `check-faster-line-${language}-1440`);
+    await picture(window, `check-faster-line-${language}-1440`);
 
     // The keyboard reaches it, and it opens Settings at the switch: nothing is turned on.
     await action.focus();
@@ -319,7 +325,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(row.getByTestId("check-decision-switch")).not.toBeChecked();
     await expect(row.getByTestId("check-decision-sends")).toHaveText(words.sends);
     expect(await chosen(window)).toBeNull();
-    await shot(window, `check-faster-settings-${language}-1440`);
+    await picture(window, `check-faster-settings-${language}-1440`);
     await window.keyboard.press("Escape");
     await expect(row).toBeHidden();
 
