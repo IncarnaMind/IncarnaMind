@@ -3801,7 +3801,7 @@ export const zhCN = {
   "ai.jobs.checks": "核对句子",
   "ai.jobs.checks.line": "{model} 先读每个句子",
   "ai.jobs.checks.tip":
-    "{model} 快速给出每句的初步判断，少数有把握的直接给出结论，其余由你的 AI 模型核对。",
+    "{model} 快速给出每句的初步判断，有把握的直接给出结论，其余由你的 AI 模型核对。",
   "ai.jobs.checks.sends": "核对会把笔记内容，以及为它找到或它引用的文档段落发送给 {host}",
   "ai.jobs.checks.noKey": "需要 {host} 的密钥",
   "ai.jobs.checks.addKey": "添加密钥…",

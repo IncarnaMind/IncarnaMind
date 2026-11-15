@@ -25,9 +25,11 @@
  *   `replay-dry` is the same on the host on this computer, to try the run for nothing.
  *   INCARNAMIND_EVAL_SPEED_LIBRARY adds Documents to that Library, any of `mixed` (the mixed
  *   sample set), `checks` (the checks evaluation's Folder, for Notes labelled against it) and
- *   `repeats` (the English sets' Documents of eval/repeats), and
+ *   `repeats` (the English sets' Documents of eval/repeats) and `citations` (the citation
+ *   benchmark's own PDFs, eval/citations/documents), and
  *   INCARNAMIND_EVAL_SPEED_EMBEDDINGS=off searches by keyword alone, as the app does until the
- *   User turns embeddings on.
+ *   User turns embeddings on. A Note that names Documents (`scope`, their keys) is checked in
+ *   that Search scope, as a Note the User set to them.
  *
  * INCARNAMIND_EVAL_SPEED_ARMS (as `main,decision,decision,main`, the default) names each run's arm
  * in turn, INCARNAMIND_EVAL_SPEED_SENTENCES how many sentences the Note holds (33 by default, the
@@ -52,6 +54,7 @@ import {
 import { decisionLinesFor, readingOf } from "../../src/core/answers/checks/decisionLines";
 import { BUILT_IN_RERANKING_MODEL } from "../../src/core/reranking/model";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
+import { setMindScope } from "../../src/shared/mindScope";
 import { findQuote } from "../../src/shared/quoteMatch";
 import { checkGenerate, checkReply, isCheckRun, type Plan } from "../../tests/helpers/checks";
 import { queryDatabase } from "../../tests/helpers/core";
@@ -59,6 +62,7 @@ import { connectToMind } from "../../tests/helpers/mindClient";
 import { heading, note, readMind, writeMind } from "../../tests/helpers/minds";
 import { scriptedModel } from "../../tests/helpers/models";
 import { readChecksSet } from "../checks/lib/set";
+import { CITATION_DOCUMENTS, type CitationDocument } from "../citations/checkSet";
 import { reports } from "../everyday/asking";
 import { readConfig } from "../lib/config";
 import { createWorkerEmbedder } from "../lib/embedder";
@@ -103,9 +107,11 @@ async function startHost(answerMs: number, sure: ReadonlySet<string> = new Set()
   const read = new Map<string, HostPassage[]>();
   const scores: HostScore[] = [];
   let asked = 0;
+  let characters = 0;
   const server = createServer(async (request, response) => {
     let text = "";
     for await (const chunk of request) text += chunk;
+    characters += text.length;
     const send = (payload: unknown) => {
       response.writeHead(200, { "content-type": "application/json" });
       response.end(JSON.stringify(payload));
@@ -133,6 +139,7 @@ async function startHost(answerMs: number, sure: ReadonlySet<string> = new Set()
   return {
     url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
     asked: () => asked,
+    characters: () => characters,
     inputTokens: () => 0,
     scores: () => scores,
     passagesRead: (sentence: string) => read.get(sentence) ?? null,
@@ -184,6 +191,7 @@ const OPENROUTER = "https://openrouter.ai";
  */
 async function startRelay(origin: string) {
   let asked = 0;
+  let characters = 0;
   let inputTokens = 0;
   const read = new Map<string, HostPassage[]>();
   const scores: HostScore[] = [];
@@ -210,6 +218,7 @@ async function startRelay(origin: string) {
     const text = await reply.text();
     if (asks) {
       asked++;
+      characters += Buffer.concat(chunks).toString("utf8").length;
       if (reply.ok) {
         const { usage, answers } = JSON.parse(text) as {
           usage?: { input_tokens?: number };
@@ -237,6 +246,7 @@ async function startRelay(origin: string) {
   return {
     url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
     asked: () => asked,
+    characters: () => characters,
     inputTokens: () => inputTokens,
     scores: () => scores,
     passagesRead: (sentence: string) => read.get(sentence) ?? null,
@@ -529,6 +539,8 @@ interface LabelledSentence {
 interface LabelledNote {
   id: string;
   language: "en" | "zh";
+  /** The keys of the Documents its check searches, as the Note's own Search scope. Left out: every Document. */
+  scope?: string[];
   blocks: { heading: string | null; sentences: LabelledSentence[] }[];
 }
 
@@ -581,9 +593,29 @@ async function writeLabelled(library: Library, labelled: LabelledNote) {
       },
     ]),
   );
+  if (labelled.scope)
+    setMindScope(client.doc, {
+      folderIds: [],
+      tagIds: [],
+      documentIds: labelled.scope.map((key) => {
+        const document = library.documents.get(key);
+        if (!document) throw new Error(`${labelled.id}: the Library holds no Document "${key}".`);
+        return document.id;
+      }),
+    });
   await client.settled();
   return { mindId, client };
 }
+
+/** The citation benchmark's own PDFs, by their keys there: those no other set holds. */
+const ownDocuments = (root: string): EvalDocument[] =>
+  (
+    JSON.parse(readFileSync(join(root, CITATION_DOCUMENTS), "utf8")) as {
+      documents: CitationDocument[];
+    }
+  ).documents
+    .filter((each) => each.path.startsWith("eval/citations/documents/"))
+    .map(({ key, path }) => ({ key, path: join(root, path) }));
 
 const AI_MODEL = "anthropic/claude-haiku-5.5";
 
@@ -628,6 +660,7 @@ test.skipIf(mode !== "replay" && mode !== "replay-dry" && mode !== "replay-main"
               .documents
           : []),
         ...checks.filter((each) => !each.address).map(({ name, path }) => ({ key: name, path })),
+        ...(added.includes("citations") ? ownDocuments(ROOT) : []),
       ],
       webPages: checks.flatMap(({ name, path, address }) =>
         address ? [{ key: name, address, html: readFileSync(path, "utf8") }] : [],
@@ -737,6 +770,8 @@ test.skipIf(mode !== "replay" && mode !== "replay-dry" && mode !== "replay-main"
                   }
                 : null,
               quote: evidence?.quote ?? null,
+              // Whether the card shows the quote: false where the Mark rests on its Passage.
+              quoteShown: byDecision ? part?.restsOnPassage !== true : null,
               document: evidence?.documentName ?? null,
             };
           });
@@ -780,7 +815,7 @@ test.skipIf(mode !== "replay" && mode !== "replay-dry" && mode !== "replay-main"
       "",
       alone
         ? `The AI model (${AI_MODEL}) cost $${usd.toFixed(3)} by the app's count.`
-        : `The decision host answered ${host.asked()} requests, ${host.inputTokens()} input tokens, $${usd.toFixed(4)} at its listed price.`,
+        : `The decision host answered ${host.asked()} requests of ${host.characters()} characters, ${host.inputTokens()} input tokens, $${usd.toFixed(4)} at its listed price.`,
       unanswered > 0
         ? `**Void: ${unanswered} requests were refused, failed or timed out.**`
         : "Every request was answered.",

@@ -36,7 +36,7 @@ const WORDS = {
   en: {
     label: "Checking sentences",
     line: "Decider v1.2 reads each sentence first",
-    tip: "Decider v1.2 gives each sentence a quick first reading and marks the few it is sure of; your AI model checks the rest.",
+    tip: "Decider v1.2 gives each sentence a quick first reading and marks the ones it is sure of; your AI model checks the rest.",
     sends: "Checks send the note’s text and the passages found for it or cited in it to OpenRouter",
     noKey: "Needs a key for OpenRouter",
     addKey: "Add a key…",
@@ -49,7 +49,7 @@ const WORDS = {
   "zh-CN": {
     label: "核对句子",
     line: "Decider v1.2 先读每个句子",
-    tip: "Decider v1.2 快速给出每句的初步判断，少数有把握的直接给出结论，其余由你的 AI 模型核对。",
+    tip: "Decider v1.2 快速给出每句的初步判断，有把握的直接给出结论，其余由你的 AI 模型核对。",
     sends: "核对会把笔记内容，以及为它找到或它引用的文档段落发送给 OpenRouter",
     noKey: "需要 OpenRouter 的密钥",
     addKey: "添加密钥…",

@@ -3997,7 +3997,7 @@ export const en = {
   "ai.jobs.checks": "Checking sentences",
   "ai.jobs.checks.line": "{model} reads each sentence first",
   "ai.jobs.checks.tip":
-    "{model} gives each sentence a quick first reading and marks the few it is sure of; your AI model checks the rest.",
+    "{model} gives each sentence a quick first reading and marks the ones it is sure of; your AI model checks the rest.",
   "ai.jobs.checks.sends":
     "Checks send the note’s text and the passages found for it or cited in it to {host}",
   "ai.jobs.checks.noKey": "Needs a key for {host}",
