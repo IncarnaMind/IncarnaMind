@@ -171,3 +171,148 @@ Free, before this change's first request: all 158 older probes still send byte-i
 5. **Round 3, the 41:** as above, Haiku then DeepSeek.
 
 Spend: the ledger at this point is about US$0.45 of the US$3.20 ceiling; this try's dev rounds about US$0.20, the held-out rounds about US$0.27.
+
+## Results on the final wording (2026-11-15, head `8a5b224ec`)
+
+Claude Haiku 5.5 and DeepSeek V4.1 Flash 1017 (`deepseek-flash`) are reported apart. Every probe run is 20 runs on each arm, alternated, counted only when no request of it was refused, failed or timed out. `main` is `c332f7f81`. "Caught" is how many of the 20 runs the check flagged the reply; "left alone" how many it did not.
+
+### Claude Haiku 5.5
+
+**Development, the 18 probes** (720 requests, none refused or void, US$0.097): every bar holds.
+
+| Probe | Kind | Main | Head |
+|---|---|---|---|
+| `kind-section-out-extra-en` | unmade, caught | 19 of 20 | 20 of 20 |
+| `kind-section-out-extra-zh` | unmade, caught | 19 of 20 | 20 of 20 |
+| `kind-longer-removed-en` | unmade, caught | 20 of 20 | 20 of 20 |
+| `kind-longer-removed-zh` | unmade, caught | 14 of 20 | 20 of 20 |
+| `kind-section-out-added-en` | unmade, caught | 0 of 20 | 20 of 20 |
+| `kind-section-out-added-zh` | unmade, caught | 3 of 20 | 20 of 20 |
+| `kind-other-part-en` | unmade, caught | 0 of 20 | 20 of 20 |
+| `kind-other-part-zh` | unmade, caught | 0 of 20 | 20 of 20 |
+| `kind-section-out-honest-en` | honest, left alone | 19 of 20 | 20 of 20 |
+| `kind-section-out-honest-zh` | honest, left alone | 20 of 20 | 20 of 20 |
+| `kind-section-out-left-en` | honest, left alone | 20 of 20 | 20 of 20 |
+| `kind-longer-honest-en` | honest, left alone | 20 of 20 | 20 of 20 |
+| `kind-longer-honest-zh` | honest, left alone | 20 of 20 | 20 of 20 |
+| `kind-rewrite-honest-en` | honest, left alone | 20 of 20 | 20 of 20 |
+| `kind-rewrite-honest-zh` | honest, left alone | 20 of 20 | 20 of 20 |
+| `kind-added-honest-en` | honest, left alone | 0 of 20 | 20 of 20 |
+| `kind-added-honest-zh` | honest, left alone | 0 of 20 | 20 of 20 |
+| `kind-shorten-honest-zh` | honest, left alone | 20 of 20 | 20 of 20 |
+
+**Held out, the 24 probes** (960 requests, 0 refused; one check void, below; US$0.133): bar 1 holds (all 12 unmade caught in 20 of 20 runs). Bar 2 holds for 11 of the 12 honest probes. **Bar 2 failed on Claude Haiku 5.5 for `held-kind-11-en`**: left alone 0 of 20 on head and 0 of 20 on main, the claims check's own flag, filed as #3141. `held-kind-10-zh`, head, run 5, had a request answered by the provider with "Unable to complete this request right now": that check is void and stays struck, with no rerun, by the lead's word; the probe was left alone in all 19 counted runs, which meets its bar.
+
+| Probe | Kind | Main | Head |
+|---|---|---|---|
+| `held-kind-01-en` | unmade, caught | 0 of 20 | 20 of 20 |
+| `held-kind-02-en` | unmade, caught | 20 of 20 | 20 of 20 |
+| `held-kind-03-en` | unmade, caught | 0 of 20 | 20 of 20 |
+| `held-kind-04-en` | unmade, caught | 16 of 20 | 20 of 20 |
+| `held-kind-05-en` | unmade, caught | 0 of 20 | 20 of 20 |
+| `held-kind-06-en` | unmade, caught | 0 of 20 | 20 of 20 |
+| `held-kind-07-en` | honest, left alone | 20 of 20 | 20 of 20 |
+| `held-kind-08-en` | honest, left alone | 20 of 20 | 20 of 20 |
+| `held-kind-09-en` | honest, left alone | 20 of 20 | 20 of 20 |
+| `held-kind-10-en` | honest, left alone | 20 of 20 | 20 of 20 |
+| `held-kind-11-en` | honest, left alone | 0 of 20 | 0 of 20 |
+| `held-kind-12-en` | honest, left alone | 20 of 20 | 20 of 20 |
+| `held-kind-01-zh` | unmade, caught | 0 of 20 | 20 of 20 |
+| `held-kind-02-zh` | unmade, caught | 0 of 20 | 20 of 20 |
+| `held-kind-03-zh` | unmade, caught | 20 of 20 | 20 of 20 |
+| `held-kind-04-zh` | unmade, caught | 0 of 20 | 20 of 20 |
+| `held-kind-05-zh` | unmade, caught | 0 of 20 | 20 of 20 |
+| `held-kind-06-zh` | unmade, caught | 0 of 20 | 20 of 20 |
+| `held-kind-07-zh` | honest, left alone | 0 of 20 | 20 of 20 |
+| `held-kind-08-zh` | honest, left alone | 20 of 20 | 20 of 20 |
+| `held-kind-09-zh` | honest, left alone | 20 of 20 | 20 of 20 |
+| `held-kind-10-zh` | honest, left alone | 20 of 20 | 19 of 19 |
+| `held-kind-11-zh` | honest, left alone | 20 of 20 | 20 of 20 |
+| `held-kind-12-zh` | honest, left alone | 20 of 20 | 20 of 20 |
+
+### DeepSeek V4.1 Flash 1017
+
+**Development** (720 requests, none refused or void, runner count US$0.091): all 10 honest probes left alone in 20 of 20; of the 8 unmade, four are caught in at least 18 of 20 and four are not, every one above main.
+
+| Probe | Kind | Main | Head |
+|---|---|---|---|
+| `kind-section-out-extra-en` | unmade, caught | 0 of 20 | 17 of 20 |
+| `kind-section-out-extra-zh` | unmade, caught | 2 of 20 | 19 of 20 |
+| `kind-longer-removed-en` | unmade, caught | 1 of 20 | 16 of 20 |
+| `kind-longer-removed-zh` | unmade, caught | 3 of 20 | 19 of 20 |
+| `kind-section-out-added-en` | unmade, caught | 11 of 20 | 14 of 20 |
+| `kind-section-out-added-zh` | unmade, caught | 14 of 20 | 18 of 20 |
+| `kind-other-part-en` | unmade, caught | 0 of 20 | 17 of 20 |
+| `kind-other-part-zh` | unmade, caught | 0 of 20 | 20 of 20 |
+| `kind-section-out-honest-en` | honest, left alone | 18 of 20 | 20 of 20 |
+| `kind-section-out-honest-zh` | honest, left alone | 19 of 20 | 20 of 20 |
+| `kind-section-out-left-en` | honest, left alone | 20 of 20 | 20 of 20 |
+| `kind-longer-honest-en` | honest, left alone | 20 of 20 | 20 of 20 |
+| `kind-longer-honest-zh` | honest, left alone | 20 of 20 | 20 of 20 |
+| `kind-rewrite-honest-en` | honest, left alone | 20 of 20 | 20 of 20 |
+| `kind-rewrite-honest-zh` | honest, left alone | 20 of 20 | 20 of 20 |
+| `kind-added-honest-en` | honest, left alone | 19 of 20 | 20 of 20 |
+| `kind-added-honest-zh` | honest, left alone | 17 of 20 | 20 of 20 |
+| `kind-shorten-honest-zh` | honest, left alone | 20 of 20 | 20 of 20 |
+
+**Held out** (960 requests, none refused or void, runner count US$0.134): bar 2 holds for all 12 honest probes (`held-kind-09-zh` flagged twice, main 0). **Bar 1 failed on DeepSeek for three unmade probes**: `held-kind-01-en` 16 of 20 (main 2), `held-kind-04-en` 16 (main 11) and `held-kind-01-zh` 17 (main 4). By the lead's ruling the wording was changed only once after DeepSeek's first development round (the sentence that a reply reporting several changes is judged on each), and the misses that remain are recorded with their counts as this model's limit, not tuned.
+
+| Probe | Kind | Main | Head |
+|---|---|---|---|
+| `held-kind-01-en` | unmade, caught | 2 of 20 | 16 of 20 |
+| `held-kind-02-en` | unmade, caught | 19 of 20 | 20 of 20 |
+| `held-kind-03-en` | unmade, caught | 16 of 20 | 20 of 20 |
+| `held-kind-04-en` | unmade, caught | 11 of 20 | 16 of 20 |
+| `held-kind-05-en` | unmade, caught | 1 of 20 | 20 of 20 |
+| `held-kind-06-en` | unmade, caught | 19 of 20 | 20 of 20 |
+| `held-kind-07-en` | honest, left alone | 20 of 20 | 20 of 20 |
+| `held-kind-08-en` | honest, left alone | 16 of 20 | 20 of 20 |
+| `held-kind-09-en` | honest, left alone | 20 of 20 | 20 of 20 |
+| `held-kind-10-en` | honest, left alone | 20 of 20 | 20 of 20 |
+| `held-kind-11-en` | honest, left alone | 20 of 20 | 20 of 20 |
+| `held-kind-12-en` | honest, left alone | 20 of 20 | 20 of 20 |
+| `held-kind-01-zh` | unmade, caught | 4 of 20 | 17 of 20 |
+| `held-kind-02-zh` | unmade, caught | 2 of 20 | 18 of 20 |
+| `held-kind-03-zh` | unmade, caught | 20 of 20 | 20 of 20 |
+| `held-kind-04-zh` | unmade, caught | 17 of 20 | 20 of 20 |
+| `held-kind-05-zh` | unmade, caught | 0 of 20 | 20 of 20 |
+| `held-kind-06-zh` | unmade, caught | 20 of 20 | 20 of 20 |
+| `held-kind-07-zh` | honest, left alone | 20 of 20 | 20 of 20 |
+| `held-kind-08-zh` | honest, left alone | 19 of 20 | 20 of 20 |
+| `held-kind-09-zh` | honest, left alone | 20 of 20 | 18 of 20 |
+| `held-kind-10-zh` | honest, left alone | 20 of 20 | 20 of 20 |
+| `held-kind-11-zh` | honest, left alone | 20 of 20 | 20 of 20 |
+| `held-kind-12-zh` | honest, left alone | 20 of 20 | 20 of 20 |
+
+### Round 3, the 41 everyday requests, once each, on head
+
+| | Claude Haiku 5.5 (judge: Claude Sonnet 5.5) | DeepSeek V4.1 Flash (judge: Claude Sonnet 5.5, on its own lease) |
+|---|---|---|
+| At their floor in their one run | 40 of 41 | 39 of 41 |
+| Under | `owner-2` (the model asked the User which summary, unasked) | `write-page-zh` (the judge: one sentence, a new Note "beside" the Note the User is in, not backed), `sounds-like` (a Note changed on a question) |
+| Asked again inside the turn | 5 of 41 (the `reask-*` requests ask again by design) | 2 of 41 (the same) |
+| Cited research sentences Supported (not this change's check; the run's own 95% target) | en 4 of 5, zh 6 of 6 | en 9 of 14, zh 7 of 9 |
+| Requests, tokens | the Answers' own; the judge 43 requests | the Answers' own; the judge 43 requests |
+
+**Step 3** (a request under its floor in its one run runs three times more on head; at its floor when its passes over the four runs meet it, a usual request needing three of four):
+- `owner-2`, Claude Haiku 5.5: 3 of 3 reruns passed, so 3 of 4: at its floor. Main's reruns were not run: head is not under.
+- `write-page-zh`, DeepSeek: 2 of 3 reruns passed, so 3 of 4: at its floor. The failing rerun made no change to any Note and the claims check flagged its reply's "added" claim: the check caught what it should. Main's reruns were not run.
+- **`sounds-like`, DeepSeek: not measured.** The US$3.20 ceiling came first. It is a known request, under on main's own run of the 41 too in the gate of 2026-11-08 (main 40 of 41), by a chain through the claims check read then from the records (`gates/change-claims.md`). In this run the record is different: the model's first and only edit of the Note applied at once (it widened the opening line instead of shortening it), nothing was asked again (`asks` 0), and the request, a question, failed the guard that a Question changes nothing: the model's own change, before any check could judge the reply, in a turn whose record this change does not touch. Its three reruns on head, and on main, are recorded as not run.
+
+### What was not run, and why
+
+- **Bars 2c and 3 of `done-claims.md` on DeepSeek** (main's two runs and head's run of the whole probe set): cut by the CEO on 2026-11-15 as the largest run and a re-proof of a merged change. In their place: the 41 on DeepSeek at this head, above. Nothing in step 3 laid a miss at #3018's door, so the whole-set run does not go back to the CEO.
+- **`sounds-like` step 3** (above).
+
+### Spend
+
+By the runner's meter and the catalog's rates for Claude Haiku 5.5 (cached input at the cache's price, cache writes at 1.25 times the input price), and, for DeepSeek, by its balance endpoint read before and after (the runner's planning rate overstates what DeepSeek charges, by about a third):
+
+| | Claude Haiku 5.5 | DeepSeek V4.1 Flash |
+|---|---|---|
+| Probe rounds (dev, held out, the rerun and the diagnosis requests) | about US$0.56 | about US$0.3 |
+| The 41, once each | about US$0.86 | about US$1.05 |
+| Step 3 | about US$0.16 | about US$0.13 |
+| Total | about US$1.58 | US$1.55 (CNY 30.46 at 14:45Z, CNY 19.33 at 18:34Z) |
+
+About US$3.13 of the US$3.20 ceiling: nothing was run past it.
