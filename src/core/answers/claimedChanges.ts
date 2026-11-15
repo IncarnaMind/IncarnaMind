@@ -596,7 +596,7 @@ function recordOf(
           created: change.created,
           proposals: change.proposals,
           // An add leaves `changed` unset, and carries what it wrote as `paragraphs`: said in an edit's terms, it isn't a change of nothing (#2969).
-          changed: change.changed ?? change.paragraphs ?? 0,
+          changed: change.changed ?? (call.tool === "add_to_mind" ? (change.paragraphs ?? 0) : 0),
           paragraphs: change.paragraphs ?? 0,
           tables: change.tables ?? 0,
           charts: change.charts ?? 0,

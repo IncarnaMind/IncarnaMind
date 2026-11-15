@@ -278,6 +278,16 @@ describe("The record the check is sent, by name (#2969)", () => {
     expect(sent).toContain('\\"paragraphs\\": 2');
   });
 
+  // protects=only an add is said in an edit's terms: an edit that leaves `changed` unset (a revision of the assistant's own text) still reaches the check as changed 0, as the probes measured; fails_when=every call with paragraphs gets them as changed; no_claim=how an edit is counted.
+  test("an edit's record is not changed by an add's rule", async () => {
+    const sent = await recordSent([
+      mindCall("edit_mind", "q3-a", { paragraphs: 4, revised: true }),
+    ]);
+
+    expect(sent).toContain('\\"changed\\": 0');
+    expect(sent).toContain('\\"paragraphs\\": 4');
+  });
+
   // protects=a path in a setting's old or new value, on any system, reaches the check as the folder's last part; fails_when=the path itself is sent, with the User's folders above it; no_claim=every setting.
   test.each([
     { from: "/Users/ana/Documents/IncarnaMind", to: "/Volumes/Work/Reports", last: "Reports" },
