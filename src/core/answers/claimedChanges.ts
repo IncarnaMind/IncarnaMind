@@ -541,7 +541,7 @@ function inputOf(input: AnswerToolCall["input"]) {
   const formatName = EXPORT_FORMATS.find((each) => each === format);
   const styleName = typeof style === "string" ? lastPart(style) : "";
   return {
-    ...(command !== undefined && { command }),
+    ...(typeof command === "string" && { command }),
     ...(settingName !== undefined && { setting: settingName }),
     ...(formatName !== undefined && { format: formatName }),
     ...(styleName !== "" && { style: styleName }),

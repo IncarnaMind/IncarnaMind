@@ -289,11 +289,12 @@ describe("The record the check is sent, by name (#2969)", () => {
   });
 
   // protects=a format or setting the app has no name for, and a style written as a path, reach the check as nothing or as the style's last part, never a path; fails_when=the model's own value goes whole, with the User's folders in it; no_claim=which formats and settings exist.
-  test("a command's format, setting and style are names, not paths the model wrote", async () => {
+  test("a command, format, setting and style are names, not paths the model wrote", async () => {
     const sent = await recordSent([
       commandCall(
         "mind.export",
         {
+          command: ["/Users/ana/Documents/Acme.docx"],
           format: "/Users/ana/Documents/Acme.docx",
           setting: "C:\\Users\\Ana\\Acme",
           style: "/Users/ana/Styles/apa.csl",

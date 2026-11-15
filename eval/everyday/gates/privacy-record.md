@@ -142,8 +142,8 @@ Every probe read the same on all three arms in all three runs: no probe moved on
 
 ### What the rows show (2026-11-15)
 
-The runner that made the three runs above counted a check whose verdict couldn't be read, but whose requests were answered, as a counted "not flagged", and its rows didn't keep that mark. So the rows show that no request was refused or timed out (`refused` is empty on every row of every run) and not that no verdict was unreadable.
+The runner that made the three runs above counted a check whose verdict couldn't be read, but whose requests were answered, as a counted "not flagged", and its rows didn't keep that mark. So the rows show that no request was refused or timed out (`refused` is empty on every row of every run), and nothing about whether a verdict was unreadable.
 
-What that can and can't hide: an unreadable verdict never makes a reply flagged, so no flag in the tables is false. It can leave an honest reply "left alone" that would have been flagged. The evidence against any: the 21 unmade checks of each arm, on both models, were all caught, so none of those 63 checks a model answered was an unreadable verdict, and the 72 honest ones ran through the same request. The rows can't prove it for them.
+That leaves two things the rows can't separate, and no conclusion here rests on either: a claims verdict that couldn't be read reads as "nothing flagged" unless the second question (whether the request was done) still answered that it wasn't, which reads as flagged; so a flag or a missed flag in the tables might be such a partial verdict. The catches of the unmade claims (21 of 21 on every arm) are what was observed, not proof that every verdict behind them was read.
 
-The runner now keeps the mark in the row (`failed`) and counts a failed check only when it still found something. Nothing was run again for this: the numbers above are as they were.
+The runner now keeps the mark in the row (`failed`) and counts a failed check only when it still found something. Nothing was run again for this: the numbers above are as they were, and the lead and the CEO have the choice of a rerun on the new runner.
