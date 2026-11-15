@@ -1035,6 +1035,52 @@ describe("Changes it can't revise", { timeout: 30_000 }, () => {
   });
 });
 
+describe("The app's own marks, counted from the record (#2970)", { timeout: 30_000 }, () => {
+  const ADDED = "Added a risks section to “Q3 review”.";
+  const MARKS = "Two sentences are marked in the Note as not supported by their citations.";
+  const RENAMED = "I also renamed the page to “Q3 summary”.";
+  const write = {
+    calls: [{ tool: "add_to_mind", input: { content: "## Risks\n\nThe supplier is late." } }],
+  };
+
+  /** An Answer whose check files the marks sentence as the app's marks, and `also` as a Note's change. */
+  async function answered(writes: boolean, reply: string, also: string | null = null) {
+    const model = scriptedModel(
+      (call): ScriptedReply => (writes && !called(call, "add_to_mind") ? write : { text: reply }),
+      {
+        generate: (call) =>
+          claimCheckReply(call, [
+            { sentence: MARKS, kind: "added", about: "check_marks" },
+            ...(also ? [{ sentence: also, kind: "changed" as const }] : []),
+          ]),
+      },
+    );
+    const { core, mind } = await setUp(model);
+    return askAssistant(core, { text: "add risks", mindId: mind.id });
+  }
+
+  // protects=a sentence about marks, after a write in this Answer, never counts, whatever the model says of its backing, in English; fails_when=the line shows under an honest reply about the app's own marks; no_claim=how a real model files it (the gate's runs).
+  test("after a write, a sentence about the marks keeps no line", async () => {
+    const answer = await answered(true, `${ADDED} ${MARKS}`);
+
+    expect(answer.steps?.unbackedClaims).toBeUndefined();
+  });
+
+  // protects=with nothing written, a sentence saying text was marked counts as a claim about a Note, so the line shows; fails_when=a mark said with no write keeps no line; no_claim=how a real model files it.
+  test("with nothing written, a sentence about marks keeps the line", async () => {
+    const answer = await answered(false, MARKS);
+
+    expect(answer.steps?.unbackedClaims).toEqual(["added"]);
+  });
+
+  // protects=beside a sentence about marks after a write, another unbacked claim in the same reply still keeps its line; fails_when=the marks value lets the reply's other claim go; no_claim=none beyond protects.
+  test("after a write, another unbacked claim beside the marks keeps its line", async () => {
+    const answer = await answered(true, `${ADDED} ${MARKS} ${RENAMED}`, RENAMED);
+
+    expect(answer.steps?.unbackedClaims).toEqual(["changed"]);
+  });
+});
+
 describe("A reply that claims a change no call made", { timeout: 30_000 }, () => {
   const CLAIM = "I've added a risks section to “Q3 review”.";
   const ASKED_AGAIN = "but no Tool did that";

@@ -1132,8 +1132,8 @@ describe("What the judge says the sentence is about (#2194)", () => {
   const english = "I've sorted out what the Volunteer Handbook says.";
   const chinese = "我整理了手册的要点。";
 
-  // protects=the four values the judge uses for what a claim is not about each drop it, in English and Chinese; fails_when=a claim it calls the reply's, a Document's, an offer or a negation is flagged; no_claim=what a real judge answers (the pull request's runs).
-  test.each(["reply", "document", "offer_or_question", "negation"] as const)(
+  // protects=the five values the judge uses for what a claim is not about each drop it, in English and Chinese; fails_when=a claim it calls the reply's, a Document's, an offer, a negation or someone else's change is flagged; no_claim=what a real judge answers (the pull request's runs).
+  test.each(["reply", "document", "offer_or_question", "negation", "someone_else"] as const)(
     "about %s finds nothing",
     async (about) => {
       for (const reply of [english, chinese]) {
@@ -1172,6 +1172,32 @@ describe("What the judge says the sentence is about (#2194)", () => {
       }
     },
   );
+});
+
+describe("The app's own marks: the record decides whether they count (#2970)", () => {
+  const marks = [
+    "Two sentences are marked in the Note as not supported by their citations.",
+    "笔记里有两句话被标出：引用不支持它们。",
+  ];
+
+  // protects=a sentence the judge files as the app's marks never counts after this Answer wrote in a Note, and counts as a Note's claim when nothing was written, a failed write included, in English and Chinese; fails_when=the condition is left to the model, or a failed write lets a mark go; no_claim=where a real judge files it (the gate's runs).
+  test.each([
+    ["an applied write", [mindCall("add_to_mind", {})], []],
+    ["a write that failed", [mindCall("add_to_mind", null)], ["added"]],
+    ["no call", [], ["added"]],
+  ])("after %s", async (_case, calls, flagged) => {
+    for (const reply of marks) {
+      const result = await check(
+        judge({
+          claims: [{ sentence: reply, kind: "added", about: "check_marks", backed: false }],
+        }),
+        reply,
+        calls,
+      );
+      expect(result.claims).toEqual(flagged);
+      expect(result.failed).toBeUndefined();
+    }
+  });
 });
 
 describe("A claim of something done in the app (#2407)", () => {
