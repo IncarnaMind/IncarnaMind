@@ -63,6 +63,79 @@ const KEEP_ARTIFACTS = process.env.INCARNAMIND_KEEP_ARTIFACTS === "1";
 const openApps = new Map<ElectronApplication, string>();
 // Playwright’s Windows handle is a shell; cache the main PID before it can stop answering (#2022).
 const mainProcessIds = new WeakMap<ElectronApplication, number>();
+/** The apps whose close the harness or a test asked for: their process ending is no surprise. */
+const closeAsked = new WeakSet<ElectronApplication>();
+
+interface EarlyExit {
+  code: number | null;
+  signal: NodeJS.Signals | null;
+  /** Seconds from the launch to the process ending. */
+  seconds: number;
+}
+/** By data folder: how its last app's process ended, when nothing had asked it to close. */
+const endedEarly = new Map<string, EarlyExit>();
+/** By data folder: its last app, whether its connection has closed, and when its process ends. */
+const watched = new Map<
+  string,
+  { app: ElectronApplication; connectionClosed: boolean; exited: Promise<void> }
+>();
+
+/**
+ * Keeps how the app's process ends, which is gone once it has: a test whose app dies under it
+ * fails with Playwright's "Target page, context or browser has been closed" and nothing else (#3000).
+ */
+function watchExit(app: ElectronApplication, dataDir: string): void {
+  const launchedAt = Date.now();
+  endedEarly.delete(dataDir);
+  const close = app.close.bind(app);
+  app.close = () => {
+    closeAsked.add(app);
+    return close();
+  };
+  const { promise: exited, resolve } = Promise.withResolvers<void>();
+  const watching = { app, connectionClosed: false, exited };
+  watched.set(dataDir, watching);
+  app.once("close", () => {
+    watching.connectionClosed = true;
+  });
+  app.process().once("exit", (code, signal) => {
+    if (!closeAsked.has(app)) {
+      endedEarly.set(dataDir, { code, signal, seconds: (Date.now() - launchedAt) / 1000 });
+    }
+    resolve();
+  });
+}
+
+/**
+ * A page's connection closes as its process dies, a moment before the process's exit is heard, so a
+ * test that failed on it reaches its teardown first: wait for the exit of an app that went away
+ * without being asked to close.
+ */
+async function settleEarlyExit(dataDir: string): Promise<void> {
+  const last = watched.get(dataDir);
+  if (!last?.connectionClosed || closeAsked.has(last.app)) return;
+  let timer: NodeJS.Timeout | undefined;
+  const gone = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, 3_000);
+  });
+  try {
+    await Promise.race([last.exited, gone]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * How the last app launched on `dataDir` ended, when its process ended before its test closed it:
+ * the signal or exit code, and how long after the launch. Null for an app still running or closed
+ * by the test.
+ */
+export function describeEarlyExit(dataDir: string): string | null {
+  const ended = endedEarly.get(dataDir);
+  if (!ended) return null;
+  const how = ended.signal ? `signal ${ended.signal}` : `exit code ${ended.code}`;
+  return `The app's process ended ${ended.seconds.toFixed(1)} s after it launched, before the test closed it: ${how}.`;
+}
 
 export interface RunningApp {
   app: ElectronApplication;
@@ -401,6 +474,7 @@ export async function launchApp(
   });
   if (KEEP_ARTIFACTS || trace) await keepOnClose(app, dataDir);
   openApps.set(app, dataDir);
+  watchExit(app, dataDir);
   app.on("close", () => {
     openApps.delete(app);
     mainProcessIds.delete(app);
@@ -758,6 +832,7 @@ export async function forceQuit(app: ElectronApplication): Promise<void> {
   const pid = mainProcessIds.get(app);
   if (!openApps.has(app) || pid === undefined)
     throw new Error("The app was not launched by this test or has already closed.");
+  closeAsked.add(app);
   const closed = new Promise<void>((resolve) => app.once("close", () => resolve()));
   process.kill(pid, "SIGKILL");
   await closed;
@@ -3719,10 +3794,18 @@ async function closeOrKill(app: ElectronApplication): Promise<void> {
  * the test failed, a screenshot of that app's window as the test left it is
  * kept first, as app-window.png with the test's results, which CI uploads
  * (Playwright's own screenshots and traces leave an Electron app's window out).
- * A test whose app logged an uncaught main-process error fails here.
+ * A test whose app logged an uncaught main-process error fails here. A failed test whose app's
+ * process ended before the test closed it says how (`describeEarlyExit`).
  */
 export async function removeDataFolder(dataDir: string): Promise<void> {
   const info = test.info();
+  if (info.status !== info.expectedStatus) await settleEarlyExit(dataDir);
+  const ended = describeEarlyExit(dataDir);
+  if (ended && info.status !== info.expectedStatus) {
+    info.annotations.push({ type: "app-ended", description: ended });
+    await info.attach("app-ended", { body: ended, contentType: "text/plain" });
+    console.error(`${info.title}\n${ended}`);
+  }
   for (const [app, folder] of [...openApps]) {
     if (folder !== dataDir) continue;
     const window = app.windows()[0];
