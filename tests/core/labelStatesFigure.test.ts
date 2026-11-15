@@ -2566,6 +2566,77 @@ describe("A table's unit said in other ways is read (#2997)", { timeout: 120_000
   });
 });
 
+const PLANTS_EN = "Plant\tOutput\nA\t54\nB\t31";
+const markdownFile = (text: string): File => ({ name: "Output.md", text: `${text}\n` });
+const inKilotonnes = (document: string | File): [string | File, string, string, Wanted][] => [
+  [document, "B\t31", "Plant B's output was 31 thousand tonnes.", TICK],
+  [document, "B\t31", "Plant B's output was 31 million tonnes.", caught("31", "31 million tonnes")],
+];
+const inWanTonnes = (document: string | File): [string | File, string, string, Wanted][] => [
+  [document, "二厂\t31", "二厂产量为31万吨。", TICK],
+  [document, "二厂\t31", "二厂产量为31亿吨。", caught("31", "31亿吨")],
+];
+
+describe("A Markdown heading's section number is no value of its own (#2997)", {
+  timeout: 120_000,
+}, () => {
+  // protects=a Markdown heading that begins with its section number ("# 3. Output (kt)", "## 3. Output (kt)", "# 3 Output (kt)", "# 3.1 Output (kt)", "# 3. 产量（万吨）", "# 3 产量（万吨）"), directly over its rows or over the section its table stands in, and the same line in a text file, states its unit as the line without its "#" does: "Plant B's output was 31 thousand tonnes." keeps its ✓ and reads Supported, and "31 million tonnes" and 31亿吨 are caught in both checks; fails_when="Plant B's output was 31 thousand tonnes." reads Unsupported in Check against Documents under "# 3. Output (kt)", or "31 million tonnes" keeps the Answer's ✓ there; no_claim=a heading that gives a value of its own, read as on main (the next test).
+  test("a numbered Markdown heading states its unit for the rows under it", async () => {
+    await readsAsWanted([
+      ...inKilotonnes(markdownFile(`# 3. Output (kt)\n${PLANTS_EN}`)),
+      ...inKilotonnes(markdownFile(`## 3. Output (kt)\n${PLANTS_EN}`)),
+      ...inKilotonnes(markdownFile(`# 3 Output (kt)\n${PLANTS_EN}`)),
+      ...inKilotonnes(markdownFile(`# 3.1 Output (kt)\n${PLANTS_EN}`)),
+      ...inKilotonnes(
+        markdownFile(
+          `# 3. Output (kt)\n\nThis section gives each plant's output.\n\nTable 3. Output by plant\n${PLANTS_EN}`,
+        ),
+      ),
+      ...inKilotonnes(`# 3. Output (kt)\n${PLANTS_EN}`),
+      ...inWanTonnes(markdownFile(`# 3. 产量（万吨）\n${PLANTS}`)),
+      ...inWanTonnes(markdownFile(`# 3 产量（万吨）\n${PLANTS}`)),
+    ]);
+  });
+
+  // protects=as on main, a heading with no section number, one numbered in a way the reader already leaves out ("## 3.1.2 产量（万吨）", "# 三、产量（万吨）", "# （三）产量（万吨）", "# Chapter 3: Output (kt)"), a year before its words ("# 2024 Output (kt)") and the same lines without "#" state their unit, while a heading that gives a value of its own ("# Output 54 (kt)", "Output 54 (kt)") states none, so the right sentence keeps the Answer's ✓ and reads Unsupported in Check against Documents, and a caption that gives its value after its unit ("全年销量（万辆）合计 99", with "#" or without) still states it; fails_when=any of these reads otherwise; no_claim=a value inside a heading's own words, which the number rule doesn't tell from a section number.
+  test("a heading that gives a value of its own, and numbered forms read right before, read as on main", async () => {
+    await readsAsWanted([
+      ...inKilotonnes(markdownFile(`# Output (kt)\n${PLANTS_EN}`)),
+      ...inKilotonnes(`3. Output (kt)\n${PLANTS_EN}`),
+      ...inKilotonnes(`3 Output (kt)\n${PLANTS_EN}`),
+      ...inKilotonnes(markdownFile(`# Chapter 3: Output (kt)\n${PLANTS_EN}`)),
+      ...inKilotonnes(markdownFile(`# 2024 Output (kt)\n${PLANTS_EN}`)),
+      ...inWanTonnes(markdownFile(`## 3.1.2 产量（万吨）\n${PLANTS}`)),
+      ...inWanTonnes(markdownFile(`# 三、产量（万吨）\n${PLANTS}`)),
+      ...inWanTonnes(markdownFile(`# （三）产量（万吨）\n${PLANTS}`)),
+      ...inWanTonnes(`3. 产量（万吨）\n${PLANTS}`),
+      ...[markdownFile(`# Output 54 (kt)\n${PLANTS_EN}`), `Output 54 (kt)\n${PLANTS_EN}`].flatMap(
+        (document): [string | File, string, string, Wanted][] => [
+          [
+            document,
+            "B\t31",
+            "Plant B's output was 31 thousand tonnes.",
+            leftToTheModel("31", "31 thousand tonnes"),
+          ],
+          [
+            document,
+            "B\t31",
+            "Plant B's output was 31 million tonnes.",
+            leftToTheModel("31", "31 million tonnes"),
+          ],
+        ],
+      ),
+      ...[
+        markdownFile(`# 全年销量（万辆）合计 99\n${CARS}`),
+        `全年销量（万辆）合计 99\n${CARS}`,
+      ].flatMap((document): [string | File, string, string, Wanted][] => [
+        [document, "SUV\t57", "SUV销量为57万辆。", TICK],
+        [document, "SUV\t57", "SUV销量为57亿辆。", caught("57", "57亿辆")],
+      ]),
+    ]);
+  });
+});
+
 const STATEMENT = "项目\t本期金额\n营业收入\t5,200\n净利润\t310";
 const PROFIT = "净利润\t310";
 const WANHE = "编制单位：万禾股份有限公司";
