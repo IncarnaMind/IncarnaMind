@@ -71,6 +71,7 @@ export async function runArms({
   meter,
   dollarsOf,
   onRow,
+  until,
 }: {
   arms: readonly Arm[];
   probes: readonly Probe[];
@@ -82,6 +83,8 @@ export async function runArms({
   dollarsOf: (inputTokens: number, outputTokens: number, cacheReadTokens: number) => number;
   /** Each row as it is made, so a run that is cut short keeps what it measured. */
   onRow?: (row: Row) => void;
+  /** The time, in milliseconds since the epoch, after which no check is begun (a price that changes at an hour). */
+  until?: number;
 }): Promise<{ rows: Row[]; stopped: string | null }> {
   const rows: Row[] = [];
   const counted = metered(model, meter);
@@ -90,6 +93,9 @@ export async function runArms({
       const turn = arms.map((_, index) => arms[(index + at + run) % arms.length]);
       for (const arm of turn) {
         if (!arm) continue;
+        if (until !== undefined && Date.now() >= until) {
+          return { rows, stopped: `the time ${new Date(until).toISOString()} was reached` };
+        }
         if (
           stop > 0 &&
           dollarsOf(meter.inputTokens, meter.outputTokens, meter.cacheReadTokens) >= stop

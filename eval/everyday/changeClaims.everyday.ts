@@ -105,6 +105,9 @@ test.skipIf(process.env.INCARNAMIND_EVAL_EVERYDAY !== "change-claims")(
       meter,
       dollarsOf,
       onRow: (row) => appendFileSync(join(folder, "rows.jsonl"), `${JSON.stringify(row)}\n`),
+      ...(process.env.INCARNAMIND_EVAL_UNTIL && {
+        until: Date.parse(process.env.INCARNAMIND_EVAL_UNTIL),
+      }),
     });
 
     const armNames = arms.map((arm) => arm.name);

@@ -312,3 +312,15 @@ By the lead's ruling. Since #3148 every applied edit the app records carries `to
 - The ship decision rests on the 146, the 42 kind probes (`kind-*`, `held-kind-*`), which are the live-like records of an applied edit, and bar 5's 16 held-out probes. The 28 are reported beside them in each table and are not counted in any bar.
 
 A change in how the two rules' texts sit together that applies only beside a record that has `touched` leaves every request of the 174 byte for byte what it is on this head: that is shown by the scripted whole-prompt comparison before any request of the try.
+
+### Run (a) lost, and run again on what decides the ship (2026-11-15, written before the rerun's first request)
+
+The first run of (a) was cut at one hour by the runner's own test timeout, and nothing of it was kept (no report, no rows): about CNY 1.81, US$0.25, spent for nothing. No request was refused. The runner now writes each row as it is made and its limit is 8 hours (`7fc0fa523`); it also takes a time after which no check is begun.
+
+By the lead's word, (a) runs again **only on the live-like older probes**: the 145 of the 146 above other than the pilot's (`unmade-page-en`, already measured: 30 checks, all caught on the three arms). The 28 hand-built probes and the 42 kind probes are not in it: the kind probes are (B)'s.
+
+- **Arms, runs, bars:** the same: `main A`, head, `main B`, 10 runs, the bars of the table above, read over the live-like probes.
+- **Count:** 145 probes x 10 runs x 3 arms = 4,350 checks, plus the pilot's 30.
+- **Stop:** the pilot's price per check (US$0.003 for 30 checks) times that count, plus 10%: **US$0.48**, under the cap of US$0.70.
+- **Time:** it runs in DeepSeek's off-peak hours; **no check is begun after Monday 2026-11-16 01:00 UTC**, and the rows so far are kept and reported as they are.
+- **Then (B)** as agreed (below), with (B) coming first if what is left of #2970's money cannot cover both.
