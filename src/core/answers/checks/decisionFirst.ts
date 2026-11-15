@@ -304,11 +304,16 @@ function wholeFact({ parts, claim }: ClaimCheckRequest): ClaimPartPlan | null {
   return /^[\s\p{P}]*$/u.test(around) ? only : null;
 }
 
-/** Whether the request is a check of its whole sentence that reads Passages, which a decision model can read too. */
+/**
+ * Whether the request is a check of its whole sentence that reads Passages, which a decision
+ * model can read too. A figure IncarnaMind worked out rests on its calculation's record, which a
+ * decision model is never given.
+ */
 function readsPassages(deps: ClaimCheckDependencies, request: ClaimCheckRequest): boolean {
   return (
     request.only === undefined &&
     request.figureIds === undefined &&
+    !request.figures?.some((figure) => figure.calculated !== null) &&
     !request.window &&
     recordCiteSpans(request.claim).length === 0 &&
     caseCitations(request.claim).length === 0 &&

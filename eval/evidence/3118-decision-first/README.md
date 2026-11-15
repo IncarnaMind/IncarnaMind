@@ -457,7 +457,7 @@ So reading by default is on in this build (`src/core/answers/checks/decisionChoi
 
 ### Changed at the first read, after every run above
 
-Three rules changed when the pull request was read, all to the careful side. No request was sent for any.
+Four rules changed when the pull request was read, all to the careful side. No request was sent for any.
 
 - **A final Supported needs no Passage leaning to the opposite.** Before, a Passage that states the sentence clear of its line gave Supported unless another said the opposite at 0.895 or over. Now another Passage at 0.5 or over (a first reading's line for the opposite) sends the sentence to the AI model unread, as two leaning Passages already did: the Documents disagree. Counted free on the saved records of the three measured runs, by each sentence's highest opposite score among the Passages read:
 
@@ -477,6 +477,7 @@ Three rules changed when the pull request was read, all to the careful side. No 
   | The fresh reading | 15 | 0 | 0.157 |
 
   So the rule takes none of the 39 Contradicted Marks whose scores were saved.
+- **A sentence with a figure IncarnaMind worked out is not read.** Its number rests on the calculation's record, which a decision model is never given, so the sentence goes to the AI model's check unread. A figure the User typed is read as before. The Notes of every run above hold text and Citations only, so no measured sentence is touched.
 - **By default it reads only the checks that go to the service of the User's own AI model for checks.** Before, a run was read by default when its own AI model ran on the decision model's service, while Settings and Privacy went by the User's default model: a Note with its own model there was read behind a switch that showed off. Now both go by the User's default model's service, and a run is read by default only when it goes to that same service. Every run of this gate had one AI model, the default, so none is touched.
 
 ### Part M

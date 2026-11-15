@@ -427,8 +427,13 @@ export interface CreateMindInput {
  *   card says so. An older editor would delete the attribute on save and the Citation would read as
  *   the writer's own, so it opens these Notes read-only. Older content is version 58 content as it
  *   is: a Citation without it is the writer's.
+ * - 60: a part of a check keeps `restsOnPassage` and `firstReading` (#3118): a Mark whose line
+ *   doesn't settle the sentence alone shows no quote, and a decision model's reading the AI model
+ *   hasn't confirmed is never a verdict. An older version would write the part again without them
+ *   and show the line as the Mark's quote, so it opens these Notes read-only. Older content is
+ *   version 59 content as it is: a part without them shows its quote and was never a first reading.
  */
-export const CONTENT_SCHEMA_VERSION = 59;
+export const CONTENT_SCHEMA_VERSION = 60;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content

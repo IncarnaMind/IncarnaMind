@@ -15,6 +15,8 @@ import {
   readingOf,
 } from "../../src/core/answers/checks/decisionLines";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
+import { calculatedFigureNode } from "../../src/shared/calculatedFigures";
+import { FORMULA_VERSION } from "../../src/shared/formula";
 import { checkGenerate, checkReply, isCheckRun, type Plan, sentenceOf } from "../helpers/checks";
 import { createMemoryKeychain, createTempDataFolder, startCore } from "../helpers/core";
 import { recordRows } from "../helpers/csv";
@@ -592,6 +594,47 @@ describe("Check this Note with a decision model chosen (#3118)", { timeout: 30_0
     expect(mark).not.toHaveProperty("firstReading");
   });
 
+  // protects=a sentence that holds a figure IncarnaMind worked out is never read by the decision model: its number rests on a calculation's record, which the host is never sent; fails_when=the host is asked about it, or the decision model gives its Mark
+  test("a sentence with a figure IncarnaMind worked out goes to the AI model unread", async () => {
+    const { core, client, host, run } = await setUp();
+    writeMind(client, [
+      {
+        type: "paragraph",
+        attrs: { id: "one" },
+        content: [
+          text("The harbour office handled "),
+          calculatedFigureNode(
+            {
+              label: "Cargo",
+              formula: "",
+              inputs: [],
+              value: 54000,
+              unit: { kind: "plain" },
+              approximate: false,
+              shown: "54,000",
+              show: { language: "en", as: "number", decimals: 0, scale: null },
+              literals: [],
+              engine: FORMULA_VERSION,
+              written: null,
+              analysis: { analysis: 1, result: "cargo" },
+            },
+            "figure",
+            "run",
+          ),
+          text(" tonnes of cargo."),
+        ],
+      },
+    ]);
+    await client.settled();
+    await choose(core);
+
+    await core.checkMind(run());
+
+    expect(host.asked).toEqual([]);
+    const [mark] = Object.values(await marks(client));
+    expect(mark?.by).not.toBe(DECIDER.modelId);
+  });
+
   // protects=a score inside the band of its line is a first reading, not a verdict: the Mark shows it while the AI model checks the sentence, and keeps it as the record once the AI model has answered; fails_when=a score just over the line marks the sentence, the first reading isn't on the Mark while the check runs, or it is gone afterwards; no_claim=how wide the band should be, or how the card draws a first reading.
   test("a score too near its line is a first reading the AI model confirms", async () => {
     const { core, client, host, run, readByAiModel, holdAiModel, aiModelId } = await setUp();
@@ -971,6 +1014,24 @@ describe("A decision model that reads by default (#3118)", { timeout: 30_000 }, 
     expect((await core.getSettings()).device.checkDecisionModel).toBe("off");
     expect(await listed(core)).toEqual([]);
     expect(await readsNow("taken back")).toBe(false);
+  });
+
+  // protects=Undo of a Privacy turn-off never brings back a choice the User ended afterwards: a later change of the switch in Settings voids what Undo kept; fails_when=Undo turns the decision model on again after the User turned it on and then off in Settings
+  test("Undo of a Privacy turn-off doesn't turn it on again after a later off in Settings", async () => {
+    const { core, host, run, service } = await setUp(undefined, { readsByDefault: true });
+    const serviceId = service?.id ?? "";
+    await core.checkMind(run("read once"));
+    const revokedAt = await core.revokeConsent("decision-checks", serviceId);
+    if (revokedAt === null) throw new Error("Nothing was taken back.");
+    await choose(core);
+    await choose(core, "off");
+
+    await core.restoreConsent("decision-checks", serviceId, revokedAt);
+
+    expect((await core.getSettings()).device.checkDecisionModel).toBe("off");
+    const before = host.asked.length;
+    await core.checkMind(run("after Undo"));
+    expect(host.asked).toHaveLength(before);
   });
 
   // protects=reading by default is only for a check whose AI model runs on the decision model's own service: a key to that service saved beside an AI model elsewhere sends it nothing, and neither does Local mode; once the User turns it on themselves it reads every check, that one too; fails_when=the host is asked for a check that goes to another service under the default alone, or in Local mode, or isn't asked for it after the User's own choice; no_claim=which services host a measured model.

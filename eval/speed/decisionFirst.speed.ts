@@ -144,7 +144,10 @@ async function startHost(answerMs: number, sure: ReadonlySet<string> = new Set()
     scores: () => scores,
     passagesRead: (sentence: string) => read.get(sentence) ?? null,
     refused: (): number[] => [],
-    forget: () => read.clear(),
+    forget: () => {
+      read.clear();
+      scores.length = 0;
+    },
     close: () =>
       new Promise<void>((done) => {
         server.closeAllConnections();
@@ -210,12 +213,21 @@ async function startRelay(origin: string) {
     response.on("close", () => {
       if (asks && !response.writableEnded) refused.push(0);
     });
-    const reply = await fetch(`${origin}${request.url ?? ""}`, {
+    const answered = await fetch(`${origin}${request.url ?? ""}`, {
       method: request.method ?? "GET",
       headers,
       ...(asks && { body: Buffer.concat(chunks) }),
-    });
-    const text = await reply.text();
+    })
+      .then(async (reply) => ({ reply, text: await reply.text() }))
+      .catch(() => null);
+    // The host couldn't be reached, or its answer broke off: the app is told at once, and the run is void.
+    if (!answered) {
+      if (asks) refused.push(502);
+      response.writeHead(502, { "content-type": "application/json" });
+      response.end("{}");
+      return;
+    }
+    const { reply, text } = answered;
     if (asks) {
       asked++;
       characters += Buffer.concat(chunks).toString("utf8").length;
@@ -251,7 +263,10 @@ async function startRelay(origin: string) {
     scores: () => scores,
     passagesRead: (sentence: string) => read.get(sentence) ?? null,
     refused: () => refused,
-    forget: () => read.clear(),
+    forget: () => {
+      read.clear();
+      scores.length = 0;
+    },
     close: () =>
       new Promise<void>((done) => {
         server.closeAllConnections();

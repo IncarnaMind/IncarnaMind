@@ -6053,11 +6053,15 @@ export function createCore(adapters: CoreAdapters): Core {
       const choosesDecision = device.checkDecisionModel !== undefined;
       if (choosesDecision) await decisionChoice.check(device.checkDecisionModel);
       const languageWas = settings.get().language;
-      const updated = settings.update(change);
+      let updated = settings.update(change);
       // Choosing a decision model for checks where its line says what goes to its host is the consent.
       if (choosesDecision) {
+        // An Undo of an earlier turn-off in Privacy never brings back a choice changed since.
+        checkDecisionTakenBack = null;
         await decisionChoice.chose(updated.device.checkDecisionModel);
         await dataFlowsChanged();
+        // Another change may have been saved while this waited: what is told is what is kept now.
+        updated = settings.get();
       }
       // Choosing a cloud service where its line says meeting audio goes to it is the consent (ADR-0022).
       let dropped = Promise.resolve();
