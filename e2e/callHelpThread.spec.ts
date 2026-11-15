@@ -264,8 +264,9 @@ test("thread: it scrolls inside a panel under 60% of the screen's height, the ne
   await expect
     .poll(() => thread.evaluate((element) => element.scrollHeight > element.clientHeight + 1))
     .toBe(true);
-  await expect.poll(() => windowHeight(panel)).toBeLessThanOrEqual(tallest + 1);
-  expect(await windowHeight(panel)).toBeGreaterThan(tallest - 40);
+  // The thread overflows at once; the window grows to fit a moment later, once its resize lands.
+  await expect.poll(() => windowHeight(panel)).toBeGreaterThan(tallest - 40);
+  expect(await windowHeight(panel)).toBeLessThanOrEqual(tallest + 1);
   // Its top in the thread's view: a reply is read from its start.
   const inView = async (target: Locator) => {
     const [box, frame] = await Promise.all([target.boundingBox(), thread.boundingBox()]);
