@@ -425,6 +425,7 @@ async function writingSetUp(model: ReturnType<typeof scriptedModel>) {
   const core = startCore(await createTempDataFolder(), {
     createChatModel: scriptedModels(model).createChatModel,
   });
+  await core.updateSettings({ user: { checkAssistantWrites: true } });
   core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
   const saved = await core.saveChatProvider({
     kind: "anthropic",

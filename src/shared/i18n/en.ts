@@ -4038,7 +4038,7 @@ export const en = {
   "ai.jobs.search.line": "Finds passages by meaning, on this computer",
   "ai.jobs.search.server": "Another server…",
   "ai.jobs.checkWrites": "Check what the assistant writes",
-  "ai.jobs.checkWrites.line": "As each write lands. Off, its sentences wait for your Check.",
+  "ai.jobs.checkWrites.line": "As it lands. Off, its sentences wait for your Check.",
   "ai.jobs.web": "Search the web in Answers",
   "ai.jobs.web.line": "With the Answers model’s own search",
   "ai.payer.plan": "Included in your {plan}",

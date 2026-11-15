@@ -305,6 +305,16 @@ describe("The assistant changes Minds as Proposals", { timeout: 30_000 }, () => 
         request: expect.any(String),
         proposals: 1,
         paragraphs: 1,
+        // No check follows a write (#3154): its one sentence waits for the User's Check.
+        selfCheck: {
+          request: expect.any(String),
+          blocks: [expect.any(String)],
+          checkable: 1,
+          cited: 0,
+          sent: 0,
+          checked: 0,
+          failed: 0,
+        },
       },
     ]);
   });

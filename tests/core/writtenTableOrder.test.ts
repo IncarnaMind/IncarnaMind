@@ -93,6 +93,7 @@ describe("A table the assistant writes is footed in its order", { timeout: 30_00
     const core = startCore(await createTempDataFolder(), {
       createChatModel: scriptedModels(harbourlineModel(southAndTotalHeard)).createChatModel,
     });
+    await core.updateSettings({ user: { checkAssistantWrites: true } });
     core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
     const saved = await core.saveChatProvider({
       kind: "anthropic",

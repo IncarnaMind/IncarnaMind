@@ -692,6 +692,7 @@ describe("What the assistant writes", { timeout: 30_000 }, () => {
       return { text: "Wrote it from your Documents." };
     });
     const { core } = await setUpWithDocuments(model, [CONTRACT]);
+    await core.updateSettings({ user: { checkAssistantWrites: true } });
 
     const answer = await askAssistant(core, { text: "Write a note on the pay" });
     const [change] = changesIn(answer);
