@@ -293,6 +293,8 @@ interface RunTimes {
     state: string;
     by: string | null;
     quote: string | null;
+    /** The Document the quote is from, for a blind reading of the quotes. */
+    document: string | null;
     firstReading: string | null;
     /** When its first reading showed and its Mark landed, from the User's action. */
     readMs: number | null;
@@ -339,6 +341,7 @@ async function checkNote(
       state: check.state ?? "none",
       by: part?.modelId ?? check.modelId ?? null,
       quote: part?.evidence?.[0]?.quote ?? null,
+      document: part?.evidence?.[0]?.documentName ?? null,
       firstReading: part?.firstReading?.verdict ?? null,
       readMs: read.get(sentence.text.trim()) ?? null,
       landedMs: landed.get(sentence.text.trim()) ?? null,

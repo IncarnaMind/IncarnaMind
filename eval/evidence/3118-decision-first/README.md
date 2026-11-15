@@ -19,7 +19,7 @@ The reading changed after this file was written. Points 1 to 3 above and the bar
 
 1. **One search, one request.** The sentence's 30 best Passages by the plain search (no reranker, no neighbouring Passages), with any it cites first, go to the decision model in one request with the two questions of each.
 2. **A Mark from the decision model** where a score is clear of the line, the Passage asked about alone scores clear again, and a number of the sentence the Passage writes another way is the same amount by the model's own answer (0.92). A sentence with a figure can get one. The quote is the sentence of that Passage the model scores highest on the verdict's question; a heading, a table's row and a sheet's row are quoted as one line.
-3. **Unsupported from the decision model** where every Passage scores under 0.25 on both questions and the sentence cites nothing.
+3. **Unsupported from the decision model** where every Passage scores under 0.25 on both questions and the sentence cites nothing. Since commit aed5b2c80, only after one more question ("Changed after part A again", below).
 4. **No reading** where one Passage states the sentence and another says the opposite, both clear of their lines: the sentence goes to the AI model unread.
 5. **A first reading** for any other score that leans, as before.
 
@@ -204,6 +204,26 @@ The void rule and the one answered request before each part are as above. A void
 
 **Added after part A again and before part B, with no bar: the joined question.** Part A again gave 41 Unsupported from the decision model, 7 of them on sentences labelled Supported. For those 41 sentences one more question is counted, as it was fixed before this gate on other text and with nothing new: the 5 Passages the model scored highest on "states the sentence" are joined under their Documents' names and the two questions are asked of them once, read at the verdict's lines. Reported: of the 7, how many turn Supported; of the 34 right ones, how many turn anything. It is asked by the script outside the app, with that script's own search: for the pair of 120 the answers are those saved on 2026-11-15 before part A again ran; for the pair of 88 they are asked now, stop US$0.02. It measures a rule, not a build that has it. Part B is held until this row is read.
 
+### Changed after part A again and before part B
+
+Written on 2026-11-15, after part A again, its quote reading and the joined row (Results, below), and before part B's first request.
+
+**1. The joined question is in the build (commit aed5b2c80).** A sentence every Passage scores under 0.25 on is asked about once more before it shows Unsupported: the 5 Passages the model scored highest on "states the sentence", joined as one under their Documents' names, the two questions, read at the verdict's lines. A score clear of a line there is a **first reading** on that side, and the sentence goes to the AI model's check; it is never a Mark from the decision model, because no single Passage was confirmed to hold it. Still under the lines, the sentence is Unsupported as before. A host that can't be asked gives no Unsupported.
+
+- **Why:** part A again gave 41 Unsupported from the decision model and 7 of them sit on sentences labelled Supported, each one a summary of several Passages. The joined question turned 4 of those 7 Supported and none of the 34 right ones. 3 of the 41 stay wrong with it.
+- **What it rests on:** the same 41 sentences it now runs on. It was fixed, wording and number of Passages, before this gate on other text; whether to adopt it was decided on these. Part B's Note is the first text the build with it is run on.
+- **Checked free:** unit tests through the core (`tests/core/decisionFirst.test.ts`), and one scripted run of the four runs below (`=dry`, mixed Library, the host sure of every eighth sentence): the last Mark landed at 60.4 and 60.1 s in `main` and at 54.0 and 53.8 s in `decision`, every first reading within 1.0 s, 41 requests to the host a run. That host's scores never fall under the Unsupported line, so the run shows the build still runs as before, not the joined question's own time.
+- Part A is not run again for it. The quote's unit is as part A again ran it.
+
+**2. Part B is four runs, not six: `main, decision, decision, main`.** The stop stays US$0.60.
+
+- **Why:** this file expected about US$0.05 a run. The pressure test measured one `decision` run of the 33-sentence Note at US$0.114 (Claude Haiku 5.5 US$0.100 for the 20 sentences that reached it, the decision model US$0.015). A `main` run sends all 33, about US$0.165 at the same price a sentence. Six runs come to about US$0.84; four to about US$0.56.
+- **B2 reads "both" for "all three":** no sentence carries its label in both `main` runs and misses it in both `decision` runs. With two runs an arm, a median is the mean of the two.
+- **B1, B3 and B4** as written. Two runs an arm show less than three: the report says so beside each bar.
+- The harness stops before a run once US$0.40 is spent by the app's count, so that a fourth run at a `main` run's price ends at or under the stop.
+- **No rerun.** One answered request to each model first (a check of one sentence). If a run is void, part B ends there and is reported as it stands: the stop holds no second attempt.
+- **Also saved, with no bar:** each Mark's quote in every run. The quotes under the AI model's Supported and Contradicted Marks in the two `main` runs are read blind the way A3 reads the decision model's (two fresh readers, as many decoys, a third on a split), to set today's check beside A3, and so are the decision model's own in the two `decision` runs, on the same sentences. A quote two runs both give is read once. Part B's Note is contracts; it holds few tables, so today's check on a table's quote stays unmeasured.
+
 ## Results
 
 ### Part A, 2026-11-15
@@ -245,6 +265,54 @@ The real Decider v1.2 in the app on the four held-out Notes: 1,384 requests, 1,4
 - **A3 missed is no ship as the gate is written.** The four Marks are right; the line shown under them is not the line that states the sentence or says the opposite. The decision model scores a whole Passage, and the line is then picked by its words alone, the Passage's nearest line to the sentence.
 - **The scores alone:** 63 sentences have a sure score (13 marked and 50 a rule held back), and all 63 are their label. Zero in 63 allows up to 4.6 in 100. On sentences with a figure, 47 sure scores and 47 their label: the figure rule held back no wrong Mark here.
 
+### Part A again, 2026-11-15, on commit c941ba5f3
+
+The real Decider v1.2 in the app on the same four Notes: 366 requests, 5,974,015 input tokens, every request answered. US$0.120 at the listed price (the stop was US$0.18). The labelled Passage was among the 30 read for all 151 sentences whose label names one.
+
+| What the decision model did | Pair of 120 | Pair of 88 | All |
+|---|---|---|---|
+| Marked Supported, right | 16 | 11 | 27 |
+| Marked Supported, wrong | 0 | 0 | 0 |
+| Marked Contradicted, right | 13 | 11 | 24 |
+| Marked Contradicted, wrong | 0 | 0 | 0 |
+| Marked Unsupported, right | 20 | 14 | 34 |
+| Marked Unsupported, wrong | 3 | 4 | 7 |
+| First reading Supported, the label's way | 31 | 21 | 52 |
+| First reading Supported, not | 5 | 1 | 6 |
+| First reading Contradicted, the label's way | 13 | 8 | 21 |
+| First reading Contradicted, not | 0 | 1 | 1 |
+| No reading | 11 | 11 | 22 |
+| Not found in the Note | 2 | 0 | 2 |
+
+| Label | A figure | Sentences | Marked, any verdict | First reading the label's way | The other way | None |
+|---|---|---|---|---|---|---|
+| Supported | yes | 74 | 29 | 38 | 0 | 7 |
+| Supported | no | 21 | 5 | 14 | 0 | 2 |
+| Contradicted | yes | 33 | 13 | 17 | 2 | 1 |
+| Contradicted | no | 17 | 11 | 4 | 1 | 1 |
+| Unsupported | yes | 17 | 11 | 0 | 1 | 5 |
+| Unsupported | no | 34 | 23 | 0 | 3 | 8 |
+
+| Bar | Result |
+|---|---|
+| A1 Wrong Mark | **Met.** 51 Supported or Contradicted Marks, 51 their label; 37 of them on a sentence with a figure. Zero wrong in 51 still allows a true share of up to 5.7 in 100 |
+| A2 Figures | Retired for this run (above) |
+| A3 The quote | **Not met.** Both readers accept the quote under 39 of the 51 Marks and reject it under 12 (9 Supported, 3 Contradicted). They agreed on every Mark, so no third reader was called; neither accepted any of the 51 decoys |
+| A4 First readings | **Met.** 73 of 80 lean the label's way, 91 in 100 |
+
+- **A3 missed is no ship as the gate is written.** All 12 Marks are their label. Both readers answered "neither" to each: the quote shown does not carry the verdict. By the quote's shape, counted by a script's rule on text the builder has not read:
+
+  | Shape of the quote | Quotes | Accepted | Rejected |
+  |---|---|---|---|
+  | A table's row or cell (a tab, or under half of its characters are letters) | 7 | 3 | 4 |
+  | Cut at the 200 characters the app stores of any check's quote (#2220) | 5 | 2 | 3 |
+  | Any other | 39 | 34 | 5 |
+
+  Three of the rejected table quotes are one number of three digits alone.
+- **Unsupported shown where a Passage settles it: 7.** All 7 are labelled Supported and none cites; the labelled Passage was among the 30 read for each. Their highest score was 0.055 to 0.227; the 34 right ones had a median of 0.012 and a highest of 0.182, so no line on a single Passage's score parts them.
+- **Confirming on the Passage alone** held back 33 sure first scores, 31 of them the label and 2 against it.
+- **The joined question on the 41 Unsupported, no bar:** of the 7 wrong, 4 turn Supported and 3 stay neither; of the 34 right, none turns. Pair of 120, from answers saved before part A again: 1 of 3, and 0 of 20. Pair of 88, asked now: 3 of 4, and 0 of 14. 72 requests, all answered, US$0.011.
+
 ### The three shapes, on the 114 sentences the two runs share
 
 | Shape | Right | Supported, wrong | Contradicted, wrong | Unsupported, wrong | Nothing shown | Sentences to the AI model |
@@ -260,4 +328,4 @@ The real Decider v1.2 in the app on the four held-out Notes: 1,384 requests, 1,4
 
 ### Parts B and M
 
-Part M spent nothing (above). Part B has not run: it waits for the choice of shape.
+Part M spent nothing (above). Part B has not run.
