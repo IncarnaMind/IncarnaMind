@@ -8,7 +8,7 @@ const LOCAL_SERVER = { id: "https://llm.example.com", name: "llm.example.com" };
 const status = (
   id: DataFlowId,
   service: typeof OPENAI,
-  state: Partial<Pick<DataFlowStatus, "consent" | "decidedAt" | "chosen">> = {},
+  state: Partial<Pick<DataFlowStatus, "consent" | "decidedAt" | "chosen" | "byDefault">> = {},
 ): DataFlowStatus => ({
   flow: { id, service, sends: ["blocks"] },
   consent: "accepted",
@@ -44,6 +44,28 @@ describe("groupByService", () => {
 });
 
 describe("decisionOf", () => {
+  // protects=a use that is on by default rests on the others' decision: the service stays allowed, with their date and whether they were chosen, before that use has a date and after; fails_when=the service reads as partly allowed or not asked because of it, or takes its date or its "chosen" from it; no_claim=the words of the line.
+  test("a use that is on by default leaves the service's own decision as it was", () => {
+    const allowed = status("checks", OPENAI, { decidedAt: "2026-10-12T10:00:00.000Z" });
+    const byDefault = (decidedAt: string | null) =>
+      status("decision-checks", OPENAI, {
+        consent: decidedAt ? "accepted" : "not-asked",
+        decidedAt,
+        chosen: decidedAt !== null,
+        byDefault: true,
+      });
+    for (const since of [null, "2026-10-01T10:00:00.000Z"]) {
+      expect(decisionOf(uses(allowed, byDefault(since)))).toEqual({
+        kind: "accepted",
+        chosen: true,
+        at: "2026-10-12T10:00:00.000Z",
+      });
+    }
+    expect(
+      decisionOf(uses(status("checks", OPENAI, { consent: "declined" }), byDefault(null))),
+    ).toEqual({ kind: "partly" });
+  });
+
   test("a service allowed everywhere is allowed once, with the first date and whether it was chosen", () => {
     expect(
       decisionOf(

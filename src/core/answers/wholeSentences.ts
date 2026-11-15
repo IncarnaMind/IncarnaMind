@@ -134,3 +134,24 @@ export function wholeSentences(
   const widened = foldRadicals(readableQuote(text, [{ start: from, end: to }]));
   return quoteInUnits(units, widened, { ...matching, unique: true }) ? widened : quote;
 }
+
+/**
+ * The sentences a Passage's `lines` hold, each whole and read as a card shows a quote: a PDF's
+ * printed lines joined where the page wrapped them, a paragraph's line split at its stops. A line
+ * the page ended on purpose stays one (a heading, a list's item, a table's row with its cells), and
+ * so does every line of a sheet or a Transcript. `units` are the Units the lines come from.
+ */
+export function sentencesOfLines(lines: readonly string[], units: readonly PageText[]): string[] {
+  if (units.some((unit) => unit.kind === "rows" || unit.kind === "cues")) return [...lines];
+  const text = lines.join("\n");
+  const sentences = new Set<string>();
+  for (const { from, to } of sentenceSpans(wrapsAsSpaces(text, units))) {
+    const lineEnd = text.indexOf("\n", from);
+    const line = text.slice(text.lastIndexOf("\n", from) + 1, lineEnd < 0 ? text.length : lineEnd);
+    const shown = line.includes("\t")
+      ? line
+      : foldRadicals(readableQuote(text, [{ start: from, end: to }]));
+    if (HAS_WORDS.test(shown)) sentences.add(shown.trim());
+  }
+  return [...sentences];
+}

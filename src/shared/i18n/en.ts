@@ -1285,6 +1285,10 @@ export const en = {
   "claim.state.contradicted": "Needs a look · Contradicted",
   "claim.state.not-checked": "Not checked",
   "claim.state.notYetCited": "Supported, not yet cited",
+  "claim.state.likely.supported": "Likely supported",
+  "claim.state.likely.contradicted": "Likely contradicted",
+  "claim.firstReading.checking": "A first reading by {decision}. {model} is checking it.",
+  "claim.firstReading.unconfirmed": "A first reading by {decision}, not confirmed. {reason}",
   "claim.notYetCited": "This passage backs the sentence, but the sentence doesn’t cite it yet.",
   "claim.state.needs-recheck": "Needs a look · Needs re-check",
   "claim.state.notFound": "Needs a look · Not found",
@@ -1849,6 +1853,9 @@ export const en = {
   "consent.flow.document-check": "Check against a Document…",
   "consent.flow.document-check.purpose":
     "read a Document or Folder you pick whole to check a sentence",
+  "consent.flow.decision-checks": "Checks by a decision model",
+  "consent.flow.decision-checks.purpose":
+    "read each sentence of a note you check before your AI model does",
   "aiText.markedAsMine": "Marked as yours",
   "edit.pending.improve": "Improving the writing…",
   "edit.pending.shorten": "Shortening…",
@@ -3528,6 +3535,8 @@ export const en = {
     "A file’s name, its own dates (or this computer’s when it has none), author, page, slide or sheet count and size, for a sentence about the file",
   "consent.data.absence-documents":
     "Whole Documents in the scope, up to 40 pages in all, for a sentence that says something is absent",
+  "consent.data.checked-sentences":
+    "Each sentence of a note you check, with its paragraph, and the passages from your Documents found for it or cited in it, with their Documents’ names and pages",
   "consent.data.watched-sentences":
     "After a new version of a Document, the cited sentences of the notes in its Folder, to check them for contradictions",
   "consent.data.live-transcript":
@@ -3733,6 +3742,12 @@ export const en = {
   "privacy.flows.stopFlow": "Stop allowing {flow}",
   "privacy.flows.allowFlow": "Allow {flow}",
   "privacy.flows.stoppedFlow": "Stopped allowing {flow} for {service}",
+  "privacy.flows.byDefault.unused": "On with your checks to {service} · not used yet",
+  "privacy.flows.byDefault.since": "On with your checks to {service}, since {date}",
+  "privacy.flows.maker": "{model} is {maker}’s model: {service} passes these on to {maker}",
+  "privacy.flows.turnOff": "Turn off",
+  "privacy.flows.turnOffFlow": "Turn off {flow}",
+  "privacy.flows.turnedOff": "Turned off {flow}",
   "privacy.traffic.title": "Other network traffic",
   "privacy.traffic.intro": "These services receive nothing of yours.",
   "privacy.traffic.on": "On",
@@ -3995,6 +4010,20 @@ export const en = {
   "ai.jobs.quick": "Quick tasks",
   "ai.jobs.quick.line":
     "Titles, Tag suggestions, search wording, Citation quotes and checking replies",
+  "ai.jobs.checks": "Checking sentences",
+  "ai.jobs.checks.line": "A first reading of each sentence by {model}",
+  "ai.jobs.checks.tip":
+    "{model} gives each sentence a quick first reading and marks the ones it is sure of; your AI model checks the rest.",
+  "ai.jobs.checks.maker.tip":
+    "{tip} {model} is {maker}’s model: {host} passes what it reads on to {maker}.",
+  "ai.jobs.checks.sends":
+    "With this on, every check sends the note’s text and the passages found for it or cited in it to {host}",
+  "ai.jobs.checks.sendsByDefault":
+    "On with your checks to {host}, which already send the note’s text and the passages found for it or cited in it there",
+  "ai.jobs.checks.noKey": "Needs a key for {host}",
+  "ai.jobs.checks.addKey": "Add a key…",
+  "checkFaster.line": "Check faster with {model}",
+  "checkFaster.settings": "Turn on in Settings ›",
   "ai.jobs.images": "Reading images",
   "ai.jobs.images.line": "Scans and a selected area",
   "ai.jobs.follows": "Follows Answers · {model}",
@@ -5355,6 +5384,7 @@ export const en = {
     "Contradicted: your Documents give {shown}, and the sentence says at least {stated}.",
   "export.comment.sentence.contradicted.plain": "Contradicted by your Documents.",
   "export.comment.sentence.quoted": "{said} (“{quote}”, {source})",
+  "export.comment.sentence.placed": "{said} ({source})",
   "export.comment.sentence.unsupported.reason": "Unsupported: {reason}",
   "export.comment.sentence.unsupported.plain": "Unsupported by your Documents.",
   "export.comment.sentence.notFound": "Not found: I didn’t find this in “{scope}”.",
@@ -6309,6 +6339,9 @@ export const en = {
   "error.check.localMode": "Not checked: “Keep everything on this computer” is on.",
   "error.check.declined":
     "You declined sending the claim to the model’s service, so nothing was sent.",
+  "error.check.decisionModel": "Checks can’t use that decision model yet.",
+  "error.check.decisionLocal":
+    "A decision model can’t read your sentences: “Keep everything on this computer” is on.",
   "error.recordCite.choiceInvalid": "The source choice is incomplete. Choose a Document again.",
   "error.recordCite.spanInvalid": "The cite’s position is invalid. Check the sentence again.",
   "error.recordCite.notFound":

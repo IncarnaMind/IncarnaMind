@@ -189,6 +189,36 @@ const OwnNoteCheck = (props: IconProps) => (
   </Stroke>
 );
 
+/**
+ * A decision model's first reading of a sentence, which no verdict stands behind (#3118): a dashed
+ * ring holding the tick or the "≠" it leans to. The whole ring is the mark, so it is drawn larger
+ * than the verdicts' glyphs, and its dashes keep it apart from the solid ring of Not checked.
+ */
+export const FirstReadingIcon = ({
+  verdict,
+  ...props
+}: IconProps & { verdict: "supported" | "contradicted" }) => (
+  <Stroke weight={2} {...props}>
+    <circle
+      cx="12"
+      cy="12"
+      r="10"
+      strokeWidth={1.75}
+      strokeLinecap="butt"
+      strokeDasharray="3.6 2.683"
+    />
+    {verdict === "supported" ? (
+      <path d="m7.75 12.25 3 3 5.5-6.25" />
+    ) : (
+      <>
+        <path d="M8 10h8" />
+        <path d="M8 14h8" />
+        <path d="m13.75 7-3.5 10" />
+      </>
+    )}
+  </Stroke>
+);
+
 /** A sentence check's mark, as small as a Citation's, for the margin and its card. */
 export function ClaimMarkIcon({
   state,

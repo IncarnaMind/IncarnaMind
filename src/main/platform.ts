@@ -598,6 +598,13 @@ const decisionHostsUrl =
   import.meta.env.MODE === "test" ? process.env.INCARNAMIND_TEST_DECISIONS : undefined;
 
 /**
+ * Test-only launch flag: whether a measured decision model reads checks by default (#3118), "1"
+ * or "0", whatever ships. Only a test build honours it.
+ */
+const decisionReadsByDefault =
+  import.meta.env.MODE === "test" ? process.env.INCARNAMIND_TEST_DECISIONS_BY_DEFAULT : undefined;
+
+/**
  * Test-only launch flag: where Find sources asks its providers (#296), a
  * local server standing in for each provider (OpenAlex, arXiv, PubMed, Crossref, openFDA, DailyMed, ClinicalTrials.gov, the eCFR and GovInfo), each
  * under its own path, so the smoke tests reach none of them. Only a test
@@ -940,6 +947,7 @@ export async function createElectronAdapters(log: Logger): Promise<CoreAdapters>
     ...(decisionHostsUrl && {
       decisionOrigins: Object.fromEntries(DECISION_HOSTS.map((host) => [host, decisionHostsUrl])),
     }),
+    ...(decisionReadsByDefault && { decisionReadsByDefault: decisionReadsByDefault === "1" }),
     ...(referenceLookupUrl && {
       referenceLookup: {
         crossref: referenceLookupUrl,

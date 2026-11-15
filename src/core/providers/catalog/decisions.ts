@@ -285,6 +285,18 @@ export function validAccount(host: DecisionHost, value: string): boolean {
 export const isDecisionModelId = (value: unknown): value is string =>
   typeof value === "string" && /^[A-Za-z0-9~][A-Za-z0-9._:/~@-]{0,199}$/.test(value);
 
+/** A model on a host, as a setting names one. */
+export const isDecisionModelChoice = (
+  value: unknown,
+): value is { host: DecisionHost; modelId: string } =>
+  typeof value === "object" &&
+  value !== null &&
+  Object.keys(value).length === 2 &&
+  "host" in value &&
+  "modelId" in value &&
+  isDecisionHost(value.host) &&
+  isDecisionModelId(value.modelId);
+
 export const decisionModelOf = (host: DecisionHost, modelId: string): DecisionModel | undefined =>
   DECISION_HOST_ENTRIES[host].models.find((model) => model.id === modelId);
 

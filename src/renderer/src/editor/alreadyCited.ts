@@ -3,6 +3,7 @@ import type { CitationAttributes, ClaimCheckPart, QuotedWords } from "../../../c
 import { continuesCitation, overlapsCitation } from "../../../shared/citationOverlap";
 import { parseQuotedWords, type QuotedWordsOnPage, quotedWordsAt } from "../../../shared/citations";
 import { DOESNT_HOLD } from "../../../shared/citedNow";
+import { restsOnPassage } from "../../../shared/claimParts";
 import { citationLocation } from "../../../shared/locations";
 import { type NumberedCitation, numberedCitations } from "./citationNumbers";
 import type { ShownClaim } from "./claimChecks";
@@ -56,8 +57,19 @@ export function citationDecision(
 ): CitationDecision {
   const { evidence, calculation } = claim.check;
   if (!evidence || calculation || ofProperties(evidence)) return { kind: "none" };
-  return decisionFor(state, claim, evidence, onPage);
+  const decision = decisionFor(state, claim, evidence, onPage);
+  return restsOnPassage(claim.check) ? withoutItsLine(decision) : decision;
 }
+
+/**
+ * A Mark that rests on its Passage (#3118) has a line that is no quote a Citation could hold:
+ * nothing that would write it is offered, and a Citation the sentence has on that place is
+ * still named.
+ */
+const withoutItsLine = (decision: CitationDecision): CitationDecision =>
+  decision.kind === "already" || decision.kind === "widen"
+    ? { kind: "already", citation: decision.citation }
+    : { kind: "none" };
 
 /**
  * A file's properties (#2458) and the Library's facts (#2525) are no Passage a Note's Citation
@@ -87,7 +99,10 @@ export function partDecisions(
   if (!backed || part.calculation) return [];
   return part.evidence
     .filter((evidence) => evidence.check === "found" && !ofProperties(evidence))
-    .map((evidence) => ({ evidence, decision: decisionFor(state, claim, evidence, onPage) }));
+    .map((evidence) => {
+      const decision = decisionFor(state, claim, evidence, onPage);
+      return { evidence, decision: part.restsOnPassage ? withoutItsLine(decision) : decision };
+    });
 }
 
 function decisionFor(

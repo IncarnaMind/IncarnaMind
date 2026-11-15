@@ -113,6 +113,7 @@ const QUOTES: readonly DocQuote[] = [
   { page: "data", key: "privacy.skills.body" },
   { page: "data", key: "approvals.card.alwaysAllow" },
   { page: "data", key: "meetings.words.title" },
+  { page: "data", key: "ai.jobs.checks" },
 ];
 
 const rendered = (quote: DocQuote, language: Language): string =>

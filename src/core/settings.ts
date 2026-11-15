@@ -15,6 +15,7 @@ import {
   CALL_HELP_MODELS,
   type CallHelpModel,
   type ChatModelChoice,
+  type CheckDecisionModel,
   CITATION_PLACES,
   type DeviceSettings,
   EXPORT_FORMATS,
@@ -40,6 +41,7 @@ import {
 } from "./api";
 import { InvalidInputError, isRecord } from "./errors";
 import { isLanguagePreference, resolveLanguage } from "./language";
+import { isDecisionModelChoice } from "./providers/catalog/decisions";
 import type { Database } from "./storage";
 
 /**
@@ -279,6 +281,7 @@ const deviceScope: Scope<DeviceSettings> = {
     meetingSystemAudio: true,
     keepMeetingAudio: false,
     transcriptionRoute: null,
+    checkDecisionModel: null,
     modelSource: "auto",
     meetingNoticeAccepted: false,
     meetingPanel: true,
@@ -306,6 +309,8 @@ const deviceScope: Scope<DeviceSettings> = {
     keepMeetingAudio: isBoolean,
     transcriptionRoute: (value): value is TranscriptionRoute | null =>
       value === null || TRANSCRIPTION_ROUTES.some((route) => route === value),
+    checkDecisionModel: (value): value is CheckDecisionModel | "off" | null =>
+      value === null || value === "off" || isDecisionModelChoice(value),
     modelSource: (value): value is ModelSourceChoice =>
       MODEL_SOURCE_CHOICES.some((choice) => choice === value),
     meetingNoticeAccepted: isBoolean,

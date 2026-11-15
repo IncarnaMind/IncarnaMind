@@ -45,6 +45,16 @@ export function figuresMatch(sentence: string, text: string): boolean {
   );
 }
 
+/** A Passage's lines that can be quoted as what its Document says now, each without its Unit mark. */
+export function quotableLines(passage: string): string[] {
+  if (passage.startsWith(UNPLACED_MARK)) return [];
+  return passage
+    .split("\n")
+    .filter((raw) => !SET_ASIDE_LINE.test(raw))
+    .map((raw) => raw.replace(UNIT_MARK, "").trim())
+    .filter((line) => line !== "");
+}
+
 export interface NearestLine {
   /** The id the model was shown the Passage by. */
   id: string;

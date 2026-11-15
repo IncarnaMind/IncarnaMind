@@ -20,6 +20,7 @@ import {
   type SentenceResult,
   sentenceResultOf,
 } from "../../shared/claimChecks";
+import { restsOnPassage } from "../../shared/claimParts";
 import { withoutInertBrackets } from "../../shared/inertBrackets";
 import type { Translate } from "../../shared/locations";
 import { mindScopeOf } from "../../shared/mindScope";
@@ -320,7 +321,12 @@ export function readRecord(sources: RecordSources): {
       result,
       origin,
       says: check.says,
-      evidence: check.evidence ? documentOf(check.evidence, sources) : null,
+      evidence: check.evidence
+        ? {
+            ...documentOf(check.evidence, sources),
+            ...(restsOnPassage(check) && { quote: null }),
+          }
+        : null,
       check:
         result === "notChecked"
           ? null

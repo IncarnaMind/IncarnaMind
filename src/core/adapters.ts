@@ -1310,6 +1310,12 @@ export interface CoreAdapters {
   /** Where each decision model host's requests go (#1907). Defaults to the hosts'; tests use a local fake. */
   decisionOrigins?: Partial<Record<DecisionHost, string>>;
   /**
+   * Whether a measured decision model reads a check's sentences first for a User who hasn't said,
+   * where the check's AI model already runs on its host's service (#3118). Defaults to what ships;
+   * tests and the gate's runs set it.
+   */
+  decisionReadsByDefault?: boolean;
+  /**
    * Where Look up (#286) and checking references ask Crossref's,
    * arXiv's and OpenAlex's APIs. Defaults to theirs; tests point them at a
    * local fake server. Consent still treats the requests as going to each.

@@ -7,12 +7,13 @@ import { settleFigureCheck } from "../../../shared/figureChecks";
  * plan's limit stops the run, and the claims left say why they weren't checked.
  */
 
-import { pendingPart, resultFromParts } from "../../../shared/claimParts";
+import { pendingPart, resultFromParts, withFirstReading } from "../../../shared/claimParts";
 import type {
   ClaimCheckAttributes,
   ClaimCheckFailure,
   ClaimCheckPart,
   ClaimCheckResult,
+  ClaimFirstReading,
   ClaimPartPlan,
   ClaimPartSpan,
   RunStop,
@@ -21,9 +22,10 @@ import type {
 import type { MindContent } from "../../mindContent";
 import type { PreparedChatModel } from "../../providers/chat";
 import type { RecordCitePlace } from "../../recordCites/referents";
-import { asCheckWork } from "../../reranking/order";
+import { asCheckWork, readingPlace } from "../../reranking/order";
 import { type Slots, slots } from "../../runs/stop";
 import type { ClaimCheckRequest } from "./claimCheck";
+import type { DecisionReader, FirstReading } from "./decisionFirst";
 import {
   type CheckRecord,
   type CheckRuns,
@@ -140,6 +142,8 @@ export interface ChecksRun {
   scope: ClaimCheckRequest["scope"];
   searched?: ClaimCheckRequest["searched"];
   prepared: PreparedChatModel;
+  /** Each sentence's reading by the decision model the User chose for checks (`readingsFirst`). */
+  readFirst?: ReadFirst;
   thirdParty?: readonly ThirdPartyReason[];
   signal: AbortSignal;
 }
@@ -189,6 +193,54 @@ function requestKey({ signal: _signal, slots: _slots, model: _model, ...sent }: 
   );
 }
 
+/** A request's reading by a decision model; `hurry` says a check waits for it now. */
+type ReadFirst = (request: ClaimCheckRequest) => {
+  reading: Promise<FirstReading>;
+  hurry(): void;
+};
+
+/**
+ * A run's sentences read by `reader` in front of their checks (#3118). What a request sends is
+ * read once, by whoever asks first: a check started early, or the run, which asks for every
+ * sentence at once. A reading whose request was stopped since is made again, as a check started
+ * early that the run doesn't take is. A reading that fails leaves its sentence to its check.
+ */
+export function readingsFirst(
+  read: (request: ClaimCheckRequest, reader: DecisionReader) => Promise<FirstReading>,
+  reader: DecisionReader,
+  mindId: string,
+): ReadFirst {
+  const made = new Map<string, ReturnType<ReadFirst> & { signal: AbortSignal }>();
+  return (request) => {
+    const key = requestKey(request);
+    const before = made.get(key);
+    if (before && !before.signal.aborted) return before;
+    const { run, hurry } = readingPlace();
+    const reading = run(() => read(request, reader)).catch((error: unknown) => {
+      if (!request.signal.aborted)
+        console.error(`A decision model's reading of a sentence in Note ${mindId} failed:`, error);
+      return null;
+    });
+    const now = { reading, hurry, signal: request.signal };
+    made.set(key, now);
+    return now;
+  };
+}
+
+/** `claimCheck` behind the run's decision model: a sentence its reading marks never reaches the check. */
+function behindReading(
+  { readFirst }: ChecksRun,
+  claimCheck: RunChecksOptions["claimCheck"],
+): RunChecksOptions["claimCheck"] {
+  if (!readFirst) return claimCheck;
+  return async (request) => {
+    const { reading, hurry } = readFirst(request);
+    hurry();
+    const read = await reading;
+    return read && "result" in read ? read.result : claimCheck(request);
+  };
+}
+
 /**
  * Checks started before a run's queue is made, as soon as each claim is known (#2532): a Note's
  * claims are checked while the model is still naming the rest. Only as many start as the run's
@@ -215,6 +267,9 @@ export function earlyChecks(
     taken: (() => void) | null;
   }
   const started = new Map<string, Early[]>();
+  // A check waiting for its sentence's reading has no place yet and takes one once it is read, so
+  // it counts as one taken: else every claim named would start a check (#3118).
+  let beingRead = 0;
   // One the run takes is its claim's own check, recorded by the run; one it doesn't is a claim of
   // its own, recorded here once it ends, when a model replied to it.
   const drop = (early: Early) => {
@@ -230,7 +285,7 @@ export function earlyChecks(
      * choices): it is taken only if that is unchanged. False when no place was free to start it.
      */
     start(claim: QueuedClaim, readNow: () => string): boolean {
-      if (limit.free() === 0) return false;
+      if (limit.free() <= beingRead) return false;
       const stop = new AbortController();
       const heard = heardFrom(run.prepared, () => early.taken?.());
       const request = checkRequestOf(
@@ -240,8 +295,13 @@ export function earlyChecks(
         AbortSignal.any([run.signal, stop.signal]),
       );
       const key = requestKey(request);
+      const reading = run.readFirst?.(request).reading;
+      if (reading) {
+        beingRead++;
+        void reading.then(() => beingRead--);
+      }
       const early: Early = {
-        result: checkClaim(claimCheck, request),
+        result: checkClaim(behindReading(run, claimCheck), request),
         stop,
         read: readNow(),
         readNow,
@@ -318,40 +378,76 @@ export async function runChecks(
   let checked = 0;
   const atOnce = claimsAtOnce(prepared);
   const limit = run.slots ?? slots(atOnce);
+  const requestOf = (claim: QueuedClaim) => checkRequestOf(claim, run, limit, signal);
+  /** What the decision model's reading left a sentence: its Mark, or only what it leans to. */
+  const marked = new Set<QueuedClaim>();
+  const leaning = new Map<QueuedClaim, ClaimFirstReading>();
+  const land = (claim: QueuedClaim, result: ClaimCheckResult) => {
+    const at = options.now().toISOString();
+    const first = leaning.get(claim);
+    const landed = write(claim.id, (each, blocks) => {
+      const mark = options.withResult(
+        each,
+        result,
+        at,
+        blocks,
+        mindId,
+        claim.claim,
+        claim.priorParts,
+        null,
+        claim.previous,
+      );
+      return first ? withFirstReading(mark, first) : mark;
+    });
+    if (landed && result.verdict !== "not-checked") checked++;
+  };
+  const show = (claim: QueuedClaim, read: FirstReading) => {
+    try {
+      if (!read) return;
+      if ("result" in read) {
+        land(claim, read.result);
+        marked.add(claim);
+        return;
+      }
+      leaning.set(claim, read.firstReading);
+      write(claim.id, (each) => withFirstReading(each, read.firstReading));
+    } catch (error) {
+      // The sentence's check lands its Mark, and says so if that can't be written either.
+      console.error(`A decision model's reading for Note ${mindId} couldn't be written:`, error);
+    }
+  };
+  // Every sentence is read at once, not as its check gets a place: a reading shows in seconds.
+  const { readFirst } = run;
+  const readings = new Map(
+    (readFirst ? run.queued : []).flatMap((claim) => {
+      const { reading, hurry } = readFirst?.(requestOf(claim)) ?? {};
+      return reading && hurry
+        ? [[claim, { hurry, shown: reading.then((read) => show(claim, read)) }] as const]
+        : [];
+    }),
+  );
+  const claimCheck = behindReading(run, options.claimCheck);
   const { stop, outcomeError } = await runClaimChecks(
     run.queued,
-    (claim, check) =>
-      check(
-        (request) => checkClaim(options.claimCheck, request),
-        checkRequestOf(claim, run, limit, signal),
-      ),
+    async (claim, check) => {
+      const reading = readings.get(claim);
+      reading?.hurry();
+      await reading?.shown;
+      return check((request) => checkClaim(claimCheck, request), requestOf(claim));
+    },
     {
       ...checkRunOf(options, prepared, signal, mindId),
       concurrency: atOnce,
       onOutcome(claim, outcome) {
-        const at = options.now().toISOString();
-        if (!("result" in outcome)) {
-          const landing = { withResult: options.withResult, mindId, at };
-          write(claim.id, (each, blocks) =>
-            notCheckedMark(each, blocks, landing, outcome.reason, outcome.detail),
-          );
+        if (marked.has(claim)) return;
+        if ("result" in outcome) {
+          land(claim, outcome.result);
           return;
         }
-        const { result } = outcome;
-        const landed = write(claim.id, (each, blocks) =>
-          options.withResult(
-            each,
-            result,
-            at,
-            blocks,
-            mindId,
-            claim.claim,
-            claim.priorParts,
-            null,
-            claim.previous,
-          ),
+        const landing = { withResult: options.withResult, mindId, at: options.now().toISOString() };
+        write(claim.id, (each, blocks) =>
+          notCheckedMark(each, blocks, landing, outcome.reason, outcome.detail),
         );
-        if (landed && result.verdict !== "not-checked") checked++;
       },
     },
   );

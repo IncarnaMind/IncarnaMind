@@ -139,6 +139,7 @@ import {
   type ClaimCheckRequest,
   createClaimCheck,
 } from "./claimCheck";
+import { createFirstReading } from "./decisionFirst";
 import { createFastPaths } from "./fastPaths";
 import { libraryNow } from "./libraryFacts";
 import { createMindCheck, type MindCheckOptions } from "./mindCheck";
@@ -315,7 +316,7 @@ export interface ChecksOptions
   resolveScope(scope: SearchScope, mindId?: string | null): string[] | null;
   /** The Documents a Search scope covers; with none, the User's own (`scopeDocuments`). */
   scopeDocuments(scope: SearchScope | null, mindId: string | null): string[] | null;
-  evidence: Pick<Evidence, "ready" | "scope" | "search">;
+  evidence: Pick<Evidence, "ready" | "scope" | "search" | "best">;
   documents: ClaimCheckDependencies["documents"] &
     MindCheckOptions["documents"] &
     Pick<RecordCiteSource, "batesHolders"> & {
@@ -351,6 +352,7 @@ export interface ChecksOptions
   documentCheckProgress(event: DocumentCheckProgress): void;
   /** A Check this Note run's sentences checked before it marks them. */
   checkingEarly(event: MindCheckEarly): void;
+  decision?: MindCheckOptions["decision"];
   /** How far the check of what the assistant wrote is (./written). */
   writtenProgress: WrittenCheckOptions["progress"];
   engine: AnswerEngine;
@@ -1727,6 +1729,7 @@ export function createChecks(options: ChecksOptions) {
     recordUnread,
     isRunning: (requestId) => running.has(requestId),
     claimCheck,
+    firstReading: createFirstReading(options),
     withResult: noteResult,
     retainEvidence,
     settleStopped,

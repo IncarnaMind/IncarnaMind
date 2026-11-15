@@ -80,6 +80,7 @@ import { createAnnotations } from "./annotations";
 import { createAiSdkAnswerEngine, createAnswers } from "./answers";
 import { createAskedChanges } from "./answers/applyAsked";
 import { createChecks } from "./answers/checks";
+import { createDecisionChoice } from "./answers/checks/decisionChoice";
 import { tableCellFigurePlaces } from "./answers/checks/figureOccurrences";
 import { type LibraryListing, linkedFolderName } from "./answers/checks/libraryFacts";
 import { CLAIM_TIME_LIMIT_MS } from "./answers/checks/runCheck";
@@ -115,6 +116,7 @@ import {
   type CallHelpKind,
   type ChatModelChoice,
   type ChatProviderKind,
+  type CheckDecisionModel,
   type CheckRecordFailure,
   type CheckRecordFormat,
   type CitationAttributes,
@@ -1931,6 +1933,7 @@ export function createCore(adapters: CoreAdapters): Core {
         ...options,
         rerank: timedRerank(adapters.reranker ?? rerank.active()),
       }),
+    best: (query, limit, documentIds) => documents.bestPassages(query, limit, documentIds),
   });
 
   // Web search through the Answer's model's provider (#128): asked for once per provider, as
@@ -3131,6 +3134,7 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     documentCheckProgress: (event) => events.emit("documentCheck.progress", event),
     checkingEarly: (event) => events.emit("mindCheck.early", event),
+    decision: (service) => decisionChoice.reader(service),
     writtenProgress: (event) => events.emit("writtenCheck.progress", event),
     now: () => adapters.now?.() ?? new Date(),
   });
@@ -3497,6 +3501,16 @@ export function createCore(adapters: CoreAdapters): Core {
     localOnly: () => embedding.localOnly(),
     signal: lifetime.signal,
     ...(adapters.decisionOrigins && { origins: adapters.decisionOrigins }),
+  });
+  const decisionChoice = createDecisionChoice({
+    chosen: () => settings.get().device.checkDecisionModel,
+    hosts: decisionHosts,
+    consent,
+    localOnly: () => embedding.localOnly(),
+    checksService: () => chat.defaultService(),
+    ...(adapters.decisionReadsByDefault !== undefined && {
+      readsByDefault: adapters.decisionReadsByDefault,
+    }),
   });
   // Tagging on a plan goes gently, and waits while the plan's limit holds.
   const planPaceFor = (plan: Plan) =>
@@ -4263,6 +4277,14 @@ export function createCore(adapters: CoreAdapters): Core {
   };
   let lastAutomatic = library.settings().automatic;
 
+  /** What the decision model for checks was set to when Settings › Privacy turned it off, for Undo. */
+  let checkDecisionTakenBack: { at: string; was: CheckDecisionModel | null } | null = null;
+  /** The model chosen for checks goes with its host's key: the AI model checks every sentence again. */
+  const checkDecisionKeyGone = (hosts: readonly DecisionHost[]) => {
+    const chosen = settings.get().device.checkDecisionModel;
+    if (chosen !== null && chosen !== "off" && hosts.includes(chosen.host))
+      events.emit("settings.changed", settings.update({ device: { checkDecisionModel: null } }));
+  };
   /** A decision model host's key or account was kept or forgotten: say so, and Documents waiting may go on. */
   const decisionsChanged = async (hosts: DecisionHostStatus[]) => {
     if (lifetime.signal.aborted) return hosts;
@@ -6036,11 +6058,22 @@ export function createCore(adapters: CoreAdapters): Core {
           change = { ...patch, user };
         }
       }
-      const route =
-        isRecord(patch) && isRecord(patch.device) ? patch.device.transcriptionRoute : undefined;
+      const device = isRecord(patch) && isRecord(patch.device) ? patch.device : {};
+      const route = device.transcriptionRoute;
       if (route !== undefined) await cloudTranscription.check(route);
+      const choosesDecision = device.checkDecisionModel !== undefined;
+      if (choosesDecision) await decisionChoice.check(device.checkDecisionModel);
       const languageWas = settings.get().language;
-      const updated = settings.update(change);
+      let updated = settings.update(change);
+      // Choosing a decision model for checks where its line says what goes to its host is the consent.
+      if (choosesDecision) {
+        // An Undo of an earlier turn-off in Privacy never brings back a choice changed since.
+        checkDecisionTakenBack = null;
+        await decisionChoice.chose(updated.device.checkDecisionModel);
+        await dataFlowsChanged();
+        // Another change may have been saved while this waited: what is told is what is kept now.
+        updated = settings.get();
+      }
       // Choosing a cloud service where its line says meeting audio goes to it is the consent (ADR-0022).
       let dropped = Promise.resolve();
       if (route !== undefined) {
@@ -6555,6 +6588,7 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     deleteChatProvider: async (id) => {
       const riding = await hostsOnKeyOf(id);
+      checkDecisionKeyGone(riding);
       const forgot = await stopSortingWith(
         (classifier) =>
           (classifier.kind === "decision" && riding.includes(classifier.host)) ||
@@ -6812,7 +6846,16 @@ export function createCore(adapters: CoreAdapters): Core {
       await readinessChanged();
     },
     revokeConsent: async (flowId, serviceId) => {
-      const revokedAt = consent.revoke(flowId, serviceId);
+      let revokedAt = consent.revoke(flowId, serviceId);
+      // Taken back here, the decision model for checks is off: where it reads by default, a
+      // later check would otherwise put it back. One that hadn't read yet has no decision to
+      // forget, and Undo still turns it on again.
+      const was = settings.get().device.checkDecisionModel;
+      if (flowId === "decision-checks" && was !== "off") {
+        settings.update({ device: { checkDecisionModel: "off" } });
+        revokedAt ??= now();
+        checkDecisionTakenBack = { at: revokedAt, was };
+      }
       connectors.consentChanged();
       if (typeof flowId === "string" && typeof serviceId === "string") {
         cloudTranscription.revoked(flowId, serviceId);
@@ -6825,6 +6868,12 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     restoreConsent: async (flowId, serviceId, revokedAt) => {
       consent.restore(flowId, serviceId, revokedAt);
+      if (
+        flowId === "decision-checks" &&
+        checkDecisionTakenBack?.at === revokedAt &&
+        settings.get().device.checkDecisionModel === "off"
+      )
+        settings.update({ device: { checkDecisionModel: checkDecisionTakenBack.was } });
       // Undo may bring back the choice that let embeddings run: Documents waiting carry on.
       if (flowId === "embeddings") embedding.retry();
       connectors.consentChanged();
@@ -7212,8 +7261,10 @@ export function createCore(adapters: CoreAdapters): Core {
       await stopSortingWith(
         (classifier) => classifier.kind === "decision" && classifier.host === host,
       );
+      checkDecisionKeyGone([host]);
       return decisionsChanged(await decisionHosts.removeKey(host));
     },
+    getCheckDecision: () => decisionChoice.status(),
 
     listConnectors: async () => connectors.list(),
     addConnector: async (input) => {

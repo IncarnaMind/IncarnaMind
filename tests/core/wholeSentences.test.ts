@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { wholeSentences } from "../../src/core/answers/wholeSentences";
+import { sentencesOfLines, wholeSentences } from "../../src/core/answers/wholeSentences";
 import type { PageText } from "../../src/core/documents/passages";
 
 /** A found quote shown as the whole sentence of its Units that holds it (#2739). */
@@ -235,5 +235,55 @@ describe("a found quote's whole sentence", () => {
 
     const sheet: PageText[] = [{ page: 1, kind: "rows", text: "Region\tQ1\nWest\t350,200" }];
     expect(wholeSentences(sheet, "West")).toBe("West");
+  });
+});
+
+describe("the sentences a Passage's lines hold", () => {
+  const lines = (units: PageText[]) => units.flatMap((unit) => unit.text.split("\n"));
+  const sentences = (units: PageText[]) => sentencesOfLines(lines(units), units);
+
+  // protects=a PDF's printed lines are read as the sentences they print, so a quote is never the half of a sentence a line holds, and a line that ends one sentence and starts the next gives both whole; fails_when=a printed line comes back as it is, or two sentences come back as one; no_claim=which sentence a model then picks.
+  test("joins a PDF's wrapped lines into whole sentences", () => {
+    const units = page(
+      "The agreement was signed by the Velmora Republic and the Tarsk Federation under the Corvel on 22",
+      "July 2022, and the Corvel set up a joint centre in the port of Almer. The corridor carried grain",
+      "and fertiliser, and it stayed open until the very end of the year.",
+    );
+
+    expect(sentences(units)).toEqual([
+      "The agreement was signed by the Velmora Republic and the Tarsk Federation under the Corvel on 22 July 2022, and the Corvel set up a joint centre in the port of Almer.",
+      "The corridor carried grain and fertiliser, and it stayed open until the very end of the year.",
+    ]);
+  });
+
+  // protects=a paragraph that is one line is quoted by the sentence, in English and in Chinese; fails_when=the whole paragraph is one quote; no_claim=how a sentence that quotes another is split, which the sentence splitter's own tests cover.
+  test("splits a paragraph's line at its sentences' ends", () => {
+    expect(
+      sentences(
+        section("Spring tides come at new and full moon. Neap tides come at the quarter moons."),
+      ),
+    ).toEqual(["Spring tides come at new and full moon.", "Neap tides come at the quarter moons."]);
+    expect(sentences(section("大潮出现在新月和满月。小潮出现在上弦月和下弦月。"))).toEqual([
+      "大潮出现在新月和满月。",
+      "小潮出现在上弦月和下弦月。",
+    ]);
+  });
+
+  // protects=a line the page ended on purpose is quoted as it stands: a heading, a table's row of figures, a table's row with its cells, and every row of a sheet; fails_when=a row is cut into its cells or its sentences, a heading runs into the sentence below it, or a row of figures runs into the text below; no_claim=that every table a PDF prints is recognised.
+  test("keeps a heading, a table's row and a sheet's row as one line each", () => {
+    const report = page(
+      "Section 4 Liability of the supplier for loss or damage arising from late delivery",
+      "Revenue (£m) 2021 1,234.5 2022 1,301.2 2023 1,402.9 2024 1,455.0 2025 1,482.6",
+      "In 2025 revenue grew strongly, and operating profit rose with it to a record level.",
+    );
+    expect(sentences(report)).toEqual(lines(report));
+
+    const cells = section("4.2 Delivery\tThe supplier must deliver. Late delivery is a breach.");
+    expect(sentences(cells)).toEqual(lines(cells));
+
+    const sheet: PageText[] = [
+      { page: 1, kind: "rows", text: "North. South.\t12\nEast. West.\t9" },
+    ];
+    expect(sentences(sheet)).toEqual(lines(sheet));
   });
 });

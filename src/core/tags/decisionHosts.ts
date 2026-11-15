@@ -11,6 +11,7 @@
  */
 import type {
   CloudReadPermit,
+  DataFlowId,
   DecisionHostStatus,
   ExternalService,
   SetDecisionKeyInput,
@@ -32,7 +33,7 @@ import {
   isDecisionModelId,
   validAccount,
 } from "../providers/catalog/decisions";
-import { askJev, JevRequestError } from "../providers/jev";
+import { type AskJevInput, askJev, JevRequestError } from "../providers/jev";
 import { classifyProviderError } from "../providers/providerErrors";
 import { redactMessage } from "../redact";
 import type { Secrets } from "../secrets";
@@ -419,6 +420,36 @@ export function createDecisionHosts(options: DecisionHostsOptions) {
           return { decisions: decisionsFromProbabilities(tags, probabilities, band), newTags: [] };
         },
       };
+    },
+
+    /**
+     * A model on a host to ask on `flow`, which the User allows where they choose the model.
+     * Throws TaggingNotReadyError while the host can't take a request; a request throws what the
+     * send gate does when the flow may not go to the host now.
+     */
+    async asker(
+      host: DecisionHost,
+      modelId: string,
+      flow: DataFlowId,
+      limits: Pick<AskJevInput, "retries" | "timeoutMs">,
+    ) {
+      const { apiKey, endpoint, service } = await connection(host, modelId);
+      return (
+        state: AskJevInput["state"],
+        questions: AskJevInput["questions"],
+        stop: AbortSignal,
+      ) =>
+        askJev({
+          beforeSend: () => gate.check(flow, service),
+          baseUrl: endpoint.url,
+          endpoint,
+          apiKey,
+          model: modelId,
+          state,
+          questions,
+          signal: AbortSignal.any([stop, signal]),
+          ...limits,
+        });
     },
 
     /** A model on a host for Organize, with the Library's own consent or a run's permit. */

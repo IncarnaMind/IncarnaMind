@@ -33,6 +33,7 @@ export type SettingsTarget =
   | "calendars"
   | "background"
   | "call-offers"
+  | "check-decision"
   | SignInRoute;
 
 export const offeredSettingsPages: readonly SettingsPage[] = settingsPages.filter(

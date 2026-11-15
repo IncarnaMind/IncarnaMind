@@ -31,6 +31,14 @@ describe("modelName", () => {
     expect(modelName("glm-4.7-flash", { kind: "ollama" })).toBe("GLM 4.7 Flash");
   });
 
+  // protects=a check's Mark names the decision model that gave its verdict or first reading as the picker names it, "Decider v1.2", not by its id (#3118); fails_when=a card's foot or a first reading's line shows "perplexity/pplx-decider-v1.2".
+  test("names a decision model as its host's list does, with or without the provider", () => {
+    expect(modelName("perplexity/pplx-decider-v1.2")).toBe("Decider v1.2");
+    expect(modelName("perplexity/pplx-decider-v1.2", { kind: "openrouter" })).toBe("Decider v1.2");
+    expect(modelName("pplx-decider-v1.2")).toBe("Decider v1.2");
+    expect(modelName("typesafe/jev-1.14")).toBe("Jev 1.14");
+  });
+
   test("falls back to the id for an id nothing names, an Ollama tag included", () => {
     expect(modelName("gpt-oss:20b-cloud", { kind: "ollama" })).toBe("gpt-oss:20b-cloud");
     expect(modelName("gpt-oss:20b-cloud")).toBe("gpt-oss:20b-cloud");

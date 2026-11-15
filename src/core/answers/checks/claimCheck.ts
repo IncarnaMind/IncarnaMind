@@ -175,7 +175,7 @@ export type AtomicClaimCheckResult = ClaimCheckResult & {
  * Where `line` stands in `units`, from only the Units it covers: a page range never spans the whole
  * Document (#2226).
  */
-function lineLocation(
+export function lineLocation(
   units: ReturnType<ClaimCheckDependencies["documents"]["pageTexts"]>,
   line: string,
   matching: ReturnType<typeof matchingOf>,
