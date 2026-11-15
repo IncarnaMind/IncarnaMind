@@ -1461,6 +1461,7 @@ export function ClaimCard({
       fix={fixOf(row)}
       drawsFix={drawsFix}
       signedAll={signedAll}
+      readApart
       onOpen={onOpen}
       working={(partCalculation) => <Working calculation={partCalculation} onOpen={onOpen} />}
       citations={partCitations}

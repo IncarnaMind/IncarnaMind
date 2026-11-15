@@ -1,7 +1,7 @@
 import type { Editor } from "@tiptap/core";
 import type { EditorState } from "@tiptap/pm/state";
 import type { ReactNode } from "react";
-import { useContext } from "react";
+import { useContext, useId } from "react";
 import type {
   CitationAttributes,
   ClaimCalculation,
@@ -449,6 +449,7 @@ export function PartBlock({
   fix,
   drawsFix,
   signedAll = false,
+  readApart = false,
   onOpen,
   working,
   citations,
@@ -472,6 +473,8 @@ export function PartBlock({
   drawsFix: boolean;
   /** The card's one "Checked by me" stands for every quote: a quote doesn't repeat it. */
   signedAll?: boolean;
+  /** The card reads every part to a screen reader in a list of its own, so the row isn't read too. */
+  readApart?: boolean;
   onOpen(): void;
   working?(calculation: ClaimCalculation): ReactNode;
   citations?: PartCitations;
@@ -492,6 +495,14 @@ export function PartBlock({
         : null;
   const reason = partReason(t, language, row, { stale, lookedIn, read });
   const named = row.label ?? (row.place === null ? row.words : null);
+  const wordsId = useId();
+  const reasonId = useId();
+  // Words the sentence marks aren't written again; a screen reader still hears whose reason it is.
+  const heardWords = !readApart && named === null;
+  const shownReason = named !== null || Boolean(reason);
+  const describedBy =
+    [heardWords ? wordsId : null, shownReason ? reasonId : null].filter(Boolean).join(" ") ||
+    undefined;
   const held =
     part.citedCaseFound &&
     (part.verdict === "supported" ||
@@ -517,8 +528,18 @@ export function PartBlock({
       data-fold={row.fold ?? undefined}
       {...menu.rowProps}
     >
-      {(named !== null || reason) && (
-        <p className="claim-part-reason" data-testid="claim-part-reason" aria-hidden="true">
+      {heardWords && (
+        <span id={wordsId} className="sr-only">
+          {t("claim.sentence", { sentence: row.words })}
+        </span>
+      )}
+      {shownReason && (
+        <p
+          id={reasonId}
+          className="claim-part-reason"
+          data-testid="claim-part-reason"
+          aria-hidden={readApart || undefined}
+        >
           {named !== null && (
             <span className="claim-part-words">{t("claim.sentence", { sentence: named })}</span>
           )}
@@ -586,6 +607,7 @@ export function PartBlock({
             type="button"
             data-testid={fix.testId}
             className={`citation-card-action ${fix.primary ? "citation-card-action--primary" : ""}`}
+            aria-describedby={describedBy}
             disabled={fix.disabled}
             onClick={fix.onClick}
           >

@@ -7,14 +7,35 @@
  */
 import { Editor, type JSONContent } from "@tiptap/core";
 import { DOMParser } from "linkedom";
-import { act, type ComponentType, createElement } from "react";
+import { act, type ComponentType, createElement, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import * as Y from "yjs";
 import type { CitationAttributes, ClaimCheckAttributes, ClaimCheckPart } from "../../src/core/api";
 import type { Language } from "../../src/core/language";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
 import { checkWithParts } from "../../src/shared/claimParts";
 import { type MessageKey, type MessageParams, translate } from "../../src/shared/i18n";
+import { writeOpinionSentences } from "../../src/shared/opinions";
+
+// The opinion card sits in a native popover in the top layer, placed by layout: this document has
+// neither, so the card is drawn in a plain dialog with its name.
+vi.mock("../../src/renderer/src/editor/Popover", async (importOriginal) => {
+  const original = (await importOriginal()) as Record<string, unknown>;
+  const { createElement: element } = await import("react");
+  return {
+    ...original,
+    Popover: ({
+      children,
+      "aria-label": label,
+      "data-testid": testId,
+    }: {
+      children: ReactNode;
+      "aria-label"?: string;
+      "data-testid"?: string;
+    }) => element("div", { role: "dialog", "aria-label": label, "data-testid": testId }, children),
+  };
+});
 
 const FIRST = "Spring tides come twice a month";
 const SECOND = "neaps fall between them";
@@ -362,5 +383,66 @@ describe.each([
     await card(example.language, check());
     expect(folded()?.textContent).toBe(example.now);
     expect(folded()?.querySelector(".claim-fold-icon")).not.toBeNull();
+  });
+});
+
+describe.each(["en", "zh-CN"] as const)("an opinion card's parts (%s)", (language) => {
+  const t = (key: MessageKey, params?: MessageParams) => translate(language, key, params);
+  // protects=an opinion card, which has no list of its parts for a screen reader of its own, lets one hear each part's words and reason, and tells its Check anyway buttons apart by their part (#2869); fails_when=a part's reason is hidden from a screen reader, or two Check anyway buttons say nothing of which part each is for; no_claim=what the check card reads, which lists its parts apart.
+  test("each part's words and reason are read, and each Check anyway says which part it checks", async () => {
+    const { useAppStore } = await import("../../src/renderer/src/store");
+    useAppStore.setState({ settings: { language, user: { personId: "person" } } } as never);
+    const { useChecks } = await import("../../src/renderer/src/checks");
+    useChecks.setState({ openClaim: { mind: "opinion" } });
+    const opinion = (words: string) => part(words, { kind: "opinion", verdict: null });
+    const doc = new Y.Doc();
+    writeOpinionSentences(doc, [
+      {
+        id: "opinion",
+        blockId: "p",
+        text: SENTENCE,
+        occurrence: 0,
+        parts: [opinion(FIRST), opinion(SECOND)],
+      },
+    ]);
+    editor = new Editor({
+      element: globalThis.document.createElement("div"),
+      extensions: noteExtensions(),
+      content: {
+        type: "doc",
+        content: [
+          { type: "paragraph", attrs: { id: "p" }, content: [{ type: "text", text: SENTENCE }] },
+        ],
+      },
+    });
+    const cardPath = "../../src/renderer/src/editor/OpinionCard.tsx";
+    const { OpinionCard }: { OpinionCard: ComponentType<Record<string, unknown>> } = await import(
+      cardPath
+    );
+    await act(() => root?.render(createElement(OpinionCard, { editor, mindId: "mind", doc })));
+    const page = globalThis.document;
+    const dialog = page.querySelector('[role="dialog"]');
+    const anyway = [...(dialog?.querySelectorAll("button") ?? [])].filter(
+      (button) => button.textContent === t("claim.checkAnyway"),
+    );
+    expect(anyway).toHaveLength(2);
+    const describedBy = (button: Element) =>
+      (button.getAttribute("aria-describedby") ?? "")
+        .split(/\s+/)
+        .filter(Boolean)
+        .map((id) => page.getElementById(id));
+    const description = (button: Element) =>
+      describedBy(button)
+        .map((element) => element?.textContent ?? "")
+        .join(" ");
+    expect(anyway.map(description)).toEqual(
+      [FIRST, SECOND].map(
+        (words) => `${t("claim.sentence", { sentence: words })} ${t("claim.opinion")}`,
+      ),
+    );
+    for (const element of anyway.flatMap(describedBy)) {
+      expect(element).not.toBeNull();
+      expect(element?.closest('[aria-hidden="true"]')).toBeNull();
+    }
   });
 });
