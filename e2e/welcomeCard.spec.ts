@@ -1126,7 +1126,11 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(window.getByTestId("claim-card")).toBeVisible();
     expect(await gettingStarted(window)).toMatchObject({ mistakeSeen: true });
     await expect(citation).toHaveAttribute("data-state", "open");
+    // Esc goes back to the mark, and a second Esc closes its card (#3102).
     await window.keyboard.press("Escape");
+    await expect(mark).toBeFocused();
+    await window.keyboard.press("Escape");
+    await expect(window.getByTestId("claim-card")).toHaveCount(0);
 
     const chip = window.getByTestId("mind-pane").getByTestId("citation-chip").first();
     await expect(chip).toHaveAttribute("data-check", "found", { timeout: 20_000 });
