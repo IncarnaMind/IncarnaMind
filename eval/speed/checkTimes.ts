@@ -366,6 +366,8 @@ export interface FlowTimes {
   /** For a Note's check: whether the Documents state each sentence, by its index. */
   stated?: boolean[];
   spentUsd: number;
+  /** With a decision model reading first: the requests its host answered in this run. */
+  decisionRequests?: number;
 }
 
 const s = (ms: number | null | undefined) =>
