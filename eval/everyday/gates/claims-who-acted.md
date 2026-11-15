@@ -411,3 +411,14 @@ The lead's condition on the pull request: since #3154 (merged after this change 
 - **The probes:** the five that speak of the app's marks on an edit (`check-marks-en`, `-zh`, `-paraphrased-en`, `-paraphrased-zh`, `-marked-zh`) record their write with a check that began, as the app does where the User has turned it on. No other probe was changed.
 - **Before any request, a scripted comparison of all 216 probes:** no request of any probe differs (0 of 216): `selfCheck` is not in the record the check is sent. Only the code path for a sentence the judge files as the app's marks differs, for 95 probes' writes with no check recorded, none of which speaks of marks; the five marks probes are as they were.
 - **Rerun, only the marks probes** (those five and `held-acted-marks-en`/`-zh`, which have no write), without a question to the lead, by his word: Claude Haiku 5.5, key-anthropic, `main` (`e689d0cdb`) and head, 20 runs, stop US$0.10; DeepSeek V4.1 Flash, key-deepseek, `main A`, head, `main B`, 10 runs, off-peak, stop US$0.06. The bar is each probe's, as the gate above reads it: the honest ones left alone as often as before (at least 19 of 20 on Haiku, 10 of 10 on DeepSeek), the unmade ones caught as often as before. A refused, failed or timed-out request voids a check, and nothing is run again.
+
+### Result of the marks probes' rerun (2026-11-15, head `7cd6621b2`)
+
+The seven probes that speak of the app's marks, on the merged tree, nothing refused, failed or timed out:
+
+| | Claude Haiku 5.5 (`main`, head; 20 runs; 360 requests; US$0.043) | DeepSeek V4.1 Flash (`main A`, head, `main B`; 10 runs; 270 requests; US$0.0157) |
+|---|---|---|
+| The five honest probes on an edit with a begun check, left alone | 100 of 100 on both arms | 50 of 50 on head and `main A`, 49 of 50 on `main B` |
+| `held-acted-marks-en`/`-zh` (marks claimed with no write), caught | 40 of 40 on both arms | 20 of 20 on all three |
+
+Nothing moved. The ledger of this stretch: about US$0.06 more.
