@@ -1682,6 +1682,52 @@ describe("A regenerate that never starts (#1325)", () => {
       open: false,
     });
   });
+
+  /** The Answer ended by a Stop: what the core writes last, with no changes. */
+  const stopped = (id: string): ConversationAnswer => ({
+    ...conversationWithChange(applicationWithChange(false).application),
+    id,
+    toolCalls: [],
+    status: "stopped",
+  });
+
+  // Value: protects=a regenerate that doesn't start leaves nothing held on what the Answer says next (#3123's hold on messages that aren't streaming); fails_when=a regenerate the core refuses or that throws keeps the hold, so the Answer, asked again later, never finishes in this window; why_new=Use all holds the Answer's messages until the core says it began again; seam=regenerateAnswer failing, then the Answer asked for again and ended; no_claim=how the later ask is made.
+  test.each([
+    {
+      how: "refuses",
+      core: async () => refused,
+    },
+    {
+      how: "throws",
+      core: async (): Promise<ConversationAskResult> => {
+        throw new Error("The core is gone.");
+      },
+    },
+  ])(
+    "a core that $how Use all leaves no hold on the Answer's next messages (#3123)",
+    async ({ core: regenerateCore }) => {
+      const { regenerateAnswer, useAskedChanges } = await regenerate(regenerateCore);
+      const { applyWhatIsAsked } = await import("../../src/renderer/src/askedChanges");
+
+      await regenerateAnswer("answer-1", { clearScope: true });
+      applyWhatIsAsked("answer-1", null);
+      emitConversation(stopped("answer-1"));
+
+      await eventually(() => (useAskedChanges.getState().arriving.has("answer-1") ? null : true));
+    },
+  );
+
+  // Value: protects=an Answer the core began again, but whose streaming message this window never heard, as when Stop comes first, still finishes; fails_when=the hold waits for a message that never comes, so the Stop is ignored and the Answer stays arriving; why_new=Use all holds the Answer's messages until the core says it began again, or answers that it did; seam=regenerateAnswer answered, then the Answer's end; no_claim=the core's own order of events.
+  test("an Answer the core began again finishes at its end though no restart message was heard (#3123)", async () => {
+    const { regenerateAnswer, useAskedChanges } = await regenerate(async () =>
+      askedAs(stopped("answer-1")),
+    );
+
+    await regenerateAnswer("answer-1", { clearScope: true });
+    emitConversation(stopped("answer-1"));
+
+    await eventually(() => (useAskedChanges.getState().arriving.has("answer-1") ? null : true));
+  });
 });
 
 /**
