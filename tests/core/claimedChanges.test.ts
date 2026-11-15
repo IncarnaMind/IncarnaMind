@@ -334,9 +334,7 @@ describe("What the record tells the check of a part and a rewrite (#2769)", () =
     expect(prompt.split(UNCHANGED)).toHaveLength(3);
     expect(prompt).toContain(`\\"nothingChangedIn\\": \\"${failed}\\"`);
     expect(prompt).not.toContain(`\\"nothingChangedIn\\": \\"${other}\\"`);
-    // The part an applied change was made in is named; a failed one's is named only as unchanged.
-    expect(prompt).toContain(`\\"part\\": \\"${other}\\"`);
-    expect(prompt).not.toContain(`\\"part\\": \\"${failed}\\"`);
+    expect(prompt).not.toContain('\\"part\\"');
 
     const later = await recordRead([
       partCall("a", failed, null),

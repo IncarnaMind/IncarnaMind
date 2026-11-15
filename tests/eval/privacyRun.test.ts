@@ -14,7 +14,8 @@ const PROBES = IDS.map((id) => {
   return probe;
 });
 const ARMS = ["main", "branch", "nosentences"].map((name) => ({ name, check: unbackedClaims }));
-const dollarsOf = (input: number, output: number) => (input + output) / 1000;
+const dollarsOf = (input: number, output: number, cached = 0) =>
+  (input - cached + cached / 100 + output) / 1000;
 
 /** A judge that flags a reply that says it deleted something, and answers the second question "no". */
 const judge = (fail: (nth: number) => boolean = () => false) => {
@@ -127,6 +128,40 @@ describe("The run of the gate's three arms", () => {
     expect(failed[0]?.flagged).toBe(false);
     expect(rows.filter((row) => row.counted)).toHaveLength(rows.length - 1);
     expect(meter.requests).toBeGreaterThan(rows.length - 1);
+  });
+
+  test("a request the provider read from its cache is counted at the cache's price toward the stop", async () => {
+    const cached = scriptedModel(() => ({ text: "" }), {
+      usage: {
+        inputTokens: { total: 1000, noCache: 100, cacheRead: 900, cacheWrite: undefined },
+        outputTokens: { total: 1, text: 1, reasoning: undefined },
+      },
+      generate: (call) => ({
+        text:
+          call.question === "request-done"
+            ? '{"asks_change":"no","request":"none"}'
+            : '{"claims":[]}',
+        usage: {
+          inputTokens: { total: 1000, noCache: 100, cacheRead: 900, cacheWrite: undefined },
+          outputTokens: { total: 1, text: 1, reasoning: undefined },
+        },
+      }),
+    });
+    const meter = newMeter();
+
+    const { rows, stopped } = await runArms({
+      arms: ARMS,
+      probes: PROBES,
+      runs: 1,
+      stop: 5,
+      model: cached,
+      meter,
+      dollarsOf,
+    });
+
+    expect(meter.cacheReadTokens).toBe(meter.requests * 900);
+    expect(stopped).toBeNull();
+    expect(rows).toHaveLength(PROBES.length * ARMS.length);
   });
 
   test("it stops, and says so, when the spend reaches the stop", async () => {

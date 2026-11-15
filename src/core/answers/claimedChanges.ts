@@ -599,8 +599,9 @@ function recordOf(
           proposals: change.proposals,
           // An add leaves `changed` unset, and carries what it wrote as `paragraphs`: said in an edit's terms, it isn't a change of nothing (#2969).
           changed: change.changed ?? (call.tool === "add_to_mind" ? (change.paragraphs ?? 0) : 0),
-          ...(part !== null && { part }),
-          ...(change.touched && { touched: change.touched }),
+          // The part goes with the counts that say what the call did there, and with the rule that
+          // reads both: told alone, it moved the verdicts of records that hold neither (#2769).
+          ...(change.touched && { ...(part !== null && { part }), touched: change.touched }),
           paragraphs: change.paragraphs ?? 0,
           tables: change.tables ?? 0,
           charts: change.charts ?? 0,
