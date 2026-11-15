@@ -3561,6 +3561,7 @@ export const zhCN = {
   "privacy.flows.stoppedFlow": "已停止允许 {service} 用于“{flow}”",
   "privacy.flows.byDefault.unused": "随发往 {service} 的核对一并开启 · 尚未使用",
   "privacy.flows.byDefault.since": "随发往 {service} 的核对一并开启，始于{date}",
+  "privacy.flows.maker": "{model} 是 {maker} 的模型：{service} 会把这些内容转交给 {maker}",
   "privacy.flows.turnOff": "关闭",
   "privacy.flows.turnOffFlow": "关闭“{flow}”",
   "privacy.flows.turnedOff": "已关闭“{flow}”",
@@ -3813,10 +3814,15 @@ export const zhCN = {
   "ai.jobs.quick": "快速任务",
   "ai.jobs.quick.line": "标题、标签建议、搜索用词、引文和核对回答",
   "ai.jobs.checks": "核对句子",
-  "ai.jobs.checks.line": "{model} 先读每个句子",
+  "ai.jobs.checks.line": "{model} 对每个句子的初步判断",
   "ai.jobs.checks.tip":
     "{model} 快速给出每句的初步判断，有把握的直接给出结论，其余由你的 AI 模型核对。",
-  "ai.jobs.checks.sends": "核对会把笔记内容，以及为它找到或它引用的文档段落发送给 {host}",
+  "ai.jobs.checks.maker.tip":
+    "{tip}{model} 是 {maker} 的模型：{host} 会把它读到的内容转交给 {maker}。",
+  "ai.jobs.checks.sends":
+    "开启后，每次核对都会把笔记内容，以及为它找到或它引用的文档段落发送给 {host}",
+  "ai.jobs.checks.sendsByDefault":
+    "随发往 {host} 的核对一并开启：这些核对本来就会把笔记内容，以及为它找到或它引用的文档段落发送到那里",
   "ai.jobs.checks.noKey": "需要 {host} 的密钥",
   "ai.jobs.checks.addKey": "添加密钥…",
   "checkFaster.line": "用 {model} 更快核对",

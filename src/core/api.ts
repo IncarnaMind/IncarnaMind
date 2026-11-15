@@ -3568,9 +3568,12 @@ export interface CheckDecisionStatus {
   model: CheckDecisionModel & { name: string };
   /** The host its requests go to, as the User reads it. */
   hostName: Localized;
+  /** The company whose model it is, where the host passes its requests on to another's; else null. */
+  maker: string | null;
   /**
-   * "chosen": it reads every check, because the User turned it on. "default": it reads the checks
-   * whose AI model already runs on its host's service, because they haven't said. Null: it reads none.
+   * "chosen": it reads every check, because the User turned it on. "default": the User hasn't
+   * said, their own AI model for checks runs on its host's service, and it reads the checks that
+   * go there; a Note checked with a model elsewhere is not read. Null: it reads none.
    */
   reads: "chosen" | "default" | null;
   /** Why it can't read or be turned on now: Local mode, or its host has no key here. */

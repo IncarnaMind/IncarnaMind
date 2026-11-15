@@ -41,6 +41,7 @@ const { CheckFasterLine } = (await import(linePath)) as {
 const READY: CheckDecisionStatus = {
   model: { host: "openrouter", modelId: "perplexity/pplx-decider-v1.2", name: "Decider v1.2" },
   hostName: { en: "OpenRouter", zh: "OpenRouter" },
+  maker: "Perplexity",
   reads: null,
   blocked: null,
 };

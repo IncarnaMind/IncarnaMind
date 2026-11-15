@@ -107,8 +107,9 @@ const CONSENT_FACTS = [
   "setup.sorting.chatHere",
   "setup.sorting.sends",
   "setup.sorting.sendsWhenOn",
-  // What a check sends to the decision model's host, where its switch is turned on (#3118).
+  // What a check sends to the decision model's host, where its switch is turned on or it is on by default (#3118).
   "ai.jobs.checks.sends",
+  "ai.jobs.checks.sendsByDefault",
 ];
 
 describe("The Settings pages", () => {

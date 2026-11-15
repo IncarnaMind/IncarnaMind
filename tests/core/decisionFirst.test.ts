@@ -48,6 +48,8 @@ describe("What a sentence's scores come to", () => {
     ["opposes, clear of the line", scores([0.1, 0.95], [0.2, 0.02]), "contradicted p0 final"],
     ["one states it, one opposes", scores([0.99, 0.01], [0.1, 0.95]), "nothing"],
     ["states it, one nearly opposes", scores([0.99, 0.01], [0.1, 0.897]), "nothing"],
+    ["states it, one leans to the opposite", scores([0.99, 0.01], [0.1, 0.5]), "nothing"],
+    ["states it, one just under a lean", scores([0.99, 0.01], [0.1, 0.49]), "supported p0 final"],
     ["opposes, inside the band", scores([0.1, 0.903]), "contradicted p0 first reading"],
     ["opposes, below the line", scores([0.1, 0.6]), "contradicted p0 first reading"],
     ["both lean", scores([0.85, 0.6]), "nothing"],
@@ -999,6 +1001,32 @@ describe("A decision model that reads by default (#3118)", { timeout: 30_000 }, 
     );
   });
 
+  // protects=the screen never says off while it reads: with the User's own AI model for checks elsewhere, a Note checked with a model on the decision model's service is not read by default, Settings shows the switch off and Privacy lists nothing; fails_when=the default is decided by the run's service while Settings and Privacy go by the User's own model's, so a Note's own model sends the host its sentences behind a switch that shows off
+  test("a Note with its own model on the host's service is not read while the User's own model is elsewhere", async () => {
+    const { core, host, run, providerId, aiModelId } = await setUp(undefined, {
+      readsByDefault: true,
+    });
+    const elsewhere = await core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-ant-test",
+      modelId: "claude-haiku-5-5",
+    });
+    if (elsewhere.service) await core.allowDataFlow("checks", elsewhere.service.id);
+    await core.updateSettings({
+      user: { chatModel: { providerId: elsewhere.id, modelId: "claude-haiku-5-5" } },
+    });
+
+    const checked = await core.checkMind({
+      ...run("the Note's own model"),
+      model: { providerId, modelId: aiModelId },
+    });
+
+    expect(checked).toMatchObject({ kind: "checked", checked: 3 });
+    expect(host.asked).toEqual([]);
+    expect((await core.getCheckDecision()).reads).toBeNull();
+    expect(await listed(core)).toEqual([]);
+  });
+
   // protects=Settings is told the one model its switch turns on, its host by name, and whether it is set to read: by default where the User's checks go to its service, also before their first check has asked about checks, by choice once they turn it on, not at all when off, in Local mode, with the AI model elsewhere and no choice, or once the key it rides on is gone, which also forgets the choice; fails_when=the switch would show off where a check will be read, on where none will, or a model stays chosen with no key; no_claim=how Settings words it.
   test("Settings is told whether it reads, by default or by choice, and why it can't", async () => {
     const { core, providerId, service } = await setUp(undefined, { readsByDefault: true });
@@ -1009,6 +1037,7 @@ describe("A decision model that reads by default (#3118)", { timeout: 30_000 }, 
     expect(await core.getCheckDecision()).toEqual({
       model: { ...DECIDER, name: "Decider v1.2" },
       hostName: { en: "OpenRouter", zh: "OpenRouter" },
+      maker: "Perplexity",
       reads: "default",
       blocked: null,
     });

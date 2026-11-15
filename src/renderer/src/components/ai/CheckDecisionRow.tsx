@@ -13,8 +13,9 @@ const TARGET = ["check-decision"] as const;
 /**
  * Checking sentences (#3118): a switch for the one measured decision model that reads each
  * sentence of a check first. Its line says what goes to its host, before it is turned on:
- * turning it on there is the User allowing it. Without the host's key, or in Local mode, a line
- * says why it stays off.
+ * turning it on there is the User allowing it. On by default, the line says which checks it
+ * reads. Without the host's key, or in Local mode, a line says why it stays off. The tip names
+ * the company whose model it is, where the host passes its requests on.
  */
 export function CheckDecisionRow({
   id,
@@ -30,9 +31,10 @@ export function CheckDecisionRow({
   const reportError = useAppStore((state) => state.reportError);
   // The switch moves at once; the core's next answer, a new `status`, replaces what was asked.
   const [asked, setAsked] = useState<{ on: boolean; of: CheckDecisionStatus } | null>(null);
-  const { model, reads, blocked } = status;
+  const { model, reads, blocked, maker } = status;
   const host = hostName({ name: status.hostName }, language);
   const on = !blocked && (asked?.of === status ? asked.on : reads !== null);
+  const tip = t("ai.jobs.checks.tip", { model: model.name });
   const row = useSettingsTarget<HTMLDivElement>(TARGET, true, () =>
     queueMicrotask(() => document.getElementById(id)?.focus({ preventScroll: true })),
   );
@@ -56,7 +58,7 @@ export function CheckDecisionRow({
       data-reads={reads ?? "off"}
       label={t("ai.jobs.checks")}
       htmlFor={id}
-      tip={t("ai.jobs.checks.tip", { model: model.name })}
+      tip={maker ? t("ai.jobs.checks.maker.tip", { tip, model: model.name, maker, host }) : tip}
       tipId={`${id}-tip`}
       detailId={`${id}-lines`}
       detail={
@@ -72,7 +74,9 @@ export function CheckDecisionRow({
             </span>
           ) : (
             <span data-testid="check-decision-sends" className="block">
-              {t("ai.jobs.checks.sends", { host })}
+              {t(reads === "default" ? "ai.jobs.checks.sendsByDefault" : "ai.jobs.checks.sends", {
+                host,
+              })}
             </span>
           )}
         </>

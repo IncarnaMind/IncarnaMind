@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import type { DataFlowId, DataKind, RegisteredDataFlow } from "../../../core/api";
 import { formatDate } from "../../../shared/dates";
+import { useCheckDecision } from "../checkDecision";
 import { core } from "../core";
 import { useLanguage, useT } from "../i18n";
 import {
@@ -278,6 +279,7 @@ function Uses({
 }) {
   const t = useT();
   const language = useLanguage();
+  const decision = useCheckDecision();
   // A service with one use has its button above: a second one would say the same.
   const eachOwn = uses.length > 1;
   return (
@@ -303,6 +305,15 @@ function Uses({
                 <li key={kind}>{t(`consent.data.${kind}`)}</li>
               ))}
             </ul>
+            {use.flow === "decision-checks" && decision?.maker && (
+              <p data-testid="data-flow-maker" className="text-ink-meta">
+                {t("privacy.flows.maker", {
+                  model: decision.model.name,
+                  maker: decision.maker,
+                  service,
+                })}
+              </p>
+            )}
             {eachOwn && (
               <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
                 {waiting && <span className="text-ink-meta">{waitingStatus(use, t)}</span>}

@@ -37,9 +37,13 @@ const DECIDER = { host: "openrouter", modelId: "perplexity/pplx-decider-v1.2" };
 const WORDS = {
   en: {
     label: "Checking sentences",
-    line: "Decider v1.2 reads each sentence first",
-    tip: "Decider v1.2 gives each sentence a quick first reading and marks the ones it is sure of; your AI model checks the rest.",
-    sends: "Checks send the note’s text and the passages found for it or cited in it to OpenRouter",
+    line: "A first reading of each sentence by Decider v1.2",
+    tip: "Decider v1.2 gives each sentence a quick first reading and marks the ones it is sure of; your AI model checks the rest. Decider v1.2 is Perplexity’s model: OpenRouter passes what it reads on to Perplexity.",
+    sends:
+      "With this on, every check sends the note’s text and the passages found for it or cited in it to OpenRouter",
+    sendsByDefault:
+      "On with your checks to OpenRouter, which already send the note’s text and the passages found for it or cited in it there",
+    maker: "Decider v1.2 is Perplexity’s model: OpenRouter passes these on to Perplexity",
     noKey: "Needs a key for OpenRouter",
     addKey: "Add a key…",
     localMode: "Unavailable: “Keep everything on this computer” is on.",
@@ -53,9 +57,12 @@ const WORDS = {
   },
   "zh-CN": {
     label: "核对句子",
-    line: "Decider v1.2 先读每个句子",
-    tip: "Decider v1.2 快速给出每句的初步判断，有把握的直接给出结论，其余由你的 AI 模型核对。",
-    sends: "核对会把笔记内容，以及为它找到或它引用的文档段落发送给 OpenRouter",
+    line: "Decider v1.2 对每个句子的初步判断",
+    tip: "Decider v1.2 快速给出每句的初步判断，有把握的直接给出结论，其余由你的 AI 模型核对。Decider v1.2 是 Perplexity 的模型：OpenRouter 会把它读到的内容转交给 Perplexity。",
+    sends: "开启后，每次核对都会把笔记内容，以及为它找到或它引用的文档段落发送给 OpenRouter",
+    sendsByDefault:
+      "随发往 OpenRouter 的核对一并开启：这些核对本来就会把笔记内容，以及为它找到或它引用的文档段落发送到那里",
+    maker: "Decider v1.2 是 Perplexity 的模型：OpenRouter 会把这些内容转交给 Perplexity",
     noKey: "需要 OpenRouter 的密钥",
     addKey: "添加密钥…",
     localMode: "不可用：已开启“所有内容都留在这台电脑上”。",
@@ -172,7 +179,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(row).toHaveAttribute("data-reads", "default");
     await expect(toggle).toBeEnabled();
     await expect(toggle).toBeChecked();
-    await expect(row.getByTestId("check-decision-sends")).toHaveText(words.sends);
+    await expect(row.getByTestId("check-decision-sends")).toHaveText(words.sendsByDefault);
     await expect(row.getByTestId("check-decision-blocked")).toHaveCount(0);
     await expect(addKey).toHaveCount(0);
     expect(await chosen(window)).toBeNull();
@@ -248,6 +255,7 @@ test("Privacy says it is on with the User's checks, and Turn off can be undone",
     await setLanguage(window, language);
     await expect(use).toContainText(WORDS[language].flow);
     await expect(use.getByTestId("data-flow-by-default")).toHaveText(WORDS[language].unused);
+    await expect(use.getByTestId("data-flow-maker")).toHaveText(WORDS[language].maker);
     await expect(use.getByTestId("data-flow-revoke")).toHaveText(WORDS[language].turnOff);
     await use.scrollIntoViewIfNeeded();
     await shot(window, `privacy-on-by-default-${language}-1440`);

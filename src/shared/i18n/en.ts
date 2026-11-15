@@ -3744,6 +3744,7 @@ export const en = {
   "privacy.flows.stoppedFlow": "Stopped allowing {flow} for {service}",
   "privacy.flows.byDefault.unused": "On with your checks to {service} · not used yet",
   "privacy.flows.byDefault.since": "On with your checks to {service}, since {date}",
+  "privacy.flows.maker": "{model} is {maker}’s model: {service} passes these on to {maker}",
   "privacy.flows.turnOff": "Turn off",
   "privacy.flows.turnOffFlow": "Turn off {flow}",
   "privacy.flows.turnedOff": "Turned off {flow}",
@@ -4010,11 +4011,15 @@ export const en = {
   "ai.jobs.quick.line":
     "Titles, Tag suggestions, search wording, Citation quotes and checking replies",
   "ai.jobs.checks": "Checking sentences",
-  "ai.jobs.checks.line": "{model} reads each sentence first",
+  "ai.jobs.checks.line": "A first reading of each sentence by {model}",
   "ai.jobs.checks.tip":
     "{model} gives each sentence a quick first reading and marks the ones it is sure of; your AI model checks the rest.",
+  "ai.jobs.checks.maker.tip":
+    "{tip} {model} is {maker}’s model: {host} passes what it reads on to {maker}.",
   "ai.jobs.checks.sends":
-    "Checks send the note’s text and the passages found for it or cited in it to {host}",
+    "With this on, every check sends the note’s text and the passages found for it or cited in it to {host}",
+  "ai.jobs.checks.sendsByDefault":
+    "On with your checks to {host}, which already send the note’s text and the passages found for it or cited in it there",
   "ai.jobs.checks.noKey": "Needs a key for {host}",
   "ai.jobs.checks.addKey": "Add a key…",
   "checkFaster.line": "Check faster with {model}",

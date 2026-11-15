@@ -19,9 +19,9 @@ import { decisionLinesFor, MEASURED_DECISION_MODELS } from "./decisionLines";
 export const DECISION_CHECKS_FLOW_SENDS: readonly DataKind[] = ["checked-sentences"];
 
 /**
- * Whether a measured model reads for a User who hasn't said, where the check's AI model already
- * runs on its host's service: the check sends the same text there, so nothing new leaves the
- * computer and nowhere new (ADR-0022). The one value that ships it on or off.
+ * Whether a measured model reads for a User who hasn't said, where their own AI model for checks
+ * already runs on its host's service: the check sends the same text there, so nothing new leaves
+ * the computer and nowhere new (ADR-0022). The one value that ships it on or off.
  */
 const READS_BY_DEFAULT = true;
 
@@ -54,29 +54,32 @@ export function createDecisionChoice(options: DecisionChoiceOptions) {
     id: "decision-checks",
     sends: DECISION_CHECKS_FLOW_SENDS,
     services: async () => {
-      const service = inUse(options.checksService())?.service;
+      const service = listed()?.service;
       return service ? [service] : [];
     },
     byDefault: (serviceId) => {
-      const using = inUse(options.checksService());
+      const using = listed();
       return using?.byDefault === true && using.service.id === serviceId;
     },
   });
 
   /**
-   * The model set to read a check whose AI model runs on `checksService`: the one the User chose,
-   * else, where they haven't said, a measured one on that same service. `byDefault` marks the
+   * The model set to read the User's checks: the one they chose, else, where they haven't said, a
+   * measured one on the service their own AI model for checks runs on. `byDefault` marks the
    * second: it reads because the User's checks already go to that service.
    */
-  function standing(
-    checksService: ExternalService | null,
-  ): { choice: CheckDecisionModel; service: ExternalService; byDefault: boolean } | null {
+  function standing(): {
+    choice: CheckDecisionModel;
+    service: ExternalService;
+    byDefault: boolean;
+  } | null {
     const chosen = options.chosen();
     if (chosen === "off" || options.localOnly()) return null;
     if (chosen) {
       const service = hosts.service(chosen.host);
       return service && { choice: chosen, service, byDefault: false };
     }
+    const checksService = options.checksService();
     if (!readsByDefault || !checksService) return null;
     const measured = MEASURED_DECISION_MODELS.find(
       (each) => hosts.service(each.host)?.id === checksService.id,
@@ -87,36 +90,45 @@ export function createDecisionChoice(options: DecisionChoiceOptions) {
   }
 
   /**
-   * The model that reads such a check now. By default it rests on the User having allowed checks
-   * to that service: until they have, none reads and nothing is listed.
+   * The model Settings › Privacy lists. By default it rests on the User having allowed checks to
+   * that service: until they have, none reads and nothing is listed.
    */
-  function inUse(checksService: ExternalService | null) {
-    const using = standing(checksService);
+  function listed() {
+    const using = standing();
     return using?.byDefault && !consent.allows("checks", using.service) ? null : using;
   }
 
-  return {
-    inUse,
+  /**
+   * The model that reads a check whose AI model runs on `runService`. By default that is only a
+   * check that goes to the service Settings and Privacy name: a Note checked with a model on
+   * another service is not read, whichever of the two services the decision model is on.
+   */
+  function inUse(runService: ExternalService | null) {
+    const using = listed();
+    return using?.byDefault && runService?.id !== using.service.id ? null : using;
+  }
 
+  return {
     /**
      * What Settings › AI shows: the model its switch turns on, and whether it is set to read. One
      * that reads by default shows so before the User's first check, which asks about checks itself.
      */
     async status(): Promise<CheckDecisionStatus> {
       const chosen = options.chosen();
-      const using = standing(options.checksService());
+      const using = standing();
       const { host, modelId } =
         using?.choice ?? (chosen && chosen !== "off" ? chosen : MEASURED_DECISION_MODELS[0]);
       const entry = DECISION_HOST_ENTRIES[host];
-      const name = entry.models.find((each) => each.id === modelId)?.name ?? modelId;
+      const listing = entry.models.find((each) => each.id === modelId);
       const blocked = options.localOnly()
         ? "local-mode"
         : (await hosts.ready()).includes(host)
           ? null
           : "no-key";
       return {
-        model: { host, modelId, name },
+        model: { host, modelId, name: listing?.name ?? modelId },
         hostName: entry.name,
+        maker: listing && !entry.name.en.startsWith(listing.maker) ? listing.maker : null,
         reads: blocked || !using ? null : using.byDefault ? "default" : "chosen",
         blocked,
       };
@@ -145,13 +157,13 @@ export function createDecisionChoice(options: DecisionChoiceOptions) {
     },
 
     /**
-     * The reader for one run whose AI model runs on `checksService`, or null where none reads
+     * The reader for one run whose AI model runs on `runService`, or null where none reads
      * now: none in use, Local mode, the User took back what allowed it, or its host's key is gone.
      * A request that fails ends the run's readings and is logged: the AI model checks the rest, as
      * with no decision model, and the User is shown nothing.
      */
-    async reader(checksService: ExternalService | null): Promise<DecisionReader | null> {
-      const using = inUse(checksService);
+    async reader(runService: ExternalService | null): Promise<DecisionReader | null> {
+      const using = inUse(runService);
       const lines = using && decisionLinesFor(using.choice.host, using.choice.modelId);
       if (!using || !lines) return null;
       const { choice, service } = using;
