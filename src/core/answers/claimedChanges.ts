@@ -12,12 +12,14 @@ import {
   type ClaimedChange,
   type ClaimedCommand,
   type CommandDone,
+  EXPORT_FORMATS,
   type MindProblem,
 } from "../api";
 import { asData, type PromptTag } from "../promptData";
 import type { ChatLanguageModel } from "../providers/models";
 import type { TokenUsage } from "../runs/engine";
 import { COMMAND_TOOLS } from "../tools";
+import { SETTING_NAMES } from "../tools/commands/settings";
 import { sentencesDone } from "../tools/minds/sentencesSaid";
 import type { BlockSpan } from "../tools/minds/tools";
 import type { UnmadeFixes } from "./claimedFixes";
@@ -332,7 +334,7 @@ function leftUndone(
   return !changed;
 }
 
-function targetOf(call: AnswerToolCall, names: MindNames) {
+function targetOf(call: AnswerToolCall, names: MindNames): Target {
   const problem: MindProblem | undefined = call.mindProblem;
   const id = call.mindChange?.mindId ?? (problem && "mindId" in problem ? problem.mindId : null);
   if (id) return { id, name: names(id) };
@@ -343,6 +345,23 @@ function targetOf(call: AnswerToolCall, names: MindNames) {
   );
   return named ? { name: named } : null;
 }
+
+type Target = { id?: string; name?: string | null } | null;
+
+/**
+ * A Note as the record names it: by its name, as the reply does, and "unnamed Note" where it has
+ * none. The check is sent this and never a Note's id (#2969). Two Notes of one name read alike: a
+ * number to tell them apart put a name in the record the reply doesn't use, and an honest reply
+ * was flagged for it (the gate of #2969).
+ */
+const noteNamed = (name: string | null | undefined): string =>
+  name !== null && name !== undefined && name.trim() !== "" ? name : "unnamed Note";
+
+const lastPart = (value: string): string => value.split(/[\\/]/).filter(Boolean).at(-1) ?? "";
+
+/** A path as its last part alone: the verdict needs a folder's or file's name, and a path says where on this computer it is. */
+const lastPartOfPath = (value: string): string =>
+  /^(?:[A-Za-z]:[\\/]|[\\/])/.test(value) ? lastPart(value) : value;
 
 /** The Minds each kind of change was made in, by id. */
 export interface ChangeLog {
@@ -453,9 +472,46 @@ function unchangedParts(calls: readonly AnswerToolCall[], spans?: PartSpans): Se
  * says nothing was filed, moved or tagged, and never gives the Folder the request named as where
  * Documents went.
  */
-function commandRecordOf(done: CommandDone) {
+function commandRecordOf(done: CommandDone, noteName: (id: string) => string) {
+  // Only what a verdict reads, by name: none of a command's ids, its Run, or where a file is saved.
+  const kept = {
+    command: done.command,
+    items: done.items.map(({ kind, name, renamed }) => ({
+      kind,
+      name,
+      ...(renamed !== undefined && { renamed }),
+    })),
+    ...(done.into && {
+      into: { kind: done.into.kind, name: done.into.name, made: done.into.made },
+    }),
+    ...(done.file && {
+      file: { name: done.file.name, inDefaultFolder: done.file.inDefaultFolder },
+    }),
+    ...(done.inOutputLocation !== undefined && { inOutputLocation: done.inOutputLocation }),
+    ...(done.marking && { marking: done.marking }),
+    ...(done.window && { window: done.window }),
+    ...(done.mindId !== undefined && { mind: noteName(done.mindId) }),
+    ...(done.yours && { yours: done.yours }),
+    ...(done.folder && { folder: { name: done.folder.name } }),
+    ...(done.setting && {
+      setting: {
+        name: done.setting.name,
+        from: lastPartOfPath(done.setting.from),
+        to: lastPartOfPath(done.setting.to),
+      },
+    }),
+    ...(done.folders && { folders: done.folders }),
+    ...(done.tags && { tags: done.tags }),
+    ...(done.unsorted !== undefined && { unsorted: done.unsorted }),
+    ...(done.untouched !== undefined && { untouched: done.untouched }),
+    ...(done.considered !== undefined && { considered: done.considered }),
+    ...(done.review && { review: done.review }),
+    ...(done.alsoAsked !== undefined && { alsoAsked: done.alsoAsked }),
+    ...(done.merges && { merges: done.merges }),
+    ...(done.tagCount && { tagCount: done.tagCount }),
+  };
   if (done.command === "documents.tagWithAi") {
-    const { tags, ...rest } = done;
+    const { tags, ...rest } = kept;
     return {
       ...rest,
       proposedTags: tags ?? [],
@@ -463,8 +519,8 @@ function commandRecordOf(done: CommandDone) {
         "nothing: no Tag was added to any Document; they wait in Suggested Tags until the User confirms them",
     };
   }
-  if (done.command !== "documents.organize") return done;
-  const { into: _into, folders, ...rest } = done;
+  if (done.command !== "documents.organize") return kept;
+  const { into: _into, folders, ...rest } = kept;
   return {
     ...rest,
     proposedFolders: folders ?? [],
@@ -473,34 +529,57 @@ function commandRecordOf(done: CommandDone) {
   };
 }
 
+/** A command's name as the app writes it (`mind.export`): a path, which has a separator, is none. */
+const COMMAND_NAME = /^[\w.-]+$/;
+
+/**
+ * What a command was asked, of the call's input: the command and the setting, format or style it
+ * named, never the ids or paths it was given. The model writes these, and a schema's list isn't
+ * enforced where the call is recorded, so a setting or format that isn't one of the app's names is
+ * left out, and a style, which has no list, is its last part alone (#2969).
+ */
+function inputOf(input: AnswerToolCall["input"]) {
+  const { command, setting, format, style } = input;
+  const settingName = SETTING_NAMES.find((each) => each === setting);
+  const formatName = EXPORT_FORMATS.find((each) => each === format);
+  const styleName = typeof style === "string" ? lastPart(style) : "";
+  return {
+    ...(typeof command === "string" && COMMAND_NAME.test(command) && { command }),
+    ...(settingName !== undefined && { setting: settingName }),
+    ...(formatName !== undefined && { format: formatName }),
+    ...(styleName !== "" && { style: styleName }),
+  };
+}
+
 function recordOf(
   calls: readonly AnswerToolCall[],
-  names: MindNames,
+  targets: readonly Target[],
+  noteName: (id: string) => string,
   focused: string | null,
   states?: ChangeStates,
   spans?: PartSpans,
 ) {
   const unchanged = unchangedParts(calls, spans);
-  return calls.map((call) => {
+  return calls.map((call, index) => {
+    const target = targets[index] ?? null;
     const change = call.mindChange;
     const state = change ? states?.(change) : null;
     const part = partOf(call);
     // In the record's own words: as counts, "rewritten: 0" beside a sentence taken out and new
     // ones written reads as no rewrite (#2769).
-    const sentences = change?.sentences ? sentencesDone(change.sentences) : null;
+    const sentences = change?.sentences ? sentencesDone(change.sentences, { words: false }) : null;
     return {
       tool: call.tool,
       status: call.status,
       ...(call.source === "commands" && { outcome: outcomeOf(call) }),
       ...(call.approval && { approval: call.approval }),
       resultCount: call.resultCount,
-      target: targetOf(call, names),
+      target: target && { name: noteNamed(target.name) },
       ...(part !== null && unchanged.has(call.id) && { nothingChangedIn: part }),
       ...(call.mindProblem && { problem: call.mindProblem.kind }),
       ...(call.tool === "run_command" && {
-        input: call.input,
-        command: call.command ? commandRecordOf(call.command) : null,
-        ...(call.commandProblem && { commandProblem: call.commandProblem.message }),
+        input: inputOf(call.input),
+        command: call.command ? commandRecordOf(call.command, noteName) : null,
         ...(call.command?.merges?.length && {
           mergedTags:
             "in Recently deleted, where the User can restore them; every other Tag is unchanged",
@@ -510,7 +589,8 @@ function recordOf(
         change: {
           created: change.created,
           proposals: change.proposals,
-          changed: change.changed ?? 0,
+          // An add leaves `changed` unset, and carries what it wrote as `paragraphs`: said in an edit's terms, it isn't a change of nothing (#2969).
+          changed: change.changed ?? (call.tool === "add_to_mind" ? (change.paragraphs ?? 0) : 0),
           paragraphs: change.paragraphs ?? 0,
           tables: change.tables ?? 0,
           charts: change.charts ?? 0,
@@ -622,7 +702,9 @@ export async function unbackedClaims(
   if (reply.trim() === "") return { claims: [], commands: [], usage: null, durationMs: 0 };
   const started = Date.now();
   const named: MindNames = (id) => names(id) ?? minds.find((mind) => mind.id === id)?.name ?? null;
-  const record = recordOf(calls, named, focused, states, parts);
+  const targets = calls.map((call) => targetOf(call, named));
+  const noteName = (id: string) => noteNamed(named(id));
+  const record = recordOf(calls, targets, noteName, focused, states, parts);
   // Asked beside the claims, not after them, so the turn waits no longer than for one request.
   const [judged, told] = await Promise.all([
     judge({
@@ -640,7 +722,7 @@ export async function unbackedClaims(
         { tag: "tool-record", text: JSON.stringify(record, null, 2) },
         {
           tag: "focused-mind",
-          text: focused ? JSON.stringify({ id: focused, name: named(focused) }) : "none",
+          text: focused ? JSON.stringify({ name: noteName(focused) }) : "none",
         },
         { tag: "reply", text: reply },
       ],

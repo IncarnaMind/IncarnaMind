@@ -164,16 +164,17 @@ describe("The quick model's verdict", () => {
     expect(claimsPrompt(model)).toContain('\\"charts\\": 1');
   });
 
+  // protects=the Note the User is in reaches the check by its name alone (#2969); fails_when=its internal id goes with it; no_claim=what the judge makes of the name.
   test("a claim about the focused Mind is checked with its name", async () => {
     const reply = "我已把摘要写进你的笔记里。";
     const model = judge({ claims: [] });
     await check(model, reply, [mindCall("add_to_mind", {})], "q3");
     const prompt = claimsPrompt(model);
-    expect(prompt).toContain('\\"id\\": \\"q3\\"');
     expect(prompt).toContain('\\"name\\": \\"Q3 review\\"');
+    expect(prompt).not.toContain('\\"q3\\"');
   });
 
-  // Value: protects=the judge can distinguish completed and unmade Mind commands; fails_when=run_command loses its input, affected items or renamed target; why_new=review found generic command records; seam=the exact structured judge prompt; no_claim=model wording beyond the supplied record
+  // Value: protects=the judge can distinguish completed and unmade Mind commands; fails_when=run_command loses its command, affected items or renamed target, or sends the ids it was given or its Run (#2969); why_new=review found generic command records; seam=the exact structured judge prompt; no_claim=model wording beyond the supplied record
   test("run_command records carry the command, input and affected Mind items", async () => {
     const model = judge({ claims: [] });
     const calls: AnswerToolCall[] = [
@@ -212,7 +213,10 @@ describe("The quick model's verdict", () => {
     expect(prompt).toContain("mind.delete");
     expect(prompt).toContain("Q3 summary");
     expect(prompt).toContain("周报");
-    expect(prompt).toContain('\\"ids\\"');
+    expect(prompt).not.toContain('\\"ids\\"');
+    expect(prompt).not.toContain('\\"q3\\"');
+    expect(prompt).not.toContain('\\"weekly\\"');
+    expect(prompt).not.toContain('\\"r1\\"');
   });
 
   // protects=a Tag merge's record says the merged Tags are in Recently deleted, where a reply that says so is backed (#2252); fails_when=the record leaves it out and a true sentence is flagged after the reply was written; no_claim=the judge's verdicts.
@@ -557,8 +561,8 @@ describe("What the record tells the check of a part and a rewrite (#2769)", () =
     });
   });
 
-  // protects=what an edit did to the User's sentences reaches the check in the record's words, so a sentence taken out with new ones written reads as a rewrite's record, not as "rewritten": 0; fails_when=the counts go to the judge, which flagged an honest "I rewrote it" in every run; no_claim=the judge's verdicts.
-  test("a rewrite read as sentences taken out and written new is told in words", async () => {
+  // protects=what an edit did to the User's sentences reaches the check in the record's words, so a sentence taken out with new ones written reads as a rewrite's record, not as "rewritten": 0, and without the sentences themselves (#2969); fails_when=the counts go to the judge, which flagged an honest "I rewrote it" in every run, or the User's sentence goes with them; no_claim=the judge's verdicts.
+  test("a rewrite read as sentences taken out and written new is told in counts", async () => {
     const prompt = await recordRead([
       partCall("a", "下周要跟客户开会", {
         proposals: 1,
@@ -574,8 +578,9 @@ describe("What the record tells the check of a part and a rewrite (#2769)", () =
       }),
     ]);
     expect(prompt).toContain(
-      "What it does to the User's sentences there: 1 taken out whole (“下周要跟客户开会，聊聊合同的事。”); 2 sentences written new.",
+      "What it does to the User's sentences there: 1 taken out whole; 2 sentences written new.",
     );
+    expect(prompt).not.toContain("聊聊合同的事");
     expect(prompt).not.toContain('rewritten\\": 0');
   });
 });

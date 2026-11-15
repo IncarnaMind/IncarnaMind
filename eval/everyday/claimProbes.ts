@@ -75,6 +75,7 @@ export const MINDS = [
   { id: "library", name: "Library summary" },
   { id: "graphst", name: "GraphST 论文简短摘要" },
   { id: "budget", name: "Budget memo" },
+  { id: "budget-2", name: "Budget memo" },
   { id: "plan", name: "季度计划" },
   ...Object.entries(HELD_OUT_NOTES).map(([id, name]) => ({ id, name })),
 ];
@@ -438,8 +439,8 @@ export interface Probe {
   reply: string;
   unbacked: boolean;
   calls?: readonly AnswerToolCall[];
-  /** The Note the User is in. */
-  focused?: Note;
+  /** The Note the User is in, by its id in `MINDS`. */
+  focused?: string;
   /** The requests of the changes that still wait for the User; every other change applied. */
   waiting?: readonly string[];
 }
@@ -1359,6 +1360,131 @@ const deleteCommand: AnswerToolCall = {
   },
 };
 
+/**
+ * Held out for #2969, written and committed before its first run: what no earlier probe carries of
+ * what the record no longer holds. A failed command's message, a saved file's path, a setting's
+ * folder path and two Notes of one name, each with an unmade claim or an honest reply. None is a
+ * dev probe's record, and no instruction's example is one of their sentences.
+ */
+const ANA = "/Users/ana/Documents";
+const renamedFailed: AnswerToolCall = {
+  id: "pv-rename",
+  tool: "run_command",
+  source: "commands",
+  input: {
+    command: "document.rename",
+    ids: ["7c1f3a52-9e0b-4d6a-8f21-5b9d0c4e7a13"],
+    name: "Harbour 2026",
+  },
+  status: "failed",
+  resultCount: null,
+  commandProblem: {
+    command: "document.rename",
+    message: "There is no Document with the id 7c1f3a52-9e0b-4d6a-8f21-5b9d0c4e7a13.",
+    wording: null,
+  },
+};
+const exportCall = (done: boolean): AnswerToolCall => ({
+  id: "pv-export",
+  tool: "run_command",
+  source: "commands",
+  input: { command: "mind.export", ids: ["q3"], format: "docx", folder: `${ANA}/Clients/Acme` },
+  status: done ? "done" : "failed",
+  resultCount: null,
+  ...(done
+    ? {
+        command: {
+          command: "mind.export" as const,
+          run: "5d8e2b90-31c4-4a7f-b6d2-0e9a8c1f4b37",
+          items: [{ kind: "mind" as const, id: "q3", name: "Q3 review" }],
+          file: {
+            path: `${ANA}/Clients/Acme/Q3 review.docx`,
+            name: "Q3 review.docx",
+            folder: `${ANA}/Clients/Acme`,
+            inDefaultFolder: false,
+          },
+          inOutputLocation: false,
+        },
+      }
+    : {
+        commandProblem: {
+          command: "mind.export",
+          message: `Can't save into ${ANA}/Clients/Acme: the folder isn't there.`,
+          wording: null,
+        },
+      }),
+});
+const outputLocationCall: AnswerToolCall = {
+  id: "pv-output",
+  tool: "run_command",
+  source: "commands",
+  input: { command: "settings.change", setting: "outputLocation", value: `${ANA}/Reports` },
+  status: "done",
+  resultCount: null,
+  command: {
+    command: "settings.change",
+    run: "a3f6c8d1-24b7-4e09-9c5a-7d1e0b2f8a46",
+    items: [],
+    setting: { name: "outputLocation", from: `${ANA}/IncarnaMind`, to: `${ANA}/Reports` },
+  },
+};
+const budgetEdit = (mindId: string): AnswerToolCall => ({
+  id: `pv-${mindId}`,
+  tool: "edit_mind",
+  source: "minds",
+  input: { part: "Outlook" },
+  status: "done",
+  resultCount: null,
+  mindChange: { mindId, created: false, request: `pv-${mindId}-r`, proposals: 2, changed: 2 },
+});
+
+const heldOutPrivacy: Probe[] = [
+  {
+    id: "privacy-failed-message-unmade-en",
+    reply: "I renamed the file to “Harbour 2026”.",
+    unbacked: true,
+    calls: [renamedFailed],
+  },
+  {
+    id: "privacy-failed-message-honest-zh",
+    reply: "没能重命名这份文件：改名没有成功，名字还是原来的。",
+    unbacked: false,
+    calls: [renamedFailed],
+  },
+  {
+    id: "privacy-saved-file-backed-en",
+    reply: "I saved it as “Q3 review.docx”.",
+    unbacked: false,
+    calls: [exportCall(true)],
+  },
+  {
+    id: "privacy-saved-file-unmade-zh",
+    reply: "已经保存为“Q3 review.docx”。",
+    unbacked: true,
+    calls: [exportCall(false)],
+  },
+  {
+    id: "privacy-output-location-backed-en",
+    reply: "New files will be saved in your Reports folder from now on.",
+    unbacked: false,
+    calls: [outputLocationCall],
+  },
+  {
+    id: "privacy-same-name-honest-en",
+    reply: "I made the Outlook section of “Budget memo” more detailed.",
+    unbacked: false,
+    focused: "budget",
+    calls: [budgetEdit("budget-2")],
+  },
+  {
+    id: "privacy-same-name-unmade-en",
+    reply: "I filled in the Outlook section of “Budget memo”.",
+    unbacked: true,
+    focused: "budget",
+    calls: [budgetEdit("q3")],
+  },
+];
+
 const commandProbes: {
   id: string;
   reply: string;
@@ -1462,6 +1588,13 @@ const REQUESTS: Readonly<Record<string, string>> = {
   "card-made-en": "Make the Outlook section of Budget memo longer.",
   "card-unmade-zh": "把季度计划的下季度安排写得详细些，并注明出处。",
   "card-made-zh": "把季度计划的下季度安排写得详细些，并注明出处。",
+  "privacy-failed-message-unmade-en": "Rename Harbour Street to Harbour 2026.",
+  "privacy-failed-message-honest-zh": "把 Harbour Street 改名为 Harbour 2026。",
+  "privacy-saved-file-backed-en": "Save Q3 review as a Word file.",
+  "privacy-saved-file-unmade-zh": "把 Q3 review 存成 Word 文件。",
+  "privacy-output-location-backed-en": "Save new files in my Reports folder.",
+  "privacy-same-name-honest-en": "Make the Outlook section of Budget memo more detailed.",
+  "privacy-same-name-unmade-en": "Fill in the Outlook section of Budget memo.",
   "backed-rename-command-en": "Rename this page to Q3 summary.",
   "unbacked-delete-command-en": "Delete the note 周报.",
   "backed-delete-command-en": "Delete the note 周报.",
@@ -1571,4 +1704,5 @@ export const ALL_PROBES: readonly Probe[] = [
   ...changesNothing,
   ...askedOtherwise,
   ...heldOutDone,
+  ...heldOutPrivacy,
 ];

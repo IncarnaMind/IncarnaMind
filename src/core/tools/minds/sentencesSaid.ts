@@ -24,18 +24,27 @@ export function quoted(sentences: readonly string[], count = sentences.length): 
 
 const sentences = (count: number) => (count === 1 ? "1 sentence" : `${count} sentences`);
 
-/** What the change does to the User's sentences, as the record of the call says it; null when it touches none. */
-export function sentencesDone(changes: SentenceChanges): string | null {
+/**
+ * What the change does to the User's sentences, as the record of the call says it; null when it
+ * touches none. With `words: false` it counts them and leaves their words out: that is what the
+ * check of the reply is sent (#2969).
+ */
+export function sentencesDone(
+  changes: SentenceChanges,
+  { words = true }: { words?: boolean } = {},
+): string | null {
   const { kept, takenOut, shortened, rewritten, written, named } = changes;
+  const inWords = (sentences: readonly string[], count: number) =>
+    words ? ` (${quoted(sentences, count)})` : "";
   if (takenOut + shortened + rewritten === 0) return null;
   const parts = [
     takenOut > 0
-      ? `${takenOut} taken out whole (${quoted(named.takenOut, takenOut)})`
+      ? `${takenOut} taken out whole${inWords(named.takenOut, takenOut)}`
       : "none taken out whole",
     ...(shortened > 0 ? [`${shortened} with words taken out`] : []),
     ...(rewritten > 0
       ? [
-          `${rewritten} ${rewritten > written ? "joined and rewritten" : "rewritten"} as ${written} (${quoted(named.rewritten, rewritten)})`,
+          `${rewritten} ${rewritten > written ? "joined and rewritten" : "rewritten"} as ${written}${inWords(named.rewritten, rewritten)}`,
         ]
       : written > 0
         ? [`${sentences(written)} written new`]
