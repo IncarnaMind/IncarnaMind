@@ -199,7 +199,7 @@ A model is listed in `SEARCH_FIRST` only when Bars 1 to 5 all hold on it. A bar 
 **Phase A** (3 rounds, `main` against `main`, Claude Haiku 5.5, 2026-11-14):
 
 - **Spend:** US$1.459 of its US$1.50: rounds 1, 2 and 3 cost US$0.498, US$0.480 and US$0.481. Round 3 ran because round 2 counted and the US$0.522 left covered round 2's cost plus 5%. 12 arm-runs, 0 void, no request refused or failed; every state cell 0. Round 1 ran a language at a time; rounds 2 and 3 ran whole, the probe waiting 30 and 60 seconds between languages.
-- **The key's limits a minute,** as the probe now logs them: 500,000 input tokens, 580,000 tokens, 80,000 output tokens, 1,000 requests. One arm-run sends 0.63–0.75 million input tokens that aren't from the cache, in about a minute.
+- **The key's minute:** one arm-run sends 0.63–0.75 million input tokens that aren't from the cache, in about a minute, and the probe waited for the key's per-minute allowance to refill between languages.
 - **Bar 1 breaks on `main` against `main`.** In round 3, `main#2` marked a wrong twin Supported: `en-tyre-condition`, a sentence that drops a condition its source sentence carries, citing the source sentence. Wrong twins and absent sentences Supported: English 0 + 0 on `main`, 1 + 0 on `main#2`; Chinese 0 + 0 on both. One sentence is Supported in more rounds on one arm of today's check than on the other, and its total is higher, so the gate stops here, before B, as written above.
   - **Bar 1's own false-fail rate,** from A: today's check marked 1 of 252 wrong sentence-rounds Supported. Drawing that rate from its Jeffreys posterior, two arms of today's check over B's 3 rounds and the held-out Note's 42 wrong sentences break Bar 1 as written 45% of the time, and its totals alone 27%. The 10-sentence Note's wrong sentences add to that.
 - **The gating row, rounds 1 to 3:** English `main` 7, 7, 5 and `main#2` 4, 6, 5 of 11; Chinese `main` 8, 8, 11 and `main#2` 8, 9, 10 of 16. The other right sentences: English 40 and 41, Chinese 41 and 45. Not checked: English 20 and 19 of 147 sentence-rounds, Chinese 16 and 12 of 162.
@@ -281,5 +281,29 @@ A model is listed in `SEARCH_FIRST` only when Bars 1 to 5 all hold on it. A bar 
 
 - **The stop rule:** the reworked median last Mark is 1.4 s sooner in English, against `main`'s own spread of 12.2 s, and 0.3 s later in Chinese, against 17.2 s. Neither is sooner by more than the spread, so by the ruling #2532 stops here: no paid pilot, no gate file.
 - **What this timing can see:** the scripted model's replies take no time, so it reads only the app's own work. The reworked shape asks about one request fewer a sentence (3.24 → 2.27 in English, 4.02 → 3.00 in Chinese). The scripted model never searched again after the hand-over.
+- The CEO then withdrew that stop and set it on a real pilot's medians, with the owner's yes for about US$1.50.
+
+**The reworked shape's timing pilot** (2026-11-15, 00:28–00:45 UTC, Claude Haiku 5.5 on the second direct Anthropic key, `main` merged in at 3078eb061). The held-out Note in English and in Chinese, three rounds, both arms alternated in one process, with a ten-sentence reader probe before each round. The load (1- and 15-minute) was 9.5–21.9 and 17.4–22.8 through the arm-runs.
+
+- **Spend:** US$1.169 of US$1.50, the four reader probes' US$0.055 included. 16 arm-runs, 0 void, no request refused or failed, every limit at 100% before every batch. The reader read all 40 probe replies.
+
+| Language · arm | First Mark, median (range) | Last Mark, median (range) | Requests a sentence | Searches the model made, a sentence | Model searched for its sentence | Cost |
+|---|--:|--:|--:|--:|--:|--:|
+| English · `main` | 4.8 s (4.7–5.5) | 65.4 s (58.9–66.2) | 3.54 | 1.89 | 147 of 147 | US$0.367 |
+| English · reworked | 5.1 s (3.6–7.8) | 51.8 s (51.0–51.9) | 2.86 | 0.27 | 36 of 147 (24%) | US$0.182 |
+| Chinese · `main` | 10.0 s (7.5–10.4) | 64.7 s (60.1–65.6) | 3.43 | 1.95 | 162 of 162 | US$0.371 |
+| Chinese · reworked | 7.6 s (7.6–7.9) | 55.9 s (51.6–59.5) | 2.78 | 0.31 | 46 of 162 (28%) | US$0.195 |
+
+- **The stop rule holds in both languages:** the reworked median last Mark is 13.6 s sooner in English, against `main`'s spread of 7.3 s, and 8.8 s sooner in Chinese, against 5.5 s.
+- **Where a sentence's time goes, summed over every sentence from its claims named to its Mark:**
+
+  | Arm | Waiting for a check slot | The model's requests | Between its requests | After its last |
+  |---|--:|--:|--:|--:|
+  | `main` | 7,443 s (73%) | 1,684 s (17%) | 364 s (4%) | 710 s (7%) |
+  | reworked | 7,178 s (80%) | 1,354 s (15%) | 40 s (0%) | 454 s (5%) |
+
+  The slot wait itself falls only 4%: six slots still wait on the model. The Mark comes sooner because each sentence asks fewer requests and makes no search between them. The reworked shape's searches made ahead wait in the reranker's line while their sentences wait for a slot (about 2,300 s summed), off the path to the Mark.
+- **The wrong twin `en-tyre-condition`** (and `zh-tyre-condition`), round by round: `main` Unsupported, Supported, Unsupported in English and Unsupported in all three in Chinese; reworked Unsupported in all three in English and Supported, Unsupported, Unsupported in Chinese.
+- **Not a bar here, but what a gate would see:** the gating row's Supported fell again on the reworked shape, English 17 → 10 of 33 readings and Chinese 22 → 15 of 48. Both are past plain, and two English cross-language sentences were lost. The other right sentences held (41 → 43, 42 → 42), and Not checked fell (18 → 13, 15 → 9).
 
 _Phase by phase as each finishes._
