@@ -4,7 +4,7 @@
  * never works it out itself, so its chip, its scope and where a saved paste goes follow what
  * Answers search.
  */
-import { useCallback, useContext, useEffect, useState } from "react";
+import { useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { TurnPlace } from "../../core/api";
 import { useConversations, useOpenConversation } from "./conversations";
 import { core } from "./core";
@@ -86,6 +86,14 @@ export function useKeptInside(documentId: string | null): string | null {
   );
 }
 
+/** The walls as the store holds them, the same until its Library, Documents or Notes change. */
+export function useWalls(): ReturnType<typeof wallsOf> {
+  const library = useAppStore((state) => state.library);
+  const documents = useAppStore((state) => state.documents);
+  const minds = useAppStore((state) => state.minds);
+  return useMemo(() => wallsOf({ library, documents, minds }), [library, documents, minds]);
+}
+
 /**
  * `useKeptInside` for every Document at once, as an Analysis's table and chart need it (#2378): the
  * walled Folder that keeps each inside it, seen from where they are shown; null when it may be read.
@@ -93,7 +101,7 @@ export function useKeptInside(documentId: string | null): string | null {
 export function useKeptInsideOf(): (documentId: string | null) => string | null {
   const mindId = useContext(MindIdContext);
   const conversation = useOpenConversation();
-  const library = useAppStore((state) => state.library);
+  const library = useWalls();
   const folderId = useAppStore((state) =>
     mindId !== null
       ? (state.minds.find((mind) => mind.id === mindId)?.folderId ?? null)

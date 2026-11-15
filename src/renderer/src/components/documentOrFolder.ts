@@ -1,8 +1,8 @@
 import type { Document, Mind, SearchScope } from "../../../core/api";
 import { NO_SCOPE } from "../../../shared/searchScope";
-import { folderWallOf, isInsideFolder } from "../folders";
-import { withTranscriptsFiled } from "../meetingTranscript";
-import { type ScopeChoice, type ScopeLibrary, scopeChoices } from "../scope";
+import { folderWallOf } from "../folders";
+import { type ScopeChoice, type ScopeLibrary, scopeChoices, wallLibraryOf } from "../scope";
+import { documentWalls } from "../walls";
 
 export type DocumentOrFolderChoice = Omit<ScopeChoice, "kind"> & {
   kind: "folder" | "document";
@@ -50,7 +50,8 @@ export function readableFrom(
 /**
  * Why a Note behind `wall` (null: outside every wall) can't read a choice whole, as its searches
  * can't (#1934): outside, one a wall keeps inside names that wall's Folder; inside, anything but
- * the wall's Folder and the Documents the User filed in it is outside. Null when it can.
+ * the wall's Folders and the Documents the User filed in them is outside, a Folder inside it that
+ * keeps its own work inside it included (#246). Null when it can.
  */
 export function keptFrom(
   library: FilingLibrary,
@@ -58,31 +59,16 @@ export function keptFrom(
   wall: string | null,
 ): { inside: string } | "outside" | null {
   const groups = library.groups ?? [];
-  const names = new Map(groups.map((group) => [group.id, group.name]));
-  const filings = withTranscriptsFiled(
-    library.assignments ?? [],
-    library.documents,
-    library.minds ?? [],
-  ).filter((each) => choice.kind === "document" && each.documentId === choice.id);
-  // A Folder inside a walled Folder is behind the same wall.
+  const filed =
+    choice.kind === "document" ? documentWalls(wallLibraryOf(library)).get(choice.id) : undefined;
   const behind =
-    choice.kind === "folder"
-      ? folderWallOf(groups, choice.id)
-      : (filings.flatMap((each) => {
-          const found = folderWallOf(groups, each.groupId ?? "");
-          return found === null ? [] : [found];
-        })[0] ?? null);
-  if (wall === null) return behind === null ? null : { inside: names.get(behind) ?? "" };
-  const filedInside =
-    choice.kind === "folder"
-      ? choice.id === wall || isInsideFolder(groups, choice.id, wall)
-      : filings.some(
-          (each) =>
-            each.groupId !== null &&
-            each.source === "user" &&
-            (each.groupId === wall || isInsideFolder(groups, each.groupId, wall)),
-        );
-  return filedInside ? null : "outside";
+    choice.kind === "folder" ? folderWallOf(groups, choice.id) : (filed?.wallId ?? null);
+  if (wall === null) {
+    if (behind === null) return null;
+    return { inside: groups.find((group) => group.id === behind)?.name ?? "" };
+  }
+  const readable = behind === wall && (choice.kind === "folder" || filed?.byUser === true);
+  return readable ? null : "outside";
 }
 
 /** A scope naming exactly the chosen Folder or Document. */
