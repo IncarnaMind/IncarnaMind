@@ -309,6 +309,7 @@ export async function runClaimChecks<I>(
   each: (item: I, check: CheckTry) => Promise<ClaimCheckResult>,
   run: CheckRun & {
     concurrency?: number;
+    wider?(resize: (concurrency: number) => void): void;
     onOutcome?(item: I, outcome: CheckOutcome): void;
   },
 ): Promise<{
@@ -344,6 +345,7 @@ export async function runClaimChecks<I>(
     },
     {
       concurrency: run.concurrency ?? 1,
+      ...(run.wider && { wider: run.wider }),
       signal: run.signal,
       // A sleep rejects only when the run is stopped, which ends the pause.
       wait: (ms, signal) => run.timers.sleep(ms, signal ?? run.signal).catch(() => undefined),

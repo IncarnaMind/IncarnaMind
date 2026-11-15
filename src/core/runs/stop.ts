@@ -54,6 +54,12 @@ export const RATE_LIMIT_PAUSES_MS = [1_000, 2_000, 4_000, 8_000, 16_000] as cons
 export interface RunItemsOptions<I, T> {
   /** How many items run at once. Default 1, in order. */
   concurrency?: number;
+  /**
+   * Called once, before the first item starts, with what changes how many run at once from then
+   * on, for a caller that learns during the run what its provider has room for (#2532). Items
+   * already running finish.
+   */
+  wider?(resize: (concurrency: number) => void): void;
   /** Hears each item's outcome as soon as it has one. */
   onOutcome?(item: I, outcome: ItemOutcome<T>): void;
   /** Ends the run: items running or waiting are "stopped". */
@@ -97,7 +103,14 @@ const failureOf = (thrown: unknown): ProviderError =>
 export async function runItems<I, T>(
   items: readonly I[],
   each: (item: I) => Promise<T>,
-  { concurrency = 1, onOutcome, signal, wait = sleep, now = Date.now }: RunItemsOptions<I, T> = {},
+  {
+    concurrency = 1,
+    wider,
+    onOutcome,
+    signal,
+    wait = sleep,
+    now = Date.now,
+  }: RunItemsOptions<I, T> = {},
 ): Promise<{
   outcomes: ItemOutcome<T>[];
   stop: RunStop | null;
@@ -109,7 +122,7 @@ export async function runItems<I, T>(
   let stop: RunStop | null = null;
   /** No item starts before this, in ms since the epoch: a provider limited requests. */
   let pausedUntil = 0;
-  const workers = Math.max(1, Math.min(concurrency, items.length));
+  let workers = Math.max(1, Math.min(concurrency, items.length));
   let allowed = workers;
   /** Items that ended without a rate limit since the last one: a round of them brings one more back. */
   let calm = 0;
@@ -227,6 +240,13 @@ export async function runItems<I, T>(
       );
     }
   }
+  wider?.((size) => {
+    const next = Math.max(1, Math.min(size, items.length));
+    // What a limit took away stays taken.
+    allowed = Math.max(1, allowed + next - workers);
+    workers = next;
+    grow();
+  });
   grow();
   for (let index = 0; index < pool.length; index++) await pool[index];
   for (const index of queue) {
@@ -241,22 +261,36 @@ export interface Slots {
   run<T>(task: () => Promise<T>): Promise<T>;
   /** How many tasks could start now without waiting. */
   free(): number;
+  /** Changes how many run at once from now on; tasks already running finish. */
+  resize(size: number): void;
 }
 
 export function slots(size: number): Slots {
-  let free = Math.max(1, size);
+  let places = Math.max(1, size);
+  let taken = 0;
   const waiting: (() => void)[] = [];
+  const handOn = () => {
+    while (taken < places) {
+      const next = waiting.shift();
+      if (!next) return;
+      taken++;
+      next();
+    }
+  };
   return {
-    free: () => (waiting.length > 0 ? 0 : free),
+    free: () => (waiting.length > 0 ? 0 : Math.max(0, places - taken)),
+    resize(next) {
+      places = Math.max(1, next);
+      handOn();
+    },
     async run(task) {
-      if (free > 0) free--;
+      if (taken < places) taken++;
       else await new Promise<void>((resolve) => waiting.push(resolve));
       try {
         return await task();
       } finally {
-        const next = waiting.shift();
-        if (next) next();
-        else free++;
+        taken--;
+        handOn();
       }
     },
   };

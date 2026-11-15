@@ -66,6 +66,12 @@ const MINUTE_MS = 60_000;
 /** A scripted key: `send` answers a request sent at `now`, ms on the caller's clock. */
 export interface ScriptedKey {
   send(now: number): KeyAnswer;
+  /**
+   * What a reply sent at `now` states is left of the key's minute, as Anthropic's replies do: null
+   * for a key whose service states nothing. A key enforced over a second still states its
+   * minute's, the worst case for a caller that trusts it.
+   */
+  stated(now: number): { requests: number; inputTokens: number } | null;
   /** A request that fit has its reply: its place is free, and its output tokens are taken. */
   replied(): void;
   /** The next request is a write's first, whose prompt's cache is written. */
@@ -82,6 +88,7 @@ export function scriptedKey(key: KeyShape, replyMs: number): ScriptedKey {
         out++;
         return FITS;
       },
+      stated: () => null,
       replied() {
         out--;
       },
@@ -99,6 +106,11 @@ export function scriptedKey(key: KeyShape, replyMs: number): ScriptedKey {
         requests.take(1);
         return FITS;
       },
+      // It limits requests only.
+      stated: (now) => ({
+        requests: Math.max(0, Math.floor(requests.level(now))),
+        inputTokens: Number.MAX_SAFE_INTEGER,
+      }),
       replied: () => undefined,
       newWrite: () => undefined,
     };
@@ -107,8 +119,16 @@ export function scriptedKey(key: KeyShape, replyMs: number): ScriptedKey {
   const input = bucket(key.input * key.minutes, key.input / MINUTE_MS);
   const output =
     key.output === null ? null : bucket(key.output * key.minutes, key.output / MINUTE_MS);
+  const minute = {
+    requests: bucket(key.requests, key.requests / MINUTE_MS),
+    input: bucket(key.input, key.input / MINUTE_MS),
+  };
   let firstOfWrite = true;
   return {
+    stated: (now) => ({
+      requests: Math.max(0, Math.floor(minute.requests.level(now))),
+      inputTokens: Math.max(0, Math.floor(minute.input.level(now))),
+    }),
     send(now) {
       const costs = firstOfWrite ? key.firstCosts : key.costs.input;
       const wait = Math.max(
@@ -119,6 +139,10 @@ export function scriptedKey(key: KeyShape, replyMs: number): ScriptedKey {
       if (wait > 0) return refusal(wait);
       requests.take(1);
       input.take(costs);
+      minute.requests.level(now);
+      minute.requests.take(1);
+      minute.input.level(now);
+      minute.input.take(costs);
       firstOfWrite = false;
       return FITS;
     },
