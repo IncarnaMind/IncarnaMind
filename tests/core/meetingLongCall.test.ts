@@ -138,7 +138,8 @@ test("a 45-minute call gets its notes in parts, a part cut while thinking asked 
 
     const answered = asks.filter((ask) => !ask.cut);
     expect(answered.flatMap((ask) => ask.lines)).toEqual(call);
-    expect(asks.some((ask) => ask.cut)).toBe(true);
+    // One cut is enough to ask the rest of the call smaller.
+    expect(asks.filter((ask) => ask.cut)).toHaveLength(1);
     for (const [index, ask] of asks.entries()) {
       expect(new Set(ask.lines).size).toBe(ask.lines.length);
       if (!ask.cut) continue;

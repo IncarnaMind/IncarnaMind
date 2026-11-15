@@ -606,7 +606,7 @@ describe("A long call's Transcript, each line once, in parts a reply has room fo
     }
   });
 
-  // protects=a part whose reply is cut off is asked again as two, in reading order and each line once; the facts and overview the cut reply closed are kept and shown to both halves, the item it never closed isn't counted as left out since its lines are read again, and the note ends with no problem and exact Undo (#3151); fails_when=the fill stops at the cut reply, a kept fact is lost or written twice, the unfinished item is counted, or a line of the part is skipped or repeated; no_claim=how often a real model's reply is cut.
+  // protects=a part whose reply is cut off is asked again as two, in reading order and each line once, and the rest of the call is then asked at half the size; the facts and overview the cut reply closed are kept and shown to both halves, the item it never closed isn't counted as left out since its lines are read again, and the note ends with no problem and exact Undo (#3151); fails_when=the fill stops at the cut reply, a later part is asked at the size that was cut, a kept fact is lost or written twice, the unfinished item is counted, or a line of the part is skipped or repeated; no_claim=how often a real model's reply is cut.
   test("a part whose reply is cut off is asked again as two, and what it wrote is kept", async () => {
     const model = modelFor((part) =>
       part === 1
@@ -638,11 +638,19 @@ describe("A long call's Transcript, each line once, in parts a reply has room fo
           '"id":"P1_review"',
         );
       }
+      // After the cut, the rest of the call is asked at half the size too.
+      const rest = transcriptParts(parts.slice(1).flat(), FILL_PART_TOKENS / 2);
+      expect(rest.length).toBeGreaterThan(parts.length - 1);
       expectRequests(
         model,
-        Array.from({ length: parts.length + 2 }, () => 2),
+        Array.from({ length: 3 + rest.length }, () => 2),
       );
-      const asked = Array.from({ length: parts.length + 1 }, (_, index) => index + 2);
+      expect(itemsShown(model, 4)).toEqual(
+        rest[0]?.flatMap((passage) =>
+          [...passage.text.matchAll(/Workshop item (\d+):/g)].map((match) => Number(match[1])),
+        ),
+      );
+      const asked = Array.from({ length: 2 + rest.length }, (_, index) => index + 2);
       expect(asked.flatMap((part) => itemsShown(model, part))).toEqual(
         Array.from({ length: LONG_CUES }, (_, index) => index + 1),
       );

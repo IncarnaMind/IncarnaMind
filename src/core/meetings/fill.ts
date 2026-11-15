@@ -581,13 +581,10 @@ export function createMeetingFill(options: MeetingFillOptions) {
     return passages;
   }
 
-  const partsFor = (passages: readonly WindowedPassage[], route: Routed) =>
-    transcriptParts(
-      passages,
-      Math.min(
-        FILL_PART_TOKENS,
-        route.windowTokens ? Math.floor(route.windowTokens / 2) : FILL_PART_TOKENS,
-      ),
+  const partTokens = (route: Routed) =>
+    Math.min(
+      FILL_PART_TOKENS,
+      route.windowTokens ? Math.floor(route.windowTokens / 2) : FILL_PART_TOKENS,
     );
 
   /**
@@ -615,7 +612,8 @@ export function createMeetingFill(options: MeetingFillOptions) {
     };
     set(meeting.id, filling);
     const passages = await passagesOf(transcriptId);
-    const waiting = partsFor(passages, route);
+    let partSize = partTokens(route);
+    let waiting = transcriptParts(passages, partSize);
     // The notes, their section titles and the question that steers an Answer's language are in
     // the call's language, whatever the interface's (#2770).
     const spoken = callLanguage(passages);
@@ -687,8 +685,11 @@ export function createMeetingFill(options: MeetingFillOptions) {
         else destinations.set(section, heading);
       }
       if (halves) {
-        log.info("meeting.fillPartHalved", { meetingId: meeting.id, waiting: waiting.length + 2 });
-        waiting.unshift(...halves);
+        // A call dense enough to cut one reply cut the next part of the same size too, each a
+        // two-minute wait for nothing: the rest of the call is asked at half the size as well.
+        partSize = Math.max(FILL_PART_FLOOR_TOKENS, Math.floor(partSize / 2));
+        waiting = [...halves, ...transcriptParts(waiting.flat(), partSize)];
+        log.info("meeting.fillPartHalved", { meetingId: meeting.id, waiting: waiting.length });
         continue;
       }
       if (answer.status === "failed") {
@@ -836,7 +837,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
       blocks: [],
     });
     const passages = await passagesOf(transcriptId);
-    const parts = partsFor(passages, route);
+    const parts = transcriptParts(passages, partTokens(route));
     const context = memoContext(words("memos.fill.question"));
     const replies: NodeJSON[] = [];
     for (const part of parts) {
