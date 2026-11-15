@@ -74,7 +74,9 @@ import { SETS, writeDocuments } from "../repeats/cases";
 import {
   asLabelled,
   decisionUsd,
+  type HostLater,
   hasDigit,
+  heldBackBy,
   type ReplayRow,
   replayByLabel,
   replayOutcome,
@@ -106,6 +108,7 @@ async function noteOf(folder: string, count: number) {
 async function startHost(answerMs: number, sure: ReadonlySet<string> = new Set()) {
   const read = new Map<string, HostPassage[]>();
   const scores: HostScore[] = [];
+  const later: HostLater[] = [];
   let asked = 0;
   let characters = 0;
   const server = createServer(async (request, response) => {
@@ -132,7 +135,7 @@ async function startHost(answerMs: number, sure: ReadonlySet<string> = new Set()
     if (body.state.passages && !read.has(sentence)) {
       read.set(sentence, Object.values(body.state.passages));
       scores.push(...scoresOfEach(sentence, answers));
-    }
+    } else later.push(laterOf(body.state, answers));
     send({ model: body.model, answers, usage: { input_tokens: 10, output_tokens: 0 } });
   });
   await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
@@ -142,11 +145,13 @@ async function startHost(answerMs: number, sure: ReadonlySet<string> = new Set()
     characters: () => characters,
     inputTokens: () => 0,
     scores: () => scores,
+    later: () => later,
     passagesRead: (sentence: string) => read.get(sentence) ?? null,
     refused: (): number[] => [],
     forget: () => {
       read.clear();
       scores.length = 0;
+      later.length = 0;
     },
     close: () =>
       new Promise<void>((done) => {
@@ -175,6 +180,20 @@ interface HostState {
   passages?: Record<string, HostPassage>;
 }
 
+/** A request about a sentence after its first, with each question's answer. */
+const laterOf = (
+  { sentence, passages }: HostState,
+  answers: Record<string, { noul?: number }>,
+): HostLater => ({
+  sentence,
+  several: passages ? Object.keys(passages).length : 0,
+  answers: Object.fromEntries(
+    Object.entries(answers).flatMap(([question, { noul }]) =>
+      noul === undefined ? [] : [[question, noul]],
+    ),
+  ),
+});
+
 /** Each Passage's scores in the answers to one request about several, in the order asked. */
 function scoresOfEach(sentence: string, answers: Record<string, { noul?: number }>): HostScore[] {
   const scores: HostScore[] = [];
@@ -198,6 +217,7 @@ async function startRelay(origin: string) {
   let inputTokens = 0;
   const read = new Map<string, HostPassage[]>();
   const scores: HostScore[] = [];
+  const later: HostLater[] = [];
   const refused: number[] = [];
   const server = createServer(async (request, response) => {
     const chunks: Buffer[] = [];
@@ -244,7 +264,8 @@ async function startRelay(origin: string) {
         if (state?.sentence && state.passages && answers && !read.has(state.sentence)) {
           read.set(state.sentence, Object.values(state.passages));
           scores.push(...scoresOfEach(state.sentence, answers));
-        }
+        } else if (state?.sentence && answers)
+          later.push(laterOf({ ...state, sentence: state.sentence }, answers));
       } else refused.push(reply.status);
     }
     const retryAfter = reply.headers.get("retry-after");
@@ -261,11 +282,13 @@ async function startRelay(origin: string) {
     characters: () => characters,
     inputTokens: () => inputTokens,
     scores: () => scores,
+    later: () => later,
     passagesRead: (sentence: string) => read.get(sentence) ?? null,
     refused: () => refused,
     forget: () => {
       read.clear();
       scores.length = 0;
+      later.length = 0;
     },
     close: () =>
       new Promise<void>((done) => {
@@ -771,6 +794,19 @@ test.skipIf(mode !== "replay" && mode !== "replay-dry" && mode !== "replay-main"
               sure:
                 reading && reading.verdict !== "unsupported" && reading.final
                   ? reading.verdict
+                  : null,
+              // Why a sure score gave no Mark of the decision model's.
+              heldBack:
+                decisionLines &&
+                reading &&
+                reading.verdict !== "unsupported" &&
+                reading.final &&
+                !byDecision
+                  ? heldBackBy(
+                      reading.verdict,
+                      host.later().filter((each) => each.sentence.trim() === sentence.text.trim()),
+                      decisionLines,
+                    )
                   : null,
               kind: sentence.kind ?? null,
               id: sentence.id,
