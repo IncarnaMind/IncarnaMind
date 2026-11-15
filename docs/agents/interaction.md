@@ -61,7 +61,7 @@ Each rule has a check a reviewer can apply. A UI change that breaks a rule says 
 | Find anything | ⌘K searches Notes, Conversations, Documents, Folders and Tags, and runs any action | ChatGPT, Claude, Notion, Linear |
 | Open and rename | Click or Enter opens; double-click or F2 renames | Windows Explorer, Notion, Linear, Obsidian |
 | Make a Folder | ⇧⌘N makes "Untitled Folder" in the tree with its name field open; ⌃⌘N on macOS (or the selection's menu) makes it with the selected Documents and Notes in it; Enter keeps the name, Esc keeps "Untitled Folder", ⌘Z removes it | Finder, Windows Explorer (Ctrl+Shift+N) |
-| Add Documents | ⌘O (Ctrl+O) opens the file picker from a Note, the sidebar and the Library, but not while the focus is in text; the Add menus, the File menu and ⌘K list it, with Link a folder… beside it and no keys | Finder, VS Code |
+| Add Documents | ⌘O (Ctrl+O) opens the file picker from a Note and its text, the sidebar and the Library, but not while the focus is in a text field (a name, a search, the composer); the Add menus, the File menu and ⌘K list it, with Link a folder… beside it and no keys | Finder, VS Code |
 | File into a Folder | Drag onto the Folder, or Move to… (⇧⌘M) | ChatGPT projects, Notion, Granola, Finder |
 | One Folder per Document | A drop on a Folder moves the Document; Tags group Documents across Folders | Finder |
 | Tags | Created, renamed, recoloured, merged and deleted in the sidebar's Tags view; a rename applies everywhere | Finder, Bear, Apple Notes |

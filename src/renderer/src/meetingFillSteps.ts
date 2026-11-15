@@ -1,45 +1,27 @@
 /**
- * A Meeting's fill as each editor showing its Note holds it, one step of that editor's own Undo
- * (#2527, editor/meetingFillUndo): the fill's line in that editor follows its step, and its Undo
- * is that editor's.
+ * A Meeting's fill as each copy of its Note holds it, one step of that copy's Undo (#2527,
+ * editor/meetingFillUndo): the fill's line in that copy follows its step, and its Undo is that
+ * copy's. A copy's steps are held by its editor, or, in a tab, by the history the tab keeps for
+ * the Note, so the tab's next editor finds them after a tab switch (#3115).
  */
+import { Editor } from "@tiptap/core";
 import { useSyncExternalStore } from "react";
-import type { FollowedSteps } from "./editor/editorUndo";
+import { type FollowedSteps, historyOwnerOf } from "./editor/editorUndo";
 
-/** Steps of the fill an editor follows, which may say whether ⇧⌘Z puts them back next. */
+/** What holds the steps `given` asks about: an editor's, its tab's history where it keeps one. */
+const holderOf = (given: object): object =>
+  given instanceof Editor ? historyOwnerOf(given) : given;
+
+/** Steps of the fill a copy follows, which may say whether ⇧⌘Z puts them back next. */
 type FillSteps = FollowedSteps & { redoesNext?(): boolean };
-
-/**
- * A fill whose editor closed with it still on top, as a tab switch closes it: the tab's next
- * editor starts with no history, so the tab keeps the fill's line and the core's Undo of it (#3099).
- */
-interface HandedOver {
-  /** Its line shows in the tab until the User does something in the Note there. */
-  line: boolean;
-  undo: HandedUndo;
-}
-
-/** The core's Undo of a handed-over fill, kept in its place on the app's undo stack. */
-export interface HandedUndo {
-  /** ⌘Z reaches it while an editor of its tab shows the fill's text, and passes over it otherwise. */
-  show(shown: boolean): void;
-  /** Takes it off the stack. */
-  withdraw(): void;
-}
-
-/** Each tab's handed-over fill, by Meeting. */
-const handed = new Map<string, Map<string, HandedOver>>();
-
-/** The editors drawn in a tab, and whether their own history has nothing left to take back. */
-const inTabs = new Map<object, { meetingId: string; tabId: string; historyEmpty(): boolean }>();
 
 interface Hold {
   steps: FillSteps;
-  /** Takes the steps out of the editor's history, and stops holding them. */
+  /** Takes the steps out of the history, and stops holding them. */
   letGo?: () => void;
 }
 
-/** Each editor's steps of a Meeting's fill, by Meeting. */
+/** Each copy's steps of a Meeting's fill, by Meeting and by what holds them. */
 const held = new Map<string, Map<object, Hold>>();
 const listeners = new Set<() => void>();
 let version = 0;
@@ -48,34 +30,35 @@ const changed = () => {
   for (const listener of listeners) listener();
 };
 
-/** `editor` holds this Meeting's fill as these steps, until the returned function lets go. */
+/** `holder` holds this Meeting's fill as these steps, until the returned function lets go. */
 export function holdFillSteps(
   meetingId: string,
-  editor: object,
+  holder: object,
   steps: FillSteps,
   letGo?: () => void,
 ): () => void {
   const holders = held.get(meetingId) ?? new Map<object, Hold>();
   const hold = { steps, letGo };
-  holders.set(editor, hold);
+  const by = holderOf(holder);
+  holders.set(by, hold);
   held.set(meetingId, holders);
   const stop = steps.observe(changed);
   changed();
   return () => {
     stop();
-    if (holders.get(editor) !== hold) return;
-    holders.delete(editor);
+    if (holders.get(by) !== hold) return;
+    holders.delete(by);
     if (holders.size === 0 && held.get(meetingId) === holders) held.delete(meetingId);
     changed();
   };
 }
 
-/** Whether an editor holds this Meeting's fill: its Undo is that editor's, not the core's. */
+/** Whether a copy holds this Meeting's fill: its Undo is that copy's, not the core's. */
 export const fillHeldInEditor = (meetingId: string): boolean =>
   (held.get(meetingId)?.size ?? 0) > 0;
 
 /**
- * Each editor holding this Meeting's fill taken back with ⌘Z lets it go, so its ⇧⌘Z can't put
+ * Each copy holding this Meeting's fill taken back with ⌘Z lets it go, so its ⇧⌘Z can't put
  * it back beside a new fill: true when one did.
  */
 export function letGoOfUndoneFill(meetingId: string): boolean {
@@ -87,21 +70,21 @@ export function letGoOfUndoneFill(meetingId: string): boolean {
 }
 
 /**
- * Where the fill stands in `editor`: "top" while nothing was done in the Note since (its line
- * shows, with Undo), "done" once the User went on, "undone" after ⌘Z, or null when `editor`
+ * Where the fill stands in `holder`: "top" while nothing was done in the Note since (its line
+ * shows, with Undo), "done" once the User went on, "undone" after ⌘Z, or null when `holder`
  * doesn't hold it.
  */
 export function fillStepIn(
   meetingId: string,
-  editor: object | undefined,
+  holder: object | undefined,
 ): "top" | "done" | "undone" | null {
-  const steps = editor && held.get(meetingId)?.get(editor)?.steps;
+  const steps = holder && held.get(meetingId)?.get(holderOf(holder))?.steps;
   const state = steps?.state();
   if (!steps || !state || state === "gone") return null;
   return state === "undone" ? "undone" : steps.onTop() ? "top" : "done";
 }
 
-/** Draws again whenever an editor's hold on a fill changes, or a tab's. */
+/** Draws again whenever a copy's hold on a fill changes. */
 function useHolds(): void {
   useSyncExternalStore(
     (listener) => {
@@ -114,109 +97,38 @@ function useHolds(): void {
 
 export function useFillStep(
   meetingId: string,
-  editor: object | undefined,
+  holder: object | undefined,
 ): "top" | "done" | "undone" | null {
   useHolds();
-  return fillStepIn(meetingId, editor);
+  return fillStepIn(meetingId, holder);
 }
 
-/** `tabId` keeps this Meeting's fill: its line, and its Undo for the tab's next editor to show. */
-export function handFillOver(meetingId: string, tabId: string, undo: HandedUndo): void {
-  const tabs = handed.get(meetingId) ?? new Map<string, HandedOver>();
-  tabs.get(tabId)?.undo.withdraw();
-  tabs.set(tabId, { line: true, undo });
-  handed.set(meetingId, tabs);
-  changed();
-}
-
-/** An editor of `tabId` shows the fill's text, or no longer does: ⌘Z reaches its Undo, or passes over it. */
-export function showHandedFill(meetingId: string, tabId: string, shown: boolean): void {
-  handed.get(meetingId)?.get(tabId)?.undo.show(shown);
-}
-
-/**
- * `editor` is drawn in `tabId`: while its own history is empty, a fill handed to that tab is its
- * next Undo, which My notes doesn't take (#138, #3099). Until the returned function is called.
- */
-export function drawnInTab(
-  editor: object,
-  meetingId: string,
-  tabId: string,
-  historyEmpty: () => boolean,
-): () => void {
-  const entry = { meetingId, tabId, historyEmpty };
-  inTabs.set(editor, entry);
-  return () => {
-    if (inTabs.get(editor) === entry) inTabs.delete(editor);
-  };
-}
-
-/** Whether the fill's line shows in the tab, which an editor closing there handed it to. */
-export const fillLineHandedTo = (meetingId: string, tabId: string | undefined): boolean =>
-  tabId !== undefined && handed.get(meetingId)?.get(tabId)?.line === true;
-
-export function useFillLineHandedTo(meetingId: string, tabId: string | undefined): boolean {
-  useHolds();
-  return fillLineHandedTo(meetingId, tabId);
-}
-
-/** The User did something in the tab's Note: its line goes, the fill's Undo staying under that. */
-export function endHandedLine(meetingId: string, tabId: string): void {
-  const hold = handed.get(meetingId)?.get(tabId);
-  if (!hold?.line) return;
-  hold.line = false;
-  changed();
-}
-
-/** The fill moved on, or the tab closed: the tab, or every tab without one, lets it go. */
-export function endHandOver(meetingId: string, tabId?: string): void {
-  const tabs = handed.get(meetingId);
-  if (!tabs) return;
-  for (const [each, hold] of tabs) {
-    if (tabId !== undefined && each !== tabId) continue;
-    hold.undo.withdraw();
-    tabs.delete(each);
-  }
-  if (tabs.size === 0) handed.delete(meetingId);
-  changed();
-}
-
-/** The Meetings whose fill a tab keeps, and those tabs. */
-export const handedOver = (): { meetingId: string; tabId: string }[] =>
-  [...handed].flatMap(([meetingId, tabs]) =>
-    [...tabs.keys()].map((tabId) => ({ meetingId, tabId })),
-  );
-
-/** Takes back the fill in `editor`, where it is on top: false when it isn't. */
+/** Takes back the fill in `holder`, where it is on top: false when it isn't. */
 export async function undoFillInEditor(
   meetingId: string,
-  editor: object | undefined,
+  holder: object | undefined,
 ): Promise<boolean> {
-  const steps = editor && held.get(meetingId)?.get(editor)?.steps;
+  const steps = holder && held.get(meetingId)?.get(holderOf(holder))?.steps;
   if (!steps?.onTop()) return false;
   await steps.undo();
   return true;
 }
 
-/** Whether `editor`'s next Undo, or Redo, is a meeting fill's own step, or the fill its tab holds. */
-export function fillNextIn(editor: object, step: "undo" | "redo"): boolean {
+/** Whether `holder`'s next Undo, or Redo, is a meeting fill's own step. */
+export function fillNextIn(holder: object, step: "undo" | "redo"): boolean {
+  const by = holderOf(holder);
   for (const holders of held.values()) {
-    const steps = holders.get(editor)?.steps;
+    const steps = holders.get(by)?.steps;
     if (steps && (step === "undo" ? steps.onTop() : steps.redoesNext?.() === true)) return true;
   }
-  const drawn = inTabs.get(editor);
-  return (
-    step === "undo" &&
-    drawn !== undefined &&
-    handed.get(drawn.meetingId)?.has(drawn.tabId) === true &&
-    drawn.historyEmpty()
-  );
+  return false;
 }
 
-/** Where `editor`'s meeting fill stands in its history: in the Note, taken back, or neither. */
-export function fillStateIn(editor: object): "done" | "undone" | null {
+/** Where `holder`'s meeting fill stands in its history: in the Note, taken back, or neither. */
+export function fillStateIn(holder: object): "done" | "undone" | null {
+  const by = holderOf(holder);
   for (const holders of held.values()) {
-    const state = holders.get(editor)?.steps.state();
+    const state = holders.get(by)?.steps.state();
     if (state === "done" || state === "undone") return state;
   }
   return null;

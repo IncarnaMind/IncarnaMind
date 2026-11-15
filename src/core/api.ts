@@ -12755,6 +12755,12 @@ export interface CoreApi {
    * Mind's stored updates and free its memory. Editing the Mind again is fine.
    */
   closeMind(mindId: string): Promise<void>;
+  /**
+   * Settles what nothing works on any more in the Mind, as opening it does: an Answer left being
+   * written, a sentence left being checked. For a client that shows the Mind again from a copy it
+   * kept, without opening it again.
+   */
+  settleUnfinished(mindId: string): Promise<void>;
 
   /**
    * Saves a Checkpoint of the Mind as it is now (#113), and returns it. Call
@@ -15042,6 +15048,7 @@ const methods: Record<CoreApiMethod, true> = {
   saveChangesAgain: true,
   takeLostChanges: true,
   closeMind: true,
+  settleUnfinished: true,
   saveCheckpoint: true,
   listCheckpoints: true,
   compareCheckpoints: true,

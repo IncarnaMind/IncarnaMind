@@ -3590,6 +3590,37 @@ describe("Stopping", () => {
     ]);
   });
 
+  // protects=a Note a tab shows again from the copy it kept, not opened again, has settled what nothing works on any more, as opening it does: a sentence a check that threw left “checking” says stopped, and an Answer left being written with nothing writing it is stopped (#3115); fails_when=the sentence still reads checking, or the Answer still reads as being written, until the Note is opened anew; no_claim=what makes a check throw.
+  test("a check and an Answer left unfinished in an open Note are settled when a tab shows it again", async () => {
+    const { core, client, mind } = await mindWith([SUPPORTED]);
+    const left = { ...LEFT_CHECKING, request: "a check that threw" };
+    writeMind(client, [
+      paragraph(text(SUPPORTED, left)),
+      { type: "question", attrs: { id: "question-1" }, content: [{ type: "text", text: "Why?" }] },
+      {
+        type: "answer",
+        attrs: { id: "answer-1", questionId: "question-1", status: "streaming" },
+        content: [{ type: "paragraph", content: [{ type: "text", text: "Because" }] }],
+      },
+    ]);
+    await client.settled();
+    const answerStatus = () => {
+      let status: unknown = null;
+      readMind(client).descendants((node) => {
+        if (node.type.name === "answer") status = node.attrs.status;
+      });
+      return status;
+    };
+    expect(answerStatus()).toBe("streaming");
+
+    await core.settleUnfinished(mind.id);
+
+    expect((await shownChecks(core, client)).map((each) => each.shown)).toEqual([
+      { state: "not-checked", reason: "stopped" },
+    ]);
+    expect(answerStatus()).toBe("stopped");
+  });
+
   test("a check stopped halfway leaves the sentences not checked yet “stopped”", async () => {
     let release = () => {};
     const held = new Promise<void>((resolve) => {

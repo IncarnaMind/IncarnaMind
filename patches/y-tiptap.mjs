@@ -3,7 +3,10 @@
 // - updateYText, with the format step in y-tiptap/formatChanges.mjs, so an edit sets only the
 //   marks that changed (#2988);
 // - attributesToMarks and marksToAttributes, from y-tiptap/marks.mjs, so each check, comment and
-//   assistant's change is kept under a key of its own (#2996).
+//   assistant's change is kept under a key of its own (#2996);
+// - the undo plugin's view, so an Undo history a tab keeps outlives each editor it shows the Note
+//   in (#3115): the view takes off only its own listeners, ends only a history it made, and keeps a
+//   step's selection under the Note's type rather than under that one editor's binding.
 // A function already ours is left as it is. One that isn't the library's own, found once, stops the
 // install: an upgrade of the library waits until someone has looked.
 import { readFileSync, writeFileSync } from "node:fs";
@@ -73,6 +76,47 @@ export const libraryMarksToAttributes = (map) => `const marksToAttributes = (mar
 };
 `;
 
+/** The undo plugin view's listeners and the start of its end, the same in both builds. */
+export const LIBRARY_UNDO_VIEW = `    undoManager.on('stack-item-added', ({ stackItem }) => {
+      const binding = ystate.binding;
+      if (binding) {
+        stackItem.meta.set(binding, yUndoPluginKey.getState(view.state).prevSel);
+      }
+    });
+    undoManager.on('stack-item-popped', ({ stackItem }) => {
+      const binding = ystate.binding;
+      if (binding) {
+        binding.beforeTransactionSelection = stackItem.meta.get(binding) || binding.beforeTransactionSelection;
+      }
+    });
+    return {
+      destroy: () => {
+        undoManager.destroy();
+`;
+
+export const PATCHED_UNDO_VIEW = `    const added = ({ stackItem }) => {
+      const binding = ystate.binding;
+      if (binding) {
+        stackItem.meta.set(binding.type, yUndoPluginKey.getState(view.state).prevSel);
+      }
+    };
+    const popped = ({ stackItem }) => {
+      const binding = ystate.binding;
+      if (binding) {
+        binding.beforeTransactionSelection = stackItem.meta.get(binding.type) || binding.beforeTransactionSelection;
+      }
+    };
+    undoManager.on('stack-item-added', added);
+    undoManager.on('stack-item-popped', popped);
+    return {
+      destroy: () => {
+        undoManager.off('stack-item-added', added);
+        undoManager.off('stack-item-popped', popped);
+        // A history given to the plugin is its giver's to end (#3115).
+        if (undoManager._yTiptapDocDestroyListeners === undefined) return;
+        undoManager.destroy();
+`;
+
 /** The functions the package gets from formatChanges.mjs: from its first export on, not exported. */
 export function helpersOf(source) {
   const text = source.replace(/\r\n/g, "\n");
@@ -122,6 +166,11 @@ export const replacementsOf = (parts) => [
       ours: parts.marksToAttributes,
     })),
   },
+  {
+    name: "the undo plugin's view",
+    issue: "#3115",
+    variants: [{ library: LIBRARY_UNDO_VIEW, ours: PATCHED_UNDO_VIEW }],
+  },
 ];
 
 const occurrences = (text, part) => {
@@ -165,8 +214,8 @@ function main() {
   const { version } = JSON.parse(readFileSync(join(library, "package.json"), "utf8"));
   if (version !== VERSION) {
     throw new Error(
-      `@tiptap/y-tiptap is ${version}, and #2988's and #2996's fixes are for ${VERSION}: check ` +
-        `that they still belong there, then update patches/y-tiptap.mjs.`,
+      `@tiptap/y-tiptap is ${version}, and #2988's, #2996's and #3115's fixes are for ${VERSION}: ` +
+        `check that they still belong there, then update patches/y-tiptap.mjs.`,
     );
   }
   const parts = partsOf(
@@ -178,7 +227,7 @@ function main() {
     const { status, text } = patchBuild(readFileSync(file, "utf8"), parts);
     if (status === "patched") writeFileSync(file, text);
     console.log(
-      `@tiptap/y-tiptap ${build}: ${status === "patched" ? "patched" : "already patched"} (#2988, #2996)`,
+      `@tiptap/y-tiptap ${build}: ${status === "patched" ? "patched" : "already patched"} (#2988, #2996, #3115)`,
     );
   }
 }

@@ -1,8 +1,8 @@
 import { useEffect } from "react";
 import type { EditMenuState } from "../../../shared/bridge";
 import { files } from "../core";
-import { redoFromMenu, undoFromMenu } from "../editor/comparisonStructureUndo";
 import { noteAround } from "../editor/noteKeymap";
+import { redoInNote, undoInNote } from "../editor/noteUndoKeys";
 import { useT } from "../i18n";
 import type { Translate } from "../objects";
 import { nextToRedo, nextToUndo, typesText, type Undoable, undoReady, useUndo } from "../undo";
@@ -10,8 +10,9 @@ import { type Command, type CommandContext, fromMenu } from "./registry";
 
 /**
  * Where ⌘Z and ⇧⌘Z go from the focus (docs/designs/interaction-system.md, C.6):
- * the note's own undo in the note, a field's own in a field, and the app's
- * changes everywhere else. ⌘K runs them on what ⌘Z would there.
+ * the note's own undo in the note, and the app's once the note has nothing of its
+ * own to take back; a field's own in a field; and the app's changes everywhere
+ * else. ⌘K runs them on what ⌘Z would there.
  */
 export function placeAt(focus: Element | null): EditMenuState["text"] {
   const typing = typesText(focus);
@@ -61,9 +62,7 @@ export const editCommands: readonly Command[] = [
       const place = placeOf(ctx);
       if (place === "note") {
         const note = noteHere(document.activeElement);
-        if (note && undoFromMenu(note)) return;
-        if (note?.commands.undo()) return;
-        return useUndo.getState().undo();
+        return note ? undoInNote(note) : useUndo.getState().undo();
       }
       // A field's own undo, the system Edit menu's editing command, which only execCommand reaches.
       else if (place === "field") document.execCommand("undo");
@@ -83,9 +82,7 @@ export const editCommands: readonly Command[] = [
       const place = placeOf(ctx);
       if (place === "note") {
         const note = noteHere(document.activeElement);
-        if (note && redoFromMenu(note)) return;
-        if (note?.commands.redo()) return;
-        return useUndo.getState().redo();
+        return note ? redoInNote(note) : useUndo.getState().redo();
       } else if (place === "field") document.execCommand("redo");
       else return useUndo.getState().redo();
     },

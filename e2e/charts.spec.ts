@@ -746,6 +746,9 @@ for (const [language, width] of [
       await window.keyboard.press("Shift+Tab");
       await window.keyboard.press("Shift+Tab");
     } else {
+      // The Note kept its cursor in the table, where Tab walks the cells: one line down leaves it.
+      await tabInto(window, editor);
+      await window.keyboard.press("ArrowDown");
       await tabInto(window, chart);
     }
     await expect(chart.getByTestId("chart-kind")).toBeFocused();

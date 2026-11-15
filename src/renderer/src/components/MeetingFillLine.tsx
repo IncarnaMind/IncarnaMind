@@ -5,7 +5,7 @@ import { useAnswers } from "../answers";
 import { fixAction } from "../fixAction";
 import { useT } from "../i18n";
 import { billingUrlOfProvider } from "../keyRefusals";
-import { useFillLineHandedTo, useFillStep } from "../meetingFillSteps";
+import { useFillStep } from "../meetingFillSteps";
 import { useMeetings } from "../meetings";
 import { showMeetingNoteView } from "../meetingViews";
 import { useModelNames, useServiceName } from "../modelNames";
@@ -115,7 +115,6 @@ export function MeetingFillLine({ meeting, editor }: { meeting: Meeting; editor?
   const t = useT();
   const place = useTabPlace();
   const step = useFillStep(meeting.id, editor);
-  const handed = useFillLineHandedTo(meeting.id, place?.tabId);
   const problem = useMeetings((state) => state.problems[meeting.id]);
   const provider = useProviderProblem(meeting.fill?.problem);
   if (!meeting.fill) return null;
@@ -275,8 +274,8 @@ export function MeetingFillLine({ meeting, editor }: { meeting: Meeting; editor?
   }
   if (fill.state === "filled") {
     // A call's note fills in as any AI edit applies: its line goes once the User types (#2527). A tab
-    // switch is no typing: the tab keeps the line its editor had (#3099).
-    if (meeting.kind === "meeting" && step !== "top" && !(step === null && handed)) return null;
+    // switch is no typing: the tab's next editor finds the step, its line with it (#3099, #3115).
+    if (meeting.kind === "meeting" && step !== "top") return null;
     return (
       <ProblemLine
         testId="meeting-fill-line"

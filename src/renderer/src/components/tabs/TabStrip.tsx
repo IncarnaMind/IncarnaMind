@@ -13,7 +13,7 @@ import { useT } from "../../i18n";
 import { focusedGroupOf, groupOfTab } from "../../layoutSlice";
 import { onMiddleClick } from "../../middleClick";
 import { useAppStore } from "../../store";
-import { focusTab } from "../../tabFocus";
+import { focusShownContent, focusTab, forgetContentFocus } from "../../tabFocus";
 import { tabLabelEm } from "../../tabLabel";
 import { InlineName } from "../InlineName";
 import { CloseLineIcon, PinLineIcon, PlusLineIcon, SplitLineIcon } from "../lineIcons";
@@ -181,9 +181,12 @@ function Tab({ tab, groupId, selected, divider, dragged }: TabProps) {
   const isMind = tab.item.kind === "mind";
   const objectMenu = useObjectMenu({ kind: "tab", id: tab.id });
 
-  const show = () => {
+  /** Shows the tab; a click on it puts the focus in what it shows, the keyboard keeps it here. */
+  const show = (clicked: boolean) => {
     const { layout } = useAppStore.getState();
     const current = layout ? focusedGroupOf(layout) : null;
+    if (clicked) focusShownContent(tab.id, tab.item.kind);
+    else forgetContentFocus();
     if (selected && current?.id === groupId) return;
     void changeLayout({ type: "show", tabId: tab.id });
   };
@@ -221,7 +224,8 @@ function Tab({ tab, groupId, selected, divider, dragged }: TabProps) {
       className="tab"
       {...(renaming ? {} : source)}
       onClick={(event) => {
-        if (!renaming && !fromInside(event)) show();
+        // A right-click opens its menu by pressing the menu's button: that shows it, the focus left.
+        if (!renaming && !fromInside(event)) show(!(event.target as Element).closest("button"));
       }}
       onDoubleClick={(event) => {
         if (fromInside(event) || (event.target as Element).closest("button")) return;
@@ -235,7 +239,7 @@ function Tab({ tab, groupId, selected, divider, dragged }: TabProps) {
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
           if (tab.preview) void changeLayout({ type: "keep", tabId: tab.id });
-          show();
+          show(false);
         } else objectMenu.rowProps.onKeyDown(event);
       }}
       // A middle click closes it, as in a browser; a pinned tab stays, as with ⌘W.

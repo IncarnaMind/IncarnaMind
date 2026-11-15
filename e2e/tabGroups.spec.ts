@@ -845,7 +845,12 @@ test("⌘Z pressed the moment a first move starts takes that move back, and only
   await dismissChatSetup(window);
   for (const title of ["Alpha", "Beta", "Gamma", "Delta"]) await newMind(window, title);
   const first = groupAt(window, 0);
-  await pointAndClick(window, tabNamed(window, "Beta"));
+  // Shown from the keyboard, the tab keeps the focus, where the app's Undo answers ⌘Z: a click
+  // puts it in the Note's text, whose own Undo answers there (#3115).
+  await tabNamed(window, "Beta").focus();
+  await window.keyboard.press("Enter");
+  await expect(tabNamed(window, "Beta")).toHaveAttribute("aria-selected", "true");
+  await expect(tabNamed(window, "Beta")).toBeFocused();
 
   // All three keys in one go, so the Undo lands while both moves still wait for the core and the
   // stack is empty: it must wait for them, then take back only the last one.
