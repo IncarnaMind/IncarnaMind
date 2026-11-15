@@ -29,7 +29,9 @@
  *   benchmark's own PDFs, eval/citations/documents), and
  *   INCARNAMIND_EVAL_SPEED_EMBEDDINGS=off searches by keyword alone, as the app does until the
  *   User turns embeddings on. A Note that names Documents (`scope`, their keys) is checked in
- *   that Search scope, as a Note the User set to them.
+ *   that Search scope, as a Note the User set to them. INCARNAMIND_EVAL_SPEED_LINES (the lines as
+ *   JSON) reads with other lines than the measured model's, to measure where a line can sit:
+ *   marks.json keeps what each sentence's Passage scored when asked about alone.
  *
  * INCARNAMIND_EVAL_SPEED_ARMS (as `main,decision,decision,main`, the default) names each run's arm
  * in turn, INCARNAMIND_EVAL_SPEED_SENTENCES how many sentences the Note holds (33 by default, the
@@ -44,14 +46,18 @@ import type { AddressInfo } from "node:net";
 import { loadavg, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
-import { test } from "vitest";
+import { test, vi } from "vitest";
 import {
   type ChatModelChoice,
   type CheckDecisionModel,
   type Core,
   MIND_CONTENT_FIELD,
 } from "../../src/core";
-import { decisionLinesFor, readingOf } from "../../src/core/answers/checks/decisionLines";
+import {
+  type DecisionLines,
+  decisionLinesFor,
+  readingOf,
+} from "../../src/core/answers/checks/decisionLines";
 import { BUILT_IN_RERANKING_MODEL } from "../../src/core/reranking/model";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { setMindScope } from "../../src/shared/mindScope";
@@ -72,9 +78,12 @@ import { createLog } from "../lib/log";
 import { createWorkerCrossEncoder } from "../lib/rerank";
 import { SETS, writeDocuments } from "../repeats/cases";
 import {
+  askedAlone,
   asLabelled,
   decisionUsd,
+  type HostLater,
   hasDigit,
+  heldBackBy,
   type ReplayRow,
   replayByLabel,
   replayOutcome,
@@ -82,6 +91,19 @@ import {
   shapesOf,
 } from "./decisionFirstScore";
 import { env, list, modelsAsked, spentUsd } from "./settings";
+
+/* A measurement of where a line can sit reads with other lines than the measured model's. */
+vi.mock("../../src/core/answers/checks/decisionLines", async (importOriginal) => {
+  const real = await importOriginal<typeof import("../../src/core/answers/checks/decisionLines")>();
+  const other = process.env.INCARNAMIND_EVAL_SPEED_LINES;
+  if (!other) return real;
+  const lines: DecisionLines = JSON.parse(other);
+  return {
+    ...real,
+    decisionLinesFor: (...model: Parameters<typeof real.decisionLinesFor>) =>
+      real.decisionLinesFor(...model) && lines,
+  };
+});
 
 const ROOT = resolve(__dirname, "../..");
 const DECIDER: CheckDecisionModel = { host: "openrouter", modelId: "perplexity/pplx-decider-v1.2" };
@@ -106,6 +128,7 @@ async function noteOf(folder: string, count: number) {
 async function startHost(answerMs: number, sure: ReadonlySet<string> = new Set()) {
   const read = new Map<string, HostPassage[]>();
   const scores: HostScore[] = [];
+  const later: HostLater[] = [];
   let asked = 0;
   let characters = 0;
   const server = createServer(async (request, response) => {
@@ -132,7 +155,7 @@ async function startHost(answerMs: number, sure: ReadonlySet<string> = new Set()
     if (body.state.passages && !read.has(sentence)) {
       read.set(sentence, Object.values(body.state.passages));
       scores.push(...scoresOfEach(sentence, answers));
-    }
+    } else later.push(laterOf(body.state, answers));
     send({ model: body.model, answers, usage: { input_tokens: 10, output_tokens: 0 } });
   });
   await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
@@ -142,11 +165,13 @@ async function startHost(answerMs: number, sure: ReadonlySet<string> = new Set()
     characters: () => characters,
     inputTokens: () => 0,
     scores: () => scores,
+    later: () => later,
     passagesRead: (sentence: string) => read.get(sentence) ?? null,
     refused: (): number[] => [],
     forget: () => {
       read.clear();
       scores.length = 0;
+      later.length = 0;
     },
     close: () =>
       new Promise<void>((done) => {
@@ -175,6 +200,20 @@ interface HostState {
   passages?: Record<string, HostPassage>;
 }
 
+/** A request about a sentence after its first, with each question's answer. */
+const laterOf = (
+  { sentence, passages }: HostState,
+  answers: Record<string, { noul?: number }>,
+): HostLater => ({
+  sentence,
+  several: passages ? Object.keys(passages).length : 0,
+  answers: Object.fromEntries(
+    Object.entries(answers).flatMap(([question, { noul }]) =>
+      noul === undefined ? [] : [[question, noul]],
+    ),
+  ),
+});
+
 /** Each Passage's scores in the answers to one request about several, in the order asked. */
 function scoresOfEach(sentence: string, answers: Record<string, { noul?: number }>): HostScore[] {
   const scores: HostScore[] = [];
@@ -198,6 +237,7 @@ async function startRelay(origin: string) {
   let inputTokens = 0;
   const read = new Map<string, HostPassage[]>();
   const scores: HostScore[] = [];
+  const later: HostLater[] = [];
   const refused: number[] = [];
   const server = createServer(async (request, response) => {
     const chunks: Buffer[] = [];
@@ -244,7 +284,8 @@ async function startRelay(origin: string) {
         if (state?.sentence && state.passages && answers && !read.has(state.sentence)) {
           read.set(state.sentence, Object.values(state.passages));
           scores.push(...scoresOfEach(state.sentence, answers));
-        }
+        } else if (state?.sentence && answers)
+          later.push(laterOf({ ...state, sentence: state.sentence }, answers));
       } else refused.push(reply.status);
     }
     const retryAfter = reply.headers.get("retry-after");
@@ -261,11 +302,13 @@ async function startRelay(origin: string) {
     characters: () => characters,
     inputTokens: () => inputTokens,
     scores: () => scores,
+    later: () => later,
     passagesRead: (sentence: string) => read.get(sentence) ?? null,
     refused: () => refused,
     forget: () => {
       read.clear();
       scores.length = 0;
+      later.length = 0;
     },
     close: () =>
       new Promise<void>((done) => {
@@ -744,6 +787,9 @@ test.skipIf(mode !== "replay" && mode !== "replay-dry" && mode !== "replay-main"
                 decisionLines,
               );
             const read = host.passagesRead(sentence.text.trim());
+            const alone = askedAlone(
+              host.later().filter((each) => each.sentence.trim() === sentence.text.trim()),
+            );
             return {
               note: labelled.id,
               // The highest score any Passage got on each question, in the sentence's first request.
@@ -772,6 +818,17 @@ test.skipIf(mode !== "replay" && mode !== "replay-dry" && mode !== "replay-main"
                 reading && reading.verdict !== "unsupported" && reading.final
                   ? reading.verdict
                   : null,
+              // Why a sure score gave no Mark of the decision model's.
+              heldBack:
+                decisionLines &&
+                reading &&
+                reading.verdict !== "unsupported" &&
+                reading.final &&
+                !byDecision
+                  ? heldBackBy(reading.verdict, alone, decisionLines)
+                  : null,
+              // Its Passage asked about alone, whatever Mark followed.
+              alone,
               kind: sentence.kind ?? null,
               id: sentence.id,
               text: sentence.text,

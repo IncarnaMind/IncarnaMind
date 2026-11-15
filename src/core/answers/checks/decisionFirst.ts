@@ -9,18 +9,18 @@
  * asked about alone, scores clear of the line again, and a number the Passage writes another way
  * is the same amount. The verdict's quote is the sentence of that Passage the model scores highest
  * on the verdict's question; a table's row is quoted whole. Where that line, asked about alone,
- * doesn't score clear of the same line, or is longer than a check stores, the verdict rests on its
- * Passage and says no quote: the line only places it in the Document. A line the model can't be
- * asked about leaves the sentence a first reading.
+ * doesn't score clear of the quote's own line, or is longer than a check stores, the verdict rests
+ * on its Passage and says no quote: the line only places it in the Document. A line the model
+ * can't be asked about leaves the sentence a first reading.
  *
  * Where every Passage scores under the model's Unsupported line on both questions, the Passages
  * nearest to stating the sentence are asked about once more, together as one: a sentence that sums
- * up several of them scores low on each. Still under the lines, the sentence is Unsupported,
- * unless it cites a Passage. A sentence with a verdict never reaches the AI model.
+ * up several of them scores low on each. Still under the Unsupported line, the sentence is
+ * Unsupported, unless it cites a Passage. A sentence with a verdict never reaches the AI model.
  *
- * Any other score that leans is a first reading, and so is a score clear of its line only for the
- * Passages together: shown at once, and confirmed or changed by the AI model's check, which is
- * asked nothing differently for it.
+ * Any other score that leans is a first reading, and so is one that leans only for the Passages
+ * together: shown at once, and confirmed or changed by the AI model's check, which is asked
+ * nothing differently for it.
  *
  * A sentence the reading leaves to its check takes the reading with it: each of that check's
  * searches puts the Passages the decision model found to be about the sentence first, the surest
@@ -58,6 +58,7 @@ import {
   type DecisionLines,
   type PassageScores,
   passagesAbout,
+  quoteStands,
   readingOf,
   standsAlone,
 } from "./decisionLines";
@@ -282,7 +283,7 @@ async function topLine(
 
 /**
  * Whether `line` may be shown as the verdict's quote: a check stores it whole, and asked about
- * alone it passes what a Passage alone must. Null when the model couldn't be asked.
+ * alone it passes the quote's lines. Null when the model couldn't be asked.
  */
 async function mayQuote(
   reader: DecisionReader,
@@ -300,7 +301,7 @@ async function mayQuote(
     { documentName, pageFrom: null, pageTo: null, text: line },
     signal,
   );
-  return alone && standsAlone(side, alone, reader.lines);
+  return alone && quoteStands(side, alone, reader.lines);
 }
 
 /**
@@ -466,12 +467,11 @@ export function createFirstReading(deps: Dependencies) {
       // What a sentence's own Citation fails to say is its check's to explain.
       if (cited.length > 0) return unsettled(null);
       const asOne = await scoresAlone(reader, request, together(passages, scores), signal);
-      if (!asOne) return unsettled(null);
-      const side = (["contradicted", "supported"] as const).find((each) =>
-        standsAlone(each, asOne, reader.lines),
-      );
+      const joined = asOne && readingOf([{ passageId: "", ...asOne }], reader.lines);
+      if (!joined) return unsettled(null);
+      if (joined.verdict === "unsupported") return verdictOf("unsupported", null);
       // No one Passage holds what several say together, and a verdict quotes one.
-      return side ? unsettled({ verdict: side, ...reader.model }) : verdictOf("unsupported", null);
+      return unsettled({ verdict: joined.verdict, ...reader.model });
     }
     const leaning = { verdict: reading.verdict, ...reader.model };
     const passage = passages.find((each) => each.passageId === reading.passageId);
