@@ -199,7 +199,9 @@ The real Decider v1.2 in the app on the four held-out Notes: 1,384 requests, 1,4
 | The AI model alone | 83 | 1 | 0 | 11 | 19 | 114 |
 | The decision model alone | 74 | 3 | 0 | 0 | 37 | 0 |
 | Both | 86 | 2 | 0 | 9 | 17 | 94 |
+| The decision model alone, with no reading shown as Unsupported | 100 | 3 | 0 | 11 | 0 | 0 |
 
+- The last row is not a shape this build has: it reads the second row's 37 sentences with nothing shown as "no Passage supports it", so that a build that says so can be set beside it. 26 of the 37 are labelled Unsupported.
 - The decision model alone counts its first readings as verdicts: its 3 wrong are first readings, not Marks. Its 37 with nothing shown are 26 sentences labelled Unsupported, 9 Supported and 2 Contradicted; this build gives no reading that says no Passage supports a sentence.
 - Cost: the AI model alone was US$0.415 for the pair of 120. The decision model read all 208 sentences for US$0.029 at its listed price.
 
