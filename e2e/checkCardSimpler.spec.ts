@@ -624,15 +624,20 @@ for (const [language, width] of [
           }
           // From the first to the last character a person sees, the spaces around a separator's
           // dot being no ink; and each line one em tall about its middle, as a fallback font's
-          // taller box around a curly quote is no ink either.
+          // taller box around a curly quote is no ink either. A dot alone is its middle: a
+          // fallback font sets it in a full-width box.
           const words = node.textContent ?? "";
           const range = document.createRange();
           range.setStart(node, words.search(/\S/));
           range.setEnd(node, words.trimEnd().length);
           const em = Number.parseFloat(getComputedStyle(parent).fontSize);
+          const dot = words.trim() === "·";
           for (const line of Array.from(range.getClientRects())) {
             const middle = (line.top + line.bottom) / 2;
-            const across = Math.max(box.left - grow - line.right, line.left - box.right - grow);
+            const centre = (line.left + line.right) / 2;
+            const left = dot ? centre - em * 0.15 : line.left;
+            const right = dot ? centre + em * 0.15 : line.right;
+            const across = Math.max(box.left - grow - right, left - box.right - grow);
             const down = Math.max(
               box.top - grow - (middle + em / 2),
               middle - em / 2 - box.bottom - grow,
