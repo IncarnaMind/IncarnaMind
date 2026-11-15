@@ -5374,8 +5374,6 @@ export function createAnswers(options: AnswersOptions) {
       documentIds: string[];
       model: ChatModelChoice;
       signal: AbortSignal;
-      /** The reply before this one reached its output limit: this one gets more room. */
-      retry?: true;
     }): Promise<CellAnswer> {
       const answerId = randomUUID();
       return new Promise<CellAnswer>((resolve) => {
@@ -5407,7 +5405,7 @@ export function createAnswers(options: AnswersOptions) {
           consentNeeded: false,
           outside: true,
           toolSet: "check",
-          outputKind: input.retry ? "meeting-fill-retry" : "meeting-fill",
+          outputKind: "meeting-fill",
           thinking: "answer",
           task: true,
           transcript: input.passages,
