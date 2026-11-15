@@ -34,9 +34,14 @@ export type OmitReason =
   | "noCitation"
   | "repeated";
 
+/** Why a reply gave no overview, for the log: `missing` when it wrote none. */
+export type OverviewOmitReason = OmitReason | "missing";
+
 export interface FactReply {
   facts: MeetingFact[];
   overview: MeetingOverview | null;
+  /** Null when the reply's overview was kept. */
+  overviewOmitted: OverviewOmitReason | null;
   omitted: number;
   /** Known invalid or conflicting IDs, once each in first-encounter order. */
   omittedIds: string[];
@@ -114,6 +119,12 @@ function metadata(node: NodeJSON | undefined): Record<string, unknown> | null {
   if (node.content?.some((child) => child.type !== "text" || child.content)) return null;
   const json = textOf(node);
   if (json.length > MAX_METADATA || json.includes("[^")) return null;
+  // Claude Haiku 5.5 wrote a stray line ("500") under a whole record, inside its block, and the
+  // fact was left out (#3145): the record is then the block's first line, checked like any other.
+  return recordIn(json) ?? recordIn(json.slice(0, json.search(/\n|$/)));
+}
+
+function recordIn(json: string): Record<string, unknown> | null {
   try {
     const parsed: unknown = JSON.parse(json);
     return record(parsed) ? parsed : null;
@@ -362,6 +373,7 @@ export function parseFactReply(
     return {
       facts: [],
       overview: null,
+      overviewOmitted: "frame",
       omitted: 1,
       omittedIds: [],
       omittedReasons: {},
@@ -373,6 +385,7 @@ export function parseFactReply(
   const receipts = sessionReceipts(answer.citations);
   const facts = new Map<string, { fact: MeetingFact; metadata: FactMetadata } | OmitReason>();
   let overview: MeetingOverview | null | undefined;
+  let overviewOmitted: OverviewOmitReason | null = "missing";
   let overviewInventory: number[] | undefined;
   for (const frame of frames) {
     frame.aligned &&= !invalidFences.has(frame.id ?? "");
@@ -383,13 +396,15 @@ export function parseFactReply(
       const result =
         value && Object.keys(value).length === 1 && inventory(required)
           ? checkedBody(frame, required, receipts)
-          : null;
+          : "metadata";
       const checked = typeof result === "object" ? result : null;
       if (overview === undefined) {
         overview = checked;
+        overviewOmitted = typeof result === "string" ? result : null;
         if (inventory(required)) overviewInventory = required;
       } else if (!sameValue(overview, checked) || !sameValue(overviewInventory, required)) {
         overview = null;
+        overviewOmitted = "repeated";
       }
       continue;
     }
@@ -416,6 +431,7 @@ export function parseFactReply(
   return {
     facts: kept,
     overview: overview ?? null,
+    overviewOmitted,
     omitted: omittedIds.length + (overview ? 0 : 1),
     omittedIds,
     omittedReasons,

@@ -1,4 +1,10 @@
-import type { FactReply, MeetingFact, MeetingOverview, OmitReason } from "./factProtocol";
+import type {
+  FactReply,
+  MeetingFact,
+  MeetingOverview,
+  OmitReason,
+  OverviewOmitReason,
+} from "./factProtocol";
 
 export function createFactLedger() {
   const facts = new Map<string, MeetingFact>();
@@ -7,6 +13,7 @@ export function createFactLedger() {
   /** Ids a fact replaced: whether or not they were kept, they don't come back. */
   const retired = new Set<string>();
   let overview: MeetingOverview | null = null;
+  let overviewOmitted: OverviewOmitReason = "missing";
   let invalidFrames = 0;
   return {
     get facts() {
@@ -21,12 +28,12 @@ export function createFactLedger() {
     omitted(complete: boolean) {
       return omitted.size + (complete && overview === null ? 1 : 0);
     },
-    /** How many were left out for each reason, for the log. */
-    omittedReasons(complete: boolean): Record<string, number> {
+    /** How many were left out for each reason, and why no overview was kept, for the log. */
+    omittedReasons(complete: boolean): Record<string, number | string> {
       const counts: Record<string, number> = {};
       for (const reason of omitted.values()) counts[reason] = (counts[reason] ?? 0) + 1;
-      if (complete && overview === null) counts.overview = 1;
-      return counts;
+      if (!complete || overview !== null) return counts;
+      return { ...counts, overview: 1, overviewReason: overviewOmitted };
     },
     accept(reply: FactReply) {
       for (const id of reply.omittedIds) {
@@ -34,6 +41,9 @@ export function createFactLedger() {
           omitted.set(id, reply.omittedReasons[id] ?? "metadata");
       }
       invalidFrames += reply.invalidFrames;
+      // A part that wrote no overview doesn't hide why an earlier part's was left out.
+      if (overviewOmitted === "missing" && reply.overviewOmitted !== null)
+        overviewOmitted = reply.overviewOmitted;
       overview ??= reply.overview;
       const fresh = reply.facts.filter((fact) => {
         const before = accepted.get(fact.id);
