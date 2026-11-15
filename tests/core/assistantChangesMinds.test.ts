@@ -119,6 +119,14 @@ describe("The assistant changes Minds as Proposals", { timeout: 30_000 }, () => 
           written: 0,
           named: { takenOut: [], rewritten: [] },
         },
+        touched: {
+          edited: 1,
+          added: 0,
+          removed: 0,
+          titlesAdded: 0,
+          titlesRemoved: 0,
+          untouched: 1,
+        },
       },
     ]);
     expect(mindCalls(answer)[0]?.status).toBe("done");

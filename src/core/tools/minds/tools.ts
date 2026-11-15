@@ -68,6 +68,7 @@ import {
   readProposalAttribute,
   removesOnlyAsked,
   resolveProposals,
+  touchedBy,
   waitingChanges,
 } from "../../../shared/proposals";
 import { changedText, paragraphsRemoved, sentenceChanges } from "../../../shared/sentenceChanges";
@@ -2840,6 +2841,7 @@ export function mindTools(options: MindToolsOptions): {
             proposals: result.proposals,
             ...(changed > 0 && { changed }),
             ...(added && { added: true }),
+            touched: touchedBy(kinds),
             ...(tables > 0 && { tables }),
             ...(sentences && { sentences }),
             ...(removed && { removed }),

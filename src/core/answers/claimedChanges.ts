@@ -193,6 +193,14 @@ export const REQUEST_DONE_INSTRUCTIONS = [
 export const UNCHANGED_PART_RULE =
   "A call with nothingChangedIn failed on that part of its Note, a heading or a paragraph's first words, and no call of this Answer changed that part: a sentence saying that part was changed, made longer or shorter, rewritten or added to is unbacked, even when another part of the same Note changed. / 带 nothingChangedIn 的调用在笔记的那一部分（一个标题，或某段开头的几个字）失败了，这次回答也没有别的调用改过那里：说那一部分改了、加长了、缩短了、改写了或加了内容的句子没有依据，即使同一篇笔记的别处改了。";
 
+/**
+ * Told only beside a record that holds an edit's counts, so every other record is sent the claims
+ * check's rules as they were: with them the check holds a sentence about what was taken out, added
+ * or emptied to what the edit did, which the record could not say before (#2769).
+ */
+export const KIND_OF_CHANGE_RULE =
+  "A change's touched says what that call did to the Note's paragraphs and headings, each counted once, and its part, when it has one, names where it was made: edited paragraphs had their words changed where they stand, added and removed ones were put in or taken out whole, titlesAdded and titlesRemoved are headings, and untouched is everything it left as it was. These counts are what the call did, whatever the reply says. A sentence saying text was taken out of the Note is unbacked when removed, titlesRemoved and edited are all 0; one saying text or a section was added, when added, titlesAdded and edited are all 0; one saying the whole Note was emptied, when untouched is above 0; one saying a part other than the part it names was changed, taken out or emptied, unless another call of the record did that. A sentence these counts don't contradict is backed, and so are the details they don't give. / 变更里的 touched 说明这次调用对笔记的段落和标题做了什么，每项只数一次；part（有的话）说明改动做在哪里：edited 是原地改了字的段落，added 和 removed 是整段加入或整段删去的段落，titlesAdded 和 titlesRemoved 是标题，untouched 是保持原样的所有段落和标题。这些数字是调用实际做的事，不管回复怎么说。说从笔记里删去了文字的句子，在 removed、titlesRemoved 和 edited 都是 0 时没有依据；说加了文字或加了一节的，在 added、titlesAdded 和 edited 都是 0 时没有依据；说整篇笔记被清空的，在 untouched 大于 0 时没有依据；说 part 之外的部分被改动、删去或清空的句子没有依据，除非记录里另一个调用做了。这些数字不矛盾的句子有依据，数字没有给出的细节也一样。";
+
 const DONE_BY_COMMAND =
   "is backed when the record shows a command done and names nothing that call didn’t do.";
 
@@ -591,6 +599,8 @@ function recordOf(
           proposals: change.proposals,
           // An add leaves `changed` unset, and carries what it wrote as `paragraphs`: said in an edit's terms, it isn't a change of nothing (#2969).
           changed: change.changed ?? (call.tool === "add_to_mind" ? (change.paragraphs ?? 0) : 0),
+          ...(part !== null && { part }),
+          ...(change.touched && { touched: change.touched }),
           paragraphs: change.paragraphs ?? 0,
           tables: change.tables ?? 0,
           charts: change.charts ?? 0,
@@ -716,6 +726,9 @@ export async function unbackedClaims(
             ? CLAIM_CHECK_INSTRUCTIONS.replace(DONE_BY_COMMAND, DONE_BY_NOTE_CHANGE)
             : CLAIM_CHECK_INSTRUCTIONS,
           ...(record.some((each) => "nothingChangedIn" in each) ? [UNCHANGED_PART_RULE] : []),
+          ...(record.some((each) => each.change && "touched" in each.change)
+            ? [KIND_OF_CHANGE_RULE]
+            : []),
         ].join("\n"),
       },
       parts: [

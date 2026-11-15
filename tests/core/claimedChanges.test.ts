@@ -5,6 +5,7 @@ import {
   askAgainNote,
   CLAIM_CHECK_INSTRUCTIONS,
   DONE_BY_NOTE_CHANGE,
+  KIND_OF_CHANGE_RULE,
   REQUEST_DONE_INSTRUCTIONS,
   type REQUEST_TOLD,
   UNCHANGED_PART_RULE,
@@ -333,7 +334,9 @@ describe("What the record tells the check of a part and a rewrite (#2769)", () =
     expect(prompt.split(UNCHANGED)).toHaveLength(3);
     expect(prompt).toContain(`\\"nothingChangedIn\\": \\"${failed}\\"`);
     expect(prompt).not.toContain(`\\"nothingChangedIn\\": \\"${other}\\"`);
-    expect(prompt).not.toContain('\\"part\\"');
+    // The part an applied change was made in is named; a failed one's is named only as unchanged.
+    expect(prompt).toContain(`\\"part\\": \\"${other}\\"`);
+    expect(prompt).not.toContain(`\\"part\\": \\"${failed}\\"`);
 
     const later = await recordRead([
       partCall("a", failed, null),
@@ -348,6 +351,28 @@ describe("What the record tells the check of a part and a rewrite (#2769)", () =
     expect(whole).not.toContain("nothingChangedIn");
     expect(CLAIM_CHECK_INSTRUCTIONS).not.toContain("nothingChangedIn");
     expect(UNCHANGED_PART_RULE).toContain("A call with nothingChangedIn failed");
+  });
+
+  // protects=the rule about an edit's counts is sent only beside a record that holds them, and the claims check's instructions are otherwise exactly what they were; fails_when=the rule goes with every record, which moved verdicts on the others the last time a rule did (#2769); no_claim=the judge's verdicts (the probes and runs).
+  test("the rule about an edit's counts is sent only beside a record that has them", async () => {
+    const touched = {
+      edited: 0,
+      added: 0,
+      removed: 2,
+      titlesAdded: 0,
+      titlesRemoved: 1,
+      untouched: 4,
+    };
+    const counted = await recordRead([partCall("a", "Risks", { touched })]);
+    const plain = await recordRead([partCall("a", "Risks", { revised: true })]);
+    const none = await recordRead([]);
+
+    const written = (text: string) => JSON.stringify(text).slice(1, -1);
+    expect(counted).toContain(written(KIND_OF_CHANGE_RULE));
+    expect(plain).not.toContain("A change's touched says");
+    expect(none).not.toContain("A change's touched says");
+    expect(plain).toContain(written(CLAIM_CHECK_INSTRUCTIONS));
+    expect(counted).toContain(written(CLAIM_CHECK_INSTRUCTIONS));
   });
 
   // protects=a part is named unchanged only where it is in the Note: a section a change reached through a part nested in it, either way round, a part not found now, a change to a part not found now, and a failure that never found its part name none; fails_when=two names for one place read as two places, and an honest "the summary is longer" is flagged; no_claim=how edit_mind finds a part (its own tests).

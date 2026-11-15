@@ -191,6 +191,14 @@ describe("A table the assistant writes into a Mind is a table", { timeout: 30_00
         proposals: 1,
         tables: 1,
         added: true,
+        touched: {
+          edited: 0,
+          added: 0,
+          removed: 0,
+          titlesAdded: 0,
+          titlesRemoved: 0,
+          untouched: 2,
+        },
       },
     ]);
     expect(lastResult(model)).toContain("Added a table to “Tides”");
