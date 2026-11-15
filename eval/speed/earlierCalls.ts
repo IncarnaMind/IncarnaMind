@@ -229,6 +229,7 @@ function item(
     kind: kind ?? "last-time",
     language: each.language,
     words: "answer",
+    withoutJudge: "pilot",
     async run({ library, claimsJudge, meeting, choice }): Promise<Measured> {
       if (!meeting) throw new Error("The earlier-call set needs its live Meeting.");
       const { core } = library;
@@ -344,10 +345,13 @@ function item(
         cited:
           done && kind === null ? found.some((citation) => citation.documentId === earlier) : null,
         grade: judged?.grade ?? null,
-        falseSupported: (judged?.unstated ?? []).filter((number) => {
-          const marker = markerOf(number);
-          return marker !== undefined && passed(marker);
-        }).length,
+        falseSupported:
+          claimsJudge === NO_JUDGE
+            ? null
+            : (judged?.unstated ?? []).filter((number) => {
+                const marker = markerOf(number);
+                return marker !== undefined && passed(marker);
+              }).length,
         duplicate: false,
         failures: judged?.earlierAsThis ? ["earlier-as-this"] : [],
         text,

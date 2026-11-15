@@ -15,6 +15,7 @@ import {
   helpKeysLabel,
   helpToKeepOf,
   liveMeetingNow,
+  openHelpInAssistant,
   quickNotesHere,
   useMeetingHelp,
 } from "../meetingHelp";
@@ -100,6 +101,31 @@ export const meetingHelpCommands: readonly Command[] = [
     enabled: whileLive,
     globalKeys: () => helpKeysLabel("note", useAppStore.getState().settings),
     run: () => files.meetingPanelCommand("note"),
+  },
+  {
+    id: "meeting.question",
+    label: "meetings.question",
+    keywords: ["meetings.callHelp", "meetings.field.ask"],
+    group: "main",
+    // It puts the cursor in the panel's field, in Ask (#2925); Esc there gives the keyboard back.
+    reversible: true,
+    when: () => meetingsOn() && quickNotesHere(),
+    enabled: whileLive,
+    run: () => files.meetingPanelCommand("ask"),
+  },
+  {
+    id: "meeting.help-open",
+    label: "meetings.help.openCommand",
+    keywords: ["meetings.callHelp", "meetings.help.openInAssistant"],
+    group: "main",
+    // It shows the call's conversation in the assistant and changes nothing.
+    reversible: true,
+    when: meetingsOn,
+    enabled: () => (liveMeetingNow()?.help ? true : { reason: "meetings.help.none" }),
+    async run() {
+      const help = liveMeetingNow()?.help;
+      if (help) await openHelpInAssistant(help.conversationId, help.answerId);
+    },
   },
   {
     id: "meeting.panel-fold",

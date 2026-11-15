@@ -14,7 +14,8 @@ import {
   readEarlierJudged,
 } from "../../eval/speed/earlierCalls";
 import { type Dating, datedCases } from "../../eval/speed/earlierCallsRounds";
-import { runOnArm } from "../../eval/speed/paired";
+import { NO_JUDGE } from "../../eval/speed/judge";
+import { runOnArm, setsNeedingJudge } from "../../eval/speed/paired";
 import type { CoreAdapters } from "../../src/core";
 import { createFakeEmbedder } from "../../src/core/embedding/fake";
 import { formatFullDateTime } from "../../src/shared/dates";
@@ -102,8 +103,8 @@ function judging(reading: object, prompts: string[]) {
   });
 }
 
-/** Runs one case's items in order on `arm`, judged as `reading` says. */
-async function ran(id: string, arm: "today" | "calls-unmarked", reading: object) {
+/** Runs one case's items in order on `arm`, judged as `reading` says; null: with no judge. */
+async function ran(id: string, arm: "today" | "calls-unmarked", reading: object | null) {
   const group = earlierCallsSet().find((each) => each.name === `call-help-earlier-calls-${id}`);
   if (!group) throw new Error(`No case ${id}.`);
   const calls: ModelCall[] = [];
@@ -149,7 +150,7 @@ async function ran(id: string, arm: "today" | "calls-unmarked", reading: object)
           model: "ollama/local-model",
           arm,
           grade: async () => "unread",
-          claimsJudge: judging(reading, judged),
+          claimsJudge: reading ? judging(reading, judged) : NO_JUDGE,
         }),
       });
     }
@@ -301,6 +302,20 @@ describe("A case of the earlier-call set", { timeout: 240_000 }, () => {
     expect(marked(main.calls).length).toBeGreaterThan(0);
     for (const tag of marked(main.calls)) expect(tag).not.toContain("call=");
     expect(marked(pressed(main.calls)).length).toBeGreaterThan(0);
+  });
+});
+
+describe("The earlier-call set with no judge", { timeout: 240_000 }, () => {
+  // protects=an earlier-call set runs with no judge only as its pilot, main's path against itself, whose report lists every reply for a hand read, and each run then carries no false Supported count; run against another arm with no judge it stops before its first request, naming the set; fails_when=a gate run starts with no judge and prints 0, the pilot can't run without one, or a reply run so counts 0 false Supported; no_claim=what a real model writes.
+  test("runs with no judge only as its pilot, each reply unjudged; against another arm it stops before any request, naming the set", async () => {
+    const items = earlierCallsSet().flatMap((group) => group.items);
+    expect(setsNeedingJudge(items, true)).toEqual([]);
+    expect(setsNeedingJudge(items, false)).toEqual(["call-help-earlier-calls"]);
+    const { runs, judged } = await ran("en-a-then-b", "calls-unmarked", null);
+    expect(runs.map(({ run }) => [run.status, run.falseSupported])).toEqual(
+      runs.map(() => ["done", null]),
+    );
+    expect(judged).toEqual([]);
   });
 });
 

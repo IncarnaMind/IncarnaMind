@@ -4,7 +4,6 @@ import type {
   ConversationAnswer,
   MarkedCitation,
   MeetingHelp,
-  MeetingHelpKind,
 } from "../../../../core/api";
 import { citationSource, citedLocation } from "../../../../shared/citations";
 import { withFigureText } from "../../../../shared/figureMarkers";
@@ -31,6 +30,7 @@ import {
   replyAtEnd,
 } from "../../helpReplyEnd";
 import { useT } from "../../i18n";
+import { helpAsked, type PendingHelp } from "../../meetingHelp";
 import { useModelNames, useServiceName } from "../../modelNames";
 import { answerProblem } from "../../problems";
 import { DocumentLineIcon } from "../lineIcons";
@@ -138,6 +138,17 @@ function lastCharacter(text: string): { character: string; space: string } {
   return { character, space: text.slice(words.length) };
 }
 
+/** Words of a text piece, in bold where the model marked them. */
+function wordsOf(piece: { bold?: true }, text: string, key: string) {
+  return piece.bold ? (
+    <b key={key} className="help-move">
+      {text}
+    </b>
+  ) : (
+    <span key={key}>{text}</span>
+  );
+}
+
 /**
  * A line's words and numbers. Once its reply has ended (`ended`), as it was written: each number
  * where it stood, one that stands for no Citation now kept as room, and the end's own numbers after
@@ -175,7 +186,7 @@ function Pieces({
     );
   };
   const drawn = (piece: ReplyPiece, key: string): ReactNode => {
-    if (piece.kind === "text") return <span key={key}>{piece.text}</span>;
+    if (piece.kind === "text") return wordsOf(piece, piece.text, key);
     // Figures are written into the text before it is read (`withFigureText`).
     if (piece.kind === "figure") return null;
     const gone = ended?.gone.get(piece.marker);
@@ -216,13 +227,16 @@ function Pieces({
   if (lastPiece?.kind === "text") {
     const { character, space } = lastCharacter(lastPiece.text);
     const head = lastPiece.text.slice(0, lastPiece.text.length - character.length - space.length);
+    // Each write's last character is drawn anew where it lands, not moved along the line: a node
+    // that moves reads as a layout shift while the reply streams, though no word on screen moves.
+    const at = `${last}-${head.length}`;
     nodes.push(
-      <span key={`text-${last}`}>{head}</span>,
-      <span key="end" className="help-line-end">
-        {character}
+      wordsOf(lastPiece, head, `text-${last}`),
+      <span key={`end-${at}`} className="help-line-end">
+        {lastPiece.bold ? <b className="help-move">{character}</b> : character}
         {numbersAtEnd}
       </span>,
-      <span key="space">{space}</span>,
+      <span key={`space-${at}`}>{space}</span>,
     );
   } else {
     nodes.push(
@@ -446,16 +460,26 @@ export function HelpOutline({ count }: { count: number }) {
 
 /**
  * The heading over a suggestion: the button, then the line it answers ("They said: …"), or for
- * "What do they want?" that it is read from what they said.
+ * "What do they want?" that it is read from what they said; for a question the User typed, the
+ * question (#2925).
  */
 export function HelpHeading({
-  kind,
+  asked,
   heard = null,
 }: {
-  kind: MeetingHelpKind;
+  asked: PendingHelp;
   heard?: MeetingHelp["heard"];
 }) {
   const t = useT();
+  const { kind } = asked;
+  if (kind === "question") {
+    const question = helpAsked(asked, t);
+    return (
+      <p data-testid="help-heading" className="help-heading help-heading--question">
+        <b title={question}>{question}</b>
+      </p>
+    );
+  }
   const said = heard
     ? t(
         isTheirs(heard.speaker)
@@ -546,14 +570,16 @@ function NoHelp({
 /**
  * A help button's Answer, laid out to be read in a second or two: the options with the
  * recommended first and starred, each with what it leads to; the Citations they rest on.
- * While it streams, the options still to come keep their outline.
+ * Until its first line streams in, its outline holds the place; the Citations' sources show once
+ * it ends. Nothing is drawn under a line still being written, so nothing moves while the User
+ * reads it (#2925).
  */
 export function HelpSuggestion({
   help,
   answer,
   onRetry,
 }: {
-  help: Pick<MeetingHelp, "kind" | "heard">;
+  help: Pick<MeetingHelp, "kind" | "question" | "heard">;
   answer: ConversationAnswer;
   onRetry(): void;
 }) {
@@ -599,7 +625,7 @@ export function HelpSuggestion({
       aria-busy={streaming}
       className="help-suggestion"
     >
-      <HelpHeading kind={help.kind} heard={help.heard} />
+      <HelpHeading asked={help} heard={help.heard} />
       {items.map((item, index) => (
         <Item
           // biome-ignore lint/suspicious/noArrayIndexKey: the options are in the order written.
@@ -613,7 +639,7 @@ export function HelpSuggestion({
           ended={(place) => end?.lines.get(lineKey(index, place))}
         />
       ))}
-      {streaming && items.length < 2 && <HelpOutline count={items.length === 0 ? 2 : 1} />}
+      {streaming && items.length === 0 && <HelpOutline count={2} />}
       {end && end.foot.length > 0 && (
         <div data-testid="help-foot" className="help-foot">
           <QuoteLineRows lines={end.foot} answer={answer} numbers={numbers} starts={starts} />
@@ -635,7 +661,7 @@ export function HelpSuggestion({
 }
 
 /** A reply's items as the panel draws them, and which line of its last is still written. */
-function drawnItems(answer: ConversationAnswer, kind: MeetingHelpKind) {
+function drawnItems(answer: ConversationAnswer, kind: MeetingHelp["kind"]) {
   // A figure's own text is written in before the reply is read, so a word the model wrote before
   // it ("about") isn't doubled.
   const text = withFigureText(
@@ -662,7 +688,7 @@ function useAsWritten(answer: ConversationAnswer): ConversationAnswer | null {
 function endOf(
   written: ConversationAnswer,
   ended: ConversationAnswer,
-  kind: MeetingHelpKind,
+  kind: MeetingHelp["kind"],
   items: readonly ReplyItem[],
 ) {
   const before = drawnItems(written, kind);

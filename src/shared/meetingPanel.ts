@@ -21,9 +21,12 @@ export type HeldKeys = Partial<Record<HelpShortcut, string>>;
 
 /**
  * What ⌘K in the app's window asks of the panel: pin its latest suggestion, fold or unfold it, or
- * put the cursor in its field for a quick note (#2925), as ⌃⌥N does.
+ * put the cursor in its field for a quick note, as ⌃⌥N does, or for a question (#2925).
  */
-export type PanelCommand = "pin" | "fold" | "note";
+export type PanelCommand = "pin" | "fold" | "note" | "ask";
+
+/** What the panel's field does with Enter (#2925): add a quick note, or ask about the call. */
+export type FieldMode = "note" | "ask";
 
 /** The panel as the app's window knows it, for ⌘K's labels. */
 export interface PanelState {
@@ -55,12 +58,21 @@ export const MEETING_PANEL_CHANNELS = {
    * that had it (false). Nothing else makes the window focusable (#2925).
    */
   keyboard: "meetingPanel:keyboard",
+  /** Page → main: bring the app's window to the front with this conversation in its assistant. */
+  openConversation: "meetingPanel:openConversation",
 } as const;
+
+/** A conversation to show in the assistant, at one of its Answers. */
+export interface ConversationAt {
+  conversationId: string;
+  answerId: string;
+}
 
 export interface MeetingPanelBridge {
   resize(width: number, height: number): void;
   close(): void;
   setUp(): void;
+  openInAssistant(at: ConversationAt): void;
   keys(): Promise<HeldKeys>;
   onKeys(listener: (keys: HeldKeys) => void): () => void;
   onHelp(listener: (kind: GeneralHelpKind) => void): () => void;
