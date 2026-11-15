@@ -5348,6 +5348,7 @@ export const en = {
     "Contradicted: your Documents give {shown}, and the sentence says at least {stated}.",
   "export.comment.sentence.contradicted.plain": "Contradicted by your Documents.",
   "export.comment.sentence.quoted": "{said} (“{quote}”, {source})",
+  "export.comment.sentence.placed": "{said} ({source})",
   "export.comment.sentence.unsupported.reason": "Unsupported: {reason}",
   "export.comment.sentence.unsupported.plain": "Unsupported by your Documents.",
   "export.comment.sentence.notFound": "Not found: I didn’t find this in “{scope}”.",

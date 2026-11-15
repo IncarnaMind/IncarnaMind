@@ -10,7 +10,8 @@
  * is the same amount. The verdict's quote is the sentence of that Passage the model scores highest
  * on the verdict's question; a table's row is quoted whole. Where that line, asked about alone,
  * doesn't score clear of the same line, or is longer than a check stores, the verdict rests on its
- * Passage and says no quote: the line only places it in the Document.
+ * Passage and says no quote: the line only places it in the Document. A line the model can't be
+ * asked about leaves the sentence a first reading.
  *
  * Where every Passage scores under the model's Unsupported line on both questions, the Passages
  * nearest to stating the sentence are asked about once more, together as one: a sentence that sums
@@ -271,7 +272,7 @@ async function topLine(
 
 /**
  * Whether `line` may be shown as the verdict's quote: a check stores it whole, and asked about
- * alone it passes what a Passage alone must.
+ * alone it passes what a Passage alone must. Null when the model couldn't be asked.
  */
 async function mayQuote(
   reader: DecisionReader,
@@ -280,7 +281,7 @@ async function mayQuote(
   documentName: string,
   line: string,
   signal: AbortSignal,
-): Promise<boolean> {
+): Promise<boolean | null> {
   if (line.length > CHECK_QUOTE_CHARS_AT_MOST) return false;
   // Under its Document's name and no page, as the rule was measured.
   const alone = await scoresAlone(
@@ -289,7 +290,7 @@ async function mayQuote(
     { documentName, pageFrom: null, pageTo: null, text: line },
     signal,
   );
-  return alone !== null && standsAlone(side, alone, reader.lines);
+  return alone && standsAlone(side, alone, reader.lines);
 }
 
 /**
@@ -372,7 +373,7 @@ export function createFirstReading(deps: Dependencies) {
   /**
    * What the verdict rests on, once its Passage holds the verdict alone: the Passage's line the
    * model scores highest, and whether that line is the verdict's quote. Null where the Passage
-   * doesn't hold it or has no such line.
+   * doesn't hold it or has no such line, and where the model couldn't be asked about the line.
    */
   async function restsOn(
     request: ClaimCheckRequest,
@@ -395,7 +396,7 @@ export function createFirstReading(deps: Dependencies) {
     const citation = citationAt(source, place, line);
     if (!citation) return null;
     const quoted = await mayQuote(reader, request, side, source.documentName, line, request.signal);
-    return { citation, quoted };
+    return quoted === null ? null : { citation, quoted };
   }
 
   return async (request: ClaimCheckRequest, reader: DecisionReader): Promise<FirstReading> => {

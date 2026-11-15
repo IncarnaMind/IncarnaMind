@@ -700,6 +700,13 @@ export function withFirstReading(
   };
 }
 
+/**
+ * Whether the check's evidence only places its Passage in the Document: a decision model's verdict
+ * that rests on the Passage (`ClaimCheckPart.restsOnPassage`), whose line nothing shows as a quote.
+ */
+export const restsOnPassage = (check: Pick<ClaimCheckAttributes, "parts">): boolean =>
+  check.parts?.some((part) => part.restsOnPassage === true) ?? false;
+
 /** The model and time that judged a part and a decision model's first reading of it, those it has. */
 const judgedBy = (part: ClaimCheckPart) => ({
   ...(part.checkedAt !== undefined && { checkedAt: part.checkedAt }),

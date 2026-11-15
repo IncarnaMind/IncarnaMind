@@ -5106,6 +5106,7 @@ export const zhCN = {
     "与文档矛盾：根据文档算出 {shown}，句子里写的是不低于 {stated}。",
   "export.comment.sentence.contradicted.plain": "与文档矛盾。",
   "export.comment.sentence.quoted": "{said}（“{quote}”，{source}）",
+  "export.comment.sentence.placed": "{said}（{source}）",
   "export.comment.sentence.unsupported.reason": "无依据：{reason}",
   "export.comment.sentence.unsupported.plain": "无依据。",
   "export.comment.sentence.notFound": "未找到：未在“{scope}”中找到。",

@@ -2,8 +2,10 @@
  * A decision model reads each sentence of Check this Note first (#3118), through the core's
  * public interface, with a scripted AI model and a decision host that stands in for OpenRouter.
  */
+import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
+import { join } from "node:path";
 import type { JSONContent } from "@tiptap/core";
 import { describe, expect, onTestFinished, test } from "vitest";
 import type { CheckDecisionModel, CheckMindInput, Core } from "../../src/core";
@@ -15,7 +17,9 @@ import {
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { checkGenerate, checkReply, isCheckRun, type Plan, sentenceOf } from "../helpers/checks";
 import { createMemoryKeychain, createTempDataFolder, startCore } from "../helpers/core";
+import { recordRows } from "../helpers/csv";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
+import { unzip } from "../helpers/docx";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
 import { readMind, writeMind } from "../helpers/minds";
 import { type ModelCall, scriptedModel, scriptedModels } from "../helpers/models";
@@ -339,14 +343,11 @@ describe("Check this Note with a decision model chosen (#3118)", { timeout: 30_0
     expect([requests(MOON), requests(YEARLY), requests(PENGUINS)]).toEqual([4, 4, 2]);
   });
 
-  // protects=the line under a decision model's verdict is asked about alone, under its Document's name, after the Passage's lines are scored; where it doesn't pass what a Passage alone must, or the host can't be asked, the verdict stays the decision model's and rests on its Passage: the Mark says so, says no quote, and keeps the line only to place the Passage; fails_when=the line is never asked alone, a line that fails alone is still said as the quote, the Mark doesn't say it rests on its Passage, or the sentence loses the decision model's verdict; no_claim=how the card shows such a Mark, or how often a real model's line fails alone, which the gate's real-model run counted.
-  test.each([
-    ["doesn't hold the verdict alone", { B: 0.9, C: 0.6 }],
-    ["can't be asked about alone", { status: 429 }],
-  ] as const)("a verdict whose line %s rests on its Passage", async (_, alone) => {
-    const { core, client, host, run, readByAiModel } = await setUp([MOON, YEARLY]);
+  // protects=the line under a decision model's verdict is asked about alone, under its Document's name, after the Passage's lines are scored; where it doesn't pass what a Passage alone must, the verdict stays the decision model's and rests on its Passage: the Mark says so, says no quote, and keeps the line only to place the Passage; the AI model's own check of the sentence, later, leaves no such flag; fails_when=the line is never asked alone, a line that fails alone is still said as the quote, the Mark doesn't say it rests on its Passage, the sentence loses the decision model's verdict, or the flag outlives the verdict it was given with; no_claim=how the card shows such a Mark, or how often a real model's line fails alone, which the gate's real-model run counted.
+  test("a verdict whose line doesn't hold it alone rests on its Passage", async () => {
+    const { core, client, host, run, readByAiModel, aiModelId } = await setUp([MOON, YEARLY]);
     await choose(core);
-    host.answers((asked) => (lineAlone(asked) ? alone : sure(asked)));
+    host.answers((asked) => (lineAlone(asked) ? { B: 0.9, C: 0.6 } : sure(asked)));
 
     await core.checkMind(run());
 
@@ -368,7 +369,64 @@ describe("Check this Note with a decision model chosen (#3118)", { timeout: 30_0
       context: { paragraph: `${MOON} ${YEARLY}` },
       passage: { document: "Tides", text: MOON },
     });
+
+    await choose(core, null);
+    await core.checkMind(run("without a decision model"));
+
+    expect((await marks(client))[MOON]).toEqual({ state: "supported", quote: MOON, by: aiModelId });
   });
+
+  // protects=a line the host can't be asked about alone gives no verdict from the decision model: the sentence keeps its first reading and its own check reads it, as after any request that fails; fails_when=the sentence is marked by the decision model with a quote no one confirmed, or without one for good; no_claim=how often a real host fails one request of a reading.
+  test("a line the host can't be asked about alone leaves its sentence to the AI model", async () => {
+    const { core, client, host, run, readByAiModel, aiModelId } = await setUp([MOON]);
+    await choose(core);
+    host.answers((asked) => (lineAlone(asked) ? { status: 429 } : sure(asked)));
+
+    await core.checkMind(run());
+
+    expect(readByAiModel()).toEqual([MOON]);
+    expect((await marks(client))[MOON]).toEqual({
+      state: "supported",
+      quote: MOON,
+      by: aiModelId,
+      firstReading: "supported",
+    });
+  });
+
+  // protects=what leaves the app says the same as the Mark: the check record's Quote cell and a Word comment on a Contradicted sentence give the line only where it is the verdict's quote, and otherwise name the Document and the place with no words of it; fails_when=the record or the comment prints a line that failed alone as the Document's words, or drops the Document's name with it; no_claim=the record's PDF, or how the card shows it.
+  test.each([
+    ["holds the verdict alone", null, [MOON, WEEKLY]],
+    ["doesn't hold it alone", { B: 0.9, C: 0.6 }, ["", ""]],
+  ] as const)(
+    "the check record and a Word comment quote a line that %s",
+    async (_, alone, quotes) => {
+      const { core, host, run } = await setUp([MOON, YEARLY]);
+      const out = await createTempDataFolder();
+      await core.setOutputLocation(out);
+      await choose(core);
+      host.answers((asked) => (alone && lineAlone(asked) ? alone : sure(asked)));
+      const { mindId } = run();
+
+      await core.checkMind(run());
+
+      const saved = await core.saveCheckRecord(mindId);
+      if (saved.status !== "saved")
+        throw new Error(`The check record wasn't saved: ${saved.status}`);
+      const csv = await readFile(
+        join(out, `${saved.file.name.replace(/\.(pdf|csv)$/, "")}.csv`),
+        "utf8",
+      );
+      const rows = recordRows(csv).filter((row) => row.Kind === "Sentence");
+      expect(rows.map((row) => [row.Sentence, row.Result, row.Document, row.Quote])).toEqual([
+        [MOON, "Supported", "Tides", quotes[0]],
+        [YEARLY, "Contradicted", "Harbour office", quotes[1]],
+      ]);
+      const word = await core.exportMind(mindId, { format: "docx", commentFailedChecks: true });
+      const comments = unzip(word.data).get("word/comments.xml")?.toString("utf8") ?? "";
+      expect(comments).toContain("Harbour office");
+      expect(comments.includes(WEEKLY)).toBe(quotes[1] !== "");
+    },
+  );
 
   // protects=a line longer than a check stores is never said as a quote: the verdict rests on its Passage, with no request about the line alone, and the stored line is cut as any receipt's; fails_when=a cut line is said as the quote, or the host is asked about a line no one will be shown whole; no_claim=that 200 characters is the right length.
   test("a verdict whose line is longer than a check stores rests on its Passage", async () => {
