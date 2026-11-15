@@ -326,6 +326,42 @@ The real Decider v1.2 in the app on the same four Notes: 366 requests, 5,974,015
 - The decision model alone counts its first readings as verdicts: its 3 wrong are first readings, not Marks. Its 37 with nothing shown are 26 sentences labelled Unsupported, 9 Supported and 2 Contradicted; this build gives no reading that says no Passage supports a sentence.
 - Cost: the AI model alone was US$0.415 for the pair of 120. The decision model read all 208 sentences for US$0.029 at its listed price.
 
-### Parts B and M
+### Part B, 2026-11-15, on commit aed5b2c80
 
-Part M spent nothing (above). Part B has not run.
+Four runs in one process, `main, decision, decision, main`, Claude Haiku 5.5 behind, 33 labelled sentences over their Documents and the mixed sample set. Every request answered in every run; none is void. US$0.530 at the listed price for both models (the stop was US$0.60), and US$0.005 for the one-sentence check before it.
+
+| Run | Arm | Marks as labelled | Decision model's Marks | Of them not as labelled | First reading at | AI model's first Mark | Last Mark | Requests to the host | The AI model's cost | The decision model's cost | Both |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | `main` | 27 | | | | 7.8 s | 43.9 s | | US$0.144 | | US$0.144 |
+| 2 | `decision` | 28 | 12 | 0 | 2.3 s | 7.5 s | 34.0 s | 54 | US$0.104 | US$0.017 | US$0.121 |
+| 3 | `decision` | 29 | 11 | 0 | 2.7 s | 9.3 s | 39.1 s | 49 | US$0.115 | US$0.015 | US$0.129 |
+| 4 | `main` | 28 | | | | 6.9 s | 47.9 s | | US$0.136 | | US$0.136 |
+
+| Bar | Result |
+|---|---|
+| B1 Wrong Mark | **Met.** 23 Marks from the decision model in the two runs, 0 not as labelled; 4 of them are Unsupported. Zero wrong in 23 still allows a true share of up to 12 in 100 |
+| B2 The AI model's Marks | **Met.** 28 and 29 as labelled in `decision` against the lowest `main` run's 27. No sentence carries its label in both `main` runs and misses it in both `decision` runs; one is the reverse |
+| B3 First readings | **Met.** The first reading showed at 2.3 and 2.7 s |
+| B4 Cost | **Met.** US$0.121 and US$0.129 a check in `decision`, the two models together, against the highest `main` run's US$0.144 |
+
+- **Two runs an arm.** The bars are read as written above; a difference of one sentence or one cent between the arms is inside what two runs can show.
+- **Unsupported shown where a Passage settles it:** the AI model gave 5 and 3 in the `main` runs and 5 and 4 in the `decision` runs. The decision model gave none.
+- **The quotes, read blind, no bar.** Under the AI model's Supported and Contradicted Marks in the `main` runs: 25 distinct quotes (42 Marks), both readers accept all 25. Under the decision model's in the `decision` runs: 10 distinct quotes (19 Marks), both accept all 10. No split; neither reader accepted any of the 35 decoys. All 35 quotes are plain sentences by the script's rule: none is a table's row or cell and none is cut at 200 characters. So on plain sentences today's check stands at 25 of 25 and the decision model at 10 of 10 here and 34 of 39 in part A again; **today's check on a table's quote, where A3 lost 4 of 7, is not measured.**
+
+### Where the gate stands
+
+| | Bar | Result |
+|---|---|---|
+| 1 | A1 no wrong Mark | Met, 0 of 51 |
+| 1 | A3 the quote | **Not met**, 39 of 51 |
+| 1 | A4 first readings | Met, 91 in 100 |
+| 2 | B1, B2 | Met |
+| 3 | T1 to T3 | Met on the earlier head |
+| 3 | T4 | **Not met** on the earlier head; not run again on this build |
+| 4 | B4 | Met |
+
+With A3 not met the decision model reads only where the User chose it, unless the owner decides otherwise with the 12 quotes in front of them.
+
+### Part M
+
+Part M spent nothing (above).
