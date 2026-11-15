@@ -5,8 +5,9 @@ import {
   CITATION_NODE,
   type CitationAttributes,
   type ClaimCheckAttributes,
+  type ClaimCheckPart,
 } from "../../src/core/api";
-import { citationDecision } from "../../src/renderer/src/editor/alreadyCited";
+import { citationDecision, partDecisions } from "../../src/renderer/src/editor/alreadyCited";
 import { citationNumbersPlugin } from "../../src/renderer/src/editor/citationNumbers";
 import type { ShownClaim } from "../../src/renderer/src/editor/claimChecks";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
@@ -127,6 +128,41 @@ describe("a sentence that already cites what its check found", () => {
       location: { kind: "properties", property: "modified", value: "2026-11-02T09:00:00Z" },
     });
     expect(citationDecision(held, property).kind).toBe("none");
+  });
+
+  // protects=a decision model's line it isn't sure of alone never becomes a Citation's quote: the card shows no quote for such a Mark, so nothing may write one (#3118); fails_when=Add, Widen or Replace is offered for a Mark that rests on its Passage, or for its part.
+  test("is offered nothing for a Mark that rests on its Passage, cited or not", () => {
+    const resting = (start: number, end: number): ClaimCheckPart => ({
+      span: { start, end },
+      kind: "fact",
+      verdict: "supported",
+      evidence: [attributes({ quote: LINE })],
+      says: null,
+      unsupported: null,
+      calculation: null,
+      reason: null,
+      detail: null,
+      versions: [],
+      excluded: [],
+      citedCaseUnchecked: false,
+      citedCaseFound: false,
+      restsOnPassage: true,
+    });
+    const part = resting(0, FIRST.length);
+    for (const held of [
+      state(null, null),
+      state({ quote: "two days a week" }, null),
+      state({ quote: SECOND, check: "unsupported" }, null),
+    ]) {
+      const cited = held.doc.firstChild?.childCount !== 1;
+      const sure = claimOf(firstSentence(cited), { quote: LINE }, {}, LINE);
+      expect(citationDecision(held, sure).kind).not.toBe("none");
+      const claim = claimOf(firstSentence(cited), { quote: LINE }, { parts: [part] }, LINE);
+      expect(citationDecision(held, claim).kind).toBe("none");
+      expect(partDecisions(held, claim, part)).toEqual([]);
+      const { restsOnPassage: _, ...quoted } = part;
+      expect(partDecisions(held, claim, quoted)).toHaveLength(1);
+    }
   });
 
   test("is already cited by the one of several Citations that overlaps", () => {

@@ -3,6 +3,7 @@ import type { CitationAttributes, ClaimCheckPart, QuotedWords } from "../../../c
 import { continuesCitation, overlapsCitation } from "../../../shared/citationOverlap";
 import { parseQuotedWords, type QuotedWordsOnPage, quotedWordsAt } from "../../../shared/citations";
 import { DOESNT_HOLD } from "../../../shared/citedNow";
+import { restsOnPassage } from "../../../shared/claimParts";
 import { citationLocation } from "../../../shared/locations";
 import { type NumberedCitation, numberedCitations } from "./citationNumbers";
 import type { ShownClaim } from "./claimChecks";
@@ -40,7 +41,8 @@ export function quotedWordsAsks(
  * (#1620): the Citation that doesn't hold, which the Passage should replace;
  * the Citation that already covers it, as it is or widened to the whole clause;
  * Add as Citation when the sentence cites nothing on those words; or none, for
- * a figure worked out or nothing found.
+ * a figure worked out, nothing found, or a Mark that rests on its Passage, whose
+ * line is no quote a Citation could hold (#3118).
  */
 export type CitationDecision =
   | { kind: "already"; citation: NumberedCitation }
@@ -55,7 +57,9 @@ export function citationDecision(
   onPage?: QuotedWordsOnPage,
 ): CitationDecision {
   const { evidence, calculation } = claim.check;
-  if (!evidence || calculation || ofProperties(evidence)) return { kind: "none" };
+  if (!evidence || calculation || ofProperties(evidence) || restsOnPassage(claim.check)) {
+    return { kind: "none" };
+  }
   return decisionFor(state, claim, evidence, onPage);
 }
 
@@ -84,7 +88,7 @@ export function partDecisions(
   const backed =
     part.verdict === "supported" ||
     (part.verdict === "not-checked" && part.reason === "found-elsewhere");
-  if (!backed || part.calculation) return [];
+  if (!backed || part.calculation || part.restsOnPassage) return [];
   return part.evidence
     .filter((evidence) => evidence.check === "found" && !ofProperties(evidence))
     .map((evidence) => ({ evidence, decision: decisionFor(state, claim, evidence, onPage) }));
