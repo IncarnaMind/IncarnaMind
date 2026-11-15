@@ -50,7 +50,7 @@ Single-context: `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/agents/
     - Don't change another checkout or the User's data folder, and don't drive the User's apps.
     - Use temporary data folders and a temporary home folder for anything you run.
     - Run `npm ci` in your own worktree before anything that rebuilds native modules, rather than rebuilding a shared `node_modules`.
-13. **Read your own diff before you open the pull request,** as a reviewer would, against the issue's acceptance criteria and these rules. Answer review comments, the automated reviewer's included, by fixing them or by saying why not.
+13. **Read your own diff before you open the pull request,** as a reviewer would, against the issue's acceptance criteria and these rules. Answer a reader's comments by fixing them or by saying why not. Of the automated reviewer's, only its Major and Critical comments need a reply, and a push that only fixes what a reader asked doesn't wait for its next review.
 
 ## Tests and CI
 
@@ -95,5 +95,5 @@ Read [`docs/agents/testing.md`](docs/agents/testing.md). Work is done when its p
 - File issues one per theme, as [`docs/agents/issue-tracker.md`](docs/agents/issue-tracker.md) › Filing an issue says.
 - Push when the feature is finished and fully tested, and open the pull request ready, so CI starts at once: one pull request for the whole feature, not a run of small ones, and as few pushes as you can. A fix for a broken `main` (a red check, or a regression a merge caused) doesn't wait: it lands at once, by itself. Merge `main` into your branch to resolve a conflict or to pick up something you need.
 - Watch CI with `gh pr checks <number> --watch --interval 300`. A pull request merges when its sign-off check and CI are green (about 10 minutes), or each red check is a known flaky spec named with its issue, and you have read your own diff (rule 13).
-- There is no separate review round, except for a change to the User's data, privacy or consent, a check's verdict or a Citation, AI behaviour, the sandbox, CI's checks, a migration or a dependency: someone else reads that first.
+- There is no separate review round, except for a change to the User's data, privacy or consent, a check's verdict or a Citation, AI behaviour, the sandbox, CI's checks, a migration or a dependency: one other person reads that, once and in one round. Only a wrong mark, lost data or something sent without consent blocks it; the rest is fixed in place or noted, and a fix gets one line on what changed, not a new read.
 - The whole suite runs on `main` every night; a red night is fixed before new work.
