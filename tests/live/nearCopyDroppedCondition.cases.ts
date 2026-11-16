@@ -9,6 +9,10 @@
  * set is run only to count: its replies are not read while the change is fitted, and the change is
  * not edited after its first run.
  *
+ * The held-out set's "contract" Document was added on 2026-11-16, before any request of the held-out
+ * set, because the fault reported on #3197 is a right with its condition and one more clause after
+ * it ("可…，须…，且…"), and the first fit run on `main` found the fault rare on the shorter pairs.
+ *
  * The bars, fixed before the first run, on Claude Haiku 5.5:
  * - held-out decoys: Supported in none of their checks, where `main`'s count is measured first;
  * - held-out twins (positives): Supported in at least `main`'s count of checks, less 1 in 14;
@@ -156,6 +160,16 @@ export const DROPPED_HELD_OUT_SETS: readonly AmendedSet[] = [
         ],
       },
       {
+        key: "contract",
+        file: "Redfern Consulting services agreement.md",
+        title: "Redfern Consulting services agreement",
+        clauses: [
+          "The Consultant may use the Client's meeting room three times a month, provided the front desk is booked two working days ahead, and the Client will supply refreshments.",
+          "The Consultant may take project files home, only if the project lead agrees in writing, and the Client will provide an encrypted drive.",
+          "The Consultant may take five days of unpaid leave a year, subject to thirty days' notice, and the Client will keep paying the Consultant's pension contributions during it.",
+        ],
+      },
+      {
         key: "lab",
         file: "Eastfield Laboratory safety rules.md",
         title: "Eastfield Laboratory safety rules",
@@ -232,6 +246,31 @@ export const DROPPED_HELD_OUT_SETS: readonly AmendedSet[] = [
         "copy",
         "Researchers must report a spill within one hour, unless it is under 5 millilitres and non-hazardous.",
       ),
+      decoy(
+        "room",
+        "contract",
+        "The Consultant may use the Client's meeting room three times a month.",
+      ),
+      decoy("files", "contract", "The Consultant may take project files home."),
+      decoy("leave", "contract", "The Consultant may take five days of unpaid leave a year."),
+      twin(
+        "room-kept",
+        "contract",
+        "paraphrase",
+        "The Consultant may use the Client's meeting room three times a month, as long as the front desk is booked two working days ahead.",
+      ),
+      twin(
+        "files-kept",
+        "contract",
+        "paraphrase",
+        "The Consultant may take project files home only if the project lead agrees in writing.",
+      ),
+      twin(
+        "leave-kept",
+        "contract",
+        "paraphrase",
+        "The Consultant may take five days of unpaid leave a year, subject to thirty days' notice.",
+      ),
     ],
   },
   {
@@ -247,6 +286,16 @@ export const DROPPED_HELD_OUT_SETS: readonly AmendedSet[] = [
           "客户可以在30天内退回未使用的仪表，退货邮费由客户承担。",
           "客户在中午前报告故障的，伯恩公司于下一个工作日通过快递寄出替换仪表。",
           "客户可以把保修转让给新的所有人，但须在14天内书面通知伯恩公司。",
+        ],
+      },
+      {
+        key: "contract",
+        file: "红杉咨询服务协议.md",
+        title: "红杉咨询服务协议",
+        clauses: [
+          "乙方每月可使用甲方会议室三次，须提前两个工作日向前台预约，且甲方负责提供茶水。",
+          "乙方可以把项目资料带回家处理，须经项目负责人书面同意，且甲方提供加密硬盘。",
+          "乙方每年可休五天无薪假，须提前三十天提出申请，且假期内甲方继续缴纳乙方的养老金。",
         ],
       },
       {
@@ -312,6 +361,27 @@ export const DROPPED_HELD_OUT_SETS: readonly AmendedSet[] = [
         "lab",
         "paraphrase",
         "研究人员须在一小时内报告泄漏；少于5毫升且无害的泄漏不在此限。",
+      ),
+      decoy("room", "contract", "乙方每月可使用甲方会议室三次。"),
+      decoy("files", "contract", "乙方可以把项目资料带回家处理。"),
+      decoy("leave", "contract", "乙方每年可休五天无薪假。"),
+      twin(
+        "room-kept",
+        "contract",
+        "paraphrase",
+        "乙方每月可使用甲方会议室三次，但须提前两个工作日向前台预约。",
+      ),
+      twin(
+        "files-kept",
+        "contract",
+        "paraphrase",
+        "乙方经项目负责人书面同意，可以把项目资料带回家处理。",
+      ),
+      twin(
+        "leave-kept",
+        "contract",
+        "paraphrase",
+        "乙方每年可休五天无薪假，须提前三十天提出申请。",
       ),
     ],
   },
