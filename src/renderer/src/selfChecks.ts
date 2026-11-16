@@ -1,8 +1,9 @@
 /**
  * How the checks of an Answer's writes go (#1111, #1909, #2830), from its calls:
- * the line under it while one runs, "Checking 5 of 40 sentences", then what it
- * checked and what needs a look, what it couldn't check, and the one Check
- * their action runs. Only data.
+ * how many sentences wait for the User's Check where none followed the write
+ * (#3154); else the line under it while one runs, "Checking 5 of 40 sentences",
+ * then what it checked and what needs a look, what it couldn't check, and the
+ * one Check their action runs. Only data.
  */
 import type { AnswerToolCall, MindChange, RegisteredDataFlow } from "../../core/api";
 import type { Language } from "../../core/language";
@@ -186,25 +187,30 @@ export function selfCheckLines(
       });
     }
   }
-  // A check recorded before #2830 checked only some of the write: the line says how many are left.
+  // No check followed the write (#3154), or one recorded before #2830 checked only some of it:
+  // the line says how many sentences are left.
   if (check.sent < checkable) {
+    const unchecked = check.sent === 0;
     // The live count of what no check covers now, as the badge counts it (#1909): the saved
     // failures were true when the write landed, and the User may have settled some since (#2313).
-    const remaining = left ?? null;
-    lines.push({
-      kind: "left",
-      text:
-        remaining === null
-          ? checkedText
-          : [
-              checkedText,
-              t(remaining === 1 ? "selfCheck.leftPart.one" : "selfCheck.leftPart", {
-                left: remaining,
-              }),
-            ].join(" · "),
-      details: [],
-      action: remaining === 0 ? null : { label: t("mindCheck.command"), does: "check" },
-    });
+    const remaining = left ?? (unchecked ? checkable : null);
+    const leftPart =
+      remaining === null
+        ? []
+        : [
+            t(remaining === 1 ? "selfCheck.leftPart.one" : "selfCheck.leftPart", {
+              left: remaining,
+            }),
+          ];
+    // Once the User's Check has covered an unchecked write, the Note's badge says how it went.
+    if (!unchecked || remaining !== 0) {
+      lines.push({
+        kind: "left",
+        text: [...(unchecked ? [] : [checkedText]), ...leftPart].join(" · "),
+        details: [],
+        action: remaining === 0 ? null : { label: t("mindCheck.command"), does: "check" },
+      });
+    }
   }
   return lines;
 }

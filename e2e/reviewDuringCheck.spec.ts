@@ -5,6 +5,7 @@ import {
   addDocuments,
   askInAssistant,
   assistantAnswers,
+  checkAssistantWrites,
   createDataFolder,
   dismissChatSetup,
   enterContent,
@@ -126,6 +127,7 @@ async function start(language: "en" | "zh-CN", file: string, text: string) {
   // biome-ignore lint/correctness/useHookAtTopLevel: an e2e helper whose name begins with "use", not a React hook.
   await useLocalChatModel(window);
   await setLanguage(window, language);
+  await checkAssistantWrites(window);
   await addDocuments(window, [join(sources, file)]);
   return { app, window };
 }

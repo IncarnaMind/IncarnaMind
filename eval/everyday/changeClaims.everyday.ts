@@ -1,3 +1,4 @@
+import { appendFileSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { expect, test } from "vitest";
@@ -90,7 +91,24 @@ test.skipIf(process.env.INCARNAMIND_EVAL_EVERYDAY !== "change-claims")(
       prompt: [{ role: "user", content: [{ type: "text", text: "Reply with the word ok." }] }],
     });
 
-    const { rows, stopped } = await runArms({ arms, probes, runs, stop, model, meter, dollarsOf });
+    const folder = join(
+      config.resultsDir,
+      `${new Date().toISOString().replace(/[:.]/g, "-")}-change-claims`,
+    );
+    await mkdir(folder, { recursive: true });
+    const { rows, stopped } = await runArms({
+      arms,
+      probes,
+      runs,
+      stop,
+      model,
+      meter,
+      dollarsOf,
+      onRow: (row) => appendFileSync(join(folder, "rows.jsonl"), `${JSON.stringify(row)}\n`),
+      ...(process.env.INCARNAMIND_EVAL_UNTIL && {
+        until: Date.parse(process.env.INCARNAMIND_EVAL_UNTIL),
+      }),
+    });
 
     const armNames = arms.map((arm) => arm.name);
     const perProbe = Object.fromEntries(
@@ -156,11 +174,6 @@ test.skipIf(process.env.INCARNAMIND_EVAL_EVERYDAY !== "change-claims")(
           )
         : null,
     };
-    const folder = join(
-      config.resultsDir,
-      `${new Date().toISOString().replace(/[:.]/g, "-")}-change-claims`,
-    );
-    await mkdir(folder, { recursive: true });
     await writeFile(
       join(folder, "report.json"),
       JSON.stringify(
@@ -182,5 +195,5 @@ test.skipIf(process.env.INCARNAMIND_EVAL_EVERYDAY !== "change-claims")(
     );
     expect(stopped).toBeNull();
   },
-  3_600_000,
+  8 * 3_600_000,
 );

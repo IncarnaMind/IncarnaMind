@@ -2222,6 +2222,15 @@ export function setLanguage(window: Page, language: "en" | "zh-CN"): Promise<unk
   );
 }
 
+/** Has what the assistant writes checked as it lands, as its switch in Settings does: off on a fresh profile (#3154). */
+export function checkAssistantWrites(window: Page): Promise<unknown> {
+  return window.evaluate(() =>
+    (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.updateSettings({
+      user: { checkAssistantWrites: true },
+    }),
+  );
+}
+
 /** The scale a copy's transform says, 1 with none. */
 export const scaleOf = (transform: string) => Number(/^matrix\(([^,]+),/.exec(transform)?.[1] ?? 1);
 

@@ -28,7 +28,14 @@ import { readMind, writeMind } from "../helpers/minds";
 import { type ModelCall, scriptedModel, scriptedModels } from "../helpers/models";
 
 const LINES = {
-  verdict: { supported: 0.98, contradicted: 0.9, band: 0.005, sameAmount: 0.92, unsupported: 0.25 },
+  verdict: {
+    supported: 0.98,
+    contradicted: 0.9,
+    band: 0.005,
+    quote: { supported: 0.98, contradicted: 0.9 },
+    sameAmount: 0.92,
+    unsupported: 0.25,
+  },
   firstReading: { supported: 0.8, contradicted: 0.5 },
 };
 
@@ -40,7 +47,9 @@ const told = (reading: Reading): string =>
     ? "nothing"
     : reading.verdict === "unsupported"
       ? "unsupported"
-      : `${reading.verdict} ${reading.passageId} ${reading.final ? "final" : "first reading"}`;
+      : `${reading.verdict} ${reading.passageId} ${reading.final ? "final" : "first reading"}${
+          reading.ifLimitsKept ? " if limits kept" : ""
+        }`;
 
 describe("What a sentence's scores come to", () => {
   // protects=a verdict needs a score clear of its line by the band, a lower score is only a first reading, Passages that disagree give no reading, and a sentence is Unsupported only when every Passage scores under the Unsupported line on both questions; fails_when=a score inside the band becomes a verdict, a sentence one Passage states and another opposes gets a reading, or a sentence a Passage scores between the Unsupported line and a first reading reads Unsupported; no_claim=that the lines themselves are right, which the gate's real-model run measures.
@@ -65,6 +74,30 @@ describe("What a sentence's scores come to", () => {
     ["no Passage", scores(), "nothing"],
   ])("%s", (_, given, expected) => {
     expect(told(readingOf(given, LINES))).toBe(expected);
+  });
+
+  // protects=a model with a guarded line reads a Supported between that line and the verdict's as final only on condition, and nothing else moves: over the verdict's line no condition, under the guarded line a first reading, and Contradicted as before; fails_when=a Supported under the verdict's line is final with no condition, the guarded line's band is ignored, or the guarded line changes a Contradicted; no_claim=that the guarded line is right, which the real-model replays measure.
+  test.each([
+    ["states it, over the verdict's line", scores([0.99, 0.01]), "supported p0 final"],
+    ["states it, over the guarded line", scores([0.95, 0.01]), "supported p0 final if limits kept"],
+    [
+      "states it, inside the guarded line's band",
+      scores([0.923, 0.01]),
+      "supported p0 first reading",
+    ],
+    ["states it, under the guarded line", scores([0.85, 0.01]), "supported p0 first reading"],
+    [
+      "over the guarded line, one leans to the opposite",
+      scores([0.95, 0.01], [0.1, 0.5]),
+      "nothing",
+    ],
+    ["opposes, under its line", scores([0.1, 0.88]), "contradicted p0 first reading"],
+  ])("with a guarded line: %s", (_, given, expected) => {
+    const guarded = {
+      ...LINES,
+      verdict: { ...LINES.verdict, guarded: { supported: 0.92, leavesOut: 0.1 } },
+    };
+    expect(told(readingOf(given, guarded))).toBe(expected);
   });
 
   // protects=a model with no measured verdict lines never gives a verdict, Unsupported included; fails_when=its high score is final, or a sentence none of its Passages leans to reads Unsupported; no_claim=which models have lines.
@@ -155,7 +188,7 @@ interface Asked {
   among: boolean;
 }
 
-type Answer = { B: number; C: number; N?: number } | { status: number };
+type Answer = { B: number; C: number; N?: number; L?: number } | { status: number };
 
 /** What the decision model says by default: sure of the two sentences the Documents decide. */
 const sure = ({ sentence, passage }: Asked): Answer => ({
@@ -179,7 +212,7 @@ async function startDecisionHost() {
     asked.push({ model: body.model, state: body.state, questions });
     const answers: Record<string, { type: "noul"; noul: number }> = {};
     for (const question of questions) {
-      const [kind, name] = question.split("_") as ["B" | "C" | "N", string | undefined];
+      const [kind, name] = question.split("_") as ["B" | "C" | "N" | "L", string | undefined];
       const passage = name ? body.state.passages?.[name] : body.state.passage;
       if (!passage) return send(400, { error: { message: `No Passage for ${question}.` } });
       const given = await answer({
@@ -517,10 +550,12 @@ describe("Check this Note with a decision model chosen (#3118)", { timeout: 30_0
     });
   });
 
-  // protects=Passages that state or oppose the sentence only together give it a first reading, never a verdict: its own check reads it; a host that can't be asked about them gives it no Unsupported either; fails_when=the sentence is marked Unsupported, Supported or Contradicted on the decision model's word, or shows no first reading where the Passages together lean; no_claim=that a real model reads several Passages together right, which the gate's real-model run measured.
+  // protects=Passages that state or oppose the sentence only together, surely or leaning, give it a first reading, never a verdict: its own check reads it; Passages that together are about it without settling it (a real model scored 0.76 for a summary its Passages bear out), or that the host can't be asked about, give it no Unsupported either; fails_when=the sentence is marked Unsupported, Supported or Contradicted on the decision model's word, or shows no first reading where the Passages together lean; no_claim=that a real model reads several Passages together right, which the gate's real-model run measured.
   test.each([
     ["state it", { B: 0.995, C: 0.02 }, "supported"],
+    ["lean to stating it", { B: 0.85, C: 0.02 }, "supported"],
     ["oppose it", { B: 0.03, C: 0.97 }, "contradicted"],
+    ["are about without settling it", { B: 0.4, C: 0.02 }, null],
     ["can't be asked about", { status: 429 }, null],
   ] as const)(
     "a sentence its Passages only together %s goes to the AI model",
@@ -590,6 +625,86 @@ describe("Check this Note with a decision model chosen (#3118)", { timeout: 30_0
     });
   });
 
+  // protects=a Supported its Passage holds under the verdict's line, among the Passages or alone, is the decision model's only once it also says the sentence leaves out no condition or limit of the Passage's: asked in a request of its own, about that Passage alone, and only for such a sentence; the Mark then rests on its Passage unless its line alone clears the quote's own line, and the AI model is never asked (a real model scored sentences that drop a condition 0.25 to 0.97 on that question, and ones that keep them 0.2 and under); fails_when=such a sentence is marked without the question, the question is asked of a sentence over the line, a score at the question's line marks it, or a sentence the model says leaves a limit out is marked rather than left to the AI model; no_claim=that the lines are right, which the real-model replays measure.
+  test.each([
+    ["among the Passages", (asked: Asked) => asked.among, {}],
+    ["alone", (asked: Asked) => !asked.among, { restsOnPassage: true }],
+  ])(
+    "a Supported under the line %s stands once its Passage's limits are kept",
+    async (_, lower, rests) => {
+      const { core, client, host, run, readByAiModel } = await setUp([MOON, YEARLY]);
+      await choose(core);
+      host.answers((asked) => {
+        const given = sure(asked);
+        if (!("B" in given)) return given;
+        return { ...given, B: lower(asked) ? Math.min(given.B, 0.95) : given.B, L: 0.03 };
+      });
+
+      await core.checkMind(run());
+
+      expect(readByAiModel()).toEqual([]);
+      expect((await marks(client))[MOON]).toEqual({
+        state: "supported",
+        quote: MOON,
+        by: DECIDER.modelId,
+        ...rests,
+      });
+      const guards = host.asked.filter(({ questions }) => questions.includes("L"));
+      expect(
+        guards.map(({ questions, state }) => [questions, state.sentence, state.passage]),
+      ).toEqual([[["L"], MOON, expect.objectContaining({ document: "Tides" })]]);
+    },
+  );
+
+  test.each([
+    ["at the question's line", 0.097],
+    ["well over it", 0.4],
+  ])(
+    "a Supported under the line that leaves a limit out, %s, is the AI model's",
+    async (_, leavesOut) => {
+      const { core, client, host, run, readByAiModel, aiModelId } = await setUp([MOON, YEARLY]);
+      await choose(core);
+      host.answers((asked) => {
+        const given = sure(asked);
+        return "B" in given ? { ...given, B: Math.min(given.B, 0.95), L: leavesOut } : given;
+      });
+
+      await core.checkMind(run());
+
+      expect(readByAiModel()).toEqual([MOON]);
+      expect((await marks(client))[MOON]).toEqual({
+        state: "supported",
+        quote: MOON,
+        by: aiModelId,
+        firstReading: "supported",
+      });
+    },
+  );
+
+  // protects=a sentence its Passage opposes less surely than a quote needs still gets the decision model's Contradicted where the Passage, asked about alone, opposes it as surely: the Mark rests on its Passage, says no quote, and the AI model is never asked (a real model scored 0.85 to 0.9 alone for nine such sentences, all labelled Contradicted); fails_when=such a sentence waits for the AI model, or its line is said as a quote under the quote's own line; no_claim=that the lines are right, which the real-model replays measure.
+  test("a Contradicted surer than its quote rests on its Passage", async () => {
+    const { core, client, host, run, readByAiModel } = await setUp([MOON, YEARLY]);
+    await choose(core);
+    host.answers((asked) => {
+      const given = sure(asked);
+      return "C" in given ? { ...given, C: Math.min(given.C, 0.87) } : given;
+    });
+
+    await core.checkMind(run());
+
+    expect(readByAiModel()).toEqual([]);
+    expect(await marks(client)).toEqual({
+      [MOON]: { state: "supported", quote: MOON, by: DECIDER.modelId },
+      [YEARLY]: {
+        state: "contradicted",
+        quote: WEEKLY,
+        by: DECIDER.modelId,
+        restsOnPassage: true,
+      },
+    });
+    expect(said(client, YEARLY)).toEqual([null, null]);
+  });
+
   // protects=Documents that disagree about a sentence give it no verdict and no first reading from the decision model: its own check reads it; fails_when=the sentence is marked on the Passage that states it, or on the one that opposes it; no_claim=how the card should show Documents that disagree.
   test("a sentence one Document states and another opposes goes to the AI model unread", async () => {
     const { core, client, host, run, readByAiModel, aiModelId } = await setUp([BOTH]);
@@ -655,7 +770,7 @@ describe("Check this Note with a decision model chosen (#3118)", { timeout: 30_0
     await choose(core);
     host.answers((asked) => {
       const given = sure(asked);
-      return "B" in given ? { B: Math.min(given.B, 0.983), C: Math.min(given.C, 0.903) } : given;
+      return "B" in given ? { B: Math.min(given.B, 0.983), C: Math.min(given.C, 0.853) } : given;
     });
     const release = holdAiModel();
 

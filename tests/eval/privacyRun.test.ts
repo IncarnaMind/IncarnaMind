@@ -164,6 +164,40 @@ describe("The run of the gate's three arms", () => {
     expect(rows).toHaveLength(PROBES.length * ARMS.length);
   });
 
+  test("each row is handed on as it is made, so a run cut short keeps what it measured", async () => {
+    const seen: string[] = [];
+
+    const { rows } = await runArms({
+      arms: ARMS,
+      probes: PROBES,
+      runs: 1,
+      stop: 0,
+      model: judge(),
+      meter: newMeter(),
+      dollarsOf,
+      onRow: (row) => seen.push(`${row.probe}/${row.arm}`),
+    });
+
+    expect(seen).toHaveLength(rows.length);
+    expect(seen).toEqual(rows.map((row) => `${row.probe}/${row.arm}`));
+  });
+
+  test("no check is begun after the time it is given, and the rows so far are kept", async () => {
+    const { rows, stopped } = await runArms({
+      arms: ARMS,
+      probes: PROBES,
+      runs: 2,
+      stop: 0,
+      model: judge(),
+      meter: newMeter(),
+      dollarsOf,
+      until: Date.now() - 1,
+    });
+
+    expect(rows).toHaveLength(0);
+    expect(stopped).toContain("was reached");
+  });
+
   test("it stops, and says so, when the spend reaches the stop", async () => {
     const meter = newMeter();
 

@@ -7,6 +7,7 @@ import { unbackedClaims } from "../../src/core/answers/claimedChanges";
 import { createAiSdkChatModel } from "../../src/core/providers/models";
 import { chatModelSpecOf, readConfig } from "../lib/config";
 import { createLog } from "../lib/log";
+import { type ClaimFilings, filingRows, filingsByProbe, keepClaimFilings } from "./claimFilings";
 import {
   ALL_PROBES,
   BACKED_WRITE_REPLY,
@@ -37,6 +38,9 @@ test.skipIf(process.env.INCARNAMIND_EVAL_EVERYDAY !== "claim-probes")(
     // how many checks sent it (#2878).
     let asked: string[] = [];
     const words = keepRequestWords();
+    // Where the claims check filed each sentence is kept beside its flag: a right count can come
+    // from the wrong filing (#2970).
+    const filings = keepClaimFilings();
     const questions: Record<
       string,
       { requests: number; inputTokens: number; cachedInputTokens: number; outputTokens: number }
@@ -70,6 +74,7 @@ test.skipIf(process.env.INCARNAMIND_EVAL_EVERYDAY !== "claim-probes")(
           },
         },
         words.middleware,
+        filings.middleware,
       ],
     });
     const rows: {
@@ -90,6 +95,8 @@ test.skipIf(process.env.INCARNAMIND_EVAL_EVERYDAY !== "claim-probes")(
       failed?: true;
       /** The words that question gave. */
       told?: RequestWords;
+      /** Each sentence the claims check returned, as it filed it. */
+      filings?: ClaimFilings;
     }[] = [];
     const allRefused: string[] = [];
     const usage = {
@@ -107,6 +114,7 @@ test.skipIf(process.env.INCARNAMIND_EVAL_EVERYDAY !== "claim-probes")(
           refused = [];
           asked = [];
           words.take();
+          filings.take();
           return unbackedClaims(probe.reply, probe.calls ?? [], MINDS, probe.focused ?? null, {
             model,
             request: requestOf(probe.id),
@@ -133,6 +141,7 @@ test.skipIf(process.env.INCARNAMIND_EVAL_EVERYDAY !== "claim-probes")(
         }
         const unchecked = unanswered(result);
         const told = words.take();
+        const filed = filings.take();
         if (result.usage) {
           usage.inputTokens += result.usage.inputTokens ?? 0;
           usage.outputTokens += result.usage.outputTokens ?? 0;
@@ -158,32 +167,59 @@ test.skipIf(process.env.INCARNAMIND_EVAL_EVERYDAY !== "claim-probes")(
           ...(asked.includes("request-done") && { askedDone: true as const }),
           ...(result.failed && { failed: true as const }),
           ...(told && { told }),
+          ...(filed && { filings: filed }),
         });
       }
     }
-    const backed = await unbackedClaims(BACKED_WRITE_REPLY, [writeCall], MINDS, null, {
-      model,
-      request: BACKED_WRITE_REQUEST,
-      names,
-      parts,
-      states: () => ({ waiting: 0, accepted: 0, rejected: 0, applied: true }),
-      signal: new AbortController().signal,
-    });
-    if (backed.usage) {
-      usage.inputTokens += backed.usage.inputTokens ?? 0;
-      usage.outputTokens += backed.usage.outputTokens ?? 0;
-      usage.cachedInputTokens += backed.usage.cachedInputTokens ?? 0;
-      usage.cacheWriteTokens += backed.usage.cacheWriteTokens ?? 0;
+    // The backed write runs as many times as each probe, so its count can be read as theirs (#2970).
+    const backedRuns: {
+      claims: string[];
+      commands: string[];
+      passed: boolean;
+      durationMs: number;
+      filings?: ClaimFilings;
+    }[] = [];
+    for (let run = 1; run <= (only && !only.includes("backed-write") ? 0 : runs); run++) {
+      refused = [];
+      filings.take();
+      const backed = await unbackedClaims(BACKED_WRITE_REPLY, [writeCall], MINDS, null, {
+        model,
+        request: BACKED_WRITE_REQUEST,
+        names,
+        parts,
+        states: () => ({ waiting: 0, accepted: 0, rejected: 0, applied: true }),
+        signal: new AbortController().signal,
+      });
+      allRefused.push(...refused);
+      if (backed.usage) {
+        usage.inputTokens += backed.usage.inputTokens ?? 0;
+        usage.outputTokens += backed.usage.outputTokens ?? 0;
+        usage.cachedInputTokens += backed.usage.cachedInputTokens ?? 0;
+        usage.cacheWriteTokens += backed.usage.cacheWriteTokens ?? 0;
+      }
+      const filed = filings.take();
+      backedRuns.push({
+        claims: backed.claims,
+        commands: backed.commands,
+        passed: backed.claims.length + backed.commands.length === 0 && backed.unfinished !== true,
+        durationMs: backed.durationMs,
+        ...(filed && { filings: filed }),
+      });
     }
-    const backedPassed =
-      backed.claims.length + backed.commands.length === 0 && backed.unfinished !== true;
-    const failed = rows.filter((row) => !row.passed).length + (backedPassed ? 0 : 1);
+    const backedLeftAlone = backedRuns.filter((each) => each.passed).length;
+    const filedByProbe = filingsByProbe([
+      ...rows.map((row) => ({ ...row, flagged: (row.flaggedBy ?? []).length > 0 })),
+      ...backedRuns.map((each) => ({ ...each, id: "backed-write", flagged: !each.passed })),
+    ]);
+    const failed = rows.filter((row) => !row.passed).length + backedRuns.length - backedLeftAlone;
     const checked = rows.filter((row) => !row.unchecked);
     const spent = spendOf(
       [{ ...usage, model: config.chat.modelId }],
       config.chat.kind === "kimi" ? "kimi" : "anthropic",
     );
-    const durationMs = rows.reduce((sum, row) => sum + row.durationMs, 0) + backed.durationMs;
+    const durationMs =
+      rows.reduce((sum, row) => sum + row.durationMs, 0) +
+      backedRuns.reduce((sum, each) => sum + each.durationMs, 0);
     const wordCounts: Record<string, number> = {};
     for (const { told } of rows) {
       if (!told) continue;
@@ -202,12 +238,8 @@ test.skipIf(process.env.INCARNAMIND_EVAL_EVERYDAY !== "claim-probes")(
           model: `${config.chat.kind}/${config.chat.modelId}`,
           runs,
           rows,
-          backed: {
-            claims: backed.claims,
-            commands: backed.commands,
-            passed: backedPassed,
-            durationMs: backed.durationMs,
-          },
+          backed: backedRuns,
+          filings: filedByProbe,
           usage,
           durationMs,
           spent,
@@ -224,7 +256,7 @@ test.skipIf(process.env.INCARNAMIND_EVAL_EVERYDAY !== "claim-probes")(
         `# Change-claim probes: ${config.chat.kind}/${config.chat.modelId}`,
         "",
         `- Unmade claims caught: ${checked.filter((row) => row.expected && row.passed).length}/${checked.filter((row) => row.expected).length}`,
-        `- Honest replies left alone: ${checked.filter((row) => !row.expected && row.passed).length}/${checked.filter((row) => !row.expected).length}; backed write left alone: ${backedPassed ? 1 : 0}/1`,
+        `- Honest replies left alone: ${checked.filter((row) => !row.expected && row.passed).length}/${checked.filter((row) => !row.expected).length}; backed write left alone: ${backedLeftAlone}/${backedRuns.length}`,
         `- Checks the provider never answered, in three tries: ${rows.length - checked.length}`,
         `- Requests the provider refused, failed or let time out, every try counted: ${allRefused.length}`,
         `- Checks that also asked whether the reply says the request is done: ${rows.filter((row) => row.askedDone).length} of ${rows.length}; that question's requests: ${JSON.stringify(questions["request-done"] ?? null)}`,
@@ -233,11 +265,15 @@ test.skipIf(process.env.INCARNAMIND_EVAL_EVERYDAY !== "claim-probes")(
         `- Spend: $${spent.dollars.toFixed(4)}; unpriced tokens: ${spent.unpricedTokens}`,
         `- Failed checks: ${failed}`,
         "",
+        "## Where each probe's sentences were filed",
+        "",
+        ...filingRows(filedByProbe),
+        "",
         "Details are in report.json.",
       ].join("\n"),
     );
     log(
-      `${rows.length - rows.filter((row) => !row.passed).length}/${rows.length} probes passed; report in ${folder}`,
+      `${rows.length - rows.filter((row) => !row.passed).length}/${rows.length} probes passed, backed write ${backedLeftAlone}/${backedRuns.length}; report in ${folder}`,
     );
     if (failed > 0) throw new Error(`${failed} change-claim probes failed.`);
   },

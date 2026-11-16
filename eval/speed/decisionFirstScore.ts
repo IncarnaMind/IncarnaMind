@@ -2,6 +2,7 @@
  * How the gate of a decision model in front of the check (#3118) scores what a run left on the
  * page (eval/evidence/3118-decision-first): against the labels, and in the host's dollars.
  */
+import { type DecisionLines, standsAlone } from "../../src/core/answers/checks/decisionLines";
 import type { Expected } from "../repeats/cases";
 
 // The host's listed price for Decider v1.2; it charges nothing for output.
@@ -102,6 +103,67 @@ const isLean = (verdict: string | null | undefined): verdict is Lean =>
   verdict === "supported" || verdict === "contradicted";
 
 /** One labelled sentence as a run left it on the page. */
+/**
+ * A request about a sentence after its first: about one Passage or one line alone (`several` 0),
+ * or about the lines of one Passage, with each question's answer.
+ */
+export interface HostLater {
+  sentence: string;
+  several: number;
+  answers: Record<string, number>;
+}
+
+/** The step that kept a sure score from being the decision model's Mark, with the scores it went by. */
+export type HeldBackStep =
+  | { step: "not asked again" | "no line to rest on" }
+  | { step: "its Passage alone"; states: number; opposes: number }
+  | { step: "the amount"; same: number };
+
+/** What the model said of one Passage asked about alone, and of its amounts where that was asked. */
+export interface AskedAlone {
+  states: number;
+  opposes: number;
+  same?: number;
+  /** How surely the sentence drops a condition or limit its Passage sets, where asked. */
+  leavesOut?: number;
+}
+
+/**
+ * What the model said of a sentence's Passage asked about alone, from the requests that followed
+ * the sentence's first: the first about one Passage with both questions, sent before any about a
+ * line alone. For a sentence no Passage is about, it is the nearest ones joined.
+ */
+export function askedAlone(later: readonly HostLater[]): AskedAlone | null {
+  const alone = later.find(
+    ({ several, answers }) => several === 0 && answers.B !== undefined && answers.C !== undefined,
+  );
+  if (alone?.answers.B === undefined || alone.answers.C === undefined) return null;
+  const same = later.find(({ several, answers }) => several === 0 && answers.N !== undefined)
+    ?.answers.N;
+  const leavesOut = later.find(({ several, answers }) => several === 0 && answers.L !== undefined)
+    ?.answers.L;
+  return {
+    states: alone.answers.B,
+    opposes: alone.answers.C,
+    ...(same !== undefined && { same }),
+    ...(leavesOut !== undefined && { leavesOut }),
+  };
+}
+
+/** Why a sure score gave no Mark, from what the model said of its Passage asked about alone. */
+export function heldBackBy(
+  side: "supported" | "contradicted",
+  alone: AskedAlone | null,
+  lines: DecisionLines,
+): HeldBackStep {
+  if (!alone) return { step: "not asked again" };
+  const { states, opposes, same } = alone;
+  if (!standsAlone(side, alone, lines)) return { step: "its Passage alone", states, opposes };
+  if (same !== undefined && same < (lines.verdict?.sameAmount ?? Number.POSITIVE_INFINITY))
+    return { step: "the amount", same };
+  return { step: "no line to rest on" };
+}
+
 export interface ReplayRow {
   note: string;
   id: string;

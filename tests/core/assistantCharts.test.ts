@@ -247,6 +247,7 @@ describe("A chart only draws what is cited", { timeout: 60_000 }, () => {
         return { text: "" };
       });
       const { core, mind, client } = await setUp(model);
+      await core.updateSettings({ user: { checkAssistantWrites: true } });
       chartBreaks.armed = true;
 
       const answer = await askAssistant(core, {

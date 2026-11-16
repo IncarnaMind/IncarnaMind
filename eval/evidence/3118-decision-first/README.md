@@ -483,3 +483,30 @@ Four rules changed when the pull request was read, all to the careful side. No r
 ### Part M
 
 Part M spent nothing (above).
+
+## After the gate: a Supported under the line, guarded by one more question (#3158)
+
+Measured on 2026-11-15, on the build of #3158, with Decider v1.2 on OpenRouter and an AI model that is scripted and never decides (`replay`). Test data only.
+
+**The question**, asked of the sentence with its Passage alone, in a request of its own: does the sentence leave out a condition or a limit the Passage sets on its claim, or say of more people or things what the Passage says of fewer?
+
+**The rule.** A Supported under the 0.98 line, among the Passages or on its Passage alone, is the decision model's where the Passage alone scores 0.92 or over and the question scores 0.10 or under, each clear of its line by the band. Over 0.98 both ways nothing changes, nor does any Contradicted or Unsupported. The question goes out only for a sentence between the lines, after its Passage's answer. The Mark rests on its Passage unless its line alone clears the quote's own 0.98.
+
+**The bar, written before the fresh set's run:** from the same run, more Supported Marks than `main`, no new wrong Mark, about the same seconds. One new wrong Mark and it doesn't ship. The held-out Notes helped place the two lines, so the fresh set decides. A Supported Mark whose sentence was sent no such question is `main`'s.
+
+| Set (every request answered) | Supported Marks, `main` | With the question | Labelled Supported | New wrong Marks | Requests, before and now | Seconds, before and now |
+|---|---|---|---|---|---|---|
+| Fresh set, 104 Notes, 111 sentences | 15 | 50 | 71 | 0 | 318, 374 | 165.0, 165.4 |
+| Held-out Notes, 4 Notes, 196 sentences | 27 | 60 | 95 | 0 | 454, 574 | 23.8, 23.8 |
+| The Note of repeated sentences, 33 | 3 | 3 | 4 | 0 | 94, 102 | 6.7, 4.3 |
+
+"Before" is the last run of the same Notes without the question. The fresh set's two wrong Unsupported Marks (en-023, en-074) are the ones `main` gives; the question gives no Unsupported.
+
+- **What the question scored.** It was asked of 79 sentences labelled Supported (41 held-out, 37 fresh, 1 on the Note): 68 scored 0.004 to 0.092 and are marked; 11 scored 0.099 to 0.247, one 0.982, and go to the AI model as on `main`.
+- **Where it was tried on wrong sentences: only the Note of repeated sentences, five of them.** Three drop their Passage's condition (0.876, 0.957, 0.972) and two say of all staff what the Passage says of one employee (0.247, 0.365). Those two score 0.981 and 0.974 on their Passage alone, over the lower line, so the question alone keeps them out: the room between its line (0.095 with the band) and the lowest wrong score (0.247) rests on five sentences of one Note. The three of them asked again in a second run (0.247, 0.365, 0.876) scored the same.
+- **On the held-out Notes and the fresh set no wrong sentence reached the question.** The three wrong sure Supported of the held-out Notes score 0.867, 0.884 and 0.900 on their Passage alone and stop at the lower line.
+- **Not measured.** The app on a real AI model with this build (part B's shape), and a second Note of sentences that drop a condition or widen a subject.
+- **A void run, kept and struck:** the held-out Notes with lowered lines, where one request to the host timed out and the decision model was off for the rest of that Note.
+
+At the host's listed price the three runs above cost US$0.049, 0.128 and 0.024, against 0.047, 0.123 and 0.023 before.
+

@@ -9,18 +9,18 @@
  * asked about alone, scores clear of the line again, and a number the Passage writes another way
  * is the same amount. The verdict's quote is the sentence of that Passage the model scores highest
  * on the verdict's question; a table's row is quoted whole. Where that line, asked about alone,
- * doesn't score clear of the same line, or is longer than a check stores, the verdict rests on its
- * Passage and says no quote: the line only places it in the Document. A line the model can't be
- * asked about leaves the sentence a first reading.
+ * doesn't score clear of the quote's own line, or is longer than a check stores, the verdict rests
+ * on its Passage and says no quote: the line only places it in the Document. A line the model
+ * can't be asked about leaves the sentence a first reading.
  *
  * Where every Passage scores under the model's Unsupported line on both questions, the Passages
  * nearest to stating the sentence are asked about once more, together as one: a sentence that sums
- * up several of them scores low on each. Still under the lines, the sentence is Unsupported,
- * unless it cites a Passage. A sentence with a verdict never reaches the AI model.
+ * up several of them scores low on each. Still under the Unsupported line, the sentence is
+ * Unsupported, unless it cites a Passage. A sentence with a verdict never reaches the AI model.
  *
- * Any other score that leans is a first reading, and so is a score clear of its line only for the
- * Passages together: shown at once, and confirmed or changed by the AI model's check, which is
- * asked nothing differently for it.
+ * Any other score that leans is a first reading, and so is one that leans only for the Passages
+ * together: shown at once, and confirmed or changed by the AI model's check, which is asked
+ * nothing differently for it.
  *
  * A sentence the reading leaves to its check takes the reading with it: each of that check's
  * searches puts the Passages the decision model found to be about the sentence first, the surest
@@ -56,10 +56,13 @@ import { asPassage, citedOutsideScope, citedSources, keptInside } from "./checkS
 import { type ClaimCheckDependencies, type ClaimCheckRequest, lineLocation } from "./claimCheck";
 import {
   type DecisionLines,
+  limitsKept,
   type PassageScores,
   passagesAbout,
+  quoteStands,
   readingOf,
   standsAlone,
+  standsIfLimitsKept,
 } from "./decisionLines";
 import { quotableLines } from "./nearest";
 import { type CheckRuns, checkRunOf, recordCheck } from "./runCheck";
@@ -97,6 +100,7 @@ const READ_IN_PLACE =
 const STATES = "B";
 const OPPOSES = "C";
 const SAME_AMOUNT = "N";
+const LEAVES_OUT = "L";
 const ALONE = { the: "the Passage", The: "The Passage" };
 const named = (key: string) => ({ the: `Passage ${key}`, The: `Passage ${key}` });
 type Named = typeof ALONE;
@@ -128,6 +132,16 @@ const sameAmountQuestion = (amount: string): JevNoulQuestion => ({
       "The Passage gives another amount, or the same digits for another period, entity, line or unit, or at another scale or in another currency.",
   },
 });
+
+const leavesOutQuestion: JevNoulQuestion = {
+  type: "noul",
+  instructions: `Does the sentence leave out a condition or a limit the Passage sets on its claim, or say of more people or things what the Passage says of fewer? ${READ_IN_PLACE}`,
+  criteria: {
+    true: "The Passage makes the claim depend on a condition (an approval, an agreement, a threshold, an exception), limits it (to a period, a place, an amount, a case), or says it of one named person or thing, and the sentence drops that condition or limit, or says it of a wider group.",
+    false:
+      "The sentence keeps every condition and limit the Passage sets on the claim and speaks of the same people and things, or the Passage sets none.",
+  },
+};
 
 type PassageText = Pick<WindowedPassage, "documentName" | "pageFrom" | "pageTo" | "text">;
 type Asked = Pick<ClaimCheckRequest, "claim" | "context">;
@@ -228,12 +242,17 @@ function together(passages: readonly PassageText[], scores: readonly Scores[]): 
   };
 }
 
-/** Whether the verdict the Passages' scores gave holds when its Passage is asked about alone. */
+/**
+ * Whether the verdict the Passages' scores gave holds when its Passage is asked about alone. A
+ * Supported under the line, among the Passages (`ifLimitsKept`) or alone, holds only once the
+ * model also says the sentence keeps the Passage's conditions and limits.
+ */
 async function holdsAlone(
   reader: DecisionReader,
   request: Asked,
   side: "supported" | "contradicted",
   passage: PassageText,
+  ifLimitsKept: boolean,
   signal: AbortSignal,
 ): Promise<boolean> {
   const amounts = side === "supported" ? numbersNotWritten(request.claim, passage.text) : [];
@@ -247,7 +266,17 @@ async function holdsAlone(
         )
       : null,
   ]);
-  if (!alone || !standsAlone(side, alone, reader.lines)) return false;
+  if (!alone) return false;
+  if (ifLimitsKept || !standsAlone(side, alone, reader.lines)) {
+    if (side !== "supported" || !standsIfLimitsKept(alone, reader.lines)) return false;
+    const kept = await reader.ask(
+      decisionState(request, passage),
+      { [LEAVES_OUT]: leavesOutQuestion },
+      signal,
+    );
+    const leavesOut = kept?.[LEAVES_OUT];
+    if (leavesOut === undefined || !limitsKept(leavesOut, reader.lines)) return false;
+  }
   if (amounts.length === 0) return true;
   const same = amount?.[SAME_AMOUNT];
   return (
@@ -282,7 +311,7 @@ async function topLine(
 
 /**
  * Whether `line` may be shown as the verdict's quote: a check stores it whole, and asked about
- * alone it passes what a Passage alone must. Null when the model couldn't be asked.
+ * alone it passes the quote's lines. Null when the model couldn't be asked.
  */
 async function mayQuote(
   reader: DecisionReader,
@@ -300,7 +329,7 @@ async function mayQuote(
     { documentName, pageFrom: null, pageTo: null, text: line },
     signal,
   );
-  return alone && standsAlone(side, alone, reader.lines);
+  return alone && quoteStands(side, alone, reader.lines);
 }
 
 /**
@@ -396,6 +425,7 @@ export function createFirstReading(deps: Dependencies) {
     reader: DecisionReader,
     side: "supported" | "contradicted",
     passage: WindowedPassage,
+    ifLimitsKept: boolean,
   ): Promise<{ citation: Citation; quoted: boolean } | null> {
     const source = quotable(deps, passage);
     if (!source) return null;
@@ -405,7 +435,7 @@ export function createFirstReading(deps: Dependencies) {
     const sentences = sentencesOfLines(quotableLines(source.text), place.units);
     // Both are asked at once: neither answer changes what the other is asked.
     const [holds, line] = await Promise.all([
-      holdsAlone(reader, request, side, read, request.signal),
+      holdsAlone(reader, request, side, read, ifLimitsKept, request.signal),
       topLine(reader, request, side, read, sentences, request.signal),
     ]);
     if (!holds || line === null) return null;
@@ -466,17 +496,18 @@ export function createFirstReading(deps: Dependencies) {
       // What a sentence's own Citation fails to say is its check's to explain.
       if (cited.length > 0) return unsettled(null);
       const asOne = await scoresAlone(reader, request, together(passages, scores), signal);
-      if (!asOne) return unsettled(null);
-      const side = (["contradicted", "supported"] as const).find((each) =>
-        standsAlone(each, asOne, reader.lines),
-      );
+      const joined = asOne && readingOf([{ passageId: "", ...asOne }], reader.lines);
+      if (!joined) return unsettled(null);
+      if (joined.verdict === "unsupported") return verdictOf("unsupported", null);
       // No one Passage holds what several say together, and a verdict quotes one.
-      return side ? unsettled({ verdict: side, ...reader.model }) : verdictOf("unsupported", null);
+      return unsettled({ verdict: joined.verdict, ...reader.model });
     }
     const leaning = { verdict: reading.verdict, ...reader.model };
     const passage = passages.find((each) => each.passageId === reading.passageId);
     const rests =
-      reading.final && passage ? await restsOn(request, reader, reading.verdict, passage) : null;
+      reading.final && passage
+        ? await restsOn(request, reader, reading.verdict, passage, reading.ifLimitsKept === true)
+        : null;
     return rests ? verdictOf(reading.verdict, rests) : unsettled(leaning);
   };
 }

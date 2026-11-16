@@ -257,6 +257,7 @@ async function walked(
       answer: () => given,
     }),
   });
+  await core.updateSettings({ user: { checkAssistantWrites: true } });
   const saved = await core.saveChatProvider({
     kind: "anthropic",
     apiKey: "sk-ant-test",

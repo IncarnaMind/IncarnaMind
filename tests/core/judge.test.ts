@@ -178,7 +178,7 @@ const QUESTIONS: Record<
     stream: true,
   },
   "claimed-changes": {
-    reply: claimsReply(REPLIED),
+    reply: claimsReply(REPLIED, false),
     right: JSON.stringify({
       claims: [{ sentence: REPLIED, kind: "changed", about: "mind", backed: false }],
     }),
