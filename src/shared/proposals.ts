@@ -708,7 +708,13 @@ export function widerThanAsked(doc: Y.Doc, request: string): boolean {
 
 /** Records what made a request's Proposals, in the Mind's document beside its Blocks. */
 export function recordProposalRequest(doc: Y.Doc, request: string, made: ProposalRequest): void {
-  requestsOf(doc).set(request, { ...made });
+  // A later part of the same edit records the request again: what an earlier part was held for stays.
+  const earlier = proposalRequestOf(doc, request);
+  const wider =
+    made.source === "edit-with-ai" &&
+    earlier?.source === "edit-with-ai" &&
+    earlier.widerThanAsked === true;
+  requestsOf(doc).set(request, { ...made, ...(wider && { widerThanAsked: true }) });
 }
 
 /** What made a request's Proposals, or null when the Mind doesn't say. */

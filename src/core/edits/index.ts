@@ -123,6 +123,7 @@ import {
   EXPLAIN_INSTRUCTIONS,
   editPrompt,
   NAMES_SHOWN,
+  paragraphName,
   passageSoFar,
   readEditReply,
   readRemovals,
@@ -1112,7 +1113,11 @@ export function createEdits(options: EditsOptions) {
     // further than the User asked: it waits unless the User's words are read to ask for all of it.
     const taken = stream && ask.action === "instruction" ? stream.wholeQuotes(reply) : [];
     if (taken.length > 0) {
-      widerThanAsked = !(await removalAskedBy(prepared, ask.instruction ?? "", taken, signal));
+      // A place says nothing of a selection of one paragraph, and only confuses the question there.
+      const lines = taken.map(({ place, words }) =>
+        selection.segments.length > 1 ? `${paragraphName(place)} ${words}` : words,
+      );
+      widerThanAsked = !(await removalAskedBy(prepared, ask.instruction ?? "", lines, signal));
       if (widerThanAsked) made.widerThanAsked = true;
     }
     step(() => {

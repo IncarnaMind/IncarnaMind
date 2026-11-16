@@ -6,7 +6,10 @@
  */
 import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test } from "vitest";
+import * as Y from "yjs";
 import type { ChatModelFactory } from "../../src/core";
+import { TAKEN_OUT_SHOWN } from "../../src/core/edits/removalAsked";
+import { recordProposalRequest, widerThanAsked } from "../../src/shared/proposals";
 import { askAssistant } from "../helpers/assistant";
 import { setUpWithDocuments } from "../helpers/citations";
 import { createMemoryKeychain, createTempDataFolder, startCore } from "../helpers/core";
@@ -236,5 +239,86 @@ describe("Which model reads the request against what was taken out", () => {
     expect(asked.anthropicQuick).toHaveLength(1);
     expect(asked.anthropicQuick[0]).toContain(line);
     expect(result).toMatchObject({ kind: "proposed", held: true });
+  });
+});
+
+describe("What the question is shown of the paragraphs taken out", () => {
+  const first = "Boats leave at high water. The office opens at nine.";
+  const second = "Fees are charged per night and are lower between November and March.";
+
+  const setUp = async (reply: string, removal: RemovalAnswer, asked: string[], lines: string[]) => {
+    const { core, mind, client } = await setUpWithDocuments(
+      editingModel(() => reply, [], { removal, asked }),
+      [],
+    );
+    const blocks = lines.map(paragraph);
+    writeMind(client, blocks);
+    await client.settled();
+    const last = blocks.at(-1) as (typeof blocks)[number];
+    const from = { blockId: (blocks[0] as (typeof blocks)[number]).attrs.id, offset: 0 };
+    const to = { blockId: last.attrs.id, offset: lines.at(-1)?.length ?? 0 };
+    return { core, mind, from, to };
+  };
+
+  // protects=each paragraph taken out is shown with its place in the passage, as the edit model numbers it, so an ordinal request ("the second paragraph") is read against the paragraph it names; fails_when=the places are left out, or counted another way; no_claim=how a real model reads them.
+  test("each paragraph taken out starts with its place", async () => {
+    const asked: string[] = [];
+    const { core, mind, from, to } = await setUp(`¶2 <removed>${second}</removed>`, "yes", asked, [
+      first,
+      second,
+    ]);
+
+    await core.editWithAi({
+      requestId: "places",
+      mindId: mind.id,
+      from,
+      to,
+      text: [first, second].join("\n"),
+      action: "instruction",
+      instruction: "Delete the second paragraph.",
+    });
+
+    expect(asked).toHaveLength(1);
+    expect(asked[0]).toContain(`¶2 ${second}`);
+    expect(asked[0]).not.toContain("¶1");
+  });
+
+  // protects=text taken out that is more than the question shows waits for the User without being asked: a yes about the part shown can't speak for the rest; fails_when=a removal bigger than the question shows applies on an answer about its start; no_claim=none.
+  test("more taken out than the question shows waits unasked", async () => {
+    const asked: string[] = [];
+    const long = `${first} ${"The harbour keeps a register of every vessel. ".repeat(Math.ceil(TAKEN_OUT_SHOWN / 40))}`;
+    const { core, mind, from, to } = await setUp(`¶1 <removed>${long}</removed>`, "yes", asked, [
+      long,
+      second,
+    ]);
+
+    const result = await core.editWithAi({
+      requestId: "long",
+      mindId: mind.id,
+      from,
+      to: { ...to },
+      text: [long, second].join("\n"),
+      action: "instruction",
+      instruction: "Remove the ferry text.",
+    });
+
+    expect(asked).toHaveLength(0);
+    expect(result).toMatchObject({ kind: "proposed", held: true });
+  });
+
+  // protects=a later part of the same request that is recorded again keeps what an earlier part was held for; fails_when=the flag is lost and the assistant is told nothing waits for a removal that does; no_claim=none.
+  test("a request recorded again keeps the flag that held an earlier part", () => {
+    const doc = new Y.Doc();
+    const made = {
+      source: "edit-with-ai" as const,
+      providerId: "p",
+      modelId: "m",
+      createdAt: "2026-11-16T00:00:00.000Z",
+      action: "instruction" as const,
+    };
+    recordProposalRequest(doc, "r", { ...made, widerThanAsked: true });
+    recordProposalRequest(doc, "r", { ...made, reason: "Shorter." });
+
+    expect(widerThanAsked(doc, "r")).toBe(true);
   });
 });

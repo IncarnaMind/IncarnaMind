@@ -16,11 +16,15 @@ import type { ChatLanguageModel } from "../providers/models";
 /** How long the question may take before the removal waits for the User. */
 export const REMOVAL_ASKED_TIME_LIMIT_MS = 20_000;
 
-/** The most characters of the paragraphs taken out that the question is shown: it only compares their extent with the request's. */
-const TAKEN_OUT_SHOWN = 2_000;
+/**
+ * The most characters of the paragraphs taken out that the question is shown. More than that waits
+ * for the User unasked: an answer about the text shown can't speak for text that isn't.
+ */
+export const TAKEN_OUT_SHOWN = 6_000;
 
 export const REMOVAL_ASKED_INSTRUCTIONS = [
   "You read a request a User wrote about a passage of their own Note, in English or Chinese. It is between <question> and </question>. An edit took out the text between <taken-out> and </taken-out>. Say whether the request asks for all of what was taken out: whether every part of that text is something the request asks to remove or replace.",
+  "When a paragraph taken out starts with its place in the passage, ¶1 being its first paragraph, a request that names a paragraph by its number is matched to its place.",
   'Reply "yes" when all of the text taken out is within what the request names: that paragraph, section or list item, everything in the selection, a part or bit about a topic when the text taken out is about that topic, a sentence or line when that sentence or line is all the text taken out, or text to be replaced by something else (the request may name more than was taken out); however it asks: as an order, as a polite question, as a remark, or together with other changes.',
   'Reply "no" when some of the text taken out is not named by the request: it names one sentence, some words or one item of several, and more was taken out; it names something the text does not hold; or it asks only to change text that stays: to shorten, tighten, simplify, improve, reword, correct, translate, reformat or summarise it. Making text shorter or clearer is not taking text out.',
   "When in doubt, reply no.",
@@ -43,28 +47,25 @@ export const removalAskedReply = structured(
   (value) => fieldsOf(value, { asks_for_all: verdict })?.asks_for_all ?? null,
 );
 
-/** The paragraphs taken out, one to a line, as many as are shown. */
-const shownOf = (taken: readonly string[]): string => {
-  const text = taken.join("\n");
-  const characters = [...text];
-  return characters.length > TAKEN_OUT_SHOWN
-    ? `${characters.slice(0, TAKEN_OUT_SHOWN).join("")}…`
-    : text;
-};
-
-/** True only when the model readably says the request asks to take out all of `taken`. */
+/**
+ * True only when the model readably says the request asks to take out all of `taken`, the
+ * paragraphs taken out one to a line, each starting with its place. False without asking when
+ * they are more than the question shows.
+ */
 export async function asksForAll(
   model: ChatLanguageModel,
   request: string,
   taken: readonly string[],
   signal: AbortSignal,
 ): Promise<boolean> {
+  const shown = taken.join("\n");
+  if ([...shown].length > TAKEN_OUT_SHOWN) return false;
   const judged = await judge({
     model,
     question: { id: "removal-asked", instructions: REMOVAL_ASKED_INSTRUCTIONS },
     parts: [
       { tag: "question", text: request },
-      { tag: "taken-out", text: shownOf(taken) },
+      { tag: "taken-out", text: shown },
     ],
     data: TAGS,
     reply: removalAskedReply,
