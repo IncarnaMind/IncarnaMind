@@ -46,7 +46,7 @@ const input = (
   changes: Partial<FactPlacementInput> = {},
 ): FactPlacementInput => ({
   facts,
-  overview: null,
+  overviews: [],
   lines: [{ marker: "L1", heading: false, ancestors: [] }],
   headings: new Map(),
   topicHeadings: [],
@@ -692,7 +692,7 @@ describe("Meeting fact placement (#2306)", () => {
       const related = fact("Dana sends the contract Friday.");
       const placed = placeFacts(
         input([related, residual], {
-          overview: { body: overview.body, citations: overview.citations },
+          overviews: [{ body: overview.body, citations: overview.citations }],
         }),
       );
 
@@ -708,7 +708,7 @@ describe("Meeting fact placement (#2306)", () => {
     expect(
       placeFacts(
         input([], {
-          overview: { body: overview.body, citations: overview.citations },
+          overviews: [{ body: overview.body, citations: overview.citations }],
         }),
       ).sections,
     ).toEqual(new Map([["summary", [overview.body]]]));
@@ -718,6 +718,16 @@ describe("Meeting fact placement (#2306)", () => {
       topics: [],
       unplaced: 0,
     });
+  });
+
+  test("a call read in parts has each part's overview under Summary, in the order read (#3151)", () => {
+    const parts = ["The call opened on scope.", "It closed on training."].map((text) => fact(text));
+    const placed = placeFacts(
+      input([], {
+        overviews: parts.map((part) => ({ body: part.body, citations: part.citations })),
+      }),
+    );
+    expect(placed.sections.get("summary")).toEqual(parts.map((part) => part.body));
   });
 
   test("placement does not mutate accepted bodies, Citation attrs, routes, IDs or User line order", () => {

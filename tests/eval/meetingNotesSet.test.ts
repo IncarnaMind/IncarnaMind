@@ -102,6 +102,8 @@ async function stopped(
   quotes: Record<number, string>,
   reply: string,
   judge: { grade: string; unstated: number[] },
+  /** The arm that asks for the notes as before #3151, with the Passages as they overlap. */
+  linesRepeated = false,
 ) {
   const group = meetingNotesSet({ passPerAudioSecond: 0 }).find(
     (each) => each.name === `meeting-notes-${id}`,
@@ -124,6 +126,7 @@ async function stopped(
     embeddings: false,
     recordTimings: true,
     chatModels: () => () => model,
+    ...(linesRepeated && { notesLinesRepeated: () => true }),
   });
   try {
     const { library } = opened;
@@ -178,6 +181,14 @@ describe("The meeting-notes cases", () => {
   });
 });
 
+/** The call's lines as the fill's request shows them, a repeated line as often as it is sent. */
+const heardIn = (calls: readonly ModelCall[]) =>
+  [
+    ...block(calls.find(isFill)?.prompt ?? "", "live-transcript").matchAll(
+      /^\[[\d:]+ (?:Me|Them)\] (.*)$/gm,
+    ),
+  ].map((match) => match[1]);
+
 describe("Stop during the call", { timeout: 180_000 }, () => {
   test("fills the notes in from the call's Transcript, read as the page shows them: cited, judged, with when they went in", async () => {
     // Part of a line is enough, as a Citation quotes it: the rollout talk's lines are long.
@@ -201,13 +212,8 @@ describe("Stop during the call", { timeout: 180_000 }, () => {
     );
 
     expect(run.status).toBe("done");
-    // Every line of the call, heard once and in order, whatever its length.
-    const heard = [
-      ...block(calls.find(isFill)?.prompt ?? "", "live-transcript").matchAll(
-        /^\[[\d:]+ (?:Me|Them)\] (.*)$/gm,
-      ),
-    ].map((match) => match[1]);
-    expect([...new Set(heard)]).toEqual(callOf(WANT.call).map((turn) => turn.text));
+    // Every line of the call, sent once and in order, whatever its length (#3151).
+    expect(heardIn(calls)).toEqual(callOf(WANT.call).map((turn) => turn.text));
     expect(run.firstSignMs).toEqual(expect.any(Number));
     expect(run.firstWordsMs ?? 0).toBeGreaterThanOrEqual(run.firstSignMs ?? Infinity);
     expect(run.doneMs ?? 0).toBeGreaterThanOrEqual(run.firstWordsMs ?? Infinity);
@@ -236,5 +242,25 @@ describe("Stop during the call", { timeout: 180_000 }, () => {
     expect(run.falseSupported).toBe(1);
     // With no overview the note is only partly filled in, which fails the item.
     expect(run.failures).toEqual(["fill-partial"]);
+  });
+
+  // protects=on this set the arm for the notes as before #3151 sends lines twice where today's path sends each once, so the gate's two arms differ as its file says; fails_when=the arm's request holds each line once, or misses a line; no_claim=what the repeats cost a real model.
+  test("the as-before arm asks for the same call with lines sent twice", async () => {
+    const { run, calls } = await stopped(
+      "en-want",
+      { 1: lineOf(0) },
+      [
+        fact("P1_june", "It has to run before their audit in June [^1]."),
+        overview("The call covered the audit [^1]."),
+      ].join("\n"),
+      { grade: "right", unstated: [] },
+      true,
+    );
+
+    expect(run.status).toBe("done");
+    const said = callOf(WANT.call).map((turn) => turn.text);
+    const heard = heardIn(calls);
+    expect(heard.length).toBeGreaterThan(said.length);
+    expect([...new Set(heard)]).toEqual(said);
   });
 });

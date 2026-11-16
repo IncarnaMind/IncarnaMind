@@ -11,7 +11,8 @@ export interface FactLine {
 
 export interface FactPlacementInput {
   facts: readonly MeetingFact[];
-  overview: MeetingOverview | null;
+  /** A call read in parts has one for each part, in the order it was read (#3151). */
+  overviews: readonly MeetingOverview[];
   lines: readonly FactLine[];
   headings: ReadonlyMap<FillSection, string>;
   /** The User's headings no section is routed to: a topic in the same words goes under one. */
@@ -95,7 +96,7 @@ export function placeFacts(input: FactPlacementInput): FactPlacement {
     topics: [],
     unplaced: 0,
   };
-  if (input.overview) append(placed.sections, "summary", [input.overview.body]);
+  for (const overview of input.overviews) append(placed.sections, "summary", [overview.body]);
   const topics = new Map<string, PlacedTopic>();
   const hosts = new Map(input.topicHeadings.map((each) => [topicKey(each.text), each.marker]));
   const seen = new Set<string>();

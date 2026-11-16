@@ -36,6 +36,8 @@ export interface Arm {
   checks?: { quickFirstLook?: boolean };
   /** Whether a call's notes start before its speakers are told apart (#2773); unset: the core's default. */
   notes?: { beforeSpeakers?: boolean };
+  /** Whether a call's notes are asked for with the Passages' overlap, as before #3151; unset: each line once. */
+  notesLinesRepeated?: boolean;
   /** Whether call help's own form may be judged the model's working, as before #2778; unset: it isn't. */
   helpFormJudged?: boolean;
   /** Whether found quotes show as the model gave them, as before #2739; unset: their whole sentences. */
@@ -118,6 +120,12 @@ export const ARMS: readonly Arm[] = [
     label:
       "a call's notes start once its words are final, while its speakers are told apart, and are written once the pass ends (#2773)",
     notes: { beforeSpeakers: true },
+  },
+  {
+    id: "notes-lines-repeated",
+    label:
+      "a call's notes asked for with the Transcript's Passages as they overlap, a line two Passages hold sent twice, as before #3151",
+    notesLinesRepeated: true,
   },
   {
     id: "notes-low-effort",
@@ -296,6 +304,7 @@ export function armSwitch() {
     helpFormJudged: () => current?.helpFormJudged,
     quotesAsGiven: () => current?.quotesAsGiven,
     callsUnmarked: () => current?.callsUnmarked,
+    notesLinesRepeated: () => current?.notesLinesRepeated,
     /** The requests sent since it was last asked, oldest first. */
     takeSent: (): SentRequest[] => sent.splice(0),
     use(arm: Arm): void {

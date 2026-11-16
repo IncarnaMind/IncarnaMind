@@ -113,8 +113,21 @@ test("unknown frames are not counted as known omitted additions", () => {
   expect(ledger.omitted(true)).toBe(2);
   const overview = { body: { type: "paragraph" }, citations: [] };
   ledger.accept({ ...reply(), overview, overviewOmitted: null, omitted: 0 });
-  expect(ledger.overview).toEqual(overview);
+  expect(ledger.overviews).toEqual([overview]);
   expect(ledger.omitted(true)).toBe(1);
+});
+
+test("each reply's overview is kept, in the order the replies came (#3151)", () => {
+  const ledger = createFactLedger();
+  const overviews = ["first", "second"].map((text) => ({
+    body: { type: "paragraph", content: [{ type: "text", text }] },
+    citations: [],
+  }));
+  ledger.accept({ ...reply(), overview: overviews[0] ?? null, overviewOmitted: null, omitted: 0 });
+  ledger.accept(reply());
+  ledger.accept({ ...reply(), overview: overviews[1] ?? null, overviewOmitted: null, omitted: 0 });
+  expect(ledger.overviews).toEqual(overviews);
+  expect(ledger.omitted(true)).toBe(0);
 });
 
 test("the log learns why each item was left out, and the missing overview, never their words", () => {
