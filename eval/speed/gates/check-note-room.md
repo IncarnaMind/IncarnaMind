@@ -65,6 +65,8 @@ Where it went to twelve (reply 1.46 s; the two Notes of a cell gave the same tim
 
 Every mark before lands, after lands, in every cell.
 
+**The before arm, run again on 2026-11-16.** The scripted before arm above ran on a commit that lacked two changes the step's branch already had from `main`. Run again on the branch without the step (the build the paired runs below use as before), all 56 cells gave the same requests at the same times, and every bar reads the same.
+
 - **The key that failed run 1** (2,000,000 a minute held by the second) now stays at six: the same requests at the same times as before.
 - **The added key** is the one case where twelve brings refusals that six doesn't have: three requests refused, the run back at six from the first, and it still ends sooner than before (2.0 s and 1.9 s). A Note of 30 on it gains little.
 - **Too little room stays at six:** 500,000 a minute with a Note of 30, and 50,000 a minute.
