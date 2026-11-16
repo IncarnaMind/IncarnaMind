@@ -1359,6 +1359,30 @@ describe("A Note made from an Answer carries its judgement (#2313)", () => {
       expect(carriedMarks(carried(onlyFound))).toEqual([]);
     });
 
+    // protects=a row of two cited cells that isn't Supported carries nothing, whichever of its Citations the judgement named: it read the row as one line, so a right cell would read Contradicted for a wrong one (#3214); fails_when=the row's verdict is copied to each cited cell
+    test.each(["unsupported", "contradicted"] as const)(
+      "a row of two cited cells judged %s carries nothing to either",
+      (verdict) => {
+        const made = answerOf(
+          "answer-table",
+          [
+            "| Item | Price | Date |",
+            "| --- | --- | --- |",
+            "| Kilns | £185,000 for two K9 kilns [^1] | Installed in February 2027 [^2] |",
+          ].join("\n"),
+          [
+            cited(1, "£185,000 for two K9 kilns"),
+            cited(2, "Installed in February 2027", {
+              check: verdict,
+              verdict: "The plan says March.",
+            }),
+          ],
+        );
+
+        expect(carriedMarks(carried(made))).toEqual([]);
+      },
+    );
+
     // protects=a row with two cited cells gives each cell the mark with its own Citation as the evidence, so neither card shows the other cell's quote as what the Documents say (#3214); fails_when=both cells carry the first Citation
     test("a row with two cited cells marks both, each with its own Citation", () => {
       const made = answerOf(

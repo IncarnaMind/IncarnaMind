@@ -358,8 +358,11 @@ function carriedChecks(
     found.set(key, [...(found.get(key) ?? []), check]);
     // A Note reads a table's cell on its own, never the row as one line: the row's verdict goes
     // under each cell holding a Citation. Supported is read again over the cell's own Citations,
-    // so its card shows the quote that sits in that cell (#3214).
-    for (const cell of cited.cells) {
+    // so its card shows the quote that sits in that cell. A row of several cited cells that
+    // isn't Supported can't say which cell it is about, so it carries to none and the Note's own
+    // check reads each (#3214).
+    const unsaid = check !== null && check.state !== "supported" && cited.cells.length > 1;
+    for (const cell of unsaid ? [] : cited.cells) {
       const own = citationsAt(cell.markers);
       const cellKey = identityOf(comparableSentence(cell.sentence), identitiesOf(own));
       if (cellKey === key) continue;
