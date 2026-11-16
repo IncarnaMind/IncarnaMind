@@ -6,9 +6,12 @@
  */
 import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test } from "vitest";
+import type { ChatModelFactory } from "../../src/core";
 import { askAssistant } from "../helpers/assistant";
 import { setUpWithDocuments } from "../helpers/citations";
+import { createMemoryKeychain, createTempDataFolder, startCore } from "../helpers/core";
 import { editingModel, type RemovalAnswer } from "../helpers/editing";
+import { connectToMind } from "../helpers/mindClient";
 import { resolveChanges, shownWithChanges, writeMind } from "../helpers/minds";
 import {
   type GenerateCall,
@@ -169,5 +172,69 @@ describe.each(CASES)("A removal wider than the request names ($name)", (each) =>
     const { told } = await throughAssistant("yes");
 
     expect(told).toContain("applies in the Note at once");
+  });
+});
+
+describe("Which model reads the request against what was taken out", () => {
+  // protects=an edit on one provider asks that provider's own quick-tasks model, never the one the User set on another: the request and the paragraph taken out go to the provider the edit already went to (#3178); fails_when=the call goes to the quick-tasks model on the other provider; no_claim=none.
+  test("an edit on Anthropic with the quick-tasks model set on OpenAI asks Anthropic's", async () => {
+    const line = "Boats leave at high water. The office opens at nine.";
+    const asked = {
+      edit: [] as string[],
+      anthropicQuick: [] as string[],
+      openaiQuick: [] as string[],
+    };
+    const reply = () => `¶1 <removed>${line}</removed>`;
+    const models = {
+      "claude-sonnet-5-5": editingModel(reply, [], { removal: "no", asked: asked.edit }),
+      "claude-haiku-5-5": editingModel(reply, [], { removal: "no", asked: asked.anthropicQuick }),
+      "gpt-6.1-sol": editingModel(reply, [], { removal: "yes", asked: asked.openaiQuick }),
+    } as const;
+    const createChatModel: ChatModelFactory = (spec) => {
+      const model = models[spec.modelId as keyof typeof models];
+      if (!model) throw new Error(`No model ${spec.modelId} in this test.`);
+      return model;
+    };
+    const core = startCore(await createTempDataFolder(), {
+      createChatModel,
+      keychain: createMemoryKeychain(),
+    });
+    core.on("consent.requested", (request) => void core.respondToConsent(request.requestId, true));
+    const anthropic = await core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-ant-test",
+      modelId: "claude-sonnet-5-5",
+    });
+    const openai = await core.saveChatProvider({
+      kind: "openai",
+      apiKey: "sk-test",
+      modelId: "gpt-6.1-sol",
+    });
+    await core.updateSettings({
+      user: {
+        chatModel: { providerId: anthropic.id, modelId: "claude-sonnet-5-5" },
+        quickTasksModel: { providerId: openai.id, modelId: "gpt-6.1-sol" },
+      },
+    });
+    const mind = await core.createMind({ title: "Harbour" });
+    const client = await connectToMind(core, mind.id);
+    const first = paragraph(line);
+    writeMind(client, [first, paragraph(SECOND)]);
+    await client.settled();
+
+    const result = await core.editWithAi({
+      requestId: "routing",
+      mindId: mind.id,
+      from: { blockId: first.attrs.id, offset: 0 },
+      to: { blockId: first.attrs.id, offset: line.length },
+      text: line,
+      action: "instruction",
+      instruction: "Delete the sentence about the ferry.",
+    });
+
+    expect(asked.openaiQuick).toHaveLength(0);
+    expect(asked.anthropicQuick).toHaveLength(1);
+    expect(asked.anthropicQuick[0]).toContain(line);
+    expect(result).toMatchObject({ kind: "proposed", held: true });
   });
 });

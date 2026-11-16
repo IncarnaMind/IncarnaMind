@@ -189,8 +189,8 @@ export interface EditsOptions {
   chat: {
     readiness(choice: ChatModelChoice | undefined, flow: "edits"): Promise<ChatReadiness>;
     prepareModel(choice: ChatModelChoice | undefined, flow: "edits"): Promise<PreparedChatModel>;
-    /** The model the User chose for small calls, else one of the same provider's; null with none. */
-    quickTasksModel(answers: ChatModelChoice | null): ChatModelChoice | null;
+    /** The quick-tasks model of a model's own provider (the User's where they set one there, else the catalog's), else the model itself: the same service. */
+    fastestHelpModel(answers: ChatModelChoice | null): ChatModelChoice | null;
     /** The service the default chat model sends to; null with none, or one on this computer. */
     defaultService(): ExternalService | null;
   };
@@ -807,9 +807,10 @@ export function createEdits(options: EditsOptions) {
 
   /**
    * Whether the User's words ask to take out all of `taken`, the paragraphs a reply takes out
-   * whole: asked of the model they chose for small calls (`prepared`'s provider's, else `prepared`
-   * itself) and only where that is already allowed for edits, which has `taken` already: never a
-   * question to the User, and no word goes anywhere new. False when it can't be asked.
+   * whole: asked of the quick-tasks model of `prepared`'s own provider, else `prepared` itself,
+   * never one the User set on another provider: it is the service that already has `taken` and the
+   * request, and only where the edits flow is already allowed there. Never a question to the User,
+   * and no word goes anywhere new. False when it can't be asked.
    */
   async function removalAskedBy(
     prepared: PreparedChatModel,
@@ -820,7 +821,7 @@ export function createEdits(options: EditsOptions) {
     if (request.trim() === "" || signal.aborted) return false;
     try {
       const own = { providerId: prepared.provider.id, modelId: prepared.modelId };
-      const quick = chat.quickTasksModel(own) ?? own;
+      const quick = chat.fastestHelpModel(own) ?? own;
       const readiness = await chat.readiness(quick, "edits");
       if (!readiness.ready) return false;
       const { service } = readiness.provider;
