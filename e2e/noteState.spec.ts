@@ -398,8 +398,12 @@ for (const language of ["en", "zh-CN"] as const) {
       await citeTides(window, READABLE);
       await expect(window.getByTestId("claim-mark")).toHaveAttribute("data-check", "supported");
       const allDone = await checkCard(window);
+      // The badge names the files beside its time, so the card's head says that line, not
+      // "Everything checked", which isn't true of this Note (#3212).
       await expect(allDone.getByTestId("health-all-checked")).toHaveText(
-        language === "en" ? "Everything checked" : "已全部核对",
+        language === "en"
+          ? /^Checked .+ · 3 files couldn’t be read$/
+          : /^已核对 .+ · 3 个文件未能读取$/,
       );
       await expect(allDone.getByTestId("health-supported")).toContainText(
         language === "en" ? "1 supported" : "1 句有依据",

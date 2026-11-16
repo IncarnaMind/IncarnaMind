@@ -198,7 +198,7 @@ for (const [language, width] of [
       await expect(recentRows(window).first().getByTestId("row-text")).toHaveText("Harbour plan");
       // A note under its title says where it stands (D266): nothing has checked it yet.
       await expect(recentRows(window).first().getByTestId("home-recent-state")).toHaveText(
-        t("health.state.notChecked"),
+        t("health.toCheck.one"),
       );
 
       await window.getByTestId("plus-menu").click();
