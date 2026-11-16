@@ -6615,6 +6615,7 @@ export const zhCN = {
   "meetings.fill.section.claims": "会上说了、你的文档里没有的",
   "meetings.fill.question.notes": "根据这次通话补全我的笔记。",
   "meetings.fill.question.sections": "写出这次通话的笔记。",
+  "meetings.fill.question.summary": "写出这次通话的摘要。",
   "meetings.fill.waiting": "转写稿保存后补全笔记…",
   "meetings.fill.filling": "正在补全笔记…",
   "meetings.fill.checking.one": "正在核对 {count} 条说法…",
