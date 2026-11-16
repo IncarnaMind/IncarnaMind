@@ -272,6 +272,41 @@ const HELD_OUT: readonly HeldOut[] = [
     right: "门店数量比上年有所增加。",
     wrong: "门店数量比上年有所减少。",
   }),
+  // A count written with a thousands comma where the Document is one line or one table, and a
+  // direction with no figure, written before any request of #3190.
+  ...pair("en-e1", "short-note", "en", {
+    document: "Subscribers at 30 September numbered 7,450, against 6,980 a year earlier.",
+    right: "There were 7,450 subscribers at the end of September.",
+    wrong: "There were 7,540 subscribers at the end of September.",
+  }),
+  ...pair("en-e2", "table", "en", {
+    document: "| Site | Staff |\n|---|---|\n| Leeds | 1,320 |\n| Hull | 2,145 |",
+    right: "The Leeds site has 1,320 staff.",
+    wrong: "The Leeds site has 1,230 staff.",
+  }),
+  ...pair("en-e3", "short-note", "en", {
+    document: "Stores at year end numbered 64, against 71 a year earlier.",
+    right: "The number of stores fell over the year.",
+    wrong: "The number of stores grew over the year.",
+  }),
+  ...pair("zh-e1", "short-note", "zh-CN", {
+    document: "期末在册会员 3,260 人，上年末 2,980 人。",
+    right: "期末在册会员为 3,260 人。",
+    wrong: "期末在册会员为 3,620 人。",
+  }),
+  // en-a5's sentences over a Document long enough to tell how it writes its numbers (#3190).
+  ...pair("en-e4", "comparative", "en", {
+    document:
+      "This is the staff report of the group for the half year. Headcount at 30 June stood at 1,240, against 1,115 a year earlier. The board has noted the report.",
+    right: "Headcount was 1,240 at the end of June, higher than the 1,115 of a year earlier.",
+    wrong: "Headcount was 1,240 at the end of June, lower than the 1,115 of a year earlier.",
+    parts: ["higher than the 1,115 of a year earlier", "lower than the 1,115 of a year earlier"],
+  }),
+  ...pair("zh-e2", "short-note", "zh-CN", {
+    document: "期末在职员工 412 人，年初为 389 人。",
+    right: "在职员工人数比年初有所增加。",
+    wrong: "在职员工人数比年初有所减少。",
+  }),
   // The same number in a unit the table's heading doesn't name (#3022). The first four are the
   // issue's own; the six after them were written before any request and not read while fitting.
   ...pair("en-d1", "table", "en", {
@@ -443,11 +478,33 @@ function heardFailure(error: unknown): never {
   throw error;
 }
 
-function heardReply(params: Params, text: string) {
+/** A Tool call of a reply, as the saved file keeps it. */
+interface HeardCall {
+  tool: string;
+  input: unknown;
+}
+
+/** What the Tools answered since the model's last turn, each cut to its first words. */
+function toolResults(prompt: Params["prompt"]): { tool: string; output: string }[] {
+  const from = prompt.findLastIndex((message) => message.role === "assistant");
+  return prompt
+    .slice(from + 1)
+    .flatMap((message) =>
+      message.role === "tool"
+        ? message.content.flatMap((part) =>
+            part.type === "tool-result"
+              ? [{ tool: part.toolName, output: JSON.stringify(part.output).slice(0, 600) }]
+              : [],
+          )
+        : [],
+    );
+}
+
+function heardReply(params: Params, text: string, calls: readonly HeardCall[] = []) {
   if (REPLIES)
     appendFileSync(
       REPLIES,
-      `${JSON.stringify({ arm: ARM, round: ROUND, to: textOf(params.prompt, "system").slice(0, 80), prompt: textOf(params.prompt), text })}\n`,
+      `${JSON.stringify({ arm: ARM, round: ROUND, to: textOf(params.prompt, "system").slice(0, 80), prompt: textOf(params.prompt), results: toolResults(params.prompt), text, calls })}\n`,
     );
   if (!textOf(params.prompt, "system").startsWith("You check one sentence")) return;
   const prompt = textOf(params.prompt);
@@ -467,7 +524,10 @@ const realModel: NonNullable<Parameters<typeof startCore>[1]>["createChatModel"]
         const result = await Promise.resolve(doGenerate()).catch(heardFailure);
         priced(result.usage);
         const text = result.content.flatMap((part) => (part.type === "text" ? [part.text] : []));
-        if (text.length > 0) heardReply(params, text.join(""));
+        const calls = result.content.flatMap((part) =>
+          part.type === "tool-call" ? [{ tool: part.toolName, input: part.input }] : [],
+        );
+        if (text.length > 0 || calls.length > 0) heardReply(params, text.join(""), calls);
         return result;
       },
       wrapStream: async ({ doStream, params }) => {
@@ -475,16 +535,18 @@ const realModel: NonNullable<Parameters<typeof startCore>[1]>["createChatModel"]
         heard.requests++;
         const result = await Promise.resolve(doStream()).catch(heardFailure);
         let text = "";
+        const calls: HeardCall[] = [];
         const stream = result.stream.pipeThrough(
           new TransformStream({
             transform(part, controller) {
               if (part.type === "text-delta") text += part.delta;
+              if (part.type === "tool-call") calls.push({ tool: part.toolName, input: part.input });
               if (part.type === "error") heard.failed++;
               if (part.type === "finish") priced(part.usage);
               controller.enqueue(part);
             },
             flush() {
-              heardReply(params, text);
+              heardReply(params, text, calls);
             },
           }),
         );
