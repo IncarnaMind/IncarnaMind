@@ -500,25 +500,27 @@ export function figuresByPart(
  * between parts, or across one's edge, joins the facts it touches, and an opinion keeps only its
  * words outside them. A sentence with figures that the sort gives no fact is one fact: checked as
  * its digits alone, the words that say what they count, a duty among them, went unjudged, and the
- * digits' Supported stood for the sentence (#2184). One the sort says asserts nothing (a heading, a
- * question) stays so: its numbers say nothing either.
+ * digits' Supported stood for the sentence (#2184), unless `selected`: an opinion the User picked to
+ * check alone keeps its row and its figure as a fact inside it. One the sort says asserts nothing
+ * (a heading, a question) stays so: its numbers say nothing either.
  */
 export function withFigureFacts(
   sentence: string,
   plans: readonly ClaimPartPlan[],
   figures: readonly CheckFigure[],
   projection?: InlineTextProjection,
+  selected = false,
 ): readonly ClaimPartPlan[] {
   if (figures.length === 0 || plans.length === 0) return plans;
-  if (!plans.some((plan) => plan.kind === "fact"))
-    return [{ kind: "fact", span: { start: 0, end: sentence.length } }];
+  const whole: ClaimPartPlan[] = [{ kind: "fact", span: { start: 0, end: sentence.length } }];
+  if (!selected && !plans.some((plan) => plan.kind === "fact")) return whole;
   const spans: ClaimPartSpan[] = [];
   for (const figure of figures) {
     const span =
       figure.locator.kind === "text" &&
       projection?.text === sentence &&
       inlineSpan(projection, figure.locator.from.offset, figure.locator.to.offset);
-    if (!span) return plans;
+    if (!span) return plans.some((plan) => plan.kind === "fact") ? plans : whole;
     spans.push(span);
   }
   let parts = [...plans];

@@ -1284,6 +1284,30 @@ describe("a figure the sort leaves outside a fact", () => {
     },
   );
 
+  // protects=an opinion the User picked to check alone (Check anyway) keeps its row, its figures facts inside it, as before a sentence with no fact was one fact (#2184); fails_when=the selected span no longer matches a part and Check anyway fails as malformed
+  test.each([
+    ["Sadly the £5m and £6m deals are a disaster.", "£5m", "£6m"],
+    ["可惜500万英镑和600万英镑的交易是一场灾难。", "500万英镑", "600万英镑"],
+  ])("a selected opinion keeps its row around its numbers: %s", (sentence, a, b) => {
+    const opinion = sentence.slice(0, -1);
+    expect(
+      words(
+        sentence,
+        withFigureFacts(
+          sentence,
+          [{ kind: "opinion", span: span(sentence, opinion) }],
+          [figure(sentence, a), figure(sentence, b)],
+          plain(sentence),
+          true,
+        ),
+      ),
+    ).toEqual([
+      ["opinion", opinion],
+      ["fact", a],
+      ["fact", b],
+    ]);
+  });
+
   // protects=a duty the sort calls an opinion, with a number in it, is one fact, so its number's Supported doesn't stand for a "should" the Document writes "may" (#2184); fails_when=the number alone is the fact and the words that say what it counts go unjudged
   test.each([
     ["Up to 5 unused days should be carried over into the next year.", "5"],
