@@ -759,6 +759,45 @@ async function heldOutRound(language: Language) {
   return { rows, spent };
 }
 
+/**
+ * Each held-out sentence through the bare claim check, as a Meeting's fill and a Comparison's
+ * cells ask it (#3022): its own core, with the pair's Document alone in the Library.
+ */
+async function claimRound(language: Language) {
+  const cases = HELD_OUT.filter(
+    (each) =>
+      each.language === language && (CASES?.some((start) => each.id.startsWith(start)) ?? true),
+  );
+  const rows: Record<string, unknown>[] = [];
+  const spent: unknown[] = [];
+  for (const each of cases) {
+    const core = await coreIn(language);
+    const sources = await createSourceFolder();
+    const [file] = await addAndProcess(core, [
+      await writeSourceFile(sources, `${each.id}.md`, `# ${each.id}\n\n${each.document}\n`),
+    ]);
+    if (!file) throw new Error(`${each.id}'s Document didn't process.`);
+    const result = await core.checkClaim({ claim: each.sentence }).catch((error: unknown) => ({
+      verdict: "threw",
+      unsupported: { reason: String(error) },
+    }));
+    rows.push({
+      arm: ARM,
+      round: ROUND,
+      group: "claim",
+      language,
+      case: each.id,
+      kind: each.kind,
+      expected: each.expected,
+      state: result.verdict,
+      reason: "unsupported" in result ? (result.unsupported?.reason ?? null) : null,
+    });
+    spent.push((await core.getCostSummary()).spent);
+    core.close();
+  }
+  return { rows, spent };
+}
+
 describe("the #3088 gate", () => {
   test.skipIf(!DRY && KEY === undefined)(
     "one round of every case, each Note checked once",
@@ -779,6 +818,11 @@ describe("the #3088 gate", () => {
             write(round.rows);
             spent.push(round.spent);
           }
+          if (GROUPS.includes("claim")) {
+            const round = await claimRound(language);
+            write(round.rows);
+            spent.push(round.spent);
+          }
         }
       } finally {
         write([
@@ -789,7 +833,9 @@ describe("the #3088 gate", () => {
             model: DRY ? "scripted" : MODEL,
             complete:
               spent.length ===
-              (GROUPS.includes("example") ? 4 : 0) + (GROUPS.includes("held-out") ? 2 : 0),
+              (GROUPS.includes("example") ? 4 : 0) +
+                (GROUPS.includes("held-out") ? 2 : 0) +
+                (GROUPS.includes("claim") ? 2 : 0),
             requests: heard.requests,
             refused: heard.refused,
             failed: heard.failed,
