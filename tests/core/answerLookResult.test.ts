@@ -82,6 +82,27 @@ describe("what an Answer takes from the look in its scope", () => {
     expect(looked?.found.map((each) => each.citation.quote)).toEqual([BUILT.quote, DUE.quote]);
   });
 
+  // protects=a sentence the look passes on a file's own properties (its Created date for "was written in 2026") gets no verdict from the look, so it stays as its batch read it and gains no Citation: a file's date never passes an Answer's sentence about what a Document says; fails_when=the look's Supported stands on a properties or Library Citation; no_claim=what the Note's own check makes of such a sentence, which is that check's.
+  test.each<[string, Citation["location"]]>([
+    ["own properties", { kind: "properties", property: "created", value: "2026-05-12T09:00:00Z" }],
+    [
+      "Library's facts",
+      { kind: "library", source: { kind: "library" }, fact: { kind: "documents", count: 4 } },
+    ],
+  ])("a sentence passed on a file's %s gives the Answer no verdict", (_name, location) => {
+    const fileFacts: Citation = {
+      ...passage("p-9", 1, "Created: 2026-05-12T09:00:00Z"),
+      location,
+    };
+
+    expect(
+      lookResult(result(part("supported", [fileFacts]), "supported"), SENTENCE, CITED),
+    ).toBeNull();
+    expect(
+      lookResult(result(part("supported", [BUILT, fileFacts]), "supported"), SENTENCE, CITED),
+    ).toBeNull();
+  });
+
   // protects=a sentence the look still reads Unsupported as one whole part names no missing words, so its card shows the check's own phrases for what the Documents state and what they don't, never the whole sentence as "not mentioned", and no Passage it found becomes a Citation; fails_when=the whole sentence is given as the missing part, or an Unsupported sentence gains Citations; no_claim=the phrases' wording, which is the model's.
   test("still Unsupported as one whole part: no missing words, the check's phrases kept, nothing found", () => {
     const unsupported: UnsupportedReason = {

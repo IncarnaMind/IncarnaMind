@@ -6,6 +6,7 @@
  * look that couldn't judge the sentence leaves it as its batch read it.
  */
 import { citesPassage } from "../../../shared/citedNow";
+import { citationLocation } from "../../../shared/locations";
 import type {
   CitationAttributes,
   ClaimCheckPart,
@@ -51,6 +52,11 @@ type Decided = Pick<
   | "coverage"
 >;
 
+const isNoPassage = (citation: CitationAttributes) => {
+  const kind = citationLocation(citation)?.kind;
+  return kind === "properties" || kind === "library";
+};
+
 /** The sentence's parts as the look judged them: its one judgement, when it named no parts. */
 function partsOf(result: ClaimCheckResult, sentence: string): Decided[] {
   if (result.parts && result.parts.length > 0) return result.parts;
@@ -78,6 +84,12 @@ export function lookResult(
   citations: readonly MarkedCitation[],
 ): LookResult | null {
   if (result.verdict === "not-checked") return null;
+  const passed = partsOf(result, sentence).filter((part) => part.verdict === "supported");
+  // An Answer cites Passages of Documents: a part passed on a file's own properties or the
+  // Library's facts gives the Answer no verdict, and its sentence stays as its batch read it (#2311).
+  if (result.verdict === "supported" && passed.some((part) => part.evidence.some(isNoPassage))) {
+    return null;
+  }
   const held = new Set<string>();
   // A list's items rest on a Passage each: every Passage a part's verdict cites, once.
   const found = partsOf(result, sentence).flatMap((part): FoundPassage[] =>
