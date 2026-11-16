@@ -26,6 +26,7 @@ import { randomUUID } from "node:crypto";
 import { appendFile } from "node:fs/promises";
 import type { JSONContent } from "@tiptap/core";
 import { expect, test } from "vitest";
+import { createAiSdkChatModel } from "../../src/core/providers/models";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { createTempDataFolder, queryDatabase, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
@@ -123,7 +124,7 @@ interface Round {
 
 async function roundsOf(pair: Pair) {
   const dataDir = await createTempDataFolder();
-  const core = startCore(dataDir);
+  const core = startCore(dataDir, { createChatModel: createAiSdkChatModel });
   core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
   await core.updateSettings({ user: { language: pair.language } });
   await core.saveChatProvider({ kind: "deepseek", apiKey: KEY ?? "", modelId: MODEL });
