@@ -23,6 +23,7 @@ function reply(facts: MeetingFact[] = [], omittedIds: string[] = []): FactReply 
     overviewOmitted: "missing",
     omitted: omittedIds.length + 1,
     invalidFrames: 0,
+    cut: false,
   };
 }
 

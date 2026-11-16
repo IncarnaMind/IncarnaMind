@@ -315,6 +315,24 @@ describe("Meeting fact protocol (#2306)", () => {
     expect(parsed.omitted).toBe(1);
   });
 
+  test("a reply that stops inside a frame is marked cut, and keeps the frames it closed", () => {
+    const stopped = fact("Unfinished").split("\n").slice(0, 4).join("\n");
+    const parsed = parseFactReply(answer(`${overview}\n${fact("Good")}\n${stopped}`));
+    expect(parsed.cut).toBe(true);
+    expect(parsed.facts.map((each) => each.id)).toEqual(["Good"]);
+    expect(parsed.overview).not.toBeNull();
+    expect(parsed.omittedReasons).toEqual({ Unfinished: "frame" });
+  });
+
+  test("a reply whose last frame is closed is not marked cut, whatever an earlier one left open", () => {
+    expect(parseFactReply(answer(`${fact("Good")}\n${overview}`)).cut).toBe(false);
+    const open = fact("Bad").replace("### END Bad", "");
+    const parsed = parseFactReply(answer(`${open}\n${fact("Good")}\n${overview}`));
+    expect(parsed.cut).toBe(false);
+    expect(parsed.facts.map((each) => each.id)).toEqual(["Good"]);
+    expect(parseFactReply(answer("No frames at all.")).cut).toBe(false);
+  });
+
   test("an unclosed fence cannot be salvaged by finding FACT or END text inside its code", () => {
     const broken = [
       "### FACT Broken",
@@ -673,6 +691,7 @@ describe("Meeting fact protocol (#2306)", () => {
         omittedIds: [],
         omittedReasons: {},
         invalidFrames: 1,
+        cut: false,
       });
     },
   );

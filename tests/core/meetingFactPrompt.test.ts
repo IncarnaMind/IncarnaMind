@@ -1,5 +1,10 @@
 import { expect, test } from "vitest";
-import { callLanguage, notesContext, sectionsContext } from "../../src/core/meetings/fillPrompt";
+import {
+  callLanguage,
+  notesContext,
+  sectionsContext,
+  summaryContext,
+} from "../../src/core/meetings/fillPrompt";
 
 test.each(["price and next steps", "价格与后续分工"])(
   "meeting facts keep the User's line and request one identity per fact: %s",
@@ -247,3 +252,25 @@ test.each([
     );
   },
 );
+
+test("the whole call's Summary is asked for from the parts' overviews, in order, as one overview frame", () => {
+  const context = summaryContext(
+    ["The call opened on the rollout.", "{{me}} and the other side settled the training."],
+    "Fill the note",
+    "Chinese",
+    true,
+  );
+  const [message] = context.messages;
+  const prompt = typeof message?.content === "string" ? message.content : "";
+  expect(context).toMatchObject({ meetingFacts: true, question: "Fill the note" });
+  expect(prompt).toContain(
+    "The parts' overviews:\n1. The call opened on the rollout.\n2. {{me}} and the other side settled the training.\n\nFill the note",
+  );
+  expect(prompt).toContain("### OVERVIEW");
+  expect(prompt).toContain("### END OVERVIEW");
+  expect(prompt).not.toContain("### FACT");
+  expect(prompt).toContain("ends with a marker for each of them");
+  expect(prompt).toContain("Write in Chinese, the language of the call.");
+  expect(prompt).toContain("Me is always {{me}}");
+  expect(prompt).toContain("call cite once with a record for every marker");
+});

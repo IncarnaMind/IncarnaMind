@@ -47,6 +47,8 @@ export interface FactReply {
   omittedIds: string[];
   omittedReasons: Record<string, OmitReason>;
   invalidFrames: number;
+  /** The reply ends inside a frame it never closed: it stopped before it was done. */
+  cut: boolean;
 }
 
 interface FactMetadata {
@@ -378,6 +380,7 @@ export function parseFactReply(
       omittedIds: [],
       omittedReasons: {},
       invalidFrames: 1,
+      cut: false,
     };
   const raw = markdownToBlocks(answer.markdown);
   const { frames, invalidFrames } = framesOf(answer.blocks, raw);
@@ -436,5 +439,6 @@ export function parseFactReply(
     omittedIds,
     omittedReasons,
     invalidFrames,
+    cut: frames.at(-1)?.closed === false,
   };
 }
