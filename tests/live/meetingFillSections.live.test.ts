@@ -4317,7 +4317,7 @@ describe.skipIf(LOADER_PREFLIGHT || (!KEY && !LOCAL_MODEL))(
                 `Once and cited rightly: ${once} of ${call.facts.length}. AI parts without a Citation: ${uncited}. Fill: ${fill.state}${fill.problem ? ` (${fill.problem.message})` : ""}.`,
                 `Tokens: ${usage.calls} requests, ${usage.input} in (${usage.cached} cached, ${usage.written} written to the cache), ${usage.output} out: $${usage.dollars.toFixed(4)}.`,
                 `Request settlement: ${ledger.snapshot().unsettled_requests} unsettled; amounts above are known subtotals, not free unknown usage.`,
-                `Replies: ${usage.replies.map((reply) => `${reply.output} out (${reply.reasoning} thinking), Tools: ${reply.tools.join(", ") || "none"}`).join("; ")}.`,
+                `Replies: ${usage.replies.map((reply) => `${reply.output} out (${reply.reasoning} thinking), Tools: ${reply.tools.join(", ") || "none"}, ended: ${reply.finish ?? "not ended"}`).join("; ")}.`,
                 `Counts: ${JSON.stringify({ call: call.id, model: MODEL, scoring: "cue-owner-subject-placement-structure-v6", dollars: usage.dollars, claimChecks, checkRequests, fillMs, once, total: call.facts.length, ...counts })}`,
                 `Structure (#2306): ${JSON.stringify(structure)}`,
                 `Slips (#2306): ${JSON.stringify(slips)}`,
