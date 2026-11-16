@@ -4,8 +4,8 @@ import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { documentFigureContext } from "../../src/core/answers/calculations";
 import { createClaimCheck } from "../../src/core/answers/checks/claimCheck";
-import { readFigureReply } from "../../src/core/answers/checks/figureChecks";
-import { figureHandle, replyAcrossTurns } from "../../src/core/answers/checks/prompt";
+import { figureJudgment, readFigureReply } from "../../src/core/answers/checks/figureChecks";
+import { figureHandle, readVerdict, replyAcrossTurns } from "../../src/core/answers/checks/prompt";
 import { createAiSdkAnswerEngine } from "../../src/core/answers/engine";
 import type {
   CalculatedFigure,
@@ -3602,3 +3602,32 @@ describe.each(["en", "zh-CN"] as const)(
     });
   },
 );
+
+describe("a figure part's Not covered line names the rest of its sentence (#3197)", () => {
+  const reply = readVerdict(
+    [
+      "Verdict: supported",
+      "Absence: no",
+      "Scope: none, same",
+      "Topic: found",
+      "Roles: headcount was 1,240 / headcount stood at 1,240, same",
+      SAME_DETAIL,
+      "The Documents establish this.",
+      "Evidence: [1]",
+      "Covered: headcount of 1,240 at the end of June",
+      "Not covered: the comparison with 1,115 a year earlier",
+    ].join("\n"),
+  );
+  const facts = { versions: [], excluded: [] };
+  const flags = { citedCaseUnchecked: false, citedCaseFound: false };
+
+  // protects=a part of a longer sentence names the rest of it as not covered without losing its own verdict, while a whole sentence that names a part not covered is Unsupported; fails_when=the skip reaches a whole sentence or doesn't reach a part
+  test("is no reason to take a part's ✓ away, and is one for a whole sentence", () => {
+    if (!reply) throw new Error("Not read.");
+    expect(figureJudgment(reply, null, facts, flags).verdict).toBe("unsupported");
+    expect(figureJudgment(reply, null, facts, flags, true)).toMatchObject({
+      verdict: "not-checked",
+      reason: "no-evidence",
+    });
+  });
+});
