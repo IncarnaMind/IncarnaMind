@@ -164,6 +164,7 @@ import {
   runClaimChecks,
 } from "./runCheck";
 import { notCheckedMark, pendingParts } from "./runChecks";
+import type { BatchCall } from "./sentenceBatch";
 import {
   markedSentences as allMarks,
   assistantWrote,
@@ -311,6 +312,11 @@ export interface ChecksOptions
     /** The quick-tasks model for Answers on `answers` (../../providers/chat). */
     quickTasksModel(answers: ChatModelChoice): ChatModelChoice | null;
   };
+  /**
+   * The call a Transcript's Passage is from, for an Answer asked in the Note `callIn` holds a call
+   * of (#3005): this call's or an earlier one's; null for any other Document, and with no `callIn`.
+   */
+  callMark?(callIn: string | null, documentId: string): BatchCall | null;
   /** Which written sentences take the fast paths, instead of the list beside the catalog. */
   checkPaths?: CheckPathsOverride;
   warmReranker?: VerifyOptions["warmReranker"];
@@ -1826,7 +1832,7 @@ export function createChecks(options: ChecksOptions) {
     scope: (mindId, documentIds) => options.evidence.scope(mindId, documentIds),
     searchableCount: (documentIds) => options.documents.searchableCount(documentIds),
     citedNow,
-    passages: (cited, scope) =>
+    passages: (cited, scope, callIn) =>
       [...new Set(cited.flatMap((each) => (each.passageId ? [each.passageId] : [])))].flatMap(
         (passageId) => {
           const source = options.documents.citationSource(passageId);
@@ -1844,7 +1850,16 @@ export function createChecks(options: ChecksOptions) {
               : pageTo && pageTo !== pageFrom
                 ? `pp. ${pageFrom}–${pageTo}`
                 : `p. ${pageFrom}`;
-          return [{ passageId, documentName: source.documentName, location, text: source.text }];
+          const call = options.callMark?.(callIn, source.documentId) ?? null;
+          return [
+            {
+              passageId,
+              documentName: source.documentName,
+              location,
+              text: source.text,
+              ...(call && { call }),
+            },
+          ];
         },
       ),
     units: (citation) =>
@@ -1859,7 +1874,7 @@ export function createChecks(options: ChecksOptions) {
     },
     spent: (runId, currency) => options.readSpent(runId, currency).amount,
     capLeft: () => options.capLeft(),
-    look: async ({ sentence, context, citations, cited, scope, mindId, model, signal }) => {
+    look: async ({ sentence, context, citations, cited, scope, mindId, callIn, model, signal }) => {
       const outcome = await runCheck(
         claimCheck,
         {
@@ -1867,6 +1882,7 @@ export function createChecks(options: ChecksOptions) {
           context,
           cited,
           scope,
+          ...(callIn !== null && { callIn }),
           model,
           ...(mindId && { cacheKey: mindId }),
           opinionsLeftOut: true,

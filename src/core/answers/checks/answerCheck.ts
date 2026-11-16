@@ -53,6 +53,7 @@ import {
   batchesOf,
   batchParts,
   batchPrompt,
+  marksCalls,
   passesSentence,
   readBatchText,
   sentenceBatchInstructions,
@@ -83,6 +84,8 @@ export interface AnswerLookInput {
   cited: readonly CheckedCitation[];
   scope: EvidenceScope;
   mindId: string | null;
+  /** The Note whose call the Answer was asked in (#3005); null: none. */
+  callIn: string | null;
   documentIds: readonly string[] | null;
   model: PreparedChatModel;
   signal: AbortSignal;
@@ -116,6 +119,8 @@ export interface AnswerCheckInput {
   waiting: ReadonlySet<number>;
   /** The Mind the Answer was asked in, whose own snapshot is never its evidence; null: none. */
   mindId: string | null;
+  /** The Note whose call the Answer was asked in (#3005): its Transcript is this call's, any other's an earlier call's; null: none. */
+  callIn?: string | null;
   /** The Documents of the Answer's Search scope; null: every Document. */
   documentIds: readonly string[] | null;
   model: ChatModelChoice;
@@ -152,7 +157,11 @@ export interface AnswerCheckOptions {
   /** What the Citations quote, each Document named as it is now. */
   citedNow(cited: readonly CitedQuote[]): CheckedCitation[];
   /** The Passages those quotes are on, within the scope. */
-  passages(cited: readonly CheckedCitation[], scope: EvidenceScope): BatchPassage[];
+  passages(
+    cited: readonly CheckedCitation[],
+    scope: EvidenceScope,
+    callIn: string | null,
+  ): BatchPassage[];
   /** A cited Document's Units, for whether the quotes state a sentence's numbers. */
   units(citation: Citation): readonly { text: string }[];
   /** Check against Documents' own gate: whether the quotes back the units the sentence states. */
@@ -349,7 +358,7 @@ export function createAnswerCheck(options: AnswerCheckOptions) {
       return {
         ...sentence,
         quotes: cited,
-        passages: options.passages(cited, scope),
+        passages: options.passages(cited, scope, input.callIn ?? null),
       } satisfies BatchSentence;
     });
   }
@@ -367,16 +376,19 @@ export function createAnswerCheck(options: AnswerCheckOptions) {
     const batches = batchesOf(sent);
     if (batches.length === 0) return null;
     const looks = options.look ? Math.min(LOOKS_AN_ANSWER, sent.length) : 0;
-    const instructions = sentenceBatchInstructions(options.language());
+    const instructionsOf = (batch: readonly BatchSentence[]) =>
+      sentenceBatchInstructions(options.language(), marksCalls(batch));
     const inputTokens = (batch: BatchSentence[]) =>
-      estimateTokens(instructions) + estimateTokens(batchPrompt(batch));
+      estimateTokens(instructionsOf(batch)) + estimateTokens(batchPrompt(batch));
     return {
       likely: batches.map((batch) => ({
         inputTokens: inputTokens(batch),
         outputTokens: LIKELY_OUTPUT_TOKENS * batch.length,
       })),
       most: [
-        ...batches.map((batch) => mostRequest(batch, instructions, batchRoom(batch.length, own))),
+        ...batches.map((batch) =>
+          mostRequest(batch, instructionsOf(batch), batchRoom(batch.length, own)),
+        ),
         ...Array.from({ length: looks }, () => CHECKED_SENTENCE_REQUESTS).flat(),
       ],
     };
@@ -415,7 +427,8 @@ export function createAnswerCheck(options: AnswerCheckOptions) {
       },
     });
     const judged = asked(input);
-    const instructions = sentenceBatchInstructions(options.language());
+    const instructionsOf = (batch: readonly BatchSentence[]) =>
+      sentenceBatchInstructions(options.language(), marksCalls(batch));
 
     const waitingIn = (sentence: (typeof judged)[number]) =>
       sentence.found.filter(({ marker }) => input.waiting.has(marker));
@@ -475,7 +488,7 @@ export function createAnswerCheck(options: AnswerCheckOptions) {
       try {
         const judged = await judge({
           model: sending.model,
-          question: { id: "sentence-batch", instructions },
+          question: { id: "sentence-batch", instructions: instructionsOf(batch) },
           within: { most: room },
           parts: batchParts(batch),
           data: BATCH_TAGS,
@@ -544,7 +557,7 @@ export function createAnswerCheck(options: AnswerCheckOptions) {
       window: prepared.window?.outputTokens,
     };
     const reservedAt = (batch: (typeof judged)[number][], room: number) =>
-      options.mostOf(input.model, mostRequest(batch, instructions, room));
+      options.mostOf(input.model, mostRequest(batch, instructionsOf(batch), room));
     const recordsRoom = (batch: (typeof judged)[number][]) =>
       outputTokens("sentence-batch-records", batch.length);
     /** The batches of this check not admitted yet, in the order they go. */
@@ -693,6 +706,7 @@ export function createAnswerCheck(options: AnswerCheckOptions) {
                 cited: sentence.quotes,
                 scope,
                 mindId: input.mindId,
+                callIn: input.callIn ?? null,
                 documentIds: input.documentIds,
                 model: prepared,
                 signal: input.signal,

@@ -9,6 +9,7 @@
  */
 import { describe, expect, test, vi } from "vitest";
 import type { ConversationAnswer, Core } from "../../src/core";
+import { sentenceBatchInstructions } from "../../src/core/answers/checks/sentenceBatch";
 import type { Language } from "../../src/core/language";
 import { formatFullDateTime } from "../../src/shared/dates";
 import { quoteState } from "../../src/shared/helpQuotes";
@@ -226,13 +227,18 @@ function citingModel(
   { sentence, line, query }: { sentence: string; line: string; query: string },
   judging: { now: boolean; supported?: boolean },
   pressed: { quoted?: string; beside?: string } = {},
+  /** Every request of a check Run (the look in the Answer's scope). */
+  checks: ModelCall[] = [],
 ) {
   let fromNote = false;
   return scriptedModel(
     (call) => {
       // A sentence its batch reads Unsupported is looked for in the Answer's scope (#3020): the
       // look finds nothing that states it.
-      if (isCheckRun(call)) return checkReply(call, {});
+      if (isCheckRun(call)) {
+        checks.push(call);
+        return checkReply(call, {});
+      }
       calls.push(call);
       if (call.results.some((result) => result.tool === "cite")) {
         const quoted = fromNote && pressed.quoted ? ` — “${pressed.quoted}”` : "";
@@ -1431,3 +1437,120 @@ describe("Another call elsewhere in the Library", { timeout: 180_000 }, () => {
     }
   });
 });
+
+describe.each(["en", "zh-CN"] as const)(
+  "%s: the sentence check is told whose call a quote is from (#3005)",
+  (language) => {
+    const said = EARLIER_SAID[language];
+    const MARKED = /call="earlier" note="[^"]+" started="[^"]+"/;
+
+    /**
+     * An earlier call, then a live one on the same day; a Question typed in the live call's Note,
+     * whose reply says the earlier call's line again, cited to it, and whose sentences are judged
+     * supported. The sentence batches the check sent are kept; the call stops after, as an Answer's
+     * check may be asked again then.
+     */
+    const typedInTheCall = async (
+      asks: "call" | "ordinary",
+      judgedNow = true,
+      supported = true,
+    ) => {
+      const batches: GenerateCall[] = [];
+      const checks: ModelCall[] = [];
+      const judging = { now: judgedNow, supported };
+      const setup = await folderCore(language, {
+        model: (calls) =>
+          citingModel(
+            calls,
+            batches,
+            { sentence: said.sentence, line: said.line, query: said.sentence },
+            judging,
+            {},
+            checks,
+          ),
+      });
+      const { core, dataDir, clock } = setup;
+      const earlier = await setup.call();
+      await stoppedMeeting(core, dataDir, earlier.meeting.id);
+      clock.advance(3 * HOUR);
+      const saved = await core.saveChatProvider({
+        kind: "anthropic",
+        apiKey: "sk-ant-test",
+        modelId: "claude-haiku-5-5",
+      });
+      if (saved.service) {
+        core.on("consent.requested", (request) => {
+          void core.respondToConsent(request.requestId, true);
+        });
+        await core.allowDataFlow("chat", saved.service.id);
+      }
+      const { meeting: live, heard } = await setup.call();
+      await setup.read(live.id, heard.documentId);
+      const mindId = asks === "call" ? live.mindId : (await core.createMind({ title: "Plain" })).id;
+      const asked = await core.askInConversation({
+        mindId,
+        text: language === "en" ? "What did they say last time?" : "上次他们说了什么？",
+      });
+      if (!asked.asked) throw new Error("Not asked.");
+      await answerEnded(core, asked.answerId);
+      const ids = { conversationId: asked.conversation.id, answerId: asked.answerId };
+      return { core, batches, checks, judging, live, ids };
+    };
+
+    // protects=the sentence check's request marks a Transcript Passage as an earlier call's, with its Note and start, and its instructions tell the model what the marks mean, for a Question typed in a call (#3005 part 3); fails_when=the check is sent the earlier call's line as it was sent before, named only as a Transcript of the day; no_claim=how a real model reads the marks (tests/live/checkKnowsTheCall.live.test.ts).
+    test("a Question typed in the call: its quote's Passage is marked as the earlier call's, and the instructions say what that means", async () => {
+      const { batches } = await typedInTheCall("call");
+
+      const about = batches.filter((batch) => batch.prompt.includes(said.line));
+      expect(about.length).toBeGreaterThan(0);
+      for (const batch of about) {
+        expect(batch.prompt).toMatch(MARKED);
+        expect(batch.system).toBe(sentenceBatchInstructions(language, true));
+      }
+    });
+
+    // protects=an Answer asked in a Note that holds no call is checked as it was, byte for byte: no mark, and the instructions without the lines on calls; fails_when=a Transcript's Passage cited from an ordinary Note is marked, or its check's instructions change; no_claim=none.
+    test("a Question typed in a Note with no call: the check's request carries no mark and its instructions are as they were", async () => {
+      const { batches } = await typedInTheCall("ordinary");
+
+      const about = batches.filter((batch) => batch.prompt.includes(said.line));
+      expect(about.length).toBeGreaterThan(0);
+      for (const batch of about) {
+        expect(batch.prompt).not.toMatch(/call="/);
+        expect(batch.system).toBe(sentenceBatchInstructions(language));
+      }
+    });
+
+    // protects=the look in the Answer's scope, which a sentence its batch reads Unsupported takes (#3020), is told the same: its Run's instructions say what the marks mean and the Passages it finds of the earlier call are marked; an Answer asked in a Note with no call is looked at as it was; fails_when=the look finds the earlier call's line unmarked and may give a sentence about this call a green check from it; no_claim=how a real model reads the marks.
+    test("the look in the Answer's scope: its Run is told what the marks mean and sees the earlier call's Passage marked", async () => {
+      const { checks } = await typedInTheCall("call", true, false);
+
+      expect(checks.length).toBeGreaterThan(0);
+      for (const run of checks) expect(run.system).toContain('call="earlier"');
+      const seen = checks.flatMap((run) => run.results.map((result) => result.text)).join("\n");
+      expect(seen).toMatch(MARKED);
+
+      const plain = await typedInTheCall("ordinary", true, false);
+      expect(plain.checks.length).toBeGreaterThan(0);
+      for (const run of plain.checks) expect(run.system).not.toContain('call="earlier"');
+      expect(
+        plain.checks.flatMap((run) => run.results.map((result) => result.text)).join("\n"),
+      ).not.toMatch(/call="/);
+    });
+
+    // protects=Check again on a Question typed in the call, after the call has stopped, marks the quote's Passage the same way; fails_when=the later check is sent the Passage unmarked; no_claim=none.
+    test("Check again, after the call stops: the quote's Passage is still marked", async () => {
+      const { core, batches, judging, live, ids } = await typedInTheCall("call", false);
+      await core.stopMeeting(live.id);
+      await until(core, live.id, (transcript) => transcript.state === "saved");
+      judging.now = true;
+      const before = batches.length;
+
+      await core.checkAnswerAgain(ids);
+
+      const later = batches.slice(before).filter((batch) => batch.prompt.includes(said.line));
+      expect(later.length).toBeGreaterThan(0);
+      for (const batch of later) expect(batch.prompt).toMatch(MARKED);
+    });
+  },
+);
