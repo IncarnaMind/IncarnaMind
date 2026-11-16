@@ -217,7 +217,14 @@ export interface ObservedRequest {
   raw: string;
   tools: string[];
   reasoning: number;
+  /** Why the reply ended, as the model's maker gave it; null until it ends. */
+  finish: string | null;
 }
+
+const finishOf = (reason: { unified: string; raw?: string | undefined }): string =>
+  reason.raw && reason.raw !== reason.unified
+    ? `${reason.unified} (${reason.raw})`
+    : reason.unified;
 
 const count = (value: unknown): number | null =>
   typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : null;
@@ -318,6 +325,7 @@ export function createRequestLedger(options: {
       raw: "",
       tools: [],
       reasoning: 0,
+      finish: null,
     };
     logicalRequests.push(request);
     if (!options.strict) requests.push(request);
@@ -602,6 +610,7 @@ export function createRequestLedger(options: {
           reasoning: request.reasoning,
           tools: request.tools,
           output: request.output_tokens ?? 0,
+          finish: request.finish,
         })),
       };
     },
@@ -666,6 +675,7 @@ export function createRequestLedger(options: {
                       if (part.type === "error" && options.strict) throw part.error;
                       if (part.type === "finish") {
                         finished = true;
+                        request.finish = finishOf(part.finishReason);
                         settle(request, part.usage);
                         request.status = "unsettled";
                         if (part.finishReason.unified === "error" && options.strict)
@@ -698,6 +708,7 @@ export function createRequestLedger(options: {
             try {
               const result = await logical.run(request, doGenerate);
               for (const part of result.content) capture(request, part);
+              request.finish = finishOf(result.finishReason);
               settle(request, result.usage);
               if (options.strict && failed) throw stopped();
               if (result.finishReason.unified === "error" && options.strict) throw stopped();
