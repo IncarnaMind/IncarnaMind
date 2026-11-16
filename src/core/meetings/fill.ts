@@ -974,13 +974,12 @@ export function createMeetingFill(options: MeetingFillOptions) {
             present.some((line) => line.heading && line.marker === marker),
           ),
         );
-        const routed = new Set(routes.values());
         const planned = placeFacts({
           facts: retained,
           overviews: summary,
           lines: present,
           headings: routes,
-          topicHeadings: present.filter((line) => line.heading && !routed.has(line.marker)),
+          topicHeadings: present.filter((line) => line.heading),
           claims,
           reference: (topic, direction) =>
             translate(language, `meetings.fill.reference.${direction}`, { topic }),

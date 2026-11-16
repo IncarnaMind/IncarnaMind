@@ -15,7 +15,7 @@ export interface FactPlacementInput {
   overviews: readonly MeetingOverview[];
   lines: readonly FactLine[];
   headings: ReadonlyMap<FillSection, string>;
-  /** The User's headings no section is routed to: a topic in the same words goes under one. */
+  /** The User's headings: a topic in the same words goes under one, and into the section routed to it. */
   topicHeadings: readonly { marker: string; text: string }[];
   claims: ReadonlySet<string>;
   reference: (topic: string, direction: "above" | "below") => string;
@@ -99,6 +99,9 @@ export function placeFacts(input: FactPlacementInput): FactPlacement {
   for (const overview of input.overviews) append(placed.sections, "summary", [overview.body]);
   const topics = new Map<string, PlacedTopic>();
   const hosts = new Map(input.topicHeadings.map((each) => [topicKey(each.text), each.marker]));
+  const sectionsByHeading = new Map(
+    [...input.headings].map(([section, marker]) => [marker, section] as const),
+  );
   const seen = new Set<string>();
   const ordinary = new Map(
     input.lines.flatMap((line, position) =>
@@ -138,13 +141,26 @@ export function placeFacts(input: FactPlacementInput): FactPlacement {
       canonical = sectionPlace(input, home);
     } else {
       const key = topicKey(fact.heading);
-      const host = hosts.get(key);
-      const topic = topics.get(key) ?? { title: fact.heading, heading: host ?? null, nodes: [] };
-      topics.set(key, topic);
-      topic.nodes.push(fact.body);
-      canonical = host
-        ? headingPlace(input, host, TOPICS_ORDER)
-        : { position: input.lines.length + TOPICS_ORDER, ancestors: [] };
+      const named = hosts.get(key);
+      const section = named === undefined ? undefined : sectionsByHeading.get(named);
+      // The list of what to check holds only the statements the check left unbacked: any other
+      // fact named after its heading keeps a heading of its own.
+      const host = section === "claims" ? undefined : named;
+      const hostSection = host === undefined ? undefined : section;
+      if (hostSection) {
+        // The heading it names is the User's own heading for a section: it joins that section's
+        // items, never a second heading with the same words (#2306).
+        append(placed.sections, hostSection, [fact.body]);
+        placedIn = hostSection;
+        canonical = sectionPlace(input, hostSection);
+      } else {
+        const topic = topics.get(key) ?? { title: fact.heading, heading: host ?? null, nodes: [] };
+        topics.set(key, topic);
+        topic.nodes.push(fact.body);
+        canonical = host
+          ? headingPlace(input, host, TOPICS_ORDER)
+          : { position: input.lines.length + TOPICS_ORDER, ancestors: [] };
+      }
     }
     for (const secondary of requested) {
       const destination = ordinary.get(secondary);
