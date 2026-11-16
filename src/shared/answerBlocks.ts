@@ -337,24 +337,36 @@ function carriedChecks(
 ): Map<string, (CarriedCheck | null)[]> {
   const byMarker = new Map(answer.citations.map((citation) => [citation.marker, citation]));
   const found = new Map<string, (CarriedCheck | null)[]>();
+  const citationsAt = (markers: readonly number[]) =>
+    markers
+      .map((marker) => byMarker.get(marker))
+      .filter((citation): citation is MarkedCitation => citation !== undefined);
+  const identitiesOf = (citations: readonly MarkedCitation[]): CitationIdentity[] =>
+    citations.map((citation) => ({
+      passageId: citation.passageId ?? "",
+      quote: citation.quote ?? "",
+      contentHash: citation.contentHash ?? "",
+    }));
   for (const cited of citedSentences(
     forPage(answer.text, question),
     answer.figures,
     answer.citations,
   )) {
-    const citations = cited.markers
-      .map((marker) => byMarker.get(marker))
-      .filter((citation): citation is MarkedCitation => citation !== undefined);
-    const key = identityOf(
-      comparableSentence(cited.sentence),
-      citations.map((citation) => ({
-        passageId: citation.passageId ?? "",
-        quote: citation.quote ?? "",
-        contentHash: citation.contentHash ?? "",
-      })),
-    );
+    const citations = citationsAt(cited.markers);
+    const key = identityOf(comparableSentence(cited.sentence), identitiesOf(citations));
     const check = cited.calculated ? null : judgementOf(cited.markers, citations);
     found.set(key, [...(found.get(key) ?? []), check]);
+    // A Note reads a table's cell on its own, never the row as one line: the row's verdict goes
+    // under each cell holding a Citation. Supported is read again over the cell's own Citations,
+    // so its card shows the quote that sits in that cell (#3214).
+    for (const cell of cited.cells) {
+      const own = citationsAt(cell.markers);
+      const cellKey = identityOf(comparableSentence(cell.sentence), identitiesOf(own));
+      if (cellKey === key) continue;
+      const cellCheck =
+        check?.state === "supported" ? judgementOf(cell.markers, own) : check && { ...check };
+      found.set(cellKey, [...(found.get(cellKey) ?? []), cellCheck]);
+    }
   }
   return found;
 }
