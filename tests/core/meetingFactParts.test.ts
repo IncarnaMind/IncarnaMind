@@ -77,7 +77,14 @@ function modelFor(
   const quotes = new Map<number, string>();
   const feedback: string[] = [];
   const streamErrors = new Set<number>();
+  const summaries: ModelCall[] = [];
   const model = scriptedModel((call): ScriptedReply => {
+    // These tests are about facts across parts, so the Summary of the whole call (#3151) gets a
+    // reply with no overview and each part's own stays: meetingLongCall.test.ts covers the Summary.
+    if (call.prompt.includes("The parts' overviews:\n")) {
+      summaries.push(call);
+      return { text: "The call was about the review." };
+    }
     const part = Number(/Use new ids P(\d+)_F1/.exec(call.prompt)?.[1]);
     if (!part) throw new Error("Unexpected request outside the Meeting fact Run.");
     calls.push({ part, call });
@@ -129,7 +136,7 @@ function modelFor(
       ),
     };
   };
-  return { model, calls, quotes, feedback, schedule };
+  return { model, calls, summaries, quotes, feedback, schedule };
 }
 
 async function capture(
@@ -261,12 +268,20 @@ async function settledFill(core: Core, meeting: Meeting): Promise<MeetingFill> {
   });
 }
 
-function expectRequests(model: ReturnType<typeof modelFor>, counts: number[]): void {
+/** `summary`: the fill read every part of several, so it asked once for the whole call's Summary. */
+function expectRequests(
+  model: ReturnType<typeof modelFor>,
+  counts: number[],
+  summary = false,
+): void {
   expect(
     model.calls.map(({ part }) => part),
     model.feedback.join("\n"),
   ).toEqual(counts.flatMap((count, index) => Array.from({ length: count }, () => index + 1)));
-  expect(model.model.doStreamCalls).toHaveLength(counts.reduce((sum, count) => sum + count, 0));
+  expect(model.summaries).toHaveLength(summary ? 1 : 0);
+  expect(model.model.doStreamCalls).toHaveLength(
+    counts.reduce((sum, count) => sum + count, summary ? 1 : 0),
+  );
   expect(model.model.doGenerateCalls).toHaveLength(0);
 }
 
@@ -468,6 +483,7 @@ describe("Meeting fact frames across provider failures and Transcript parts", ()
       expectRequests(
         model,
         parts.map(() => 2),
+        true,
       );
       await undo(captured);
     } finally {
@@ -526,6 +542,7 @@ describe("Meeting fact frames across provider failures and Transcript parts", ()
       expectRequests(
         model,
         parts.map(() => 2),
+        true,
       );
       await undo(captured);
     } finally {
@@ -580,6 +597,7 @@ describe("Meeting fact frames across provider failures and Transcript parts", ()
         expectRequests(
           model,
           parts.map(() => 2),
+          true,
         );
         await undo(captured);
       } finally {
@@ -621,6 +639,7 @@ describe("Meeting fact frames across provider failures and Transcript parts", ()
       expectRequests(
         model,
         parts.map(() => 2),
+        true,
       );
       await undo(captured);
     } finally {
@@ -756,6 +775,7 @@ describe("A long call's Transcript, each line once, in parts a reply has room fo
       expectRequests(
         model,
         Array.from({ length: 3 + rest.length }, () => 2),
+        true,
       );
       expect(itemsShown(model, 4)).toEqual(
         rest[0]?.flatMap((passage) =>
@@ -855,6 +875,7 @@ describe("Post-fix public regressions for cross-part fact identities", () => {
       expectRequests(
         model,
         parts.map(() => 2),
+        true,
       );
       await undo(captured);
     } finally {
@@ -883,6 +904,7 @@ describe("Post-fix public regressions for cross-part fact identities", () => {
       const quote = model.quotes.get(3);
       if (!quote) throw new Error("The final part did not record its checked Transcript cue.");
       expect(mindCitations(client).filter((citation) => citation.quote === quote)).toHaveLength(2);
+      // Only the last part wrote an overview, so there is nothing to make one Summary of.
       expectRequests(
         model,
         parts.map(() => 2),

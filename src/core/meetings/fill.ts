@@ -30,7 +30,12 @@ import { inFlow } from "../timing/flows";
 import type { StoredFill } from ".";
 import { createFactLedger } from "./factLedger";
 import { type PlacedTopic, placeFacts } from "./factPlacement";
-import { type FactReply, type MeetingFact, parseFactReply } from "./factProtocol";
+import {
+  type FactReply,
+  type MeetingFact,
+  type MeetingOverview,
+  parseFactReply,
+} from "./factProtocol";
 import {
   CALL_LANGUAGES,
   callLanguage,
@@ -42,6 +47,7 @@ import {
   notesContext,
   SECTION_TITLES,
   sectionsContext,
+  summaryContext,
   textOf,
 } from "./fillPrompt";
 import { headingRoutes } from "./headingRoutes";
@@ -583,6 +589,47 @@ export function createMeetingFill(options: MeetingFillOptions) {
     return passages;
   }
 
+  /**
+   * One overview for a call read in parts (#3151), asked for from the parts' own and one Passage
+   * each of them cites. The parts' own stay, as they are, when the model gives none whose
+   * Citations are all found, or when those Passages are more than one request reads.
+   */
+  async function wholeCall(input: {
+    meetingId: string;
+    overviews: readonly MeetingOverview[];
+    passages: readonly WindowedPassage[];
+    transcriptId: string;
+    route: Routed;
+    signal: AbortSignal;
+    context(overviews: string[]): QuestionContext;
+  }): Promise<readonly MeetingOverview[]> {
+    const { meetingId, overviews, passages, transcriptId, route, signal, context } = input;
+    if (overviews.length < 2) return overviews;
+    const cited = new Set(overviews.map((overview) => overview.citations[0]?.attrs?.passageId));
+    const shown = passages.filter((passage) => cited.has(passage.passageId));
+    const size = shown.reduce((sum, passage) => sum + estimateTokens(passage.text), 0);
+    if (shown.length === 0 || size > partTokens(route)) {
+      log.warn("meeting.fillSummaryNotAsked", { meetingId, parts: overviews.length, tokens: size });
+      return overviews;
+    }
+    const answer = await ask(
+      context(overviews.map((overview) => textOf(overview.body).trim())),
+      shown,
+      transcriptId,
+      route,
+      signal,
+    );
+    const reply = parseFactReply(answer);
+    if (reply.overview) return [reply.overview];
+    log.warn("meeting.fillSummaryNotKept", {
+      meetingId,
+      parts: overviews.length,
+      reason: reply.overviewOmitted,
+      status: answer.status,
+    });
+    return overviews;
+  }
+
   const partTokens = (route: Routed) =>
     Math.min(
       FILL_PART_TOKENS,
@@ -673,8 +720,10 @@ export function createMeetingFill(options: MeetingFillOptions) {
       }
       // A part whose reply was cut is asked again as two, and the facts the reply did write are
       // kept: what it left out is read again, so it isn't counted as missing, and each half
-      // writes the overview of its own lines (#3151).
-      const halves = cutShort(answer) ? halved(part) : null;
+      // writes the overview of its own lines (#3151). A reply that stopped inside a frame was cut
+      // too, whatever its request reported: a model can end its turn part-way through its notes.
+      const outOfRoom = cutShort(answer);
+      const halves = outOfRoom || parsed.cut ? halved(part) : null;
       ledger.accept(
         halves
           ? { ...parsed, overview: null, omittedIds: [], invalidFrames: 0, overviewOmitted: null }
@@ -697,11 +746,19 @@ export function createMeetingFill(options: MeetingFillOptions) {
         else destinations.set(section, heading);
       }
       if (halves) {
-        // A call dense enough to cut one reply cut the next part of the same size too, each a
-        // two-minute wait for nothing: the rest of the call is asked at half the size as well.
-        partSize = Math.max(FILL_PART_FLOOR_TOKENS, Math.floor(partSize / 2));
-        waiting = [...halves, ...transcriptParts(waiting.flat(), partSize)];
-        log.info("meeting.fillPartHalved", { meetingId: meeting.id, waiting: waiting.length });
+        // A call dense enough to run one reply out of room did the same to the next part of the
+        // same size, each a two-minute wait for nothing: the rest of the call is asked at half
+        // the size as well.
+        if (outOfRoom) {
+          partSize = Math.max(FILL_PART_FLOOR_TOKENS, Math.floor(partSize / 2));
+          waiting = transcriptParts(waiting.flat(), partSize);
+        }
+        waiting = [...halves, ...waiting];
+        log.info("meeting.fillPartHalved", {
+          meetingId: meeting.id,
+          waiting: waiting.length,
+          cut: outOfRoom ? "length" : "frame",
+        });
         continue;
       }
       read += 1;
@@ -738,6 +795,24 @@ export function createMeetingFill(options: MeetingFillOptions) {
             : { kind: "empty", message: alone("meetings.fill.problem.empty") }),
       );
     }
+    const summary =
+      unfinishedParts === 0
+        ? await wholeCall({
+            meetingId: meeting.id,
+            overviews,
+            passages,
+            transcriptId,
+            route,
+            signal,
+            context: (texts) =>
+              summaryContext(
+                texts,
+                translate(language, "meetings.fill.question.summary"),
+                spoken,
+                name !== null,
+              ),
+          })
+        : overviews;
     const retained = ledger.facts;
     const claims = await unsupportedFacts(retained, meeting, transcriptId, route, signal);
     if (signal.aborted) throw new FillProblemError({ kind: "stopped", message: "" });
@@ -772,7 +847,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
         const routed = new Set(routes.values());
         const planned = placeFacts({
           facts: retained,
-          overviews,
+          overviews: summary,
           lines: present,
           headings: routes,
           topicHeadings: present.filter((line) => line.heading && !routed.has(line.marker)),
