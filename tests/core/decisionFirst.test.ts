@@ -775,11 +775,12 @@ describe("Check this Note with a decision model chosen (#3118)", { timeout: 30_0
     const release = holdAiModel();
 
     const running = core.checkMind(run());
-    await expect.poll(async () => (await marks(client))[YEARLY]?.firstReading).toBe("contradicted");
-    expect(await marks(client)).toMatchObject({
-      [MOON]: { state: "checking", firstReading: "supported" },
-      [YEARLY]: { state: "checking", firstReading: "contradicted" },
-    });
+    await expect
+      .poll(async () => marks(client))
+      .toMatchObject({
+        [MOON]: { state: "checking", firstReading: "supported" },
+        [YEARLY]: { state: "checking", firstReading: "contradicted" },
+      });
     expect((await marks(client))[PENGUINS]).not.toHaveProperty("firstReading");
     release();
     await running;
@@ -795,6 +796,34 @@ describe("Check this Note with a decision model chosen (#3118)", { timeout: 30_0
       },
       [PENGUINS]: { state: "unsupported", quote: null, by: DECIDER.modelId },
     });
+  });
+
+  // protects=a Mark shows what the Passages' scores lean to as soon as they do, while the decision model is still asked whether that stands as a verdict; and a verdict the decision model then gives itself keeps no first reading; fails_when=a sentence shows nothing until the questions about its Passage alone are answered (the Passage alone, its top line, the conditions it sets), or a first reading stays on a Mark the decision model gave; no_claim=how long a real host takes to answer those questions
+  test("a first reading shows while the decision model is still asked whether it stands", async () => {
+    const { core, client, host, run, readByAiModel } = await setUp();
+    await choose(core);
+    const alone = Promise.withResolvers<void>();
+    host.answers(async (asked) => {
+      if (!asked.among) await alone.promise;
+      return sure(asked);
+    });
+
+    const running = core.checkMind(run());
+    await expect
+      .poll(async () => marks(client))
+      .toMatchObject({
+        [MOON]: { state: "checking", firstReading: "supported" },
+        [YEARLY]: { state: "checking", firstReading: "contradicted" },
+      });
+    alone.resolve();
+    await running;
+
+    expect(await marks(client)).toEqual({
+      [MOON]: { state: "supported", quote: MOON, by: DECIDER.modelId },
+      [YEARLY]: { state: "contradicted", quote: WEEKLY, by: DECIDER.modelId },
+      [PENGUINS]: { state: "unsupported", quote: null, by: DECIDER.modelId },
+    });
+    expect(readByAiModel()).toEqual([]);
   });
 
   // protects=a first reading belongs to the run that made it: a sentence checked again with no decision model chosen shows none; fails_when=an old first reading stays on a Mark the AI model alone gave; no_claim=how the card draws a Mark.
