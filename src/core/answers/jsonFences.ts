@@ -31,6 +31,10 @@ function closedInFrame(lines: readonly string[], from: number, opener: string): 
  * as code. A fence the model closes anywhere before the frame ends is left as written. DeepSeek
  * V4.1 Flash left every fence after the first one open in 3 of 23 replies, all to Chinese calls
  * (#2306).
+ *
+ * Any other fence still open at a frame's line is closed before it. Claude Haiku 5.5 wrote a fence
+ * line after a fact's end line, and the ten facts after it read as code: none was kept or counted
+ * (#3145).
  */
 export function withJsonFencesClosed(text: string): string {
   const lines = text.split("\n");
@@ -38,6 +42,10 @@ export function withJsonFencesClosed(text: string): string {
   let open: string | null = null;
   for (let index = 0; index < lines.length; index++) {
     const line = lines[index] ?? "";
+    if (open !== null && FRAME_END.test(line)) {
+      closed.push(open);
+      open = null;
+    }
     closed.push(line);
     if (open !== null) {
       if (fenceClosedBy(open, line)) open = null;

@@ -33,15 +33,15 @@ const LINE_END = /[^\S\n]*(?:\n\s*|$)/y;
 
 /**
  * Where the cues from `first` on start in `text` when that one starts at `at`, each on the line
- * after the one before; `whole` when they run to the end of `text`. A Passage's last cue may be
- * cut short where the Passage ends.
+ * after the one before. `fit`: 2 when they run to the end of `text`, 1 when the last of them is
+ * cut short there, as a Passage's last cue may be, 0 when they stop before it.
  */
 function runAt(
   text: string,
   cues: readonly SaidCue[],
   first: number,
   at: number,
-): { starts: number[]; whole: boolean } {
+): { starts: number[]; fit: 0 | 1 | 2 } {
   const starts: number[] = [];
   let next = at;
   for (let index = first; index < cues.length && next < text.length; index++) {
@@ -50,8 +50,7 @@ function runAt(
     if (end > text.length) {
       if (!line.startsWith(text.slice(next))) break;
       starts.push(next);
-      next = text.length;
-      break;
+      return { starts, fit: 1 };
     }
     if (!text.startsWith(line, next)) break;
     LINE_END.lastIndex = end;
@@ -60,7 +59,7 @@ function runAt(
     starts.push(next);
     next = end + rest[0].length;
   }
-  return { starts, whole: next >= text.length };
+  return { starts, fit: next >= text.length ? 2 : 0 };
 }
 
 /**
@@ -71,7 +70,9 @@ function runAt(
  *
  * A Passage's lines are a run of its Units' cues, one after another, so they are matched as a
  * run: a cue's words alone say too little, since "Yeah." from before the Passage also starts a
- * later line (#3151). A first line that is the end of a cue stays unmarked.
+ * later line (#3151). Where lines are said twice in a call, the run that reaches the Passage's end
+ * is taken, with its last cue whole before one cut short. A first line that is the end of a cue
+ * stays unmarked.
  */
 export function withCueMarks(
   text: string,
@@ -79,17 +80,17 @@ export function withCueMarks(
   speakers: TranscriptSpeakers | null = null,
 ): string {
   const cues = cuesOf(units);
-  let found = { first: 0, starts: [] as number[] };
-  for (let at = 0; at >= 0 && at < text.length; at = text.indexOf("\n", at) + 1 || -1) {
-    let whole = false;
-    for (let first = 0; first < cues.length && !whole; first++) {
+  let found = { first: 0, starts: [] as number[], fit: 0 };
+  for (
+    let at = 0;
+    found.fit === 0 && at >= 0 && at < text.length;
+    at = text.indexOf("\n", at) + 1 || -1
+  ) {
+    for (let first = 0; first < cues.length && found.fit < 2; first++) {
       const run = runAt(text, cues, first, at);
-      if (run.starts.length > found.starts.length) {
-        found = { first, starts: run.starts };
-        whole = run.whole;
-      }
+      if (run.fit > found.fit || (run.fit === found.fit && run.starts.length > found.starts.length))
+        found = { first, ...run };
     }
-    if (whole) break;
   }
   let marked = "";
   let from = 0;

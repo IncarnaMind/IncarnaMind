@@ -66,8 +66,9 @@ import { withUserName } from "./userName";
 export const FILL_PART_TOKENS = 9_000;
 
 /**
- * The least of a Transcript asked for again after a cut reply: about two and a half minutes of
- * dense talk. A call of four minutes dense with decisions took well under half a reply, so a
+ * Where a cut reply stops making the parts smaller: a part under twice this isn't asked again as
+ * two, and the rest of the call isn't asked in parts under it. About two and a half minutes of
+ * dense talk: a call of four minutes dense with decisions took well under half a reply, so a
  * smaller ask wouldn't help.
  */
 const FILL_PART_FLOOR_TOKENS = 750;
@@ -445,7 +446,7 @@ export function transcriptParts(
   return parts;
 }
 
-/** `part` as two of about the same size, in reading order; null where neither would reach the floor. */
+/** `part` as two of about the same size, in reading order; null for one Passage, or under twice the floor. */
 export function halved(
   part: readonly WindowedPassage[],
 ): [WindowedPassage[], WindowedPassage[]] | null {

@@ -54,6 +54,46 @@ test.each(
   expect(withJsonFencesClosed(reply)).toBe(reply);
 });
 
+// protects=a fence still open at a frame's line is closed before it, so a stray fence line after a frame doesn't turn every frame after it into code, and the frames after it get their own open fences closed as usual (in one reply Claude Haiku 5.5 wrote a fence line after a fact's end line, and the ten facts after it were neither kept nor counted, #3145); fails_when=a frame's line stays inside a fence, or a frame after the stray fence keeps an open fence; no_claim=why a model writes the stray line.
+test.each(Object.entries(bodies))(
+  "a stray fence line after a frame is closed before the next frame (%s)",
+  (_, body) => {
+    const reply = [
+      frame("F1", body, "closed"),
+      "```",
+      "",
+      frame("F2", body, "open"),
+      "",
+      frame("F3", body, "open"),
+    ];
+    expect(withJsonFencesClosed(reply.join("\n"))).toBe(
+      [
+        frame("F1", body, "closed"),
+        "```",
+        "",
+        "```",
+        frame("F2", body, "closed"),
+        "",
+        frame("F3", body, "closed"),
+      ].join("\n"),
+    );
+  },
+);
+
+// protects=a fence left open inside a frame, a stray one before its end line or a record of several lines, ends before that frame's end line, so the frames after it are read and the fact reader can count the one frame it can't read (#3145); fails_when=the frame's end line or a later frame stays inside the fence; no_claim=that the frame itself is readable: it isn't.
+test.each([
+  [
+    "a stray fence before the end line",
+    ["### FACT F1", "```json", '{"a":1}', "```", "body", "```"],
+  ],
+  ["a record of several lines", ["### FACT F1", "```json", "{", '"a":1', "}", "body"]],
+])("%s is closed before the frame's end line", (_, start) => {
+  const rest = ["### END F1", "", frame("F2", bodies.English, "closed")];
+  expect(withJsonFencesClosed([...start, ...rest].join("\n"))).toBe(
+    [...start, "```", ...rest].join("\n"),
+  );
+});
+
 test.each([
   ["code of several lines", '### FACT F1\n```json\n{"a":1}\n{"b":2}\n```\nafter'],
   ["a fence under another heading", '### Example\n```json\n{"a":1}\nafter'],

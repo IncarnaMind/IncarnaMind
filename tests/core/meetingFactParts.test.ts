@@ -27,13 +27,17 @@ const LONG_CUES = 60;
 function fact(
   id: string,
   text: string,
-  { citation = 1, supersedes = [] }: { citation?: number; supersedes?: unknown } = {},
+  {
+    citation = 1,
+    supersedes = [],
+    topic = "review schedule",
+  }: { citation?: number; supersedes?: unknown; topic?: string } = {},
 ): string {
   return [
     `### FACT ${id}`,
     "```json",
     JSON.stringify({
-      topic: "review schedule",
+      topic,
       citations: [citation],
       lines: ["L1"],
       sections: ["decisions"],
@@ -373,6 +377,103 @@ describe("Meeting fact frames across provider failures and Transcript parts", ()
       }
     },
   );
+
+  // protects=a reply with a stray fence line after a fact's end line, and the facts after it written with their json fences left open, has every fact and the overview in the Note, each once, none counted as left out (the shape of a reply in which Claude Haiku 5.5 lost ten facts that were neither kept nor counted, #3145); fails_when=a fact or the overview after the stray line is missing, or the fill counts one left out; no_claim=how often a model writes this.
+  test("facts after a stray fence line are read, their open fences closed", async () => {
+    const open = (frame: string) =>
+      frame
+        .split("\n")
+        .filter((_, line) => line !== 3)
+        .join("\n");
+    const model = modelFor(() => ({
+      text: [
+        `${fact("P1_F1", EARLIER)}\n\`\`\``,
+        open(fact("P1_F2", UNFINISHED, { topic: "review checklist" })),
+        open(fact("P1_F3", PURPOSE, { topic: "workshop purpose" })),
+        open(overview()),
+      ].join("\n\n"),
+    }));
+    const captured = await capture(model);
+    const { core, meeting, client } = captured;
+    try {
+      expect(await settledFill(core, meeting)).toMatchObject({
+        state: "filled",
+        omitted: 0,
+        unfinishedParts: 0,
+        problem: null,
+      });
+      const shown = readMind(client).textContent;
+      for (const text of [EARLIER, UNFINISHED, PURPOSE, OVERVIEW]) {
+        expect(shown.split(text)).toHaveLength(2);
+      }
+      expect(shown).not.toMatch(/FACT P\d_|END P\d_|"citations"|```/);
+      await undo(captured);
+    } finally {
+      core.close();
+    }
+  });
+
+  // protects=a fact the fill can't read because a stray fence line sits before its end line is counted as left out, once, and the fact and the overview after it are in the Note (#3145); fails_when=the fact after it or the overview is missing, the unreadable fact is written, or the count isn't one; no_claim=that the unreadable fact could be repaired.
+  test("a fact with a stray fence line before its end line is counted, and the facts after it are read", async () => {
+    const model = modelFor(() => ({
+      text: [
+        fact("P1_F1", EARLIER).replace("### END P1_F1", "```\n### END P1_F1"),
+        fact("P1_F2", UNFINISHED, { topic: "review checklist" }),
+        overview(),
+      ].join("\n\n"),
+    }));
+    const captured = await capture(model);
+    const { core, meeting, client } = captured;
+    try {
+      expect(await settledFill(core, meeting)).toMatchObject({
+        state: "filled",
+        omitted: 1,
+        unfinishedParts: 0,
+      });
+      const shown = readMind(client).textContent;
+      for (const text of [UNFINISHED, OVERVIEW]) expect(shown.split(text)).toHaveLength(2);
+      expect(shown).not.toContain(EARLIER);
+      await undo(captured);
+    } finally {
+      core.close();
+    }
+  });
+
+  // protects=a later part that numbers its facts the way an earlier part did has them kept (on a 45-minute call Claude Haiku 5.5 reused 18 ids, and each fact was taken for a change to the kept one and left out): a fact with another topic that cites another line is another fact, each is written once, none is counted as left out, and the next request lists them under ids of their own (#3145); fails_when=a later part's fact is missing or written twice, the fill counts one left out, or two listed facts share an id; no_claim=which ids a real model writes.
+  test("a later part that reuses an earlier part's id for another fact has both facts kept", async () => {
+    const said = [EARLIER, UNFINISHED, PURPOSE];
+    const topics = ["review schedule", "review checklist", "workshop purpose"];
+    const model = modelFor((part) => ({
+      text: `${fact("P1_F1", said[part - 1] ?? "", { topic: topics[part - 1] ?? "" })}\n\n${overview()}`,
+    }));
+    const captured = await capture(model, true);
+    const { core, meeting, client, parts } = captured;
+    try {
+      expect(await settledFill(core, meeting)).toMatchObject({
+        state: "filled",
+        omitted: 0,
+        unfinishedParts: 0,
+        problem: null,
+      });
+      const shown = readMind(client).textContent;
+      for (const text of said) expect(shown.split(text)).toHaveLength(2);
+      const listed = [
+        ...(model.calls.find(({ part }) => part === 3)?.call.prompt ?? "").matchAll(
+          /"id":"([^"]+)"/g,
+        ),
+      ].map((match) => match[1]);
+      expect(listed).toHaveLength(2);
+      expect(listed[0]).toBe("P1_F1");
+      expect(listed[1]).not.toBe("P1_F1");
+      expectRequests(
+        model,
+        parts.map(() => 2),
+      );
+      await undo(captured);
+    } finally {
+      core.close();
+    }
+  });
 
   test("a later checked correction replaces the prior fact once, with its new Citation and each part's overview and Undo", async () => {
     const model = modelFor((part) => ({
