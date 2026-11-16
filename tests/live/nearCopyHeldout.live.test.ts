@@ -15,7 +15,7 @@
  * Runs only with INCARNAMIND_LIVE_ANTHROPIC_KEY; the model is INCARNAMIND_LIVE_ANTHROPIC_MODEL
  * (Claude Haiku 5.5 by default), INCARNAMIND_LIVE_RUNS the checks of each case (1),
  * INCARNAMIND_LIVE_LANGUAGES the languages (`en,zh-CN`), INCARNAMIND_LIVE_CASES the files to run,
- * by origin (`held-out,two-part,reported,amended,beyond,second-look,condition-forms,ask-paths,root-cause`; all of them when unset),
+ * by origin (`held-out,two-part,reported,amended,beyond,second-look,condition-forms,ask-paths,root-cause,dropped-fit,dropped-held-out`; all of them when unset),
  * INCARNAMIND_LIVE_DOCUMENTS the Documents whose cases run, by key (all when unset), and
  * INCARNAMIND_LIVE_BUDGET the dollars after which no further
  * case starts (3), at the app's own count. The report, every check with its path and each part's
@@ -35,6 +35,7 @@ import { ASK_PATHS_SETS } from "./nearCopyAskPaths.cases";
 import { BEYOND_EXAMPLES_SETS } from "./nearCopyBeyondExamples.cases";
 import { CONDITION_FORMS_SETS } from "./nearCopyConditionForms.cases";
 import { CONFIRMED_SETS } from "./nearCopyConfirmed.cases";
+import { DROPPED_FIT_SETS, DROPPED_HELD_OUT_SETS } from "./nearCopyDroppedCondition.cases";
 import { NEAR_COPY_SETS, type NearCopyDocument } from "./nearCopyHeldout.cases";
 import { ROOT_CAUSE_SETS } from "./nearCopyRootCause.cases";
 import { SECOND_LOOK_SETS } from "./nearCopySecondLook.cases";
@@ -54,10 +55,35 @@ type Origin =
   | "second-look"
   | "condition-forms"
   | "ask-paths"
-  | "root-cause";
+  | "root-cause"
+  | "dropped-fit"
+  | "dropped-held-out";
 const ORIGINS = process.env.INCARNAMIND_LIVE_CASES?.split(",") ?? null;
 const DOCUMENTS = process.env.INCARNAMIND_LIVE_DOCUMENTS?.split(",") ?? null;
 const BUDGET = Number(process.env.INCARNAMIND_LIVE_BUDGET ?? 3) || 3;
+/** The case files that add Documents of their own, each with the prefix its keys carry. */
+interface ExtraSet {
+  language: "en" | "zh-CN";
+  documents: readonly NearCopyDocument[];
+  cases: readonly {
+    key: string;
+    kind: string;
+    document: string;
+    text: string;
+    decoy: boolean;
+    twoPart?: readonly [string, string];
+  }[];
+}
+const EXTRA_SETS: readonly { origin: Origin; prefix: string; sets: readonly ExtraSet[] }[] = [
+  { origin: "beyond", prefix: "beyond-", sets: BEYOND_EXAMPLES_SETS },
+  { origin: "second-look", prefix: "look-", sets: SECOND_LOOK_SETS },
+  { origin: "condition-forms", prefix: "forms-", sets: CONDITION_FORMS_SETS },
+  { origin: "ask-paths", prefix: "asks-", sets: ASK_PATHS_SETS },
+  { origin: "root-cause", prefix: "root-", sets: ROOT_CAUSE_SETS },
+  { origin: "dropped-fit", prefix: "fit-", sets: DROPPED_FIT_SETS },
+  { origin: "dropped-held-out", prefix: "held-", sets: DROPPED_HELD_OUT_SETS },
+];
+
 /** Libraries checked at once; within one, its cases are checked one after another. */
 const AT_ONCE = 3;
 
@@ -378,75 +404,25 @@ describe("held-out near copies on the judge", () => {
           probe: each.twoPart?.[1] ?? each.text,
           decoy: each.decoy,
         }));
-        const beyond = BEYOND_EXAMPLES_SETS.find((each) => each.language === set.language);
-        const beyondCases: Case[] = (beyond?.cases ?? []).map((each) => ({
-          key: `beyond-${each.key}`,
-          kind: each.kind,
-          shape: "whole",
-          origin: "beyond",
-          document: `beyond-${each.document}`,
-          sentence: each.text,
-          parts: [each.text],
-          probe: each.text,
-          decoy: each.decoy,
+        const extras = EXTRA_SETS.map(({ origin, prefix, sets }) => ({
+          prefix,
+          origin,
+          set: sets.find((each) => each.language === set.language),
         }));
-        const look = SECOND_LOOK_SETS.find((each) => each.language === set.language);
-        const lookCases: Case[] = (look?.cases ?? []).map((each) => ({
-          key: `look-${each.key}`,
-          kind: each.kind,
-          shape: each.twoPart ? "walk" : "whole",
-          origin: "second-look",
-          document: `look-${each.document}`,
-          sentence: each.text,
-          parts: each.twoPart ?? [each.text],
-          probe: each.twoPart?.[1] ?? each.text,
-          decoy: each.decoy,
-        }));
-        const forms = CONDITION_FORMS_SETS.find((each) => each.language === set.language);
-        const formCases: Case[] = (forms?.cases ?? []).map((each) => ({
-          key: `forms-${each.key}`,
-          kind: each.kind,
-          shape: "whole",
-          origin: "condition-forms",
-          document: `forms-${each.document}`,
-          sentence: each.text,
-          parts: [each.text],
-          probe: each.text,
-          decoy: each.decoy,
-        }));
-        const asks = ASK_PATHS_SETS.find((each) => each.language === set.language);
-        const askCases: Case[] = (asks?.cases ?? []).map((each) => ({
-          key: `asks-${each.key}`,
-          kind: each.kind,
-          shape: "whole",
-          origin: "ask-paths",
-          document: `asks-${each.document}`,
-          sentence: each.text,
-          parts: [each.text],
-          probe: each.text,
-          decoy: each.decoy,
-        }));
-        const roots = ROOT_CAUSE_SETS.find((each) => each.language === set.language);
-        const rootCases: Case[] = (roots?.cases ?? []).map((each) => ({
-          key: `root-${each.key}`,
-          kind: each.kind,
-          shape: "whole",
-          origin: "root-cause",
-          document: `root-${each.document}`,
-          sentence: each.text,
-          parts: [each.text],
-          probe: each.text,
-          decoy: each.decoy,
-        }));
-        const cases = [
-          ...earlier,
-          ...added,
-          ...beyondCases,
-          ...lookCases,
-          ...formCases,
-          ...askCases,
-          ...rootCases,
-        ].filter(
+        const extraCases: Case[] = extras.flatMap(({ origin, prefix, set: extra }) =>
+          (extra?.cases ?? []).map((each) => ({
+            key: `${prefix}${each.key}`,
+            kind: each.kind,
+            shape: each.twoPart ? ("walk" as const) : ("whole" as const),
+            origin,
+            document: `${prefix}${each.document}`,
+            sentence: each.text,
+            parts: each.twoPart ?? [each.text],
+            probe: each.twoPart?.[1] ?? each.text,
+            decoy: each.decoy,
+          })),
+        );
+        const cases = [...earlier, ...added, ...extraCases].filter(
           (each) =>
             (!ORIGINS || ORIGINS.includes(each.origin)) &&
             (!DOCUMENTS || DOCUMENTS.includes(each.document)),
@@ -458,26 +434,12 @@ describe("held-out near copies on the judge", () => {
           ...set.documents,
           ...(confirmed?.documents ?? []),
           ...(amended?.documents ?? []),
-          ...(beyond?.documents ?? []).map((document) => ({
-            ...document,
-            key: `beyond-${document.key}`,
-          })),
-          ...(look?.documents ?? []).map((document) => ({
-            ...document,
-            key: `look-${document.key}`,
-          })),
-          ...(forms?.documents ?? []).map((document) => ({
-            ...document,
-            key: `forms-${document.key}`,
-          })),
-          ...(asks?.documents ?? []).map((document) => ({
-            ...document,
-            key: `asks-${document.key}`,
-          })),
-          ...(roots?.documents ?? []).map((document) => ({
-            ...document,
-            key: `root-${document.key}`,
-          })),
+          ...extras.flatMap(({ prefix, set: extra }) =>
+            (extra?.documents ?? []).map((document) => ({
+              ...document,
+              key: `${prefix}${document.key}`,
+            })),
+          ),
         ].filter((document) => cases.some((each) => each.document === document.key));
         const done: Awaited<ReturnType<typeof checkLibrary>>[] = [];
         while (libraries.length > 0) {
