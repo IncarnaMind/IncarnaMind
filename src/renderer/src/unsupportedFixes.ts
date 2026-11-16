@@ -65,9 +65,15 @@ export function offersFixes(editor: Editor, claim: ShownClaim): boolean {
   );
 }
 
-/** The part a check named that the sentence's Citations don't support; null when it named none. */
-export const uncoveredOf = (claim: ShownClaim): string | null =>
-  claim.check.unsupported?.covered ? claim.check.unsupported.uncovered : null;
+/**
+ * The part a check named that the sentence's Citations don't support, or the sentence's own words
+ * for the parts the Documents don't mention (#2809); null when it named none.
+ */
+export function uncoveredOf(claim: ShownClaim): string | null {
+  const why = claim.check.unsupported;
+  if (why?.missing && why.missing.length > 0) return why.missing.join("; ");
+  return why?.covered ? why.uncovered : null;
+}
 
 /**
  * Whether a check is of a sentence with no Citation that nothing in the Documents backs, whatever its

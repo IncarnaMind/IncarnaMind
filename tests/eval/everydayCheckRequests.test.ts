@@ -185,14 +185,16 @@ const CLOSED = "The Documents don't say when the harbour closes.";
 
 /**
  * A model that answers in the assistant, citing TURNS and CLOSES, whose Answer panel's own check
- * passes the first sentence and not the second, and whose part-by-part check supports both.
+ * passes the first sentence and not the second, which its look in the Answer's scope leaves
+ * Unsupported too (#3020). `plans` is what a sentence's own check says: the part-by-part check
+ * supports both once the test sets the second.
  */
 function answeringModel() {
   const plans: Record<string, Plan> = {
     [TURNS]: { verdict: "supported", quote: TURNS },
-    [CLOSES]: { verdict: "supported", quote: CLOSES },
+    [CLOSES]: { verdict: "unsupported", says: CLOSED },
   };
-  return scriptedModel(
+  const model = scriptedModel(
     (call) => {
       if (isCheckRun(call)) return checkReply(call, plans);
       const searches = call.results.filter((result) => result.tool === "search_documents");
@@ -231,13 +233,14 @@ function answeringModel() {
       },
     },
   );
+  return { model, plans };
 }
 
 describe("The Answer panel's own check, read from the Answer the assistant gave", () => {
   // protects=an Answer asked in the assistant is read for the record once the panel's own check of its sentences has ended, with no request the app doesn't send for every Answer: each cited sentence keeps the chip the User saw beside it and whether that check passed it, beside the part-by-part check, which hears none of the panel's requests as its own; fails_when=the record reads the Answer while its Citations still wait, loses the panel's result, or counts the panel's requests as a sentence's check; no_claim=what a real model's judgement says.
   test("each cited sentence keeps the panel's chip beside the part-by-part result", async () => {
     const tokens = watchTokens();
-    const model = answeringModel();
+    const { model, plans } = answeringModel();
     const { core } = await setUpWithDocuments(model, [TIDES], {
       createChatModel: tokens.chatModels(() => model),
     });
@@ -249,6 +252,7 @@ describe("The Answer panel's own check, read from the Answer the assistant gave"
     });
     const judged = await judgedAnswer(core, answer);
     expect(judged.citations.map((citation) => citation.check)).toEqual(["found", "unsupported"]);
+    plans[CLOSES] = { verdict: "supported", quote: CLOSES };
     const [turns, closes] = await checkCitedSentences(core, judged, null, tokens.hear);
 
     expect(turns?.verdict).toBe("supported");

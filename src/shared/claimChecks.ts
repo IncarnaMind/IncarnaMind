@@ -227,6 +227,7 @@ function readCheckBasis(value: unknown): ClaimCheckBasis | null {
     ...(value.kept === true && { kept: true }),
     ...(read && { read }),
     ...(text(value.fromAnswer) !== null && { fromAnswer: text(value.fromAnswer) as string }),
+    ...(value.citedOnly === true && { citedOnly: true }),
   };
   if (value.parts !== undefined && value.parts !== null) {
     const parts = readClaimParts(value.parts, check.text, check.state);

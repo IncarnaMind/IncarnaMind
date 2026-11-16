@@ -135,7 +135,9 @@ function editedText(action: string, passage: string, asked: string): string {
       const listed = PARTLY.find((each) => each.when.test(passage));
       if (listed) return `${listed.cut}${markers}`;
       const part = /support this part of it: ([\s\S]*?)\. Take out only/.exec(asked)?.[1] ?? "";
-      return part === "" ? passage : passage.split(part).join("");
+      if (part === "") return passage;
+      // With the comma an item of a list leaves hanging.
+      return passage.split(part).join("").replace(/,\s*,/g, ",").replace(/、、/gu, "、");
     }
     case "follow-citation": {
       const words = /“([^”]*)”/.exec(asked)?.[1] ?? "";

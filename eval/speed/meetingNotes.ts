@@ -4,19 +4,21 @@
  * Transcript (#142) on the User's Answers model. From Stop: the first sign the meeting bar shows
  * (the notes waiting or being filled in), when the notes go into the page, and the end; whether
  * they cite each line the case rests on; whether they give what the case expects; and every
- * sentence a found Citation backs whose quote doesn't say it. Notes only partly filled in fail.
+ * sentence with a found Citation that states something its lines of the call don't say. Notes only
+ * partly filled in fail.
  */
 
 import { statSync } from "node:fs";
-import { generateText, type LanguageModel } from "ai";
 import type { Core, MeetingFill, SpeakerSeparator } from "../../src/core";
 import { toolTextIn } from "../../src/core/answers/toolText";
 import { isPartialMeetingFill } from "../../src/shared/meetingFill";
 import { connectToMind } from "../../tests/helpers/mindClient";
 import { readMind } from "../../tests/helpers/minds";
 import { NO_SPEAKER_FILES } from "../../tests/helpers/transcription";
-import { type Judged, openCall, quotes, readJudged } from "./callHelp";
+import { openCall, quotes } from "./callHelp";
+import { callOf } from "./callHelpCases";
 import { MEETING_NOTES_CASES, type MeetingNotesCase } from "./meetingNotesCases";
+import { judgeNotes, type NotesCitation, savedLines } from "./meetingNotesJudge";
 import type { Measured, PairedGroup, PairedItem } from "./paired";
 import { citedText } from "./unstated";
 
@@ -24,49 +26,6 @@ import { citedText } from "./unstated";
 const NOTES_TIMEOUT_MS = 5 * 60_000;
 const POLL_MS = 100;
 const SETTLED = new Set<MeetingFill["state"]>(["filled", "failed", "off", "undone"]);
-
-const JUDGE = [
-  "You grade the notes IncarnaMind filled in from a call's transcript after the User pressed Stop.",
-  "<expected> says what right notes give. Grade them: right when they give all of it, in any wording or language; partly when they give only some of it, or state something the call contradicts; wrong when they give none of it.",
-  "Then read each sentence that carries a Citation number [n] against the words that Citation quotes, in <citations>: list n when the sentence states as so something its quoted words don't say, such as a figure, a date, a name or a commitment.",
-  'Reply with JSON and nothing else: {"grade": "right" | "partly" | "wrong", "unstated": [n, ...]}',
-].join("\n");
-
-async function judge(model: LanguageModel, each: MeetingNotesCase, notes: string, cited: string[]) {
-  const prompt = [
-    `<expected>${each.facts}</expected>`,
-    "<notes>",
-    notes,
-    "</notes>",
-    "<citations>",
-    ...cited,
-    "</citations>",
-  ].join("\n");
-  const first = await generateText({
-    model,
-    instructions: JUDGE,
-    prompt,
-    maxOutputTokens: 400,
-    maxRetries: 1,
-  });
-  const judged = readJudged(first.text);
-  if (judged) return judged;
-  const again = await generateText({
-    model,
-    instructions: JUDGE,
-    messages: [
-      { role: "user", content: prompt },
-      { role: "assistant", content: first.text },
-      { role: "user", content: "Now give only the JSON object, as the instructions say." },
-    ],
-    maxOutputTokens: 200,
-    maxRetries: 1,
-  });
-  const read = readJudged(again.text);
-  if (read) return read;
-  console.error(`The judge's reply couldn't be read: ${again.text.slice(0, 200)}`);
-  return { grade: "unread", unstated: [] } satisfies Judged;
-}
 
 const fillOf = async (core: Core, meetingId: string) =>
   (await core.listMeetings()).find((each) => each.id === meetingId) ?? null;
@@ -125,20 +84,20 @@ function item(each: MeetingNotesCase): PairedItem {
       const notes = citedText(readMind(client));
       const found = notes.citations.filter((citation) => citation.check === "found");
       const filled = fill.state === "filled";
+      const cited: NotesCitation[] = notes.citations.map((citation) => ({
+        documentName: citation.documentName ?? "?",
+        quote: citation.quote ?? "",
+        check: citation.check ?? "unchecked",
+      }));
       const judged = filled
-        ? await judge(
-            claimsJudge,
-            each,
-            notes.text,
-            notes.citations.map(
-              (citation, index) =>
-                `[${index + 1}] ${citation.documentName ?? "?"}: “${citation.quote ?? ""}” (${citation.check ?? "unchecked"})`,
-            ),
-          )
+        ? await judgeNotes(claimsJudge, {
+            expected: each.facts,
+            notes: notes.text,
+            citations: cited,
+            turns: callOf(each.call),
+          })
         : null;
-      const unstatedFound = (judged?.unstated ?? []).filter(
-        (number) => notes.citations[number - 1]?.check === "found",
-      );
+      const unstated = judged?.unstated ?? [];
       return {
         status: filled ? "done" : "failed",
         error: filled
@@ -165,7 +124,7 @@ function item(each: MeetingNotesCase): PairedItem {
             )
           : null,
         grade: judged?.grade === "unread" ? null : (judged?.grade ?? null),
-        falseSupported: unstatedFound.length,
+        falseSupported: unstated.length,
         duplicate: false,
         failures: [
           ...(toolTextIn(notes.text).length > 0 ? ["tool-text"] : []),
@@ -175,14 +134,7 @@ function item(each: MeetingNotesCase): PairedItem {
         ],
         firstSignMs,
         firstWordsMs,
-        text: [
-          notes.text,
-          ...notes.citations.map(
-            (citation, index) =>
-              `[${index + 1}] [${citation.check ?? "unchecked"}] ${citation.documentName ?? "?"}: “${citation.quote ?? ""}”`,
-          ),
-          ...(unstatedFound.length > 0 ? [`[unstated] ${unstatedFound.join(", ")}`] : []),
-        ].join("\n"),
+        text: [notes.text, ...savedLines(cited, unstated)].join("\n"),
       } satisfies Measured;
     },
   };

@@ -1400,6 +1400,9 @@ export const en = {
   "claim.readDocuments.separator": "; ",
   "claim.readDocuments.each": "{name} ({places})",
   "claim.checkedIn.more": "Checked against “{scope}” and {count} more",
+  "claim.checkedIn.citations": "Checked against its Citations in “{document}”",
+  "claim.checkedIn.citations.more":
+    "Checked against its Citations in “{document}” and {count} more",
   "claim.limit": "Can miss a change of obligation, such as should for may",
   "claim.ownNote": "Supported by your own note",
   "claim.ownSource": "Your own record, not an outside source",
@@ -1411,6 +1414,8 @@ export const en = {
   "claim.unsupported.documentsCover":
     "Your Documents support {covered}, not the parts about {uncovered}.",
   "claim.unsupported.noReason": "The check gave no reason",
+  "claim.unsupported.dontMention": "Your Documents don’t mention: {parts}",
+  "claim.unsupported.dontMention.separator": ", ",
   "claim.unsupported.currency.reason": "The Document gives {amount} without a currency.",
   "claim.unsupported.currency.covered": "the amount, {amount}",
   "claim.unsupported.currency.uncovered": "the currency ({currency})",
@@ -7010,6 +7015,8 @@ export const en = {
   "meetings.fill.checkingLocal.one": "Checking {count} claim on this computer…",
   "meetings.fill.checkingLocal": "Checking {count} claims on this computer…",
   "meetings.fill.fillingLocal": "Filling in the note on this computer…",
+  "meetings.fill.fillingPart": "Filling in the note, part {part} of {total}…",
+  "meetings.fill.fillingPartLocal": "Filling in the note on this computer, part {part} of {total}…",
   "meetings.fill.filled": "Note filled in from the call",
   "meetings.fill.partial": "Note partly filled in",
   "meetings.fill.omitted.one": "{count} item couldn’t be added",

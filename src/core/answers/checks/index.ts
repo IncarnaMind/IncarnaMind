@@ -130,6 +130,7 @@ import type { RepliesOut } from "../../runs/replies";
 import { parseSearchScope } from "../../scope";
 import type { AnswerEngine } from "../engine";
 import { type AnswerCheckInput, createAnswerCheck } from "./answerCheck";
+import { lookResult } from "./answerLook";
 import { figureContextIn } from "./calculationLedger";
 import { checkRunStart } from "./checkRun";
 import {
@@ -1858,6 +1859,24 @@ export function createChecks(options: ChecksOptions) {
     },
     spent: (runId, currency) => options.readSpent(runId, currency).amount,
     capLeft: () => options.capLeft(),
+    look: async ({ sentence, context, citations, cited, scope, mindId, model, signal }) => {
+      const outcome = await runCheck(
+        claimCheck,
+        {
+          claim: sentence,
+          context,
+          cited,
+          scope,
+          model,
+          ...(mindId && { cacheKey: mindId }),
+          opinionsLeftOut: true,
+          signal,
+        },
+        // Part of the Answer's own check, which started by itself: behind a reply, as its batches are (#2944).
+        checkRunOf(options, model, signal, null, { behindReplies: true }),
+      );
+      return "result" in outcome ? lookResult(outcome.result, sentence, citations) : null;
+    },
   });
 
   const wholeRead = createWholeRead({
