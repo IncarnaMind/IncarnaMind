@@ -469,3 +469,144 @@ describe("Quoted sentences with Citations of their own, and single marks for apo
     expect(split(answer).map(([sentence]) => sentence)).toEqual(sentences);
   });
 });
+
+describe("A paragraph's lines are read as one before its sentences are split (#3213)", () => {
+  // protects=a sentence wrapped over a line break is one cited sentence with all its Citations, not pieces too short to be claims; fails_when=each line is read alone, the sentence is never judged and its Citation reads found beside it; no_claim=how the Note's own paragraphs split
+  test.each([
+    [
+      "English, in the middle of a sentence",
+      "The plan prices two K9 kilns at £185,000,\ninstalled [^1]. Installation is in\nFebruary 2027 [^2].",
+      [
+        ["The plan prices two K9 kilns at £185,000, installed.", [1]],
+        ["Installation is in February 2027.", [2]],
+      ],
+    ],
+    [
+      "Chinese, in the middle of a sentence",
+      "窑炉计划的价格是 £185,000，包括两台 K9 窑炉，并\n装好[^1]。安装计划在 2027 年\n2月[^2]。",
+      [
+        ["窑炉计划的价格是 £185,000，包括两台 K9 窑炉，并装好。", [1]],
+        ["安装计划在 2027 年 2月。", [2]],
+      ],
+    ],
+    [
+      "Chinese, between two characters",
+      "报告称培训覆盖率达到\n98%[^1]。",
+      [["报告称培训覆盖率达到 98%。", [1]]],
+    ],
+    [
+      "English, a line break between two sentences",
+      "Costs fell 4% in 2026 [^1].\nRevenue grew 6% in the same year [^2].",
+      [
+        ["Costs fell 4% in 2026.", [1]],
+        ["Revenue grew 6% in the same year.", [2]],
+      ],
+    ],
+    [
+      "Chinese, a line break between two sentences",
+      "2026 年成本下降了 4%[^1]。\n同年收入增长了 6%[^2]。",
+      [
+        ["2026 年成本下降了 4%。", [1]],
+        ["同年收入增长了 6%。", [2]],
+      ],
+    ],
+  ] as const)("%s", (_kind, text, expected) => {
+    expect(split(text)).toEqual(expected);
+  });
+
+  // protects=prose hard-wrapped at a fixed width, whose lines are claim-sized and go on in lower case, is read as the sentences it holds; fails_when=each line is judged as a sentence of its own and a Citation's ✓ speaks for a tail the head of its sentence isn't judged with
+  test("prose wrapped at 80 columns is read as its sentences", () => {
+    expect(
+      split(
+        [
+          "The plan prices two K9 kilns at £185,000 and says they are already installed in",
+          "the main hall at the Stoke site, with the cost split across two years [^1].",
+          "Installation is planned for February 2027, after the supplier confirms the order",
+          "and the board signs off the budget [^2].",
+        ].join("\n"),
+      ),
+    ).toEqual([
+      [
+        "The plan prices two K9 kilns at £185,000 and says they are already installed in the main hall at the Stoke site, with the cost split across two years.",
+        [1],
+      ],
+      [
+        "Installation is planned for February 2027, after the supplier confirms the order and the board signs off the budget.",
+        [2],
+      ],
+    ]);
+  });
+
+  test("a list item goes on over its next lines, and the next item starts its own sentence", () => {
+    expect(
+      split(
+        "- The plan prices two kilns at £185,000,\n  installed [^1].\n- Installation is in February 2027 [^2].",
+      ),
+    ).toEqual([
+      ["The plan prices two kilns at £185,000, installed.", [1]],
+      ["Installation is in February 2027.", [2]],
+    ]);
+  });
+
+  test.each([
+    [
+      "a heading",
+      "# Costs\nThe cost is £185,000 for two kilns [^1].",
+      [["The cost is £185,000 for two kilns.", [1]]],
+    ],
+    [
+      "a quote",
+      "Costs fell 4% in 2026 [^1].\n> Revenue grew 6% in the same year [^2].",
+      [
+        ["Costs fell 4% in 2026.", [1]],
+        ["Revenue grew 6% in the same year.", [2]],
+      ],
+    ],
+    [
+      "a table row",
+      "| Item | Detail |\n| Cost | £185,000 for two kilns [^1] |\n| Installation | February 2027 [^2] |",
+      [
+        ["Cost £185,000 for two kilns", [1]],
+        ["Installation February 2027", [2]],
+      ],
+    ],
+    [
+      "a footnote line",
+      "Costs fell 4% in 2026 [^1].\n[^1]: Kiln plan, p. 3",
+      [["Costs fell 4% in 2026.", [1]]],
+    ],
+    [
+      "a code fence",
+      "Costs fell 4% in 2026 [^1].\n```\nrevenue grew 6% in the same year [^2]\n```",
+      [
+        ["Costs fell 4% in 2026.", [1]],
+        ["revenue grew 6% in the same year", [2]],
+      ],
+    ],
+  ] as const)("%s starts a unit of its own", (_kind, text, expected) => {
+    expect(split(text)).toEqual(expected);
+  });
+
+  test("a line that is a claim of its own stays its own, as label and value lines are", () => {
+    expect(
+      split("Cost: £185,000 for two kilns [^1]\nInstallation: planned for February 2027 [^2]"),
+    ).toEqual([
+      ["Cost: £185,000 for two kilns", [1]],
+      ["Installation: planned for February 2027", [2]],
+    ]);
+    expect(split("费用：£185,000，两台 K9 窑炉[^1]\n安装：计划在 2027 年 2 月进行[^2]")).toEqual([
+      ["费用：£185,000，两台 K9 窑炉", [1]],
+      ["安装：计划在 2027 年 2 月进行", [2]],
+    ]);
+  });
+
+  test("a hard break ends the line before it, two trailing spaces or a backslash", () => {
+    expect(split("Costs fell 4% in 2026 [^1].  \nRevenue grew 6% in the same year [^2].")).toEqual([
+      ["Costs fell 4% in 2026.", [1]],
+      ["Revenue grew 6% in the same year.", [2]],
+    ]);
+    expect(split("Costs fell 4% in 2026,  \nthe kilns were installed [^1].")).toEqual([
+      ["the kilns were installed.", [1]],
+    ]);
+  });
+});
