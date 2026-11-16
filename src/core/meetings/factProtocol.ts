@@ -331,6 +331,28 @@ function sessionReceipts(citations: readonly MarkedCitation[]) {
   return receipts;
 }
 
+/**
+ * Markers written side by side can carry one record: asked for its records, a model gives the
+ * sentence one, and the marker beside it takes the same (#3145). The sentence shows that Citation
+ * once.
+ */
+function withoutRepeatedCitations(body: NodeJSON): NodeJSON {
+  const content: NodeJSON[] = [];
+  for (const child of body.content ?? []) {
+    const before = content.findLast((each) => each.type !== "text" || each.text?.trim() !== "");
+    if (
+      child.type === CITATION_NODE &&
+      before?.type === CITATION_NODE &&
+      sameValue(before, child)
+    ) {
+      content.length = content.lastIndexOf(before) + 1;
+      continue;
+    }
+    content.push(child);
+  }
+  return { ...body, content };
+}
+
 function checkedBody(
   frame: Frame,
   required: readonly number[],
@@ -358,8 +380,9 @@ function checkedBody(
     return "markers";
   const generated = asGenerated([body])[0];
   if (!generated || !sameValue(asGenerated(projected)[0], generated)) return "text";
-  const citations = (generated.content ?? []).filter((child) => child.type === CITATION_NODE);
-  return citations.length > 0 ? { body: generated, citations } : "noCitation";
+  const shown = withoutRepeatedCitations(generated);
+  const citations = (shown.content ?? []).filter((child) => child.type === CITATION_NODE);
+  return citations.length > 0 ? { body: shown, citations } : "noCitation";
 }
 
 /**
