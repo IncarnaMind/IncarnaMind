@@ -294,6 +294,14 @@ const HELD_OUT: readonly HeldOut[] = [
     right: "期末在册会员为 3,260 人。",
     wrong: "期末在册会员为 3,620 人。",
   }),
+  // en-a5's sentences over a Document long enough to tell how it writes its numbers (#3190).
+  ...pair("en-e4", "comparative", "en", {
+    document:
+      "This is the staff report of the group for the half year. Headcount at 30 June stood at 1,240, against 1,115 a year earlier. The board has noted the report.",
+    right: "Headcount was 1,240 at the end of June, higher than the 1,115 of a year earlier.",
+    wrong: "Headcount was 1,240 at the end of June, lower than the 1,115 of a year earlier.",
+    parts: ["higher than the 1,115 of a year earlier", "lower than the 1,115 of a year earlier"],
+  }),
   ...pair("zh-e2", "short-note", "zh-CN", {
     document: "期末在职员工 412 人，年初为 389 人。",
     right: "在职员工人数比年初有所增加。",

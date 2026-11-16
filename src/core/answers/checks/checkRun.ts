@@ -93,84 +93,6 @@ function figuresReplied(
     asking(text);
     return finding;
   };
-  /** What a reply's Figures line leaves unread: each source's problem, and the markers it names that no cite recorded. */
-  const unreadSources = (text: string) => {
-    const read = asked(text) ? readFigureReply(text, figures, request.claim) : null;
-    if (!read) return null;
-    // A supported figure with no source must record its quote, not only write it in prose:
-    // told to give its source, Claude Haiku 5.5 wrote a marker and no cite, and the check ended
-    // no-evidence with a quote the reader could see.
-    let needsCite = false;
-    const problems = read.items.flatMap((item) => {
-      const target = figures.find((figure) => figure.id === item.id);
-      if (!target) return [];
-      if (item.verdict !== "supported") {
-        const judged = item.topic === "found" && item.scope === "same" && item.roles === "same";
-        const source =
-          judged && item.verdict === "contradicted" && item.source
-            ? readFigureSource(calculations, target, item.source)
-            : null;
-        if (source && "input" in source && givesItsOwnNumber(target, source.input))
-          return [
-            `${target.reading.chars}: you call it contradicted, but its source gives the same number, ${source.input.number.chars}; give as source the number the Document gives for its own subject, period, column and unit, or the verdict that number gives.`,
-          ];
-        // Claude Haiku 5.5 left a case it could read undecided: it gave neither the number the
-        // Document states nor what differs, so its verdict rests on nothing a reader can see.
-        // An Analysis's figure and a saved calculation have no source in a Document by design.
-        return !target.calculated &&
-          target.analysisRecord == null &&
-          item.source === null &&
-          item.calculation === null &&
-          item.says === null
-          ? [
-              `${target.reading.chars}: you give neither the Document's number nor what differs; give as source the number the Document gives for its own subject, period, column and unit, with the reading its context takes where its readings offer one, or the verdict that number gives.`,
-            ]
-          : [];
-      }
-      if (!item.source && item.calculation !== null && !calculations.figure(item.calculation))
-        return [
-          `${target.reading.chars}: calculation [=${item.calculation}] wasn't worked out in this check; call calculate for it, or give its source.`,
-        ];
-      if (!item.source) {
-        if (item.calculation !== null || target.calculated) return [];
-        needsCite = true;
-        return [
-          `${target.reading.chars}: a supported figure needs its source (a quote recorded with cite, and the number as it writes it) or its calculation.`,
-        ];
-      }
-      const source = readFigureSource(calculations, target, item.source);
-      return "problem" in source ? [`${target.reading.chars}: ${source.problem}`] : [];
-    });
-    const remainder = read.remainder?.citation;
-    if (remainder && !recorded(remainder))
-      problems.push(`remainder: [^${remainder}] isn't recorded; record it with cite first.`);
-    const unrecorded = [
-      ...new Set(
-        [
-          ...read.items.flatMap((item) =>
-            item.verdict === "supported" && item.source?.citation ? [item.source.citation] : [],
-          ),
-          ...(remainder ? [remainder] : []),
-        ].filter((marker) => !recorded(marker)),
-      ),
-    ];
-    return { problems, unrecorded, needsCite };
-  };
-  type Unread = NonNullable<ReturnType<typeof unreadSources>>;
-  const sourcesAsked = (name: string, asks: (unread: Unread) => boolean): TurnCheck => ({
-    name,
-    check(last, setAside = []) {
-      const text = across(last, setAside);
-      const unread = unreadSources(text);
-      return unread && asks(unread)
-        ? ask(text, {
-            claims: [],
-            note: figureSourcesNote(unread.problems, unread.unrecorded),
-            ...((unread.unrecorded.length > 0 || unread.needsCite) && { requires: "cite" }),
-          })
-        : null;
-    },
-  });
   return [
     {
       name: "figures-line",
@@ -206,15 +128,78 @@ function figuresReplied(
           : null;
       },
     },
-    // A marker no cite recorded is asked for under a name of its own. Its source can't be read
-    // until the quote is there, so a reading or a unit line the recorded quote still needs is a
-    // second question: with one name for both, Claude Haiku 5.5's one ask went to the quote of a
-    // count written "1,240", and the reading it gives when asked was never asked for (#3190).
-    sourcesAsked("figures-cite", ({ unrecorded }) => unrecorded.length > 0),
-    sourcesAsked(
-      "figures-sources",
-      ({ problems, unrecorded }) => unrecorded.length === 0 && problems.length > 0,
-    ),
+    {
+      name: "figures-sources",
+      check(last, setAside = []) {
+        const text = across(last, setAside);
+        const read = asked(text) ? readFigureReply(text, figures, request.claim) : null;
+        if (!read) return null;
+        // A supported figure with no source must record its quote, not only write it in prose:
+        // told to give its source, Claude Haiku 5.5 wrote a marker and no cite, and the check ended
+        // no-evidence with a quote the reader could see.
+        let needsCite = false;
+        const problems = read.items.flatMap((item) => {
+          const target = figures.find((figure) => figure.id === item.id);
+          if (!target) return [];
+          if (item.verdict !== "supported") {
+            const judged = item.topic === "found" && item.scope === "same" && item.roles === "same";
+            const source =
+              judged && item.verdict === "contradicted" && item.source
+                ? readFigureSource(calculations, target, item.source)
+                : null;
+            if (source && "input" in source && givesItsOwnNumber(target, source.input))
+              return [
+                `${target.reading.chars}: you call it contradicted, but its source gives the same number, ${source.input.number.chars}; give as source the number the Document gives for its own subject, period, column and unit, or the verdict that number gives.`,
+              ];
+            // Claude Haiku 5.5 left a case it could read undecided: it gave neither the number the
+            // Document states nor what differs, so its verdict rests on nothing a reader can see.
+            // An Analysis's figure and a saved calculation have no source in a Document by design.
+            return !target.calculated &&
+              target.analysisRecord == null &&
+              item.source === null &&
+              item.calculation === null &&
+              item.says === null
+              ? [
+                  `${target.reading.chars}: you give neither the Document's number nor what differs; give as source the number the Document gives for its own subject, period, column and unit, with the reading its context takes where its readings offer one, or the verdict that number gives.`,
+                ]
+              : [];
+          }
+          if (!item.source && item.calculation !== null && !calculations.figure(item.calculation))
+            return [
+              `${target.reading.chars}: calculation [=${item.calculation}] wasn't worked out in this check; call calculate for it, or give its source.`,
+            ];
+          if (!item.source) {
+            if (item.calculation !== null || target.calculated) return [];
+            needsCite = true;
+            return [
+              `${target.reading.chars}: a supported figure needs its source (a quote recorded with cite, and the number as it writes it) or its calculation.`,
+            ];
+          }
+          const source = readFigureSource(calculations, target, item.source);
+          return "problem" in source ? [`${target.reading.chars}: ${source.problem}`] : [];
+        });
+        const remainder = read.remainder?.citation;
+        if (remainder && !recorded(remainder))
+          problems.push(`remainder: [^${remainder}] isn't recorded; record it with cite first.`);
+        const unrecorded = [
+          ...new Set(
+            [
+              ...read.items.flatMap((item) =>
+                item.verdict === "supported" && item.source?.citation ? [item.source.citation] : [],
+              ),
+              ...(remainder ? [remainder] : []),
+            ].filter((marker) => !recorded(marker)),
+          ),
+        ];
+        return problems.length > 0 || unrecorded.length > 0
+          ? ask(text, {
+              claims: [],
+              note: figureSourcesNote(problems, unrecorded),
+              ...((unrecorded.length > 0 || needsCite) && { requires: "cite" }),
+            })
+          : null;
+      },
+    },
   ];
 }
 
