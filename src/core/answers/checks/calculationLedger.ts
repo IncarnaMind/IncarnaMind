@@ -18,12 +18,15 @@ import {
 import type { AnswerDocuments, createCitationSession } from "../citations";
 import type { AnswerTools, CiteOptions } from "../engine";
 import type { NotJudged } from "../judge";
-import { agreesWith, comparedFigure, statedFigure } from "./calculated";
+import { agreesWith, comparedFigure, figuresInClaim, statedFigure } from "./calculated";
 import { needsCalculation, quotesHoldNumbers } from "./calculationGate";
 import { foundCitations, uniqueCitations } from "./checkResults";
 import type { AtomicClaimCheckResult, ClaimCheckRequest } from "./claimCheck";
 import { compare } from "./looks";
 import { type ReadVerdict, readJudgement, STRICT_INSTRUCTIONS } from "./prompt";
+
+const NOTHING_TO_SETTLE =
+  "This sentence states no quantity, so this calculation settles nothing in it. Give your verdict from the quotes you recorded.";
 
 interface StatedNumber {
   number: string;
@@ -73,6 +76,16 @@ export function createCalculationLedger(
   /** The sentence's number each figure is for, as the model named it, and how, by marker. */
   const stated = new Map<number, StatedNumber>();
   const figureContext = figureContextIn(documents);
+  const ownContext = documentFigureContext([{ text: request.claim }]);
+  /** Whether the sentence gives a number a calculation could be for: one it writes, or one `given` names in its words. */
+  const statesQuantity = (given: readonly unknown[]) =>
+    figuresInClaim(request.claim, ownContext).length > 0 ||
+    given.some((each) => {
+      const { stated } = (typeof each === "object" && each !== null ? each : {}) as {
+        stated?: unknown;
+      };
+      return typeof stated === "string" && statedFigure(request.claim, stated.trim(), {}) !== null;
+    });
   const tools: Required<Pick<AnswerTools, "calculate" | "calculationFailed">> = {
     calculationFailed() {
       attempts++;
@@ -84,6 +97,11 @@ export function createCalculationLedger(
       // An empty list works nothing out: Claude Haiku 5.5 sends one beside a plain cite, and the
       // quote alone decides such a sentence (#2002).
       if (given.length === 0) return figures.calculate(given, options);
+      // A sentence that states no quantity leaves a calculation nothing to settle: Claude Haiku 5.5
+      // works out a difference beside its quote for "门店数量比上年有所增加", and the quote decides
+      // such a sentence as it does without the call (#3190).
+      if (!statesQuantity(given))
+        return `${figures.calculate(givenList(given), options)}\n${NOTHING_TO_SETTLE}`;
       attempts++;
       if (calculationFailures >= 2)
         return "The calculation and its repair were refused. Finish the check and say the arithmetic could not be checked.";
