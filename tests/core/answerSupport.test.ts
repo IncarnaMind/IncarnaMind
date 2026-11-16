@@ -152,6 +152,53 @@ describe("a sentence its quote doesn't support loses its green check", () => {
     expect(checkOf(citations, 2)?.verdict).toBeUndefined();
   });
 
+  // protects=a sentence the model wrapped over a line break is judged as the one sentence it is, so the verdict lands on its Citation; fails_when=each line is read alone, the sentence is never judged and its Citation reads found beside a sentence nobody judged (#3213); no_claim=how the Note's paragraphs split
+  test.each([
+    {
+      language: "English",
+      question: "How much does the kiln upgrade cost, and when is it installed?",
+      lines: [
+        "The upgrade costs £185,000 for two K9 kilns, which are",
+        "already installed [^1]. Installation is planned for",
+        "February 2027 [^2].",
+      ],
+      wrong: "The upgrade costs £185,000 for two K9 kilns, which are already installed.",
+      right: "Installation is planned for February 2027.",
+      says: "The slide says the two K9 kilns are to be installed in February 2027.",
+    },
+    {
+      language: "Chinese",
+      question: "窑炉升级要花多少钱？什么时候安装？",
+      lines: [
+        "窑炉升级计划的费用是 £185,000，包括两台 K9 窑炉，并",
+        "装好[^1]。安装计划在 2027 年",
+        "2月[^2]。",
+      ],
+      wrong: "窑炉升级计划的费用是 £185,000，包括两台 K9 窑炉，并装好。",
+      right: "安装计划在 2027 年 2月。",
+      says: "幻灯片说两台 K9 窑炉将于 2027 年 2 月安装，尚未安装。",
+    },
+  ])("a sentence wrapped over a line break, in $language, is judged whole", async (each) => {
+    const plans: Record<string, Plan> = {
+      [each.wrong]: { verdict: "contradicted", quote: INSTALLATION, says: each.says },
+      [each.right]: { verdict: "supported", quote: INSTALLATION, says: each.right },
+    };
+    const { core } = await setUpWithDocuments(
+      answeringModel("kilns installed cost", each.lines.join("\n"), [COST, INSTALLATION], plans),
+      [KILN_DECK],
+    );
+
+    const citations = await citationsOfAnswer(core, each.question);
+
+    expect(checkOf(citations, 1)).toMatchObject({
+      quote: COST,
+      check: "contradicted",
+      verdict: each.says,
+    });
+    expect(checkOf(citations, 2)).toMatchObject({ quote: INSTALLATION, check: "found" });
+    expect(checkOf(citations, 2)?.verdict).toBeUndefined();
+  });
+
   test.each([
     {
       language: "English",
