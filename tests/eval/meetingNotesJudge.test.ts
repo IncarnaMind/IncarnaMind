@@ -111,6 +111,7 @@ describe("the meeting-notes judge's replies", () => {
       readVerdicts('{"items": [{"n": 1, "said": true}, {"n": 1, "said": false}]}', 2),
     ).toBeNull();
     expect(readVerdicts('{"items": [{"n": 1, "said": "mostly"}]}', 1)).toBeNull();
+    expect(readVerdicts('{"items": [{"n": 1, "said": false, "why": " "}]}', 1)).toBeNull();
     expect(readVerdicts('{"items": [{"n": 3, "said": true}]}', 1)).toBeNull();
     expect(readVerdicts("I can't check these.", 1)).toBeNull();
   });
@@ -172,7 +173,11 @@ describe("the meeting-notes judge", () => {
     const notes = Array.from({ length: 12 }, (_, index) => `Point ${index + 1}.[1]`).join("\n");
     const said = (count: number) =>
       JSON.stringify({
-        items: Array.from({ length: count }, (_, index) => ({ n: index + 1, said: index !== 1 })),
+        items: Array.from({ length: count }, (_, index) =>
+          index === 1
+            ? { n: 2, said: false, why: "no line says it" }
+            : { n: index + 1, said: true },
+        ),
       });
     const judge = scripted(['{"grade": "right"}', said(10), said(2)]);
     const judged = await judgeNotes(judge.model, { ...input, notes });
@@ -197,6 +202,13 @@ describe("a run's saved notes", () => {
       "[unstated] 1: the line doesn't say what was agreed: a session",
     );
     expect(savedNotes(text)).toEqual({ notes, citations, unstated: [1] });
+  });
+
+  it("are read back when a quote was written over two lines", () => {
+    const broken = [{ documentName: "Transcript", quote: "Let's do\nthat.", check: "found" }];
+    expect(savedNotes([notes, ...savedLines(broken, [])].join("\n")).citations).toEqual([
+      { documentName: "Transcript", quote: "Let's do that.", check: "found" },
+    ]);
   });
 
   it("are read back from a run saved before the reasons were kept", () => {

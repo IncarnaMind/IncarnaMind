@@ -116,7 +116,10 @@ export function readGrade(text: string): NotesJudged["grade"] | null {
     : "unread";
 }
 
-/** The judge's verdict for each of `count` items, or null unless its reply gives every one once. */
+/**
+ * The judge's verdict for each of `count` items, or null unless its reply gives every one once,
+ * with a reason for each it says is not said.
+ */
 export function readVerdicts(text: string, count: number): { said: boolean; why: string }[] | null {
   const read = jsonIn(text);
   if (typeof read !== "object" || read === null || !("items" in read)) return null;
@@ -127,8 +130,10 @@ export function readVerdicts(text: string, count: number): { said: boolean; why:
     if (!("n" in each) || typeof each.n !== "number") return null;
     if (!("said" in each) || typeof each.said !== "boolean") return null;
     if (verdicts.has(each.n)) return null;
-    const why = "why" in each && typeof each.why === "string" ? each.why : "";
-    verdicts.set(each.n, { said: each.said, why: why.replace(/\s+/g, " ").trim().slice(0, 200) });
+    const given = "why" in each && typeof each.why === "string" ? each.why : "";
+    const why = given.replace(/\s+/g, " ").trim().slice(0, 200);
+    if (!each.said && why === "") return null;
+    verdicts.set(each.n, { said: each.said, why });
   }
   const inOrder = Array.from({ length: count }, (_, index) => verdicts.get(index + 1));
   return verdicts.size === count && inOrder.every((verdict) => verdict !== undefined)
@@ -235,7 +240,7 @@ export const savedLines = (
 ) => [
   ...citations.map(
     (citation, index) =>
-      `[${index + 1}] [${citation.check}] ${citation.documentName}: “${citation.quote}”`,
+      `[${index + 1}] [${citation.check}] ${citation.documentName}: “${citation.quote.replace(/\s+/g, " ")}”`,
   ),
   ...unstated.map(({ n, why }) => `[unstated] ${n}: ${why}`),
 ];

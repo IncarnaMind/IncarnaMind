@@ -107,6 +107,9 @@ test.skipIf(env("REJUDGE_NOTES") === null)(
   async () => {
     const path = env("REJUDGE_NOTES") ?? "";
     const readings = Number(env("READINGS") ?? "1");
+    if (readings !== 1 && readings !== 2) {
+      throw new Error("INCARNAMIND_EVAL_SPEED_READINGS is 1 or 2: nothing was sent.");
+    }
     const read: { rows: PairedRow[] } = JSON.parse(await readFile(path, "utf8"));
     const rows = read.rows.filter((row) => row.set === "meeting-notes");
     const controls = CONTROLS.map(controlOf);
