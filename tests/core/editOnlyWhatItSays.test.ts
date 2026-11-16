@@ -199,6 +199,21 @@ describe.each(["en", "zh"] as const)(
       },
     );
 
+    // protects=a reply that names no paragraph and quotes the last one as taken out is read the same: words that ask for no removal wait for the User, as the window's scripted model writes it; fails_when=a nameless quote of a whole paragraph applies unasked; no_claim=how often a real model leaves out the names.
+    test("a nameless reply that quotes the last paragraph: the quote waits", async () => {
+      const keep = lines.slice(0, -1).join("\n\n");
+      const { core, mind, client, asked } = await noteOf(
+        lines,
+        () => `${keep}\n\n<removed>${lines.at(-1)}</removed>`,
+        "no",
+      );
+
+      const result = await core.editWithAi(wholeMind(client, mind.id, SHORT_ASK));
+
+      expect(result).toMatchObject({ kind: "proposed", held: true });
+      expect(asked).toHaveLength(1);
+    });
+
     // protects=the question is asked only when a reply quotes a whole paragraph: a sentence quoted from a paragraph, or no quote at all, asks nothing; fails_when=every edit asks the small model; no_claim=none.
     test("a part quote, or no quote, asks nothing", async () => {
       const [first = ""] = lines;

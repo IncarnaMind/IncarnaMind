@@ -320,6 +320,42 @@ test("an edit that would remove most of what was selected, and can't be mapped o
   await expect(paragraphs).toHaveText([FIRST, SECOND, THIRD, "Notes: tide tables"]);
 });
 
+// Value: protects=a typed request that asks for no removal waits when the reply quotes a whole paragraph as taken out, as a suggested change with Apply and Discard and nothing else new on the screen (#2333); fails_when=the paragraph goes at once, or the line has no Apply and Discard, or a bar or dialog appears; why_new=no spec had the app's small model read the User's words; seam=the scripted model answers the removal question from the words "delete", "remove", "drop", "cut"; no_claim=how a real model reads a request.
+test("a typed request that names no removal waits when the reply takes a paragraph out: Discard leaves the text, Apply takes the paragraph out, and Undo brings it back", async () => {
+  const { window } = await launch();
+  await useLocalChatModel(window);
+  const { editor, paragraphs } = await mindWith(window, [FIRST, SECOND, THIRD, "Notes:"]);
+  const line = lineOf(editor);
+  const selectThree = () =>
+    slideSelect(window, paragraphs.first(), "Tides rise", {
+      line: paragraphs.nth(2),
+      words: "each week.",
+    });
+
+  await selectThree();
+  await askToChange(window, "restructure the notes");
+  await expect(line.getByTestId("applied-count")).toHaveText(
+    "Waiting for you: this edit takes text out of your selection",
+  );
+  await expect(line.getByTestId("applied-apply")).toBeVisible();
+  await expect(line.getByTestId("applied-discard")).toBeVisible();
+  await expect(window.getByTestId("proposals-bar")).toHaveCount(0);
+  await motionSettled(window);
+  await screenshot(window, "applied-held-asked-nothing-out-en");
+
+  await pointAndClick(window, line.getByTestId("applied-discard"));
+  await expect(paragraphs).toHaveText([FIRST, SECOND, THIRD, "Notes:"]);
+  await expect(line).toHaveCount(0);
+
+  await selectThree();
+  await askToChange(window, "restructure the notes");
+  await pointAndClick(window, line.getByTestId("applied-apply"));
+  await expect(paragraphs).toHaveText([FIRST, SECOND, "Notes:"]);
+  await editor.focus();
+  await window.keyboard.press("ControlOrMeta+z");
+  await expect(paragraphs).toHaveText([FIRST, SECOND, THIRD, "Notes:"]);
+});
+
 // Value: protects=Apply on an edit held back, and an edit that applies at once, each save a Checkpoint before the text changes (#2796); fails_when=the change goes in with no new version in History; why_new=no spec counted versions around Apply; seam=none; no_claim=what the version holds.
 test("Apply on an edit held back saves a version first, as an edit that applies at once does", async () => {
   const { window } = await launch();
