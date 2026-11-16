@@ -136,13 +136,23 @@ test.each(NO_NUMBER)(
   },
 );
 
-// protects=a sentence that states a quantity still needs the calculation the model was refused: a stated value that is no quantity of the sentence, left unrepaired, keeps the sentence from a ✓; fails_when=the rule for a sentence with no number is widened to one that has a number; no_claim=which reason the mark gives.
-test("a refused calculation still stops a sentence that states a quantity", async () => {
-  const [{ contents, quote, numbers }] = NO_NUMBER;
-  const claim = "签约客户比上年增加 12 家。";
-  const mark = await checked(contents, claim, {
-    reply: quotes(quote, plainReply("supported"), [difference(numbers, "增加")]),
-  });
+// protects=a sentence that states a quantity, in figures or in words, still needs the calculation the model was refused or sent unreadably: left unrepaired, it keeps the sentence from a ✓; fails_when=the rule for a sentence with no number is widened to one that has a number, or misses a number written out ("twelve"); no_claim=which reason the mark gives.
+test.each([
+  { pair: 0, claim: "签约客户比上年增加 12 家。", stated: "增加" },
+  { pair: 1, claim: "The number of branches rose by twelve.", stated: "rose" },
+  { pair: 1, claim: "The number of branches rose by twelve.", stated: null },
+] as const)(
+  "a calculation refused or unread still stops a sentence that states a quantity: $claim ($stated)",
+  async ({ pair, claim, stated }) => {
+    const { contents, quote, numbers } = NO_NUMBER[pair];
+    const beside =
+      stated === null
+        ? [{ tool: "calculate", input: { figures: "the difference" } }]
+        : [difference(numbers, stated)];
+    const mark = await checked(contents, claim, {
+      reply: quotes(quote, plainReply("supported"), beside),
+    });
 
-  expect(mark.state).toBe("not-checked");
-});
+    expect(mark.state).toBe("not-checked");
+  },
+);

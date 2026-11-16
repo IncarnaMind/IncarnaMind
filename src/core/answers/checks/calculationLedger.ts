@@ -3,6 +3,7 @@
  * sentence's number each is for, and whether the sentence still needs one worked out.
  */
 import type { Figure, FigureContext } from "../../../shared/figures";
+import { INTEGER_WORDS } from "../../../shared/numberWords";
 import type { Citation, ClaimCalculation, LimitRelation } from "../../api";
 import { checkCalculates } from "../../providers/capabilities";
 import type { PreparedChatModel } from "../../providers/chat";
@@ -24,6 +25,8 @@ import { foundCitations, uniqueCitations } from "./checkResults";
 import type { AtomicClaimCheckResult, ClaimCheckRequest } from "./claimCheck";
 import { compare } from "./looks";
 import { type ReadVerdict, readJudgement, STRICT_INSTRUCTIONS } from "./prompt";
+
+const WRITTEN_NUMBER = new RegExp(`\\b(?:${INTEGER_WORDS})\\b`, "i");
 
 const NOTHING_TO_SETTLE =
   "This sentence states no quantity, so this calculation settles nothing in it. Give your verdict from the quotes you recorded, and write Calculation: none.";
@@ -78,25 +81,16 @@ export function createCalculationLedger(
   const figureContext = figureContextIn(documents);
   const ownContext = documentFigureContext([{ text: request.claim }]);
   /**
-   * Whether the sentence gives a number a calculation could be for: one it writes, or one of
-   * `named`, the values a calculate call or a reply's Calculation line states, found in its words.
+   * Whether the sentence gives a number a calculation could be for, in figures or in words.
    * Where it gives none, a calculation settles nothing in it and the quote decides, as it does
    * without the call: Claude Haiku 5.5 works out a difference beside its quote for
    * "门店数量比上年有所增加" and names the verb as the stated value (#3190).
    */
-  const statesQuantity = (named: readonly unknown[]) =>
-    figuresInClaim(request.claim, ownContext).length > 0 ||
-    named.some(
-      (stated) =>
-        typeof stated === "string" && statedFigure(request.claim, stated.trim(), {}) !== null,
-    );
-  const statedBy = (given: readonly unknown[]) =>
-    given.map((each) =>
-      typeof each === "object" && each !== null ? (each as { stated?: unknown }).stated : undefined,
-    );
+  const statesQuantity =
+    figuresInClaim(request.claim, ownContext).length > 0 || WRITTEN_NUMBER.test(request.claim);
   const tools: Required<Pick<AnswerTools, "calculate" | "calculationFailed">> = {
     calculationFailed() {
-      if (!statesQuantity([])) return;
+      if (!statesQuantity) return;
       attempts++;
       invalidInput = true;
       calculationFailures++;
@@ -106,7 +100,7 @@ export function createCalculationLedger(
       // An empty list works nothing out: Claude Haiku 5.5 sends one beside a plain cite, and the
       // quote alone decides such a sentence (#2002).
       if (given.length === 0) return figures.calculate(given, options);
-      if (!statesQuantity(statedBy(given)))
+      if (!statesQuantity)
         return `${figures.calculate(givenList(given), options)}\n${NOTHING_TO_SETTLE}`;
       attempts++;
       if (calculationFailures >= 2)
@@ -230,7 +224,7 @@ export function createCalculationLedger(
   const requiresCalculation = async (verdict: ReadVerdict | null): Promise<boolean> => {
     if (!calculating || !verdict) return false;
     session.check();
-    if (!statesQuantity(verdict.calculations ?? [])) return false;
+    if (!statesQuantity) return false;
     const checked = calculated(request.claim, figures, stated, figureContext);
     const citations = [
       ...foundCitations(session.finalCitation, null, verdict.evidence ?? undefined),
