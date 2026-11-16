@@ -24,6 +24,18 @@ export interface CitedSentence {
   calculated: boolean;
   /** It is a table's row: its cells, read as one line. */
   inTable: boolean;
+  /**
+   * For a row, each of its cells that holds a Citation of the sentence, under the cell's own
+   * words, which is how a Note reads that cell (#3214). Empty for any other sentence.
+   */
+  cells: CitedCell[];
+}
+
+export interface CitedCell {
+  /** The cell's words without its Citation markers. */
+  sentence: string;
+  /** The Citation markers inside it, in order. */
+  markers: number[];
 }
 
 const FOOTNOTE_LINE = /^\s*\[\^\d{1,4}\]:/;
@@ -98,6 +110,29 @@ function logicalLines(text: string): string[] {
 const withoutMarkers = (text: string) =>
   comparableSentence(text.replace(BEFORE_MARKER, "").replaceAll(FIGURE_START, ""));
 
+/** The cells of a table row, apart as the Note has them, that hold a Citation among `inside`. */
+function citedCells(
+  row: string,
+  markers: readonly number[],
+  inside: readonly number[],
+): CitedCell[] {
+  const cells: CitedCell[] = [];
+  let seen = 0;
+  for (const cell of row.split(/(?<!\\)\|/)) {
+    const first = seen;
+    seen += inlineNodes(cell);
+    for (const { from, to } of sentenceSpans(cell)) {
+      const start = first + inlineNodes(cell.slice(0, from));
+      const held = markers.slice(start, start + inlineNodes(cell.slice(from, to)));
+      if (held.length > 0 && held.every((marker) => inside.includes(marker))) {
+        const words = cell.slice(from, to).replaceAll("\\|", "|");
+        cells.push({ sentence: withoutMarkers(words), markers: held });
+      }
+    }
+  }
+  return cells;
+}
+
 /**
  * The claims of an Answer's Markdown that hold a Citation marker, each with its markers. A
  * sentence that only names the Document of its `citations` is none (#3093).
@@ -115,7 +150,7 @@ export function citedSentences(
     if (FOOTNOTE_LINE.test(line)) continue;
     const inTable = line.trimStart().startsWith("|");
     const markers: number[] = [];
-    const marked = line
+    const piped = line
       .replace(BLOCK_MARKUP, "")
       .replace(
         FIGURE_MARKER,
@@ -126,8 +161,8 @@ export function citedSentences(
         markers.push(Number(number));
         return INLINE_NODE;
       })
-      .replace(/[*_`]/g, "")
-      .replace(/\|/g, " ");
+      .replace(/[*_`]/g, "");
+    const marked = piped.replace(/\|/g, " ");
     const context = withoutMarkers(marked);
     for (const { from, to } of sentenceSpans(marked)) {
       const before = inlineNodes(marked.slice(0, from));
@@ -147,7 +182,8 @@ export function citedSentences(
       if (inside.length > 0 && isClaim(sentence) && !onlyNamesItsSource(sentence, cited)) {
         const calculated = marked.slice(from, to).includes(FIGURE_START);
         const at = inside.map((_, index) => first + before + index);
-        found.push({ sentence, context, markers: inside, at, calculated, inTable });
+        const cells = inTable ? citedCells(piped, markers, inside) : [];
+        found.push({ sentence, context, markers: inside, at, calculated, inTable, cells });
       }
     }
   }
