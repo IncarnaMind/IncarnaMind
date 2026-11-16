@@ -281,3 +281,38 @@ test("a reused id of the greatest length still gets a valid id of its own", () =
   expect(ids[1]).not.toBe(long);
   expect(ids[1]).toMatch(/^[A-Za-z][A-Za-z0-9_-]{0,31}$/);
 });
+
+// protects=a fact kept under an id of its own is one fact from then on: written again under the id the model used, it is silent when the same and left out and counted when reworded, and once replaced it doesn't come back (#3145); fails_when=a repeat is kept as a second fact, a rewording is kept, or a replaced fact returns under a new id; no_claim=how often a model repeats a fact.
+test("a fact kept under its own id is the same fact when the model writes it again", () => {
+  const ledger = createFactLedger();
+  const venue = citing(1_000, "A", "venue");
+  const hiring = citing(60_000, "A", "hiring");
+  ledger.accept(reply([venue]));
+  ledger.accept(reply([hiring]));
+  ledger.accept(reply([hiring]));
+  expect(ledger.facts.map((each) => each.topic)).toEqual(["venue", "hiring"]);
+  expect(ledger.omitted(false)).toBe(0);
+  ledger.accept(reply([{ ...hiring, lines: ["L1"] }]));
+  expect(ledger.facts.map((each) => [each.topic, each.lines])).toEqual([
+    ["venue", []],
+    ["hiring", []],
+  ]);
+  expect(ledger.omittedReasons(false)).toEqual({ changed: 1 });
+  const own = ledger.facts[1]?.id ?? "";
+  ledger.accept(reply([citing(90_000, "B", "hiring", [own])]));
+  ledger.accept(reply([hiring]));
+  expect(ledger.facts.map((each) => [each.id, each.topic])).toEqual([
+    ["A", "venue"],
+    ["B", "hiring"],
+  ]);
+});
+
+// protects=a fact that names its own id in supersedes never deletes the kept fact that has that id, whatever its topic and lines: it is left out and counted, and the kept fact stays (#3145); fails_when=the kept fact goes, or the fact is kept; no_claim=what the model meant by it.
+test("a fact reusing a kept id that names that id in supersedes can't delete the kept fact", () => {
+  const ledger = createFactLedger();
+  const kept = citing(1_000, "A", "venue");
+  ledger.accept(reply([kept]));
+  ledger.accept(reply([citing(60_000, "A", "hiring", ["A"])]));
+  expect(ledger.facts).toEqual([kept]);
+  expect(ledger.omitted(false)).toBe(1);
+});

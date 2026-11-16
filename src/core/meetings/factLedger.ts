@@ -12,6 +12,8 @@ export function createFactLedger() {
   const omitted = new Map<string, OmitReason | "changed" | "supersedes">();
   /** Ids a fact replaced: whether or not they were kept, they don't come back. */
   const retired = new Set<string>();
+  /** The ids given to other facts a model wrote under an id a kept fact had, by that id. */
+  const given = new Map<string, string[]>();
   /** One for each reply that wrote one, in the order the call was read. */
   const overviews: MeetingOverview[] = [];
   let overviewOmitted: OverviewOmitReason = "missing";
@@ -48,7 +50,9 @@ export function createFactLedger() {
       if (reply.overview) overviews.push(reply.overview);
       // On a 45-minute call Claude Haiku 5.5 numbered a later part's facts the way an earlier part
       // had, and 18 were taken for changes to kept facts and left out (#3145): one with another
-      // topic that cites other lines is another fact, kept under an id of its own.
+      // topic that cites other lines is another fact, kept under an id of its own, and is that
+      // fact when the model writes it again. One that names its own id in supersedes keeps the
+      // id, so it can't replace the kept fact.
       const taken = new Set([
         ...accepted.keys(),
         ...omitted.keys(),
@@ -57,10 +61,16 @@ export function createFactLedger() {
         ...reply.facts.map((fact) => fact.id),
       ]);
       const told = reply.facts.map((fact) => {
-        const before = accepted.get(fact.id);
-        if (!before || before.topic === fact.topic || !citeApart(before, fact)) return fact;
+        if (!accepted.has(fact.id) || fact.supersedes.includes(fact.id)) return fact;
+        const under = given.get(fact.id) ?? [];
+        const same = [fact.id, ...under].find((id) => {
+          const known = accepted.get(id);
+          return known && (known.topic === fact.topic || !citeApart(known, fact));
+        });
+        if (same !== undefined) return same === fact.id ? fact : { ...fact, id: same };
         const id = ownId(fact.id, taken);
         taken.add(id);
+        given.set(fact.id, [...under, id]);
         return { ...fact, id };
       });
       const fresh = told.filter((fact) => {
