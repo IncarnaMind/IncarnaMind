@@ -281,6 +281,48 @@ describe("Meeting fact placement (#2306)", () => {
     ]);
   });
 
+  // protects=a fact with no section that names the User's own heading for a section ("Action items", "待办") joins that section's items; no topic, so no second heading in the same words, and a fact that answers a typed line still goes under its line
+  test.each([
+    { typed: "Action items", heading: "Action items" },
+    { typed: "Action Items ", heading: "action items" },
+    { typed: "待办", heading: "待办" },
+  ])(
+    "a fact named like the User's section heading $typed joins that section",
+    ({ typed, heading }) => {
+      const action = fact("Ravi sends the form on Monday.", {
+        id: "F1",
+        lines: [],
+        sections: ["actions"],
+      });
+      const open = fact("Lunch is still to be decided.", {
+        id: "F2",
+        heading,
+        lines: [],
+        sections: [],
+      });
+      const answer = fact("The room holds twelve.", {
+        id: "F3",
+        heading,
+        lines: ["L1"],
+        sections: [],
+      });
+      const placed = placeFacts(
+        input([action, open, answer], {
+          lines: [
+            { marker: "L1", heading: false, ancestors: [] },
+            { marker: "H2", heading: true, ancestors: [] },
+          ],
+          headings: new Map([["actions", "H2"]]),
+          topicHeadings: [{ marker: "H2", text: typed }],
+        }),
+      );
+
+      expect(placed.sections.get("actions")).toEqual([action.body, open.body]);
+      expect(placed.topics).toEqual([]);
+      expect(placed.lines.get("L1")).toEqual([answer.body]);
+    },
+  );
+
   test("a topic's fact asked on two typed lines points from the second to the first, and nowhere else", () => {
     const accepted = fact("The fee stays at 18%.", { lines: ["L2", "L1"], sections: [] });
     const placed = placeFacts(
