@@ -30,6 +30,18 @@
  * - A round whose Note check ends in no verdict (refused, failed, not checked) counts as no round
  *   and is run again by hand; a run with a failed request is void.
  *
+ * The confirm run, on the branch that gives a state word ("negative", "minus", 负 ...) a reach of
+ * 2,000 characters before the text read (#2578), written on 2026-11-16 before it ran: the six "far"
+ * pairs, 3 rounds each (INCARNAMIND_LIVE_PAIRS=far-own-en,far-subject-en,far-minus-en,far-own-zh,
+ * far-subject-zh,far-minus-zh), about US$0.06 from the first runs' US$0.0033 a pair-round, stop
+ * US$0.10. On `main` the decoys read Supported in 7 of 12 rounds and the twins in 0 of 6.
+ * - Bar 1: no "far" decoy (the issue's own and the subject's, English and Chinese) reads Supported
+ *   by the Note's check: 0 of 12 rounds.
+ * - Bar 2: the "far" twins (the minus claim, English and Chinese) read Supported in at least 3 of
+ *   6 rounds.
+ * - A round with no verdict, or with a refused, failed or timed out request, is void: not counted,
+ *   and run again. A missed bar goes to the lead before the merge.
+ *
  * INCARNAMIND_LIVE_PAIRS limits the run to those pairs, by key; INCARNAMIND_LIVE_ROUNDS sets the rounds.
  * Runs only with INCARNAMIND_LIVE_DEEPSEEK_KEY (DeepSeek V4.1 Flash, `deepseek-flash`, or
  * INCARNAMIND_LIVE_DEEPSEEK_MODEL when set); INCARNAMIND_LIVE_REPORT keeps one JSON line per pair.

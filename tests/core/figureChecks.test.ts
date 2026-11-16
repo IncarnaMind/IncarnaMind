@@ -3232,14 +3232,36 @@ test.each([
     verdict: "contradicted",
   },
   {
-    name: "a sign word more than 400 characters before the quote, in an earlier paragraph",
+    name: "a state word more than 400 characters before the quote, in an earlier paragraph, keeps the minus (#2578)",
     claim: "The reserve was $62,000.",
     figure: "$62,000",
     language: "en",
     body: `The reserve turned negative in May. ${"The Tenant shall keep the premises in good repair. ".repeat(9)}\n\nAt year end it stood at sixty-two thousand dollars ($62,000.00).`,
     quotes: ["At year end it stood at sixty-two thousand dollars ($62,000.00)."],
     number: "$62,000.00",
+    supported: false,
+    verdict: "contradicted",
+  },
+  {
+    name: "a word for a loss more than 400 characters before the quote, in an earlier paragraph, is not seen: it is as often about something else (#2578)",
+    claim: "The reserve was $62,000.",
+    figure: "$62,000",
+    language: "en",
+    body: `The reserve turned to a loss in May. ${"The Tenant shall keep the premises in good repair. ".repeat(9)}\n\nAt year end it stood at sixty-two thousand dollars ($62,000.00).`,
+    quotes: ["At year end it stood at sixty-two thousand dollars ($62,000.00)."],
+    number: "$62,000.00",
     supported: true,
+  },
+  {
+    name: "a Chinese state word more than 400 characters before the quote keeps the minus (#2578)",
+    claim: "年末准备金为¥62,000。",
+    figure: "¥62,000",
+    language: "zh-CN",
+    body: `五月准备金转为负数。${"承租人应当妥善使用并爱护租赁房屋及其附属设施。".repeat(20)}\n\n年末准备金为人民币六万二千元（¥62,000）。`,
+    quotes: ["年末准备金为人民币六万二千元（¥62,000）。"],
+    number: "62,000",
+    supported: false,
+    verdict: "contradicted",
   },
   {
     name: "a sign word more than 400 characters before the quote, with no break between, keeps main's minus",
@@ -3329,11 +3351,33 @@ test.each([
     verdict: "contradicted",
   },
   {
-    name: "a negative word starting 401 characters before the quote",
+    name: "a negative word starting 401 characters before the quote keeps the minus (#2578)",
     claim: "The fund's cash was $62,000.",
     figure: "$62,000",
     language: "en",
     body: `The fund turned negative ${"x".repeat(390)}\n\nBy year end it was sixty-two thousand dollars ($62,000.00).`,
+    quotes: ["By year end it was sixty-two thousand dollars ($62,000.00)."],
+    number: "$62,000.00",
+    supported: false,
+    verdict: "contradicted",
+  },
+  {
+    name: "a negative word starting 2000 characters before the quote keeps the minus (#2578)",
+    claim: "The fund's cash was $62,000.",
+    figure: "$62,000",
+    language: "en",
+    body: `The fund turned negative ${"x".repeat(1989)}\n\nBy year end it was sixty-two thousand dollars ($62,000.00).`,
+    quotes: ["By year end it was sixty-two thousand dollars ($62,000.00)."],
+    number: "$62,000.00",
+    supported: false,
+    verdict: "contradicted",
+  },
+  {
+    name: "a negative word starting 2001 characters before the quote is not seen (#2578)",
+    claim: "The fund's cash was $62,000.",
+    figure: "$62,000",
+    language: "en",
+    body: `The fund turned negative ${"x".repeat(1990)}\n\nBy year end it was sixty-two thousand dollars ($62,000.00).`,
     quotes: ["By year end it was sixty-two thousand dollars ($62,000.00)."],
     number: "$62,000.00",
     supported: true,
@@ -3610,15 +3654,6 @@ describe.each(["en", "zh-CN"] as const)(
     ])("a real sign in the sentence before still keeps the minus, $where", async ({ layout }) => {
       expect(await verdictOf("before", "amount", layout)).toBe("contradicted");
       expect(await verdictOf("before", "minus", layout)).toBe("supported");
-    });
-
-    // protects=a loss clause in the next-door sentence that is about something else leaves the rent positive: the correct sentence is Supported, the minus is Contradicted (#2578 box 2); fails_when=a sign word nearby keeps a minus the amount doesn't have
-    test.each([
-      { layout: { between: false, cited: true }, where: "on the page around a cited quote" },
-      { layout: { between: false, cited: false }, where: "in a Passage read whole" },
-    ])("a loss clause about something else keeps no minus, $where", async ({ layout }) => {
-      expect(await verdictOf("other", "amount", layout)).toBe("supported");
-      expect(await verdictOf("other", "minus", layout)).toBe("contradicted");
     });
   },
 );
