@@ -1216,6 +1216,23 @@ function MindEditorView({
     setCite(null);
   }, [doc]);
 
+  // The editor leaves with its tab's view, and Tiptap's content unmount first resets the editor's
+  // node views, which draws every paragraph of the Note again for an editor that is about to go:
+  // 40 ms or more of a very long Note's tab switch (#3115). That reset is skipped; the editor's
+  // own end, a tick later, lets the node views go without drawing anything.
+  useLayoutEffect(
+    () => () => {
+      if (editor.isDestroyed) return;
+      const { view } = editor;
+      const setProps = view.setProps.bind(view);
+      view.setProps = (props) => {
+        if (props.nodeViews && Object.keys(props.nodeViews).length === 0) return;
+        setProps(props);
+      };
+    },
+    [editor],
+  );
+
   return (
     <MindIdContext.Provider value={mindId}>
       <SignOffsContext.Provider value={signOffs}>
