@@ -26,6 +26,7 @@ import { recordRows } from "../helpers/csv";
 import { connectToMind } from "../helpers/mindClient";
 import { readMind, writeMind } from "../helpers/minds";
 import { type ModelCall, type ScriptedReply, scriptedModel } from "../helpers/models";
+import { OTHER_TERMS, SIGN_SCOPE } from "../helpers/signScope";
 
 const loose = (text: string) => text.replace(/\s+/gu, " ").trim();
 
@@ -1280,4 +1281,43 @@ describe("A column's heading that is a unit states it (#2997)", { timeout: 120_0
       });
     }
   });
+});
+
+describe("A word that says a thing is below zero gives a bracketed amount its minus, far back (#2578)", {
+  timeout: 120_000,
+}, () => {
+  // protects=a sentence that gives the amount as positive is never Supported when the Document, more than 470 characters before the quote, said the reserve is negative, whether the Answer's Citation or the check of the sentence is read, in English and Chinese; the right sign reads Supported; fails_when=the sign word is out of the reader's reach and the wrong sentence keeps its green check
+  test.each(["en", "zh-CN"] as const)(
+    "an amount given the wrong sign by a sentence of the section is Contradicted, in %s",
+    async (language) => {
+      const { sign, amount, number, shown, claim } = SIGN_SCOPE[language].far;
+      const file: SourceFile = {
+        name: "Reserve.md",
+        contents: `# Reserve\n\n${[sign, ...OTHER_TERMS[language], amount].join("\n\n")}\n`,
+      };
+      /** `sentence` asked in a Note, a model that names the bracketed number its quote backs it with calling it supported, and Check this Note's reading of it. */
+      const read = async (sentence: string) => {
+        const plan: Plan = { verdict: "supported", quote: amount, number, says: amount };
+        const { core, mind, client } = await setUpWithDocuments(
+          citingModel(sentence, amount, plan),
+          [file],
+        );
+        if (language !== "en") await core.updateSettings({ user: { language } });
+        await askAndFinish(core, client, mind.id, "How much is the reserve?");
+        await core.checkMind({ requestId: crypto.randomUUID(), mindId: mind.id, mode: "all" });
+        await client.settled();
+        return claimSpans(readMind(client)).map((span) => ({
+          state: span.check.state,
+          figures: (span.check.figures ?? []).map((figure) => figure.state),
+        }));
+      };
+
+      expect(await read(claim(shown)), "the positive sentence").toEqual([
+        { state: "contradicted", figures: ["contradicted"] },
+      ]);
+      expect(await read(claim(`-${shown}`)), "its minus").toEqual([
+        { state: "supported", figures: ["supported"] },
+      ]);
+    },
+  );
 });
