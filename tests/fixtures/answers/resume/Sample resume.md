@@ -16,7 +16,7 @@ Designed internal reporting tools for the group's finance and operations teams. 
 
 Designed data and back-office tools for blockchain projects. Wrote the interaction specifications that the engineering team built from. First design hire in a team of twelve.
 
-## Projects
+## Main projects
 
 ### 2024.01 to 2024.12 · Sampletown First Hospital fever clinic mini program
 
@@ -95,7 +95,7 @@ The analysts closed the four block explorers they kept open all day. Two alerts 
 
 ### 2017.08 to 2018.09 · Example Bond Link back office
 
-A back office for a bond trading link, where operations staff match and settle the day's trades. Alex designed the matching screen and the exceptions queue. It handled about 900 trades a day at launch.
+A back office for a bond trading link that runs on a permissioned blockchain, where operations staff match and settle the day's trades. Alex designed the matching screen and the exceptions queue. It handled about 900 trades a day at launch.
 
 What Alex did:
 

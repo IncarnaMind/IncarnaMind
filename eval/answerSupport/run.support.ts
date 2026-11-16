@@ -6,6 +6,7 @@
  * the supported set is Find support's supported sentences that state a date or year
  * (eval/checks/labels.json), each citing its labelled quote.
  */
+import { appendFileSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -18,6 +19,7 @@ import type {
   ClaimCheckResult,
   Core,
   Document,
+  MarkedCitation,
 } from "../../src/core";
 import { isSentenceBatch } from "../../src/core/answers/checks/sentenceBatch";
 import { questionOf } from "../../src/core/answers/judge";
@@ -64,6 +66,8 @@ interface Row {
   foundCitations?: number;
   /** The parts that look found in no Document, in the sentence's own words (#2809). */
   missing?: string[];
+  /** Why its Citation reads Not checked. */
+  notCheckedFor?: string;
 }
 
 const spentOf = async (core: Core) =>
@@ -258,6 +262,12 @@ function judgingModel(real: LanguageModelV4, script: AnswerScript): LanguageMode
  * Each batch request of the judgement, with its tokens as the provider reported them, and a
  * count of the other requests a judgement made: its looks' check Runs and questions.
  */
+/** Each request a look sends, a line of JSON in the file `INCARNAMIND_EVAL_SUPPORT_TRACE` names. */
+const trace = (record: object) => {
+  const file = process.env.INCARNAMIND_EVAL_SUPPORT_TRACE;
+  if (file) appendFileSync(file, `${JSON.stringify(record)}\n`);
+};
+
 function watchBatches() {
   const batches: { inputTokens: number; outputTokens: number }[] = [];
   const looks = { requests: 0 };
@@ -272,11 +282,15 @@ function watchBatches() {
         });
       } else if (questionOf(params) !== undefined) {
         looks.requests++;
+        trace({ question: questionOf(params), prompt: params.prompt, reply: result.content });
       }
       return result;
     },
     wrapStream: ({ doStream, params }) => {
-      if (checksASentence(params.prompt)) looks.requests++;
+      if (checksASentence(params.prompt)) {
+        looks.requests++;
+        trace({ run: params.prompt });
+      }
       return doStream();
     },
   };
@@ -288,6 +302,17 @@ function watchBatches() {
       (spec) =>
         wrapLanguageModel({ model: inner(spec), middleware }),
   };
+}
+
+/** How many Citations a check found stand right after the marker `marker` in the Answer's text. */
+function foundAfter(text: string, marker: number, citations: readonly MarkedCitation[]): number {
+  const own = `[^${marker}]`;
+  const at = text.indexOf(own);
+  if (at < 0) return 0;
+  const following = /^(?:\[\^\d+\])*/.exec(text.slice(at + own.length))?.[0] ?? "";
+  return [...following.matchAll(/\[\^(\d+)\]/g)].filter(([, number]) =>
+    citations.some((each) => each.marker === Number(number) && each.foundByCheck),
+  ).length;
 }
 
 const VERDICT_OF = {
@@ -395,10 +420,9 @@ async function judgeInAnswers(
         // A look is only ever taken by a sentence its Citations left Unsupported.
         citedOnly: citation.searchedScope ? "unsupported" : verdict,
         lookRequests: share(lookRequests),
-        foundCitations: judged.citations.filter(
-          (each) => each.foundByCheck && each.passedAt?.includes(index),
-        ).length,
+        foundCitations: foundAfter(judged.text, index + 1, judged.citations),
         ...(citation.unstated && { missing: citation.unstated.missing }),
+        ...(citation.checkReason && { notCheckedFor: citation.checkReason }),
       });
       log(
         `  ${item.id}: ${citation.searchedScope ? "unsupported, then " : ""}${verdict}${item.supported === (verdict === "supported") ? "" : " ✗"}`,

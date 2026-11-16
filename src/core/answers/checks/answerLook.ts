@@ -5,7 +5,7 @@
  * Passage it finds for a part becomes that part's Citation in the Answer's own number series. A
  * look that couldn't judge the sentence leaves it as its batch read it.
  */
-import { restsElsewhere } from "../../../shared/citedNow";
+import { citesPassage } from "../../../shared/citedNow";
 import type {
   CitationAttributes,
   ClaimCheckPart,
@@ -13,6 +13,7 @@ import type {
   ClaimPartSpan,
   MarkedCitation,
 } from "../../api";
+import { citationKey } from "./checkResults";
 
 /** How many of an Answer's sentences take the look, in the Answer's order: the rest read as their batch read them. */
 export const LOOKS_AN_ANSWER = 3;
@@ -77,11 +78,18 @@ export function lookResult(
   citations: readonly MarkedCitation[],
 ): LookResult | null {
   if (result.verdict === "not-checked") return null;
-  const found = partsOf(result, sentence).flatMap((part): FoundPassage[] => {
-    if (!restsElsewhere(part, citations, sentence)) return [];
-    const citation = part.evidence[part.decidingEvidence ?? 0];
-    return citation ? [{ span: part.span, citation }] : [];
-  });
+  const held = new Set<string>();
+  // A list's items rest on a Passage each: every Passage a part's verdict cites, once.
+  const found = partsOf(result, sentence).flatMap((part): FoundPassage[] =>
+    part.verdict !== "supported"
+      ? []
+      : part.evidence.flatMap((citation) => {
+          const passage = citation.passageId ?? citationKey(citation);
+          if (held.has(passage) || citesPassage(citations, citation, sentence)) return [];
+          held.add(passage);
+          return [{ span: part.span, citation }];
+        }),
+  );
   if (result.verdict === "supported") {
     return { check: "found", verdict: null, unsupported: null, found };
   }
@@ -89,10 +97,12 @@ export function lookResult(
     return { check: "contradicted", verdict: result.says, unsupported: null, found };
   }
   const { reason = null, covered = null, uncovered = null } = result.unsupported ?? {};
+  const whole = sentence.trim().replace(/[.。]$/u, "");
   const missing = (result.parts ?? [])
     .filter((part) => part.verdict === "unsupported")
     .map((part) => sentence.slice(part.span.start, part.span.end).trim())
-    .filter((words) => words.length > 0);
+    // A part that is the whole sentence names nothing: the check's own phrases say what is missing.
+    .filter((words) => words.length > 0 && words.replace(/[.。]$/u, "") !== whole);
   return {
     check: "unsupported",
     verdict: reason,
