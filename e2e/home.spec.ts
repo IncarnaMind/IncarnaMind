@@ -198,7 +198,7 @@ for (const [language, width] of [
       await expect(recentRows(window).first().getByTestId("row-text")).toHaveText("Harbour plan");
       // A note under its title says where it stands (D266): nothing has checked it yet.
       await expect(recentRows(window).first().getByTestId("home-recent-state")).toHaveText(
-        t("health.state.notChecked"),
+        t("health.toCheck.one"),
       );
 
       await window.getByTestId("plus-menu").click();
@@ -581,7 +581,7 @@ test("Home beside a Mind follows it as it is saved, and tabs opened behind Home 
       .locator('[data-testid="mind-tab"][aria-selected="true"] [data-testid="tab-title"]')
       .textContent();
     await expect(recentRow(window, shownTitle ?? "").getByTestId("home-recent-state")).toHaveText(
-      "Not checked",
+      "1 sentence not checked yet",
     );
   } finally {
     await app.close();

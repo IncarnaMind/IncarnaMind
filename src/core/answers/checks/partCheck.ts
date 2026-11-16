@@ -124,7 +124,13 @@ export function createPartCheck(
     const limit = request.slots ?? slots(claimsAtOnce(request.model));
     const sentence = request.originalClaim ?? request.claim;
     const withFigures = (found: readonly ClaimPartPlan[]) =>
-      withFigureFacts(request.claim, found, request.figures ?? [], request.projection);
+      withFigureFacts(
+        request.claim,
+        found,
+        request.figures ?? [],
+        request.projection,
+        request.only !== undefined,
+      );
     const sortAlone = async (): Promise<Sorted> => {
       const sorted = await limit.run(() =>
         inCheck({ sentence, part: null }, () =>

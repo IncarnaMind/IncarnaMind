@@ -147,6 +147,7 @@ describe("A note's state (D266)", () => {
       notRecalculated: 0,
       needsCheck: 0,
       notYetCited: 0,
+      toCheck: 0,
     });
   });
 
@@ -188,11 +189,11 @@ describe("A note's state (D266)", () => {
       noteStateOf(health({ checkable: 1, contradicted: [0], lookClaims: [0] }), 3, 1) ?? fail();
     expect(narrow).toMatchObject({ kind: "needs-look", unread: 1, unreadMatters: true });
     expect(words(narrow)).toBe("1 file couldn’t be read");
-    // Not checked: the state's line says only that, and the card still names the files.
+    // Not checked: the state's line counts the sentences, and the card still names the files.
     const unchecked = noteStateOf(health({ checkable: 1, toCheck: [0] }), 2) ?? fail();
     expect(unchecked).toMatchObject({ kind: "not-checked", unread: 2, unreadMatters: false });
     expect(words(unchecked)).toBe("2 files couldn’t be read");
-    expect(parts(unchecked)).toEqual(["Not checked"]);
+    expect(parts(unchecked)).toEqual(["1 sentence not checked yet"]);
   });
 
   test("a figure an Analysis gave that couldn't be worked out again leaves the Note Checked, naming it (#2378)", () => {
@@ -253,8 +254,16 @@ describe("A note's state (D266)", () => {
     const two =
       noteStateOf(health({ checkable: 2, unsupported: [0, 6], lookClaims: [0, 6] })) ?? fail();
     const done = noteStateOf(health({ checkable: 1, checkedAt: CHECKED_AT }), 3) ?? fail();
-    expect(en(fresh)).toBe("Not checked");
-    expect(zh(fresh)).toBe("未核对");
+    // The words the card uses for the sentences no check covered, not a bare "Not checked" (#3212).
+    expect(en(fresh)).toBe("1 sentence not checked yet");
+    expect(zh(fresh)).toBe("1 句待核对");
+    const several = noteStateOf(health({ checkable: 3, toCheck: [0, 6, 9] })) ?? fail();
+    expect(en(several)).toBe("3 sentences not checked yet");
+    expect(zh(several)).toBe("3 句待核对");
+    // A check still running has no count to give: the bare words stay.
+    const running = noteStateOf(health({ checkable: 1, checking: [0] })) ?? fail();
+    expect(en(running)).toBe("Not checked");
+    expect(zh(running)).toBe("未核对");
     expect(en(one)).toBe("1 needs a look");
     expect(zh(one)).toBe("需要留意 1 处");
     expect(en(two)).toBe("2 need a look");
@@ -1243,5 +1252,159 @@ describe("A Note made from an Answer carries its judgement (#2313)", () => {
   test("a sentence the judgement didn't settle carries nothing", () => {
     const state = noteOf(blocksOf([{ ...judged, check: "not-checked" }])).state;
     expect(state).toMatchObject({ kind: "not-checked" });
+  });
+
+  describe("a table's row, judged as one line, carries onto its cells (#3214)", () => {
+    const cited = (marker: number, quote: string, more: Partial<MarkedCitation> = {}) => ({
+      ...judged,
+      marker,
+      passageId: `passage-${marker}`,
+      quote,
+      ...more,
+    });
+    const TABLES = {
+      en: {
+        text: [
+          "| Item | Detail |",
+          "| --- | --- |",
+          "| Cost | £185,000 for two K9 kilns [^1] |",
+          "| Installation | February 2027 [^2] |",
+        ].join("\n"),
+        cells: ["£185,000 for two K9 kilns", "February 2027"],
+      },
+      "zh-CN": {
+        text: [
+          "| 项目 | 内容 |",
+          "| --- | --- |",
+          "| 费用 | 两台 K9 窑炉共计 185,000 英镑 [^1] |",
+          "| 安装 | 安装在 2027 年 2 月完成 [^2] |",
+        ].join("\n"),
+        cells: ["两台 K9 窑炉共计 185,000 英镑", "安装在 2027 年 2 月完成"],
+      },
+    } as const;
+    const tableOf = (language: keyof typeof TABLES, citations: MarkedCitation[]) =>
+      answerOf("answer-table", TABLES[language].text, citations);
+
+    // protects=a table row the Answer's judgement settled Supported reaches the Note as a Supported mark on the cell holding its Citation, so the Note reads Checked and not "not checked yet"; fails_when=the row's verdict is keyed to the row's words, which no cell has
+    test.each(["en", "zh-CN"] as const)(
+      "a row judged Supported marks the cell with its Citation, and the Note reads Checked (%s)",
+      (language) => {
+        const { cells } = TABLES[language];
+        const made = tableOf(language, [cited(1, cells[0] ?? ""), cited(2, cells[1] ?? "")]);
+        const blocks = carried(made);
+
+        expect(carriedMarks(blocks).map((mark) => [mark.state, mark.text])).toEqual([
+          ["supported", cells[0]],
+          ["supported", cells[1]],
+        ]);
+        expect(noteOf(blocks).state).toMatchObject({ kind: "checked", checkedAt: CHECKED_AT });
+      },
+    );
+
+    // protects=a row the judgement settled Unsupported or Contradicted carries that onto its cell, never Supported (#3214); fails_when=a row's verdict is read as another cell's, or dropped so its Citation looks found
+    test("a row judged Unsupported or Contradicted carries that, never Supported", () => {
+      const [cost, installation] = TABLES.en.cells;
+      const made = tableOf("en", [
+        cited(1, cost ?? "", { check: "unsupported", verdict: "The plan says £190,000." }),
+        cited(2, installation ?? "", { check: "contradicted", verdict: "The plan says March." }),
+      ]);
+      const blocks = carried(made);
+
+      expect(carriedMarks(blocks).map((mark) => [mark.state, mark.text])).toEqual([
+        ["unsupported", cost],
+        ["contradicted", installation],
+      ]);
+      expect(noteOf(blocks).state).toMatchObject({ kind: "needs-look" });
+    });
+
+    // protects=a cell edited after Add to note reads as needing a check, exactly as an edited sentence of a paragraph does (#3214); fails_when=a carried mark keeps covering a cell whose words changed, or the cell reads differently from an edited sentence
+    test("a cell changed after Add to note needs a check, as an edited sentence does", () => {
+      const [cost, installation] = TABLES.en.cells;
+      const made = tableOf("en", [cited(1, cost ?? ""), cited(2, installation ?? "")]);
+      const edit = (nodes: readonly JSONContent[], words: string, to: string): JSONContent[] =>
+        nodes.map((node) => ({
+          ...node,
+          ...(node.type === "text" &&
+            node.text?.includes(words) && { text: node.text.replace(words, to) }),
+          ...(node.content && { content: edit(node.content, words, to) }),
+        }));
+      const second = "The vote is on the third of May.";
+      const prose = answerOf("answer-prose", `${sentence} [^1] ${second} [^2]`, [
+        cited(1, sentence),
+        cited(2, second),
+      ]);
+      const edited = noteOf(edit(carried(made), cost ?? "", "£190,000 for two K9 kilns")).state;
+      const paragraph = noteOf(edit(carried(prose), second, "The vote is in June.")).state;
+
+      expect(noteOf(carried(made)).state).toMatchObject({ kind: "checked", needsCheck: 0 });
+      expect(paragraph).toMatchObject({ needsCheck: 1, toCheck: 1 });
+      expect(edited).toMatchObject({ needsCheck: 1, toCheck: 1 });
+      expect(edited?.kind).toBe(paragraph?.kind);
+    });
+
+    // protects=a row with no Citation, and a table whose Citations the judgement never read, carry nothing (#3214); fails_when=a Note reads Checked for a row nobody judged
+    test("a row with no Citation, and Citations the judgement never read, carry nothing", () => {
+      const [cost] = TABLES.en.cells;
+      const withUncited = answerOf(
+        "answer-table",
+        `${TABLES.en.text}\n| Delivery | Weekly, by road from the Stoke site |`,
+        [cited(1, cost ?? ""), cited(2, "February 2027")],
+      );
+      expect(carriedMarks(carried(withUncited))).toHaveLength(2);
+
+      const onlyFound = tableOf("en", [
+        { ...cited(1, cost ?? ""), judgedAt: undefined },
+        { ...cited(2, "February 2027"), judgedAt: undefined },
+      ]);
+      expect(carriedMarks(carried(onlyFound))).toEqual([]);
+    });
+
+    // protects=a row of two cited cells that isn't Supported carries nothing, whichever of its Citations the judgement named: it read the row as one line, so a right cell would read Contradicted for a wrong one (#3214); fails_when=the row's verdict is copied to each cited cell
+    test.each(["unsupported", "contradicted"] as const)(
+      "a row of two cited cells judged %s carries nothing to either",
+      (verdict) => {
+        const made = answerOf(
+          "answer-table",
+          [
+            "| Item | Price | Date |",
+            "| --- | --- | --- |",
+            "| Kilns | £185,000 for two K9 kilns [^1] | Installed in February 2027 [^2] |",
+          ].join("\n"),
+          [
+            cited(1, "£185,000 for two K9 kilns"),
+            cited(2, "Installed in February 2027", {
+              check: verdict,
+              verdict: "The plan says March.",
+            }),
+          ],
+        );
+
+        expect(carriedMarks(carried(made))).toEqual([]);
+      },
+    );
+
+    // protects=a row with two cited cells gives each cell the mark with its own Citation as the evidence, so neither card shows the other cell's quote as what the Documents say (#3214); fails_when=both cells carry the first Citation
+    test("a row with two cited cells marks both, each with its own Citation", () => {
+      const made = answerOf(
+        "answer-table",
+        [
+          "| Item | Price | Date |",
+          "| --- | --- | --- |",
+          "| Kilns | £185,000 for two K9 kilns [^1] | Installed in February 2027 [^2] |",
+        ].join("\n"),
+        [cited(1, "£185,000 for two K9 kilns"), cited(2, "Installed in February 2027")],
+      );
+
+      const marks = carriedMarks(carried(made));
+
+      expect(marks.map((mark) => mark.text)).toEqual([
+        "£185,000 for two K9 kilns",
+        "Installed in February 2027",
+      ]);
+      expect(marks.map((mark) => (mark.evidence as { passageId: string }).passageId)).toEqual([
+        "passage-1",
+        "passage-2",
+      ]);
+    });
   });
 });

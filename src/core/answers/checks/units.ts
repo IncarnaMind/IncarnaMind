@@ -569,19 +569,40 @@ const BASE_UNITS = [
 const oneUnit = (a: string, b: string) =>
   a === b || BASE_UNITS.some((unit) => unit.test(a) && unit.test(b));
 
+type InFull = ReturnType<typeof inFull>;
+const [TONNE, GRAM] = BASE_UNITS;
+const written = (unit: RegExp | undefined, { unit: read }: InFull) =>
+  unit !== undefined && read.kind === "other" && unit.test(read.word);
+
+/**
+ * Two readings in full, both in grams where one is in grams and the other in tonnes: a tonne is a
+ * million grams, so a kilogram under "(t)" is one unit at another scale (#3022). No other unit is
+ * converted.
+ */
+function inOneMass(a: InFull, b: InFull): [InFull, InFull] {
+  const grams = ({ scale }: InFull): InFull => ({
+    scale: scale * 1e6,
+    unit: { kind: "other", word: "g" },
+  });
+  if (written(GRAM, a) && written(TONNE, b)) return [a, grams(b)];
+  if (written(TONNE, a) && written(GRAM, b)) return [grams(a), b];
+  return [a, b];
+}
+
 /**
  * Whether two readings are at one scale. In one unit, each is read in full: "31千克" is at the
  * scale of a label's "（千克）" and "31 kt" at that of "(thousand tonnes)", and "31克" at neither.
  * In two units of a measure their scale words are compared, where both units spell the same scale
- * or none ("吨" and "tons"). Null where it can't be told without converting one unit into another
- * ("吨" under "（千克）", "miles" under "(km)"), which isn't attempted, and for counts of two
- * things ("万人次" under "（万人）", "万家" under "（万人）").
+ * or none ("吨" and "tons"). A tonne is read as a million grams, so "千克" under "（吨）" is at
+ * another scale. Null where it can't be told without converting one unit into another ("miles"
+ * under "(km)"), which isn't attempted, and for counts of two things ("万人次" under "（万人）",
+ * "万家" under "（万人）").
  */
 function atOneScale(
   a: Pick<Reading, "scale" | "unit">,
   b: Pick<Reading, "scale" | "unit">,
 ): boolean | null {
-  const [one, other] = [inFull(a), inFull(b)];
+  const [one, other] = inOneMass(inFull(a), inFull(b));
   if (one.unit.kind !== "other" || other.unit.kind !== "other") return a.scale === b.scale;
   if (oneUnit(one.unit.word, other.unit.word)) return sameValue(one.scale, other.scale);
   if (measureOf(one.unit) === null && measureOf(other.unit) === null) return null;
@@ -590,7 +611,10 @@ function atOneScale(
 
 /** Whether two units are one unit in full, whatever scale each spells: 千瓦 and W, 公斤 and g. */
 function ofOneUnit(a: FigureUnit, b: FigureUnit): boolean {
-  const [one, other] = [inFull({ scale: 1, unit: a }).unit, inFull({ scale: 1, unit: b }).unit];
+  const [{ unit: one }, { unit: other }] = inOneMass(
+    inFull({ scale: 1, unit: a }),
+    inFull({ scale: 1, unit: b }),
+  );
   return one.kind === "other" && other.kind === "other" && oneUnit(one.word, other.word);
 }
 
@@ -1528,7 +1552,7 @@ export function unitNotStated(
           measureInFull(statement.unit) === measureInFull(figure.unit);
     const asWritten = same.some(({ unit }) => JSON.stringify(unit) === JSON.stringify(figure.unit));
     const ownLabels =
-      isShare(figure.unit) || bound || asWritten
+      isShare(figure.unit) || asWritten || (bound && measureInFull(figure.unit) === null)
         ? []
         : sameWritten.flatMap(({ source, text, start, context, chars, scale, plain }) => {
             if (!text.gateReads || !plain || scale !== figure.scale) return [];
@@ -1593,7 +1617,12 @@ export function unitNotStated(
         };
       continue;
     }
-    if (same.some(({ unit }) => unit.kind !== "plain")) continue;
+    // The value in another form that states money, or in a form that isn't the plain one, is the
+    // Document's own say. The value also written plainly beside a unit that is no money ("54,000"
+    // and "54,000 t") states no currency, so a sentence's "$" has nowhere to come from (#2251).
+    const plainToo = same.some(({ unit }) => unit.kind === "plain");
+    const money = same.some(({ unit }) => unit.kind === "currency");
+    if (same.some(({ unit }) => unit.kind !== "plain") && (!plainToo || money)) continue;
     const codes = new Set([...currenciesOf(figure), ...currenciesOfSign(figure)]);
     if (codes.size === 0) continue;
     if (read.some((each) => plainSays(figure, each, codes) === "agrees")) continue;

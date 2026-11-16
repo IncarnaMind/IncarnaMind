@@ -319,18 +319,21 @@ test("the cells and caption are never claims; a table needing a look counts once
   expect(calm.supported).toBe(1);
   expect(shown({ kind: "differs" }).lookClaims).toHaveLength(1);
   // Each column not recalculated counts as one figure not recalculated, for the badge's line
-  // (#2378); the card counts the table once, in its worst state (#2831): two columns not
-  // recalculated are one table not checked, and one recalculated beside one not is not checked
-  // too, never also supported.
+  // (#2378) and for the card's rows (#3212), as the table's own card lists them; a table is still
+  // one claim, in its worst state (#2831): one recalculated beside one not is not checked too,
+  // never also supported.
   const rows = (health: ReturnType<typeof shown>) => {
     const counted = checkRows(health).filter(({ row }) => row !== "ownNotes");
-    expect(counted.reduce((sum, { places }) => sum + places.length, 0)).toBe(health.checkable);
+    const more = health.notRecalculated.length - new Set(health.notRecalculated).size;
+    expect(counted.reduce((sum, { places }) => sum + places.length, 0)).toBe(
+      health.checkable + more,
+    );
     return counted.map(({ row, places }) => [row, places.length]);
   };
   const twoUnearned = shown({ kind: "calculated" }, [null, null]);
   expect(twoUnearned.notRecalculated).toHaveLength(2);
   expect(twoUnearned.supported).toBe(0);
-  expect(rows(twoUnearned)).toEqual([["toCheck", 2]]);
+  expect(rows(twoUnearned)).toEqual([["toCheck", 3]]);
   const partly = shown({ kind: "calculated" }, ["sum", null]);
   expect(partly.notRecalculated).toHaveLength(1);
   expect(rows(partly)).toEqual([["toCheck", 2]]);

@@ -96,6 +96,7 @@ import { mixedNumberWord, unsureSpansIn } from "../documents/scan/layout";
 import { detectLanguage } from "../documents/textLanguage";
 import type { Language } from "../language";
 import { WORKBOOK_TOOLS } from "../tools";
+import { columnHeadUnit } from "./checks/columnHeadUnit";
 import {
   type AnswerDocuments,
   type Matching,
@@ -2221,8 +2222,22 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     if (unitProblem && !ownUnit && !ofRow) return unitProblem;
     // A row's unit cell beside the number ("31000 | 万元") states its unit as a heading does.
     const onLine = (line: string) => (ownUnit ? null : readOnItsLine(line, figure, context));
+    // A column's heading that names its share or its measure ("Levy (‰)", "Output (t)") is the
+    // number's unit, though it states no scale: a 5 under it is 5‰, and a measure's unit leaves
+    // the number as it is written (#3022).
+    const headed =
+      unit && !ownUnit && !ofRow && onLine(unit.citation.quote) === null
+        ? columnHeadUnit(page.text, page.at + figure.start, unit.citation.quote, context)
+        : null;
     if (ofRow) stated = { quoted, stated: ofRow, currencyChars: null };
-    else if (unit && !ownUnit) {
+    else if (headed && unit) {
+      if (headed.share !== null && base.unit.kind === "plain")
+        stated = {
+          quoted: unit,
+          stated: { ...base, value: base.value * headed.share, unit: headed.unit },
+          currencyChars: null,
+        };
+    } else if (unit && !ownUnit) {
       const row = onLine(unit.citation.quote);
       let statedLine = readStatedUnits(unit.citation.quote, context, true);
       const ownRow = rowOf(quoted, figure);

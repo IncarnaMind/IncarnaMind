@@ -35,8 +35,12 @@ export interface QuotedSentence {
 
 /** What may stand between a quote's closing mark and the end of its sentence: closing marks and brackets, emphasis, spaces and Citations. */
 const AFTER_THE_QUOTE = /^["'”’)\]）】」』»*_~\s￼]*$/u;
-/** A full stop, past its closing marks, Citations and at least one space, before an opening quotation mark. */
-const STOP_BEFORE_QUOTE = /\.["'”’)\]）」』»￼]*\s["'”’)\]）」』»￼\s]*?(?=["'“‘「『«„‹])/gu;
+/**
+ * A full stop, past its closing marks, emphasis and Citations and at least one space, then any
+ * brackets a Citation is written in, before an opening quotation mark.
+ */
+const STOP_BEFORE_QUOTE =
+  /\.["'”’)\]）」』»￼*_~]*\s["'”’([（【)\]）」』»￼*_~\s]*?(?=["'“‘「『«„‹])/gu;
 /** Opening quotation marks the splitter leaves at the end of a sentence ("增长了。“"). */
 const OPENING_AT_END = /[“‘「『«„‹]+$/u;
 

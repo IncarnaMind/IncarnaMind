@@ -162,6 +162,47 @@ describe("finding a quote", () => {
   });
 });
 
+describe("a backtick matches only a backtick (#2504)", () => {
+  const SHELL = 'Run echo "Today is `date`" to print the day.';
+  const SHELL_ZH = '运行 echo "今天是 `date`" 打印日期。';
+
+  // protects=a quote that writes a command substitution in single quotation marks isn't the page's backticks, which run a command where the quote's words are a string; fails_when=the matching-only stage reads a backtick as an apostrophe (#2504); no_claim=indexing, which keeps the shared normaliser's text
+  test.each([
+    [
+      "en",
+      SHELL,
+      'echo "today is ‘date’" to print the day',
+      "echo \"today is 'date'\" to print the day",
+    ],
+    ["zh", SHELL_ZH, 'echo "今天是 ‘date’" 打印日期', "echo \"今天是 'date'\" 打印日期"],
+  ])(
+    "a page's backticks are not found with single quotation marks, %s",
+    (_language, page, curly, straight) => {
+      expect(findQuote(page, curly)).toBeNull();
+      expect(findQuote(page, straight)).toBeNull();
+    },
+  );
+
+  test.each([
+    ["en", SHELL, 'echo "today is `date`" to print the day'],
+    ["zh", SHELL_ZH, 'echo "今天是 `date`" 打印日期'],
+  ])("the page's own backticks are found, %s", (_language, page, quote) => {
+    expect(findQuote(page, quote)).not.toBeNull();
+  });
+
+  test("a page's apostrophes are not found with backticks, nor its backticks with apostrophes", () => {
+    const page = "The ‘date’ command prints the day of the week.";
+    expect(findQuote(page, "the `date` command prints the day")).toBeNull();
+    expect(
+      findQuote("The `date` command prints the day.", "the ‘date’ command prints the day"),
+    ).toBeNull();
+  });
+
+  test("an apostrophe or a quotation mark in prose is unchanged", () => {
+    expect(findQuote("It’s the firm’s ‘date’ rule.", "it's the firm's 'date' rule")).not.toBeNull();
+  });
+});
+
 describe("a table's row, with or without the pipes between its cells (#76)", () => {
   const MARKDOWN = [
     "| Item | Weight | Bag | Note |",
