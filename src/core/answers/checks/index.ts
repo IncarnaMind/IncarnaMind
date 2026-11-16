@@ -1872,7 +1872,8 @@ export function createChecks(options: ChecksOptions) {
           opinionsLeftOut: true,
           signal,
         },
-        checkRunOf(options, model, signal, null),
+        // Part of the Answer's own check, which started by itself: behind a reply, as its batches are (#2944).
+        checkRunOf(options, model, signal, null, { behindReplies: true }),
       );
       return "result" in outcome ? lookResult(outcome.result, sentence, citations) : null;
     },
