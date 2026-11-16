@@ -785,34 +785,37 @@ describe("the ask for a fill's records (#3099)", () => {
   });
 
   // protects=a reply of more Citation markers than one request for records has room to write gets them in several requests, so its facts are kept (#3227); fails_when=the records are asked for in one request, which ends at its limit and is read as nothing: the fill fails with no notes; no_claim=how many tokens a real model writes for a record
-  test("asks for a long reply's records in as many requests as they need room", async () => {
-    const words = WORDS.en;
-    const points = Array.from({ length: 60 }, (_, index) => index + 1);
-    const scripted = fillModel({
-      reply: [
-        "HEADINGS: H1=NONE",
-        ...points.map((n) => fact(`F${n}`, `Point ${n}: ${words.decision}`, n, "decisions")),
-        overview(words.purpose, 61),
-      ].join("\n\n"),
-      ask: recordsFor({
-        ...Object.fromEntries(points.map((n) => [n, words.decision])),
-        61: words.purpose,
-      }),
-    });
-    const { core, client, fill } = await recordedFill("en", scripted);
-    try {
-      const markers = scripted.asked.map((prompt) => prompt.match(/\[\^\d+\]/g)?.length ?? 0);
-      expect(markers).toHaveLength(2);
-      expect(markers.reduce((sum, count) => sum + count, 0)).toBe(61);
-      expect(Math.max(...markers)).toBeLessThanOrEqual(53);
-      expect(fill).toMatchObject({ state: "filled", omitted: 0, unfinishedParts: 0 });
-      const written = readMind(client).textContent;
-      for (const n of points) expect(written).toContain(`Point ${n}: ${words.decision}`);
-      expect(written).toContain(words.purpose);
-    } finally {
-      core.close();
-    }
-  });
+  test.each(["en", "zh-CN"] as const)(
+    "asks for a long reply's records in as many requests as they need room (%s)",
+    async (language) => {
+      const words = WORDS[language];
+      const points = Array.from({ length: 60 }, (_, index) => index + 1);
+      const scripted = fillModel({
+        reply: [
+          "HEADINGS: H1=NONE",
+          ...points.map((n) => fact(`F${n}`, `Point ${n}: ${words.decision}`, n, "decisions")),
+          overview(words.purpose, 61),
+        ].join("\n\n"),
+        ask: recordsFor({
+          ...Object.fromEntries(points.map((n) => [n, words.decision])),
+          61: words.purpose,
+        }),
+      });
+      const { core, client, fill } = await recordedFill(language, scripted);
+      try {
+        const markers = scripted.asked.map((prompt) => prompt.match(/\[\^\d+\]/g)?.length ?? 0);
+        expect(markers).toHaveLength(2);
+        expect(markers.reduce((sum, count) => sum + count, 0)).toBe(61);
+        expect(Math.max(...markers)).toBeLessThanOrEqual(53);
+        expect(fill).toMatchObject({ state: "filled", omitted: 0, unfinishedParts: 0 });
+        const written = readMind(client).textContent;
+        for (const n of points) expect(written).toContain(`Point ${n}: ${words.decision}`);
+        expect(written).toContain(words.purpose);
+      } finally {
+        core.close();
+      }
+    },
+  );
 
   // protects=when one of a long reply's requests for records comes back with nothing, the facts the other request recorded are kept and the rest are counted as left out (#3227); fails_when=one request's failure drops every fact, or the facts without a record are written; no_claim=which request a real service fails
   test("keeps the facts one request recorded when another gives nothing", async () => {
