@@ -24,6 +24,8 @@ interface Ask {
   /** The Transcript lines the request showed, as "Me: …" or "Them: …". */
   lines: string[];
   cut: boolean;
+  /** Its reply closed one fact and stopped inside the next. */
+  stopped?: boolean;
 }
 
 /** The one request for the whole call's Summary: the Passages it showed and the overviews it listed. */
@@ -65,8 +67,9 @@ async function settledFill(core: Core, meeting: Meeting): Promise<MeetingFill> {
  * The call recorded, stopped and its notes filled in by a scripted model with room for
  * `ROOM_LINES` lines a reply, then what was asked and what the note holds. `summaryQuote`: what
  * the model's Summary of the whole call quotes, null for words of the first line it is shown.
+ * `stopsInFrame`: the first reply with room for its part stops inside its second fact.
  */
-async function filledCall(summaryQuote: string | null) {
+async function filledCall(summaryQuote: string | null, stopsInFrame = false) {
   const call = (await readFile(CALL, "utf8")).trim().split("\n");
   const said = call.map((line) => {
     const [, who, text] = /^(Me|Them): (.+)$/.exec(line) ?? [];
@@ -75,6 +78,7 @@ async function filledCall(summaryQuote: string | null) {
   });
   const asks: Ask[] = [];
   const summaries: SummaryAsk[] = [];
+  let stopped: number | null = null;
   const model = scriptedModel((call): ScriptedReply => {
     const cited = call.results.some((result) => result.tool === "cite");
     const [, listed] = call.prompt.split("The parts' overviews:\n");
@@ -110,6 +114,7 @@ async function filledCall(summaryQuote: string | null) {
     const part = Number(/Use new ids P(\d+)_F1/.exec(call.prompt)?.[1]);
     if (!part) throw new Error("Unexpected request outside the Meeting's notes.");
     if (cited) {
+      const unfinished = [`### FACT P${part}_F2`, "```json", '{"topic":"unfinished"}', "```"];
       return {
         text: [
           `### FACT P${part}_F1`,
@@ -133,13 +138,16 @@ async function filledCall(summaryQuote: string | null) {
           "```",
           `${OVERVIEW}, point ${part} [^1].`,
           "### END OVERVIEW",
+          ...(part === stopped ? ["", ...unfinished] : []),
         ].join("\n"),
       };
     }
     const { cues, passage, location, quote } = firstLine(call.prompt);
     const lines = cues.map(({ line }) => line.replace(/^\[\S+ ([^\]]+)\] /, "$1: "));
     const cut = lines.length > ROOM_LINES;
-    asks.push({ part, lines, cut });
+    const stops = stopsInFrame && !cut && stopped === null;
+    if (stops) stopped = part;
+    asks.push({ part, lines, cut, ...(stops && { stopped: true }) });
     if (cut) return { text: "", cutOff: true };
     return {
       calls: [{ tool: "cite", input: { citations: [{ marker: 1, passage, quote, location }] } }],
@@ -256,4 +264,33 @@ test("a whole-call Summary whose Citation isn't found leaves each part's overvie
   );
   expect(note.split(OVERVIEW)).toHaveLength(answered.length + 1);
   for (const citation of citations) expect(citation).toMatchObject({ check: "found" });
+});
+
+// protects=a part's reply that closes some facts and stops inside the next one, with no cut reported, doesn't pass for the whole part: the part is asked again as two, the facts the reply closed are kept once, every line of the call still reaches an answered request once, the stopped reply's overview is not listed for the Summary, and nothing is counted as left out (#3151); fails_when=the stopped reply is taken as the part's notes, so the rest of its lines get none, or the kept fact is written twice; no_claim=how often a real model stops inside a frame.
+test("a reply that stops inside a fact is asked again as two, keeping the facts it closed", async () => {
+  const { call, asks, summaries, settled, note } = await filledCall(null, true);
+  expect(settled).toMatchObject({
+    state: "filled",
+    omitted: 0,
+    unfinishedParts: 0,
+    problem: null,
+  });
+  const index = asks.findIndex((ask) => ask.stopped);
+  const stoppedAsk = asks[index];
+  if (!stoppedAsk) throw new Error("No reply stopped inside a fact.");
+  const halves = [asks[index + 1], asks[index + 2]];
+  expect(halves.flatMap((half) => half?.lines ?? [])).toEqual(stoppedAsk.lines);
+  for (const half of halves) expect(half?.lines.length).toBeGreaterThan(0);
+  const answered = asks.filter((ask) => !ask.cut && !ask.stopped);
+  expect(answered.flatMap((ask) => ask.lines)).toEqual(call);
+  expect(summaries).toEqual([
+    {
+      passages: answered.length,
+      overviews: answered.map(({ part }) => `${OVERVIEW}, point ${part} .`),
+    },
+  ]);
+  for (const { part } of [stoppedAsk, ...answered]) {
+    expect(note.split(`Point ${part} of the rollout was agreed`)).toHaveLength(2);
+  }
+  expect(note).not.toContain("unfinished");
 });

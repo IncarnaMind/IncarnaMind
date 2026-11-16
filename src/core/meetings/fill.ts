@@ -720,8 +720,10 @@ export function createMeetingFill(options: MeetingFillOptions) {
       }
       // A part whose reply was cut is asked again as two, and the facts the reply did write are
       // kept: what it left out is read again, so it isn't counted as missing, and each half
-      // writes the overview of its own lines (#3151).
-      const halves = cutShort(answer) ? halved(part) : null;
+      // writes the overview of its own lines (#3151). A reply that stopped inside a frame was cut
+      // too, whatever its request reported: a model can end its turn part-way through its notes.
+      const outOfRoom = cutShort(answer);
+      const halves = outOfRoom || parsed.cut ? halved(part) : null;
       ledger.accept(
         halves
           ? { ...parsed, overview: null, omittedIds: [], invalidFrames: 0, overviewOmitted: null }
@@ -744,11 +746,19 @@ export function createMeetingFill(options: MeetingFillOptions) {
         else destinations.set(section, heading);
       }
       if (halves) {
-        // A call dense enough to cut one reply cut the next part of the same size too, each a
-        // two-minute wait for nothing: the rest of the call is asked at half the size as well.
-        partSize = Math.max(FILL_PART_FLOOR_TOKENS, Math.floor(partSize / 2));
-        waiting = [...halves, ...transcriptParts(waiting.flat(), partSize)];
-        log.info("meeting.fillPartHalved", { meetingId: meeting.id, waiting: waiting.length });
+        // A call dense enough to run one reply out of room did the same to the next part of the
+        // same size, each a two-minute wait for nothing: the rest of the call is asked at half
+        // the size as well.
+        if (outOfRoom) {
+          partSize = Math.max(FILL_PART_FLOOR_TOKENS, Math.floor(partSize / 2));
+          waiting = transcriptParts(waiting.flat(), partSize);
+        }
+        waiting = [...halves, ...waiting];
+        log.info("meeting.fillPartHalved", {
+          meetingId: meeting.id,
+          waiting: waiting.length,
+          cut: outOfRoom ? "length" : "frame",
+        });
         continue;
       }
       read += 1;
