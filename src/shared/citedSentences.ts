@@ -44,11 +44,13 @@ const inlineNodes = (text: string) => text.split(INLINE_NODE).length - 1;
 const SENTENCE_FINISHED = /[.!?。！？:：;；][\s"'”’)\]）」』»*_~￼]*(?:\[\^\d{1,4}\]\s*)*$/u;
 
 /**
- * Whether `line` opens with the end of a sentence the line before it left unfinished: a fragment
- * too short to be a claim of its own ("installed [^1].", "February 2027 [^2]."), which no judgement
+ * Whether `line` goes on the sentence the line before it left unfinished: it opens in lower case
+ * ("the main hall at the Stoke site…"), as a wrapped line of prose does, or with a fragment too
+ * short to be a claim of its own ("installed [^1].", "February 2027 [^2]."), which no judgement
  * reads, so its Citation would show found beside a sentence nobody judged (#3213).
  */
 function endsTheLineBefore(line: string): boolean {
+  if (/^\p{Ll}/u.test(line.trimStart())) return true;
   const marked = line.replace(MARKER, INLINE_NODE).trim();
   const [first] = sentenceSpans(marked);
   return first !== undefined && !isClaim(withoutMarkers(marked.slice(first.from, first.to)));
@@ -56,9 +58,9 @@ function endsTheLineBefore(line: string): boolean {
 
 /**
  * The lines of an Answer's Markdown, a sentence wrapped over a line break read as one line: a line
- * goes on from the line before it when that one doesn't end its sentence and this one opens with
- * the sentence's last words, a fragment too short to be a claim. A line that is a claim of its own
- * ("Cost: £185,000 [^1]", a sentence), a block of its own (a list item, a heading, a quote, a table
+ * goes on from the line before it when that one doesn't end its sentence and this one goes on it
+ * (`endsTheLineBefore`): in lower case, or a fragment too short to be a claim. A line that is a
+ * claim of its own ("Cost: £185,000 [^1]", a sentence), a block of its own (a list item, a heading, a quote, a table
  * row, a footnote, a line of a code fence), or follows a hard break stays its own unit.
  */
 function logicalLines(text: string): string[] {

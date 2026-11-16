@@ -167,6 +167,21 @@ describe("a sentence its quote doesn't support loses its green check", () => {
       says: "The slide says the two K9 kilns are to be installed in February 2027.",
     },
     {
+      language: "English, wrapped at 80 columns",
+      question: "How much does the kiln upgrade cost, and when is it installed?",
+      lines: [
+        "The upgrade costs £185,000 for two K9 kilns, which are already installed in",
+        "the main hall at the Stoke site, with the cost split across two years [^1].",
+        "Installation is planned for February 2027, after the supplier confirms the",
+        "order and the board signs off the budget [^2].",
+      ],
+      wrong:
+        "The upgrade costs £185,000 for two K9 kilns, which are already installed in the main hall at the Stoke site, with the cost split across two years.",
+      right:
+        "Installation is planned for February 2027, after the supplier confirms the order and the board signs off the budget.",
+      says: "The slide says the two K9 kilns are to be installed in February 2027.",
+    },
+    {
       language: "Chinese",
       question: "窑炉升级要花多少钱？什么时候安装？",
       lines: [

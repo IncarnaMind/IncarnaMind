@@ -514,6 +514,29 @@ describe("A paragraph's lines are read as one before its sentences are split (#3
     expect(split(text)).toEqual(expected);
   });
 
+  // protects=prose hard-wrapped at a fixed width, whose lines are claim-sized and go on in lower case, is read as the sentences it holds; fails_when=each line is judged as a sentence of its own and a Citation's ✓ speaks for a tail the head of its sentence isn't judged with
+  test("prose wrapped at 80 columns is read as its sentences", () => {
+    expect(
+      split(
+        [
+          "The plan prices two K9 kilns at £185,000 and says they are already installed in",
+          "the main hall at the Stoke site, with the cost split across two years [^1].",
+          "Installation is planned for February 2027, after the supplier confirms the order",
+          "and the board signs off the budget [^2].",
+        ].join("\n"),
+      ),
+    ).toEqual([
+      [
+        "The plan prices two K9 kilns at £185,000 and says they are already installed in the main hall at the Stoke site, with the cost split across two years.",
+        [1],
+      ],
+      [
+        "Installation is planned for February 2027, after the supplier confirms the order and the board signs off the budget.",
+        [2],
+      ],
+    ]);
+  });
+
   test("a list item goes on over its next lines, and the next item starts its own sentence", () => {
     expect(
       split(
