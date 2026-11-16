@@ -267,7 +267,7 @@ test("an edit that would remove most of what was selected, and can't be mapped o
   await selectThree();
   await askToChange(window, "replace it all with a haiku");
   await expect(line.getByTestId("applied-count")).toHaveText(
-    "Waiting for you: this edit removes most of your selection",
+    "Waiting for you: this edit takes text out of your selection",
   );
   // Each paragraph written anew reads whole, its old text one line above it, struck on a click (#1028).
   const was = editor.getByTestId("change-was-line").first();
@@ -280,7 +280,7 @@ test("an edit that would remove most of what was selected, and can't be mapped o
   await screenshot(window, "applied-held-en");
   await setLanguage(window, "zh-CN");
   await expect(line.getByTestId("applied-count")).toHaveText(
-    "等你确认：这次修改会删掉选中的大部分内容",
+    "等你确认：这次修改会删掉选中的一部分内容",
   );
   await expect(line.getByTestId("applied-apply")).toHaveText("应用");
   await expect(line.getByTestId("applied-discard")).toHaveText("放弃");
@@ -333,7 +333,7 @@ test("Apply on an edit held back saves a version first, as an edit that applies 
   });
   await askToChange(window, "replace it all with a haiku");
   await expect(line.getByTestId("applied-count")).toHaveText(
-    "Waiting for you: this edit removes most of your selection",
+    "Waiting for you: this edit takes text out of your selection",
   );
   const held = await checkpointsOfNewestNote(window);
   await pointAndClick(window, line.getByTestId("applied-apply"));

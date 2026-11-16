@@ -38,6 +38,9 @@ export function judgesNothing(call: GenerateCall): GeneratedReply {
       return { text: JSON.stringify({ claims: [] }) };
     case "request-done":
       return { text: JSON.stringify({ asks_change: "no", request: "none" }) };
+    // The scripted requests that quote a paragraph as taken out are deletions the User asked for.
+    case "removal-asked":
+      return { text: JSON.stringify({ asks_to_remove: "yes" }) };
     case "restate":
       return { text: restatedAsQuoted(call) };
     case undefined:

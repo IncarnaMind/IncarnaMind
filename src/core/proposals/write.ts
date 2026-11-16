@@ -3501,6 +3501,18 @@ export function createRewriteStream(
       notes: { ...notesWritten },
     }),
 
+    /**
+     * How many of the selection's paragraphs the finished `text` quotes whole between <removed> and
+     * </removed>, word for word: the quotes that, once the text ends, take a paragraph out.
+     */
+    wholeQuotes: (text: string): number => {
+      const { quoted } = readRemovals(named ? unnameRemovals(text) : text, true);
+      const paragraphs = new Set(segments.map((segment) => charsOf(segment.tokens).chars));
+      return quoted
+        .flatMap((quote) => quotedRuns(quote, selection, named))
+        .filter((quote) => paragraphs.has(quote.chars)).length;
+    },
+
     /** Characters removed: not those it quotes as taken out, nor those it left out, which stay. */
     extent: () => ({
       mapped: mapsOnto(notes.characters.written - notes.characters.added, notes.characters.written),

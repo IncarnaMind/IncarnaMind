@@ -7,8 +7,9 @@
 import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test } from "vitest";
 import type { EditWithAiInput } from "../../src/core";
+import { EDIT_INSTRUCTIONS, EDIT_INSTRUCTIONS_NAMED } from "../../src/core/edits/prompt";
 import { setUpWithDocuments } from "../helpers/citations";
-import { type EditCall, editingModel, wholeMind } from "../helpers/editing";
+import { type EditCall, editingModel, type RemovalAnswer, wholeMind } from "../helpers/editing";
 import type { MindClient } from "../helpers/mindClient";
 import { resolveChanges, shownWithChanges, writeMind } from "../helpers/minds";
 
@@ -54,12 +55,17 @@ const SHORTER = {
   ],
 } as const;
 
-async function noteOf(lines: readonly string[], reply: (call: EditCall) => string) {
+async function noteOf(
+  lines: readonly string[],
+  reply: (call: EditCall) => string,
+  removal: RemovalAnswer = "yes",
+) {
   const calls: EditCall[] = [];
-  const set = await setUpWithDocuments(editingModel(reply, calls), []);
+  const asked: string[] = [];
+  const set = await setUpWithDocuments(editingModel(reply, calls, { removal, asked }), []);
   writeMind(set.client, lines.map(paragraph));
   await set.client.settled();
-  return { ...set, calls };
+  return { ...set, calls, asked };
 }
 
 /** Edit with AI over all of the Mind's text, as a fixed action (Shorten, Improve, Translate). */
@@ -145,5 +151,114 @@ describe.each(["en", "zh"] as const)("A reply's own talk to a fixed task (%s)", 
     await resolveChanges(client, "accept");
 
     expect(shownWithChanges(client).join("")).toContain(tail);
+  });
+});
+
+describe.each(["en", "zh"] as const)(
+  "A request in the User's words and a paragraph quoted as taken out (%s)",
+  (language) => {
+    const lines = FIVE[language];
+    const SHORT_ASK = { en: "Make it shorter.", zh: "把它改短一些。" }[language];
+    const DELETE_ASK = { en: "Delete the first two paragraphs.", zh: "把前两段删掉。" }[language];
+    const wholeQuoted = () =>
+      [`¶1 <removed>${lines[0]}</removed>`, `¶2 <removed>${lines[1]}</removed>`].join("\n\n");
+
+    // protects=a request that asks for no text to go, whose reply quotes a whole paragraph as taken out, waits for the User: the small model reads the User's words alone, once, and says no; fails_when=the paragraph is taken out at once; or the passage goes to the small model; no_claim=how often a real model quotes one (1 of 3 runs of #2490's probe).
+    test("words that don't ask for a removal: the quoted paragraphs wait", async () => {
+      const { core, mind, client, asked } = await noteOf(lines, wholeQuoted, "no");
+
+      const result = await core.editWithAi(wholeMind(client, mind.id, SHORT_ASK));
+
+      expect(result).toMatchObject({ kind: "proposed", held: true });
+      expect(asked).toHaveLength(1);
+      // Only the User's words go to the small model, never the passage.
+      expect(asked[0]).toContain(SHORT_ASK);
+      expect(asked[0]).not.toContain(lines[0]);
+    });
+
+    // protects=a request whose words ask for text to go keeps taking the quoted paragraphs out at once, as before (#2180); fails_when=an asked deletion waits; no_claim=how a model reads other phrasings.
+    test("words that ask for a removal: the quoted paragraphs go at once", async () => {
+      const { core, mind, client, asked } = await noteOf(lines, wholeQuoted, "yes");
+
+      const result = await core.editWithAi(wholeMind(client, mind.id, DELETE_ASK));
+
+      expect(result).toMatchObject({ kind: "proposed" });
+      expect(result).not.toHaveProperty("held");
+      expect(asked).toHaveLength(1);
+    });
+
+    // protects=a removal waits when the small model can't be asked or can't be read: it never applies on no answer; fails_when=a removal applies when the question failed or was unreadable; no_claim=why it failed.
+    test.each(["fails", "unreadable"] as const)(
+      "the question %s: the quoted paragraphs wait",
+      async (removal) => {
+        const { core, mind, client } = await noteOf(lines, wholeQuoted, removal);
+
+        const result = await core.editWithAi(wholeMind(client, mind.id, DELETE_ASK));
+
+        expect(result).toMatchObject({ kind: "proposed", held: true });
+      },
+    );
+
+    // protects=the question is asked only when a reply quotes a whole paragraph: a sentence quoted from a paragraph, or no quote at all, asks nothing; fails_when=every edit asks the small model; no_claim=none.
+    test("a part quote, or no quote, asks nothing", async () => {
+      const [first = ""] = lines;
+      const sentence = first.slice(0, Math.min(18, first.length));
+      const part = await noteOf(
+        lines,
+        () => `¶1 <removed>${sentence}</removed>${first.slice(sentence.length)}`,
+        "no",
+      );
+      await part.core.editWithAi(wholeMind(part.client, part.mind.id, SHORT_ASK));
+      expect(part.asked).toHaveLength(0);
+
+      const none = await noteOf(lines, () => `¶1 ${first}`, "no");
+      await none.core.editWithAi(wholeMind(none.client, none.mind.id, SHORT_ASK));
+      expect(none.asked).toHaveLength(0);
+    });
+  },
+);
+
+const SUMMARY = {
+  en: [
+    "The survey team is two people and a volunteer.",
+    "It used 14 stations along the north shore.",
+    "The approved survey budget is £182,500.",
+    "The report is due on 12 December.",
+  ],
+  zh: [
+    "测量组有两名成员和一名志愿者。",
+    "共使用了北岸沿线的14个测量站。",
+    "获批的测量预算为182,500英镑。",
+    "报告须于12月12日提交。",
+  ],
+} as const;
+const MERGED = {
+  en: "It used 14 stations along the north shore, on a budget of £182,500.",
+  zh: "共使用了北岸沿线的14个测量站，预算为182,500英镑。",
+} as const;
+
+describe.each(["en", "zh"] as const)("A rewrite that merges two paragraphs (%s)", (language) => {
+  const lines = SUMMARY[language];
+  const ASK = { en: "Make the summary shorter.", zh: "把摘要改短一些。" }[language];
+
+  // protects=a merge that names both old paragraphs, the first replaced by the merged text and the second quoted as taken out, leaves no sentence of the old text standing beside its new version once the User applies it; the removal waits, since the words of the second are not all in the merged text; fails_when=the old paragraph stays beside the merged one, or the merge applies unseen; no_claim=how often a real model merges (the 2026-11-07 walk).
+  test("both named: the merged text stands alone once applied, and it waits", async () => {
+    const { core, mind, client } = await noteOf(
+      lines,
+      () => `¶2 ${MERGED[language]}\n\n¶3 <removed>${lines[2]}</removed>`,
+      "no",
+    );
+
+    const result = await core.editWithAi(wholeMind(client, mind.id, ASK));
+    await resolveChanges(client, "accept");
+
+    expect(result).toMatchObject({ kind: "proposed", held: true });
+    expect(shownWithChanges(client)).toEqual([lines[0], MERGED[language], lines[3]]);
+  });
+
+  // protects=the instructions of a request in the User's words tell the model to name the second paragraph of a merge as removed, and those of a fixed task, which names no paragraph, don't; fails_when=the line is missing from the named instructions or leaks into the other; no_claim=how a model reads it.
+  test("the named instructions say how to merge, the others don't", () => {
+    expect(EDIT_INSTRUCTIONS_NAMED).toContain("When you merge two paragraphs into one");
+    expect(EDIT_INSTRUCTIONS).not.toContain("When you merge two paragraphs into one");
   });
 });

@@ -27,8 +27,15 @@ export function waitsForUser(edit: {
   added: number;
   selected: number;
   removedWhole?: number;
+  /** The User's words, read, ask for no text to go: a paragraph quoted as taken out is the reply's alone. */
+  notAskedToRemove?: boolean;
 }): boolean {
-  if (TAKES_NOTHING_OUT.has(edit.action) && (edit.removedWhole ?? 0) > 0) return true;
+  if (
+    (TAKES_NOTHING_OUT.has(edit.action) || edit.notAskedToRemove === true) &&
+    (edit.removedWhole ?? 0) > 0
+  ) {
+    return true;
+  }
   if (edit.action === "translate" || edit.selected === 0) return false;
   return (edit.removed - edit.added) / edit.selected > MOST_OF_IT;
 }

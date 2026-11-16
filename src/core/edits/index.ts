@@ -133,6 +133,7 @@ import {
   withMissingNumber,
   withoutNames,
 } from "./prompt";
+import { asksToRemove } from "./removalAsked";
 
 /** The tasks whose reply may take text out by quoting it: the User's words, and a Citation's checks. */
 const QUOTES_TAKE_OUT: ReadonlySet<EditAction> = new Set([
@@ -188,6 +189,8 @@ export interface EditsOptions {
   chat: {
     readiness(choice: ChatModelChoice | undefined, flow: "edits"): Promise<ChatReadiness>;
     prepareModel(choice: ChatModelChoice | undefined, flow: "edits"): Promise<PreparedChatModel>;
+    /** The model the User chose for small calls, else one of the same provider's; null with none. */
+    quickTasksModel(answers: ChatModelChoice | null): ChatModelChoice | null;
     /** The service the default chat model sends to; null with none, or one on this computer. */
     defaultService(): ExternalService | null;
   };
@@ -803,6 +806,41 @@ export function createEdits(options: EditsOptions) {
   }
 
   /**
+   * Whether the User's words ask to take text out, asked of the model they chose for small calls
+   * (`prepared`'s provider's, else `prepared` itself) and only where that is already allowed for
+   * edits: never a question to the User, and no word goes anywhere new. False when it can't be asked.
+   */
+  async function removalAskedBy(
+    prepared: PreparedChatModel,
+    request: string,
+    signal: AbortSignal,
+  ): Promise<boolean> {
+    if (request.trim() === "" || signal.aborted) return false;
+    try {
+      const own = { providerId: prepared.provider.id, modelId: prepared.modelId };
+      const quick = chat.quickTasksModel(own) ?? own;
+      const readiness = await chat.readiness(quick, "edits");
+      if (!readiness.ready) return false;
+      const { service } = readiness.provider;
+      if (
+        service &&
+        (options.localOnly() || !options.consent.covers("edits", service, EDITS_FLOW_SENDS))
+      ) {
+        return false;
+      }
+      const small = await chat.prepareModel(quick, "edits");
+      return await asksToRemove(small.model, request, signal);
+    } catch (error) {
+      if (!signal.aborted) {
+        console.error(
+          `Whether an edit's request asks to take text out couldn't be asked: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+      return false;
+    }
+  }
+
+  /**
    * `run`, on a model already prepared: what goes to it, and what comes back
    * as Proposals, each paragraph as soon as it is finished. Also gives the
    * passage's new text and why it changed, once the model is done.
@@ -912,11 +950,14 @@ export function createEdits(options: EditsOptions) {
         stateVector: content.stateVector(mindId),
       };
     };
+    /** The User's words were read and ask for no text to go, though the reply quotes a paragraph as taken out (#2333). */
+    let notAskedToRemove = false;
     const holdsBack = (written: RewriteStream) =>
       waitsForUser({
         action: ask.action,
         ...written.extent(),
         selected: selection.characters,
+        notAskedToRemove,
       });
     const appliesNow = () =>
       explain ||
@@ -1060,6 +1101,16 @@ export function createEdits(options: EditsOptions) {
     }
     const reason = explain ? null : reasonOf(raw);
     if (reason) made.reason = reason;
+    // Words that name no text to go, and a reply that quotes a whole paragraph as taken out: the
+    // quote alone says so, so the removal waits unless the User's words are read to ask for it.
+    if (
+      stream &&
+      ask.action === "instruction" &&
+      ask.removesOnly !== true &&
+      stream.wholeQuotes(reply) > 0
+    ) {
+      notAskedToRemove = !(await removalAskedBy(prepared, ask.instruction ?? "", signal));
+    }
     step(() => {
       if (!stream) {
         proposed = proposeAfter(blocks, selection, reply, request, randomUUID).proposals.length;
