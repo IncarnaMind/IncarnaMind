@@ -8419,13 +8419,13 @@
       "here": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 54,000 克等级, not 54,000吨."
           }
         ],
         "document": {
           "verdict": "unsupported",
-          "reason": "The Document gives 54,000, not 54,000吨."
+          "reason": "The Document gives 54,000 克等级, not 54,000吨."
         }
       }
     },
@@ -42586,13 +42586,13 @@
       "here": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 31（吨标准煤）, not 31千克."
           }
         ],
         "document": {
           "verdict": "unsupported",
-          "reason": "The Document gives 31, not 31千克."
+          "reason": "The Document gives 31（吨标准煤）, not 31千克."
         }
       }
     },
@@ -42618,13 +42618,13 @@
       "here": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 31（吨标准煤），不是 31千克。"
           }
         ],
         "document": {
           "verdict": "unsupported",
-          "reason": "文档写的是 31，不是 31千克。"
+          "reason": "文档写的是 31（吨标准煤），不是 31千克。"
         }
       }
     },
@@ -42778,13 +42778,13 @@
       "here": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 31（吨标准煤）, not 31千克."
           }
         ],
         "document": {
           "verdict": "unsupported",
-          "reason": "The Document gives 31, not 31千克."
+          "reason": "The Document gives 31（吨标准煤）, not 31千克."
         }
       }
     },
@@ -42810,13 +42810,13 @@
       "here": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 31（吨标准煤），不是 31千克。"
           }
         ],
         "document": {
           "verdict": "unsupported",
-          "reason": "文档写的是 31，不是 31千克。"
+          "reason": "文档写的是 31（吨标准煤），不是 31千克。"
         }
       }
     },
@@ -42970,13 +42970,13 @@
       "here": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 31（吨标准煤）, not 31千克."
           }
         ],
         "document": {
           "verdict": "unsupported",
-          "reason": "The Document gives 31, not 31千克."
+          "reason": "The Document gives 31（吨标准煤）, not 31千克."
         }
       }
     },
@@ -43002,13 +43002,13 @@
       "here": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 31（吨标准煤），不是 31千克。"
           }
         ],
         "document": {
           "verdict": "unsupported",
-          "reason": "文档写的是 31，不是 31千克。"
+          "reason": "文档写的是 31（吨标准煤），不是 31千克。"
         }
       }
     },
@@ -43162,13 +43162,13 @@
       "here": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "The Document gives 31 单位：吨, not 31千克."
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "unsupported",
+          "reason": "The Document gives 31 单位：吨, not 31千克."
         }
       }
     },
@@ -43194,13 +43194,13 @@
       "here": {
         "answer": [
           {
-            "check": "found",
-            "verdict": null
+            "check": "unsupported",
+            "verdict": "文档写的是 31 单位：吨，不是 31千克。"
           }
         ],
         "document": {
-          "verdict": "supported",
-          "reason": null
+          "verdict": "unsupported",
+          "reason": "文档写的是 31 单位：吨，不是 31千克。"
         }
       }
     },

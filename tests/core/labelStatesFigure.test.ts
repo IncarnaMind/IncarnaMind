@@ -132,7 +132,7 @@ describe("A label that gives a figure's unit states it for the number rule (#299
     ]);
   });
 
-  // protects=a label states a figure only when every number of its written value in the quote carries a label of the figure's kind that gives its unit, scale, rate and notation, so a wrong sentence gains no ✓: another scale or another unit of the measure, a twin under another scale or another measure, a heading or bracket that names two units, a label that isn't a unit, the neighbouring column's, a rate dropped or changed, ‰ under a percent, and two unit lines at two scales all read as on main, and the number's own caption at another scale than the sentence's ("表4 各港吞吐量（万吨）" over "甲港\t31" for "甲港吞吐量为31吨。") is caught in both checks; fails_when=any of them reads ✓ in an Answer or loses Check against Documents' Unsupported; no_claim=telling which of two columns a sentence is about, which stays the model's.
+  // protects=a label states a figure only when every number of its written value in the quote carries a label of the figure's kind that gives its unit, scale, rate and notation, so a wrong sentence gains no ✓: another scale or another unit of the measure, a twin under another scale or another measure, a heading or bracket that names two units, a label that isn't a unit, the neighbouring column's, a rate dropped or changed, ‰ under a percent, and two unit lines at two scales all read as on main, tonnes under a label in kilograms are caught in both checks as one unit at two scales (#3022), and the number's own caption at another scale than the sentence's ("表4 各港吞吐量（万吨）" over "甲港\t31" for "甲港吞吐量为31吨。") is caught in both checks; fails_when=any of them reads ✓ in an Answer or loses Check against Documents' Unsupported; no_claim=telling which of two columns a sentence is about, which stays the model's.
   test("a sentence the label doesn't give reads as on main", async () => {
     await readsAsWanted([
       [
@@ -147,7 +147,12 @@ describe("A label that gives a figure's unit states it for the number rule (#299
         "Site B's output was 31 kt.",
         caught("31 (t)", "31 kt"),
       ],
-      ["各厂产量（千克）\n一厂: 54\n二厂: 31", "二厂: 31", "二厂产量为31吨。", UNJUDGED],
+      [
+        "各厂产量（千克）\n一厂: 54\n二厂: 31",
+        "二厂: 31",
+        "二厂产量为31吨。",
+        caught("31（千克）", "31吨"),
+      ],
       [
         "一厂产量（吨）: 54，库存（万吨）: 12\n二厂产量（吨）: 31，库存（万吨）: 31",
         "二厂产量（吨）: 31，库存（万吨）: 31",
@@ -247,18 +252,13 @@ describe("The same unit in another word at the number is the figure's unit (#299
 });
 
 describe("A unit said only in a sentence of prose is read (#2997)", { timeout: 120_000 }, () => {
-  // protects=a Document that says in prose, just above the rows it speaks of, what its figures are counted in ("本报告产量以瓦计。", "库存以吨计。") states that unit, so the right sentence keeps its ✓ and reads Supported in Check against Documents, another scale of its unit is caught in both checks, and another unit of the measure, or "以克计划" that goes on as a word, reads as on main; fails_when="二厂产量为31瓦。" there reads Unsupported in Check against Documents, "二厂产量为31万吨。" beside "以吨计" keeps a ✓, or "二厂产量为31千克。" there reads Supported in Check against Documents; no_claim=the Answer's ✓ on a wrong unit the Document states nowhere, which is the model's, as on main.
+  // protects=a Document that says in prose, just above the rows it speaks of, what its figures are counted in ("本报告产量以瓦计。", "库存以吨计。") states that unit, so the right sentence keeps its ✓ and reads Supported in Check against Documents, another scale of its unit is caught in both checks, kilograms beside "以吨计" among them (a tonne is a million grams, #3022), and "以克计划" that goes on as a word reads as on main; fails_when="二厂产量为31瓦。" there reads Unsupported in Check against Documents, or "二厂产量为31万吨。" or "二厂产量为31千克。" beside "以吨计" keeps a ✓; no_claim=the Answer's ✓ on a wrong unit the Document states nowhere, which is the model's, as on main.
   test("a unit said in prose states it, and states no other", async () => {
     const rows = (prose: string) => `${prose}\n厂区\t产量\n一厂\t54\n二厂\t31`;
     await readsAsWanted([
       [rows("本报告产量以瓦计。"), "二厂\t31", "二厂产量为31瓦。", TICK],
       ["库存以吨计。\n厂区\t库存\n一厂\t54\n二厂\t31", "二厂\t31", "二厂库存为31吨。", TICK],
-      [
-        rows("本报告产量以吨计。"),
-        "二厂\t31",
-        "二厂产量为31千克。",
-        leftToTheModel("31", "31千克"),
-      ],
+      [rows("本报告产量以吨计。"), "二厂\t31", "二厂产量为31千克。", caught("31 吨", "31千克")],
       [rows("本报告产量以吨计。"), "二厂\t31", "二厂产量为31万吨。", caught("31", "31万吨")],
       [rows("以克计划为准。"), "二厂\t31", "二厂产量为31克。", leftToTheModel("31", "31克")],
     ]);
