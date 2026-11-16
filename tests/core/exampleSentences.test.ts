@@ -282,9 +282,9 @@ describe.each(["en", "zh-CN"] as const)("the credit example's own sentences (%s)
     expect(part.prompt).toContain(`<whole-sentence>\n${words.ebitda.text}\n</whole-sentence>`);
     expect(part.prompt).not.toContain("<paragraph>");
     expect(part.system).toContain("is one part of a longer sentence of the User's");
-    // What its recorded quote gives comes before the verdict it is asked for.
+    // What its recorded quote gives, and which way a change goes, come before the verdict.
     expect(part.system).toMatch(
-      /English:\nFound: .+\nVerdict: supported, unsupported or contradicted\n/,
+      /English:\nFound: .+\nDirection: .+\nVerdict: supported, unsupported or contradicted\n/,
     );
     // The rule's own examples are none of the example's sentences.
     for (const line of [words.ebitda, words.revenue])
