@@ -164,7 +164,7 @@ test("an early check waits for its sentence's reading, made once, and a marked s
   const again = run.readFirst?.(checkRequestOf(leaning, run, limit, run.signal));
   for (const end of ends) end();
 
-  expect(await again).toBe(leans);
+  expect(await again?.read).toBe(leans);
   expect(read).toHaveLength(2);
   expect(sent.map((request) => [request.claim, request.about])).toEqual([
     [leaning.claim, leans.about],

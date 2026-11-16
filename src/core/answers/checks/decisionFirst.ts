@@ -413,7 +413,10 @@ export type FirstReading =
   | { firstReading: ClaimFirstReading | null; about: ReadonlyMap<string, number> }
   | null;
 
-/** Reads a queued sentence with `reader` before its check. */
+/**
+ * Reads a queued sentence with `reader` before its check. `leans` hears what the Passages' scores
+ * lean to as soon as they do, before the model is asked whether that stands as a verdict.
+ */
 export function createFirstReading(deps: Dependencies) {
   /**
    * What the verdict rests on, once its Passage holds the verdict alone: the Passage's line the
@@ -445,7 +448,11 @@ export function createFirstReading(deps: Dependencies) {
     return quoted === null ? null : { citation, quoted };
   }
 
-  return async (request: ClaimCheckRequest, reader: DecisionReader): Promise<FirstReading> => {
+  return async (
+    request: ClaimCheckRequest,
+    reader: DecisionReader,
+    leans?: (firstReading: ClaimFirstReading) => void,
+  ): Promise<FirstReading> => {
     const plan = wholeFact(request);
     if (!plan || !readsPassages(deps, request)) return null;
     const { signal } = request;
@@ -503,6 +510,7 @@ export function createFirstReading(deps: Dependencies) {
       return unsettled({ verdict: joined.verdict, ...reader.model });
     }
     const leaning = { verdict: reading.verdict, ...reader.model };
+    leans?.(leaning);
     const passage = passages.find((each) => each.passageId === reading.passageId);
     const rests =
       reading.final && passage
