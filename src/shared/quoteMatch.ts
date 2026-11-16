@@ -129,6 +129,13 @@ const FOLDED: Readonly<Record<string, string>> = {
   ς: "σ",
 };
 
+/**
+ * Matching only: a backtick stays one. The shared normaliser reads it as an apostrophe, but in a
+ * shell command it runs the command inside and a single-quoted word is a string, so a quote with
+ * apostrophes isn't the page's words (#2504).
+ */
+const BACKTICK = "`";
+
 /** A soft hyphen at the end of a line: read as a hyphen, so rule 5 of the normaliser joins the word. */
 const SOFT_HYPHEN_AT_LINE_END =
   /\u00ad(?=[^\S\n\r\v\f\u0085\u2028\u2029]*[\n\r\v\f\u0085\u2028\u2029])/gu;
@@ -276,7 +283,9 @@ function matchUnits(text: string, numbers?: GroupSpaces): NormalisedUnit[] {
     ...unit,
     char: isFootnoteAfterFigure(original, unit.start, unit.end)
       ? FOOTNOTE_MARK_CHAR
-      : fold(unit.char),
+      : original.slice(unit.start, unit.end) === BACKTICK
+        ? BACKTICK
+        : fold(unit.char),
   }));
   for (let at = 0; at + 3 < folded.length; at++) {
     if (folded[at]?.char !== "[" || folded[at + 1]?.char !== "^") continue;
