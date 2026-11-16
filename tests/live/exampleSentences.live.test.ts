@@ -35,6 +35,8 @@ const REPLIES = process.env.INCARNAMIND_LIVE_GATE_REPLIES;
 const ARM = process.env.INCARNAMIND_LIVE_GATE_ARM ?? "unnamed";
 const ROUND = Number(process.env.INCARNAMIND_LIVE_GATE_ROUND ?? "0");
 const GROUPS = (process.env.INCARNAMIND_LIVE_GATE_GROUPS ?? "example,held-out").split(",");
+/** The held-out pairs to run, by the start of their ids ("en-c,zh-c"); all of them when unset. */
+const CASES = process.env.INCARNAMIND_LIVE_GATE_CASES?.split(",");
 const MODEL =
   process.env.INCARNAMIND_LIVE_ANTHROPIC_MODEL ??
   (catalogProvider("anthropic")?.roles.answers as string);
@@ -227,6 +229,38 @@ const HELD_OUT: readonly HeldOut[] = [
     document: "The group employed 4,310 people at the end of the year.",
     right: "Headcount was 4,310.",
     wrong: "Headcount was 3,410.",
+  }),
+  // One clause and one fact, so never a part: a direction flipped in a sentence checked whole,
+  // written before any request of that item of #3183.
+  ...pair("en-c1", "short-note", "en", {
+    document: "Average occupancy in the quarter was 81 per cent (prior quarter: 86 per cent).",
+    right: "Occupancy fell to 81% in the quarter.",
+    wrong: "Occupancy rose to 81% in the quarter.",
+  }),
+  ...pair("en-c2", "short-note", "en", {
+    document: "Net debt increased to £412 million from £388 million at the prior year end.",
+    right: "Net debt rose to £412 million.",
+    wrong: "Net debt fell to £412 million.",
+  }),
+  ...pair("en-c3", "short-note", "en", {
+    document: "The group had 5,260 employees at the year end, against 4,980 a year earlier.",
+    right: "The number of employees went up over the year.",
+    wrong: "The number of employees went down over the year.",
+  }),
+  ...pair("zh-c1", "short-note", "zh-CN", {
+    document: "本年度客户流失率为 5.2%，上年度为 6.8%。",
+    right: "客户流失率降至 5.2%。",
+    wrong: "客户流失率升至 5.2%。",
+  }),
+  ...pair("zh-c2", "short-note", "zh-CN", {
+    document: "期末存货较年初的 3,900 万元减少至 3,400 万元。",
+    right: "存货降至 3,400 万元。",
+    wrong: "存货增至 3,400 万元。",
+  }),
+  ...pair("zh-c3", "short-note", "zh-CN", {
+    document: "年末门店数量为 128 家，上年末为 117 家。",
+    right: "门店数量比上年有所增加。",
+    wrong: "门店数量比上年有所减少。",
   }),
 ];
 
@@ -608,7 +642,10 @@ async function exampleRound(language: Language, own: boolean) {
 }
 
 async function heldOutRound(language: Language) {
-  const cases = HELD_OUT.filter((each) => each.language === language);
+  const cases = HELD_OUT.filter(
+    (each) =>
+      each.language === language && (CASES?.some((start) => each.id.startsWith(start)) ?? true),
+  );
   const core = await coreIn(language);
   const sources = await createSourceFolder();
   const notes: Written[] = [];
