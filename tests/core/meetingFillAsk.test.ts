@@ -463,6 +463,70 @@ describe.each(["en", "zh-CN"] as const)(
       }
     });
 
+    // protects=a reply that writes the same marker after every fact, under records that declare each fact's own number, keeps every fact with its own quote, whether its records come from the one ask (which is shown each sentence with the number it declares) or from its cite call (#3145); fails_when=the facts after the first are left out, or a fact carries another's quote; no_claim=a real model's reply.
+    test.each([
+      ["asked for", false],
+      ["given by its cite call", true],
+    ] as const)(
+      "keeps the facts of a reply with one marker after every fact, its records %s",
+      async (_, cited) => {
+        const words = WORDS[language];
+        const reply = [
+          "HEADINGS: H1=NONE",
+          frame("F1", `${words.decision} [^1].`, [1], "decisions"),
+          frame("F2", `${words.action} [^1].`, [4], "actions"),
+          frame("F3", `${words.closing} [^1].`, [5], "actions"),
+          overview(words.purpose, 2),
+        ].join("\n\n");
+        const quotes = { 1: words.decision, 2: words.purpose, 4: words.action, 5: words.closing };
+        const scripted = fillModel({
+          reply,
+          ...(cited
+            ? { cites: quotes }
+            : {
+                ask: copied(
+                  Object.entries(quotes).map(([marker, quote]) => [
+                    `${quote} [^${marker}].`,
+                    quote,
+                  ]),
+                ),
+              }),
+        });
+        const { core, client, fill } = await recordedFill(language, scripted);
+        try {
+          expect(fill).toMatchObject({ state: "filled", omitted: 0, unfinishedParts: 0 });
+          expect(scripted.asked).toHaveLength(cited ? 0 : 1);
+          for (const quote of Object.values(quotes)) {
+            expect(citationsBeside(client, quote)).toEqual([[{ check: "found", quote }]]);
+          }
+        } finally {
+          core.close();
+        }
+      },
+    );
+
+    // protects=a reply that repeats the declared number and writes its markers right is read as before: the fact whose marker isn't the one it declares is left out, never written with the first fact's quote (#3145); fails_when=that fact is written; no_claim=that it could be kept.
+    test("never gives a fact the record another fact's number holds", async () => {
+      const words = WORDS[language];
+      const reply = [
+        "HEADINGS: H1=NONE",
+        frame("F1", `${words.decision} [^1].`, [1], "decisions"),
+        frame("F2", `${words.action} [^2].`, [1], "actions"),
+        overview(words.purpose, 3),
+      ].join("\n\n");
+      const scripted = fillModel({ reply, cites: quotesOf(words) });
+      const { core, client, fill } = await recordedFill(language, scripted);
+      try {
+        expect(fill).toMatchObject({ omitted: 1 });
+        expect(citationsBeside(client, words.action)).toEqual([]);
+        expect(citationsBeside(client, words.decision)).toEqual([
+          [{ check: "found", quote: words.decision }],
+        ]);
+      } finally {
+        core.close();
+      }
+    });
+
     // protects=asked once and given no records, the fill ends as it does today: not filled, for the reason that nothing could be checked, with no third request (#3099); fails_when=another request is sent or the reason changes; no_claim=the line's words, which tests/renderer/meetingFillLine.test.ts covers.
     test("given no records, ends as today with exactly two requests", async () => {
       const words = WORDS[language];

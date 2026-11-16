@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { withJsonFencesClosed } from "../../src/core/answers/jsonFences";
+import { withDeclaredMarkers, withJsonFencesClosed } from "../../src/core/answers/jsonFences";
 
 type Shape = "closed" | "open" | "blank before the fence" | "fence after the sentence";
 
@@ -103,4 +103,66 @@ test.each([
   ["a fence at the end", '```json\n{"a":1}'],
 ])("leaves %s as written", (_, text) => {
   expect(withJsonFencesClosed(text)).toBe(text);
+});
+
+const numbered = (id: string, declared: number[], body: string) =>
+  [
+    id === "OVERVIEW" ? "### OVERVIEW" : `### FACT ${id}`,
+    "```json",
+    JSON.stringify({ topic: id, citations: declared }),
+    "```",
+    body,
+    `### END ${id}`,
+  ].join("\n");
+
+const sentences = {
+  English: (marker: string) => `The fee is 2.5%. ${marker}`,
+  Chinese: (marker: string) => `费用是 2.5%。${marker}`,
+} as const;
+
+// protects=a reply that writes one marker after every fact, as the instructions' example fact has it, while each fact's record declares its own number, has each fact's marker written as the number it declares, so the fact reader finds the markers it requires (#3145); fails_when=a fact keeps the shared marker and is left out; no_claim=which quote a record holds.
+test.each(Object.entries(sentences))(
+  "a marker written after every fact becomes the number each fact declares (%s)",
+  (_, sentence) => {
+    const reply = (written: (declared: number) => number) =>
+      [
+        numbered("F1", [1], sentence("[^1]")),
+        numbered("F2", [4], sentence(`[^${written(4)}]`)),
+        numbered("F3", [5], sentence(`[^${written(5)}]`)),
+        numbered("OVERVIEW", [2, 3], `${sentence("[^2]")} ${sentence("[^3]")}`),
+      ].join("\n\n");
+    expect(withDeclaredMarkers(reply(() => 1))).toBe(reply((declared) => declared));
+  },
+);
+
+// protects=a marker is rewritten only where the reply shows which number is the slip; a reply that repeats the declared number and writes its markers right, a fact with several markers, and a marker no other frame holds are left as written, so no fact takes the record of another's quote; fails_when=one of them is rewritten; no_claim=that such a fact is kept: it is left out, as before.
+test.each([
+  [
+    "the declared number repeated, the markers written right",
+    [numbered("F1", [1], "One. [^1]"), numbered("F2", [1], "Two. [^2]")],
+  ],
+  [
+    "a fact with two markers",
+    [numbered("F1", [1], "One. [^1]"), numbered("F2", [4, 5], "Two. [^1] More. [^1]")],
+  ],
+  [
+    "a marker no other frame holds",
+    [numbered("F1", [1], "One. [^1]"), numbered("F2", [4], "Two. [^9]")],
+  ],
+  [
+    "a declared number another frame writes",
+    [
+      numbered("F1", [1], "One. [^1]"),
+      numbered("F2", [4], "Two. [^1]"),
+      numbered("F3", [6], "Three. [^4]"),
+    ],
+  ],
+  [
+    "markers that are the declared ones",
+    [numbered("F1", [1], "One. [^1]"), numbered("F2", [2], "Two. [^2]")],
+  ],
+  ["a marker outside any frame", ["Before. [^1]", numbered("F1", [4], "One. [^1]")]],
+])("leaves %s as written", (_, frames) => {
+  const reply = frames.join("\n\n");
+  expect(withDeclaredMarkers(reply)).toBe(reply);
 });
