@@ -2558,6 +2558,32 @@ for (const call of CALLS) {
       core.close();
     });
 
+    // protects=an item the model gives no section but names after the User's own "Action items" / "待办" heading is written under that heading with the section's items; the heading's words are never written a second time as a heading of the notes' own
+    test(`an item named after a typed "${call.actionsHeading}" heading goes under it, not under a second one`, async () => {
+      const { core, meeting, client } = await recordedWith(
+        [heading(2, call.actionsHeading)],
+        undefined,
+        {
+          reply: () =>
+            [
+              "HEADINGS: H1=ACTIONS",
+              item("P1_security", call.topics.security, written.ACTIONS, 5, {
+                sections: ["actions"],
+              }),
+              item("P1_contract", call.topics.contract, written.L2, 2, {
+                heading: call.actionsHeading,
+              }),
+            ].join("\n\n"),
+          citations: { 2: quotes[2], 5: quotes[5] },
+        },
+      );
+      expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", mode: "notes" });
+      await vi.waitFor(() =>
+        expect(shown(client)).toEqual([call.actionsHeading, ai(written.ACTIONS), ai(written.L2)]),
+      );
+      core.close();
+    });
+
     test(`an action answering a typed line is written whole under a typed "${call.actionsHeading}" heading, and the line points to it`, async () => {
       const { core, meeting, client } = await recordedWith(
         [note(call.typed[1]), heading(2, call.actionsHeading)],
