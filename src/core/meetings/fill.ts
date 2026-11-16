@@ -484,7 +484,25 @@ interface CallPart {
   out?: Promise<void>;
   /** Sent while parts went side by side: one a rate limit refuses is asked again by itself. */
   beside?: boolean;
-  reply?: { answer: CellAnswer; parsed: FactReply } | { error: unknown };
+  reply?: PartReply | { error: unknown };
+  /** The reply that stopped inside a frame, of a part too small to halve that is asked once more. */
+  first?: PartReply;
+}
+
+interface PartReply {
+  answer: CellAnswer;
+  parsed: FactReply;
+}
+
+/**
+ * The one reply whose notes are kept, of a part asked a second time whole: the second, or the
+ * first when the second failed, or stopped inside a frame too with fewer facts closed.
+ */
+function keptReply(second: PartReply, first: PartReply): PartReply {
+  if (second.answer.status === "failed") return first;
+  return second.parsed.cut && second.parsed.facts.length < first.parsed.facts.length
+    ? first
+    : second;
 }
 
 /** `queue` with each run of parts not yet sent split again, at `size` tokens. */
@@ -812,6 +830,10 @@ export function createMeetingFill(options: MeetingFillOptions) {
         const { error } = part.reply;
         if (signal.aborted) throw error;
         if (error instanceof FillProblemError && error.problem.kind === "stopped") throw error;
+        if (part.first) {
+          part.reply = part.first;
+          continue;
+        }
         thrown ??= error;
         problem ??=
           error instanceof FillProblemError
@@ -822,7 +844,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
         queue = queue.filter((each) => each !== part);
         continue;
       }
-      const { answer, parsed } = part.reply;
+      const { answer, parsed } = part.first ? keptReply(part.reply, part.first) : part.reply;
       // A key whose limit refuses parts side by side may still take them one after another, as
       // every fill went before: the refused part is asked again, and the rest one at a time.
       if (part.beside && answer.error?.kind === "rate-limit" && bare(part.reply)) {
@@ -841,6 +863,26 @@ export function createMeetingFill(options: MeetingFillOptions) {
       // Once a part has failed none is asked again: a cut reply is kept as it is, its open fact
       // counted as left out.
       const halves = !ended && (outOfRoom || parsed.cut) ? halved(part.passages) : null;
+      // A part too small to halve can't be read again as two. Its reply that stopped inside a
+      // frame, with room left, is the model ending its turn early (a short call's notes stopped
+      // after two facts, #3145): the part is asked once more, whole, and one reply's notes are
+      // kept, so nothing is written twice.
+      if (
+        !halves &&
+        !ended &&
+        !part.first &&
+        parsed.cut &&
+        !outOfRoom &&
+        answer.status !== "failed"
+      ) {
+        queue = queue.map((each) =>
+          each === part
+            ? { passages: part.passages, size: part.size, first: { answer, parsed } }
+            : each,
+        );
+        log.info("meeting.fillPartAskedAgain", { meetingId: meeting.id });
+        continue;
+      }
       ledger.accept(
         halves
           ? { ...parsed, overview: null, omittedIds: [], invalidFrames: 0, overviewOmitted: null }

@@ -866,8 +866,8 @@ describe("the ask for a fill's records (#3099)", () => {
     }
   });
 
-  // protects=a reply that stops after its second frame's metadata writes the one fact it closed, with its Citation, and is partly filled in: the open frame and the missing overview are the items that couldn't be added (#3099); fails_when=the closed fact is lost, or the note reads as whole; no_claim=the line's words, which tests/renderer/meetingFillLine.test.ts covers.
-  test("writes the one closed fact of a reply that stops after its second frame", async () => {
+  // protects=a reply that stops after its second frame's metadata is asked once more, and when the second reply stops there too the note has the one fact it closed, once, with its Citation, and is partly filled in: the open frame and the missing overview are the items that couldn't be added (#3099), and the part is not asked a third time (#3145); fails_when=the closed fact is lost or written twice, the part is asked a third time, or the note reads as whole; no_claim=the line's words, which tests/renderer/meetingFillLine.test.ts covers.
+  test("writes the one closed fact, once, of a reply that stops after its second frame both times it is asked", async () => {
     const words = WORDS.en;
     const stopped = [
       "HEADINGS: H1=NONE",
@@ -884,10 +884,11 @@ describe("the ask for a fill's records (#3099)", () => {
         problem: null,
       });
       expect(isPartialMeetingFill(fill)).toBe(true);
-      expect(scripted.asked).toHaveLength(1);
+      expect(scripted.asked).toHaveLength(2);
       expect(citationsBeside(client, words.decision)[0]).toEqual([
         { check: "found", quote: words.decision },
       ]);
+      expect(readMind(client).textContent.split(words.decision)).toHaveLength(2);
       expect(readMind(client).textContent).not.toContain(words.action);
     } finally {
       core.close();
