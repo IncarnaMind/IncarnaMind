@@ -141,8 +141,12 @@ export function placeFacts(input: FactPlacementInput): FactPlacement {
       canonical = sectionPlace(input, home);
     } else {
       const key = topicKey(fact.heading);
-      const host = hosts.get(key);
-      const hostSection = host === undefined ? undefined : sectionsByHeading.get(host);
+      const named = hosts.get(key);
+      const section = named === undefined ? undefined : sectionsByHeading.get(named);
+      // The list of what to check holds only the statements the check left unbacked: any other
+      // fact named after its heading keeps a heading of its own.
+      const host = section === "claims" ? undefined : named;
+      const hostSection = host === undefined ? undefined : section;
       if (hostSection) {
         // The heading it names is the User's own heading for a section: it joins that section's
         // items, never a second heading with the same words (#2306).

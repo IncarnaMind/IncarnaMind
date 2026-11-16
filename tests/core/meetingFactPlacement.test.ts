@@ -323,6 +323,26 @@ describe("Meeting fact placement (#2306)", () => {
     },
   );
 
+  // protects=the list of what to check takes only the statements the check left unbacked: a fact that merely names the User's heading for that list, and is no such statement, is never written in it or under it
+  test("a fact named like the User's heading for what to check stays out of that list", () => {
+    const backed = fact("The room holds twelve.", {
+      id: "F1",
+      heading: "To check",
+      lines: [],
+      sections: [],
+    });
+    const placed = placeFacts(
+      input([backed], {
+        lines: [{ marker: "H1", heading: true, ancestors: [] }],
+        headings: new Map([["claims", "H1"]]),
+        topicHeadings: [{ marker: "H1", text: "To check" }],
+      }),
+    );
+
+    expect(placed.sections.get("claims")).toBeUndefined();
+    expect(placed.topics).toEqual([{ title: "To check", heading: null, nodes: [backed.body] }]);
+  });
+
   test("a topic's fact asked on two typed lines points from the second to the first, and nowhere else", () => {
     const accepted = fact("The fee stays at 18%.", { lines: ["L2", "L1"], sections: [] });
     const placed = placeFacts(
