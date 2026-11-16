@@ -151,6 +151,18 @@ const ITEM_COSTS: Record<NonNullable<RunEstimateInput["each"]>, ItemCost> = {
     flow: "edits",
   },
 };
+
+/**
+ * One sentence's check, for an estimate that counts each request: its measured calls, rounded up,
+ * each of its measured size.
+ */
+export const CHECKED_SENTENCE_REQUESTS: readonly EstimatedRequest[] = Array.from(
+  { length: Math.ceil(ITEM_COSTS.check.calls) },
+  () => ({
+    inputTokens: ITEM_COSTS.check.call.inputTokens,
+    outputTokens: ITEM_COSTS.check.call.outputTokens,
+  }),
+);
 /** The recorded requests an estimate averages, once there are two items' worth. */
 const RECORDED_CALLS = 100;
 

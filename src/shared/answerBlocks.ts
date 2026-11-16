@@ -21,6 +21,7 @@ import {
   type ConversationAnswer,
   type MarkedCitation,
   type SearchScope,
+  type UnsupportedReason,
 } from "../core/api";
 import { asGenerated } from "./aiText";
 import type { AnalysisValue } from "./analysis";
@@ -194,7 +195,7 @@ export function withAnswerChecks(
         text,
         evidence: check.evidence,
         says: check.verdict,
-        unsupported: null,
+        unsupported: check.unsupported,
         calculation: null,
         citedCaseUnchecked: false,
         citedCaseFound: false,
@@ -212,6 +213,7 @@ export function withAnswerChecks(
         excluded: [],
         checkedAt: check.checkedAt,
         ...(answer.id !== undefined && { fromAnswer: answer.id }),
+        ...(check.citedOnly && { citedOnly: true }),
       },
     };
   };
@@ -294,7 +296,14 @@ export function withAnswerChecks(
 interface CarriedCheck {
   state: ClaimVerdict;
   verdict: string | null;
-  evidence: CitationAttributes;
+  /**
+   * The Citation that decided it. None for an Unsupported (#2809): its Citations say nothing
+   * different, so its card never shows one of them as what the Documents say instead.
+   */
+  evidence: CitationAttributes | null;
+  unsupported: UnsupportedReason | null;
+  /** The judgement read only the sentence's Citations, never the rest of the Answer's scope. */
+  citedOnly: boolean;
   versions: CheckedVersion[];
   checkedAt: string;
 }
@@ -387,10 +396,24 @@ function judgementOf(
         ]),
     ).values(),
   ];
+  const state = contradicted ? "contradicted" : unsupported ? "unsupported" : "supported";
+  const { unstated } = deciding;
   return {
-    state: contradicted ? "contradicted" : unsupported ? "unsupported" : "supported",
+    state,
     verdict: deciding.verdict ?? null,
-    evidence: citationAttributesOf(deciding),
+    evidence: state === "unsupported" ? null : citationAttributesOf(deciding),
+    unsupported:
+      state === "unsupported"
+        ? {
+            reason: deciding.verdict ?? null,
+            covered: unstated?.covered ?? null,
+            uncovered: unstated?.uncovered ?? null,
+            // Its Citations were read and don't back it: never Not found, whatever is cited later.
+            found: true,
+            ...(unstated && unstated.missing.length > 0 && { missing: unstated.missing }),
+          }
+        : null,
+    citedOnly: !judged.some((citation) => citation.searchedScope),
     // Every judged Citation's version: a Document changed after the judgement asks again.
     versions,
     // The deciding Citation's own judgement time, not a later sentence's.

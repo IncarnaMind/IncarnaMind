@@ -1465,20 +1465,30 @@ export function createConversations(db: Database, now: () => string) {
 
     /**
      * Writes an ended Answer's Citations again once its sentences are judged (#2311), only while it
-     * still reads `text`: one written again since keeps its own. Returns it, or null if not written.
+     * still reads `text`: one written again since keeps its own. `marked`: that text with the
+     * markers of Citations the judgement added (#3020), written with them. Returns it, or null if
+     * not written.
      */
     writeCitations(
       answerId: string,
       text: string,
       citations: readonly MarkedCitation[],
+      marked?: string,
     ): ConversationAnswer | null {
       const row = liveMessage(answerId);
       if (row?.kind !== "answer" || row.text !== text) return null;
-      db.run("UPDATE conversation_messages SET citations = ?, updated_at = ? WHERE id = ?", [
-        JSON.stringify(citations),
-        now(),
-        answerId,
-      ]);
+      if (marked === undefined) {
+        db.run("UPDATE conversation_messages SET citations = ?, updated_at = ? WHERE id = ?", [
+          JSON.stringify(citations),
+          now(),
+          answerId,
+        ]);
+      } else {
+        db.run(
+          "UPDATE conversation_messages SET text = ?, citations = ?, updated_at = ? WHERE id = ?",
+          [marked, JSON.stringify(citations), now(), answerId],
+        );
+      }
       return toAnswer(storedMessage(answerId));
     },
 

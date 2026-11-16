@@ -3094,6 +3094,21 @@ export interface Citation {
   /** "unsupported" and "contradicted": what the Documents say of its sentence, in one plain sentence. */
   verdict?: string | null;
   /**
+   * The check of its sentence found its Passage in the Answer's scope and made it a Citation
+   * (#3020): its card says so, in the Answer and in a Note made from it.
+   */
+  foundByCheck?: true | null;
+  /**
+   * Its sentence was also checked in the Answer's whole scope, walls applied, not only against the
+   * Answer's Citations (#3020). Absent when its check read only those.
+   */
+  searchedScope?: true;
+  /**
+   * "unsupported", after that check: a short phrase for what the Documents state of the sentence
+   * and one for what they don't, and the sentence's own words for each part none states (#2809).
+   */
+  unstated?: UnstatedParts;
+  /**
    * A call help reply's found quote that is cells of a table, as the cite found them (#2847): each
    * cell's words as the quote gives them, after its column's heading where the table gives one.
    * The Document's own words, like the quote: never read by a model, carried into a Note, or read
@@ -7504,6 +7519,14 @@ export type ClaimCheckFailure =
   | "analysis-unnamed"
   | "assistant-conclusion";
 
+/** What a check in an Answer's scope found the Documents don't state of a sentence (#2809). */
+export interface UnstatedParts {
+  covered: string | null;
+  uncovered: string | null;
+  /** The sentence's own words for each part no Passage states. */
+  missing: string[];
+}
+
 /** Why a sentence was found unsupported, as the check gave it. */
 export interface UnsupportedReason {
   /**
@@ -7528,6 +7551,11 @@ export interface UnsupportedReason {
    * Citation check found; absent when it quoted none.
    */
   quoted?: CitationAttributes;
+  /**
+   * The sentence's own words for each part no Passage in its scope states (#2809): its card names
+   * them. Absent when the check named no parts.
+   */
+  missing?: string[];
 }
 
 /** A Document an absence check read whole, with every Location read. */
@@ -8075,6 +8103,11 @@ export interface ClaimCheckBasis {
   read?: WholeRead;
   /** The Answer a carried check came from (#2313); absent for a check the Note ran itself. */
   fromAnswer?: string;
+  /**
+   * A carried check whose judgement read only the sentence's Citations (#2809): its card names
+   * them, never a scope the check didn't search.
+   */
+  citedOnly?: true;
 }
 
 /** Pages read of a whole-read pick's total pages; a page without text cannot be read. */
