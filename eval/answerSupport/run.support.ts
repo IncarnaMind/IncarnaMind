@@ -422,7 +422,9 @@ async function judgeInAnswers(
         lookRequests: share(lookRequests),
         foundCitations: foundAfter(judged.text, index + 1, judged.citations),
         ...(citation.unstated && { missing: citation.unstated.missing }),
-        ...(citation.checkReason && { notCheckedFor: citation.checkReason }),
+        ...(verdict === "not-checked" && {
+          notCheckedFor: citation.checkReason ?? citation.check,
+        }),
       });
       log(
         `  ${item.id}: ${citation.searchedScope ? "unsupported, then " : ""}${verdict}${item.supported === (verdict === "supported") ? "" : " ✗"}`,
