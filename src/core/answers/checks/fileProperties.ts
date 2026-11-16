@@ -93,7 +93,7 @@ const english: Translate = (key, params) => translate("en", key, params);
 const grouped = new Intl.NumberFormat("en-US");
 
 export const PROPERTIES_NOTE = [
-  "The file properties above are what the file records about itself, not what its Document says. They decide only a sentence about the file itself: when it was created or last modified, its author as the file records it, its page, slide or sheet count, its size or its file name. They never decide a sentence about what a Document's text says, such as the day a contract was signed or a name its text gives. This computer's dates decide nothing.",
+  "The file properties above are what the file records about itself, not what its Document says. They decide only a sentence about the file itself: when it was created or last modified, its author as the file records it, its page, slide or sheet count, its size or its file name. They never decide a sentence about what a Document's text says, such as a name its text gives. When a Document was written, drafted, dated, signed or took effect is what its text says too, never the file's dates: a file is made again by a copy, an export or a scan, so its dates decide such a sentence neither for nor against. Where the text gives no such date the sentence is unsupported, and your explanation may name the file's date beside the missing one. This computer's dates decide nothing.",
   'Cite the one line that decides it. After your Verdict line, add a line "Property: " and the properties the sentence states, from created, modified, author, pages, slides, sheets, size and name, separated by commas, or "Property: none".',
 ].join("\n");
 
@@ -105,7 +105,7 @@ const nameOne = (names: readonly string[]) =>
   `No file properties are shown: ${names.length > 1 ? `this sentence could be about ${names.map((name) => `“${name}”`).join(", ")}` : "they are shown for one Document at a time"}. Search again with properties and the Document the sentence is about in document.`;
 
 const PROPERTY_LINE =
-  'Your reply has no Property line. Write your whole reply again, with a line after the Verdict line: "Property: " and the properties the sentence states (created, modified, author, pages, slides, sheets, size or name), or "Property: none" when it is about what a Document says.';
+  'Your reply has no Property line. Write your whole reply again with the verdict you gave, adding a line after the Verdict line: "Property: " and the properties the sentence states (created, modified, author, pages, slides, sheets, size or name), or "Property: none" when it is about what a Document says, when it was written or signed among that.';
 
 /**
  * The properties a reply's Property line names: empty for "none", null when it has no such line or
@@ -424,8 +424,11 @@ function propertyRun(deps: ClaimCheckDependencies, request: ClaimCheckRequest) {
       check(last, setAside = []) {
         if (shown.size === 0) return null;
         const text = replyAcrossTurns(last, setAside);
-        if (readVerdict(text) === null || declaredProperties(text) !== null) return null;
-        return { claims: [], note: PROPERTY_LINE };
+        const verdict = readVerdict(text)?.verdict;
+        // No property backs an Unsupported reply, so it needs no line, and asked for one a model
+        // has passed "was written in 2026" on the file's Created date (#3168).
+        if (verdict === undefined || verdict === "unsupported") return null;
+        return declaredProperties(text) === null ? { claims: [], note: PROPERTY_LINE } : null;
       },
     },
     replied(text) {
