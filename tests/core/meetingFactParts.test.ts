@@ -22,7 +22,7 @@ const FINAL = "The review is on Thursday";
 const PURPOSE = "The workshop settles the review schedule";
 const UNFINISHED = "Dana will distribute the review checklist";
 const OVERVIEW = "The workshop covered the review schedule";
-const LONG_CUES = 20;
+const LONG_CUES = 60;
 
 function fact(
   id: string,
@@ -156,7 +156,7 @@ async function capture(
     ? Array.from(
         { length: LONG_CUES },
         (_, index) =>
-          `Workshop item ${index + 1}: ${index < 2 ? schedule.earlier : schedule.final}. ${PURPOSE}. ${UNFINISHED}. ${padding}`,
+          `Workshop item ${index + 1}: ${index < 1 ? schedule.earlier : schedule.final}. ${PURPOSE}. ${UNFINISHED}. ${padding}`,
       )
     : Array.from(
         { length: short ?? 1 },

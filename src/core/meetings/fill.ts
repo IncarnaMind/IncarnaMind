@@ -57,17 +57,18 @@ import {
 import { withUserName } from "./userName";
 
 /**
- * The most of a Transcript one request reads: about ten minutes of talk, for every model. A
- * 45-minute call dense with decisions, some 15,000 tokens, spent Claude Haiku 5.5's whole reply
- * thinking and got no notes, asked for whole and again in parts of 6,000; its parts of about
- * 3,000 were answered (#3151).
+ * The most of a Transcript the first request reads, for every model: about an hour of loose talk
+ * (a fifteen-minute call is some 2,100 tokens), so an ordinary call is one request. A 45-minute
+ * call dense with decisions, some 15,000 tokens, spent Claude Haiku 5.5's whole reply thinking
+ * and got no notes, asked for whole and again in parts of 6,000: a cut reply brings the size
+ * down, and its parts of about 3,000 were answered (#3151).
  */
-export const FILL_PART_TOKENS = 3_000;
+export const FILL_PART_TOKENS = 9_000;
 
 /**
  * The least of a Transcript asked for again after a cut reply: about two and a half minutes of
- * talk, so a full part is halved once. A call of four minutes dense with decisions took well
- * under half a reply, so a smaller ask wouldn't help.
+ * dense talk. A call of four minutes dense with decisions took well under half a reply, so a
+ * smaller ask wouldn't help.
  */
 const FILL_PART_FLOOR_TOKENS = 750;
 

@@ -3479,10 +3479,10 @@ describe("A long Transcript is read in parts", () => {
   const passage = (index: number, words: number): WindowedPassage =>
     ({ text: "word ".repeat(words), seq: index }) as unknown as WindowedPassage;
 
-  // protects=a Transcript of about ten minutes fits one part, and a longer one or a small window is split, every Passage kept once in order (#3151); fails_when=a Passage is dropped or repeated, or a short Transcript is split; no_claim=the token estimate's accuracy.
+  // protects=a Transcript of about an hour of loose talk fits one part, and a longer one or a small window is split, every Passage kept once in order (#3151); fails_when=a Passage is dropped or repeated, or a short Transcript is split; no_claim=the token estimate's accuracy.
   test("parts fit the budget and keep every Passage once, in order", () => {
-    const tenMinutes = Array.from({ length: 18 }, (_, index) => passage(index, 120));
-    expect(transcriptParts(tenMinutes, FILL_PART_TOKENS)).toHaveLength(1);
+    const anHour = Array.from({ length: 54 }, (_, index) => passage(index, 120));
+    expect(transcriptParts(anHour, FILL_PART_TOKENS)).toHaveLength(1);
     const twoHours = Array.from({ length: 240 }, (_, index) => passage(index, 120));
     for (const parts of [
       transcriptParts(twoHours, FILL_PART_TOKENS),
