@@ -204,10 +204,12 @@ async function roundsOf(pair: Pair) {
       ),
     });
   }
-  const spent = queryDatabase<{ requests: number; cost: number }>(
+  const spent = queryDatabase<{ requests: number; cost: number; notSettled: number }>(
     dataDir,
-    `SELECT count(*) AS requests, coalesce(sum(cost), 0) AS cost
-     FROM model_requests WHERE deleted_at IS NULL AND status = 'settled'`,
+    `SELECT count(CASE WHEN status = 'settled' THEN 1 END) AS requests,
+            coalesce(sum(CASE WHEN status = 'settled' THEN cost END), 0) AS cost,
+            count(CASE WHEN status != 'settled' THEN 1 END) AS notSettled
+     FROM model_requests WHERE deleted_at IS NULL`,
   )[0];
   core.close();
   return { rounds, spent };
@@ -218,11 +220,12 @@ test.skipIf(KEY === undefined)(
   { timeout: 3_600_000 },
   async () => {
     const lines: string[] = [`## ${MODEL} (#2578), ${ROUNDS} rounds`];
-    const total = { requests: 0, cost: 0 };
+    const total = { requests: 0, cost: 0, notSettled: 0 };
     for (const pair of PAIRS.filter((each) => !ONLY || ONLY.includes(each.key))) {
       const { rounds, spent } = await roundsOf(pair);
       total.requests += spent?.requests ?? 0;
       total.cost += spent?.cost ?? 0;
+      total.notSettled += spent?.notSettled ?? 0;
       const supported = rounds.filter((each) => each.state === "supported").length;
       lines.push(
         `${pair.decoy ? "decoy" : "twin "} ${pair.key}: Note ✓ ${supported}/${ROUNDS} (${rounds
@@ -231,7 +234,9 @@ test.skipIf(KEY === undefined)(
       );
       if (REPORT) await appendFile(REPORT, `${JSON.stringify({ pair, rounds, spent })}\n`);
     }
-    lines.push(`spent ${total.requests} requests, ${total.cost}`);
+    lines.push(
+      `spent ${total.requests} requests, ${total.cost}; ${total.notSettled} not settled (a run with any is void)`,
+    );
     console.log(lines.join("\n"));
     if (REPORT) await appendFile(REPORT, `${lines.join("\n")}\n`);
     expect(lines.length).toBeGreaterThan(1);
