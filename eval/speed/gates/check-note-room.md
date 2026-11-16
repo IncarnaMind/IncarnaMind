@@ -88,4 +88,6 @@ Claude Haiku 5.5 and Claude Sonnet 5.5 on a direct Anthropic key, the timing's `
 3. **No check lost:** in the after arm every sentence lands a mark, and none is Not checked for a rate limit.
 4. **Wrong Supported:** over each model's six after runs, the sentences marked Supported that the set labels otherwise are no more than in its six before runs, plus the largest difference between two of the before rounds. The width changes no request, as Part 1's bar 3 shows; this bar is there to catch what that reasoning misses.
 
+**Added after round 1, before round 2 (2026-11-16):** round 1 ran before first for each model, and its after runs read more of their input from the service's prompt cache (the before run a minute earlier had written it): 4 to 9 requests with nothing cached against 6 to 22. The arm that runs second starts warmer, which favours it. So round 2 runs after first, and round 3 before first as written. The bars and their medians are unchanged; round 2 is also reported by itself, as the round where the order favours before.
+
 Reported beside the bars, not bars themselves: each arm's medians against the budget (first verdict under 5 s, done under 15 s), the Not checked marks that are the model's own, and the load.
