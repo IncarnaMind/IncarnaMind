@@ -50,6 +50,12 @@
  * - Bar 3: those twins read Supported in at least 3 of 6 rounds (on `main`, the same Document's
  *   subject decoy read Supported 6 of 6, so the model's own reading of it is positive).
  *
+ * The branch missed bar 3 (2 of 6). The same twins run on `main`'s figure reader, the same model
+ * and harness (the CEO's question, written before the run, about US$0.03, stop US$0.05), with the
+ * requests that did not settle counted: at or under 2 of 6 Supported means the change gives up
+ * nothing on that Document, above 2 means it costs a right ✓ there. A run with any request that did
+ * not settle is void and run again.
+ *
  * INCARNAMIND_LIVE_PAIRS limits the run to those pairs, by key; INCARNAMIND_LIVE_ROUNDS sets the rounds.
  * Runs only with INCARNAMIND_LIVE_DEEPSEEK_KEY (DeepSeek V4.1 Flash, `deepseek-flash`, or
  * INCARNAMIND_LIVE_DEEPSEEK_MODEL when set); INCARNAMIND_LIVE_REPORT keeps one JSON line per pair.
