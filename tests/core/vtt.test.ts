@@ -320,6 +320,79 @@ describe("Citations of a Transcript", () => {
     expect(withCueMarks(tail, units)).toMatch(/^\[12:20\] Two weeks/);
   });
 
+  // protects=a Passage that starts part way through its block marks each line with its own time, when a short cue before it ("Yeah.") also starts a later line (#3151); fails_when=a line gets an earlier cue's time, or the lines before it get none; no_claim=a Passage that starts inside a cue marks that first piece.
+  test("a short cue before the Passage isn't taken for a later line that starts with its words", () => {
+    const said = [
+      "Yeah.",
+      "Right, the menu opens on a right click.",
+      "So the double click picks the most common choice.",
+      "Yeah. But if you double-click on something, don't you expect something to happen?",
+      "Yeah.",
+      "Then that is the default",
+    ];
+    const block = transcriptUnits({
+      cues: said.map((text, index) => ({
+        startMs: 60_000 * (index + 1),
+        endMs: 60_000 * (index + 1) + 2000,
+        text,
+        speaker: null,
+      })),
+      gaps: [],
+    });
+    const from = (first: number) => said.slice(first).join("\n");
+    const marked = (first: number) =>
+      said
+        .slice(first)
+        .map((text, index) => `[${first + index + 1}:00] ${text}`)
+        .join("\n");
+    expect(withCueMarks(from(1), block)).toBe(marked(1));
+    expect(withCueMarks(from(4), block)).toBe(marked(4));
+    // A Passage that ends inside a cue marks the piece it holds; one that starts inside a cue doesn't mark that piece.
+    expect(withCueMarks(from(1).slice(0, -8), block)).toBe(marked(1).slice(0, -8));
+    expect(withCueMarks(`on a right click.\n${from(2)}`, block)).toBe(
+      `on a right click.\n${marked(2)}`,
+    );
+  });
+
+  // protects=where the same short lines are said twice in a call, a Passage's lines take the times of the cues that run to its end, each whole: not an earlier run of as many lines that stops before the end, and not an earlier one whose last cue only starts with the Passage's last line (#3151); fails_when=a line gets the earlier cue's time, or the last line gets none; no_claim=two runs alike in every line, which can't be told apart.
+  test.each([
+    {
+      name: "an earlier run of as many lines that stops short",
+      said: ["tail", "B", "X", "Opening tail", "B", "C"],
+      passage: "tail\nB\nC",
+      marked: "tail\n[5:00] B\n[6:00] C",
+    },
+    {
+      name: "an earlier run whose last cue is longer",
+      said: [
+        "Agreed.",
+        "Ship tomorrow. Then notify support.",
+        "Next item.",
+        "Agreed.",
+        "Ship tomorrow.",
+      ],
+      passage: "Agreed.\nShip tomorrow.",
+      marked: "[4:00] Agreed.\n[5:00] Ship tomorrow.",
+    },
+    {
+      name: "a last line cut short where the Passage ends, with a whole short cue later",
+      said: ["Agreed.", "Ship tomorrow. Then notify support.", "Next item.", "Ship"],
+      passage: "Agreed.\nShip",
+      marked: "[1:00] Agreed.\n[2:00] Ship",
+    },
+  ])("repeated lines take the times of the run that fits: $name", ({ said, passage, marked }) => {
+    const block = transcriptUnits({
+      cues: said.map((text, index) => ({
+        startMs: 60_000 * (index + 1),
+        endMs: 60_000 * (index + 1) + 2000,
+        text,
+        speaker: null,
+      })),
+      gaps: [],
+    });
+    expect(withCueMarks(passage, block)).toBe(marked);
+  });
+
   test("clock times read back", () => {
     expect(clockTime(0)).toBe("0:00");
     expect(clockTime(866_000)).toBe("14:26");

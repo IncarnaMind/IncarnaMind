@@ -106,6 +106,7 @@ import {
 } from "./answers/citedVersions";
 import { createCiting } from "./answers/citing";
 import { readMind } from "./answers/context";
+import { withoutOverlap } from "./answers/documentText";
 import type { AnswerSearchOptions } from "./answers/engine";
 import type { LiveTranscript } from "./answers/liveTranscript";
 import {
@@ -5227,7 +5228,9 @@ export function createCore(adapters: CoreAdapters): Core {
     userName: () => settings.get().user.authorName,
     transcript: async (documentId) => {
       await extracted(documentId, LIVE_TRANSCRIPT_WAIT_MS);
-      return documents.passagesBetween(documentId, 0, Number.MAX_SAFE_INTEGER);
+      const passages = await documents.passagesBetween(documentId, 0, Number.MAX_SAFE_INTEGER);
+      // Passages overlap for search: sent whole, the model read two lines in five twice (#3151).
+      return adapters.notesLinesRepeated?.() ? passages : withoutOverlap(passages);
     },
     async route(mindId) {
       const language = settings.get().language;
