@@ -260,9 +260,10 @@ const CALLS: Call[] = [
       {
         name: "collect spare tools on Tuesday",
         kind: "action",
-        pattern: [/tools/i, /Tuesday/i, /Them|other side|other party/i],
+        pattern: [/tools/i, /Tuesday/i],
         subject: /tools/i,
         said: [5],
+        notBy: /Ravi|Mina/i,
       },
       {
         name: "Mina prints safety sheets on Thursday",
@@ -309,9 +310,10 @@ const CALLS: Call[] = [
       {
         name: "周二取备用工具",
         kind: "action",
-        pattern: [/工具/, /周二/, /对方/],
+        pattern: [/工具/, /周二/],
         subject: /工具/,
         said: [5],
+        notBy: /小罗|小米/u,
       },
       {
         name: "小米周四印安全说明",
