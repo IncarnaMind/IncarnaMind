@@ -947,6 +947,26 @@ describe.each(["en", "zh-CN"] as const)("existing fill behavior in %s", (languag
     expect(line?.querySelector(".answer-writing")).toBeNull();
   });
 
+  // protects=a long call read in parts says which part its note is on and how many there are, on this computer too, and the claims' checks take the line over once they run; a voice memo keeps its own words (#2839); fails_when=the line says only "Filling in the note…" through a call of many parts, or the count shows during the checks or on a memo; no_claim=how many parts a call has.
+  test("a call read in parts says which part the note is on", async () => {
+    const filling = (fill: Partial<MeetingFill>) =>
+      meetingOf(fillOf({ state: "filling", part: { at: 3, of: 6 }, ...fill }));
+    const line = await show(filling({}));
+    expect(line?.textContent).toBe(
+      language === "en" ? "Filling in the note, part 3 of 6…" : "正在补全笔记，第 3 段，共 6 段…",
+    );
+    expect(line?.querySelector(".answer-writing")?.textContent).toBe(line?.textContent);
+    expect((await show(filling({ local: true })))?.textContent).toBe(
+      language === "en"
+        ? "Filling in the note on this computer, part 3 of 6…"
+        : "正在这台电脑上补全笔记，第 3 段，共 6 段…",
+    );
+    expect((await show(filling({ checking: 2 })))?.textContent).toBe(
+      language === "en" ? "Checking 2 claims…" : "正在核对 2 条说法…",
+    );
+    expect((await show({ ...filling({}), kind: "memo" }))?.textContent).not.toMatch(/3/);
+  });
+
   // protects=a Transcript that stopped with a problem says why in its own line, so the note's line doesn't claim it is being finished (#2773); fails_when=the line says "Finishing the transcript…" with the live dot while nothing is being finished; no_claim=the Transcript's problem line, which TranscriptLines' tests cover.
   test("a Transcript that stopped leaves the note waiting, with no live dot", async () => {
     const meeting = meetingOf(fillOf({ state: "waiting" }));
