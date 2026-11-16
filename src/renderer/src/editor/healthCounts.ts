@@ -510,8 +510,15 @@ export type CheckRow = (typeof CHECK_ROWS)[number];
 
 export function checkRows(health: NoteHealth): { row: CheckRow; places: readonly number[] }[] {
   const look = new Set(health.lookClaims);
-  const toCheck = [...new Set(health.toCheck)].filter((pos) => !look.has(pos));
-  const notChecked = new Set(toCheck);
+  const distinct = [...new Set(health.toCheck)].filter((pos) => !look.has(pos));
+  const notChecked = new Set(distinct);
+  // A table is counted per column not recalculated, as the badge and the table's own card count it
+  // (#3212): its place stands once for each.
+  const columns = new Map<number, number>();
+  for (const pos of health.notRecalculated) columns.set(pos, (columns.get(pos) ?? 0) + 1);
+  const toCheck = distinct.flatMap((pos) =>
+    Array.from({ length: Math.max(1, columns.get(pos) ?? 0) }, () => pos),
+  );
   const supportedAt = health.supportedAt.filter((pos) => !look.has(pos) && !notChecked.has(pos));
   const supported = new Set(supportedAt);
   const places: Record<CheckRow, readonly number[]> = {

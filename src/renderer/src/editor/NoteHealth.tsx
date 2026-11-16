@@ -29,7 +29,7 @@ import { errorMessage } from "../errors";
 import { openFigureSchedule } from "../figures";
 import { useLanguage, useT } from "../i18n";
 import { startMindCheck, useMindCheck, useMindCheckRun } from "../mindCheck";
-import { type NoteState, unreadForCard } from "../noteState";
+import { allCheckedHead, type NoteState, unreadForCard } from "../noteState";
 import { useEmptyScopeLine } from "../scopeDocuments";
 import { useAppStore } from "../store";
 import { useKeptInsideOf } from "../turnWall";
@@ -283,6 +283,7 @@ export function HealthCard({
   const allCheckedLine = useRef<HTMLParagraphElement>(null);
   const waitingShown = running === undefined && placesOf("notYetCited").length > 0;
   const allCheckedShown = running === undefined && summary?.kind === "all";
+  const allCheckedWords = allCheckedHead(state, t, language);
   useEffect(() => {
     if (waitingShown) notYetCitedRow.current?.scrollIntoView({ block: "nearest" });
   }, [waitingShown]);
@@ -389,7 +390,7 @@ export function HealthCard({
     <>
       {summary?.kind === "all" && (
         <p ref={allCheckedLine} data-testid="health-all-checked" className="mind-health-summary">
-          {t("health.allChecked")}
+          {allCheckedWords}
         </p>
       )}
       <AddedDocumentsLine doc={doc} mindId={mindId} />
