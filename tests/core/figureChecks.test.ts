@@ -26,6 +26,7 @@ import type { UnitText } from "../../src/shared/units";
 import { SAME_DETAIL } from "../helpers/checks";
 import { unsupportedWorkbook, WorkbookBuilder } from "../helpers/financeWorkbooks";
 import { type ModelCall, scriptedModel } from "../helpers/models";
+import { OTHER_TERMS, SIGN_SCOPE } from "../helpers/signScope";
 
 const claim = "Revenue was £20 and the licence is valid.";
 const reading = readFigures("£20", { language: "en" })[0];
@@ -3231,14 +3232,36 @@ test.each([
     verdict: "contradicted",
   },
   {
-    name: "a sign word more than 400 characters before the quote, in an earlier paragraph",
+    name: "a state word more than 400 characters before the quote, in an earlier paragraph, keeps the minus (#2578)",
     claim: "The reserve was $62,000.",
     figure: "$62,000",
     language: "en",
     body: `The reserve turned negative in May. ${"The Tenant shall keep the premises in good repair. ".repeat(9)}\n\nAt year end it stood at sixty-two thousand dollars ($62,000.00).`,
     quotes: ["At year end it stood at sixty-two thousand dollars ($62,000.00)."],
     number: "$62,000.00",
+    supported: false,
+    verdict: "contradicted",
+  },
+  {
+    name: "a word for a loss more than 400 characters before the quote, in an earlier paragraph, is not seen: it is as often about something else (#2578)",
+    claim: "The reserve was $62,000.",
+    figure: "$62,000",
+    language: "en",
+    body: `The reserve turned to a loss in May. ${"The Tenant shall keep the premises in good repair. ".repeat(9)}\n\nAt year end it stood at sixty-two thousand dollars ($62,000.00).`,
+    quotes: ["At year end it stood at sixty-two thousand dollars ($62,000.00)."],
+    number: "$62,000.00",
     supported: true,
+  },
+  {
+    name: "a Chinese state word more than 400 characters before the quote keeps the minus (#2578)",
+    claim: "年末准备金为¥62,000。",
+    figure: "¥62,000",
+    language: "zh-CN",
+    body: `五月准备金转为负数。${"承租人应当妥善使用并爱护租赁房屋及其附属设施。".repeat(20)}\n\n年末准备金为人民币六万二千元（¥62,000）。`,
+    quotes: ["年末准备金为人民币六万二千元（¥62,000）。"],
+    number: "62,000",
+    supported: false,
+    verdict: "contradicted",
   },
   {
     name: "a sign word more than 400 characters before the quote, with no break between, keeps main's minus",
@@ -3328,11 +3351,33 @@ test.each([
     verdict: "contradicted",
   },
   {
-    name: "a negative word starting 401 characters before the quote",
+    name: "a negative word starting 401 characters before the quote keeps the minus (#2578)",
     claim: "The fund's cash was $62,000.",
     figure: "$62,000",
     language: "en",
     body: `The fund turned negative ${"x".repeat(390)}\n\nBy year end it was sixty-two thousand dollars ($62,000.00).`,
+    quotes: ["By year end it was sixty-two thousand dollars ($62,000.00)."],
+    number: "$62,000.00",
+    supported: false,
+    verdict: "contradicted",
+  },
+  {
+    name: "a negative word starting 2000 characters before the quote keeps the minus (#2578)",
+    claim: "The fund's cash was $62,000.",
+    figure: "$62,000",
+    language: "en",
+    body: `The fund turned negative ${"x".repeat(1989)}\n\nBy year end it was sixty-two thousand dollars ($62,000.00).`,
+    quotes: ["By year end it was sixty-two thousand dollars ($62,000.00)."],
+    number: "$62,000.00",
+    supported: false,
+    verdict: "contradicted",
+  },
+  {
+    name: "a negative word starting 2001 characters before the quote is not seen (#2578)",
+    claim: "The fund's cash was $62,000.",
+    figure: "$62,000",
+    language: "en",
+    body: `The fund turned negative ${"x".repeat(1990)}\n\nBy year end it was sixty-two thousand dollars ($62,000.00).`,
     quotes: ["By year end it was sixty-two thousand dollars ($62,000.00)."],
     number: "$62,000.00",
     supported: true,
@@ -3551,6 +3596,65 @@ test.each(signProbes.flatMap((probe) => signs.map((sign) => ({ ...probe, sign })
       ]),
     });
     expect(result.verdict).toBe(probe.expected[probe.sign]);
+  },
+);
+
+// A sign word counts for a bracketed amount by its sentence, table or heading, not by a reach of
+// 400 characters (#2578). Each case is checked with the amount and with its minus, on the page
+// around a cited quote and on a Passage read whole.
+describe.each(["en", "zh-CN"] as const)(
+  "%s: a sign word counts for a bracketed amount by its sentence, table or heading (#2578)",
+  (language) => {
+    const verdictOf = async (
+      which: keyof (typeof SIGN_SCOPE)["en"],
+      sign: "amount" | "minus",
+      layout: { between: boolean; cited: boolean },
+    ) => {
+      const probe = SIGN_SCOPE[language][which];
+      const paragraphs = layout.between
+        ? [probe.sign, ...OTHER_TERMS[language], probe.amount]
+        : [probe.sign, probe.amount];
+      const body = paragraphs.join(layout.between ? "\n\n" : language === "en" ? " " : "");
+      // The sign word stands further back than the old reach, with blank lines in sight.
+      if (layout.between) {
+        expect(
+          body.indexOf(probe.amount) - body.indexOf(probe.sign) - probe.sign.length,
+        ).toBeGreaterThan(470);
+      }
+      const shown = `${sign === "minus" ? "-" : ""}${probe.shown}`;
+      const claim = probe.claim(shown);
+      const { result } = await checkWith({
+        claim,
+        figures: [target("f1", shown, claim, language)],
+        body,
+        quotes: layout.cited ? [probe.amount] : undefined,
+        text: reply([
+          {
+            ...item(),
+            source: { citation: 1, number: probe.number, reading: null, unitQuote: null },
+          },
+        ]),
+      });
+      return result.verdict;
+    };
+
+    // protects=a sign word in the paragraph before, however far back and with other paragraphs between, keeps the bracket's minus: a positive amount is Contradicted, the minus is Supported (#2578 box 1); fails_when=a sign word beyond the reach is not seen and the wrong positive sentence is Supported
+    test.each([
+      { layout: { between: true, cited: true }, where: "on the page around a cited quote" },
+      { layout: { between: true, cited: false }, where: "in a Passage read whole" },
+    ])("a sign word far back in the section keeps the minus, $where", async ({ layout }) => {
+      expect(await verdictOf("far", "amount", layout)).toBe("contradicted");
+      expect(await verdictOf("far", "minus", layout)).toBe("supported");
+    });
+
+    // protects=a sign word in the sentence before the amount's that the amount still has keeps the minus (#2578 box 3); fails_when=the next sentence loses the sign
+    test.each([
+      { layout: { between: false, cited: true }, where: "on the page around a cited quote" },
+      { layout: { between: false, cited: false }, where: "in a Passage read whole" },
+    ])("a real sign in the sentence before still keeps the minus, $where", async ({ layout }) => {
+      expect(await verdictOf("before", "amount", layout)).toBe("contradicted");
+      expect(await verdictOf("before", "minus", layout)).toBe("supported");
+    });
   },
 );
 

@@ -834,6 +834,8 @@ interface Settled {
   statedAmount: boolean;
   /** The page above a quote runs on past the 400 characters read with no blank line in them. */
   pageCut: boolean;
+  /** Up to 2,000 characters of the Document before the text read, in NFKC, dashes as "-" (#2578). */
+  wide: string;
   /** Up to 400 characters of the Document before and after the text read, in NFKC, dashes as "-". */
   before: string;
   after: string;
@@ -936,6 +938,7 @@ function settle(context: FigureContext): Settled {
       context.headerRead?.periodColumns ??
       headsPeriods(`${context.header ?? ""}\n${context.around?.before ?? ""}`.normalize("NFKC")),
     statedAmount: false,
+    wide: (context.around?.before ?? "").slice(-2000).normalize("NFKC").replace(DASHES, "-"),
     before: (context.around?.before ?? "").slice(-400).normalize("NFKC").replace(DASHES, "-"),
     after: (context.around?.after ?? "").slice(0, 400).normalize("NFKC").replace(DASHES, "-"),
   };
@@ -3043,14 +3046,23 @@ const SIGN_BEFORE =
   /(?:(?<![A-Za-z])(?:less|deficits?|loss(?:es)?|decreas(?:e|es|ed))(?: (?:of|by))?|亏损|赤字|减少|下降|损失|扣除|减去|扣减|抵扣|减除)[ \u00a0]*[为了]?$|-[ \u00a0]*$|[△▲▽▼][ \u00a0]*$/i;
 
 /**
- * A word that says or may say an amount is below zero, or is taken off, in the text around it:
- * "minus", "negative", "loss", "deficit", "less", "deducted", "overdrawn", "OD", "in the red",
- * "below zero", "in debit", "-ve", "(−)", 负, 亏, 损失, 透支, 赤字, 逆差, 缺口, 红字, 小于零. A loss's
- * size ("The loss was …") keeps the minus too, as main reads it. Not a "negative pledge", "less
- * than", 负责, 负担, 负债, 负面, 自负, 幸亏 or 多亏.
+ * A word that says a thing is below zero: "minus", "negative", "overdrawn", "in the red", "below
+ * zero", "in debit", "-ve", "(−)", 负, 透支, 红字, 小于零. It counts as far back as the reader sees
+ * (#2578). Not a "negative pledge", 负责, 负担, 负债, 负面 or 自负.
  */
-const NEGATIVE_WORD =
-  /(?<![A-Za-z])(?:minus|negative(?! pledge)|overdrawn|overdrafts?|in(?:to)? the red|loss(?:es)?|deficits?|less(?! than)|deduct(?:s|ed|ing|ions?)?|(?:below|under|less than) zero|in debit|-ve|od|(?:shown|printed) in red|under ?water)(?![A-Za-z])|(?<!自)负(?![责担债面])|(?<![幸多])亏|损失|透支|赤字|逆差|缺口|[小低]于零|红字|\(-\)/i;
+const STATE_WORD =
+  /(?<![A-Za-z])(?:minus|negative(?! pledge)|overdrawn|overdrafts?|in(?:to)? the red|(?:below|under|less than) zero|in debit|-ve|od|(?:shown|printed) in red|under ?water)(?![A-Za-z])|(?<!自)负(?![责担债面])|透支|[小低]于零|红字|\(-\)/i;
+
+/**
+ * A word for a loss or a deduction, which may be about something else ("not liable for any loss of
+ * business"): "loss", "deficit", "less", "deducted", 亏, 损失, 赤字, 逆差, 缺口. A loss's size ("The
+ * loss was …") keeps the minus too, as main reads it. Not "less than", 幸亏 or 多亏.
+ */
+const SUM_WORD =
+  /(?<![A-Za-z])(?:loss(?:es)?|deficits?|less(?! than)|deduct(?:s|ed|ing|ions?)?)(?![A-Za-z])|(?<![幸多])亏|损失|赤字|逆差|缺口/i;
+
+/** A word that says or may say an amount is below zero, or is taken off, in the text around it. */
+const NEGATIVE_WORD = new RegExp(`${STATE_WORD.source}|${SUM_WORD.source}`, "i");
 
 /** A line that subtracts what follows: "Less: deposit paid …", "减：已付定金 …", a "Less" cell or heading. */
 const DEDUCTION_LINE = /^[\s|]*(?:less|deduct|减)[ \u00a0]*(?:[:：-]|\t|\||$)/im;
@@ -3093,9 +3105,14 @@ function restates(
     // A sign word can be lines or sentences before or after the amount it gives a sign to ("The
     // balance was negative. It was …", "… ($62,000.00), turned negative"), and a stop can't tell a
     // sentence's end from an abbreviation's ("St. Louis", "acct. A12"), so all the text within 400
-    // characters counts, the Document's around a quote too. Words that start further into the text
-    // read, or a quote whose page runs further back with no blank line or heading in sight, keep the
-    // bracket's minus: the reader can't see where the amount's part of the page starts (#2578).
+    // characters counts, the Document's around a quote too. A word that says a thing is below zero
+    // counts as far back as 2,000 characters: the model reads a sign stated in another sentence
+    // wrong, and the reader can't see where the amount's section starts (#2578). A word for a loss or
+    // a deduction counts only within the 400, being as often about something else.
+    if (STATE_WORD.test(`${settled.wide}${s.slice(0, from)}`)) return true;
+    // Words that start further into the text read, or a quote whose page runs further back with no
+    // blank line or heading in sight, keep the bracket's minus: the reader can't see where the
+    // amount's part of the page starts.
     if (from > 400 || settled.pageCut) return true;
     const after = s.slice(inner.to, inner.to + 400) + settled.after;
     const window = settled.before + s.slice(0, from);
