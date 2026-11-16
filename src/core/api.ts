@@ -764,6 +764,8 @@ export type ProposalRequest =
       reason?: string;
       /** The assistant said the User asked only for text to go: a change that does more waits for them (#2356). */
       removesOnly?: true;
+      /** The reply took out whole paragraphs that the User's words, read, don't all name: it waits for them (#3178). */
+      widerThanAsked?: true;
       /** What its new text left out of the passage stayed, unless it quoted it as taken out (#880, #2180): made again, it still does (#2796). */
       keepsLeftOut?: true;
     })

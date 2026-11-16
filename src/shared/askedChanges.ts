@@ -24,6 +24,7 @@ import {
   readProposalAttribute,
   readProposalRef,
   removesOnlyAsked,
+  widerThanAsked,
 } from "./proposals";
 import {
   changedText,
@@ -175,6 +176,7 @@ export function whyItWaits(
   requests: ReadonlySet<string>,
 ):
   | { why: "most-of-their-text" }
+  | { why: "wider-than-asked" }
   | { why: "more-than-taken-out"; changes: SentenceChanges; writtenAgain: string[] }
   | null {
   if (requests.size === 0) return null;
@@ -184,6 +186,9 @@ export function whyItWaits(
     ownTextRemoved(blocks, requests) > MOST_OF_YOUR_TEXT
   ) {
     return { why: "most-of-their-text" };
+  }
+  if ([...requests].some((request) => widerThanAsked(doc, request))) {
+    return { why: "wider-than-asked" };
   }
   for (const request of requests) {
     if (!removesOnlyAsked(doc, request)) continue;

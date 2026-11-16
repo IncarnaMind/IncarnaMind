@@ -436,6 +436,7 @@ describe.each(LIVE)("Removal in the User's own words, live: $name", (live) => {
       }
       const exact = new Map<Case, number>();
       const heldBy = new Map<string, number>();
+      const heldAsked = new Map<Case, number>();
       const misses: string[] = [];
       let strays = 0;
       let claimed = 0;
@@ -507,6 +508,7 @@ describe.each(LIVE)("Removal in the User's own words, live: $name", (live) => {
         if (quotesUnasked(each, asked, replies.getStore()?.raw ?? "")) unasked++;
         if (result.kind === "proposed" && result.held === true) {
           heldBy.set(asked.kind, (heldBy.get(asked.kind) ?? 0) + 1);
+          heldAsked.set(asked, (heldAsked.get(asked) ?? 0) + 1);
         }
         let why = "";
         if (result.kind === "proposed") {
@@ -544,7 +546,10 @@ describe.each(LIVE)("Removal in the User's own words, live: $name", (live) => {
           total += ran;
           exactTotal += got;
           ranBy.set(asked.kind, (ranBy.get(asked.kind) ?? 0) + ran);
-          report.push(`  ${each.language} ${asked.kind} “${asked.ask}”: exact ${got}/${ran}`);
+          const waited = heldAsked.get(asked) ?? 0;
+          report.push(
+            `  ${each.language} ${asked.kind} “${asked.ask}”: exact ${got}/${ran}${waited > 0 ? `, held ${waited}` : ""}`,
+          );
         }
       }
       const heldKinds = [...ranBy]

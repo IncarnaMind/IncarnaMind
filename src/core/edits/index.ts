@@ -133,7 +133,7 @@ import {
   withMissingNumber,
   withoutNames,
 } from "./prompt";
-import { asksToRemove } from "./removalAsked";
+import { asksForAll } from "./removalAsked";
 
 /** The tasks whose reply may take text out by quoting it: the User's words, and a Citation's checks. */
 const QUOTES_TAKE_OUT: ReadonlySet<EditAction> = new Set([
@@ -806,13 +806,15 @@ export function createEdits(options: EditsOptions) {
   }
 
   /**
-   * Whether the User's words ask to take text out, asked of the model they chose for small calls
-   * (`prepared`'s provider's, else `prepared` itself) and only where that is already allowed for
-   * edits: never a question to the User, and no word goes anywhere new. False when it can't be asked.
+   * Whether the User's words ask to take out all of `taken`, the paragraphs a reply takes out
+   * whole: asked of the model they chose for small calls (`prepared`'s provider's, else `prepared`
+   * itself) and only where that is already allowed for edits, which has `taken` already: never a
+   * question to the User, and no word goes anywhere new. False when it can't be asked.
    */
   async function removalAskedBy(
     prepared: PreparedChatModel,
     request: string,
+    taken: readonly string[],
     signal: AbortSignal,
   ): Promise<boolean> {
     if (request.trim() === "" || signal.aborted) return false;
@@ -829,7 +831,7 @@ export function createEdits(options: EditsOptions) {
         return false;
       }
       const small = await chat.prepareModel(quick, "edits");
-      return await asksToRemove(small.model, request, signal);
+      return await asksForAll(small.model, request, taken, signal);
     } catch (error) {
       if (!signal.aborted) {
         console.error(
@@ -950,14 +952,14 @@ export function createEdits(options: EditsOptions) {
         stateVector: content.stateVector(mindId),
       };
     };
-    /** The User's words were read and ask for no text to go, though the reply quotes a paragraph as taken out (#2333). */
-    let notAskedToRemove = false;
+    /** The User's words were read and don't ask for all that the reply quotes as taken out (#2333, #3178). */
+    let widerThanAsked = false;
     const holdsBack = (written: RewriteStream) =>
       waitsForUser({
         action: ask.action,
         ...written.extent(),
         selected: selection.characters,
-        notAskedToRemove,
+        widerThanAsked,
       });
     const appliesNow = () =>
       explain ||
@@ -1105,15 +1107,12 @@ export function createEdits(options: EditsOptions) {
     }
     const reason = explain ? null : reasonOf(raw);
     if (reason) made.reason = reason;
-    // Words that name no text to go, and a reply that quotes a whole paragraph as taken out: the
-    // quote alone says so, so the removal waits unless the User's words are read to ask for it.
-    if (
-      stream &&
-      ask.action === "instruction" &&
-      ask.removesOnly !== true &&
-      stream.wholeQuotes(reply) > 0
-    ) {
-      notAskedToRemove = !(await removalAskedBy(prepared, ask.instruction ?? "", signal));
+    // A reply that quotes a whole paragraph as taken out for words that name less, or none, goes
+    // further than the User asked: it waits unless the User's words are read to ask for all of it.
+    const taken = stream && ask.action === "instruction" ? stream.wholeQuotes(reply) : [];
+    if (taken.length > 0) {
+      widerThanAsked = !(await removalAskedBy(prepared, ask.instruction ?? "", taken, signal));
+      if (widerThanAsked) made.widerThanAsked = true;
     }
     step(() => {
       if (!stream) {

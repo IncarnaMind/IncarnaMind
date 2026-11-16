@@ -31,6 +31,7 @@ export const PROMPT_TAGS = [
   "selected-text",
   "selection",
   "sentence",
+  "taken-out",
   "tool-record",
   "whole-sentence",
 ] as const;

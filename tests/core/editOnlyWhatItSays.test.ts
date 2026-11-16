@@ -223,9 +223,10 @@ describe.each(["en", "zh"] as const)(
 
       expect(result).toMatchObject({ kind: "proposed", held: true });
       expect(asked).toHaveLength(1);
-      // Only the User's words go to the small model, never the passage.
+      // The User's words and the paragraphs taken out go to the small model, and no other paragraph.
       expect(asked[0]).toContain(SHORT_ASK);
-      expect(asked[0]).not.toContain(lines[0]);
+      expect(asked[0]).toContain(lines[0]);
+      expect(asked[0]).not.toContain(lines[2]);
     });
 
     // protects=a request whose words ask for text to go keeps taking the quoted paragraphs out at once, as before (#2180); fails_when=an asked deletion waits; no_claim=how a model reads other phrasings.

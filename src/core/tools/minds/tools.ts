@@ -940,6 +940,9 @@ const APPLIES =
 const heldNow = (name: string, count: number) =>
   `Applied now: nothing in “${name}”. Waiting for the User: ${count === 1 ? "this change" : `all ${count} of this reply's changes there, the earlier ones too`}.`;
 
+const widerThanAskedMessage = (name: string) =>
+  `It takes out whole paragraphs of “${name}” that the User's words don't all name, so it waits there for them to apply or discard; nothing of their text has changed yet. Say that it waits for them, not that it changed.`;
+
 const held = (name: string) =>
   `It would take out most of the User's own text in “${name}”, so it waits there for them to apply or discard; nothing of their text has changed yet. Say that it waits for them, not that it changed.`;
 
@@ -1322,7 +1325,9 @@ export function mindTools(options: MindToolsOptions): {
     const why =
       wait.why === "more-than-taken-out"
         ? moreThanTakenOut(mind.name, wait.changes, wait.writtenAgain)
-        : held(mind.name);
+        : wait.why === "wider-than-asked"
+          ? widerThanAskedMessage(mind.name)
+          : held(mind.name);
     return `${why} ${heldNow(mind.name, asked.size)}`;
   };
 

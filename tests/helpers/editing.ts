@@ -68,7 +68,7 @@ export function editingModel(
         text =
           removal === "unreadable"
             ? "Probably."
-            : JSON.stringify({ asks_to_remove: removal === "yes" ? "yes" : "no" });
+            : JSON.stringify({ asks_for_all: removal === "yes" ? "yes" : "no" });
       }
       return {
         content: [{ type: "text", text }],

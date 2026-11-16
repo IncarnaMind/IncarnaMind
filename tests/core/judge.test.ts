@@ -221,9 +221,9 @@ const QUESTIONS: Record<
   },
   "removal-asked": {
     reply: removalAskedReply,
-    right: JSON.stringify({ asks_to_remove: "yes" }),
+    right: JSON.stringify({ asks_for_all: "yes" }),
     read: "yes",
-    unreadable: JSON.stringify({ asks_to_remove: "maybe" }),
+    unreadable: JSON.stringify({ asks_for_all: "maybe" }),
   },
   restate: {
     reply: lines((reply) =>
