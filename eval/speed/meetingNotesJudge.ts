@@ -83,7 +83,8 @@ export function citedSentences(notes: string): NotesSentence[] {
     }
     let earlier = "";
     let from = 0;
-    for (const marks of line.matchAll(/(?:\[\d+\])+/g)) {
+    // The notes write a sentence's Citations side by side or with a space between them.
+    for (const marks of line.matchAll(/\[\d+\](?:\s*\[\d+\])*/g)) {
       const text = line.slice(from, marks.index).trim();
       sentences.push({
         cites: [...marks[0].matchAll(/\d+/g)].map((number) => Number(number[0])),

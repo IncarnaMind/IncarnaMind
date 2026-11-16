@@ -52,7 +52,7 @@ describe("the line of the call a meeting-notes Citation is judged against", () =
 
 const NOTES = [
   "## Summary[1]",
-  "They offered a session.[1] The other side agreed and will check with IT.[2][3] No date was set.",
+  "They offered a session.[1] The other side agreed and will check with IT.[2] [3] No date was set.",
   "## Action items",
   "The other side checks with IT.[4]",
   "A line with no Citation.",
