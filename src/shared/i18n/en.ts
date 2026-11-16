@@ -7010,6 +7010,8 @@ export const en = {
   "meetings.fill.checkingLocal.one": "Checking {count} claim on this computer…",
   "meetings.fill.checkingLocal": "Checking {count} claims on this computer…",
   "meetings.fill.fillingLocal": "Filling in the note on this computer…",
+  "meetings.fill.fillingPart": "Filling in the note, part {part} of {total}…",
+  "meetings.fill.fillingPartLocal": "Filling in the note on this computer, part {part} of {total}…",
   "meetings.fill.filled": "Note filled in from the call",
   "meetings.fill.partial": "Note partly filled in",
   "meetings.fill.omitted.one": "{count} item couldn’t be added",

@@ -11883,6 +11883,11 @@ export interface MeetingFill {
   unfinishedParts?: number;
   /** How many of its claims are being checked against the Documents now; 0 or absent when none. */
   checking?: number;
+  /**
+   * While a long call is read in parts: the part being read (from 1) and how many there are. `of`
+   * grows when a part is asked again as two. Absent for a call read whole, and once all are read.
+   */
+  part?: { at: number; of: number };
   /** Blocks inserted by this fill, for status placement without changing the Note. */
   addedBlockIds?: string[];
 }

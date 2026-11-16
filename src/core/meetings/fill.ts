@@ -610,6 +610,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
       omitted: 0,
       unfinishedParts: 0,
       checking: 0,
+      part: undefined,
       blocks: [],
     };
     set(meeting.id, filling);
@@ -630,8 +631,13 @@ export function createMeetingFill(options: MeetingFillOptions) {
     let problem: MeetingFillProblem | null = null;
     const destinations = new Map<FillSection, string>();
     let asked = 0;
+    let read = 0;
     for (let part = waiting.shift(); part; part = waiting.shift()) {
       asked += 1;
+      // A part asked again as two is still the same place in the call: the count grows, the
+      // place doesn't (#2839).
+      const of = read + 1 + waiting.length;
+      if (of > 1) set(meeting.id, { part: { at: read + 1, of } });
       const history = {
         part: asked,
         facts: ledger.facts.map((fact) => ({
@@ -698,6 +704,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
         log.info("meeting.fillPartHalved", { meetingId: meeting.id, waiting: waiting.length });
         continue;
       }
+      read += 1;
       if (answer.status === "failed") {
         unfinishedParts = waiting.length + 1;
         problem = failure(answer, route);
@@ -722,7 +729,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
         ...ledger.omittedReasons(unfinishedParts === 0),
       });
     }
-    set(meeting.id, { omitted, unfinishedParts });
+    set(meeting.id, { omitted, unfinishedParts, part: undefined });
     if (ledger.facts.length === 0 && overviews.length === 0) {
       throw new FillProblemError(
         problem ??
@@ -950,7 +957,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
       // In Recently deleted it stays as it was: once back, "filling" says it stopped and
       // "waiting" starts (`restored`).
       if (deleted) return;
-      set(meetingId, { state: "failed", problem, blocks: [] });
+      set(meetingId, { state: "failed", problem, part: undefined, blocks: [] });
     } finally {
       if (running.get(meetingId) === controller) running.delete(meetingId);
     }
@@ -1031,7 +1038,12 @@ export function createMeetingFill(options: MeetingFillOptions) {
   /** A fill no longer under way wrote nothing, and says so; one waiting for a saved Transcript starts. */
   function pickUp(meetingId: string, fill: StoredFill): void {
     if (fill.state === "filling" && !running.has(meetingId) && !starting.has(meetingId)) {
-      set(meetingId, { state: "failed", problem: { kind: "stopped", message: "" }, blocks: [] });
+      set(meetingId, {
+        state: "failed",
+        problem: { kind: "stopped", message: "" },
+        part: undefined,
+        blocks: [],
+      });
     } else if (fill.state === "waiting") {
       const transcript = meetings.get(meetingId).transcript;
       if (transcript?.state === "saved" && !transcript.separating) start(meetingId);

@@ -6622,6 +6622,8 @@ export const zhCN = {
   "meetings.fill.checkingLocal.one": "正在这台电脑上核对 {count} 条说法…",
   "meetings.fill.checkingLocal": "正在这台电脑上核对 {count} 条说法…",
   "meetings.fill.fillingLocal": "正在这台电脑上补全笔记…",
+  "meetings.fill.fillingPart": "正在补全笔记，第 {part} 段，共 {total} 段…",
+  "meetings.fill.fillingPartLocal": "正在这台电脑上补全笔记，第 {part} 段，共 {total} 段…",
   "meetings.fill.filled": "已补全笔记",
   "meetings.fill.partial": "笔记未能全部补全",
   "meetings.fill.omitted.one": "{count} 项内容未能添加",

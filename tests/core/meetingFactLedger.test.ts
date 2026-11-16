@@ -316,3 +316,18 @@ test("a fact reusing a kept id that names that id in supersedes can't delete the
   expect(ledger.facts).toEqual([kept]);
   expect(ledger.omitted(false)).toBe(1);
 });
+
+// protects=a fact left out under an id of its own is counted once however often the model writes it again, and is kept under that id once it is written right (#3145); fails_when=each repeat adds one to the items not added, or the right one is kept under yet another id; no_claim=how often a model repeats a fact.
+test("a fact left out under its own id is counted once when written again, and kept once right", () => {
+  const ledger = createFactLedger();
+  ledger.accept(reply([citing(1_000, "A", "venue")]));
+  const unknown = citing(60_000, "A", "hiring", ["Nobody"]);
+  ledger.accept(reply([unknown]));
+  ledger.accept(reply([unknown]));
+  ledger.accept(reply([unknown]));
+  expect(ledger.facts.map((each) => each.topic)).toEqual(["venue"]);
+  expect(ledger.omittedReasons(false)).toEqual({ supersedes: 1 });
+  ledger.accept(reply([citing(60_000, "A", "hiring")]));
+  expect(ledger.facts.map((each) => each.topic)).toEqual(["venue", "hiring"]);
+  expect(ledger.omitted(false)).toBe(0);
+});

@@ -182,6 +182,7 @@ export function MeetingFillLine({ meeting, editor }: { meeting: Meeting; editor?
     const finishing = waiting && transcript?.state !== "saved";
     const downloading = finishing ? speechModelDownload(transcript?.model ?? null, t) : null;
     const checking = fill.state === "filling" ? (fill.checking ?? 0) : 0;
+    const part = fill.state === "filling" && meeting.kind === "meeting" ? fill.part : undefined;
     const text = downloading
       ? t("meetings.transcript.finishingDownload", downloading)
       : finishing
@@ -201,7 +202,12 @@ export function MeetingFillLine({ meeting, editor }: { meeting: Meeting; editor?
                       : "meetings.fill.checking",
                   { count: checking },
                 )
-              : t(fill.local ? words.fillingLocal : words.filling);
+              : part
+                ? t(fill.local ? "meetings.fill.fillingPartLocal" : "meetings.fill.fillingPart", {
+                    part: part.at,
+                    total: part.of,
+                  })
+                : t(fill.local ? words.fillingLocal : words.filling);
     return (
       <ProblemLine
         testId="meeting-fill-line"

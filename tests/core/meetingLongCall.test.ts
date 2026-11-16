@@ -127,14 +127,34 @@ test("a 45-minute call gets its notes in parts, a part cut while thinking asked 
         expect(current?.transcript?.lines ?? 0).toBeGreaterThanOrEqual(index - 1);
       });
     }
+    const shown: { at: number; of: number }[] = [];
+    const unsubscribe = core.on("meetings.changed", (meetings) => {
+      const part = meetings.find((each) => each.id === meeting.id)?.fill?.part;
+      if (part && JSON.stringify(shown.at(-1)) !== JSON.stringify(part)) shown.push(part);
+    });
     await core.stopMeeting(meeting.id);
 
-    expect(await settledFill(core, meeting)).toMatchObject({
+    const settled = await settledFill(core, meeting);
+    unsubscribe();
+    expect(settled).toMatchObject({
       state: "filled",
       omitted: 0,
       unfinishedParts: 0,
       problem: null,
     });
+    // The line says which part the note is on (#2839): each request is the next part, or the same
+    // one asked smaller with more parts to come, and the last is the last of them.
+    expect(settled.part).toBeUndefined();
+    expect(shown).toHaveLength(asks.length);
+    for (const [index, ask] of asks.entries()) {
+      const at = asks.slice(0, index).filter((before) => !before.cut).length + 1;
+      expect(shown[index]?.at).toBe(at);
+      const next = shown[index + 1];
+      if (!next) continue;
+      if (ask.cut) expect(next.of).toBeGreaterThan(shown[index]?.of ?? 0);
+      else expect(next.of).toBe(shown[index]?.of);
+    }
+    expect(shown.at(-1)?.at).toBe(shown.at(-1)?.of);
 
     const answered = asks.filter((ask) => !ask.cut);
     expect(answered.flatMap((ask) => ask.lines)).toEqual(call);
