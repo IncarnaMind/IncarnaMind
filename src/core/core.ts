@@ -2164,6 +2164,12 @@ export function createCore(adapters: CoreAdapters): Core {
     changes,
     events,
     repliesOut,
+    timers: paceTimers,
+    waiting: (id, until) =>
+      events.emit("rateLimit.waiting", {
+        id,
+        resumesAt: until === null ? null : new Date(until).toISOString(),
+      }),
     engine: answerEngine,
     ...(adapters.analysisRuntime && { analysisRuntime: adapters.analysisRuntime }),
     ...(codeRunner && {
@@ -3138,6 +3144,11 @@ export function createCore(adapters: CoreAdapters): Core {
     checkingEarly: (event) => events.emit("mindCheck.early", event),
     decision: (service) => decisionChoice.reader(service),
     writtenProgress: (event) => events.emit("writtenCheck.progress", event),
+    waiting: (id, until) =>
+      events.emit("rateLimit.waiting", {
+        id,
+        resumesAt: until === null ? null : new Date(until).toISOString(),
+      }),
     now: () => adapters.now?.() ?? new Date(),
   });
 
