@@ -78,7 +78,7 @@ test("a Note of plain notes says its state; its card, from ⌘K, has one count p
   await window.keyboard.type(` ${SUPPORTED}`);
   await expect(editor).toContainText(SUPPORTED);
   await expect(badge).toHaveAttribute("data-state", "not-checked");
-  await expect(badge.locator(".check-badge-words")).toHaveText("Not checked");
+  await expect(badge.locator(".check-badge-words")).toHaveText("1 sentence not checked yet");
   const card = await checkCard(window);
   await expect(card.getByTestId("health-toCheck")).toContainText("1 not checked");
   await expect(card.getByTestId("health-noCitation")).toHaveCount(0);
@@ -120,7 +120,7 @@ test("a Note of plain notes says its state; its card, from ⌘K, has one count p
   await window.keyboard.type(" The harbour is quiet in winter.");
   // Another claim arrives with no check: the note is not checked any more (D266).
   await expect(badge).toHaveAttribute("data-state", "not-checked");
-  await expect(badge.locator(".check-badge-words")).toHaveText("Not checked");
+  await expect(badge.locator(".check-badge-words")).toHaveText("1 sentence not checked yet");
 
   // ⌘K reaches the card from anywhere, named Checks, and its old name still finds it; Esc from
   // inside it puts the focus back.
@@ -230,11 +230,11 @@ test("in Chinese and a narrow pane the badge keeps its state to its mark; Tab re
   await expect(editor.getByTestId("citation")).toHaveCount(1);
   const open = window.getByTestId("check-badge-open");
   const words = window.getByTestId("check-badge").locator(".check-badge-words");
-  await expect(open).toHaveAccessibleName("Checks: Not checked");
-  await expect(words).toHaveText("Not checked");
+  await expect(open).toHaveAccessibleName("Checks: 1 sentence not checked yet");
+  await expect(words).toHaveText("1 sentence not checked yet");
   await setLanguage(window, "zh-CN");
-  await expect(open).toHaveAccessibleName("核对结果：未核对");
-  await expect(words).toHaveText("未核对");
+  await expect(open).toHaveAccessibleName("核对结果：1 句待核对");
+  await expect(words).toHaveText("1 句待核对");
   await expect(words).toBeVisible();
   await setWindowSize(app, window, 1100, 720);
   await expect(words).toBeVisible();

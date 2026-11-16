@@ -147,6 +147,7 @@ describe("A note's state (D266)", () => {
       notRecalculated: 0,
       needsCheck: 0,
       notYetCited: 0,
+      toCheck: 0,
     });
   });
 
@@ -188,11 +189,11 @@ describe("A note's state (D266)", () => {
       noteStateOf(health({ checkable: 1, contradicted: [0], lookClaims: [0] }), 3, 1) ?? fail();
     expect(narrow).toMatchObject({ kind: "needs-look", unread: 1, unreadMatters: true });
     expect(words(narrow)).toBe("1 file couldn’t be read");
-    // Not checked: the state's line says only that, and the card still names the files.
+    // Not checked: the state's line counts the sentences, and the card still names the files.
     const unchecked = noteStateOf(health({ checkable: 1, toCheck: [0] }), 2) ?? fail();
     expect(unchecked).toMatchObject({ kind: "not-checked", unread: 2, unreadMatters: false });
     expect(words(unchecked)).toBe("2 files couldn’t be read");
-    expect(parts(unchecked)).toEqual(["Not checked"]);
+    expect(parts(unchecked)).toEqual(["1 sentence not checked yet"]);
   });
 
   test("a figure an Analysis gave that couldn't be worked out again leaves the Note Checked, naming it (#2378)", () => {
@@ -253,8 +254,16 @@ describe("A note's state (D266)", () => {
     const two =
       noteStateOf(health({ checkable: 2, unsupported: [0, 6], lookClaims: [0, 6] })) ?? fail();
     const done = noteStateOf(health({ checkable: 1, checkedAt: CHECKED_AT }), 3) ?? fail();
-    expect(en(fresh)).toBe("Not checked");
-    expect(zh(fresh)).toBe("未核对");
+    // The words the card uses for the sentences no check covered, not a bare "Not checked" (#3212).
+    expect(en(fresh)).toBe("1 sentence not checked yet");
+    expect(zh(fresh)).toBe("1 句待核对");
+    const several = noteStateOf(health({ checkable: 3, toCheck: [0, 6, 9] })) ?? fail();
+    expect(en(several)).toBe("3 sentences not checked yet");
+    expect(zh(several)).toBe("3 句待核对");
+    // A check still running has no count to give: the bare words stay.
+    const running = noteStateOf(health({ checkable: 1, checking: [0] })) ?? fail();
+    expect(en(running)).toBe("Not checked");
+    expect(zh(running)).toBe("未核对");
     expect(en(one)).toBe("1 needs a look");
     expect(zh(one)).toBe("需要留意 1 处");
     expect(en(two)).toBe("2 need a look");

@@ -12,7 +12,7 @@ import { EXPORT_OPTIONS_FORMATS, exportFormatNow, FORMAT_LABELS, useExports } fr
 import { useMindNoteStates } from "../../home";
 import { useLanguage, useT } from "../../i18n";
 import { showCheckCard, startCheckAsking } from "../../mindCheck";
-import { noteStateParts } from "../../noteState";
+import { exportStateLine } from "../../noteState";
 import { useAppStore } from "../../store";
 import {
   ChevronRightLineIcon,
@@ -98,34 +98,27 @@ export function ExportMenu({ mindId }: { mindId: string }) {
   const noteState = mind ? (states.get(mind.id)?.state ?? null) : null;
   // The count the badge's card shows, so a note edited since its check says how many are still to check.
   const toCheck = mind ? (states.get(mind.id)?.health.toCheck.length ?? 0) : 0;
-  const format = (value: number) => new Intl.NumberFormat(language).format(value);
   const running = useChecks((state) => state.running[mindId] !== undefined);
   // The state's own line, never a block on the export (D266): a run in flight opens the card at
   // its progress, not checked starts a Check, and needs a look or not yet cited opens the card at
   // its rows.
+  const said = exportStateLine(noteState, toCheck, t, language);
   const stateLine = running
     ? {
         label: `${t("export.running")} · ${t("export.show")}`,
         run: () => showCheckCard(mindId),
       }
-    : noteState === null || noteState.kind === "checked"
+    : said === null
       ? null
-      : noteState.kind === "needs-look" || noteState.kind === "not-yet-cited"
-        ? {
-            label: `${noteStateParts(noteState, t, language).join(" · ")} · ${t("export.show")}`,
-            run: () => showCheckCard(mindId),
-          }
-        : {
-            label:
-              toCheck > 0
-                ? `${t(toCheck === 1 ? "health.toCheck.one" : "health.toCheck", {
-                    count: format(toCheck),
-                  })} · ${t("export.checkFirstAction")}`
-                : t("export.checkFirst"),
-            run: () => {
-              startCheckAsking(mindId).catch(useAppStore.getState().reportError);
-            },
-          };
+      : {
+          label: said.label,
+          run:
+            said.action === "show"
+              ? () => showCheckCard(mindId)
+              : () => {
+                  startCheckAsking(mindId).catch(useAppStore.getState().reportError);
+                },
+        };
 
   // "Export…" in a Mind's menus: this Mind's button opens its menu, as if it had been clicked.
   const asked = useExportMenuRequests((state) => state.request);

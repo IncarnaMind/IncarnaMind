@@ -45,7 +45,7 @@ const SUPPORTED = "Spring tides happened 12 times in 2026.";
 
 const WORDS = {
   en: {
-    notChecked: "Not checked",
+    notChecked: "1 sentence not checked yet",
     look: "1 needs a look",
     checked: "Checked ",
     checkFirst: "1 sentence not checked yet · Check first",
@@ -54,7 +54,7 @@ const WORDS = {
     checking: /\d+ being checked/,
   },
   "zh-CN": {
-    notChecked: "未核对",
+    notChecked: "1 句待核对",
     look: "需要留意 1 处",
     checked: "已核对 ",
     checkFirst: "1 句待核对 · 先核对",

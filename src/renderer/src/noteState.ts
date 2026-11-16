@@ -75,6 +75,8 @@ export interface NoteState {
   needsCheck: number;
   /** Sentences Supported, not yet cited (#3019): with nothing more pressing, the state names them. */
   notYetCited: number;
+  /** The sentences no check has covered yet: the count a bare "Not checked" gives (#3212). */
+  toCheck: number;
 }
 
 /**
@@ -102,6 +104,7 @@ export function noteStateOf(health: NoteHealth, unread = 0, narrowUnread = 0): N
     notRecalculated: 0,
     needsCheck: 0,
     notYetCited: health.notYetCited.length,
+    toCheck: health.toCheck.length,
   };
   // Never the green while a sentence is Supported, not yet cited: the state names them (#3019).
   const rested = (state: NoteState): NoteState =>
@@ -250,7 +253,11 @@ export function noteStateParts(
               : "health.state.notRecalculated",
             { count: count(state.notRecalculated) },
           )
-        : t("health.state.notChecked"),
+        : state.toCheck > 0
+          ? t(state.toCheck === 1 ? "health.toCheck.one" : "health.toCheck", {
+              count: count(state.toCheck),
+            })
+          : t("health.state.notChecked"),
     ];
   if (state.kind === "needs-look") {
     const parts: string[] = [];
@@ -302,6 +309,45 @@ export function noteStateParts(
         ]
       : []),
   ];
+}
+
+/**
+ * The card's head when it has nothing left to count: the badge's line where the badge names a
+ * caveat beside its time ("Checked 18 Oct, 3:20 pm · 3 files couldn't be read"), else "Everything
+ * checked", which isn't true of a Note with a caveat (#3212).
+ */
+export function allCheckedHead(state: NoteState | null, t: Translate, language: Language): string {
+  const line = state === null ? [] : noteStateParts(state, t, language);
+  return line.length > 1 ? line.join(" · ") : t("health.allChecked");
+}
+
+/**
+ * The Export menu's line for a Note (D266), never a block on the export: nothing for a Note that
+ * reads Checked, caveats or not; the state's words with Show where the card has rows to open;
+ * the sentences still to check, or "Not checked since your last edit", with Check first
+ * (#3212). `action` says what its press does.
+ */
+export function exportStateLine(
+  state: NoteState | null,
+  toCheck: number,
+  t: Translate,
+  language: Language,
+): { label: string; action: "show" | "check" } | null {
+  if (state === null || state.kind === "checked") return null;
+  if (state.kind === "needs-look" || state.kind === "not-yet-cited")
+    return {
+      label: `${noteStateParts(state, t, language).join(" · ")} · ${t("export.show")}`,
+      action: "show",
+    };
+  return {
+    label:
+      toCheck > 0
+        ? `${t(toCheck === 1 ? "health.toCheck.one" : "health.toCheck", {
+            count: new Intl.NumberFormat(language).format(toCheck),
+          })} · ${t("export.checkFirstAction")}`
+        : t("export.checkFirst"),
+    action: "check",
+  };
 }
 
 /**
