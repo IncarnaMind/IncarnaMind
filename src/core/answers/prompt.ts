@@ -1071,12 +1071,25 @@ export const quoteRetryPrompt = (records: readonly QuoteToRetry[]): string =>
  * sentence of it matches one: the one request for its Citations (see
  * ./unmarkedQuotes).
  */
-export const CITE_RETRY_INSTRUCTIONS = [
-  "You add the Citations an Answer left out. The Answer was written from the Passages below, but none of its sentences says which Passage it comes from.",
-  "- For each sentence of the Answer that a Passage supports, give the sentence as the Answer has it, the Passage's id, and a quote from the Passage that supports it: one unbroken stretch, copied character for character, no longer than a sentence. Don't reword, translate, join sentences, change characters or leave words out.",
-  "- Leave out sentences that no Passage supports. Don't change the Answer.",
-  'Reply with one JSON object: {"citations": [{"sentence": "…", "passage": "P1", "quote": "…"}]}, or {"citations": []} if no Passage supports any sentence.',
-].join("\n");
+const citeRetryInstructions = (more: readonly string[] = []) =>
+  [
+    "You add the Citations an Answer left out. The Answer was written from the Passages below, but none of its sentences says which Passage it comes from.",
+    "- For each sentence of the Answer that a Passage supports, give the sentence as the Answer has it, the Passage's id, and a quote from the Passage that supports it: one unbroken stretch, copied character for character, no longer than a sentence. Don't reword, translate, join sentences, change characters or leave words out.",
+    ...more,
+    "- Leave out sentences that no Passage supports. Don't change the Answer.",
+    'Reply with one JSON object: {"citations": [{"sentence": "…", "passage": "P1", "quote": "…"}]}, or {"citations": []} if no Passage supports any sentence.',
+  ].join("\n");
+
+export const CITE_RETRY_INSTRUCTIONS = citeRetryInstructions();
+
+/**
+ * The same request for a Meeting fill's reply, whose sentences hold markers with no record. A fact
+ * is kept only with a record for each of its markers, and asked by sentence a model gives a
+ * sentence with two markers one quote (#3145).
+ */
+export const FILL_CITE_RETRY_INSTRUCTIONS = citeRetryInstructions([
+  "- A sentence with more than one Citation marker ([^3][^4], or one after each clause) gets an item for each marker, in the markers' order: the same sentence each time, each with a quote of its own for that part of the sentence.",
+]);
 
 /** The one request for Citations shows an Answer: its tags are the Answer's and the Passages'. */
 export const CITE_RETRY_TAGS: readonly PromptTag[] = ["answer", "passage"];
