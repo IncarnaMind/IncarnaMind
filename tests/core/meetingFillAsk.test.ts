@@ -422,7 +422,7 @@ describe.each(["en", "zh-CN"] as const)(
       }
     });
 
-    // protects=a fact whose sentence holds two markers side by side is kept when the ask gives the sentence one record (the second marker takes it too) and when it gives one for each marker, each with its own quote, and the ask's reply has room for an item for each marker (#3145); fails_when=the fact is left out for its second marker, the second record's quote is lost, or the reply's limit counts sentences only; no_claim=markers apart in a sentence, which share nothing.
+    // protects=a fact whose sentence holds two markers side by side is kept when the ask gives the sentence one record, and then shows that one Citation once, and when it gives one for each marker, each with its own quote; the ask's reply has room for an item for each marker (#3145); fails_when=the fact is left out for its second marker, the one Citation shows twice, the second record's quote is lost, or the reply's limit counts sentences only; no_claim=markers apart in a sentence, which share nothing.
     test.each([
       ["one record", false],
       ["a record for each", true],
@@ -455,7 +455,7 @@ describe.each(["en", "zh-CN"] as const)(
         expect(citationsBeside(client, words.action)).toEqual([
           [
             { check: "found", quote: words.action },
-            { check: "found", quote: each ? words.closing : words.action },
+            ...(each ? [{ check: "found", quote: words.closing }] : []),
           ],
         ]);
       } finally {
