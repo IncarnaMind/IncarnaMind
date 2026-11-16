@@ -10,14 +10,12 @@
  */
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { type LanguageModelMiddleware, wrapLanguageModel } from "ai";
 import { test } from "vitest";
 import { EARLIER_CALL_CASES } from "./callHelpEarlierCalls";
 import { judge } from "./earlierCalls";
 import { citedOfPlaces, earlierStartedOf, rejudgeCounts } from "./earlierCallsReport";
-import { judgeOf } from "./judge";
-import { openLedger } from "./ledger";
 import type { PairedRow } from "./pairedReport";
+import { openRejudge } from "./rejudge";
 import { env } from "./settings";
 
 const ROOT = resolve(__dirname, "../..");
@@ -45,34 +43,11 @@ test.skipIf(env("REJUDGE") === null)(
     const path = env("REJUDGE") ?? "";
     const read: { rows: PairedRow[] } = JSON.parse(await readFile(path, "utf8"));
     const rows = read.rows.filter((row) => row.set === "call-help-earlier-calls");
-    const stopUsd = Number(env("STOP_USD") ?? "1.50");
-    const startedAt = new Date().toISOString();
-    const judged = judgeOf([]);
-    if (!judged.priced) {
-      throw new Error(
-        `The judge ${judged.name} has no price in the catalog, so the stop of $${stopUsd} can't be kept: nothing was sent.`,
-      );
-    }
-    const ledger = await openLedger(env("LEDGER"), `${startedAt} re-judge of ${path}`);
-    let attempts = 0;
-    const refused: string[] = [];
+    const rejudge = await openRejudge(`re-judge of ${path}`, 1.5);
+    const { startedAt, stopUsd, model, refused, atStop } = rejudge;
     let unread = 0;
     let skipped = 0;
     let controlsFailed = 0;
-    const atStop = () => ledger.before + judged.spent() >= stopUsd;
-    const counting: LanguageModelMiddleware = {
-      specificationVersion: "v4",
-      wrapGenerate: async ({ doGenerate }) => {
-        attempts++;
-        try {
-          return await doGenerate();
-        } catch (error) {
-          refused.push(error instanceof Error ? error.message.slice(0, 120) : String(error));
-          throw error;
-        }
-      },
-    };
-    const model = wrapLanguageModel({ model: judged.model, middleware: counting });
     const lines: string[] = [];
     const results: unknown[] = [];
     let number = 0;
@@ -141,7 +116,8 @@ test.skipIf(env("REJUDGE") === null)(
         lines.push(`#${number} ${positive.id}: the judge failed`);
       }
     }
-    await ledger.record(judged.spent());
+    await rejudge.record();
+    const attempts = rejudge.attempts();
     const out = join(
       ROOT,
       "eval",
@@ -154,7 +130,7 @@ test.skipIf(env("REJUDGE") === null)(
     const summary = [
       `# The earlier-call set's replies judged again`,
       "",
-      `${startedAt} · ${path} · judge ${judged.name}. ${number} replies; ${attempts} judge requests, ${refused.length} refused or failed${refused.length ? ` (${refused.join("; ")})` : ""}; ${unread} readings unread; ${skipped} not judged at the stop; ${controlsFailed} positives counted: the re-judging ${counts ? "counts" : "is void"}. Changed: ${changed}. Spent $${judged.spent().toFixed(3)}; with the runs before it $${(ledger.before + judged.spent()).toFixed(3)} of $${stopUsd}.`,
+      `${startedAt} · ${path} · judge ${rejudge.name}. ${number} replies; ${attempts} judge requests, ${refused.length} refused or failed${refused.length ? ` (${refused.join("; ")})` : ""}; ${unread} readings unread; ${skipped} not judged at the stop; ${controlsFailed} positives counted: the re-judging ${counts ? "counts" : "is void"}. Changed: ${changed}. Spent $${rejudge.spent().toFixed(3)}; with the runs before it $${rejudge.spentInAll().toFixed(3)} of $${stopUsd}.`,
       "",
       ...lines,
     ].join("\n");
