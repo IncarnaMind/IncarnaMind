@@ -76,6 +76,32 @@ describe("Reading the words an Answer puts in quotation marks", () => {
     ]);
   });
 
+  // protects=a quote that opens a sentence after emphasis or a bracketed Citation of the sentence before keeps no Citation of that sentence, as after a bare marker; fails_when=the emphasis or the bracket joins the sentences, so the quote is checked against a Citation that is not its own (#2504); no_claim=the shared splitter's other cuts
+  test.each([
+    ["emphasis", "The fee rose.**[^1]** “the fee covers a third of the cost” in 2026."],
+    ["a bracketed Citation", "The fee rose. ([^1]) “the fee covers a third of the cost” in 2026."],
+    ["a bare Citation", "The fee rose.[^1] “the fee covers a third of the cost” in 2026."],
+  ])(
+    "a quote that opens a sentence after %s has none of the sentence before's Citations",
+    (_kind, text) => {
+      expect(quotedWordsIn(text)).toEqual([]);
+    },
+  );
+
+  test("after emphasis or a bracketed Citation, the quote keeps its own Citation", () => {
+    expect(
+      quotedWordsIn("The fee rose.**[^1]** “the fee covers a third of the cost” [^2]."),
+    ).toEqual([{ words: "the fee covers a third of the cost", markers: [2] }]);
+    expect(
+      quotedWordsIn("The fee rose. ([^1]) “the fee covers a third of the cost” ([^2])."),
+    ).toEqual([{ words: "the fee covers a third of the cost", markers: [2] }]);
+  });
+
+  test("in Chinese, a quote after a full-width bracketed Citation has none of the sentence before's", () => {
+    expect(quotedWordsIn("费用上涨了。（[^1]）“费用占成本的三分之一”达到了新高。")).toEqual([]);
+    expect(quotedWordsIn("费用上涨了。[^1]“费用占成本的三分之一”达到了新高。")).toEqual([]);
+  });
+
   test("a sentence with no Citation is left alone", () => {
     expect(quotedWordsIn("It says “training coverage reached 98%”. Other things [^1].")).toEqual(
       [],
@@ -293,6 +319,63 @@ describe.each(["en", "zh"] as const)("Quoted words in an Answer's sentence (%s)"
     const citations = citationsIn(client, answerId);
     expect(citations).toHaveLength(1);
     expect(citations[0]).toMatchObject({ check: "found", checkReason: null });
+  });
+});
+
+/** Words in a shell command: the page's backticks run a command, and single quotation marks don't (#2504). */
+const SHELL = {
+  en: {
+    name: "Shell manual.md",
+    contents: "# Shell manual\n\nRun `date` to print the day of the week.\n",
+    quote: "to print the day of the week",
+    query: "print the day",
+    question: "How do I print the day?",
+    controlContents: "# Shell manual\n\nRun ‘date’ to print the day of the week.\n",
+    single: "The manual says “run ‘date’ to print the day of the week” [^1].",
+  },
+  zh: {
+    name: "命令手册.md",
+    contents: "# 命令手册\n\n运行 `date` 打印今天的日期和星期。\n",
+    quote: "打印今天的日期和星期",
+    query: "打印日期",
+    question: "怎么打印日期？",
+    controlContents: "# 命令手册\n\n运行 ‘date’ 打印今天的日期和星期。\n",
+    single: "手册写道“运行 ‘date’ 打印今天的日期和星期”[^1]。",
+  },
+} as const;
+
+describe.each(["en", "zh"] as const)("A backtick in quoted words (%s)", (language) => {
+  const manual = SHELL[language];
+  const checkOf = async (answer: string, contents: string = manual.contents) => {
+    const model = citingModel({
+      query: manual.query,
+      records: (passages: ShownPassage[]) => [
+        { marker: 1, passage: passages[0]?.id, quote: manual.quote },
+      ],
+      answer,
+    });
+    const { core, client, mind } = await setUpWithDocuments(model, [
+      { name: manual.name, contents },
+    ]);
+    const { answerId } = await askAndFinish(core, client, mind.id, manual.question);
+    const { check, checkReason } = onlyCitation(client, answerId);
+    core.close();
+    return { check, checkReason };
+  };
+
+  // protects=words that write a command substitution in single quotation marks are not the page's backticks, so their Citation is not found; fails_when=the finder reads a backtick as an apostrophe, and the Citation shows found over words the page does not hold (#2504); no_claim=a real model's choice of marks
+  test("single quotation marks for the page's backticks are not found", async () => {
+    expect(await checkOf(manual.single)).toEqual({
+      check: "not-found",
+      checkReason: "quoted-words-not-on-pages",
+    });
+  });
+
+  test("single quotation marks for the page's own single quotation marks are found", async () => {
+    expect(await checkOf(manual.single, manual.controlContents)).toEqual({
+      check: "found",
+      checkReason: null,
+    });
   });
 });
 
