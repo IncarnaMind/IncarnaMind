@@ -2,6 +2,7 @@ import {
   CLAIM_CHECK_INSTRUCTIONS,
   REQUEST_DONE_INSTRUCTIONS,
 } from "../../core/answers/claimedChanges";
+import { LISTED_PROJECTS, LISTS_PROJECTS } from "./answers";
 import { type GenerateOptions, lastUserText, systemOf } from "./prompt";
 
 /** Finding the claims of a verified document (#97) or of the User's own draft (#737), src/core/answers/checks/claims.ts. */
@@ -45,6 +46,20 @@ export function fakeClaims(
     const { number, text } = sentence;
     if (/[?？]$|thank|谢/i.test(text)) {
       sentences.push({ number, parts: [] });
+      continue;
+    }
+    // A sentence that lists projects is one part for each it names (#2809).
+    const projects = LISTS_PROJECTS.test(text)
+      ? Object.values(LISTED_PROJECTS)
+          .flatMap(({ held, absent }) => [...held, absent])
+          .filter((project) => text.includes(project))
+          .sort((a, b) => text.indexOf(a) - text.indexOf(b))
+      : [];
+    if (projects.length > 0) {
+      sentences.push({
+        number,
+        parts: projects.map((project) => ({ kind: "fact" as const, text: project })),
+      });
       continue;
     }
     const kind = /\b(?:we|I) (?:think|believe)\b|我们认为|我认为/i.test(text) ? "opinion" : "fact";

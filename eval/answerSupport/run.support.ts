@@ -20,6 +20,7 @@ import type {
   Document,
 } from "../../src/core";
 import { isSentenceBatch } from "../../src/core/answers/checks/sentenceBatch";
+import { questionOf } from "../../src/core/answers/judge";
 import { findQuote } from "../../src/shared/quoteMatch";
 import { shownPassages } from "../../tests/helpers/citations";
 import { type ModelCall, type ScriptedReply, scriptedModel } from "../../tests/helpers/models";
@@ -32,6 +33,7 @@ import { openLibrary } from "../lib/library";
 import { createLog, type Log } from "../lib/log";
 import { type RequestWatch, watchRequests } from "../repeats/requests";
 import { CASES, DOCUMENTS } from "./cases";
+import { LIST_CASES, LIST_DOCUMENTS } from "./lists";
 
 const ROOT = resolve(__dirname, "../..");
 const DATED =
@@ -55,6 +57,13 @@ interface Row {
   requests: number;
   inputTokens: number;
   outputTokens: number;
+  /** As an Answer judges it: what its Citations alone read, before any look in the Answer's scope (#3020). */
+  citedOnly?: ClaimCheckResult["verdict"];
+  /** The requests that look made, beside the batches; and the Citations it added. */
+  lookRequests?: number;
+  foundCitations?: number;
+  /** The parts that look found in no Document, in the sentence's own words (#2809). */
+  missing?: string[];
 }
 
 const spentOf = async (core: Core) =>
@@ -212,46 +221,68 @@ function answerTurn(call: ModelCall, script: AnswerScript): ScriptedReply {
   };
 }
 
+type Prompt = Parameters<LanguageModelV4["doGenerate"]>[0]["prompt"];
+
+const judgesABatch = (prompt: Prompt) =>
+  prompt.some((message) => message.role === "system" && isSentenceBatch(message.content));
+
+/** A check Run's request, by its instructions (src/core/answers/checks/prompt.ts). */
+const checksASentence = (prompt: Prompt) =>
+  prompt.some(
+    (message) => message.role === "system" && message.content.startsWith("You check one sentence"),
+  );
+
 /**
  * A model whose Answers are scripted and whose judgement of their sentences is the real model's
- * (#2311): what is measured is the app's own judgement, batches, limit and meter included.
+ * (#2311): what is measured is the app's own judgement, batches, limit and meter included. The
+ * look in the Answer's scope (#3020) is part of that judgement: its check Runs and every
+ * question a judgement asks go to the real model too.
  */
 function judgingModel(real: LanguageModelV4, script: AnswerScript): LanguageModelV4 {
   const scripted = scriptedModel((call) => answerTurn(call, script));
-  const judges = (prompt: Parameters<LanguageModelV4["doGenerate"]>[0]["prompt"]) =>
-    prompt.some((message) => message.role === "system" && isSentenceBatch(message.content));
   return {
     specificationVersion: real.specificationVersion,
     provider: real.provider,
     modelId: real.modelId,
     supportedUrls: real.supportedUrls,
-    doGenerate: (options) => (judges(options.prompt) ? real : scripted).doGenerate(options),
-    doStream: (options) => scripted.doStream(options),
+    doGenerate: (options) =>
+      (judgesABatch(options.prompt) || questionOf(options) !== undefined
+        ? real
+        : scripted
+      ).doGenerate(options),
+    doStream: (options) => (checksASentence(options.prompt) ? real : scripted).doStream(options),
   };
 }
 
-/** Each batch request of the judgement: its tokens, as the provider reported them. */
+/**
+ * Each batch request of the judgement, with its tokens as the provider reported them, and a
+ * count of the other requests a judgement made: its looks' check Runs and questions.
+ */
 function watchBatches() {
   const batches: { inputTokens: number; outputTokens: number }[] = [];
+  const looks = { requests: 0 };
   const middleware: LanguageModelMiddleware = {
     specificationVersion: "v4",
     wrapGenerate: async ({ doGenerate, params }) => {
       const result = await doGenerate();
-      if (
-        params.prompt.some(
-          (message) => message.role === "system" && isSentenceBatch(message.content),
-        )
-      ) {
+      if (judgesABatch(params.prompt)) {
         batches.push({
           inputTokens: result.usage.inputTokens.total ?? 0,
           outputTokens: result.usage.outputTokens.total ?? 0,
         });
+      } else if (questionOf(params) !== undefined) {
+        looks.requests++;
       }
       return result;
+    },
+    wrapStream: ({ doStream, params }) => {
+      if (checksASentence(params.prompt)) looks.requests++;
+      return doStream();
     },
   };
   return {
     batches,
+    looks,
     chatModels:
       (inner: ChatModelFactory): ChatModelFactory =>
       (spec) =>
@@ -278,7 +309,9 @@ async function judgeInAnswers(
   log: Log,
   skipped: { id: string; why: string }[],
   script: AnswerScript,
-  batches: { inputTokens: number; outputTokens: number }[],
+  { batches, looks }: Pick<ReturnType<typeof watchBatches>, "batches" | "looks">,
+  /** The most sentences in one Answer: three or fewer, and each Unsupported one gets its look. */
+  perAnswer = SENTENCES_PER_ANSWER,
 ): Promise<Row[]> {
   const cited: { item: (typeof items)[number]; quote: CitedQuote }[] = [];
   for (const item of items) {
@@ -294,8 +327,8 @@ async function judgeInAnswers(
     byDocument.set(key, [...(byDocument.get(key) ?? []), each]);
   }
   const answers = [...byDocument.values()].flatMap((group) =>
-    Array.from({ length: Math.ceil(group.length / SENTENCES_PER_ANSWER) }, (_, index) =>
-      group.slice(index * SENTENCES_PER_ANSWER, (index + 1) * SENTENCES_PER_ANSWER),
+    Array.from({ length: Math.ceil(group.length / perAnswer) }, (_, index) =>
+      group.slice(index * perAnswer, (index + 1) * perAnswer),
     ),
   );
   const rows: Row[] = [];
@@ -310,6 +343,7 @@ async function judgeInAnswers(
     }));
     const before = await spentOf(core);
     const requestsBefore = batches.length;
+    const lookedBefore = looks.requests;
     const started = Date.now();
     const asked = await core.askInConversation({ text: "What do my Documents say?", model });
     if (!asked.asked) throw new Error(`Not asked: ${JSON.stringify(asked)}`);
@@ -332,6 +366,7 @@ async function judgeInAnswers(
     const dollars = (await spentOf(core)) - before;
     spend.total += dollars;
     const used = batches.slice(requestsBefore);
+    const lookRequests = looks.requests - lookedBefore;
     const share = (total: number) => total / answer.length;
     answer.forEach(({ item }, index) => {
       const citation = judged.citations.find((each) => each.marker === index + 1);
@@ -357,8 +392,17 @@ async function judgeInAnswers(
         requests: share(used.length),
         inputTokens: share(used.reduce((total, each) => total + each.inputTokens, 0)),
         outputTokens: share(used.reduce((total, each) => total + each.outputTokens, 0)),
+        // A look is only ever taken by a sentence its Citations left Unsupported.
+        citedOnly: citation.searchedScope ? "unsupported" : verdict,
+        lookRequests: share(lookRequests),
+        foundCitations: judged.citations.filter(
+          (each) => each.foundByCheck && each.passedAt?.includes(index),
+        ).length,
+        ...(citation.unstated && { missing: citation.unstated.missing }),
       });
-      log(`  ${item.id}: ${verdict}${item.supported === (verdict === "supported") ? "" : " ✗"}`);
+      log(
+        `  ${item.id}: ${citation.searchedScope ? "unsupported, then " : ""}${verdict}${item.supported === (verdict === "supported") ? "" : " ✗"}`,
+      );
     });
   }
   return rows;
@@ -407,6 +451,7 @@ test("Answer sentences against the quotes they cite", async () => {
     documents: { key: string; path: string }[],
     webPages: { key: string; address: string; html: string }[],
     items: (documents: Iterable<Document>, core: Core) => Parameters<typeof checkEach>[1],
+    perAnswer = SENTENCES_PER_ANSWER,
   ) => {
     const watch = watchRequests([]);
     const script: AnswerScript = { sentences: [] };
@@ -450,7 +495,8 @@ test("Answer sentences against the quotes they cite", async () => {
               log,
               skipped,
               script,
-              batchWatch.batches,
+              batchWatch,
+              perAnswer,
             )
           : await checkEach(core, wanted, model, spend, log, skipped, watch)),
       );
@@ -479,6 +525,24 @@ test("Answer sentences against the quotes they cite", async () => {
     } finally {
       await rm(folder, { recursive: true, force: true });
     }
+  }
+
+  if (sets.includes("lists")) {
+    const fixtures = join(ROOT, "tests/fixtures/answers/resume");
+    await run(
+      "lists",
+      LIST_DOCUMENTS.map((name) => ({ key: name, path: join(fixtures, name) })),
+      [],
+      (added, core) => {
+        const all = [...added];
+        return LIST_CASES.map((each) => ({
+          ...each,
+          cited: () => citedQuote(core, all, each.document, each.quote),
+        }));
+      },
+      // One sentence an Answer, as the reported Answer was: each takes its look.
+      1,
+    );
   }
 
   if (sets.includes("supported")) {

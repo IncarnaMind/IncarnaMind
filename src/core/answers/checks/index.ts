@@ -130,6 +130,7 @@ import type { RepliesOut } from "../../runs/replies";
 import { parseSearchScope } from "../../scope";
 import type { AnswerEngine } from "../engine";
 import { type AnswerCheckInput, createAnswerCheck } from "./answerCheck";
+import { lookResult } from "./answerLook";
 import { figureContextIn } from "./calculationLedger";
 import { checkRunStart } from "./checkRun";
 import {
@@ -1849,6 +1850,23 @@ export function createChecks(options: ChecksOptions) {
     },
     spent: (runId, currency) => options.readSpent(runId, currency).amount,
     capLeft: () => options.capLeft(),
+    look: async ({ sentence, context, citations, cited, scope, mindId, model, signal }) => {
+      const outcome = await runCheck(
+        claimCheck,
+        {
+          claim: sentence,
+          context,
+          cited,
+          scope,
+          model,
+          ...(mindId && { cacheKey: mindId }),
+          opinionsLeftOut: true,
+          signal,
+        },
+        checkRunOf(options, model, signal, null),
+      );
+      return "result" in outcome ? lookResult(outcome.result, sentence, citations) : null;
+    },
   });
 
   const wholeRead = createWholeRead({

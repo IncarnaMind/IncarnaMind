@@ -21,7 +21,11 @@ import type {
   Money,
   ProviderError,
 } from "../../api";
-import type { EstimatedRead, EstimatedRequest } from "../../cost/meter";
+import {
+  CHECKED_SENTENCE_REQUESTS,
+  type EstimatedRead,
+  type EstimatedRequest,
+} from "../../cost/meter";
 import { inCurrency, promptTokensOf } from "../../cost/price";
 import type { EvidenceScope } from "../../documents/evidence";
 import type { Language } from "../../language";
@@ -32,6 +36,7 @@ import { inStep } from "../../timing/flows";
 import { estimateTokens } from "../context";
 import { answerTemperature } from "../engine";
 import { judge, lines } from "../judge";
+import { type FoundPassage, LOOKS_AN_ANSWER, type LookResult } from "./answerLook";
 import { figureReadings, needsCalculation } from "./calculationGate";
 import type { CheckedCitation } from "./claimCheck";
 import { claimsAtOnce } from "./runChecks";
@@ -55,6 +60,27 @@ export interface SupportResult {
   check: "found" | "unsupported" | "contradicted";
   /** For unsupported or contradicted: what the Documents say, in one plain sentence. */
   verdict: string | null;
+  /** From a look in the Answer's scope (./answerLook): what the Documents state of it and what they don't. */
+  unsupported?: LookResult["unsupported"];
+  /** From that look, on a sentence's own result: the Passages it found for parts no Citation of it holds. */
+  found?: readonly FoundPassage[];
+  /** That look gave this result: the sentence was checked in the Answer's whole scope. */
+  looked?: true;
+}
+
+/** A sentence its batch read Unsupported, for the look in the Answer's scope. */
+export interface AnswerLookInput {
+  sentence: string;
+  /** Its paragraph, list item or table row. */
+  context: string;
+  /** Its Citations whose quotes were found. */
+  citations: readonly MarkedCitation[];
+  cited: readonly CheckedCitation[];
+  scope: EvidenceScope;
+  mindId: string | null;
+  documentIds: readonly string[] | null;
+  model: PreparedChatModel;
+  signal: AbortSignal;
 }
 
 /**
@@ -132,6 +158,11 @@ export interface AnswerCheckOptions {
   spent(runId: string, currency: Currency): number;
   /** What the monthly cap leaves, counting what open requests may cost; null with no cap. */
   capLeft(): Money | null;
+  /**
+   * The look in the Answer's scope for a sentence its batch read Unsupported (./answerLook); null
+   * when it gave no verdict. Its requests count toward the judgement's limit as the batches' do.
+   */
+  look?(input: AnswerLookInput): Promise<LookResult | null>;
 }
 
 /** The sentences that hold a waiting Citation, each with its Citations whose quotes were found. */
@@ -314,14 +345,17 @@ export function createAnswerCheck(options: AnswerCheckOptions) {
 
   /**
    * The requests judging would send, a batch each: about what each writes, and the most it may on
-   * a model of `own` room.
+   * a model of `own` room. The most counts the looks in the Answer's scope too (./answerLook), as
+   * if every sentence that may take one were read Unsupported; likely, none is.
    */
   function requests(
     input: Omit<AnswerCheckInput, "model" | "signal">,
     own: OwnRoom,
   ): EstimatedRead | null {
-    const batches = batchesOf(asked(input).filter((sentence) => sentence.passages.length > 0));
+    const sent = asked(input).filter((sentence) => sentence.passages.length > 0);
+    const batches = batchesOf(sent);
     if (batches.length === 0) return null;
+    const looks = options.look ? Math.min(LOOKS_AN_ANSWER, sent.length) : 0;
     const instructions = sentenceBatchInstructions(options.language());
     const inputTokens = (batch: BatchSentence[]) =>
       estimateTokens(instructions) + estimateTokens(batchPrompt(batch));
@@ -330,7 +364,10 @@ export function createAnswerCheck(options: AnswerCheckOptions) {
         inputTokens: inputTokens(batch),
         outputTokens: LIKELY_OUTPUT_TOKENS * batch.length,
       })),
-      most: batches.map((batch) => mostRequest(batch, instructions, batchRoom(batch.length, own))),
+      most: [
+        ...batches.map((batch) => mostRequest(batch, instructions, batchRoom(batch.length, own))),
+        ...Array.from({ length: looks }, () => CHECKED_SENTENCE_REQUESTS).flat(),
+      ],
     };
   }
 
@@ -597,8 +634,65 @@ export function createAnswerCheck(options: AnswerCheckOptions) {
       }
       for (const [index, sentence] of batch.entries()) {
         const verdict = reply.get(index + 1);
-        settle(sentence, await supportOf(sentence, verdict, options), null, verdict !== undefined);
+        const support = await supportOf(sentence, verdict, options);
+        if (support?.check === "unsupported" && options.look)
+          unsupported.push({ sentence, support });
+        else settle(sentence, support, null, verdict !== undefined);
       }
+    };
+
+    /** The sentences their batches read Unsupported: none settles before the look has its turn. */
+    const unsupported: { sentence: (typeof judged)[number]; support: SupportResult }[] = [];
+    /**
+     * The first of them in the Answer's order are looked for in its scope, and take the look's
+     * verdict; the rest, and any the look gave none for (stopped, failed, or past the judgement's
+     * limit), read as their batches read them.
+     */
+    const lookInScope = async () => {
+      const { look } = options;
+      const inOrder = [...unsupported].sort(
+        (a, b) => judged.indexOf(a.sentence) - judged.indexOf(b.sentence),
+      );
+      await Promise.all(
+        inOrder.map(async ({ sentence, support }, index) => {
+          let result = support;
+          if (look && index < LOOKS_AN_ANSWER && !stopped && !input.signal.aborted) {
+            try {
+              const looked = await look({
+                sentence: sentence.sentence,
+                context: sentence.context,
+                citations: sentence.found,
+                cited: sentence.quotes,
+                scope,
+                mindId: input.mindId,
+                documentIds: input.documentIds,
+                model: prepared,
+                signal: input.signal,
+              });
+              if (looked) {
+                result = {
+                  check: looked.check,
+                  // Still Unsupported, it keeps the line its batch or a rule gave it.
+                  verdict:
+                    looked.check === "unsupported"
+                      ? (support.verdict ?? looked.verdict)
+                      : looked.verdict,
+                  ...(looked.unsupported && { unsupported: looked.unsupported }),
+                  ...(looked.check === "found" &&
+                    looked.found.length > 0 && { found: looked.found }),
+                  looked: true,
+                };
+              }
+            } catch (error) {
+              console.warn(
+                "An Answer's sentence couldn't be looked for in its scope, so it reads as its Citations left it:",
+                error,
+              );
+            }
+          }
+          settle(sentence, result, null, true);
+        }),
+      );
     };
 
     // In order, a few at a time: a limit met at one batch leaves the ones after it.
@@ -614,6 +708,7 @@ export function createAnswerCheck(options: AnswerCheckOptions) {
       },
     );
     await Promise.all(workers);
+    await lookInScope();
     return results;
   }
 

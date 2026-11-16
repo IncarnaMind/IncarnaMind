@@ -10,13 +10,15 @@ import { MoreQuotes } from "./QuoteLink";
 
 /**
  * What a cited sentence's Unsupported card says in place of where the check
- * looked: what its Citations support and what they don't, or
- * the reason the check gave, or that it gave none; then the first Citation's quote,
- * which opens at its place, and a count that opens the others (#2869).
+ * looked: the parts the Documents don't mention, or what its Citations support and what they
+ * don't, or the reason the check gave, or that it gave none; then, unless it named the missing
+ * parts, the first Citation's quote, which opens at its place, and a count that opens the
+ * others (#2869).
  */
 export function UnsupportedCited({
   cited,
   why,
+  searched = false,
   allCited,
   onMore,
   onCheckAgain,
@@ -24,6 +26,8 @@ export function UnsupportedCited({
 }: {
   cited: readonly NumberedCitation[];
   why: UnsupportedReason | null;
+  /** The check searched the Documents of its scope, not only these Citations (#2809). */
+  searched?: boolean;
   /** Every Citation's quote shows, not only the first. */
   allCited: boolean;
   onMore(): void;
@@ -32,12 +36,27 @@ export function UnsupportedCited({
 }) {
   const t = useT();
   const shown = allCited ? cited : cited.slice(0, 1);
+  // The Documents don't mention parts of it (#2809): the sentence's own words say which, and no
+  // Citation's quote is the reason.
+  if (why?.missing && why.missing.length > 0) {
+    return (
+      <p data-testid="claim-dont-mention" className="claim-card-says">
+        {t("claim.unsupported.dontMention", {
+          parts: why.missing.join(t("claim.unsupported.dontMention.separator")),
+        })}
+      </p>
+    );
+  }
   return (
     <>
       {why?.covered && why.uncovered ? (
         <p data-testid="claim-covers" className="claim-card-says">
           {t(
-            cited.length === 1 ? "claim.unsupported.covers.one" : "claim.unsupported.covers.other",
+            searched
+              ? "claim.unsupported.documentsCover"
+              : cited.length === 1
+                ? "claim.unsupported.covers.one"
+                : "claim.unsupported.covers.other",
             {
               covered: why.covered,
               uncovered: why.uncovered,
