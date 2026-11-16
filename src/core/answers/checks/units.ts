@@ -1617,7 +1617,12 @@ export function unitNotStated(
         };
       continue;
     }
-    if (same.some(({ unit }) => unit.kind !== "plain")) continue;
+    // The value in another form that states money, or in a form that isn't the plain one, is the
+    // Document's own say. The value also written plainly beside a unit that is no money ("54,000"
+    // and "54,000 t") states no currency, so a sentence's "$" has nowhere to come from (#2251).
+    const plainToo = same.some(({ unit }) => unit.kind === "plain");
+    const money = same.some(({ unit }) => unit.kind === "currency");
+    if (same.some(({ unit }) => unit.kind !== "plain") && (!plainToo || money)) continue;
     const codes = new Set([...currenciesOf(figure), ...currenciesOfSign(figure)]);
     if (codes.size === 0) continue;
     if (read.some((each) => plainSays(figure, each, codes) === "agrees")) continue;

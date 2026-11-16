@@ -88,6 +88,70 @@ describe("An amount in another currency (#1452)", () => {
   });
 });
 
+describe("A value the Document gives plainly and with a unit hides no currency (#2251)", () => {
+  // protects=a sentence's currency for a value the Document gives both plainly and with a unit that is no money ("54,000" and "54,000 t") is found, as for a value it gives only plainly; fails_when=the plain reading is skipped because another reading has a unit, and the check says nothing of a "$" the Document never states; no_claim=which dollar a bare sign is
+  test.each([
+    ["The fee was $54,000 for 54,000 tonnes.", "The fee was 54,000 and the mass was 54,000 t."],
+    ["费用为54,000美元，产量为54,000吨。", "费用为54,000，产量为54,000吨。"],
+    ["The levy was £8,200 for 8,200 kg.", "The levy was 8,200 and the cargo was 8,200 kg."],
+    ["税款为8,200英镑，货物重8,200千克。", "税款为8,200，货物重8,200千克。"],
+    [
+      "Revenue was €1,500 and the staff numbered 1,500.",
+      "Revenue was 1,500 and the staff numbered 1,500 people.",
+    ],
+  ])("%s against %j reports its currency as not stated", (claim, cited) => {
+    expect(unitNotStated(claim, read(cited))).toMatchObject({ kind: "currency" });
+  });
+
+  // protects=the bare claim check, through the core, doesn't call a sentence Supported for a "$" its Document never states, though the model does (DeepSeek V4.1 Flash did in 3 of 3 rounds); fails_when=a model's Supported stands over the invented currency; no_claim=how often a model writes it
+  test.each([
+    {
+      language: "en" as const,
+      claim: "The fee was $54,000 for 54,000 tonnes.",
+      document: "The fee was 54,000 and the mass was 54,000 t.",
+      quote: "The fee was 54,000 and the mass was 54,000 t",
+    },
+    {
+      language: "zh-CN" as const,
+      claim: "费用为54,000美元，产量为54,000吨。",
+      document: "费用为54,000，产量为54,000吨。",
+      quote: "费用为54,000，产量为54,000吨",
+    },
+  ])("through the core, in $language, a model's Supported doesn't stand", async (each) => {
+    const { core } = await setUpWithDocuments(
+      checkingModel({
+        [each.claim]: { verdict: "supported", quote: each.quote, says: each.quote },
+      }),
+      [{ name: "Report.txt", contents: `Report\n${each.document}\n` }],
+    );
+    await core.updateSettings({ user: { language: each.language } });
+
+    const result = await core.checkClaim({ claim: each.claim });
+    core.close();
+
+    expect(result.verdict).toBe("unsupported");
+  });
+
+  // protects=a Document that states the currency, in either form beside the other unit, still passes, so a right sentence keeps its ✓ (#2251); fails_when=the guard's repair turns a stated currency into a finding
+  test.each([
+    ["The fee was $54,000 for 54,000 tonnes.", "The fee was $54,000 and the mass was 54,000 t."],
+    [
+      "The fee was $54,000 for 54,000 tonnes.",
+      "The fee was 54,000 US dollars and the mass was 54,000 t.",
+    ],
+    ["费用为54,000美元，产量为54,000吨。", "费用为54,000美元，产量为54,000吨。"],
+    ["费用为54,000美元，产量为54,000吨。", "费用为54,000，产量为54,000吨。单位：美元"],
+    ["The levy was £8,200 for 8,200 kg.", "The levy was £8,200 and the cargo was 8,200 kg."],
+    ["税款为8,200英镑，货物重8,200千克。", "税款为8,200英镑，货物重8,200千克。"],
+    [
+      "Revenue was €1,500 and the staff numbered 1,500.",
+      "Revenue was €1,500 and the staff numbered 1,500.",
+    ],
+  ])("%s against %j isn't flagged", (claim, cited) => {
+    expect(unitNotStated(claim, read(cited))).toBeNull();
+  });
+});
+
 describe("A bare $, and ¥ in Chinese text (#2226)", () => {
   const LEASE_FACTS =
     "This lease is governed by the laws of New South Wales, Australia.\nThe premises are at 12 George Street, Sydney NSW 2000.\n";
