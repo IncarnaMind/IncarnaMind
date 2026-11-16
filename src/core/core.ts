@@ -2983,6 +2983,20 @@ export function createCore(adapters: CoreAdapters): Core {
 
   const checks = createChecks({
     repliesOut,
+    // The call a Transcript's Passage is from, for an Answer asked in a Note that holds a call (#3005).
+    callMark: (callIn, documentId) => {
+      const own = callIn === null ? null : noteCallOf(callIn);
+      const call = own ? callOfTranscript(db, documentId) : null;
+      return call && own
+        ? {
+            thisCall: own.transcript === documentId,
+            note:
+              minds.locate(call.mindId)?.name ||
+              translate(settings.get().language, "mind.untitled"),
+            startedAt: call.startedAt,
+          }
+        : null;
+    },
     closed: lifetime.signal,
     language: () => settings.get().language,
     warmReranker: () => rerank.warm(),

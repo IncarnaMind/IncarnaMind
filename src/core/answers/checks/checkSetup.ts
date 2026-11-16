@@ -29,8 +29,15 @@ import { CHECK_TAGS } from "./prompt";
 export const NO_DATE = (): null => null;
 
 /** Passages as every check shows them, and so counts them: with its prompt's tags defused (#2423). */
-export const checkSession = (documents: Parameters<typeof createCitationSession>[0]) =>
-  createCitationSession(documents, { onRecord: () => undefined, defuses: CHECK_TAGS });
+export const checkSession = (
+  documents: Parameters<typeof createCitationSession>[0],
+  thisCall?: (documentId: string) => boolean | undefined,
+) =>
+  createCitationSession(documents, {
+    onRecord: () => undefined,
+    defuses: CHECK_TAGS,
+    ...(thisCall && { thisCall }),
+  });
 
 export function citedSources(
   cited: readonly CheckedCitation[],
@@ -160,10 +167,13 @@ export function withoutDocumentLeftOut(
 }
 
 export function setUpRun(
-  deps: Pick<ClaimCheckDependencies, "documents" | "evidence" | "fileProperties" | "libraryFacts">,
+  deps: Pick<
+    ClaimCheckDependencies,
+    "documents" | "evidence" | "fileProperties" | "libraryFacts" | "callMark"
+  >,
   request: Pick<
     ClaimCheckRequest,
-    "claim" | "originalClaim" | "cited" | "scope" | "window" | "about"
+    "claim" | "originalClaim" | "cited" | "scope" | "window" | "about" | "callIn"
   >,
   results: Pick<CheckResults, "readVersion" | "leftOut">,
 ) {
@@ -212,8 +222,17 @@ export function setUpRun(
       deps.documents.pageTexts(documentId, contentHash, from, to),
     documentDate: NO_DATE,
     passagesBetween: (documentId, from, to) => deps.documents.passagesBetween(documentId, from, to),
+    // A Transcript's Passage is marked as this call's or an earlier one's, for an Answer asked in a call.
+    callOf: (documentId) => {
+      const call = deps.callMark?.(request.callIn ?? null, documentId);
+      return call ? { note: call.note, startedAt: call.startedAt } : null;
+    },
   };
-  const session = checkSession(scoped);
+  const session = checkSession(scoped, (documentId) =>
+    request.callIn === undefined
+      ? undefined
+      : deps.callMark?.(request.callIn, documentId)?.thisCall,
+  );
   // The words a Citation quotes don't say where they stand: a sheet row's year is in its
   // sheet's name and heading row, which the check reads only in the Passage itself (#1459).
   const citedPassages = citedSources(request.cited ?? [], scope, deps.documents);

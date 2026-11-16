@@ -68,6 +68,7 @@ import { type FilePropertySearch, withFileProperties } from "./fileProperties";
 import { type LibraryFactSearch, type LibraryListing, withLibraryFacts } from "./libraryFacts";
 import { lookForPresence } from "./looks";
 import { plainVerdict } from "./plainVerdict";
+import type { BatchCall } from "./sentenceBatch";
 import { checkedTextOf, unitGate } from "./unitGate";
 import { dollarClause } from "./units";
 
@@ -102,6 +103,8 @@ export interface ClaimCheckDependencies {
   libraryListing?(mindId: string | null, searched: SearchScope | null): LibraryListing;
   /** The Run's searches may show the Library's own facts (./libraryFacts). */
   libraryFacts?: LibraryFactSearch;
+  /** The call a Transcript's Passage is from, for an Answer asked in the Note `callIn` holds a call of (#3005). */
+  callMark?(callIn: string | null, documentId: string): BatchCall | null;
 }
 
 /**
@@ -135,6 +138,8 @@ export interface ClaimCheckRequest {
   thirdParty?: readonly ThirdPartyReason[];
   /** The Note the sentence is in, whose source choices and earlier record cites apply. */
   mindId?: string;
+  /** The Note whose call the sentence's Answer was asked in (#3005): the Run's Passages of a call's Transcript are marked as this call's or an earlier one's. */
+  callIn?: string;
   /** Where the sentence starts in the Note, for what its `Id.` and `supra` refer to. */
   place?: RecordCitePlace;
   /** The sentence as the Note has it (an inline node as U+FFFC), when `claim` is reworded. */

@@ -1217,6 +1217,19 @@ export function createAnswers(options: AnswersOptions) {
   };
 
   /**
+   * The Note whose call a Question was asked in, when its Note holds one now and the Answer is a
+   * typed Question's, not a help button's press, which reads its own call alone (#3005).
+   */
+  const callOfQuestion = (
+    question: ConversationQuestion,
+    answer: ConversationAnswer,
+  ): string | null => {
+    const mindId = judgedMind(question);
+    if (options.callsUnmarked?.() || answer.steps?.pressed !== undefined) return null;
+    return mindId !== null && options.noteCall?.(mindId) ? mindId : null;
+  };
+
+  /**
    * The scope an ended Answer's sentences are judged again in: its Search scope as it is now. A
    * help button's reply is judged as its press read, without another call's Transcript (#3005).
    */
@@ -1294,6 +1307,8 @@ export function createAnswers(options: AnswersOptions) {
     limit: Money = ANSWER_CHECKING_LIMIT,
     /** By marker, the places of passed sentences Check again took off to judge them anew. */
     taken: ReadonlyMap<number, readonly number[]> = new Map(),
+    /** The Note whose call the Answer was asked in: its Transcript Passages are marked as this call's or an earlier one's (#3005). */
+    callIn: string | null = null,
   ) {
     const waiting = new Set(
       answer.citations.filter((each) => each.check === "checking").map((each) => each.marker),
@@ -1403,6 +1418,7 @@ export function createAnswers(options: AnswersOptions) {
             figures: answer.figures,
             waiting,
             mindId,
+            callIn,
             documentIds,
             model,
             signal: controller.signal,
@@ -2246,7 +2262,16 @@ export function createAnswers(options: AnswersOptions) {
       }
       if (judging && written && waitingAs === "checking" && waiting.size > 0) {
         const stored = options.conversations.answer(answerId);
-        if (stored) void judgeAnswer(stored, place.mindId, input.documentIds);
+        if (stored) {
+          void judgeAnswer(
+            stored,
+            place.mindId,
+            input.documentIds,
+            undefined,
+            undefined,
+            unmarked ? null : (input.callIn ?? null),
+          );
+        }
       }
     };
 
@@ -5268,6 +5293,7 @@ export function createAnswers(options: AnswersOptions) {
         documentIds,
         limit ?? undefined,
         taken,
+        callOfQuestion(question, answer),
       );
     },
 
