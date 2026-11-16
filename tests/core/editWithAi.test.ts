@@ -901,8 +901,8 @@ describe("Edit with AI", () => {
     },
   );
 
-  // protects=a reply with no text and no quote changes nothing, whatever the request asks, and says why it failed (#2180); fails_when=an empty reply to "Remove it" takes the paragraph out, or one to another request is written as text; no_claim=how a real model words its reason.
-  test("a reply of no text but why fails with its reason, whatever the request asks, and nothing is taken out", async () => {
+  // protects=a reply with no text and no quote changes nothing, whatever the request asks: with a reason it is a decline, nothing to propose with the reason said (#2180, #2589), without one it failed; fails_when=an empty reply to "Remove it" takes the paragraph out, or one to another request is written as text, or a decline is a failure; no_claim=how a real model words its reason.
+  test("a reply of no text but why changes nothing and says its reason, whatever the request asks, and nothing is taken out", async () => {
     const { core, mind, client } = await setUp(
       editingModel(({ passage }) =>
         passage.includes("Pensions")
@@ -929,7 +929,7 @@ describe("Edit with AI", () => {
       wholeParagraph(client, mind.id, health.attrs.id, "instruction", "Make it more formal"),
     );
 
-    expect(removed).toMatchObject({ kind: "failed", error: { message: "Removed." } });
+    expect(removed).toEqual({ kind: "unchanged", said: "Removed." });
     expect(silent).toMatchObject({
       kind: "failed",
       error: { message: "The model gave nothing back." },
@@ -937,11 +937,8 @@ describe("Edit with AI", () => {
     const shortened = await core.editWithAi(
       wholeParagraph(client, mind.id, sick.attrs.id, "instruction", "Cut it down to two sentences"),
     );
-    expect(refused).toMatchObject({
-      kind: "failed",
-      error: { message: "I can't do this." },
-    });
-    expect(shortened).toMatchObject({ kind: "failed" });
+    expect(refused).toEqual({ kind: "unchanged", said: "I can't do this." });
+    expect(shortened).toEqual({ kind: "unchanged", said: "I can't do this." });
     expect(shownWithChanges(client)).toEqual([
       "Pensions match up to 5% of salary.",
       "Leave is 25 days.",
@@ -3461,7 +3458,7 @@ describe("An edit the User asked for (#880)", () => {
     },
     { action: "improve" as const, line: "港务办公室每周一上午公布潮汐表。" },
   ])(
-    "$action answered with only a quote of the passage fails, and takes nothing out",
+    "$action answered with only a quote of the passage changes nothing, says its reason, and takes nothing out",
     async ({ action, line }) => {
       const { core, mind, client } = await setUp(
         editingModel(() => `<removed>${line}</removed>\n<why>Nothing left to keep.</why>`),
@@ -3472,7 +3469,7 @@ describe("An edit the User asked for (#880)", () => {
 
       const result = await core.editWithAi(wholeParagraph(client, mind.id, note.attrs.id, action));
 
-      expect(result).toMatchObject({ kind: "failed", error: { message: "Nothing left to keep." } });
+      expect(result).toEqual({ kind: "unchanged", said: "Nothing left to keep." });
       expect(shownWithChanges(client)).toEqual([line]);
     },
   );

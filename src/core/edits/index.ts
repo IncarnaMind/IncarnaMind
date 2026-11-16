@@ -1083,16 +1083,20 @@ export function createEdits(options: EditsOptions) {
       change.takeBack();
       return ended({ kind: "unplaced", quotes: unclear });
     }
-    // No text back and nothing quoted as taken out: its reason ("I can't do this") is why it failed.
+    // No text back and nothing quoted as taken out. With a reason, that is the model declining
+    // (<why> alone, as its instructions say for a passage with nothing to change): nothing is
+    // proposed and its reason is told. Without one, it failed. A decline is never read from words.
     // A fixed task (Shorten, Improve…) never asks for text to go, so only quotes are no text either.
     const empty = reply === "" || (!QUOTES_TAKE_OUT.has(ask.action) && textOf(reply, named) === "");
     if (empty && !change.wrote && !change.refused) {
+      const declined = explain ? null : reasonOf(raw);
+      if (declined) {
+        hooks.settle?.();
+        return ended({ kind: "unchanged", said: declined });
+      }
       return ended({
         kind: "failed",
-        error: {
-          kind: "provider",
-          message: (!explain && reasonOf(raw)) || "The model gave nothing back.",
-        },
+        error: { kind: "provider", message: "The model gave nothing back." },
       });
     }
     if (!explain && !change.wrote && !change.refused && sameText(reply, passage)) {
