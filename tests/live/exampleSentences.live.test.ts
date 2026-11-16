@@ -155,6 +155,31 @@ const HELD_OUT: readonly HeldOut[] = [
       "compared with $3.4 billion a year earlier",
     ],
   }),
+  // The four pairs below flip a direction and no figure, written before any request of #3183.
+  ...pair("en-a4", "comparative", "en", {
+    document: "Customer churn was 3.1 per cent in 2026 (2025: 4.4 per cent).",
+    right: "Churn was 3.1% in 2026, down from 4.4% the year before.",
+    wrong: "Churn was 3.1% in 2026, up from 4.4% the year before.",
+    parts: ["down from 4.4% the year before", "up from 4.4% the year before"],
+  }),
+  ...pair("en-a5", "comparative", "en", {
+    document: "Headcount at 30 June stood at 1,240, against 1,115 a year earlier.",
+    right: "Headcount was 1,240 at the end of June, higher than the 1,115 of a year earlier.",
+    wrong: "Headcount was 1,240 at the end of June, lower than the 1,115 of a year earlier.",
+    parts: ["higher than the 1,115 of a year earlier", "lower than the 1,115 of a year earlier"],
+  }),
+  ...pair("zh-a4", "comparative", "zh-CN", {
+    document: "本季度毛利率为 34.5%，上年同期为 31.2%。",
+    right: "毛利率为 34.5%，高于上年同期的 31.2%。",
+    wrong: "毛利率为 34.5%，低于上年同期的 31.2%。",
+    parts: ["高于上年同期的 31.2%", "低于上年同期的 31.2%"],
+  }),
+  ...pair("zh-a5", "comparative", "zh-CN", {
+    document: "年末在册员工 860 人，上年末为 912 人。",
+    right: "年末员工为 860 人，比上年末的 912 人有所减少。",
+    wrong: "年末员工为 860 人，比上年末的 912 人有所增加。",
+    parts: ["比上年末的 912 人有所减少", "比上年末的 912 人有所增加"],
+  }),
   ...pair("zh-a1", "comparative", "zh-CN", {
     document: "报告期内营业利润为 2,750 万元，去年同期为 3,180 万元，主要受原材料涨价影响。",
     right: "营业利润为 2,750 万元，上年同期为 3,180 万元。",
