@@ -238,7 +238,10 @@ const GAINED = [
 // The rows that read otherwise than main in more than the ✓ they gain, where a table states its
 // unit (#2997): a right sentence Check against Documents now calls Supported, and a wrong one
 // caught in both checks.
+// Kilograms under a label in tonnes, and tonnes beside a unit line read as grams, are among the
+// wrong ones caught: a tonne is a million grams (#3022).
 const CHANGED = [
+  "u170",
   "e-bracket-usd-millions-other-scale-en",
   "e-bracket-usd-millions-other-scale-zh-CN",
   "e-label-other-cell-row-en",
@@ -337,14 +340,22 @@ const CHANGED = [
   "tbl-next1-042-zh-CN",
   "tbl-next1-043-en",
   "tbl-next1-043-zh-CN",
+  "tbl-next1-044-en",
+  "tbl-next1-044-zh-CN",
   "tbl-next1-045-en",
   "tbl-next1-045-zh-CN",
   "tbl-next1-046-en",
   "tbl-next1-046-zh-CN",
+  "tbl-next1-047-en",
+  "tbl-next1-047-zh-CN",
   "tbl-next1-048-en",
   "tbl-next1-048-zh-CN",
   "tbl-next1-049-en",
   "tbl-next1-049-zh-CN",
+  "tbl-next1-050-en",
+  "tbl-next1-050-zh-CN",
+  "tbl-next1-053-en",
+  "tbl-next1-053-zh-CN",
   "tbl-next1-059-en",
   "tbl-next1-059-zh-CN",
   "tbl-next1-060-en",
@@ -460,8 +471,11 @@ const LOSSES = [
   "tbl-mark-19-zh-CN",
 ];
 
-// Wrong sentences main ticks and Check against Documents calls Supported, now caught (#2997).
+// Wrong sentences main ticks and Check against Documents calls Supported, now caught (#2997), and
+// kilograms of standard coal under a unit line in tonnes (#3022).
 const TAKEN = [
+  "tbl-next1-053-en",
+  "tbl-next1-053-zh-CN",
   "tbl-next1-066-en",
   "tbl-next1-066-zh-CN",
   "tbl-next1-068-en",
