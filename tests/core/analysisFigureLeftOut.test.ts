@@ -108,8 +108,14 @@ const loans = (growth: (month: number) => string): Buffer =>
 
 /** A column of fractions, so the mean the Analysis gives, 0.08, is the one the cells come to. */
 const FRACTIONS = loans(() => "0.08");
-/** The first month has no month before it, so its growth is "n/a", which no mean counts. */
-const FIRST_MONTH_BLANK = loans((month) => (month === 0 ? "n/a" : "0.08"));
+/**
+ * The first month has no month before it, so its growth is "-", which no mean counts: a dash may be
+ * a zero, and pandas doesn't read it as missing, so it is a cell that isn't a number (#2577). An
+ * "n/a" there is read as an empty cell, and the figure is recorded.
+ */
+const FIRST_MONTH_DASH = loans((month) => (month === 0 ? "-" : "0.08"));
+/** The first month's growth, written as a text pandas reads as missing. */
+const firstMonth = (text: string): Buffer => loans((month) => (month === 0 ? text : "0.08"));
 /** Percent points, 8.0, under the fraction, 0.08, a "%" figure takes. */
 const PERCENT_POINTS = loans(() => "8.0");
 
@@ -471,8 +477,24 @@ describe.each(["en", "zh-CN"] as const)("%s", (language) => {
     expect(line).toBeNull();
   });
 
+  // protects=a percent figure over a column whose first month reads as missing to pandas ("n/a", "N/A", "NA", "nan", "null", "None", "#N/A") is recorded and written as a percent, nothing left out, in a Note, as a column of fractions is (#2577); fails_when=a first month of "n/a" leaves the sentence with the mark where its number would be
+  test.each(["n/a", "N/A", "NA", "nan", "null", "None", "#N/A"])(
+    "a percent figure whose first month is %j is written as a percent, with nothing left out",
+    async (text) => {
+      const { core, sentence, change, line } = await written(
+        language,
+        firstMonth(text),
+        words.sentence("[=1]"),
+      );
+      core.close();
+      expect(sentence).toBe(words.sentence("8.0%"));
+      expect(change.figuresLeftOut).toBeUndefined();
+      expect(line).toBeNull();
+    },
+  );
+
   test.each([
-    ["a cell that isn't a number", FIRST_MONTH_BLANK],
+    ["a cell that isn't a number", FIRST_MONTH_DASH],
     ["cells that come to another number", PERCENT_POINTS],
   ])(
     "a percent figure whose rows hold %s has no figure, and the sentence holds the mark where its number would be",
@@ -496,7 +518,7 @@ describe.each(["en", "zh-CN"] as const)("%s", (language) => {
   test("a number the sentence wrote right before a marker no figure holds stays, the marker goes, and nothing is counted", async () => {
     const { core, sentence, change, line } = await written(
       language,
-      FIRST_MONTH_BLANK,
+      FIRST_MONTH_DASH,
       words.sentence("8% [=1]"),
     );
     core.close();
@@ -524,7 +546,7 @@ describe.each(["en", "zh-CN"] as const)("%s", (language) => {
   test("Check this Note reads no number where the mark is", async () => {
     const { core, mindId, listed } = await written(
       language,
-      FIRST_MONTH_BLANK,
+      FIRST_MONTH_DASH,
       words.sentence("[=1]"),
     );
     await core.checkMind({ requestId: randomUUID(), mindId, mode: "all" });
@@ -554,7 +576,7 @@ describe.each(["en", "zh-CN"] as const)("%s", (language) => {
   ) {
     const { core, mindId, conversationId, told } = await written(
       language,
-      FIRST_MONTH_BLANK,
+      FIRST_MONTH_DASH,
       content,
       swap,
     );
@@ -746,7 +768,7 @@ describe.each(["en", "zh-CN"] as const)("%s", (language) => {
     async function overWaiting(content: string, question: string) {
       const { core, mindId, conversationId } = await written(
         language,
-        FIRST_MONTH_BLANK,
+        FIRST_MONTH_DASH,
         content,
         { content: "" },
         false,
@@ -820,7 +842,7 @@ describe.each(["en", "zh-CN"] as const)("%s", (language) => {
   });
 
   test("the Markdown and Word exports write the mark's words in the interface language", async () => {
-    const { core, mindId } = await written(language, FIRST_MONTH_BLANK, words.sentence("[=1]"));
+    const { core, mindId } = await written(language, FIRST_MONTH_DASH, words.sentence("[=1]"));
     const markdown = await exported(core, mindId, "markdown");
     const word = await exported(core, mindId, "docx");
     core.close();

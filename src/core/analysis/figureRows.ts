@@ -20,6 +20,39 @@ import { sameNumber } from "../../shared/formula";
 export const isNumber = (cell: AnalysisCell): cell is number =>
   typeof cell === "number" && Number.isFinite(cell);
 
+/**
+ * The texts pandas reads as a missing value in a file by default, as pandas 3.0.2 has them
+ * (`STR_NA_VALUES`, the pandas the app bundles), matched as pandas matches them: the whole cell, in
+ * these cases and with no spaces. Its mean, sum, min and max skip them, so a figure worked out again
+ * counts them as the empty cells it already skips. "-", "—", "nil" and 无 are not here and stay
+ * text: pandas doesn't read them as missing, and a "-" in a column of amounts may be a zero
+ * (#2577). tests/main/analysisPandasMissing.test.ts checks the list against the bundled pandas.
+ */
+export const PANDAS_MISSING: ReadonlySet<string> = new Set([
+  "#N/A",
+  "#N/A N/A",
+  "#NA",
+  "-1.#IND",
+  "-1.#QNAN",
+  "-NaN",
+  "-nan",
+  "1.#IND",
+  "1.#QNAN",
+  "<NA>",
+  "N/A",
+  "NA",
+  "NULL",
+  "NaN",
+  "None",
+  "n/a",
+  "nan",
+  "null",
+]);
+
+/** A cell as a figure is worked out again from it: a text pandas reads as missing is an empty cell. */
+const asRead = (cell: AnalysisCell): AnalysisCell =>
+  typeof cell === "string" && PANDAS_MISSING.has(cell) ? "" : cell;
+
 /** As the helper reads an input's column: numbers, when at least half its filled cells are. */
 export function numeric(cells: readonly AnalysisCell[]): boolean {
   const filled = cells.filter((cell) => cell !== null && cell !== "");
@@ -86,14 +119,14 @@ export function recalculate(
     for (let row = from; row <= to; row++) {
       const cellsOfRow = byRow.get(row);
       if (!cellsOfRow) return { kind: "unchecked", reason: `${of.input} has no row ${row}` };
-      const cell = cellsOfRow[column] ?? null;
+      const cell = asRead(cellsOfRow[column] ?? null);
       cells.push(cell);
       if (cell !== null && cell !== "" && !isNumber(cell)) {
         notNumbers.push({ row, value: analysisLabel(String(cell)) });
       }
     }
   }
-  const numbers = numeric(input.rows.map((row) => row[column] ?? null));
+  const numbers = numeric(input.rows.map((row) => asRead(row[column] ?? null)));
   if (how !== "count" && !numbers) {
     return { kind: "unchecked", reason: `${heading} in ${of.input} holds text, not numbers` };
   }
