@@ -5,7 +5,8 @@
  * a figure with a thousands comma in a short Note), each Note checked as Check this note does,
  * its sort included. One JSON line a check, and one for the run, to INCARNAMIND_LIVE_GATE_OUT.
  * Runs only with INCARNAMIND_LIVE_ANTHROPIC_KEY, or with INCARNAMIND_LIVE_GATE_DRY=1, where a
- * scripted judge stands in and nothing is sent.
+ * scripted judge stands in and nothing is sent. INCARNAMIND_LIVE_GATE_PROVIDER=deepseek runs it on
+ * DeepSeek's own API with INCARNAMIND_LIVE_KEY (#3022).
  */
 import { appendFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -15,7 +16,9 @@ import { wrapLanguageModel } from "ai";
 import { describe, expect, test, vi } from "vitest";
 import { type Core, createAiSdkChatModel, type Document } from "../../src/core";
 import { readVerdict } from "../../src/core/answers/checks/prompt";
+import { costOf, inCurrency } from "../../src/core/cost/price";
 import type { Language } from "../../src/core/language";
+import { catalogModel } from "../../src/core/providers/catalog";
 import { catalogProvider } from "../../src/core/providers/catalog/providers";
 import { reasonText } from "../../src/renderer/src/cost";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
@@ -27,7 +30,12 @@ import { connectToMind, type MindClient } from "../helpers/mindClient";
 import { readMind, writeMind } from "../helpers/minds";
 import { scriptedModel, scriptedModels } from "../helpers/models";
 
-const KEY = process.env.INCARNAMIND_LIVE_ANTHROPIC_KEY;
+const PROVIDER =
+  process.env.INCARNAMIND_LIVE_GATE_PROVIDER === "deepseek" ? "deepseek" : "anthropic";
+const KEY =
+  PROVIDER === "deepseek"
+    ? process.env.INCARNAMIND_LIVE_KEY
+    : process.env.INCARNAMIND_LIVE_ANTHROPIC_KEY;
 const DRY = process.env.INCARNAMIND_LIVE_GATE_DRY === "1";
 const OUT = process.env.INCARNAMIND_LIVE_GATE_OUT;
 /** A file for every reply with its request's words: a reply the check can't read is kept to replay. */
@@ -38,8 +46,10 @@ const GROUPS = (process.env.INCARNAMIND_LIVE_GATE_GROUPS ?? "example,held-out").
 /** The held-out pairs to run, by the start of their ids ("en-c,zh-c"); all of them when unset. */
 const CASES = process.env.INCARNAMIND_LIVE_GATE_CASES?.split(",");
 const MODEL =
-  process.env.INCARNAMIND_LIVE_ANTHROPIC_MODEL ??
-  (catalogProvider("anthropic")?.roles.answers as string);
+  (PROVIDER === "deepseek"
+    ? process.env.INCARNAMIND_LIVE_MODEL
+    : process.env.INCARNAMIND_LIVE_ANTHROPIC_MODEL) ??
+  (catalogProvider(PROVIDER)?.roles.answers as string);
 /** Notes checked at once: enough to finish a round in minutes, few enough to stay under the key's limit. */
 const AT_ONCE = 4;
 const EXAMPLES = resolve(__dirname, "../../resources/examples");
@@ -126,7 +136,7 @@ const EXAMPLE = {
 /** A held-out case: its own Folder, its own Document and a Note of one sentence. */
 interface HeldOut extends Probe {
   id: string;
-  kind: "comparative" | "short-note";
+  kind: "comparative" | "short-note" | "table";
   language: Language;
   document: string;
 }
@@ -262,6 +272,60 @@ const HELD_OUT: readonly HeldOut[] = [
     right: "门店数量比上年有所增加。",
     wrong: "门店数量比上年有所减少。",
   }),
+  // The same number in a unit the table's heading doesn't name (#3022). The first four are the
+  // issue's own; the six after them were written before any request and not read while fitting.
+  ...pair("en-d1", "table", "en", {
+    document: "| Item | Levy (‰) |\n|---|---|\n| Stamp duty | 5 |\n| Transfer | 3 |",
+    right: "The levy on stamp duty is 5‰.",
+    wrong: "The levy on stamp duty is 5%.",
+  }),
+  ...pair("en-d2", "table", "en", {
+    document:
+      "| Stage | Deals | Value (£k) |\n|---|---|---|\n| Qualified | 42 | 1,260 |\n| Proposal | 17 | 830 |",
+    right: "Seventeen deals worth £830k were at the proposal stage.",
+    wrong: "Seventeen deals worth £830 were at the proposal stage.",
+  }),
+  ...pair("en-d3", "table", "en", {
+    document: "| Region | Output (t) |\n|---|---|\n| North | 54,000 |\n| South | 61,500 |",
+    right: "North's output was 54,000 tonnes.",
+    wrong: "North's output was 54,000 kg.",
+  }),
+  ...pair("en-d4", "table", "en", {
+    document: "| Metric | YoY% |\n|---|---|\n| Revenue | 12 |\n| Costs | 9 |",
+    right: "Revenue grew 12% year on year.",
+    wrong: "Revenue grew 12‰ year on year.",
+  }),
+  ...pair("en-d5", "table", "en", {
+    document:
+      "| Item | Amount | Unit |\n|---|---|---|\n| Diesel used | 420 | litres |\n| Water used | 1,900 | litres |",
+    right: "Diesel used was 420 litres.",
+    wrong: "Diesel used was 420 gallons.",
+  }),
+  ...pair("en-d6", "table", "en", {
+    document: "| Division | Revenue ($m) |\n|---|---|\n| Marine | 310 |\n| Rail | 275 |",
+    right: "Marine revenue was $310 million.",
+    wrong: "Marine revenue was $310 billion.",
+  }),
+  ...pair("en-d7", "table", "en", {
+    document: "| Bond | Spread (bps) |\n|---|---|\n| Series A | 145 |\n| Series B | 210 |",
+    right: "The Series A spread was 145 bps.",
+    wrong: "The Series A spread was 145 percentage points.",
+  }),
+  ...pair("zh-d1", "table", "zh-CN", {
+    document: "| 项目 | 税率（‰） |\n|---|---|\n| 印花税 | 5 |\n| 过户费 | 3 |",
+    right: "印花税税率为5‰。",
+    wrong: "印花税税率为5%。",
+  }),
+  ...pair("zh-d2", "table", "zh-CN", {
+    document: "| 部门 | 收入（万元） |\n|---|---|\n| 华东 | 860 |\n| 华南 | 745 |",
+    right: "华东收入为860万元。",
+    wrong: "华东收入为860元。",
+  }),
+  ...pair("zh-d3", "table", "zh-CN", {
+    document: "单位：吨\n\n| 工厂 | 产量 |\n|---|---|\n| 一厂 | 2,800 |\n| 二厂 | 3,150 |",
+    right: "一厂产量为2,800吨。",
+    wrong: "一厂产量为2,800千克。",
+  }),
 ];
 
 function pair(
@@ -315,11 +379,31 @@ const IN_FLIGHT = 0.05;
 
 type Usage = LanguageModelV4Usage;
 
-/** Haiku 5.5's catalog price, per million tokens: uncached input, cache reads, cache writes, output. */
+/**
+ * Haiku 5.5's catalog price, per million tokens: uncached input, cache reads, cache writes, output.
+ * Another provider's model is priced as the catalog prices it at the hour of the request.
+ */
 function priced(usage: Usage) {
   const input = usage.inputTokens;
   heard.inputTokens += input.total ?? 0;
   heard.outputTokens += usage.outputTokens.total ?? 0;
+  const price = PROVIDER === "anthropic" ? undefined : catalogModel(PROVIDER, MODEL)?.price;
+  if (price) {
+    heard.spent += inCurrency(
+      costOf(
+        {
+          inputTokens: input.total ?? 0,
+          cachedInputTokens: input.cacheRead ?? 0,
+          outputTokens: usage.outputTokens.total ?? 0,
+        },
+        price,
+        new Date(),
+      ),
+      price.currency,
+      "USD",
+    );
+    return;
+  }
   heard.spent +=
     ((input.noCache ?? input.total ?? 0) * 0.1 +
       (input.cacheRead ?? 0) * 0.01 +
@@ -458,7 +542,7 @@ async function coreIn(language: Language): Promise<Core> {
   core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
   await core.updateSettings({ user: { language, monthlyCap: { amount: 5, currency: "USD" } } });
   if (DRY) await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
-  else await core.saveChatProvider({ kind: "anthropic", apiKey: KEY ?? "", modelId: MODEL });
+  else await core.saveChatProvider({ kind: PROVIDER, apiKey: KEY ?? "", modelId: MODEL });
   return core;
 }
 
