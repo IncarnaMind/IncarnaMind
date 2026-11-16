@@ -13,12 +13,15 @@ import type {
   MeetingFill,
 } from "../../src/core";
 import {
+  CITE_RETRY_INSTRUCTIONS,
+  FILL_CITE_RETRY_INSTRUCTIONS,
   SEARCH_QUERY_INSTRUCTIONS,
   TRANSLATE_QUERY_INSTRUCTIONS,
 } from "../../src/core/answers/prompt";
 import { CITATION_NODE } from "../../src/core/api";
 import type { Language } from "../../src/core/language";
 import { createFakeCapture } from "../../src/core/meetings/fakeCapture";
+import { outputTokens } from "../../src/core/providers/outputLimits";
 import { isPartialMeetingFill } from "../../src/shared/meetingFill";
 import { askAndFinish, setUpWithDocuments, shownPassages } from "../helpers/citations";
 import { createTempDataFolder, manualClock, startCore } from "../helpers/core";
@@ -48,21 +51,25 @@ const WORDS = {
 
 type Words = (typeof WORDS)[Language];
 
-const fact = (id: string, text: string, marker: number, section: string) =>
+/** A fact's frame around `body`, its sentences as the reply writes them, markers and all. */
+const frame = (id: string, body: string, markers: number[], section: string) =>
   [
     `### FACT ${id}`,
     "```json",
     JSON.stringify({
       topic: section,
-      citations: [marker],
+      citations: markers,
       lines: ["L1"],
       sections: [section],
       claim: false,
     }),
     "```",
-    `${text} [^${marker}].`,
+    body,
     `### END ${id}`,
   ].join("\n");
+
+const fact = (id: string, text: string, marker: number, section: string) =>
+  frame(id, `${text} [^${marker}].`, [marker], section);
 
 const overview = (text: string, marker: number) =>
   [
@@ -120,10 +127,12 @@ function fillModel({
   ask?: (answer: string, passages: { id: string; text: string }[]) => Asked[];
 }) {
   const asked: string[] = [];
+  const instructions: string[] = [];
   let fills = 0;
   const model = scriptedModel((call) => {
     if (call.question === "unmarked-quotes") {
       asked.push(call.prompt);
+      instructions.push(call.system);
       const answer = /<answer>\n([\s\S]*?)\n<\/answer>/.exec(call.prompt)?.[1] ?? "";
       const passages = [
         ...call.prompt.matchAll(/<passage id="([^"]+)">\n([\s\S]*?)\n<\/passage>/g),
@@ -142,6 +151,7 @@ function fillModel({
   return {
     model,
     asked,
+    instructions,
     get fills() {
       return fills;
     },
@@ -164,6 +174,20 @@ const recordsFor =
             },
           ]
         : [];
+    });
+
+/**
+ * The ask's records as a model gives them: each of `copies` (a sentence as the Answer has it, its
+ * markers in it, and the quote for one of them), at the Passage that holds the quote.
+ */
+const copied =
+  (copies: readonly (readonly [sentence: string, quote: string])[]) =>
+  (answer: string, passages: { id: string; text: string }[]): Asked[] =>
+    copies.map(([sentence, quote]) => {
+      const passage = passages.find((each) => each.text.includes(quote));
+      if (!answer.includes(sentence) || !passage)
+        throw new Error(`The ask doesn't hold the sentence or its quote: ${sentence}`);
+      return { sentence, passage: passage.id, quote };
     });
 
 /** A small call's name: its judge question, or the search's rewrite or translation. */
@@ -321,6 +345,7 @@ describe.each(["en", "zh-CN"] as const)(
         });
         expect(scripted.fills).toBe(1);
         expect(scripted.asked).toHaveLength(1);
+        expect(scripted.instructions).toEqual([FILL_CITE_RETRY_INSTRUCTIONS]);
         expect(scripted.model.doStreamCalls).toHaveLength(2);
         for (const [marker, text] of Object.entries(quotesOf(words))) {
           const beside = citationsBeside(client, text);
@@ -351,6 +376,88 @@ describe.each(["en", "zh-CN"] as const)(
         for (const text of Object.values(quotesOf(words))) {
           expect(citationsBeside(client, text)[0]).toEqual([{ check: "found", quote: text }]);
         }
+      } finally {
+        core.close();
+      }
+    });
+
+    // protects=a fact of two sentences, a marker after each one's full stop or after the quotation mark that closes the first, keeps both records: the ask shows the two sentences apart, each with its marker, and each copy takes the marker it holds (#3145); fails_when=the sentences reach the ask joined, a marker is left to no sentence, or the fact is left out; no_claim=a real model's copies.
+    test.each([
+      ["a full stop", false],
+      ["a closing quotation mark", true],
+    ] as const)("keeps a fact of two sentences, a marker after %s", async (_, quoted) => {
+      const words = WORDS[language];
+      const [stop, said, open, close] =
+        language === "en" ? [".", "They said: ", '"', '"'] : ["。", "对方说：", "“", "”"];
+      const first = quoted ? `${said}${open}${words.action}` : words.action;
+      const end = quoted ? `${stop}${close}` : stop;
+      const reply = [
+        "HEADINGS: H1=NONE",
+        fact("F1", words.decision, 1, "decisions"),
+        frame("F2", `${first}${end} [^2] ${words.closing}${stop} [^5]`, [2, 5], "actions"),
+        overview(words.purpose, 3),
+      ].join("\n\n");
+      const sentences = [`${first} [^2]${end}`, `${words.closing} [^5]${stop}`] as const;
+      const scripted = fillModel({
+        reply,
+        ask: copied([
+          [`${words.decision} [^1].`, words.decision],
+          [sentences[0], words.action],
+          [sentences[1], words.closing],
+          [`${words.purpose} [^3].`, words.purpose],
+        ]),
+      });
+      const { core, client, fill } = await recordedFill(language, scripted);
+      try {
+        expect(scripted.asked[0]).toContain(sentences.join(" "));
+        expect(fill).toMatchObject({ state: "filled", omitted: 0, unfinishedParts: 0 });
+        expect(citationsBeside(client, words.closing)).toEqual([
+          [
+            { check: "found", quote: words.action },
+            { check: "found", quote: words.closing },
+          ],
+        ]);
+      } finally {
+        core.close();
+      }
+    });
+
+    // protects=a fact whose sentence holds two markers side by side is kept when the ask gives the sentence one record (the second marker takes it too) and when it gives one for each marker, each with its own quote, and the ask's reply has room for an item for each marker (#3145); fails_when=the fact is left out for its second marker, the second record's quote is lost, or the reply's limit counts sentences only; no_claim=markers apart in a sentence, which share nothing.
+    test.each([
+      ["one record", false],
+      ["a record for each", true],
+    ] as const)("keeps a fact with two markers side by side, given %s", async (_, each) => {
+      const words = WORDS[language];
+      const stop = language === "en" ? "." : "。";
+      const sentence = `${words.action} [^2][^5]${stop}`;
+      const reply = [
+        "HEADINGS: H1=NONE",
+        fact("F1", words.decision, 1, "decisions"),
+        frame("F2", sentence, [2, 5], "actions"),
+        overview(words.purpose, 3),
+      ].join("\n\n");
+      const scripted = fillModel({
+        reply,
+        ask: copied([
+          [`${words.decision} [^1].`, words.decision],
+          [sentence, words.action],
+          ...(each ? [[sentence, words.closing] as const] : []),
+          [`${words.purpose} [^3].`, words.purpose],
+        ]),
+      });
+      const { core, client, fill } = await recordedFill(language, scripted);
+      try {
+        expect(fill).toMatchObject({ state: "filled", omitted: 0, unfinishedParts: 0 });
+        // Three sentences hold four markers: the reply has room for an item for each marker.
+        expect(scripted.model.doStreamCalls.at(-1)?.maxOutputTokens).toBe(
+          outputTokens("unmarked-quotes", 4),
+        );
+        expect(citationsBeside(client, words.action)).toEqual([
+          [
+            { check: "found", quote: words.action },
+            { check: "found", quote: each ? words.closing : words.action },
+          ],
+        ]);
       } finally {
         core.close();
       }
@@ -451,11 +558,15 @@ describe("the ask for a fill's records (#3099)", () => {
     }
   });
 
-  // protects=an Answer's own ask for the Citations it left out goes to the quick-tasks model, as before the fill's ask was added (#3099); fails_when=it goes to the Answer's model; no_claim=what the ask gives.
+  // protects=an Answer's own ask for the Citations it left out goes to the quick-tasks model, with the request it had before the fill's ask was added and changed (#3099, #3145); fails_when=it goes to the Answer's model, or carries the fill's request; no_claim=what the ask gives.
   test("leaves an Answer's own ask for its Citations with the quick-tasks model", async () => {
+    const instructions: string[] = [];
     const model = scriptedModel(
       (call) => {
-        if (call.question === "unmarked-quotes") return { text: '{"citations":[]}' };
+        if (call.question === "unmarked-quotes") {
+          instructions.push(call.system);
+          return { text: '{"citations":[]}' };
+        }
         if (!call.results.some((result) => result.tool === "search_documents")) {
           return { calls: [{ tool: "search_documents", input: { query: "tea" } }] };
         }
@@ -480,60 +591,73 @@ describe("the ask for a fill's records (#3099)", () => {
       expect(asks.map(({ kind, modelId, thinking }) => ({ kind, modelId, thinking }))).toEqual([
         { kind: "anthropic", modelId: "claude-haiku-5-5", thinking: "off" },
       ]);
+      expect(instructions).toEqual([CITE_RETRY_INSTRUCTIONS]);
     } finally {
       core.close();
     }
   });
 
   // protects=a marker the reply used in two facts keeps its own quote in both, and the second fact's other marker gets its own, though the ask names the reused marker's quote again for the second fact (#3099); fails_when=the other marker takes the reused marker's quote; no_claim=a marker reused in one sentence.
-  test("gives a marker reused in a second fact its own quote, and that fact's other marker its own", async () => {
-    const words = WORDS.en;
-    const reply = [
-      "HEADINGS: H1=NONE",
-      fact("F1", words.decision, 1, "decisions"),
-      [
-        "### FACT F2",
-        "```json",
-        JSON.stringify({
-          topic: "actions",
-          citations: [1, 2],
-          lines: ["L1"],
-          sections: ["actions"],
-          claim: false,
-        }),
-        "```",
-        `${words.action} [^1] [^2].`,
-        "### END F2",
-      ].join("\n"),
-      overview(words.purpose, 3),
-    ].join("\n\n");
-    const quotes = quotesOf(words);
-    // A record for every marker where the reply wrote it, as a model names each sentence's sources.
-    const perMarker = (answer: string, passages: { id: string; text: string }[]): Asked[] =>
-      answer.split("\n").flatMap((line) =>
-        [...line.matchAll(/\[\^(\d+)\]/g)].flatMap((match) => {
-          const quote = quotes[Number(match[1])];
-          const passage = passages.find((each) => quote && each.text.includes(quote));
-          return quote && passage
-            ? [{ sentence: line.replace(/\s*\[\^\d+\]/g, ""), passage: passage.id, quote }]
-            : [];
-        }),
-      );
-    const scripted = fillModel({ reply, ask: perMarker });
-    const { core, client, fill } = await recordedFill("en", scripted);
-    try {
-      expect(fill).toMatchObject({ state: "filled", omitted: 0 });
-      expect(citationsBeside(client, words.action)[0]).toEqual([
-        { check: "found", quote: words.decision },
-        { check: "found", quote: words.action },
-      ]);
-      expect(citationsBeside(client, words.decision)[0]).toEqual([
-        { check: "found", quote: words.decision },
-      ]);
-    } finally {
-      core.close();
-    }
-  });
+  test.each([
+    ["copied with its markers", true],
+    ["given without them", false],
+  ] as const)(
+    "gives a marker reused in a second fact its own quote, and that fact's other marker its own: the sentence %s",
+    async (_, withMarkers) => {
+      const words = WORDS.en;
+      const reply = [
+        "HEADINGS: H1=NONE",
+        fact("F1", words.decision, 1, "decisions"),
+        [
+          "### FACT F2",
+          "```json",
+          JSON.stringify({
+            topic: "actions",
+            citations: [1, 2],
+            lines: ["L1"],
+            sections: ["actions"],
+            claim: false,
+          }),
+          "```",
+          `${words.action} [^1] [^2].`,
+          "### END F2",
+        ].join("\n"),
+        overview(words.purpose, 3),
+      ].join("\n\n");
+      const quotes = quotesOf(words);
+      // A record for every marker where the reply wrote it, as a model names each sentence's sources.
+      const perMarker = (answer: string, passages: { id: string; text: string }[]): Asked[] =>
+        answer.split("\n").flatMap((line) =>
+          [...line.matchAll(/\[\^(\d+)\]/g)].flatMap((match) => {
+            const quote = quotes[Number(match[1])];
+            const passage = passages.find((each) => quote && each.text.includes(quote));
+            return quote && passage
+              ? [
+                  {
+                    sentence: withMarkers ? line : line.replace(/\s*\[\^\d+\]/g, ""),
+                    passage: passage.id,
+                    quote,
+                  },
+                ]
+              : [];
+          }),
+        );
+      const scripted = fillModel({ reply, ask: perMarker });
+      const { core, client, fill } = await recordedFill("en", scripted);
+      try {
+        expect(fill).toMatchObject({ state: "filled", omitted: 0 });
+        expect(citationsBeside(client, words.action)[0]).toEqual([
+          { check: "found", quote: words.decision },
+          { check: "found", quote: words.action },
+        ]);
+        expect(citationsBeside(client, words.decision)[0]).toEqual([
+          { check: "found", quote: words.decision },
+        ]);
+      } finally {
+        core.close();
+      }
+    },
+  );
 
   // protects=a record whose quote the Transcript doesn't hold, given outright with a real Passage, is dropped: its fact is left out and counted, neither its sentence nor the quote is in the note, and the facts whose quotes are found keep their Citations; fails_when=the wrong quote is recorded, or the good facts go with it; no_claim=which line a found quote is on.
   test("drops a record whose quote isn't found, and keeps the facts whose quotes are", async () => {
