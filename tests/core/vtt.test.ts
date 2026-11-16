@@ -354,6 +354,45 @@ describe("Citations of a Transcript", () => {
     );
   });
 
+  // protects=where the same short lines are said twice in a call, a Passage's lines take the times of the cues that run to its end, each whole: not an earlier run of as many lines that stops before the end, and not an earlier one whose last cue only starts with the Passage's last line (#3151); fails_when=a line gets the earlier cue's time, or the last line gets none; no_claim=two runs alike in every line, which can't be told apart.
+  test.each([
+    {
+      name: "an earlier run of as many lines that stops short",
+      said: ["tail", "B", "X", "Opening tail", "B", "C"],
+      passage: "tail\nB\nC",
+      marked: "tail\n[5:00] B\n[6:00] C",
+    },
+    {
+      name: "an earlier run whose last cue is longer",
+      said: [
+        "Agreed.",
+        "Ship tomorrow. Then notify support.",
+        "Next item.",
+        "Agreed.",
+        "Ship tomorrow.",
+      ],
+      passage: "Agreed.\nShip tomorrow.",
+      marked: "[4:00] Agreed.\n[5:00] Ship tomorrow.",
+    },
+    {
+      name: "a last line cut short where the Passage ends, with a whole short cue later",
+      said: ["Agreed.", "Ship tomorrow. Then notify support.", "Next item.", "Ship"],
+      passage: "Agreed.\nShip",
+      marked: "[1:00] Agreed.\n[2:00] Ship",
+    },
+  ])("repeated lines take the times of the run that fits: $name", ({ said, passage, marked }) => {
+    const block = transcriptUnits({
+      cues: said.map((text, index) => ({
+        startMs: 60_000 * (index + 1),
+        endMs: 60_000 * (index + 1) + 2000,
+        text,
+        speaker: null,
+      })),
+      gaps: [],
+    });
+    expect(withCueMarks(passage, block)).toBe(marked);
+  });
+
   test("clock times read back", () => {
     expect(clockTime(0)).toBe("0:00");
     expect(clockTime(866_000)).toBe("14:26");
