@@ -27,11 +27,11 @@ export function waitsForUser(edit: {
   added: number;
   selected: number;
   removedWhole?: number;
-  /** The User's words, read, ask for no text to go: a paragraph quoted as taken out is the reply's alone. */
-  notAskedToRemove?: boolean;
+  /** The User's words, read, don't ask for all that the reply quotes as taken out: that is the reply's doing. */
+  widerThanAsked?: boolean;
 }): boolean {
   if (
-    (TAKES_NOTHING_OUT.has(edit.action) || edit.notAskedToRemove === true) &&
+    (TAKES_NOTHING_OUT.has(edit.action) || edit.widerThanAsked === true) &&
     (edit.removedWhole ?? 0) > 0
   ) {
     return true;

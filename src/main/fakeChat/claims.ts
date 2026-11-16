@@ -84,7 +84,7 @@ export function fakeRemovalAsked(options: GenerateOptions): string | null {
   const request =
     /<question>\n?([\s\S]*?)\n?<\/question>/.exec(lastUserText(options.prompt))?.[1] ?? "";
   return JSON.stringify({
-    asks_to_remove: /\b(?:delete|remove|drop|cut)\b|删|去掉|拿掉|砍/i.test(request) ? "yes" : "no",
+    asks_for_all: /\b(?:delete|remove|drop|cut)\b|删|去掉|拿掉|砍/i.test(request) ? "yes" : "no",
   });
 }
 

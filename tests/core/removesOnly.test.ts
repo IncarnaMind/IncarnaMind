@@ -12,6 +12,7 @@ import { createTempDataFolder, startCore } from "../helpers/core";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
 import { heading, note, resolveChanges, shownWithChanges, writeMind } from "../helpers/minds";
 import {
+  judgesNothing,
   type ModelCall,
   type ScriptedReply,
   scriptedModel,
@@ -54,23 +55,26 @@ const APPLIES = "It applies in the Note at once";
 
 function removing(language: "en" | "zh", parking: string, reply: string, removesOnly?: boolean) {
   const lease = LEASE[language];
-  return scriptedModel((call: ModelCall): ScriptedReply => {
-    if (/<passage>\n/.test(call.prompt)) return { text: `¶1 ${parking}\n<why>Done.</why>` };
-    return call.results.length === 0
-      ? {
-          calls: [
-            {
-              tool: "edit_mind",
-              input: {
-                instruction: lease.asked,
-                part: lease.part,
-                ...(removesOnly !== undefined && { removes_only: removesOnly }),
+  return scriptedModel(
+    (call: ModelCall): ScriptedReply => {
+      if (/<passage>\n/.test(call.prompt)) return { text: `¶1 ${parking}\n<why>Done.</why>` };
+      return call.results.length === 0
+        ? {
+            calls: [
+              {
+                tool: "edit_mind",
+                input: {
+                  instruction: lease.asked,
+                  part: lease.part,
+                  ...(removesOnly !== undefined && { removes_only: removesOnly }),
+                },
               },
-            },
-          ],
-        }
-      : { text: reply };
-  });
+            ],
+          }
+        : { text: reply };
+    },
+    { generate: judgesNothing },
+  );
 }
 
 async function setUp(language: "en" | "zh", model: MockLanguageModelV4) {
@@ -277,12 +281,15 @@ const results = (model: MockLanguageModelV4) =>
 function stepping(steps: readonly Step[], reply = "Done.") {
   const edits = steps.flatMap((step) => (step.edit === undefined ? [] : [step.edit]));
   let edited = 0;
-  return scriptedModel((call: ModelCall): ScriptedReply => {
-    if (/<passage>\n/.test(call.prompt))
-      return { text: `${edits[edited++] ?? ""}\n<why>Done.</why>` };
-    const next = steps[call.results.length];
-    return next ? { calls: [{ tool: next.tool, input: next.input }] } : { text: reply };
-  });
+  return scriptedModel(
+    (call: ModelCall): ScriptedReply => {
+      if (/<passage>\n/.test(call.prompt))
+        return { text: `${edits[edited++] ?? ""}\n<why>Done.</why>` };
+      const next = steps[call.results.length];
+      return next ? { calls: [{ tool: next.tool, input: next.input }] } : { text: reply };
+    },
+    { generate: judgesNothing },
+  );
 }
 
 const PARKING_OUT = {

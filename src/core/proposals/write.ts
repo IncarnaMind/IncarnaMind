@@ -3527,14 +3527,15 @@ export function createRewriteStream(
     }),
 
     /**
-     * How many of the selection's paragraphs the finished `text` quotes whole between <removed> and
+     * The selection's paragraphs the finished `text` quotes whole between <removed> and
      * </removed>, word for word, in one quote or in several that together cover it, as
-     * `settleLeftOut` takes it out: what a typed request's removal check asks about.
+     * `settleLeftOut` takes it out, each with its place in the selection and its words: what a typed
+     * request's removal check asks about.
      */
-    wholeQuotes: (text: string): number => {
+    wholeQuotes: (text: string): { place: number; words: string }[] => {
       const { quoted } = readRemovals(named ? unnameRemovals(text) : text, true);
       const runs = quoted.flatMap((quote) => quotedRuns(quote, selection, named));
-      return segments.filter((segment) => {
+      const whole = segments.filter((segment) => {
         const read = charsOf(segment.tokens);
         if (read.chars === "") return false;
         const taken = new Array<boolean>(read.chars.length).fill(false);
@@ -3547,7 +3548,10 @@ export function createRewriteStream(
             taken[index] = true;
         }
         return taken.every(Boolean);
-      }).length;
+      });
+      return whole
+        .map((segment) => ({ place: segments.indexOf(segment), words: plainWords(segment.tokens) }))
+        .filter(({ words }) => words !== "");
     },
 
     /** Characters removed: not those it quotes as taken out, nor those it left out, which stay. */

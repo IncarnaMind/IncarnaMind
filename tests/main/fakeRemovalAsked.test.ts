@@ -22,7 +22,7 @@ describe("The built app's scripted answer to whether a request asks to take text
     ["Improve the writing.", "no"],
   ])("%s: %s", (request, answer) => {
     expect(JSON.parse(fakeRemovalAsked(askedOf(request)) ?? "{}")).toEqual({
-      asks_to_remove: answer,
+      asks_for_all: answer,
     });
   });
 
