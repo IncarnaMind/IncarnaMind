@@ -95,7 +95,9 @@ const BREAK_CLAUSE = "Either party may end this lease with 30 days' notice.";
  */
 export function fakeSentenceBatch(options: GenerateOptions): string | null {
   const language = LANGUAGES.find(
-    (each) => systemOf(options.prompt) === sentenceBatchInstructions(each),
+    (each) =>
+      systemOf(options.prompt) === sentenceBatchInstructions(each) ||
+      systemOf(options.prompt) === sentenceBatchInstructions(each, true),
   );
   if (!language) return null;
   const chinese = language === "zh-CN";

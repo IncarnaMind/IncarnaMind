@@ -206,7 +206,7 @@ function figuresReplied(
 /** What a check Run starts from: its sentence, read in its paragraph, beside what it cites. */
 export type CheckStart = Pick<
   ClaimCheckRequest,
-  "claim" | "originalClaim" | "context" | "cited" | "figures"
+  "claim" | "originalClaim" | "context" | "cited" | "figures" | "callIn"
 > & {
   /** Its first turn names the sentence's parts (`ClaimCheckRequest.findParts`). */
   findsParts?: boolean;
@@ -228,6 +228,7 @@ function runStart(request: CheckStart, language: Language, calculating: boolean)
         request.library === true,
         request.claim,
         sentenceItIsPartOf(request.claim, request.originalClaim) !== null,
+        request.callIn !== undefined,
       ),
     prompt: (citedShown: string | null) => claimPrompt({ ...request, citedShown, language }),
   };
