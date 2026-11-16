@@ -46,7 +46,24 @@ export function createFactLedger() {
       if (overviewOmitted === "missing" && reply.overviewOmitted !== null)
         overviewOmitted = reply.overviewOmitted;
       if (reply.overview) overviews.push(reply.overview);
-      const fresh = reply.facts.filter((fact) => {
+      // On a 45-minute call Claude Haiku 5.5 numbered a later part's facts the way an earlier part
+      // had, and 18 were taken for changes to kept facts and left out (#3145): one with another
+      // topic that cites other lines is another fact, kept under an id of its own.
+      const taken = new Set([
+        ...accepted.keys(),
+        ...omitted.keys(),
+        ...retired,
+        ...reply.omittedIds,
+        ...reply.facts.map((fact) => fact.id),
+      ]);
+      const told = reply.facts.map((fact) => {
+        const before = accepted.get(fact.id);
+        if (!before || before.topic === fact.topic || !citeApart(before, fact)) return fact;
+        const id = ownId(fact.id, taken);
+        taken.add(id);
+        return { ...fact, id };
+      });
+      const fresh = told.filter((fact) => {
         const before = accepted.get(fact.id);
         if (before && facts.has(fact.id) && JSON.stringify(before) !== JSON.stringify(fact))
           omitted.set(fact.id, "changed");
@@ -78,6 +95,27 @@ export function createFactLedger() {
       }
     },
   };
+}
+
+/** The lines a fact cites: the Document and the line's place in it, or the quote where it has none. */
+const placesOf = (fact: MeetingFact): string[] =>
+  fact.citations.map(({ attrs }) =>
+    JSON.stringify([attrs?.documentId, attrs?.location ?? attrs?.quote]),
+  );
+
+/** Whether both facts cite, and no line in common. */
+function citeApart(one: MeetingFact, other: MeetingFact): boolean {
+  const places = new Set(placesOf(one));
+  const others = placesOf(other);
+  return places.size > 0 && others.length > 0 && others.every((place) => !places.has(place));
+}
+
+/** An id none of `taken` is, that the reply reader accepts: at most 32 characters. */
+function ownId(id: string, taken: ReadonlySet<string>): string {
+  for (let count = 2; ; count++) {
+    const next = `${id.slice(0, 24)}_${count}`;
+    if (!taken.has(next)) return next;
+  }
 }
 
 /** Whether `fact` replaces, through the facts it replaces in `reply`, itself: neither of a loop is kept. */
