@@ -3554,6 +3554,147 @@ test.each(signProbes.flatMap((probe) => signs.map((sign) => ({ ...probe, sign })
   },
 );
 
+// A sign word counts for a bracketed amount by its sentence, table or heading, not by a reach of
+// 400 characters (#2578). Each case is checked with the amount and with its minus, on the page
+// around a cited quote and on a Passage read whole.
+const OTHER_TERMS = {
+  en: [
+    "The lease runs for five years from the first of March.",
+    "The tenant may sublet the premises with the landlord's written consent, which may not be unreasonably withheld.",
+    "The tenant pays the service charge quarterly in advance.",
+    "The landlord insures the building and recovers the premium from the tenant.",
+    "Either party may end the lease on six months' notice after the third year.",
+    "The landlord returns the deposit within thirty days of the end of the lease, once any rent owing is paid.",
+    "The tenant keeps the premises in good repair and tells the landlord of any damage at once.",
+  ],
+  "zh-CN": [
+    "本合同期限为五年，自三月一日起算，期满可以续签，续签的租金由双方另行协商确定。",
+    "承租人转租房屋须经出租人书面同意，出租人不得无理拒绝，也不得借此提高租金或者另行收取任何费用。",
+    "承租人按季度预付服务费，逾期支付的，应按日向出租人支付违约金，违约金不得超过应付服务费的百分之十。",
+    "出租人为整幢大楼投保，保险费由各承租人按承租面积的比例分摊并按年结算，出租人应当提供保单副本。",
+    "任何一方在合同期限满三年之后，均可提前六个月书面通知对方解除本合同，解除合同不影响已经产生的债权债务。",
+    "出租人应当在承租人交付押金之日起十日内，向承租人出具书面收据，并在合同终止后三十日内退还押金。",
+    "承租人应当妥善使用并爱护租赁房屋及其附属设施，发现损坏的，应当立即书面通知出租人并协助处理。",
+    "出租人有权在提前二十四小时通知承租人后进入租赁房屋检查，遇到紧急情况的，可以无须事先通知。",
+    "出租人更换物业管理公司的，应当提前三十日书面通知承租人，并将新的联系方式一并告知承租人。",
+    "承租人在租赁期间使用的水电燃气费用，由承租人按照实际用量向供应单位直接缴纳并保留缴费凭证。",
+  ],
+} as const;
+
+const SIGN_SCOPE = {
+  en: {
+    far: {
+      sign: "After the write-down the reserve is negative.",
+      amount: "The reserve now stands at ninety-five thousand dollars ($95,000.00).",
+      number: "$95,000.00",
+      shown: "$95,000",
+      claim: (shown: string) => `The amount is ${shown}.`,
+    },
+    other: {
+      sign: "The Landlord is not liable for any loss of business.",
+      amount: "The annual rent is ninety-five thousand dollars ($95,000.00).",
+      number: "$95,000.00",
+      shown: "$95,000",
+      claim: (shown: string) => `The annual rent is ${shown}.`,
+    },
+    before: {
+      sign: "The balance was negative.",
+      amount: "It was ninety-five thousand dollars ($95,000.00).",
+      number: "$95,000.00",
+      shown: "$95,000",
+      claim: (shown: string) => `The amount is ${shown}.`,
+    },
+  },
+  "zh-CN": {
+    far: {
+      sign: "经减值后，该项准备金为负数。",
+      amount: "该项准备金现为人民币九万五千元（¥95,000）。",
+      number: "¥95,000",
+      shown: "¥95,000",
+      claim: (shown: string) => `金额为${shown}。`,
+    },
+    other: {
+      sign: "出租人对任何营业损失不承担责任。",
+      amount: "年租金为人民币九万五千元（¥95,000）。",
+      number: "¥95,000",
+      shown: "¥95,000",
+      claim: (shown: string) => `年租金为${shown}。`,
+    },
+    before: {
+      sign: "余额为负数。",
+      amount: "该金额为人民币九万五千元（¥95,000）。",
+      number: "¥95,000",
+      shown: "¥95,000",
+      claim: (shown: string) => `金额为${shown}。`,
+    },
+  },
+} as const;
+
+describe.each(["en", "zh-CN"] as const)(
+  "%s: a sign word counts for a bracketed amount by its sentence, table or heading (#2578)",
+  (language) => {
+    const verdictOf = async (
+      which: keyof (typeof SIGN_SCOPE)["en"],
+      sign: "amount" | "minus",
+      layout: { between: boolean; cited: boolean },
+    ) => {
+      const probe = SIGN_SCOPE[language][which];
+      const paragraphs = layout.between
+        ? [probe.sign, ...OTHER_TERMS[language], probe.amount]
+        : [probe.sign, probe.amount];
+      const body = paragraphs.join(layout.between ? "\n\n" : language === "en" ? " " : "");
+      // The sign word stands further back than the old reach, with blank lines in sight.
+      if (layout.between) {
+        expect(
+          body.indexOf(probe.amount) - body.indexOf(probe.sign) - probe.sign.length,
+        ).toBeGreaterThan(470);
+      }
+      const shown = `${sign === "minus" ? "-" : ""}${probe.shown}`;
+      const claim = probe.claim(shown);
+      const { result } = await checkWith({
+        claim,
+        figures: [target("f1", shown, claim, language)],
+        body,
+        quotes: layout.cited ? [probe.amount] : undefined,
+        text: reply([
+          {
+            ...item(),
+            source: { citation: 1, number: probe.number, reading: null, unitQuote: null },
+          },
+        ]),
+      });
+      return result.verdict;
+    };
+
+    // protects=a sign word in the paragraph before, however far back and with other paragraphs between, keeps the bracket's minus: a positive amount is Contradicted, the minus is Supported (#2578 box 1); fails_when=a sign word beyond the reach is not seen and the wrong positive sentence is Supported
+    test.each([
+      { layout: { between: true, cited: true }, where: "on the page around a cited quote" },
+      { layout: { between: true, cited: false }, where: "in a Passage read whole" },
+    ])("a sign word far back in the section keeps the minus, $where", async ({ layout }) => {
+      expect(await verdictOf("far", "amount", layout)).toBe("contradicted");
+      expect(await verdictOf("far", "minus", layout)).toBe("supported");
+    });
+
+    // protects=a sign word in the sentence before the amount's that the amount still has keeps the minus (#2578 box 3); fails_when=the next sentence loses the sign
+    test.each([
+      { layout: { between: false, cited: true }, where: "on the page around a cited quote" },
+      { layout: { between: false, cited: false }, where: "in a Passage read whole" },
+    ])("a real sign in the sentence before still keeps the minus, $where", async ({ layout }) => {
+      expect(await verdictOf("before", "amount", layout)).toBe("contradicted");
+      expect(await verdictOf("before", "minus", layout)).toBe("supported");
+    });
+
+    // protects=a loss clause in the next-door sentence that is about something else leaves the rent positive: the correct sentence is Supported, the minus is Contradicted (#2578 box 2); fails_when=a sign word nearby keeps a minus the amount doesn't have
+    test.each([
+      { layout: { between: false, cited: true }, where: "on the page around a cited quote" },
+      { layout: { between: false, cited: false }, where: "in a Passage read whole" },
+    ])("a loss clause about something else keeps no minus, $where", async ({ layout }) => {
+      expect(await verdictOf("other", "amount", layout)).toBe("supported");
+      expect(await verdictOf("other", "minus", layout)).toBe("contradicted");
+    });
+  },
+);
+
 // The figure the Check reads its number from is backed only when every formula behind it was
 // worked out here and gave the value Excel saved (#2347).
 describe.each(["en", "zh-CN"] as const)(
