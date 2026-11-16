@@ -9,7 +9,9 @@
  * `main` on 2026-11-16, each pinned at the recorder with the cells read by `readNumbers`, as the
  * app reads a range. A shape that is not recorded is the designed outcome, not a fault: a text cell
  * in the rows named is never skipped (#2444), and a column of percent points is not a column of
- * fractions. Whether either should change is a decision for the issue, not for these pins.
+ * fractions. The one relaxation: a text pandas reads as missing by default ("n/a", "N/A", "NA",
+ * "nan", "null", "#N/A" ...) counts as an empty cell (#2577, tests/core/analysisPandasMissing.test.ts),
+ * so an "n/a" first month records; a "-" first month does not.
  */
 import { describe, expect, test } from "vitest";
 import { readNumbers } from "../../src/core/analysis/columnNumbers";
@@ -77,6 +79,12 @@ const RECORDED: Recorded[] = [
     shown: "8.0%",
   },
   {
+    name: "an n/a first month, the rows named from the first",
+    cells: firstMonth("n/a", "8%"),
+    value: 0.08,
+    shown: "8.0%",
+  },
+  {
     name: "an n/a first month, the rows named from the second",
     cells: firstMonth("n/a", "8%"),
     value: 0.08,
@@ -86,13 +94,6 @@ const RECORDED: Recorded[] = [
 ];
 
 const NOT_RECORDED: NotRecorded[] = [
-  {
-    name: "an n/a first month, the rows named from the first",
-    cells: firstMonth("n/a", "8%"),
-    value: 0.08,
-    check: "unchecked",
-    reason: `1 cell of growth in the rows it names isn't a number: row 2 "n/a"`,
-  },
   {
     name: "a dash first month, the rows named from the first",
     cells: firstMonth("-", "8%"),
@@ -104,8 +105,8 @@ const NOT_RECORDED: NotRecorded[] = [
     name: "percent points, 8.0, under the fraction 0.08, an n/a first month",
     cells: firstMonth("n/a", "8.0"),
     value: 0.08,
-    check: "unchecked",
-    reason: `1 cell of growth in the rows it names isn't a number: row 2 "n/a"`,
+    check: "differs",
+    reason: "worked out as 8",
   },
   {
     name: "percent points, 8.0, under the fraction 0.08",

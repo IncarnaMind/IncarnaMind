@@ -180,6 +180,13 @@ jobs:
         env:
           INCARNAMIND_TEST_OS_SANDBOX: required
           INCARNAMIND_TEST_VOLUME: /mnt/incarnamind-test-volume
+      # The Python and pandas the app bundles, written as its build writes them (resources/python), for
+      # the test that checks the cells a figure skips against pandas itself (#2577).
+      - name: Build the app's Python
+        run: node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./scripts/tsResolve.mjs -e "import('./scripts/pythonRuntime.ts').then(({ preparePythonRuntime }) => preparePythonRuntime('resources/python'))"
+      - run: npx vitest run tests/main/analysisPandasMissing.test.ts
+        env:
+          INCARNAMIND_TEST_PYTHON_ENGINE: required
 
   # The sweep of a run's leftover processes and the OS sandbox's profile are Seatbelt's, so their
   # tests run only on macOS (ADR-0025); on Linux, bubblewrap ends a run's processes itself.
