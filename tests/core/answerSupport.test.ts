@@ -701,8 +701,10 @@ describe("a check names whether a thing has happened or is still to happen", () 
       `Time: ${time}`,
       SAME_DETAIL,
       `${says} [^1]`,
-      "Covered: the price of two K9 kilns",
-      "Not covered: that they are already installed",
+      // As the form asks, only a reply whose own line differs names the part it doesn't cover.
+      ...(`${roles}${time}`.includes("differs")
+        ? ["Covered: the price of two K9 kilns", "Not covered: that they are already installed"]
+        : []),
     ].join("\n");
 
   test("a supported verdict whose Time differs is no support, in Chinese against an English slide", async () => {
