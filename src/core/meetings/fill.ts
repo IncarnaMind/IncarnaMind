@@ -482,6 +482,8 @@ interface CallPart {
   size: number;
   /** Settles once its reply is in; unset until its request is sent. */
   out?: Promise<void>;
+  /** Sent while parts went side by side: one a rate limit refuses is asked again by itself. */
+  beside?: boolean;
   reply?: { answer: CellAnswer; parsed: FactReply } | { error: unknown };
 }
 
@@ -732,6 +734,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
     };
     const send = (part: CallPart) => {
       asked += 1;
+      part.beside = atOnce > 1;
       place();
       const history = {
         part: asked,
@@ -760,16 +763,25 @@ export function createMeetingFill(options: MeetingFillOptions) {
           },
         );
     };
+    /** A reply that closed no fact and no overview: nothing of it is kept. */
+    const bare = ({ parsed }: { parsed: FactReply }) =>
+      parsed.facts.length === 0 && parsed.overview === null;
     /**
-     * A reply that failed or was cut before it closed a fact or an overview: it holds nothing to
-     * keep in the call's order, so its part needn't wait its turn to fail or be asked again as two.
+     * A reply with nothing to keep whose part is asked again, as two after a cut or by itself after
+     * a rate limit refused it beside others: it needn't wait its turn in the call's order.
      */
-    const empty = ({ reply }: CallPart) =>
+    const again = ({ reply, passages: asked, beside }: CallPart) =>
+      !ended &&
       reply !== undefined &&
-      ("error" in reply ||
-        (reply.parsed.facts.length === 0 &&
-          reply.parsed.overview === null &&
-          (reply.answer.status === "failed" || reply.parsed.cut)));
+      "answer" in reply &&
+      bare(reply) &&
+      (((cutShort(reply.answer) || reply.parsed.cut) && halved(asked) !== null) ||
+        (beside === true && reply.answer.error?.kind === "rate-limit"));
+    /** A reply that ends the sending when its turn comes: no part after it is sent meanwhile. */
+    const failed = (part: CallPart) =>
+      part.reply !== undefined &&
+      !again(part) &&
+      ("error" in part.reply || part.reply.answer.status === "failed");
     for (;;) {
       const [front] = queue;
       if (!front) break;
@@ -780,13 +792,13 @@ export function createMeetingFill(options: MeetingFillOptions) {
       }
       // Replies are kept in the call's order, whatever order they come in: the facts, the parts'
       // overviews and the heading routes are those of the parts asked one after another.
-      const part = queue.find((each, index) => (index === 0 && each.reply) || empty(each));
+      const part = queue.find((each, index) => (index === 0 && each.reply) || again(each));
       if (!part?.reply) {
         // A part is sent once every reply that can be kept has been: its request carries the
         // facts kept so far.
         let room = atOnce - queue.filter((each) => each.out && !each.reply).length;
         for (const each of queue) {
-          if (ended || room <= 0) break;
+          if (ended || room <= 0 || failed(each)) break;
           if (each.out) continue;
           send(each);
           room -= 1;
@@ -813,7 +825,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
       const { answer, parsed } = part.reply;
       // A key whose limit refuses parts side by side may still take them one after another, as
       // every fill went before: the refused part is asked again, and the rest one at a time.
-      if (atOnce > 1 && answer.error?.kind === "rate-limit" && empty(part)) {
+      if (part.beside && answer.error?.kind === "rate-limit" && bare(part.reply)) {
         atOnce = 1;
         queue = queue.map((each) =>
           each === part ? { passages: part.passages, size: part.size } : each,
