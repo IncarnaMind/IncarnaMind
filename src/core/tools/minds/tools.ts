@@ -997,7 +997,7 @@ function notProposed(
   switch (result.kind) {
     case "unchanged":
       return result.said
-        ? `Nothing was changed in “${name}”: the rewrite answered in words of its own instead of new text, and they were not written: “${result.said}”. Nothing was proposed.`
+        ? `Nothing was changed in “${name}”: the rewrite answered in words of its own instead of new text, and they were not written: “${result.said}”. Nothing was proposed and the text is as it was: don't say it was changed, removed or already done. Say what the rewrite said as its words, not as yours.`
         : `No change was needed in “${name}”: the text already does what was asked. Nothing was proposed.`;
     case "has-proposals":
       return new Refusal(

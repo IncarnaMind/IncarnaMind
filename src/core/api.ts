@@ -7346,8 +7346,8 @@ export type EditWithAiResult =
     }
   /**
    * The model gave the text back as it was: there is nothing to propose. `said`: what it wrote
-   * instead, when it named no paragraph and changed none ("I found no typos"), which never goes
-   * into the Mind (#2356).
+   * instead, when it named no paragraph and changed none ("I found no typos"), or its reason when
+   * its whole reply was `<why>`, which never goes into the Mind (#2356, #2589).
    */
   | { kind: "unchanged"; said?: string }
   /** Nothing was sent: the model can't be used now, and `readiness` says why. */
