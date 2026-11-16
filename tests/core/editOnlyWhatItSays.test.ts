@@ -7,7 +7,6 @@
 import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test } from "vitest";
 import type { EditWithAiInput } from "../../src/core";
-import { EDIT_INSTRUCTIONS, EDIT_INSTRUCTIONS_NAMED } from "../../src/core/edits/prompt";
 import { setUpWithDocuments } from "../helpers/citations";
 import { type EditCall, editingModel, type RemovalAnswer, wholeMind } from "../helpers/editing";
 import type { MindClient } from "../helpers/mindClient";
@@ -269,11 +268,5 @@ describe.each(["en", "zh"] as const)("A rewrite that merges two paragraphs (%s)"
 
     expect(result).toMatchObject({ kind: "proposed", held: true });
     expect(shownWithChanges(client)).toEqual([lines[0], MERGED[language], lines[3]]);
-  });
-
-  // protects=the instructions of a request in the User's words tell the model to name the second paragraph of a merge as removed, and those of a fixed task, which names no paragraph, don't; fails_when=the line is missing from the named instructions or leaks into the other; no_claim=how a model reads it.
-  test("the named instructions say how to merge, the others don't", () => {
-    expect(EDIT_INSTRUCTIONS_NAMED).toContain("When you merge two paragraphs into one");
-    expect(EDIT_INSTRUCTIONS).not.toContain("When you merge two paragraphs into one");
   });
 });

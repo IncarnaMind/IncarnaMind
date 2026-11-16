@@ -149,8 +149,6 @@ export const EDIT_INSTRUCTIONS_NAMED = [
     "So to take out a list item, write <removed>- the item, word for word</removed> where it stood, and only that item.",
   ),
   "- Each paragraph of the passage starts with its name, such as ¶1 or ¶2. Write only the paragraphs you change or add, and those the task names to go, each starting with a name copied from the passage, never counted: one you rewrite with the name of the passage's paragraph it replaces, as in ¶3 - The new words; one that goes with its name and then its words, word for word, between <removed> and </removed>, as in ¶4 <removed>- The item</removed>; a new one with ¶+, right after the paragraph it follows, which you write too, as it is. Name a paragraph once at most. A paragraph you don't write stays as it is. Write nothing else: no line on what you did, didn't do or got wrong. When nothing needs to change, your whole reply is <why> alone, such as <why>Nothing needed changing.</why> A backslash before ¶ makes it words of the passage: keep the backslash.",
-  // A merged text with no word of the other old paragraph left it standing beside its new version (#2333).
-  "- When you merge two paragraphs into one, write the merged text with the name of the first, and the second with its name between <removed> and </removed>, word for word, as above: left unnamed it stays beside the merged text, and its words are there twice. Merging is the only time shortening or improving writes <removed>.",
 ].join("\n");
 
 /** For "explain": a few sentences to go under the passage. */
