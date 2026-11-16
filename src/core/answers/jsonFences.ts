@@ -69,3 +69,105 @@ export function withJsonFencesClosed(text: string): string {
   }
   return closed.join("\n");
 }
+
+interface FactFrame {
+  /** The line of the frame's record, and the markers it declares; null when it can't be read. */
+  record: number;
+  declared: number[] | null;
+  written: number[];
+  body: number[];
+}
+
+/** Each fact's or overview's frame in `lines`: its record with the markers it declares, and its sentences' lines with theirs. */
+function framesOf(lines: readonly string[]): FactFrame[] {
+  const frames: FactFrame[] = [];
+  let frame: FactFrame | null = null;
+  let open: string | null = null;
+  lines.forEach((line, index) => {
+    if (FRAME_END.test(line)) {
+      frame = null;
+      open = null;
+    }
+    if (FRAME.test(line)) {
+      frame = { record: -1, declared: null, written: [], body: [] };
+      frames.push(frame);
+      return;
+    }
+    if (!frame) return;
+    if (open !== null) {
+      if (fenceClosedBy(open, line)) open = null;
+      else if (frame.record < 0) {
+        frame.record = index;
+        frame.declared = declaredIn(line);
+      }
+      return;
+    }
+    open = fenceOpened(line);
+    if (open !== null) return;
+    const written = [...line.matchAll(/\[\^(\d{1,4})\]/g)].map((found) => Number(found[1]));
+    if (written.length === 0) return;
+    frame.body.push(index);
+    frame.written = [...new Set([...frame.written, ...written])];
+  });
+  return frames;
+}
+
+function recordOf(json: string): Record<string, unknown> | null {
+  try {
+    const value: unknown = JSON.parse(json);
+    return typeof value === "object" && value !== null && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function declaredIn(json: string): number[] | null {
+  const citations = recordOf(json)?.citations;
+  return Array.isArray(citations) && citations.every((each) => Number.isInteger(each))
+    ? [...new Set(citations as number[])]
+    : null;
+}
+
+const sameNumbers = (one: readonly number[], other: readonly number[]) =>
+  one.length === other.length && one.every((each) => other.includes(each));
+
+/**
+ * `text`, its fences closed, with each Meeting fact's record and sentences naming the same
+ * Citation markers, where the reply shows which of the two is right. A fact is read only with the
+ * markers its record declares, and Claude Haiku 5.5 numbers the two apart in two ways, both after
+ * the instructions' example (a fact with 1, the overview with 2 and 3): a fill then left six of
+ * its seven items out, another seven of eight (#3145).
+ *
+ * - The sentences' markers are no other frame's: a Citation's record goes by the marker in the
+ *   text, so the record declares what its sentences write.
+ * - Several frames write the same marker ([^1] after every fact): a frame's one marker is written
+ *   as the one number its record declares, when that number is no other frame's.
+ *
+ * Anything else is left as written, and that fact is left out as before.
+ */
+export function withMarkersAgreed(text: string): string {
+  const lines = text.split("\n");
+  const frames = framesOf(lines);
+  for (const frame of frames) {
+    const { declared, written } = frame;
+    if (!declared || written.length === 0 || sameNumbers(declared, written)) continue;
+    const others = frames.filter((other) => other !== frame);
+    if (!others.some((other) => written.some((marker) => other.written.includes(marker)))) {
+      const record = recordOf(lines[frame.record] ?? "");
+      if (record) lines[frame.record] = JSON.stringify({ ...record, citations: written });
+      continue;
+    }
+    const [number] = declared;
+    const [marker] = written;
+    if (declared.length !== 1 || written.length !== 1) continue;
+    if (number === undefined || marker === undefined) continue;
+    if (others.some((other) => other.declared?.includes(number) || other.written.includes(number)))
+      continue;
+    for (const index of frame.body) {
+      lines[index] = (lines[index] ?? "").replaceAll(`[^${marker}]`, `[^${number}]`);
+    }
+  }
+  return lines.join("\n");
+}

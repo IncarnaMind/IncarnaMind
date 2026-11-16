@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { withJsonFencesClosed } from "../../src/core/answers/jsonFences";
+import { withJsonFencesClosed, withMarkersAgreed } from "../../src/core/answers/jsonFences";
 
 type Shape = "closed" | "open" | "blank before the fence" | "fence after the sentence";
 
@@ -103,4 +103,102 @@ test.each([
   ["a fence at the end", '```json\n{"a":1}'],
 ])("leaves %s as written", (_, text) => {
   expect(withJsonFencesClosed(text)).toBe(text);
+});
+
+const numbered = (id: string, declared: number[], body: string) =>
+  [
+    id === "OVERVIEW" ? "### OVERVIEW" : `### FACT ${id}`,
+    "```json",
+    JSON.stringify({ topic: id, citations: declared }),
+    "```",
+    body,
+    `### END ${id}`,
+  ].join("\n");
+
+const sentences = {
+  English: (marker: string) => `The fee is 2.5%. ${marker}`,
+  Chinese: (marker: string) => `费用是 2.5%。${marker}`,
+} as const;
+
+// protects=a reply that writes one marker after every fact, as the instructions' example fact has it, while each fact's record declares its own number, has each fact's marker written as that number, in English and Chinese
+test.each(Object.entries(sentences))(
+  "a marker written after every fact becomes the number each fact declares (%s)",
+  (_, sentence) => {
+    const reply = (written: (declared: number) => number) =>
+      [
+        numbered("F1", [1], sentence("[^1]")),
+        numbered("F2", [4], sentence(`[^${written(4)}]`)),
+        numbered("F3", [5], sentence(`[^${written(5)}]`)),
+        numbered("OVERVIEW", [2, 3], `${sentence("[^2]")} ${sentence("[^3]")}`),
+      ].join("\n\n");
+    expect(withMarkersAgreed(reply(() => 1))).toBe(reply((declared) => declared));
+  },
+);
+
+// protects=a record that declares other numbers than its sentences write (the example's 1, then 2 and 3 for the overview, then 4) comes to declare the sentences' markers, when no other frame writes them: a Citation's record goes by the marker in the text
+test.each([
+  [
+    "records numbered after the example, markers counted from 1",
+    [
+      ["F1", [1], [1]],
+      ["F2", [4], [2]],
+      ["F3", [5], [3]],
+      ["OVERVIEW", [2, 3], [4, 5]],
+    ],
+  ],
+  [
+    "the declared number repeated, the markers written right",
+    [
+      ["F1", [1], [1]],
+      ["F2", [1], [2]],
+    ],
+  ],
+  [
+    "a record that declares one marker more than its sentence writes",
+    [
+      ["F1", [1], [1]],
+      ["F2", [15, 3], [15]],
+      ["OVERVIEW", [2, 3], [2, 3]],
+    ],
+  ],
+] as const)("a record comes to declare the markers its sentences write: %s", (_, frames) => {
+  const reply = (declares: "declared" | "written") =>
+    frames
+      .map(([id, declared, written]) =>
+        numbered(
+          id,
+          [...(declares === "declared" ? declared : written)],
+          written.map((marker) => `Said. [^${marker}]`).join(" "),
+        ),
+      )
+      .join("\n\n");
+  expect(withMarkersAgreed(reply("declared"))).toBe(reply("written"));
+});
+
+// protects=a frame is changed only where the reply shows which of its two lists is right: a marker several frames write with two declared numbers, a declared number that is another frame's, a frame with no marker and one whose record can't be read stay as written
+test.each([
+  [
+    "a shared marker under a record that declares two",
+    [numbered("F1", [1], "One. [^1]"), numbered("F2", [4, 5], "Two. [^1] More. [^1]")],
+  ],
+  [
+    "a shared marker whose declared number is another frame's",
+    [
+      numbered("F1", [1], "One. [^1]"),
+      numbered("F2", [4], "Two. [^1]"),
+      numbered("F3", [4], "Three. [^4]"),
+    ],
+  ],
+  [
+    "markers that are the declared ones",
+    [numbered("F1", [1], "One. [^1]"), numbered("F2", [2], "Two. [^2]")],
+  ],
+  ["a frame with no marker", [numbered("F1", [1], "One. [^1]"), numbered("F2", [4], "Two.")]],
+  [
+    "a record that can't be read",
+    [numbered("F1", [1], "One. [^1]"), "### FACT F2\n```json\n{topic}\n```\nTwo. [^2]\n### END F2"],
+  ],
+])("leaves %s as written", (_, frames) => {
+  const reply = frames.join("\n\n");
+  expect(withMarkersAgreed(reply)).toBe(reply);
 });
