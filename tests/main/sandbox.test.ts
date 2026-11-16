@@ -123,6 +123,35 @@ const shell = (script: string, allow: ExecRequest["allow"]["read"] = [WORKING_FO
   signal: new AbortController().signal,
 });
 
+/**
+ * Whether a test may read from a mounted volume here. It is opt-in so that a run on someone's
+ * own Mac never attaches anything: CI's macOS job sets `INCARNAMIND_TEST_ATTACH_VOLUME=1`, and
+ * its Linux job names the tmpfs it mounted in `INCARNAMIND_TEST_VOLUME`, since a test can't
+ * mount one there without root (#2350).
+ */
+const volumeAllowed =
+  process.platform === "darwin"
+    ? process.env.INCARNAMIND_TEST_ATTACH_VOLUME === "1"
+    : process.platform === "linux" && Boolean(process.env.INCARNAMIND_TEST_VOLUME);
+
+/** A volume of this test's own: on macOS a small disk image attached under /Volumes, detached after. */
+async function withVolume(use: (volume: string) => Promise<void>): Promise<void> {
+  if (process.platform === "linux") return use(process.env.INCARNAMIND_TEST_VOLUME ?? "");
+  const run = promisify(execFile);
+  const folder = await mkdtemp(join(tmpdir(), "incarnamind-test-image-"));
+  const name = `incarnamind-test-volume-${process.pid}`;
+  const mountPoint = join("/Volumes", name);
+  try {
+    const image = join(folder, "volume.dmg");
+    await run("hdiutil", ["create", "-size", "2m", "-fs", "HFS+", "-volname", name, image]);
+    await run("hdiutil", ["attach", image, "-mountpoint", mountPoint, "-nobrowse", "-noverify"]);
+    await use(mountPoint);
+  } finally {
+    if (existsSync(mountPoint)) await run("hdiutil", ["detach", mountPoint, "-force"]);
+    await rm(folder, { recursive: true, force: true });
+  }
+}
+
 async function setUp(
   options: {
     denyAlso?: string[];
@@ -805,6 +834,46 @@ console.log(JSON.stringify(results));
         for (const folder of folders) await rm(folder, { recursive: true, force: true });
       }
     });
+
+    test.runIf(volumeAllowed)(
+      "can't read a file on a mounted volume, and its own working folder stays readable and writable",
+      async () => {
+        await withVolume(async (volume) => {
+          const canary = join(volume, "another-app.txt");
+          await writeFile(canary, "VOLUME CANARY");
+          const { executor, skillDir } = await setUp({ tempDir: tmpdir(), readDenied: true });
+          const code = `
+const fs = require("node:fs");
+const [canary, volume] = process.argv.slice(1);
+const results = {};
+const attempt = (name, act) => {
+  try {
+    results[name] = act();
+  } catch (error) {
+    results[name] = error.code ?? String(error);
+  }
+};
+attempt("read a file on the volume", () => fs.readFileSync(canary, "utf8"));
+attempt("list the volume", () => fs.readdirSync(volume).join(","));
+attempt("write its working folder", () => {
+  fs.writeFileSync("made-here.txt", "mine");
+  return fs.readFileSync("made-here.txt", "utf8");
+});
+console.log(JSON.stringify(results));
+`;
+
+          const run = await executor.run(nodeRequest(code, [canary, volume], skillDir));
+
+          expect(run).toMatchObject({ exitCode: 0, timedOut: false });
+          const results = JSON.parse(run.stdout);
+          expect(results["read a file on the volume"]).toMatch(/^E[A-Z]+$/);
+          expect(results["list the volume"]).not.toContain("another-app.txt");
+          expect(results["write its working folder"]).toBe("mine");
+          // The file the script couldn't read is there, outside the sandbox.
+          expect(await readFile(canary, "utf8")).toBe("VOLUME CANARY");
+        });
+      },
+    );
 
     test("an interpreter installed inside a denied folder still starts (pyenv, conda, the app in ~/Applications)", async () => {
       const installRoot = dirname(dirname(await realpath(process.execPath)));

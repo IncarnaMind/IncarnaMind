@@ -168,6 +168,18 @@ jobs:
           key: python-native-${{ runner.os }}-${{ hashFiles('scripts/pythonNative/lock.txt', 'scripts/pythonNative/pins.ts') }}
       - run: npm run python:native -- --out "$RUNNER_TEMP/python-native" --url http://127.0.0.1/ --cache "$RUNNER_TEMP/python-native-cache"
       - run: INCARNAMIND_TEST_PYTHON_RUNTIME="$RUNNER_TEMP/python-native" npx vitest run tests/main/runCode
+      # The sandbox's own tests, here because the unit shards run on a newer image where the
+      # sandbox doesn't start and they are skipped (#2350, #2351). The tmpfs is the volume a script
+      # mustn't read: a test can't mount one without root.
+      - name: Mount a volume for the sandbox test
+        run: |
+          sudo mkdir -p /mnt/incarnamind-test-volume
+          sudo mount -t tmpfs -o size=2m tmpfs /mnt/incarnamind-test-volume
+          sudo chmod 777 /mnt/incarnamind-test-volume
+      - run: npx vitest run tests/main/sandbox.test.ts
+        env:
+          INCARNAMIND_TEST_OS_SANDBOX: required
+          INCARNAMIND_TEST_VOLUME: /mnt/incarnamind-test-volume
 
   # The sweep of a run's leftover processes and the OS sandbox's profile are Seatbelt's, so their
   # tests run only on macOS (ADR-0025); on Linux, bubblewrap ends a run's processes itself.
@@ -187,6 +199,7 @@ jobs:
       - run: npx vitest run tests/main/runLeftovers.test.ts tests/main/runCodeLeftBehind.test.ts tests/main/sandbox.test.ts tests/main/runCode.test.ts
         env:
           INCARNAMIND_TEST_OS_SANDBOX: required
+          INCARNAMIND_TEST_ATTACH_VOLUME: "1"
 
   # Keeps one issue, "Nightly is red", true to this night (scripts/nightlyIssue.ts), and closes it
   # when every nightly is green again. Only a night the schedule started on main reports.
