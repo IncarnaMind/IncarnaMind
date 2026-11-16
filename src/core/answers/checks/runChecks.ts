@@ -37,6 +37,7 @@ import {
 } from "./runCheck";
 import { updateCheck } from "./sentences";
 import { waitLine } from "./waitLine";
+import type { WiderRun } from "./widerRun";
 
 export function pendingParts(
   plans: readonly ClaimPartPlan[],
@@ -379,6 +380,8 @@ export async function runChecks(
     queued: readonly QueuedClaim[];
     /** The limit on checks at once, when the run shares it with checks started before it. */
     slots?: Slots;
+    /** What changes how many of the run's checks go at once, with `slots` (./widerRun). */
+    width?: Pick<WiderRun, "wider" | "onLimit">;
   },
 ): Promise<{ checked: number; stop: RunStop | null }> {
   const { mindId, prepared, signal } = run;
@@ -463,6 +466,7 @@ export async function runChecks(
     {
       ...ran,
       concurrency: atOnce,
+      ...(run.width && { wider: run.width.wider, onLimit: run.width.onLimit }),
       ...(run.requestId !== undefined &&
         options.waiting && {
           onPause: waitLine(ran.timers.now, (until) => options.waiting?.(requestId, until)),

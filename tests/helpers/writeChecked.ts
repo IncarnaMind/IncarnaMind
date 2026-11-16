@@ -1,9 +1,11 @@
 /**
- * The assistant writing cited sentences into a Note, each checked by a scripted model on a scripted
- * key, for the written check's key cells (#2532, #2944): when each check request was sent, which
- * the key refused, and the marks that landed, on a clock the test moves.
+ * The assistant writing cited sentences into a Note, or the User checking a Note of their own,
+ * each sentence checked by a scripted model on a scripted key, for the key cells (#2532, #2944):
+ * when each check request was sent, which the key refused, and the marks that landed, on a clock
+ * the test moves.
  */
 import { vi } from "vitest";
+import type { Core } from "../../src/core";
 import { CLAIM_TIME_LIMIT_MS } from "../../src/core/answers/checks/runCheck";
 import type { PaceTimers } from "../../src/core/sources/pace";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
@@ -13,7 +15,7 @@ import { shownPassages } from "./citations";
 import { createTempDataFolder, startCore } from "./core";
 import { addAndProcess, writeSourceFile } from "./documents";
 import { connectToMind, type MindClient } from "./mindClient";
-import { readMind } from "./minds";
+import { readMind, writeMind } from "./minds";
 import {
   judgesNothing,
   type ModelCall,
@@ -33,14 +35,80 @@ const LINES = Array.from({ length: 30 }, (_, index) => `${words(index + 1)}.`);
 const asChecked = (n: number) => `${words(n)} .`;
 
 const PLANS: Record<string, Plan> = Object.fromEntries(
-  LINES.map((line, index) => [
-    asChecked(index + 1),
-    { verdict: "supported", quote: line, says: line },
-  ]),
+  LINES.flatMap((line, index) => {
+    const plan: Plan = { verdict: "supported", quote: line, says: line };
+    // A written sentence, and the same sentence in a Note the User checks.
+    return [
+      [asChecked(index + 1), plan],
+      [line, plan],
+    ];
+  }),
 );
 
 /** Which of the write's sentences a check request is for, from 1. */
 const numberOf = (call: ModelCall) => Number(/Spring tide (\d+) /.exec(sentenceOf(call))?.[1]);
+
+/** A session on Claude Haiku 5.5 with the tide table in a Folder, every model request `model`'s. */
+async function coast(model: ReturnType<typeof scriptedModel>, timers: PaceTimers) {
+  const core = startCore(await createTempDataFolder(), {
+    createChatModel: scriptedModels(model).createChatModel,
+    paceTimers: timers,
+  });
+  core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
+  await core.updateSettings({ user: { checkAssistantWrites: true } });
+  const saved = await core.saveChatProvider({
+    kind: "anthropic",
+    apiKey: "sk-ant-test",
+    modelId: "claude-haiku-5-5",
+  });
+  for (const flow of ["chat", "checks"] as const) {
+    if (saved.service) await core.allowDataFlow(flow, saved.service.id);
+  }
+  const sources = await createTempDataFolder();
+  const documents = await addAndProcess(core, [
+    await writeSourceFile(sources, "Tides.md", `# Tides\n\n${LINES.join("\n\n")}\n`),
+  ]);
+  const folder = await core.createLibraryGroup({ name: "Coast", description: "" });
+  await core.moveToFolder({ documentIds: documents.map((each) => each.id), folderId: folder.id });
+  return { core, folder };
+}
+
+/**
+ * The User checks a Note of `count` sentences, each its own paragraph, a new Note each time
+ * `check` is called, in one session; each check replies as `PLANS` says, unless `hold` holds or
+ * replaces its reply.
+ */
+async function noteChecked(
+  count: number,
+  hold: (call: ModelCall, reply: ScriptedReply) => ScriptedReply,
+  timers: PaceTimers,
+) {
+  const model = scriptedModel((call) => hold(call, checkReply(call, PLANS)), {
+    generate: judgesNothing,
+  });
+  const { core, folder } = await coast(model, timers);
+  let notes = 0;
+  return {
+    core,
+    /** Check this Note on a new Note of the session, which it gives once checked. */
+    async check(): Promise<MindClient> {
+      notes++;
+      const into = await core.createMind({ title: `Tide notes ${notes}`, folderId: folder.id });
+      const note = await connectToMind(core, into.id);
+      writeMind(
+        note,
+        LINES.slice(0, count).map((line, index) => ({
+          type: "paragraph",
+          attrs: { id: `line-${index + 1}` },
+          content: [{ type: "text", text: line }],
+        })),
+      );
+      await note.settled();
+      await core.checkMind({ requestId: `check-${notes}`, mindId: into.id, mode: "all" });
+      return note;
+    },
+  };
+}
 
 /**
  * The assistant writes `count` cited sentences, each its own paragraph, into a new Note each time
@@ -77,26 +145,7 @@ async function writeChecked(
     },
     { generate: judgesNothing },
   );
-  const core = startCore(await createTempDataFolder(), {
-    createChatModel: scriptedModels(model).createChatModel,
-    paceTimers: timers,
-  });
-  core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
-  await core.updateSettings({ user: { checkAssistantWrites: true } });
-  const saved = await core.saveChatProvider({
-    kind: "anthropic",
-    apiKey: "sk-ant-test",
-    modelId: "claude-haiku-5-5",
-  });
-  for (const flow of ["chat", "checks"] as const) {
-    if (saved.service) await core.allowDataFlow(flow, saved.service.id);
-  }
-  const sources = await createTempDataFolder();
-  const documents = await addAndProcess(core, [
-    await writeSourceFile(sources, "Tides.md", `# Tides\n\n${LINES.join("\n\n")}\n`),
-  ]);
-  const folder = await core.createLibraryGroup({ name: "Coast", description: "" });
-  await core.moveToFolder({ documentIds: documents.map((each) => each.id), folderId: folder.id });
+  const { core, folder } = await coast(model, timers);
   let notes = 0;
   return {
     core,
@@ -264,11 +313,45 @@ export interface KeyWrite {
  * checks them, on a key shaped as `key`: each check request takes `replyMs`, and one the key has
  * no room for is refused as the provider refuses it, an HTTP 429 the AI SDK may send again.
  */
-export async function keyWrites(
+export const keyWrites = (
   count: number,
   replyMs: number,
   key: KeyShape,
   writes = 2,
+): Promise<KeyWrite[]> =>
+  onKey(replyMs, key, false, writes, async (hold, timers) => {
+    const { core, write } = await writeChecked(count, hold, timers);
+    return { core, run: write };
+  });
+
+/**
+ * `checks` Notes of `count` sentences checked with Check this Note, one after another in one
+ * session, on a key shaped as `key`, as `keyWrites` runs a write. With `states`, each reply says
+ * what is left of the key's minute, in Anthropic's headers. A scripted reply's headers come as
+ * its request is sent; a service's come with the reply's first byte.
+ */
+export const keyNotes = (
+  count: number,
+  replyMs: number,
+  key: KeyShape,
+  states: boolean,
+  checks = 2,
+): Promise<KeyWrite[]> =>
+  onKey(replyMs, key, states, checks, async (hold, timers) => {
+    const { core, check } = await noteChecked(count, hold, timers);
+    return { core, run: check };
+  });
+
+/** `runs` runs of what `start` gives, one after another in one session, on a key shaped as `key`. */
+async function onKey(
+  replyMs: number,
+  key: KeyShape,
+  states: boolean,
+  runs: number,
+  start: (
+    hold: (call: ModelCall, reply: ScriptedReply) => ScriptedReply,
+    timers: PaceTimers,
+  ) => Promise<{ core: Core; run(): Promise<MindClient> }>,
 ): Promise<KeyWrite[]> {
   const clock = virtualClock();
   const scripted = scriptedKey(key, replyMs);
@@ -277,36 +360,42 @@ export async function keyWrites(
   let started = 0;
   const order: string[] = [];
   const timeline: string[] = [];
-  const { core, write } = await writeChecked(
-    count,
-    (call, planned) => {
-      const answer = scripted.send(clock.now(), call.results.length);
-      const request = `${numberOf(call)}:${call.results.length}`;
-      order.push(request);
-      timeline.push(`${clock.now() - started} ${request}${answer.fits ? "" : " refused"}`);
-      if (!answer.fits) {
-        refused++;
-        return {
-          error: {
-            status: 429,
-            message: "Rate limit reached.",
-            retryable: true,
-            ...(answer.retryAfter !== null && { retryAfter: String(answer.retryAfter) }),
-          },
-        };
-      }
-      sent++;
-      const given = clock.after(replyMs).then(() => scripted.replied());
-      return { ...planned, pause: { after: 0, until: given } };
-    },
-    clock.timers,
-  );
+  const { core, run } = await start((call, planned) => {
+    const answer = scripted.send(clock.now(), call.results.length);
+    const request = `${numberOf(call)}:${call.results.length}`;
+    order.push(request);
+    timeline.push(`${clock.now() - started} ${request}${answer.fits ? "" : " refused"}`);
+    if (!answer.fits) {
+      refused++;
+      return {
+        error: {
+          status: 429,
+          message: "Rate limit reached.",
+          retryable: true,
+          ...(answer.retryAfter !== null && { retryAfter: String(answer.retryAfter) }),
+        },
+      };
+    }
+    sent++;
+    const given = clock.after(replyMs).then(() => scripted.replied());
+    const stated = states ? scripted.stated(clock.now()) : null;
+    return {
+      ...planned,
+      pause: { after: 0, until: given },
+      ...(stated && {
+        headers: {
+          "anthropic-ratelimit-requests-remaining": String(stated.requests),
+          "anthropic-ratelimit-input-tokens-remaining": String(stated.inputTokens),
+        },
+      }),
+    };
+  }, clock.timers);
   const waits: (number | null)[] = [];
   core.on("rateLimit.waiting", ({ resumesAt }) =>
     waits.push(resumesAt === null ? null : Date.parse(resumesAt) - started),
   );
   const results: KeyWrite[] = [];
-  for (let each = 0; each < writes; each++) {
+  for (let each = 0; each < runs; each++) {
     const before = {
       refused,
       sent,
@@ -316,7 +405,7 @@ export async function keyWrites(
     };
     scripted.newWrite();
     started = clock.now();
-    const note = await clock.until(write);
+    const note = await clock.until(run);
     const marks: Record<string, number> = {};
     for (const mark of marksOf(note).values()) marks[mark] = (marks[mark] ?? 0) + 1;
     results.push({
