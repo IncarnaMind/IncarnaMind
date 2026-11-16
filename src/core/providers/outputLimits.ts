@@ -113,6 +113,16 @@ export function outputTokens(kind: ModelCallKind, count = 1, within?: OwnRoom): 
 }
 
 /**
+ * The most items one request of `kind` has room to answer whole. A request that asks about more
+ * is cut off and nothing of its reply is read, so its caller asks in several.
+ */
+export function itemsInRoom(kind: ModelCallKind): number {
+  const limit: { most: number; each?: number; base?: number } = OUTPUT_LIMITS[kind];
+  if (limit.each === undefined) return Number.POSITIVE_INFINITY;
+  return Math.max(1, Math.floor((limit.most - (limit.base ?? 0)) / limit.each));
+}
+
+/**
  * A reply that reached its call's output limit. `wrote`: it had text before the limit, not only
  * thinking. `usage`: the tokens its provider reported for it, which were spent all the same.
  */
