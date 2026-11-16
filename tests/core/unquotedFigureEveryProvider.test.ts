@@ -265,6 +265,27 @@ describe.each(["DeepSeek, DeepSeek V4.1 Flash", "Anthropic, Claude Haiku 5.5"])(
   });
 });
 
+describe.each(Object.entries(PROVIDERS))("%s", (_, { input, calculates }) => {
+  const OUTPUT = "Mill output\nRegion\tOutput (t)\nNorth\t54,000\n";
+
+  // protects=kilograms beside a number its column heads in tonnes are never a ✓ on any provider though the model calls the sentence supported, and the tonnes the heading names keep theirs where the check isn't offered calculate; fails_when=two units of mass are left to the model, as DeepSeek V4.1 Flash called "54,000 kg" under "Output (t)" supported once in three checks; no_claim=units of a measure the check doesn't convert, and what a provider offered calculate makes of the right sentence
+  test("kilograms under a column headed in tonnes are never Supported", async () => {
+    const ended = async (claim: string) => {
+      const { core } = await setUpWithDocuments(
+        checkingModel({
+          [claim]: { verdict: "supported", quote: "North\t54,000", says: "North\t54,000" },
+        }),
+        [{ name: "Table.txt", contents: OUTPUT }],
+      );
+      await onProvider(core, input);
+      return (await core.checkClaim({ claim })).verdict;
+    };
+
+    expect(await ended("North's output was 54,000 kg.")).not.toBe("supported");
+    if (!calculates) expect(await ended("North's output was 54,000 tonnes.")).toBe("supported");
+  });
+});
+
 describe("On the model on this computer, which the check doesn't offer calculate", () => {
   const SPREADS = "Spreads\nBond\tSpread (bps)\nAlpha\t230\n";
   const LEVIES = "Levies\nItem\tLevy (‰)\nStamp\t5\n";

@@ -2873,3 +2873,87 @@ describe("a part the judge didn't call Supported stays as it said, its Duty and 
     expect(judged?.verdict).not.toBe("supported");
   });
 });
+
+describe("a part's Not covered line names the rest of its sentence, which is checked apart (#3197)", () => {
+  const CASES = [
+    {
+      language: "en" as const,
+      claim:
+        "The reserve fund stood at its target at the end of June, above the level of a year earlier.",
+      first: "The reserve fund stood at its target at the end of June",
+      second: "above the level of a year earlier",
+      quote: "At 30 June the reserve fund was at its target, above a year earlier.",
+      covered: "the reserve fund at its target at the end of June",
+      uncovered: "the comparison with a year earlier (outside this sentence's clause)",
+    },
+    {
+      language: "zh-CN" as const,
+      claim: "六月末储备金达到目标水平，高于上年同期水平。",
+      first: "六月末储备金达到目标水平",
+      second: "高于上年同期水平",
+      quote: "截至六月底，储备金达到目标水平，高于上年同期水平。",
+      covered: "六月末储备金达到目标水平",
+      uncovered: "与上年同期水平的比较（不在本分句内）",
+    },
+  ];
+  const replyOf = (words: string, quote: string, covered: string, uncovered: string) =>
+    [
+      "Verdict: supported",
+      "Absence: no",
+      "Scope: none, same",
+      "Topic: found",
+      `Roles: ${words} / ${quote}, same`,
+      SAME_DETAIL,
+      "The Documents establish this.",
+      "Evidence: [1]",
+      `Covered: ${covered}`,
+      `Not covered: ${uncovered}`,
+    ].join("\n");
+
+  // protects=a part of a longer sentence whose reply names the other part as not covered stays Supported, since that part is checked apart (#3197, #3204); fails_when=the Not covered line takes the part's ✓ away and a right sentence reads Unsupported; no_claim=how often a real model writes such a line (4 of 10 first-part checks on Claude Haiku 5.5)
+  test.each(CASES)(
+    "in $language, the part stays Supported and so does the sentence",
+    async (each) => {
+      const { result } = await check(
+        each.claim,
+        [
+          { kind: "fact", text: each.first },
+          { kind: "fact", text: each.second },
+        ],
+        {
+          [each.first]: {
+            quotes: [each.quote],
+            reply: replyOf(each.first, each.quote, each.covered, each.uncovered),
+            asWritten: true,
+          },
+          [each.second]: { quotes: [each.quote] },
+        },
+        each.language,
+      );
+
+      expect(result.verdict).toBe("supported");
+      expect(result.parts?.map((part) => part.verdict)).toEqual(["supported", "supported"]);
+    },
+  );
+
+  // protects=the same reply on the whole sentence still takes the ✓ away, so a dropped condition named as not covered is still caught (#3197); fails_when=the part-of-a-longer-sentence skip reaches a whole sentence
+  test.each(CASES)(
+    "in $language, the same reply on the whole sentence is Unsupported",
+    async (each) => {
+      const { result } = await check(
+        each.claim,
+        [{ kind: "fact", text: each.claim }],
+        {
+          [each.claim]: {
+            quotes: [each.quote],
+            reply: replyOf(each.claim, each.quote, each.covered, each.uncovered),
+            asWritten: true,
+          },
+        },
+        each.language,
+      );
+
+      expect(result.verdict).toBe("unsupported");
+    },
+  );
+});

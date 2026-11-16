@@ -46,6 +46,7 @@ import {
   type ReadVerdict,
   readsAsRefusal,
   readVerdict,
+  sentenceItIsPartOf,
 } from "./prompt";
 import { checkedTextOf, type UnitGate } from "./unitGate";
 
@@ -149,7 +150,8 @@ export async function figuresVerdict(
     words: string,
     evidence: Citation | null,
   ): Promise<ClaimJudgment> => {
-    const result = figureJudgment(said, evidence, facts(), citedCase(evidence));
+    const partOfLonger = sentenceItIsPartOf(request.claim, request.originalClaim) !== null;
+    const result = figureJudgment(said, evidence, facts(), citedCase(evidence), partOfLonger);
     if (result.verdict !== "contradicted" || !evidence) return result;
     const confirmation = await confirmContradiction(
       { claim: words, model: request.model },
@@ -169,6 +171,7 @@ export async function figuresVerdict(
       evidence,
       facts(),
       citedCase(evidence),
+      partOfLonger,
     );
     // Not upheld, it is Unsupported as a sentence without figures is: its card shows the part
     // the quote states, quoting it, when the reply names that part.
