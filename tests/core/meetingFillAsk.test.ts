@@ -137,7 +137,12 @@ function fillModel({
       const passages = [
         ...call.prompt.matchAll(/<passage id="([^"]+)">\n([\s\S]*?)\n<\/passage>/g),
       ].map((match) => ({ id: match[1] as string, text: match[2] as string }));
-      return { text: JSON.stringify({ citations: ask(answer, passages) }) };
+      const citations = ask(answer, passages);
+      // A record is about 150 tokens: past the request's room the reply ends there, cut off.
+      const room = Math.floor((call.options.maxOutputTokens ?? Number.POSITIVE_INFINITY) / 150);
+      if (citations.length > room)
+        return { text: JSON.stringify({ citations }).slice(0, room * 150), cutOff: true };
+      return { text: JSON.stringify({ citations }) };
     }
     if (call.question !== undefined) throw new Error(`Unexpected question: ${call.question}`);
     const shown = shownPassages(call.prompt);
@@ -774,6 +779,67 @@ describe("the ask for a fill's records (#3099)", () => {
       expect(citationsBeside(client, words.purpose)[0]).toEqual([
         { check: "found", quote: words.purpose },
       ]);
+    } finally {
+      core.close();
+    }
+  });
+
+  // protects=a reply of more Citation markers than one request for records has room to write gets them in several requests, so its facts are kept (#3227); fails_when=the records are asked for in one request, which ends at its limit and is read as nothing: the fill fails with no notes; no_claim=how many tokens a real model writes for a record
+  test("asks for a long reply's records in as many requests as they need room", async () => {
+    const words = WORDS.en;
+    const points = Array.from({ length: 60 }, (_, index) => index + 1);
+    const scripted = fillModel({
+      reply: [
+        "HEADINGS: H1=NONE",
+        ...points.map((n) => fact(`F${n}`, `Point ${n}: ${words.decision}`, n, "decisions")),
+        overview(words.purpose, 61),
+      ].join("\n\n"),
+      ask: recordsFor({
+        ...Object.fromEntries(points.map((n) => [n, words.decision])),
+        61: words.purpose,
+      }),
+    });
+    const { core, client, fill } = await recordedFill("en", scripted);
+    try {
+      const markers = scripted.asked.map((prompt) => prompt.match(/\[\^\d+\]/g)?.length ?? 0);
+      expect(markers).toHaveLength(2);
+      expect(markers.reduce((sum, count) => sum + count, 0)).toBe(61);
+      expect(Math.max(...markers)).toBeLessThanOrEqual(53);
+      expect(fill).toMatchObject({ state: "filled", omitted: 0, unfinishedParts: 0 });
+      const written = readMind(client).textContent;
+      for (const n of points) expect(written).toContain(`Point ${n}: ${words.decision}`);
+      expect(written).toContain(words.purpose);
+    } finally {
+      core.close();
+    }
+  });
+
+  // protects=when one of a long reply's requests for records comes back with nothing, the facts the other request recorded are kept and the rest are counted as left out (#3227); fails_when=one request's failure drops every fact, or the facts without a record are written; no_claim=which request a real service fails
+  test("keeps the facts one request recorded when another gives nothing", async () => {
+    const words = WORDS.en;
+    const points = Array.from({ length: 60 }, (_, index) => index + 1);
+    const all = recordsFor({
+      ...Object.fromEntries(points.map((n) => [n, words.decision])),
+      61: words.purpose,
+    });
+    const scripted = fillModel({
+      reply: [
+        "HEADINGS: H1=NONE",
+        ...points.map((n) => fact(`F${n}`, `Point ${n}: ${words.decision}`, n, "decisions")),
+        overview(words.purpose, 61),
+      ].join("\n\n"),
+      ask: (answer, passages) => (answer.includes("[^1]") ? all(answer, passages) : []),
+    });
+    const { core, client, fill } = await recordedFill("en", scripted);
+    try {
+      expect(scripted.asked).toHaveLength(2);
+      const kept = points.filter((n) =>
+        readMind(client).textContent.includes(`Point ${n}: ${words.decision}`),
+      );
+      expect(kept.length).toBeGreaterThan(40);
+      expect(kept.length).toBeLessThan(60);
+      expect(fill).toMatchObject({ state: "filled", unfinishedParts: 0 });
+      expect(fill.state === "filled" && fill.omitted).toBe(61 - kept.length);
     } finally {
       core.close();
     }
