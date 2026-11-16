@@ -40,6 +40,36 @@ The step as first built went to twelve at the first reply that stated room. Bars
 
 The bars are unchanged.
 
+### Run 2, 2026-11-15: every bar holds
+
+56 cells, two Notes in each, on the changed step and on the commit before it (`check-note-room/run2-after.json`, `before.json`; run 1 is `run1-after.json`). The before arm was run twice and gave the same requests at the same times in every cell.
+
+| Bar | Result |
+|---|---|
+| 1. Silent | holds in all 112 Notes |
+| 2. Stating, stayed at six | holds: the same requests at the same times as before |
+| 3. Went to twelve, nothing refused | holds in 17 Notes |
+| 4. Went to twelve, a request refused | holds in 4 Notes, all on the added key |
+| 5. No new refusal on a minute's bucket | holds |
+
+Where it went to twelve (reply 1.46 s; the two Notes of a cell gave the same times):
+
+| Key | Note | Before ends | After ends | Refused before | Refused after |
+|---|---|---|---|---|---|
+| 2,000,000 or 6,000,000 a minute, bucket holds a minute | 12 sentences | 8.8 s | 5.8 s | 0 | 0 |
+| the same | 30 sentences | 21.9 s | 13.1 s | 0 | 0 |
+| 500,000 a minute, bucket holds a minute | 12 sentences, the first Note (the second, with less of the minute left, stayed at six) | 8.8 s | 5.8 s | 0 | 0 |
+| 6,000,000 a minute, bucket holds a second (the added key) | 12 sentences | 8.8 s | 6.8 s | 0 | 3 |
+| the same | 30 sentences | 21.9 s | 20.0 s | 0 | 3 |
+| a key that never refuses, 1 s a reply | 12 sentences | 6.0 s | 4.0 s | 0 | 0 |
+
+Every mark before lands, after lands, in every cell.
+
+- **The key that failed run 1** (2,000,000 a minute held by the second) now stays at six: the same requests at the same times as before.
+- **The added key** is the one case where twelve brings refusals that six doesn't have: three requests refused, the run back at six from the first, and it still ends sooner than before (2.0 s and 1.9 s). A Note of 30 on it gains little.
+- **Too little room stays at six:** 500,000 a minute with a Note of 30, and 50,000 a minute.
+- Waiting for six large requests costs the first part of the gain: a Note of 12 ends at 5.8 s where widening at the first reply ended at 4.4 s.
+
 ## Part 2: real models, paired (stop US$3.50)
 
 Claude Haiku 5.5 and Claude Sonnet 5.5 on a direct Anthropic key, the timing's `note` flow (10 sentences), English and Chinese, three rounds. Each round runs before and after for each model, the arms alternating in time (before, after, before, after), never one arm in a block. Before is the commit the change sits on; after is the change.

@@ -24,6 +24,7 @@ npm run eval:speed
 - The ChatGPT plan signs in through a browser, which a run can't do: time it by hand in the app.
 - Run it on a quiet computer and say the load: the log gives each run's load average.
 - **Keys that refuse, with no paid request:** `INCARNAMIND_EVAL_SPEED_KEY_CELLS=<file> npm run eval:speed -- eval/speed/keyCells.speed.ts` checks a write on 48 scripted keys shaped as a rate limit, on the test's own clock (`gates/key-cells.md`). The paid gate for twelve checks at once, which these cells dropped, is `gates/check-speed-twelve.md`.
+- **Keys that state their room, with no paid request:** `INCARNAMIND_EVAL_SPEED_ROOM_CELLS=<file> npm run eval:speed -- eval/speed/roomCells.speed.ts` checks a Note on the same scripted keys and on keys of measured size, each stating what is left of its minute and stating nothing. Run on a change and on the commit before it, the two files are what `gates/check-note-room.md` compares.
 
 ## Paired runs
 
