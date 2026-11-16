@@ -143,13 +143,18 @@ test.each([
   expect(prompt).not.toContain("every fact names at least one section");
   expect(prompt).toContain("[] for anything else, which the notes show under its heading");
   expect(prompt).not.toContain("lines lists related ordinary L addresses");
+  expect(prompt).not.toContain("A line that names the call as a whole");
 });
 
-test("with a typed line, lines lists its L address", () => {
+// protects=with a typed line, the model is told a line naming the whole call is listed by no fact, so it collects no pointer for every fact of the call (#3232); fails_when=the sentence leaves the request, or stands where the User typed no ordinary line; no_claim=that a model follows it, which the pull request measures
+test("with a typed line, lines lists its L address, and never a line that names the whole call", () => {
   const prompt = JSON.stringify(
     notesContext([{ marker: "L1", text: "price", heading: false }], "Fill the note").messages,
   );
   expect(prompt).toContain("lines lists related ordinary L addresses");
+  expect(prompt).toContain(
+    "A line that names the call as a whole, such as its title with who took part and what it was to cover, asks about no single fact: never list it",
+  );
   expect(prompt).not.toContain("lines is always []");
 });
 
