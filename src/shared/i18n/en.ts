@@ -2052,7 +2052,7 @@ export const en = {
   "change.rewrote": "Rewrote “{heading}”",
   "change.showOriginal": "Show original",
   "change.hideOriginal": "Hide original",
-  "edit.held": "Waiting for you: this edit removes most of your selection",
+  "edit.held": "Waiting for you: this edit takes text out of your selection",
   "edit.held.apply": "Apply",
   "edit.held.discard": "Discard",
   "edit.kept.paragraphs": "Kept {count} paragraphs the edit left out",

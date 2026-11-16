@@ -1961,7 +1961,7 @@ export const zhCN = {
   "change.rewrote": "重写了“{heading}”",
   "change.showOriginal": "显示原文",
   "change.hideOriginal": "隐藏原文",
-  "edit.held": "等你确认：这次修改会删掉选中的大部分内容",
+  "edit.held": "等你确认：这次修改会删掉选中的一部分内容",
   "edit.held.apply": "应用",
   "edit.held.discard": "放弃",
   "edit.kept.paragraphs": "保留了这次修改漏掉的 {count} 个段落",

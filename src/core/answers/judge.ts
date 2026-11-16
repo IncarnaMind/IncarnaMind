@@ -60,6 +60,7 @@ export const JUDGE_QUESTIONS = [
   "quote-retry",
   "figure-retry",
   "working-text",
+  "removal-asked",
   "restate",
 ] as const satisfies readonly ModelCallKind[];
 
