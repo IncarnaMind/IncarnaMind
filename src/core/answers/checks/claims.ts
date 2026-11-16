@@ -132,10 +132,24 @@ const SORT_INPUT =
 const TABLE_CELLS =
   'A table cell\'s record also names its "row" label and its "column" heading, which say what the cell\'s words are about: a cell that gives a number or an amount for them is a fact. Its parts are still words of its own text field.';
 
+// Checked as a part of its own, "lower than the 1,115 of a year earlier" has lost what is lower:
+// Claude Haiku 5.5 found 1,115 for a year earlier and called it Supported in 9 of 15 checks of
+// the sentence with its direction flipped, and no question put to the part got the direction
+// read (#3219, #3223). Two amounts side by side with no such word stay two parts (#3088). Only a
+// sort is sent this: the fault was measured there, and a check that finds its own parts wasn't.
+const COMPARISON_WITH_ITS_AMOUNT =
+  'A part that says one amount is more or less than another stays with the amount it is about: "Sales were 310, below the 342 of last year" and "销售额为 310 万元，低于上年的 342 万元" are each one factual part, because "below the 342 of last year" alone no longer says what is below it. This holds for higher than, lower than, more than, fewer than, above, below, up from, down from, 高于, 低于, 多于, 少于 and words like them. Two amounts set side by side with no such word ("310, against 342 last year") remain separate parts.';
+
+/** A sort's part rules: the comparison's goes before the last, which says how a part is cut. */
+const sortRules = (library: boolean) => {
+  const rules = library ? LIBRARY_PART_RULES : PART_RULES;
+  return [...rules.slice(0, 4), COMPARISON_WITH_ITS_AMOUNT, ...rules.slice(4)];
+};
+
 const sortParts = (library: boolean) => [
   "Each number is an identifier from the whole document. A batch can contain one sentence or many, and its numbers can start above 1. Copy the supplied numbers unchanged; do not restart numbering or ask for the document in another format.",
   "Decide every sentence, in order. Return every supplied sentence once, using its number. Split it into ordered literal parts that a reader can check separately, without rewriting any words.",
-  ...(library ? LIBRARY_PART_RULES : PART_RULES),
+  ...sortRules(library),
   library
     ? 'Reply with one JSON object and nothing else: {"sentences":[{"number":1,"parts":[{"kind":"fact","text":"exact original words"},{"kind":"opinion","text":"exact original words"}]}]}. Use kind fact, opinion or about-this-text only. Every sentence needs its full part inventory; use an empty parts array only for a heading, greeting, question or other text with no factual assertion, opinion, advice or words about the text itself. Never deduplicate equal sentences.'
     : 'Reply with one JSON object and nothing else: {"sentences":[{"number":1,"parts":[{"kind":"fact","text":"exact original words"},{"kind":"opinion","text":"exact original words"}]}]}. Use kind fact or opinion only. Every sentence needs its full part inventory; use an empty parts array only for a heading, greeting, question or other text with no factual assertion, opinion or advice. Never deduplicate equal sentences.',

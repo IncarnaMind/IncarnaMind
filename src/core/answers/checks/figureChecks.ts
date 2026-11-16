@@ -71,6 +71,8 @@ export interface FigureReplyItem extends ReadVerdict {
 export interface FigureReplyRemainder extends ReadVerdict {
   text: string;
   citation: number | null;
+  /** Its words hold figures of the sentence, as "lower than the 1,115 of a year earlier" does. */
+  holdsFigures: boolean;
 }
 
 export interface FigureReply {
@@ -130,7 +132,13 @@ export function readFigureReply(
   if (line === undefined || line === null) return null;
   const end = line.lastIndexOf("}") + 1;
   if (end === 0 || !/^(?:\s*\[\^[1-9]\d{0,3}\])*\s*$/.test(line.slice(end))) return null;
-  const value = parseJson(line.slice(0, end))?.value;
+  const object = line.slice(0, end);
+  // One closing brace too many after the whole object, and no more than one: Claude Haiku 5.5
+  // closed the remainder's object twice in 5 of 26 replies to a sentence with two figures, each
+  // an ask of the check's two (#3223). Nothing of the object is cut off or made up.
+  const value = (
+    parseJson(object) ?? (object.endsWith("}}") ? parseJson(object.slice(0, -1)) : null)
+  )?.value;
   if (!isRecord(value) || !Array.isArray(value.items) || value.items.length !== figures.length)
     return null;
   const ids = new Set(figures.map((figure) => figure.id));
@@ -214,6 +222,17 @@ export function readFigureReply(
     const raw = value.remainder;
     const judgment = judgmentOf(raw);
     const citation = isRecord(raw) ? optionalCount(raw.citation) : undefined;
+    const held =
+      isRecord(raw) && typeof raw.text === "string"
+        ? readFigures(raw.text, documentFigureContext([{ text: raw.text }]))
+        : [];
+    // A comparison of the sentence's own figures is given with its number, "higher than the
+    // 1,115 of a year earlier", in 47 of 77 replies of Claude Haiku 5.5 to such a sentence
+    // (#3223). Each of those figures is still checked by its own item; any other number in a
+    // remainder would be checked by nothing, so it is refused, and so is the whole sentence
+    // given again, which says nothing its figures' items don't.
+    const requested = new Set(figures.map((figure) => figure.reading.chars));
+    const wholeSentence = (text: string) => text.trim() === claim.trim();
     if (
       isRecord(raw) &&
       judgment &&
@@ -221,9 +240,10 @@ export function readFigureReply(
       raw.text.trim() !== "" &&
       claim.includes(raw.text) &&
       citation !== undefined &&
-      readFigures(raw.text, documentFigureContext([{ text: raw.text }])).length === 0
+      held.every((figure) => requested.has(figure.chars)) &&
+      !(held.length > 0 && wholeSentence(raw.text))
     )
-      parsed.remainder = { ...judgment, text: raw.text, citation };
+      parsed.remainder = { ...judgment, text: raw.text, citation, holdsFigures: held.length > 0 };
   }
   return parsed;
 }

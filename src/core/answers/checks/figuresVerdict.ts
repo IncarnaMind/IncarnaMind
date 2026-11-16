@@ -149,10 +149,12 @@ export async function figuresVerdict(
     said: ReadVerdict,
     words: string,
     evidence: Citation | null,
+    supportReadAgain = false,
   ): Promise<ClaimJudgment> => {
     const partOfLonger = sentenceItIsPartOf(request.claim, request.originalClaim) !== null;
     const result = figureJudgment(said, evidence, facts(), citedCase(evidence), partOfLonger);
-    if (result.verdict !== "contradicted" || !evidence) return result;
+    const readAgain = supportReadAgain && result.verdict === "supported";
+    if ((result.verdict !== "contradicted" && !readAgain) || !evidence) return result;
     const confirmation = await confirmContradiction(
       { claim: words, model: request.model },
       evidence,
@@ -165,7 +167,9 @@ export async function figuresVerdict(
     }
     if (confirmation.kind === "stopped") return unchecked("stopped");
     if (confirmation.kind === "malformed") return unchecked("malformed");
-    if (confirmation.kind === "confirmed") return result;
+    // A contradiction stands when the looks uphold it; a support read again stands when they
+    // find none. Either way the other outcome is Unsupported, never the opposite mark.
+    if ((confirmation.kind === "confirmed") !== readAgain) return result;
     const doubted = figureJudgment(
       { ...said, verdict: "unsupported" },
       evidence,
@@ -243,11 +247,16 @@ export async function figuresVerdict(
       interface: decimalMarkOf({ language: deps.language() }),
     },
     signal,
+    // "lower than the 1,115 of a year earlier" alone has lost what is lower (#3219), so the
+    // looks compare its whole sentence. Whether two matching figures stand the way the sentence
+    // says has no reader but the check's own reply, which took the flipped sentence for right
+    // in 1 check of 18, so that support is read again (#3223).
     remainder: (remainder) =>
       judged(
         remainder,
-        remainder.text,
+        remainder.holdsFigures ? request.claim : remainder.text,
         remainder.citation === null ? null : session.finalCitation(remainder.citation),
+        remainder.holdsFigures,
       ),
   });
   // The reply's own Roles line gives the sentence to someone its Passage doesn't name: each

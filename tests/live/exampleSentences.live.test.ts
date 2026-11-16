@@ -6,7 +6,8 @@
  * its sort included. One JSON line a check, and one for the run, to INCARNAMIND_LIVE_GATE_OUT.
  * Runs only with INCARNAMIND_LIVE_ANTHROPIC_KEY, or with INCARNAMIND_LIVE_GATE_DRY=1, where a
  * scripted judge stands in and nothing is sent. INCARNAMIND_LIVE_GATE_PROVIDER=deepseek runs it on
- * DeepSeek's own API with INCARNAMIND_LIVE_KEY (#3022).
+ * DeepSeek's own API with INCARNAMIND_LIVE_KEY (#3022). INCARNAMIND_LIVE_GATE_WHOLE=1 replaces the
+ * sort's answer by one fact a sentence, to measure a sentence checked whole (#3223).
  */
 import { appendFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -45,6 +46,8 @@ const ROUND = Number(process.env.INCARNAMIND_LIVE_GATE_ROUND ?? "0");
 const GROUPS = (process.env.INCARNAMIND_LIVE_GATE_GROUPS ?? "example,held-out").split(",");
 /** The held-out pairs to run, by the start of their ids ("en-c,zh-c"); all of them when unset. */
 const CASES = process.env.INCARNAMIND_LIVE_GATE_CASES?.split(",");
+/** Every sentence is checked whole: the sort's answer is replaced by one fact a sentence (#3223). */
+const WHOLE = process.env.INCARNAMIND_LIVE_GATE_WHOLE === "1";
 const MODEL =
   (PROVIDER === "deepseek"
     ? process.env.INCARNAMIND_LIVE_MODEL
@@ -302,6 +305,87 @@ const HELD_OUT: readonly HeldOut[] = [
     wrong: "Headcount was 1,240 at the end of June, lower than the 1,115 of a year earlier.",
     parts: ["higher than the 1,115 of a year earlier", "lower than the 1,115 of a year earlier"],
   }),
+  // A comparison whose second half holds no number of its own but the one it is set against,
+  // written before any request of #3223 and not read while its sort rule was fitted.
+  ...pair("en-f1", "comparative", "en", {
+    document:
+      "The annual review covers the group's sites. Visitors to the museum numbered 48,200 in the year, against 52,900 the year before. The trustees approved the review.",
+    right: "The museum had 48,200 visitors in the year, lower than the 52,900 of the year before.",
+    wrong: "The museum had 48,200 visitors in the year, higher than the 52,900 of the year before.",
+    parts: [
+      "lower than the 52,900 of the year before",
+      "higher than the 52,900 of the year before",
+    ],
+  }),
+  ...pair("en-f2", "comparative", "en", {
+    document:
+      "The fleet report is for the year to March. The operator ran 312 buses at the year end, against 287 a year earlier. Fuel costs are set out below.",
+    right: "The operator ran 312 buses at the year end, more than the 287 of a year earlier.",
+    wrong: "The operator ran 312 buses at the year end, fewer than the 287 of a year earlier.",
+    parts: ["more than the 287 of a year earlier", "fewer than the 287 of a year earlier"],
+  }),
+  ...pair("en-f3", "comparative", "en", {
+    document:
+      "The survey was carried out in May. Satisfaction among tenants stood at 78%, against 71% in the previous survey. Responses came from all estates.",
+    right: "Tenant satisfaction was 78%, above the 71% of the previous survey.",
+    wrong: "Tenant satisfaction was 78%, below the 71% of the previous survey.",
+    parts: ["above the 71% of the previous survey", "below the 71% of the previous survey"],
+  }),
+  ...pair("zh-f1", "comparative", "zh-CN", {
+    document: "本报告为年度经营情况说明。全年接待游客 36.5 万人次，上年为 32.8 万人次。详见附表。",
+    right: "全年接待游客 36.5 万人次，高于上年的 32.8 万人次。",
+    wrong: "全年接待游客 36.5 万人次，低于上年的 32.8 万人次。",
+    parts: ["高于上年的 32.8 万人次", "低于上年的 32.8 万人次"],
+  }),
+  ...pair("zh-f2", "comparative", "zh-CN", {
+    document: "本说明涵盖全部在建工程。期末在建项目 47 个，上年末为 53 个。项目明细见附表。",
+    right: "期末在建项目 47 个，少于上年末的 53 个。",
+    wrong: "期末在建项目 47 个，多于上年末的 53 个。",
+    parts: ["少于上年末的 53 个", "多于上年末的 53 个"],
+  }),
+  ...pair("zh-f3", "comparative", "zh-CN", {
+    document: "本次调查于五月完成。客户续约率为 84%，上年为 79%。样本覆盖全部地区。",
+    right: "客户续约率为 84%，高于上年的 79%。",
+    wrong: "客户续约率为 84%，低于上年的 79%。",
+    parts: ["高于上年的 79%", "低于上年的 79%"],
+  }),
+  // Ordinary sentences with no "more or less than" in them, written before any request of #3223
+  // and not read while its sort rule was fitted: a rule that keeps a comparison whole must leave
+  // these as they are sorted today. Each wrong twin has one wrong figure.
+  ...pair("en-g1", "short-note", "en", {
+    document:
+      "The trust's annual report covers the year to March. Income was £4.2 million and spending was £3.9 million. The auditors gave a clean opinion.",
+    right: "Income was £4.2 million and spending was £3.9 million.",
+    wrong: "Income was £4.2 million and spending was £3.6 million.",
+  }),
+  ...pair("en-g2", "short-note", "en", {
+    document:
+      "The clinic's activity report is for the year. Appointments numbered 18,450, against 17,900 the year before. Waiting times are set out below.",
+    right: "The clinic recorded 18,450 appointments, against 17,900 the year before.",
+    wrong: "The clinic recorded 18,450 appointments, against 19,700 the year before.",
+  }),
+  ...pair("en-g3", "short-note", "en", {
+    document:
+      "The lease was signed on 3 May. The rent is £64,000 a year, payable quarterly. The term is ten years.",
+    right: "The rent is £64,000 a year, payable quarterly.",
+    wrong: "The rent is £46,000 a year, payable quarterly.",
+  }),
+  ...pair("zh-g1", "short-note", "zh-CN", {
+    document: "本报告为年度工作总结。全年新签合同 126 份，合同金额 3.8 亿元。详见附表。",
+    right: "全年新签合同 126 份，合同金额 3.8 亿元。",
+    wrong: "全年新签合同 126 份，合同金额 8.3 亿元。",
+  }),
+  ...pair("zh-g2", "short-note", "zh-CN", {
+    document:
+      "本说明为季度经营简报。本季度出货量为 5,400 台，上年同期为 4,950 台。库存情况见下表。",
+    right: "本季度出货量为 5,400 台，上年同期为 4,950 台。",
+    wrong: "本季度出货量为 5,400 台，上年同期为 4,590 台。",
+  }),
+  ...pair("zh-g3", "short-note", "zh-CN", {
+    document: "本合同于三月签订。年租金为 48 万元，按季度支付。租期五年。",
+    right: "年租金为 48 万元，按季度支付。",
+    wrong: "年租金为 84 万元，按季度支付。",
+  }),
   ...pair("zh-e2", "short-note", "zh-CN", {
     document: "期末在职员工 412 人，年初为 389 人。",
     right: "在职员工人数比年初有所增加。",
@@ -512,6 +596,17 @@ function heardReply(params: Params, text: string, calls: readonly HeardCall[] = 
   heard.replies.push({ prompt, sentence, text });
 }
 
+/** A sort's answer with each sentence one fact, whatever the model made of it; null for any other request. */
+function sortedWhole(params: Params): string | null {
+  if (!textOf(params.prompt, "system").startsWith("You sort the sentences")) return null;
+  const { sentences } = JSON.parse(textOf(params.prompt)) as {
+    sentences: { number: number; text: string }[];
+  };
+  return JSON.stringify({
+    sentences: sentences.map(({ number, text }) => ({ number, parts: [{ kind: "fact", text }] })),
+  });
+}
+
 /** The real model, every request counted and every check Run's reply kept. */
 const realModel: NonNullable<Parameters<typeof startCore>[1]>["createChatModel"] = (spec) =>
   wrapLanguageModel({
@@ -528,7 +623,10 @@ const realModel: NonNullable<Parameters<typeof startCore>[1]>["createChatModel"]
           part.type === "tool-call" ? [{ tool: part.toolName, input: part.input }] : [],
         );
         if (text.length > 0 || calls.length > 0) heardReply(params, text.join(""), calls);
-        return result;
+        const unsplit = WHOLE ? sortedWhole(params) : null;
+        return unsplit === null
+          ? result
+          : { ...result, content: [{ type: "text", text: unsplit }] };
       },
       wrapStream: async ({ doStream, params }) => {
         underStop();
@@ -536,9 +634,15 @@ const realModel: NonNullable<Parameters<typeof startCore>[1]>["createChatModel"]
         const result = await Promise.resolve(doStream()).catch(heardFailure);
         let text = "";
         const calls: HeardCall[] = [];
+        const unsplit = WHOLE ? sortedWhole(params) : null;
         const stream = result.stream.pipeThrough(
           new TransformStream({
             transform(part, controller) {
+              if (part.type === "text-delta" && unsplit !== null) {
+                if (text === "") controller.enqueue({ ...part, delta: unsplit });
+                text += part.delta;
+                return;
+              }
               if (part.type === "text-delta") text += part.delta;
               if (part.type === "tool-call") calls.push({ tool: part.toolName, input: part.input });
               if (part.type === "error") heard.failed++;

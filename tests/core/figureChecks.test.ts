@@ -69,6 +69,44 @@ test("a complete same-run reply binds only the exact requested occurrence ids", 
   });
 });
 
+const comparison = "Sales were £20, below the £30 of last year.";
+const compared: CheckFigure[] = readFigures(comparison, { language: "en" }).map((each, index) => ({
+  id: `c${index + 1}`,
+  locator: { kind: "text", from: { blockId: "p", offset: 0 }, to: { blockId: "p", offset: 1 } },
+  reading: each,
+  calculated: null,
+}));
+const comparisonRemainder = (text: string) => ({
+  verdict: "supported",
+  scope: "same",
+  topic: "found",
+  roles: "same",
+  says: null,
+  text,
+  citation: 1,
+});
+
+// protects=a remainder that holds a number is read only when every number in it is a figure the check was asked for, which its own item still checks: the comparison "below the £30 of last year" is read, and marked as holding figures; fails_when=the comparison is refused, so each reply to such a sentence is asked again until the asks run out, or a remainder is read that holds a number no item checks, or the whole sentence given again; no_claim=that the remainder's verdict is right.
+test("a remainder may hold the sentence's own requested figures, and no other number (#3223)", () => {
+  const both = [item("c1"), item("c2")];
+  const read = (remainder: string, asked = compared, items = both) =>
+    readFigureReply(asSent(reply(items, comparisonRemainder(remainder)), asked), asked, comparison);
+
+  expect(compared).toHaveLength(2);
+  expect(read("below the £30 of last year")?.remainder).toMatchObject({
+    text: "below the £30 of last year",
+    holdsFigures: true,
+  });
+  expect(read("below")?.remainder).toMatchObject({ holdsFigures: false });
+  expect(read(comparison)).toMatchObject({ items: [{ id: "c1" }, { id: "c2" }] });
+  expect(read(comparison)?.remainder).toBeUndefined();
+  const onlyFirst = compared.slice(0, 1);
+  expect(read("below the £30 of last year", onlyFirst, [item("c1")])).toMatchObject({
+    items: [{ id: "c1" }],
+  });
+  expect(read("below the £30 of last year", onlyFirst, [item("c1")])?.remainder).toBeUndefined();
+});
+
 test.each([
   { name: "missing", items: [] },
   { name: "unknown", items: [item("unknown")] },
