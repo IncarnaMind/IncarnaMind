@@ -495,21 +495,25 @@ export function figuresByPart(
 
 /**
  * `plans` with every figure of the sentence inside a fact (#1932): opinions can surround a number,
- * but the number is a checkable fact, so a figure the sort left in an opinion becomes a fact inside
- * it, and the opinion stays one, counted and shown once (#2002). A figure between parts, or across
- * one's edge, joins the facts it touches, and an opinion keeps only its words outside them. A
- * sentence whose figures can't be placed, and that has no fact, is one fact, as before sentences
- * had parts. One the sort says asserts nothing (a heading, a question) stays so: its numbers say
- * nothing either.
+ * but the number is a checkable fact, so a figure the sort left in an opinion beside its facts
+ * becomes a fact inside it, and the opinion stays one, counted and shown once (#2002). A figure
+ * between parts, or across one's edge, joins the facts it touches, and an opinion keeps only its
+ * words outside them. A sentence with figures that the sort gives no fact is one fact: checked as
+ * its digits alone, the words that say what they count, a duty among them, went unjudged, and the
+ * digits' Supported stood for the sentence (#2184), unless `selected`: an opinion the User picked to
+ * check alone keeps its row and its figure as a fact inside it. One the sort says asserts nothing
+ * (a heading, a question) stays so: its numbers say nothing either.
  */
 export function withFigureFacts(
   sentence: string,
   plans: readonly ClaimPartPlan[],
   figures: readonly CheckFigure[],
   projection?: InlineTextProjection,
+  selected = false,
 ): readonly ClaimPartPlan[] {
   if (figures.length === 0 || plans.length === 0) return plans;
   const whole: ClaimPartPlan[] = [{ kind: "fact", span: { start: 0, end: sentence.length } }];
+  if (!selected && !plans.some((plan) => plan.kind === "fact")) return whole;
   const spans: ClaimPartSpan[] = [];
   for (const figure of figures) {
     const span =

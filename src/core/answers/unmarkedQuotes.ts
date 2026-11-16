@@ -41,7 +41,7 @@ import { answerSentences, MARKER, withoutMarkerRuns } from "../../shared/answerS
 import { FIGURE_MARKER } from "../../shared/figureMarkers";
 import { sentenceSpans } from "../../shared/sentences";
 import { detectLanguage, LANGUAGE_SAMPLE } from "../documents/textLanguage";
-import { outputTokens } from "../providers/outputLimits";
+import { itemsInRoom, outputTokens } from "../providers/outputLimits";
 import type { AnswerEngineEvent, AnswerRequest, AnswerTools } from "./engine";
 import type { AskedLine } from "./helpCitations";
 import { fenceClosedBy, fenceOpened } from "./jsonFences";
@@ -748,10 +748,31 @@ function takingCopiedMarkers(
 }
 
 /**
+ * A reply's marked lines (`marked`), in runs that each ask for no more records than one request
+ * has room to write. One request for a reply of 76 markers was cut off at its limit, nothing of it
+ * was read, and the fill failed with every fact left out (#3227).
+ */
+function linesByRoom(marked: string): string[] {
+  const room = itemsInRoom("unmarked-quotes");
+  const runs: string[][] = [];
+  let held = 0;
+  for (const line of marked.split("\n\n")) {
+    const items = BY_MARKER.items(line);
+    if (runs.length === 0 || (held > 0 && held + items > room)) {
+      runs.push([]);
+      held = 0;
+    }
+    runs.at(-1)?.push(line);
+    held += items;
+  }
+  return runs.map((lines) => lines.join("\n\n"));
+}
+
+/**
  * A Meeting fill's reply that wrote its Citation markers and called no `cite` (#3099): their
- * records, asked for once in the one request for an Answer's Citations, an item for each marker
- * (#3145), of the model that wrote the reply. A record takes only a marker with none, and only a
- * quote the check finds is kept.
+ * records, asked for in the request for an Answer's Citations, an item for each marker (#3145), of
+ * the model that wrote the reply, in as many requests as the records need room. A record takes
+ * only a marker with none, and only a quote the check finds is kept.
  */
 export async function recordMarkedSentences(
   request: Pick<AnswerRequest, "model" | "ownQuickModel" | "documents" | "signal">,
@@ -764,16 +785,22 @@ export async function recordMarkedSentences(
   const passages = documents.shownPassages();
   const sentences = markedLines(reply);
   if (passages.length === 0 || sentences === "") return;
-  // The fill read every Passage of its part whole: only a window limits what the request shows.
-  const toAsk = budget ? passagesToAsk(sentences, passages, budget, BY_MARKER) : passages;
-  if (toAsk.length === 0) return;
-  const given = await askForCitations(
-    { model: request.model, signal, ...(ownQuickModel && { quickModel: ownQuickModel }) },
-    sentences,
-    toAsk,
-    temperature,
-    BY_MARKER,
-  );
+  const given = (
+    await Promise.all(
+      linesByRoom(sentences).map((lines) => {
+        // The fill read every Passage of its part whole: only a window limits what a request shows.
+        const toAsk = budget ? passagesToAsk(lines, passages, budget, BY_MARKER) : passages;
+        if (toAsk.length === 0) return [];
+        return askForCitations(
+          { model: request.model, signal, ...(ownQuickModel && { quickModel: ownQuickModel }) },
+          lines,
+          toAsk,
+          temperature,
+          BY_MARKER,
+        );
+      }),
+    )
+  ).flat();
   if (signal.aborted) return;
   const found = given.filter((each) => documents.quoteFound?.(each.passage, each.quote) ?? false);
   const recorded = (marker: number) => documents.hasRecord?.(marker) ?? false;

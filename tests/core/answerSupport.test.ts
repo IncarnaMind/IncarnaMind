@@ -1045,6 +1045,126 @@ describe("a figure in the words a sentence quotes is stated by its Citation", ()
   });
 });
 
+describe("a table's row, judged as one line, carries onto its cells in a Note (#3214)", () => {
+  const AMOUNT = "合同总金额为人民币 860,000 元，分四期支付。";
+  const CASES = [
+    {
+      language: "English",
+      question: "How much does the kiln upgrade cost, and when is it installed?",
+      keywords: "kilns installed cost",
+      text: [
+        "| Item | Detail |",
+        "| --- | --- |",
+        "| Cost | £185,000 for two K9 kilns [^1] |",
+        "| Installation | February 2027 [^2] |",
+      ].join("\n"),
+      documents: [KILN_DECK],
+      passages: [COST, INSTALLATION],
+      cells: ["£185,000 for two K9 kilns", "February 2027"],
+    },
+    {
+      language: "Chinese",
+      question: "《供应商合同》的金额和期限是什么？",
+      keywords: "供应商合同",
+      text: [
+        "| 项目 | 内容 |",
+        "| --- | --- |",
+        "| 金额 | 合同总金额为人民币 860,000 元，分四期支付 [^1] |",
+        "| 期限 | 合同有效期至 2027 年 12 月 31 日 [^2] |",
+      ].join("\n"),
+      documents: [CONTRACT],
+      passages: [AMOUNT, TERM],
+      cells: ["合同总金额为人民币 860,000 元，分四期支付", "合同有效期至 2027 年 12 月 31 日"],
+    },
+  ];
+
+  /** The Note an Answer's Add to note makes, read as the Note's own check reads it. */
+  async function noteOf(
+    each: (typeof CASES)[number],
+    verdicts: ("supported" | "unsupported" | "contradicted")[],
+  ) {
+    const rows = citedSentences(each.text).map((cited) => cited.sentence);
+    const plans: Record<string, Plan> = {};
+    rows.forEach((row, index) => {
+      const verdict = verdicts[index] ?? "supported";
+      plans[row] =
+        verdict === "supported"
+          ? { verdict, quote: each.passages[index] ?? "", says: row }
+          : verdict === "contradicted"
+            ? {
+                verdict,
+                quote: each.passages.at(-1) ?? "",
+                says: "The Document gives another date.",
+              }
+            : { verdict, says: "The Document says otherwise." };
+    });
+    const { core, client } = await setUpWithDocuments(
+      answeringModel(each.keywords, each.text, each.passages, plans),
+      each.documents,
+    );
+    const answer = await (await askedAnswer(core, each.question)).judged();
+    const carried = withAnswerChecks(
+      pageBlocks(answer, each.question),
+      answer,
+      each.question,
+      null,
+    );
+    writeMind(client, carried);
+    await client.settled();
+    const claims = claimsOf(readMind(client), {
+      footing: "not-yet-known",
+      versions: null,
+      folderId: null,
+      scope: null,
+    }).claims;
+    return { rows, claims, answer };
+  }
+
+  // protects=a table row the Answer's judgement settled Supported is Supported on the cell holding its Citation in the Note, so the Note's own check doesn't judge it again; fails_when=the row's verdict is keyed to the row's words, which no cell has (0 of 2 carried)
+  test.each(CASES)("each row's verdict reaches its cell, in $language", async (each) => {
+    const { rows, claims, answer } = await noteOf(each, []);
+
+    expect(rows).toHaveLength(2);
+    expect(answer.citations).toMatchObject([{ check: "found" }, { check: "found" }]);
+    expect(claims.map((claim) => [claim.sentence.text, claim.shown.state])).toEqual([
+      [each.cells[0], "supported"],
+      [each.cells[1], "supported"],
+    ]);
+  });
+
+  // protects=a row of two cited cells that is not Supported marks neither: the judgement read the row as one line, so it can't say which cell is wrong, and a right price cell must not read Contradicted for a wrong date (#3214); fails_when=the row's verdict is copied to every cited cell
+  const TWO_CITED_CELLS = [
+    [
+      "| Item | Price | Date |",
+      "| --- | --- | --- |",
+      "| Kilns | £185,000 for two K9 kilns [^1] | Installed in February 2027 [^2] |",
+    ],
+    [
+      "| 项目 | 金额 | 期限 |",
+      "| --- | --- | --- |",
+      "| 合同 | 合同总金额为人民币 860,000 元，分四期支付 [^1] | 合同有效期至 2027 年 12 月 31 日 [^2] |",
+    ],
+  ];
+  test.each(
+    CASES.map((each, index) => ({ ...each, text: (TWO_CITED_CELLS[index] ?? []).join("\n") })),
+  )(
+    "a row of two cited cells judged Contradicted marks neither cell, in $language",
+    async (each) => {
+      const { claims, answer } = await noteOf(each, ["contradicted"]);
+
+      expect(answer.citations.map((citation) => citation.check)).toContain("contradicted");
+      expect(claims.map((claim) => [claim.sentence.text, claim.shown.state])).toEqual([]);
+    },
+  );
+
+  // protects=a row the judgement settled Unsupported is Unsupported on its cell, never Supported (#3214); fails_when=an unsupported row's cell reads Supported or unchecked
+  test.each(CASES)("a row judged Unsupported carries that, in $language", async (each) => {
+    const { claims } = await noteOf(each, ["unsupported", "supported"]);
+
+    expect(claims.map((claim) => claim.shown.state)).toEqual(["unsupported", "supported"]);
+  });
+});
+
 describe("the sentences of an Answer its check reads", () => {
   test("a table's row and a sentence with a Calculated figure are told apart from an ordinary cited sentence", () => {
     const text = [

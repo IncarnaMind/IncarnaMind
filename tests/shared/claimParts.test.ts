@@ -1229,30 +1229,105 @@ describe("a figure the sort leaves outside a fact", () => {
   test.each([
     ["Sadly the £5m and £6m deals are a disaster.", "£5m", "£6m"],
     ["可惜500万英镑和600万英镑的交易是一场灾难。", "500万英镑", "600万英镑"],
-  ])("keeps one opinion whole around its numbers, each a fact inside it: %s", (sentence, a, b) => {
+  ])(
+    "a sentence the sort gives no fact, with numbers in it, is one fact (#2184): %s",
+    (sentence, a, b) => {
+      expect(
+        words(
+          sentence,
+          withFigureFacts(
+            sentence,
+            [{ kind: "opinion", span: span(sentence, sentence.slice(0, -1)) }],
+            [figure(sentence, a), figure(sentence, b)],
+            plain(sentence),
+          ),
+        ),
+      ).toEqual([["fact", sentence]]);
+    },
+  );
+
+  test.each([
+    ["Revenue rose, and sadly the £5m and £6m deals are a disaster.", "£5m", "£6m"],
+    ["收入增长了，可惜500万英镑和600万英镑的交易是一场灾难。", "500万英镑", "600万英镑"],
+  ])(
+    "keeps an opinion beside a fact whole around its numbers, each a fact inside it: %s",
+    (sentence, a, b) => {
+      const fact = sentence.startsWith("Revenue") ? "Revenue rose" : "收入增长了";
+      const opinion = sentence.slice(sentence.search(/sadly|可惜/), -1);
+      const plans = withFigureFacts(
+        sentence,
+        [
+          { kind: "fact", span: span(sentence, fact) },
+          { kind: "opinion", span: span(sentence, opinion) },
+        ],
+        [figure(sentence, a), figure(sentence, b)],
+        plain(sentence),
+      );
+      expect(words(sentence, plans)).toEqual([
+        ["fact", fact],
+        ["opinion", opinion],
+        ["fact", a],
+        ["fact", b],
+      ]);
+      expect(readPartPlans(plans, sentence)).toEqual(plans);
+      expect(
+        figuresByPart(
+          sentence,
+          plans,
+          [figure(sentence, a), figure(sentence, b)],
+          plain(sentence),
+        )?.map((owned) => owned.map(({ reading }) => reading.chars)),
+      ).toEqual([[], [], [a], [b]]);
+      expect(withFigureFacts(sentence, plans, [figure(sentence, a)], plain(sentence))).toEqual(
+        plans,
+      );
+    },
+  );
+
+  // protects=an opinion the User picked to check alone (Check anyway) keeps its row, its figures facts inside it, as before a sentence with no fact was one fact (#2184); fails_when=the selected span no longer matches a part and Check anyway fails as malformed
+  test.each([
+    ["Sadly the £5m and £6m deals are a disaster.", "£5m", "£6m"],
+    ["可惜500万英镑和600万英镑的交易是一场灾难。", "500万英镑", "600万英镑"],
+  ])("a selected opinion keeps its row around its numbers: %s", (sentence, a, b) => {
     const opinion = sentence.slice(0, -1);
-    const plans = withFigureFacts(
-      sentence,
-      [{ kind: "opinion", span: span(sentence, opinion) }],
-      [figure(sentence, a), figure(sentence, b)],
-      plain(sentence),
-    );
-    expect(words(sentence, plans)).toEqual([
+    expect(
+      words(
+        sentence,
+        withFigureFacts(
+          sentence,
+          [{ kind: "opinion", span: span(sentence, opinion) }],
+          [figure(sentence, a), figure(sentence, b)],
+          plain(sentence),
+          true,
+        ),
+      ),
+    ).toEqual([
       ["opinion", opinion],
       ["fact", a],
       ["fact", b],
     ]);
-    expect(readPartPlans(plans, sentence)).toEqual(plans);
-    expect(
-      figuresByPart(
-        sentence,
-        plans,
-        [figure(sentence, a), figure(sentence, b)],
-        plain(sentence),
-      )?.map((owned) => owned.map(({ reading }) => reading.chars)),
-    ).toEqual([[], [a], [b]]);
-    expect(withFigureFacts(sentence, plans, [figure(sentence, a)], plain(sentence))).toEqual(plans);
   });
+
+  // protects=a duty the sort calls an opinion, with a number in it, is one fact, so its number's Supported doesn't stand for a "should" the Document writes "may" (#2184); fails_when=the number alone is the fact and the words that say what it counts go unjudged
+  test.each([
+    ["Up to 5 unused days should be carried over into the next year.", "5"],
+    ["最多5天未休年假应当结转到下一年。", "5"],
+  ])(
+    "a duty the sort calls an opinion is checked whole, not as its number: %s",
+    (sentence, number) => {
+      expect(
+        words(
+          sentence,
+          withFigureFacts(
+            sentence,
+            [{ kind: "opinion", span: span(sentence, sentence.slice(0, -1)) }],
+            [figure(sentence, number)],
+            plain(sentence),
+          ),
+        ),
+      ).toEqual([["fact", sentence]]);
+    },
+  );
 
   test("a figure between parts is a fact of its own, and one already in a fact stays there", () => {
     const sentence = "Costs rose by £5m and we like it.";

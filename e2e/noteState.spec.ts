@@ -45,7 +45,7 @@ const SUPPORTED = "Spring tides happened 12 times in 2026.";
 
 const WORDS = {
   en: {
-    notChecked: "Not checked",
+    notChecked: "1 sentence not checked yet",
     look: "1 needs a look",
     checked: "Checked ",
     checkFirst: "1 sentence not checked yet · Check first",
@@ -54,7 +54,7 @@ const WORDS = {
     checking: /\d+ being checked/,
   },
   "zh-CN": {
-    notChecked: "未核对",
+    notChecked: "1 句待核对",
     look: "需要留意 1 处",
     checked: "已核对 ",
     checkFirst: "1 句待核对 · 先核对",
@@ -398,8 +398,12 @@ for (const language of ["en", "zh-CN"] as const) {
       await citeTides(window, READABLE);
       await expect(window.getByTestId("claim-mark")).toHaveAttribute("data-check", "supported");
       const allDone = await checkCard(window);
+      // The badge names the files beside its time, so the card's head says that line, not
+      // "Everything checked", which isn't true of this Note (#3212).
       await expect(allDone.getByTestId("health-all-checked")).toHaveText(
-        language === "en" ? "Everything checked" : "已全部核对",
+        language === "en"
+          ? /^Checked .+ · 3 files couldn’t be read$/
+          : /^已核对 .+ · 3 个文件未能读取$/,
       );
       await expect(allDone.getByTestId("health-supported")).toContainText(
         language === "en" ? "1 supported" : "1 句有依据",

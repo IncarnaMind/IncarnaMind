@@ -610,3 +610,43 @@ describe("A paragraph's lines are read as one before its sentences are split (#3
     ]);
   });
 });
+
+describe("a table row's cells (#3214)", () => {
+  const TABLE = [
+    "| Item | Price | Date |",
+    "| --- | --- | --- |",
+    "| Kilns | £185,000 for two K9 kilns [^1] | Installed in February 2027 [^2] |",
+    "| Delivery | Weekly, by road from the Stoke site | Every Monday |",
+  ].join("\n");
+
+  test("each cell that holds a Citation, under its own words; a row with none has none", () => {
+    const found = citedSentences(TABLE);
+
+    expect(found.map(({ cells }) => cells)).toEqual([
+      [
+        { sentence: "£185,000 for two K9 kilns", markers: [1] },
+        { sentence: "Installed in February 2027", markers: [2] },
+      ],
+    ]);
+  });
+
+  test("a sentence that is not a row has no cells", () => {
+    expect(citedSentences("The kilns cost £185,000 [^1].").map(({ cells }) => cells)).toEqual([[]]);
+  });
+
+  test("an escaped pipe stays in its cell, as the Note has it", () => {
+    const row = "| Kilns | Cost \\| installed £185,000 for two K9 kilns [^1] |";
+
+    expect(citedSentences(row).map(({ cells }) => cells)).toEqual([
+      [{ sentence: "Cost | installed £185,000 for two K9 kilns", markers: [1] }],
+    ]);
+  });
+
+  test("a Chinese row's cell is read as a Chinese sentence", () => {
+    const row = "| 金额 | 合同总金额为人民币 860,000 元，分四期支付 [^1] |";
+
+    expect(citedSentences(row).map(({ cells }) => cells)).toEqual([
+      [{ sentence: "合同总金额为人民币 860,000 元，分四期支付", markers: [1] }],
+    ]);
+  });
+});
