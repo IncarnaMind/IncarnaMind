@@ -2078,6 +2078,7 @@ export function mindTools(options: MindToolsOptions): {
       unsettled.set(toolCallId, {
         mindId: writer.mind.id,
         ids: writer.ids,
+        written: textsOf(writer.mind.id, writer.ids),
         markdown,
         change: () => changeOf(writer, made),
         sent: change,
@@ -2254,12 +2255,37 @@ export function mindTools(options: MindToolsOptions): {
   const checkNotes = (checked: WrittenCheck | null, written: Pick<Written, "unrecorded">) =>
     minds.checksWritten() ? checkingNotes(isChecked(checked, written)) : NOT_CHECKED_NOTES;
 
+  /** A top-level Block's words, as one text: what tells whether it is as a write left it. */
+  const textOfBlock = (element: Y.XmlElement): string => {
+    const words: string[] = [];
+    const visit = (node: NodeJSON) => {
+      if (node.type === "text") words.push(node.text ?? "");
+      node.content?.forEach(visit);
+    };
+    visit(nodeOf(element));
+    return words.join("");
+  };
+
+  /** What the Blocks `ids` of a Mind say now, by id. */
+  const textsOf = (mindId: string, ids: readonly string[]): ReadonlyMap<string, string> =>
+    minds.read(
+      mindId,
+      (note) =>
+        new Map(
+          topLevelBlocks(note).flatMap((element) =>
+            ids.includes(idOf(element)) ? [[idOf(element), textOfBlock(element)] as const] : [],
+          ),
+        ),
+    );
+
   /** By call: text written with markers `cite` hadn't recorded yet. */
   const unsettled = new Map<
     string,
     {
       mindId: string;
       ids: readonly string[];
+      /** What each of its Blocks said as the write left it: a Block that says another thing since was revised, and keeps it. */
+      written: ReadonlyMap<string, string>;
       markdown: string;
       change(): MindChange;
       /** What the call's card said as it was written, its notes among it. */
@@ -2320,6 +2346,8 @@ export function mindTools(options: MindToolsOptions): {
         const at = each.ids.indexOf(id);
         const block = blocks[at];
         if (at < 0 || !block) continue;
+        // Revised since by a later call or by the User: its Citations are no business of this write's text.
+        if (each.written.get(id) !== textOfBlock(element)) continue;
         syncContent(element, block.content ?? []);
         found.ids.push(id);
         found.blocks.push(block);
@@ -2629,6 +2657,7 @@ export function mindTools(options: MindToolsOptions): {
       unsettled.set(toolCallId, {
         mindId: mind.id,
         ids,
+        written: textsOf(mind.id, ids),
         markdown: alone.markdown,
         change: revision,
         sent: change,

@@ -848,6 +848,7 @@ export function createEdits(options: EditsOptions) {
             leftOut: keepsLeftOut ? "keep" : "remove",
             named,
             removesOnly: ask.removesOnly === true,
+            addsNothing: ask.action === "shorten" || ask.action === "improve",
           },
         );
     let held = false;
@@ -919,7 +920,7 @@ export function createEdits(options: EditsOptions) {
       });
     const appliesNow = () =>
       explain ||
-      ask.action === "translate" ||
+      (ask.action === "translate" && !(stream && holdsBack(stream))) ||
       (stream ? stream.extent().mapped && !holdsBack(stream) : false);
     /** What it wrote holds a Citation, footnote or figure its reply didn't place (#2424). */
     let unplaced: Unplaced | null = null;

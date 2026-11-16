@@ -2527,11 +2527,14 @@ export function createRewriteStream(
     leftOut: onLeftOut = "remove",
     named = false,
     removesOnly = false,
+    addsNothing = false,
   }: {
     leftOut?: "keep" | "remove";
     named?: boolean;
     /** The request asks only for text to go (#2356). */
     removesOnly?: boolean;
+    /** The task adds no paragraph (Shorten, Improve): a plain line that says none of the selection's words is the model's talk (#2333). */
+    addsNothing?: boolean;
   } = {},
 ) {
   const { proposals, next } = proposalsOf(request, newId);
@@ -2625,6 +2628,11 @@ export function createRewriteStream(
       [...(ownWords.get(segment) ?? [])].some((word) => !isAmount(word)) ||
       newCharsOf(paragraph.tokens, true).chars === asWritten[index]
     );
+  };
+  /** Says under half of the words of every one of the selection's paragraphs, and reads like none. */
+  const saysNothingOfTheirs = (paragraph: NewParagraph) => {
+    const { cover, alike } = nearnessOf(paragraph);
+    return cover.every((each) => each < MOST_OF_IT) && alike.every((each) => each < MOVED_LIKENESS);
   };
   /** Much like one of the selection's paragraphs, whichever it is. */
   const resembles = (paragraph: NewParagraph) =>
@@ -2738,8 +2746,10 @@ export function createRewriteStream(
     const strike = (segment: Segment) =>
       markRemoved(segment.element, segment.start, segment.end, next(targetOf(segment.tokens)));
     for (const segment of gone) {
-      if (segment.whole) blocks.push(removedWith(segment.element));
-      else strike(segment);
+      if (segment.whole) {
+        blocks.push(removedWith(segment.element));
+        removedWhole++;
+      } else strike(segment);
       for (const token of segment.tokens) noteCitation(notes.removed, token);
       notes.characters.removed += lengthOf(segment.tokens);
     }
@@ -2776,6 +2786,8 @@ export function createRewriteStream(
   const unplaced: string[] = [];
   /** Characters of the selection's paragraphs the text quotes as taken out. */
   let quotedOut = 0;
+  /** Paragraphs taken out whole, by a quote or because the text never reached them. */
+  let removedWhole = 0;
   /** Paragraphs added anew: a left-out paragraph much like one of them was moved there. */
   const addedAnew: NewParagraph[] = [];
   /** The selection's paragraphs the text wrote over or moved, each with its new words as a quote is compared. */
@@ -2806,6 +2818,10 @@ export function createRewriteStream(
   };
 
   const addNew = (paragraph: NewParagraph) => {
+    if (addsNothing && isPlain(paragraph) && saysNothingOfTheirs(paragraph)) {
+      aside.push(plainWords(paragraph.tokens));
+      return;
+    }
     if (!place) return;
     placedAny = true;
     addedAnew.push(paragraph);
@@ -3430,6 +3446,8 @@ export function createRewriteStream(
           removeUpTo(segments.length);
         }
         settleLeftOut();
+        // A task that adds nothing, whose every line is talk, writes nothing.
+        if (addsNothing && aside.length > 0 && proposals.length === 0) onlyAside = true;
         // Shown names, a text that names none, writes in no paragraph's place, quotes none and
         // would add only plain lines is talking: "I found no typos." is its words, never the
         // Note's (#2356).
@@ -3488,6 +3506,7 @@ export function createRewriteStream(
       mapped: mapsOnto(notes.characters.written - notes.characters.added, notes.characters.written),
       removed: notes.characters.removed - quotedOut,
       added: notes.characters.added,
+      removedWhole,
     }),
 
     /**
