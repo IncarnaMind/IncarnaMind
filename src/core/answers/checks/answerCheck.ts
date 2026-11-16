@@ -32,6 +32,9 @@ import type { Language } from "../../language";
 import type { PreparedChatModel } from "../../providers/chat";
 import { type OwnRoom, outputTokens } from "../../providers/outputLimits";
 import { currentTask } from "../../runs/current";
+import type { RepliesOut } from "../../runs/replies";
+import { pendingWaits, waitingOnLimits } from "../../runs/requestWait";
+import { type PaceTimers, realTimers } from "../../sources/pace";
 import { inStep } from "../../timing/flows";
 import { estimateTokens } from "../context";
 import { answerTemperature } from "../engine";
@@ -39,6 +42,8 @@ import { judge, lines } from "../judge";
 import { type FoundPassage, LOOKS_AN_ANSWER, type LookResult } from "./answerLook";
 import { figureReadings, needsCalculation } from "./calculationGate";
 import type { CheckedCitation } from "./claimCheck";
+import { heldTime } from "./heldTime";
+import { repliesFirst } from "./repliesFirst";
 import { claimsAtOnce } from "./runChecks";
 import {
   BATCH_TAGS,
@@ -133,6 +138,8 @@ export interface AnswerCheckInput {
   onSentence?(sentence: CitedSentence, result: SupportResult | null, read: boolean): void;
   /** Why nothing was judged, when no batch was reached: the model can't judge the sentence. */
   onStop?(stop: JudgementStop): void;
+  /** Hears when its requests wait on a rate limit until (ms since the epoch), or null once none does (#2944). */
+  onWait?(until: number | null): void;
 }
 
 export interface AnswerCheckOptions {
@@ -152,6 +159,10 @@ export interface AnswerCheckOptions {
   unstatedUnit: UnitGate;
   /** How long one batch may take: a reply may never come. */
   claimTimeLimitMs: number;
+  /** The clock its waits and time limit are kept by; the real one when left out. */
+  timers?: PaceTimers;
+  /** Where an Answer marks its provider while it is written: a batch's request waits behind it (#2944). */
+  repliesOut?: RepliesOut;
   /** The most one request may cost, as the meter reserves it; null for one it doesn't reserve. */
   mostOf(model: ChatModelChoice, request: EstimatedRequest): Money | null;
   /** What a Run's requests have settled at, in `currency`. */
@@ -387,6 +398,22 @@ export function createAnswerCheck(options: AnswerCheckOptions) {
     }
     const scope = options.scope(input.mindId, input.documentIds);
     if (options.searchableCount(scope.documentIds) === 0) return null;
+    // Its requests wait behind a reply on their key and go again once a rate limit's stated wait is
+    // over; neither counts against a batch's time limit (#2944).
+    const base = options.timers ?? realTimers;
+    const held = heldTime(base);
+    const behind = repliesFirst(options.repliesOut, base, held);
+    const ends: (() => void)[] = [];
+    const told = pendingWaits((until) => input.onWait?.(until));
+    const sending = waitingOnLimits(behind.model(prepared), {
+      now: base.now,
+      wait: (ms, signal) => held.base.sleep(ms, signal ?? input.signal),
+      waiting(until, on) {
+        if (on) ends.push(held.begin());
+        else ends.pop()?.();
+        told.waiting(until, on);
+      },
+    });
     const judged = asked(input);
     const instructions = sentenceBatchInstructions(options.language());
 
@@ -447,7 +474,7 @@ export function createAnswerCheck(options: AnswerCheckOptions) {
       open++;
       try {
         const judged = await judge({
-          model: prepared.model,
+          model: sending.model,
           question: { id: "sentence-batch", instructions },
           within: { most: room },
           parts: batchParts(batch),
@@ -458,6 +485,7 @@ export function createAnswerCheck(options: AnswerCheckOptions) {
           retries: 1,
           signal: input.signal,
           timeoutMs: options.claimTimeLimitMs,
+          timeout: behind.timeout,
           temperature: answerTemperature(prepared.capabilities.facts.temperature),
         });
         if (judged.ok && judged.value.size > 0) return judged.value;

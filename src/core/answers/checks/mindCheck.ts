@@ -684,6 +684,7 @@ export function createMindCheck(options: MindCheckOptions) {
     const decision = (await options.decision?.(ready.prepared.provider.service)) ?? null;
     const run: ChecksRun = {
       mindId,
+      requestId,
       scope: scope.scope,
       searched: scope.wanted,
       prepared: ready.prepared,

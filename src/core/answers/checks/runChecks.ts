@@ -36,6 +36,7 @@ import {
   runClaimChecks,
 } from "./runCheck";
 import { updateCheck } from "./sentences";
+import { waitLine } from "./waitLine";
 
 export function pendingParts(
   plans: readonly ClaimPartPlan[],
@@ -139,6 +140,8 @@ export function notCheckedMark(
 /** What a run of checks shares: where its claims are checked, by which model, and when it stops. */
 export interface ChecksRun {
   mindId: string;
+  /** The check's request, whose line says when it waits on a rate limit (#2944). */
+  requestId?: string;
   scope: ClaimCheckRequest["scope"];
   searched?: ClaimCheckRequest["searched"];
   prepared: PreparedChatModel;
@@ -369,6 +372,8 @@ export async function runChecks(
   },
 ): Promise<{ checked: number; stop: RunStop | null }> {
   const { mindId, prepared, signal } = run;
+  const requestId = run.requestId ?? "";
+  const ran = checkRunOf(options, prepared, signal, mindId);
   const write = (
     id: string,
     change: (check: ClaimCheckAttributes, blocks: Y.XmlFragment) => ClaimCheckAttributes,
@@ -440,8 +445,12 @@ export async function runChecks(
       return check((request) => checkClaim(claimCheck, request), requestOf(claim));
     },
     {
-      ...checkRunOf(options, prepared, signal, mindId),
+      ...ran,
       concurrency: atOnce,
+      ...(run.requestId !== undefined &&
+        options.waiting && {
+          onPause: waitLine(ran.timers.now, (until) => options.waiting?.(requestId, until)),
+        }),
       onOutcome(claim, outcome) {
         if (marked.has(claim)) return;
         if ("result" in outcome) {

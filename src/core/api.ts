@@ -1730,6 +1730,17 @@ export interface WrittenCheckProgress {
   waiting: boolean;
 }
 
+/**
+ * Something the User started waits on its model's rate limit until `resumesAt` (ISO 8601 UTC), or
+ * no longer does (null) (#2944), its line saying so: an Answer being written, or whose sentences
+ * are checked (`id` is the Answer's), a Note's check, or the check of what the assistant wrote
+ * (`id` is its request's). A wait of a few seconds isn't told.
+ */
+export interface RateLimitWaiting {
+  id: string;
+  resumesAt: string | null;
+}
+
 /** What a call of `read_web_page` came to (see `AnswerToolCall.webPage`). */
 export type WebPageCall =
   | { address: string; documentId: string; name: string }
@@ -15061,6 +15072,8 @@ export interface CoreEvents {
   "mindCheck.early": MindCheckEarly;
   /** How far the check of what the assistant wrote into a Mind is, as it runs and as it ends (#2830). */
   "writtenCheck.progress": WrittenCheckProgress;
+  /** A check or an Answer waits on the model's rate limit, or no longer does: its line says when it resumes. */
+  "rateLimit.waiting": RateLimitWaiting;
   /** How far a Mind's `checkReferences` is: `done` of `total` entries looked up. */
   "referenceCheck.progress": { mindId: string; done: number; total: number };
   /** `importReferences` has matched `done` of `total` references. */
