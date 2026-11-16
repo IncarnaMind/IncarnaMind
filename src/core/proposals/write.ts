@@ -2741,14 +2741,16 @@ export function createRewriteStream(
   /** The name of the paragraph being written now. */
   let writingName: ParagraphName | undefined;
 
-  const remove = (gone: readonly Segment[]) => {
+  /** `skipping`: the paragraphs were passed over to pair a later one, so a paragraph written in their stead offsets them. */
+  const remove = (gone: readonly Segment[], skipping = false) => {
     const blocks: Y.XmlElement[] = [];
     const strike = (segment: Segment) =>
       markRemoved(segment.element, segment.start, segment.end, next(targetOf(segment.tokens)));
     for (const segment of gone) {
       if (segment.whole) {
         blocks.push(removedWith(segment.element));
-        removedWhole++;
+        if (skipping) skippedWhole++;
+        else removedWhole++;
       } else strike(segment);
       for (const token of segment.tokens) noteCitation(notes.removed, token);
       notes.characters.removed += lengthOf(segment.tokens);
@@ -2771,12 +2773,15 @@ export function createRewriteStream(
   };
 
   /** The selection's paragraphs before `to` not paired go, or are kept. */
-  const removeUpTo = (to: number) => {
+  const removeUpTo = (to: number, skipping = false) => {
     const passed = segments.slice(at, to).filter((segment) => segment.tokens.length > 0);
     if (onLeftOut === "keep") {
-      remove(passed.filter((segment) => replaced.has(segment)));
+      remove(
+        passed.filter((segment) => replaced.has(segment)),
+        skipping,
+      );
       kept.push(...passed.filter((segment) => !replaced.has(segment)));
-    } else remove(passed);
+    } else remove(passed, skipping);
     at = Math.max(at, to);
   };
 
@@ -2788,6 +2793,8 @@ export function createRewriteStream(
   let quotedOut = 0;
   /** Paragraphs taken out whole, by a quote or because the text never reached them. */
   let removedWhole = 0;
+  /** Paragraphs passed over to pair a later one: a translation's paragraph can pair past its own. */
+  let skippedWhole = 0;
   /** Paragraphs added anew: a left-out paragraph much like one of them was moved there. */
   const addedAnew: NewParagraph[] = [];
   /** The selection's paragraphs the text wrote over or moved, each with its new words as a quote is compared. */
@@ -2807,7 +2814,7 @@ export function createRewriteStream(
     }
     addNotes(notesWritten, paragraph.notes);
     notes.characters.written += lengthOf(paragraph.tokens);
-    removeUpTo(index);
+    removeUpTo(index, true);
     writtenOver.set(segment, newCharsOf(paragraph.tokens));
     writeHunks(segment, paragraph.tokens, next, newId, notes);
     place = { element: segment.element, kind: segment.kind, side: "after" };
@@ -3518,7 +3525,7 @@ export function createRewriteStream(
       mapped: mapsOnto(notes.characters.written - notes.characters.added, notes.characters.written),
       removed: notes.characters.removed - quotedOut,
       added: notes.characters.added,
-      removedWhole,
+      removedWhole: removedWhole + Math.max(0, skippedWhole - addedAnew.length),
     }),
 
     /**

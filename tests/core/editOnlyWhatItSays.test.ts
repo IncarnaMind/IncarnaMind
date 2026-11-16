@@ -109,6 +109,44 @@ describe.each(["en", "zh"] as const)("A task that takes no text out (%s)", (lang
   });
 });
 
+const TRANSLATED = {
+  en: [
+    "Le bureau du port est ouvert en semaine et publie les tables des marées chaque lundi matin.",
+    "Les relevés des jauges sont vérifiés deux fois par semaine par l'officier de service, qui note toute dérive dans un carnet.",
+    "Un nouveau ponton a été ajouté au quai nord au printemps dernier et accueille des bateaux jusqu'à douze mètres.",
+    "Les visiteurs doivent réserver un mouillage auprès du bureau au moins deux jours avant leur arrivée.",
+    "Les frais sont facturés par nuit et sont moins élevés entre novembre et mars.",
+  ],
+  zh: [
+    "The harbour office is open on weekdays and publishes the tide tables on Monday mornings.",
+    "The duty officer checks the gauge readings twice a week and notes any deviation in a notebook.",
+    "A pontoon was added at the north quay last spring and takes boats up to twelve metres.",
+    "Visitors must reserve a berth through the office at least two days before arriving.",
+    "Fees are charged by the night, and are lower from November to March.",
+  ],
+} as const;
+
+describe.each(["en", "zh"] as const)(
+  "A translation writes every paragraph anew (%s)",
+  (language) => {
+    const lines = FIVE[language];
+
+    // protects=a Translate that writes each of the five paragraphs in the other language applies at once and never waits: its paragraphs are replaced, none is taken out; fails_when=a translation waits because each old paragraph reads as struck and written again (the 3 of 3 held runs of the first over-removal round); no_claim=how a real model translates.
+    test("is applied at once", async () => {
+      const { core, mind, client } = await noteOf(lines, () => TRANSLATED[language].join("\n\n"));
+
+      const result = await core.editWithAi(
+        fixed(client, mind.id, "translate", language === "en" ? "French" : "English"),
+      );
+
+      expect(result).toMatchObject({ kind: "proposed" });
+      expect(result).not.toHaveProperty("held");
+      await resolveChanges(client, "accept");
+      expect(shownWithChanges(client)).toEqual([...TRANSLATED[language]]);
+    });
+  },
+);
+
 const REASONING = {
   en: "The passage has five paragraphs. Shortening means fewer words, same facts. I'll keep all five paragraphs but tighten each.",
   zh: "这段话有五个自然段。缩短意味着更少的字，同样的事实。我会保留全部五段，但每段都精简。",
