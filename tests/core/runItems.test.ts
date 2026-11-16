@@ -1,7 +1,7 @@
 import { APICallError } from "ai";
 import { describe, expect, test } from "vitest";
 import type { ProviderError } from "../../src/core";
-import { RATE_LIMIT_PAUSES_MS, RunItemError, runItems } from "../../src/core/runs/stop";
+import { RATE_LIMIT_PAUSES_MS, RunItemError, runItems, slots } from "../../src/core/runs/stop";
 
 const failure = (kind: ProviderError["kind"], extra: Partial<ProviderError> = {}) =>
   new RunItemError({ kind, message: kind, ...extra });
@@ -253,6 +253,92 @@ function steppedClock() {
     },
   };
 }
+
+describe("Changing how many of a run's items run at once (#2532)", () => {
+  /** Runs `count` items that each end when `release` is called, noting the most running at once. */
+  function held(count: number) {
+    const ends: (() => void)[] = [];
+    const seen = { running: 0, most: 0 };
+    const each = async (item: number) => {
+      seen.running++;
+      seen.most = Math.max(seen.most, seen.running);
+      await new Promise<void>((resolve) => ends.push(resolve));
+      seen.running--;
+      return item;
+    };
+    const release = async (howMany: number) => {
+      for (const end of ends.splice(0, howMany)) end();
+      await new Promise((resolve) => setImmediate(resolve));
+    };
+    return { items: Array.from({ length: count }, (_, at) => at), each, release, seen };
+  }
+
+  // protects=a run told to go wider starts more of its items at once, and told to go back starts no new item until fewer than the smaller number are running, the items already running finishing; fails_when=a resize is ignored, a narrowed run keeps starting items past its size, or an item is lost or run twice across a resize; no_claim=when a check asks for a resize.
+  test("a run made wider starts more items at once, and made narrower starts none until it is back under its size", async () => {
+    const { items, each, release, seen } = held(20);
+    let resize: (size: number) => void = () => undefined;
+    const run = runItems(items, each, {
+      concurrency: 3,
+      wider: (set) => {
+        resize = set;
+      },
+    });
+    await release(0);
+    expect(seen.running).toBe(3);
+
+    resize(6);
+    await release(0);
+    expect(seen.running).toBe(6);
+
+    resize(2);
+    await release(3);
+    expect(seen.running).toBe(3);
+    await release(2);
+    expect(seen.running).toBe(2);
+
+    while (seen.running > 0) await release(seen.running);
+    const { outcomes } = await run;
+    expect(seen.most).toBe(6);
+    expect(outcomes.map((each) => (each.status === "done" ? each.value : null))).toEqual(items);
+  });
+
+  // protects=model calls sharing a run's places go more at once after the places are raised, the waiting ones starting in the order they asked, and after the places are lowered a waiting call starts only once fewer calls than that are running; fails_when=raising the places leaves waiting calls waiting, or lowering them lets a call start past the new number; no_claim=which calls a check sends through its places.
+  test("a run's shared places can be raised and lowered while calls wait", async () => {
+    const limit = slots(2);
+    const ends: (() => void)[] = [];
+    const started: number[] = [];
+    const calls = [0, 1, 2, 3, 4, 5, 6].map((call) =>
+      limit.run(async () => {
+        started.push(call);
+        await new Promise<void>((resolve) => ends.push(resolve));
+      }),
+    );
+    const settle = () => new Promise((resolve) => setImmediate(resolve));
+    await settle();
+    expect(started).toEqual([0, 1]);
+    expect(limit.free()).toBe(0);
+
+    limit.resize(4);
+    await settle();
+    expect(started).toEqual([0, 1, 2, 3]);
+
+    limit.resize(2);
+    for (const end of ends.splice(0, 2)) end();
+    await settle();
+    expect(started).toEqual([0, 1, 2, 3]);
+    for (const end of ends.splice(0, 1)) end();
+    await settle();
+    expect(started).toEqual([0, 1, 2, 3, 4]);
+
+    while (ends.length > 0) {
+      for (const end of ends.splice(0)) end();
+      await settle();
+    }
+    await Promise.all(calls);
+    expect(started).toEqual([0, 1, 2, 3, 4, 5, 6]);
+    expect(limit.free()).toBe(2);
+  });
+});
 
 describe("Sending an item's requests through its run (#2944)", () => {
   // protects=a refused request waits as long as the service says, never less, and is sent again inside its item, which isn't tried again from its start; fails_when=the item is run again from its start, or the request goes sooner than the stated wait; no_claim=how a real service words its wait.

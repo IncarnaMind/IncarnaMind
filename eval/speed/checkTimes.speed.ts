@@ -26,6 +26,9 @@
  * INCARNAMIND_EVAL_SPEED_JUDGE, the judge lists once which of the set's sentences their quotes
  * don't state (./unstated), into judged.json beside the report.
  * The 30 sentences are the second held-out set's (./writtenHeldOut), over its membership rules.
+ * INCARNAMIND_EVAL_SPEED_DECISION=on has the decision model read first (#3118), through a relay on
+ * this computer that counts its requests: the models under test must then run on OpenRouter, whose
+ * key the decision model's host takes. A request the host refused or left unanswered voids the run.
  */
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { loadavg, tmpdir } from "node:os";
@@ -72,12 +75,26 @@ import {
   repeatCounter,
   shownMark,
 } from "./checkTimes";
+import { decisionUsd } from "./decisionFirstScore";
+import { DECIDER, OPENROUTER, startRelay } from "./decisionRelay";
 import { judgeOf } from "./judge";
 import { env, list, modelsAsked, spentUsd } from "./settings";
+
 import { unstatedSentences } from "./unstated";
 import { HELD_OUT_DOCUMENTS, HELD_OUT_ITEMS } from "./writtenHeldOut";
 
 const ROOT = resolve(__dirname, "../..");
+
+/** What a run's report says of the decision model's host: its requests, their price, and whether the run is void. */
+function decisionHostLines(host: Awaited<ReturnType<typeof startRelay>>): string[] {
+  const refused = host.refused().length;
+  return [
+    `The decision host answered ${host.asked()} requests of ${host.inputTokens()} input tokens, $${decisionUsd(host.inputTokens()).toFixed(4)} at its listed price.`,
+    refused > 0
+      ? `**Void: ${refused} requests to the decision host were refused, failed or timed out.**`
+      : "Every request to the decision host was answered.",
+  ];
+}
 type Language = "en" | "zh-CN";
 
 const noteOf = (...ids: string[]) =>
@@ -583,6 +600,7 @@ timedChecks("where a check's time goes, on each model and language", async () =>
   const unstatedIds = () => unstatedIdsFrom(judged);
   let stopped: string | null = null;
   let spentBefore = 0;
+  const decision = env("DECISION") === "on" ? await startRelay(OPENROUTER) : null;
   for (const language of languages) {
     const folder = await mkdtemp(join(tmpdir(), "incarnamind-check-times-"));
     const documents: EvalDocument[] = await writeDocuments(folder, {
@@ -625,6 +643,7 @@ timedChecks("where a check's time goes, on each model and language", async () =>
       log,
       chatModels: scripted(recorder.chatModels, () => current),
       examples: join(ROOT, "resources", "examples"),
+      ...(decision && { decisionOrigins: { openrouter: decision.url } }),
     });
     try {
       const { core, dataDir } = library;
@@ -651,6 +670,7 @@ timedChecks("where a check's time goes, on each model and language", async () =>
         const name = `${model.kind}/${model.modelId}`;
         const saved = await core.saveChatProvider(model);
         const choice: ChatModelChoice = { providerId: saved.id, modelId: model.modelId };
+        if (decision) await core.updateSettings({ device: { checkDecisionModel: DECIDER } });
         for (const flow of flows) {
           for (const { size, run, runs, arm } of passesOf(flow)) {
             const spent = await spentUsd(core);
@@ -671,6 +691,7 @@ timedChecks("where a check's time goes, on each model and language", async () =>
                 : CITED(language);
             current = { flow, items, ...(arm && { arm }) };
             const startedAt = new Date().toISOString();
+            const hostAsked = decision?.asked() ?? 0;
             repeats.begin();
             const times: Pick<
               FlowTimes,
@@ -717,6 +738,7 @@ timedChecks("where a check's time goes, on each model and language", async () =>
                 stated: NOTE_SENTENCES[language].map((each) => each.expected === "supported"),
               }),
               spentUsd: after - spent,
+              ...(decision && { decisionRequests: decision.asked() - hostAsked }),
             });
             if (times.searchedDuring)
               log(
@@ -748,6 +770,7 @@ timedChecks("where a check's time goes, on each model and language", async () =>
     `${new Date().toISOString()} · ${runs} runs a flow, model and language · seconds from the User's action, medians. Spent $${spentBefore.toFixed(3)}.${stopped ? ` ${stopped}` : ""}`,
     "",
     checkTimesReport(results, counts),
+    ...(decision ? ["", ...decisionHostLines(decision)] : []),
     ...(arms[0]
       ? [
           "",
@@ -770,4 +793,5 @@ timedChecks("where a check's time goes, on each model and language", async () =>
     );
   }
   log(`Report in ${out}`);
+  await decision?.close();
 });

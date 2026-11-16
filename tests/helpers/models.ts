@@ -409,6 +409,8 @@ export type ScriptedReply =
       cutOff?: boolean;
       /** The tokens this reply reports instead of the model's. */
       usage?: ReportedUsage;
+      /** The HTTP headers the reply comes with, as its service sends them. */
+      headers?: Record<string, string>;
     }
   /** The provider refuses the request with an HTTP error. */
   | { error: ScriptedRefusal };
@@ -678,7 +680,7 @@ export function scriptedModel(
           controller.enqueue(part);
         },
       });
-      return { stream };
+      return { stream, ...(reply.headers && { response: { headers: reply.headers } }) };
     },
   });
 }

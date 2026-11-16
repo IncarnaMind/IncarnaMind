@@ -353,6 +353,7 @@ export async function runClaimChecks<I>(
   each: (item: I, check: CheckTry) => Promise<ClaimCheckResult>,
   run: CheckRun & {
     concurrency?: number;
+    wider?(resize: (concurrency: number) => void): void;
     onOutcome?(item: I, outcome: CheckOutcome): void;
     /** Hears the run's wait after a rate limit: when it ends (ms since the epoch), or null once it has. */
     onPause?(until: number | null): void;
@@ -398,6 +399,7 @@ export async function runClaimChecks<I>(
     },
     {
       concurrency: run.concurrency ?? 1,
+      ...(run.wider && { wider: run.wider }),
       ...(run.onPause && { onPause: run.onPause }),
       ...(run.onLimit && { onLimit: run.onLimit }),
       signal: run.signal,

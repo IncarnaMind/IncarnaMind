@@ -54,7 +54,13 @@ import {
   withoutMarkers,
   wordsOf,
 } from "./markerPlacement";
-import { CITE_RETRY_INSTRUCTIONS, citeRetryParts, citeRetryPrompt, RETRY_TAGS } from "./prompt";
+import {
+  CITE_RETRY_INSTRUCTIONS,
+  citeRetryParts,
+  citeRetryPrompt,
+  FILL_CITE_RETRY_INSTRUCTIONS,
+  RETRY_TAGS,
+} from "./prompt";
 import { smallCallModel } from "./smallCalls";
 import type { WindowBudget } from "./window";
 
@@ -575,11 +581,29 @@ export const CITED_REPLY = structured(askedSchema, "citations", (value) =>
   fieldsOf(value, { citations: list }) ? parseAsked(value) : null,
 );
 
+/** How the one request is worded, and how many items its reply to `answer` may hold. */
+interface Asking {
+  instructions: string;
+  items(answer: string): number;
+}
+
+const BY_SENTENCE: Asking = {
+  instructions: CITE_RETRY_INSTRUCTIONS,
+  items: (answer) => markedUnits(answer).length,
+};
+
+/** A fill's: an item for each marker, so a sentence with two markers has room for both (#3145). */
+const BY_MARKER: Asking = {
+  instructions: FILL_CITE_RETRY_INSTRUCTIONS,
+  items: (answer) => Math.max(BY_SENTENCE.items(answer), [...answer.matchAll(MARKER)].length),
+};
+
 /** The Passages the one request holds: within the window's room when there is one. */
 function passagesToAsk(
   answer: string,
   passages: readonly ShownPassage[],
   budget: WindowBudget | null | undefined,
+  asking = BY_SENTENCE,
 ): ShownPassage[] {
   if (!budget) {
     return passages
@@ -587,8 +611,8 @@ function passagesToAsk(
       .map((passage) => ({ ...passage, text: passage.text.slice(0, MAX_ASKED_CHARACTERS) }));
   }
   let room = budget.roomBeside(
-    [CITE_RETRY_INSTRUCTIONS, citeRetryPrompt(answer, [])],
-    outputTokens("unmarked-quotes", markedUnits(answer).length),
+    [asking.instructions, citeRetryPrompt(answer, [])],
+    outputTokens("unmarked-quotes", asking.items(answer)),
   );
   const asked: ShownPassage[] = [];
   for (const passage of passages) {
@@ -610,6 +634,7 @@ async function askForCitations(
   answer: string,
   passages: readonly ShownPassage[],
   temperature: number | undefined,
+  asking = BY_SENTENCE,
 ): Promise<Omit<Match, "marker">[]> {
   const { signal } = request;
   let small: Awaited<ReturnType<typeof smallCallModel>>;
@@ -625,11 +650,11 @@ async function askForCitations(
   }
   const judged = await judge({
     model: small.model,
-    question: { id: "unmarked-quotes", instructions: CITE_RETRY_INSTRUCTIONS },
+    question: { id: "unmarked-quotes", instructions: asking.instructions },
     parts: citeRetryParts(answer, passages),
     data: RETRY_TAGS,
     reply: CITED_REPLY,
-    items: markedUnits(answer).length,
+    items: asking.items(answer),
     // One request, never more.
     retries: 0,
     signal,
@@ -643,8 +668,10 @@ async function askForCitations(
 
 /**
  * The lines of a reply that hold a Citation marker: its sentences, not its code, headings or
- * footnotes. A marker written after its sentence's full stop is put before it: read as written,
- * "Agreed. [^4]" leaves [^4] to no sentence, and no record could take it.
+ * footnotes. A marker written after its sentence's full stop, or after the quotation mark that
+ * closes it, is put before the stop: read as written, "Agreed. [^4]" gives [^4] to the sentence
+ * that follows. The space after the marker stays, or the next sentence would join this one and
+ * the two share a record (#3145).
  */
 function markedLines(reply: string): string {
   const lines: string[] = [];
@@ -660,7 +687,7 @@ function markedLines(reply: string): string {
         line
           .trim()
           .replace(
-            /([.!?。！？]+)[ \t]*((?:\[\^\d{1,4}\][ \t]*)+)/gu,
+            /([.!?。！？]+["'”’」』]*)((?:[ \t]*\[\^\d{1,4}\])+)/gu,
             (_, stop: string, markers: string) => ` ${markers.trim()}${stop}`,
           ),
       );
@@ -668,11 +695,63 @@ function markedLines(reply: string): string {
   return lines.join("\n\n");
 }
 
+/** Markers written side by side, as in "[^3][^4]": they stand after the same words. */
+const MARKER_RUN = /(?:\[\^\d{1,4}\][ \t]*){2,}/g;
+
+/**
+ * What the one request gave for a fill's reply (`marked`, its lines), each Citation taking a
+ * marker with no record. The model copies a sentence with its markers, so the copy says which
+ * marker the quote is for; the sentence's likeness to the reply's sentences can't, once a
+ * quotation or an abbreviation splits one (#3145). A copy takes a marker only on a line that holds
+ * it, and never with the quote another marker of that copy took: a marker used in two sentences
+ * is given its quote twice (#3099). A Citation whose copy holds no marker of such a line is placed
+ * by likeness, as an Answer's is. Of markers written side by side, one left without a Citation
+ * takes its neighbour's.
+ */
+function takingCopiedMarkers(
+  asked: readonly Omit<Match, "marker">[],
+  marked: string,
+  recorded: (marker: number) => boolean,
+): { marker: number; passage: string; quote: string }[] {
+  const markersIn = (text: string) => [...text.matchAll(MARKER)].map((found) => Number(found[1]));
+  const lines = marked
+    .split("\n")
+    .map((line) => ({ plain: plainOf(line), markers: markersIn(line) }))
+    .filter((line) => line.markers.length > 0);
+  const taken = new Map<number, { passage: string; quote: string }>();
+  const open = (marker: number) => !recorded(marker) && !taken.has(marker);
+  const unplaced: Omit<Match, "marker">[] = [];
+  for (const each of asked) {
+    const copied = plainOf(each.sentence);
+    if (copied === "") continue;
+    const held = markersIn(each.sentence).filter((marker) =>
+      lines.some((line) => line.markers.includes(marker) && line.plain.includes(copied)),
+    );
+    if (held.length === 0) {
+      unplaced.push(each);
+      continue;
+    }
+    if (held.some((marker) => taken.get(marker)?.quote === each.quote)) continue;
+    const marker = held.find(open);
+    if (marker !== undefined) taken.set(marker, each);
+  }
+  for (const each of takingMarkers(unplaced, marked, (marker) => !open(marker), [])) {
+    if (each.marker !== undefined) taken.set(each.marker, each);
+  }
+  for (const run of marked.matchAll(MARKER_RUN)) {
+    const together = markersIn(run[0]);
+    const given = together.map((marker) => taken.get(marker)).find((each) => each !== undefined);
+    if (!given) continue;
+    for (const marker of together.filter(open)) taken.set(marker, given);
+  }
+  return [...taken].map(([marker, { passage, quote }]) => ({ marker, passage, quote }));
+}
+
 /**
  * A Meeting fill's reply that wrote its Citation markers and called no `cite` (#3099): their
- * records, asked for once in the one request for an Answer's Citations, of the model that wrote
- * the reply. Its sentences stay as written: a record takes only a marker its sentence holds with no
- * record, and only a quote the check finds is kept.
+ * records, asked for once in the one request for an Answer's Citations, an item for each marker
+ * (#3145), of the model that wrote the reply. A record takes only a marker with none, and only a
+ * quote the check finds is kept.
  */
 export async function recordMarkedSentences(
   request: Pick<AnswerRequest, "model" | "ownQuickModel" | "documents" | "signal">,
@@ -686,22 +765,19 @@ export async function recordMarkedSentences(
   const sentences = markedLines(reply);
   if (passages.length === 0 || sentences === "") return;
   // The fill read every Passage of its part whole: only a window limits what the request shows.
-  const toAsk = budget ? passagesToAsk(sentences, passages, budget) : passages;
+  const toAsk = budget ? passagesToAsk(sentences, passages, budget, BY_MARKER) : passages;
   if (toAsk.length === 0) return;
   const given = await askForCitations(
     { model: request.model, signal, ...(ownQuickModel && { quickModel: ownQuickModel }) },
     sentences,
     toAsk,
     temperature,
+    BY_MARKER,
   );
   if (signal.aborted) return;
   const found = given.filter((each) => documents.quoteFound?.(each.passage, each.quote) ?? false);
   const recorded = (marker: number) => documents.hasRecord?.(marker) ?? false;
-  const records = takingMarkers(found, sentences, recorded, []).flatMap((each) =>
-    each.marker === undefined
-      ? []
-      : [{ marker: each.marker, passage: each.passage, quote: each.quote }],
-  );
+  const records = takingCopiedMarkers(found, sentences, recorded);
   if (records.length === 0) return;
   try {
     documents.cite(records, { structured: true });

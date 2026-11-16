@@ -35,6 +35,8 @@ const REPLIES = process.env.INCARNAMIND_LIVE_GATE_REPLIES;
 const ARM = process.env.INCARNAMIND_LIVE_GATE_ARM ?? "unnamed";
 const ROUND = Number(process.env.INCARNAMIND_LIVE_GATE_ROUND ?? "0");
 const GROUPS = (process.env.INCARNAMIND_LIVE_GATE_GROUPS ?? "example,held-out").split(",");
+/** The held-out pairs to run, by the start of their ids ("en-c,zh-c"); all of them when unset. */
+const CASES = process.env.INCARNAMIND_LIVE_GATE_CASES?.split(",");
 const MODEL =
   process.env.INCARNAMIND_LIVE_ANTHROPIC_MODEL ??
   (catalogProvider("anthropic")?.roles.answers as string);
@@ -155,6 +157,31 @@ const HELD_OUT: readonly HeldOut[] = [
       "compared with $3.4 billion a year earlier",
     ],
   }),
+  // The four pairs below flip a direction and no figure, written before any request of #3183.
+  ...pair("en-a4", "comparative", "en", {
+    document: "Customer churn was 3.1 per cent in 2026 (2025: 4.4 per cent).",
+    right: "Churn was 3.1% in 2026, down from 4.4% the year before.",
+    wrong: "Churn was 3.1% in 2026, up from 4.4% the year before.",
+    parts: ["down from 4.4% the year before", "up from 4.4% the year before"],
+  }),
+  ...pair("en-a5", "comparative", "en", {
+    document: "Headcount at 30 June stood at 1,240, against 1,115 a year earlier.",
+    right: "Headcount was 1,240 at the end of June, higher than the 1,115 of a year earlier.",
+    wrong: "Headcount was 1,240 at the end of June, lower than the 1,115 of a year earlier.",
+    parts: ["higher than the 1,115 of a year earlier", "lower than the 1,115 of a year earlier"],
+  }),
+  ...pair("zh-a4", "comparative", "zh-CN", {
+    document: "本季度毛利率为 34.5%，上年同期为 31.2%。",
+    right: "毛利率为 34.5%，高于上年同期的 31.2%。",
+    wrong: "毛利率为 34.5%，低于上年同期的 31.2%。",
+    parts: ["高于上年同期的 31.2%", "低于上年同期的 31.2%"],
+  }),
+  ...pair("zh-a5", "comparative", "zh-CN", {
+    document: "年末在册员工 860 人，上年末为 912 人。",
+    right: "年末员工为 860 人，比上年末的 912 人有所减少。",
+    wrong: "年末员工为 860 人，比上年末的 912 人有所增加。",
+    parts: ["比上年末的 912 人有所减少", "比上年末的 912 人有所增加"],
+  }),
   ...pair("zh-a1", "comparative", "zh-CN", {
     document: "报告期内营业利润为 2,750 万元，去年同期为 3,180 万元，主要受原材料涨价影响。",
     right: "营业利润为 2,750 万元，上年同期为 3,180 万元。",
@@ -202,6 +229,38 @@ const HELD_OUT: readonly HeldOut[] = [
     document: "The group employed 4,310 people at the end of the year.",
     right: "Headcount was 4,310.",
     wrong: "Headcount was 3,410.",
+  }),
+  // One clause and one fact, so never a part: a direction flipped in a sentence checked whole,
+  // written before any request of that item of #3183.
+  ...pair("en-c1", "short-note", "en", {
+    document: "Average occupancy in the quarter was 81 per cent (prior quarter: 86 per cent).",
+    right: "Occupancy fell to 81% in the quarter.",
+    wrong: "Occupancy rose to 81% in the quarter.",
+  }),
+  ...pair("en-c2", "short-note", "en", {
+    document: "Net debt increased to £412 million from £388 million at the prior year end.",
+    right: "Net debt rose to £412 million.",
+    wrong: "Net debt fell to £412 million.",
+  }),
+  ...pair("en-c3", "short-note", "en", {
+    document: "The group had 5,260 employees at the year end, against 4,980 a year earlier.",
+    right: "The number of employees went up over the year.",
+    wrong: "The number of employees went down over the year.",
+  }),
+  ...pair("zh-c1", "short-note", "zh-CN", {
+    document: "本年度客户流失率为 5.2%，上年度为 6.8%。",
+    right: "客户流失率降至 5.2%。",
+    wrong: "客户流失率升至 5.2%。",
+  }),
+  ...pair("zh-c2", "short-note", "zh-CN", {
+    document: "期末存货较年初的 3,900 万元减少至 3,400 万元。",
+    right: "存货降至 3,400 万元。",
+    wrong: "存货增至 3,400 万元。",
+  }),
+  ...pair("zh-c3", "short-note", "zh-CN", {
+    document: "年末门店数量为 128 家，上年末为 117 家。",
+    right: "门店数量比上年有所增加。",
+    wrong: "门店数量比上年有所减少。",
   }),
 ];
 
@@ -583,7 +642,10 @@ async function exampleRound(language: Language, own: boolean) {
 }
 
 async function heldOutRound(language: Language) {
-  const cases = HELD_OUT.filter((each) => each.language === language);
+  const cases = HELD_OUT.filter(
+    (each) =>
+      each.language === language && (CASES?.some((start) => each.id.startsWith(start)) ?? true),
+  );
   const core = await coreIn(language);
   const sources = await createSourceFolder();
   const notes: Written[] = [];

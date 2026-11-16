@@ -1397,3 +1397,47 @@ describe("a Duty or Condition line is read only by its own closing word (#1766, 
     else expect(checked?.state).not.toBe("supported");
   });
 });
+
+describe("a Direction line that differs takes a Supported's support away (#3183)", () => {
+  const MOORINGS = {
+    name: "Moorings.md",
+    contents: [
+      "# Moorings",
+      "",
+      "There were fewer visitor moorings this season than last season.",
+      "",
+    ].join("\n"),
+  };
+  const quote = "There were fewer visitor moorings this season than last season.";
+  const detail = ["Duty: none / none, same", "Condition: none / none, same"];
+
+  // protects=a Supported reply whose own Direction line says the sentence's rise is the Passage's fall is no ✓, and one whose line says same, or that has no such line, reads as before; fails_when=a "differs" Direction line leaves the sentence Supported, or a "same" one or a missing one takes its support away; no_claim=that a real model writes the line (the gate on Claude Haiku 5.5).
+  test.each<[string, readonly string[], "supported" | "unsupported"]>([
+    ["a rise for a fall", ["Direction: rose / fell, differs", ...detail], "unsupported"],
+    ["方向 in Chinese", ["方向：上升 / 下降，differs", ...detail], "unsupported"],
+    ["the same way", ["Direction: fell / fell, same", ...detail], "supported"],
+    ["no Direction line", detail, "supported"],
+  ])("%s", async (_name, lines, expected) => {
+    const rose = expected === "unsupported";
+    const sentence = rose
+      ? "Visitor moorings rose this season."
+      : "Visitor moorings fell this season.";
+    const result = await check(
+      { sentence, quote, verdict: "supported", duty: null, condition: null, lines },
+      MOORINGS,
+    );
+    expect(result?.state).toBe(expected);
+  });
+
+  // protects=a reply that gives its Direction line twice with two closing words has changed its mind and can't be read (#2817); fails_when=either line is taken; no_claim=other fields' repeats (their own tests).
+  test("two Direction lines that disagree are no reply", () => {
+    const fields =
+      "Absence: no\nScope: none, same\nTopic: found\nRoles: none / none, same\nTime: none / none, same";
+    const reply = (direction: string) =>
+      `Verdict: supported\n${fields}\n${direction}\n${detail.join("\n")}\nIt says so.\nEvidence: [1]`;
+    expect(readVerdict(reply("Direction: rose / fell, differs"))?.direction).toBe("differs");
+    expect(
+      readVerdict(reply("Direction: rose / fell, differs\nDirection: rose / rose, same")),
+    ).toBeNull();
+  });
+});

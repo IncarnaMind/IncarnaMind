@@ -98,6 +98,7 @@ import {
 } from "./sentences";
 import type { MindCheckScope, VerifyOptions } from "./verify";
 import { tableClaim } from "./verifyTables";
+import { widerRun } from "./widerRun";
 
 export interface MindCheckOptions extends RunChecksOptions {
   content: Pick<MindContent, "read" | "edit" | "readSettings" | "editSettings">;
@@ -682,19 +683,21 @@ export function createMindCheck(options: MindCheckOptions) {
     options.warmReranker?.();
 
     const decision = (await options.decision?.(ready.prepared.provider.service)) ?? null;
+    const atOnce = claimsAtOnce(ready.prepared);
+    const limit = slots(atOnce);
+    const width = widerRun(ready.prepared, limit, atOnce, fresh.length + again.length);
     const run: ChecksRun = {
       mindId,
       requestId,
       scope: scope.scope,
       searched: scope.wanted,
-      prepared: ready.prepared,
+      prepared: width.prepared,
       ...(decision &&
         options.firstReading && {
           readFirst: readingsFirst(options.firstReading, decision, mindId),
         }),
       signal,
     };
-    const limit = slots(claimsAtOnce(ready.prepared));
     const early = earlyChecks(
       options.claimCheck,
       run,
@@ -870,7 +873,7 @@ export function createMindCheck(options: MindCheckOptions) {
       // The sort takes its places first, so the checks started early don't hold it back.
       const sorting =
         fresh.length > 0
-          ? sort(mindId, fresh, ready.prepared, signal, {
+          ? sort(mindId, fresh, width.prepared, signal, {
               slots: limit,
               named: (sentence, parts) => {
                 if (parts.some((part) => part.kind === "fact")) startEarly(sentence, parts);
@@ -910,7 +913,7 @@ export function createMindCheck(options: MindCheckOptions) {
 
       const result = await runChecks(
         { ...options, claimCheck: early.claimCheck },
-        { ...run, queued, slots: limit },
+        { ...run, queued, slots: limit, width },
       );
       ran = { ...result, sentences: queued.length };
     } finally {
