@@ -212,7 +212,9 @@ function pathOf(logged: readonly Logged[]) {
       .split("\n")
       .map((line) => line.trim())
       .filter((line) =>
-        /^(?:verdict|scope|topic|roles|time|duty|condition|absence|evidence|figures)\b/i.test(line),
+        /^(?:verdict|scope|topic|roles|time|duty|condition|absence|evidence|figures|covered|not covered)\b/i.test(
+          line,
+        ),
       )
       .map((line) => line.slice(0, 400));
   return {

@@ -42,6 +42,7 @@ import {
   recheck,
 } from "./looks";
 import {
+  namesUncovered,
   ownDetailDiffers,
   ownDetailUnread,
   type ReadVerdict,
@@ -246,7 +247,7 @@ async function verdictOf(
   // A worked figure settles its number alone: never Supported over a reply that records another
   // duty or a dropped condition, or gives neither line (#1766, #1708).
   const byCalculation: ClaimCheckResult | null =
-    worked && !ownDetailDiffers(verdict) && !ownDetailUnread(verdict)
+    worked && !ownDetailDiffers(verdict) && !ownDetailUnread(verdict) && !namesUncovered(verdict)
       ? (await ledger.requiresCalculation({ ...verdict, verdict: "supported" }))
         ? notChecked("number-not-worked-out")
         : {
@@ -460,7 +461,10 @@ async function verdictOf(
   // has happened or is still to happen (#2311), and a duty or a condition put otherwise (#1766,
   // #1708).
   const differs = ownDetailDiffers(verdict);
-  if (verdict.verdict === "supported" && (verdict.scope === "wider" || differs)) {
+  if (
+    verdict.verdict === "supported" &&
+    (verdict.scope === "wider" || differs || namesUncovered(verdict))
+  ) {
     const part = await parts(deciding);
     if (signal.aborted) return notChecked("stopped");
     if (isFailed(part)) return failedCheck(part.failed);

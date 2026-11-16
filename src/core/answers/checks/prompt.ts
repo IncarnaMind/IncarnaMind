@@ -1289,6 +1289,15 @@ export const ownDetailDiffers = (verdict: ReadVerdict): boolean =>
   verdict.duty === "differs" ||
   verdict.condition === "differs";
 
+/**
+ * Whether a Supported reply names, on its own Not covered line, a part of the sentence its Passages
+ * don't state. The form asks for that line only then, so such a reply has said the sentence goes
+ * beyond what it found, whatever its Condition line says: Claude Haiku 5.5 wrote "Condition: none /
+ * none, same" over "Not covered: 须事先与主管商定" in 8 of 9 wrong Supported checks (#3197).
+ */
+export const namesUncovered = (verdict: ReadVerdict): boolean =>
+  verdict.verdict === "supported" && verdict.uncovered !== null;
+
 /** A reply that gives no Duty or Condition word to read can't be read as support. */
 export const ownDetailUnread = (verdict: ReadVerdict): boolean =>
   verdict.duty === undefined || verdict.condition === undefined;
