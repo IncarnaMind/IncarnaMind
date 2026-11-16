@@ -6,6 +6,7 @@
  */
 import { wrapLanguageModel } from "ai";
 import type { PreparedChatModel } from "../../providers/chat";
+import { wrappedWhenUsed } from "../../providers/wrappedWhenUsed";
 import type { RepliesOut } from "../../runs/replies";
 import type { PaceTimers } from "../../sources/pace";
 import { type HeldTime, heldTime } from "./heldTime";
@@ -43,23 +44,23 @@ export function repliesFirst(
   };
 
   return {
-    model: (prepared) => ({
-      ...prepared,
-      model: wrapLanguageModel({
-        model: prepared.model,
-        middleware: {
-          specificationVersion: "v4",
-          wrapGenerate: async ({ doGenerate, params }) => {
-            await behindReplies(prepared.provider.id, params.abortSignal);
-            return doGenerate();
+    model: (prepared) =>
+      wrappedWhenUsed(prepared, (model) =>
+        wrapLanguageModel({
+          model,
+          middleware: {
+            specificationVersion: "v4",
+            wrapGenerate: async ({ doGenerate, params }) => {
+              await behindReplies(prepared.provider.id, params.abortSignal);
+              return doGenerate();
+            },
+            wrapStream: async ({ doStream, params }) => {
+              await behindReplies(prepared.provider.id, params.abortSignal);
+              return doStream();
+            },
           },
-          wrapStream: async ({ doStream, params }) => {
-            await behindReplies(prepared.provider.id, params.abortSignal);
-            return doStream();
-          },
-        },
-      }),
-    }),
+        }),
+      ),
     before: (prepared, stop) => replies?.none(prepared.provider.id, stop) ?? Promise.resolve(),
     timers: held.timers,
     timeout: held.timeout,

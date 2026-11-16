@@ -1,8 +1,10 @@
 /**
  * A check that isn't part of a reply sends each new request only while no reply is out on its
  * key (#2944), as a write's check does (#2830): requests already out finish, the wait counts
- * against neither the check's time limit nor its pauses, and Stop ends it. Every flow that checks
- * a claim goes through the run these tests drive (src/core/answers/checks/runCheck.ts).
+ * against neither the check's time limit nor its pauses, and Stop ends it. The checks that start
+ * by themselves (the watch in the background, what the assistant wrote) go through the run these
+ * tests drive (src/core/answers/checks/runCheck.ts) with `behindReplies`; one the User pressed
+ * Check for doesn't.
  */
 import { generateText } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
@@ -83,7 +85,11 @@ const flush = async () => {
 /** A run of checks, one claim each, on a clock the test moves, whose requests the model records. */
 function checks(
   items: readonly number[],
-  { repliesOut, limitMs }: { repliesOut?: RepliesOut; limitMs?: number } = {},
+  {
+    repliesOut,
+    limitMs,
+    behindReplies = true,
+  }: { repliesOut?: RepliesOut; limitMs?: number; behindReplies?: boolean } = {},
 ) {
   const clock = heldClock();
   const mock = recordingModel();
@@ -99,6 +105,7 @@ function checks(
     prepared(mock.model),
     stop.signal,
     null,
+    { behindReplies },
   );
   const requestOf = (item: number): ClaimCheckRequest => ({
     claim: String(item),
@@ -209,6 +216,17 @@ describe("Checks behind a reply (#2944)", () => {
 
     expect(listening.mock.sent).toEqual(plain.mock.sent);
     expect(plain.mock.sent).toEqual(["1", "2", "3", "4"]);
+  });
+
+  // protects=a check the User pressed Check for sends its requests beside a reply, as it always has (#2944: only the checks that start by themselves wait); fails_when=a pressed check is held behind a reply; no_claim=which flows press.
+  test("a check the User pressed Check for isn't held", async () => {
+    const replies = createRepliesOut();
+    replies.begin("anthropic");
+    const { mock, done } = checks([1, 2], { repliesOut: replies, behindReplies: false });
+
+    await done;
+
+    expect(mock.sent).toEqual(["1", "2"]);
   });
 
   // protects=another provider's reply holds nothing (#2944); fails_when=a reply on one key holds a check on another; no_claim=which key a provider is.

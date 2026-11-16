@@ -7,6 +7,7 @@
 import { APICallError, wrapLanguageModel } from "ai";
 import type { PreparedChatModel } from "../providers/chat";
 import { SHORTEST_RATE_LIMIT_WAIT_MS, statedWaitMs } from "../providers/rateLimitWait";
+import { wrappedWhenUsed } from "../providers/wrappedWhenUsed";
 
 /** The longest stated wait a check's request is sent again after (#2944): a longer one gives it up. */
 export const REQUEST_WAIT_LIMIT_MS = 2 * 60_000;
@@ -96,11 +97,10 @@ export async function sendWaiting<R>(
 }
 
 /** `prepared`, each of whose requests goes through `sendWaiting`, its own abort ending a wait. */
-export function waitingOnLimits(prepared: PreparedChatModel, hooks: WaitHooks): PreparedChatModel {
-  return {
-    ...prepared,
-    model: wrapLanguageModel({
-      model: prepared.model,
+export const waitingOnLimits = (prepared: PreparedChatModel, hooks: WaitHooks): PreparedChatModel =>
+  wrappedWhenUsed(prepared, (model) =>
+    wrapLanguageModel({
+      model,
       middleware: {
         specificationVersion: "v4",
         wrapGenerate: ({ doGenerate, params }) =>
@@ -109,8 +109,7 @@ export function waitingOnLimits(prepared: PreparedChatModel, hooks: WaitHooks): 
           sendWaiting(doStream, hooks, { signal: params.abortSignal }),
       },
     }),
-  };
-}
+  );
 
 /**
  * The latest end of the waits under way, told as it changes: when it ends (ms since the epoch),

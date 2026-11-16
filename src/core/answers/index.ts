@@ -1299,6 +1299,8 @@ export function createAnswers(options: AnswersOptions) {
       model: answer.model,
     });
     let citations = answer.citations;
+    /** Whether its line says its sentence check waits on a rate limit (#2944). */
+    let limitShown = false;
     /** By marker, where in the text each of its sentences the check passed cites it (#2847). */
     const passedAt = new Map<number, number[]>();
     const judgedBefore = new Set(
@@ -1387,14 +1389,17 @@ export function createAnswers(options: AnswersOptions) {
             onJudged: judged,
             onSentence: passed,
             onStop: (stop) => judged(null, null, stop),
-            onWait: waitLine(clock.now, (until) => options.waiting?.(answer.id, until)),
+            onWait: waitLine(clock.now, (until) => {
+              limitShown = until !== null;
+              options.waiting?.(answer.id, until);
+            }),
           }),
         );
       }
     } catch (error) {
       options.reportError(error);
     } finally {
-      options.waiting?.(answer.id, null);
+      if (limitShown) options.waiting?.(answer.id, null);
       if (citations.some((citation) => citation.check === "checking")) judged(null, null);
       giveBack();
       if (judgements.get(answer.id)?.controller === controller) judgements.delete(answer.id);

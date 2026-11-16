@@ -548,7 +548,7 @@ export function createContradictionWatch(options: WatchOptions) {
                 runCheck(
                   checkOf(claim),
                   requestOf(claim, mindId, prepared, call.signal),
-                  checkRunOf(options, prepared, call.signal, mindId),
+                  checkRunOf(options, prepared, call.signal, mindId, { behindReplies: true }),
                 ),
               ));
             // Given way to an Answer, it runs again later; closing, it never does.

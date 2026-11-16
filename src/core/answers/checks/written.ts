@@ -1258,7 +1258,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     };
     const failed = (sentence: Sentence, reason: ClaimCheckFailure, detail: string | null) =>
       landNow(failedLanding(sentence, reason, detail), "failed");
-    const ran = checkRunOf(options, prepared, signal, mindId);
+    const ran = checkRunOf(options, prepared, signal, mindId, { behindReplies: true });
     const behind = ran.replies;
     const sending = behind.model(prepared);
     const quickSending = quick && behind.model(quick);

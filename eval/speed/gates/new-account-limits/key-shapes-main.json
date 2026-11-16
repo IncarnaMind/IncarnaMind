@@ -1,0 +1,522 @@
+[
+ {
+  "name": "bucket never",
+  "replyMs": 100,
+  "write": {
+   "end": 600,
+   "refused": 0,
+   "sent": 36,
+   "marks": {
+    "supported": 12
+   },
+   "waits": []
+  }
+ },
+ {
+  "name": "bucket never",
+  "replyMs": 500,
+  "write": {
+   "end": 3000,
+   "refused": 0,
+   "sent": 36,
+   "marks": {
+    "supported": 12
+   },
+   "waits": []
+  }
+ },
+ {
+  "name": "bucket never",
+  "replyMs": 1000,
+  "write": {
+   "end": 6000,
+   "refused": 0,
+   "sent": 36,
+   "marks": {
+    "supported": 12
+   },
+   "waits": []
+  }
+ },
+ {
+  "name": "bucket never",
+  "replyMs": 2000,
+  "write": {
+   "end": 12000,
+   "refused": 0,
+   "sent": 36,
+   "marks": {
+    "supported": 12
+   },
+   "waits": []
+  }
+ },
+ {
+  "name": "bucket fits six",
+  "replyMs": 100,
+  "write": {
+   "end": 600,
+   "refused": 0,
+   "sent": 36,
+   "marks": {
+    "supported": 12
+   },
+   "waits": []
+  }
+ },
+ {
+  "name": "bucket fits six",
+  "replyMs": 500,
+  "write": {
+   "end": 3000,
+   "refused": 0,
+   "sent": 36,
+   "marks": {
+    "supported": 12
+   },
+   "waits": []
+  }
+ },
+ {
+  "name": "bucket fits six",
+  "replyMs": 1000,
+  "write": {
+   "end": 6000,
+   "refused": 0,
+   "sent": 36,
+   "marks": {
+    "supported": 12
+   },
+   "waits": []
+  }
+ },
+ {
+  "name": "bucket fits six",
+  "replyMs": 2000,
+  "write": {
+   "end": 12000,
+   "refused": 0,
+   "sent": 36,
+   "marks": {
+    "supported": 12
+   },
+   "waits": []
+  }
+ },
+ {
+  "name": "bucket refuses six",
+  "replyMs": 100,
+  "write": {
+   "end": 1300,
+   "refused": 2,
+   "sent": 36,
+   "marks": {
+    "supported": 12
+   },
+   "waits": []
+  }
+ },
+ {
+  "name": "bucket refuses six",
+  "replyMs": 500,
+  "write": {
+   "end": 5000,
+   "refused": 8,
+   "sent": 36,
+   "marks": {
+    "supported": 12
+   },
+   "waits": []
+  }
+ },
+ {
+  "name": "bucket refuses six",
+  "replyMs": 1000,
+  "write": {
+   "end": 9000,
+   "refused": 14,
+   "sent": 36,
+   "marks": {
+    "supported": 12
+   },
+   "waits": []
+  }
+ },
+ {
+  "name": "bucket refuses six",
+  "replyMs": 2000,
+  "write": {
+   "end": 18000,
+   "refused": 30,
+   "sent": 36,
+   "marks": {
+    "supported": 12
+   },
+   "waits": []
+  }
+ },
+ {
+  "name": "bucket very small",
+  "replyMs": 100,
+  "write": {
+   "end": 5300,
+   "refused": 18,
+   "sent": 36,
+   "marks": {
+    "supported": 12
+   },
+   "waits": []
+  }
+ },
+ {
+  "name": "bucket very small",
+  "replyMs": 500,
+  "write": {
+   "end": 19000,
+   "refused": 57,
+   "sent": 36,
+   "marks": {
+    "supported": 12
+   },
+   "waits": []
+  }
+ },
+ {
+  "name": "bucket very small",
+  "replyMs": 1000,
+  "write": {
+   "end": 36000,
+   "refused": 84,
+   "sent": 36,
+   "marks": {
+    "supported": 12
+   },
+   "waits": []
+  }
+ },
+ {
+  "name": "bucket very small",
+  "replyMs": 2000,
+  "write": {
+   "end": 72000,
+   "refused": 84,
+   "sent": 36,
+   "marks": {
+    "supported": 12
+   },
+   "waits": []
+  }
+ },
+ {
+  "name": "at-once never",
+  "replyMs": 100,
+  "write": {
+   "end": 600,
+   "refused": 0,
+   "sent": 36,
+   "marks": {
+    "supported": 12
+   },
+   "waits": []
+  }
+ },
+ {
+  "name": "at-once never",
+  "replyMs": 500,
+  "write": {
+   "end": 3000,
+   "refused": 0,
+   "sent": 36,
+   "marks": {
+    "supported": 12
+   },
+   "waits": []
+  }
+ },
+ {
+  "name": "at-once never",
+  "replyMs": 1000,
+  "write": {
+   "end": 6000,
+   "refused": 0,
+   "sent": 36,
+   "marks": {
+    "supported": 12
+   },
+   "waits": []
+  }
+ },
+ {
+  "name": "at-once never",
+  "replyMs": 2000,
+  "write": {
+   "end": 12000,
+   "refused": 0,
+   "sent": 36,
+   "marks": {
+    "supported": 12
+   },
+   "waits": []
+  }
+ },
+ {
+  "name": "at-once fits six",
+  "replyMs": 100,
+  "write": {
+   "end": 600,
+   "refused": 0,
+   "sent": 36,
+   "marks": {
+    "supported": 12
+   },
+   "waits": []
+  }
+ },
+ {
+  "name": "at-once fits six",
+  "replyMs": 500,
+  "write": {
+   "end": 3000,
+   "refused": 0,
+   "sent": 36,
+   "marks": {
+    "supported": 12
+   },
+   "waits": []
+  }
+ },
+ {
+  "name": "at-once fits six",
+  "replyMs": 1000,
+  "write": {
+   "end": 6000,
+   "refused": 0,
+   "sent": 36,
+   "marks": {
+    "supported": 12
+   },
+   "waits": []
+  }
+ },
+ {
+  "name": "at-once fits six",
+  "replyMs": 2000,
+  "write": {
+   "end": 12000,
+   "refused": 0,
+   "sent": 36,
+   "marks": {
+    "supported": 12
+   },
+   "waits": []
+  }
+ },
+ {
+  "name": "at-once refuses six",
+  "replyMs": 100,
+  "write": {
+   "end": 2300,
+   "refused": 2,
+   "sent": 36,
+   "marks": {
+    "supported": 12
+   },
+   "waits": []
+  }
+ },
+ {
+  "name": "at-once refuses six",
+  "replyMs": 500,
+  "write": {
+   "end": 5000,
+   "refused": 4,
+   "sent": 36,
+   "marks": {
+    "supported": 12
+   },
+   "waits": []
+  }
+ },
+ {
+  "name": "at-once refuses six",
+  "replyMs": 1000,
+  "write": {
+   "end": 10000,
+   "refused": 8,
+   "sent": 36,
+   "marks": {
+    "supported": 12
+   },
+   "waits": []
+  }
+ },
+ {
+  "name": "at-once refuses six",
+  "replyMs": 2000,
+  "write": {
+   "end": 18000,
+   "refused": 14,
+   "sent": 36,
+   "marks": {
+    "supported": 12
+   },
+   "waits": []
+  }
+ },
+ {
+  "name": "at-once very small",
+  "replyMs": 100,
+  "write": {
+   "end": 13300,
+   "refused": 16,
+   "sent": 36,
+   "marks": {
+    "supported": 12
+   },
+   "waits": []
+  }
+ },
+ {
+  "name": "at-once very small",
+  "replyMs": 500,
+  "write": {
+   "end": 21000,
+   "refused": 25,
+   "sent": 36,
+   "marks": {
+    "supported": 12
+   },
+   "waits": []
+  }
+ },
+ {
+  "name": "at-once very small",
+  "replyMs": 1000,
+  "write": {
+   "end": 37000,
+   "refused": 43,
+   "sent": 36,
+   "marks": {
+    "supported": 12
+   },
+   "waits": []
+  }
+ },
+ {
+  "name": "at-once very small",
+  "replyMs": 2000,
+  "write": {
+   "end": 73000,
+   "refused": 70,
+   "sent": 36,
+   "marks": {
+    "supported": 12
+   },
+   "waits": []
+  }
+ },
+ {
+  "name": "counting bucket refuses six",
+  "replyMs": 100,
+  "write": {
+   "end": 2300,
+   "refused": 6,
+   "sent": 36,
+   "marks": {
+    "supported": 12
+   },
+   "waits": []
+  }
+ },
+ {
+  "name": "counting bucket refuses six",
+  "replyMs": 500,
+  "write": {
+   "end": 8000,
+   "refused": 28,
+   "sent": 36,
+   "marks": {
+    "supported": 12
+   },
+   "waits": []
+  }
+ },
+ {
+  "name": "counting bucket refuses six",
+  "replyMs": 1000,
+  "write": {
+   "end": 21000,
+   "refused": 20,
+   "sent": 42,
+   "marks": {
+    "supported": 12
+   },
+   "waits": []
+  }
+ },
+ {
+  "name": "counting bucket refuses six",
+  "replyMs": 2000,
+  "write": {
+   "end": 41000,
+   "refused": 20,
+   "sent": 41,
+   "marks": {
+    "supported": 12
+   },
+   "waits": []
+  }
+ },
+ {
+  "name": "counting bucket very small",
+  "replyMs": 100,
+  "write": {
+   "end": 26500,
+   "refused": 79,
+   "sent": 38,
+   "marks": {
+    "supported": 12
+   },
+   "waits": []
+  }
+ },
+ {
+  "name": "counting bucket very small",
+  "replyMs": 500,
+  "write": {
+   "end": 81500,
+   "refused": 79,
+   "sent": 47,
+   "marks": {
+    "supported": 12
+   },
+   "waits": []
+  }
+ },
+ {
+  "name": "counting bucket very small",
+  "replyMs": 1000,
+  "write": {
+   "end": 134000,
+   "refused": 79,
+   "sent": 47,
+   "marks": {
+    "supported": 12
+   },
+   "waits": []
+  }
+ },
+ {
+  "name": "counting bucket very small",
+  "replyMs": 2000,
+  "write": {
+   "end": 264000,
+   "refused": 85,
+   "sent": 47,
+   "marks": {
+    "supported": 12
+   },
+   "waits": []
+  }
+ }
+]
