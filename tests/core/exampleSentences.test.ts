@@ -117,8 +117,8 @@ function plansFor(lines: readonly { text: string; like: Line }[]) {
   return plans;
 }
 
-/** Where a part's check is told to say what the part states, and what a Passage gives, before its verdict. */
-const PART_LINES = "the verdict word in English:\nSays: ";
+/** Where a part's check is told to give what its recorded quote says for the part, before its verdict. */
+const PART_LINE = "the verdict word in English:\nFound: ";
 
 /**
  * A judge that calls every figure Supported and binds it to the number the right sentence has
@@ -158,10 +158,8 @@ function lenient(plans: ReturnType<typeof plansFor>, call: ModelCall): ScriptedR
     measure: null,
     calculation: null,
   }));
-  // A part's check writes its two lines before its verdict, as Claude Haiku 5.5 does.
-  const first = call.system.includes(PART_LINES)
-    ? `Says: ${claim}\nFound: "${plan.quote}" (p. 1)\n`
-    : "";
+  // A part's check writes its Found line before its verdict, as Claude Haiku 5.5 does.
+  const first = call.system.includes(PART_LINE) ? `Found: "${plan.quote}"\n` : "";
   return {
     text: `${first}Verdict: supported\nAbsence: no\n${SAME_DETAIL}\nExplanation: It says so. [^1]\nEvidence: [1]\nFigures: ${JSON.stringify({ items, remainder: null })}`,
   };
@@ -284,9 +282,9 @@ describe.each(["en", "zh-CN"] as const)("the credit example's own sentences (%s)
     expect(part.prompt).toContain(`<whole-sentence>\n${words.ebitda.text}\n</whole-sentence>`);
     expect(part.prompt).not.toContain("<paragraph>");
     expect(part.system).toContain("is one part of a longer sentence of the User's");
-    // What the part states and what a Passage gives come before the verdict it is asked for.
+    // What its recorded quote gives comes before the verdict it is asked for.
     expect(part.system).toMatch(
-      /\nSays: .+\nFound: .+\nVerdict: supported, unsupported or contradicted\n/,
+      /English:\nFound: .+\nVerdict: supported, unsupported or contradicted\n/,
     );
     // The rule's own examples are none of the example's sentences.
     for (const line of [words.ebitda, words.revenue])
@@ -302,7 +300,7 @@ describe.each(["en", "zh-CN"] as const)("the credit example's own sentences (%s)
     expect(states.get(words.whole.text)).toBe("supported");
     const whole = runOf(runs, words.whole.text);
     expect(whole.system).not.toContain("is one part of a longer sentence of the User's");
-    expect(whole.system).not.toContain(PART_LINES);
+    expect(whole.system).not.toContain(PART_LINE);
     expect(whole.prompt).not.toContain("<whole-sentence>");
   });
 

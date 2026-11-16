@@ -131,20 +131,21 @@ const explanationLine = (language: Language) =>
   `Explanation: one plain sentence in ${LANGUAGE_NAMES[language]}, whatever language the Documents and the User's sentence are in. For supported or contradicted, say what the Document says, with the markers of the deciding checked quotes at its end; for contradicted, name the thing, and give the Document's value and the sentence's. For unsupported, say what the Documents don't say.`;
 
 /**
- * A part's check says what the part states before it judges it. Asked for its verdict first, with
- * `PART_OF` among its instructions, Claude Haiku 5.5 wrote "contradicted" for the credit example's
- * "against £118 million a year earlier" and took it back in the same reply, which is read as no
- * verdict, in 3 of 3 checks (#3088).
+ * A part's check gives what its recorded quote says for the part before it judges it. Asked for
+ * its verdict first, with `PART_OF` among its instructions, Claude Haiku 5.5's first reply for the
+ * credit example's "against £118 million a year earlier" said contradicted, or said it and took it
+ * back, which is read as no verdict, in 17 of 20 checks (#3088). The line names the quote recorded
+ * with cite and nothing of the sentence's subject: a line that quoted a Passage stood in for the
+ * cite call, and one that named the subject put it on a Chinese part's Scope line, two re-asks
+ * that used up the check's steps.
  */
-const PART_SAYS = [
-  'Says: what the sentence to check says of the subject its longer sentence names, in a few plain words ("vacancy was 7.1% in 2024").',
-  'Found: what a Passage gives for that very thing, in that same period, place or other detail, copied from it ("7.1% in 2024"), or nothing.',
-];
+const PART_FOUND =
+  'Found: what a quote you recorded with cite gives for the very thing the sentence to check states, in that same period, place or other detail, copied from it ("7.1% in 2024"), or nothing when none gives it.';
 
 const reply = (language: Language, calculate: boolean, partOf: boolean) =>
   [
     "Reply in exactly this form, the verdict word in English:",
-    ...(partOf ? PART_SAYS : []),
+    ...(partOf ? [PART_FOUND] : []),
     "Verdict: supported, unsupported or contradicted",
     'Absence: yes only when the sentence asserts that a clause, disclosure, figure, approval, event or fact is absent ("The lease has no break clause"); otherwise no. One word, on this line alone.',
     'Scope: the sentence\'s own word for the Passage\'s party or term, then same or wider ("Scope: tenants, wider" for "the Tenant"; "Scope: none, same" when the sentence names none). "wider" when that word is a general one for a wider group than the Passage\'s; "same" otherwise: the Passage\'s own word for its party ("the Tenant" for "the Tenant"), a name for it or another word for the very same party ("Ms Patel" for "the Tenant").',
