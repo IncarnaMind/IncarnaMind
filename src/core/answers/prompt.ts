@@ -1085,10 +1085,13 @@ export const CITE_RETRY_INSTRUCTIONS = citeRetryInstructions();
 /**
  * The same request for a Meeting fill's reply, whose sentences hold markers with no record. A fact
  * is kept only with a record for each of its markers, and asked by sentence a model gives a
- * sentence with two markers one quote (#3145).
+ * sentence with two markers one quote. The Summary's sentences name outcomes in general words, so
+ * no one line says them: left to "sentences a Passage supports", a model skipped them, and the
+ * Summary was left out (#3145).
  */
 export const FILL_CITE_RETRY_INSTRUCTIONS = citeRetryInstructions([
   "- A sentence with more than one Citation marker ([^3][^4], or one after each clause) gets an item for each marker, in the markers' order: the same sentence each time, each with a quote of its own for that part of the sentence.",
+  "- A sentence that sums up the call in general words, such as what it was about or what came out of it, gets an item too: quote the line where that was raised or settled.",
 ]);
 
 /** The one request for Citations shows an Answer: its tags are the Answer's and the Passages'. */
