@@ -103,6 +103,29 @@ describe("what an Answer takes from the look in its scope", () => {
     ).toBeNull();
   });
 
+  // protects=an Answer's sentence whose fact the Passage states but which adds a conclusion of the assistant's own gets no green check from the look: the check leaves the conclusion out and passes the rest, as a real model's reply did for "…, which shows the authors think so too"; fails_when=the look takes the fact's Supported as the whole sentence's, so the Citation shows a check over an inference no Document states (#3019); no_claim=whether a model names such a clause an opinion
+  test("a sentence passed but for a conclusion of the assistant's own gives the Answer no verdict", () => {
+    const sentence = "The kilns are due in May, which shows the supplier is on schedule.";
+    const fact = { ...part("supported", [DUE]), span: { start: 0, end: 24 } };
+    const conclusion: ClaimCheckPart = {
+      ...part("supported", []),
+      span: { start: 26, end: sentence.length - 1 },
+      kind: "opinion",
+      verdict: null,
+      decidingEvidence: null,
+    };
+
+    expect(
+      lookResult({ ...result(fact, "supported"), parts: [fact, conclusion] }, sentence, [
+        { marker: 1, ...DUE },
+      ]),
+    ).toBeNull();
+    expect(lookResult(result(fact, "supported"), sentence, [{ marker: 1, ...DUE }])).toMatchObject({
+      check: "found",
+      found: [],
+    });
+  });
+
   // protects=a sentence the look still reads Unsupported as one whole part names no missing words, so its card shows the check's own phrases for what the Documents state and what they don't, never the whole sentence as "not mentioned", and no Passage it found becomes a Citation; fails_when=the whole sentence is given as the missing part, or an Unsupported sentence gains Citations; no_claim=the phrases' wording, which is the model's.
   test("still Unsupported as one whole part: no missing words, the check's phrases kept, nothing found", () => {
     const unsupported: UnsupportedReason = {

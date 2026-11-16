@@ -6,6 +6,7 @@
  * look that couldn't judge the sentence leaves it as its batch read it.
  */
 import { citesPassage } from "../../../shared/citedNow";
+import { leftOutByAssistant, partsWrittenBy } from "../../../shared/claimParts";
 import { citationLocation } from "../../../shared/locations";
 import type {
   CitationAttributes,
@@ -88,6 +89,14 @@ export function lookResult(
   // An Answer cites Passages of Documents: a part passed on a file's own properties or the
   // Library's facts gives the Answer no verdict, and its sentence stays as its batch read it (#2311).
   if (result.verdict === "supported" && passed.some((part) => part.evidence.some(isNoPassage))) {
+    return null;
+  }
+  // The assistant wrote every sentence of an Answer: where the check left a conclusion of the
+  // assistant's own out, the rest passing is no verdict on the sentence (#3019).
+  if (
+    result.verdict === "supported" &&
+    partsWrittenBy(result.parts ?? [], true).some(leftOutByAssistant)
+  ) {
     return null;
   }
   const held = new Set<string>();
