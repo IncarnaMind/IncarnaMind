@@ -1,0 +1,506 @@
+[
+ {
+  "cell": {
+   "name": "Anthropic Start, Claude Haiku 5.5 (published), request as the gate measured it, bucket holds a minute",
+   "sentences": 12,
+   "replyMs": 1461
+  },
+  "write": {
+   "end": 8766,
+   "refused": 0,
+   "sent": 36,
+   "marks": {
+    "supported": 12
+   },
+   "waits": []
+  }
+ },
+ {
+  "cell": {
+   "name": "Anthropic Start, Claude Haiku 5.5 (published), request as the gate measured it, bucket holds a second",
+   "sentences": 12,
+   "replyMs": 1461
+  },
+  "write": {
+   "end": 8766,
+   "refused": 0,
+   "sent": 36,
+   "marks": {
+    "supported": 12
+   },
+   "waits": []
+  }
+ },
+ {
+  "cell": {
+   "name": "Anthropic Start, Claude Haiku 5.5 (published), request as the gate measured it, bucket holds a minute",
+   "sentences": 30,
+   "replyMs": 1461
+  },
+  "write": {
+   "end": 21915,
+   "refused": 0,
+   "sent": 90,
+   "marks": {
+    "supported": 30
+   },
+   "waits": []
+  }
+ },
+ {
+  "cell": {
+   "name": "Anthropic Start, Claude Haiku 5.5 (published), request as the gate measured it, bucket holds a second",
+   "sentences": 30,
+   "replyMs": 1461
+  },
+  "write": {
+   "end": 21915,
+   "refused": 0,
+   "sent": 90,
+   "marks": {
+    "supported": 30
+   },
+   "waits": []
+  }
+ },
+ {
+  "cell": {
+   "name": "OpenAI Build, GPT-6.1 Sol (published), request as the gate measured it, bucket holds a minute",
+   "sentences": 12,
+   "replyMs": 1878
+  },
+  "write": {
+   "end": 11268,
+   "refused": 0,
+   "sent": 36,
+   "marks": {
+    "supported": 12
+   },
+   "waits": []
+  }
+ },
+ {
+  "cell": {
+   "name": "OpenAI Build, GPT-6.1 Sol (published), request as the gate measured it, bucket holds a second",
+   "sentences": 12,
+   "replyMs": 1878
+  },
+  "write": {
+   "end": 17902,
+   "refused": 7,
+   "sent": 36,
+   "marks": {
+    "supported": 12
+   },
+   "waits": []
+  }
+ },
+ {
+  "cell": {
+   "name": "OpenAI Build, GPT-6.1 Sol (published), request as the gate measured it, bucket holds a minute",
+   "sentences": 30,
+   "replyMs": 1878
+  },
+  "write": {
+   "end": 28170,
+   "refused": 0,
+   "sent": 90,
+   "marks": {
+    "supported": 30
+   },
+   "waits": []
+  }
+ },
+ {
+  "cell": {
+   "name": "OpenAI Build, GPT-6.1 Sol (published), request as the gate measured it, bucket holds a second",
+   "sentences": 30,
+   "replyMs": 1878
+  },
+  "write": {
+   "end": 45072,
+   "refused": 15,
+   "sent": 90,
+   "marks": {
+    "supported": 30
+   },
+   "waits": []
+  }
+ },
+ {
+  "cell": {
+   "name": "Claude Haiku 5.5, Anthropic Start's 2,000,000 input tokens a minute, 22,500 a sentence, bucket holds a minute",
+   "sentences": 12,
+   "replyMs": 1461
+  },
+  "write": {
+   "end": 8766,
+   "refused": 0,
+   "sent": 36,
+   "marks": {
+    "supported": 12
+   },
+   "waits": []
+  }
+ },
+ {
+  "cell": {
+   "name": "Claude Haiku 5.5, Anthropic Start's 2,000,000 input tokens a minute, 22,500 a sentence, bucket holds a second",
+   "sentences": 12,
+   "replyMs": 1461
+  },
+  "write": {
+   "end": 14149,
+   "refused": 7,
+   "sent": 38,
+   "marks": {
+    "supported": 12
+   },
+   "waits": []
+  }
+ },
+ {
+  "cell": {
+   "name": "Claude Haiku 5.5, Anthropic Start's 2,000,000 input tokens a minute, 22,500 a sentence, bucket holds a minute",
+   "sentences": 30,
+   "replyMs": 1461
+  },
+  "write": {
+   "end": 21915,
+   "refused": 0,
+   "sent": 90,
+   "marks": {
+    "supported": 30
+   },
+   "waits": []
+  }
+ },
+ {
+  "cell": {
+   "name": "Claude Haiku 5.5, Anthropic Start's 2,000,000 input tokens a minute, 22,500 a sentence, bucket holds a second",
+   "sentences": 30,
+   "replyMs": 1461
+  },
+  "write": {
+   "end": 29298,
+   "refused": 11,
+   "sent": 92,
+   "marks": {
+    "supported": 30
+   },
+   "waits": []
+  }
+ },
+ {
+  "cell": {
+   "name": "Claude Haiku 5.5, 500,000 (the 2026-11-14 measurement's key) input tokens a minute, 22,500 a sentence, bucket holds a minute",
+   "sentences": 12,
+   "replyMs": 1461
+  },
+  "write": {
+   "end": 8766,
+   "refused": 0,
+   "sent": 36,
+   "marks": {
+    "supported": 12
+   },
+   "waits": []
+  }
+ },
+ {
+  "cell": {
+   "name": "Claude Haiku 5.5, 500,000 (the 2026-11-14 measurement's key) input tokens a minute, 22,500 a sentence, bucket holds a second",
+   "sentences": 12,
+   "replyMs": 1461
+  },
+  "write": {
+   "end": 75766,
+   "refused": 33,
+   "sent": 11,
+   "marks": {
+    "not-checked: rate-limit": 12
+   },
+   "waits": [
+    44844,
+    null,
+    68305,
+    null
+   ]
+  }
+ },
+ {
+  "cell": {
+   "name": "Claude Haiku 5.5, 500,000 (the 2026-11-14 measurement's key) input tokens a minute, 22,500 a sentence, bucket holds a minute",
+   "sentences": 30,
+   "replyMs": 1461
+  },
+  "write": {
+   "end": 26837,
+   "refused": 3,
+   "sent": 92,
+   "marks": {
+    "supported": 30
+   },
+   "waits": []
+  }
+ },
+ {
+  "cell": {
+   "name": "Claude Haiku 5.5, 500,000 (the 2026-11-14 measurement's key) input tokens a minute, 22,500 a sentence, bucket holds a second",
+   "sentences": 30,
+   "replyMs": 1461
+  },
+  "write": {
+   "end": 75766,
+   "refused": 33,
+   "sent": 11,
+   "marks": {
+    "not-checked: rate-limit": 30
+   },
+   "waits": [
+    44844,
+    null,
+    68305,
+    null
+   ]
+  }
+ },
+ {
+  "cell": {
+   "name": "Claude Haiku 5.5, 50,000 (a tenth of it) input tokens a minute, 22,500 a sentence, bucket holds a minute",
+   "sentences": 12,
+   "replyMs": 1461
+  },
+  "write": {
+   "end": 304596,
+   "refused": 33,
+   "sent": 43,
+   "marks": {
+    "supported": 12
+   },
+   "waits": [
+    12461,
+    22844,
+    null,
+    33305,
+    null,
+    50227,
+    null,
+    59688,
+    null,
+    77610,
+    null,
+    87071,
+    null,
+    103993,
+    null,
+    113454,
+    null,
+    131376,
+    null,
+    140837,
+    null,
+    158759,
+    null,
+    168220,
+    null,
+    185142,
+    null,
+    194603,
+    null,
+    212525,
+    null,
+    221986,
+    null,
+    238908,
+    null,
+    249369,
+    null,
+    266291,
+    null,
+    275752,
+    null,
+    293674,
+    null,
+    303135,
+    null
+   ]
+  }
+ },
+ {
+  "cell": {
+   "name": "Claude Haiku 5.5, 50,000 (a tenth of it) input tokens a minute, 22,500 a sentence, bucket holds a second",
+   "sentences": 12,
+   "replyMs": 1461
+  },
+  "write": {
+   "end": 67000,
+   "refused": 33,
+   "sent": 0,
+   "marks": {
+    "not-checked: rate-limit": 12
+   },
+   "waits": [
+    39000,
+    null,
+    61000,
+    null
+   ]
+  }
+ },
+ {
+  "cell": {
+   "name": "Claude Haiku 5.5, 50,000 (a tenth of it) input tokens a minute, 22,500 a sentence, bucket holds a minute",
+   "sentences": 30,
+   "replyMs": 1461
+  },
+  "write": {
+   "end": 790490,
+   "refused": 69,
+   "sent": 97,
+   "marks": {
+    "supported": 30
+   },
+   "waits": [
+    12461,
+    22844,
+    null,
+    33305,
+    null,
+    50227,
+    null,
+    59688,
+    null,
+    77610,
+    null,
+    87071,
+    null,
+    103993,
+    null,
+    113454,
+    null,
+    131376,
+    null,
+    140837,
+    null,
+    158759,
+    null,
+    168220,
+    null,
+    185142,
+    null,
+    194603,
+    null,
+    212525,
+    null,
+    221986,
+    null,
+    238908,
+    null,
+    249369,
+    null,
+    266291,
+    null,
+    275752,
+    null,
+    293674,
+    null,
+    303135,
+    null,
+    320057,
+    null,
+    329518,
+    null,
+    347440,
+    null,
+    356901,
+    null,
+    373823,
+    null,
+    384284,
+    null,
+    401206,
+    null,
+    410667,
+    null,
+    428589,
+    null,
+    438050,
+    null,
+    454972,
+    null,
+    464433,
+    null,
+    482355,
+    null,
+    491816,
+    null,
+    509738,
+    null,
+    519199,
+    null,
+    536121,
+    null,
+    545582,
+    null,
+    563504,
+    null,
+    572965,
+    null,
+    589887,
+    null,
+    600348,
+    null,
+    617270,
+    null,
+    626731,
+    null,
+    644653,
+    null,
+    654114,
+    null,
+    671036,
+    null,
+    680497,
+    null,
+    698419,
+    null,
+    707880,
+    null,
+    724802,
+    null,
+    735263,
+    null,
+    752185,
+    null,
+    761646,
+    null,
+    779568,
+    null,
+    789029,
+    null
+   ]
+  }
+ },
+ {
+  "cell": {
+   "name": "Claude Haiku 5.5, 50,000 (a tenth of it) input tokens a minute, 22,500 a sentence, bucket holds a second",
+   "sentences": 30,
+   "replyMs": 1461
+  },
+  "write": {
+   "end": 67000,
+   "refused": 33,
+   "sent": 0,
+   "marks": {
+    "not-checked: rate-limit": 30
+   },
+   "waits": [
+    39000,
+    null,
+    61000,
+    null
+   ]
+  }
+ }
+]

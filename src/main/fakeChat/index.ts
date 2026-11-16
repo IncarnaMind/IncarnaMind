@@ -96,6 +96,10 @@ const QUESTION_FAILURES: readonly {
 const refusedOnce = new Set<string>();
 const offline = new Set<string>();
 const overloadedOnce = new Set<string>();
+/** The Questions a provider has told to "slow down" once already (#2944). */
+const slowedDownOnce = new Set<string>();
+/** How long a "slow down" 429 says to wait: past the 5 s a line names a wait after. */
+const SLOW_DOWN_SECONDS = 6;
 
 /**
  * The scripted replies to a request that doesn't ask for JSON, in order: the first that
@@ -373,6 +377,18 @@ export const createFakeChatModel: ChatModelFactory = (spec) => {
           requestBodyValues: {},
           ...(status && { statusCode: status }),
           ...(type && { responseBody: JSON.stringify({ error: { message, type, code: type } }) }),
+          isRetryable: false,
+        });
+      }
+      // A rate limit that says how long to wait refuses a "slow down" Question once (#2944).
+      if (/\bslow down\b/i.test(question) && !slowedDownOnce.has(question)) {
+        slowedDownOnce.add(question);
+        throw new APICallError({
+          message: "Rate limit reached for requests",
+          url: "https://fake.invalid/chat",
+          requestBodyValues: {},
+          statusCode: 429,
+          responseHeaders: { "retry-after": String(SLOW_DOWN_SECONDS) },
           isRetryable: false,
         });
       }

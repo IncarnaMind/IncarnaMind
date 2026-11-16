@@ -82,14 +82,12 @@ import type { RecordCitePlace } from "../../recordCites/referents";
 import { asCheckWork } from "../../reranking/order";
 import type { RepliesOut } from "../../runs/replies";
 import { type Slots, slots } from "../../runs/stop";
-import { realTimers } from "../../sources/pace";
 import { inStep } from "../../timing/flows";
 import { marksOfRun, type NodeJSON, syncContent, topLevelBlocks } from "../blocks";
 import type { CheckedCitation, ClaimCheckRequest } from "./claimCheck";
 import { type FirstLook, type FirstLookResult, quickLook } from "./fastPaths";
 import { claimsAmong } from "./findClaims";
 import { recordOpinions } from "./opinions";
-import { repliesFirst } from "./repliesFirst";
 import {
   type CheckOutcome,
   type CheckRuns,
@@ -110,6 +108,7 @@ import {
   writtenByAssistant,
 } from "./sentences";
 import type { CheckScope } from "./verify";
+import { waitLine } from "./waitLine";
 
 const UNCHECKED: ReadonlySet<string> = new Set(["question", "codeBlock", "blockMath", "heading"]);
 
@@ -1259,13 +1258,12 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     };
     const failed = (sentence: Sentence, reason: ClaimCheckFailure, detail: string | null) =>
       landNow(failedLanding(sentence, reason, detail), "failed");
-    const behind = repliesFirst(options.repliesOut, options.timers ?? realTimers);
+    const ran = checkRunOf(options, prepared, signal, mindId, { behindReplies: true });
+    const behind = ran.replies;
     const sending = behind.model(prepared);
     const quickSending = quick && behind.model(quick);
-    const ran = checkRunOf(options, prepared, signal, mindId);
     const run = {
       ...ran,
-      timers: behind.timers,
       // A request answered as IncarnaMind quits has no record left to go in.
       record: ran.record && {
         ...ran.record,
@@ -1386,6 +1384,9 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
       runClaimChecks(items, checkOne, {
         ...run,
         concurrency: claimsAtOnce(prepared),
+        ...(options.waiting && {
+          onPause: waitLine(run.timers.now, (until) => options.waiting?.(request, until)),
+        }),
         // The run hears a throw once and returns it, so a mark that can't land is never its
         // sentence's failure. Refusing stays here: once one edit is refused the rest aren't tried.
         onOutcome(sentence, outcome) {
