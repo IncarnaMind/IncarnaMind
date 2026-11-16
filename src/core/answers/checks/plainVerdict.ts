@@ -49,6 +49,7 @@ import {
   readCheckReply,
   readRecheck,
   readsAsRefusal,
+  sentenceItIsPartOf,
 } from "./prompt";
 import type { UnitGate } from "./unitGate";
 import { takeWrittenRecords } from "./writtenRecords";
@@ -246,8 +247,12 @@ async function verdictOf(
   }
   // A worked figure settles its number alone: never Supported over a reply that records another
   // duty or a dropped condition, or gives neither line (#1766, #1708).
+  const partOfLonger = sentenceItIsPartOf(request.claim, request.originalClaim) !== null;
   const byCalculation: ClaimCheckResult | null =
-    worked && !ownDetailDiffers(verdict) && !ownDetailUnread(verdict) && !namesUncovered(verdict)
+    worked &&
+    !ownDetailDiffers(verdict) &&
+    !ownDetailUnread(verdict) &&
+    !namesUncovered(verdict, partOfLonger)
       ? (await ledger.requiresCalculation({ ...verdict, verdict: "supported" }))
         ? notChecked("number-not-worked-out")
         : {
@@ -463,7 +468,7 @@ async function verdictOf(
   const differs = ownDetailDiffers(verdict);
   if (
     verdict.verdict === "supported" &&
-    (verdict.scope === "wider" || differs || namesUncovered(verdict))
+    (verdict.scope === "wider" || differs || namesUncovered(verdict, partOfLonger))
   ) {
     const part = await parts(deciding);
     if (signal.aborted) return notChecked("stopped");
