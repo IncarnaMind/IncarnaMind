@@ -91,3 +91,43 @@ Claude Haiku 5.5 and Claude Sonnet 5.5 on a direct Anthropic key, the timing's `
 **Added after round 1, before round 2 (2026-11-16):** round 1 ran before first for each model, and its after runs read more of their input from the service's prompt cache (the before run a minute earlier had written it): 4 to 9 requests with nothing cached against 6 to 22. The arm that runs second starts warmer, which favours it. So round 2 runs after first, and round 3 before first as written. The bars and their medians are unchanged; round 2 is also reported by itself, as the round where the order favours before.
 
 Reported beside the bars, not bars themselves: each arm's medians against the budget (first verdict under 5 s, done under 15 s), the Not checked marks that are the model's own, and the load.
+
+### The paired runs, 2026-11-16: two bars fail as written
+
+Twelve runs, US$1.93 at the catalog's price from the runs' own reports. One answered request to each model came first. No request was refused or failed in either arm, so no run is void and the check never had to go back to six. Before is the branch without the step (it differs from the change by the step's six files and runs the same timing code); after is the change at `b814c039e`. Every after run went past six at once (8 to 10 sentence checks out together).
+
+Seconds from the User's action, each round, before / after:
+
+| Model, language | | Round 1 | Round 2 (after ran first) | Round 3 | Median |
+|---|---|---|---|---|---|
+| Haiku 5.5, English | first verdict | 5.8 / 5.7 | 5.5 / 5.8 | 4.6 / 4.6 | 5.5 / 5.7 |
+| | done | 16.0 / 13.0 | 13.2 / 12.4 | 12.5 / 11.8 | 13.2 / 12.4 |
+| Haiku 5.5, Chinese | first verdict | 5.7 / 4.2 | 5.4 / 4.8 | 4.8 / 4.8 | 5.4 / 4.8 |
+| | done | 15.1 / 11.9 | 15.2 / 10.6 | 16.0 / 11.0 | 15.2 / 11.0 |
+| Sonnet 5.5, English | first verdict | 11.2 / 7.7 | 7.8 / 7.6 | 7.4 / 7.6 | 7.8 / 7.6 |
+| | done | 25.3 / 16.3 | 17.6 / 19.8 | 19.9 / 18.6 | 19.9 / 18.6 |
+| Sonnet 5.5, Chinese | first verdict | 7.0 / 7.8 | 7.0 / 9.5 | 7.2 / 7.2 | 7.0 / 7.8 |
+| | done | 17.8 / 15.4 | 16.3 / 17.3 | 18.3 / 15.8 | 17.8 / 15.8 |
+
+| Bar | Result |
+|---|---|
+| 1. The end | holds in all four cells |
+| 2. The first verdict | holds in three; **fails for Sonnet in Chinese**: 0.8 s later at the median, where before's three runs lay within 0.2 s |
+| 3. No check lost | holds: every sentence landed a mark in all 12 after runs, none Not checked for a rate limit |
+| 4. Wrong Supported | holds for Sonnet (0 and 0); **fails for Haiku**: 1 in after's six runs, 0 in before's six, and so no allowance |
+
+What the runs show of the two failures:
+
+- **The wrong Supported** is one sentence in one Haiku run in Chinese. Its two requests carried the same input (7,922 and 9,611 tokens) as in two other runs where the sentence came back Unsupported. Haiku's mark changed between runs on six other sentences of that Note too, in both arms.
+- **Sonnet's first verdict in Chinese:** the after runs' first requests were slower from the start, before the check went wider (about 2.0 s a request against 1.8 s, in two of the three). Three runs don't tell that apart from the service's own variation. English shows no difference.
+
+Beside the bars:
+
+- **Against the budget** (first verdict under 5 s, done under 15 s): the first verdict stays over it in both arms, Haiku at 4.8 to 5.7 s and Sonnet at 7.0 to 7.8 s. A sentence's check is three requests in a row on Sonnet, and going wider doesn't shorten that. Done comes under 15 s for Haiku in both languages; Sonnet stays over.
+- **The order of the arms** counts for about as much as the change on Sonnet: where after ran first (round 2) it ended later than before in both languages, and where it ran second it ended sooner. Haiku's after ended sooner in every round.
+- **Sonnet goes wider late**, at about 7 s: six requests carrying a search's results take that long to come back.
+- **The Note has 10 sentences**, so only four more can start. The scripted cells show a longer Note (30 sentences: 21.9 to 13.1 s); no paid run was made at that size.
+- **The model's own Not checked marks:** Haiku 4 in before's six runs and 3 in after's; Sonnet none.
+- **Load** (the one-minute average in each run's report): 4.4 to 10.3 before, 3.6 to 10.8 after.
+
+A failed bar is not passed by this page. Whether the step ships on these numbers is for whoever set the bars.
