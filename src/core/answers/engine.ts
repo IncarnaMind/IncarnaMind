@@ -122,7 +122,7 @@ import { asksForFixes, WRITE_NOW } from "./citations";
 import { type AskedPicture, earlierContext, type RequestMind, withLineBefore } from "./context";
 import { retryFigures } from "./figureRetry";
 import type { AskedLine } from "./helpCitations";
-import { withDeclaredMarkers, withJsonFencesClosed } from "./jsonFences";
+import { withJsonFencesClosed, withMarkersAgreed } from "./jsonFences";
 import { replyJson } from "./judge";
 import {
   NOTHING_SHOWN_YET,
@@ -2257,7 +2257,7 @@ async function* toolLoop(
   async function* endAnswer(): AsyncGenerator<AnswerEngineEvent> {
     yield { type: "ending" };
     if (request.meetingFacts) {
-      const framed = withDeclaredMarkers(withJsonFencesClosed(keptText));
+      const framed = withMarkersAgreed(withJsonFencesClosed(keptText));
       yield* textEdits(keptText, framed);
       keptText = framed;
     }

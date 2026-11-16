@@ -505,8 +505,8 @@ describe.each(["en", "zh-CN"] as const)(
       },
     );
 
-    // protects=a reply that repeats the declared number and writes its markers right is read as before: the fact whose marker isn't the one it declares is left out, never written with the first fact's quote (#3145); fails_when=that fact is written; no_claim=that it could be kept.
-    test("never gives a fact the record another fact's number holds", async () => {
+    // protects=a fact whose record declares another number than its sentence writes is kept with the quote its own marker records, when no other fact writes that marker: never left out, and never given the quote the declared number holds
+    test("keeps a fact whose record declares another fact's number, with its own marker's quote", async () => {
       const words = WORDS[language];
       const reply = [
         "HEADINGS: H1=NONE",
@@ -517,11 +517,32 @@ describe.each(["en", "zh-CN"] as const)(
       const scripted = fillModel({ reply, cites: quotesOf(words) });
       const { core, client, fill } = await recordedFill(language, scripted);
       try {
-        expect(fill).toMatchObject({ omitted: 1 });
-        expect(citationsBeside(client, words.action)).toEqual([]);
+        expect(fill).toMatchObject({ state: "filled", omitted: 0 });
+        expect(citationsBeside(client, words.action)).toEqual([
+          [{ check: "found", quote: words.action }],
+        ]);
         expect(citationsBeside(client, words.decision)).toEqual([
           [{ check: "found", quote: words.decision }],
         ]);
+      } finally {
+        core.close();
+      }
+    });
+
+    // protects=two facts that write the same marker under records that both declare it are read as before: the marker's one record is never split or moved, so a reply the repair can't settle keeps its old reading
+    test("leaves a marker two facts both write and declare as it was read before", async () => {
+      const words = WORDS[language];
+      const reply = [
+        "HEADINGS: H1=NONE",
+        frame("F1", `${words.decision} [^1].`, [1], "decisions"),
+        frame("F2", `${words.action} [^1].`, [1, 2], "actions"),
+        overview(words.purpose, 3),
+      ].join("\n\n");
+      const scripted = fillModel({ reply, cites: quotesOf(words) });
+      const { core, client, fill } = await recordedFill(language, scripted);
+      try {
+        expect(fill).toMatchObject({ omitted: 1 });
+        expect(citationsBeside(client, words.action)).toEqual([]);
       } finally {
         core.close();
       }
