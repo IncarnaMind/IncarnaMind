@@ -30,6 +30,8 @@ import { scriptedModel, scriptedModels } from "../helpers/models";
 const KEY = process.env.INCARNAMIND_LIVE_ANTHROPIC_KEY;
 const DRY = process.env.INCARNAMIND_LIVE_GATE_DRY === "1";
 const OUT = process.env.INCARNAMIND_LIVE_GATE_OUT;
+/** A file for every reply with its request's words: a reply the check can't read is kept to replay. */
+const REPLIES = process.env.INCARNAMIND_LIVE_GATE_REPLIES;
 const ARM = process.env.INCARNAMIND_LIVE_GATE_ARM ?? "unnamed";
 const ROUND = Number(process.env.INCARNAMIND_LIVE_GATE_ROUND ?? "0");
 const GROUPS = (process.env.INCARNAMIND_LIVE_GATE_GROUPS ?? "example,held-out").split(",");
@@ -299,6 +301,11 @@ function heardFailure(error: unknown): never {
 }
 
 function heardReply(params: Params, text: string) {
+  if (REPLIES)
+    appendFileSync(
+      REPLIES,
+      `${JSON.stringify({ arm: ARM, round: ROUND, to: textOf(params.prompt, "system").slice(0, 80), prompt: textOf(params.prompt), text })}\n`,
+    );
   if (!textOf(params.prompt, "system").startsWith("You check one sentence")) return;
   const prompt = textOf(params.prompt);
   const sentence = /<sentence>\n([\s\S]*?)\n<\/sentence>/.exec(prompt)?.[1] ?? "";
