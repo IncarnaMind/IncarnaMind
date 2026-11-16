@@ -227,8 +227,36 @@ test("a later part is shown each kept fact's heading, so a topic keeps its words
   );
   expect(prompt).toContain("Use new ids P2_F1");
   expect(prompt).toContain('\\"heading\\":\\"价格与付款\\"');
-  expect(prompt).toContain("a correction names the prior ids in supersedes");
   expect(prompt).not.toContain("supersedes is always []");
+});
+
+// protects=a later part of a long call is told that a fact it names in supersedes leaves the notes whole, so it names only a kept fact that no longer stands at all, never one of its own reply, and writes a changed detail as a new fact with the earlier value (#3225); fails_when=a later part's request says only that a correction names the prior ids; no_claim=what a model does with the rule, which the real-model runs measure
+test("a later part is told what naming a fact removes, and how a changed detail is written", () => {
+  const later = JSON.stringify(
+    notesContext([], "Write the notes", {
+      part: 2,
+      facts: [
+        {
+          id: "P1_F1",
+          topic: "fee",
+          heading: "Fees",
+          text: "The fee is 2%.",
+          lines: [],
+          sections: [],
+        },
+      ],
+    }).messages,
+  );
+  expect(later).toContain("never a fact of this reply");
+  expect(later).toContain("only a retained fact that no longer stands at all");
+  expect(later).toContain("a fact named there is removed whole from the notes");
+  expect(later).toContain("with the earlier value in the same sentence");
+  expect(later).toContain("as the supersedes rule above allows");
+  expect(later.indexOf("supersedes names only ids")).toBeLessThan(
+    later.indexOf("Already retained facts"),
+  );
+  const first = JSON.stringify(notesContext([], "Write the notes").messages);
+  expect(first).not.toContain("supersedes names only ids");
 });
 
 // protects=what the User said in the call is written like anyone's: only a line they typed is never repeated, and the rule is sent only when they typed one, so a point only the User made is not left out as "the User's own line"; and a first reply is told supersedes stays empty, so a decision no longer drops the proposal before it (#2306); fails_when=the rule reads as covering the User's spoken lines again, is sent with no typed line, or a first reply may name a fact to replace; no_claim=a real model following it, which tests/live/meetingFillSections.live.test.ts measures.
