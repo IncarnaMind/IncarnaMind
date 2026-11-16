@@ -42,6 +42,14 @@
  * - A round with no verdict, or with a refused, failed or timed out request, is void: not counted,
  *   and run again. A missed bar goes to the lead before the merge.
  *
+ * The first confirm run (2026-11-16): bar 1 met (0 of 12), bar 2 missed (0 of 6). One round of each
+ * twin showed the model refusing "The amount is -$95,000." on its wording: its figure is "the
+ * reserve", not "the amount" (准备金，而不是金额). Bar 2 stands as written. A follow-up, written before
+ * it ran, with twins that name the subject ("The reserve is -$95,000."; pairs far-minus-subject-en and
+ * far-minus-subject-zh), 3 rounds each, about US$0.03, stop US$0.05:
+ * - Bar 3: those twins read Supported in at least 3 of 6 rounds (on `main`, the same Document's
+ *   subject decoy read Supported 6 of 6, so the model's own reading of it is positive).
+ *
  * INCARNAMIND_LIVE_PAIRS limits the run to those pairs, by key; INCARNAMIND_LIVE_ROUNDS sets the rounds.
  * Runs only with INCARNAMIND_LIVE_DEEPSEEK_KEY (DeepSeek V4.1 Flash, `deepseek-flash`, or
  * INCARNAMIND_LIVE_DEEPSEEK_MODEL when set); INCARNAMIND_LIVE_REPORT keeps one JSON line per pair.
@@ -104,6 +112,13 @@ const PAIRS: readonly Pair[] = (["en", "zh-CN"] as const).flatMap((language) => 
       decoy: false,
       claim: claimOf(language, "far", true),
     },
+    {
+      key: `far-minus-subject-${tag}`,
+      language,
+      layout: "far",
+      decoy: false,
+      claim: language === "en" ? "The reserve is -$95,000." : "该项准备金为-¥95,000。",
+    },
     // The balance was negative, and "It" was the amount.
     {
       key: `before-own-${tag}`,
@@ -153,6 +168,8 @@ interface Round {
   state: string;
   figures: string[];
   ran: string;
+  /** What the check said, for reading a round that missed. */
+  says: string | null;
 }
 
 async function roundsOf(pair: Pair) {
@@ -181,6 +198,7 @@ async function roundsOf(pair: Pair) {
     rounds.push({
       state: span?.check.state ?? "missing",
       ran: ran.kind,
+      says: span?.check.says ?? span?.check.unsupported?.reason ?? null,
       figures: (span?.check.figures ?? []).map((figure) =>
         figure.reason ? `${figure.state} (${figure.reason})` : figure.state,
       ),
