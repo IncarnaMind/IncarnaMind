@@ -992,6 +992,15 @@ export function ClaimCard({
     where !== null;
   const looked = useScopeName(checkedScope(check.scope));
   const lookedIn = looked?.name ?? t("composer.scope.all");
+  // A carried check that read only its sentence's Citations names their Documents, never the
+  // scope its Answer's Question searched (#2809).
+  const citedNames = check.citedOnly
+    ? [
+        ...new Set(
+          cited.flatMap(({ attributes }) => shownDocumentName(attributes, documents) || []),
+        ),
+      ]
+    : [];
   const wholeRead = readDocumentsText(check.readDocuments ?? [], documents, t, language);
   const evidenceDocument = evidence
     ? documents.find((each) => each.id === evidence.documentId)
@@ -1289,7 +1298,7 @@ export function ClaimCard({
         key: "search-all",
         testId: "claim-search-all",
         label: t("claim.searchAll"),
-        primary: !(cuttable || rewrite),
+        primary: !(cuttable || rewrite || check.citedOnly),
         onClick: () => onCheckAgain(true),
       },
       offersDocuments &&
@@ -1348,6 +1357,8 @@ export function ClaimCard({
         },
       // Checked again, a ✓ waiting on its found Passage gets the same answer: adding it is the way (#3019).
       (state === "needs-recheck" ||
+        // Its Answer's judgement read only its Citations: a check in the Note searches for the rest (#2809).
+        (state === "unsupported" && check.citedOnly && fixes) ||
         (state === "not-checked" &&
           added === 0 &&
           !lineAction &&
@@ -1381,7 +1392,18 @@ export function ClaimCard({
       state === "needs-recheck") &&
     checkedWith(awaiting ? claim.check : check) !== null;
   const about = [
-    checkedIn && !nothingFound && (
+    checkedIn && !nothingFound && check.citedOnly && citedNames[0] !== undefined && (
+      <p key="in" data-testid="claim-checked-in" className="citation-card-note">
+        {citedNames.length > 1
+          ? t("claim.checkedIn.citations.more", {
+              document: citedNames[0],
+              count: citedNames.length - 1,
+              total: citedNames.length,
+            })
+          : t("claim.checkedIn.citations", { document: citedNames[0] })}
+      </p>
+    ),
+    checkedIn && !nothingFound && !check.citedOnly && (
       <p key="in" data-testid="claim-checked-in" className="citation-card-note">
         {looked && looked.more > 0
           ? t("claim.checkedIn.more", {
@@ -1827,6 +1849,7 @@ export function ClaimCard({
                 <UnsupportedCited
                   cited={cited}
                   why={check.unsupported}
+                  searched={check.fromAnswer !== undefined && !check.citedOnly}
                   allCited={quotesOpen.has(FINE)}
                   onMore={() => toggleQuotes(FINE)}
                   onCheckAgain={() => onCheckAgain()}

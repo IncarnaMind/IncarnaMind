@@ -7,7 +7,9 @@
  */
 import { describe, expect, test, vi } from "vitest";
 import type { MarkedCitation } from "../../src/core";
+import { checkGenerate, checkReply, isCheckRun } from "../helpers/checks";
 import { answerEnded, answerJudged, shownPassages } from "../helpers/citations";
+import { listedSentences } from "../helpers/claimSentences";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import {
@@ -50,6 +52,7 @@ async function answered(
     kind = "anthropic",
     usage = BATCH_USAGE,
     writes,
+    unsupported = 0,
   }: {
     failing?: boolean;
     modelId?: string;
@@ -57,14 +60,21 @@ async function answered(
     usage?: ReportedUsage;
     /** The tokens a batch's reply takes, its thinking and records: at its room, it is cut off there. */
     writes?: (sentences: number) => number;
+    /** The Answer's first sentences, this many, read Unsupported by their batch. */
+    unsupported?: number;
   } = {},
 ) {
   const lines = Array.from({ length: count }, (_, index) => lineOf(index + 1));
   const batches: GenerateCall[] = [];
+  /** The sentences a look in the Answer's scope was started for (#3020). */
+  const looked: string[] = [];
+  const failed = new Set(lines.slice(0, unsupported).map((line) => `${line}.`));
   /** `held`: each batch's reply waits for it, or fails once its request is aborted. */
   const judging: { failing: boolean; held?: Promise<void> } = { failing };
   const model = scriptedModel(
     (call) => {
+      // A look's own check Run finds nothing more: the sentence stays as its batch read it.
+      if (isCheckRun(call)) return checkReply(call, {});
       const searches = call.results.filter((result) => result.tool === "search_documents");
       if (searches.length === 0) {
         return {
@@ -90,18 +100,25 @@ async function answered(
           return { text: '{"asks_change":"no","request":"none"}' };
         // A model on this computer tags the Documents added too.
         if (call.system.startsWith("You tag a User's Documents")) return { text: '{"tagged":[]}' };
+        if (call.question === "find-claims") {
+          looked.push(...listedSentences(call.prompt).map(({ text }) => text));
+        }
+        if (unsupported > 0 && LOOK_ASKS.has(call.question ?? "")) return checkGenerate({})(call);
         if (call.question !== "sentence-batch") return unscripted(call.question, call.system);
         if (judging.failing) return { error: { status: 500, message: "The provider failed." } };
         batches.push(call);
-        const count = [...call.prompt.matchAll(/<sentence number="\d+">/g)].length;
-        const sentences = Array.from({ length: count }, (_, index) => ({
+        const asked = [
+          ...call.prompt.matchAll(/<sentence number="\d+">\n([\s\S]*?)\n<\/sentence>/g),
+        ];
+        const count = asked.length;
+        const sentences = asked.map(([, sentence = ""], index) => ({
           number: index + 1,
           kind: "fact",
-          verdict: "supported",
+          verdict: failed.has(sentence) ? "unsupported" : "supported",
           roles: "same",
           time: "same",
           quoted: "states",
-          says: "The schedule says so.",
+          says: failed.has(sentence) ? "The schedule doesn't say so." : "The schedule says so.",
         }));
         if (!writes) {
           return {
@@ -143,8 +160,11 @@ async function answered(
   if (!asked.asked) throw new Error("Not asked.");
   expect((await answerEnded(core, asked.answerId)).event).toBe("finished");
   const answer = await answerJudged(core, asked.conversation.id, asked.answerId);
-  return { core, answer, batches, judging };
+  return { core, answer, batches, judging, looked };
 }
+
+/** What a look in an Answer's scope asks beside its Run (#3020). */
+const LOOK_ASKS = new Set(["find-claims", "nearest", "evidence", "covered-evidence", "restate"]);
 
 /** Each Citation's check, in the Answer's order. */
 const checksOf = (citations: readonly MarkedCitation[]) =>
@@ -176,6 +196,18 @@ describe("judging an Answer's sentences stops at a limit, at the end", { timeout
     // One request for each batch of sentences it judged, eight at most to a batch.
     expect(batches.length).toBeLessThan(25);
     expect(batches.length * 8).toBeGreaterThanOrEqual(firstUnchecked);
+  });
+
+  // protects=a judgement the Answer's own limit stopped starts no look in the Answer's scope, so nothing more is sent past the limit and each Unsupported sentence reads as its batch read it; without a limit met, the same sentences each take their look, three at most; fails_when=a stopped judgement still sends a look's requests, or the cap of three is passed; no_claim=what a look's own requests cost, which the meter counts as any check Run's.
+  test("a judgement its limit stopped looks no further: the sentences its batches read Unsupported stay so, with nothing more sent (#3020)", async () => {
+    const stopped = await answered(200, { unsupported: 4 });
+    const free = await answered(16, { modelId: "claude-haiku-5-5", unsupported: 4 });
+
+    expect(checksOf(stopped.answer.citations)).toContain("not-checked");
+    expect(checksOf(stopped.answer.citations).slice(0, 4)).toEqual(Array(4).fill("unsupported"));
+    expect(stopped.looked).toEqual([]);
+    expect(checksOf(free.answer.citations).slice(0, 4)).toEqual(Array(4).fill("unsupported"));
+    expect([...new Set(free.looked)].sort()).toEqual([1, 2, 3].map((n) => `${lineOf(n)}.`));
   });
 
   test("the monthly limit the User set stops it the same way, and names itself", async () => {
@@ -457,8 +489,10 @@ describe("a batch's room holds a model's thinking before its records (#2951)", {
     }
     await core.checkAnswerAgain({ ...ids, limit: estimate.upTo.cost });
 
-    // Held to its own 4,096 each: $0.246 out at $30 a million, and the prompts.
-    expect(estimate.upTo.cost.amount).toBe(0.27);
+    // Held to its own 4,096 each: $0.246 out at $30 a million, and the prompts, $0.27. Then the
+    // most three looks in the Answer's scope may send (#3020): twelve requests of a sentence
+    // check's measured size, $1.04 at $10 a million in.
+    expect(estimate.upTo.cost.amount).toBe(1.31);
     expect(roomsBySize(batches)).toEqual(
       new Map([
         [8, 4_096],
@@ -572,9 +606,10 @@ describe("a batch's room holds a model's thinking before its records (#2951)", {
       answerId: answer.id,
     });
 
-    // 4,096 tokens out at $30 a million is $0.123, and the prompt the rest; 5,300 would be $0.159
-    // before the prompt.
-    expect(estimate?.billing === "per-token" && estimate.upTo?.cost?.amount).toBe(0.14);
+    // 4,096 tokens out at $30 a million is $0.123, and the prompt the rest, $0.14; 5,300 would be
+    // $0.159 before the prompt. Then the most its one sentence's look in the Answer's scope may
+    // send (#3020): four requests of a sentence check's measured size, $0.35.
+    expect(estimate?.billing === "per-token" && estimate.upTo?.cost?.amount).toBe(0.48);
   });
 
   test("near the monthly cap, a batch the room for thinking would take past it has what the cap leaves beyond its records' room (#2962)", async () => {

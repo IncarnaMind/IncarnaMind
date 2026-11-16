@@ -4,6 +4,7 @@
  */
 import { MockLanguageModelV4 } from "ai/test";
 import type { EditWithAiInput } from "../../src/core";
+import { questionOf } from "../../src/core/answers/judge";
 import type { MindClient } from "./mindClient";
 import { readMind } from "./minds";
 import { streamedReply } from "./models";
@@ -34,22 +35,48 @@ export const textOf = (prompt: Prompt, role: "user" | "system") =>
     )
     .join("\n");
 
+/** What the model answers the question whether a request asks to take text out (#2333). */
+export type RemovalAnswer = "yes" | "no" | "unreadable" | "fails";
+
 /**
  * A model that rewrites each passage with `edit`, streamed a few characters at a time; automatic
  * tagging gets no Tags. `finished: "length"`: each reply ends at its output limit, cut off.
+ * `removal`: its answer to whether a request asks to take text out, "yes" unless said; `asked`
+ * keeps the prompt of each time it was asked.
  */
 export function editingModel(
   edit: (call: EditCall) => string | Promise<string>,
   calls: EditCall[] = [],
-  { finished = "stop", chunkSize = 4 }: { finished?: "stop" | "length"; chunkSize?: number } = {},
+  {
+    finished = "stop",
+    chunkSize = 4,
+    removal = "yes",
+    asked = [],
+  }: {
+    finished?: "stop" | "length";
+    chunkSize?: number;
+    removal?: RemovalAnswer;
+    asked?: string[];
+  } = {},
 ): MockLanguageModelV4 {
   return new MockLanguageModelV4({
-    doGenerate: async () => ({
-      content: [{ type: "text", text: JSON.stringify({ tags: [] }) }],
-      finishReason: { unified: "stop", raw: undefined },
-      usage: USAGE,
-      warnings: [],
-    }),
+    doGenerate: async (options) => {
+      let text = JSON.stringify({ tags: [] });
+      if (questionOf(options) === "removal-asked") {
+        asked.push(textOf(options.prompt, "user"));
+        if (removal === "fails") throw new Error("The small model failed.");
+        text =
+          removal === "unreadable"
+            ? "Probably."
+            : JSON.stringify({ asks_to_remove: removal === "yes" ? "yes" : "no" });
+      }
+      return {
+        content: [{ type: "text", text }],
+        finishReason: { unified: "stop", raw: undefined },
+        usage: USAGE,
+        warnings: [],
+      };
+    },
     doStream: async ({ prompt, abortSignal }) => {
       const text = textOf(prompt, "user");
       const call = {

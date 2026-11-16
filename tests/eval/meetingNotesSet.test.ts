@@ -1,7 +1,7 @@
 /**
  * The meeting-notes set of eval:speed (eval/speed/README.md › The meeting-notes set): each case is a
  * long call of the call-help set heard live and stopped, its notes read as the page shows them:
- * cited, judged, and every sentence a found Citation backs whose quote doesn't say it. Scripted
+ * cited, judged, and every sentence with a found Citation whose lines don't say it. Scripted
  * models only: nothing is sent anywhere.
  */
 import { MockLanguageModelV4 } from "ai/test";
@@ -70,21 +70,34 @@ function filling(quotes: Record<number, string>, reply: string, calls: ModelCall
   });
 }
 
-/** A judge that grades every set of notes `grade` and lists `unstated`, keeping what it read. */
+/**
+ * A judge that grades every set of notes `grade` and says of the sentences it is sent that their
+ * lines say them, but for those numbered in `unstated`, keeping what it read.
+ */
 function judging(grade: string, unstated: number[], prompts: string[]) {
   return new MockLanguageModelV4({
     doGenerate: async ({ prompt }) => {
-      prompts.push(
-        prompt
-          .flatMap((message) =>
-            typeof message.content === "string"
-              ? [message.content]
-              : message.content.flatMap((part) => ("text" in part ? [part.text] : [])),
-          )
-          .join("\n"),
-      );
+      const read = prompt
+        .flatMap((message) =>
+          typeof message.content === "string"
+            ? [message.content]
+            : message.content.flatMap((part) => ("text" in part ? [part.text] : [])),
+        )
+        .join("\n");
+      prompts.push(read);
+      const items = [...read.matchAll(/<item n="(\d+)">/g)].map((match) => Number(match[1]));
+      const reply =
+        items.length === 0
+          ? { grade }
+          : {
+              items: items.map((n) =>
+                unstated.includes(n)
+                  ? { n, said: false, why: "not in its line" }
+                  : { n, said: true },
+              ),
+            };
       return {
-        content: [{ type: "text", text: JSON.stringify({ grade, unstated }) }],
+        content: [{ type: "text", text: JSON.stringify(reply) }],
         finishReason: { unified: "stop", raw: undefined },
         usage: {
           inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
@@ -223,8 +236,17 @@ describe("Stop during the call", { timeout: 180_000 }, () => {
     expect(run.grade).toBe("right");
     expect(run.falseSupported).toBe(0);
     expect(run.failures).toEqual([]);
+    // The grade is asked for from the notes; each sentence is read against the line its Citation
+    // opens, with who said it (#3156).
+    expect(judged).toHaveLength(2);
     expect(judged[0]).toContain("Their budget is fixed at eight thousand dollars a month [3]");
-    expect(judged[0]).toContain("(found)");
+    expect(judged[1]).toContain(
+      "Sentence: Their budget is fixed at eight thousand dollars a month",
+    );
+    expect(judged[1]).toContain(
+      `said: “${callOf(WANT.call).find((turn) => turn.text.includes(quotes[3]))?.text}”`,
+    );
+    expect(run.text).not.toContain("[unstated]");
   });
 
   test("notes that don't cite a line the case rests on aren't cited, and a sentence the judge says its quote doesn't state is a false Supported", async () => {
@@ -240,6 +262,7 @@ describe("Stop during the call", { timeout: 180_000 }, () => {
     expect(run.cited).toBe(false);
     expect(run.grade).toBe("partly");
     expect(run.falseSupported).toBe(1);
+    expect(run.text.split("\n").at(-1)).toBe("[unstated] 1: not in its line");
     // With no overview the note is only partly filled in, which fails the item.
     expect(run.failures).toEqual(["fill-partial"]);
   });

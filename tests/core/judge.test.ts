@@ -46,6 +46,7 @@ import { CORRECTIONS_REPLY } from "../../src/core/answers/quoteRetry";
 import { CITED_REPLY } from "../../src/core/answers/unmarkedQuotes";
 import { workingReply } from "../../src/core/answers/workingText";
 import type { Citation } from "../../src/core/api";
+import { removalAskedReply } from "../../src/core/edits/removalAsked";
 import { endsAtLimit, outputTokens } from "../../src/core/providers/outputLimits";
 import type { TokenUsage } from "../../src/core/runs/engine";
 
@@ -217,6 +218,12 @@ const QUESTIONS: Record<
     right: JSON.stringify({ parts: ["answer", "working"] }),
     read: ["answer", "working"],
     unreadable: JSON.stringify({ parts: ["answer", "workings"] }),
+  },
+  "removal-asked": {
+    reply: removalAskedReply,
+    right: JSON.stringify({ asks_to_remove: "yes" }),
+    read: "yes",
+    unreadable: JSON.stringify({ asks_to_remove: "maybe" }),
   },
   restate: {
     reply: lines((reply) =>

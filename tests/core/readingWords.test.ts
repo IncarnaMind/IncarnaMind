@@ -5,7 +5,12 @@ import { askAssistant } from "../helpers/assistant";
 import { setUpWithDocuments } from "../helpers/citations";
 import { wholeMind } from "../helpers/editing";
 import { resolveChanges, shownWithChanges, writeMind } from "../helpers/minds";
-import { type ModelCall, type ScriptedReply, scriptedModel } from "../helpers/models";
+import {
+  judgesNothing,
+  type ModelCall,
+  type ScriptedReply,
+  scriptedModel,
+} from "../helpers/models";
 
 /*
  * How an edit reads the User's words against the reply's (#2589): a space or a line break parts
@@ -93,7 +98,7 @@ async function onNote(
   atom: Atom,
   reply: (call: ModelCall) => ScriptedReply,
 ) {
-  const set = await setUpWithDocuments(scriptedModel(reply), [NOTES]);
+  const set = await setUpWithDocuments(scriptedModel(reply, { generate: judgesNothing }), [NOTES]);
   const fees = set.documents[0] as Document;
   const lines = LINES[language];
   writeMind(set.client, [
@@ -178,12 +183,15 @@ describe("A line break parts two words as a space does, in the Note and the repl
     const second = `${lines.around[0]}${each.written}\n${lines.around[1]}`;
     const reply = [lines.added, second, lines.last].join("\n\n");
     const { core, mind, client } = await setUpWithDocuments(
-      scriptedModel((call: ModelCall): ScriptedReply => {
-        if (/<passage>\n/.test(call.prompt)) return { text: `${reply}\n<why>Done.</why>` };
-        return call.results.length === 0
-          ? { calls: [{ tool: "edit_mind", input: { instruction: lines.asked } }] }
-          : { text: "Done." };
-      }),
+      scriptedModel(
+        (call: ModelCall): ScriptedReply => {
+          if (/<passage>\n/.test(call.prompt)) return { text: `${reply}\n<why>Done.</why>` };
+          return call.results.length === 0
+            ? { calls: [{ tool: "edit_mind", input: { instruction: lines.asked } }] }
+            : { text: "Done." };
+        },
+        { generate: judgesNothing },
+      ),
       [],
     );
     writeMind(client, [
@@ -328,12 +336,15 @@ const OTHERS = ["Rent is monthly.", "Water is quarterly."] as const;
 async function quoting(each: Quoted, path: "editWithAi" | "assistant") {
   const reply = `<removed>${each.quote}</removed>`;
   const { core, mind, client } = await setUpWithDocuments(
-    scriptedModel((call: ModelCall): ScriptedReply => {
-      if (/<passage>\n/.test(call.prompt)) return { text: `${reply}\n<why>Done.</why>` };
-      return call.results.length === 0
-        ? { calls: [{ tool: "edit_mind", input: { instruction: "Delete that sentence." } }] }
-        : { text: "Done." };
-    }),
+    scriptedModel(
+      (call: ModelCall): ScriptedReply => {
+        if (/<passage>\n/.test(call.prompt)) return { text: `${reply}\n<why>Done.</why>` };
+        return call.results.length === 0
+          ? { calls: [{ tool: "edit_mind", input: { instruction: "Delete that sentence." } }] }
+          : { text: "Done." };
+      },
+      { generate: judgesNothing },
+    ),
     [],
   );
   writeMind(client, [block(text(OTHERS[0])), block(text(each.line)), block(text(OTHERS[1]))]);
@@ -389,6 +400,7 @@ describe("A line the reply writes as it was reads the same, however its characte
           /<passage>\n/.test(call.prompt)
             ? { text: `${reply}\n<why>Done.</why>` }
             : { text: "OK." },
+        { generate: judgesNothing },
       ),
       [],
     );

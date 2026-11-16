@@ -132,6 +132,41 @@ const ASKS_FOR_A_FIGURE = /\bstate the figure\b|写出数字/i;
 
 /** The sentence such an Answer writes, which says more than its quote: the scripted check finds it unsupported. */
 export const SAYS_MORE = /\bit is already done\b|这件事已经完成/u;
+
+/**
+ * A Question about a résumé's "main projects" (主要项目): its Answer lists three of them in one
+ * sentence that cites one line (#2809). Asked about "the wallet" (钱包) too, it lists one more,
+ * which no Document names.
+ */
+const ASKS_MAIN_PROJECTS = /\bmain projects\b|主要项目/i;
+const AND_THE_WALLET = /\bwallet\b|钱包/i;
+/** The projects such a sentence lists, as the test résumés name them, and the one they don't. */
+export const LISTED_PROJECTS = {
+  en: {
+    held: [
+      "the Sampletown First Hospital fever clinic mini program",
+      "the Example District epidemic data dashboard",
+      "the Example Exchange cross-chain data platform",
+    ],
+    absent: "the Example Bank mobile wallet",
+  },
+  "zh-CN": {
+    held: ["示例市第一医院发热门诊小程序", "示例区疫情数据大屏", "示例交易所跨链数据平台"],
+    absent: "示例银行手机钱包",
+  },
+} as const;
+/** The sentence that lists them: the scripted batch finds it unsupported by its one Citation. */
+export const LISTS_PROJECTS = /^The main projects include |^主要项目包括/u;
+
+function projectsAnswer(question: string): string {
+  const chinese = /\p{Script=Han}/u.test(question);
+  const { held, absent } = LISTED_PROJECTS[chinese ? "zh-CN" : "en"];
+  const [first, second, third] = held;
+  const middle = AND_THE_WALLET.test(question) ? [first, absent, second] : [first, second];
+  return chinese
+    ? `主要项目包括${middle.join("、")}和${third}[^1]。`
+    : `The main projects include ${middle.join(", ")} and ${third} [^1].`;
+}
 /** Sentences of an Answer "thought over" (细想), whose check needs all its room for thinking (#2962). */
 export const THOUGHT_OVER = /\bOn reflection\b|细想之后/u;
 
@@ -860,6 +895,7 @@ function answerFrom(
       return { text: chinese ? "增长了[=1][^1]。" : "It grew [=1] [^1].\n\nThat is all." };
     }
   }
+  if (ASKS_MAIN_PROJECTS.test(question)) return { text: projectsAnswer(question) };
   if (BEYOND_ITS_QUOTE.test(question)) {
     return {
       text: /\p{Script=Han}/u.test(question)

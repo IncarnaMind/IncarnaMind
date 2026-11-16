@@ -1400,6 +1400,9 @@ export const en = {
   "claim.readDocuments.separator": "; ",
   "claim.readDocuments.each": "{name} ({places})",
   "claim.checkedIn.more": "Checked against “{scope}” and {count} more",
+  "claim.checkedIn.citations": "Checked against its Citations in “{document}”",
+  "claim.checkedIn.citations.more":
+    "Checked against its Citations in “{document}” and {count} more",
   "claim.limit": "Can miss a change of obligation, such as should for may",
   "claim.ownNote": "Supported by your own note",
   "claim.ownSource": "Your own record, not an outside source",
@@ -1411,6 +1414,8 @@ export const en = {
   "claim.unsupported.documentsCover":
     "Your Documents support {covered}, not the parts about {uncovered}.",
   "claim.unsupported.noReason": "The check gave no reason",
+  "claim.unsupported.dontMention": "Your Documents don’t mention: {parts}",
+  "claim.unsupported.dontMention.separator": ", ",
   "claim.unsupported.currency.reason": "The Document gives {amount} without a currency.",
   "claim.unsupported.currency.covered": "the amount, {amount}",
   "claim.unsupported.currency.uncovered": "the currency ({currency})",
@@ -2047,7 +2052,7 @@ export const en = {
   "change.rewrote": "Rewrote “{heading}”",
   "change.showOriginal": "Show original",
   "change.hideOriginal": "Hide original",
-  "edit.held": "Waiting for you: this edit removes most of your selection",
+  "edit.held": "Waiting for you: this edit takes text out of your selection",
   "edit.held.apply": "Apply",
   "edit.held.discard": "Discard",
   "edit.kept.paragraphs": "Kept {count} paragraphs the edit left out",

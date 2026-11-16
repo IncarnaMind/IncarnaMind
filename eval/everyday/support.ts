@@ -44,6 +44,12 @@ export interface PanelCitation {
   reason: CitationCheckReason | null;
   /** What the check said the Documents say, for a Citation it didn't pass. */
   verdict: string | null;
+  /** Its sentence was checked in the Answer's whole scope, after its Citations left it Unsupported (#3020). */
+  searchedScope?: true;
+  /** That check found its Passage: the Answer's writer didn't cite it. */
+  foundByCheck?: true;
+  /** The parts of the sentence that check found in no Document, in the sentence's own words (#2809). */
+  missing?: string[];
 }
 
 /**
@@ -232,7 +238,18 @@ type AnswerCitation = Pick<
   MarkedCitation,
   "marker" | "documentName" | "documentId" | "contentHash" | "quote"
 > &
-  Partial<Pick<MarkedCitation, "check" | "checkReason" | "verdict" | "passedAt">>;
+  Partial<
+    Pick<
+      MarkedCitation,
+      | "check"
+      | "checkReason"
+      | "verdict"
+      | "passedAt"
+      | "searchedScope"
+      | "foundByCheck"
+      | "unstated"
+    >
+  >;
 
 /** The sentence at `at` (each marker's place among the text's markers) as the Answer panel's check left it. */
 function panelOf(
@@ -252,6 +269,10 @@ function panelOf(
       check: citation.check,
       reason: citation.checkReason ?? null,
       verdict: citation.verdict ?? null,
+      ...(citation.searchedScope && { searchedScope: true }),
+      ...(citation.foundByCheck && { foundByCheck: true }),
+      ...(citation.unstated &&
+        citation.unstated.missing.length > 0 && { missing: citation.unstated.missing }),
     }),
   );
   const [shown] = [...chips].sort(

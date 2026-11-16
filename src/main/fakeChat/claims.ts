@@ -2,6 +2,8 @@ import {
   CLAIM_CHECK_INSTRUCTIONS,
   REQUEST_DONE_INSTRUCTIONS,
 } from "../../core/answers/claimedChanges";
+import { REMOVAL_ASKED_INSTRUCTIONS } from "../../core/edits/removalAsked";
+import { LISTED_PROJECTS, LISTS_PROJECTS } from "./answers";
 import { type GenerateOptions, lastUserText, systemOf } from "./prompt";
 
 /** Finding the claims of a verified document (#97) or of the User's own draft (#737), src/core/answers/checks/claims.ts. */
@@ -47,6 +49,20 @@ export function fakeClaims(
       sentences.push({ number, parts: [] });
       continue;
     }
+    // A sentence that lists projects is one part for each it names (#2809).
+    const projects = LISTS_PROJECTS.test(text)
+      ? Object.values(LISTED_PROJECTS)
+          .flatMap(({ held, absent }) => [...held, absent])
+          .filter((project) => text.includes(project))
+          .sort((a, b) => text.indexOf(a) - text.indexOf(b))
+      : [];
+    if (projects.length > 0) {
+      sentences.push({
+        number,
+        parts: projects.map((project) => ({ kind: "fact" as const, text: project })),
+      });
+      continue;
+    }
     const kind = /\b(?:we|I) (?:think|believe)\b|我们认为|我认为/i.test(text) ? "opinion" : "fact";
     sentences.push({ number, parts: [{ kind, text }] });
   }
@@ -61,6 +77,16 @@ export const fakeRequestDone = (options: GenerateOptions): string | null =>
   systemOf(options.prompt).includes(REQUEST_DONE_INSTRUCTIONS)
     ? JSON.stringify({ asks_change: "no", request: "none" })
     : null;
+
+/** Whether a request's words ask to take text out: the fake reads "delete", "remove", "drop", "cut", 删, 去掉, 拿掉 and 砍 as asking. */
+export function fakeRemovalAsked(options: GenerateOptions): string | null {
+  if (!systemOf(options.prompt).includes(REMOVAL_ASKED_INSTRUCTIONS)) return null;
+  const request =
+    /<question>\n?([\s\S]*?)\n?<\/question>/.exec(lastUserText(options.prompt))?.[1] ?? "";
+  return JSON.stringify({
+    asks_to_remove: /\b(?:delete|remove|drop|cut)\b|删|去掉|拿掉|砍/i.test(request) ? "yes" : "no",
+  });
+}
 
 export function fakeChangeClaims(options: GenerateOptions): string | null {
   if (!checksChangeClaims(options)) return null;
