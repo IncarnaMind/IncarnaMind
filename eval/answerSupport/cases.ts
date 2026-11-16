@@ -3,7 +3,11 @@
  * Documents they cite. Frozen before the first run: a fix fitted to the two fixtures shows up as
  * a held-out sentence it still calls supported. The held-out sentences whose ids end in "b" were
  * added after it, once it showed the others never met the date the Library reads from a
- * Document's first page; they were frozen before either arm ran on them.
+ * Document's first page; they were frozen before either arm ran on them. Those ending in "c" were
+ * added for #3168, after "dated-en-6b" passed on its file's Created date, and frozen the same way:
+ * sentences about when the clay summary was written or signed, which its text never says, and
+ * sentences about its file, which the file's own Created date decides. The three about the file's
+ * size and author ("6c", "7c") came after the first runs, to see that the change cost them nothing.
  *
  * - fixture: the walk's two sentences, each in English and Chinese.
  * - held-out: the same mistakes in other words, over the same Documents and two more: a dryer's
@@ -252,6 +256,22 @@ export const CASES: readonly SupportCase[] = [
     LEASE,
   ),
   dated("dated-zh-7b", "held-out", "zh-CN", "仓库租约笔记的日期是 2024 年。", false, LEASE, LEASE),
+  ...(
+    [
+      ["dated-en-8c", "en", "The clay supply agreement summary was drafted in May 2026."],
+      ["dated-en-9c", "en", "The clay supply agreement was signed on 12 May 2026."],
+      ["dated-en-10c", "en", "The clay supply agreement summary was prepared on 12 May 2026."],
+      ["dated-en-11c", "en", "The clay supply agreement summary was written in 2025."],
+      ["dated-zh-8c", "zh-CN", "这份陶土供货协议摘要起草于 2026 年 5 月。"],
+      ["dated-zh-9c", "zh-CN", "陶土供货协议签署于 2026 年 5 月 12 日。"],
+      ["dated-zh-10c", "zh-CN", "这份陶土供货协议摘要成文于 2026 年 5 月 12 日。"],
+      ["dated-zh-11c", "zh-CN", "这份陶土供货协议摘要写于 2025 年。"],
+      ["dated-en-12c", "en", "The clay supply agreement file was created in March 2025."],
+      ["dated-zh-12c", "zh-CN", "陶土供货协议这个文件创建于 2025 年 3 月。"],
+    ] as const
+  ).map(([id, language, sentence]) =>
+    dated(id, "held-out", language, sentence, false, SUPPLY, SUPPLY_TITLE),
+  ),
 
   installed(
     "control-installed-en-1",
@@ -346,5 +366,59 @@ export const CASES: readonly SupportCase[] = [
     true,
     SUPPLY,
     "Deliveries start in January 2027, 12 tonnes each quarter.",
+  ),
+  dated(
+    "control-dated-en-4c",
+    "control",
+    "en",
+    "The clay supply agreement file was created on 12 May 2026.",
+    true,
+    SUPPLY,
+    SUPPLY_TITLE,
+  ),
+  dated(
+    "control-dated-zh-4c",
+    "control",
+    "zh-CN",
+    "陶土供货协议这个文件创建于 2026 年 5 月 12 日。",
+    true,
+    SUPPLY,
+    SUPPLY_TITLE,
+  ),
+  dated(
+    "control-dated-en-5c",
+    "control",
+    "en",
+    "The clay supply agreement file was created in 2026.",
+    true,
+    SUPPLY,
+    SUPPLY_TITLE,
+  ),
+  dated(
+    "control-dated-en-6c",
+    "control",
+    "en",
+    "The clay supply agreement file is about 2 KB.",
+    true,
+    SUPPLY,
+    SUPPLY_TITLE,
+  ),
+  dated(
+    "control-dated-zh-6c",
+    "control",
+    "zh-CN",
+    "陶土供货协议这个文件的大小约为 2 KB。",
+    true,
+    SUPPLY,
+    SUPPLY_TITLE,
+  ),
+  dated(
+    "control-dated-en-7c",
+    "control",
+    "en",
+    "The clay supply agreement file records IncarnaMind tests as its author.",
+    true,
+    SUPPLY,
+    SUPPLY_TITLE,
   ),
 ];

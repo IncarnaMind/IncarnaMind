@@ -700,9 +700,21 @@ export function removesOnlyAsked(doc: Y.Doc, request: string): boolean {
   );
 }
 
+/** Whether a request's change took out whole paragraphs that the User's words, read, don't all name (#3178). */
+export function widerThanAsked(doc: Y.Doc, request: string): boolean {
+  const made = proposalRequestOf(doc, request);
+  return made?.source === "edit-with-ai" && made.widerThanAsked === true;
+}
+
 /** Records what made a request's Proposals, in the Mind's document beside its Blocks. */
 export function recordProposalRequest(doc: Y.Doc, request: string, made: ProposalRequest): void {
-  requestsOf(doc).set(request, { ...made });
+  // A later part of the same edit records the request again: what an earlier part was held for stays.
+  const earlier = proposalRequestOf(doc, request);
+  const wider =
+    made.source === "edit-with-ai" &&
+    earlier?.source === "edit-with-ai" &&
+    earlier.widerThanAsked === true;
+  requestsOf(doc).set(request, { ...made, ...(wider && { widerThanAsked: true }) });
 }
 
 /** What made a request's Proposals, or null when the Mind doesn't say. */
@@ -757,6 +769,7 @@ export function proposalRequestOf(doc: Y.Doc, request: string): ProposalRequest 
     ...(isText(record.reason) && { reason: record.reason }),
     ...(requested && { requested }),
     ...(record.removesOnly === true && { removesOnly: true }),
+    ...(record.widerThanAsked === true && { widerThanAsked: true }),
     ...(record.keepsLeftOut === true && { keepsLeftOut: true }),
   };
 }

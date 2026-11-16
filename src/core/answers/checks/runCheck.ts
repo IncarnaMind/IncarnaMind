@@ -24,6 +24,7 @@ import type { PreparedChatModel } from "../../providers/chat";
 import { BEFORE_REPLY } from "../../providers/modelRefusal";
 import type { ChatLanguageModel } from "../../providers/models";
 import { classifyProviderError } from "../../providers/providerErrors";
+import { wrappedWhenUsed } from "../../providers/wrappedWhenUsed";
 import type { RepliesOut } from "../../runs/replies";
 import { type ItemOutcome, RunItemError, type RunRequests, runItems } from "../../runs/stop";
 import { type PaceTimers, realTimers } from "../../sources/pace";
@@ -75,12 +76,17 @@ export interface CheckRuns {
   now(): Date;
 }
 
-/** A run of checks by `model`, recorded in the Note `mindId`'s record; null: in none. */
+/**
+ * A run of checks by `model`, recorded in the Note `mindId`'s record; null: in none. A run that
+ * starts by itself (`behindReplies`: the watch in the background, what the assistant wrote) sends
+ * no new request while a reply is out on its key (#2944); one the User pressed Check for doesn't.
+ */
 export const checkRunOf = (
   runs: CheckRuns,
   model: PreparedChatModel,
   signal: AbortSignal,
   mindId: string | null,
+  { behindReplies = false }: { behindReplies?: boolean } = {},
 ): CheckRun & { held: HeldTime; replies: RepliesFirst } => {
   const base = runs.timers ?? realTimers;
   const held = heldTime(base);
@@ -90,7 +96,7 @@ export const checkRunOf = (
     timeLimitMs: runs.claimTimeLimitMs ?? CLAIM_TIME_LIMIT_MS,
     timers: held.timers,
     held,
-    replies: repliesFirst(runs.repliesOut, base, held),
+    replies: repliesFirst(behindReplies ? runs.repliesOut : undefined, base, held),
     record: mindId === null ? null : { mindId, recordAiUse: runs.recordAiUse, now: runs.now },
   };
 };
@@ -162,15 +168,7 @@ export function heardFrom(
         },
       },
     });
-  let listened: ChatLanguageModel | null = null;
-  const listening: PreparedChatModel = {
-    ...prepared,
-    // Wrapped when a request first asks for it: a check may never send one.
-    get model() {
-      listened ??= listen(prepared.model);
-      return listened;
-    },
-  };
+  const listening = wrappedWhenUsed(prepared, listen);
   lent.set(listening, { hear, replied: () => replied });
   return { prepared: listening, replied: () => replied };
 }

@@ -370,7 +370,7 @@ describe("Every way an Answer's sentence reaches the User keeps the same result 
   );
 });
 
-describe("An Answer's Unsupported settles without looking further in its scope (#2997)", {
+describe("An Answer's Unsupported looks in its scope first, as Check against Documents does (#2997, #3020)", {
   timeout: 60_000,
 }, () => {
   const SENTENCE = "The salary is £54,000.";
@@ -380,14 +380,46 @@ describe("An Answer's Unsupported settles without looking further in its scope (
     contents: "Employment contract\nThe salary is £54,000.\n",
   };
   const LINE = "The Document gives $54,000, not £54,000.";
+  const CITED = "The salary is $54,000";
+  const STATES = "The salary is £54,000";
 
-  // protects=today an Answer's sentence citing a line that gives another currency reads Unsupported with the line, whether or not another Passage in its scope backs it, while Check against Documents, which searches the scope, finds the one that does; fails_when=either check reads otherwise; no_claim=what #3020 will make the Answer do, which changes the first test.
-  test.each([
-    ["with another Passage giving £54,000 in scope", [OFFER, CONTRACT]],
-    ["with nothing else in scope", [OFFER]],
-  ] as const)("in an Answer, %s", async (_, files) => {
-    const { answer } = await answered(SENTENCE, "The salary is $54,000", files, "en");
-    expect(shownOf(answer.citations[0])).toEqual({ check: "unsupported", verdict: LINE });
+  // protects=an Answer's sentence citing a line that gives another currency is judged over the Passage in its scope that gives its own: it passes with that Passage cited beside the line the model placed, which stays where it was; fails_when=the sentence stays Unsupported though Contract.txt is in scope, the found Passage isn't cited, or the model's own Citation is taken away; no_claim=what a real model reads, which the pull request's run gives.
+  test("in an Answer, with another Passage giving £54,000 in scope", async () => {
+    const { answer } = await answered(
+      SENTENCE,
+      CITED,
+      [OFFER, CONTRACT],
+      "en",
+      citingModel(SENTENCE, CITED, { verdict: "supported", quote: STATES, says: STATES }),
+    );
+
+    expect(answer.text).toBe("The salary is £54,000[^1][^2].");
+    expect(
+      answer.citations.map(({ documentName, quote, check, foundByCheck, passedAt }) => ({
+        documentName,
+        quote,
+        check,
+        foundByCheck: foundByCheck ?? null,
+        passedAt,
+      })),
+    ).toEqual([
+      { documentName: "Offer", quote: CITED, check: "found", foundByCheck: null, passedAt: [0] },
+      {
+        documentName: "Contract",
+        quote: STATES,
+        check: "found",
+        foundByCheck: true,
+        passedAt: [1],
+      },
+    ]);
+  });
+
+  // protects=with nothing else in scope giving £54,000, the same sentence stays Unsupported with the line its rule gave, and nothing is added; fails_when=the look turns it, or its line changes; no_claim=the same.
+  test("in an Answer, with nothing else in scope", async () => {
+    const { answer } = await answered(SENTENCE, CITED, [OFFER], "en");
+
+    expect(answer.text).toBe("The salary is £54,000[^1].");
+    expect(answer.citations.map(shownOf)).toEqual([{ check: "unsupported", verdict: LINE }]);
   });
 
   test.each([

@@ -142,6 +142,8 @@ describe.each(LIVE)("What an edit takes out unasked, live: $name", (live) => {
       });
       let lostTotal = 0;
       let runsTotal = 0;
+      let atOnceRuns = 0;
+      let heldRuns = 0;
       let blocksLost = 0;
       let blocksMore = 0;
       for (const each of [EN, ZH]) {
@@ -160,6 +162,8 @@ describe.each(LIVE)("What an edit takes out unasked, live: $name", (live) => {
           let blocks = 0;
           let more = 0;
           let overall = 0;
+          let atOnce = 0;
+          let heldHere = 0;
           for (let run = 1; run <= runs; run++) {
             const mind = await core.createMind({ title: each.language });
             const client = await connectToMind(core, mind.id);
@@ -195,6 +199,8 @@ describe.each(LIVE)("What an edit takes out unasked, live: $name", (live) => {
             });
             await client.settled();
             if (request.action === "instruction") said.push(raw);
+            const held = result.kind === "proposed" && result.held === true;
+            if (held) heldHere++;
             if (result.kind === "proposed") {
               client.doc.transact(() => {
                 resolveProposals(client.blocks as Y.XmlFragment, () => true, "accept");
@@ -224,19 +230,24 @@ describe.each(LIVE)("What an edit takes out unasked, live: $name", (live) => {
                 `  reply: ${JSON.stringify(raw)}`,
               );
             }
-            if (gone > 0 || count < before) overall++;
+            if (gone > 0 || count < before) {
+              overall++;
+              if (!held) atOnce++;
+            }
           }
           lostTotal += lost;
           blocksLost += blocks;
           blocksMore += more;
           runsTotal += runs;
+          atOnceRuns += atOnce;
+          heldRuns += heldHere;
           report.push(
-            `  ${each.language} ${list ? "[list] " : ""}${request.action} “${request.ask}”: words lost ${lost}, paragraphs fewer ${blocks}, more ${more}, runs with any loss ${overall}/${runs}`,
+            `  ${each.language} ${list ? "[list] " : ""}${request.action} “${request.ask}”: words lost ${lost}, paragraphs fewer ${blocks}, more ${more}, runs with any loss ${overall}/${runs}, of them applied at once ${atOnce}, runs held ${heldHere}`,
           );
         }
       }
       report.push(
-        `  all: words lost ${lostTotal}, paragraphs fewer ${blocksLost}, more ${blocksMore} in ${runsTotal} runs; ${namedSaid(said)}`,
+        `  all: words lost ${lostTotal}, paragraphs fewer ${blocksLost}, more ${blocksMore} in ${runsTotal} runs, runs with a loss applied at once ${atOnceRuns}, runs held ${heldRuns}; ${namedSaid(said)}`,
         ...losses,
         ...spentBy(dataDir),
       );

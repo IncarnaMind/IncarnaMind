@@ -132,6 +132,8 @@ export interface LibraryOptions {
   quotesAsGiven?: CoreAdapters["quotesAsGiven"];
   /** See `CoreAdapters.callsUnmarked`. */
   callsUnmarked?: CoreAdapters["callsUnmarked"];
+  /** See `CoreAdapters.notesLinesRepeated`. */
+  notesLinesRepeated?: CoreAdapters["notesLinesRepeated"];
   /** The core's clock, for a run that records a call on another day than today. */
   now?: CoreAdapters["now"];
 }
@@ -344,6 +346,7 @@ export async function openLibrary(options: LibraryOptions): Promise<Library> {
     ...(options.helpFormJudged && { helpFormJudged: options.helpFormJudged }),
     ...(options.quotesAsGiven && { quotesAsGiven: options.quotesAsGiven }),
     ...(options.callsUnmarked && { callsUnmarked: options.callsUnmarked }),
+    ...(options.notesLinesRepeated && { notesLinesRepeated: options.notesLinesRepeated }),
     ...(options.now && { now: options.now }),
   });
   const close = async () => {

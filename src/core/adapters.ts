@@ -1405,6 +1405,11 @@ export interface CoreAdapters {
    */
   callsUnmarked?: () => boolean | undefined;
   /**
+   * Whether a Meeting's notes are asked for with the Transcript's Passages as they overlap, a
+   * line two Passages hold sent twice, as before #3151; only the evaluation passes one.
+   */
+  notesLinesRepeated?: () => boolean | undefined;
+  /**
    * Tunes and watches the search Tool for Answers' searches (reranking depth,
    * Passages handed, a callback with each search's timings). Only the
    * evaluation passes one.

@@ -123,6 +123,7 @@ import {
   EXPLAIN_INSTRUCTIONS,
   editPrompt,
   NAMES_SHOWN,
+  paragraphName,
   passageSoFar,
   readEditReply,
   readRemovals,
@@ -133,6 +134,7 @@ import {
   withMissingNumber,
   withoutNames,
 } from "./prompt";
+import { asksForAll } from "./removalAsked";
 
 /** The tasks whose reply may take text out by quoting it: the User's words, and a Citation's checks. */
 const QUOTES_TAKE_OUT: ReadonlySet<EditAction> = new Set([
@@ -188,6 +190,8 @@ export interface EditsOptions {
   chat: {
     readiness(choice: ChatModelChoice | undefined, flow: "edits"): Promise<ChatReadiness>;
     prepareModel(choice: ChatModelChoice | undefined, flow: "edits"): Promise<PreparedChatModel>;
+    /** The quick-tasks model of a model's own provider (the User's where they set one there, else the catalog's), else the model itself: the same service. */
+    fastestHelpModel(answers: ChatModelChoice | null): ChatModelChoice | null;
     /** The service the default chat model sends to; null with none, or one on this computer. */
     defaultService(): ExternalService | null;
   };
@@ -803,6 +807,44 @@ export function createEdits(options: EditsOptions) {
   }
 
   /**
+   * Whether the User's words ask to take out all of `taken`, the paragraphs a reply takes out
+   * whole: asked of the quick-tasks model of `prepared`'s own provider, else `prepared` itself,
+   * never one the User set on another provider: it is the service that already has `taken` and the
+   * request, and only where the edits flow is already allowed there. Never a question to the User,
+   * and no word goes anywhere new. False when it can't be asked.
+   */
+  async function removalAskedBy(
+    prepared: PreparedChatModel,
+    request: string,
+    taken: readonly string[],
+    signal: AbortSignal,
+  ): Promise<boolean> {
+    if (request.trim() === "" || signal.aborted) return false;
+    try {
+      const own = { providerId: prepared.provider.id, modelId: prepared.modelId };
+      const quick = chat.fastestHelpModel(own) ?? own;
+      const readiness = await chat.readiness(quick, "edits");
+      if (!readiness.ready) return false;
+      const { service } = readiness.provider;
+      if (
+        service &&
+        (options.localOnly() || !options.consent.covers("edits", service, EDITS_FLOW_SENDS))
+      ) {
+        return false;
+      }
+      const small = await chat.prepareModel(quick, "edits");
+      return await asksForAll(small.model, request, taken, signal);
+    } catch (error) {
+      if (!signal.aborted) {
+        console.error(
+          `Whether an edit's request asks to take text out couldn't be asked: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+      return false;
+    }
+  }
+
+  /**
    * `run`, on a model already prepared: what goes to it, and what comes back
    * as Proposals, each paragraph as soon as it is finished. Also gives the
    * passage's new text and why it changed, once the model is done.
@@ -848,6 +890,7 @@ export function createEdits(options: EditsOptions) {
             leftOut: keepsLeftOut ? "keep" : "remove",
             named,
             removesOnly: ask.removesOnly === true,
+            addsNothing: ask.action === "shorten" || ask.action === "improve",
           },
         );
     let held = false;
@@ -911,15 +954,18 @@ export function createEdits(options: EditsOptions) {
         stateVector: content.stateVector(mindId),
       };
     };
+    /** The User's words were read and don't ask for all that the reply quotes as taken out (#2333, #3178). */
+    let widerThanAsked = false;
     const holdsBack = (written: RewriteStream) =>
       waitsForUser({
         action: ask.action,
         ...written.extent(),
         selected: selection.characters,
+        widerThanAsked,
       });
     const appliesNow = () =>
       explain ||
-      ask.action === "translate" ||
+      (ask.action === "translate" && !(stream && holdsBack(stream))) ||
       (stream ? stream.extent().mapped && !holdsBack(stream) : false);
     /** What it wrote holds a Citation, footnote or figure its reply didn't place (#2424). */
     let unplaced: Unplaced | null = null;
@@ -1041,16 +1087,20 @@ export function createEdits(options: EditsOptions) {
       change.takeBack();
       return ended({ kind: "unplaced", quotes: unclear });
     }
-    // No text back and nothing quoted as taken out: its reason ("I can't do this") is why it failed.
+    // No text back and nothing quoted as taken out. With a reason, that is the model declining
+    // (<why> alone, as its instructions say for a passage with nothing to change): nothing is
+    // proposed and its reason is told. Without one, it failed. A decline is never read from words.
     // A fixed task (Shorten, Improve…) never asks for text to go, so only quotes are no text either.
     const empty = reply === "" || (!QUOTES_TAKE_OUT.has(ask.action) && textOf(reply, named) === "");
     if (empty && !change.wrote && !change.refused) {
+      const declined = explain ? null : reasonOf(raw);
+      if (declined) {
+        hooks.settle?.();
+        return ended({ kind: "unchanged", said: declined });
+      }
       return ended({
         kind: "failed",
-        error: {
-          kind: "provider",
-          message: (!explain && reasonOf(raw)) || "The model gave nothing back.",
-        },
+        error: { kind: "provider", message: "The model gave nothing back." },
       });
     }
     if (!explain && !change.wrote && !change.refused && sameText(reply, passage)) {
@@ -1059,6 +1109,17 @@ export function createEdits(options: EditsOptions) {
     }
     const reason = explain ? null : reasonOf(raw);
     if (reason) made.reason = reason;
+    // A reply that quotes a whole paragraph as taken out for words that name less, or none, goes
+    // further than the User asked: it waits unless the User's words are read to ask for all of it.
+    const taken = stream && ask.action === "instruction" ? stream.wholeQuotes(reply) : [];
+    if (taken.length > 0) {
+      // A place says nothing of a selection of one paragraph, and only confuses the question there.
+      const lines = taken.map(({ place, words }) =>
+        selection.segments.length > 1 ? `${paragraphName(place)} ${words}` : words,
+      );
+      widerThanAsked = !(await removalAskedBy(prepared, ask.instruction ?? "", lines, signal));
+      if (widerThanAsked) made.widerThanAsked = true;
+    }
     step(() => {
       if (!stream) {
         proposed = proposeAfter(blocks, selection, reply, request, randomUUID).proposals.length;

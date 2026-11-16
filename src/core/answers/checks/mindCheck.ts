@@ -683,30 +683,27 @@ export function createMindCheck(options: MindCheckOptions) {
     options.warmReranker?.();
 
     const decision = (await options.decision?.(ready.prepared.provider.service)) ?? null;
-    const checking = checkRunOf(options, ready.prepared, signal, mindId);
     const atOnce = claimsAtOnce(ready.prepared);
     const limit = slots(atOnce);
-    const width = widerRun(
-      // Its requests wait behind a reply on their key, those of the checks started early too (#2944).
-      checking.replies.model(ready.prepared),
-      limit,
-      atOnce,
-      fresh.length + again.length,
-    );
+    const width = widerRun(ready.prepared, limit, atOnce, fresh.length + again.length);
     const run: ChecksRun = {
       mindId,
       requestId,
       scope: scope.scope,
       searched: scope.wanted,
       prepared: width.prepared,
-      checking,
       ...(decision &&
         options.firstReading && {
           readFirst: readingsFirst(options.firstReading, decision, mindId),
         }),
       signal,
     };
-    const early = earlyChecks(options.claimCheck, run, limit, checking.record);
+    const early = earlyChecks(
+      options.claimCheck,
+      run,
+      limit,
+      checkRunOf(options, ready.prepared, signal, mindId).record,
+    );
     const nowOf = (blocks: Y.XmlFragment) => {
       const current = everySentence(blocks);
       return input.figureIds === null

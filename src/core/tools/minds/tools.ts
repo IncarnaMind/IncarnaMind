@@ -940,6 +940,9 @@ const APPLIES =
 const heldNow = (name: string, count: number) =>
   `Applied now: nothing in “${name}”. Waiting for the User: ${count === 1 ? "this change" : `all ${count} of this reply's changes there, the earlier ones too`}.`;
 
+const widerThanAskedMessage = (name: string) =>
+  `It takes out whole paragraphs of “${name}” that the User's words don't all name, so it waits there for them to apply or discard; nothing of their text has changed yet. Say that it waits for them, not that it changed.`;
+
 const held = (name: string) =>
   `It would take out most of the User's own text in “${name}”, so it waits there for them to apply or discard; nothing of their text has changed yet. Say that it waits for them, not that it changed.`;
 
@@ -997,7 +1000,7 @@ function notProposed(
   switch (result.kind) {
     case "unchanged":
       return result.said
-        ? `Nothing was changed in “${name}”: the rewrite answered in words of its own instead of new text, and they were not written: “${result.said}”. Nothing was proposed.`
+        ? `Nothing was changed in “${name}”: the rewrite answered in words of its own instead of new text, and they were not written: “${result.said}”. Nothing was proposed and the text is as it was: don't say it was changed, removed or already done. Say what the rewrite said as its words, not as yours.`
         : `No change was needed in “${name}”: the text already does what was asked. Nothing was proposed.`;
     case "has-proposals":
       return new Refusal(
@@ -1322,7 +1325,9 @@ export function mindTools(options: MindToolsOptions): {
     const why =
       wait.why === "more-than-taken-out"
         ? moreThanTakenOut(mind.name, wait.changes, wait.writtenAgain)
-        : held(mind.name);
+        : wait.why === "wider-than-asked"
+          ? widerThanAskedMessage(mind.name)
+          : held(mind.name);
     return `${why} ${heldNow(mind.name, asked.size)}`;
   };
 
@@ -1524,6 +1529,8 @@ export function mindTools(options: MindToolsOptions): {
     written: number;
     /** The ids of those in, in order. */
     ids: string[];
+    /** What each of them said as it went in: a Block that says another thing when Citations are put in was revised since. */
+    baseline: Map<string, string>;
     made: boolean;
     /** The Mind held nothing before it wrote: the empty Mind in front (#1559). */
     filled: boolean;
@@ -1561,6 +1568,7 @@ export function mindTools(options: MindToolsOptions): {
       anchor: place.after,
       written: 0,
       ids: [],
+      baseline: new Map(),
       made,
       filled: !made && minds.read(mind.id, holdsNothing),
       origin: options.origin,
@@ -1594,6 +1602,7 @@ export function mindTools(options: MindToolsOptions): {
     if (outcome.kind !== "written") throw changedWhileRead(writer.mind);
     writer.anchor = outcome.value.at(-1) ?? writer.anchor;
     writer.ids.push(...outcome.value);
+    for (const [id, text] of textsOf(writer.mind.id, outcome.value)) writer.baseline.set(id, text);
     writer.written = blocks.length;
   };
 
@@ -2078,6 +2087,7 @@ export function mindTools(options: MindToolsOptions): {
       unsettled.set(toolCallId, {
         mindId: writer.mind.id,
         ids: writer.ids,
+        written: writer.baseline,
         markdown,
         change: () => changeOf(writer, made),
         sent: change,
@@ -2254,12 +2264,37 @@ export function mindTools(options: MindToolsOptions): {
   const checkNotes = (checked: WrittenCheck | null, written: Pick<Written, "unrecorded">) =>
     minds.checksWritten() ? checkingNotes(isChecked(checked, written)) : NOT_CHECKED_NOTES;
 
+  /** A top-level Block's words, as one text: what tells whether it is as a write left it. */
+  const textOfBlock = (element: Y.XmlElement): string => {
+    const words: string[] = [];
+    const visit = (node: NodeJSON) => {
+      if (node.type === "text") words.push(node.text ?? "");
+      node.content?.forEach(visit);
+    };
+    visit(nodeOf(element));
+    return words.join("");
+  };
+
+  /** What the Blocks `ids` of a Mind say now, by id. */
+  const textsOf = (mindId: string, ids: readonly string[]): ReadonlyMap<string, string> =>
+    minds.read(
+      mindId,
+      (note) =>
+        new Map(
+          topLevelBlocks(note).flatMap((element) =>
+            ids.includes(idOf(element)) ? [[idOf(element), textOfBlock(element)] as const] : [],
+          ),
+        ),
+    );
+
   /** By call: text written with markers `cite` hadn't recorded yet. */
   const unsettled = new Map<
     string,
     {
       mindId: string;
       ids: readonly string[];
+      /** What each of its Blocks said as the write left it: a Block that says another thing since was revised, and keeps it. */
+      written: ReadonlyMap<string, string>;
       markdown: string;
       change(): MindChange;
       /** What the call's card said as it was written, its notes among it. */
@@ -2320,6 +2355,8 @@ export function mindTools(options: MindToolsOptions): {
         const at = each.ids.indexOf(id);
         const block = blocks[at];
         if (at < 0 || !block) continue;
+        // Revised since by a later call or by the User: its Citations are no business of this write's text.
+        if (each.written.get(id) !== textOfBlock(element)) continue;
         syncContent(element, block.content ?? []);
         found.ids.push(id);
         found.blocks.push(block);
@@ -2629,6 +2666,7 @@ export function mindTools(options: MindToolsOptions): {
       unsettled.set(toolCallId, {
         mindId: mind.id,
         ids,
+        written: textsOf(mind.id, ids),
         markdown: alone.markdown,
         change: revision,
         sent: change,

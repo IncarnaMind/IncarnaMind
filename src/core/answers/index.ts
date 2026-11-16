@@ -348,6 +348,7 @@ import type {
   GatedCall,
   ToolSet,
 } from "./engine";
+import { type FoundForSentence, withFoundCitations } from "./foundCitations";
 import { helpAskedLines } from "./helpCitations";
 import { countingJudges } from "./judge";
 import {
@@ -509,7 +510,13 @@ export interface AnswerConversations {
   /** An Answer as stored; null if it is gone. */
   answer(answerId: string): ConversationAnswer | null;
   /** Writes an ended Answer's Citations again while it still reads `text`; false if it doesn't. */
-  writeCitations(answerId: string, text: string, citations: readonly MarkedCitation[]): boolean;
+  writeCitations(
+    answerId: string,
+    text: string,
+    citations: readonly MarkedCitation[],
+    /** `text` with the markers of Citations the judgement added. */
+    marked?: string,
+  ): boolean;
   /**
    * Adds a Question, and its conversation with its first one, and its Answer, being
    * written, which reads `read`.
@@ -1299,6 +1306,8 @@ export function createAnswers(options: AnswersOptions) {
       model: answer.model,
     });
     let citations = answer.citations;
+    /** Whether its line says its sentence check waits on a rate limit (#2944). */
+    let limitShown = false;
     /** By marker, where in the text each of its sentences the check passed cites it (#2847). */
     const passedAt = new Map<number, number[]>();
     const judgedBefore = new Set(
@@ -1308,9 +1317,15 @@ export function createAnswers(options: AnswersOptions) {
     );
     /** The places of sentences the model answered about, passed or not. */
     const settled = new Set<number>();
+    /** The Passages a look in the Answer's scope found for sentences it passed (#3020). */
+    const found: FoundForSentence[] = [];
     const passed = (sentence: CitedSentence, result: SupportResult | null, read: boolean) => {
       if (read) for (const at of sentence.at) settled.add(at);
       if (result?.check !== "found") return;
+      const last = sentence.at.at(-1);
+      if (result.found && last !== undefined) {
+        found.push({ after: last, passages: result.found.map((each) => each.citation) });
+      }
       for (const [index, marker] of sentence.markers.entries()) {
         const at = sentence.at[index];
         if (at !== undefined && (waiting.has(marker) || judgedBefore.has(marker)))
@@ -1334,7 +1349,12 @@ export function createAnswers(options: AnswersOptions) {
           return { ...citation, passedAt: places.sort((a, b) => a - b) };
         }
         // The places this judgement passed, never an earlier one's: Check again judges anew.
-        const { passedAt: _earlier, ...judging } = citation;
+        const {
+          passedAt: _earlier,
+          searchedScope: _searched,
+          unstated: _unstated,
+          ...judging
+        } = citation;
         const places = passedAt.get(citation.marker);
         const where = places && { passedAt: places };
         if (!result) return { ...judging, check: "not-checked", checkReason: stop, ...where };
@@ -1344,6 +1364,8 @@ export function createAnswers(options: AnswersOptions) {
           checkReason: null,
           judgedAt: new Date().toISOString(),
           ...(result.verdict && { verdict: result.verdict }),
+          ...(result.looked && { searchedScope: true as const }),
+          ...(result.unsupported && { unstated: result.unsupported }),
           ...where,
         };
       });
@@ -1387,16 +1409,23 @@ export function createAnswers(options: AnswersOptions) {
             onJudged: judged,
             onSentence: passed,
             onStop: (stop) => judged(null, null, stop),
-            onWait: waitLine(clock.now, (until) => options.waiting?.(answer.id, until)),
+            onWait: waitLine(clock.now, (until) => {
+              limitShown = until !== null;
+              options.waiting?.(answer.id, until);
+            }),
           }),
         );
       }
     } catch (error) {
       options.reportError(error);
     } finally {
-      options.waiting?.(answer.id, null);
+      if (limitShown) options.waiting?.(answer.id, null);
       if (citations.some((citation) => citation.check === "checking")) judged(null, null);
       giveBack();
+      const cited = withFoundCitations(answer.text, citations, found, new Date().toISOString());
+      if (cited && judgements.get(answer.id)?.controller === controller) {
+        options.conversations.writeCitations(answer.id, answer.text, cited.citations, cited.text);
+      }
       if (judgements.get(answer.id)?.controller === controller) judgements.delete(answer.id);
     }
   }

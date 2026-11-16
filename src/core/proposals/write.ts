@@ -2527,11 +2527,14 @@ export function createRewriteStream(
     leftOut: onLeftOut = "remove",
     named = false,
     removesOnly = false,
+    addsNothing = false,
   }: {
     leftOut?: "keep" | "remove";
     named?: boolean;
     /** The request asks only for text to go (#2356). */
     removesOnly?: boolean;
+    /** The task adds no paragraph (Shorten, Improve): a plain line that says none of the selection's words is the model's talk (#2333). */
+    addsNothing?: boolean;
   } = {},
 ) {
   const { proposals, next } = proposalsOf(request, newId);
@@ -2625,6 +2628,11 @@ export function createRewriteStream(
       [...(ownWords.get(segment) ?? [])].some((word) => !isAmount(word)) ||
       newCharsOf(paragraph.tokens, true).chars === asWritten[index]
     );
+  };
+  /** Says under half of the words of every one of the selection's paragraphs, and reads like none. */
+  const saysNothingOfTheirs = (paragraph: NewParagraph) => {
+    const { cover, alike } = nearnessOf(paragraph);
+    return cover.every((each) => each < MOST_OF_IT) && alike.every((each) => each < MOVED_LIKENESS);
   };
   /** Much like one of the selection's paragraphs, whichever it is. */
   const resembles = (paragraph: NewParagraph) =>
@@ -2733,13 +2741,17 @@ export function createRewriteStream(
   /** The name of the paragraph being written now. */
   let writingName: ParagraphName | undefined;
 
-  const remove = (gone: readonly Segment[]) => {
+  /** `skipping`: the paragraphs were passed over to pair a later one, so a paragraph written in their stead offsets them. */
+  const remove = (gone: readonly Segment[], skipping = false) => {
     const blocks: Y.XmlElement[] = [];
     const strike = (segment: Segment) =>
       markRemoved(segment.element, segment.start, segment.end, next(targetOf(segment.tokens)));
     for (const segment of gone) {
-      if (segment.whole) blocks.push(removedWith(segment.element));
-      else strike(segment);
+      if (segment.whole) {
+        blocks.push(removedWith(segment.element));
+        if (skipping) skippedWhole++;
+        else removedWhole++;
+      } else strike(segment);
       for (const token of segment.tokens) noteCitation(notes.removed, token);
       notes.characters.removed += lengthOf(segment.tokens);
     }
@@ -2761,12 +2773,15 @@ export function createRewriteStream(
   };
 
   /** The selection's paragraphs before `to` not paired go, or are kept. */
-  const removeUpTo = (to: number) => {
+  const removeUpTo = (to: number, skipping = false) => {
     const passed = segments.slice(at, to).filter((segment) => segment.tokens.length > 0);
     if (onLeftOut === "keep") {
-      remove(passed.filter((segment) => replaced.has(segment)));
+      remove(
+        passed.filter((segment) => replaced.has(segment)),
+        skipping,
+      );
       kept.push(...passed.filter((segment) => !replaced.has(segment)));
-    } else remove(passed);
+    } else remove(passed, skipping);
     at = Math.max(at, to);
   };
 
@@ -2776,6 +2791,10 @@ export function createRewriteStream(
   const unplaced: string[] = [];
   /** Characters of the selection's paragraphs the text quotes as taken out. */
   let quotedOut = 0;
+  /** Paragraphs taken out whole, by a quote or because the text never reached them. */
+  let removedWhole = 0;
+  /** Paragraphs passed over to pair a later one: a translation's paragraph can pair past its own. */
+  let skippedWhole = 0;
   /** Paragraphs added anew: a left-out paragraph much like one of them was moved there. */
   const addedAnew: NewParagraph[] = [];
   /** The selection's paragraphs the text wrote over or moved, each with its new words as a quote is compared. */
@@ -2795,7 +2814,7 @@ export function createRewriteStream(
     }
     addNotes(notesWritten, paragraph.notes);
     notes.characters.written += lengthOf(paragraph.tokens);
-    removeUpTo(index);
+    removeUpTo(index, true);
     writtenOver.set(segment, newCharsOf(paragraph.tokens));
     writeHunks(segment, paragraph.tokens, next, newId, notes);
     place = { element: segment.element, kind: segment.kind, side: "after" };
@@ -2805,7 +2824,15 @@ export function createRewriteStream(
     inPlaceOf.push({ segment, paragraph });
   };
 
+  /** A line of a reply to a task that adds nothing, which says none of the passage's words: the model's own talk, kept out of the Note. */
+  const setAside = (paragraph: NewParagraph) => {
+    if (!addsNothing || !isPlain(paragraph) || !saysNothingOfTheirs(paragraph)) return false;
+    aside.push(plainWords(paragraph.tokens));
+    return true;
+  };
+
   const addNew = (paragraph: NewParagraph) => {
+    if (setAside(paragraph)) return;
     if (!place) return;
     placedAny = true;
     addedAnew.push(paragraph);
@@ -2928,11 +2955,25 @@ export function createRewriteStream(
       if (anchor)
         place = { element: anchor.element, kind: anchor.kind, side: bounded ? "before" : "after" };
     }
+    // A line that only fills a place, beside lines that clearly rewrite others, is talk where a
+    // paragraph the text dropped stood; with none beside it, it is the paragraph's own new text.
+    const rewrites = (index: number) => {
+      const pair = paired[index];
+      const segment = pair === null || pair === undefined ? undefined : between[pair];
+      const paragraph = held[index];
+      return !!segment && !!paragraph && placeLikeness(segment, paragraph) >= MOVED_LIKENESS;
+    };
+    const nextSegment = next === undefined ? undefined : segments[to];
+    const someRewrite =
+      held.some((_, index) => rewrites(index)) ||
+      (!!next && !!nextSegment && placeLikeness(nextSegment, next) >= MOVED_LIKENESS);
     for (const [index, paragraph] of held.entries()) {
       if (droppedTypedTag) break;
       const pair = paired[index];
       if (pair === null || pair === undefined) addNew(paragraph);
-      else pairWith(paragraph, from + pair);
+      else if (!(someRewrite && !rewrites(index) && setAside(paragraph))) {
+        pairWith(paragraph, from + pair);
+      }
     }
     held.length = 0;
   };
@@ -3430,6 +3471,8 @@ export function createRewriteStream(
           removeUpTo(segments.length);
         }
         settleLeftOut();
+        // A task that adds nothing, whose every line is talk, writes nothing.
+        if (addsNothing && aside.length > 0 && proposals.length === 0) onlyAside = true;
         // Shown names, a text that names none, writes in no paragraph's place, quotes none and
         // would add only plain lines is talking: "I found no typos." is its words, never the
         // Note's (#2356).
@@ -3483,11 +3526,40 @@ export function createRewriteStream(
       notes: { ...notesWritten },
     }),
 
+    /**
+     * The selection's paragraphs the finished `text` quotes whole between <removed> and
+     * </removed>, word for word, in one quote or in several that together cover it, as
+     * `settleLeftOut` takes it out, each with its place in the selection and its words: what a typed
+     * request's removal check asks about.
+     */
+    wholeQuotes: (text: string): { place: number; words: string }[] => {
+      const { quoted } = readRemovals(named ? unnameRemovals(text) : text, true);
+      const runs = quoted.flatMap((quote) => quotedRuns(quote, selection, named));
+      const whole = segments.filter((segment) => {
+        const read = charsOf(segment.tokens);
+        if (read.chars === "") return false;
+        const taken = new Array<boolean>(read.chars.length).fill(false);
+        for (const run of runs) {
+          const place = placeQuote(read, run.chars);
+          if (place) taken.fill(true, place.first, place.end);
+        }
+        for (let index = 1; index + 1 < taken.length; index++) {
+          if (read.chars[index] === " " && taken[index - 1] && taken[index + 1])
+            taken[index] = true;
+        }
+        return taken.every(Boolean);
+      });
+      return whole
+        .map((segment) => ({ place: segments.indexOf(segment), words: plainWords(segment.tokens) }))
+        .filter(({ words }) => words !== "");
+    },
+
     /** Characters removed: not those it quotes as taken out, nor those it left out, which stay. */
     extent: () => ({
       mapped: mapsOnto(notes.characters.written - notes.characters.added, notes.characters.written),
       removed: notes.characters.removed - quotedOut,
       added: notes.characters.added,
+      removedWhole: removedWhole + Math.max(0, skippedWhole - addedAnew.length),
     }),
 
     /**

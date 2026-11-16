@@ -1,0 +1,444 @@
+Them: Good morning, everyone, and thanks for making the time. I'm Priya, I look after the Marrowfield account at Brennivale Digital, and I'll keep us to the 45 minutes we have.
+Me: Morning, Priya. I'm Dana, the project lead for the warehouse system at Marrowfield Provisions, and I'll be your main contact on our side from signing through go-live.
+Them: Let me introduce the team. Tomas is our solution architect, Gwen runs implementation, Raul leads training, Ingrid manages support, Hollis handles contracts and billing, and Sunita is our security officer.
+Them: Hi Dana, Tomas here. I did the technical review of your three sites last month, so I'll cover the architecture and the integrations today.
+Them: Hi Dana, this is Gwen. I'll be your implementation manager, full time on this project, so you will probably hear from me most days.
+Me: Good to meet you all. On my side, Nadia leads our IT infrastructure, and Pearl, our finance director, is the person who signs the contract, so she will see every number we agree today.
+Them: Understood. It's Tuesday, February 9, so we have a lot to fit in before the end of the month. Here is the agenda I'd suggest: scope, prices, contract terms, timeline, data migration, training, support, reporting, security, and then risks and next steps.
+Me: That works. I'd like to settle the prices before the timeline, though, because the first question Pearl will ask me is what it costs.
+Them: Fair enough, we will do prices straight after scope. Let me recap what we understand. You run three sites, Dayton, Toledo and Fort Wayne, and you want Tallyhouse in all three. Is that right?
+Me: Yes. Dayton is the plant and the main distribution center, Toledo is the cold store, and Fort Wayne is a distribution site only, no production.
+Them: And how much volume do we need to handle? Tomas needs it for sizing.
+Me: Dayton ships about 1,400 order lines a day, Toledo about 500, and Fort Wayne about 900. From August to October, the back-to-school season, those numbers go up by about a third.
+Them: Got it, so we size for a peak of about 1,900 lines a day at Dayton. How many inbound trucks do you receive?
+Me: About 18 trucks a day at Dayton, 6 at Toledo and 11 at Fort Wayne. Dayton also has raw ingredient deliveries, which are separate from finished goods.
+Them: Good to know. Let me list what we have as in scope, and you correct me. Receiving, putaway, picking, packing, shipping, cycle counts, and lot and expiry tracking with first-expired-first-out picking. Anything missing?
+Me: Cold-chain temperature logging is a must, and so is recall traceability. Our biggest customers want a lot trace in minutes, not hours.
+Them: Both are in scope. Our target for traceability is a forward and backward trace for any lot in under five minutes, and Tomas will demonstrate it in the sandbox.
+Them: I'll show a trace across all three sites, since a lot can move from Dayton to Toledo and then go out to a customer from Fort Wayne.
+Me: That is exactly our case. A lot often leaves Dayton on a Monday, sits in Toledo for weeks, and ships from Fort Wayne.
+Them: Understood. Now, what stays out of phase one? We propose labor management, slotting optimization and yard management are left for later.
+Me: Agreed on those three. I'd also like production issue-to-line out of phase one, so Dayton's raw ingredients are received and lot-labeled but not issued to the production lines through your system.
+Them: That's a clear line, thank you. Dayton raw ingredient receiving with lot labels is in, issue to production lines is out, and we'll write both into the scope document.
+Me: Good. What about returns? We take back about 40 pallets a month from grocery customers, mostly at Fort Wayne.
+Them: Returns handling is in scope. We'd set up a quarantine location at each site, and nothing from returns goes back into stock without a supervisor's decision.
+Me: Perfect. Walt, our Dayton operations manager, will want that rule exactly as you said it.
+Them: Let me ask about your product master. How many SKUs are active today?
+Me: About 4,200 active SKUs across the three sites, and roughly 600 more that are archived but still have history we'd like to keep.
+Them: Noted, 4,200 active and 600 archived. We'll bring the archived ones in as history only, not as live items.
+Me: That suits us. On users, I have about 96 floor staff at Dayton, 38 at Toledo and 52 at Fort Wayne.
+Them: So 186 floor users in total. Tomas, does that fit the standard sizing?
+Them: Yes, and Tallyhouse doesn't charge per user at all. We charge per site and per connected device, which Priya will walk you through in a moment.
+Me: Good, that's what I understood from your proposal. Our floor staff share devices across shifts, so per-user charging would have hurt us.
+Them: Exactly, that is why we recommend the per-device model for warehouses like yours.
+Me: One more scope point, the label formats. Fennimore wants a 4 by 6 inch pallet label with the lot and expiry in a barcode, and Hollowbrook Unified, the school meal program, wants the delivery date printed on every case.
+Them: Both are standard designs for us. We'll build one template per customer, and I'm noting six templates for now: Fennimore, Hollowbrook, and four others you will send us.
+Me: I'll send you all six by Friday, February 19.
+Them: Great. Gwen, can you add that to the action list as Dana's first item?
+Them: Done, label templates from Dana by February 19. I think we all have the same picture of scope, so Priya, over to you for the numbers.
+Them: Thanks, Gwen. On to prices, starting with the subscription. Tallyhouse has a platform fee per site per month and a device license per connected device per month. For Dayton we propose $4,800 a month, for Toledo $3,000, and for Fort Wayne $3,300.
+Me: That is $11,100 a month in platform fees before any devices. Pearl's budget assumed about $9,500 for the platform across all three sites, so we are some way apart.
+Them: I understand. Dayton is higher because it carries the plant, raw ingredient receiving and your biggest user group. What number would work for you?
+Me: If we put all three sites in one agreement, I need Dayton at $4,200, Toledo at $2,600 and Fort Wayne at $2,900. That comes to $9,700 a month.
+Them: That is a real step down from where we started. Let me see what I can offer if you sign all three sites together and take a 36 month term. I could do Dayton at $4,400, Toledo at $2,800 and Fort Wayne at $3,100.
+Me: A 36 month term is fine for us, we planned for three years anyway. But Dayton goes live first and carries the most risk for us, so I'd like it at $4,200 and the other two at my numbers.
+Them: Let me think about what else you can give us. Would Marrowfield act as a reference customer? Two reference calls a year, and a case study once all three sites are live.
+Me: Two reference calls a year is fine. A case study is fine too, but only after Fort Wayne is live and only with our written approval of the text. No logo on your website before that.
+Them: That works for us. Then I can agree to your numbers: Dayton $4,200, Toledo $2,600 and Fort Wayne $2,900, so $9,700 a month in platform fees.
+Me: Thank you, Priya. I'll write those three down as agreed. And each site's fee starts on that site's own go-live, not on signing, correct?
+Them: Correct. Dayton's fee starts at the Dayton go-live, Toledo's at the Toledo go-live, and Fort Wayne's at the Fort Wayne go-live. Nothing is billed for a site before it is live.
+Me: Good. Now the device license. Your proposal says $48 per device per month.
+Them: Yes, $48 per connected device. A connected device is a handheld or a vehicle terminal that has logged in during the month. Spares sitting in a cupboard are not licensed until someone logs in on them.
+Me: How many devices does the quote have at the moment?
+Them: Tomas, can you give Dana the device counts from the sizing?
+Them: Sure. Dayton gets 42 handhelds and 8 forklift terminals, Toledo 18 handhelds and 3 terminals, Fort Wayne 24 handhelds and 3 terminals. That is 84 handhelds and 14 terminals, so 98 devices.
+Me: At $48 that is $4,704 a month, which is too high for us. We are putting in almost a hundred devices, and I'd like $40 per device.
+Them: A hundred devices is good volume for us. I can do $40 a device, for handhelds and terminals alike, with no increase for the first 24 months.
+Me: Deal. So 98 devices at $40 is $3,920 a month, and with the platform fees that is $13,620 a month at full rollout.
+Them: That's right. Gwen, please note the monthly figure at full rollout, $13,620, with the usual caveat that the device count may change.
+Me: It may change already. Imani at the Toledo cold store told me yesterday that her freezer crew has a second door team on the early shift, so let's make that 20 handhelds at Toledo instead of 18.
+Them: Then Toledo goes to 20 handhelds plus 3 terminals, which is 23 devices. The total moves to 86 handhelds and 100 devices.
+Me: So the device license becomes $4,000 a month, and the full monthly total becomes $13,700.
+Them: Correct. $9,700 for the platform and $4,000 for devices makes $13,700 a month. Per site that is $6,200 for Dayton, $3,520 for Toledo and $3,980 for Fort Wayne.
+Me: I'll put those three site totals in my summary for Pearl. Now the hardware. What is the Pellam PX-70 handheld priced at?
+Them: List price is $1,250. Our price for you is $1,140 each, with a three year warranty and advance replacement within two business days.
+Me: Can you do $1,100?
+Them: Not on this volume, Dana. $1,140 is already our best price on the PX-70 and it holds for this order. What I can add is free delivery to all three sites.
+Me: Free delivery is useful. Let's take $1,140 with delivery included. How many units are in the quote?
+Them: The quote says 90, which is the 84 in service plus 6 spares. With your Toledo change we go to 92, meaning 86 in service plus 6 spares, and that is $104,880.
+Me: Yes, 92 handhelds for $104,880. Six spares across three sites, so two per site. Is that enough?
+Them: Two per site is what we usually recommend. If one fails, you swap in a spare in the same shift and send us the broken one under the warranty.
+Them: Then the forklift terminals. The Pellam VT-12 is $2,350 each, and there are 14 of them, which comes to $32,900.
+Me: And the label printers?
+Them: Orrin printers at $890 each. We recommend 12, with 6 at Dayton, 3 at Toledo and 3 at Fort Wayne. That is $10,680, with a two year warranty.
+Them: The last piece is charging cradles. They are $210 each and each cradle charges four handhelds, so 24 cradles is $5,040.
+Me: Let me add it up. $104,880 plus $32,900 plus $10,680 plus $5,040. I make that $153,500.
+Them: That matches our figure. $153,500 for the hardware, with delivery included.
+Me: One more item. Dayton's late shift runs eight hours on one battery, and the cold drains it faster. I'd like 30 spare batteries.
+Them: Spare batteries are $65 each, so 30 is $1,950. That brings the whole hardware order to $155,450.
+Me: Fine. Can we agree how the hardware is invoiced and paid?
+Them: Hollis here. For the hardware we invoice 50 percent when you place the purchase order, which is $77,725, and the other $77,725 in parts, each part when a site's shipment is delivered.
+Me: Could the deposit be 30 percent instead? Pearl would prefer to pay less up front.
+Them: I'm afraid that is Pellam's rule for orders over $100,000, so I can't move it. What I can promise is that we won't invoice the deposit before the order is actually placed.
+Me: Okay, 50 percent at order. What are the payment terms on the hardware invoices?
+Them: Net 30 from the invoice date, because we pay Pellam on the same terms.
+Me: Fine for hardware. And when do you need our purchase order?
+Them: Pellam needs nine weeks from the order. A purchase order by Friday, March 12 gives you Dayton delivery on Friday, May 14.
+Me: Noted, purchase order by March 12 and Dayton delivery on May 14. I may come back on that date when we reach the timeline.
+Them: Now the implementation services. Our proposal is a fixed fee of $204,000, covering configuration, four integrations, migration support, training and hypercare at all three sites.
+Me: Pearl's budget for services was $170,000, so I'd like to find a way to close that gap.
+Them: What could you take on yourselves? Every day of work your team does is a day we don't have to charge for.
+Me: My team can clean the item master and the location data before the mock loads, and I can supply four of our own trainers for the train-the-trainer sessions.
+Them: If Marrowfield owns the data cleaning, that frees about two weeks of our data analyst, which is worth $18,000. So the fixed fee goes down to $186,000.
+Me: $186,000 is still above Pearl's number, but I can defend it with the cleaning work on our side. I accept $186,000.
+Them: Good. Hollis, over to you for the milestones.
+Them: We proposed 30 percent at signing and the rest in three further steps.
+Me: Thirty percent at signing is too much when we haven't seen anything built yet. I'd like to tie payments to things I can see working.
+Them: What would you suggest?
+Me: Twenty percent at signing, 25 percent at Dayton user acceptance sign-off, 25 percent at Dayton go-live, 15 percent at Toledo go-live and 15 percent at Fort Wayne acceptance.
+Them: That is five payments. In dollars it is $37,200 at signing, $46,500 at Dayton sign-off, $46,500 at Dayton go-live, $27,900 at Toledo go-live, and $27,900 at Fort Wayne acceptance.
+Me: I get the same figures, and they add up to $186,000. Agreed.
+Them: One definition to settle. We define acceptance at Fort Wayne as ten business days after go-live with no open severity 1 or severity 2 issue.
+Me: Ten business days works. If an issue is still open on day ten, does the payment wait?
+Them: Yes, the final invoice is issued once the issue is closed, and we would tell you in writing the same day.
+Me: Good. Are travel and expenses inside the $186,000?
+Them: Travel is billed at cost on top, capped at $15,000 for the whole project, and you approve flights and hotels before we book them.
+Me: Please put that cap into the contract in plain words.
+Them: We will. Now payment terms for services and subscription. Our standard is Net 30.
+Me: Our accounts payable team pays on 45 days. I need Net 45 for the services and subscription invoices.
+Them: I can agree to Net 45 for those two. Hardware stays at Net 30. Subscription invoices go out monthly in advance, on the first business day of each month.
+Me: And the first invoice after a site goes live?
+Them: The first subscription invoice for a site is prorated from its go-live date to the end of that month.
+Me: That's fair. What about late payment? Your standard form says 1.5 percent a month.
+Them: Yes, 1.5 percent per month on overdue amounts.
+Me: I'd like 1 percent, and only after a 10 day grace period. We have never paid anyone late, but Pearl will want it written down.
+Them: I can accept 1 percent per month and a 10 day grace period. Consider it agreed.
+Me: On invoice format, Pearl's team wants one PDF per invoice with the purchase order number on it, sent to accounts payable.
+Them: No problem. Send us the two purchase order numbers, one for hardware and one for services and subscription, and we'll quote them on every invoice.
+Me: I'll raise both. The services order on signing day, and the hardware order by March 12.
+Them: Next, change requests. Anything outside the agreed scope is billed at $195 an hour, after a written estimate within three business days.
+Me: That is high. Could I have $165?
+Them: $165 is below our floor. I can do $175 an hour, and hold it fixed for 24 months.
+Me: $175 for 24 months is acceptable, as long as nothing starts without my written approval.
+Them: Agreed, nothing starts without your written approval. For reference, an extra on-site consultant day is $1,400 and an extra training day is $1,650.
+Me: Hollis, before we leave the money side, let me ask about the contract term and what happens after the first three years.
+Them: The initial term is 36 months, starting at the Dayton go-live. After that it renews automatically for 12 months at a time unless either side gives 90 days' notice.
+Me: Pearl doesn't like automatic renewals. Can we change it so a renewal only happens if both of us sign, and you send a reminder 180 days before the term ends?
+Them: Yes, I can do that. We'll send a written renewal notice 180 days before the end, and the renewal happens only when you sign it. We usually keep our customers anyway.
+Me: Good. What if we want to leave early?
+Them: Our standard has no termination for convenience inside the first 36 months, because we invest heavily in the implementation.
+Me: That is hard for us to accept on a system we haven't used yet. I'd like the right to leave after month 12, with 90 days' notice and no fee.
+Them: I can't offer that. What I can offer is termination for convenience after month 24, with 120 days' notice and a fee of three months of subscription.
+Me: Let's meet in the middle. After month 18, with the same 120 days' notice, and a fee of two months of subscription.
+Them: After month 18, 120 days' notice and two months of subscription as the fee. I can accept that.
+Me: Thanks. Next, price increases. You said earlier that prices are fixed for 24 months. What happens after that?
+Them: From month 25, an annual increase on the platform and device fees, equal to inflation plus two percent.
+Me: Too open. I'd like it capped at three percent a year.
+Them: We can do the lesser of inflation and three percent. It applies once a year, on the anniversary of the Dayton go-live.
+Me: Agreed. Now liability. What is your cap in the draft?
+Them: Twelve months of fees paid under the agreement.
+Me: Our legal advisor asked for 24 months of fees. For a system running three sites that handle food safety records, 12 months feels thin.
+Them: Let me suggest 18 months of fees paid, and a separate cap of $2,000,000 for a data breach that is our fault. Intellectual property claims would sit outside the cap.
+Me: 18 months, a $2,000,000 cap for data breach, and IP claims outside the cap. I'll take that to Pearl.
+Them: Sunita, can you cover insurance?
+Them: Yes. We carry cyber liability insurance of $5 million and general liability of $2 million. Hollis will send Dana the certificates by Friday, February 19.
+Me: Thank you, Sunita. And source code escrow? We want protection if Brennivale stops supporting Tallyhouse.
+Them: We use a third-party escrow agent. The annual fee is $1,800, and Brennivale pays it, because it is part of our standard offer for customers with three sites or more.
+Me: Good. And release conditions?
+Them: Release if we become insolvent or stop supporting the product for 60 days. You get the code and a license to run it for your own use.
+Me: That works for me. On data, Marrowfield owns everything in the system, correct?
+Them: Correct. Everything you enter or import belongs to Marrowfield. On request we export it as CSV files within 10 business days at no charge.
+Me: And after termination?
+Them: We keep the data available for 30 days after the end so you can export it, and we delete it within 60 days and send you a written deletion certificate.
+Me: Good. Which law governs the agreement?
+Them: We're based in Columbus, so Ohio law is easiest for us, with the courts in Ohio.
+Me: Dayton and Toledo are in Ohio too, so Ohio is fine for us.
+Them: Then let's talk about the documents. There are three: the master agreement, the order form with the prices, and the statement of work with scope and timeline.
+Them: I'll send the revised order form on Thursday, February 11, with everything we agreed on prices today.
+Them: And I'll send the master agreement draft on Friday, February 12. Gwen will send the statement of work on Wednesday, February 17.
+Me: I'll return our redlines on all three by Friday, February 19, and I suggest a legal call on Tuesday, February 23, at 2 p.m. Eastern to walk through them.
+Them: Tuesday the 23rd at 2 p.m. Eastern works for all of us. Our target for signing is Friday, February 26, and the prices we offered today are valid until that day.
+Me: February 26 is a problem. Pearl needs approval at the leadership meeting on Monday, March 1, before she can sign, so let's make it Tuesday, March 2 instead.
+Them: That's fine. I'll extend the price validity to Friday, March 5, so you have three days of margin after signing.
+Me: Thank you. The purchase order for hardware still goes in by March 12, right?
+Them: Yes, March 12 doesn't change. If you sign on March 2 we have ten days to place the order with Pellam after that.
+Them: Before we get to the timeline, Tomas, can you walk Dana through the integrations? They drive most of the schedule.
+Them: Sure. Tallyhouse connects to four of your systems as part of the fixed fee. The first is Quenby ERP, where we receive orders and the item master and send back shipments and stock levels.
+Me: How often does the Quenby exchange run?
+Them: Orders and shipments move every five minutes. The item master syncs once a night at 1 a.m., and if you need a change sooner, someone can push it by hand.
+Me: Our order cut-off for same-day shipping at Dayton is 2 p.m., so five minutes is fine for us.
+Them: Good. The second is Farrowmere Ledger. We post goods receipts and the inventory valuation there every night at 11:30 p.m.
+Me: Our finance team closes the day at midnight, so 11:30 works. Does the posting include lot numbers?
+Them: It carries the SKU, quantity and value by site, not the lot. Lots stay in Tallyhouse and in the nightly export.
+Me: Pearl will accept that. What's the third?
+Them: Dunmere Freight. When a pallet is packed, the system asks Dunmere's service for a shipping label and a tracking number, and prints the label in about three seconds.
+Me: Dunmere carries about 70 percent of our outbound loads. The rest goes with customer pickups or two smaller carriers. Do those need an integration?
+Them: Not in phase one. Pickups and the two smaller carriers use a standard bill of lading printed from Tallyhouse, and connecting a second carrier later would be a change request.
+Them: The fourth is the nightly export to your data warehouse, as CSV files delivered by SFTP and ready by 3 a.m.
+Me: Who on your side owns the build?
+Them: Jasper, our integration developer, owns all four. He'll need a named contact on your side for each system.
+Me: For Quenby it's Kofi, who runs our ERP interface. For Farrowmere it's Elena on Pearl's team, and Nadia owns the data warehouse. I'll deal with Dunmere's account manager myself.
+Them: Thanks. Jasper will need test access to Quenby and Farrowmere. Can you provide test environments by Friday, March 5?
+Me: Yes, test access to both by Friday, March 5. Nadia confirmed that to me this morning.
+Them: Now the cold-chain sensors, which are not in the fixed fee. Your Glasswater sensors would send temperatures into Tallyhouse to raise alerts, keep the log, and attach readings to lots.
+Me: We have about 60 Glasswater sensors in the Toledo freezers, 25 at Dayton and 30 at Fort Wayne. What does the integration cost?
+Them: The add-on is $14,500, one time, for all three sites.
+Me: That seems high for one connector. Could you bring it down to $9,800? Without the sensors the cold-chain log is manual, which defeats the point.
+Them: I can do $9,800 if you put it on the same order form as the rest, so it is signed with the agreement.
+Me: Yes, $9,800 on the order form. When is it invoiced?
+Them: With the Dayton go-live payment. One condition, though: Tomas needs to confirm that Glasswater's interface can deliver a reading every five minutes.
+Them: Right. I'll read their documentation and call their support, and I'll confirm by Wednesday, February 17. If it only gives a reading every 15 minutes, I'll tell you straight away and we'll adjust.
+Me: That's an open item, then. Five minutes is what our quality manager needs for audits.
+Them: Next, the network. Handhelds need a Wi-Fi signal of at least minus 67 dBm wherever they work, including the aisles inside the freezers.
+Me: Nadia's team will do the survey. Roughly how many access points do we need?
+Them: From the site plans, 14 new access points at Dayton, 6 at Toledo and 9 at Fort Wayne. Your team buys and installs them, and we review the survey results.
+Me: Nadia is writing that down. The Dayton survey by Friday, April 16, and all 14 access points installed by Friday, May 7.
+Them: Good. For the freezers, the PX-70 is rated to minus 30 degrees Celsius, and where coverage drops it works offline for up to 30 minutes, holding up to 2,000 scans, then syncs when it reconnects.
+Me: That's reassuring. The Toledo freezer has dead spots near the blast chiller.
+Them: Then we'll test there during the Toledo workshops in April, and add an access point near the chiller if we need one.
+Them: One last technical point, environments. A sandbox opens for you on Monday, April 19, and a separate test environment for acceptance testing on Monday, May 10.
+Them: Gwen here, I'll take the timeline. We start with a kickoff at Dayton on Monday, March 15, a full day from 9 a.m. to 3 p.m., with your project team and Walt's shift leads in the room.
+Me: Fine. Walt will block the whole day, and I'll bring Imani and Beck in by video so that all three sites hear the plan at the same time.
+Them: Good. The process workshops at Dayton then run for three days, Monday, March 22 to Wednesday, March 24. We walk through receiving, putaway, picking and shipping on the floor with your supervisors.
+Me: Who do you need in the room for those?
+Them: Walt, his shift leads and the 12 Dayton super-users, so about 15 people each day.
+Me: That works if we start at 8 a.m. Our early shift begins at 5, and by 8 the supervisors have usually cleared the morning rush.
+Them: Then 8 a.m. to 3 p.m. each day. From the workshops we write the Dayton design document, about 40 pages. We send it to you by Friday, March 26, and we need your sign-off by Friday, April 2.
+Me: A week to review 40 pages is enough. I'll plan that time with Walt now.
+Them: For the other two sites the workshops are shorter, because most of the design is shared with Dayton. Toledo is Tuesday, April 6 and Wednesday, April 7. Fort Wayne is Tuesday, April 13 and Wednesday, April 14.
+Me: Imani needs the Toledo workshop to cover the freezer procedures, in particular how a pallet moves from the blast chiller to its location within ten minutes so that it doesn't thaw.
+Them: We'll put the ten minute rule on the agenda for Toledo and test the scan flow inside the freezer itself.
+Them: Hardware next. Pellam delivers the Dayton order on Friday, May 14. The Toledo hardware follows by Friday, June 25, and Fort Wayne by Friday, August 6.
+Me: Friday, May 14 is a problem. Our Dayton receiving dock is closed that day for the door repair, and I don't want pallets waiting on a truck. Can we make it Wednesday, May 12 instead?
+Them: I'll ask Pellam when we place the order on March 12. For planning purposes let's use Wednesday, May 12, and I'll confirm it with you the same day.
+Me: Good, May 12 for Dayton. Toledo and Fort Wayne dates stay as you said.
+Them: Yes, June 25 for Toledo and August 6 for Fort Wayne. Now testing. There are mock data loads on April 12, April 30 and May 7, which Odile will cover in a moment.
+Them: User acceptance testing for Dayton runs from Monday, May 17 to Friday, May 21, in the test environment, with sign-off on Friday, May 21.
+Me: Who runs the testing?
+Them: Your super-users run the test scripts, and Marcus and Leila sit with them. Marcus covers inbound, putaway and inventory, and Leila covers picking, packing and shipping.
+Me: And the second payment, the $46,500, falls due at that sign-off, right?
+Them: Right. Then training. Super-user training at Dayton is on Tuesday, June 1 and Wednesday, June 2, and end-user training runs Monday, June 7 to Thursday, June 10.
+Them: The cutover is the weekend of Saturday, June 12 and Sunday, June 13, and Dayton goes live on Monday, June 14.
+Me: Why a weekend cutover? Sunday is our quietest day, but we do ship on Saturdays.
+Them: Saturday morning you do a final physical count, we load the final data on Saturday evening and verify through Sunday. You would ship only the Saturday morning orders under the old process.
+Me: That's workable. I'm sure Walt will agree to stop Saturday shipping at noon.
+Them: Hypercare for Dayton is three weeks, from June 14 to Friday, July 2. Toledo goes live on Monday, July 26, and Fort Wayne on Monday, September 13.
+Me: September 13 is a problem. Beck's annual physical inventory is the week of the 13th, and I don't want a go-live in the middle of a count. Let's make Fort Wayne go-live Monday, September 20 instead.
+Them: That's fine for us. Hypercare for Fort Wayne then runs from September 20 to Friday, October 8.
+Me: And the last milestone payment follows ten business days after that go-live?
+Them: Yes. Ten business days after September 20 ends on Monday, October 4, and if nothing severe is open then, that is the acceptance date.
+Me: Now staffing. On our side I'm on this for about 60 percent of my time. Walt is the business owner for Dayton, Imani for Toledo and Beck for Fort Wayne.
+Them: And the super-users? We asked for 12 at Dayton, 6 at Toledo and 8 at Fort Wayne.
+Me: I can give you all 26, but the Dayton ones can only spare two half days a week, from April 5 to June 11. I can't pull them off the lines full time.
+Them: Two half days a week from April 5 to June 11 is workable if we plan around it.
+Them: On our side, I'm full time, Marcus and Leila are full time as consultants, Odile is the data analyst, Jasper builds the integrations, and Tomas is on this at 50 percent.
+Them: Odile here, I'm the data analyst, so I'll cover migration. We need four kinds of data from you: the item master, the locations, the opening stock and the open orders.
+Me: Let's take them in order. You have the 4,200 active SKUs and the 600 archived ones from earlier. What condition should the item master be in?
+Them: Each active SKU needs a unit of measure, a case pack, a pallet configuration with cases per layer and layers per pallet, shelf life in days, a storage class, weight and dimensions. Missing pallet configurations are what slow us down most.
+Me: I know that one. Tobias, our master data steward, estimates that about 350 SKUs have no pallet configuration. He can fix them by Friday, April 2.
+Them: Friday, April 2 gives us time before the first mock load on Monday, April 12. We'll hand Tobias a checklist and a template at the kickoff on March 15.
+Me: We use three storage classes, frozen, chilled and ambient. Are three enough?
+Them: Yes, and Tallyhouse uses them to stop a frozen pallet from being put away in an ambient location.
+Me: Good, that was one of Walt's wishes. What about the customer-specific shelf life, like Fennimore's 150 days remaining at delivery?
+Them: That lives on the customer record, not the item. Each customer has a minimum remaining shelf life in days, and picking skips any lot that is too close to expiry for that customer.
+Me: Fennimore needs 150 days and Hollowbrook Unified needs 120. I'll send you the minimums for all 58 customers by Friday, March 26.
+Them: 58 customers with 310 ship-to addresses is manageable. Quenby sends the addresses through the integration, so we only need the shelf life rules from you.
+Them: Now locations. How many bin locations does each site have?
+Me: 1,850 at Dayton, 620 at Toledo and 940 at Fort Wayne, so 3,410 in all.
+Them: For each location we need the site, aisle, bay, level and position, the storage class and the pallet capacity. We'll give you a template at the kickoff, and we need the Dayton file by Friday, April 9.
+Me: Our Dayton locations are named like D-04-12-B, which is aisle 4, bay 12, level B. Can you keep our names?
+Them: Yes, we keep your names exactly and generate a barcode for each one. We print the 1,850 Dayton labels at our office and ship them to you by Friday, May 28.
+Me: And my team puts them on the racks?
+Them: Yes, between Monday, May 31 and Friday, June 4. Two people with a lift can usually do it in three days.
+Them: Opening stock next. We don't take your ERP balances, because they are rarely accurate down to the lot. Instead you count everything at cutover and we load the count.
+Me: A full count at Dayton on Saturday, June 12. We usually hold about 5,200 pallets, and with 20 counters that is about 260 pallets each, so one morning is enough.
+Them: Start at 6 a.m. Each pallet scan records the location, the SKU, the lot code and the expiry date, and a pallet with an unreadable label gets a new label printed on the spot.
+Me: Our lot code is the plant letter, a two-digit year, the day of the year and the line number, like D-27-041-2.
+Them: Tallyhouse reads that format, so it works out the production date and then the expiry from the shelf life. Is the shelf life the same for all items?
+Me: Most are 12 months, but the four dairy-based sauce families have nine months.
+Them: That sits on the item record, so it's no problem. Open orders last: at cutover Quenby sends the orders due to ship from Monday to Wednesday, about 600 lines, and we load them through the integration on Sunday morning.
+Me: How do we judge the mock loads?
+Them: We measure the share of records that load without errors. We want 95 percent in the first mock on April 12, 98 percent in the second on April 30, and 99.5 percent in the dress rehearsal on May 7.
+Me: What if the dress rehearsal misses the bar?
+Them: Then we run another one before acceptance testing starts on May 17, and that rerun is at our cost.
+Me: And what about new products created in the weeks before go-live?
+Them: We freeze the item master on Friday, June 4. Any new SKU after that needs Walt's approval and is entered by hand.
+Them: The go or no-go decision is on Sunday, June 13 at 4 p.m., with Walt, you and me. If it's no-go, you stay on the old process and we agree a new date.
+Me: And if we go live and Monday goes badly?
+Them: You keep paper pick lists printed from Quenby for the first two weeks as a fallback, and Quenby stays the system of record for orders during that period.
+Me: Good, I'll tell Walt. Two weeks of paper fallback after June 14.
+Them: Raul here, I lead training. Our approach is to train the trainers first, and then let them train their own people with our help. How many trainers do you want on your side?
+Me: Four. Two from Dayton, one from Toledo and one from Fort Wayne, and they will also train new hires after you have left the site.
+Them: Good. Those four join the Dayton super-users for the super-user course on Tuesday, June 1 and Wednesday, June 2. That's 12 super-users plus 4 trainers, so 16 people in the room.
+Me: Sixteen is fine. Does that course also cover the Toledo and Fort Wayne super-users?
+Them: No, they have their own one-day courses: Toledo on Tuesday, July 13 and Fort Wayne on Tuesday, September 7.
+Me: What do the super-users learn on those days?
+Them: Everything an end user does, plus how to fix the common problems, such as a rejected scan, a wrong lot, a pallet in the wrong location, or a printer that stops. They also get practice scripts for the sandbox, which opens on April 19.
+Me: Dayton's 96 end users are the next step. How do you propose to run it?
+Them: Groups of eight, 90 minutes each, which makes 12 sessions, three a day from Monday, June 7 to Thursday, June 10. The sessions start at 7 a.m., 1:30 p.m. and 6 p.m., so every shift has a slot.
+Me: Walt will ask about floor coverage. Ninety-six people leaving the floor for 90 minutes is a lot, although with eight at a time it should be manageable.
+Them: That's why we keep the groups at eight. Walt chooses who goes in which group so that every line keeps enough people, and the super-users help to run each session.
+Me: About 16 of our Dayton staff prefer Spanish. Can you teach in Spanish?
+Them: Yes. Rosa, one of our trainers, teaches in Spanish. Two of the 12 sessions will be in Spanish, with eight people each, and that is included in the fixed fee.
+Me: Great. What about reference material on the floor?
+Them: Laminated quick-reference cards, English on one side and Spanish on the other. We print 150 for Dayton, 60 for Toledo and 80 for Fort Wayne.
+Me: What do the cards cover?
+Them: Six tasks: receive, putaway, pick, pack, move and count. Those are the six that every end user does, and they are also what we test at the end of the session.
+Me: How do you test them?
+Them: Everyone completes a practical check on a handheld, doing all six tasks, and they pass with five out of six. Logins are only issued after the check.
+Me: And if someone fails?
+Them: They get a 30-minute retake with a super-user the next day. If they still fail, they come to another session with us, and that stays inside the included training days.
+Me: How many training days are included in the fixed fee?
+Them: 20 trainer days across the three sites. Any extra day is $1,650, as Hollis said earlier.
+Me: The supervisors need something different. They have to read the dashboards and approve stock adjustments.
+Them: We'll run a two-hour supervisor session at Dayton on Friday, June 4 at 1 p.m., for the 14 supervisors and shift leads. Toledo and Fort Wayne get theirs in the same week as their super-user day.
+Me: What about system administrators? Nadia, Tobias and Priscilla, our inventory control lead, will need to configure things after you leave.
+Them: There's a two-day admin course, remote, four hours each day, on Monday, May 3 and Tuesday, May 4. After that those three can change locations, users and printers themselves.
+Me: Toledo has 38 end users and Fort Wayne has 52. How do their sessions work?
+Them: Toledo needs five sessions, from Monday, July 19 to Wednesday, July 21. Fort Wayne needs seven sessions, on Wednesday, September 8, Thursday, September 9 and Friday, September 10, which is the week before Beck's count.
+Me: Good, that keeps clear of the count. Do you also provide videos?
+Them: We record 18 short videos of two to three minutes each, one per task for each of three roles, at Dayton during the June training. They go in the help menu on the handhelds, with Spanish subtitles.
+Me: Who keeps the cards and videos up to date when screens change after a release?
+Them: We send updated cards as PDFs with every quarterly release, and you print them. The videos are re-recorded if a screen changes enough to confuse people, and that is at our cost.
+Them: Ingrid here, I manage support. Let me start with hours. Our standard support runs from 7 a.m. to 7 p.m. Eastern, Monday to Friday, and severity 1 problems are covered around the clock.
+Me: That doesn't match how we operate. All three sites run Monday to Saturday, Dayton's early shift starts at 4:30 a.m., and the late shift ends at 11 p.m.
+Them: What would you need from us?
+Me: Support from 4:30 a.m. to 11:30 p.m. Eastern, Monday to Saturday, for severity 2 and 3, and severity 1 around the clock.
+Them: That is more than our standard, but for a customer with three sites I can do it. Severity 1 around the clock, and severity 2 and 3 from 4:30 a.m. to 11:30 p.m. Eastern, Monday to Saturday, with no extra charge.
+Me: Thank you. How do you define the severity levels?
+Them: Severity 1 means a site can't receive or ship. Severity 2 means a major function is degraded but there is a workaround. Severity 3 is a minor problem, and severity 4 is a question or a request.
+Me: And the response times for each?
+Them: For severity 1 we respond within 30 minutes, update you every hour, and aim to restore service within four hours. For severity 2 we respond within two hours and give a fix or workaround within one business day.
+Them: Severity 3 gets a response by the next business day and a fix in the next release or within 10 business days. Severity 4 gets an answer within three business days.
+Me: How do my people reach you at 4:30 in the morning?
+Them: There is a dedicated phone line and a ticket portal. The phone is for severity 1 and 2 and the portal for everything else. Callum is your named support engineer, and he has a backup on the phone rota.
+Me: Our first line is the super-users, so they will only call you for what they can't fix themselves.
+Them: That is the model we recommend. We'll agree a short checklist with them so that every ticket arrives with the site, the device, the user and the time.
+Me: Now uptime. What do you commit to?
+Them: 99.9 percent per month, measured outside the Sunday maintenance window from 2 a.m. to 5 a.m. Eastern.
+Me: And what do we get if you miss it?
+Them: Service credits on that month's fees: 5 percent if uptime is below 99.9 percent, 10 percent if it is below 99.5, and 20 percent if it is below 98.
+Me: I'd like the credits to apply automatically, without me having to make a claim.
+Them: We can do that. The credit appears on the next invoice, and the monthly uptime figure is in the report you receive.
+Me: Now hypercare. What happens on June 14?
+Them: Marcus and Leila are on site at Dayton for the first five business days, June 14 to 18, and then remote for two more weeks until July 2. We hold a stand-up call every morning at 8:30 for 20 minutes.
+Me: And the response times during hypercare?
+Them: We halve them. Severity 1 gets a response within 15 minutes, and severity 2 within one hour.
+Me: What about Toledo and Fort Wayne?
+Them: At Toledo, Marcus is on site for three days, July 26 to 28, with remote support until Friday, August 13. At Fort Wayne both consultants are on site for five days from September 20, and then remote until October 8.
+Me: Now releases. How often do you release new versions?
+Them: Quarterly, in March, June, September and December, always on a Sunday between 2 a.m. and 5 a.m. Eastern, and we send release notes 14 days before.
+Me: The June release is a problem. Dayton goes live on June 14, and I don't want a release in the middle of hypercare.
+Them: The June release is planned for Sunday, June 20. We can move your tenant's release to Sunday, July 11, after the Dayton hypercare ends.
+Me: Please do that, July 11 for the June release. Can we also agree on regular support reviews?
+Them: Yes, a quarterly service review with me, the first one on Thursday, September 30. We look at tickets, response times, uptime and open requests.
+Me: Who is the escalation path on your side?
+Them: Callum first, then me. For project matters it goes to Gwen, and for technical ones to Tomas, and Priya is the last step if you aren't satisfied.
+Me: On our side it is the super-users first, then me, then Nadia, and Pearl as the last step.
+Them: Tomas again, on reporting. Tallyhouse comes with 25 standard reports and live dashboards that refresh every 15 minutes. Each role sees its own view: receiving, picking, inventory, shipping and supervisor.
+Me: Can the reports be exported and scheduled, or does someone have to open them every morning?
+Them: They export to a spreadsheet or CSV, and any report can be emailed on a schedule, for example at 6:30 each morning to a shift lead.
+Me: Good. I'd also like some custom reports. How many are included in the fixed fee?
+Them: Five custom reports are included, and each extra one is $1,200. Which five matter most to you?
+Me: One, lots expiring soon, compared with each customer's minimum shelf life. Two, temperature excursions by lot. Three, returns by customer and reason. Four, pallet moves by user for audits. Five, dock-to-stock time by truck.
+Them: Those are clear. Gwen will write them into the statement of work, and we'll build them before the Dayton acceptance tests start on May 17.
+Me: One more request. Fennimore wants a monthly lot-level shipment report by email. Can Tallyhouse send a scheduled report to a customer's email address?
+Them: Yes, it can go to an external address on a schedule. It would count as a sixth custom report, so it costs $1,200 unless you swap it for one of the five.
+Me: Then I'll swap out the fourth one, pallet moves by user. Walt can live with the standard audit log, so the Fennimore report takes that place.
+Them: Noted. The fourth custom report is now the Fennimore monthly shipment report by lot, sent at 7 a.m. on the first business day of each month.
+Me: Now status reporting. How will I know where the project stands from week to week?
+Them: There's a weekly project call every Tuesday at 10 a.m. Eastern, 30 minutes, and a written status report by noon every Friday with progress, risks and the decisions we need from you.
+Me: And for the bigger picture, for Pearl and Walt?
+Them: A steering committee on the second Thursday of each month at 10 a.m. Eastern. The first one is Thursday, April 8, with you, Pearl, Walt, Priya and me.
+Me: I'll put April 8 in Pearl's calendar. Now the KPIs. Let me tell you what we measure today and what we want to reach.
+Me: Dock-to-stock time is 95 minutes on average, and we want 45 minutes within six months of each go-live. Pick accuracy is 98.6 percent today, and we want 99.8 percent.
+Me: Location accuracy in our counts is 96 percent today, and we want 99.5 percent within six months. On-time shipments are at 94 percent, and the target is 98.5.
+Them: Those are ambitious but realistic. Customers with a similar profile reach 99.5 percent inventory accuracy in about six months when they cycle count every day.
+Me: The big one for Pearl is expiry write-offs. We wrote off $410,000 of expired product last year, and she wants it under $290,000 in the twelve months after the Dayton go-live.
+Them: First-expired-first-out picking and the weekly expiry list are what bring that down. We can't guarantee the number because it also depends on your ordering, but we'll track it at every steering meeting.
+Me: I understand it isn't a guarantee. I'd still like one firm acceptance criterion at Dayton, something we can measure.
+Them: How about this. At the first full cycle count, in the week of July 5, location accuracy at Dayton must be at least 99 percent. If it's lower, we send a consultant for a week at our own cost.
+Me: 99 percent at the cycle count in the week of July 5, otherwise a consultant for a week at your cost. I accept that.
+Me: Tell me how cycle counting works in Tallyhouse.
+Them: Items are in three classes. A items are counted monthly, B items quarterly and C items twice a year. The system creates the count tasks every morning, about 80 locations a day at Dayton.
+Me: Who approves the differences?
+Them: A supervisor approves any difference above two cases or $200, and every adjustment is logged with the user, the device and the time.
+Me: For Toledo, temperature is the most important alert we have.
+Them: If a sensor reads above minus 15 degrees Celsius for more than 10 minutes, Tallyhouse sends an SMS and an email to Imani and the shift lead, and puts the affected lots on hold until a supervisor releases them.
+Me: And expiry alerts?
+Them: Every Monday at 6 a.m., a list of lots with less than 60 days left goes to Walt, Imani and Beck, sorted by customer minimum shelf life.
+Me: Last point on reporting. How long is the history kept online?
+Them: Seven years of transaction history, online and searchable, which also covers your food safety record retention.
+Them: Sunita here, I'm the security officer at Brennivale, so let me cover where your data lives and how we protect it. Tallyhouse runs in the cloud, with a primary region in Ohio and a secondary region in Virginia.
+Me: Nadia asked me about backups and recovery. What are the numbers?
+Them: We back up every four hours and keep the backups for 35 days. If the primary region fails, we restore in the secondary region within eight hours, and we test that recovery once a year and share the results with you.
+Me: So we could lose at most four hours of data, and be down for at most eight hours. Is that a commitment or a target?
+Them: It's a commitment, and it will be written into the agreement as at most four hours of data and at most eight hours to restore.
+Me: What about encryption?
+Them: AES-256 for data at rest and TLS 1.2 or higher for data in transit, including between the handhelds and our servers.
+Me: How do people log in? Many of our floor staff don't have a company email address.
+Them: Supervisors and administrators sign in through single sign-on with your company directory, and administrators also need multi-factor authentication. Floor staff scan their badge and enter a four-digit PIN on the handheld.
+Me: That works for us. How are permissions handled?
+Them: There are seven standard roles: receiver, putaway driver, picker, shipper, inventory controller, supervisor and administrator. Your administrators can create more, and every action is logged with the user and the time.
+Me: How long do you keep those logs?
+Them: The audit log stays online for 13 months, and the transaction history for seven years, as Tomas said earlier.
+Me: Does anyone at Brennivale see our data?
+Them: Only support staff, and only when a ticket requires it. Each access is logged, and you can ask us for the access log at any time.
+Me: Pearl's team will want to audit you. Can they do that once a year?
+Them: Yes, once a year with 30 days' notice, at your cost, and we answer their findings in writing within 30 days. You also receive our SOC 2 Type II report every year under an NDA, with a summary of our independent penetration test.
+Me: Our insurance carrier has a security questionnaire of 142 questions. Can you answer it?
+Them: Yes. If you send it tomorrow, Wednesday, February 10, I'll return it completed by Wednesday, February 24.
+Me: I'll send it tomorrow morning. What happens if there is a breach?
+Them: Our standard is to notify you within 72 hours after we confirm an incident.
+Me: That is too long for us. Our customers expect to hear from us within 48 hours at most, so I need 24 hours from you.
+Them: I can't promise 24 hours, because confirming an incident takes time, but I can commit to 48 hours from confirmation, and a first notice by phone to you and to Nadia.
+Me: Forty-eight hours from confirmation, by phone to Nadia and me. Agreed.
+Them: On patching, critical vulnerabilities are fixed within seven days and high-severity ones within 30 days. We also use three subprocessors, which are the hosting provider, an SMS provider for alerts and an email delivery service.
+Me: Are those named in the agreement?
+Them: Yes, and we give you 30 days' notice before adding a new one, so you can object.
+Me: One practical point for your people on site. Anyone who works on our floor has to complete our food safety induction first, which takes about 90 minutes.
+Them: Understood. Everyone traveling will do the induction at 7:30 a.m. on Monday, March 15, before the kickoff at 9.
+Me: And for Toledo, Imani provides freezer-rated jackets and boots for your consultants. She needs their sizes at least two weeks before the April 6 workshop.
+Them: Gwen will send the sizes to Imani by Tuesday, March 23.
+Me: Before we get to the risks, a practical question about the devices. Do they arrive ready to use, or does Nadia's team have to set them up?
+Them: They arrive ready. We stage and configure every handheld and terminal at our Columbus office, with your Wi-Fi settings, the Tallyhouse app, English and Spanish menus, and an asset tag numbered from MF-0001 upward.
+Me: Good. Who pays for consumables, like label stock and ribbons for the printers?
+Them: You do. Orrin label stock can be bought from Orrin or from our reseller. For planning, Dayton uses about 40 rolls of 4 by 6 labels a month, at roughly $11 a roll.
+Me: Condensation is another worry. Our freezers fog up the screens whenever someone walks in from the dock.
+Them: The PX-70 has a heated window, but for the Toledo freezer crew we also recommend a holster with a thermal cover. It's $48 each and not part of today's quote, so Imani can order them later.
+Me: She will decide after trying one. Can you bring two samples to the Toledo workshop?
+Them: Yes, we'll bring two holsters to Toledo on April 6.
+Me: And at the end of the contract, we keep the hardware, correct?
+Them: Correct. Marrowfield owns all the hardware from delivery. Only the Tallyhouse subscription ends with the contract, and the handhelds can still run other apps.
+Me: What if a handheld is lost or stolen?
+Them: You can buy a replacement at the same $1,140 for the first 12 months after delivery, and it's licensed from the day someone logs in on it.
+Them: Priya again. We have about five minutes left, so let me suggest we go through the main risks, and then the next steps. Dana, what worries you most?
+Me: Wi-Fi in the Toledo freezers is number one. If the handhelds drop out near the blast chiller, the ten minute rule falls apart. Nadia owns the survey, and we agreed on one extra access point near the chiller if it's needed.
+Them: Agreed, and we'll test it in the Toledo workshops on April 6 and 7. The first risk on our side is a hardware delay at Pellam, so we hold 10 loaner PX-70 handhelds in Columbus that we can send to Dayton for the acceptance tests.
+Me: That's good to know. A third risk is Quenby. Kofi's team makes changes in the spring, and a change during testing could break the integration.
+Them: Then please agree a change freeze on Quenby from Monday, May 10 to Friday, July 2. That covers the test environment, the acceptance tests, the cutover and the Dayton hypercare.
+Me: Kofi can accept that. No Quenby changes between May 10 and July 2 except emergency fixes, and he will tell Jasper about any of those the same day.
+Them: Good. Another risk is label approval. Fennimore and Hollowbrook must approve the new pallet and case labels before go-live, correct?
+Me: Yes. Fennimore asks for four weeks' notice, so I'll send them the label sample by Friday, April 30. Hollowbrook needs two weeks, so they get theirs by Friday, May 14.
+Me: A fifth risk is people. Tobias is away from Monday, April 19 to Friday, April 23, which is in the middle of the item master cleaning, so Priscilla will cover for him.
+Them: Fine. The last risk from our side is peak season at Fort Wayne. September is busy, so a go-live on the 20th puts a lot of load on Beck's team.
+Me: I'll ask Beck to add four temporary workers for September and October, and I'll confirm that by the Toledo go-live on July 26.
+Them: Now the open questions, so that we don't lose them. First, Tomas confirms whether the Glasswater interface delivers a reading every five minutes, by Wednesday, February 17.
+Me: Second, Fort Wayne has about 10 older fixed barcode readers at the dock doors, and I don't know yet whether they're compatible. Beck will check the models by Friday, March 5.
+Them: Tomas will review the models the following week and tell you whether to reuse them, so we know before the hardware order goes in on March 12.
+Me: Third, whether Toledo needs a fourth label printer at the blast chiller. We decide that at the Toledo workshop on April 6.
+Them: Agreed, and a fourth Orrin printer at Toledo would be $890, bought separately if you need it.
+Me: Let me read back the money so that Pearl gets it right. The subscription is $13,700 a month at full rollout, starting at each site's go-live. Services are $186,000 fixed, in five payments. Hardware is $155,450, and the sensor integration is $9,800.
+Me: One-time costs come to $351,250. The first payment is $37,200 on signing, and the hardware deposit of $77,725 is invoiced when we place the order on March 12.
+Them: That matches our numbers exactly. Gwen will put them in the minutes, and the minutes go to everyone by noon tomorrow.
+Them: Let me read back the dates for us. Revised order form on Thursday, February 11. Master agreement on Friday, February 12. Statement of work and Tomas's Glasswater answer on Wednesday, February 17.
+Me: From my side, the security questionnaire goes to Sunita tomorrow, and the six label templates and our redlines come to you by Friday, February 19.
+Them: Hollis sends the insurance certificates on Friday, February 19 as well. Then the legal call is Tuesday, February 23 at 2 p.m. Eastern, and Sunita returns the security answers on Wednesday, February 24.
+Me: Signing is Tuesday, March 2. Test access to Quenby and Farrowmere comes by Friday, March 5, and Beck's barcode reader check on the same day.
+Them: Then the hardware order by Friday, March 12, with Pellam's confirmation of the May 12 delivery. The weekly project call starts on Tuesday, March 9 at 10 a.m. Eastern, and the kickoff is Monday, March 15.
+Me: I think that covers everything for me. Is there anything we've missed, Priya?
+Them: Only one thing from my side: who is Marrowfield's executive sponsor for the steering committee?
+Me: Pearl is the sponsor for the contract, and Walt for operations. Both will join the steering committee on April 8.
+Them: Perfect. Thank you, Dana, and thanks to everyone on both sides. This was a productive call, and I think we're in a good position to sign on March 2.
+Me: Thank you all. I'll send the security questionnaire tomorrow morning, and I'll speak to you again on Tuesday, February 23.
+Them: Thanks, everyone. Talk soon.

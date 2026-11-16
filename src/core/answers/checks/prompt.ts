@@ -130,9 +130,32 @@ const CONDITION_LINE =
 const explanationLine = (language: Language) =>
   `Explanation: one plain sentence in ${LANGUAGE_NAMES[language]}, whatever language the Documents and the User's sentence are in. For supported or contradicted, say what the Document says, with the markers of the deciding checked quotes at its end; for contradicted, name the thing, and give the Document's value and the sentence's. For unsupported, say what the Documents don't say.`;
 
-const reply = (language: Language, calculate: boolean) =>
+/**
+ * A part's check gives what its recorded quote says for the part before it judges it. Asked for
+ * its verdict first, with `PART_OF` among its instructions, Claude Haiku 5.5's first reply for the
+ * credit example's "against £118 million a year earlier" said contradicted, or said it and took it
+ * back, which is read as no verdict, in 17 of 20 checks (#3088). The line names the quote recorded
+ * with cite and nothing of the sentence's subject: a line that quoted a Passage stood in for the
+ * cite call, and one that named the subject put it on a Chinese part's Scope line, two re-asks
+ * that used up the check's steps.
+ */
+const PART_FOUND =
+  'Found: what a quote you recorded with cite gives for the very thing the sentence to check states, in that same period, place or other detail, copied from it ("7.1% in 2024"), or nothing when none gives it.';
+
+/**
+ * Which way a change went is a line of its own, as must and may are. Weighed inside the verdict,
+ * Claude Haiku 5.5 found the earlier year's figure for "down from 76% a year before", where the
+ * Passage gives 82% now, and called it Supported, noting that the Passage states no fall: a ✓ in
+ * 2 of 7 checks, and in 7 of 10 in an earlier run (#3183). The words are an anchor for the model,
+ * not a list the app matches.
+ */
+const PART_DIRECTION =
+  'Direction: only where the sentence to check says which way something went or which is more (such as up, down, rose, fell, more than, 上升, 下降): its own word for it, then " / " and which way the figures of the quote you recorded go, worked out from them where the quote states no word, then same or differs ("Direction: down / up, differs" for "down from 7.1% in 2024" where the quote gives 7.1% for 2024 and 7.9% now; "Direction: up / up, same"). Otherwise "Direction: none / none, same".';
+
+const reply = (language: Language, calculate: boolean, partOf: boolean) =>
   [
     "Reply in exactly this form, the verdict word in English:",
+    ...(partOf ? [PART_FOUND, PART_DIRECTION] : []),
     "Verdict: supported, unsupported or contradicted",
     'Absence: yes only when the sentence asserts that a clause, disclosure, figure, approval, event or fact is absent ("The lease has no break clause"); otherwise no. One word, on this line alone.',
     'Scope: the sentence\'s own word for the Passage\'s party or term, then same or wider ("Scope: tenants, wider" for "the Tenant"; "Scope: none, same" when the sentence names none). "wider" when that word is a general one for a wider group than the Passage\'s; "same" otherwise: the Passage\'s own word for its party ("the Tenant" for "the Tenant"), a name for it or another word for the very same party ("Ms Patel" for "the Tenant").',
@@ -245,7 +268,7 @@ export function checkInstructions(
   const namesUnit = readStatedUnits(claim).length > 0;
   // A sentence checked figure by figure names each figure's calculation on its Figures line.
   const REPLY =
-    reply(language, mode === "tools" && calculate && !figures) +
+    reply(language, mode === "tools" && calculate && !figures, partOf) +
     (figures ? `\n\n${figureInstructions(language)}` : "");
   switch (mode) {
     case "tools":
@@ -791,6 +814,8 @@ export interface ReadVerdict {
   rolesSides?: string[];
   /** "differs": one says it has happened and the other that it is still to happen; absent when the reply doesn't say. */
   time?: "same" | "differs";
+  /** "differs": one says it rose or is more and the other that it fell or is less; absent when the reply doesn't say. */
+  direction?: "same" | "differs";
   /** "differs": one puts it as a duty, the other as advice, a permission or a prohibition; absent when the reply doesn't say. */
   duty?: "same" | "differs";
   /** "differs": one holds it on a condition or with an exception the other leaves out; absent when the reply doesn't say. */
@@ -826,6 +851,7 @@ const ROLES = /^[\s>*_#`"'“”-]*(?:roles|角色)[\s*_]*[:：](.*)$/i;
 const CHANGE = /^[\s>*_#`"'“”-]*change[\s*_]*(\d+)[\s*_]*[:：][\s*_]*(.*)$/i;
 const TO = /^[\s>*_#`"'“”-]*to[\s*_]*(\d+)[\s*_]*[:：][\s*_]*(.*)$/i;
 const TIME = /^[\s>*_#`"'“”-]*(?:time|时间)[\s*_]*[:：](.*)$/i;
+const DIRECTION = /^[\s>*_#`"'“”-]*(?:direction|方向)[\s*_]*[:：](.*)$/i;
 const DUTY = /^[\s>*_#`"'“”-]*(?:duty|义务)[\s*_]*[:：](.*)$/i;
 const CONDITION = /^[\s>*_#`"'“”-]*(?:condition|条件)[\s*_]*[:：](.*)$/i;
 const ABSENCE = /^[\s>*_#`"'“”-]*(?:absence|缺失)[\s*_]*[:：](.*)$/i;
@@ -853,6 +879,7 @@ const FIELDS = [
   CHANGE,
   TO,
   TIME,
+  DIRECTION,
   DUTY,
   CONDITION,
   ABSENCE,
@@ -1125,6 +1152,12 @@ const timeOf = (line: string | undefined): Pick<ReadVerdict, "time"> => {
   return time === "same" || time === "differs" ? { time } : {};
 };
 
+const directionOf = (line: string | undefined): Pick<ReadVerdict, "direction"> => {
+  const field = line === undefined ? undefined : DIRECTION.exec(line)?.[1];
+  const direction = field === undefined ? null : closingWord(field, ["same", "differs"]).word;
+  return direction === "same" || direction === "differs" ? { direction } : {};
+};
+
 const sideWords = (side: string) =>
   side
     .toLowerCase()
@@ -1245,13 +1278,14 @@ function detailOf(
 
 /**
  * Whether the reply's own fields take a Supported verdict's support away: the parties the other
- * way round or must for may (Roles), what has happened for what is still to happen (Time),
- * another duty (Duty) or a condition left out (Condition). The code reads their closing words
- * only (#1668, #2311, #1766, #1708).
+ * way round or must for may (Roles), what has happened for what is still to happen (Time), a
+ * fall for a rise (Direction), another duty (Duty) or a condition left out (Condition). The code
+ * reads their closing words only (#1668, #2311, #3183, #1766, #1708).
  */
 export const ownDetailDiffers = (verdict: ReadVerdict): boolean =>
   verdict.roles === "differs" ||
   verdict.time === "differs" ||
+  verdict.direction === "differs" ||
   verdict.duty === "differs" ||
   verdict.condition === "differs";
 
@@ -1430,6 +1464,7 @@ const ONE_VALUE = [
   "topic|主题",
   "roles|角色",
   "time|时间",
+  "direction|方向",
   "absence|缺失",
   "evidence|证据",
   "coverage|覆盖情况",
@@ -1526,6 +1561,7 @@ export function readVerdict(reply: string): ReadVerdict | null {
       roles: rolesOf(field(ROLES)),
       ...rolesSidesOf(field(ROLES)),
       ...timeOf(field(TIME)),
+      ...directionOf(field(DIRECTION)),
       ...detailOf(
         fields.filter((each) => DUTY.test(each)),
         fields.filter((each) => CONDITION.test(each)),

@@ -12,27 +12,30 @@ export function createFactLedger() {
   const omitted = new Map<string, OmitReason | "changed" | "supersedes">();
   /** Ids a fact replaced: whether or not they were kept, they don't come back. */
   const retired = new Set<string>();
-  let overview: MeetingOverview | null = null;
+  /** The other facts a model wrote under an id a kept fact had, each with the id it was given. */
+  const given = new Map<string, { id: string; fact: MeetingFact }[]>();
+  /** One for each reply that wrote one, in the order the call was read. */
+  const overviews: MeetingOverview[] = [];
   let overviewOmitted: OverviewOmitReason = "missing";
   let invalidFrames = 0;
   return {
     get facts() {
       return [...facts.values()];
     },
-    get overview() {
-      return overview;
+    get overviews(): readonly MeetingOverview[] {
+      return overviews;
     },
     get invalidFrames() {
       return invalidFrames;
     },
     omitted(complete: boolean) {
-      return omitted.size + (complete && overview === null ? 1 : 0);
+      return omitted.size + (complete && overviews.length === 0 ? 1 : 0);
     },
     /** How many were left out for each reason, and why no overview was kept, for the log. */
     omittedReasons(complete: boolean): Record<string, number | string> {
       const counts: Record<string, number> = {};
       for (const reason of omitted.values()) counts[reason] = (counts[reason] ?? 0) + 1;
-      if (!complete || overview !== null) return counts;
+      if (!complete || overviews.length > 0) return counts;
       return { ...counts, overview: 1, overviewReason: overviewOmitted };
     },
     accept(reply: FactReply) {
@@ -44,8 +47,33 @@ export function createFactLedger() {
       // A part that wrote no overview doesn't hide why an earlier part's was left out.
       if (overviewOmitted === "missing" && reply.overviewOmitted !== null)
         overviewOmitted = reply.overviewOmitted;
-      overview ??= reply.overview;
-      const fresh = reply.facts.filter((fact) => {
+      if (reply.overview) overviews.push(reply.overview);
+      // On a 45-minute call Claude Haiku 5.5 numbered a later part's facts the way an earlier part
+      // had, and 18 were taken for changes to kept facts and left out (#3145): one with another
+      // topic that cites other lines is another fact, kept under an id of its own, and is that
+      // fact when the model writes it again, kept or left out. One that names its own id in
+      // supersedes keeps the id, so it can't replace the kept fact.
+      const taken = new Set([
+        ...accepted.keys(),
+        ...omitted.keys(),
+        ...retired,
+        ...reply.omittedIds,
+        ...reply.facts.map((fact) => fact.id),
+      ]);
+      const told = reply.facts.map((fact) => {
+        if (!accepted.has(fact.id) || fact.supersedes.includes(fact.id)) return fact;
+        const alike = (known: MeetingFact | undefined) =>
+          known !== undefined && (known.topic === fact.topic || !citeApart(known, fact));
+        if (alike(accepted.get(fact.id))) return fact;
+        const under = given.get(fact.id) ?? [];
+        const again = under.find((one) => alike(accepted.get(one.id) ?? one.fact));
+        if (again) return { ...fact, id: again.id };
+        const id = ownId(fact.id, taken);
+        taken.add(id);
+        given.set(fact.id, [...under, { id, fact }]);
+        return { ...fact, id };
+      });
+      const fresh = told.filter((fact) => {
         const before = accepted.get(fact.id);
         if (before && facts.has(fact.id) && JSON.stringify(before) !== JSON.stringify(fact))
           omitted.set(fact.id, "changed");
@@ -77,6 +105,27 @@ export function createFactLedger() {
       }
     },
   };
+}
+
+/** The lines a fact cites: the Document and the line's place in it, or the quote where it has none. */
+const placesOf = (fact: MeetingFact): string[] =>
+  fact.citations.map(({ attrs }) =>
+    JSON.stringify([attrs?.documentId, attrs?.location ?? attrs?.quote]),
+  );
+
+/** Whether both facts cite, and no line in common. */
+function citeApart(one: MeetingFact, other: MeetingFact): boolean {
+  const places = new Set(placesOf(one));
+  const others = placesOf(other);
+  return places.size > 0 && others.length > 0 && others.every((place) => !places.has(place));
+}
+
+/** An id none of `taken` is, that the reply reader accepts: at most 32 characters. */
+function ownId(id: string, taken: ReadonlySet<string>): string {
+  for (let count = 2; ; count++) {
+    const next = `${id.slice(0, 24)}_${count}`;
+    if (!taken.has(next)) return next;
+  }
 }
 
 /** Whether `fact` replaces, through the facts it replaces in `reply`, itself: neither of a loop is kept. */

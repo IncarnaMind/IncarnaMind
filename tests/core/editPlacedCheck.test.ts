@@ -515,8 +515,9 @@ describe("Edit with AI's last check on what it writes (#2424)", () => {
     await vi.waitFor(() => expect(pendingProposals(set.client.blocks).length).toBeGreaterThan(0));
     await controlled.requested(2);
     // The User presses Stop with nothing of the second part placed; what Stop writes adds a
-    // Citation its reply didn't place.
-    controlled.push("Neap tides are weaker.\n\nNeap");
+    // Citation its reply didn't place. A list item: a plain line that says none of the passage's
+    // words is the model's talk to Shorten, and is never written (#2333).
+    controlled.push("- Neap tides are weaker.\n\n- Neap");
     await vi.waitFor(() => expect(parts.at(-1)).toBe(2));
     drift.mode = "add";
     drift.at = 1;

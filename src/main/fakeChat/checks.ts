@@ -25,7 +25,7 @@ import { sentenceBatchInstructions } from "../../core/answers/checks/sentenceBat
 import { LANGUAGES } from "../../core/language";
 import { outputTokens } from "../../core/providers/outputLimits";
 import { readFigures } from "../../shared/figures";
-import { SAYS_MORE, THOUGHT_OVER } from "./answers";
+import { LISTED_PROJECTS, LISTS_PROJECTS, SAYS_MORE, THOUGHT_OVER } from "./answers";
 import { passagesIn, recordFor, UNIT_MARK } from "./passages";
 import {
   type GenerateOptions,
@@ -90,7 +90,8 @@ const BREAK_CLAUSE = "Either party may end this lease with 30 days' notice.";
 
 /**
  * A batch of an Answer's sentences (#2311): each supported by what it cites, as the scripted
- * Answers keep to their quotes, but one that says more than its quote (`BEYOND_ITS_QUOTE`).
+ * Answers keep to their quotes, but one that says more than its quote (`BEYOND_ITS_QUOTE`) and one
+ * that lists projects its one Citation doesn't name (`LISTS_PROJECTS`, #2809).
  */
 export function fakeSentenceBatch(options: GenerateOptions): string | null {
   const language = LANGUAGES.find(
@@ -103,20 +104,25 @@ export function fakeSentenceBatch(options: GenerateOptions): string | null {
   return JSON.stringify({
     sentences: sentences.map(([, number, sentence = ""]) => {
       const beyond = SAYS_MORE.test(sentence);
+      const lists = LISTS_PROJECTS.test(sentence);
       return {
         number: Number(number),
         kind: "fact",
-        verdict: beyond ? "unsupported" : "supported",
+        verdict: beyond || lists ? "unsupported" : "supported",
         roles: "same",
         time: beyond ? "differs" : "same",
         quoted: "states",
-        says: beyond
+        says: lists
           ? chinese
-            ? "文档写的是什么时候发生，没有说已经完成。"
-            : "The Document says when it happens, not that it is already done."
-          : chinese
-            ? "文档是这样写的。"
-            : "The Document says so.",
+            ? "引文只提到了其中一个项目。"
+            : "The quote names one of the projects, not the others."
+          : beyond
+            ? chinese
+              ? "文档写的是什么时候发生，没有说已经完成。"
+              : "The Document says when it happens, not that it is already done."
+            : chinese
+              ? "文档是这样写的。"
+              : "The Document says so.",
       };
     }),
   });
@@ -228,6 +234,18 @@ export function checkReply(prompt: Prompt, tools: readonly string[]): Reply {
     return { tool: "search_documents", input: { query: checkWords(sentence).join(" ") } };
   }
   if (asked) return figuresReply(prompt, tools, asked, sentence, searched);
+  // A listed project named in Chinese has no words the count below reads: the Passage line that
+  // holds its name supports it (#2809).
+  const named = LISTED_PROJECTS["zh-CN"].held.find((each) => sentence.includes(each));
+  if (named) {
+    const holding = passagesIn(searched).find((passage) => passage.text.includes(named));
+    const record = holding && recordFor(holding, sentence, 1, (line) => line.includes(named));
+    if (!record) return withAbsence(sentence, "Verdict: unsupported");
+    if (toolResults(prompt, "cite").length === 0) {
+      return { tool: "cite", input: { citations: [record.record] } };
+    }
+    return withAbsence(sentence, "Verdict: supported\n文档是这样写的 [^1]。");
+  }
   const words = checkWords(sentence);
   let best: { record: Record<string, unknown>; line: string; shared: number } | null = null;
   for (const passage of passagesIn(searched)) {

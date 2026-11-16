@@ -30,7 +30,12 @@ import { inFlow } from "../timing/flows";
 import type { StoredFill } from ".";
 import { createFactLedger } from "./factLedger";
 import { type PlacedTopic, placeFacts } from "./factPlacement";
-import { type FactReply, type MeetingFact, parseFactReply } from "./factProtocol";
+import {
+  type FactReply,
+  type MeetingFact,
+  type MeetingOverview,
+  parseFactReply,
+} from "./factProtocol";
 import {
   CALL_LANGUAGES,
   callLanguage,
@@ -42,6 +47,7 @@ import {
   notesContext,
   SECTION_TITLES,
   sectionsContext,
+  summaryContext,
   textOf,
 } from "./fillPrompt";
 import { headingRoutes } from "./headingRoutes";
@@ -56,14 +62,35 @@ import {
 } from "./memo";
 import { withUserName } from "./userName";
 
-/** The most of a Transcript one Run reads: about two hours of talk. */
-export const FILL_PART_TOKENS = 24_000;
+/**
+ * The most of a Transcript the first request reads, for every model: about an hour of loose talk
+ * (a fifteen-minute call is some 2,100 tokens), so an ordinary call is one request. A 45-minute
+ * call dense with decisions, some 15,000 tokens, spent Claude Haiku 5.5's whole reply thinking
+ * and got no notes, asked for whole and again in parts of 6,000: a cut reply brings the size
+ * down, and its parts of about 3,000 were answered (#3151).
+ */
+export const FILL_PART_TOKENS = 9_000;
+
+/**
+ * Where a cut reply stops making the parts smaller: a part under twice this isn't asked again as
+ * two, and the rest of the call isn't asked in parts under it. About two and a half minutes of
+ * dense talk: a call of four minutes dense with decisions took well under half a reply, so a
+ * smaller ask wouldn't help.
+ */
+const FILL_PART_FLOOR_TOKENS = 750;
 
 /** What a call agrees, sets someone to do or leaves open: never a claim to check. */
 const AGREED: ReadonlySet<FillSection> = new Set(["decisions", "actions", "questions"]);
 
 /** Claims checked at once on a model off this computer; one at a time on one on it. */
 const CLAIMS_AT_ONCE = 4;
+
+/**
+ * Parts of a long call out at once on a model off this computer; one at a time on one on it.
+ * Asked one after another, the dense 45-minute call took Claude Haiku 5.5 from 1,013 to 1,476 s
+ * (#2839): most of a part's wait is the model thinking, which parts side by side spend together.
+ */
+const FILL_PARTS_AT_ONCE = 3;
 
 export type FillRoute =
   | { model: ChatModelChoice; local: boolean; windowTokens: number | null }
@@ -91,7 +118,7 @@ export interface MeetingFillOptions {
     unfinishedFills(): { meetingId: string; fill: StoredFill }[];
     isDeleted(meetingId: string): boolean;
   };
-  /** The Transcript's Passages, in reading order, once its newest version has them. */
+  /** The Transcript's Passages, in reading order and each line once, once its newest version has them. */
   transcript(documentId: string): Promise<WindowedPassage[]>;
   /** The model to fill with: the one the Mind uses (#1379), as Local mode and consent allow. */
   route(mindId: string): Promise<FillRoute>;
@@ -432,6 +459,59 @@ export function transcriptParts(
   return parts;
 }
 
+/** `part` as two of about the same size, in reading order; null for one Passage, or under twice the floor. */
+export function halved(
+  part: readonly WindowedPassage[],
+): [WindowedPassage[], WindowedPassage[]] | null {
+  const costs = part.map((passage) => estimateTokens(passage.text));
+  const total = costs.reduce((sum, cost) => sum + cost, 0);
+  if (part.length < 2 || total < 2 * FILL_PART_FLOOR_TOKENS) return null;
+  let first = 1;
+  let used = costs[0] ?? 0;
+  while (first < part.length - 1 && used + (costs[first] ?? 0) <= total / 2) {
+    used += costs[first] ?? 0;
+    first += 1;
+  }
+  return [part.slice(0, first), part.slice(first)];
+}
+
+/** A part of the call on its way into the notes. */
+interface CallPart {
+  passages: WindowedPassage[];
+  /** The size the call's parts were asked at when this one was made. */
+  size: number;
+  /** Settles once its reply is in; unset until its request is sent. */
+  out?: Promise<void>;
+  /** Sent while parts went side by side: one a rate limit refuses is asked again by itself. */
+  beside?: boolean;
+  reply?: { answer: CellAnswer; parsed: FactReply } | { error: unknown };
+}
+
+/** `queue` with each run of parts not yet sent split again, at `size` tokens. */
+function resized(queue: readonly CallPart[], size: number): CallPart[] {
+  const next: CallPart[] = [];
+  let run: WindowedPassage[] = [];
+  const split = () => {
+    next.push(...transcriptParts(run, size).map((passages) => ({ passages, size })));
+    run = [];
+  };
+  for (const part of queue) {
+    if (!part.out) {
+      run.push(...part.passages);
+      continue;
+    }
+    split();
+    next.push(part);
+  }
+  split();
+  return next;
+}
+
+/** A reply that ran out of room, while thinking or part-way through what it wrote. */
+const cutShort = (answer: CellAnswer): boolean =>
+  answer.status === "failed" &&
+  (answer.error?.kind === "cut-short" || answer.error?.kind === "cut-short-small-window");
+
 /**
  * What `promise` gives, or `stopped` as soon as the fill is stopped. Its listener goes once
  * `promise` settles: a fill checks dozens of claims on one signal.
@@ -548,13 +628,51 @@ export function createMeetingFill(options: MeetingFillOptions) {
     return passages;
   }
 
-  const partsFor = (passages: readonly WindowedPassage[], route: Routed) =>
-    transcriptParts(
-      passages,
-      Math.min(
-        FILL_PART_TOKENS,
-        route.windowTokens ? Math.floor(route.windowTokens / 2) : FILL_PART_TOKENS,
-      ),
+  /**
+   * One overview for a call read in parts (#3151), asked for from the parts' own and one Passage
+   * each of them cites. The parts' own stay, as they are, when the model gives none whose
+   * Citations are all found, or when those Passages are more than one request reads.
+   */
+  async function wholeCall(input: {
+    meetingId: string;
+    overviews: readonly MeetingOverview[];
+    passages: readonly WindowedPassage[];
+    transcriptId: string;
+    route: Routed;
+    signal: AbortSignal;
+    context(overviews: string[]): QuestionContext;
+  }): Promise<readonly MeetingOverview[]> {
+    const { meetingId, overviews, passages, transcriptId, route, signal, context } = input;
+    if (overviews.length < 2) return overviews;
+    const cited = new Set(overviews.map((overview) => overview.citations[0]?.attrs?.passageId));
+    const shown = passages.filter((passage) => cited.has(passage.passageId));
+    const size = shown.reduce((sum, passage) => sum + estimateTokens(passage.text), 0);
+    if (shown.length === 0 || size > partTokens(route)) {
+      log.warn("meeting.fillSummaryNotAsked", { meetingId, parts: overviews.length, tokens: size });
+      return overviews;
+    }
+    const answer = await ask(
+      context(overviews.map((overview) => textOf(overview.body).trim())),
+      shown,
+      transcriptId,
+      route,
+      signal,
+    );
+    const reply = parseFactReply(answer);
+    if (reply.overview) return [reply.overview];
+    log.warn("meeting.fillSummaryNotKept", {
+      meetingId,
+      parts: overviews.length,
+      reason: reply.overviewOmitted,
+      status: answer.status,
+    });
+    return overviews;
+  }
+
+  const partTokens = (route: Routed) =>
+    Math.min(
+      FILL_PART_TOKENS,
+      route.windowTokens ? Math.floor(route.windowTokens / 2) : FILL_PART_TOKENS,
     );
 
   /**
@@ -578,11 +696,17 @@ export function createMeetingFill(options: MeetingFillOptions) {
       omitted: 0,
       unfinishedParts: 0,
       checking: 0,
+      part: undefined,
       blocks: [],
     };
     set(meeting.id, filling);
     const passages = await passagesOf(transcriptId);
-    const parts = partsFor(passages, route);
+    let partSize = partTokens(route);
+    /** The parts of the call whose notes aren't kept yet, in the call's order. */
+    let queue: CallPart[] = transcriptParts(passages, partSize).map((each) => ({
+      passages: each,
+      size: partSize,
+    }));
     // The notes, their section titles and the question that steers an Answer's language are in
     // the call's language, whatever the interface's (#2770).
     const spoken = callLanguage(passages);
@@ -595,10 +719,25 @@ export function createMeetingFill(options: MeetingFillOptions) {
     const addresses = lines.map((line) => line.marker);
     let unfinishedParts = 0;
     let problem: MeetingFillProblem | null = null;
+    let thrown: unknown;
     const destinations = new Map<FillSection, string>();
-    for (const [index, part] of parts.entries()) {
+    let asked = 0;
+    let read = 0;
+    /** A part failed: no new part is sent, and the replies still out are kept as they come in. */
+    let ended = false;
+    let atOnce = route.local ? 1 : FILL_PARTS_AT_ONCE;
+    // The line names the first part whose notes aren't kept yet. A part asked again as two is
+    // still the same place in the call: the count grows, the place doesn't (#2839).
+    const place = () => {
+      const of = read + queue.length;
+      if (of > 1 && queue.length > 0) set(meeting.id, { part: { at: read + 1, of } });
+    };
+    const send = (part: CallPart) => {
+      asked += 1;
+      part.beside = atOnce > 1;
+      place();
       const history = {
-        part: index + 1,
+        part: asked,
         facts: ledger.facts.map((fact) => ({
           id: fact.id,
           topic: fact.topic,
@@ -612,24 +751,101 @@ export function createMeetingFill(options: MeetingFillOptions) {
         mode === "notes"
           ? notesContext(lines, question, history, spoken, name !== null)
           : sectionsContext(question, history, spoken, name !== null);
-      let answer: CellAnswer;
-      let parsed: FactReply;
-      try {
-        answer = await ask(context, part, transcriptId, route, signal);
+      part.out = ask(context, part.passages, transcriptId, route, signal)
         // A reply cut off after it closed some frames keeps them (#2306).
-        parsed = parseFactReply(answer, addresses);
-      } catch (error) {
-        if (signal.aborted || (ledger.facts.length === 0 && ledger.overview === null)) throw error;
+        .then((answer) => ({ answer, parsed: parseFactReply(answer, addresses) }))
+        .then(
+          (reply) => {
+            part.reply = reply;
+          },
+          (error: unknown) => {
+            part.reply = { error };
+          },
+        );
+    };
+    /** A reply that closed no fact and no overview: nothing of it is kept. */
+    const bare = ({ parsed }: { parsed: FactReply }) =>
+      parsed.facts.length === 0 && parsed.overview === null;
+    /**
+     * A reply with nothing to keep whose part is asked again, as two after a cut or by itself after
+     * a rate limit refused it beside others: it needn't wait its turn in the call's order.
+     */
+    const again = ({ reply, passages: asked, beside }: CallPart) =>
+      !ended &&
+      reply !== undefined &&
+      "answer" in reply &&
+      bare(reply) &&
+      (((cutShort(reply.answer) || reply.parsed.cut) && halved(asked) !== null) ||
+        (beside === true && reply.answer.error?.kind === "rate-limit"));
+    /** A reply that ends the sending when its turn comes: no part after it is sent meanwhile. */
+    const failed = (part: CallPart) =>
+      part.reply !== undefined &&
+      !again(part) &&
+      ("error" in part.reply || part.reply.answer.status === "failed");
+    for (;;) {
+      const [front] = queue;
+      if (!front) break;
+      if (ended && !front.out) {
+        queue = queue.slice(1);
+        unfinishedParts += 1;
+        continue;
+      }
+      // Replies are kept in the call's order, whatever order they come in: the facts, the parts'
+      // overviews and the heading routes are those of the parts asked one after another.
+      const part = queue.find((each, index) => (index === 0 && each.reply) || again(each));
+      if (!part?.reply) {
+        // A part is sent once every reply that can be kept has been: its request carries the
+        // facts kept so far.
+        let room = atOnce - queue.filter((each) => each.out && !each.reply).length;
+        for (const each of queue) {
+          if (ended || room <= 0 || failed(each)) break;
+          if (each.out) continue;
+          send(each);
+          room -= 1;
+        }
+        const out = queue.flatMap((each) => (each.out && !each.reply ? [each.out] : []));
+        if (out.length === 0) break;
+        await Promise.race(out);
+        continue;
+      }
+      if ("error" in part.reply) {
+        const { error } = part.reply;
+        if (signal.aborted) throw error;
         if (error instanceof FillProblemError && error.problem.kind === "stopped") throw error;
-        unfinishedParts = parts.length - index;
-        problem =
+        thrown ??= error;
+        problem ??=
           error instanceof FillProblemError
             ? error.problem
             : { kind: "model", message: alone("meetings.fill.problem.model") };
-        log.warn("meeting.fillPartFailed", { meetingId: meeting.id, parts: unfinishedParts });
-        break;
+        ended = true;
+        unfinishedParts += 1;
+        queue = queue.filter((each) => each !== part);
+        continue;
       }
-      ledger.accept(parsed);
+      const { answer, parsed } = part.reply;
+      // A key whose limit refuses parts side by side may still take them one after another, as
+      // every fill went before: the refused part is asked again, and the rest one at a time.
+      if (part.beside && answer.error?.kind === "rate-limit" && bare(part.reply)) {
+        atOnce = 1;
+        queue = queue.map((each) =>
+          each === part ? { passages: part.passages, size: part.size } : each,
+        );
+        log.info("meeting.fillPartsOneAtATime", { meetingId: meeting.id });
+        continue;
+      }
+      // A part whose reply was cut is asked again as two, and the facts the reply did write are
+      // kept: what it left out is read again, so it isn't counted as missing, and each half
+      // writes the overview of its own lines (#3151). A reply that stopped inside a frame was cut
+      // too, whatever its request reported: a model can end its turn part-way through its notes.
+      const outOfRoom = cutShort(answer);
+      // Once a part has failed none is asked again: a cut reply is kept as it is, its open fact
+      // counted as left out.
+      const halves = !ended && (outOfRoom || parsed.cut) ? halved(part.passages) : null;
+      ledger.accept(
+        halves
+          ? { ...parsed, overview: null, omittedIds: [], invalidFrames: 0, overviewOmitted: null }
+          : parsed,
+      );
       const markers = [
         "SUMMARY",
         ...parsed.facts.flatMap((fact) => fact.sections.map((section) => section.toUpperCase())),
@@ -646,12 +862,42 @@ export function createMeetingFill(options: MeetingFillOptions) {
         if (conflicts) log.warn("meeting.fillRoutingFailed", { meetingId: meeting.id });
         else destinations.set(section, heading);
       }
-      if (answer.status === "failed") {
-        unfinishedParts = parts.length - index;
-        problem = failure(answer, route);
-        log.warn("meeting.fillPartFailed", { meetingId: meeting.id, parts: unfinishedParts });
-        break;
+      if (halves) {
+        // A call dense enough to run one reply out of room did the same to the next part of the
+        // same size, each a two-minute wait for nothing: the parts not yet sent are asked at half
+        // the size as well. A reply that ran out of room at a size the call has already left
+        // changes nothing more.
+        if (outOfRoom && part.size <= partSize) {
+          partSize = Math.max(FILL_PART_FLOOR_TOKENS, Math.floor(partSize / 2));
+          queue = resized(queue, partSize);
+        }
+        const size = partSize;
+        queue = queue.flatMap((each) =>
+          each === part ? halves.map((half) => ({ passages: half, size })) : [each],
+        );
+        log.info("meeting.fillPartHalved", {
+          meetingId: meeting.id,
+          waiting: queue.length,
+          cut: outOfRoom ? "length" : "frame",
+        });
+        continue;
       }
+      read += 1;
+      queue = queue.filter((each) => each !== part);
+      if (answer.status === "failed") {
+        ended = true;
+        unfinishedParts += 1;
+        problem ??= failure(answer, route);
+      } else {
+        place();
+      }
+    }
+    unfinishedParts += queue.length;
+    if (unfinishedParts > 0) {
+      log.warn("meeting.fillPartFailed", { meetingId: meeting.id, parts: unfinishedParts });
+    }
+    if (thrown !== undefined && ledger.facts.length === 0 && ledger.overviews.length === 0) {
+      throw thrown;
     }
     if (ledger.invalidFrames > 0) {
       problem ??= { kind: "model", message: alone("meetings.fill.problem.model") };
@@ -660,7 +906,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
         frames: ledger.invalidFrames,
       });
     }
-    const { overview } = ledger;
+    const { overviews } = ledger;
     // A malformed part has no id to count it by, but it was left out all the same (#3099).
     const omitted = ledger.omitted(unfinishedParts === 0) + ledger.invalidFrames;
     if (omitted > 0) {
@@ -670,8 +916,8 @@ export function createMeetingFill(options: MeetingFillOptions) {
         ...ledger.omittedReasons(unfinishedParts === 0),
       });
     }
-    set(meeting.id, { omitted, unfinishedParts });
-    if (ledger.facts.length === 0 && overview === null) {
+    set(meeting.id, { omitted, unfinishedParts, part: undefined });
+    if (ledger.facts.length === 0 && overviews.length === 0) {
       throw new FillProblemError(
         problem ??
           (ledger.omitted(false) > 0
@@ -679,6 +925,24 @@ export function createMeetingFill(options: MeetingFillOptions) {
             : { kind: "empty", message: alone("meetings.fill.problem.empty") }),
       );
     }
+    const summary =
+      unfinishedParts === 0
+        ? await wholeCall({
+            meetingId: meeting.id,
+            overviews,
+            passages,
+            transcriptId,
+            route,
+            signal,
+            context: (texts) =>
+              summaryContext(
+                texts,
+                translate(language, "meetings.fill.question.summary"),
+                spoken,
+                name !== null,
+              ),
+          })
+        : overviews;
     const retained = ledger.facts;
     const claims = await unsupportedFacts(retained, meeting, transcriptId, route, signal);
     if (signal.aborted) throw new FillProblemError({ kind: "stopped", message: "" });
@@ -687,7 +951,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
       problem,
       omitted,
       unfinishedParts,
-      parts: parts.length,
+      parts: asked,
       place: (blocks) => {
         const matched = lines.map((line) => ({ line, element: findLine(blocks, line) }));
         const current = userLines(blocks, true);
@@ -713,7 +977,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
         const routed = new Set(routes.values());
         const planned = placeFacts({
           facts: retained,
-          overview,
+          overviews: summary,
           lines: present,
           headings: routes,
           topicHeadings: present.filter((line) => line.heading && !routed.has(line.marker)),
@@ -791,7 +1055,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
       blocks: [],
     });
     const passages = await passagesOf(transcriptId);
-    const parts = partsFor(passages, route);
+    const parts = transcriptParts(passages, partTokens(route));
     const context = memoContext(words("memos.fill.question"));
     const replies: NodeJSON[] = [];
     for (const part of parts) {
@@ -898,7 +1162,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
       // In Recently deleted it stays as it was: once back, "filling" says it stopped and
       // "waiting" starts (`restored`).
       if (deleted) return;
-      set(meetingId, { state: "failed", problem, blocks: [] });
+      set(meetingId, { state: "failed", problem, part: undefined, blocks: [] });
     } finally {
       if (running.get(meetingId) === controller) running.delete(meetingId);
     }
@@ -979,7 +1243,12 @@ export function createMeetingFill(options: MeetingFillOptions) {
   /** A fill no longer under way wrote nothing, and says so; one waiting for a saved Transcript starts. */
   function pickUp(meetingId: string, fill: StoredFill): void {
     if (fill.state === "filling" && !running.has(meetingId) && !starting.has(meetingId)) {
-      set(meetingId, { state: "failed", problem: { kind: "stopped", message: "" }, blocks: [] });
+      set(meetingId, {
+        state: "failed",
+        problem: { kind: "stopped", message: "" },
+        part: undefined,
+        blocks: [],
+      });
     } else if (fill.state === "waiting") {
       const transcript = meetings.get(meetingId).transcript;
       if (transcript?.state === "saved" && !transcript.separating) start(meetingId);

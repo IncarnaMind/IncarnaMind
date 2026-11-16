@@ -435,6 +435,8 @@ describe.each(LIVE)("Removal in the User's own words, live: $name", (live) => {
         }
       }
       const exact = new Map<Case, number>();
+      const heldBy = new Map<string, number>();
+      const heldAsked = new Map<Case, number>();
       const misses: string[] = [];
       let strays = 0;
       let claimed = 0;
@@ -504,6 +506,10 @@ describe.each(LIVE)("Removal in the User's own words, live: $name", (live) => {
         await client.settled();
         said.push(replies.getStore()?.raw ?? "");
         if (quotesUnasked(each, asked, replies.getStore()?.raw ?? "")) unasked++;
+        if (result.kind === "proposed" && result.held === true) {
+          heldBy.set(asked.kind, (heldBy.get(asked.kind) ?? 0) + 1);
+          heldAsked.set(asked, (heldAsked.get(asked) ?? 0) + 1);
+        }
         let why = "";
         if (result.kind === "proposed") {
           const made = proposalRequestOf(client.doc, result.request);
@@ -531,6 +537,7 @@ describe.each(LIVE)("Removal in the User's own words, live: $name", (live) => {
       }
       let total = 0;
       let exactTotal = 0;
+      const ranBy = new Map<string, number>();
       for (const each of [EN, ZH]) {
         for (const asked of each.cases) {
           const ran = jobs.filter((job) => job.asked === asked).length;
@@ -538,10 +545,18 @@ describe.each(LIVE)("Removal in the User's own words, live: $name", (live) => {
           const got = exact.get(asked) ?? 0;
           total += ran;
           exactTotal += got;
-          report.push(`  ${each.language} ${asked.kind} “${asked.ask}”: exact ${got}/${ran}`);
+          ranBy.set(asked.kind, (ranBy.get(asked.kind) ?? 0) + ran);
+          const waited = heldAsked.get(asked) ?? 0;
+          report.push(
+            `  ${each.language} ${asked.kind} “${asked.ask}”: exact ${got}/${ran}${waited > 0 ? `, held ${waited}` : ""}`,
+          );
         }
       }
+      const heldKinds = [...ranBy]
+        .map(([kind, ran]) => `${kind} ${heldBy.get(kind) ?? 0}/${ran}`)
+        .join(", ");
       report.push(
+        `  held for the User, by kind: ${heldKinds}`,
         `  all: exact ${exactTotal}/${total}; text other than the passage in the Note ${strays}/${total}; a miss whose ${assistant ? "reply" : "why"} says it removed ${claimed}/${total}${assistant ? "" : `; a quote of a paragraph nobody asked to go ${unasked}/${total}; ${namedSaid(said)}`}; questions asked and answered ${questions}`,
         ...spentBy(dataDir),
         ...misses,

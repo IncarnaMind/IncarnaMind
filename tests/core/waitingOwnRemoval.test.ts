@@ -15,12 +15,17 @@ import { boundEditor, typeText } from "../helpers/editor";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
 import { exactly, heading, note, shownWithChanges, writeMind } from "../helpers/minds";
 import {
+  judgesNothing,
   type ModelCall,
   type ScriptedReply,
   scriptedModel,
   scriptedModels,
 } from "../helpers/models";
 import { paragraph, tracked, wordFile } from "../helpers/word";
+
+/** A scripted model that also answers the question whether a request asks to take text out (#2333): the removals here are asked for. */
+const withJudge = (reply: (call: ModelCall) => ScriptedReply) =>
+  scriptedModel(reply, { generate: judgesNothing });
 
 /**
  * The assistant asks a second time to change text its own waiting change takes out whole (#2502):
@@ -212,7 +217,7 @@ describe("A waiting change that takes out a whole paragraph", { timeout: 30_000 
       const said = wording[language];
       let seen: MindClient | null = null;
       let beforeRefusal: ReturnType<typeof exactly> | null = null;
-      const model = scriptedModel((call): ScriptedReply => {
+      const model = withJudge((call): ScriptedReply => {
         const passage = editPassage(call);
         if (passage !== null) return removalReply();
         const edits = call.results.filter((each) => each.tool === "edit_mind").length;
@@ -278,7 +283,7 @@ describe("A waiting change that takes out a whole paragraph", { timeout: 30_000 
   for (const language of LANGUAGES) {
     test(`with the User's paragraph in the range, the reason names the Answer's own removal (${language})`, async () => {
       const said = wording[language];
-      const model = scriptedModel((call): ScriptedReply => {
+      const model = withJudge((call): ScriptedReply => {
         const passage = editPassage(call);
         if (passage !== null)
           return { text: `## Summary\n\n<removed>${LONG}</removed>\n\n${KEPT}` };
@@ -362,7 +367,7 @@ describe("A waiting change that takes out a whole paragraph", { timeout: 30_000 
       test(`a nested whole-paragraph removal, in a ${shape} (${language})`, async () => {
         const said = wording[language];
 
-        const sameAnswer = scriptedModel((call): ScriptedReply => {
+        const sameAnswer = withJudge((call): ScriptedReply => {
           const passage = editPassage(call);
           if (passage !== null) return { text: shapedReply(shape) };
           const edits = call.results.filter((each) => each.tool === "edit_mind").length;
@@ -395,7 +400,7 @@ describe("A waiting change that takes out a whole paragraph", { timeout: 30_000 
           expect(shownWithChanges(client)).toEqual(originalShown);
         }
 
-        const laterAnswer = scriptedModel((call): ScriptedReply => {
+        const laterAnswer = withJudge((call): ScriptedReply => {
           const passage = editPassage(call);
           if (passage !== null) return { text: shapedReply(shape) };
           const edits = call.results.filter((each) => each.tool === "edit_mind").length;
@@ -448,7 +453,7 @@ describe("A waiting change that takes out a whole paragraph", { timeout: 30_000 
   // protects=a same-turn second edit over a held change that took a Citation out with a removed sentence still revises in place: an inline node's own delete is no whole-Block removal; fails_when=the whole-block refusal says the text takes text out and can't be revised; no_claim=none beyond protects.
   test("a removed sentence's Citation is no whole-Block removal", async () => {
     let rewrites = 0;
-    const model = scriptedModel((call): ScriptedReply => {
+    const model = withJudge((call): ScriptedReply => {
       const passage = editPassage(call);
       if (passage !== null) {
         rewrites += 1;
@@ -504,7 +509,7 @@ describe("A waiting change that takes out a whole paragraph", { timeout: 30_000 
   test("the User's own whole-paragraph removal keeps its own reason", async () => {
     const summary = heading(2, "Summary");
     const line = note(LONG);
-    const model = scriptedModel((call): ScriptedReply => {
+    const model = withJudge((call): ScriptedReply => {
       const passage = editPassage(call);
       if (passage !== null) return removalReply();
       const edits = call.results.filter((each) => each.tool === "edit_mind").length;
@@ -548,7 +553,7 @@ describe("A waiting change that takes out a whole paragraph", { timeout: 30_000 
 
   // protects=a whole-paragraph removal waiting from someone's tracked change in a Word file keeps the old reason; fails_when=the imported Block's removal is read as the Answer's own; no_claim=none beyond protects.
   test("a Word file's whole-paragraph removal keeps its own reason", async () => {
-    const model = scriptedModel((call): ScriptedReply => {
+    const model = withJudge((call): ScriptedReply => {
       const edits = call.results.filter((each) => each.tool === "edit_mind").length;
       return edits === 0
         ? {

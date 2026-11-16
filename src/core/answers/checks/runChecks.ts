@@ -150,12 +150,6 @@ export interface ChecksRun {
   readFirst?: ReadFirst;
   thirdParty?: readonly ThirdPartyReason[];
   signal: AbortSignal;
-  /**
-   * The run of checks (./runCheck) its caller made, whose `prepared` already waits behind replies:
-   * the checks it started early and the run share its held time (#2944). Left out, the run makes
-   * its own and has `prepared` wait.
-   */
-  checking?: ReturnType<typeof checkRunOf>;
 }
 
 /** What a queued claim's check sends, in `run`. */
@@ -212,8 +206,11 @@ function requestKey({
   );
 }
 
-/** A request's reading by a decision model. */
-type ReadFirst = (request: ClaimCheckRequest) => Promise<FirstReading>;
+/** A request's reading by a decision model: what its scores lean to, known first, and all of it. */
+type ReadFirst = (request: ClaimCheckRequest) => {
+  leans: Promise<ClaimFirstReading | null>;
+  read: Promise<FirstReading>;
+};
 
 /**
  * A run's sentences read by `reader` in front of their checks (#3118). What a request sends is
@@ -222,20 +219,27 @@ type ReadFirst = (request: ClaimCheckRequest) => Promise<FirstReading>;
  * early that the run doesn't take is. A reading that fails leaves its sentence to its check.
  */
 export function readingsFirst(
-  read: (request: ClaimCheckRequest, reader: DecisionReader) => Promise<FirstReading>,
+  read: (
+    request: ClaimCheckRequest,
+    reader: DecisionReader,
+    leans: (firstReading: ClaimFirstReading) => void,
+  ) => Promise<FirstReading>,
   reader: DecisionReader,
   mindId: string,
 ): ReadFirst {
-  const made = new Map<string, { reading: Promise<FirstReading>; signal: AbortSignal }>();
+  const made = new Map<string, { reading: ReturnType<ReadFirst>; signal: AbortSignal }>();
   return (request) => {
     const key = requestKey(request);
     const before = made.get(key);
     if (before && !before.signal.aborted) return before.reading;
-    const reading = read(request, reader).catch((error: unknown) => {
+    const leaning = Promise.withResolvers<ClaimFirstReading | null>();
+    const whole = read(request, reader, leaning.resolve).catch((error: unknown) => {
       if (!request.signal.aborted)
         console.error(`A decision model's reading of a sentence in Note ${mindId} failed:`, error);
       return null;
     });
+    void whole.then(() => leaning.resolve(null));
+    const reading = { leans: leaning.promise, read: whole };
     made.set(key, { reading, signal: request.signal });
     return reading;
   };
@@ -251,7 +255,7 @@ function behindReading(
 ): RunChecksOptions["claimCheck"] {
   if (!readFirst) return claimCheck;
   return async (request) => {
-    const read = await readFirst(request);
+    const read = await readFirst(request).read;
     if (!read) return claimCheck(request);
     return "result" in read ? read.result : claimCheck({ ...request, about: read.about });
   };
@@ -311,7 +315,7 @@ export function earlyChecks(
         AbortSignal.any([run.signal, stop.signal]),
       );
       const key = requestKey(request);
-      const reading = run.readFirst?.(request);
+      const reading = run.readFirst?.(request).read;
       if (reading) {
         beingRead++;
         void reading.then(() => beingRead--);
@@ -382,9 +386,7 @@ export async function runChecks(
 ): Promise<{ checked: number; stop: RunStop | null }> {
   const { mindId, prepared, signal } = run;
   const requestId = run.requestId ?? "";
-  const ran = run.checking ?? checkRunOf(options, prepared, signal, mindId);
-  // Every request of the run, a reading first's included, waits behind a reply (#2944).
-  const requests = run.checking ? run : { ...run, prepared: ran.replies.model(prepared) };
+  const ran = checkRunOf(options, prepared, signal, mindId);
   const write = (
     id: string,
     change: (check: ClaimCheckAttributes, blocks: Y.XmlFragment) => ClaimCheckAttributes,
@@ -400,7 +402,7 @@ export async function runChecks(
   let checked = 0;
   const atOnce = claimsAtOnce(prepared);
   const limit = run.slots ?? slots(atOnce);
-  const requestOf = (claim: QueuedClaim) => checkRequestOf(claim, requests, limit, signal);
+  const requestOf = (claim: QueuedClaim) => checkRequestOf(claim, run, limit, signal);
   /** What the decision model's reading left a sentence: its Mark, or only what it leans to. */
   const marked = new Set<QueuedClaim>();
   const leaning = new Map<QueuedClaim, ClaimFirstReading>();
@@ -423,29 +425,35 @@ export async function runChecks(
     });
     if (landed && result.verdict !== "not-checked") checked++;
   };
-  const show = (claim: QueuedClaim, read: FirstReading) => {
+  const written = (change: () => void) => {
     try {
-      if (!read) return;
-      if ("result" in read) {
-        land(claim, read.result);
-        marked.add(claim);
-        return;
-      }
-      const { firstReading } = read;
-      if (!firstReading) return;
-      leaning.set(claim, firstReading);
-      write(claim.id, (each) => withFirstReading(each, firstReading));
+      change();
     } catch (error) {
       // The sentence's check lands its Mark, and says so if that can't be written either.
       console.error(`A decision model's reading for Note ${mindId} couldn't be written:`, error);
     }
+  };
+  const lean = (claim: QueuedClaim, firstReading: ClaimFirstReading | null) => {
+    if (!firstReading || leaning.get(claim) === firstReading) return;
+    leaning.set(claim, firstReading);
+    write(claim.id, (each) => withFirstReading(each, firstReading));
+  };
+  const show = (claim: QueuedClaim, read: FirstReading) => {
+    if (!read) return;
+    if (!("result" in read)) return lean(claim, read.firstReading);
+    // The verdict is the decision model's own: what it leaned to is no first reading of another's.
+    leaning.delete(claim);
+    land(claim, read.result);
+    marked.add(claim);
   };
   // Every sentence is read at once, not as its check gets a place: a reading shows in seconds.
   const { readFirst } = run;
   const readings = new Map(
     (readFirst ? run.queued : []).flatMap((claim) => {
       const reading = readFirst?.(requestOf(claim));
-      return reading ? [[claim, reading.then((read) => show(claim, read))] as const] : [];
+      if (!reading) return [];
+      void reading.leans.then((firstReading) => written(() => lean(claim, firstReading)));
+      return [[claim, reading.read.then((read) => written(() => show(claim, read)))] as const];
     }),
   );
   const claimCheck = behindReading(run, options.claimCheck);

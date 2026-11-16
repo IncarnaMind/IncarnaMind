@@ -176,7 +176,7 @@ export async function recordCall(
   return meeting;
 }
 
-const comparable = (text: string) =>
+export const comparable = (text: string) =>
   normaliseText(text)
     .toLowerCase()
     .replace(/[\p{P}\p{S}\s]+/gu, "");

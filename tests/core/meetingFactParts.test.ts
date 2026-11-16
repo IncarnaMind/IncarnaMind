@@ -1,9 +1,13 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, test, vi } from "vitest";
 import type { Core, Meeting, MeetingFill, SystemNotifications } from "../../src/core";
+import { withoutOverlap } from "../../src/core/answers/documentText";
+import { readVtt } from "../../src/core/documents/formats/vtt";
 import { buildPassages } from "../../src/core/documents/passages";
 import type { WindowedPassage } from "../../src/core/documents/search";
 import type { Language } from "../../src/core/language";
 import { FILL_PART_TOKENS, transcriptParts } from "../../src/core/meetings/fill";
+import { clockTime } from "../../src/shared/clock";
 import { translate } from "../../src/shared/i18n";
 import { mindName } from "../../src/shared/naming";
 import { mindCitations, shownPassages } from "../helpers/citations";
@@ -18,18 +22,22 @@ const FINAL = "The review is on Thursday";
 const PURPOSE = "The workshop settles the review schedule";
 const UNFINISHED = "Dana will distribute the review checklist";
 const OVERVIEW = "The workshop covered the review schedule";
-const LONG_CUES = 128;
+const LONG_CUES = 60;
 
 function fact(
   id: string,
   text: string,
-  { citation = 1, supersedes = [] }: { citation?: number; supersedes?: unknown } = {},
+  {
+    citation = 1,
+    supersedes = [],
+    topic = "review schedule",
+  }: { citation?: number; supersedes?: unknown; topic?: string } = {},
 ): string {
   return [
     `### FACT ${id}`,
     "```json",
     JSON.stringify({
-      topic: "review schedule",
+      topic,
       citations: [citation],
       lines: ["L1"],
       sections: ["decisions"],
@@ -42,13 +50,13 @@ function fact(
   ].join("\n");
 }
 
-function overview(): string {
+function overview(part?: number): string {
   return [
     "### OVERVIEW",
     "```json",
     '{"citations":[2]}',
     "```",
-    `${OVERVIEW} [^2].`,
+    `${OVERVIEW}${part ? ` in part ${part}` : ""} [^2].`,
     "### END OVERVIEW",
   ].join("\n");
 }
@@ -69,7 +77,14 @@ function modelFor(
   const quotes = new Map<number, string>();
   const feedback: string[] = [];
   const streamErrors = new Set<number>();
+  const summaries: ModelCall[] = [];
   const model = scriptedModel((call): ScriptedReply => {
+    // These tests are about facts across parts, so the Summary of the whole call (#3151) gets a
+    // reply with no overview and each part's own stays: meetingLongCall.test.ts covers the Summary.
+    if (call.prompt.includes("The parts' overviews:\n")) {
+      summaries.push(call);
+      return { text: "The call was about the review." };
+    }
     const part = Number(/Use new ids P(\d+)_F1/.exec(call.prompt)?.[1]);
     if (!part) throw new Error("Unexpected request outside the Meeting fact Run.");
     calls.push({ part, call });
@@ -121,14 +136,29 @@ function modelFor(
       ),
     };
   };
-  return { model, calls, quotes, feedback, schedule };
+  return { model, calls, summaries, quotes, feedback, schedule };
 }
 
 async function capture(
   model: ReturnType<typeof modelFor>,
   long = false,
   name: string | null = null,
-  { language, notifications }: { language?: Language; notifications?: SystemNotifications } = {},
+  {
+    language,
+    notifications,
+    short,
+    asides,
+    linesRepeated,
+  }: {
+    language?: Language;
+    notifications?: SystemNotifications;
+    /** This many lines of ordinary length, a sentence or two each, instead of one. */
+    short?: number;
+    /** After each line a short one: "Yeah.", or a line that starts with it. */
+    asides?: boolean;
+    /** The evaluation's arm for the notes as they were asked for before #3151. */
+    linesRepeated?: boolean;
+  } = {},
 ) {
   const { schedule } = model;
   const padding =
@@ -137,13 +167,24 @@ async function capture(
     ? Array.from(
         { length: LONG_CUES },
         (_, index) =>
-          `Workshop item ${index + 1}: ${index < 4 ? schedule.earlier : schedule.final}. ${PURPOSE}. ${UNFINISHED}. ${padding}`,
+          `Workshop item ${index + 1}: ${index < 1 ? schedule.earlier : schedule.final}. ${PURPOSE}. ${UNFINISHED}. ${padding}`,
       )
-    : [`Workshop item 1: ${schedule.earlier}. ${PURPOSE}. ${UNFINISHED}.`];
+    : Array.from(
+        { length: short ?? 1 },
+        (_, index) =>
+          `Workshop item ${index + 1}: ${index < 2 ? schedule.earlier : schedule.final}. ${PURPOSE}. ${UNFINISHED}.`,
+      );
+  const said = asides
+    ? lines.flatMap((line, index) => [
+        line,
+        index % 2 ? "Yeah." : "Yeah. But the checklist comes first, doesn't it?",
+      ])
+    : lines;
   const { core, record } = await transcribingCore(await createTempDataFolder(), {
     model: model.model,
-    engine: { lines: [...lines, "The workshop is closed"], maxSpeechMs: 500 },
+    engine: { lines: [...said, "The workshop is closed"], maxSpeechMs: 500 },
     ...(notifications && { notifications }),
+    ...(linesRepeated && { notesLinesRepeated: () => true }),
   });
   await core.saveLibrarySettings({ ...(await core.getLibrary()).settings, automatic: false });
   await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
@@ -156,8 +197,8 @@ async function capture(
   const before = exactly(client);
   await core.startMeeting({ meetingId: meeting.id, systemAudio: false });
   let recorded = 0;
-  while (recorded < lines.length + 1) {
-    const count = Math.min(20, lines.length + 1 - recorded);
+  while (recorded < said.length + 1) {
+    const count = Math.min(20, said.length + 1 - recorded);
     record(count * 500, ["microphone"]);
     recorded += count;
     await vi.waitFor(async () => {
@@ -176,7 +217,7 @@ async function capture(
     const read = await core.readDocumentText(transcript.documentId);
     expect(read.pages.length).toBeGreaterThan(0);
     expect(read.pages.map((page) => page.text).join("\n")).toContain(
-      `Workshop item ${long ? LONG_CUES : 1}:`,
+      `Workshop item ${lines.length}:`,
     );
     return read;
   });
@@ -189,9 +230,28 @@ async function capture(
     documentKind: "transcript",
     contentHash: text.contentHash,
   }));
-  const parts = transcriptParts(passages, FILL_PART_TOKENS);
+  const parts = transcriptParts(withoutOverlap(passages), FILL_PART_TOKENS);
   expect(parts).toHaveLength(long ? 3 : 1);
   return { core, meeting, client, before, parts, text };
+}
+
+/** The workshop items a part's request showed the model, in the order shown. */
+function itemsShown(model: ReturnType<typeof modelFor>, part: number): number[] {
+  const asked = model.calls.find((each) => each.part === part);
+  if (!asked) throw new Error(`Part ${part} was never asked.`);
+  return shownPassages(asked.call.prompt).flatMap((passage) =>
+    [...passage.text.matchAll(/Workshop item (\d+):/g)].map((match) => Number(match[1])),
+  );
+}
+
+/** A part's request as the model read the Transcript: each line's time, and what was said. */
+function linesShown(model: ReturnType<typeof modelFor>, part: number): string[] {
+  const asked = model.calls.find((each) => each.part === part);
+  if (!asked) throw new Error(`Part ${part} was never asked.`);
+  return shownPassages(asked.call.prompt)
+    .flatMap((passage) => passage.text.split("\n"))
+    .filter((line) => line.trim() !== "")
+    .map((line) => line.replace(/^\[(\d+:\d\d)[^\]]*\] /, "$1 "));
 }
 
 async function fillOf(core: Core, meeting: Meeting): Promise<MeetingFill | null> {
@@ -208,19 +268,32 @@ async function settledFill(core: Core, meeting: Meeting): Promise<MeetingFill> {
   });
 }
 
-function expectRequests(model: ReturnType<typeof modelFor>, counts: number[]): void {
+/** `summary`: the fill read every part of several, so it asked once for the whole call's Summary. */
+function expectRequests(
+  model: ReturnType<typeof modelFor>,
+  counts: number[],
+  summary = false,
+): void {
   expect(
     model.calls.map(({ part }) => part),
     model.feedback.join("\n"),
   ).toEqual(counts.flatMap((count, index) => Array.from({ length: count }, () => index + 1)));
-  expect(model.model.doStreamCalls).toHaveLength(counts.reduce((sum, count) => sum + count, 0));
+  expect(model.summaries).toHaveLength(summary ? 1 : 0);
+  expect(model.model.doStreamCalls).toHaveLength(
+    counts.reduce((sum, count) => sum + count, summary ? 1 : 0),
+  );
   expect(model.model.doGenerateCalls).toHaveLength(0);
 }
 
-function expectRetained(client: MindClient, full: string, absent: string[] = []): void {
+function expectRetained(
+  client: MindClient,
+  full: string,
+  absent: string[] = [],
+  overviews = 1,
+): void {
   const doc = readMind(client);
   expect(doc.textContent.split(full)).toHaveLength(2);
-  expect(doc.textContent.split(OVERVIEW)).toHaveLength(2);
+  expect(doc.textContent.split(OVERVIEW)).toHaveLength(overviews + 1);
   for (const text of absent) expect(doc.textContent).not.toContain(text);
   expect(doc.textContent).not.toMatch(/FACT P\d_|END P\d_|"supersedes"|"citations"/);
   expect(mindCitations(client).length).toBeGreaterThan(0);
@@ -320,7 +393,105 @@ describe("Meeting fact frames across provider failures and Transcript parts", ()
     },
   );
 
-  test("a later checked correction replaces the prior fact once, with its new Citation and one overview and Undo", async () => {
+  // protects=a reply with a stray fence line after a fact's end line, and the facts after it written with their json fences left open, has every fact and the overview in the Note, each once, none counted as left out (the shape of a reply in which Claude Haiku 5.5 lost ten facts that were neither kept nor counted, #3145); fails_when=a fact or the overview after the stray line is missing, or the fill counts one left out; no_claim=how often a model writes this.
+  test("facts after a stray fence line are read, their open fences closed", async () => {
+    const open = (frame: string) =>
+      frame
+        .split("\n")
+        .filter((_, line) => line !== 3)
+        .join("\n");
+    const model = modelFor(() => ({
+      text: [
+        `${fact("P1_F1", EARLIER)}\n\`\`\``,
+        open(fact("P1_F2", UNFINISHED, { topic: "review checklist" })),
+        open(fact("P1_F3", PURPOSE, { topic: "workshop purpose" })),
+        open(overview()),
+      ].join("\n\n"),
+    }));
+    const captured = await capture(model);
+    const { core, meeting, client } = captured;
+    try {
+      expect(await settledFill(core, meeting)).toMatchObject({
+        state: "filled",
+        omitted: 0,
+        unfinishedParts: 0,
+        problem: null,
+      });
+      const shown = readMind(client).textContent;
+      for (const text of [EARLIER, UNFINISHED, PURPOSE, OVERVIEW]) {
+        expect(shown.split(text)).toHaveLength(2);
+      }
+      expect(shown).not.toMatch(/FACT P\d_|END P\d_|"citations"|```/);
+      await undo(captured);
+    } finally {
+      core.close();
+    }
+  });
+
+  // protects=a fact the fill can't read because a stray fence line sits before its end line is counted as left out, once, and the fact and the overview after it are in the Note (#3145); fails_when=the fact after it or the overview is missing, the unreadable fact is written, or the count isn't one; no_claim=that the unreadable fact could be repaired.
+  test("a fact with a stray fence line before its end line is counted, and the facts after it are read", async () => {
+    const model = modelFor(() => ({
+      text: [
+        fact("P1_F1", EARLIER).replace("### END P1_F1", "```\n### END P1_F1"),
+        fact("P1_F2", UNFINISHED, { topic: "review checklist" }),
+        overview(),
+      ].join("\n\n"),
+    }));
+    const captured = await capture(model);
+    const { core, meeting, client } = captured;
+    try {
+      expect(await settledFill(core, meeting)).toMatchObject({
+        state: "filled",
+        omitted: 1,
+        unfinishedParts: 0,
+      });
+      const shown = readMind(client).textContent;
+      for (const text of [UNFINISHED, OVERVIEW]) expect(shown.split(text)).toHaveLength(2);
+      expect(shown).not.toContain(EARLIER);
+      await undo(captured);
+    } finally {
+      core.close();
+    }
+  });
+
+  // protects=a later part that numbers its facts the way an earlier part did has them kept (on a 45-minute call Claude Haiku 5.5 reused 18 ids, and each fact was taken for a change to the kept one and left out): a fact with another topic that cites another line is another fact, each is written once, none is counted as left out, and the next request lists them under ids of their own (#3145); fails_when=a later part's fact is missing or written twice, the fill counts one left out, or two listed facts share an id; no_claim=which ids a real model writes.
+  test("a later part that reuses an earlier part's id for another fact has both facts kept", async () => {
+    const said = [EARLIER, UNFINISHED, PURPOSE];
+    const topics = ["review schedule", "review checklist", "workshop purpose"];
+    const model = modelFor((part) => ({
+      text: `${fact("P1_F1", said[part - 1] ?? "", { topic: topics[part - 1] ?? "" })}\n\n${overview()}`,
+    }));
+    const captured = await capture(model, true);
+    const { core, meeting, client, parts } = captured;
+    try {
+      expect(await settledFill(core, meeting)).toMatchObject({
+        state: "filled",
+        omitted: 0,
+        unfinishedParts: 0,
+        problem: null,
+      });
+      const shown = readMind(client).textContent;
+      for (const text of said) expect(shown.split(text)).toHaveLength(2);
+      const listed = [
+        ...(model.calls.find(({ part }) => part === 3)?.call.prompt ?? "").matchAll(
+          /"id":"([^"]+)"/g,
+        ),
+      ].map((match) => match[1]);
+      expect(listed).toHaveLength(2);
+      expect(listed[0]).toBe("P1_F1");
+      expect(listed[1]).not.toBe("P1_F1");
+      expectRequests(
+        model,
+        parts.map(() => 2),
+        true,
+      );
+      await undo(captured);
+    } finally {
+      core.close();
+    }
+  });
+
+  test("a later checked correction replaces the prior fact once, with its new Citation and each part's overview and Undo", async () => {
     const model = modelFor((part) => ({
       text: [
         ...(part === 1
@@ -340,7 +511,7 @@ describe("Meeting fact frames across provider failures and Transcript parts", ()
         unfinishedParts: 0,
         problem: null,
       });
-      expectRetained(client, FINAL, [EARLIER]);
+      expectRetained(client, FINAL, [EARLIER], parts.length);
       const quote = model.quotes.get(2);
       if (!quote) throw new Error("The later part did not record its review cue.");
       const citations = mindCitations(client).filter((citation) => citation.quote === quote);
@@ -371,6 +542,7 @@ describe("Meeting fact frames across provider failures and Transcript parts", ()
       expectRequests(
         model,
         parts.map(() => 2),
+        true,
       );
       await undo(captured);
     } finally {
@@ -416,13 +588,16 @@ describe("Meeting fact frames across provider failures and Transcript parts", ()
           unfinishedParts: 0,
           problem: null,
         });
-        expectRetained(client, EARLIER, [FINAL]);
-        expect(mindCitations(client).filter((citation) => citation.quote?.includes(FINAL))).toEqual(
-          [],
-        );
+        expectRetained(client, EARLIER, [FINAL], parts.length);
+        // The later parts' overviews quote that line with its purpose; the fact left out quoted
+        // it alone.
+        const rejected = model.quotes.get(2);
+        if (!rejected) throw new Error("The later part did not record its review cue.");
+        expect(mindCitations(client).filter((citation) => citation.quote === rejected)).toEqual([]);
         expectRequests(
           model,
           parts.map(() => 2),
+          true,
         );
         await undo(captured);
       } finally {
@@ -447,7 +622,12 @@ describe("Meeting fact frames across provider failures and Transcript parts", ()
         unfinishedParts: 0,
         problem: null,
       });
-      expectRetained(client, `${name} noted that the review is on Tuesday`, ["{{me}}"]);
+      expectRetained(
+        client,
+        `${name} noted that the review is on Tuesday`,
+        ["{{me}}"],
+        parts.length,
+      );
       for (const part of [2, 3]) {
         const prompt = model.calls.find((each) => each.part === part)?.call.prompt;
         expect(prompt).toContain(`"text":"${kept}`);
@@ -459,6 +639,7 @@ describe("Meeting fact frames across provider failures and Transcript parts", ()
       expectRequests(
         model,
         parts.map(() => 2),
+        true,
       );
       await undo(captured);
     } finally {
@@ -508,6 +689,140 @@ describe("Meeting fact frames across provider failures and Transcript parts", ()
   });
 });
 
+describe("A long call's Transcript, each line once, in parts a reply has room for (#3151)", () => {
+  // protects=a call's notes are asked for with each Transcript line once, where the Passages' overlap sent two lines in five twice (#3151); fails_when=a line reaches the model twice in one request or across the parts, or a line is never sent; no_claim=what a real model writes from them.
+  test("every line of the call is sent to the model once", async () => {
+    const model = modelFor(() => ({ text: `${fact("P1_review", EARLIER)}\n\n${overview()}` }));
+    const items = 50;
+    const { core, meeting } = await capture(model, false, null, { short: items });
+    try {
+      expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", problem: null });
+      expect(itemsShown(model, 1)).toEqual(Array.from({ length: items }, (_, index) => index + 1));
+    } finally {
+      core.close();
+    }
+  });
+
+  // protects=every line of a call's notes request carries its own time, when short replies ("Yeah.") come between the lines and other lines start with the same word (#3151); fails_when=a line reaches the model with no time, or with an earlier line's; no_claim=who the model says spoke.
+  test("each line is sent with its own time when short replies repeat", async () => {
+    const model = modelFor(() => ({ text: `${fact("P1_review", EARLIER)}\n\n${overview()}` }));
+    const { core, meeting, text } = await capture(model, false, null, { short: 40, asides: true });
+    try {
+      expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", problem: null });
+      const file = (await core.listDocuments()).find((each) => each.id === text.documentId);
+      const heard = readVtt(readFileSync(file?.path ?? "", "utf8")).cues.map(
+        (cue) => `${clockTime(cue.startMs)} ${cue.text}`,
+      );
+      expect(heard).toHaveLength(81);
+      expect(linesShown(model, 1)).toEqual(heard);
+    } finally {
+      core.close();
+    }
+  });
+
+  // protects=the evaluation's arm for the notes as before #3151 really sends the Passages as they overlap, so a paired run compares what it says it does; fails_when=the arm sends each line once, like today's path, or drops a line; no_claim=what the overlap costs a real model.
+  test("the evaluation's as-before arm sends the lines the Passages share twice", async () => {
+    const model = modelFor(() => ({ text: `${fact("P1_review", EARLIER)}\n\n${overview()}` }));
+    const items = 50;
+    const { core, meeting } = await capture(model, false, null, {
+      short: items,
+      linesRepeated: true,
+    });
+    try {
+      expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", problem: null });
+      const shown = itemsShown(model, 1);
+      expect(shown.length).toBeGreaterThan(items);
+      expect([...new Set(shown)]).toEqual(Array.from({ length: items }, (_, index) => index + 1));
+    } finally {
+      core.close();
+    }
+  });
+
+  // protects=a part whose reply is cut off is asked again as two, in reading order and each line once, and the rest of the call is then asked at half the size; the facts the cut reply closed are kept and shown to both halves, the item it never closed isn't counted as left out since its lines are read again, the Summary holds the overview of each answered part once in the order the call was read, the cut reply's giving way to its halves', and the note ends with no problem and exact Undo (#3151); fails_when=the fill stops at the cut reply, a later part is asked at the size that was cut, a kept fact is lost or written twice, the unfinished item is counted, a line of the part is skipped or repeated, or the Summary holds only the first overview, the cut reply's beside its halves', or the overviews out of order; no_claim=how often a real model's reply is cut.
+  test("a part whose reply is cut off is asked again as two, and what it wrote is kept", async () => {
+    const model = modelFor((part) =>
+      part === 1
+        ? {
+            text: [
+              fact("P1_review", EARLIER),
+              overview(part),
+              fact("P1_checklist", UNFINISHED).replace("### END P1_checklist", ""),
+            ].join("\n\n"),
+            cutOff: true,
+          }
+        : { text: overview(part) },
+    );
+    const captured = await capture(model, true);
+    const { core, meeting, client, parts } = captured;
+    try {
+      expect(await settledFill(core, meeting)).toMatchObject({
+        state: "filled",
+        omitted: 0,
+        unfinishedParts: 0,
+        problem: null,
+      });
+      const halves = [itemsShown(model, 2), itemsShown(model, 3)];
+      for (const half of halves) expect(half.length).toBeGreaterThan(0);
+      expect(halves.flat()).toEqual(itemsShown(model, 1));
+      for (const part of [2, 3]) {
+        expect(model.calls.find((each) => each.part === part)?.call.prompt).toContain(
+          '"id":"P1_review"',
+        );
+      }
+      // After the cut, the rest of the call is asked at half the size too.
+      const rest = transcriptParts(parts.slice(1).flat(), FILL_PART_TOKENS / 2);
+      expect(rest.length).toBeGreaterThan(parts.length - 1);
+      expectRequests(
+        model,
+        Array.from({ length: 3 + rest.length }, () => 2),
+        true,
+      );
+      expect(itemsShown(model, 4)).toEqual(
+        rest[0]?.flatMap((passage) =>
+          [...passage.text.matchAll(/Workshop item (\d+):/g)].map((match) => Number(match[1])),
+        ),
+      );
+      const asked = Array.from({ length: 2 + rest.length }, (_, index) => index + 2);
+      expect(asked.flatMap((part) => itemsShown(model, part))).toEqual(
+        Array.from({ length: LONG_CUES }, (_, index) => index + 1),
+      );
+      expectRetained(client, EARLIER, [UNFINISHED], asked.length);
+      expect(
+        [...readMind(client).textContent.matchAll(/in part (\d+)/g)].map((match) =>
+          Number(match[1]),
+        ),
+      ).toEqual(asked);
+      await undo(captured);
+    } finally {
+      core.close();
+    }
+  });
+
+  // protects=a part cut off every time is asked again smaller only down to the floor: the fill then ends on the model's own problem and writes nothing (#3151); fails_when=the same part is asked again whole, the asks never end, the problem is of another kind, or the Note changes; no_claim=the floor's size in minutes.
+  test("a part cut off every time is asked smaller down to the floor, then the fill ends on the model's problem", async () => {
+    const model = modelFor(() => ({ text: "", cutOff: true }));
+    const captured = await capture(model, true);
+    const { core, meeting, client, before } = captured;
+    try {
+      expect(await settledFill(core, meeting)).toMatchObject({
+        state: "failed",
+        problem: { kind: "model", error: "cut-short" },
+      });
+      const asked = [...new Set(model.calls.map((each) => each.part))];
+      expect(asked.length).toBeGreaterThan(1);
+      const sizes = asked.map((part) => itemsShown(model, part).length);
+      for (const [index, size] of sizes.entries()) {
+        if (index > 0) expect(size).toBeLessThan(sizes[index - 1] as number);
+      }
+      expect(itemsShown(model, asked.at(-1) as number)[0]).toBe(1);
+      expect(exactly(client)).toEqual(before);
+      expect(mindCitations(client)).toEqual([]);
+    } finally {
+      core.close();
+    }
+  });
+});
+
 describe("Post-fix public regressions for cross-part fact identities", () => {
   test("an exact replay of a superseded identity cannot resurrect its earlier fact", async () => {
     const monday = "The review is on Monday";
@@ -527,7 +842,7 @@ describe("Post-fix public regressions for cross-part fact identities", () => {
         unfinishedParts: 0,
         problem: null,
       });
-      expectRetained(client, friday, [monday]);
+      expectRetained(client, friday, [monday], parts.length);
       const correctedQuote = model.quotes.get(2);
       const replayQuote = model.quotes.get(3);
       if (!correctedQuote || !replayQuote) {
@@ -560,6 +875,7 @@ describe("Post-fix public regressions for cross-part fact identities", () => {
       expectRequests(
         model,
         parts.map(() => 2),
+        true,
       );
       await undo(captured);
     } finally {
@@ -588,6 +904,7 @@ describe("Post-fix public regressions for cross-part fact identities", () => {
       const quote = model.quotes.get(3);
       if (!quote) throw new Error("The final part did not record its checked Transcript cue.");
       expect(mindCitations(client).filter((citation) => citation.quote === quote)).toHaveLength(2);
+      // Only the last part wrote an overview, so there is nothing to make one Summary of.
       expectRequests(
         model,
         parts.map(() => 2),

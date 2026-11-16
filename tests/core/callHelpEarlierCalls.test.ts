@@ -21,6 +21,7 @@ import {
   TEMPLATE_HELP,
 } from "../../src/shared/meetingHelp";
 import { mindName } from "../../src/shared/naming";
+import { checkGenerate, checkReply, isCheckRun } from "../helpers/checks";
 import { answerEnded, shownPassages } from "../helpers/citations";
 import { createTempDataFolder, queryDatabase } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
@@ -216,6 +217,9 @@ const states = (citations: readonly { check: string; checkReason: string | null 
  * that cites the Note's Citation (a press's) may put `pressed.quoted` in quotation marks after its
  * sentence, and cite beside it the Document that holds `pressed.beside`, found by searching.
  */
+/** What the look in an Answer's scope asks beside its Run (#3020), answered as a check that finds nothing. */
+const LOOK_ASKS = new Set(["find-claims", "nearest", "evidence", "covered-evidence", "restate"]);
+
 function citingModel(
   calls: ModelCall[],
   batches: GenerateCall[],
@@ -226,6 +230,9 @@ function citingModel(
   let fromNote = false;
   return scriptedModel(
     (call) => {
+      // A sentence its batch reads Unsupported is looked for in the Answer's scope (#3020): the
+      // look finds nothing that states it.
+      if (isCheckRun(call)) return checkReply(call, {});
       calls.push(call);
       if (call.results.some((result) => result.tool === "cite")) {
         const quoted = fromNote && pressed.quoted ? ` — “${pressed.quoted}”` : "";
@@ -267,6 +274,7 @@ function citingModel(
         if (call.question === "request-done") {
           return { text: '{"asks_change":"no","request":"none"}' };
         }
+        if (LOOK_ASKS.has(call.question)) return checkGenerate({})(call);
         if (call.question !== "sentence-batch") return unscripted(call.question, call.system);
         if (!judging.now) return { error: { status: 500, message: "Not judged now." } };
         batches.push(call);
