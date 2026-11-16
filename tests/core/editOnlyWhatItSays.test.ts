@@ -174,6 +174,21 @@ describe.each(["en", "zh"] as const)("A reply's own talk to a fixed task (%s)", 
     expect(shownWithChanges(client)).toEqual([...SHORTER[language]]);
   });
 
+  // protects=a reply that talks first and drops the first paragraph, so the talk stands where that paragraph was, never writes the talk over it: the talk is set aside, the dropped paragraph goes whole and so the edit waits; fails_when=the talk replaces the first paragraph and the edit applies at once; no_claim=how often a real model drops a paragraph and talks.
+  test.each([{ action: "shorten" as const }, { action: "improve" as const }])(
+    "$action: talk in the place of a dropped paragraph waits and stays out of the Note",
+    async ({ action }) => {
+      const reply = [REASONING[language], ...SHORTER[language].slice(1)];
+      const { core, mind, client } = await noteOf(lines, () => reply.join("\n\n"));
+
+      const result = await core.editWithAi(fixed(client, mind.id, action));
+      await resolveChanges(client, "accept");
+
+      expect(result).toMatchObject({ kind: "proposed", held: true });
+      expect(shownWithChanges(client).join("\n")).not.toContain(REASONING[language]);
+    },
+  );
+
   // protects=a paragraph a reply splits in two keeps both halves, as before: the second is the passage's own words, not talk; fails_when=the second half is dropped; no_claim=how often a model splits.
   test("a paragraph split in two is not talk", async () => {
     const [first = "", second = "", ...rest] = lines;
@@ -249,6 +264,39 @@ describe.each(["en", "zh"] as const)(
 
       expect(result).toMatchObject({ kind: "proposed", held: true });
       expect(asked).toHaveLength(1);
+    });
+
+    // protects=a paragraph the reply takes out by quoting each of its sentences on their own is read as a whole paragraph quoted: the question is asked and words that ask for no removal wait; fails_when=sentences quoted one by one that together take a paragraph out apply unasked; no_claim=how often a real model quotes sentence by sentence.
+    test("sentences quoted one by one that take a whole paragraph out: the question is asked and the removal waits", async () => {
+      const paragraphs = {
+        en: [
+          "Red boats dock at the north quay. Blue boats sail from the east quay.",
+          "Green boats rest in the yard.",
+        ],
+        zh: ["红船停靠在北码头。蓝船从东码头出发。", "绿船停在船坞里。"],
+      }[language];
+      const [first = "", ...rest] = paragraphs;
+      const sentences =
+        language === "en"
+          ? first.split(". ").map((each, index) => (index === 0 ? `${each}.` : each))
+          : first
+              .split("。")
+              .filter(Boolean)
+              .map((each) => `${each}。`);
+      const quotedEach = sentences
+        .map((each) => `<removed>${each}</removed>`)
+        .join(language === "en" ? " " : "");
+      const { core, mind, client, asked } = await noteOf(
+        paragraphs,
+        () => `¶1 ${quotedEach}`,
+        "no",
+      );
+
+      const result = await core.editWithAi(wholeMind(client, mind.id, SHORT_ASK));
+
+      expect(result).toMatchObject({ kind: "proposed", held: true });
+      expect(asked).toHaveLength(1);
+      expect(rest).toHaveLength(1);
     });
 
     // protects=the question is asked only when a reply quotes a whole paragraph: a sentence quoted from a paragraph, or no quote at all, asks nothing; fails_when=every edit asks the small model; no_claim=none.

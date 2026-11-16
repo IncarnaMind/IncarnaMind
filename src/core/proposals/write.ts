@@ -2824,11 +2824,15 @@ export function createRewriteStream(
     inPlaceOf.push({ segment, paragraph });
   };
 
+  /** A line of a reply to a task that adds nothing, which says none of the passage's words: the model's own talk, kept out of the Note. */
+  const setAside = (paragraph: NewParagraph) => {
+    if (!addsNothing || !isPlain(paragraph) || !saysNothingOfTheirs(paragraph)) return false;
+    aside.push(plainWords(paragraph.tokens));
+    return true;
+  };
+
   const addNew = (paragraph: NewParagraph) => {
-    if (addsNothing && isPlain(paragraph) && saysNothingOfTheirs(paragraph)) {
-      aside.push(plainWords(paragraph.tokens));
-      return;
-    }
+    if (setAside(paragraph)) return;
     if (!place) return;
     placedAny = true;
     addedAnew.push(paragraph);
@@ -2951,11 +2955,25 @@ export function createRewriteStream(
       if (anchor)
         place = { element: anchor.element, kind: anchor.kind, side: bounded ? "before" : "after" };
     }
+    // A line that only fills a place, beside lines that clearly rewrite others, is talk where a
+    // paragraph the text dropped stood; with none beside it, it is the paragraph's own new text.
+    const rewrites = (index: number) => {
+      const pair = paired[index];
+      const segment = pair === null || pair === undefined ? undefined : between[pair];
+      const paragraph = held[index];
+      return !!segment && !!paragraph && placeLikeness(segment, paragraph) >= MOVED_LIKENESS;
+    };
+    const nextSegment = next === undefined ? undefined : segments[to];
+    const someRewrite =
+      held.some((_, index) => rewrites(index)) ||
+      (!!next && !!nextSegment && placeLikeness(nextSegment, next) >= MOVED_LIKENESS);
     for (const [index, paragraph] of held.entries()) {
       if (droppedTypedTag) break;
       const pair = paired[index];
       if (pair === null || pair === undefined) addNew(paragraph);
-      else pairWith(paragraph, from + pair);
+      else if (!(someRewrite && !rewrites(index) && setAside(paragraph))) {
+        pairWith(paragraph, from + pair);
+      }
     }
     held.length = 0;
   };
@@ -3510,14 +3528,26 @@ export function createRewriteStream(
 
     /**
      * How many of the selection's paragraphs the finished `text` quotes whole between <removed> and
-     * </removed>, word for word: the quotes that, once the text ends, take a paragraph out.
+     * </removed>, word for word, in one quote or in several that together cover it, as
+     * `settleLeftOut` takes it out: what a typed request's removal check asks about.
      */
     wholeQuotes: (text: string): number => {
       const { quoted } = readRemovals(named ? unnameRemovals(text) : text, true);
-      const paragraphs = new Set(segments.map((segment) => charsOf(segment.tokens).chars));
-      return quoted
-        .flatMap((quote) => quotedRuns(quote, selection, named))
-        .filter((quote) => paragraphs.has(quote.chars)).length;
+      const runs = quoted.flatMap((quote) => quotedRuns(quote, selection, named));
+      return segments.filter((segment) => {
+        const read = charsOf(segment.tokens);
+        if (read.chars === "") return false;
+        const taken = new Array<boolean>(read.chars.length).fill(false);
+        for (const run of runs) {
+          const place = placeQuote(read, run.chars);
+          if (place) taken.fill(true, place.first, place.end);
+        }
+        for (let index = 1; index + 1 < taken.length; index++) {
+          if (read.chars[index] === " " && taken[index - 1] && taken[index + 1])
+            taken[index] = true;
+        }
+        return taken.every(Boolean);
+      }).length;
     },
 
     /** Characters removed: not those it quotes as taken out, nor those it left out, which stay. */

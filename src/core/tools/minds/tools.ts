@@ -1524,6 +1524,8 @@ export function mindTools(options: MindToolsOptions): {
     written: number;
     /** The ids of those in, in order. */
     ids: string[];
+    /** What each of them said as it went in: a Block that says another thing when Citations are put in was revised since. */
+    baseline: Map<string, string>;
     made: boolean;
     /** The Mind held nothing before it wrote: the empty Mind in front (#1559). */
     filled: boolean;
@@ -1561,6 +1563,7 @@ export function mindTools(options: MindToolsOptions): {
       anchor: place.after,
       written: 0,
       ids: [],
+      baseline: new Map(),
       made,
       filled: !made && minds.read(mind.id, holdsNothing),
       origin: options.origin,
@@ -1594,6 +1597,7 @@ export function mindTools(options: MindToolsOptions): {
     if (outcome.kind !== "written") throw changedWhileRead(writer.mind);
     writer.anchor = outcome.value.at(-1) ?? writer.anchor;
     writer.ids.push(...outcome.value);
+    for (const [id, text] of textsOf(writer.mind.id, outcome.value)) writer.baseline.set(id, text);
     writer.written = blocks.length;
   };
 
@@ -2078,7 +2082,7 @@ export function mindTools(options: MindToolsOptions): {
       unsettled.set(toolCallId, {
         mindId: writer.mind.id,
         ids: writer.ids,
-        written: textsOf(writer.mind.id, writer.ids),
+        written: writer.baseline,
         markdown,
         change: () => changeOf(writer, made),
         sent: change,
