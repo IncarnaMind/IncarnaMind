@@ -14,12 +14,13 @@
  * The rule, fixed before the first run:
  * - Build the guard when the model marks an invented currency Supported, as a sentence or as a
  *   figure, in at least 1 of the 3 rounds of the issue's own pair on either path (either language),
- *   or in at least 2 of the other decoys' 12 rounds on either path.
+ *   or in at least 2 of the other decoys' 12 rounds on either path. A round counts as Supported by
+ *   the sentence's own verdict, a Note's or the bare check's; a right figure beside a wrong one is no ✓.
  * - Otherwise the numbers go on the issue and box 1 closes as the model's.
  * - A round with a refused, failed or not-checked request counts as no round, and is run again.
  *
  * INCARNAMIND_LIVE_PAIRS limits the run to those pairs, by key.
- * Runs only with INCARNAMIND_LIVE_DEEPSEEK_KEY (DeepSeek V4.1 Flash, as INCARNAMIND_LIVE_DEEPSEEK_MODEL
+ * Runs only with INCARNAMIND_LIVE_DEEPSEEK_KEY (DeepSeek V4.1 Flash, `deepseek-flash`, or INCARNAMIND_LIVE_DEEPSEEK_MODEL
  * when set); INCARNAMIND_LIVE_REPORT keeps one JSON line per pair and path.
  */
 import { randomUUID } from "node:crypto";
@@ -34,7 +35,7 @@ import { connectToMind } from "../helpers/mindClient";
 import { readMind, writeMind } from "../helpers/minds";
 
 const KEY = process.env.INCARNAMIND_LIVE_DEEPSEEK_KEY;
-const MODEL = process.env.INCARNAMIND_LIVE_DEEPSEEK_MODEL ?? "deepseek-v4.1-flash";
+const MODEL = process.env.INCARNAMIND_LIVE_DEEPSEEK_MODEL ?? "deepseek-flash";
 const ROUNDS = Number(process.env.INCARNAMIND_LIVE_ROUNDS ?? 3) || 3;
 const REPORT = process.env.INCARNAMIND_LIVE_REPORT;
 const ONLY = process.env.INCARNAMIND_LIVE_PAIRS?.split(",") ?? null;
@@ -118,8 +119,10 @@ const paragraph = (value: string): JSONContent => ({
 });
 
 interface Round {
-  note: { state: string; figures: string[] };
+  note: { state: string; figures: string[]; ran: string };
   bare: string;
+  /** Why the bare check ended not checked. */
+  why: string | null;
 }
 
 async function roundsOf(pair: Pair) {
@@ -138,18 +141,27 @@ async function roundsOf(pair: Pair) {
     const client = await connectToMind(core, mind.id);
     writeMind(client, [paragraph(pair.claim)]);
     await client.settled();
-    await core.checkMind({ requestId: `${pair.key}-${round}`, mindId: mind.id, mode: "all" });
+    const ran = await core.checkMind({
+      requestId: `${pair.key}-${round}`,
+      mindId: mind.id,
+      mode: "all",
+    });
     await client.settled();
     const [span] = claimSpans(readMind(client));
     const bare = await core.checkClaim({ claim: pair.claim });
     rounds.push({
       note: {
         state: span?.check.state ?? "missing",
+        ran: ran.kind,
         figures: (span?.check.figures ?? []).map((figure) =>
           figure.reason ? `${figure.state} (${figure.reason})` : figure.state,
         ),
       },
       bare: bare.verdict,
+      why:
+        bare.verdict === "not-checked"
+          ? `${bare.reason}${bare.detail ? `: ${bare.detail}` : ""}`
+          : null,
     });
   }
   const spent = queryDatabase<{ requests: number; cost: number }>(
@@ -171,12 +183,11 @@ test.skipIf(KEY === undefined)(
       const { rounds, spent } = await roundsOf(pair);
       total.requests += spent?.requests ?? 0;
       total.cost += spent?.cost ?? 0;
-      const noteSupported = rounds.filter(
-        (each) => each.note.state === "supported" || each.note.figures.includes("supported"),
-      ).length;
+      // The sentence's own verdict: a figure that is right ("54,000 tonnes") is Supported beside a wrong one.
+      const noteSupported = rounds.filter((each) => each.note.state === "supported").length;
       const bareSupported = rounds.filter((each) => each.bare === "supported").length;
       lines.push(
-        `${pair.decoy ? "decoy" : "twin "} ${pair.key}: Note ✓ ${noteSupported}/${ROUNDS} (${rounds.map((each) => each.note.state).join(",")}), bare ✓ ${bareSupported}/${ROUNDS} (${rounds.map((each) => each.bare).join(",")})`,
+        `${pair.decoy ? "decoy" : "twin "} ${pair.key}: Note ✓ ${noteSupported}/${ROUNDS} (${rounds.map((each) => `${each.note.state} [${each.note.figures.join(", ")}]`).join("; ")}), bare ✓ ${bareSupported}/${ROUNDS} (${rounds.map((each) => each.bare).join(",")})`,
       );
       if (REPORT) await appendFile(REPORT, `${JSON.stringify({ pair, rounds, spent })}\n`);
     }
