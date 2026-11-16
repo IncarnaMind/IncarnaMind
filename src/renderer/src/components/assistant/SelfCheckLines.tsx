@@ -16,6 +16,7 @@ import { editorDoc } from "../../editor/proposalReview";
 import { useLanguage, useT } from "../../i18n";
 import { frontTabOfMind, groupsMerged } from "../../layoutSlice";
 import { startCheckAsking } from "../../mindCheck";
+import { useRateLimitResumes } from "../../rateLimitWaits";
 import { type SelfCheck, selfCheckLines, selfChecksOf } from "../../selfChecks";
 import { useAppStore } from "../../store";
 import { useWrittenProgress } from "../../writtenChecks";
@@ -175,7 +176,9 @@ function SelfCheckGroup({ check }: { check: SelfCheck }) {
   const blocksKey = check.blocks?.join(" ") ?? "";
   const left = useWriteLeft(check.mindId, blocksKey);
   const look = useWriteLook(check.mindId, check.request);
-  const progress = useWrittenProgress(check.request);
+  const written = useWrittenProgress(check.request);
+  const limitedUntil = useRateLimitResumes(check.request);
+  const progress = written && limitedUntil ? { ...written, limitedUntil } : written;
   const consentWaiting = useChecksWaitForConsent();
   const report = useAppStore.getState().reportError;
   const checkNow =

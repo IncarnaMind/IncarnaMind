@@ -446,6 +446,7 @@ export function createVerify(options: VerifyOptions) {
 
     const { checked, stop } = await runChecks(options, {
       mindId,
+      requestId,
       queued,
       scope: check.scope,
       prepared: ready.prepared,

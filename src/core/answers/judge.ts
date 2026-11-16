@@ -171,6 +171,8 @@ export interface JudgeAsk<T> {
   signal: AbortSignal;
   /** How long a reply may take: past it, the call failed. */
   timeoutMs?: number;
+  /** The signal that aborts after `timeoutMs`, unless `signal` does first; left out, the computer's own clock keeps it. */
+  timeout?(ms: number, signal: AbortSignal): AbortSignal;
   temperature?: number;
   /** The reply is streamed, as a model on this computer may need to keep its connection. */
   stream?: true;
@@ -553,7 +555,10 @@ export async function judge<T>(ask: JudgeAsk<T>): Promise<Judged<T>> {
     abortSignal:
       ask.timeoutMs === undefined
         ? signal
-        : AbortSignal.any([signal, AbortSignal.timeout(ask.timeoutMs)]),
+        : AbortSignal.any([
+            signal,
+            ask.timeout ? ask.timeout(ask.timeoutMs, signal) : AbortSignal.timeout(ask.timeoutMs),
+          ]),
     providerOptions: { [QUESTION_OPTIONS]: { question: ask.question.id } },
   };
   let replied: Replied;

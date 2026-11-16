@@ -934,7 +934,7 @@ function useStatuses(): Status[] {
     statuses.push({
       testId: "tagging-rate-limited",
       tone: "waiting",
-      short: t("status.taggingRateLimited", { time }),
+      short: t("status.rateLimited", { time }),
       full: t("status.taggingRateLimited.full", { time }),
       wraps: true,
       needsYou: true,
