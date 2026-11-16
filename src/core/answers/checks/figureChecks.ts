@@ -39,6 +39,7 @@ import { isPropertyPassage } from "./fileProperties";
 import {
   FIGURES,
   figureHandle,
+  namesUncovered,
   ownDetailDiffers,
   type ReadVerdict,
   readingWords,
@@ -306,7 +307,10 @@ export function figureJudgment(
     reply.verdict === "unsupported" ||
     reply.roles === "other" ||
     (reply.verdict === "supported" &&
-      (reply.scope === "wider" || ownDetailDiffers(reply) || reply.topic === "not found"))
+      (reply.scope === "wider" ||
+        ownDetailDiffers(reply) ||
+        namesUncovered(reply) ||
+        reply.topic === "not found"))
   )
     return {
       verdict: "unsupported",

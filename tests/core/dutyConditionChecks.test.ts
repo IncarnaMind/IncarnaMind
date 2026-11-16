@@ -78,6 +78,8 @@ interface Case {
   rolesAgain?: readonly string[];
   /** Asked for its Roles, it leaves its Figures line out; asked for that line, it writes it alone. */
   figuresWhenAsked?: true;
+  /** Its Covered and Not covered lines, as written, in place of the form's: none when not an own line. */
+  parts?: readonly [covered: string, uncovered: string];
 }
 
 /** What every ask for the Duty and Condition lines says. */
@@ -159,8 +161,15 @@ function replying(each: Case, calls: ModelCall[], looks: string[]) {
             ]
           : [...verdictLines, "The rules say so [^1].", "Evidence: [1]"];
       const figures = requestedFigures(call);
-      if (figures.length === 0)
-        return { text: [...lines, "Covered: the rule", "Not covered: its wording"].join("\n") };
+      // As the form asks, a Supported reply gives its parts only when its own line says the sentence
+      // differs from the Passage: a reply that states the sentence in full writes neither line.
+      const partial = verdictLines.some((line) => /\bdiffers\b/i.test(line));
+      const partLines = each.parts
+        ? [`Covered: ${each.parts[0]}`, `Not covered: ${each.parts[1]}`]
+        : each.verdict !== "supported" || partial
+          ? ["Covered: the rule", "Not covered: its wording"]
+          : [];
+      if (figures.length === 0) return { text: [...lines, ...partLines].join("\n") };
       const items = figures.map(({ id }) => ({
         id,
         verdict: each.verdict,
@@ -174,11 +183,13 @@ function replying(each: Case, calls: ModelCall[], looks: string[]) {
         calculation: null,
       }));
       const figuresLine = `Figures: ${JSON.stringify({ items, remainder: null })}`;
+      // A figure sentence's reply gives its parts only where the case writes them.
+      const figureLines = each.parts ? [...lines, ...partLines] : lines;
       if (each.figuresWhenAsked && call.prompt.includes(FIGURES_ASKED))
         return { text: figuresLine };
       if (each.figuresWhenAsked && call.prompt.includes(ROLES_ASKED))
-        return { text: lines.join("\n") };
-      return { text: `${lines.join("\n")}\n${figuresLine}` };
+        return { text: figureLines.join("\n") };
+      return { text: `${figureLines.join("\n")}\n${figuresLine}` };
     },
     {
       generate: (call) => {
@@ -1439,5 +1450,78 @@ describe("a Direction line that differs takes a Supported's support away (#3183)
     expect(
       readVerdict(reply("Direction: rose / fell, differs\nDirection: rose / rose, same")),
     ).toBeNull();
+  });
+});
+
+describe("a Supported reply that names a part its Passage doesn't state is not Supported (#3197)", () => {
+  const generator = (parts: Case["parts"], condition = SAME): Case => ({
+    sentence: "Berth holders may run a generator.",
+    quote: "Berth holders may run a generator only if the harbour master agrees.",
+    verdict: "supported",
+    duty: "may / may, same",
+    condition,
+    parts,
+  });
+
+  // protects=a Supported reply whose Condition line says "same" while its own Not covered line names the condition the sentence dropped is Unsupported, with the parts it wrote; fails_when=only a Condition line that says differs takes the support away; no_claim=how often a real model writes such a reply
+  test.each<[string, Case, typeof BERTHS, "unsupported" | "supported"]>([
+    [
+      "en, the dropped condition named as not covered",
+      generator(["running a generator", "the harbour master's agreement"]),
+      BERTHS,
+      "unsupported",
+    ],
+    [
+      "zh, the dropped condition named as not covered",
+      {
+        sentence: "泊位持有人可以使用发电机。",
+        quote: "只有经港务长同意，泊位持有人才可以使用发电机。",
+        verdict: "supported",
+        duty: "may / may, same",
+        condition: SAME,
+        parts: ["使用发电机", "须经港务长同意的条件"],
+      },
+      BERTHS_ZH,
+      "unsupported",
+    ],
+    [
+      "en, a figure's rule whose reply names its exception as not covered",
+      {
+        sentence: "Berth holders get a 10% discount on fuel.",
+        quote: "Berth holders get a 10% discount on fuel, unless they pay their fees late.",
+        verdict: "supported",
+        duty: "none / none, same",
+        condition: SAME,
+        number: "10%",
+        parts: ["a 10% discount on fuel", "the condition that fees are paid on time"],
+      },
+      BERTHS,
+      "unsupported",
+    ],
+    [
+      "en, nothing named as not covered",
+      generator(
+        ["running a generator", "none"],
+        "only if the harbour master agrees / only if the harbour master agrees, same",
+      ),
+      BERTHS,
+      "supported",
+    ],
+    [
+      "zh, nothing named as not covered",
+      {
+        sentence: "只有经港务长同意，泊位持有人才可以使用发电机。",
+        quote: "只有经港务长同意，泊位持有人才可以使用发电机。",
+        verdict: "supported",
+        duty: "may / may, same",
+        condition: "只有经港务长同意 / 只有经港务长同意, same",
+        parts: ["使用发电机的规定", "无"],
+      },
+      BERTHS_ZH,
+      "supported",
+    ],
+  ])("%s", async (_, each, document, state) => {
+    const checked = await check(each, document);
+    expect(checked?.state).toBe(state);
   });
 });
