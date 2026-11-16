@@ -1740,7 +1740,7 @@ export function documentTools(
             properties: {
               type: "boolean",
               description:
-                "true for a sentence about a file itself: when it was created or last modified, its author as the file records it, its page, slide or sheet count, its size or its file name. The result adds the file properties of the Document named in document, else of the Documents the search finds.",
+                "true for a sentence about a file itself: when the file was created or last modified, its author as the file records it, its page, slide or sheet count, its size or its file name. Not for when a Document was written, dated or signed, which its text says. The result adds the file properties of the Document named in document, else of the Documents the search finds.",
             },
           }),
           ...(library && {

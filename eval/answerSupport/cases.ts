@@ -6,7 +6,8 @@
  * Document's first page; they were frozen before either arm ran on them. Those ending in "c" were
  * added for #3168, after "dated-en-6b" passed on its file's Created date, and frozen the same way:
  * sentences about when the clay summary was written or signed, which its text never says, and
- * sentences about its file, which the file's own Created date decides.
+ * sentences about its file, which the file's own Created date decides. The three about the file's
+ * size and author ("6c", "7c") came after the first runs, to see that the change cost them nothing.
  *
  * - fixture: the walk's two sentences, each in English and Chinese.
  * - held-out: the same mistakes in other words, over the same Documents and two more: a dryer's
@@ -389,6 +390,33 @@ export const CASES: readonly SupportCase[] = [
     "control",
     "en",
     "The clay supply agreement file was created in 2026.",
+    true,
+    SUPPLY,
+    SUPPLY_TITLE,
+  ),
+  dated(
+    "control-dated-en-6c",
+    "control",
+    "en",
+    "The clay supply agreement file is about 2 KB.",
+    true,
+    SUPPLY,
+    SUPPLY_TITLE,
+  ),
+  dated(
+    "control-dated-zh-6c",
+    "control",
+    "zh-CN",
+    "陶土供货协议这个文件的大小约为 2 KB。",
+    true,
+    SUPPLY,
+    SUPPLY_TITLE,
+  ),
+  dated(
+    "control-dated-en-7c",
+    "control",
+    "en",
+    "The clay supply agreement file records IncarnaMind tests as its author.",
     true,
     SUPPLY,
     SUPPLY_TITLE,

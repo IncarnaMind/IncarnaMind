@@ -72,6 +72,8 @@ interface Plan {
   property?: string | null;
   /** Its Property line once asked for it, none before. */
   propertyWhenAsked?: string;
+  /** The verdict it turns to once asked for a Property line. */
+  verdictWhenAsked?: Plan["verdict"];
   says?: string;
   /** For contradicted: the sentence's words to change, and to what, from its quote. */
   change?: [string, string];
@@ -135,8 +137,9 @@ function propertyModel(plans: Record<string, Plan>, calls: ModelCall[]) {
           : call.prompt.includes(PROPERTY_ASK)
             ? plan.propertyWhenAsked
             : null;
+      const turned = call.prompt.includes(PROPERTY_ASK) ? plan.verdictWhenAsked : undefined;
       const lines = [
-        `Verdict: ${plan.verdict}`,
+        `Verdict: ${turned ?? plan.verdict}`,
         ...(property === null ? [] : [`Property: ${property}`]),
         "Absence: no",
         "Topic: found",
@@ -1162,6 +1165,24 @@ describe("What decides a sentence", () => {
     expect(
       await setup.core.checkClaim({ claim: "The file was last saved on 2 November 2026." }),
     ).toMatchObject({ verdict: "unsupported", evidence: null });
+  });
+
+  // protects=a reply that reads Unsupported isn't asked for a Property line, so the ask can't turn its verdict (#3168); fails_when=asked for the line, the model passes "was written in October 2026" on the file's Created date.
+  test("an Unsupported reply isn't asked for a Property line, which could turn it", async () => {
+    const WRITTEN = "The agreement was written in October 2026.";
+    const setup = await setUp(files(), {
+      [WRITTEN]: {
+        verdict: "unsupported",
+        quote: "Created: 2026-10-01T08:00:00Z",
+        propertyWhenAsked: "created",
+        verdictWhenAsked: "supported",
+      },
+    });
+
+    expect(await setup.core.checkClaim({ claim: WRITTEN })).toMatchObject({
+      verdict: "unsupported",
+    });
+    expect(setup.sent()).not.toContain(PROPERTY_ASK);
   });
 
   // protects=a sentence the reply says is about a file property is Supported only with that property's Citation, never by text that looks like one; fails_when=the body's "Author: Sam Smith" backs a sentence about the file's author, who is Jo Jones.
