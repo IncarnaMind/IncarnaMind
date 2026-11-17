@@ -554,7 +554,6 @@ export function recordCiteNote(blocks: Y.XmlFragment): (place?: RecordCitePlace)
   return (place) => ({ paragraphs: read, ...(place && { place }) });
 }
 
-/** Every sentence of the Mind's paragraphs, in order, but those holding a change still waiting. */
 /**
  * The id of the top-level Block a sentence is in: its own paragraph's, or the table's or list's
  * that holds the paragraph. A write is named by its top-level Blocks.
@@ -566,6 +565,7 @@ export function topLevelBlockId(sentence: Pick<SelectedSentence, "element" | "bl
   return typeof id === "string" ? id : sentence.blockId;
 }
 
+/** Every sentence of the Mind's paragraphs, in order, but those holding a change still waiting. */
 export function everySentence(blocks: Y.XmlFragment): SelectedSentence[] {
   const figures = figuresByBlock(blocks);
   return textBlocks(blocks, { charts: true }).flatMap(({ element, busy }) => {
