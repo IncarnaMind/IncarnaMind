@@ -180,7 +180,7 @@ const CHINESE: Case[] = [
   {
     kind: "fix",
     twice: false,
-    request: "报告团队现在有十二个人，不是十一个。",
+    request: "报告团队有十二个人，不是十一个。",
     at: 2,
     old: "团队共有十一人",
     now: "团队共有十二人",
@@ -340,6 +340,19 @@ function changeBetween(before: string, after: string) {
   };
 }
 
+/** Characters that differ only by their look: curly and straight quotes, kinds of space, full-width and half-width. */
+const lookalike = (text: string) =>
+  [...text]
+    .map((char) => {
+      const code = char.codePointAt(0) ?? 0;
+      if (code >= 0xff01 && code <= 0xff5e) return String.fromCodePoint(code - 0xfee0);
+      if (/[\u00a0\u2000-\u200a\u202f\u3000]/u.test(char)) return " ";
+      if (/[\u2018\u2019]/u.test(char)) return "'";
+      if (/[\u201c\u201d]/u.test(char)) return '"';
+      return char === "\u3002" ? "." : char;
+    })
+    .join("");
+
 interface TimingRow {
   flow: string | null;
   step: string | null;
@@ -393,6 +406,7 @@ describe.each(LIVE)("Small fixes in a long Note, live: $name", (live) => {
             input: 0,
           },
         };
+        const refused = { noWords: 0, look: 0, gone: 0, other: 0, several: 0, heading: 0 };
         let twiceRan = 0;
         let twiceExact = 0;
         for (const { one, index } of cases) {
@@ -460,6 +474,18 @@ describe.each(LIVE)("Small fixes in a long Note, live: $name", (live) => {
               (call) => call.tool === "edit_mind" || call.tool === "add_to_mind",
             );
             const replaced = edits.some((call) => call.input.old_text !== undefined);
+            for (const call of edits) {
+              const problem = call.mindProblem?.kind;
+              if (problem === "no-heading") refused.heading++;
+              if (problem === "several-words") refused.several++;
+              if (problem !== "no-words") continue;
+              refused.noWords++;
+              const old = String(call.input.old_text ?? "");
+              if (before.some((paragraph) => paragraph.includes(old))) refused.gone++;
+              else if (before.some((paragraph) => lookalike(paragraph).includes(lookalike(old))))
+                refused.look++;
+              else refused.other++;
+            }
             const kept = tally[one.kind];
             kept.ran++;
             if (landed) kept.landed++;
@@ -488,6 +514,9 @@ describe.each(LIVE)("Small fixes in a long Note, live: $name", (live) => {
             core.close();
           }
         }
+        lines.push(
+          `  ${each.language} · refused calls: no such words ${refused.noWords} (only by look ${refused.look}, already made ${refused.gone}, not the Note's words ${refused.other}), words more than once ${refused.several}, no such heading ${refused.heading}`,
+        );
         for (const kind of ["fix", "control"] as const) {
           const t = tally[kind];
           if (t.ran === 0) continue;

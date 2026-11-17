@@ -146,6 +146,7 @@ import {
   type Swap,
   textAround,
   textBlocks,
+  textOnceAccepted,
 } from "../../proposals/write";
 import type { PreparedChatModel } from "../../providers/chat";
 import { MIND_TOOLS, type Tool, type ToolProviderInfo } from "..";
@@ -670,7 +671,7 @@ function wordsIn(
   within: Stretch | null,
 ):
   | { kind: "one"; from: TextPlace; to: TextPlace }
-  | { kind: "none"; near: string[]; held: number }
+  | { kind: "none"; near: string[]; held: number; already: string[] }
   | { kind: "several"; count: number; starts: string[] } {
   const all = textBlocks(blocks);
   const first = within ? all.findIndex(({ element }) => idOf(element) === within.from.blockId) : 0;
@@ -679,6 +680,7 @@ function wordsIn(
     : all.length - 1;
   const lead = swap.old.slice(0, 12);
   const near: string[] = [];
+  const already: string[] = [];
   const starts: string[] = [];
   let count = 0;
   let held = 0;
@@ -692,6 +694,11 @@ function wordsIn(
     const read = readSelection(blocks, from, to, null, swap);
     if (!read.ok) {
       held++;
+      // A paragraph with changes waiting can't be searched, but it can be seen to hold the new words already.
+      const accepted = textOnceAccepted(element);
+      if (swap.now.length >= 6 && accepted.includes(swap.now) && already.length < 2) {
+        already.push(startOf(accepted));
+      }
       continue;
     }
     const swapped = read.selection.swapped;
@@ -700,6 +707,12 @@ function wordsIn(
       crosses ||= swapped.crosses;
       at = { from, to };
       starts.push(startOf(read.selection.text));
+    } else if (
+      swap.now.length >= 6 &&
+      read.selection.plain.includes(swap.now) &&
+      already.length < 2
+    ) {
+      already.push(startOf(read.selection.text));
     } else if (lead.trim() !== "" && read.selection.plain.includes(lead) && near.length < 2) {
       const text = read.selection.text;
       const place = text.indexOf(lead);
@@ -707,7 +720,7 @@ function wordsIn(
     }
   }
   // Words that run across a Citation or footnote are no words of the Note's text: they are not found.
-  if (count === 0 || crosses) return { kind: "none", near, held };
+  if (count === 0 || crosses) return { kind: "none", near, held, already };
   if (count > 1 || !at) return { kind: "several", count, starts: starts.slice(0, 4) };
   return { kind: "one", ...at };
 }
@@ -2632,7 +2645,7 @@ export function mindTools(options: MindToolsOptions): {
     }
     throw new Refusal(
       { kind: "no-words", mindId: mind.id, words: shown },
-      `${nothing} no paragraph holds “${shown}” as written${place.held > 0 ? ", and a paragraph with changes still waiting, such as your own earlier change in this Answer, can't be searched: change that one with instruction" : ""}. Give old_text exactly as the Note reads it, from one paragraph${place.near.length > 0 ? `; text near it reads ${place.near.map((text) => `“${text}”`).join(" and ")}` : ""}. Or use instruction.`,
+      `${nothing} no paragraph holds “${shown}” as written${place.held > 0 ? ", and a paragraph with changes still waiting, such as your own earlier change in this Answer, can't be searched: change that one with instruction" : ""}${place.already.length > 0 ? `. The new words “${clipped(swap.now)}” are in a paragraph that starts ${place.already.map((start) => `“${start}”`).join(" or ")}: if that is this change, it is already made` : ""}. Give old_text exactly as the Note reads it, from one paragraph${place.near.length > 0 ? `; text near it reads ${place.near.map((text) => `“${text}”`).join(" and ")}` : ""}. Or use instruction.`,
     );
   };
 

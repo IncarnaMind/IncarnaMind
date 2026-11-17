@@ -333,6 +333,26 @@ function inProposal(element: Y.XmlElement): boolean {
   return false;
 }
 
+/**
+ * A paragraph's text as it reads once every change waiting in it is accepted: what Proposals add
+ * kept, what they take out left out, an inline node as the character a Citation or footnote is.
+ */
+export function textOnceAccepted(element: Y.XmlElement): string {
+  let text = "";
+  for (const { node } of layout(element)) {
+    if (!(node instanceof Y.XmlText)) {
+      text += NODE_CHARACTER;
+      continue;
+    }
+    for (const run of node.toDelta() as Run[]) {
+      if (typeof run.insert === "string" && !hasMarkIn(PROPOSAL_DELETE_MARK, run.attributes)) {
+        text += run.insert;
+      }
+    }
+  }
+  return text;
+}
+
 /** An element's children with where each starts in its text, an inline node counting as one. */
 export function layout(element: Y.XmlElement) {
   let at = 0;

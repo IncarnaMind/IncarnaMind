@@ -185,6 +185,22 @@ describe("A small change as an exact replacement", { timeout: 30_000 }, () => {
     expect(paragraphs[0]).toContain("£43,000");
   });
 
+  // protects=a swap asked for again, the old words gone and the new there, is refused and told it is already made, so the model stops; fails_when=the refusal gives no hint that the Note already holds the new words
+  test("the same swap again is told it is already made", async () => {
+    const model = swapModel([
+      { old: "£41,500 a year", now: "£43,000 a year" },
+      { old: "£41,500 a year", now: "£43,000 a year" },
+    ]);
+
+    const { answer, paragraphs } = await askToSwap(model, "The salary is now £43,000.");
+
+    expect(mindCalls(answer).map((call) => call.status)).toEqual(["done", "failed"]);
+    expect(toldToTheModel(model)).toContain("if that is this change, it is already made");
+    expect(paragraphs[0]).toBe(
+      "The salary is £43,000 a year, paid monthly. The notice is one month.",
+    );
+  });
+
   // protects=words found more than once are refused with where, and the one asked for lands once it is told apart by more words; fails_when=either place is changed on the first try
   test("words found twice are refused, then land once told apart", async () => {
     const model = swapModel([
