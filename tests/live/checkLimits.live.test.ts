@@ -8,6 +8,7 @@
  * - INCARNAMIND_LIVE_RUNS: how many times each sentence is checked (1 when unset).
  * - INCARNAMIND_LIVE_DECOY_RUNS: how many times each decoy is (INCARNAMIND_LIVE_RUNS when unset).
  * - INCARNAMIND_LIVE_LANGUAGES: "en", "zh" or both ("en,zh" when unset).
+ * - INCARNAMIND_LIVE_ONLY: only the sentences that contain one of these texts, separated by "|".
  * - INCARNAMIND_LIVE_REPORT: a file to keep each verdict and the counts in, with what the model
  *   gave calculate and was told back for a verdict that isn't the expected one.
  */
@@ -26,6 +27,7 @@ const MODEL =
 const RUNS = Number(process.env.INCARNAMIND_LIVE_RUNS ?? "1");
 const DECOY_RUNS = Number(process.env.INCARNAMIND_LIVE_DECOY_RUNS ?? RUNS);
 const LANGUAGES = (process.env.INCARNAMIND_LIVE_LANGUAGES ?? "en,zh").split(",");
+const ONLY = process.env.INCARNAMIND_LIVE_ONLY?.split("|") ?? null;
 
 type Expected = "supported" | "contradicted" | "unsupported";
 
@@ -183,7 +185,9 @@ describe.each(CASES.filter((each) => LANGUAGES.includes(each.language)))(
         ]);
         const lines = [`## ${MODEL} · ${each.language} · ${RUNS} runs`];
         const counts: Record<string, number> = {};
-        for (const [claim, expected] of each.claims) {
+        for (const [claim, expected] of each.claims.filter(
+          ([claim]) => !ONLY || ONLY.some((text) => claim.includes(text)),
+        )) {
           const verdicts: string[] = [];
           const misses: string[] = [];
           const runs = expected === "supported" ? RUNS : DECOY_RUNS;
@@ -216,6 +220,7 @@ describe.each(CASES.filter((each) => LANGUAGES.includes(each.language)))(
         if (process.env.INCARNAMIND_LIVE_REPORT) {
           await appendFile(process.env.INCARNAMIND_LIVE_REPORT, `${lines.join("\n")}\n`);
         }
+        if (Object.keys(counts).length === 0) return;
         expect(Object.keys(counts).length).toBeGreaterThan(0);
       },
     );
