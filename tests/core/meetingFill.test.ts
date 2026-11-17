@@ -880,6 +880,62 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
     core.close();
   });
 
+  // protects=a typed line the model lists as one the call doesn't answer gets "Not mentioned in the call." under it, AI-marked, with no Citation, in the fill's one Undo; a listed line the model also wrote a fact under keeps the fact only, and the model is asked for the list only when the User typed lines; fails_when=the sentence is missing under the listed empty line, appears under a line with a fact, carries a Citation, outlives Undo, or the list is asked for with nothing typed
+  test("a typed line the model says the call doesn't answer says so, once, with the fill's Undo", async () => {
+    const prompts: string[] = [];
+    const model = fillingModel(
+      [
+        "HEADINGS: H1=NONE H2=NONE",
+        "UNANSWERED: L1 L2",
+        lineFact("L1", "pricing", "The enterprise price is 45 dollars a seat [^1]."),
+        lineFact("L3", "rollout", "The rollout starts in the second quarter [^2]."),
+      ].join("\n\n"),
+      { 1: MY_LINES[0] as string, 2: MY_LINES[2] as string },
+      {},
+      {
+        seen: (call) => {
+          if (isFill(call)) prompts.push(call.prompt);
+        },
+      },
+    );
+    const { core, meeting, client } = await recorded(model, NOTES);
+    const before = shown(client);
+
+    expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", problem: null });
+    await vi.waitFor(() => expect(shown(client)).toHaveLength(before.length + 3));
+    expect(shown(client)).toEqual([
+      "Pricing",
+      "price → Q2?",
+      "«The enterprise price is 45 dollars a seat »\uFFFC«.»",
+      "contract",
+      "«Not mentioned in the call.»",
+      "Rollout",
+      "start date",
+      "«The rollout starts in the second quarter »\uFFFC«.»",
+    ]);
+    expect(citationsShownAs(client, "«Not mentioned in the call.»")).toEqual([[]]);
+    expect(prompts.at(-1)).toContain("UNANSWERED: NONE");
+
+    await core.undoMeetingFill(meeting.id);
+    await vi.waitFor(() => expect(shown(client)).toEqual(before));
+    core.close();
+
+    const untyped = fillingModel(
+      PRICING_REPLY,
+      { 1: MY_LINES[0] as string },
+      {},
+      {
+        seen: (call) => {
+          if (isFill(call)) prompts.push(call.prompt);
+        },
+      },
+    );
+    const second = await recorded(untyped, null);
+    await settledFill(second.core, second.meeting);
+    expect(prompts.at(-1)).not.toContain("UNANSWERED");
+    second.core.close();
+  });
+
   // protects=a quick note from the call-help panel's field (#2925) is one of the User's lines to the fill: kept as typed and filled in under; fails_when=it goes in as AI text, the fill rewrites or drops it, or reads the Note as having no notes; no_claim=My notes' view, which the panel's spec covers.
   test("a quick note from the call-help panel is the User's own line: the fill keeps it as typed and fills in under it", async () => {
     const model = fillingModel(

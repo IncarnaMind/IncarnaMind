@@ -7064,6 +7064,7 @@ export const en = {
   "meetings.fill.problem.empty": "the model found nothing to add",
   "meetings.fill.problem.unchecked":
     "none of what the model wrote could be checked against the transcript",
+  "meetings.fill.notMentioned": "Not mentioned in the call.",
   "meetings.fill.reference.above": "{topic} — see above",
   "meetings.fill.reference.below": "{topic} — see below",
   "meetings.fill.problem.stopped": "IncarnaMind closed before they were done",

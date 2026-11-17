@@ -5,7 +5,7 @@ import type { Core, Meeting, MeetingFill } from "../../src/core";
 import { mindCitations, shownPassages } from "../helpers/citations";
 import { createTempDataFolder } from "../helpers/core";
 import { connectToMind } from "../helpers/mindClient";
-import { exactly, readMind } from "../helpers/minds";
+import { exactly, readMind, note as typedLine, writeMind } from "../helpers/minds";
 import { type ScriptedReply, scriptedModel } from "../helpers/models";
 import { transcribingCore } from "../helpers/transcription";
 
@@ -73,7 +73,8 @@ async function settledFill(core: Core, meeting: Meeting): Promise<MeetingFill> {
  * `refused`, the request of the answered part of that number is, with `limited`, the service's
  * rate limit refuses the two parts out beside the first answered one, once, and with `firstCut`,
  * the reply to the call's first part has no room, whatever its size. `first`: only that many
- * lines of the call are said.
+ * lines of the call are said. `typed`: the lines the User typed before the call, and
+ * `unanswered`: the control line the reply to the answered part of that number starts with.
  */
 async function filledCall(
   summaryQuote: string | null,
@@ -85,6 +86,8 @@ async function filledCall(
     limited = false,
     firstCut = false,
     first,
+    typed,
+    unanswered,
   }: {
     stopsInFrame?: boolean;
     cloud?: boolean;
@@ -93,6 +96,8 @@ async function filledCall(
     limited?: boolean;
     firstCut?: boolean;
     first?: number;
+    typed?: readonly string[];
+    unanswered?: (answered: number) => string;
   } = {},
 ) {
   const call = (await readFile(CALL, "utf8")).trim().split("\n").slice(0, first);
@@ -111,6 +116,8 @@ async function filledCall(
   let release: (() => void) | null = null;
   let released = false;
   let answeredAsks = 0;
+  /** Which answered part each part number is, in the order their requests came. */
+  const answeredAs = new Map<number, number>();
   /** The parts the service's rate limit has refused, by their first line. */
   const limits = new Set<string>();
   const model = scriptedModel((call): ScriptedReply => {
@@ -162,6 +169,7 @@ async function filledCall(
       return {
         ...(pause && { pause }),
         text: [
+          ...(unanswered ? [unanswered(answeredAs.get(part) ?? 0), ""] : []),
           `### FACT P${part}_F1`,
           "```json",
           JSON.stringify({
@@ -211,6 +219,7 @@ async function filledCall(
       release();
     }
     open.add(part);
+    answeredAs.set(part, answeredAsks);
     most = Math.max(most, open.size);
     return {
       calls: [{ tool: "cite", input: { citations: [{ marker: 1, passage, quote, location }] } }],
@@ -233,6 +242,11 @@ async function filledCall(
     );
     const meeting = await core.createMeeting();
     const client = await connectToMind(core, meeting.mindId);
+    if (typed)
+      writeMind(
+        client,
+        typed.map((line) => typedLine(line)),
+      );
     await client.settled();
     const before = exactly(client);
     await core.startMeeting({ meetingId: meeting.id, systemAudio: true });
@@ -372,6 +386,29 @@ test("a reply that stops inside a fact is asked again as two, keeping the facts 
   }
   expect(note).not.toContain("unfinished");
 });
+
+// protects=on a call read in parts, "Not mentioned in the call." rests on every part: a typed line gets it only when each part's reply lists it, a line one part doesn't list gets nothing, and when a part's reply is lost no line gets it, since nobody read that part; fails_when=a line listed by only some parts gets the sentence, a line every part lists doesn't, or a sentence is written although a part was lost
+test.each([
+  { lost: 0, sentences: 1 },
+  { lost: 2, sentences: 0 },
+])(
+  "a call read in parts says a typed line wasn't mentioned only when every part says so (part lost: $lost)",
+  async ({ lost, sentences }) => {
+    const SENTENCE = "Not mentioned in the call.";
+    const { asks, settled, note } = await filledCall(null, {
+      cloud: true,
+      first: 200,
+      refused: lost,
+      typed: ["Catering", "Parking"],
+      unanswered: (answered) => (answered === 2 ? "UNANSWERED: L2" : "UNANSWERED: L1 L2"),
+    });
+    expect(asks.filter((ask) => !ask.cut).length).toBeGreaterThan(1);
+    expect((settled.unfinishedParts ?? 0) > 0).toBe(lost > 0);
+    expect(note.split(SENTENCE)).toHaveLength(sentences + 1);
+    if (sentences > 0) expect(note).toContain(`Parking${SENTENCE}`);
+    expect(note).not.toContain(`Catering${SENTENCE}`);
+  },
+);
 
 /** The answered asks in the call's order, with where each one's lines start in the call. */
 function inCallOrder(call: readonly string[], asks: readonly Ask[]) {
