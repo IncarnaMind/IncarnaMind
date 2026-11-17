@@ -96,7 +96,7 @@ import { mixedNumberWord, unsureSpansIn } from "../documents/scan/layout";
 import { detectLanguage } from "../documents/textLanguage";
 import type { Language } from "../language";
 import { WORKBOOK_TOOLS } from "../tools";
-import { columnHeadUnit } from "./checks/columnHeadUnit";
+import { columnHeadUnit, ownHeadingRow, unitsCellUnit } from "./checks/columnHeadUnit";
 import {
   type AnswerDocuments,
   type Matching,
@@ -1344,6 +1344,13 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     // label is on the line above the number.
     const rowLabel = rowOf(quoted, figure)?.label ?? null;
     const path = (unit: PageText) => (unit.label?.path ?? []).join("\u0000");
+    const figureUnit = units[place.figureIndex];
+    // A table's heading row states each column's unit in its own cell: beside the heading of the
+    // figure's own column, another column's states that column, not a nearer line (#2997).
+    const headingRow =
+      figureUnit && place.lineIndex === place.figureIndex
+        ? ownHeadingRow(figureUnit.text, place.figureAt, place.lineText)
+        : null;
     for (let index = place.lineIndex; index <= place.figureIndex; index++) {
       const unit = units[index];
       if (!unit) continue;
@@ -1376,6 +1383,8 @@ export function createCalculationSession(options: CalculationSessionOptions) {
         // The figure's own row states its own unit ("Diluted EPS ($)"), not a nearer line, and so
         // does any other row that writes an amount: a row's unit states that row, not the next.
         if (inFigure && scale.start >= figureRow) continue;
+        if (inFigure && headingRow && scale.start >= headingRow.from && scale.start < headingRow.to)
+          continue;
         if (rowLabel !== null && scale.text !== "" && rowLabel.includes(scale.text)) continue;
         // An unread form ("(in £, thousands)", "(× €1,000)") is judged whether or not its line
         // writes a figure; a settled statement on a figure's line is that figure, not a scale line.
@@ -2219,17 +2228,40 @@ export function createCalculationSession(options: CalculationSessionOptions) {
       : undefined;
     // A number that writes its own scale or unit ("4,979.6百万元") needs no unit line, so one
     // taken from another Passage doesn't stop it being read.
-    if (unitProblem && !ownUnit && !ofRow) return unitProblem;
+    // So does its row's cell of the table's units column ("万吨" under 单位), where no heading of
+    // the number's own column states a unit, whatever line is given as its unit (#2997).
+    const ofUnits =
+      ownUnit || ofRow || base.unit.kind !== "plain"
+        ? null
+        : unitsCellUnit(
+            page.text,
+            page.at + figure.start,
+            lineOf(quote, figure.start, figure.start),
+            context,
+          );
+    if (unitProblem && !ownUnit && !ofRow && !ofUnits) return unitProblem;
     // A row's unit cell beside the number ("31000 | 万元") states its unit as a heading does.
     const onLine = (line: string) => (ownUnit ? null : readOnItsLine(line, figure, context));
     // A column's heading that names its share or its measure ("Levy (‰)", "Output (t)") is the
     // number's unit, though it states no scale: a 5 under it is 5‰, and a measure's unit leaves
     // the number as it is written (#3022).
     const headed =
-      unit && !ownUnit && !ofRow && onLine(unit.citation.quote) === null
+      unit && !ownUnit && !ofRow && !ofUnits && onLine(unit.citation.quote) === null
         ? columnHeadUnit(page.text, page.at + figure.start, unit.citation.quote, context)
         : null;
     if (ofRow) stated = { quoted, stated: ofRow, currencyChars: null };
+    else if (ofUnits)
+      stated = {
+        quoted,
+        stated: {
+          ...base,
+          value: base.value * ofUnits.value,
+          scale: base.scale * ofUnits.scale,
+          scaleWord: ofUnits.scaleWord,
+          unit: ofUnits.unit,
+        },
+        currencyChars: null,
+      };
     else if (headed && unit) {
       if (headed.share !== null && base.unit.kind === "plain")
         stated = {
