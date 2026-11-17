@@ -29,6 +29,27 @@
  * Sonnet Chinese 0. The 22 Unsupported name a part the Document doesn't state ("should still be",
  * "as a stand-in", the definition of cover, the covenant's test basis), the #1708 family.
  *
+ * The run for #3258, written on 2026-11-17 before any request of it. The Duty and Condition lines
+ * count a hedge ("should still be inside the limit", 仍应在) and a framing ("using X as a stand-in")
+ * as a second assertion, so these four sentences read Unsupported (see the result above). The change
+ * is to the wording of the two lines (prompt.ts): a "should" that forecasts or expects a state of
+ * things is none, and a Condition is a limit on when or to whom a right, duty or claim applies, never
+ * the sentence's own method, assumption or framing. The branch only for these sentences, `main`'s
+ * numbers being those above (same models, same day), INCARNAMIND_LIVE_EXPECT=supported:
+ * - Bar 1 (Haiku 5.5, 5 checks each): each of the four sentences Supported in at least 4 of 5 (main:
+ *   limit English 0, limit Chinese 2, cover English 1, cover Chinese 3).
+ * - Bar 2 (Sonnet 5.5, 3 checks each): each at least 2 of 3 (main: limit English 4 of 5, limit
+ *   Chinese 0, cover English 1, cover Chinese 4).
+ * - Bar 3 (the guards, Claude Haiku 5.5, `main` and the branch in one session, three checks a
+ *   case, every held-out file of tests/live/nearCopyHeldout.live.test.ts, both languages): the
+ *   decoys read Supported in no more checks on the branch than on `main`, the right sentences in no
+ *   fewer, so a swapped duty and a dropped condition stay caught; and its dropped-held-out pass
+ *   (INCARNAMIND_LIVE_CASES=dropped-held-out, 44 checks): decoys Supported at most 3, right
+ *   sentences Supported at least 43 (the base on `main`, counted not read).
+ * - Spend: stop US$0.60 for bars 1 and 2, US$1.60 for bar 3's two arms. A check whose request was
+ *   refused, failed or timed out is void and run again by hand; a run with any unsettled request is
+ *   void. A missed bar goes to the lead before the merge.
+ *
  * - INCARNAMIND_LIVE_RUNS: how many times each sentence is checked (1 when unset).
  * - INCARNAMIND_LIVE_DECOY_RUNS: how many times each decoy is (INCARNAMIND_LIVE_RUNS when unset).
  * - INCARNAMIND_LIVE_LANGUAGES: "en", "zh" or both ("en,zh" when unset).
