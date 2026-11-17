@@ -72,13 +72,16 @@ import { withUserName } from "./userName";
 export const FILL_PART_TOKENS = 9_000;
 
 /**
- * The most of a Transcript one request reads on a model off this computer, where parts go side
- * by side. A request thinks its notes out before it writes them, some 420 tokens a fact. Calls
- * of 3,800 to 4,000 tokens (12 to 19 minutes) asked whole thought to the output limit in 5 of 12
- * fills; as two even parts in none, with more facts kept. Calls of 2,650 tokens asked whole
- * never came near it, and as two parts cost 1.4 times as much for no more (#3251).
+ * On a model off this computer, where parts go side by side: a call over the first is read from
+ * the start in even parts of about the second. A request thinks its notes out before it writes
+ * them, some 420 tokens a fact. Calls of 3,800 to 4,000 tokens (12 to 19 minutes) asked whole
+ * thought to the output limit in 5 of 12 fills; as two even parts in none, with more facts kept.
+ * Calls of 2,650 tokens asked whole never came near it, and as two parts cost 1.4 times as much
+ * for no more. A half-hour call in three parts of 3,050 kept fewer facts than in the smaller
+ * parts a cut reply leaves (#3251).
  */
-const FILL_SIDE_PART_TOKENS = 3_300;
+const FILL_SIDE_WHOLE_TOKENS = 3_300;
+const FILL_SIDE_PART_TOKENS = 2_500;
 
 /**
  * Where a cut reply stops making the parts smaller: a part under twice this isn't asked again as
@@ -751,12 +754,16 @@ export function createMeetingFill(options: MeetingFillOptions) {
     };
     set(meeting.id, filling);
     const passages = await passagesOf(transcriptId);
-    let partSize = route.local
+    const asBefore =
+      route.local ||
+      passages.reduce((sum, passage) => sum + estimateTokens(passage.text), 0) <=
+        FILL_SIDE_WHOLE_TOKENS;
+    let partSize = asBefore
       ? partTokens(route)
       : Math.min(partTokens(route), FILL_SIDE_PART_TOKENS);
     /** The parts of the call whose notes aren't kept yet, in the call's order. */
     let queue: CallPart[] = (
-      route.local ? transcriptParts(passages, partSize) : evenParts(passages, partSize)
+      asBefore ? transcriptParts(passages, partSize) : evenParts(passages, partSize)
     ).map((each) => ({ passages: each, size: partSize }));
     // The notes, their section titles and the question that steers an Answer's language are in
     // the call's language, whatever the interface's (#2770).

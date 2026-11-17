@@ -479,7 +479,7 @@ test("a part refused out of turn still lets the parts before it be asked", async
   }
 });
 
-// protects=on a service's model a call of some twenty minutes dense with decisions is read as two parts of about the same size from the start, side by side, every line once in order and one Summary, where a call two thirds as long is still one request, and a model on this computer still reads the longer one whole (#3251); fails_when=a short call is split, the longer call waits for a reply to run out of room before it is read in parts, the parts are uneven or sent one after another, or a model on this computer is asked for more parts; no_claim=how many facts a real model writes for a part.
+// protects=on a service's model a call of some twenty minutes dense with decisions is read as two parts of about the same size from the start, side by side, every line once in order and one Summary, where a call two thirds as long is still one request and a half-hour call is three parts, and a model on this computer still reads the longer one whole (#3251); fails_when=a short call is split, a longer call's parts are larger than the proven size, the longer call waits for a reply to run out of room before it is read in parts, the parts are uneven or sent one after another, or a model on this computer is asked for more parts; no_claim=how many facts a real model writes for a part.
 test("a service's model reads a twenty-minute call as two even parts from the start, and a twelve-minute call whole", async () => {
   // 80 lines are some 2,700 Transcript tokens: two parts of that size cost more and wrote no more.
   const short = await filledCall(null, { cloud: true, first: 80 });
@@ -500,6 +500,11 @@ test("a service's model reads a twenty-minute call as two even parts from the st
   expect([...(one?.lines ?? []), ...(other?.lines ?? [])]).toEqual(long.call);
   expect(Math.abs((one?.lines.length ?? 0) - (other?.lines.length ?? 0))).toBeLessThan(20);
   expect(long.summaries).toHaveLength(1);
+
+  // 200 lines are some 6,000 tokens: three parts of about 2,500, not two of 3,000.
+  const longer = await filledCall(null, { cloud: true, first: 200 });
+  expect(longer.settled).toMatchObject({ state: "filled", unfinishedParts: 0, problem: null });
+  expect(longer.asks.map((ask) => ask.cut)).toEqual([false, false, false]);
 
   const local = await filledCall(null, { first: 120 });
   expect(local.settled).toMatchObject({ state: "filled", unfinishedParts: 0, problem: null });
