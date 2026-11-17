@@ -477,6 +477,20 @@ describe("the rules that hold a Library sentence's result", () => {
     { name: "Archive memo.txt", contents: "The archive holds 22 files in total." },
   ];
 
+  // protects=a model is told which line each word of the Library line names, to name only a fact its sentence states and cite its line, and, when it names one it doesn't cite, to leave that one off the line (#2525); fails_when=the note or the ask says nothing of which line a word names, or of leaving a fact off
+  test("tells the model which line each word names, and to leave off a fact the sentence doesn't state", async () => {
+    const setup = await setUp(files(22), {
+      [sentence]: { verdict: "supported", quote: "Documents in all: 22", line: "documents, name" },
+    });
+    await checkInNote(setup.core, sentence);
+    const sent = setup.sent();
+    expect(sent).toContain("documents (Documents in all)");
+    expect(sent).toContain("name (Documents named …)");
+    expect(sent).toContain("Name only a fact the sentence states, and cite its line.");
+    expect(asks(setup.calls, UNSTATED_ASK)).toBe(1);
+    expect(sent).toContain("write the Library line again without it");
+  });
+
   // protects=a Document's own words that count files never decide a sentence about the Library: asked once, a reply still resting on them is Not checked, never a code-made verdict; fails_when=the archive memo's "22 files" Supports it, or the reply is turned into Unsupported with Cut.
   test("a Document's text that counts files never decides it: asked once, then Not checked", async () => {
     const still = await setUp(memo, {
