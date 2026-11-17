@@ -1567,15 +1567,19 @@ function standsOnItsLine(
     prepared.lineStarts.has(at) || prepared.spaced.has(at) || prepared.tabbed.has(at);
   const label = from + s.slice(from, to).indexOf("单位");
   const before = apart(label) ? "" : s.slice(Math.max(0, label - 2), label);
-  if (!/\p{L}$/u.test(before) || ASKS_FOR_A_UNIT.test(before)) return true;
+  const end = to - label;
+  const endsInWord = () =>
+    [...words.segment(s.slice(label, to + 12))].some(
+      ({ index, segment }) => index < end && index + segment.length > end,
+    );
+  // A measure's unit that begins a word is no unit even after 单位 alone: 吨 in 吨位分析 (#2251).
+  if (!/\p{L}$/u.test(before) || ASKS_FOR_A_UNIT.test(before))
+    return measureOf(unit) === null || !endsInWord();
   if (!known) return false;
   if (to >= s.length || apart(to) || !/\p{L}/u.test(s[to] ?? "")) return true;
   if (scaled && unit.kind !== "plain") return true;
   if (measureOf(unit) === null) return false;
-  const end = to - label;
-  return ![...words.segment(s.slice(label, to + 12))].some(
-    ({ index, segment }) => index < end && index + segment.length > end,
-  );
+  return !endsInWord();
 }
 
 const STATEMENTS: readonly RegExp[] = [
@@ -4185,6 +4189,25 @@ const hanSymbol = (symbol: string) =>
     `[(（]\\s*(?:[^)）\\n]{0,8}[/⁄][ \\u00a0]*)?${symbol}${WHOLE_NAME}[^)）\\n]{0,10}[)）]`,
   ].join("|");
 
+// After 每 a Han symbol's name is free, so one the word segmenter joins to what follows begins a
+// word and is no unit: 米 in 每米勒公司, 升 in 每升学 (#2251). After a currency's slash it stays with
+// the words above: the segmenter joins 升至 in "8元/升至10元".
+const HAN_SYMBOLS = [...Object.values(MEASURES), ...Object.values(BARE_WATTS)]
+  .flatMap(({ symbols }) => symbols.split("|"))
+  .filter((symbol) => new RegExp(`^${HAN}`).test(symbol))
+  .map((symbol) => symbol.charAt(0))
+  .join("");
+const FREE_HAN_SYMBOL = new RegExp(`${HAN_AFTER_EACH}[${HAN_SYMBOLS}](?=${HAN})`, "gu");
+function withoutWordStarts(written: string): string {
+  let kept = written;
+  for (const found of written.matchAll(FREE_HAN_SYMBOL)) {
+    const at = found.index + found[0].length - 1;
+    const [first] = words.segment(written.slice(at, at + 12));
+    if (first && first.segment.length > 1) kept = `${kept.slice(0, at)}\u0000${kept.slice(at + 1)}`;
+  }
+  return kept;
+}
+
 const measureRule = ({ symbols, words }: { symbols: string; words: string }) => {
   const word = `(?<![A-Za-z])(?:${words})(?![A-Za-z])`;
   const singles = symbols.split("|").filter(Boolean);
@@ -4228,7 +4251,7 @@ export function measureOf(unit: FigureUnit): string | null {
  * figure in them, whose unit is `of`.
  */
 export function writesMeasure(text: string, measure: string, of?: FigureUnit): boolean {
-  const written = text.normalize("NFKC");
+  const written = withoutWordStarts(text.normalize("NFKC"));
   if (WRITES[measure]?.test(written)) return true;
   return (
     of !== undefined &&
