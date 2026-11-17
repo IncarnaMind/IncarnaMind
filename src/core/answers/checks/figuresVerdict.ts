@@ -174,10 +174,14 @@ export async function figuresVerdict(
       partOfLonger,
     );
     // Not upheld, it is Unsupported as a sentence without figures is: its card shows the part
-    // the quote states, quoting it, when the reply names that part.
-    return doubted.verdict === "unsupported" && said.covered && said.uncovered
-      ? { ...doubted, unsupported: { ...UNBACKED, ...doubted.unsupported, quoted: evidence } }
-      : doubted;
+    // the quote states when the reply names that part, else that the check couldn't confirm what
+    // it found; either way it quotes the Passage (#2184).
+    if (doubted.verdict !== "unsupported") return doubted;
+    const shown = { ...UNBACKED, ...doubted.unsupported, quoted: evidence };
+    return {
+      ...doubted,
+      unsupported: said.covered && said.uncovered ? shown : { ...shown, unconfirmed: true },
+    };
   };
   const verdictText = readVerdict(text) === null ? (askedAbout ?? text) : text;
   const said = readVerdict(verdictText);
@@ -187,6 +191,7 @@ export async function figuresVerdict(
     claim: request.claim,
     ...(request.context !== undefined && { paragraph: request.context }),
     reply: figuresText,
+    explanation: said && said.verdict !== "supported" ? said.says : null,
     calculations: ledger.calculations,
     citation: (marker) => session.finalCitation(marker),
     facts,

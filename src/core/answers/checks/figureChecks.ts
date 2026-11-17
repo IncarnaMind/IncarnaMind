@@ -422,6 +422,8 @@ export interface FigureCheckOptions {
   /** The paragraph the sentence is in: its words for what a figure measures may be there. */
   paragraph?: string;
   reply: string;
+  /** The reply's own explanation when its verdict isn't Supported: the reason of a figure whose item gives none. */
+  explanation: string | null;
   calculations: CalculationSession;
   citation(marker: number): Citation | null;
   facts(): Facts;
@@ -1087,7 +1089,12 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
     };
     const flags = options.caseFlags(evidence);
     const unbacked = (quoted: Citation | null) =>
-      figureJudgment({ ...item, verdict: "unsupported" }, quoted, facts, flags);
+      figureJudgment(
+        { ...item, verdict: "unsupported", says: item.says ?? options.explanation },
+        quoted,
+        facts,
+        flags,
+      );
     // Bare digits that differ from their source only by a unit need a look, never Contradicted:
     // the check can't tell which unit the sentence means. Nor are they ever Supported (#2864).
     const unitsDiffer = (figure: CheckFigure = written): FigureCheckResult => {

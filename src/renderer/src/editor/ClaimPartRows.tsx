@@ -215,6 +215,10 @@ export function partReason(
   if (part.verdict !== "unsupported") return null;
   if (part.unsupported?.kind === "forecast-certainty") return t("claim.forecast");
   if (part.unsupported?.kind === "unbacked-cause") return t("claim.unbackedCause");
+  if (part.unsupported?.unconfirmed)
+    return [t("claim.unsupported.notConfirmed"), part.unsupported.reason]
+      .filter(Boolean)
+      .join(language === "zh-CN" ? "" : " ");
   if (part.unsupported?.reason) return part.unsupported.reason;
   // Its quote is a Passage the check found that doesn't back it, as a one-part card's is (#770).
   if (part.evidence.length > 0) return t("claim.unsupported.differs");
