@@ -14,6 +14,12 @@
  *   The positive claim is wrong, the minus claim is right.
  * - "other" (box 2): "The Landlord is not liable for any loss of business. The annual rent is
  *   ninety-five thousand dollars ($95,000.00)." The positive claim is right, the minus claim wrong.
+ * - "tied" (#3228): "Party A made a loss. Its result for the year was $2.6 million ($2,600,000)."
+ *   The loss is the amount's: the positive claim is wrong, the minus claim right.
+ * - "tiedFar" (#3228): the same, with more than 470 characters of other terms between the loss and
+ *   the amount's sentence (the probes' D02 and D04).
+ * - "tiedPlain" (#3228): the loss is the amount's, with no pronoun to say so: "Party A made a
+ *   loss. The result for the year was $2.6 million ($2,600,000)."
  * Each runs a claim that is wrong ("decoy") and one that is right ("twin"), 3 rounds each. The "far"
  * layout also runs a decoy that names its subject ("The reserve is $95,000.").
  *
@@ -56,6 +62,26 @@
  * nothing on that Document, above 2 means it costs a right ✓ there. A run with any request that did
  * not settle is void and run again.
  *
+ * A variant measured for #3228 on 2026-11-17, not merged: the reader keeps its rule. In it a loss or
+ * deduction noun in a sentence other than the amount's own left a bracketed amount's sign open (the
+ * amount "may be negative"), and the figure check asked the model once for the reading, as it does
+ * for "(250)"; a reply that gave none ended Not checked. Bars were written before any request.
+ * English and Chinese, 3 rounds a pair, DeepSeek V4.1 Flash, `main` run in the same session; the
+ * pairs are the ones below. Supported rounds of 6 (English and Chinese together), `main` first:
+ * - First run, any loss word in another sentence leaves the sign open: other-rent (right) 0 then 6,
+ *   other-minus (wrong) 0 then 0, before-own (wrong) 0 then 0, before-minus (right) 3 then 3,
+ *   tied-own (wrong) 0 then 4, tied-minus (right) 4 then 2, tiedfar-own (wrong) 5 then 5,
+ *   tiedfar-minus (right) 0 then 0. Spend US$0.2611 on `main`, US$0.2704 on the variant.
+ * - Second run, the same with the minus kept by the code when the amount's sentence starts with a
+ *   pronoun for the subject (Its, Their, His, Her, It; 其, 它, 她, 他): tied-own 0 then 0, tied-minus
+ *   4 then 3, other-rent 0 then 6, other-minus 0 then 0, and tiedplain-own (wrong, the loss is the
+ *   amount's with no pronoun) 0 then 4, tiedplain-minus (right) 2 then 1. Spend US$0.0471 on
+ *   `main`, US$0.1340 on the variant.
+ * Result: the rent sentences are right in 6 of 6 rounds, but the model takes a tied minus for a plus
+ * when the tie is a pronoun (4 of 6) and, with the pronoun kept by the code, when the tie is only
+ * the next sentence's subject (4 of 6), so the second box of #3228 stays as `main` has it. The far
+ * tied decoy (tiedfar-own) is wrong in 5 of 6 rounds on `main` itself: #3252.
+ *
  * INCARNAMIND_LIVE_PAIRS limits the run to those pairs, by key; INCARNAMIND_LIVE_ROUNDS sets the rounds.
  * Runs only with INCARNAMIND_LIVE_DEEPSEEK_KEY (DeepSeek V4.1 Flash, `deepseek-flash`, or
  * INCARNAMIND_LIVE_DEEPSEEK_MODEL when set); INCARNAMIND_LIVE_REPORT keeps one JSON line per pair.
@@ -78,7 +104,7 @@ const ROUNDS = Number(process.env.INCARNAMIND_LIVE_ROUNDS ?? 3) || 3;
 const REPORT = process.env.INCARNAMIND_LIVE_REPORT;
 const ONLY = process.env.INCARNAMIND_LIVE_PAIRS?.split(",") ?? null;
 
-type Layout = "far" | "before" | "other";
+type Layout = "far" | "before" | "other" | "tied" | "tiedFar" | "tiedPlain";
 type Language = "en" | "zh-CN";
 
 interface Pair {
@@ -140,6 +166,49 @@ const PAIRS: readonly Pair[] = (["en", "zh-CN"] as const).flatMap((language) => 
       decoy: false,
       claim: claimOf(language, "before", true),
     },
+    // The loss is the amount's ("Its result"): the positive claim is wrong, the minus claim right.
+    {
+      key: `tied-own-${tag}`,
+      language,
+      layout: "tied",
+      decoy: true,
+      claim: claimOf(language, "tied", false),
+    },
+    {
+      key: `tied-minus-${tag}`,
+      language,
+      layout: "tied",
+      decoy: false,
+      claim: claimOf(language, "tied", true),
+    },
+    {
+      key: `tiedfar-own-${tag}`,
+      language,
+      layout: "tiedFar",
+      decoy: true,
+      claim: claimOf(language, "tiedFar", false),
+    },
+    {
+      key: `tiedfar-minus-${tag}`,
+      language,
+      layout: "tiedFar",
+      decoy: false,
+      claim: claimOf(language, "tiedFar", true),
+    },
+    {
+      key: `tiedplain-own-${tag}`,
+      language,
+      layout: "tiedPlain",
+      decoy: true,
+      claim: claimOf(language, "tiedPlain", false),
+    },
+    {
+      key: `tiedplain-minus-${tag}`,
+      language,
+      layout: "tiedPlain",
+      decoy: false,
+      claim: claimOf(language, "tiedPlain", true),
+    },
     // A loss clause about something else: the rent is positive.
     {
       key: `other-rent-${tag}`,
@@ -160,7 +229,8 @@ const PAIRS: readonly Pair[] = (["en", "zh-CN"] as const).flatMap((language) => 
 
 const documentOf = (pair: Pair) => {
   const { sign, amount } = SIGN_SCOPE[pair.language][pair.layout];
-  if (pair.layout === "far") return [sign, ...OTHER_TERMS[pair.language], amount].join("\n\n");
+  if (pair.layout === "far" || pair.layout === "tiedFar")
+    return [sign, ...OTHER_TERMS[pair.language], amount].join("\n\n");
   return [sign, amount].join(pair.language === "en" ? " " : "");
 };
 

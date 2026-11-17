@@ -50,6 +50,27 @@ export const SIGN_SCOPE = {
       shown: "$95,000",
       claim: (shown: string) => `The amount is ${shown}.`,
     },
+    tied: {
+      sign: "Party A made a loss.",
+      amount: "Its result for the year was $2.6 million ($2,600,000).",
+      number: "$2,600,000",
+      shown: "$2,600,000",
+      claim: (shown: string) => `The result for the year was ${shown}.`,
+    },
+    tiedFar: {
+      sign: "Party A made a loss this year.",
+      amount: "Its result for the year was $2.6 million ($2,600,000).",
+      number: "$2,600,000",
+      shown: "$2,600,000",
+      claim: (shown: string) => `The result for the year was ${shown}.`,
+    },
+    tiedPlain: {
+      sign: "Party A made a loss.",
+      amount: "The result for the year was $2.6 million ($2,600,000).",
+      number: "$2,600,000",
+      shown: "$2,600,000",
+      claim: (shown: string) => `The result for the year was ${shown}.`,
+    },
   },
   "zh-CN": {
     far: {
@@ -72,6 +93,27 @@ export const SIGN_SCOPE = {
       number: "¥95,000",
       shown: "¥95,000",
       claim: (shown: string) => `金额为${shown}。`,
+    },
+    tied: {
+      sign: "甲方本年发生亏损。",
+      amount: "其本年经营成果为人民币260万元（¥2,600,000）。",
+      number: "¥2,600,000",
+      shown: "¥2,600,000",
+      claim: (shown: string) => `本年经营成果为${shown}。`,
+    },
+    tiedFar: {
+      sign: "甲方本年发生亏损。",
+      amount: "其本年经营成果为人民币260万元（¥2,600,000）。",
+      number: "¥2,600,000",
+      shown: "¥2,600,000",
+      claim: (shown: string) => `本年经营成果为${shown}。`,
+    },
+    tiedPlain: {
+      sign: "甲方本年发生亏损。",
+      amount: "本年经营成果为人民币260万元（¥2,600,000）。",
+      number: "¥2,600,000",
+      shown: "¥2,600,000",
+      claim: (shown: string) => `本年经营成果为${shown}。`,
     },
   },
 } as const;
