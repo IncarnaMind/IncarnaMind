@@ -225,6 +225,8 @@ export interface WrittenCheck {
   contradicted: number;
   running: boolean;
   undone: boolean;
+  /** The User stopped it (`cancelCheck`): the sentences it hadn't checked say so. */
+  stopped: boolean;
 }
 
 interface Sentence {
@@ -982,6 +984,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
       contradicted: 0,
       running: !holding && !stopped,
       undone: false,
+      stopped: false,
     };
     const snapshot = (): WrittenCheck => ({
       ...done,
@@ -1168,6 +1171,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
       if (over) return;
       over = true;
       done.undone = undone;
+      done.stopped = !undone && tracked.signal.aborted;
       ending.abort();
       live.delete(request);
       // A table's verdicts that ended before a Stop or quitting are its cells' still; an Undo

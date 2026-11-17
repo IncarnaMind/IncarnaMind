@@ -554,6 +554,17 @@ export function recordCiteNote(blocks: Y.XmlFragment): (place?: RecordCitePlace)
   return (place) => ({ paragraphs: read, ...(place && { place }) });
 }
 
+/**
+ * The id of the top-level Block a sentence is in: its own paragraph's, or the table's or list's
+ * that holds the paragraph. A write is named by its top-level Blocks.
+ */
+export function topLevelBlockId(sentence: Pick<SelectedSentence, "element" | "blockId">): string {
+  let at: Y.XmlElement = sentence.element;
+  while (at.parent instanceof Y.XmlElement) at = at.parent;
+  const id = at.getAttribute(BLOCK_ID_ATTRIBUTE);
+  return typeof id === "string" ? id : sentence.blockId;
+}
+
 /** Every sentence of the Mind's paragraphs, in order, but those holding a change still waiting. */
 export function everySentence(blocks: Y.XmlFragment): SelectedSentence[] {
   const figures = figuresByBlock(blocks);
