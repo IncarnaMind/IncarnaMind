@@ -21,7 +21,7 @@ import {
 /**
  * "The source is the lease, p. 3" (#1554): the assistant opens the Document it names at the page
  * it names, beside the Note, with the sentence waiting for its Citation; with no page it opens at
- * the start, as before.
+ * the start, as before, and with a page past the last it opens at the last page.
  */
 
 const ABSENT = "Whales sing in the deep bay.";
@@ -63,6 +63,9 @@ for (const [language, asked, page] of [
   ["en", "The source is the Lease, p. 3", 3],
   ["zh-CN", "出处是“Lease”，第3页", 3],
   ["en", "The source is the Lease", 1],
+  // A page past the Document's last opens at the last page, with no notice: a page named by a
+  // User or a model that miscounts is not an error of the command.
+  ["en", "The source is the Lease, p. 40", 3],
 ] as const) {
   test(`the assistant opens the source at ${page === 1 ? "its start" : `page ${page}`} (${language}, “${asked}”)`, async () => {
     test.setTimeout(240_000);
