@@ -137,6 +137,21 @@ for (const [size, [width, height]] of Object.entries(WINDOWS)) {
       expect(await card.getByTestId("verify-brief-no-source").count()).toBeGreaterThan(0);
       await screenshot(window, `brief-after-${size}-${language}`);
 
+      // A claim shown among the figures is not listed again as one with no source.
+      const figureTexts = await marksOfFigures.allInnerTexts();
+      const noSourceTexts = await card.getByTestId("verify-brief-no-source").allInnerTexts();
+      expect(noSourceTexts.filter((text) => figureTexts.includes(text))).toEqual([]);
+
+      // Under the brief the card's one line of counts is the press that shows the rows.
+      const summary = card.getByTestId("verify-summary");
+      await expect(summary).toHaveAttribute("aria-expanded", "false");
+      await expect(card.getByTestId("verify-unsupported")).toHaveCount(0);
+      await pointAndClick(window, summary);
+      await expect(summary).toHaveAttribute("aria-expanded", "true");
+      await expect(card.getByTestId("verify-unsupported")).toBeVisible();
+      await pointAndClick(window, summary);
+      await expect(card.getByTestId("verify-unsupported")).toHaveCount(0);
+
       // A conclusion goes to its place in the file.
       await pointAndClick(window, card.getByTestId("verify-brief-conclusion").nth(1));
       await expect(window.getByTestId("mind-editor")).toBeFocused();
