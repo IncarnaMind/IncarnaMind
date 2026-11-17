@@ -64,7 +64,7 @@ export interface Plan {
   strict?: GeneratedReply;
   /** Its reply when asked for the parts of a sentence it called contradicted that the strict judgement didn't uphold. */
   part?: string;
-  /** What it says a Supported reply's own Not covered line names: a condition when absent, so the ✓ goes. */
+  /** Its two lines on what a Supported reply's own Not covered line names: a condition the sentence left out when absent, so the ✓ goes. */
   noted?: string;
   /**
    * A figure it works out with calculate before its verdict (#707), each
@@ -360,7 +360,7 @@ export const checkGenerate =
       case "parts":
         return { text: plan?.part ?? "" };
       case "not-covered":
-        return { text: plan?.noted ?? "condition" };
+        return { text: plan?.noted ?? "Sentence says it: no\nLimits the sentence: yes" };
       case "record-cite":
         return { text: `Judgement: ${RECORD_WORDS[plan?.judgement ?? "conflict"]}` };
       case "confirm":

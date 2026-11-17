@@ -153,9 +153,9 @@ const QUESTIONS: Record<
   },
   "not-covered": {
     reply: lines(readNotCovered),
-    right: "detail",
-    read: "detail",
-    unreadable: "Mostly a detail.",
+    right: "Sentence says it: no\nLimits the sentence: no",
+    read: { said: false, limits: false },
+    unreadable: "Sentence says it: no",
   },
   presence: { reply: lines(readPresence), right: "not", read: "not", unreadable: "Not really." },
   "strict-presence": {

@@ -80,7 +80,7 @@ interface Case {
   figuresWhenAsked?: true;
   /** Its Covered and Not covered lines, as written, in place of the form's: none when not an own line. */
   parts?: readonly [covered: string, uncovered: string];
-  /** Asked what its Not covered line names, its reply: a condition when absent; a failed request for "fails". */
+  /** Asked what its Not covered line names, its two lines: a condition the sentence left out when absent; a failed request for "fails". */
   noted?: string;
 }
 
@@ -1536,7 +1536,10 @@ describe("a Supported reply that names a part its Passage doesn't state is not S
   });
 });
 
-describe("what a Supported reply noted as not covered is asked about, and only a detail keeps the ✓ (#3197)", () => {
+const NOTED = (said: "yes" | "no", limits: "yes" | "no") =>
+  `Sentence says it: ${said}\nLimits the sentence: ${limits}`;
+
+describe("what a Supported reply noted as not covered is asked about, and the ✓ stands only when the sentence doesn't say it and it limits nothing (#3197)", () => {
   const SURVEY = {
     name: "Tenant survey.md",
     contents: [
@@ -1564,12 +1567,11 @@ describe("what a Supported reply noted as not covered is asked about, and only a
     noted,
   });
 
-  // protects=a right sentence that says less than its Passage keeps its ✓ when the model, asked about the note alone, calls it a detail, in English, in Chinese and for a sentence with a figure, while a note called a condition or the sentence's own claim, a reply that can't be read and a failed request all end Unsupported as before; fails_when=the note is never asked about, or any answer but "detail" leaves the ✓; no_claim=that a model answers "detail" for the right notes, which the live pairs measure
+  // protects=a right sentence that says less than its Passage keeps its ✓ when the model, asked about the note alone, says the sentence doesn't say it and it limits nothing, in English, in Chinese and for a sentence with a figure, while a note the sentence itself says, one that limits the sentence, both, a reply that lacks a line or gives another word, and a failed request all end Unsupported as before; fails_when=the note is never asked about, or any answer but no and no leaves the ✓; no_claim=that a model answers no and no for the right notes, which the live pairs measure
   test.each<[string, Case, typeof SURVEY, "unsupported" | "supported"]>([
-    ["en, a detail", survey("detail"), SURVEY, "supported"],
-    ["en, a detail under a Judgement label", survey("Judgement: detail"), SURVEY, "supported"],
+    ["en, no and no", survey(NOTED("no", "no")), SURVEY, "supported"],
     [
-      "zh, a detail",
+      "zh, no and no",
       {
         sentence: "多数租户对维修服务表示满意。",
         quote: "本次问卷于5月以邮寄方式发放，多数租户对维修服务表示满意。",
@@ -1577,13 +1579,13 @@ describe("what a Supported reply noted as not covered is asked about, and only a
         duty: SAME,
         condition: SAME,
         parts: ["租户对维修服务的满意情况", "问卷于5月以邮寄方式发放"],
-        noted: "detail",
+        noted: NOTED("no", "no"),
       },
       SURVEY_ZH,
       "supported",
     ],
     [
-      "en, a figure sentence's detail",
+      "en, a figure sentence's no and no",
       {
         sentence: "The Harbour depot handled 4,200 containers.",
         quote: "Report 14, March 2025: the Harbour depot handled 4,200 containers in the month.",
@@ -1592,14 +1594,27 @@ describe("what a Supported reply noted as not covered is asked about, and only a
         condition: SAME,
         number: "4,200",
         parts: ["4,200 containers at the Harbour depot", "the March 2025 report's month"],
-        noted: "detail",
+        noted: NOTED("no", "no"),
       },
       SURVEY,
       "supported",
     ],
-    ["en, a condition", survey("condition"), SURVEY, "unsupported"],
-    ["en, the sentence's own claim", survey("claim"), SURVEY, "unsupported"],
-    ["en, a reply that is no one word", survey("Mostly a detail."), SURVEY, "unsupported"],
+    ["en, it limits the sentence", survey(NOTED("no", "yes")), SURVEY, "unsupported"],
+    ["en, the sentence says it", survey(NOTED("yes", "no")), SURVEY, "unsupported"],
+    ["en, both", survey(NOTED("yes", "yes")), SURVEY, "unsupported"],
+    ["en, one line only", survey("Sentence says it: no"), SURVEY, "unsupported"],
+    [
+      "en, a line that is neither yes nor no",
+      survey("Sentence says it: no\nLimits the sentence: partly"),
+      SURVEY,
+      "unsupported",
+    ],
+    [
+      "en, a line given twice with answers that differ",
+      survey("Sentence says it: no\nSentence says it: yes\nLimits the sentence: no"),
+      SURVEY,
+      "unsupported",
+    ],
     ["en, a failed request", survey("fails"), SURVEY, "unsupported"],
   ])("%s", async (_, each, document, state) => {
     const checked = await check(each, document);
@@ -1609,7 +1624,7 @@ describe("what a Supported reply noted as not covered is asked about, and only a
   // protects=the question is sent once, with the reply's own note as data beside the sentence and its quote, and never for a reply that noted nothing; fails_when=the note is left out of the request, the question is asked twice, or it is asked of a reply whose Not covered line is "none"; no_claim=what the model answers
   test("is asked once with the note, and not when nothing was noted", async () => {
     const asked: string[] = [];
-    await check(survey("detail"), SURVEY, [], asked);
+    await check(survey(NOTED("no", "no")), SURVEY, [], asked);
     expect(asked).toHaveLength(1);
     expect(asked[0]).toContain("<reply>\nthat the survey went out by post in May\n</reply>");
     expect(asked[0]).toContain(
@@ -1629,7 +1644,7 @@ describe("what a Supported reply noted as not covered is asked about, and only a
   test("is not asked when the reply's Condition line already differs", async () => {
     const asked: string[] = [];
     const checked = await check(
-      { ...survey("detail"), condition: "none / carried out by post in May, differs" },
+      { ...survey(NOTED("no", "no")), condition: "none / carried out by post in May, differs" },
       SURVEY,
       [],
       asked,

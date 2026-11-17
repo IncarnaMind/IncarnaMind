@@ -318,10 +318,10 @@ export async function partOf(
 }
 
 /**
- * Whether what a Supported reply noted as not covered is only more that its Passage says, which
- * the sentence is true without. A condition the sentence left out, something the sentence says
- * that the quote doesn't, a reply that can't be read and a failed request are all not that, so
- * the check takes the ✓ away as it did before it asked (#3197).
+ * Whether what a Supported reply noted as not covered is only more that its Passage says: the
+ * sentence doesn't say it, and it puts no condition, limit or exception on what the sentence says.
+ * Anything else, a reply that can't be read and a failed request are all not that, so the check
+ * takes the ✓ away as it did before it asked (#3197).
  */
 export async function notesOnlyDetail(
   request: LookRequest,
@@ -344,7 +344,7 @@ export async function notesOnlyDetail(
     console.error(
       `What a check noted as not covered couldn't be asked about: ${asked.error.message}`,
     );
-  return asked.ok && asked.value === "detail";
+  return asked.ok && !asked.value.said && !asked.value.limits;
 }
 
 /**
