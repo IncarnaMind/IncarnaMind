@@ -49,6 +49,20 @@
  * five edits on average: seconds and edit calls per request, and how often a refusal fired once and
  * twice.
  *
+ * Third round, results, DeepSeek V4.1 Flash, `main` (067cf35cc) and the branch alternated, two runs:
+ * the first with a compact amount line, the second with the line that ships ("Always give it, as a
+ * multiple of the text now, from an amount the User names: …, never one you chose"):
+ * - a bit longer (10): first 8, shipped 10, `main` 6 and 6;
+ * - no amount on the summary (8): first 1, shipped 8, `main` 2 and 5;
+ * - the User's own Note a little longer (8): first 5, shipped 1, `main` 0 and 0 (the model gives
+ *   add_to_mind a length in about half the Chinese asks, and in the English ones when its line is
+ *   worded as in the first run); a variant of the shipped line read 5 of 16;
+ * - no amount on the own Note (2): first 2, shipped 1, `main` 1 and 2;
+ * - sizes the reply states are the measured ones, every added sentence cited, the User's own text
+ *   kept, and no reply that denies a change: on every run of the branch but one denial (first run);
+ * - what the second refusal costs, on the "a bit" requests: edit calls per request 2.2 and 2.3
+ *   against 2.0 on `main`, seconds 22 and 25 against 23 and 24; the second refusal fired on 4 of
+ *   10 and 3 of 10.
  * Results, DeepSeek V4.1 Flash, `main` (c253f2a4b) and the branch alternated in one session each:
  * - Round 1, with the description "only from an amount in the User's words … 1 when they name no
  *   amount": no amount 8 of 8 against 0 of 8 on `main`, but the "a bit" requests fell to 2 of 10
