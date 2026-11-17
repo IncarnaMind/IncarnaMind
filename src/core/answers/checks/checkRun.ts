@@ -37,6 +37,7 @@ import {
   sentenceItIsPartOf,
 } from "./prompt";
 import { searchAgain } from "./searchAgain";
+import { figuresAsSent } from "./workedFigures";
 
 const SEARCH_FIRST =
   "You gave a verdict without searching the User's Documents. Search them with search_documents first, then give your verdict from what you find.";
@@ -333,6 +334,7 @@ export async function checkRun(
     | "context"
     | "cited"
     | "figures"
+    | "sends"
     | "findParts"
     | "window"
     | "thirdParty"
@@ -386,10 +388,11 @@ export async function checkRun(
           !scope.documentIds.includes(documentId) ||
           scope.excluded.has(documentId)),
     );
+  const sent = figuresAsSent(request);
   const asked: typeof request = {
     ...request,
-    ...(request.figures && {
-      figures: request.figures.map((figure) =>
+    ...(sent && {
+      figures: sent.map((figure) =>
         figure.analysisRecord && walledRun(figure)
           ? {
               ...figure,

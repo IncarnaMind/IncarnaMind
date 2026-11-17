@@ -36,6 +36,7 @@ import type {
   ClaimPartCoverage,
   ClaimPartPlan,
   ClaimPartSpan,
+  DataKind,
   Document,
   SearchScope,
   ThirdPartyReason,
@@ -71,6 +72,7 @@ import { plainVerdict } from "./plainVerdict";
 import type { BatchCall } from "./sentenceBatch";
 import { checkedTextOf, unitGate } from "./unitGate";
 import { dollarClause } from "./units";
+import { withWorkingUnsent } from "./workedFigures";
 
 export interface ClaimCheckDependencies {
   /** The interface language: what a check's sentence is written in. */
@@ -140,6 +142,11 @@ export interface ClaimCheckRequest {
    */
   searched?: SearchScope | null;
   model: PreparedChatModel;
+  /**
+   * What of the checks flow this check may send, the consent it was prepared on; all of it when
+   * left out. Without "worked-figures", how its figures were worked out stays here (./workedFigures).
+   */
+  sends?: readonly DataKind[];
   /** The Run reads the document being checked (#97): it is third-party from its start. */
   thirdParty?: readonly ThirdPartyReason[];
   /** The Note the sentence is in, whose source choices and earlier record cites apply. */
@@ -354,7 +361,7 @@ async function checkSentence(
       : plainVerdict(deps, request, verdicts);
   };
   try {
-    const decided = await decide();
+    const decided = withWorkingUnsent(request, await decide());
     const result = leftOut ? withoutDocumentLeftOut(decided, leftOut.name) : decided;
     return result.verdict === "supported"
       ? withDollarClause(deps, request.claim, result)
