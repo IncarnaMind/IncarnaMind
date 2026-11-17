@@ -18,6 +18,8 @@
  *   The loss is the amount's: the positive claim is wrong, the minus claim right.
  * - "tiedFar" (#3228): the same, with more than 470 characters of other terms between the loss and
  *   the amount's sentence (the probes' D02 and D04).
+ * - "tiedPlain" (#3228): the loss is the amount's, with no pronoun to say so: "Party A made a
+ *   loss. The result for the year was $2.6 million ($2,600,000)."
  * Each runs a claim that is wrong ("decoy") and one that is right ("twin"), 3 rounds each. The "far"
  * layout also runs a decoy that names its subject ("The reserve is $95,000.").
  *
@@ -90,6 +92,22 @@
  *   for `main`'s; each run's requests and cost come from the app's own record. A missed bar goes
  *   to the lead before the merge.
  *
+ * The first run, 2026-11-17 (main US$0.2611, branch US$0.2704): bars 1, 2, 3b and 4 met; bar 3 missed.
+ * The tied decoys read Supported in 4 of 6 rounds on the branch (0 of 6 on main) and the tied twins
+ * in 2 of 6 (4 of 6 on main): the model takes a tied minus for a plus. Bar 3 stands as written, and
+ * the change does not ship as it was. The second run, written before it ran, is of the branch with a
+ * tie kept by the code: a sentence that starts with a pronoun for the subject of the loss sentence
+ * next to it ("Its", "Their", "His", "Her", "It", "This", "That"; 其 该 此 这 它 他 她) keeps the
+ * bracket's minus, as on `main`. Branch only, the pairs tied-own, tied-minus, tiedplain-own,
+ * tiedplain-minus, other-rent and other-minus in English and Chinese (12 pairs), 3 rounds each,
+ * stop US$0.30.
+ * - Bar 5: tied-own reads Supported in 0 of 6 rounds, and tied-minus in at least 4 of 6 (what `main`
+ *   gave in the first run).
+ * - Bar 6: the rent pairs hold: other-rent Supported in at least 5 of 6, other-minus in 0 of 6.
+ * - Bar 7: tiedplain-own (a loss that is the amount's with no pronoun) reads Supported in 0 of 6.
+ *   It sizes what the pronoun leaves to the model. At 1 or more the lead has it with the count
+ *   before any merge, and the change names the shapes it leaves to the model in the issue.
+ *
  * INCARNAMIND_LIVE_PAIRS limits the run to those pairs, by key; INCARNAMIND_LIVE_ROUNDS sets the rounds.
  * Runs only with INCARNAMIND_LIVE_DEEPSEEK_KEY (DeepSeek V4.1 Flash, `deepseek-flash`, or
  * INCARNAMIND_LIVE_DEEPSEEK_MODEL when set); INCARNAMIND_LIVE_REPORT keeps one JSON line per pair.
@@ -112,7 +130,7 @@ const ROUNDS = Number(process.env.INCARNAMIND_LIVE_ROUNDS ?? 3) || 3;
 const REPORT = process.env.INCARNAMIND_LIVE_REPORT;
 const ONLY = process.env.INCARNAMIND_LIVE_PAIRS?.split(",") ?? null;
 
-type Layout = "far" | "before" | "other" | "tied" | "tiedFar";
+type Layout = "far" | "before" | "other" | "tied" | "tiedFar" | "tiedPlain";
 type Language = "en" | "zh-CN";
 
 interface Pair {
@@ -202,6 +220,20 @@ const PAIRS: readonly Pair[] = (["en", "zh-CN"] as const).flatMap((language) => 
       layout: "tiedFar",
       decoy: false,
       claim: claimOf(language, "tiedFar", true),
+    },
+    {
+      key: `tiedplain-own-${tag}`,
+      language,
+      layout: "tiedPlain",
+      decoy: true,
+      claim: claimOf(language, "tiedPlain", false),
+    },
+    {
+      key: `tiedplain-minus-${tag}`,
+      language,
+      layout: "tiedPlain",
+      decoy: false,
+      claim: claimOf(language, "tiedPlain", true),
     },
     // A loss clause about something else: the rent is positive.
     {

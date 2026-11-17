@@ -64,6 +64,13 @@ export const SIGN_SCOPE = {
       shown: "$2,600,000",
       claim: (shown: string) => `The result for the year was ${shown}.`,
     },
+    tiedPlain: {
+      sign: "Party A made a loss.",
+      amount: "The result for the year was $2.6 million ($2,600,000).",
+      number: "$2,600,000",
+      shown: "$2,600,000",
+      claim: (shown: string) => `The result for the year was ${shown}.`,
+    },
   },
   "zh-CN": {
     far: {
@@ -97,6 +104,13 @@ export const SIGN_SCOPE = {
     tiedFar: {
       sign: "甲方本年发生亏损。",
       amount: "其本年经营成果为人民币260万元（¥2,600,000）。",
+      number: "¥2,600,000",
+      shown: "¥2,600,000",
+      claim: (shown: string) => `本年经营成果为${shown}。`,
+    },
+    tiedPlain: {
+      sign: "甲方本年发生亏损。",
+      amount: "本年经营成果为人民币260万元（¥2,600,000）。",
       number: "¥2,600,000",
       shown: "¥2,600,000",
       claim: (shown: string) => `本年经营成果为${shown}。`,
