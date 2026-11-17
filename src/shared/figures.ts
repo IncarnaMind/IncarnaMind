@@ -1494,7 +1494,7 @@ const CN_UNIT_WORDS = `${HAN_CURRENCIES}|元`;
 const CN_MEASURE_WORDS =
   "平方公里|平方米|立方米|公里|公顷|千瓦时|兆瓦时|千瓦|兆瓦|桶|盎司|千克|公斤|标准箱|吨";
 const CN_PER_TIME = "(?:[/／][日天月年])";
-const CN_STATED_SCALES = "十亿|亿|千万|百万|万|千|仟";
+const CN_STATED_SCALES = "万亿|十亿|亿|千万|百万|万|千|仟";
 // Outside a heading, "十亿元" is a figure: 十 is a numeral.
 const CN_SCALES_AFTER_WORDS = "亿|千万|百万|万|千|仟";
 // "伍拾肆万捌仟元" is a figure in financial capitals, not a statement of 仟元; a "万元户" is a

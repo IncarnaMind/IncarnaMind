@@ -7488,6 +7488,51 @@ describe("A number takes the unit its row gives it in a cell of its own (#1798)"
       },
     ]);
   });
+  // protects=a units cell that begins with its own number ("1000 t") is not read as a unit alone: the 540 of its row stays the plain 540 it is on main, not 5,400,000 t; fails_when=the cell is read by putting a 1 before it, which gives the row a multiplier the cell doesn't write (#2997); no_claim=that a plain 540 is the best reading of such a row
+  test("a units cell that begins with a number is no multiplier", async () => {
+    const model = calculatingModel({
+      queries: ["bolts output"],
+      steps: [
+        (passages) => [
+          {
+            tool: "cite",
+            input: {
+              citations: [
+                {
+                  marker: 1,
+                  passage: passageOf(passages, "Output"),
+                  quote: "| Bolts | 1000 t | 540 |",
+                },
+              ],
+            },
+          },
+          {
+            tool: "calculate",
+            input: {
+              figures: [
+                {
+                  marker: 1,
+                  label: "Bolts output",
+                  formula: "out",
+                  inputs: [{ name: "out", label: "Bolts", citation: 1, number: "540" }],
+                },
+              ],
+            },
+          },
+        ],
+      ],
+      answer: "Bolts output was [=1][^1].",
+    });
+    const { core } = await setUpCalculating(model, [
+      {
+        name: "Output.md",
+        contents: "| Item | Unit | Output |\n|---|---|---|\n| Bolts | 1000 t | 540 |\n",
+      },
+    ]);
+    const { answer } = await askAndRead(core, "What was the bolts output?");
+
+    expect(answer.figures.map((figure) => figure.shown)).toEqual(["540"]);
+  });
 });
 
 /** The margin's change from the row the Answer cites as `citation`, read with `numbers`. */
