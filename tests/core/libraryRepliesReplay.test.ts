@@ -35,13 +35,14 @@ interface Captured {
   calls: Recorded[];
 }
 
-const CAPTURED: Captured[] = readFileSync(
-  join(import.meta.dirname, "../fixtures/libraryReplies.jsonl"),
-  "utf8",
-)
-  .trim()
-  .split("\n")
-  .map((line) => JSON.parse(line) as Captured);
+/** The replies kept before and after the model was told which line each Library-line word names. */
+const FIXTURES = ["libraryReplies.jsonl", "libraryRepliesAfter.jsonl"] as const;
+
+const kept = (file: (typeof FIXTURES)[number]): Captured[] =>
+  readFileSync(join(import.meta.dirname, "../fixtures", file), "utf8")
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line) as Captured);
 
 const FILLER = [
   { name: "Harbour survey.txt", contents: "Harbour survey: the north wall needs repointing." },
@@ -132,13 +133,16 @@ async function replay(each: Captured) {
   };
 }
 
-describe("replies a real model gave to a sentence about a name, replayed", () => {
-  // protects=the replies kept from a real model, played back through the reading of them, end each sentence as they ended then, so a change to the reading is tried on them for nothing (#2525); fails_when=a replay ends a sentence another way than it ended when asked
-  test.each(CAPTURED.map((each) => [each.sentence, each] as const))(
-    "%s ends as it ended",
-    async (_sentence, each) => {
-      expect(await replay(each)).toEqual({ state: each.state, reason: each.reason });
-    },
-    60_000,
-  );
-});
+describe.each(FIXTURES)(
+  "replies a real model gave to a sentence about a name, replayed (%s)",
+  (file) => {
+    // protects=the replies kept from a real model, played back through the reading of them, end each sentence as they ended then, so a change to the reading is tried on them for nothing (#2525); fails_when=a replay ends a sentence another way than it ended when asked
+    test.each(kept(file).map((each) => [each.sentence, each] as const))(
+      "%s ends as it ended",
+      async (_sentence, each) => {
+        expect(await replay(each)).toEqual({ state: each.state, reason: each.reason });
+      },
+      60_000,
+    );
+  },
+);
