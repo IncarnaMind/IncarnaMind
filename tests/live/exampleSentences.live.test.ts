@@ -1287,6 +1287,12 @@ describe("the #3088 gate", () => {
     "one round of every case, each Note checked once",
     { timeout: 3_600_000 },
     async () => {
+      // A stop with no room under it would hold every request, and the round would end as if the
+      // stop had been reached with nothing sent.
+      if (!DRY && SPENT_BEFORE >= STOP - IN_FLIGHT)
+        throw new Error(
+          `The stop of US$${STOP} leaves no room for a request: US$${SPENT_BEFORE} was spent before this round and US$${IN_FLIGHT} is kept for requests in flight, so it needs to be more than US$${(SPENT_BEFORE + IN_FLIGHT).toFixed(2)}.`,
+        );
       const spent: unknown[] = [];
       // The round's own line is written however it ends, so what it spent is always counted.
       try {
