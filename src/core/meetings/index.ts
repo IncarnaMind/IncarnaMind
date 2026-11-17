@@ -603,6 +603,12 @@ export function createMeetings(options: MeetingsOptions) {
     return toMs - fromMs;
   }
 
+  /** Ends a source's wait for audio at `atMs`, counting what was overdue by then. */
+  function stopWaiting(current: Live, source: AudioSource, atMs: number): void {
+    nothingCaptured(current, source, overdueFrom(current, source, atMs), atMs);
+    current.due.delete(source);
+  }
+
   /**
    * A source that is open and gives no audio at all is silent too: time with nothing counts as
    * silence does, so the Meeting never says it is recording while nothing comes in (#3248).
@@ -652,20 +658,23 @@ export function createMeetings(options: MeetingsOptions) {
     // where they arrive, however short the gap, to stay in step with the computer's sound (#846).
     // A source that had been giving audio starts its wait again with the new track; one that
     // never gave any keeps the wait it has.
-    if (current.runs.has(source) || state !== "recording") current.due.delete(source);
+    const at = meetingTime(current);
+    if (current.runs.has(source) || state !== "recording") stopWaiting(current, source, at);
     endRun(current, source);
     const paused = source === "microphone" && microphonePausedAt.has(current.meetingId);
     if (state === "recording" && !paused && !current.due.has(source)) {
-      current.due.set(source, meetingTime(current));
+      current.due.set(source, at);
     }
     if (state === "recording" && current.sources[source] === "silent") return;
     // The microphone's permission prompt holds up the capture of both sources, so its wait is the
     // Meeting's, and nothing is captured until it is answered.
     if (source === "microphone") {
       if (state === "waiting") {
-        transcripts?.waitingForPermission(current.meetingId, meetingTime(current));
+        transcripts?.waitingForPermission(current.meetingId, at);
+        stopWaiting(current, "system", at);
       } else if (current.sources.microphone === "waiting") {
-        transcripts?.permissionAnswered(current.meetingId, meetingTime(current));
+        transcripts?.permissionAnswered(current.meetingId, at);
+        if (OPEN.has(current.sources.system)) current.due.set("system", at);
       }
     }
     setSource(current, source, state);
@@ -1501,7 +1510,7 @@ export function createMeetings(options: MeetingsOptions) {
         microphonePausedAt.set(row.id, atMs);
         if (capturing) {
           endRun(capturing, "microphone");
-          capturing.due.delete("microphone");
+          stopWaiting(capturing, "microphone", atMs);
           capturing.session?.setMicrophone(false);
           transcripts?.microphonePaused(row.id, atMs);
         }

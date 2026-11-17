@@ -427,6 +427,59 @@ describe("The computer's sound", () => {
     await waiting.core.stopMeeting(asked.id);
   });
 
+  test("the wait for the microphone's permission is not called a silent call, nor counted as lost (#3248)", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    const dataDir = await createTempDataFolder();
+    const { core, capture, clock, record } = await meetingCore(dataDir, manualClock(), {
+      microphone: "waiting",
+    });
+    const { id } = await core.createMeeting();
+    await core.startMeeting({ meetingId: id, systemAudio: true });
+    for (let at = 0; at < 90 * SECOND; at += SECOND) {
+      clock.advance(SECOND);
+      vi.advanceTimersByTime(SECOND);
+    }
+    expect((await meetingOf(core, id)).sources).toEqual({
+      microphone: "waiting",
+      system: "starting",
+    });
+
+    capture.answerPermission();
+    record(2 * SECOND);
+    const answered = await meetingOf(core, id);
+    expect(answered.sources).toEqual({ microphone: "recording", system: "recording" });
+    expect(answered.health.events).toEqual([]);
+    await core.stopMeeting(id);
+  });
+
+  test("a stretch with nothing is counted when the microphone is paused before any audio came (#3248)", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    const dataDir = await createTempDataFolder();
+    const { core, clock } = await meetingCore(dataDir, manualClock(), { systemAudio: false });
+    const { id } = await core.createMeeting();
+    await core.startMeeting({ meetingId: id, systemAudio: false });
+    const wait = (ms: number) => {
+      for (let at = 0; at < ms; at += SECOND) {
+        clock.advance(SECOND);
+        vi.advanceTimersByTime(SECOND);
+      }
+    };
+    wait(30 * SECOND);
+    await core.setMeetingMicrophone({ meetingId: id, paused: true });
+    wait(10 * SECOND);
+    await core.stopMeeting(id);
+
+    expect((await meetingOf(core, id)).health.events).toMatchObject([
+      {
+        kind: "audioLost",
+        source: "microphone",
+        cause: "stalled",
+        atMs: 0,
+        durationMs: 30 * SECOND,
+      },
+    ]);
+  });
+
   test("a computer that can't record its own sound records the microphone", async () => {
     const dataDir = await createTempDataFolder();
     const { core, record } = await meetingCore(dataDir, manualClock(), { systemAudio: false });
