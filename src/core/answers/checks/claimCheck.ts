@@ -125,6 +125,12 @@ export interface ClaimCheckRequest {
   // A legal prefix can govern later literal parts without being repeated in them (#2002).
   originalClaim?: string;
   figures?: readonly CheckFigure[];
+  /**
+   * The names of the Library's Documents a sentence about the Library may write, which a check
+   * of it is given: a number inside one is no number of the sentence to be quoted (#2525), as the
+   * number in a cited Document's name is none (#3093).
+   */
+  libraryNames?: readonly string[];
   context?: string;
   cited?: readonly CheckedCitation[];
   scope: EvidenceScope;

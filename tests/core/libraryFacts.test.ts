@@ -772,27 +772,33 @@ describe.each(["en", "zh-CN"] as const)("a name with digits in it (%s)", (langua
     expect(check.state).not.toBe("contradicted");
   });
 
-  // protects=a name's number the judge compares with a count is no count, so it is never Contradicted by one; fails_when="You keep Ledger 0007 in your Library." reads Contradicted because 0007 isn't 2.
-  test("a name's number compared with a count is never contradicted by it", async () => {
+  // protects=a number in the name of a Document the sentence writes is no figure it is asked about, so no count is compared with it, for or against (#2525); fails_when="You keep Ledger 0007 in your Library." is sent to the model with 0007 as a figure to check
+  test("a name's number is not a figure the model is asked about", async () => {
     const name = zh ? "档案 0007" : "Ledger 0007";
     const sentence = zh
       ? `你在资料库里保存了 ${name} 这个文件。`
       : `You keep ${name} in your Library.`;
     const setup = await setUp(
       twins(name),
-      {
-        [sentence]: {
-          verdict: "contradicted",
-          quote: `Documents named “${name}”: 2`,
-          figureNumber: "2",
-          line: "name",
-        },
-      },
+      { [sentence]: { verdict: "supported", quote: `Documents named “${name}”: 2`, line: "name" } },
       language,
     );
     const { check } = await checkInNote(setup.core, sentence);
+    expect(setup.calls.some((call) => requestedFigures(call).length > 0)).toBe(false);
+    expect(check.state).toBe("supported");
+  });
+
+  // protects=a number in a name that the sentence gives a unit or a scale of its own stays a figure to check (#2525); fails_when="Ledger 0007 holds 5 thousand pages" drops its 5 thousand with the name's number
+  test("a number after a name, with a scale of its own, is still a figure", async () => {
+    const name = zh ? "档案 0007" : "Ledger 0007";
+    const sentence = zh ? `${name} 有 5 万页。` : `${name} holds 5 thousand pages.`;
+    const setup = await setUp(
+      twins(name),
+      { [sentence]: { verdict: "unsupported", line: "description" } },
+      language,
+    );
+    await checkInNote(setup.core, sentence);
     expect(setup.calls.some((call) => requestedFigures(call).length > 0)).toBe(true);
-    expect(check.state).not.toBe("contradicted");
   });
 
   // protects=a count written in words is held to the facts though the sentence has digits in a name, both ways; fails_when="Ledger A7 appears three times" reads Supported by "Documents named “Ledger A7”: 2", or "appears twice" reads Contradicted by it.
@@ -825,6 +831,35 @@ describe.each(["en", "zh-CN"] as const)("a name with digits in it (%s)", (langua
     expect((await checkInNote(turned.core, twice)).check.state).not.toBe("contradicted");
   });
 });
+
+describe.each(["en", "zh-CN"] as const)(
+  "a true sentence about a name with a number (%s)",
+  (language) => {
+    const zh = language === "zh-CN";
+    const names = zh
+      ? ["报告 12", "发票 10432", "会议纪要 3.2"]
+      : ["Report 12", "Invoice 10432", "Minutes 3.2"];
+
+    // protects=a true sentence about a Document whose name holds a number ("Report 12 appears once in your Library.") is Supported by the line that gives the name's count, never Not checked for a number that is no figure of the sentence (#2525); fails_when=the name's number is sent as a figure, held to a count it isn't, and the sentence comes back Not checked
+    test.each(names)("%s appears once: Supported", async (name) => {
+      const sentence = zh
+        ? `${name} 在你的资料库中出现了一次。`
+        : `${name} appears once in your Library.`;
+      const line = `Documents named “${name}”: 1`;
+      const setup = await setUp(
+        [{ name: `${name}.txt`, contents: "Some text." }],
+        { [sentence]: { verdict: "supported", quote: line, line: "name" } },
+        language,
+      );
+      const { check, mind } = await checkInNote(setup.core, sentence);
+      expect(setup.factsSent()).toContain(line);
+      expect(check.state).toBe("supported");
+      // The name's number is no figure of the sentence, so no figure of it is left waiting.
+      expect(check.figures ?? []).toEqual([]);
+      expect(badgeOf(mind)?.kind).toBe("checked");
+    });
+  },
+);
 
 describe.each(["en", "zh-CN"] as const)("a Library line with a gloss (%s)", (language) => {
   const zh = language === "zh-CN";

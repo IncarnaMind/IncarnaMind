@@ -112,6 +112,7 @@ const isPoints = (each: { unit: Figure["unit"] }) =>
 export function quotesHoldNumbers(
   claim: string,
   citations: readonly { citation: Citation; units: readonly { text: string }[] }[],
+  libraryNames: readonly string[] = [],
 ): boolean {
   const context = documentFigureContext(citations.flatMap((citation) => citation.units));
   const own = documentFigureContext([{ text: claim }]);
@@ -149,7 +150,7 @@ export function quotesHoldNumbers(
   const holdsAny = holderOf(held);
   const holdsPoints = holderOf(inPoints);
   const cites = recordCiteSpans(claim);
-  const names = citations.map(({ citation }) => citation.documentName);
+  const names = [...citations.map(({ citation }) => citation.documentName), ...libraryNames];
   return figuresInClaim(claim, own.language ? own : { ...context, header: null }, names)
     .filter((figure) => !cites.some((cite) => figure.start < cite.to && figure.end > cite.from))
     .every((figure) => {
@@ -172,6 +173,7 @@ export async function needsCalculation({
   quotedWords = [],
   inputs,
   confirm,
+  libraryNames = [],
 }: {
   claim: string;
   verdict: Pick<ReadVerdict, "verdict" | "topic" | "calculations">;
@@ -182,11 +184,13 @@ export async function needsCalculation({
   quotedWords?: readonly string[];
   inputs: readonly InputNumber[];
   confirm(figure: Figure, citations: readonly Citation[]): Promise<boolean>;
+  /** The Library's Document names a sentence may write, whose numbers are no number of it (#2525). */
+  libraryNames?: readonly string[];
 }): Promise<boolean> {
   const context = documentFigureContext(citations.flatMap((citation) => citation.units));
   const own = documentFigureContext([{ text: claim }]);
   const claimContext = own.language ? own : { ...context, header: null };
-  const names = citations.map(({ citation }) => citation.documentName);
+  const names = [...citations.map(({ citation }) => citation.documentName), ...libraryNames];
   const claimFigures = figuresInClaim(claim, claimContext, names);
   if (claimFigures.length === 0 && !attempted && !verdict.calculations?.length) return false;
   if (attempted && computed.length === 0) return true;

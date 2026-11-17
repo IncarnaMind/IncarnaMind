@@ -35,14 +35,39 @@ interface Captured {
   calls: Recorded[];
 }
 
-/** The replies kept before and after the model was told which line each Library-line word names. */
-const FIXTURES = ["libraryReplies.jsonl", "libraryRepliesAfter.jsonl"] as const;
+/**
+ * The runs kept. The first two were made when the number in a name was sent to the model as a
+ * figure, and with a second copy of a name named "<name> (2)", a name of its own: the name still
+ * appears once, so only a sentence that says twice is wrong. The third has twins of one name (a
+ * .txt and a .md file) and no number in a name sent as a figure.
+ */
+const FIXTURES = [
+  { file: "libraryReplies.jsonl", twins: "renamed", numberAsFigure: true },
+  { file: "libraryRepliesAfter.jsonl", twins: "renamed", numberAsFigure: true },
+  { file: "libraryRepliesBranch.jsonl", twins: "same-name", numberAsFigure: false },
+] as const;
 
-const kept = (file: (typeof FIXTURES)[number]): Captured[] =>
+type Fixture = (typeof FIXTURES)[number];
+
+/**
+ * The checks the reading ends another way than the kept run did, by their place in the file: that
+ * run was made before the Library line's gloss ("name (Documents named …)") was read as no fact
+ * beyond the one it glosses (#3246), so a true sentence whose reply held on `name` alone is
+ * Supported where it was Not checked.
+ */
+const READ_NOW: Partial<Record<string, Record<number, { state: string; reason: string | null }>>> =
+  {
+    "libraryRepliesBranch.jsonl": { 31: { state: "supported", reason: null } },
+  };
+
+const kept = ({ file, numberAsFigure }: Fixture): Captured[] =>
   readFileSync(join(import.meta.dirname, "../fixtures", file), "utf8")
     .trim()
     .split("\n")
-    .map((line) => JSON.parse(line) as Captured);
+    .map((line) => JSON.parse(line) as Captured)
+    // A name's number is no figure the model is asked about now, so replies kept for a request
+    // that asked about it have no request here to answer.
+    .filter((each) => !numberAsFigure || !/\d/.test(each.name));
 
 const FILLER = [
   { name: "Harbour survey.txt", contents: "Harbour survey: the north wall needs repointing." },
@@ -89,7 +114,7 @@ function replaying(calls: readonly Recorded[]) {
   };
 }
 
-async function replay(each: Captured) {
+async function replay(each: Captured, twins: Fixture["twins"]) {
   const dataDir = await createTempDataFolder();
   const replayed = replaying(each.calls);
   const core = startCore(dataDir, {
@@ -104,7 +129,10 @@ async function replay(each: Captured) {
   await core.updateSettings({ user: { language: each.language } });
   const sources = await createTempDataFolder();
   const copies = Array.from({ length: each.copies }, (_, at) => ({
-    name: `${each.name}${at === 0 ? "" : " (2)"}.txt`,
+    name:
+      twins === "renamed"
+        ? `${each.name}${at === 0 ? "" : " (2)"}.txt`
+        : `${each.name}.${at === 0 ? "txt" : "md"}`,
     contents: `${each.name}: the figures for the quarter.`,
   }));
   const files = [...FILLER.filter((file) => !file.name.startsWith(each.name)), ...copies];
@@ -134,18 +162,20 @@ async function replay(each: Captured) {
 }
 
 describe.each(FIXTURES)(
-  "replies a real model gave to a sentence about a name, replayed (%s)",
-  (file) => {
-    // protects=the replies kept from a real model, played back through the reading of them, end each sentence as they ended then, so a change to the reading is tried on them for nothing (#2525); fails_when=a replay ends a sentence another way than it ended when asked
-    test.each(kept(file).map((each) => [each.sentence, each] as const))(
+  "replies a real model gave to a sentence about a name, replayed ($file)",
+  (fixture) => {
+    // protects=the replies kept from a real model, played back through the reading of them, end each sentence as they ended then, so a change to the reading is tried on them for nothing, and whatever else the reading learns, a wrong sentence is never Supported nor a true one Contradicted (#2525); fails_when=a replay ends a sentence another way than it ended when asked, or a wrong one Supported
+    test.each(kept(fixture).map((each, at) => [each.sentence, each, at] as const))(
       "%s ends as it ended",
-      async (_sentence, each) => {
-        const ended = await replay(each);
-        expect(ended).toEqual({ state: each.state, reason: each.reason });
-        // Whatever else the reading learns, a wrong sentence is never Supported, nor a true one Contradicted.
-        // In these kept runs the second copy is named "<name> (2)": the name still appears once, so
-        // only a sentence that says twice is wrong.
-        const holds = each.says === "once";
+      async (_sentence, each, at) => {
+        const ended = await replay(each, fixture.twins);
+        expect(ended).toEqual(
+          READ_NOW[fixture.file]?.[at] ?? { state: each.state, reason: each.reason },
+        );
+        const holds =
+          fixture.twins === "renamed"
+            ? each.says === "once"
+            : (each.copies === 1) === (each.says === "once");
         expect(ended.state).not.toBe(holds ? "contradicted" : "supported");
       },
       60_000,
