@@ -519,6 +519,8 @@ export interface AnswerRequest {
   window?: ContextWindow;
   /** The most the model writes in one reply, in tokens, when the catalog says. */
   maxOutput?: number;
+  /** The room this Run gives a reply of a kind with its own (`ownRoom`), where it gives one. */
+  ownRoom?: number;
   /** The model needs the Tools in every request, the last step's too (`ModelFacts.toolsEveryRequest`). */
   toolsEveryRequest?: boolean;
   /** False when the model refuses a named or required Tool choice. */
@@ -752,7 +754,11 @@ const stepKind = (request: AnswerRequest): ModelCallKind =>
   request.outputKind ?? (request.toolSet === "check" ? "check-step" : "answer-step");
 
 const outputOf = (request: AnswerRequest, kind: ModelCallKind): number =>
-  outputTokens(kind, 1, { most: request.maxOutput, window: request.window?.outputTokens });
+  outputTokens(kind, 1, {
+    most: request.maxOutput,
+    window: request.window?.outputTokens,
+    own: request.ownRoom,
+  });
 
 /** The provider refused this way of answering: try the next one. Internal to the engine. */
 type Unsupported = { type: "unsupported" };
