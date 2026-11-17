@@ -80,9 +80,12 @@ const unsettled = (list) => list.filter((row) => row.state === "not-checked").le
 console.log(`Model: ${summary.model}${values.dry ? " (nothing sent)" : ""}`);
 console.log(`Right sentences ✓: ${share(ticks(right), right.length)}`);
 console.log(`Wrong twins ✓:     ${share(ticks(wrong), wrong.length)}`);
+// A sentence the sort gave no part to check: no ✓, and nothing to tell the User it is wrong either.
+const unmarked = (list) => list.filter((row) => row.state === "no-mark").length;
 console.log(
-  `Not checked: ${unsettled(right)} right, ${unsettled(wrong)} wrong. Requests: ${summary.requests}. US$${Number(summary.priced ?? 0).toFixed(2)}.`,
+  `Not checked: ${unsettled(right)} right, ${unsettled(wrong)} wrong. No mark at all: ${unmarked(right)} right, ${unmarked(wrong)} wrong.`,
 );
+console.log(`Requests: ${summary.requests}. US$${Number(summary.priced ?? 0).toFixed(2)}.`);
 const missed = right.filter((row) => row.state !== "supported").map((row) => row.case);
 const passed = wrong.filter((row) => row.state === "supported").map((row) => row.case);
 if (missed.length > 0) console.log(`Right without a ✓: ${missed.join(", ")}`);
