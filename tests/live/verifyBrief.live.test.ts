@@ -22,6 +22,18 @@
  * - the conclusions tell a reader who hasn't read the report its main conclusion: at least 10 of 12;
  * - every line is in the report's language: 12 of 12.
  * Spend: twelve reports, a few requests each, about CNY 0.1; no stop is set for it.
+ * Result, DeepSeek V4.1 Flash (Claude Haiku 5.5 meant), 2026-11-17, the PDFs first drawn with lines
+ * as long as a page and clipped (the claims ran two sentences together), then with wrapped lines:
+ * - counted: a brief for 12 of 12, at least 2 conclusions in 12, at most 3 conclusions and 5 figures;
+ *   34 of 34 conclusion lines short (none beyond the limit); 55 of 55 figures hold a digit, none twice;
+ * - read blind (two Sonnet readers, a third on the three items they split on): 32 of 34 conclusion
+ *   lines say what the report says (two "partly": a Chinese line that took a heading's word into
+ *   it, and "demand" for meals served), none adds a claim; 51 of 55 figures are ones a conclusion
+ *   rests on (the four that are not are context: cycle counts, bookings twice, the lamp count);
+ *   the conclusions give the main conclusion in 10 of 12 (the two English reports that miss it leave
+ *   out the recommendation); every line in the report's language, 12 of 12.
+ * - seen: in a Chinese PDF a heading with no full stop runs into the sentence under it, so a figure
+ *   line can begin with "主要发现"; the claims are found that way before the brief reads them.
  */
 import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
