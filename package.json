@@ -30,6 +30,7 @@
     "test:smoke": "electron-vite build --mode test && playwright test",
     "test:packaged": "playwright test -c e2e/packaged/playwright.packaged.config.ts",
     "demo:record": "playwright test -c e2e/demo/playwright.demo.config.ts readmeDemo",
+    "check:everyday": "node scripts/check-everyday.mjs",
     "eval": "vitest run --config eval/vitest.config.ts",
     "eval:classification": "vitest run --config eval/classification/vitest.config.ts",
     "eval:organize": "vitest run --config eval/organize/vitest.config.ts",

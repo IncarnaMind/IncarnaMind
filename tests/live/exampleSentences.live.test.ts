@@ -4,6 +4,7 @@
  * User's own, wrong twins of them, and held-out pairs of the same two kinds (a comparative clause,
  * a figure with a thousands comma in a short Note), each Note checked as Check this note does,
  * its sort included. One JSON line a check, and one for the run, to INCARNAMIND_LIVE_GATE_OUT.
+ * INCARNAMIND_LIVE_GATE_GROUPS=everyday runs the everyday set alone (`npm run check:everyday`).
  * Runs only with INCARNAMIND_LIVE_ANTHROPIC_KEY, or with INCARNAMIND_LIVE_GATE_DRY=1, where a
  * scripted judge stands in and nothing is sent. INCARNAMIND_LIVE_GATE_PROVIDER=deepseek runs it on
  * DeepSeek's own API with INCARNAMIND_LIVE_KEY (#3022).
@@ -29,6 +30,7 @@ import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/d
 import { connectToMind, type MindClient } from "../helpers/mindClient";
 import { readMind, writeMind } from "../helpers/minds";
 import { scriptedModel, scriptedModels } from "../helpers/models";
+import { EVERYDAY_PAIRS } from "./everydaySentences.cases";
 
 const PROVIDER =
   process.env.INCARNAMIND_LIVE_GATE_PROVIDER === "deepseek" ? "deepseek" : "anthropic";
@@ -704,6 +706,11 @@ function pair(
   ];
 }
 
+/** The everyday set (`everydaySentences.cases.ts`), each pair a right sentence and its wrong twin. */
+const EVERYDAY: readonly HeldOut[] = EVERYDAY_PAIRS.flatMap((each) =>
+  pair(each.id, "short-note", each.language, each),
+);
+
 /** What the run's requests did: each check Run's replies, and every refused, failed or timed-out request. */
 const heard = {
   requests: 0,
@@ -1100,8 +1107,12 @@ async function exampleRound(language: Language, own: boolean) {
   return { rows, spent };
 }
 
-async function heldOutRound(language: Language) {
-  const cases = HELD_OUT.filter(
+async function heldOutRound(
+  language: Language,
+  from: readonly HeldOut[] = HELD_OUT,
+  group = "held-out",
+) {
+  const cases = from.filter(
     (each) =>
       each.language === language && (CASES?.some((start) => each.id.startsWith(start)) ?? true),
   );
@@ -1121,7 +1132,7 @@ async function heldOutRound(language: Language) {
       row: {
         arm: ARM,
         round: ROUND,
-        group: "held-out",
+        group,
         language,
         case: each.id,
         kind: each.kind,
@@ -1193,6 +1204,11 @@ describe("the #3088 gate", () => {
             write(round.rows);
             spent.push(round.spent);
           }
+          if (GROUPS.includes("everyday")) {
+            const round = await heldOutRound(language, EVERYDAY, "everyday");
+            write(round.rows);
+            spent.push(round.spent);
+          }
           if (GROUPS.includes("claim")) {
             const round = await claimRound(language);
             write(round.rows);
@@ -1210,6 +1226,7 @@ describe("the #3088 gate", () => {
               spent.length ===
               (GROUPS.includes("example") ? 4 : 0) +
                 (GROUPS.includes("held-out") ? 2 : 0) +
+                (GROUPS.includes("everyday") ? 2 : 0) +
                 (GROUPS.includes("claim") ? 2 : 0),
             requests: heard.requests,
             refused: heard.refused,
