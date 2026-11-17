@@ -23,6 +23,7 @@ import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { connectToMind } from "../helpers/mindClient";
 import { note, writeMind } from "../helpers/minds";
+import { buildPdf } from "../helpers/pdf";
 
 const KEY = process.env.INCARNAMIND_LIVE_ANTHROPIC_KEY;
 const MODEL =
@@ -73,7 +74,10 @@ const SETS = {
     { text: "The source is the Lease", page: undefined },
   ],
   // The second, written 2026-11-17 before it was run: what a User says of the sentence in front of
-  // them, as a request.
+  // them, as a request. Its first run (1 ask each, US$0.007) used a Note sentence the Lease doesn't
+  // say and a Lease with one page: the "Open page 4 … so I can pick" requests ran the command with
+  // page 4 (2 of 2), the "Point this sentence to" ones were declined for good reason (sentence
+  // unrelated, no page 4). The fixture is now a five-page Lease PDF whose page 4 says the sentence.
   second: [
     { text: "Open page 4 of the Lease so I can pick the source for this sentence.", page: 4 },
     { text: "Point this sentence to the Lease, p. 4.", page: 4 },
@@ -114,13 +118,21 @@ describe("the source's page in the assistant's call, live", () => {
           await addAndProcess(core, [
             await writeSourceFile(
               sources,
-              "Lease.md",
-              "# Lease\n\nThe rent is 900 euros a month.\n",
+              "Lease.pdf",
+              buildPdf(
+                [
+                  "Lease: parties and term.",
+                  "Lease: the premises.",
+                  "Lease: services.",
+                  "The rent is 900 euros a month.",
+                  "Lease: signatures.",
+                ].map((line) => ({ lines: [line] })),
+              ),
             ),
             await writeSourceFile(sources, "Q3 commentary.md", "# Q3\n\nRevenue grew 4%.\n"),
           ]);
           const mind = await core.createMind({ title: "Notes" });
-          writeMind(await connectToMind(core, mind.id), [note("Whales sing in the deep bay.")]);
+          writeMind(await connectToMind(core, mind.id), [note("The rent is 900 euros a month.")]);
           const answer = await askAssistant(core, {
             text: request.text,
             mindId: mind.id,
