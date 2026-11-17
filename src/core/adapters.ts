@@ -1266,7 +1266,7 @@ export interface CoreAdapters {
    * Where the ChatGPT sign-in is kept instead of `keychain`: a store that
    * several data folders on this computer share, and a lock file that keeps
    * their token refreshes apart. Only a development or test build passes one
-   * (a ChatGPT test profile, see docs/agents/testing.md); release builds never do.
+   * (a ChatGPT test profile, see docs/agents/checks.md); release builds never do.
    */
   chatGptStore?: { keychain: Keychain; lockFile: string };
   /**
