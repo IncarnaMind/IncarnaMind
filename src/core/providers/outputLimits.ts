@@ -19,9 +19,10 @@ export const OUTPUT_LIMITS = {
   // A Meeting's notes: the User's lines filled out and the sections after them, with the thinking
   // before them, can pass an Answer's room (#2306). On a four-minute call Claude Haiku 5.5 thought
   // and wrote 16,850 tokens: a reply cut off while it thinks has nothing to keep, so the room is
-  // one that reply fits in, not a smaller one with a second ask (#2839). A 19-minute call's notes
-  // are 60 to 180 facts, thought out at some 420 tokens each before the first is written: 32,000
-  // was reached in a third to a half of such fills, each two minutes paid for nothing (#3251).
+  // one that reply fits in, not a smaller one with a second ask (#2839). The notes of a 12 to 19
+  // minute call are 50 to 110 facts, thought out at some 420 tokens each before the first is
+  // written: 32,000 was reached in a third to a half of such fills, each two minutes paid for
+  // nothing (#3251).
   // `own`: more than a window keeps for every call's reply, so the notes' Run makes the room.
   "meeting-fill": { most: 64_000, own: true },
   "search-query": { most: 256 },

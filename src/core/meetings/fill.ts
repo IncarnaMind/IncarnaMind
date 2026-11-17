@@ -73,12 +73,12 @@ export const FILL_PART_TOKENS = 9_000;
 
 /**
  * The most of a Transcript one request reads on a model off this computer, where parts go side
- * by side. A request thinks its notes out before it writes them, some 420 tokens a fact, and a
- * call dense with decisions has a fact every 40 tokens. A 19-minute call read whole wrote 49 to
- * 78 facts; read as two halves it wrote 92 to 104 in less time (#3251). A fifteen-minute call of
- * loose talk is still one request.
+ * by side. A request thinks its notes out before it writes them, some 420 tokens a fact. Calls
+ * of 3,800 to 4,000 tokens (12 to 19 minutes) asked whole thought to the output limit in 5 of 12
+ * fills; as two even parts in none, with more facts kept. Calls of 2,650 tokens asked whole
+ * never came near it, and as two parts cost 1.4 times as much for no more (#3251).
  */
-const FILL_SIDE_PART_TOKENS = 2_500;
+const FILL_SIDE_PART_TOKENS = 3_300;
 
 /**
  * Where a cut reply stops making the parts smaller: a part under twice this isn't asked again as
