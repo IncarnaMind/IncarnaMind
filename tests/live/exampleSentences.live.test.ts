@@ -711,7 +711,70 @@ const HELD_OUT: readonly HeldOut[] = [
     right: "62%的受访租户对维修服务表示满意。",
     wrong: "62%的受访租户对维修服务和租金水平均表示满意。",
   }),
+  // A right or a duty with the requirement that trails it after a comma (#3257): the sentence that
+  // keeps it is right, the one that drops it is wrong, and so is one that changes who must agree
+  // or what the limit is.
+  ...withCondition("en-n2x", "en", {
+    document:
+      "Under clause 9 of the 2024 handbook, staff may work remotely two days a week, provided the team lead agrees in advance.",
+    changed:
+      "Staff may work remotely two days a week, provided the finance director agrees in advance.",
+  }),
+  ...withCondition("en-k1", "en", {
+    document:
+      "Section 4 of the 2025 residents' guide: residents may keep one pet in a flat, provided the building manager approves it in writing.",
+    right:
+      "Residents may keep one pet in a flat, provided the building manager approves it in writing.",
+    dropped: "Residents may keep one pet in a flat.",
+    changed:
+      "Residents may keep one pet in a flat, provided their neighbours approve it in writing.",
+  }),
+  ...withCondition("en-k2", "en", {
+    document:
+      "Per rule 12 of the 2023 lab manual, students may use the laser cutter after hours, provided a technician is present.",
+    right: "Students may use the laser cutter after hours, provided a technician is present.",
+    dropped: "Students may use the laser cutter after hours.",
+    changed:
+      "Students may use the laser cutter after hours, provided they have booked it a week ahead.",
+  }),
+  ...withCondition("zh-n2x", "zh-CN", {
+    document: "根据2024年版员工手册第9条，员工可每周远程办公两天，须事先与主管商定。",
+    changed: "员工可每周远程办公两天，须事先与财务总监商定。",
+  }),
+  ...withCondition("zh-k1", "zh-CN", {
+    document: "按2025年版住户手册第4条，住户可在公共花园举办小型聚会，须提前三天向物业报备。",
+    right: "住户可在公共花园举办小型聚会，须提前三天向物业报备。",
+    dropped: "住户可在公共花园举办小型聚会。",
+    changed: "住户可在公共花园举办小型聚会，须提前一天向物业报备。",
+  }),
+  ...withCondition("zh-k2", "zh-CN", {
+    document: "根据2023年实验室守则第12条，学生可在课后使用三维打印机，但须有指导教师在场。",
+    right: "学生可在课后使用三维打印机，但须有指导教师在场。",
+    dropped: "学生可在课后使用三维打印机。",
+    changed: "学生可在课后使用三维打印机，但须有保安在场。",
+  }),
 ];
+
+/** A pair whose right sentence keeps its Document's condition, with a second wrong twin that changes it; `en-n2` and `zh-n2` above are the pairs of the two given only that twin. */
+function withCondition(
+  id: string,
+  language: Language,
+  words: { document: string; right?: string; dropped?: string; changed: string },
+): HeldOut[] {
+  const { document, right, dropped, changed } = words;
+  const twin = (suffix: string, sentence: string, expected: HeldOut["expected"]): HeldOut => ({
+    id: `${id}${suffix}`,
+    kind: "short-note",
+    language,
+    document,
+    sentence,
+    expected,
+  });
+  return [
+    ...(right && dropped ? [twin("-right", right, "right"), twin("-wrong", dropped, "wrong")] : []),
+    twin(right ? "x-wrong" : "-wrong", changed, "wrong"),
+  ];
+}
 
 function pair(
   id: string,

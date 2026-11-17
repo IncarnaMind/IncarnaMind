@@ -4,14 +4,18 @@
  * for a language's sentences together in one request, several times over. A sentence split at its
  * condition has each half checked as a part, and the half without the condition is Unsupported.
  *
- * The sentences were written and committed before any request; none is a sentence of the sort's
- * instructions or of the example sets. `control` ones say what a sort should do with no
- * condition: two independent facts are two parts, one fact is one.
+ * Two sets, each written and committed before any request to it; none is a sentence of the sort's
+ * instructions or of the example sets. The first (fit) found the shape that is split: a
+ * requirement clause that trails the right after a comma. The second (fresh) holds only that shape
+ * and was committed before any change to the sort's rules was tried, which the first set is for.
+ * `control` ones say what a sort should do with no condition: two independent facts or duties
+ * are two parts, one fact is one.
  *
  * Runs only with INCARNAMIND_LIVE_ANTHROPIC_KEY. The model is INCARNAMIND_LIVE_ANTHROPIC_MODEL
- * (Claude Haiku 5.5 by default), INCARNAMIND_LIVE_RUNS the sorts of each layout (5), and
+ * (Claude Haiku 5.5 by default), INCARNAMIND_LIVE_SETS the sets (fit,fresh by default),
+ * INCARNAMIND_LIVE_RUNS the sorts of each layout (5), and
  * INCARNAMIND_LIVE_REPORT a file that keeps one JSON line for each sentence of each request: its
- * id, shape and layout, the parts the reply gave it in its own words, the request's failure if it
+ * set, id, shape and layout, the parts the reply gave it in its own words, the request's failure if it
  * had one, and the request's price in US dollars on its first sentence's line.
  */
 import { appendFileSync } from "node:fs";
@@ -31,6 +35,7 @@ const KEY = process.env.INCARNAMIND_LIVE_ANTHROPIC_KEY;
 const MODEL = process.env.INCARNAMIND_LIVE_ANTHROPIC_MODEL ?? "claude-haiku-5-5";
 const RUNS = Number(process.env.INCARNAMIND_LIVE_RUNS ?? 5) || 5;
 const REPORT = process.env.INCARNAMIND_LIVE_REPORT;
+const SETS = (process.env.INCARNAMIND_LIVE_SETS ?? "fit,fresh").split(",");
 const AT_ONCE = 5;
 
 interface Sentence {
@@ -39,7 +44,7 @@ interface Sentence {
   text: string;
 }
 
-const ENGLISH: Sentence[] = [
+const FIT_ENGLISH: Sentence[] = [
   {
     id: "en-t1",
     shape: "trailing provided",
@@ -102,7 +107,7 @@ const ENGLISH: Sentence[] = [
   },
 ];
 
-const CHINESE: Sentence[] = [
+const FIT_CHINESE: Sentence[] = [
   {
     id: "zh-t1",
     shape: "trailing 须",
@@ -129,6 +134,87 @@ const CHINESE: Sentence[] = [
   { id: "zh-c2", shape: "control, no condition", text: "志愿者可在周末借用面包车。" },
 ];
 
+const FRESH_ENGLISH: Sentence[] = [
+  {
+    id: "en-f1",
+    shape: "trailing provided",
+    text: "Couriers may leave parcels at the gatehouse, provided the guard signs for them.",
+  },
+  {
+    id: "en-f2",
+    shape: "trailing provided that",
+    text: "Interns may attend client meetings, provided that a partner is in the room.",
+  },
+  {
+    id: "en-f3",
+    shape: "trailing on condition that",
+    text: "The hall may be hired for private events, on condition that the caretaker locks up afterwards.",
+  },
+  {
+    id: "en-f4",
+    shape: "trailing provided, a duty",
+    text: "Suppliers must deliver within five working days, provided the order is confirmed by noon.",
+  },
+  {
+    id: "en-f5",
+    shape: "trailing provided, a fact",
+    text: "The grant covers travel costs, provided receipts are submitted within a month.",
+  },
+  {
+    id: "en-f6",
+    shape: "trailing provided",
+    text: "Students may resit the exam once, provided the tutor recommends it.",
+  },
+  {
+    id: "en-g1",
+    shape: "control, two duties",
+    text: "Staff must wear a badge, and visitors must sign in at reception.",
+  },
+  {
+    id: "en-g2",
+    shape: "control, two facts",
+    text: "The warehouse closed in March, and the office moved in June.",
+  },
+  {
+    id: "en-g3",
+    shape: "control, a right and a duty",
+    text: "Members may book the court online, and guests must pay at the desk.",
+  },
+  {
+    id: "en-g4",
+    shape: "control, no condition",
+    text: "Couriers may leave parcels at the gatehouse.",
+  },
+];
+
+const FRESH_CHINESE: Sentence[] = [
+  { id: "zh-f1", shape: "trailing 须", text: "快递员可将包裹留在门卫室，须由保安签收。" },
+  { id: "zh-f2", shape: "trailing 但须", text: "实习生可以参加客户会议，但须有合伙人在场。" },
+  { id: "zh-f3", shape: "trailing 须经", text: "礼堂可出租用于私人活动，须经管理员事先同意。" },
+  { id: "zh-f4", shape: "trailing 须", text: "访客可在地下车库停车，须先在前台领取通行证。" },
+  {
+    id: "zh-f5",
+    shape: "trailing 但须, a fact",
+    text: "补助金涵盖差旅费，但须在一个月内提交票据。",
+  },
+  { id: "zh-f6", shape: "trailing 须经", text: "员工可调休一天，须经部门负责人批准。" },
+  { id: "zh-g1", shape: "control, two duties", text: "员工须佩戴工牌，访客须在前台登记。" },
+  { id: "zh-g2", shape: "control, two facts", text: "仓库于三月关闭，办公室于六月搬迁。" },
+  {
+    id: "zh-g3",
+    shape: "control, a right and a duty",
+    text: "会员可在线预订场地，访客须在前台付费。",
+  },
+  { id: "zh-g4", shape: "control, no condition", text: "快递员可将包裹留在门卫室。" },
+];
+
+const LISTS = [
+  { set: "fit", sentences: FIT_ENGLISH },
+  { set: "fit", sentences: FIT_CHINESE },
+  { set: "fresh", sentences: FRESH_ENGLISH },
+  { set: "fresh", sentences: FRESH_CHINESE },
+].filter((list) => SETS.includes(list.set));
+
 describe.skipIf(!KEY)("a Note's sort of a sentence with its condition", () => {
   // protects=the count a pull request gives for how often the sort splits a sentence at its condition comes from the sort's own request; fails_when=a request fails or its reply can't be read; no_claim=any bar on the parts, which the pull request states
   test("each sentence is sorted alone and with its language's others", {
@@ -142,19 +228,21 @@ describe.skipIf(!KEY)("a Note's sort of a sentence with its condition", () => {
       thinking: "off",
     });
     const price = catalogModel("anthropic", MODEL)?.price;
-    const requests = Array.from({ length: RUNS }, (_, index) => [
-      ...[...ENGLISH, ...CHINESE].map((sentence) => ({
-        layout: "alone",
-        run: index + 1,
-        batch: [sentence],
-      })),
-      { layout: "together", run: index + 1, batch: ENGLISH },
-      { layout: "together", run: index + 1, batch: CHINESE },
-    ]).flat();
+    const requests = Array.from({ length: RUNS }, (_, index) =>
+      LISTS.flatMap(({ set, sentences }) => [
+        ...sentences.map((sentence) => ({
+          set,
+          layout: "alone",
+          run: index + 1,
+          batch: [sentence],
+        })),
+        { set, layout: "together", run: index + 1, batch: sentences },
+      ]),
+    ).flat();
     let failed = 0;
     for (let from = 0; from < requests.length; from += AT_ONCE) {
       await Promise.all(
-        requests.slice(from, from + AT_ONCE).map(async ({ layout, run, batch }) => {
+        requests.slice(from, from + AT_ONCE).map(async ({ set, layout, run, batch }) => {
           const numbered = batch.map((sentence, index) => ({
             number: index + 1,
             text: sentence.text,
@@ -184,6 +272,7 @@ describe.skipIf(!KEY)("a Note's sort of a sentence with its condition", () => {
             appendFileSync(
               REPORT,
               `${JSON.stringify({
+                set,
                 id: sentence.id,
                 shape: sentence.shape,
                 layout,
