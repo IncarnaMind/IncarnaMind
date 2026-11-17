@@ -97,7 +97,8 @@
  * in 2 of 6 (4 of 6 on main): the model takes a tied minus for a plus. Bar 3 stands as written, and
  * the change does not ship as it was. The second run, written before it ran, is of the branch with a
  * tie kept by the code: a sentence that starts with a pronoun for the subject of the loss sentence
- * next to it ("Its", "Their", "His", "Her", "It", "This", "That"; 其 该 此 这 它 他 她) keeps the
+ * next to it ("Its", "Their", "His", "Her", "It"; 其 它 她 他: no "This", "That", 该, 此 or 这, which may
+ * be about something else) keeps the
  * bracket's minus, as on `main`. Branch only, the pairs tied-own, tied-minus, tiedplain-own,
  * tiedplain-minus, other-rent and other-minus in English and Chinese (12 pairs), 3 rounds each,
  * stop US$0.30.
