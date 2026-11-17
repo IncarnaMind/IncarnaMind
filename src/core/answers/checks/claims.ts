@@ -132,10 +132,20 @@ const SORT_INPUT =
 const TABLE_CELLS =
   'A table cell\'s record also names its "row" label and its "column" heading, which say what the cell\'s words are about: a cell that gives a number or an amount for them is a fact. Its parts are still words of its own text field.';
 
+// Sorted alone, a sentence was split at a requirement that trails its right after a comma, and the
+// half without it was then Unsupported (#3257).
+const TRAILING_REQUIREMENT =
+  'For "Guests may park overnight, provided the owner consents" or "访客可留宿，须经业主同意", keep the permission and the requirement it depends on together as one factual part. Do not return a clause that only says on what requirement, or except when, the rest of the sentence holds as a separate fact detached from what it limits.';
+
+const sortRules = (library: boolean) => {
+  const rules = library ? LIBRARY_PART_RULES : PART_RULES;
+  return [...rules.slice(0, -1), TRAILING_REQUIREMENT, ...rules.slice(-1)];
+};
+
 const sortParts = (library: boolean) => [
   "Each number is an identifier from the whole document. A batch can contain one sentence or many, and its numbers can start above 1. Copy the supplied numbers unchanged; do not restart numbering or ask for the document in another format.",
   "Decide every sentence, in order. Return every supplied sentence once, using its number. Split it into ordered literal parts that a reader can check separately, without rewriting any words.",
-  ...(library ? LIBRARY_PART_RULES : PART_RULES),
+  ...sortRules(library),
   library
     ? 'Reply with one JSON object and nothing else: {"sentences":[{"number":1,"parts":[{"kind":"fact","text":"exact original words"},{"kind":"opinion","text":"exact original words"}]}]}. Use kind fact, opinion or about-this-text only. Every sentence needs its full part inventory; use an empty parts array only for a heading, greeting, question or other text with no factual assertion, opinion, advice or words about the text itself. Never deduplicate equal sentences.'
     : 'Reply with one JSON object and nothing else: {"sentences":[{"number":1,"parts":[{"kind":"fact","text":"exact original words"},{"kind":"opinion","text":"exact original words"}]}]}. Use kind fact or opinion only. Every sentence needs its full part inventory; use an empty parts array only for a heading, greeting, question or other text with no factual assertion, opinion or advice. Never deduplicate equal sentences.',
