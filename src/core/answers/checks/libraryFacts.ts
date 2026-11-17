@@ -162,16 +162,31 @@ export type DeclaredLibrary =
   | { kind: "description" }
   | { kind: "facts"; facts: ReadonlySet<LibraryFact["kind"]> };
 
+/**
+ * The words of a Library line that name facts, never the words that gloss them: a model that is
+ * told which line each word names writes "name (Documents named “Report 12”), documents (Documents
+ * in all)" or "name — the Library holds one Document with that name", and "documents" in a
+ * gloss is no fact it states (#2525). What is in brackets or quotes, and what follows a dash, is
+ * left out.
+ */
+function factWords(line: string): string[] {
+  const named = line
+    .replace(/[(（][^)）]*[)）]/gu, " ")
+    .replace(/["“”][^"“”]*["“”]/gu, " ")
+    .split(/\s-\s|[–—]/u)[0];
+  return (named ?? "")
+    .toLowerCase()
+    .split(/[^a-z]+/)
+    .filter((word) => word !== "");
+}
+
 export function declaredLibrary(reply: string): DeclaredLibrary | null {
   const line = labelled(
     reply.split("\n").map((each) => each.trim()),
     LIBRARY_LINE_FIELD,
   );
   if (line === undefined || line === null) return null;
-  const words = line
-    .toLowerCase()
-    .split(/[^a-z]+/)
-    .filter((word) => word !== "");
+  const words = factWords(line);
   if (words.includes("description")) return { kind: "description" };
   const facts = new Set(
     words.flatMap((word) => {
