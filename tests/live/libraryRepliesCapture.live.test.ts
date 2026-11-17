@@ -14,6 +14,15 @@
  *   - Wrong Supported: 0 of the 16 wrong twins. Any Supported on a wrong twin fails the run.
  *   - False Contradicted: 0 of the 16 true sentences.
  *   - Rescued: at least 6 of the 16 true sentences Supported, by the Library's own fact.
+ *
+ * Bars for a run of the names with a number (INCARNAMIND_CAPTURE_SET=digits: four names, each true
+ * twice and each wrong twin twice, 24 checks) after a number in the name of a Document the sentence
+ * writes stopped being sent to the model as a figure, so that its first ask is a plain one. The
+ * same names, in tests/fixtures/libraryRepliesAfter.jsonl, ended 0 of 8 true sentences Supported,
+ * and 2 of 8 with a second ask in place of this change; names with no number ended 7 of 8:
+ *   - Wrong Supported: 0 of the 16 wrong twins. Any Supported on a wrong twin fails the run.
+ *   - False Contradicted: 0 of the 8 true sentences.
+ *   - Rescued: at least 4 of the 8 true sentences Supported, by the Library's own fact.
  */
 import { randomUUID } from "node:crypto";
 import { appendFile } from "node:fs/promises";
@@ -115,20 +124,48 @@ const sentenceOf = ({ language, name, says }: Case): string =>
     ? `${name} 在你的资料库中出现了${says === "once" ? "一" : "两"}次。`
     : `${name} appears ${says} in your Library.`;
 
-const NAMES: { language: Language; name: string }[] = [
-  ...["Report 12", "Invoice 10432", "Minutes 3.2", "Harbour survey", "Crew roster", "Tide log"].map(
-    (name) => ({ language: "en" as const, name }),
-  ),
-  ...["报告 12", "港口勘测"].map((name) => ({ language: "zh-CN" as const, name })),
-];
+const DIGITS = process.env.INCARNAMIND_CAPTURE_SET === "digits";
 
-/** Each name: the true sentence twice, and its two wrong twins once. */
-const CASES: Case[] = NAMES.flatMap(({ language, name }) => [
-  { language, name, copies: 1 as const, says: "once" as const },
-  { language, name, copies: 1 as const, says: "once" as const },
-  { language, name, copies: 2 as const, says: "once" as const },
-  { language, name, copies: 1 as const, says: "twice" as const },
-]);
+const NAMES: { language: Language; name: string }[] = DIGITS
+  ? [
+      ...["Report 12", "Invoice 10432", "Minutes 3.2"].map((name) => ({
+        language: "en" as const,
+        name,
+      })),
+      { language: "zh-CN" as const, name: "报告 12" },
+    ]
+  : [
+      ...[
+        "Report 12",
+        "Invoice 10432",
+        "Minutes 3.2",
+        "Harbour survey",
+        "Crew roster",
+        "Tide log",
+      ].map((name) => ({ language: "en" as const, name })),
+      ...["报告 12", "港口勘测"].map((name) => ({ language: "zh-CN" as const, name })),
+    ];
+
+/** Each name: the true sentence twice, and its two wrong twins once (twice for the names with a number). */
+const CASES: Case[] = NAMES.flatMap(({ language, name }) => {
+  const wrong = DIGITS ? 2 : 1;
+  return [
+    { language, name, copies: 1 as const, says: "once" as const },
+    { language, name, copies: 1 as const, says: "once" as const },
+    ...Array.from({ length: wrong }, () => ({
+      language,
+      name,
+      copies: 2 as const,
+      says: "once" as const,
+    })),
+    ...Array.from({ length: wrong }, () => ({
+      language,
+      name,
+      copies: 1 as const,
+      says: "twice" as const,
+    })),
+  ];
+});
 
 const spentOf = async (core: Core): Promise<number> =>
   (await core.getCostSummary()).spent

@@ -28,8 +28,10 @@ import {
   sourceValue,
 } from "../../../shared/libraryFacts";
 import type { ScopeKind } from "../../../shared/searchScope";
+import { citedNameStretches, isNameNumber } from "../../../shared/sourceNames";
 import type {
   CheckedVersion,
+  CheckFigure,
   ClaimJudgment,
   DocumentKind,
   FigureCheckResult,
@@ -667,6 +669,27 @@ const COUNT_NOUN =
   /^(?:[\p{L}-]+\s+){0,2}(?:documents?|files?|notes?|folders?|tags?|items?|cop(?:y|ies)|records?|entr(?:y|ies)|names?|times|workbooks?|spreadsheets?)(?![\p{L}])|^(?:个|份|篇|项|条|次|本|件)/iu;
 
 /**
+ * Whether a figure is the number of a Document's name the sentence writes: inside the name, with no
+ * unit, currency, percent or scale of its own. Its reading counts from its paragraph's start, so it
+ * is found in its sentence by its characters, and only when they are there once.
+ */
+function isNameOfDocument(figure: CheckFigure, names: readonly string[], claim: string): boolean {
+  const { chars, unit, currency, scale } = figure.reading;
+  const text = figure.context ?? claim;
+  const escaped = chars.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const found = [...text.matchAll(new RegExp(`(?<![\\d.,])${escaped}(?!\\d)`, "gu"))];
+  const [one] = found;
+  return (
+    found.length === 1 &&
+    one !== undefined &&
+    isNameNumber(
+      { start: one.index, end: one.index + chars.length, unit, currency, scale },
+      citedNameStretches(text, names),
+    )
+  );
+}
+
+/**
  * Whether a figure reads as a count of things, which a Library count may decide: no scale word,
  * and after it nothing or a count noun, never a unit ("11 TB", "22 GB", "5 km").
  */
@@ -815,12 +838,18 @@ export function withLibraryFacts(
       known ??= libraryListing(request.mindId ?? null, searched);
       return known;
     };
+    // A number in the name of a Document the sentence writes is no figure of it, as in a cited
+    // Document's name (#3093): asked about as a figure, it is held to a count it isn't (#2525).
+    const names = request.figures?.length ? listing().documents.map((each) => each.name) : [];
+    const figures = request.figures?.filter(
+      (figure) => !isNameOfDocument(figure, names, request.claim),
+    );
     const run = libraryRun(listing, searched, request.claim, deps);
     const result = await create({
       ...deps,
       documents: run.documents,
       libraryFacts: run.search,
-    })(request);
+    })(figures === request.figures ? request : { ...request, figures });
     return run.settle(result);
   };
 }
