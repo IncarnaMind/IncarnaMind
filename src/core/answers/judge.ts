@@ -275,9 +275,17 @@ export function replyJson(raw: string): unknown {
   const text = replyText(raw);
   const start = text.search(/[[{]/);
   const end = Math.max(text.lastIndexOf("}"), text.lastIndexOf("]"));
-  return (
-    parseJson(text) ?? (start >= 0 && end > start ? parseJson(text.slice(start, end + 1)) : null)
-  )?.value;
+  const read =
+    parseJson(text) ?? (start >= 0 && end > start ? parseJson(text.slice(start, end + 1)) : null);
+  if (read) return read.value;
+  // Words that name a marker ("The request asks for marker [1]."), before the JSON or after it,
+  // put a bracket where the JSON isn't: the reply's record is the one object it wrote (#2184). Two
+  // answers, one cut off, or an object inside a list still read as none.
+  const open = text.indexOf("{");
+  const close = text.lastIndexOf("}");
+  if (open < 0 || close <= open || /\[\s*$/.test(text.slice(0, open))) return undefined;
+  const object = parseJson(text.slice(open, close + 1));
+  return object && isRecord(object.value) ? object.value : undefined;
 }
 
 /** Words a model refuses with, in English and Chinese. */
