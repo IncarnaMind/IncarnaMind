@@ -211,6 +211,13 @@ function factMetadata(
  */
 const frameId = (line: string): string | undefined => /^FACT\s+(\S+)/.exec(line)?.[1];
 
+/**
+ * Whether a line closes the frame `id` (none: the overview). A model sometimes closes a fact as it
+ * opened it, "END FACT <id>": taken as "END <id>", or the whole reply's facts are lost (#3274).
+ */
+const closes = (line: string | null, id: string | null): boolean =>
+  id === null ? line === "END OVERVIEW" : line === `END ${id}` || line === `END FACT ${id}`;
+
 function heading(node: NodeJSON | undefined): string | null {
   if (node?.type !== "heading" || node.attrs?.level !== 3) return null;
   if (
@@ -271,7 +278,7 @@ function framesOf(blocks: readonly NodeJSON[], raw: readonly NodeJSON[]) {
     const control = heading(block);
     const label = textOf(block);
     const original = heading(raw[index]);
-    if (current && control === `END ${current.id ?? "OVERVIEW"}`) {
+    if (current && closes(control, current.id)) {
       current.closed = true;
       current.aligned &&= original === control;
       current = null;
