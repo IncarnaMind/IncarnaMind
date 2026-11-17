@@ -21,6 +21,13 @@
  *   run reports the requests that did not settle, and a run with any is void. If the marking holds
  *   in all 20, the issue's box is met on 5 a sentence, and says so; if it misses anywhere, the count
  *   goes to the lead before the full 10 a sentence (about US$3.00).
+ * The result, 2026-11-17 (US$0.6807, no request unsettled): marking missed bar 1, 18 of 20 cover checks
+ * (Haiku English 3 of 5: one check never called calculate, one marked nothing and its calculation
+ * never recorded; the other three cells 5 of 5), both unmarked ending Not checked (no-evidence). No
+ * check of the 40 ended Contradicted. Supported 15 of 40: cover Haiku English 1 of 5, Haiku Chinese
+ * 3, Sonnet English 1, Sonnet Chinese 4; limit Haiku English 0, Haiku Chinese 2, Sonnet English 4,
+ * Sonnet Chinese 0. The 22 Unsupported name a part the Document doesn't state ("should still be",
+ * "as a stand-in", the definition of cover, the covenant's test basis), the #1708 family.
  *
  * - INCARNAMIND_LIVE_RUNS: how many times each sentence is checked (1 when unset).
  * - INCARNAMIND_LIVE_DECOY_RUNS: how many times each decoy is (INCARNAMIND_LIVE_RUNS when unset).
