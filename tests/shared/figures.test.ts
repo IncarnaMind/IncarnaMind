@@ -3176,16 +3176,6 @@ describe("a bracket right after an amount (#2341)", () => {
       [f("人民币六万二千元", 62000, { unit: "CNY" }), f("（¥62,000）", -62000, { unit: "CNY" })],
     ],
     [
-      "The subsidiary posted a net loss for the year. Its result was sixty-two thousand dollars ($62,000.00).",
-      EN,
-      [f("($62,000.00)", -62000, { unit: "USD" })],
-    ],
-    [
-      "The company reported an operating loss. Operating income was sixty-two thousand dollars ($62,000.00).",
-      EN,
-      [f("($62,000.00)", -62000, { unit: "USD" })],
-    ],
-    [
       "The current account is overdrawn by sixty-two thousand dollars ($62,000.00).",
       EN,
       [f("($62,000.00)", -62000, { unit: "USD" })],
@@ -3242,11 +3232,6 @@ describe("a bracket right after an amount (#2341)", () => {
     ],
     [
       "The pension scheme remains in deficit; its funding position is sixty-two thousand dollars ($62,000.00).",
-      EN,
-      [f("($62,000.00)", -62000, { unit: "USD" })],
-    ],
-    [
-      "The group recorded a small net loss. Its earnings were sixty-two thousand dollars ($62,000.00).",
       EN,
       [f("($62,000.00)", -62000, { unit: "USD" })],
     ],
@@ -3673,6 +3658,97 @@ describe("a bracket right after an amount (#2341)", () => {
   ];
   test.each(negatives)("%s keeps its sign", (text, context, figures) => {
     expect(readFigures(text, context).map(shape)).toEqual(figures);
+  });
+
+  // A word for a loss in another sentence than the amount's may be about something else ("The
+  // Landlord is not liable for any loss of business. The annual rent is …"): the sign is left open
+  // for the sentences to say, as "(250)" is (#3228). In the amount's own sentence it is the amount's.
+  const open: [text: string, context: FigureContext, figures: Expected[]][] = [
+    [
+      "The Landlord is not liable for any loss of business. The annual rent is ninety-five thousand dollars ($95,000.00).",
+      EN,
+      [f("($95,000.00)", 95000, { unit: "USD", ambiguous: ["sign"] })],
+    ],
+    [
+      "Fees are payable without deduction. The service fee is ninety-five thousand dollars ($95,000.00).",
+      EN,
+      [f("($95,000.00)", 95000, { unit: "USD", ambiguous: ["sign"] })],
+    ],
+    [
+      "出租方对营业损失不承担责任。月租金为人民币九万五千元（¥95,000）。",
+      ZH,
+      [
+        f("人民币九万五千元", 95000, { unit: "CNY" }),
+        f("（¥95,000）", 95000, { unit: "CNY", ambiguous: ["sign"] }),
+      ],
+    ],
+    [
+      "承租方自行承担经营亏损。租赁保证金为人民币九万五千元（¥95,000）。",
+      ZH,
+      [
+        f("人民币九万五千元", 95000, { unit: "CNY" }),
+        f("（¥95,000）", 95000, { unit: "CNY", ambiguous: ["sign"] }),
+      ],
+    ],
+    [
+      "Party A made a loss. Its result for the year was $2.6 million ($2,600,000).",
+      EN,
+      [
+        f("$2.6 million", 2600000, { unit: "USD", scale: "million" }),
+        f("($2,600,000)", 2600000, { unit: "USD", ambiguous: ["sign"] }),
+      ],
+    ],
+    [
+      "The subsidiary posted a net loss for the year. Its result was sixty-two thousand dollars ($62,000.00).",
+      EN,
+      [f("($62,000.00)", 62000, { unit: "USD", ambiguous: ["sign"] })],
+    ],
+    [
+      "The group recorded a small net loss. Its earnings were sixty-two thousand dollars ($62,000.00).",
+      EN,
+      [f("($62,000.00)", 62000, { unit: "USD", ambiguous: ["sign"] })],
+    ],
+    [
+      "The annual rent is ninety-five thousand dollars ($95,000.00). The Landlord is not liable for any loss of business.",
+      EN,
+      [f("($95,000.00)", 95000, { unit: "USD", ambiguous: ["sign"] })],
+    ],
+    [
+      "月租金为人民币九万五千元（¥95,000）。出租方对营业损失不承担责任。",
+      ZH,
+      [
+        f("人民币九万五千元", 95000, { unit: "CNY" }),
+        f("（¥95,000）", 95000, { unit: "CNY", ambiguous: ["sign"] }),
+      ],
+    ],
+  ];
+  // protects=a loss or deduction word in another sentence than the amount's leaves a bracket's sign open, in English and Chinese, before and after the amount (#3228); fails_when=such a word gives the bracket its minus again, or the amount reads as a figure with no question about its sign
+  test.each(open)("%s leaves its sign open", (text, context, figures) => {
+    expect(readFigures(text, context).map(shape)).toEqual(figures);
+  });
+
+  // protects=a loss word in the amount's own sentence, or any word that says below zero in the text around it, keeps the bracket's minus where another sentence's loss word does not (#3228)
+  test.each([
+    ["The loss for the year was sixty-two thousand dollars ($62,000.00).", 62000],
+    [
+      "The Landlord is not liable for any loss of business, and the annual rent is ninety-five thousand dollars ($95,000.00).",
+      95000,
+    ],
+    [
+      "The Landlord is not liable for any loss of business; the annual rent is ninety-five thousand dollars ($95,000.00).",
+      95000,
+    ],
+    [
+      "The balance was negative. The Landlord is not liable for any loss of business. It was ninety-five thousand dollars ($95,000.00).",
+      95000,
+    ],
+    [
+      "The Landlord is not liable for any loss of business. The annual rent is ninety-five thousand dollars ($95,000.00), less deposit.",
+      95000,
+    ],
+  ] as const)("%s keeps its minus", (text, amount) => {
+    const bracket = readFigures(text, EN).find((figure) => figure.chars.startsWith("("));
+    expect(bracket && [bracket.value, bracket.ambiguous.length]).toEqual([-amount, 0]);
   });
 
   const asides: [text: string, context: FigureContext, figures: Expected[]][] = [

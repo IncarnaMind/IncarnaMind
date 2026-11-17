@@ -422,7 +422,8 @@
     "expected": {
       "amount": "contradicted",
       "minus": "supported"
-    }
+    },
+    "reading": 2
   },
   {
     "id": "E03",
@@ -475,7 +476,8 @@
     "expected": {
       "amount": "contradicted",
       "minus": "supported"
-    }
+    },
+    "reading": 2
   },
   {
     "id": "F01",
@@ -490,9 +492,10 @@
       "minus": "supported"
     },
     "expected": {
-      "amount": "contradicted",
-      "minus": "supported"
-    }
+      "amount": "supported",
+      "minus": "contradicted"
+    },
+    "reading": 1
   },
   {
     "id": "F02",
@@ -508,9 +511,10 @@
       "minus": "supported"
     },
     "expected": {
-      "amount": "contradicted",
-      "minus": "supported"
-    }
+      "amount": "supported",
+      "minus": "contradicted"
+    },
+    "reading": 1
   },
   {
     "id": "F03",
@@ -525,9 +529,10 @@
       "minus": "supported"
     },
     "expected": {
-      "amount": "contradicted",
-      "minus": "supported"
-    }
+      "amount": "supported",
+      "minus": "contradicted"
+    },
+    "reading": 1
   },
   {
     "id": "F04",
@@ -543,9 +548,10 @@
       "minus": "supported"
     },
     "expected": {
-      "amount": "contradicted",
-      "minus": "supported"
-    }
+      "amount": "supported",
+      "minus": "contradicted"
+    },
+    "reading": 1
   },
   {
     "id": "G01",

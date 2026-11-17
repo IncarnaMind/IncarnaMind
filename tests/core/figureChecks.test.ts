@@ -3554,6 +3554,8 @@ interface SignProbe {
   amount: string;
   number: string;
   truth: "pos" | "neg";
+  /** Which of the figure's two readings (1 positive, 2 negative) the model gives, where the sign is left open (#3228). */
+  reading?: 1 | 2;
   main: Verdicts;
   expected: Verdicts;
 }
@@ -3591,10 +3593,72 @@ test.each(signProbes.flatMap((probe) => signs.map((sign) => ({ ...probe, sign })
       text: reply([
         {
           ...item(),
-          source: { citation: 1, number: probe.number, reading: null, unitQuote: null },
+          source: {
+            citation: 1,
+            number: probe.number,
+            reading: probe.reading ?? null,
+            unitQuote: null,
+          },
         },
       ]),
     });
+    expect(result.verdict).toBe(probe.expected[probe.sign]);
+  },
+);
+
+// protects=a loss or deduction word in another sentence than the bracketed amount's leaves its sign to the model: a reply that gives no reading ends Not checked for the amount and for its minus, never Contradicted or Supported by the code (#3228); fails_when=the check gives a verdict of its own on a sign it left open
+test.each(
+  signProbes
+    .filter((probe) => probe.reading !== undefined)
+    .flatMap((probe) => signs.map((sign) => ({ ...probe, sign }))),
+)("$id ($shape), $sign: a reply with no reading ends Not checked (#3228)", async (probe) => {
+  const shown = `${probe.sign === "minus" ? "-" : ""}${probe.amount}`;
+  const claim = probe.lang === "zh-CN" ? `金额为${shown}。` : `The amount is ${shown}.`;
+  const { result } = await checkWith({
+    claim,
+    figures: [target("f1", shown, claim, probe.lang)],
+    body: probe.body,
+    quotes: probe.quote ? [probe.quote] : undefined,
+    text: reply([
+      {
+        ...item(),
+        source: { citation: 1, number: probe.number, reading: null, unitQuote: null },
+      },
+    ]),
+  });
+  expect(result.verdict).toBe("not-checked");
+});
+
+// protects=the model is asked once for the reading of a bracketed amount whose sign a loss word in another sentence leaves open, is told both readings, and its answer decides the verdict (#3228); fails_when=the question isn't asked, is asked twice, or the verdict isn't the model's
+test.each(
+  signProbes
+    .filter((probe) => probe.reading !== undefined)
+    .flatMap((probe) => signs.map((sign) => ({ ...probe, sign }))),
+)(
+  "$id ($shape), $sign: the model is asked for the reading once, and its answer decides (#3228)",
+  async (probe) => {
+    const shown = `${probe.sign === "minus" ? "-" : ""}${probe.amount}`;
+    const claim = probe.lang === "zh-CN" ? `金额为${shown}。` : `The amount is ${shown}.`;
+    const source = (reading: 1 | 2 | null) => ({
+      citation: 1,
+      number: probe.number,
+      reading,
+      unitQuote: null,
+    });
+    const { result, calls } = await checkWith({
+      claim,
+      figures: [target("f1", shown, claim, probe.lang)],
+      body: probe.body,
+      quotes: probe.quote ? [probe.quote] : undefined,
+      text: reply([{ ...item(), source: source(null) }]),
+      askedAgain: {
+        note: "may be negative; give reading",
+        text: reply([{ ...item(), source: source(probe.reading ?? null) }]),
+      },
+    });
+    const asked = calls.filter((call) => call.prompt.includes("may be negative; give reading"));
+    expect(asked).toHaveLength(1);
+    expect(asked[0]?.prompt).toMatch(/1 for [^,]*\d, 2 for [^.]*-\d/);
     expect(result.verdict).toBe(probe.expected[probe.sign]);
   },
 );
