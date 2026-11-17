@@ -1185,7 +1185,7 @@
        },
        "times_as_long": {
         "type": "number",
-        "description": "Give it on every call: how long the new text should be, as a multiple of the text now, only from an amount in the User's words: 1.5 for \"a bit longer\", 2 for \"twice as long\", 0.5 for \"half as long\". Give 1 when they name no amount, \"shorter\" or \"longer\" alone included: never a multiple you chose yourself."
+        "description": "Give it on every call: how long the new text should be, as a multiple of the text now, from how much the User's words ask for: 1.5 for \"a little\", \"a bit\" or \"slightly\" longer or more detailed, 2 for \"twice as long\", 0.5 for \"half as long\". When their words give no amount at all, only \"shorter\" or \"longer\", give 1: never a multiple you chose yourself."
        },
        "removes_only": {
         "type": "boolean",
@@ -1732,7 +1732,7 @@
        },
        "times_as_long": {
         "type": "number",
-        "description": "Give it on every call: how long the new text should be, as a multiple of the text now, only from an amount in the User's words: 1.5 for \"a bit longer\", 2 for \"twice as long\", 0.5 for \"half as long\". Give 1 when they name no amount, \"shorter\" or \"longer\" alone included: never a multiple you chose yourself."
+        "description": "Give it on every call: how long the new text should be, as a multiple of the text now, from how much the User's words ask for: 1.5 for \"a little\", \"a bit\" or \"slightly\" longer or more detailed, 2 for \"twice as long\", 0.5 for \"half as long\". When their words give no amount at all, only \"shorter\" or \"longer\", give 1: never a multiple you chose yourself."
        },
        "removes_only": {
         "type": "boolean",
@@ -2312,7 +2312,7 @@
        },
        "times_as_long": {
         "type": "number",
-        "description": "Give it on every call: how long the new text should be, as a multiple of the text now, only from an amount in the User's words: 1.5 for \"a bit longer\", 2 for \"twice as long\", 0.5 for \"half as long\". Give 1 when they name no amount, \"shorter\" or \"longer\" alone included: never a multiple you chose yourself."
+        "description": "Give it on every call: how long the new text should be, as a multiple of the text now, from how much the User's words ask for: 1.5 for \"a little\", \"a bit\" or \"slightly\" longer or more detailed, 2 for \"twice as long\", 0.5 for \"half as long\". When their words give no amount at all, only \"shorter\" or \"longer\", give 1: never a multiple you chose yourself."
        },
        "removes_only": {
         "type": "boolean",
@@ -2852,7 +2852,7 @@
        },
        "times_as_long": {
         "type": "number",
-        "description": "Give it on every call: how long the new text should be, as a multiple of the text now, only from an amount in the User's words: 1.5 for \"a bit longer\", 2 for \"twice as long\", 0.5 for \"half as long\". Give 1 when they name no amount, \"shorter\" or \"longer\" alone included: never a multiple you chose yourself."
+        "description": "Give it on every call: how long the new text should be, as a multiple of the text now, from how much the User's words ask for: 1.5 for \"a little\", \"a bit\" or \"slightly\" longer or more detailed, 2 for \"twice as long\", 0.5 for \"half as long\". When their words give no amount at all, only \"shorter\" or \"longer\", give 1: never a multiple you chose yourself."
        },
        "removes_only": {
         "type": "boolean",
@@ -3423,7 +3423,7 @@
        },
        "times_as_long": {
         "type": "number",
-        "description": "Give it on every call: how long the new text should be, as a multiple of the text now, only from an amount in the User's words: 1.5 for \"a bit longer\", 2 for \"twice as long\", 0.5 for \"half as long\". Give 1 when they name no amount, \"shorter\" or \"longer\" alone included: never a multiple you chose yourself."
+        "description": "Give it on every call: how long the new text should be, as a multiple of the text now, from how much the User's words ask for: 1.5 for \"a little\", \"a bit\" or \"slightly\" longer or more detailed, 2 for \"twice as long\", 0.5 for \"half as long\". When their words give no amount at all, only \"shorter\" or \"longer\", give 1: never a multiple you chose yourself."
        },
        "removes_only": {
         "type": "boolean",
@@ -4027,7 +4027,7 @@
        },
        "times_as_long": {
         "type": "number",
-        "description": "Give it on every call: how long the new text should be, as a multiple of the text now, only from an amount in the User's words: 1.5 for \"a bit longer\", 2 for \"twice as long\", 0.5 for \"half as long\". Give 1 when they name no amount, \"shorter\" or \"longer\" alone included: never a multiple you chose yourself."
+        "description": "Give it on every call: how long the new text should be, as a multiple of the text now, from how much the User's words ask for: 1.5 for \"a little\", \"a bit\" or \"slightly\" longer or more detailed, 2 for \"twice as long\", 0.5 for \"half as long\". When their words give no amount at all, only \"shorter\" or \"longer\", give 1: never a multiple you chose yourself."
        },
        "removes_only": {
         "type": "boolean",
