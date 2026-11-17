@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { FillLine } from "../../src/core/meetings/fillPrompt";
-import { headingRoutes } from "../../src/core/meetings/headingRoutes";
+import { headingRoutes, unansweredLines } from "../../src/core/meetings/headingRoutes";
 
 const oneHeading: readonly FillLine[] = [
   { marker: "H1", text: "通话后的工作", heading: true },
@@ -375,5 +375,38 @@ describe("Meeting heading routes (#2306)", () => {
 
   test("an empty reply without generated sections has no heading routes", () => {
     expect(headingRoutes("", [], twoHeadings)).toEqual(new Map());
+  });
+});
+
+// protects=the typed lines a reply says its transcript doesn't answer are read from its one control line, in the forms a model writes it, and a reply that doesn't say, says it twice, or names anything but an ordinary line says nothing of any line, so "Not mentioned in the call." is never written on a guess; fails_when=a heading, an unknown line or a second control line still yields a list, or a plain list isn't read
+describe("The lines a reply says the call doesn't answer", () => {
+  const frames = "### FACT P1_F1\nA cited fact.\n### END P1_F1";
+
+  test.each([
+    ["UNANSWERED: L2", ["L2"]],
+    ["UNANSWERED: L1 L2", ["L1", "L2"]],
+    ["UNANSWERED：L1、L2。", ["L1", "L2"]],
+    ["unanswered: l2, l1.", ["L2", "L1"]],
+    ["**UNANSWERED:** `L2`", ["L2"]],
+    ["- UNANSWERED: NONE", []],
+    ["HEADINGS: H1=ACTIONS H2=NONE\nUNANSWERED: L1", ["L1"]],
+  ] as const)("%j is read", (line, listed) => {
+    expect(unansweredLines(`${line}\n\n${frames}`, twoHeadings)).toEqual(new Set(listed));
+  });
+
+  test.each([
+    ["no control line", ""],
+    ["an empty one", "UNANSWERED:"],
+    ["two of them", "UNANSWERED: L1\nUNANSWERED: L2"],
+    ["a heading", "UNANSWERED: H1"],
+    ["a line the User never typed", "UNANSWERED: L1 L9"],
+    ["NONE beside a line", "UNANSWERED: NONE L1"],
+    ["words", "UNANSWERED: the second line"],
+  ] as const)("%s says nothing of any line", (_, line) => {
+    expect(unansweredLines(`${line}\n\n${frames}`, twoHeadings)).toBeNull();
+  });
+
+  test("a control line after the first frame is not read", () => {
+    expect(unansweredLines(`${frames}\n\nUNANSWERED: L1`, twoHeadings)).toBeNull();
   });
 });

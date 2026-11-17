@@ -41,6 +41,8 @@ function fact(text: string, changes: Partial<MeetingFact> = {}): MeetingFact {
 
 const reference = (topic: string, direction: "above" | "below") => `${topic}: see ${direction}.`;
 
+const NOT_MENTIONED = "Not mentioned in the call.";
+
 const input = (
   facts: readonly MeetingFact[],
   changes: Partial<FactPlacementInput> = {},
@@ -52,6 +54,8 @@ const input = (
   topicHeadings: [],
   claims: new Set<string>(),
   reference,
+  unanswered: new Set<string>(),
+  notMentioned: NOT_MENTIONED,
   ...changes,
 });
 
@@ -814,5 +818,27 @@ describe("Meeting fact placement (#2306)", () => {
     expect({ ...request, reference: null }).toEqual(before);
     expect(placeFacts(request)).toEqual(placed);
     expect(placed.sections.get("actions")?.[0]).toBe(accepted.body);
+  });
+  // protects=a typed line the model lists as unanswered, with nothing placed under it, gets the one fixed sentence, AI-marked and without a Citation; a line with a fact or a pointer under it gets none, whatever the list says, and neither does an unlisted line or a heading; fails_when=the sentence appears under a line that has a fact or a pointer, under an unlisted line or a heading, or carries a Citation or no AI mark
+  test("a line the model lists as unanswered gets the one sentence, unless something is placed under it", () => {
+    const lines = [
+      { marker: "H1", heading: true, ancestors: [] },
+      { marker: "L1", heading: false, ancestors: ["H1"] },
+      { marker: "L2", heading: false, ancestors: ["H1"] },
+      { marker: "L3", heading: false, ancestors: ["H1"] },
+      { marker: "L4", heading: false, ancestors: ["H1"] },
+    ];
+    const answer = fact("The fee is 4%.", { id: "F1", lines: ["L1"], sections: [] });
+    const action = fact("Dana sends the contract.", { id: "F2", lines: ["L2"] });
+    const placed = placeFacts(
+      input([answer, action], { lines, unanswered: new Set(["H1", "L1", "L2", "L3"]) }),
+    );
+    expect([...placed.lines.keys()].sort()).toEqual(["L1", "L2", "L3"]);
+    expect(placed.lines.get("L1")?.map(textOf)).toEqual(["The fee is 4%."]);
+    expect(placed.lines.get("L2")?.map(textOf)).toEqual(["Contract: see below. "]);
+    const sentence = placed.lines.get("L3") ?? [];
+    expect(sentence.map(textOf)).toEqual([NOT_MENTIONED]);
+    expect(sentence.flatMap(citationsOf)).toEqual([]);
+    expect(sentence[0]?.content?.[0]?.marks).toEqual([{ type: GENERATED_MARK }]);
   });
 });

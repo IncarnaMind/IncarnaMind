@@ -11,6 +11,45 @@ function unwrapped(value: string): string {
   }
 }
 
+/** What each `name:` control line before the reply's first frame declares. */
+function declared(markdown: string, name: string): string[] {
+  const preamble = markdown.split(/^ {0,3}#{1,6}(?:[ \t]|$)/m, 1)[0] ?? "";
+  const line = new RegExp(
+    `^(?:${name}[ \\t]*[:：]|(\`+|\\*\\*)${name}(?:[ \\t]*[:：]\\1|\\1[ \\t]*[:：]))[ \\t]*(.*)$`,
+    "i",
+  );
+  return preamble.split(/\r?\n/).flatMap((each) => {
+    const match = line.exec(unwrapped(unwrapped(each).replace(/^-[ \t]+/, "")));
+    return match ? [match[2] ?? ""] : [];
+  });
+}
+
+const entriesOf = (declaration: string): string[] =>
+  declaration.trim()
+    ? unwrapped(unwrapped(declaration).replace(/[.。]$/, ""))
+        .replace(/\s*[=＝]\s*/g, "=")
+        .split(/\s*[,，、|]\s*|\s+/)
+        .map(unwrapped)
+    : [];
+
+/**
+ * The ordinary lines a reply says its transcript doesn't answer. Null when the reply doesn't say,
+ * or says it in a way that can't be read: then nothing is known of any line.
+ */
+export function unansweredLines(
+  markdown: string,
+  lines: readonly FillLine[],
+): ReadonlySet<string> | null {
+  const declarations = declared(markdown, "UNANSWERED");
+  const [declaration] = declarations;
+  if (declaration === undefined || declarations.length > 1) return null;
+  const ordinary = new Set(lines.filter((line) => !line.heading).map((line) => line.marker));
+  const entries = entriesOf(declaration).map((entry) => entry.toUpperCase());
+  if (entries.length === 0) return null;
+  if (entries.length === 1 && entries[0] === "NONE") return new Set();
+  return entries.every((entry) => ordinary.has(entry)) ? new Set(entries) : null;
+}
+
 /** Null rejects invalid or incomplete routing; an empty map keeps default section placement. */
 export function headingRoutes(
   markdown: string,
@@ -19,26 +58,12 @@ export function headingRoutes(
 ): Map<FillSection, string> | null {
   const headings = new Set(lines.filter((line) => line.heading).map((line) => line.marker));
   const choices = new Map<string, FillSection | null>();
-  const preamble = markdown.split(/^ {0,3}#{1,6}(?:[ \t]|$)/m, 1)[0] ?? "";
-  const declarations = preamble.split(/\r?\n/).flatMap((line) => {
-    const text = unwrapped(unwrapped(line).replace(/^-[ \t]+/, ""));
-    const match =
-      /^(?:HEADINGS[ \t]*[:：]|(`+|\*\*)HEADINGS(?:[ \t]*[:：]\1|\1[ \t]*[:：]))[ \t]*(.*)$/i.exec(
-        text,
-      );
-    return match ? [match[2] ?? ""] : [];
-  });
+  const declarations = declared(markdown, "HEADINGS");
   if (declarations.length > 1) return null;
   const declaration = declarations[0];
   if (declaration !== undefined) {
-    const entries = unwrapped(unwrapped(declaration).replace(/[.。]$/, "")).replace(
-      /\s*[=＝]\s*/g,
-      "=",
-    );
-    for (const entry of declaration.trim() ? entries.split(/\s*[,，|]\s*|\s+/) : []) {
-      const match = /^(H\d+)=(SUMMARY|DECISIONS|ACTIONS|QUESTIONS|CLAIMS|NONE)$/i.exec(
-        unwrapped(entry),
-      );
+    for (const entry of entriesOf(declaration)) {
+      const match = /^(H\d+)=(SUMMARY|DECISIONS|ACTIONS|QUESTIONS|CLAIMS|NONE)$/i.exec(entry);
       const heading = match?.[1]?.toUpperCase();
       const value = match?.[2]?.toUpperCase();
       if (!heading || !value || !headings.has(heading) || choices.has(heading)) return null;
