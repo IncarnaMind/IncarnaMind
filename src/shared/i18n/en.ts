@@ -1370,7 +1370,7 @@ export const en = {
   "claim.chooseCitation": "Choose the Citation…",
   "claim.chooseCitation.keywords": "point to the source cite select words",
   "claim.chooseCitation.purpose":
-    "Opens a Document beside the Note for the User to select the words that are the Citation of a sentence: use it when the User says where a sentence's source is, and give the page when they name one",
+    "Opens a Document beside the note to pick the words that cite a sentence; give the page when the User names one",
   "claim.chooseCitation.hint": "Select the words that say this",
   "claim.chooseCitation.hintCells": "Select the cells that say this",
   "claim.chooseCitation.for": "For “{sentence}”",

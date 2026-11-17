@@ -335,7 +335,7 @@ export function commandTools(options: CommandToolsOptions): {
           type: "integer",
           minimum: 1,
           description:
-            'check.chooseCitation only: the page of the Document the User names as the source ("p. 4", "第4页"); left out when they name none.',
+            'check.chooseCitation only: the page the User names ("p. 4", "第4页"); never one you found yourself.',
         },
         setting: { type: "string", enum: SETTING_NAMES },
         value: { type: "string" },
