@@ -733,6 +733,8 @@ export interface ListedDocuments {
 export interface LibraryDocuments {
   /** How many live Documents the Library holds: every one it lists, searchable or not. */
   total: number;
+  /** The Documents among them that couldn't be read, which no search finds anything in (#2525). */
+  unread?: readonly UnreadFile[];
 }
 
 /** A Document name on one line of its own, and not too long. */
@@ -820,11 +822,30 @@ function documentNames({ total, names }: ListedDocuments): string {
 }
 
 /**
+ * The Library's Documents that couldn't be read, by name and why, for a model asked which
+ * Documents there are: its count includes them, but the names it is given are of those it can
+ * search (#2525). Empty when there are none.
+ */
+function unreadInLibrary(unread: readonly UnreadFile[]): string {
+  const whole = unread.filter(
+    (file): file is UnreadFile & { reason: WholeReason } =>
+      file.documentId !== null && file.reason !== "parts",
+  );
+  if (whole.length === 0) return "";
+  const named = whole
+    .slice(0, NAMED_UNREAD)
+    .map((file) => `"${listedName(file.name)}" (${UNREAD_WORDS[file.reason](file.pages)})`);
+  const more = whole.length - named.length;
+  const them = whole.length === 1 ? "it" : "them";
+  return ` The Library also holds ${whole.length === 1 ? "a Document" : `${whole.length} Documents`} IncarnaMind couldn't read, so no search finds anything in ${them}: ${named.join(", ")}${more > 0 ? `, and ${more} more` : ""}. When asked which Documents there are, name ${them} too, with why.`;
+}
+
+/**
  * The Library's own count, when it holds more Documents than this Answer can use (#1333):
  * told only its scope's one, models said the Library held one.
  */
-function libraryNote(library: number, scoped: boolean): string {
-  return `Never say the Library holds fewer Documents than ${library}. When the Question names more Documents than ${scoped ? "the Search scope" : "this Answer"} can use, say in one sentence which you used and why, or ask which ones in one line.`;
+function libraryNote(library: LibraryDocuments, scoped: boolean): string {
+  return `Never say the Library holds fewer Documents than ${library.total}. When the Question names more Documents than ${scoped ? "the Search scope" : "this Answer"} can use, say in one sentence which you used and why, or ask which ones in one line.${unreadInLibrary(library.unread ?? [])}`;
 }
 
 /** How many Documents the User has, the Library's whole count when it is more than `listed` (#1333). */
@@ -873,7 +894,7 @@ export function documentInstructions(
     setAsideRowsNote(passages),
   ].filter(Boolean);
   const added = addedLine(listed.total, library.total, scoped);
-  const rest = library.total > listed.total ? [libraryNote(library.total, scoped)] : [];
+  const rest = library.total > listed.total ? [libraryNote(library, scoped)] : [];
   switch (mode) {
     case "no-documents":
       return "";
