@@ -283,7 +283,7 @@ async function verdictOf(
     // workings saying it take the card instead, so their check asks for no quote.
     const quoted =
       nearest ||
-      (!why.kind && (!why.covered || !why.uncovered)) ||
+      (!why.kind && !why.unconfirmed && (!why.covered || !why.uncovered)) ||
       (request.cited?.length ?? 0) > 0 ||
       court.missing ||
       workingsSayingIt().length > 0
@@ -481,6 +481,9 @@ async function verdictOf(
     return unsupported({ ...UNBACKED, reason: verdict.says });
   }
   if (verdict.verdict === "contradicted") {
+    // Not upheld, the contradiction's card says so, then what the check found and the quote it
+    // rested on (#2184).
+    const notUpheld: UnsupportedReason = { ...UNBACKED, reason: verdict.says, unconfirmed: true };
     // The judgements disagree with the check: the card shows the part the quote states
     // (DESIGN.md › Checks).
     const inDoubt = async (): Promise<ClaimCheckResult> => {
@@ -489,7 +492,7 @@ async function verdictOf(
       const part = await parts(deciding);
       if (signal.aborted) return notChecked("stopped");
       if (isFailed(part)) return failedCheck(part.failed);
-      if (!part.covered || !part.uncovered) return unsupported(UNBACKED);
+      if (!part.covered || !part.uncovered) return unsupported(notUpheld, evidence);
       // A judgement has just compared this very quote with the sentence: no nearest line.
       return unsupported({ reason: verdict.says, ...part, found: true }, evidence, null);
     };
@@ -498,9 +501,8 @@ async function verdictOf(
     if (confirmation.kind === "stopped") return notChecked("stopped");
     // The Passage is about something else: what is nearest may still say something different.
     if (confirmation.kind === "unrelated") {
-      return unit
-        ? unsupported(unit, unitProblem?.quote ?? null, null)
-        : unsupported(verdict.topic === "not found" ? undefined : UNBACKED);
+      if (unit) return unsupported(unit, unitProblem?.quote ?? null, null);
+      return verdict.topic === "not found" ? unsupported() : unsupported(notUpheld, evidence);
     }
     // A part whose quote states it on its own, and whose own Roles, Time, Duty, Condition and
     // Scope agree: the reply's contradiction was about words outside the part, as a sentence's

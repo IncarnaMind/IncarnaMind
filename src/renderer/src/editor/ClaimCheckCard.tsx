@@ -939,13 +939,24 @@ export function ClaimCard({
     state === "unsupported" && !differs && !fixes && !decisionMissing && !ownWorkings
       ? coveredPart(check.unsupported)
       : null;
+  // A contradiction the check couldn't confirm: that line, what the check found, its quote (#2184).
+  const unconfirmed =
+    state === "unsupported" &&
+    !differs &&
+    !fixes &&
+    !decisionMissing &&
+    !ownWorkings &&
+    !covers &&
+    check.unsupported?.unconfirmed
+      ? check.unsupported
+      : null;
   const awaiting = foundElsewhere(claim);
   const evidence =
     (decided && fromPassage) || differs
       ? check.evidence
       : awaiting
         ? claim.check.evidence
-        : (covers?.quoted ?? null);
+        : (covers?.quoted ?? unconfirmed?.quoted ?? null);
   // A figure's Contradicted is a comparison with the number it is bound to, not a reading of
   // what a passage says: the card shows that number and where it is, to check at a glance.
   const mismatched =
@@ -1692,6 +1703,18 @@ export function ClaimCard({
                 })}
               </p>
             )}
+            {unconfirmed && (
+              <>
+                <p data-testid="claim-not-confirmed" className="claim-card-says">
+                  {t("claim.unsupported.notConfirmed")}
+                </p>
+                {unconfirmed.reason && (
+                  <p data-testid="claim-why" className="claim-card-says">
+                    {unconfirmed.reason}
+                  </p>
+                )}
+              </>
+            )}
             {ownNoteOnly && (
               <p data-testid="claim-own-note" className="citation-card-note">
                 {t("claim.ownSource")}
@@ -1883,6 +1906,7 @@ export function ClaimCard({
               )}
               {!fixes &&
                 !covers &&
+                !unconfirmed &&
                 !ownWorkings &&
                 !nothingFound &&
                 (check.unsupported?.reason || check.unsupported?.found) && (

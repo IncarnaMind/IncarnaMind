@@ -222,6 +222,7 @@ export function readUnsupportedReason(value: unknown): UnsupportedReason | null 
     covered: text(value.covered),
     uncovered: text(value.uncovered),
     ...(value.found === true && { found: true }),
+    ...(value.unconfirmed === true && { unconfirmed: true }),
     ...(isRecord(value.quoted) && { quoted: value.quoted as unknown as CitationAttributes }),
     ...(Array.isArray(value.missing) && {
       missing: value.missing.filter((each): each is string => typeof each === "string"),
