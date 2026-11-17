@@ -29,7 +29,7 @@ const CASES = [
     says: "The tenancy gives that to the other party.",
     bare: "Unsupported by your Documents.",
     reasoned: "Unsupported: ",
-    notConfirmed: "Unsupported: a Passage may say otherwise, but the check couldn’t confirm it. ",
+    notConfirmed: "Unsupported: a passage may say otherwise, but the check couldn’t confirm it. ",
   },
   {
     language: "zh-CN",
@@ -193,7 +193,7 @@ describe.each(CASES)("an Unsupported claim says why ($language)", (example) => {
     },
   );
 
-  // protects=the Word comment of an Unsupported claim is never the bare line: a contradiction not upheld says a Passage may say otherwise and gives the check's words, another reason gives its words, or the nearest line the check found (#2184); fails_when=the comment is "Unsupported by your Documents." or the not-confirmed line leads another reason
+  // protects=the Word comment of an Unsupported claim is never the bare line: a contradiction not upheld says a passage may say otherwise and gives the check's words, another reason gives its words, or the nearest line the check found (#2184); fails_when=the comment is "Unsupported by your Documents." or the not-confirmed line leads another reason
   test.each(SCENARIOS(example))(
     "$name: its Word comment says why",
     async ({ sentence, plan, word }) => {

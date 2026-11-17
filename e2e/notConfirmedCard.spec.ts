@@ -19,7 +19,7 @@ import {
 } from "./app";
 
 /**
- * A contradiction the check couldn't confirm (#2184): the card says a Passage may say otherwise,
+ * A contradiction the check couldn't confirm (#2184): the card says a passage may say otherwise,
  * then what the check found, then the quote it rested on, never a bare Unsupported. The scripted
  * model finds the sentence contradicted (a number the line doesn't write), then judges its
  * confirmation neither, as it does a sentence that says "not confirmed".
@@ -41,7 +41,7 @@ const TIDES = buildPdf([
 const SENTENCE = "Harbours publish the times of high water every 6 months, not confirmed.";
 
 const WORDS = {
-  en: { line: "A Passage may say otherwise, but the check couldn’t confirm it." },
+  en: { line: "A passage may say otherwise, but the check couldn’t confirm it." },
   "zh-CN": { line: "有段落的说法可能与此不同，但核对未能确认。" },
 } as const;
 

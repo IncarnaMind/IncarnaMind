@@ -1415,7 +1415,7 @@ export const en = {
     "Your Documents support {covered}, not the parts about {uncovered}.",
   "claim.unsupported.noReason": "The check gave no reason",
   "claim.unsupported.notConfirmed":
-    "A Passage may say otherwise, but the check couldn’t confirm it.",
+    "A passage may say otherwise, but the check couldn’t confirm it.",
   "claim.unsupported.dontMention": "Your Documents don’t mention: {parts}",
   "claim.unsupported.dontMention.separator": ", ",
   "claim.unsupported.currency.reason": "The Document gives {amount} without a currency.",
@@ -5396,9 +5396,9 @@ export const en = {
   "export.comment.sentence.placed": "{said} ({source})",
   "export.comment.sentence.unsupported.reason": "Unsupported: {reason}",
   "export.comment.sentence.unsupported.notConfirmed":
-    "Unsupported: a Passage may say otherwise, but the check couldn’t confirm it.",
+    "Unsupported: a passage may say otherwise, but the check couldn’t confirm it.",
   "export.comment.sentence.unsupported.notConfirmed.reason":
-    "Unsupported: a Passage may say otherwise, but the check couldn’t confirm it. {reason}",
+    "Unsupported: a passage may say otherwise, but the check couldn’t confirm it. {reason}",
   "export.comment.sentence.unsupported.plain": "Unsupported by your Documents.",
   "export.comment.sentence.notFound": "Not found: I didn’t find this in “{scope}”.",
   "export.comment.sentence.notFound.more":

@@ -1,6 +1,6 @@
 /**
  * A contradiction the check couldn't confirm keeps a card that says something (#2184): the line
- * that a Passage may say otherwise, the check's own explanation, then the quote it rested on. With
+ * that a passage may say otherwise, the check's own explanation, then the quote it rested on. With
  * no explanation to show, the line and the quote alone; never a bare Unsupported.
  */
 import { Editor, type JSONContent } from "@tiptap/core";
@@ -28,7 +28,7 @@ const CASES = [
   {
     language: "en",
     sentence: "The Council pays the Tenant a rent of 85 per year.",
-    line: "A Passage may say otherwise, but the check couldn’t confirm it.",
+    line: "A passage may say otherwise, but the check couldn’t confirm it.",
     reason: "The tenancy says the Tenant pays the Council, not the other way round.",
   },
   {
@@ -216,7 +216,7 @@ async function card(language: string, sentence: string, unsupported: Why) {
 }
 
 describe.each(CASES)("a contradiction the check couldn't confirm ($language)", (example) => {
-  // protects=an Unsupported card from a contradiction its confirmation didn't uphold says that a Passage may say otherwise, then the check's explanation, then its quote (#2184); fails_when=the line is missing, or the explanation or the quote comes before it
+  // protects=an Unsupported card from a contradiction its confirmation didn't uphold says that a passage may say otherwise, then the check's explanation, then its quote (#2184); fails_when=the line is missing, or the explanation or the quote comes before it
   test("says so, then what the check found, then its quote", async () => {
     const shown = await card(example.language, example.sentence, NOT_UPHELD(example.reason));
     expect(shown).toEqual({
