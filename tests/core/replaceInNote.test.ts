@@ -233,6 +233,18 @@ describe("A small change as an exact replacement", { timeout: 30_000 }, () => {
     expect(paragraphs[3]).toContain("two months of rent");
   });
 
+  // protects=a part the Note doesn't hold doesn't stop a swap, since the words alone find their place; fails_when=a swap is refused for a paragraph label it was given
+  test("a part the Note doesn't hold is ignored", async () => {
+    const model = swapModel([{ old: "£41,500 a year", now: "£43,000 a year", part: "Salary" }]);
+
+    const { answer, paragraphs } = await askToSwap(model, "The salary is now £43,000.");
+
+    expect(mindCalls(answer).map((call) => call.status)).toEqual(["done"]);
+    expect(paragraphs[0]).toBe(
+      "The salary is £43,000 a year, paid monthly. The notice is one month.",
+    );
+  });
+
   // protects=words as written across a Citation's place aren't found, and the refusal shows the paragraph with its marker so the model can try again; fails_when=the Citation is dropped or moved
   test("words across a Citation are not found, and the refusal shows the paragraph", async () => {
     const model = swapModel([

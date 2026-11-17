@@ -1449,8 +1449,8 @@ export function createEdits(options: EditsOptions) {
         const { selection } = draft;
         if (selection.text === "") return nothing({ kind: "unchanged" });
         if (selection.characters > MAX_SELECTION_CHARACTERS) return nothing({ kind: "too-long" });
-        // A replacement is the paragraph as it reads with the swap made, given in place of a
-        // model's reply: it is there once and holds no Citation, or the text changed since it was found.
+        // A replacement is the paragraph as it reads with the swap made, given in place of a model's
+        // reply. The words are there once when the tool finds them; if not, the text changed since.
         const swapped = selection.swapped;
         if (input.replace && (!swapped || swapped.count !== 1 || swapped.crosses)) {
           return nothing({ kind: "changed" });

@@ -2909,7 +2909,8 @@ export function mindTools(options: MindToolsOptions): {
       const named = minds.read(mind.id, (blocks) =>
         stretchOf(blocks, part, options.language, selected, options.paragraph),
       );
-      if ("why" in named) {
+      // Words to replace need no paragraph named: a part the Note doesn't hold only narrows nothing.
+      if ("why" in named && !swap) {
         throw new Refusal(
           named.kind === "no-heading"
             ? { kind: "no-heading", mindId: mind.id, heading: part ?? "" }
@@ -2920,8 +2921,8 @@ export function mindTools(options: MindToolsOptions): {
         );
       }
       const stretch: Stretch = swap
-        ? exactStretch(mind, swap, part === null ? null : named)
-        : named;
+        ? exactStretch(mind, swap, part === null || "why" in named ? null : named)
+        : (named as Stretch);
       const place = minds.read(mind.id, (blocks) => placeOf(blocks, stretch));
       const waiting = minds.read(mind.id, (blocks) =>
         waitingIn(blocks, stretch.from, stretch.to, ownRequests),
