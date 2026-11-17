@@ -29,6 +29,25 @@
  * Sonnet Chinese 0. The 22 Unsupported name a part the Document doesn't state ("should still be",
  * "as a stand-in", the definition of cover, the covenant's test basis), the #1708 family.
  *
+ * The hedge and framing sentences of #3258, 2026-11-17: tests/live/framingRepliesCapture.live.test.ts
+ * keeps the replies. On `main` the four sentences read Supported 15 of 40 (above). Where the verdict
+ * is lowered, in Haiku 5.5's and Sonnet 5.5's own replies: (1) the limit sentences ("leverage should
+ * still be inside the 3.25x covenant", 仍应在): the reply says Supported with "Duty: should / must
+ * not, same", the code reads its own two sides as different duties and asks again, and the second
+ * reply says "differs"; and a "Not covered:" line about the hedge or the derivation ("a
+ * forward-looking statement that leverage will remain inside the covenant"); (2) the cover sentence
+ * "Using finance costs of (41.2) as a stand-in": "Condition: using ... as a stand-in / none" is asked
+ * again and read "differs" (Sonnet English); (3) Haiku ends Not checked (no evidence) when its
+ * calculation is never recorded or never called, and the Chinese cover has a "Not covered: the
+ * ratio's label".
+ * A change to the Duty line alone (an example, "Duty: none / must not, same" for a forecast with
+ * should, and a sentence in the ask about a denied same; not merged) moved the limit sentences only
+ * a little: Supported of 15 checks on Haiku 5.5, English 4 of 15 against 0 of 15 on `main`, Chinese 7
+ * against 5, none Contradicted; with the Condition line changed as well, 6 and 9. Bar 1 (4 of 5 each)
+ * was missed, so the guards (the held-out near copies, US$1.60) were not run and the change not
+ * shipped. The first run's 4 of 5 on both was luck, which drawing `main` 10 times each, in turn with
+ * the branch, showed. Spend US$0.55.
+ *
  * - INCARNAMIND_LIVE_RUNS: how many times each sentence is checked (1 when unset).
  * - INCARNAMIND_LIVE_DECOY_RUNS: how many times each decoy is (INCARNAMIND_LIVE_RUNS when unset).
  * - INCARNAMIND_LIVE_LANGUAGES: "en", "zh" or both ("en,zh" when unset).
