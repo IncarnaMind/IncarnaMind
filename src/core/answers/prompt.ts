@@ -1071,28 +1071,36 @@ export const quoteRetryPrompt = (records: readonly QuoteToRetry[]): string =>
  * sentence of it matches one: the one request for its Citations (see
  * ./unmarkedQuotes).
  */
-const citeRetryInstructions = (more: readonly string[] = []) =>
-  [
-    "You add the Citations an Answer left out. The Answer was written from the Passages below, but none of its sentences says which Passage it comes from.",
-    "- For each sentence of the Answer that a Passage supports, give the sentence as the Answer has it, the Passage's id, and a quote from the Passage that supports it: one unbroken stretch, copied character for character, no longer than a sentence. Don't reword, translate, join sentences, change characters or leave words out.",
-    ...more,
-    "- Leave out sentences that no Passage supports. Don't change the Answer.",
-    'Reply with one JSON object: {"citations": [{"sentence": "…", "passage": "P1", "quote": "…"}]}, or {"citations": []} if no Passage supports any sentence.',
-  ].join("\n");
+const CITE_RETRY_ITEM =
+  "give the sentence as the Answer has it, the Passage's id, and a quote from the Passage that supports it: one unbroken stretch, copied character for character, no longer than a sentence. Don't reword, translate, join sentences, change characters or leave words out.";
+const CITE_RETRY_REPLY =
+  'Reply with one JSON object: {"citations": [{"sentence": "…", "passage": "P1", "quote": "…"}]}';
 
-export const CITE_RETRY_INSTRUCTIONS = citeRetryInstructions();
+export const CITE_RETRY_INSTRUCTIONS = [
+  "You add the Citations an Answer left out. The Answer was written from the Passages below, but none of its sentences says which Passage it comes from.",
+  `- For each sentence of the Answer that a Passage supports, ${CITE_RETRY_ITEM}`,
+  "- Leave out sentences that no Passage supports. Don't change the Answer.",
+  `${CITE_RETRY_REPLY}, or {"citations": []} if no Passage supports any sentence.`,
+].join("\n");
 
 /**
  * The same request for a Meeting fill's reply, whose sentences hold markers with no record. A fact
  * is kept only with a record for each of its markers, and asked by sentence a model gives a
  * sentence with two markers one quote. The Summary's sentences name outcomes in general words, so
  * no one line says them: left to "sentences a Passage supports", a model skipped them, and the
- * Summary was left out (#3145).
+ * Summary was left out (#3145). Told to give them an item and still to leave out what no Passage
+ * supports, Claude Haiku 5.5 gave a Summary sentence no item of its own, skipping it or joining
+ * it to the next one, in 7 of 42 replays of such replies (#3013): a fill's request asks for every
+ * sentence and names none to leave out.
  */
-export const FILL_CITE_RETRY_INSTRUCTIONS = citeRetryInstructions([
+export const FILL_CITE_RETRY_INSTRUCTIONS = [
+  "You add the Citations an Answer left out. The Answer is the notes of a call, written from its transcript in the Passages below: each of its sentences ends with one or more Citation markers, such as [^3], and no marker has its record yet.",
+  `- For every sentence of the Answer, ${CITE_RETRY_ITEM}`,
   "- A sentence with more than one Citation marker ([^3][^4], or one after each clause) gets an item for each marker, in the markers' order: the same sentence each time, each with a quote of its own for that part of the sentence.",
   "- A sentence that sums up the call in general words, such as what it was about or what came out of it, gets an item too: quote the line where that was raised or settled.",
-]);
+  "- Leave no sentence out: one without an item is dropped from the notes, and a sentence of the summary takes the whole summary with it. Don't change the Answer.",
+  `${CITE_RETRY_REPLY}.`,
+].join("\n");
 
 /** The one request for Citations shows an Answer: its tags are the Answer's and the Passages'. */
 export const CITE_RETRY_TAGS: readonly PromptTag[] = ["answer", "passage"];
