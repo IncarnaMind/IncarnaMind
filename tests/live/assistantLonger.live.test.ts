@@ -60,9 +60,9 @@
  * - no amount on the own Note (2): first 2, shipped 1, `main` 1 and 2;
  * - sizes the reply states are the measured ones, every added sentence cited, the User's own text
  *   kept, and no reply that denies a change: on every run of the branch but one denial (first run);
- * - what the second refusal costs, on the "a bit" requests: edit calls per request 2.2 and 2.3
- *   against 2.0 on `main`, seconds 22 and 25 against 23 and 24; the second refusal fired on 4 of
- *   10 and 3 of 10.
+ * - what the second refusal costs, on the "a bit" requests (shipped run first): edit calls per
+ *   request 2.2 and 2.3 against 2.0 on `main`, seconds 22 and 25 against 24 and 22; the second
+ *   refusal fired on 4 of 10 and 3 of 10.
  * Results, DeepSeek V4.1 Flash, `main` (c253f2a4b) and the branch alternated in one session each:
  * - Round 1, with the description "only from an amount in the User's words … 1 when they name no
  *   amount": no amount 8 of 8 against 0 of 8 on `main`, but the "a bit" requests fell to 2 of 10
