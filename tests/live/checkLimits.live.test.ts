@@ -49,6 +49,21 @@
  * - Spend: stop US$0.60 for bars 1 and 2, US$1.60 for bar 3's two arms. A check whose request was
  *   refused, failed or timed out is void and run again by hand; a run with any unsettled request is
  *   void. A missed bar goes to the lead before the merge.
+ * What the first run found (2026-11-17, Haiku 5.5, 5 checks each, Supported): the first wording did
+ * nothing (limit sentences 0 and 0 of 5), a concrete example in the Duty line ("Duty: none / must
+ * not, same" for a forecast with should) and a sentence in the ask about a denied same moved them
+ * to 4 and 4 of 5 (main 0 and 2); the two cover sentences were 2 and 1 of 5 (main 1 and 3), whose
+ * misses are not the Duty or Condition line (Not checked, no evidence, when its calculation is never
+ * recorded; "Not covered" on the label of the ratio). So the change claims the Duty line only: the
+ * Condition line goes back to `main`'s wording, and the cover sentences get their own causes and
+ * bars. The final head is what is counted, written before it ran:
+ * - Bar 1 again, on the final head: each limit sentence Supported in at least 4 of 5 on Haiku 5.5.
+ * - Bar 3 as above, on the final head, with `main` in the same session.
+ * - Bar 4, a paired draw of the two cover sentences, `main` and the branch in one session, 10
+ *   checks each in English and in Chinese: the branch at or above `main`'s Supported count is noise
+ *   and nothing more; below it goes to the lead before the merge.
+ * - Spend inside US$1.60 in all, nothing refused, failed or timed out; only counts and ids leave a
+ *   held-out file's run.
  *
  * - INCARNAMIND_LIVE_RUNS: how many times each sentence is checked (1 when unset).
  * - INCARNAMIND_LIVE_DECOY_RUNS: how many times each decoy is (INCARNAMIND_LIVE_RUNS when unset).
