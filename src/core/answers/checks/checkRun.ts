@@ -293,7 +293,7 @@ const DETAIL_FORM =
 const DETAIL_LINES = `Your reply has no Duty or Condition line that can be read. Write ${DETAIL_FORM}`;
 
 /** A reply whose own Duty or Condition sides deny its "same" is told so: the ask names what is wrong. */
-const DETAIL_DENIED = `Your reply's Duty or Condition line says same while its two sides differ: two different duties, or a condition on one side and none on the other. Compare the two sides again and write ${DETAIL_FORM}`;
+const DETAIL_DENIED = `Your reply's Duty or Condition line says same while its two sides differ: two different duties, or a condition on one side and none on the other. Compare the two sides again and write ${DETAIL_FORM} A sentence that states no duty, and only says how things are or will be ("leverage should still be inside the limit"), has the side none.`;
 
 /**
  * `asked`: a reply of this check has already given other words than the sentence's. A Roles line
