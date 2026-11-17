@@ -1572,7 +1572,7 @@ export function createAnswers(options: AnswersOptions) {
     // Only an Answer the User reads is told the Library's whole count (#1333): a cell's or an agent's is its scope's alone.
     const library: LibraryDocuments | undefined = outside
       ? undefined
-      : { total: options.documents.libraryCount() };
+      : { total: options.documents.libraryCount(), unread: options.documents.unread(null) };
     const coverageSized =
       input.outside === true || callDocuments !== null
         ? []
