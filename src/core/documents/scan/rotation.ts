@@ -73,8 +73,21 @@ interface Reading {
     confidence: number;
     characters: number;
     horizontalShare: number;
+    /** The share of its characters in lines the model is sure of. */
+    sureShare: number;
   };
 }
+
+/** A line read at least this surely is right way up: turned wrongly, almost none is (#3289). */
+const SURE_LINE = 0.9;
+/**
+ * A page with this share of its characters in sure lines is the right way up, whatever its
+ * pictures add: text read out of photos pulls the average down on an upright page, and it was
+ * then read at every turn. Wrong way up, the share stayed under 0.2 on every page tried.
+ */
+const SURE_SHARE = 1 / 3;
+/** With this share of its characters in level lines, a page can only be upright or upside down. */
+const MOSTLY_LEVEL = 0.9;
 
 interface ReadingResult {
   picture: PagePicture;
@@ -88,11 +101,13 @@ function score(lines: readonly RecognizedLine[]): Reading["score"] {
   let confidence = 0;
   let horizontal = 0;
   let vertical = 0;
+  let sure = 0;
   for (const line of lines) {
     const count = line.text.replaceAll(/\s/g, "").length;
     if (count === 0) continue;
     characters += count;
     confidence += line.confidence * count;
+    if (line.confidence >= SURE_LINE) sure += count;
     const [topLeft, topRight, , bottomLeft] = line.quad;
     const top = Math.hypot(topRight[0] - topLeft[0], topRight[1] - topLeft[1]);
     const side = Math.hypot(bottomLeft[0] - topLeft[0], bottomLeft[1] - topLeft[1]);
@@ -104,13 +119,14 @@ function score(lines: readonly RecognizedLine[]): Reading["score"] {
     characters,
     confidence: characters === 0 ? 0 : confidence / characters,
     horizontalShare: horizontal + vertical === 0 ? 0 : horizontal / (horizontal + vertical),
+    sureShare: characters === 0 ? 0 : sure / characters,
   };
 }
 
 function settled(reading: Reading): boolean {
   return (
     reading.score.characters > 0 &&
-    reading.score.confidence >= 0.85 &&
+    (reading.score.confidence >= 0.85 || reading.score.sureShare >= SURE_SHARE) &&
     reading.score.horizontalShare >= 0.5
   );
 }
@@ -124,6 +140,16 @@ function clearlyBetter(candidate: Reading, first: Reading): boolean {
     comparable &&
     (a.horizontalShare >= b.horizontalShare + 0.25 || a.confidence >= b.confidence + 0.1)
   );
+}
+
+/**
+ * The turns worth reading after the first: lines that run level put the page upright or upside
+ * down, lines that run up the page put it on one side or the other. Each turn is a whole read.
+ */
+function otherTurns(horizontalShare: number): QuarterTurn[] {
+  if (horizontalShare >= MOSTLY_LEVEL) return [180];
+  if (horizontalShare <= 1 - MOSTLY_LEVEL) return [90, 270];
+  return horizontalShare < 0.5 ? [90, 270, 180] : [180, 90, 270];
 }
 
 function preferred(candidate: Reading, best: Reading): boolean {
@@ -164,9 +190,8 @@ export async function readWithQuarterTurn(
   if (settled(first)) return result(first, passes);
 
   const suggested = TURN_BACK[quarterTurn(hint)];
-  const ordered = first.score.horizontalShare < 0.5 ? [90, 270, 180] : [180, 90, 270];
-  const turns = [suggested, ...ordered].filter(
-    (turn, index, all): turn is QuarterTurn => turn !== 0 && all.indexOf(turn) === index,
+  const turns = otherTurns(first.score.horizontalShare).sort(
+    (a, b) => Number(b === suggested) - Number(a === suggested),
   );
   let best: Reading | null = null;
   for (const turn of turns) {
