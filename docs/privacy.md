@@ -134,7 +134,7 @@ Usage data is a small set of anonymous product events, such as "a Question was a
 ### When it's sent
 
 - **Only from a build made with an analytics project.** A build without one (from source, by default) sends nothing, asks nothing, and doesn't load the analytics code.
-- **A release asks once, after the first Answer to a Question of your own,** in a card at the bottom of the sidebar, not on the first run. Nothing is sent, or kept to send, unless you choose Send; the default is no.
+- **A release asks once, after the first Answer to a Question of your own,** in a card at the bottom of the sidebar, not on the first run. Apart from what you work on (below), nothing is sent, or kept to send, unless you choose Send; the default is no.
 - **A test build, for invited testers,** sends usage data until you turn it off, as testers agree to when they join. Its first run says so, in a notice at the bottom of the sidebar with the switch to turn it off.
 - **What you work on, once, if you say so.** The first run asks what you work on. Pressing **Send and continue** sends those picks once, as the one event `work_picked`, even while usage data is off; it doesn't turn usage data on. **Continue without sending** and **Skip** send nothing. Nothing is sent from a build without an analytics project, or while "Keep everything on this computer" is on. While usage data is on, the event goes with the rest.
 - **Local mode** ("Keep everything on this computer", in Settings → AI → Limits) turns usage data off, and it stays off.
