@@ -49,6 +49,16 @@ export interface SortAlong {
 }
 
 /** Names the claims among `texts`: someone else's document's, or the User's own draft's, which leaves out their opinions. */
+// A measuring arm, never merged: a sentence the sort gave more than one factual part is handed to
+// the check as one part, the whole sentence (#3257).
+const wholeWhenSplit = (
+  parts: readonly ClaimPartPlan[],
+  text: string | undefined,
+): readonly ClaimPartPlan[] =>
+  text !== undefined && parts.filter((part) => part.kind === "fact").length > 1
+    ? [{ span: { start: 0, end: text.length }, kind: "fact" }]
+    : parts;
+
 export async function claimsAmong(
   prepared: PreparedChatModel,
   texts: readonly SortedText[],
@@ -86,7 +96,14 @@ export async function claimsAmong(
         ...(named &&
           early && {
             onPartial: (delta: string) => {
-              for (const record of early(delta)) named(record.number - 1, record.parts);
+              for (const record of early(delta))
+                named(
+                  record.number - 1,
+                  wholeWhenSplit(
+                    record.parts,
+                    batch.find((each) => each.number === record.number)?.text,
+                  ),
+                );
             },
           }),
       });
@@ -158,8 +175,9 @@ export async function claimsAmong(
   for (const [at, batch] of batches.entries()) {
     const outcome = sorted[at];
     if (outcome?.kind !== "read") return { kind: "cancelled" };
-    for (const { number } of batch) {
-      const inventory = outcome.inventories.get(number);
+    for (const { number, text } of batch) {
+      const sorted = outcome.inventories.get(number);
+      const inventory = sorted && wholeWhenSplit(sorted, text);
       if (inventory === undefined) undecided.add(number - 1);
       else {
         parts.set(number - 1, inventory);
