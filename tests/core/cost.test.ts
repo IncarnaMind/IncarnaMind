@@ -1176,7 +1176,6 @@ describe("The estimate before a check run (#973)", () => {
       from: { blockId, offset: 0 },
       to: { blockId, offset: text.length },
     });
-    console.log("DEBUGROWS", rows(dataDir).filter((row) => row.flow === "checks").length);
     expect(rows(dataDir).filter((row) => row.flow === "checks").length).toBeGreaterThanOrEqual(8);
 
     const estimate = await core.estimateRun({ items: 10, each: "check" });

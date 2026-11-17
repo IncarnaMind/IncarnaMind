@@ -1008,8 +1008,8 @@ export function figureSchedule(input: FigureScheduleInput): FigureSchedule {
       shown = !sameIdentity(occurrence, state.child)
         ? { state: "needs-recheck", why: "edited" }
         : figureCheckShown({ ...state.child, ...finding, context: state.child.context }, now);
-    } else if (now && state?.owner) {
-      shown = claimCheckShown({ ...state.owner.check, figures: undefined }, now);
+    } else if (now && state?.owner && !state.owner.check.figures?.length) {
+      shown = claimCheckShown(state.owner.check, now);
     }
     shown = analysisFigureShown(shown, {
       run:

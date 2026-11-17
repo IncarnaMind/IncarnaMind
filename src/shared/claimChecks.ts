@@ -435,8 +435,6 @@ export type NoteFooting = ReadonlyMap<string, LiveFooting> | "not-yet-known";
 export interface ClaimCheckNow {
   footing: NoteFooting;
   figureContexts?: ReadonlyMap<string, string> | null;
-  /** The sentence is a table cell holding figures the one Check checks each with its own source; unknown when absent. */
-  figured?: boolean;
   /** The sentence as it reads now: all of the sentences its marked text is in. */
   text: string;
   /**

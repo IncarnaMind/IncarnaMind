@@ -263,7 +263,7 @@ export function readRecord(sources: RecordSources): {
   const { fragment, documents, folderId, model } = sources;
   const scope = fragment.doc ? mindScopeOf(fragment.doc) : null;
   const versions = new Map(documents.map((document) => [document.id, document.contentHash]));
-  const { figureContexts, figured } = figuresNow(fragment);
+  const { figureContexts } = figuresNow(fragment);
   const footing = noteFooting(fragment, { versions, folderId, scope });
   const note = recordCiteNote(fragment);
 
@@ -291,7 +291,6 @@ export function readRecord(sources: RecordSources): {
         folderId,
         scope,
         figureContexts,
-        figured: figured({ element, from, to }),
         note: note(place),
         ...noteTextOfMarked({ noteText }),
       }),

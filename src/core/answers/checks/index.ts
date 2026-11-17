@@ -107,6 +107,7 @@ import { parseSearchScope } from "../../scope";
 import type { AnswerEngine } from "../engine";
 import { type AnswerCheckInput, createAnswerCheck } from "./answerCheck";
 import { lookResult } from "./answerLook";
+import { inCheck } from "./checkedText";
 import {
   type CheckedCitation,
   type ClaimCheckDependencies,
@@ -501,6 +502,12 @@ function withResult(
   sourceText = check.text,
   priorParts: readonly ClaimCheckPart[] = check.parts ?? [],
 ): ClaimCheckAttributes {
+  // Every result is its sentence's one part, a run's own too (a limit, a stop, a time limit): a
+  // mark's state is read from its parts, so one left from an earlier check would show that check's.
+  if (!result.parts && sourceText.length > 0)
+    result = resultFromParts([
+      partWithResult({ kind: "fact", span: { start: 0, end: sourceText.length } }, result),
+    ]);
   // Verify anchors a whole row to its first cell (#1368); its contextual claim has different offsets.
   if (result.parts && sourceText !== check.text) {
     const evidence = result.parts.flatMap((part) => part.evidence);
@@ -720,10 +727,11 @@ export function createChecks(options: ChecksOptions) {
   const withCites = (check: ReturnType<typeof createClaimCheck>) =>
     withRecordCites(check, { language: options.language, documents: recordCiteDocuments });
   // Every check is one piece of rerank work, whichever flow asks for it (../../reranking/order).
+  // Every request a check makes is told apart by its sentence (./checkedText).
   const asCheck =
     (check: (request: ClaimCheckRequest) => Promise<ClaimCheckResult>) =>
     (request: ClaimCheckRequest) =>
-      asCheckWork(() => check(request));
+      inCheck({ sentence: request.claim, part: null }, () => asCheckWork(() => check(request)));
   const firstReading = createFirstReading(options);
   const readers = new WeakMap<PreparedChatModel, Promise<DecisionReader | null>>();
   /**

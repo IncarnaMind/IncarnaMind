@@ -218,6 +218,9 @@ const EVIDENCE = label("evidence|证据");
 const CHANGE = label("change\\s*1?");
 const TO = label("to\\s*1?");
 const BARE = /^[\s>*_#`"'“”-]*(supported|unsupported|contradicted)\b/i;
+/** Where a field's label stands after other words on its line. */
+const FIELD_START =
+  /(?<=\S)[ \t]*(?=(?:Details|Verdict|Explanation|Evidence|Change 1|To 1|结论|判断|说明|解释|证据)[ \t]*[:：])/g;
 
 const verdictIn = (words: string | undefined): ClaimVerdict | null => {
   const word = /^(supported|unsupported|contradicted)\b/i.exec(words ?? "")?.[1]?.toLowerCase();
@@ -247,6 +250,9 @@ const unquoted = (words: string): string =>
  */
 export function readVerdict(reply: string): ReadVerdict | null {
   const lines = withoutThinking(reply)
+    // A field starts its own line wherever it stands: a model writes two on one line, and a reply
+    // written after a turn's own words follows them with no break.
+    .replace(FIELD_START, "\n")
     .split("\n")
     .map((line) => line.trim())
     .filter((line) => line !== "");

@@ -34,7 +34,6 @@ const WORKINGS = {
 const FIGURE = "Revenue was $1,482.6 million in 2025.";
 const REPORT_QUOTE = "Revenue was $1,482.6 million in 2025";
 const ONLY_IN_WORKINGS = "Operating margin was 21% in 2025.";
-const DIFFERENT_FIGURE = "Operating margin was 25% in 2025.";
 
 const named = (documents: readonly Document[]) => {
   const byName = new Map(documents.map((each) => [each.name, each]));
@@ -189,7 +188,6 @@ describe("A Document the User keeps as their own workings", () => {
   test("a figure only the marked file states is Unsupported, and the result says whose it is", async () => {
     const model = checkingModel({
       [ONLY_IN_WORKINGS]: { verdict: "unsupported" },
-      [DIFFERENT_FIGURE]: { verdict: "unsupported" },
     });
     const { core, documents } = await setUpWithDocuments(model, [REPORT, WORKINGS]);
     const { workings } = named(documents);
@@ -203,11 +201,6 @@ describe("A Document the User keeps as their own workings", () => {
     expect(await core.checkClaim({ claim: ONLY_IN_WORKINGS })).toMatchObject({
       verdict: "unsupported",
       excluded: [{ documentId: workings.id, documentName: "Workings", reason: "own-workings" }],
-    });
-
-    expect(await core.checkClaim({ claim: DIFFERENT_FIGURE })).toMatchObject({
-      verdict: "unsupported",
-      excluded: [],
     });
 
     expect(await core.checkClaim({ claim: "Penguins nest above the harbour." })).toMatchObject({

@@ -1,4 +1,5 @@
 import { expect, test } from "vitest";
+import { readVerdict } from "../../src/core/answers/checks/prompt";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { checkingModel, isCheckRun, type Plan, sentenceOf } from "../helpers/checks";
 import { setUpWithDocuments } from "../helpers/citations";
@@ -106,4 +107,28 @@ test("a contradiction keeps its correction, and an unsupported sentence its reas
   expect(marks[1]?.parts?.[0]?.unsupported?.reason).toBe(
     "The lease doesn't say who pays for the paint.",
   );
+});
+
+// protects=a check's reply is read wherever its fields stand: after a turn's own words with no line break, several on one line, or labelled in Chinese; a reply with no verdict reads as none; fails_when=a reply that gives its verdict is read as none (its sentence would be Not checked), or one that gives none is read as a verdict; no_claim=which fields a model writes.
+test("a reply's fields are read wherever they stand on its lines", () => {
+  expect(
+    readVerdict(
+      "Tides says so [^1].Verdict: supported\nExplanation: Tides says so. [^1]\nEvidence: [1]",
+    ),
+  ).toMatchObject({ verdict: "supported", says: "Tides says so.", evidence: [1] });
+  expect(
+    readVerdict(
+      "Details: must / may, differs. Verdict: contradicted Explanation: The lease says may. [^2] Evidence: [2] Change 1: must To 1: may [^2]",
+    ),
+  ).toMatchObject({
+    verdict: "contradicted",
+    evidence: [2],
+    correction: { from: "must", wording: "may", marker: 2 },
+  });
+  expect(readVerdict("结论：unsupported\n说明：文档没有说。\n证据：[]")).toMatchObject({
+    verdict: "unsupported",
+    says: "文档没有说。",
+    evidence: [],
+  });
+  expect(readVerdict("I could not find it.")).toBeNull();
 });

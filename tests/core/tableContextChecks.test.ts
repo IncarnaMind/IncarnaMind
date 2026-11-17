@@ -484,16 +484,6 @@ describe("Check this Mind on the User's own numeric table", () => {
     expect(promptOf(wrong)).toContain("Glass beads | 0.075 | 3");
     // Its result lands on the cell as its own.
     const landed = claimSpans(readMind(client)).find((span) => span.sentence.text === "3");
-    console.log(
-      "DEBUGCELL",
-      JSON.stringify(
-        claimSpans(readMind(client)).map((span) => [
-          span.sentence.text,
-          span.check.state,
-          span.check.reason,
-        ]),
-      ),
-    );
     expect(landed?.check.state).toBe("contradicted");
   });
 });

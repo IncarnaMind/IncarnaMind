@@ -95,7 +95,7 @@ const phraseOf = (text: string): string | null => {
 };
 
 /** The two phrases of a reply to that request, each on its one line; null unless it gives both. */
-function readPart(reply: string): { covered: string; uncovered: string } | null {
+export function readPart(reply: string): { covered: string; uncovered: string } | null {
   const lines = withoutThinking(reply)
     .split("\n")
     .map((line) => line.trim());

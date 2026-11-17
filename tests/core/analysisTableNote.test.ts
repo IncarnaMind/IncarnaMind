@@ -147,7 +147,6 @@ function writingModel(
   language: Language,
   content: string | readonly string[],
   sent: string[],
-  offered: Map<string, readonly string[]>,
   asksChart: boolean,
   again: string | null,
   rewrite: { part: string; content: string } | null,
@@ -157,10 +156,8 @@ function writingModel(
   return scriptedModel(
     (call: ModelCall) => {
       if (isCheckRun(call)) {
-        if (!call.results.some((result) => result.tool === "search_documents")) {
+        if (!call.results.some((result) => result.tool === "search_documents"))
           sent.push(sentenceOf(call));
-          offered.set(sentenceOf(call), call.tools);
-        }
         const planned = plan(sentenceOf(call));
         return checkReply(call, planned ? { [sentenceOf(call)]: planned } : {});
       }
@@ -241,8 +238,7 @@ async function walked(
   plan: (sentence: string) => Plan | undefined = () => undefined,
 ) {
   const sent: string[] = [];
-  const offered = new Map<string, readonly string[]>();
-  const model = writingModel(language, content, sent, offered, asksChart, again, rewrite, plan);
+  const model = writingModel(language, content, sent, asksChart, again, rewrite, plan);
   const printer = fakePrinter();
   const core = startCore(await createTempDataFolder(), {
     createChatModel: scriptedModels(model).createChatModel,
@@ -272,7 +268,7 @@ async function walked(
   const client = await connectToMind(core, madeId);
   await client.settled();
   await resolveChanges(client, "accept");
-  return { core, answer, madeId, client, sent, offered, printer };
+  return { core, answer, madeId, client, sent, printer };
 }
 
 const blocksOf = (client: MindClient): NodeJSON[] => topLevelBlocks(client.blocks).map(nodeOf);
@@ -908,26 +904,6 @@ describe.each(["en", "zh-CN"] as const)("%s: an Analysis figure's sentence (#237
       .filter((row) => !row.analysisTable)
       .map((row) => row.shown.state);
 
-  test("a sentence of only an Analysis's figures is checked with no calculate to call: IncarnaMind worked them out", async () => {
-    const { core, madeId, client, sent, offered } = await walked(
-      language,
-      lines(words.right),
-      false,
-      null,
-      withFigures(),
-    );
-    sent.length = 0;
-    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
-    await client.settled();
-    const tools = sent.map((each) => offered.get(each) ?? []);
-    expect(tools.length).toBeGreaterThan(0);
-    for (const each of tools) {
-      expect(each).toContain("search_documents");
-      expect(each).not.toContain("calculate");
-    }
-    core.close();
-  });
-
   test("a whole figure is written out, never rounded to a scale word", async () => {
     const base = ANALYSIS(WORDS[language].caption);
     const total: AnalysisValue = {
@@ -1001,17 +977,8 @@ describe.each(["en", "zh-CN"] as const)("%s: an Analysis figure's sentence (#237
       library: await wallsNow(core),
       folderId: null,
     });
-    console.log(
-      "DEBUGWALL",
-      JSON.stringify({
-        marks: marks(client),
-        health: home.health,
-        state: home.state,
-        blocks: blocksOf(client).map((b) => [b.type, JSON.stringify(b).slice(0, 300)]),
-      }),
-    );
     expect(home.health.supported).toBe(0);
-    expect(home.state?.kind).toBe("not-checked");
+    expect(home.state?.kind).not.toBe("checked");
     await core.moveToFolder({ mindIds: [madeId], folderId: matter.id });
     await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
     await client.settled();

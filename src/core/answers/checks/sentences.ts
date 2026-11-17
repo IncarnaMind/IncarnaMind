@@ -60,7 +60,6 @@ import {
   type FigureOccurrence,
   figuresInMind,
   headingAbove,
-  inTableCell,
   withAboveNow,
 } from "./figureOccurrences";
 
@@ -250,29 +249,10 @@ export function figuresByBlock(blocks: Y.XmlFragment): ReadonlyMap<string, Figur
   return index;
 }
 
-/**
- * What a Mind's stored checks are compared with of its figures now: each figure's context, and
- * whether a marked table cell holds any (`ClaimCheckNow.figured`).
- */
-export function figuresNow(blocks: Y.XmlFragment): {
-  figureContexts: Map<string, string>;
-  figured(marked: { element: Y.XmlElement; from: number; to: number }): boolean;
-} {
-  const found = figuresInMind(blocks);
-  const byBlock = new Map<string, FigureOccurrence[]>();
-  for (const figure of found) {
-    if (figure.locator.kind !== "text") continue;
-    const id = figure.locator.from.blockId;
-    byBlock.set(id, [...(byBlock.get(id) ?? []), figure]);
-  }
+/** What a Mind's stored checks are compared with of its figures now: each figure's context. */
+export function figuresNow(blocks: Y.XmlFragment): { figureContexts: Map<string, string> } {
   return {
-    figureContexts: new Map(found.map((figure) => [figure.id, figure.context])),
-    figured: ({ element, from, to }) => {
-      const blockId = element.getAttribute(BLOCK_ID_ATTRIBUTE);
-      return (
-        typeof blockId === "string" && inTableCell(inSpan(byBlock.get(blockId) ?? [], from, to))
-      );
-    },
+    figureContexts: new Map(figuresInMind(blocks).map((figure) => [figure.id, figure.context])),
   };
 }
 

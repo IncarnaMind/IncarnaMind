@@ -10,7 +10,7 @@ import { describe, expect, test } from "vitest";
 import { claimPartsOf } from "../../src/core/answers/checks/claims";
 import { readRestated } from "../../src/core/answers/checks/explanations";
 import { QUICK_REPLY } from "../../src/core/answers/checks/fastPaths";
-import { readRecordJudgement } from "../../src/core/answers/checks/recordCites";
+import { readPart, readRecordJudgement } from "../../src/core/answers/checks/recordCites";
 import { readBatchText } from "../../src/core/answers/checks/sentenceBatch";
 import { briefFrom } from "../../src/core/answers/checks/verifyBrief";
 import { claimsReply, requestReply } from "../../src/core/answers/claimedChanges";
@@ -63,6 +63,12 @@ interface Question {
  * that leaves out, misspells or contradicts a field, which it can't read.
  */
 const QUESTIONS: Partial<Record<JudgeQuestion, Question>> = {
+  parts: {
+    reply: lines(readPart),
+    right: "Covered: the rent\nNot covered: paid in advance",
+    read: { covered: "the rent", uncovered: "paid in advance" },
+    unreadable: "Covered: the rent",
+  },
   "sentence-batch": {
     reply: lines((text) => readBatchText(text, 1)),
     right:

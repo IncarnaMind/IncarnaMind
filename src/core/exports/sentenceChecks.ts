@@ -63,7 +63,7 @@ export function failedSentences(
   context: SentenceCheckContext,
 ): Map<string, FailedSentence> {
   const failed = new Map<string, FailedSentence>();
-  const { figureContexts, figured } = figuresNow(fragment);
+  const { figureContexts } = figuresNow(fragment);
   const footing = noteFooting(fragment, context);
   // A verified document's table row is one claim, marked on its first cell's words (#1368).
   const rowClaims = fragment.doc !== null && verificationOf(fragment.doc) !== null;
@@ -76,7 +76,6 @@ export function failedSentences(
       citations: marked.citations,
       footing,
       figureContexts,
-      figured: figured(marked),
       versions: context.versions,
       folderId: context.folderId,
       scope: context.scope,

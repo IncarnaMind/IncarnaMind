@@ -30,6 +30,7 @@ import {
   claimCheckShown,
   type NoteFooting,
 } from "../../../shared/claimChecks";
+import { withFigureFacts } from "../../../shared/claimParts";
 import { ANALYSIS_REASONS } from "../../../shared/figureChecks";
 import { readMindCheck, sentenceKey, writeMindCheck } from "../../../shared/mindCheck";
 import { mindModelOf } from "../../../shared/mindModel";
@@ -64,7 +65,7 @@ import { recordCiteSpans } from "../../recordCites/parser";
 import { type Slots, slots } from "../../runs/stop";
 import type { CheckedCitation } from "./claimCheck";
 import type { DecisionReader } from "./decisionFirst";
-import { cellHeadings, inTableCell, inValueCell, type TableLayout } from "./figureOccurrences";
+import { cellHeadings, inValueCell, type TableLayout } from "./figureOccurrences";
 import { type ClaimsFound, claimsAmong } from "./findClaims";
 import { recordOpinions, type SortedSentence } from "./opinions";
 import { checkRunOf } from "./runCheck";
@@ -277,10 +278,11 @@ export function createMindCheck(options: MindCheckOptions) {
     const partsOf = (sentence: SelectedSentence, said: readonly ClaimPartPlan[]) => {
       const { claim } = checkText(sentence);
       // A sort that names nothing in a value cell would leave its figure out unchecked, so the
-      // cell is checked whole (#2447).
+      // cell is checked whole (#2447). A sentence with a figure is checked whatever the sort calls
+      // it, as Verify's is.
       return said.length === 0 && inValueCell(sentence.figures)
         ? [{ kind: "fact" as const, span: { start: 0, end: claim.length } }]
-        : said;
+        : withFigureFacts(claim, said, sentence.figures ?? [], sentence.projection);
     };
     if (unsorted.length > 0) {
       const grids = new Map<Y.XmlElement, TableLayout>();
@@ -356,7 +358,7 @@ export function createMindCheck(options: MindCheckOptions) {
     const folderId = options.mindFolder(mindId);
     const scope = content.readSettings(mindId, mindScopeIn);
     const changeable = content.read(mindId, (blocks) => {
-      const { figureContexts, figured } = figuresNow(blocks);
+      const { figureContexts } = figuresNow(blocks);
       const note = recordCiteNote(blocks);
       return checkedSentences(blocks).flatMap((marked) =>
         addedCouldChange(
@@ -369,7 +371,6 @@ export function createMindCheck(options: MindCheckOptions) {
             folderId,
             scope,
             figureContexts,
-            figured: figured(marked),
             note: note(marked.place),
             ...noteTextOfMarked(marked),
           }),
@@ -547,7 +548,6 @@ export function createMindCheck(options: MindCheckOptions) {
                   folderId,
                   scope,
                   figureContexts,
-                  figured: inTableCell(sentence.figures),
                   note: note({ blockId: sentence.blockId, from: sentence.from }),
                   noteText: () => noteTextOf(sentence),
                 })
@@ -585,7 +585,6 @@ export function createMindCheck(options: MindCheckOptions) {
               folderId,
               scope,
               figureContexts,
-              figured: inTableCell(sentence.figures),
               note: note({ blockId: sentence.blockId, from: sentence.from }),
               noteText: () => noteTextOf(sentence),
             })
