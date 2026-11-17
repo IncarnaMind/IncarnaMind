@@ -2899,6 +2899,13 @@ describe("An organisation named after a colon states no unit (#2997)", {
       [`编制单位：美元基金公司\n单位：元\n${STATEMENT}`, PROFIT, "净利润为310美元。", UNJUDGED],
       [`编制单位：万元集团\n单位：元\n${STATEMENT}`, PROFIT, "净利润为310元。", UNJUDGED],
       [`编制单位：万元集团\n单位：元\n${STATEMENT}`, PROFIT, "净利润为310万元。", UNJUDGED],
+      [`编制单位：千台精工有限公司\n单位：元\n${STATEMENT}`, PROFIT, "净利润为310元。", UNJUDGED],
+      [
+        `编制单位：千台精工有限公司\n单位：元\n${STATEMENT}`,
+        PROFIT,
+        "净利润为310万元。",
+        caught("310", "310万元"),
+      ],
       [
         `编制单位：亿利集团\n${STATEMENT}`,
         PROFIT,
