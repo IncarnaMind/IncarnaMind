@@ -29,41 +29,24 @@
  * Sonnet Chinese 0. The 22 Unsupported name a part the Document doesn't state ("should still be",
  * "as a stand-in", the definition of cover, the covenant's test basis), the #1708 family.
  *
- * The run for #3258, written on 2026-11-17 before any request of it. The Duty and Condition lines
- * count a hedge ("should still be inside the limit", 仍应在) and a framing ("using X as a stand-in")
- * as a second assertion, so these four sentences read Unsupported (see the result above). The change
- * is to the wording of the two lines (prompt.ts): a "should" that forecasts or expects a state of
- * things is none, and a Condition is a limit on when or to whom a right, duty or claim applies, never
- * the sentence's own method, assumption or framing. The branch only for these sentences, `main`'s
- * numbers being those above (same models, same day), INCARNAMIND_LIVE_EXPECT=supported:
- * - Bar 1 (Haiku 5.5, 5 checks each): each of the four sentences Supported in at least 4 of 5 (main:
- *   limit English 0, limit Chinese 2, cover English 1, cover Chinese 3).
- * - Bar 2 (Sonnet 5.5, 3 checks each): each at least 2 of 3 (main: limit English 4 of 5, limit
- *   Chinese 0, cover English 1, cover Chinese 4).
- * - Bar 3 (the guards, Claude Haiku 5.5, `main` and the branch in one session, three checks a
- *   case, every held-out file of tests/live/nearCopyHeldout.live.test.ts, both languages): the
- *   decoys read Supported in no more checks on the branch than on `main`, the right sentences in no
- *   fewer, so a swapped duty and a dropped condition stay caught; and its dropped-held-out pass
- *   (INCARNAMIND_LIVE_CASES=dropped-held-out, 44 checks): decoys Supported at most 3, right
- *   sentences Supported at least 43 (the base on `main`, counted not read).
- * - Spend: stop US$0.60 for bars 1 and 2, US$1.60 for bar 3's two arms. A check whose request was
- *   refused, failed or timed out is void and run again by hand; a run with any unsettled request is
- *   void. A missed bar goes to the lead before the merge.
- * What the first run found (2026-11-17, Haiku 5.5, 5 checks each, Supported): the first wording did
- * nothing (limit sentences 0 and 0 of 5), a concrete example in the Duty line ("Duty: none / must
- * not, same" for a forecast with should) and a sentence in the ask about a denied same moved them
- * to 4 and 4 of 5 (main 0 and 2); the two cover sentences were 2 and 1 of 5 (main 1 and 3), whose
- * misses are not the Duty or Condition line (Not checked, no evidence, when its calculation is never
- * recorded; "Not covered" on the label of the ratio). So the change claims the Duty line only: the
- * Condition line goes back to `main`'s wording, and the cover sentences get their own causes and
- * bars. The final head is what is counted, written before it ran:
- * - Bar 1 again, on the final head: each limit sentence Supported in at least 4 of 5 on Haiku 5.5.
- * - Bar 3 as above, on the final head, with `main` in the same session.
- * - Bar 4, a paired draw of the two cover sentences, `main` and the branch in one session, 10
- *   checks each in English and in Chinese: the branch at or above `main`'s Supported count is noise
- *   and nothing more; below it goes to the lead before the merge.
- * - Spend inside US$1.60 in all, nothing refused, failed or timed out; only counts and ids leave a
- *   held-out file's run.
+ * The hedge and framing sentences of #3258, 2026-11-17: tests/live/framingRepliesCapture.live.test.ts
+ * keeps the replies. On `main` the four sentences read Supported 15 of 40 (above). Where the verdict
+ * is lowered, in Haiku 5.5's and Sonnet 5.5's own replies: (1) the limit sentences ("leverage should
+ * still be inside the 3.25x covenant", 仍应在): the reply says Supported with "Duty: should / must
+ * not, same", the code reads its own two sides as different duties and asks again, and the second
+ * reply says "differs"; and a "Not covered:" line about the hedge or the derivation ("a
+ * forward-looking statement that leverage will remain inside the covenant"); (2) the cover sentence
+ * "Using finance costs of (41.2) as a stand-in": "Condition: using ... as a stand-in / none" is asked
+ * again and read "differs" (Sonnet English); (3) Haiku ends Not checked (no evidence) when its
+ * calculation is never recorded or never called, and the Chinese cover has a "Not covered: the
+ * ratio's label".
+ * A change to the Duty line alone (an example, "Duty: none / must not, same" for a forecast with
+ * should, and a sentence in the ask about a denied same; not merged) moved the limit sentences only
+ * a little: Supported of 15 checks on Haiku 5.5, English 4 of 15 against 0 of 15 on `main`, Chinese 7
+ * against 5, none Contradicted; with the Condition line changed as well, 6 and 9. Bar 1 (4 of 5 each)
+ * was missed, so the guards (the held-out near copies, US$1.60) were not run and the change not
+ * shipped. The first run's 4 of 5 on both was luck, which drawing `main` 10 times each, in turn with
+ * the branch, showed. Spend US$0.55.
  *
  * - INCARNAMIND_LIVE_RUNS: how many times each sentence is checked (1 when unset).
  * - INCARNAMIND_LIVE_DECOY_RUNS: how many times each decoy is (INCARNAMIND_LIVE_RUNS when unset).
