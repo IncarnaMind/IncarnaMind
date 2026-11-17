@@ -114,6 +114,10 @@
  * - The "before" pairs, which the issue names too, run the code they ran on `main` (a state word keeps
  *   its minus), so they are run as a confirm, written before it ran: before-own Supported in 0 of 6
  *   rounds, before-minus in at most 3 of 6 (`main`: 0 and 3).
+ * The result, 2026-11-17: other-rent ended Not checked with the new reason in 6 of 6 clean rounds
+ * (one Chinese round's check run failed and was run again), none Supported or Contradicted;
+ * other-minus Supported 0 of 6, tied-own 0 of 6, tied-minus 1 of 6; before-own 0 of 6, before-minus
+ * 3 of 6. US$0.0844 for the first run (with the rerun) and US$0.0406 for the before pairs.
  *
  * INCARNAMIND_LIVE_PAIRS limits the run to those pairs, by key; INCARNAMIND_LIVE_ROUNDS sets the rounds.
  * Runs only with INCARNAMIND_LIVE_DEEPSEEK_KEY (DeepSeek V4.1 Flash, `deepseek-flash`, or
