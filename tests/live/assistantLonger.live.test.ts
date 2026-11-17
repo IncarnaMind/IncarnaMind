@@ -347,8 +347,14 @@ describe.each(LIVE)("Longer, at the length asked, live: $name", (live) => {
       const totals: string[] = [];
       let spent = 0;
       const missed = { within: 0, covered: 0, truthful: 0, inPlace: 0, ran: 0 };
-      for (const each of LANGUAGES) {
-        for (const kind of ["a bit", "twice", "shorter", "longer", "own"] as const) {
+      const onlyLanguage = process.env.INCARNAMIND_LIVE_LANGUAGE;
+      const onlyKinds = process.env.INCARNAMIND_LIVE_KINDS?.split(",");
+      for (const each of LANGUAGES.filter(
+        (one) => !onlyLanguage || one.language === onlyLanguage,
+      )) {
+        for (const kind of (["a bit", "twice", "shorter", "longer", "own"] as const).filter(
+          (one) => !onlyKinds || onlyKinds.includes(one),
+        )) {
           const requests = each.requests[kind].slice(0, limit);
           let within = 0;
           let covered = 0;
@@ -357,6 +363,7 @@ describe.each(LIVE)("Longer, at the length asked, live: $name", (live) => {
           let ran = 0;
           let targetless = 0;
           let denied = 0;
+          let claimLines = 0;
           for (const request of requests) {
             let seeding = kind !== "own";
             const seeded = seedModel(each.seed);
@@ -447,6 +454,8 @@ describe.each(LIVE)("Longer, at the length asked, live: $name", (live) => {
               if (isInPlace) inPlace++;
               if (isTargetless) targetless++;
               if (deniesChange) denied++;
+              const claimLine = (second.steps?.unbackedClaims?.length ?? 0) > 0;
+              if (claimLine) claimLines++;
               const tools = second.toolCalls
                 .map((call) => {
                   const how = [
@@ -462,6 +471,7 @@ describe.each(LIVE)("Longer, at the length asked, live: $name", (live) => {
               const lines = [
                 `- ${each.language} · ${kind} · “${request}”: first ${first?.status ?? "typed"}, then ${second.status} (${tools || "no tools"}); ${was} → ${now} ${cjk ? "characters" : "words"} = ${times.toFixed(2)}×${isWithin ? "" : " OUT OF BOUND"}; added ${addedSentences.length} sentences, ${bare.length} with no Citation and no mark${isCovered ? "" : " UNCOVERED"}; reply states ${JSON.stringify(stated)}${isTruthful ? "" : " FALSE"}; salary ${salaries}×${isInPlace ? "" : " TWO SUMMARIES"}`,
                 `  reply: ${second.text.replace(/\n/g, " ⏎ ").slice(0, 600)}`,
+                `  claim line: ${claimLine ? JSON.stringify(second.steps?.unbackedClaims) : "none"}`,
                 ...bare.map((sentence) => `  bare: ${sentence.text.slice(0, 200)}`),
                 ...questions.map((question) => `  asked the User: ${question}`),
                 `  note: ${after.text.replace(/\n/g, " ⏎ ").slice(0, 1200)}`,
@@ -487,7 +497,7 @@ describe.each(LIVE)("Longer, at the length asked, live: $name", (live) => {
             }
           }
           totals.push(
-            `  ${each.language} · ${kind}: within ${within}/${ran}, every added sentence cited or marked ${covered}/${ran}, sizes stated truly ${truthful}/${ran}, one summary ${inPlace}/${ran}, no length declared or stated ${targetless}/${ran}, says nothing changed when it did ${denied}/${ran}`,
+            `  ${each.language} · ${kind}: within ${within}/${ran}, every added sentence cited or marked ${covered}/${ran}, sizes stated truly ${truthful}/${ran}, one summary ${inPlace}/${ran}, no length declared or stated ${targetless}/${ran}, says nothing changed when it did ${denied}/${ran}, a claim line under the reply ${claimLines}/${ran}`,
           );
         }
       }
