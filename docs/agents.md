@@ -2,28 +2,30 @@
 
 Available from the public alpha. Connections stay off until you enable them and approve a pairing. [中文版](agents.zh-CN.md)
 
-If you already use an AI agent, such as Claude, ChatGPT, Codex, Cursor or Antigravity, you can let it search the folders you choose in IncarnaMind and quote them. Every quote it gets from IncarnaMind is checked against your Document, and you can open any of them in IncarnaMind to see it in place.
+If you use an AI agent such as Claude, ChatGPT, Codex, Cursor or Antigravity, you can let it search the folders you choose in IncarnaMind and quote them. Every quote it gets from IncarnaMind is checked against your Document, and you can open any of them in IncarnaMind to see it in place.
 
-Agent guides: [Claude Code](claude-code.md), [Codex](codex.md), [Cursor](cursor.md). Each covers connection, shared content and revocation in English and Chinese.
+Guides with the exact commands and settings, in English and Chinese: [Claude Code](claude-code.md), [Codex](codex.md), [Cursor](cursor.md).
 
 ## Before you start
 
 1. Open IncarnaMind, then **Settings → Agents**, and turn on **Connect AI agents**.
 2. Find your agent in the list (agents on this computer come first) and click **Connect**.
-3. Choose the folders it may read, then click **Allow and connect**. It can't read anything else. **Not in a Folder** is a choice too: the Documents that are in no Folder when the agent asks, so a Document you later put in a Folder is no longer shared; your Notes are shared only with their Folder. With no Documents yet, the dialog offers **Add Documents…**.
+3. Choose the folders it may read, then click **Allow and connect**. It can't read anything else, and with no folder chosen it reads nothing. **Not in a Folder** is a choice too: it shares the Documents that are in no Folder at the moment of each call, so one added later is shared and one you put in a Folder is no longer. Your Notes are shared only with their Folder. With no Documents yet, the dialog offers **Add Documents…**.
 4. Follow the one step for your agent below.
 
 Keep IncarnaMind open while you use your agent: the agent talks to it.
 
-**What leaves your computer.** What the agent reads goes to the AI model the agent uses, under that service's terms, not IncarnaMind's. Some plans may use it to train their models; check your agent's privacy settings. While **Keep everything on this computer** is on (Settings → Privacy), every agent is paused.
+**What it can read.** Bounded Passages of the Documents in the folders you chose, checked quotes, and the Notes in those folders. It can also ask IncarnaMind for an Answer on the model you chose. It can't download a Document's original file, read another folder, or change your Documents or Notes: at most, if you allow it, it proposes changes to Notes (see For technical users). To read more, it makes further bounded calls. A found quote means the words occur at the cited Location; it doesn't prove the agent's claim.
 
-**To stop.** Settings → Agents → **Disconnect**. The agent can't read anything from then on. Each agent's **Activity** lists everything it did.
+**What leaves your computer.** What the agent reads goes to the AI model the agent uses, under that service's terms, not IncarnaMind's. Some plans may use it to train their models; check your agent's privacy settings. While **Keep everything on this computer** is on (Settings → Privacy), every agent is paused. The agent's other tools and permissions stay under its own control.
+
+**To stop.** Settings → Agents → **Disconnect**. It revokes the agent's key at once and closes its open connections, so the agent can't read anything from then on. Each agent's **Activity** lists everything it did.
 
 ## Ask in your agent
 
 Once it's connected, ask your agent something like:
 
-> Using IncarnaMind, what do my documents say about the termination clause? Cite your sources.
+> Using IncarnaMind, what do my Documents say about the cancellation period? Cite the passages and check your citations.
 
 The answer carries IncarnaMind's citations, written like `[cite:k3x9a2b7]`. To see one, ask:
 
@@ -66,13 +68,20 @@ Click **Connect**: IncarnaMind adds itself to WorkBuddy's MCP settings, `~/.work
 <a id="other"></a>
 ### Other agent
 
-Any other agent that can start a local MCP server works. Click **Connect**, and give it a name if you like: IncarnaMind copies its settings, in the `mcpServers` form most agents take (`{ "mcpServers": { "incarnamind": { "command", "args", "env" } } }`). Paste them where your agent adds an MCP server, then restart it. If your agent asks for the command, its arguments and its environment one by one, the **Details for technical users** of the connected agent show each one, with its own **Copy** (the key is hidden on screen and included when you copy). IncarnaMind doesn't write into these agents' files.
+Any other agent that can start a local MCP server works. Click **Connect**, and give it a name if you like: IncarnaMind copies its settings, in the `mcpServers` form most agents take (`{ "mcpServers": { "incarnamind": { "command", "args", "env" } } }`). Paste them where your agent adds an MCP server, then restart it. The connected agent's **Details for technical users** copies them again and, if your agent asks for the command, arguments and environment one by one, shows each with its own **Copy** (the key is hidden on screen and included when you copy). IncarnaMind doesn't write into these agents' files.
 
 Chat apps that only work on the internet (ChatGPT and Claude on the web, Gemini, Le Chat, Grok, Microsoft 365 Copilot, 扣子, 元宝) can't reach IncarnaMind, which serves only this computer.
 
 ## The Skill
 
-Without a hint, an agent sometimes answers from memory instead of looking in your Documents. So where an agent reads Skills, **Connect** also adds a short Skill, `incarnamind`, that tells it when to use IncarnaMind. It goes in the agent's own skills folder: `~/.claude/skills/` for Claude Code ([docs](https://code.claude.com/docs/en/skills)), `~/.agents/skills/` for Codex ([docs](https://learn.chatgpt.com/docs/build-skills)), `~/.cursor/skills/` for Cursor ([docs](https://cursor.com/docs/context/skills)) and `~/.gemini/config/skills/` for Antigravity ([docs](https://www.antigravity.google/docs/skills)). **Disconnect** (and **Undo**) removes it, unless you have changed the file. For the other agents, **Details for technical users** has **Copy Skill**: save it as `SKILL.md` in a folder named `incarnamind` inside your agent's skills folder.
+Without a hint, an agent sometimes answers from memory instead of looking in your Documents. So where an agent reads Skills, **Connect** also adds a short Skill, `incarnamind`, that tells it when to use IncarnaMind. It goes in the agent's own skills folder:
+
+- Claude Code: `~/.claude/skills/` ([docs](https://code.claude.com/docs/en/skills))
+- Codex: `~/.agents/skills/` ([docs](https://learn.chatgpt.com/docs/build-skills))
+- Cursor: `~/.cursor/skills/` ([docs](https://cursor.com/docs/context/skills))
+- Antigravity: `~/.gemini/config/skills/` ([docs](https://www.antigravity.google/docs/skills))
+
+**Disconnect** (and **Undo**) removes it, unless you have changed the file. For the other agents, **Details for technical users** has **Copy Skill**: save it as `SKILL.md` in a folder named `incarnamind` inside your agent's skills folder.
 
 ## If something goes wrong
 
@@ -84,8 +93,10 @@ Your agent passes on what IncarnaMind says, in plain words.
 - **"This agent is no longer connected"**: it was disconnected. Connect it again in Settings → Agents.
 - **An answer from IncarnaMind takes long**: asking IncarnaMind writes a whole Answer on your own chat model. Some agents stop waiting after a minute; Codex is given two minutes when IncarnaMind sets it up.
 
+Reconnect an agent after you move or reinstall IncarnaMind.
+
 ## For technical users
 
-IncarnaMind is an MCP server over stdio. The command is IncarnaMind's own app, run as Node, with a small script that passes everything on to the running app over a local socket; the environment holds where that socket is and the agent's key. It serves the current MCP version (2026-07-28) and the one before it. Each connected agent's **Details for technical users** copies its settings again.
+IncarnaMind is an MCP server over stdio. The command is IncarnaMind's own app, run as Node, with a small script that passes everything on to the running app over a local socket; the environment holds where that socket is and the agent's key. It serves the current MCP version (2026-07-28) and the one before it.
 
 The Tools: `search`, `read_passages`, `cite`, `check_citations`, `show_citation`, `list_minds`, `read_mind`, `ask` and `propose_changes`. All but `propose_changes` are read-only, and it is refused unless you ticked "Let it propose changes" for that agent. Even then an agent can't change your Documents or Notes: it reads a Note with `read_mind` and `named`, which names each paragraph (¶1, ¶2…), then names the paragraph each change is for (¶3 rewrites or, with `remove`, takes out ¶3; ¶3+ adds after it). Its changes wait in the Note, marked with its name, until you accept or reject them, and only the `[cite:…]` tokens IncarnaMind gave it become Citations, each checked again.

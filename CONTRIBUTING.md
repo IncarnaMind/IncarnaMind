@@ -10,17 +10,7 @@ Thank you for helping. Code, testing with your own documents, translations and i
 
 ## Labels
 
-New issues are triaged with five labels:
-
-| Label | Meaning |
-| --- | --- |
-| `needs-triage` | The maintainer needs to evaluate it |
-| `needs-info` | Waiting on the reporter for more information |
-| `ready-to-build` | Fully specified, so anyone can pick it up without further questions |
-| `needs-owner` | Needs the owner or another person: an account, signing, a decision or hand-checked data |
-| `wontfix` | Won't be actioned |
-
-Every triaged issue also has a priority label, `priority:P0` (do first) to `priority:P3` (after the alpha); [`triage-labels.md`](docs/agents/triage-labels.md) says what each means. Anyone is welcome to take an issue labelled `ready-to-build`. A `needs-owner` issue needs an account, a decision or hand-checked data, so ask on it first. [`AGENTS.md`](AGENTS.md) holds the rules for working on the code, for people and coding agents alike, and `docs/agents/` holds the detail: the issue tracker and its `gh` commands ([`issue-tracker.md`](docs/agents/issue-tracker.md)), the labels ([`triage-labels.md`](docs/agents/triage-labels.md)), how to use the domain docs ([`domain.md`](docs/agents/domain.md)), the rules every UI change follows ([`interaction.md`](docs/agents/interaction.md)), and how to test so CI passes ([`testing.md`](docs/agents/testing.md)).
+Anyone is welcome to take an issue labelled `ready-to-build`: it is fully specified. A `needs-owner` issue needs an account, a decision or hand-checked data, so ask on it first. Every triaged issue also has a priority, `priority:P0` (do first) to `priority:P3` (after the alpha). [`triage-labels.md`](docs/agents/triage-labels.md) says what each label means.
 
 ## Setting up
 
@@ -28,13 +18,15 @@ You need Node.js 24 or newer. Clone the repository, then run `npm install` and `
 
 ## When you change code
 
+[`AGENTS.md`](AGENTS.md) holds the rules for working on the code, for people and coding agents alike, and `docs/agents/` holds the detail: the issue tracker ([`issue-tracker.md`](docs/agents/issue-tracker.md)), the labels ([`triage-labels.md`](docs/agents/triage-labels.md)), the domain docs ([`domain.md`](docs/agents/domain.md)), the rules every UI change follows ([`interaction.md`](docs/agents/interaction.md)) and how to test so CI passes ([`testing.md`](docs/agents/testing.md)). In short:
+
 - Changing UI? Follow the [interaction rules](docs/agents/interaction.md): easy to use and easy to pick up is the bar. The pull request template has a checklist for it.
 - Use the words defined in [`CONTEXT.md`](CONTEXT.md) (a Passage, not a chunk; a Connector, not a plugin), and say so when a change goes against an ADR in [`docs/adr/`](docs/adr/).
 - Test through the core's public interface, as the UI uses it, and assert what a User would see. The core tests need no API keys and no network.
 - Keep `src/core` free of Electron imports; Biome enforces it.
-- Run `npm run typecheck`, `npm run lint` and the unit tests of the files you changed before opening a pull request. CI runs the unit tests your changes reach and the smoke specs your pull request adds or changes, and the whole suite runs on `main` every night. A pull request merges once its sign-off check passes; merge `main` into your branch to resolve a conflict or to pick up something you need. The [tests and CI rules](docs/agents/testing.md) say how to write tests that pass on any machine.
-- The interface is in English and Simplified Chinese: a new string goes into both dictionaries in `src/shared/i18n/`.
-- Keep each pull request to one feature or theme, built whole rather than split into small pull requests, and say what it changes and why.
+- Every interface string goes into both dictionaries in `src/shared/i18n/`, English and Simplified Chinese.
+- Before opening a pull request, run `npm run typecheck`, `npm run lint` and the unit tests of the files you changed. CI runs the unit tests your changes reach and the smoke specs your pull request adds or changes; the whole suite runs on `main` every night.
+- Keep each pull request to one feature or theme, built whole rather than split into small pull requests, and say what it changes and why. It merges once its sign-off check passes; merge `main` into your branch to resolve a conflict or to pick up something you need.
 
 ## Licence and sign-off
 

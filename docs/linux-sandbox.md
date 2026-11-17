@@ -1,8 +1,8 @@
 # Turning the sandbox back on, on Linux
 
-IncarnaMind runs an Analysis in a sandbox that has no access to your files or the network. That sandbox is Chromium's, the same one the rest of the app runs in, so an Analysis can't run while the app runs without it. Instead, the place where the Analysis would have appeared says "Analyses need the app's sandbox, which is off", and the rest of the app works as usual.
+IncarnaMind runs an Analysis in Chromium's sandbox, the one the rest of the app runs in. It has no access to your files or the network, so an Analysis can't run while the app runs without it. Where the Analysis would have appeared, the app says "Analyses need the app’s sandbox, which is off", and the rest of the app works as usual.
 
-Without the sandbox the whole app is less safe, not only Analyses, so the app also says "Running without the app’s sandbox" at the foot of the sidebar when it first starts that way, and in Settings › Privacy for as long as it does. Both link to this page.
+Without the sandbox the whole app is less safe, not only Analyses. So the app also says "Running without the app’s sandbox" at the foot of the sidebar when it first starts that way, and in Settings › Privacy for as long as it does. Both link to this page.
 
 ## Why it is off
 
@@ -20,11 +20,13 @@ The .deb installs an AppArmor profile that allows user namespaces for IncarnaMin
 
 ## The last resort: allow user namespaces for every program
 
+Use this only if you can't install the .deb. It lifts the rule for the whole system, not just for IncarnaMind: any program can create user namespaces again, and attacks on the kernel often use them, which is why Ubuntu added the rule. The AppImage then starts with its sandbox on.
+
 ```sh
 sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
 ```
 
-This lifts the rule for the whole system, not just for IncarnaMind, and the AppImage then starts with its sandbox on. Any program can then create user namespaces again. Attacks on the kernel often use them, which is why Ubuntu added the rule. The setting lasts until you restart the computer. To keep it after that, put `kernel.apparmor_restrict_unprivileged_userns=0` in a file in `/etc/sysctl.d/`. Use this only if you can't install the .deb.
+The setting lasts until you restart the computer. To keep it after that, put `kernel.apparmor_restrict_unprivileged_userns=0` in a file in `/etc/sysctl.d/`.
 
 ## Code on whole files and Skill scripts
 
