@@ -867,6 +867,23 @@ describe.each(["en", "zh-CN"] as const)("a Library line with a gloss (%s)", (lan
     expect(check.reason).toBe("malformed");
   });
 
+  // protects=a Library line that is gloss from end to end ("(name, documents)", "“name”", "— name") is no Library line, so a Supported verdict resting on the fact's line stands on no declared fact and is held, true sentence or wrong one (#2525); fails_when=a line the reading strips to nothing reads as naming no fact, or as none, and a Supported stands without a declared fact
+  test.each(["(name, documents)", "“name”", "— name"])(
+    "a Library line that is all gloss (%s) holds nothing: true or wrong, never Supported",
+    async (line) => {
+      for (const sentence of [twice, once]) {
+        const setup = await setUp(
+          files2,
+          { [sentence]: { verdict: "supported", quote, line } },
+          language,
+        );
+        const { check } = await checkInNote(setup.core, sentence);
+        expect(check.state).toBe("not-checked");
+        expect(check.reason).toBe("malformed");
+      }
+    },
+  );
+
   // protects=a wrong sentence about a name stays held with a glossed Library line: its count in words is held to the fact's, Supported or not (#2525); fails_when=a gloss lets "appears once" stand over a fact that gives two
   test("a wrong twin stays held", async () => {
     const setup = await setUp(
@@ -1832,6 +1849,9 @@ describe("the facts' text", () => {
     // Lines that read before read as they did.
     expect(declaredLibrary("Library: facts: name, documents")).toEqual(facts("name", "documents"));
     expect(declaredLibrary("Library: (Documents named …)")).toBeNull();
+    // A line that is gloss from end to end is no line: never none, never facts it doesn't name.
+    for (const line of ["(name, documents)", "“name”", "— name", '"name"', "（name）"])
+      expect(declaredLibrary(`Library: ${line}`)).toBeNull();
   });
 });
 
