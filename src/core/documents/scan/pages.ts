@@ -13,7 +13,11 @@ import type { PagePicture } from "../../adapters";
 
 type PdfJs = typeof import("pdfjs-dist/legacy/build/pdf.mjs");
 
-/** Fewer characters than this on an A4 page (in proportion on others) is too little text. */
+/**
+ * Fewer characters than this on an A4 page is too little text; a smaller page needs fewer, in
+ * proportion, but a larger one no more: a slide's size in points is a screen's, not paper's, and a
+ * scan's stamp or page number is no longer on a larger page (#3289).
+ */
 export const MIN_PAGE_TEXT = 100;
 /** Pictures must cover at least this share of a page for it to be read as a scan. */
 export const MIN_PICTURE_SHARE = 0.5;
@@ -130,7 +134,7 @@ export async function isScanned(
 ): Promise<boolean> {
   const [x0 = 0, y0 = 0, x1 = 0, y1 = 0] = page.view;
   const size = Math.abs((x1 - x0) * (y1 - y0));
-  if (characters(text) >= MIN_PAGE_TEXT * Math.max(size / A4_AREA, 0.25)) return false;
+  if (characters(text) >= MIN_PAGE_TEXT * Math.min(Math.max(size / A4_AREA, 0.25), 1)) return false;
   return (await pictureShare(page, ops)) >= MIN_PICTURE_SHARE;
 }
 

@@ -38,6 +38,8 @@ export const OUTPUT_LIMITS = {
   placements: { most: 2_048, each: 40 },
   subfolders: { most: 4_000, each: 80 },
   "find-claims": { most: 4_000 },
+  // At most five lines and eight claim numbers, after a model's thinking.
+  "verify-brief": { most: 2_048 },
   "claimed-changes": { most: 2_048 },
   // One word, after the thinking of a model that thinks first, as "quick-check" has room for.
   "request-done": { most: 2_048 },

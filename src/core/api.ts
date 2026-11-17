@@ -9910,7 +9910,8 @@ export type DataKind = (typeof dataKinds)[number];
  *   they selected, with its paragraph and what it cites, and the Passages the
  *   check's searches find, to the chat model's provider;
  *   when they verify a document (#97), its sentences, to find its claims, then
- *   each claim with its paragraph and the Passages found. None in local mode.
+ *   each claim with its paragraph and the Passages found, and once more the
+ *   claims alone, numbered with their pages, for its brief (#3277). None in local mode.
  * - "agents": what an outside agent reads (#351), to that agent, which sends
  *   it on to the AI model it uses, out of IncarnaMind's sight: one service
  *   per pairing ("agent:<id>"), named as the User named the agent. Passages

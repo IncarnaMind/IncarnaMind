@@ -2757,6 +2757,16 @@ export async function pointAndClick(
   }
 }
 
+/** The verify card with its rows showing: under a brief, its one line of counts is the press that shows them. */
+export async function verifyRows(window: Page): Promise<Locator> {
+  const card = await checkCard(window);
+  const summary = card.getByTestId("verify-summary");
+  if ((await summary.count()) > 0 && (await summary.getAttribute("aria-expanded")) === "false") {
+    await pointAndClick(window, summary);
+  }
+  return card;
+}
+
 /**
  * A Mind's check badge card (#909): open already, as a question opens it,
  * or opened as a person opens it: from the badge, or from ⌘K while no badge shows.

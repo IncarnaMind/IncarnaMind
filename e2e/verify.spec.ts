@@ -25,6 +25,7 @@ import {
   slideSelect,
   useLocalChatModel,
   useOutputLocation,
+  verifyRows,
 } from "./app";
 
 /*
@@ -159,6 +160,7 @@ test("Verify a PDF: its Mind opens beside it, its claims are checked, and the co
   // Need a look is only what the checks found; the claim no model checked is a row of its own.
   const done = card.getByTestId("verify-done");
   await expect(done).toContainText("Checked 3 of 4 claims · 2 need a look");
+  await verifyRows(window);
   await expect(done.getByTestId("verify-contradicted")).toContainText("1 contradicted");
   await expect(done.getByTestId("verify-unsupported")).toContainText("1 unsupported");
   await expect(done.getByTestId("verify-notChecked")).toContainText("1 not checked");
@@ -179,7 +181,7 @@ test("Verify a PDF: its Mind opens beside it, its claims are checked, and the co
   await expect(pageMenu).toBeHidden();
 
   // The claim the model failed on says why, with Check again, opened from its row's sentence.
-  await pointAndClick(window, (await checkCard(window)).getByTestId("verify-notChecked"));
+  await pointAndClick(window, (await verifyRows(window)).getByTestId("verify-notChecked"));
   await expect(editor).toBeFocused();
   await window.keyboard.press("ControlOrMeta+Shift+KeyK");
   const claimCard = window.getByTestId("claim-card");
@@ -210,7 +212,7 @@ test("Verify a PDF: its Mind opens beside it, its claims are checked, and the co
   // Each row goes to the next claim of its kind.
   const caretIn = () =>
     editor.evaluate(() => getSelection()?.anchorNode?.parentElement?.closest("p")?.textContent);
-  await pointAndClick(window, (await checkCard(window)).getByTestId("verify-notChecked"));
+  await pointAndClick(window, (await verifyRows(window)).getByTestId("verify-notChecked"));
   await expect(editor).toBeFocused();
   await expect.poll(caretIn).toContain(REFUSED);
   await pointAndClick(window, done.getByTestId("verify-contradicted"));
@@ -225,7 +227,7 @@ test("Verify a PDF: its Mind opens beside it, its claims are checked, and the co
   await slideSelect(window, first, "Spring");
   await window.keyboard.type("Some spring");
   await expect(marks(window).and(window.locator('[data-check="needs-recheck"]'))).toHaveCount(1);
-  await checkCard(window);
+  await verifyRows(window);
   await expect(done.getByTestId("verify-recheck")).toContainText("1 needs re-check");
   await expect(done).toContainText("2 need a look");
   await pointAndClick(window, done.getByTestId("verify-recheck"));
@@ -238,7 +240,7 @@ test("Verify a PDF: its Mind opens beside it, its claims are checked, and the co
   await expect(
     editor.locator(":scope > p").filter({ hasText: "should decline to check" }),
   ).toHaveCount(1);
-  await checkCard(window);
+  await verifyRows(window);
   await expect(done.getByTestId("verify-notChecked")).toContainText("1 not checked");
   await expect(done.getByTestId("verify-recheck")).toContainText("1 needs re-check");
   await expect(done).toContainText("Checked 3 of 4 claims");
@@ -282,6 +284,7 @@ test("Verify a Word file: its Note opens beside the file with their change waiti
   await pointAndClick(window, ask.getByTestId("verify-check"));
   const done = card.getByTestId("verify-done");
   await expect(done).toContainText("Checked 3 claims · 2 need a look");
+  await verifyRows(window);
   await expect(marks(window)).toHaveCount(3);
   await expect(marks(window).and(window.locator('[data-check="contradicted"]'))).toHaveCount(1);
   await screenshot(window, "verify-word-results-en");
@@ -422,10 +425,12 @@ test("Twenty-four claims, two contradicted and four the model fails on: the card
   await expect(done).toContainText("Checked 20 of 24 claims · 2 need a look", {
     timeout: 60_000,
   });
+  await verifyRows(window);
   await expect(done.getByTestId("verify-notChecked")).toContainText("4 not checked");
   await screenshot(window, "verify-counts-en");
   await setLanguage(window, "zh-CN");
   await expect(done).toContainText("已核对 20/24 条说法 · 2 条需要留意");
+  await verifyRows(window);
   await expect(done.getByTestId("verify-notChecked")).toContainText("4 条未核对");
   await screenshot(window, "verify-counts-zh");
   await setLanguage(window, "en");
@@ -437,6 +442,7 @@ test("Twenty-four claims, two contradicted and four the model fails on: the card
   await expect(card.getByTestId("verify-ask")).toBeVisible();
   await pointAndClick(window, card.getByTestId("verify-check"));
   await expect(done).toContainText("Checked 0 of 3 claims");
+  await verifyRows(window);
   await expect(done.getByTestId("verify-notChecked")).toContainText("3 not checked");
   await expect(done.getByTestId("verify-contradicted")).toHaveCount(0);
   await expect(done.getByTestId("verify-unsupported")).toHaveCount(0);
@@ -469,6 +475,9 @@ test("In Chinese and a narrow window: the same, in Chinese", async () => {
   await expect(done).toContainText("已核对 3/4 条说法 · 2 条需要留意");
   await expect(marks(window)).toHaveCount(4);
   await screenshot(window, "verify-results-zh-narrow");
+  // The card with its brief reaches the top of a narrow window, over the page's ⋯: Esc puts it away.
+  await window.keyboard.press("Escape");
+  await expect(card).toBeHidden();
   const pageMenu = await openPageMenu(window);
   await expect(pageMenu.getByTestId("page-from")).toHaveText("来自 Harbour report");
 });

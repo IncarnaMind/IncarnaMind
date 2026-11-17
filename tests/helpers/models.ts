@@ -32,6 +32,9 @@ export function judgesNothing(call: GenerateCall): GeneratedReply {
     }
     case "sentence-batch":
       return { text: JSON.stringify({ sentences: [] }) };
+    // A document's brief for a test of something else: no conclusion, so none is kept (#3277).
+    case "verify-brief":
+      return { text: JSON.stringify({ conclusions: [], figures: [] }) };
     case "nearest":
       return { text: "neither" };
     case "claimed-changes":

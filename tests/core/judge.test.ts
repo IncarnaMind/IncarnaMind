@@ -21,6 +21,7 @@ import {
 } from "../../src/core/answers/checks/prompt";
 import { readRewrite } from "../../src/core/answers/checks/rewrite";
 import { readBatchText } from "../../src/core/answers/checks/sentenceBatch";
+import { briefFrom } from "../../src/core/answers/checks/verifyBrief";
 import { claimsReply, requestReply } from "../../src/core/answers/claimedChanges";
 import { FIGURES_REPLY } from "../../src/core/answers/figureRetry";
 import {
@@ -177,6 +178,18 @@ const QUESTIONS: Record<
     read: new Map([[1, [{ kind: "fact", span: { start: 0, end: CLAIM.length } }]]]),
     unreadable: JSON.stringify({ parts: [{ kind: "fact", text: CLAIM }] }),
     stream: true,
+  },
+  "verify-brief": {
+    reply: json((value) =>
+      briefFrom(value, [{ number: 1, text: CLAIM, sentence: { blockId: "b", text: CLAIM } }], "s"),
+    ),
+    right: JSON.stringify({ conclusions: [{ line: "It holds.", claim: 1 }], figures: [1] }),
+    read: {
+      conclusions: [{ line: "It holds.", at: { blockId: "b", text: CLAIM } }],
+      figures: [{ blockId: "b", text: CLAIM }],
+      sortedText: "s",
+    },
+    unreadable: JSON.stringify({ verdict: "holds" }),
   },
   "claimed-changes": {
     reply: claimsReply(REPLIED, false),

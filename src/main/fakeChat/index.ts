@@ -37,7 +37,7 @@ import {
   fakeSentenceBatch,
   thinksPastItsRoom,
 } from "./checks";
-import { fakeClaims, findsClaims } from "./claims";
+import { fakeBrief, fakeClaims, findsClaims } from "./claims";
 import { fakeConfirm, fakeRewrite } from "./confirm";
 import { editParts, fakeEdit } from "./edit";
 import { asksForCitations, helpModelParts, holdsHelp } from "./meetingHelp";
@@ -112,6 +112,7 @@ const GENERATE_HANDLERS: readonly ((options: GenerateOptions) => string | null)[
   fakePresence,
   fakePlan,
   fakeResearchTags,
+  fakeBrief,
   fakeClaims,
   fakeRewrite,
   fakeConfirm,
