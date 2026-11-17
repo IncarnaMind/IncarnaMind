@@ -9,11 +9,11 @@ The machinery behind [`testing.md`](testing.md). Read the section you need when 
 | Check | What it runs |
 |---|---|
 | Typecheck and lint | `npm run typecheck` and `npm run lint` |
-| Unit tests (N/4) | Only the tests that import, directly or through other modules, a file the pull request changes: a renderer change runs few or none, a `src/core` or `src/shared` change about half. A change to `package.json`, the lockfile, `vitest.config.ts`, `tests/setup/` or `ci.yml` runs them all, and the tests that read files as text run by name (`ci.yml` lists them) |
+| Unit tests (N/8) | Only the tests that import, directly or through other modules, a file the pull request changes: a renderer change runs few or none, a `src/core` or `src/shared` change about half. A change to `package.json`, the lockfile, `vitest.config.ts`, `tests/setup/` or `ci.yml` runs them all, and the tests that read files as text run by name (`ci.yml` lists them) |
 | Smoke specs to run, then Smoke tests (N/M, Linux) | Only the specs the pull request adds or changes. A change to app code, to what every spec runs on (`e2e/app.ts`, `playwright.config.ts`) or to the dependencies runs no other spec; every spec runs nightly. To check the specs such a change reaches, use [Run named specs](#run-named-specs). A failed shard uploads its traces as `smoke-results-N` |
 | Every commit is signed off (DCO) | Its own workflow, `dco.yml`, on every pull request: a `Signed-off-by:` line on each commit (`git commit -s`). No author, committer or sign-off at anthropic.com, and no `Co-Authored-By:` trailer naming Claude or an anthropic.com address: a commit carries its contributor's own name |
 
-- Both test jobs are split into shards balanced by how long each file takes. Refresh `tests/durations.json` and `e2e/durations.json` from a green run's log when files are added or slow down.
+- Both test jobs are split into shards balanced by how long each file takes. Refresh `tests/durations.json` with `node scripts/unitDurations.ts <run id>` from a green nightly run, and `e2e/durations.json` from a green run's log, when files are added or slow down. A unit test file the table doesn't know yet counts by its size.
 - CI runs the smoke specs with two workers, each on its own virtual display, because windows on one display take the keyboard focus from each other and share a clipboard. Locally and on macOS a run has one worker: keep `--workers=1` when you run a spec by hand.
 
 ## Nightly
