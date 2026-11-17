@@ -1,4 +1,4 @@
-import { type RefObject, useEffect, useId, useRef, useState } from "react";
+import { type ReactNode, type RefObject, useEffect, useId, useRef, useState } from "react";
 import type { ChatProvider, ProviderError } from "../../../../core/api";
 import { formOfKey, type KeyTarget } from "../../../../core/providers/catalog/keyForms";
 import {
@@ -49,6 +49,9 @@ export function KeyEntry({
   testId = "setup-key",
   autoFocus = false,
   inputRef,
+  label = "setup.key.useOwn",
+  placeholder = "setup.key.placeholder",
+  below,
 }: {
   /** The saved provider, and the model it was saved with, for the work that waited on it. */
   onSaved(provider: ChatProvider, model: { providerId: string; modelId: string }): void;
@@ -61,6 +64,13 @@ export function KeyEntry({
   autoFocus?: boolean;
   /** Where another way in can lead the User: the field itself. */
   inputRef?: RefObject<HTMLInputElement | null>;
+  label?: MessageKey;
+  placeholder?: MessageKey;
+  /**
+   * Shown right under the field, in place of the line naming the services a key is recognised
+   * from, which the placeholder then names (the first run's setup page, #3296).
+   */
+  below?: ReactNode;
 }) {
   const t = useT();
   const language = useLanguage();
@@ -158,7 +168,7 @@ export function KeyEntry({
         htmlFor={`${id}-key`}
         className="text-[13px] leading-5 font-semibold text-ink-secondary"
       >
-        {t("setup.key.useOwn")}
+        {t(label)}
       </label>
       <input
         ref={field}
@@ -169,7 +179,7 @@ export function KeyEntry({
         aria-describedby={`${id}-line`}
         autoComplete="off"
         spellCheck={false}
-        placeholder={t("setup.key.placeholder")}
+        placeholder={t(placeholder)}
         data-testid={testId}
         onChange={(event) => {
           setValue(event.target.value);
@@ -189,6 +199,7 @@ export function KeyEntry({
         }}
         className={inputClass}
       />
+      {below}
       {/* What pasting a key is the consent for, said before it is pasted (#2883). */}
       <p data-testid={`${testId}-sends`} className={hintClass}>
         {t("setup.key.sends")}
@@ -214,7 +225,7 @@ export function KeyEntry({
         </div>
       ) : (
         <p id={`${id}-line`} data-testid={`${testId}-line`} className={hintClass}>
-          {busy ? t("setup.key.checking") : t("setup.key.recognised")}
+          {busy ? t("setup.key.checking") : below === undefined && t("setup.key.recognised")}
         </p>
       )}
       {problem?.kind === "stray" && (

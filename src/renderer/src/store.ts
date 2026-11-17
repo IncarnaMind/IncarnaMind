@@ -31,11 +31,13 @@ import type {
   Tag,
   TranscriptSpeakers,
   WindowLayout,
+  WorkKind,
 } from "../../core/api";
 import { EXAMPLE_GROUPS } from "../../core/api";
 import { TranslatableError } from "../../core/errors";
 import { resolveLanguage } from "../../core/language";
 import type { UiUsageEvent } from "../../core/usageEvents";
+import { leadGroupOf } from "../../core/workKinds";
 import { displayName } from "../../shared/documentNames";
 import { isSearchable } from "../../shared/documentStatus";
 import type { DocumentLocation } from "../../shared/documentViewer";
@@ -265,8 +267,21 @@ export interface AppState extends LayoutSlice {
    * e.g. a new one, with the Search scope it starts with (from the Library), if any.
    */
   questionToStart: { mindId: string; scope: SearchScope | null } | null;
+  /**
+   * The setup page the window shows instead of everything else (#3296): a fresh profile's first
+   * run, from its first step, with the order its kinds of work are shown in; or its model steps
+   * again, from Settings › AI or ⌘K. Null while the window shows the app.
+   */
+  setup: { from: "work"; workOrder: WorkKind[] } | { from: "ai" } | null;
 
   load(): Promise<void>;
+  /** Shows the setup's model steps again, in place of the window (#3296). */
+  openSetup(): void;
+  /**
+   * The setup finished or skipped through: a first run keeps the picks and opens their example
+   * with Get started; the model steps opened again go back to the app.
+   */
+  finishSetup(work: readonly WorkKind[]): Promise<void>;
   /**
    * Creates a Mind, in `folderId` if given, else where `filingFolder` says (#1362), and opens it
    * in a new tab after the shown one, in the focused group or `groupId`, with its title focused,
@@ -1159,11 +1174,17 @@ export const useAppStore = create<AppState>()((set, get) => {
     usageNotice: "auto",
     privacy: null,
     questionToStart: null,
+    setup: null,
 
     async load() {
       try {
-        // A first run: the example Mind is made, once, and is what the app opens on.
-        const offered = await core.offerExamples().catch(() => null);
+        // A fresh profile opens on the setup, which makes the examples once it ends (#3296).
+        const setup = await core.firstRunSetup().catch((error: unknown) => {
+          console.error("Couldn't tell whether the first run's setup should show.", error);
+          return { show: false } as const;
+        });
+        // Otherwise a first run's example Mind is made, once, and is what the app opens on.
+        const offered = setup.show ? null : await core.offerExamples().catch(() => null);
         if (offered?.mindId) await startGettingStarted(offered.mindId);
         await get().loadLayout();
         const readAt = new Map<PushedList, number>();
@@ -1184,9 +1205,8 @@ export const useAppStore = create<AppState>()((set, get) => {
           embedding,
           linkedFolders,
           keptCitationTexts,
-          examples,
+          everyExample,
           firstOpen,
-          otherExamples,
           connectors,
           rerank,
           privacy,
@@ -1201,9 +1221,8 @@ export const useAppStore = create<AppState>()((set, get) => {
           readList("embedding", core.getEmbeddingSettings(), readAt),
           readList("linkedFolders", core.listLinkedFolders(), readAt),
           readList("keptCitationTexts", core.listKeptCitationTexts(), readAt),
-          core.getExamples(),
+          readEveryExample(),
           core.readyQuestion(),
-          Promise.all(OTHER_EXAMPLE_GROUPS.map((group) => core.getExamples(group))),
           core.listConnectors(),
           readList("rerank", core.getRerankSettings(), readAt),
           readList("privacy", core.getPrivacySettings(), readAt),
@@ -1213,7 +1232,7 @@ export const useAppStore = create<AppState>()((set, get) => {
         // Minds made before this setting existed count as an earlier launch.
         const launchedBefore = settings.device.openedBefore || minds.length > 0;
         // Before the tabs are drawn, so the Mind left in front isn't drawn only to be covered.
-        if (!offered?.mindId && launchedBefore && !reloaded) {
+        if (!setup.show && !offered?.mindId && launchedBefore && !reloaded) {
           await get().openHome({ first: true });
         }
         const read = {
@@ -1235,20 +1254,53 @@ export const useAppStore = create<AppState>()((set, get) => {
         ) as Partial<Pick<AppState, PushedList>>;
         set({
           ...fresh,
-          examples,
+          ...examplesBy(everyExample, settings.device.work),
           readyQuestion: firstOpen?.ready ?? null,
           readyReading: firstOpen?.reading ?? null,
-          otherExamples: otherExamples.filter(isMade),
           askedOwnAtLaunch: settings.device.gettingStarted.askedOwn,
+          setup: setup.show ? { from: "work", workOrder: setup.workOrder } : null,
           status: { kind: "ready" },
         });
-        if (!settings.device.openedBefore) {
+        // A setup quit halfway shows again: until it ends, this isn't a launch that counts.
+        if (!settings.device.openedBefore && !setup.show) {
           void get().updateSettings({ device: { openedBefore: true } });
         }
         await get().refreshLibrary();
         tickIndexed(connectors.length);
       } catch (error) {
         set({ status: { kind: "failed", message: errorMessage(error, t) } });
+      }
+    },
+
+    openSetup() {
+      if (get().settingsOpen) get().closeSettings();
+      set({ setup: { from: "ai" } });
+    },
+
+    async finishSetup(work) {
+      if (get().setup?.from !== "work") {
+        set({ setup: null });
+        return;
+      }
+      try {
+        const lead = await core.finishFirstRunSetup(work);
+        if (lead?.mindId) await startGettingStarted(lead.mindId);
+        const [settings, every, firstOpen] = await Promise.all([
+          core.getSettings(),
+          readEveryExample(),
+          core.readyQuestion(),
+        ]);
+        set({
+          settings,
+          ...examplesBy(every, settings.device.work),
+          readyQuestion: firstOpen?.ready ?? null,
+          readyReading: firstOpen?.reading ?? null,
+        });
+        void get().updateSettings({ device: { openedBefore: true } });
+      } catch (error) {
+        get().reportError(error);
+      } finally {
+        set({ setup: null });
       }
     },
 
@@ -2262,12 +2314,17 @@ export const isExampleDocument = (document: Document, examples: readonly Example
 export const isOwnDocument = (document: Document, examples: readonly Examples[]) =>
   isListedDocument(document) && !isExampleDocument(document, examples);
 
-/** The example a first run makes, shown first; the earlier version's tea example stands in for it. */
-const FIRST_RUN_EXAMPLE: ExampleGroup = "credit";
+/**
+ * The example a first run opens on and shows first: the first pick's (#3296), the credit paper
+ * when none was. The earlier version's tea example stands in for the credit paper.
+ */
+const leadsOf = (examples: Examples, work: readonly WorkKind[]): boolean =>
+  (examples.group === "tea" ? "credit" : examples.group) === leadGroupOf(work);
+
 const withExamples =
   (examples: Examples) =>
-  (state: Pick<AppState, "otherExamples">): Partial<AppState> =>
-    examples.group === FIRST_RUN_EXAMPLE || examples.group === "tea"
+  (state: Pick<AppState, "otherExamples" | "settings">): Partial<AppState> =>
+    leadsOf(examples, state.settings?.device.work ?? [])
       ? { examples }
       : {
           otherExamples: [
@@ -2276,7 +2333,23 @@ const withExamples =
           ],
         };
 
-const OTHER_EXAMPLE_GROUPS = EXAMPLE_GROUPS.filter((group) => group !== FIRST_RUN_EXAMPLE);
+/** Every example's state; the credit paper's read as the default, which stands for the tea example. */
+const readEveryExample = (): Promise<Examples[]> =>
+  Promise.all(
+    EXAMPLE_GROUPS.map((group) =>
+      group === "credit" ? core.getExamples() : core.getExamples(group),
+    ),
+  );
+
+/** The lead example and the others made, as the store keeps them. */
+const examplesBy = (
+  every: readonly Examples[],
+  work: readonly WorkKind[],
+): Pick<AppState, "examples" | "otherExamples"> => ({
+  examples: every.find((each) => leadsOf(each, work)) ?? null,
+  otherExamples: every.filter((each) => !leadsOf(each, work) && isMade(each)),
+});
+
 const isMade = (examples: Examples) => examples.mindId !== null || examples.linkedFolderId !== null;
 
 export const allExamples = (state: Pick<AppState, "examples" | "otherExamples">): Examples[] =>

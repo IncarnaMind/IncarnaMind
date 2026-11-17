@@ -1,8 +1,10 @@
 import { type Ref, useRef, useState } from "react";
 import type { MessageKey } from "../../../../shared/i18n";
+import { useClaudeAccount } from "../../claudeSignIn";
 import { useLanguage, useT } from "../../i18n";
 import { ROUTE_LABELS } from "../../transcriptionServices";
 import { MicLineIcon, SearchLineIcon } from "../lineIcons";
+import { useOfferedWay } from "../providers/CopilotPlan";
 import { ProviderLogo } from "../providers/ProviderLogo";
 import { keyProviderName } from "../providers/shared";
 import { buttonStyle, dialogClass } from "../ui";
@@ -47,6 +49,16 @@ const PLAN_LOGOS: Record<PlanId, string> = {
   copilot: "copilot",
 };
 
+/** The plans this copy can sign in to. */
+export function usePlansOffered(): (plan: PlanId) => boolean {
+  const claude = useClaudeAccount();
+  const copilot = useOfferedWay();
+  return (plan) =>
+    plan === "chatgpt" ||
+    (plan === "claude-account" && claude?.available === true) ||
+    (plan === "copilot" && copilot !== null);
+}
+
 /** An entry's name as the directory shows and searches it. */
 export function useEntryName(): (entry: ServiceEntry) => string {
   const t = useT();
@@ -70,11 +82,14 @@ export function useEntryName(): (entry: ServiceEntry) => string {
  */
 export function ServiceDirectory({
   offered,
+  only,
   added,
   onOpen,
   searchRef,
 }: {
   offered(plan: PlanId): boolean;
+  /** The entries it lists, where only some fit (the first run's AI step lists only Answers'). */
+  only?(entry: ServiceEntry): boolean;
   /** Whether an entry is set up already: it says so. */
   added(entry: ServiceEntry): boolean;
   onOpen(entry: ServiceEntry): void;
@@ -85,9 +100,9 @@ export function ServiceDirectory({
   const language = useLanguage();
   const name = useEntryName();
   const [query, setQuery] = useState("");
-  const all = serviceDirectory(language, { offered, name });
+  const all = serviceDirectory(language, { offered, only, name });
   const count = all.reduce((sum, group) => sum + group.entries.length, 0);
-  const groups = serviceDirectory(language, { offered, name, query });
+  const groups = serviceDirectory(language, { offered, only, name, query });
   return (
     <div data-testid="provider-directory" className="flex min-h-0 flex-col gap-3">
       <label className="flex h-8 shrink-0 items-center gap-2 rounded-lg px-2.5 text-ink-meta shadow-[inset_0_0_0_1px_var(--color-rule-strong)] focus-within:shadow-[inset_0_0_0_1px_var(--color-accent)]">

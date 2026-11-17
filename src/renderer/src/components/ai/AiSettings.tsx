@@ -9,7 +9,6 @@ import type {
 } from "../../../../core/api";
 import { useAnswers } from "../../answers";
 import { useCheckDecision } from "../../checkDecision";
-import { useClaudeAccount } from "../../claudeSignIn";
 import { core } from "../../core";
 import { useDecisionHosts } from "../../decisionHosts";
 import { useLanguage, useT } from "../../i18n";
@@ -19,13 +18,14 @@ import { useModelNames } from "../../modelNames";
 import { useSettingsTarget } from "../../settingsTarget";
 import { useAppStore } from "../../store";
 import { ROUTE_LABELS, useTranscriptionServicesRead } from "../../transcriptionServices";
+import { NoAiYet, SetUpAgain } from "../firstRun/NoAiYet";
 import { MicLineIcon } from "../lineIcons";
 import { TranscriptionSetUp } from "../meetings/TranscriptionSetUp";
 import { AddProvider } from "../providers/AddProvider";
 import { ChatGptPlanRow } from "../providers/ChatGptPlanSettings";
 import { ReadinessExplanation } from "../providers/ChatReadinessNotice";
 import { ClaudePlanRow } from "../providers/ClaudePlan";
-import { CopilotPlanRow, useOfferedWay } from "../providers/CopilotPlan";
+import { CopilotPlanRow } from "../providers/CopilotPlan";
 import { DecisionSortingSetUp, firstModelOf } from "../providers/DecisionKeyForm";
 import { JevSortingSetUp } from "../providers/JevSortingSetUp";
 import { LocalModeUnavailable } from "../providers/LocalModeUnavailable";
@@ -46,10 +46,10 @@ import { SettingsGroup } from "../settings/SettingsGroup";
 import { UndoLineAt } from "../UndoLine";
 import { noticeClass } from "../ui";
 import { AccountsSection } from "./AccountsSection";
-import { AddSheet, useEntryName } from "./AddSheet";
+import { AddSheet, useEntryName, usePlansOffered } from "./AddSheet";
 import { JobsSection } from "./JobsSection";
 import { LimitsSection } from "./LimitsSection";
-import type { PlanId, ServiceEntry } from "./serviceDirectory";
+import type { ServiceEntry } from "./serviceDirectory";
 
 type View =
   | { page: "list" }
@@ -284,6 +284,7 @@ export function AiSettings() {
       <UndoLineAt place={MODELS_UNDO_PLACE} className="-mb-6 has-[*]:mb-0" />
       {body ?? (
         <>
+          {providers.length === 0 && <NoAiYet onAdd={add} />}
           <p data-testid="ai-lede" className="px-4 text-[13px] leading-5 text-ink-meta">
             {t("ai.lede")}
           </p>
@@ -299,6 +300,7 @@ export function AiSettings() {
             checkDecision={checkDecision ?? null}
             onAddKey={add}
           />
+          {providers.length > 0 && <SetUpAgain />}
           <AccountsSection
             providers={providers}
             groups={groups ?? []}
@@ -335,16 +337,6 @@ export function AiSettings() {
       />
     </div>
   );
-}
-
-/** The plans this copy can sign in to. */
-function usePlansOffered(): (plan: PlanId) => boolean {
-  const claude = useClaudeAccount();
-  const copilot = useOfferedWay();
-  return (plan) =>
-    plan === "chatgpt" ||
-    (plan === "claude-account" && claude?.available === true) ||
-    (plan === "copilot" && copilot !== null);
 }
 
 /**

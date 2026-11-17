@@ -137,6 +137,19 @@ export function RoleSelect({
     }
   };
 
+  // With no account or key there is nothing to choose: said as text, not a picker that can't open.
+  if (job === "chatModel" && providers.length === 0) {
+    return (
+      <span
+        id={id}
+        data-testid={`model-default-${job}`}
+        aria-describedby={describedBy}
+        className="text-[13px] leading-5 text-ink-meta"
+      >
+        {t("models.defaults.noModel")}
+      </span>
+    );
+  }
   return (
     <PopUpSelect
       id={id}

@@ -19,14 +19,14 @@ const name = (entry: ServiceEntry) =>
   entry.kind === "plan" ? entry.plan : (entryName(entry, "en") ?? "");
 
 describe("Add an account or key: the directory (#2835)", () => {
-  test("its groups, in order: plans, popular keys, this computer, meetings only, Organize only, more", () => {
+  test("its groups, in order: plans, popular keys, meetings only, Organize only, more, this computer last (#3296)", () => {
     expect(serviceDirectory("en", { name }).map((each) => each.group)).toEqual([
       "plans",
       "popular",
-      "local",
       "meetings",
       "organize",
       "more",
+      "local",
     ]);
     const groups = serviceDirectory("en", { name });
     const keys = (group: string) =>
