@@ -3077,6 +3077,24 @@ function sentenceTail(text: string): string {
   return end ? text.slice(0, end.index) : text;
 }
 
+/** The sentence just before the one that `text`, ending where that one starts, comes to: "A made a loss. " gives "A made a loss". */
+function sentenceBefore(text: string): string {
+  return sentenceHead(text.replace(/[.!?。！？\s]+$/u, ""));
+}
+
+/** The sentence after the one that `text` starts in. */
+function sentenceAfter(text: string): string {
+  const end = new RegExp(SENTENCE_END.source, "u").exec(text);
+  return end ? sentenceTail(text.slice(end.index + end[0].length)) : "";
+}
+
+/**
+ * A sentence that starts with a pronoun for the subject of the one beside it ("Its result for the
+ * year was …", "其本年经营成果为…"), so what one says of a loss is the other's. Not 其他, 其中, 他人.
+ */
+const TIED_START =
+  /^[\s"“'(（]*(?:(?:its|their|his|her|it)(?![A-Za-z'’])|其(?![他次中余实])|它|她|他(?!人))/i;
+
 /** A line that subtracts what follows: "Less: deposit paid …", "减：已付定金 …", a "Less" cell or heading. */
 const DEDUCTION_LINE = /^[\s|]*(?:less|deduct|减)[ \u00a0]*(?:[:：-]|\t|\||$)/im;
 
@@ -3144,7 +3162,17 @@ function restates(
       return "minus";
     // A loss in the amount's own sentence ("The loss for the year was …", "亏损…为…") is the
     // amount's; in another sentence it may be about something else, and the sentences say which.
-    if (SUM_WORD.test(`${sentenceHead(window)}${sentenceTail(after)}`)) return "minus";
+    const opening = sentenceHead(window);
+    if (SUM_WORD.test(`${opening}${sentenceTail(after)}`)) return "minus";
+    // "Party A made a loss. Its result for the year was …": the pronoun makes the loss the amount's.
+    // Where no word says so, the sentences do, to the model that reads them (#3228).
+    const earlier = window.slice(0, window.length - opening.length);
+    const next = sentenceAfter(after);
+    if (
+      (TIED_START.test(opening) && SUM_WORD.test(sentenceBefore(earlier))) ||
+      (TIED_START.test(next) && SUM_WORD.test(next))
+    )
+      return "minus";
     return SUM_WORD.test(window) || SUM_WORD.test(after) ? "unsure" : null;
   };
   // A bare "$" is whichever dollar the words name: "Australian Dollars ($98,000)".

@@ -422,8 +422,7 @@
     "expected": {
       "amount": "contradicted",
       "minus": "supported"
-    },
-    "reading": 2
+    }
   },
   {
     "id": "E03",
@@ -476,8 +475,7 @@
     "expected": {
       "amount": "contradicted",
       "minus": "supported"
-    },
-    "reading": 2
+    }
   },
   {
     "id": "F01",

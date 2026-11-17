@@ -3675,6 +3675,19 @@ describe("a bracket right after an amount (#2341)", () => {
       [f("($95,000.00)", 95000, { unit: "USD", ambiguous: ["sign"] })],
     ],
     [
+      "Party A made a loss. The result for the year was $2.6 million ($2,600,000).",
+      EN,
+      [
+        f("$2.6 million", 2600000, { unit: "USD", scale: "million" }),
+        f("($2,600,000)", 2600000, { unit: "USD", ambiguous: ["sign"] }),
+      ],
+    ],
+    [
+      "The company reported an operating loss. Operating income was sixty-two thousand dollars ($62,000.00).",
+      EN,
+      [f("($62,000.00)", 62000, { unit: "USD", ambiguous: ["sign"] })],
+    ],
+    [
       "出租方对营业损失不承担责任。月租金为人民币九万五千元（¥95,000）。",
       ZH,
       [
@@ -3689,24 +3702,6 @@ describe("a bracket right after an amount (#2341)", () => {
         f("人民币九万五千元", 95000, { unit: "CNY" }),
         f("（¥95,000）", 95000, { unit: "CNY", ambiguous: ["sign"] }),
       ],
-    ],
-    [
-      "Party A made a loss. Its result for the year was $2.6 million ($2,600,000).",
-      EN,
-      [
-        f("$2.6 million", 2600000, { unit: "USD", scale: "million" }),
-        f("($2,600,000)", 2600000, { unit: "USD", ambiguous: ["sign"] }),
-      ],
-    ],
-    [
-      "The subsidiary posted a net loss for the year. Its result was sixty-two thousand dollars ($62,000.00).",
-      EN,
-      [f("($62,000.00)", 62000, { unit: "USD", ambiguous: ["sign"] })],
-    ],
-    [
-      "The group recorded a small net loss. Its earnings were sixty-two thousand dollars ($62,000.00).",
-      EN,
-      [f("($62,000.00)", 62000, { unit: "USD", ambiguous: ["sign"] })],
     ],
     [
       "The annual rent is ninety-five thousand dollars ($95,000.00). The Landlord is not liable for any loss of business.",
@@ -3725,6 +3720,27 @@ describe("a bracket right after an amount (#2341)", () => {
   // protects=a loss or deduction word in another sentence than the amount's leaves a bracket's sign open, in English and Chinese, before and after the amount (#3228); fails_when=such a word gives the bracket its minus again, or the amount reads as a figure with no question about its sign
   test.each(open)("%s leaves its sign open", (text, context, figures) => {
     expect(readFigures(text, context).map(shape)).toEqual(figures);
+  });
+
+  // protects=a sentence that starts with a pronoun for the subject of the loss sentence beside it keeps the bracket's minus, before the amount and after it, in English and Chinese (#3228); fails_when=such a loss leaves the sign open to the model, which took a tied minus for a plus in 4 of 6 rounds
+  test.each([
+    ["Party A made a loss. Its result for the year was $2.6 million ($2,600,000).", EN, 2600000],
+    [
+      "The subsidiary posted a net loss for the year. Its result was sixty-two thousand dollars ($62,000.00).",
+      EN,
+      62000,
+    ],
+    [
+      "The group recorded a small net loss. Their earnings were sixty-two thousand dollars ($62,000.00).",
+      EN,
+      62000,
+    ],
+    ["Party A made a loss. It reported a result of $2.6 million ($2,600,000).", EN, 2600000],
+    ["The result for the year was $2.6 million ($2,600,000). It was a loss.", EN, 2600000],
+    ["甲方本年发生亏损。其本年经营成果为人民币260万元（¥2,600,000）。", ZH, 2600000],
+  ] as const)("%s keeps its minus", (text, context, amount) => {
+    const bracket = readFigures(text, context).find((figure) => /^[(（]/.test(figure.chars));
+    expect(bracket && [bracket.value, bracket.ambiguous.length]).toEqual([-amount, 0]);
   });
 
   // protects=a loss word in the amount's own sentence, or any word that says below zero in the text around it, keeps the bracket's minus where another sentence's loss word does not (#3228)
