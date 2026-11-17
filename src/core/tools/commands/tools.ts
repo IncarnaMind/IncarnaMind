@@ -334,8 +334,7 @@ export function commandTools(options: CommandToolsOptions): {
         page: {
           type: "integer",
           minimum: 1,
-          description:
-            'check.chooseCitation only: the page the User names ("p. 4", "第4页"); never one you found yourself.',
+          description: "check.chooseCitation only: the page the User names, never one you found.",
         },
         setting: { type: "string", enum: SETTING_NAMES },
         value: { type: "string" },
