@@ -17,7 +17,9 @@
  *
  * Second round (#1385), bars written 2026-11-17 before any request of it, the paired draw one
  * session with `main` and the branch alternated request by request, stop US$0.70 for every request
- * of it, Claude Haiku 5.5. A run counts only with nothing refused, failed or timed out. At the
+ * of it. The model meant is Claude Haiku 5.5, the default; the model that runs is DeepSeek V4.1
+ * Flash (deepseek-flash), both arms, by the owner's rule of 2026-11-17, and the bars below stand,
+ * `main` in the same session being what each is read against. A run counts only with nothing refused, failed or timed out. At the
  * branch's head:
  * - a bit longer (the ten "a bit" requests): within bound in at least 9 of 10, and no fewer than
  *   `main` in the same session;
@@ -61,6 +63,14 @@ const LIVE: { name: string; kind: ChatProviderKind; apiKey: string | undefined; 
       model:
         process.env.INCARNAMIND_LIVE_ANTHROPIC_MODEL ??
         (catalogProvider("anthropic")?.roles.quickTasks as string),
+    },
+    {
+      name: "DeepSeek",
+      kind: "deepseek",
+      apiKey: process.env.INCARNAMIND_LIVE_DEEPSEEK_KEY,
+      model:
+        process.env.INCARNAMIND_LIVE_DEEPSEEK_MODEL ??
+        (catalogProvider("deepseek")?.roles.quickTasks as string),
     },
   ];
 
