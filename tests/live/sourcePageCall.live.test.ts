@@ -4,8 +4,9 @@
  * The window's command list is the renderer's own, as a window with the Note in front offers it;
  * the window is this test, which answers that the command ran and keeps its request. Runs only with
  * INCARNAMIND_LIVE_ANTHROPIC_KEY (the model is INCARNAMIND_LIVE_ANTHROPIC_MODEL, Claude Haiku 5.5
- * by default), INCARNAMIND_LIVE_RUNS asks of each request (5); INCARNAMIND_LIVE_REPORT keeps one
- * line a ask. Written before it was run, the bars (written 2026-11-17, stop US$0.15):
+ * by default), or, with INCARNAMIND_LIVE_PROVIDER=deepseek, INCARNAMIND_LIVE_DEEPSEEK_KEY (DeepSeek
+ * V4.1 Flash, deepseek-flash); INCARNAMIND_LIVE_RUNS asks of each request (5);
+ * INCARNAMIND_LIVE_REPORT keeps one line a ask. Written before it was run, the bars (written 2026-11-17, stop US$0.15):
  * - Each request that names page 4, in English ("p. 4", "page 4") and in Chinese (第4页, 第 4 页),
  *   sends page 4 on the Lease's check.chooseCitation in every ask.
  * - The request that names no page sends none, and every ask runs check.chooseCitation on the Lease.
@@ -25,10 +26,15 @@ import { connectToMind } from "../helpers/mindClient";
 import { note, writeMind } from "../helpers/minds";
 import { buildPdf } from "../helpers/pdf";
 
-const KEY = process.env.INCARNAMIND_LIVE_ANTHROPIC_KEY;
-const MODEL =
-  process.env.INCARNAMIND_LIVE_ANTHROPIC_MODEL ??
-  (catalogProvider("anthropic")?.roles.quickTasks as string);
+const DEEPSEEK = process.env.INCARNAMIND_LIVE_PROVIDER === "deepseek";
+const KEY = DEEPSEEK
+  ? process.env.INCARNAMIND_LIVE_DEEPSEEK_KEY
+  : process.env.INCARNAMIND_LIVE_ANTHROPIC_KEY;
+const MODEL = DEEPSEEK
+  ? (process.env.INCARNAMIND_LIVE_DEEPSEEK_MODEL ??
+    (catalogProvider("deepseek")?.roles.quickTasks as string))
+  : (process.env.INCARNAMIND_LIVE_ANTHROPIC_MODEL ??
+    (catalogProvider("anthropic")?.roles.quickTasks as string));
 const RUNS = Number(process.env.INCARNAMIND_LIVE_RUNS ?? "5") || 5;
 const REPORT = process.env.INCARNAMIND_LIVE_REPORT;
 const WINDOW = "live-window";
@@ -121,7 +127,11 @@ describe("the source's page in the assistant's call, live", () => {
             windowRequests.push(asked);
             void core.answerWindowCommand(asked.requestId, { ran: true, changed: false });
           });
-          await core.saveChatProvider({ kind: "anthropic", apiKey: KEY ?? "", modelId: MODEL });
+          await core.saveChatProvider({
+            kind: DEEPSEEK ? "deepseek" : "anthropic",
+            apiKey: KEY ?? "",
+            modelId: MODEL,
+          });
           const sources = await createTempDataFolder();
           await addAndProcess(core, [
             await writeSourceFile(
