@@ -29,8 +29,8 @@ import {
  * at 3% growth, the Answer gives the figure traced through the workbook's formulas and the figure
  * worked out again with the growth input changed. Added to the note, each card shows the
  * figure's formula chain and its inputs cited to their cells; the what-if's names the input it
- * changed and the value the workbook has. Tied out, each is checked against the workbook and the
- * what-if's row names its change. The workbook's file is unchanged. English wide, Chinese narrow.
+ * changed and the value the workbook has. Tied out, each row names its formula and the what-if's
+ * names its change. The workbook's file is unchanged. English wide, Chinese narrow.
  */
 
 const SHOTS = process.env.INCARNAMIND_SCREENSHOTS;
@@ -127,7 +127,7 @@ for (const [language, width] of [
       await window.mouse.move(0, 0);
       await expect(card).toBeHidden();
 
-      // Tied out, each figure is checked against the workbook, and the what-if is named as one.
+      // Tied out, each figure's row names its formula, and the what-if is named as one.
       const schedule = window.getByTestId("figure-schedule");
       await runCommand(window, "mind.tieOut", t("figures.command"));
       const ask = window.getByTestId("mind-check-ask").getByTestId("mind-check-check");
@@ -139,11 +139,6 @@ for (const [language, width] of [
       await expect(rows).toHaveCount(3);
       const row = (figure: string) =>
         rows.filter({ has: window.locator(".figure-main-button", { hasText: figure }) });
-      for (const figure of ["254.7", "240.4"])
-        await expect(row(figure).locator(".figure-status")).toContainText(
-          t("claim.state.supported"),
-          { timeout: 60_000 },
-        );
       await expect(row("254.7").locator(".figure-source")).toHaveText(
         `${t("figures.calculated")} · DCF!E5 = E4*Margin`,
       );

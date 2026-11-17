@@ -24,8 +24,6 @@ interface Language {
   documents: { name: string; contents: string }[];
   /** A sentence the first Document states word for word, and the same about another place. */
   plain: { sentence: string; decoy: string };
-  /** How a last turn after the verdict takes it back, in a sentence's place. */
-  takesBack: { plain: string };
 }
 
 const EN: Language = {
@@ -61,10 +59,6 @@ const EN: Language = {
     sentence: "Rock armour should replace the timber groynes along the southern shore.",
     decoy: "Rock armour should replace the timber groynes along the northern shore.",
   },
-  takesBack: {
-    plain:
-      "On a second reading, the Documents don't support this: they name the southern shore. [^1]",
-  },
 };
 
 const ZH: Language = {
@@ -99,9 +93,6 @@ const ZH: Language = {
   plain: {
     sentence: "下游村庄的饮用水已改由新建水厂统一供应。",
     decoy: "上游村庄的饮用水已改由新建水厂统一供应。",
-  },
-  takesBack: {
-    plain: "再次核对后，文件并不支持这一说法：文件写的是下游村庄。[^1]",
   },
 };
 
@@ -208,7 +199,7 @@ describe.each([
       );
       expect(stated).toMatchObject({ state: "supported", evidence: { quote: sentence } });
 
-      for (const taken of [...UNREAD_VERDICTS, language.takesBack.plain]) {
+      for (const taken of UNREAD_VERDICTS) {
         const { check: decoyCheck } = await checkWith(
           language,
           decoy,
@@ -225,7 +216,7 @@ describe.each([
         decoy,
         plainSplitting(sentence, `The Documents say: ${sentence} [^1]`, true),
       );
-      expect(refused).toMatchObject({ state: "not-checked", reason: "malformed" });
+      expect(refused).toMatchObject({ state: "not-checked", reason: "refused" });
 
       const { check: stated } = await checkWith(
         language,

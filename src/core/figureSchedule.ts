@@ -1000,8 +1000,8 @@ export function figureSchedule(input: FigureScheduleInput): FigureSchedule {
     const now = state && { ...state.now, footing: live };
     const check = state?.child ?? state?.owner?.check ?? null;
     let shown: FigureScheduleRow["shown"] = { state: "not-checked", reason: "unread" };
-    // A claim check covers the figure through its own child, through a Keep of the sentence, or
-    // through a whole-sentence check's re-check or run — never through its verdict alone (#2378).
+    // A figure with a result of its own, from a check made before sentences were judged whole,
+    // shows that; any other shows its sentence's check, which read the figure in the sentence.
     if (now && state?.owner?.check.kept) {
       shown = claimCheckShown(state.owner.check, now);
     } else if (now && state?.child) {
@@ -1009,17 +1009,7 @@ export function figureSchedule(input: FigureScheduleInput): FigureSchedule {
         ? { state: "needs-recheck", why: "edited" }
         : figureCheckShown({ ...state.child, ...finding, context: state.child.context }, now);
     } else if (now && state?.owner) {
-      const parent = state.owner.check;
-      const legacy = claimCheckShown(
-        { ...parent, figures: undefined },
-        { ...now, figured: !parent.figures?.length && occurrence.table !== undefined },
-      );
-      if (
-        legacy.state === "needs-recheck" ||
-        legacy.state === "kept" ||
-        legacy.state === "checking"
-      )
-        shown = legacy;
+      shown = claimCheckShown({ ...state.owner.check, figures: undefined }, now);
     }
     shown = analysisFigureShown(shown, {
       run:

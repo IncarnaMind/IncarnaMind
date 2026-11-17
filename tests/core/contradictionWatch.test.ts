@@ -8,13 +8,10 @@ import { writeFile } from "node:fs/promises";
 import type { JSONContent } from "@tiptap/core";
 import type { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test, vi } from "vitest";
-import * as Y from "yjs";
 import { type Core, createOllamaModels, type Document } from "../../src/core";
 import type { Logger } from "../../src/core/adapters";
-import { markSentence, textOf } from "../../src/core/answers/checks/sentences";
 import {
   type CalculatedFigure,
-  type ClaimCheckAttributes,
   CONTENT_SCHEMA_VERSION,
   CONTENT_SCHEMA_VERSION_KEY,
   MIND_SETTINGS_FIELD,
@@ -69,7 +66,6 @@ const QUIET_OFFICE = "# Harbour office\n\nThe harbour office opens at nine in th
 const YEARLY = "Harbours publish the times of high water every year.";
 const MOON = "Spring tides come at new and full moon.";
 const UNCITED = "Penguins nest on the cliffs above the harbour.";
-const FERRY = "The ferry carries 120 cars a day.";
 
 const PLANS: Record<string, Plan> = {
   [YEARLY]: {
@@ -79,11 +75,6 @@ const PLANS: Record<string, Plan> = {
   },
   [MOON]: { verdict: "unsupported" },
   [UNCITED]: { verdict: "contradicted", quote: "opens at nine" },
-  [FERRY]: {
-    verdict: "contradicted",
-    quote: "The ferry carries 80 cars a day.",
-    says: "The harbour office says the ferry carries 80 cars a day.",
-  },
 };
 
 const text = (value: string): JSONContent => ({ type: "text", text: value });
@@ -164,29 +155,6 @@ const formulaFigure = (document: Document): CalculatedFigure => ({
   literals: [],
   engine: FORMULA_VERSION,
   written: null,
-});
-
-/** A contradiction the watch marked on a sentence before. */
-const watchMark = (folderId: string): ClaimCheckAttributes => ({
-  id: "earlier-watch",
-  request: "earlier",
-  action: "contradiction-watch",
-  state: "contradicted",
-  reason: null,
-  detail: null,
-  providerId: "provider",
-  modelId: "model",
-  text: "The harbour office prints 10 tide tables and 12 charts a year.",
-  evidence: null,
-  says: null,
-  unsupported: null,
-  calculation: null,
-  citedCaseUnchecked: false,
-  citedCaseFound: false,
-  scope: { folderId, widened: false },
-  versions: [],
-  excluded: [],
-  checkedAt: "2026-10-13T09:00:00.000Z",
 });
 
 /**
@@ -309,29 +277,6 @@ describe("Check for contradictions", () => {
     });
     // The Document the claims cite is never searched, nor is the uncited sentence checked.
     expect(searched(calls)).toEqual(new Set([office.name]));
-  });
-
-  test("a contradicted figure keeps its own result, as the one Check gives it", async () => {
-    const { core, tides, folder } = await setUp({
-      office: "# Harbour office\n\nThe ferry carries 80 cars a day.\n",
-    });
-    const mind = await core.createMind({ title: "Ferry notes", folderId: folder.id });
-    const client = await connectToMind(core, mind.id);
-    writeMind(client, [
-      {
-        type: "paragraph",
-        attrs: { id: "ferry" },
-        content: [text(`${FERRY} `), citation(tides, YEARLY)],
-      },
-    ]);
-    await client.settled();
-
-    await core.checkContradictions({ requestId: "r1", mindId: mind.id });
-    const [check] = await shownChecks(core, client, folder.id);
-    expect(check?.shown).toEqual({ state: "contradicted" });
-    expect(check?.check.figures?.map((figure) => [figure.reading.chars, figure.state])).toEqual([
-      ["120 cars", "contradicted"],
-    ]);
   });
 
   test("Check again on its mark checks that sentence again, after a new version of its evidence", async () => {
@@ -817,13 +762,7 @@ describe("A new version of a Document in the Folder", { timeout: 30_000 }, () =>
 });
 
 describe("A User who allowed checks before they sent more", { timeout: 30_000 }, () => {
-  const MORE = [
-    "library-counts",
-    "library-names",
-    "file-properties",
-    "absence-documents",
-    "watched-sentences",
-  ];
+  const MORE = ["watched-sentences"];
 
   /** A cloud model whose checks flow the User allowed before it sent `more`, and a note citing Tides in the Folder. */
   async function allowedBefore(more: readonly string[]) {
@@ -892,9 +831,9 @@ describe("A User who allowed checks before they sent more", { timeout: 30_000 },
     ]);
   });
 
-  // protects=the watch never sends how an Answer's figure was worked out, which its consent doesn't cover: such a figure reads Not checked, saying a Check checks it, never ✓ or Unsupported; the cited sentence beside it is still checked, and the Check the User runs asks for the working, then sends it; fails_when=a background request carries a figure's saved calculation or Analysis record, the figure reads anything but Not checked with that reason, or the rest of the watch stops.
-  test("the watch sends no figure's working: such a figure is Not checked until a Check", async () => {
-    const { core, calls, asked, tides, folder, mind, client, newVersion } = await allowedBefore([
+  // protects=the watch never sends how an Answer's figure was worked out, which its consent doesn't cover: allowed before the checks flow sent it, the watch still runs without asking and judges the figure's sentence from the Passages alone, beside the cited sentence; the Check the User runs asks for the working, then sends it; fails_when=a background request carries a figure's saved calculation or Analysis record, the watch asks in the background or stops, or the User's Check doesn't send the working.
+  test("the watch sends no figure's working: only a Check does", async () => {
+    const { core, calls, asked, tides, mind, client, newVersion } = await allowedBefore([
       "worked-figures",
     ]);
     writeMind(client, [
@@ -917,19 +856,11 @@ describe("A User who allowed checks before they sent more", { timeout: 30_000 },
       },
     ]);
     await client.settled();
-    client.doc.transact(() => {
-      const block = client.blocks
-        .toArray()
-        .find((each) => each instanceof Y.XmlElement && each.getAttribute("id") === "worked");
-      if (!(block instanceof Y.XmlElement)) throw new Error("The figures' paragraph is missing.");
-      markSentence(block, 0, textOf(block).length, watchMark(folder.id));
-    });
-    await client.settled();
 
     await newVersion();
     const worked = () => calls.filter((call) => sentenceOf(call).includes("tide tables"));
     await vi.waitFor(() =>
-      expect(contradictionWatchOf(client.doc)).toMatchObject({ claims: 2, checked: 1 }),
+      expect(contradictionWatchOf(client.doc)).toMatchObject({ claims: 2, checked: 2 }),
     );
     expect(asked).toEqual([]);
     expect(worked().length).toBeGreaterThan(0);
@@ -938,15 +869,6 @@ describe("A User who allowed checks before they sent more", { timeout: 30_000 },
       expect(call.prompt).not.toContain('"analysis"');
       expect(call.prompt).not.toContain("Tide tables printed");
     }
-    const marks = await shownChecks(core, client, folder.id);
-    expect(marks.map((each) => each.shown)).toEqual([
-      { state: "contradicted" },
-      { state: "not-checked", reason: "working-not-sent" },
-    ]);
-    expect(marks[1]?.check.figures?.map((each) => [each.state, each.reason])).toEqual([
-      ["not-checked", "working-not-sent"],
-      ["not-checked", "working-not-sent"],
-    ]);
 
     const before = worked().length;
     await core.checkContradictions({ requestId: "review", mindId: mind.id });
@@ -956,28 +878,6 @@ describe("A User who allowed checks before they sent more", { timeout: 30_000 },
         .slice(before)
         .some((call) => call.prompt.includes("Tide tables printed")),
     ).toBe(true);
-  });
-
-  // protects=the watch waits only on what it sends: allowed before checks sent the Library's counts and names, which the watch never sends, it runs on a new version without asking; fails_when=it waits, or asks in the background, for kinds it doesn't send.
-  test("the watch waits only on what it sends: the Library's facts missing, it still runs", async () => {
-    const { core, calls, asked, folder, client, newVersion } = await allowedBefore([
-      "library-counts",
-      "library-names",
-    ]);
-    await newVersion();
-
-    await vi.waitFor(
-      async () =>
-        expect((await shownChecks(core, client, folder.id)).map((each) => each.shown)).toEqual([
-          { state: "contradicted" },
-        ]),
-      { timeout: 10_000 },
-    );
-    await vi.waitFor(() =>
-      expect(contradictionWatchOf(client.doc)).toMatchObject({ checked: 2, stop: null }),
-    );
-    expect(asked).toEqual([]);
-    expect(calls.length).toBeGreaterThan(0);
   });
 });
 

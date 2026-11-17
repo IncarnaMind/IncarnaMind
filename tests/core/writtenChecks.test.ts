@@ -835,13 +835,7 @@ describe("What the assistant writes is checked once it lands, the reply not wait
       async ({ core: started, service }) => {
         const checks = started.dataFlows.get("checks");
         if (!service || !checks) throw new Error("The checks flow to the model isn't set up.");
-        const more = [
-          "library-counts",
-          "library-names",
-          "file-properties",
-          "absence-documents",
-          "watched-sentences",
-        ];
+        const more = ["watched-sentences", "worked-figures"];
         await started.revokeConsent("checks", service);
         started.dataFlows.register({
           ...checks,
@@ -881,15 +875,7 @@ describe("What the assistant writes is checked once it lands, the reply not wait
       to: { blockId: paragraph, offset: paragraphText(client, 1).length },
     });
 
-    expect(asked).toEqual([
-      [
-        "library-counts",
-        "library-names",
-        "file-properties",
-        "absence-documents",
-        "watched-sentences",
-      ],
-    ]);
+    expect(asked).toEqual([["watched-sentences", "worked-figures"]]);
     expect(calls.some(isCheckRun)).toBe(true);
     expect((await marksIn(core, client)).map(({ check }) => check.state)).toEqual([
       "supported",

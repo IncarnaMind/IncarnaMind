@@ -103,7 +103,7 @@ test.each(["bar", "pie", "scatter"] as const)(
   },
 );
 
-// protects=a chart's every value is checked with its row's label and its series' name, as a table's cell is with its row and column (#1459): both reach the check's prompt beside the value; fails_when=a value goes to the check alone, or under another row's or series' label; no_claim=how well a model judges it.
+// protects=a chart's every value is checked with its row's label and its series' name, as a table's cell is with its row and column (#1459): both reach the check's prompt beside the value, in the sentence the chart is checked as, under its title; fails_when=a value goes to the check alone, or under another row's or series' label; no_claim=how well a model judges it.
 test("each value of a chart goes to its check with its row's label and its series' name", () => {
   const { blocks } = setup("bar");
   const [sentence] = everySentence(blocks);
@@ -113,16 +113,17 @@ test("each value of a chart goes to its check with its row's label and its serie
     { label: "A", context: "Revenue / 收入\nA\n2025" },
   ]);
   const prompt = claimPrompt({ ...checkText(sentence), language: "en" });
-  const sent = JSON.parse(/<figures>\n(.*)\n<\/figures>/s.exec(prompt)?.[1] ?? "[]");
+  const sent = JSON.parse(/<sentence>\n(.*)\n<\/sentence>/s.exec(prompt)?.[1] ?? "{}");
+  expect(sent.title).toBe("Revenue / 收入");
   expect(
-    sent.map((each: { shown: string; label: string; context: string }) => [
+    sent.values.map((each: { shown: string; label: string; heading: string }) => [
       each.shown,
       each.label,
-      each.context,
+      each.heading,
     ]),
   ).toEqual([
-    ["10", "A", "Revenue / 收入\nA\n2024"],
-    ["20", "A", "Revenue / 收入\nA\n2025"],
+    ["10", "A", "2024"],
+    ["20", "A", "2025"],
   ]);
 });
 

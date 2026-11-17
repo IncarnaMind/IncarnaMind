@@ -1001,6 +1001,15 @@ describe.each(["en", "zh-CN"] as const)("%s: an Analysis figure's sentence (#237
       library: await wallsNow(core),
       folderId: null,
     });
+    console.log(
+      "DEBUGWALL",
+      JSON.stringify({
+        marks: marks(client),
+        health: home.health,
+        state: home.state,
+        blocks: blocksOf(client).map((b) => [b.type, JSON.stringify(b).slice(0, 300)]),
+      }),
+    );
     expect(home.health.supported).toBe(0);
     expect(home.state?.kind).toBe("not-checked");
     await core.moveToFolder({ mindIds: [madeId], folderId: matter.id });

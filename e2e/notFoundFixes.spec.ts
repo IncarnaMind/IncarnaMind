@@ -275,12 +275,20 @@ for (const language of ["en", "zh-CN"] as const) {
   });
 }
 
-/** Chooses `name` in the card's picker of Documents for the sentence's Citation. */
+/**
+ * Chooses `name` in the card's picker of Documents for the sentence's Citation, from its ⋯, where
+ * Search all Documents is the card's first button.
+ */
 async function chooseIn(window: Page, card: Locator, name: string): Promise<void> {
   await pointAndClick(
     window,
     (await openCardMenu(window, card)).getByTestId("claim-choose-citation"),
   );
+  await pickDocument(window, name);
+}
+
+/** Chooses `name` in the picker Choose the Citation… opened, and the sentence waits in it. */
+async function pickDocument(window: Page, name: string): Promise<void> {
   await window.getByTestId("citation-document-search").fill(name);
   await pointAndClick(
     window,
@@ -447,7 +455,10 @@ test("a Document filed behind a Folder wall the Note is outside is never cited o
   test.setTimeout(240_000);
   const { app, window, editor } = await launchNote("en");
   const card = await checkSentence(window, editor, DIFFERENT);
-  await chooseIn(window, card, "Harbour times");
+  // Looked for in every Document: Choose the Citation… is the card's first button.
+  const choose = card.getByTestId("claim-choose-citation");
+  await pointAndClick(window, choose);
+  await pickDocument(window, "Harbour times");
   const line = window.getByTestId("citation-pick-line");
   // The chosen Document goes behind a wall while the sentence waits in it.
   await wallOff(window, "Harbour times");
@@ -466,12 +477,7 @@ test("a Document filed behind a Folder wall the Note is outside is never cited o
   // Asked again, Choose the Citation… opens the picker, where that Document can't be chosen.
   await pointAndClick(window, editor.getByText("forecast tides"));
   await window.keyboard.press("ControlOrMeta+Shift+K");
-  await pointAndClick(
-    window,
-    (await openCardMenu(window, window.getByTestId("claim-card"))).getByTestId(
-      "claim-choose-citation",
-    ),
-  );
+  await pointAndClick(window, choose);
   const picker = window.getByTestId("citation-document-picker");
   await expect(picker).toBeVisible();
   await expect(picker.locator('[role="option"][aria-disabled="true"]')).toContainText(

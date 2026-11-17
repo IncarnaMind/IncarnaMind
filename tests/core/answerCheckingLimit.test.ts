@@ -7,9 +7,8 @@
  */
 import { describe, expect, test, vi } from "vitest";
 import type { MarkedCitation } from "../../src/core";
-import { checkGenerate, checkReply, isCheckRun } from "../helpers/checks";
+import { checkGenerate, checkReply, isCheckRun, sentenceOf } from "../helpers/checks";
 import { answerEnded, answerJudged, shownPassages } from "../helpers/citations";
-import { listedSentences } from "../helpers/claimSentences";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import {
@@ -74,7 +73,10 @@ async function answered(
   const model = scriptedModel(
     (call) => {
       // A look's own check Run finds nothing more: the sentence stays as its batch read it.
-      if (isCheckRun(call)) return checkReply(call, {});
+      if (isCheckRun(call)) {
+        looked.push(sentenceOf(call));
+        return checkReply(call, {});
+      }
       const searches = call.results.filter((result) => result.tool === "search_documents");
       if (searches.length === 0) {
         return {
@@ -100,9 +102,6 @@ async function answered(
           return { text: '{"asks_change":"no","request":"none"}' };
         // A model on this computer tags the Documents added too.
         if (call.system.startsWith("You tag a User's Documents")) return { text: '{"tagged":[]}' };
-        if (call.question === "find-claims") {
-          looked.push(...listedSentences(call.prompt).map(({ text }) => text));
-        }
         if (unsupported > 0 && LOOK_ASKS.has(call.question ?? "")) return checkGenerate({})(call);
         if (call.question !== "sentence-batch") return unscripted(call.question, call.system);
         if (judging.failing) return { error: { status: 500, message: "The provider failed." } };
@@ -164,7 +163,7 @@ async function answered(
 }
 
 /** What a look in an Answer's scope asks beside its Run (#3020). */
-const LOOK_ASKS = new Set(["find-claims", "nearest", "evidence", "covered-evidence", "restate"]);
+const LOOK_ASKS = new Set(["restate"]);
 
 /** Each Citation's check, in the Answer's order. */
 const checksOf = (citations: readonly MarkedCitation[]) =>

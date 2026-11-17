@@ -58,7 +58,7 @@ When a person changes a label or a quote, the test says which quote isn't found 
 
 The check is the app's (`corePipeline` in `lib/pipeline.ts`). Claim extraction is still a baseline of one model call (`baselinePipeline`), until verify's extraction (#97) can be called on its own; the run's bars gate then (`GATING` in `checks.eval.ts`). A model that fails, refuses or replies with no verdict leaves the sentence "not checked", which never counts as supported.
 
-Each run makes one extraction call per received document, and a check Run per sentence or claim, about 375 in all: a few requests each (search, cite, the verdict, and the confirmation of a contradiction).
+Each run makes one extraction call per received document, and a check Run per sentence or claim, about 375 in all: a few requests each (search, cite and the verdict).
 
 ## The judge's replies
 
@@ -67,10 +67,9 @@ Each sentence and claim keeps, beside its outcome, every request the app's check
 - `report.json` holds them as `outcome.judge`, with each sentence's words and label, so a run reads without the set.
 - `replies.md` has a section for each sentence and claim, headed by its id: what the check made of it, then each request with its calls and its reply.
 
-A Not checked has the core's own reason in `outcome.code`. The report and the summary count them by cause, and split the core's "no evidence" by what the replies show:
+A Not checked has the core's own reason in `outcome.code`. The report and the summary count them by cause:
 
-- **Quote not found:** the app turned the judge's last `cite` away, or nothing shows a calculation was owed.
-- **Calculation not made:** no usable calculation where the sentence needed one, and no quote the app turned away: the judge called `calculate` and its figure settled nothing, the app sent it back to calculate and it didn't, or its reply names a calculation it never made. The check turns a quote away before it asks for a calculation, so a quote comes first. The core's own "number-unquoted" and "number-not-worked-out" (#3022), a number no quote gives, count here too.
+- **Quote not found:** the core's "no evidence", a verdict with no quote the Citation check found: the app turned the judge's `cite` away, or it recorded none. Its replies say which.
 - **Malformed reply:** the core's "malformed", a reply with no verdict that could be read.
 - **Other:** every other reason the core gives, such as a refusal, a failed request or a limit.
 

@@ -28,8 +28,6 @@ export interface WatchedCall {
 export interface WatchedRequest {
   /** What the request is for, by its instructions: the check's Run, or a judgement after it. */
   kind: string;
-  /** The sentence's part the request checks, as the check named it; null for the whole sentence. */
-  part: string | null;
   /** The searches the Run made before this request, in order. */
   queries: string[];
   handed: HandedPassage[];
@@ -40,8 +38,6 @@ export interface WatchedRequest {
   calls: WatchedCall[];
   /** The check was asked to search again before it says the sentence isn't found (#1608). */
   searchAgain: boolean;
-  /** The check was sent back to calculate before it gives its verdict. */
-  calculateAsked: boolean;
   inputTokens: number;
   /** Of `inputTokens`, those read from the provider's prompt cache and those written to it. */
   cacheReadTokens: number;
@@ -53,11 +49,7 @@ export interface WatchedRequest {
 const KINDS: readonly [string, string][] = [
   ["You sort the sentences of", "claims"],
   ["You check one sentence", "check"],
-  ["and gave a verdict without recording", "evidence"],
-  ["found it unsupported, and named the part", "covered-evidence"],
   ["A sentence the User wrote says more", "parts"],
-  ["Reply in exactly three lines", "strict"],
-  ["both state a figure, date, name or outcome", "nearest"],
   ["Compare a sentence the User wrote", "confirm"],
   ["Write one sentence in", "restate"],
 ];
@@ -65,9 +57,6 @@ const KINDS: readonly [string, string][] = [
 function kindOf(system: string): string {
   return KINDS.find(([words]) => system.includes(words))?.[1] ?? "other";
 }
-
-/** How the check's "calculate-first" turn check starts its note (src/core/answers/checks/claimCheck.ts). */
-const CALCULATE_FIRST = "The numerical check is incomplete.";
 
 /** The Tools whose answer is the app's own words about the model's records. */
 const KEPT_ANSWERS: ReadonlySet<string> = new Set([DOCUMENT_TOOLS.cite, DOCUMENT_TOOLS.calculate]);
@@ -147,21 +136,19 @@ export function watchRequests(sentences: readonly string[]): RequestWatch {
 
   function start(prompt: LanguageModelV4Prompt) {
     const { system, asked, queries, handed, answers } = read(prompt);
-    // The check tags every request it makes with its sentence and part; one that names
-    // sentences itself (finding the claims) is no sentence's, and is read from its words.
+    // The check tags every request it makes with its sentence; one that names sentences itself
+    // (finding the claims) is no sentence's, and is read from its words.
     const checked = checkNow();
     const named = [...new Set(sentences)].filter((sentence) => asked.includes(sentence));
     const [sentence] = named;
     const request: WatchedRequest = {
       kind: kindOf(system),
-      part: checked?.part ?? null,
       queries,
       handed,
       reply: "",
       asked: [],
       calls: [],
       searchAgain: asked.includes(SEARCH_AGAIN),
-      calculateAsked: asked.includes(CALCULATE_FIRST),
       inputTokens: 0,
       cacheReadTokens: 0,
       cacheWriteTokens: 0,

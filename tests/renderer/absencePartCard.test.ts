@@ -1,20 +1,15 @@
 /**
- * A part an absence's whole read decided shows only what decided it (#1443): the pages read whole
- * when the absence holds, never a quote the check's search offered on the way.
+ * A mark made before a check judged each sentence whole keeps its parts, and its card still shows
+ * them: a part an absence's whole read decided (#1443) shows only what decided it, never another
+ * part's quote.
  */
-import { randomUUID } from "node:crypto";
 import { Editor, type JSONContent } from "@tiptap/core";
 import { DOMParser } from "linkedom";
 import { act, type ComponentType, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import type { ClaimCheckPart } from "../../src/core/api";
-import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
+import type { CitationAttributes, ClaimCheckPart } from "../../src/core/api";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
-import { checkGenerate, checkReply } from "../helpers/checks";
-import { setUpWithDocuments } from "../helpers/citations";
-import { readMind, writeMind } from "../helpers/minds";
-import { type ModelCall, type ScriptedReply, scriptedModel } from "../helpers/models";
 
 const CASES = [
   {
@@ -22,73 +17,64 @@ const CASES = [
     claim: "The lease has no break clause and is governed by English law.",
     absence: "The lease has no break clause",
     rest: "is governed by English law",
-    document: "This lease is governed by English law. The tenant pays rent monthly.",
     deciding: "This lease is governed by English law",
-    stray: "The tenant pays rent monthly",
-    absent: "break clause",
   },
   {
     language: "zh-CN",
     claim: "租约没有提前解约条款，并且适用英国法律。",
     absence: "租约没有提前解约条款",
     rest: "适用英国法律",
-    document: "本租约适用英国法律。租户按月支付租金。",
     deciding: "本租约适用英国法律",
-    stray: "租户按月支付租金",
-    absent: "提前解约条款",
   },
 ] as const;
 
-function withParts(call: ModelCall, reply: ScriptedReply, parts: readonly string[]): ScriptedReply {
-  const first = !call.results.some((result) => result.tool === "search_documents");
-  if (!first || !call.system.includes("Parts:")) return reply;
-  const named = parts.map((text) => ({ kind: "fact", text }));
-  return { ...reply, text: `Parts: ${JSON.stringify(named)}` };
-}
+const quoted = (quote: string): CitationAttributes => ({
+  passageId: "lease-p1",
+  documentId: "lease",
+  documentName: "Lease.md",
+  contentHash: "v1",
+  pageFrom: 1,
+  pageTo: 1,
+  location: null,
+  quote,
+  check: "found",
+  checkReason: null,
+});
 
-/** The sentence checked in a Note: the absence part's search cites a line beside the point. */
-async function checked(example: (typeof CASES)[number]) {
-  const plans = {
-    [example.absence]: { verdict: "unsupported", absence: true, quote: example.stray },
-    [example.rest]: { verdict: "supported", quote: example.deciding },
-  } as const;
-  const model = scriptedModel(
-    (call) => withParts(call, checkReply(call, plans), [example.absence, example.rest]),
-    {
-      generate: (call) =>
-        call.question === "absence-read"
-          ? {
-              // As a live read did: the absence holds, and it offers a quote anyway.
-              text: JSON.stringify({
-                absent: example.absent,
-                absence: "holds",
-                citations: [{ marker: 1, passage: "P1", quote: example.stray }],
-              }),
-            }
-          : call.question === "presence" || call.question === "strict-presence"
-            ? { text: "not" }
-            : checkGenerate(plans)(call),
-    },
-  );
-  const { core, client, mind } = await setUpWithDocuments(model, [
-    { name: "Lease.md", contents: `# Lease\n\n${example.document}\n` },
-  ]);
-  if (example.language === "zh-CN") await core.updateSettings({ user: { language: "zh-CN" } });
-  writeMind(client, [
-    { type: "paragraph", attrs: { id: "one" }, content: [{ type: "text", text: example.claim }] },
-  ]);
-  await client.settled();
-  await core.checkSentences({
-    requestId: randomUUID(),
-    mindId: mind.id,
-    action: "check-against-documents",
-    from: { blockId: "one", offset: 0 },
-    to: { blockId: "one", offset: example.claim.length },
-  });
-  await client.settled();
-  const check = claimSpans(readMind(client))[0]?.check;
-  if (!check?.parts) throw new Error("The sentence was not checked in parts.");
-  return { check, parts: check.parts };
+/** The parts as an older mark keeps them: the absence read whole, the rest with its quote. */
+function olderParts(example: (typeof CASES)[number]): ClaimCheckPart[] {
+  const part = (words: string, more: Partial<ClaimCheckPart>): ClaimCheckPart => {
+    const start = example.claim.indexOf(words);
+    return {
+      span: { start, end: start + words.length },
+      kind: "fact",
+      verdict: "supported",
+      evidence: [],
+      says: null,
+      unsupported: null,
+      calculation: null,
+      reason: null,
+      detail: null,
+      versions: [{ documentId: "lease", contentHash: "v1" }],
+      excluded: [],
+      citedCaseUnchecked: false,
+      citedCaseFound: false,
+      ...more,
+    };
+  };
+  return [
+    part(example.absence, {
+      readDocuments: [
+        {
+          documentId: "lease",
+          documentName: "Lease.md",
+          contentHash: "v1",
+          locations: [{ kind: "page", from: 1, to: 1 }],
+        },
+      ],
+    }),
+    part(example.rest, { evidence: [quoted(example.deciding)] }),
+  ];
 }
 
 let cleanup: (() => Promise<void>) | null = null;
@@ -194,23 +180,13 @@ async function rows(language: string, text: string, parts: readonly ClaimCheckPa
   }));
 }
 
-describe.each(CASES)("an absence part decided by its whole read ($language)", (example) => {
-  test("shows no quote the check offered on the way, and the other part keeps its own", async () => {
-    const { check, parts } = await checked(example);
-    expect(check.state).toBe("supported");
-    const absencePart = parts.find(
-      (part) => example.claim.slice(part.span.start, part.span.end) === example.absence,
-    );
-    expect(absencePart?.verdict).toBe("supported");
-    expect(absencePart?.readDocuments).toHaveLength(1);
-    // What the mark keeps is what the card, a Citation, the export and the check record show.
-    expect(absencePart?.evidence).toEqual([]);
-    expect(JSON.stringify(check)).not.toContain(example.stray);
+describe.each(CASES)("an older mark's part decided by its whole read ($language)", (example) => {
+  // protects=an older mark's parts still show as rows, each with only its own quotes: the part an absence's whole read decided shows none, and the other part keeps its deciding quote; fails_when=a row is dropped, the parts collapse into one row, the whole-read row shows another part's quote, or the other part loses its own; no_claim=how a check decides a sentence now, which no longer makes parts
+  test("shows no other part's quote, and the other part keeps its own", async () => {
+    const shown = await rows(example.language, example.claim, olderParts(example));
 
-    const shown = await rows(example.language, example.claim, parts);
-    const absenceRow = shown.find((row) => row.words === example.absence);
-    const restRow = shown.find((row) => row.words === example.rest);
-    expect(absenceRow?.text).not.toContain(example.stray);
-    expect(restRow?.text).toContain(example.deciding);
+    expect(shown.map((row) => row.words)).toEqual([example.absence, example.rest]);
+    expect(shown[0]?.text).not.toContain(example.deciding);
+    expect(shown[1]?.text).toContain(example.deciding);
   });
 });

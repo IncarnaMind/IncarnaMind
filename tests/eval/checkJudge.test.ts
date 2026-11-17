@@ -1,16 +1,11 @@
 /**
  * The checks evaluation keeps every reply the judge gave, with its Tool calls, beside each
- * outcome (#2910), and tells why a sentence came back "no evidence": through a core with a
+ * outcome (#2910), and tells why a sentence came back Not checked: through a core with a
  * scripted model that gives literal replies, so a change to the wording the evaluation reads
  * the core's requests by fails here.
  */
 import { describe, expect, test } from "vitest";
-import {
-  type CauseCounts,
-  causeOf,
-  countCauses,
-  type JudgeRequest,
-} from "../../eval/checks/lib/judge";
+import { type CauseCounts, causeOf, countCauses } from "../../eval/checks/lib/judge";
 import { corePipeline } from "../../eval/checks/lib/pipeline";
 import type { CheckOutcome } from "../../eval/checks/lib/scoring";
 import { watchRequests } from "../../eval/repeats/requests";
@@ -75,7 +70,7 @@ describe("A check's outcome keeps what the judge said", () => {
     );
 
     expect(outcome).toMatchObject({ verdict: "not-checked", code: "no-evidence" });
-    expect(causeOf(outcome.code, outcome.judge)).toBe("quote-not-found");
+    expect(causeOf(outcome.code)).toBe("quote-not-found");
     const [search, cite] = callsOf(outcome);
     expect(search).toMatchObject({
       tool: "search_documents",
@@ -94,11 +89,11 @@ describe("A check's outcome keeps what the judge said", () => {
     const outcome = await checked(SPRING, { reply: { text: "It reads well to me." } }, [TIDES]);
 
     expect(outcome).toMatchObject({ verdict: "not-checked", code: "malformed" });
-    expect(causeOf(outcome.code, outcome.judge)).toBe("malformed");
+    expect(causeOf(outcome.code)).toBe("malformed");
     expect(repliesOf(outcome, "check")).toEqual(["It reads well to me."]);
   });
 
-  test("a refusal is none of the three", async () => {
+  test("a refusal counts as other", async () => {
     const outcome = await checked(
       SPRING,
       { reply: { text: "I'm sorry, I can't help with that." } },
@@ -106,7 +101,7 @@ describe("A check's outcome keeps what the judge said", () => {
     );
 
     expect(outcome).toMatchObject({ verdict: "not-checked", code: "refused" });
-    expect(causeOf(outcome.code, outcome.judge)).toBe("other");
+    expect(causeOf(outcome.code)).toBe("other");
   });
 
   test("an explanation asked for again in the interface's language is its own request", async () => {
@@ -115,7 +110,8 @@ describe("A check's outcome keeps what the judge said", () => {
       {
         verdict: "contradicted",
         quote: "The rate is 38.6%.",
-        says: "The report gives the rate as 38.6%, not 36.8%.\nChange 1: 36.8%\nTo 1: 38.6%",
+        says: "The report gives the rate as 38.6%, not 36.8%.",
+        change: { from: "36.8%", to: "38.6%" },
         restated: "报告写的比率是 38.6%，不是 36.8%。",
       },
       [{ name: "Report.md", contents: "The rate is 38.6%.\n比率是报告的比率。\n" }],
@@ -144,122 +140,29 @@ describe("A check's outcome keeps what the judge said", () => {
 });
 
 describe("Why a sentence came back Not checked", () => {
-  const request = (
-    text: string,
-    calls: JudgeRequest["calls"] = [],
-    kind = "check",
-  ): JudgeRequest => ({
-    kind,
-    part: null,
-    calculateAsked: false,
-    reply: text,
-    calls,
-  });
-  const turnedAway = {
-    tool: "cite",
-    input: '{"citations":[{"marker":1,"quote":"Spring tides happen twice a year"}]}',
-    result:
-      "Recorded [^1]. Fix these with another cite call:\n- [^1]: the quote isn't word for word in P1; copy it exactly, and check where it is.",
-  };
-  const recorded = {
-    tool: "cite",
-    input: '{"citations":[{"marker":1,"quote":"Net debt was £1,234m"}]}',
-    result: "Recorded [^1]. Write the Answer now if you haven't yet; don't repeat it.",
-  };
-  const worked = {
-    tool: "calculate",
-    input: '{"figures":[{"marker":1,"formula":"nd / e"}]}',
-    result: "Recorded [=1] = 1.31x (Net debt to EBITDA: £1,234m ÷ £942m).",
-  };
-
-  test("malformed is the core's own reason, whatever was replied", () => {
-    expect(causeOf("malformed", [request("Perhaps.")])).toBe("malformed");
-    expect(causeOf("malformed", undefined)).toBe("malformed");
+  test("malformed is the core's own reason", () => {
+    expect(causeOf("malformed")).toBe("malformed");
   });
 
-  test("a verdict whose quote the app turned away is a quote not found", () => {
-    expect(
-      causeOf("no-evidence", [request("Verdict: supported\nEvidence: [1]", [turnedAway])]),
-    ).toBe("quote-not-found");
-    expect(causeOf("no-evidence", undefined)).toBe("quote-not-found");
-  });
-
-  test("a number no quote gives, as the core names it, is a calculation not made (#3022)", () => {
-    expect(causeOf("number-unquoted", undefined)).toBe("calculation-not-made");
-    expect(causeOf("number-not-worked-out", undefined)).toBe("calculation-not-made");
-  });
-
-  test("a quote not found is the cause first, whatever else was asked of the judge", () => {
-    expect(
-      causeOf("no-evidence", [
-        request("Verdict: supported\nCalculation: 1.3x", [turnedAway, worked]),
-        { ...request("Verdict: supported"), calculateAsked: true },
-      ]),
-    ).toBe("quote-not-found");
-  });
-
-  test("a quote the app took after turning one away is no cause", () => {
-    expect(
-      causeOf("no-evidence", [
-        request("", [turnedAway]),
-        request("Verdict: supported\nCalculation: 1.3x", [recorded]),
-      ]),
-    ).toBe("calculation-not-made");
-  });
-
-  test("a calculate call with no usable figure from it, turned away or recorded, is a calculation not made", () => {
-    const attempt = (result: string) => [
-      request("Verdict: supported", [{ tool: "calculate", input: '{"figures":[]}', result }]),
-    ];
-    expect(
-      causeOf(
-        "no-evidence",
-        attempt(
-          "Nothing was recorded. Fix these with another calculate call:\n- give each figure with its marker, inputs and formula.",
-        ),
-      ),
-    ).toBe("calculation-not-made");
-    expect(causeOf("no-evidence", attempt(worked.result))).toBe("calculation-not-made");
-  });
-
-  test("a reply that names a calculation it never made is a calculation not made", () => {
-    expect(
-      causeOf("no-evidence", [request("Verdict: supported\nCalculation: 1.3x\nIt says so.")]),
-    ).toBe("calculation-not-made");
-    expect(
-      causeOf("no-evidence", [request("Verdict: supported\nCalculation: none\nIt says so.")]),
-    ).toBe("quote-not-found");
-  });
-
-  test("a check the app sent back to calculate, and that never did, is a calculation not made", () => {
-    expect(
-      causeOf("no-evidence", [
-        request("Verdict: supported"),
-        { ...request("Verdict: supported"), calculateAsked: true },
-      ]),
-    ).toBe("calculation-not-made");
+  test("a verdict with no quote the Citation check found is a quote not found", () => {
+    expect(causeOf("no-evidence")).toBe("quote-not-found");
   });
 
   test("every other reason the core gives is other", () => {
     for (const code of ["refused", "empty", "failed", "rate-limit", "unread", undefined]) {
-      expect(causeOf(code, [request("")])).toBe("other");
+      expect(causeOf(code)).toBe("other");
     }
   });
 
   test("counts each cause of the Not checked", () => {
     const counts: CauseCounts = countCauses([
       { code: "no-evidence" },
-      { code: "no-evidence", judge: [request("Verdict: supported\nCalculation: 1.3x")] },
+      { code: "no-evidence" },
       { code: "malformed" },
       { code: "refused" },
       { code: "failed" },
     ]);
 
-    expect(counts).toEqual({
-      "quote-not-found": 1,
-      "calculation-not-made": 1,
-      malformed: 1,
-      other: 2,
-    });
+    expect(counts).toEqual({ "quote-not-found": 2, malformed: 1, other: 2 });
   });
 });

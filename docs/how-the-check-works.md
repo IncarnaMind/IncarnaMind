@@ -16,7 +16,7 @@ When a sentence with a Citation puts words in quotation marks, those words are c
 
 ## A sentence's claim
 
-The model reads the sentence whole, in its paragraph and under the heading above it, with the Passages its own Citations quote. It gives the verdict; nothing in IncarnaMind changes it. IncarnaMind confirms one thing itself: that the quote a `Supported` or `Contradicted` result rests on is in its Document.
+The model reads the sentence whole, in its paragraph and under the heading above it, with the Passages its own Citations quote. It gives the verdict; nothing in IncarnaMind changes it. IncarnaMind confirms one thing itself: that the quote a `Supported` or `Needs a look · Contradicted` result rests on is in its Document.
 
 `Check against Documents`, `Check someone else’s file…`, and the Note's `Check` ask the model for one result:
 
@@ -39,6 +39,7 @@ A sentence is judged as one: it has one result, not one for each of its parts or
 - A column is recalculated only when one sum, average, lowest value or highest value of one column, over the rows whose label its row names, reproduces every cell, as in `Amount: sum of 40 rows, by Region · recalculated`. A count, and any other column, reads as in `Share: from the Analysis · not recalculated`.
 - A cell whose text is no longer the Analysis's needs a look, with the reason `Differs from the Analysis`.
 - A sentence whose figure an Analysis gave, or IncarnaMind calculated, is not looked for in the text: the model is given that figure's own record, its label and how it was worked out, and judges whether the sentence says of the figure what its record says.
+- A figure IncarnaMind couldn't work out again, such as a slope, shows `From the Analysis · not recalculated`, and no check can change that. A column that isn't recalculated is counted in the Note's line, as in `1 figure not recalculated`; the Note reads checked only when something else in it was backed.
 
 ## What the check never promises
 

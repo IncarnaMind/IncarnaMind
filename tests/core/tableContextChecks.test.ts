@@ -429,6 +429,17 @@ describe("Check this Mind on the User's own numeric table", () => {
     const model = scriptedModel(
       (call) => {
         checks.push(call);
+        // A Run searches with the words it will quote: a bare cell's own words find nothing.
+        const sentence = sentenceOf(call);
+        if (isCheckRun(call) && call.results.length === 0)
+          return {
+            calls: [
+              {
+                tool: "search_documents",
+                input: { query: plans[sentence]?.quote ?? sentence },
+              },
+            ],
+          };
         return checkReply(call, plans);
       },
       { generate: checkGenerate(plans) },
@@ -473,6 +484,16 @@ describe("Check this Mind on the User's own numeric table", () => {
     expect(promptOf(wrong)).toContain("Glass beads | 0.075 | 3");
     // Its result lands on the cell as its own.
     const landed = claimSpans(readMind(client)).find((span) => span.sentence.text === "3");
+    console.log(
+      "DEBUGCELL",
+      JSON.stringify(
+        claimSpans(readMind(client)).map((span) => [
+          span.sentence.text,
+          span.check.state,
+          span.check.reason,
+        ]),
+      ),
+    );
     expect(landed?.check.state).toBe("contradicted");
   });
 });
