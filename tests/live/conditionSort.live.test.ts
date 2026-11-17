@@ -9,7 +9,8 @@
  * requirement clause that trails the right after a comma. The second (fresh) holds only that shape
  * and was committed before any change to the sort's rules was tried, which the first set is for.
  * `control` ones say what a sort should do with no condition: two independent facts or duties
- * are two parts, one fact is one.
+ * are two parts, one fact is one, and a figure set beside another ("…, down from …") is sorted as
+ * `main` sorts it: a rule for conditions must not reach a comparison.
  *
  * Runs only with INCARNAMIND_LIVE_ANTHROPIC_KEY. The model is INCARNAMIND_LIVE_ANTHROPIC_MODEL
  * (Claude Haiku 5.5 by default), INCARNAMIND_LIVE_SETS the sets (fit,fresh by default),
@@ -105,6 +106,26 @@ const FIT_ENGLISH: Sentence[] = [
     shape: "control, no condition",
     text: "Volunteers may borrow the minibus at weekends.",
   },
+  {
+    id: "en-p1",
+    shape: "control, comparison",
+    text: "Footfall was 12,400 in May, down from 13,900 in April.",
+  },
+  {
+    id: "en-p2",
+    shape: "control, comparison",
+    text: "The average wait was 18 minutes, compared with 25 minutes last winter.",
+  },
+  {
+    id: "en-p3",
+    shape: "control, comparison",
+    text: "The team closed 46 tickets this week, up from 31 the week before.",
+  },
+  {
+    id: "en-p4",
+    shape: "control, comparison",
+    text: "Rainfall reached 88 mm in March, higher than the 61 mm of a year earlier.",
+  },
 ];
 
 const FIT_CHINESE: Sentence[] = [
@@ -132,6 +153,26 @@ const FIT_CHINESE: Sentence[] = [
   { id: "zh-m1", shape: "middle", text: "承包商在持有有效许可证的情况下可在屋顶作业。" },
   { id: "zh-c1", shape: "control, two facts", text: "图书馆九点开门，咖啡馆十点开门。" },
   { id: "zh-c2", shape: "control, no condition", text: "志愿者可在周末借用面包车。" },
+  {
+    id: "zh-p1",
+    shape: "control, comparison",
+    text: "五月客流量为 12,400 人次，低于四月的 13,900 人次。",
+  },
+  {
+    id: "zh-p2",
+    shape: "control, comparison",
+    text: "平均等候时间为 18 分钟，少于去年冬季的 25 分钟。",
+  },
+  {
+    id: "zh-p3",
+    shape: "control, comparison",
+    text: "本周团队关闭了 46 张工单，高于上周的 31 张。",
+  },
+  {
+    id: "zh-p4",
+    shape: "control, comparison",
+    text: "三月降雨量达 88 毫米，较上年同期的 61 毫米有所增加。",
+  },
 ];
 
 const FRESH_ENGLISH: Sentence[] = [
