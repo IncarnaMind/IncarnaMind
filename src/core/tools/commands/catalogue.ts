@@ -291,7 +291,14 @@ export async function checkCommand(
       : [];
   await host.allows?.(input, touches, context.mindId, context.wallId);
   if (entry && (entry.yours !== null || !isCoreCommand(entry.id))) {
-    return windowChecked(entry, input.ids, await context.findable(), context, host.window);
+    return windowChecked(
+      entry,
+      input.ids,
+      await context.findable(),
+      context,
+      host.window,
+      input.page,
+    );
   }
   if (isCoreCommand(input.command)) {
     const command: CoreCommand = CORE_COMMANDS[input.command];

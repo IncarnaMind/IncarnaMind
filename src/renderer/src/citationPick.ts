@@ -104,7 +104,7 @@ function watchPickTab(): void {
  */
 export function chooseCitationIn(
   pick: CitationPick,
-  at?: Pick<Citation, "pageFrom" | "pageTo" | "quote"> | null,
+  at?: (Pick<Citation, "pageFrom" | "pageTo"> & { quote?: string }) | null,
   inGroup?: string,
 ): void {
   useCitationPick.setState({ pick });
@@ -115,7 +115,7 @@ export function chooseCitationIn(
       ...(at && {
         pageFrom: at.pageFrom ?? undefined,
         pageTo: at.pageTo ?? undefined,
-        quote: at.quote,
+        ...(at.quote !== undefined && { quote: at.quote }),
       }),
     },
     inGroup === undefined ? { as: "citation", keep: true } : { as: "here", from: inGroup },

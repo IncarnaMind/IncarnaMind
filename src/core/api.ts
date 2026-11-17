@@ -11101,6 +11101,8 @@ export interface WindowCommandRequest {
   command: CommandId;
   /** What it acts on. */
   targets: { kind: CommandTarget; id: string }[];
+  /** The page of the one Document in `targets` that the User names as a source, when they name one (#1554). */
+  page?: number;
   /** The Note the Question was asked from, which a command with no `targets` acts on; null: none. */
   mindId: string | null;
   /** The window whose Question it is, which alone runs it. */
