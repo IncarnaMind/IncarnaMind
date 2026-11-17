@@ -107,7 +107,6 @@ export const settingsPageCommands: readonly Command[] = [
     run: () => useAppStore.getState().openSettings("ai", "add-provider"),
   },
   {
-    // The first run's model steps again (#3296): the User's AI, sorting and meeting transcription.
     id: "settings.setUpStepByStep",
     assistant: { never: "keys" },
     label: "setupPage.again.command",

@@ -20,7 +20,6 @@ const FEATURE_WORDS: Record<NextFeature, MessageKey> = {
   record: "firstOpen.next.record",
 };
 
-/** Runs a feature's command, on the example Note for one that acts on a Note. */
 function runFeature(feature: NextFeature, mindId: string): Promise<unknown> {
   const [own, last] = FEATURE_COMMANDS[feature];
   const id = feature === "exportWord" && exportPreferences().format === "docx" ? last : own;
@@ -93,7 +92,6 @@ export function CardTail({
   );
 }
 
-/** The three models as the setup left them: Answers, sorting and meeting transcription. */
 function WhatWasSet() {
   const t = useT();
   const nameOf = useModelNames();

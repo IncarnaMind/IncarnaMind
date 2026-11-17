@@ -2341,7 +2341,6 @@ const readEveryExample = (): Promise<Examples[]> =>
     ),
   );
 
-/** The lead example and the others made, as the store keeps them. */
 const examplesBy = (
   every: readonly Examples[],
   work: readonly WorkKind[],

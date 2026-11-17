@@ -11,7 +11,6 @@ import type { SettingsStore } from "./settings";
 import type { UsageData } from "./usageData";
 import { exampleGroupsOf, pickedWork } from "./workKinds";
 
-/** The device value keeping the order the kinds of work are shown in, once per install. */
 const ORDER_VALUE = "workOrder";
 
 const ASKED = WORK_KINDS.filter((kind) => kind !== "other");
@@ -23,7 +22,6 @@ export function createFirstRun(options: {
   hasMinds(): boolean;
   /** Whether the host opens a fresh profile on the setup; a test build only when a test asks. */
   offered: boolean;
-  /** Pushes "settings.changed". */
   settingsChanged(): void;
   random?(): number;
 }) {

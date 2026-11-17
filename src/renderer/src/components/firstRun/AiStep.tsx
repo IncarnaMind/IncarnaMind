@@ -34,7 +34,6 @@ type Way = "chatgpt" | "claude" | "local";
 
 const answers = (entry: ServiceEntry) => jobsOf(entry).includes("answers");
 
-/** Back from the service list, with the focus where the User opened it. */
 function backToMore(setView: (view: View) => void) {
   setView({ kind: "main" });
   requestAnimationFrame(() =>
@@ -279,7 +278,6 @@ export function AiStep({ place }: { place: StepPlace }) {
   );
 }
 
-/** The model that works now, its picker, and what goes to its service. */
 function ModelWorks() {
   const t = useT();
   const id = useId();
@@ -324,13 +322,12 @@ function ModelWorks() {
   );
 }
 
-/** A model on this computer, asked about only once the User opens its row. */
+// Ollama is asked about only once the User opens its row.
 function LocalPanel() {
   const ollama = useOllama(() => undefined, undefined, { localModeUnasked: true });
   return <LocalWay ollama={ollama} />;
 }
 
-/** A service chosen in the directory, set up in the step with the form it has everywhere. */
 function EntrySetUp({
   entry,
   sign,
@@ -370,10 +367,6 @@ function EntrySetUp({
   );
 }
 
-/**
- * One of the other ways in: its title, and, opened, what it needs. A way with nothing to open
- * (More services…) goes where it leads.
- */
 function WayRow({
   title,
   testId,

@@ -15,7 +15,6 @@ const WORK_WORDS: Record<WorkKind, { title: MessageKey; line: MessageKey }> = {
   other: { title: "setupPage.work.other", line: "setupPage.work.other.line" },
 };
 
-/** Something else stands alone: picking it clears the others, and another clears it. */
 const toggled = (work: readonly WorkKind[], kind: WorkKind): WorkKind[] =>
   work.includes(kind)
     ? work.filter((each) => each !== kind)

@@ -229,11 +229,6 @@ export function SortingStep({ place }: { place: StepPlace }) {
 const focusHostPicker = () =>
   document.querySelector<HTMLElement>("[data-testid=setup-decision-host]")?.focus();
 
-/**
- * The chosen host, as it stands: working with a key the User has, so Use this chooses it; or its
- * key (and account) asked for in place, whose own Use this keeps them and chooses it. A host
- * reached with a chat provider's key asks for that provider's key, which then serves both.
- */
 function DecisionPlace({
   host,
   status,

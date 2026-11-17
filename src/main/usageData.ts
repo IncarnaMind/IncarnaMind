@@ -214,7 +214,6 @@ export function createPostHogSender(options: PostHogSenderOptions): PostHogSende
         queue(message);
         return;
       }
-      // A client of its own, closed once its one event is sent: usage data stays off.
       const once = loadSdk()
         .then(async (sdk) => {
           const client = open(sdk);
