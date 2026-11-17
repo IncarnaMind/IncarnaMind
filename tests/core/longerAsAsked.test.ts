@@ -196,16 +196,17 @@ describe("“Longer” at the length the User asked for", { timeout: 30_000 }, (
     ]);
   });
 
-  // protects=the length is asked for once in an Answer: a second miss lands, and the result says how far it is from what was asked, so the reply can't call it the length asked; fails_when=it is refused again, or the result says nothing of the miss; no_claim=what a real model then says.
-  test("a second miss lands, and the result says it is off what was asked", async () => {
+  // protects=the length is refused twice at most in an Answer (#1385): the third try lands, and the result says how far it is from what was asked, so the reply can't call it the length asked; fails_when=it is refused again, or the result says nothing of the miss; no_claim=what a real model then says.
+  test("two misses are refused, the third lands, and the result says it is off what was asked", async () => {
     const model = summaryModel("English", [
+      { content: TOO_LONG, times: 1.5 },
       { content: TOO_LONG, times: 1.5 },
       { content: TOO_LONG, times: 1.5 },
     ]);
 
     const { answer } = await askBoth(model, "English", "make it a bit longer");
 
-    expect(mindCalls(answer).map((call) => call.status)).toEqual(["failed", "done"]);
+    expect(mindCalls(answer).map((call) => call.status)).toEqual(["failed", "failed", "done"]);
     expect(lastResult(model)).toContain(
       "(from 17 to 30 words, not shorter: 1.8 times as long, where times_as_long was 1.5)",
     );
@@ -214,6 +215,7 @@ describe("“Longer” at the length the User asked for", { timeout: 30_000 }, (
   // protects=the result never says the User asked for a length: the multiple is the model's own reading of their words, and a request that names no amount ("make it shorter") got 0.6 from Haiku 5.5, which the reply then called "the 0.6 you asked for" (#1385, the 2026-11-07 walk); fails_when=the result words a declared multiple as the User's
   test("a length the model declared is never worded as one the User asked for", async () => {
     const model = summaryModel("English", [
+      { content: SHORTER_BUT_NOT_0_6, times: 0.6 },
       { content: SHORTER_BUT_NOT_0_6, times: 0.6 },
       { content: SHORTER_BUT_NOT_0_6, times: 0.6 },
     ]);
