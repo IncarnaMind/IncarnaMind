@@ -1551,7 +1551,7 @@ const words = new Intl.Segmenter("zh", { granularity: "word" });
  * currency, whatever follows ("公司账目单位：新台币仟元", a title's line joined to the unit line and
  * the unit line to the next); or a measure's unit before a word of its own ("能耗单位：吨标准煤").
  * A scale, a currency or a unit alone at the start of a name states none ("万禾股份有限公司",
- * "美元基金公司", "元气森林", "万川集团"), nor does a measure the word breaker reads as part of a
+ * "美元基金公司", "元气谷地", "万川集团"), nor does a measure the word breaker reads as part of a
  * longer word ("吨位检测中心").
  */
 function standsOnItsLine(
