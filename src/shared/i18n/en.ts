@@ -1597,6 +1597,8 @@ export const en = {
     "A figure here could be read more than one way, so it wasn’t checked.",
   "claim.reason.readings-unsettled": "“{detail}” could be read several ways, so it wasn’t checked.",
   "claim.reason.library-unsettled": "Only your Library’s counts, names and kinds can be checked.",
+  "claim.reason.working-not-sent":
+    "Checked when you run Check: the background check doesn’t send how this figure was worked out.",
   "claim.readBudget.continue": "Read the rest",
   "claim.readBudget.readRest": "Read the rest · up to {most}",
   "claim.recheck.edited": "The sentence has changed since it was checked.",
@@ -3259,7 +3261,7 @@ export const en = {
   "providers.sends.chat":
     "your Questions, earlier Questions and Answers, the note you’re in or one you name, the names of up to 30 of your most recently changed notes, noting which an Answer wrote, matching passages with their Document names and pages, the names, Folders and Tags of the Documents and notes a Question or a command finds (up to 50), a Meeting’s Transcript, a picture you select in a note to ask about, the names and descriptions of Skills that are on and the instructions and files of Skills an Answer loads, and the capped reports of Analyses it runs; and, for a quick-tasks model that finds the quotes behind an Answer’s Citations, the Answer and its passages, or that checks what the assistant’s reply says it changed, the reply, the Question it answers and the record of what its Tools did",
   "providers.sends.checks":
-    "each sentence you check, with its paragraph and figures, and the passages it’s checked against with their Document names, pages or locations and which of a workbook’s rows hold values its formulas worked out; every sentence of a note or file you check whole, to find its claims; whole Documents in the scope, up to 40 pages, for a sentence that says something is absent; a file’s name, dates, author, page count and size, for a sentence about the file; the heading above a sentence the assistant wrote; after a new version of a Document, the cited sentences of the notes in its Folder; and for a sentence about your Library, its counts, the name of the Folder, Tag or Document the note searches with how many more items its search has, and the names, kinds and counts of the Documents, Folders and Tags, and the names of notes, that match the sentence’s words, with how many more matched",
+    "each sentence you check, with its paragraph and figures, and for a figure an Answer worked out, how it was worked out: its label, formula and inputs with their quotes and Document names (for a workbook’s figure, the cells and formulas it was worked out through), or an Analysis’s label, unit and code (up to 3,000 characters), the columns and rows it read and the heading above it; the passages it’s checked against with their Document names, pages or locations and which of a workbook’s rows hold values its formulas worked out; every sentence of a note or file you check whole, to find its claims; whole Documents in the scope, up to 40 pages, for a sentence that says something is absent; a file’s name, dates, author, page count and size, for a sentence about the file; the heading above a sentence the assistant wrote; after a new version of a Document, the cited sentences of the notes in its Folder, without how their figures were worked out; and for a sentence about your Library, its counts, the name of the Folder, Tag or Document the note searches with how many more items its search has, and the names, kinds and counts of the Documents, Folders and Tags, and the names of notes, that match the sentence’s words, with how many more matched",
   "providers.sends.suggestions":
     "the paragraph you pause on and up to 8 matching passages, each with its Document name and location, for writing suggestions",
   "providers.sends.edits":
@@ -3552,6 +3554,8 @@ export const en = {
     "Each sentence of a note you check, with its paragraph, and the passages from your Documents found for it or cited in it, with their Documents’ names and pages",
   "consent.data.watched-sentences":
     "After a new version of a Document, the cited sentences of the notes in its Folder, to check them for contradictions",
+  "consent.data.worked-figures":
+    "For a figure an Answer worked out, in a sentence you check: its label, formula, inputs and result, each input with its quote, Document name and location (for a workbook’s figure, the cells and formulas it was worked out through), or, for an Analysis’s figure, its label and unit, the heading above it, the columns and rows it was worked out from and up to 3,000 characters of its code",
   "consent.data.live-transcript":
     "A Meeting’s Transcript: the live lines while it records, and all of it to fill in the note after Stop",
   "consent.data.passages":

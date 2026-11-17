@@ -13,6 +13,7 @@ import {
   type SaveChatProviderInput,
   type TestChatConnectionInput,
 } from "../../src/core";
+import { CHECKS_FLOW_SENDS } from "../../src/core/answers/checks";
 import { createConsent } from "../../src/core/consent";
 import { ConsentNeededError } from "../../src/core/errors";
 import { createEventHub } from "../../src/core/events";
@@ -103,6 +104,7 @@ describe("Choosing a service is the consent (ADR-0022)", () => {
         "file-properties",
         "absence-documents",
         "watched-sentences",
+        "worked-figures",
       ]),
       {
         flow: {
@@ -278,6 +280,7 @@ describe("Decisions made before choosing was the consent", () => {
         "file-properties",
         "absence-documents",
         "watched-sentences",
+        "worked-figures",
       ]);
       decided("edits", "declined", []);
     } finally {
@@ -301,6 +304,7 @@ describe("Decisions made before choosing was the consent", () => {
           "file-properties",
           "absence-documents",
           "watched-sentences",
+          "worked-figures",
         ],
       },
       consent: "accepted",
@@ -374,6 +378,43 @@ describe("Data-flow consent", () => {
     }
   });
 
+  // protects=a User who allowed checks before checks sent how a worked-out figure was worked out is asked for that one kind before any check sends it, and their earlier consent covers no check that does; fails_when=the working goes out on the earlier consent, or the dialog names other kinds.
+  test("checks allowed before they sent figures' working ask again, for that alone", async () => {
+    const db = openDatabase(join(await createTempDataFolder(), "consent.db"));
+    try {
+      migrate(db);
+      const events = createEventHub();
+      const consent = createConsent(db, events, () => AT);
+      const checks = {
+        id: "checks" as const,
+        sends: CHECKS_FLOW_SENDS.filter((kind) => kind !== "worked-figures"),
+        services: async () => [OPENAI_SERVICE],
+      };
+      consent.registry.register(checks);
+      await consent.allow("checks", OPENAI_SERVICE.id);
+      consent.registry.register({ ...checks, sends: CHECKS_FLOW_SENDS });
+
+      expect(consent.covers("checks", OPENAI_SERVICE, CHECKS_FLOW_SENDS)).toBe(false);
+      expect(consent.covers("checks", OPENAI_SERVICE, checks.sends)).toBe(true);
+      expect((await consent.list())[0]).toMatchObject({
+        consent: "not-asked",
+        added: ["worked-figures"],
+      });
+
+      const asked: ConsentRequest[] = [];
+      events.on("consent.requested", (request) => {
+        asked.push(request);
+        consent.respond(request.requestId, false);
+      });
+      await expect(consent.ensure("checks", OPENAI_SERVICE)).rejects.toBeInstanceOf(
+        ConsentDeclinedError,
+      );
+      expect(asked.map((request) => request.newKinds)).toEqual([["worked-figures"]]);
+    } finally {
+      db.close();
+    }
+  });
+
   test("nothing is sent until the User accepts, and the dialog says what goes where", async () => {
     const { core, models } = await startWithModel();
     await saveProviderUnasked(core, OPENAI);
@@ -440,6 +481,7 @@ describe("Data-flow consent", () => {
         "file-properties",
         "absence-documents",
         "watched-sentences",
+        "worked-figures",
       ]),
       notAsked("document-check", ["selection", "whole-document"]),
       notAsked("tagging", ["tags", "document-excerpts"]),
