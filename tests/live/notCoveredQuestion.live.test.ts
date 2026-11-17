@@ -7,8 +7,9 @@
  * `{ case, side, sentence, quote, passage, noted }`. The model is INCARNAMIND_LIVE_ANTHROPIC_MODEL
  * (Claude Haiku 5.5 by default), INCARNAMIND_LIVE_RUNS the asks of each item (3), and
  * INCARNAMIND_LIVE_REPORT a file that keeps one JSON line for each ask: the item's case and side,
- * both answers, whether the ✓ would stand, the reply's failure if it had one, the seconds it took
- * and its tokens.
+ * both answers, whether the ✓ would stand, the reply's failure if it had one, the seconds it took,
+ * its tokens and their price in US dollars. The model skips its thinking, as a check's does, and
+ * the asks go a few at a time: all at once, Haiku 5.5 refused some for their rate.
  */
 import { appendFileSync, readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
@@ -20,6 +21,8 @@ import {
 } from "../../src/core/answers/checks/prompt";
 import { ANSWER_TEMPERATURE } from "../../src/core/answers/engine";
 import { judge, lines } from "../../src/core/answers/judge";
+import { costOf, inCurrency } from "../../src/core/cost/price";
+import { catalogModel } from "../../src/core/providers/catalog";
 import { createAiSdkChatModel } from "../../src/core/providers/models";
 
 const KEY = process.env.INCARNAMIND_LIVE_ANTHROPIC_KEY;
@@ -27,6 +30,7 @@ const ITEMS = process.env.INCARNAMIND_LIVE_NOTED_ITEMS;
 const MODEL = process.env.INCARNAMIND_LIVE_ANTHROPIC_MODEL ?? "claude-haiku-5-5";
 const RUNS = Number(process.env.INCARNAMIND_LIVE_RUNS ?? 3) || 3;
 const REPORT = process.env.INCARNAMIND_LIVE_REPORT;
+const AT_ONCE = 5;
 
 interface Item {
   case: string;
@@ -46,11 +50,16 @@ describe.skipIf(!KEY || !ITEMS)("what a check's note names, asked alone", () => 
       baseUrl: null,
       apiKey: KEY ?? null,
       modelId: MODEL,
+      thinking: "off",
     });
+    const price = catalogModel("anthropic", MODEL)?.price;
     let failed = 0;
-    for (let run = 1; run <= RUNS; run++) {
+    const asks = Array.from({ length: RUNS }, (_, index) =>
+      items.map((item) => ({ item, run: index + 1 })),
+    ).flat();
+    for (let from = 0; from < asks.length; from += AT_ONCE) {
       await Promise.all(
-        items.map(async (item) => {
+        asks.slice(from, from + AT_ONCE).map(async ({ item, run }) => {
           const started = Date.now();
           const asked = await judge({
             model,
@@ -77,9 +86,17 @@ describe.skipIf(!KEY || !ITEMS)("what a check's note names, asked alone", () => 
                 run,
                 ...(asked.ok
                   ? { ...asked.value, stands: !asked.value.said && !asked.value.limits }
-                  : { failure: asked.reason, stands: false }),
+                  : { failure: asked.reason, status: asked.error?.status, stands: false }),
                 seconds: (Date.now() - started) / 1000,
                 usage: asked.usage,
+                priced:
+                  price && asked.usage
+                    ? inCurrency(
+                        costOf(asked.usage, price, new Date(), { cacheWrites: true }),
+                        price.currency,
+                        "USD",
+                      )
+                    : null,
               })}\n`,
             );
         }),
