@@ -24,6 +24,7 @@ import type {
   ExampleGroup,
   ExportFormat,
   ProviderErrorKind,
+  WorkKind,
 } from "./api";
 import type { Language } from "./language";
 
@@ -220,6 +221,18 @@ void _inStep;
 export const USAGE_EVENTS = {
   /** IncarnaMind started. `language`: the interface language. */
   app_opened: { language: oneOf(LANGUAGES) },
+  /**
+   * What the User works on, as the first run's setup asked it (#3296): one flag per kind, set
+   * for each one picked. Sent once, on "Send and continue" (`createUsageData().sendWorkPicked`).
+   */
+  work_picked: {
+    finance: flag,
+    legal: flag,
+    research: flag,
+    reports: flag,
+    meetings: flag,
+    other: flag,
+  },
   example_opened: { group: oneOf(EXAMPLE_GROUPS) },
   /** The User made a Mind (not the example Mind). */
   mind_created: {},
@@ -295,6 +308,15 @@ export const USAGE_EVENTS = {
   /** The User opened a Settings page. */
   settings_page_viewed: { page: oneOf(SETTINGS_PAGES) },
 } as const satisfies Readonly<Record<string, Readonly<Record<string, UsageField>>>>;
+
+// `work_picked` has one flag for each kind of work, and nothing else.
+type WorkFlag = keyof (typeof USAGE_EVENTS)["work_picked"];
+const _workInStep: [WorkFlag] extends [WorkKind]
+  ? [WorkKind] extends [WorkFlag]
+    ? true
+    : never
+  : never = true;
+void _workInStep;
 
 /** The events the interface sends (`CoreApi.recordUsage`); the core sends the others itself. */
 export const UI_USAGE_EVENTS = [

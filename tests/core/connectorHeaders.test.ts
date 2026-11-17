@@ -76,6 +76,9 @@ describe("Remote Connector keys and older connections", () => {
           capture: (message) => {
             outputs.push(message);
           },
+          captureOnce: (message) => {
+            outputs.push(message);
+          },
         },
       });
       await core.updatePrivacySettings({ usageData: true });

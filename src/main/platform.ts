@@ -605,6 +605,13 @@ const decisionReadsByDefault =
   import.meta.env.MODE === "test" ? process.env.INCARNAMIND_TEST_DECISIONS_BY_DEFAULT : undefined;
 
 /**
+ * Whether a fresh profile opens on the first run's setup (#3296): always, but in a test build only
+ * with this test-only launch flag, so the specs that open on the example still do.
+ */
+const setupOnFirstRun =
+  import.meta.env.MODE !== "test" || process.env.INCARNAMIND_TEST_FIRST_RUN_SETUP === "1";
+
+/**
  * Test-only launch flag: where Find sources asks its providers (#296), a
  * local server standing in for each provider (OpenAlex, arXiv, PubMed, Crossref, openFDA, DailyMed, ClinicalTrials.gov, the eCFR and GovInfo), each
  * under its own path, so the smoke tests reach none of them. Only a test
@@ -950,6 +957,7 @@ export async function createElectronAdapters(log: Logger): Promise<CoreAdapters>
       decisionOrigins: Object.fromEntries(DECISION_HOSTS.map((host) => [host, decisionHostsUrl])),
     }),
     ...(decisionReadsByDefault && { decisionReadsByDefault: decisionReadsByDefault === "1" }),
+    setupOnFirstRun,
     ...(referenceLookupUrl && {
       referenceLookup: {
         crossref: referenceLookupUrl,

@@ -6,6 +6,7 @@ import {
   type ExportPreferences,
   type GettingStarted,
   InvalidInputError,
+  type WorkKind,
 } from "../../src/core";
 import { openDatabase } from "../../src/core/storage";
 import { createTempDataFolder, startCore } from "../helpers/core";
@@ -97,7 +98,11 @@ describe("Settings", () => {
           exported: false,
           hidden: false,
           seen: false,
+          recorded: false,
+          notesWritten: false,
         },
+        work: [],
+        setupFinished: false,
         skillScriptsEnabled: true,
         skillScriptTimeoutSeconds: 60,
         suggestionOffers: 0,
@@ -231,7 +236,11 @@ describe("Settings", () => {
         exported: false,
         hidden: false,
         seen: false,
+        recorded: false,
+        notesWritten: false,
       },
+      work: [],
+      setupFinished: false,
       skillScriptsEnabled: true,
       skillScriptTimeoutSeconds: 60,
       suggestionOffers: 0,
@@ -428,6 +437,8 @@ describe("Settings", () => {
       askedReady: false,
       exported: false,
       seen: false,
+      recorded: false,
+      notesWritten: false,
     });
   });
 
@@ -457,6 +468,8 @@ describe("Settings", () => {
         citationChecked,
         mistakeSeen,
         seen: false,
+        recorded: false,
+        notesWritten: false,
       });
       after.close();
     }
@@ -524,7 +537,11 @@ describe("Settings", () => {
         exported: true,
         hidden: true,
         seen: false,
+        recorded: true,
+        notesWritten: false,
       },
+      work: ["legal", "finance"] as WorkKind[],
+      setupFinished: true,
       skillScriptsEnabled: false,
       skillScriptTimeoutSeconds: 15,
       suggestionOffers: 1,

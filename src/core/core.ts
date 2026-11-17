@@ -256,6 +256,7 @@ import { writeXlsx } from "./exports/xlsx";
 import { figureSchedule, noteFooting } from "./figureSchedule";
 import { createFileLock } from "./fileLock";
 import { freeFileName, safeFileName, writeNewFile } from "./fileNames";
+import { createFirstRun } from "./firstRun";
 import { createFolders } from "./folders";
 import { LANGUAGES, systemRegion } from "./language";
 import { createLayouts } from "./layout";
@@ -428,6 +429,7 @@ import { addedCounts, trackUsage } from "./usageTracking";
 import { createWindowCommands } from "./windowCommands";
 import { createWindowPresence, type HostWindow } from "./windowPresence";
 import { createWordImports } from "./wordImports";
+import { leadGroupOf } from "./workKinds";
 import { ensureWorkspace } from "./workspace";
 import { createWorkWall } from "./workWall";
 
@@ -4762,11 +4764,21 @@ export function createCore(adapters: CoreAdapters): Core {
   });
   events.on("document.status", () => examples.documentChanged());
   isExampleDocument = (documentId) => examples.made().documentIds.includes(documentId);
+  const firstRun = createFirstRun({
+    settings,
+    examples,
+    usageData,
+    hasMinds: () => minds.list().length > 0,
+    offered: adapters.setupOnFirstRun !== false,
+    settingsChanged,
+  });
   const readyQuestionNow = (): FirstOpenQuestion => {
     const exampleDocuments = new Set(examples.made().documentIds);
+    // The credit paper's ready Question is the card's only while that example leads (#3296).
+    const credit = leadGroupOf(settings.get().device.work) === "credit";
     return readyQuestionOf({
       own: documents.rows().filter((each) => !exampleDocuments.has(each.id)),
-      example: examples.readyQuestion(),
+      example: credit ? examples.readyQuestion() : null,
       language: settings.get().language,
     });
   };
@@ -6342,6 +6354,9 @@ export function createCore(adapters: CoreAdapters): Core {
     readyQuestion: async () => readyQuestionNow(),
     isExampleDocument: async (documentId) => isExampleDocument(documentId),
     offerExamples: async () => examples.offer(minds.list().length > 0),
+    firstRunSetup: async () => firstRun.status(),
+    finishFirstRunSetup: (work) => firstRun.finish(work),
+    sendWorkPicked: async (work) => firstRun.sendPicks(work),
     createExamples: async (group) => examples.create(group),
     removeExamples: async (group) => examples.remove(group),
     restoreExamples: async (group) => examples.restore(group),

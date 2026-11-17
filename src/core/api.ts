@@ -3635,6 +3635,10 @@ export interface GettingStarted {
   hidden: boolean;
   /** The first-run card was shown on this device: an empty note keeps no second guide after that (#1940). */
   seen: boolean;
+  /** The User recorded a Meeting of their own: the meetings card's first step (#3296). */
+  recorded: boolean;
+  /** A Meeting's notes were written from its Transcript: the meetings card's second step (#3296). */
+  notesWritten: boolean;
 }
 
 /** A decision model on a host, as the User chose it for checks. */
@@ -3673,6 +3677,13 @@ export interface DeviceSettings {
   openedBefore: boolean;
   /** The "Get started" checklist's progress on this device (see `GettingStarted`). */
   gettingStarted: GettingStarted;
+  /**
+   * What the User works on, as the first run's setup asked it (#3296), first pick first: it
+   * chooses the example the window opens on and Get started's words. Empty: not said.
+   */
+  work: WorkKind[];
+  /** The first run's setup was finished or skipped through on this device: it never shows again. */
+  setupFinished: boolean;
   /**
    * Skill scripts may run on this device: on by default, and each run still
    * asks first unless the Skill's scripts always run. Off, Answers aren't
@@ -5561,6 +5572,19 @@ export type LinkedFolderStatus = "scanning" | "watching" | "paused" | "unavailab
  */
 export const EXAMPLE_GROUPS = ["credit", "papers", "reports", "contracts", "meetings"] as const;
 export type ExampleGroup = (typeof EXAMPLE_GROUPS)[number];
+
+/**
+ * What the User works on, as the first run's setup asks it (#3296): several may be picked, and
+ * "other" (Something else) stands alone. Each leads to an example (src/core/workKinds.ts).
+ */
+export const WORK_KINDS = ["finance", "legal", "research", "reports", "meetings", "other"] as const;
+export type WorkKind = (typeof WORK_KINDS)[number];
+
+/**
+ * Whether the window opens on the first run's setup (#3296), and, when it does, the order its
+ * kinds of work are shown in: picked once per install, Something else last.
+ */
+export type FirstRunSetup = { show: false } | { show: true; workOrder: WorkKind[] };
 
 /**
  * An example Mind (onboarding, see src/core/examples.ts): "Draft: credit
@@ -13498,6 +13522,26 @@ export interface CoreApi {
    */
   offerExamples(): Promise<Examples | null>;
   /**
+   * Whether the window opens on the first run's setup (#3296): on a fresh profile only (the
+   * examples ship and were never offered, no Note, never opened before, the setup never finished),
+   * where the host offers it. Asking consumes nothing: a setup left halfway shows again.
+   */
+  firstRunSetup(): Promise<FirstRunSetup>;
+  /**
+   * Ends the first run's setup, finished or skipped through (#3296): keeps what the User works on
+   * (`DeviceSettings.work`), never shows the setup again, and makes the example of each pick, the
+   * first pick's first, which it returns (null when this copy ships none). Nothing picked makes
+   * the credit paper, as Something else does.
+   */
+  finishFirstRunSetup(work: readonly WorkKind[]): Promise<Examples | null>;
+  /**
+   * Sends the first run's picks as one usage event, `work_picked` (#3296): the User pressed "Send
+   * and continue", which allows this event alone, so it goes even while usage data is off and turns
+   * nothing on. Never in Local mode, and never from a copy that can't send usage data. Resolves to
+   * whether it was sent.
+   */
+  sendWorkPicked(work: readonly WorkKind[]): Promise<boolean>;
+  /**
    * Makes the example Mind and its Documents (copies of the shipped files in
    * the data folder, linked), or returns them if they exist. Its Citations
    * are checked once the Documents have been read, and so are its draft's
@@ -15546,6 +15590,9 @@ const methods: Record<CoreApiMethod, true> = {
   readyQuestion: true,
   isExampleDocument: true,
   offerExamples: true,
+  firstRunSetup: true,
+  finishFirstRunSetup: true,
+  sendWorkPicked: true,
   createExamples: true,
   removeExamples: true,
   restoreExamples: true,
