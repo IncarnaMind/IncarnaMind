@@ -331,6 +331,12 @@ export function commandTools(options: CommandToolsOptions): {
         style: { type: "string" },
         font: { type: "string" },
         size: { type: "string" },
+        page: {
+          type: "integer",
+          minimum: 1,
+          description:
+            'check.chooseCitation only: the page the User names ("p. 4", "第4页"); never one you found yourself.',
+        },
         setting: { type: "string", enum: SETTING_NAMES },
         value: { type: "string" },
         merges: {

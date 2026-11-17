@@ -90,6 +90,8 @@ export interface CommandContext {
   here?: Partial<Record<CommandId, () => void>>;
   /** The assistant asked for it, whose reply says how it ended rather than a toast. */
   assistant?: true;
+  /** The page of the Document in `focus` that the assistant was told is the source (#1554). */
+  page?: number;
   /** Text was selected in the Note last written in: what `appliesToText` commands act on. */
   textSelected?: true;
   /** The User picked the rows in `selection`; without it they are only the current row. */
