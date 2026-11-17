@@ -24,9 +24,10 @@
  * And for the branch in which a number in a Document's name is no figure it is asked about (the
  * name's number is also left out of the engine's own reading of the claim):
  *   - Wrong Supported: 0 of the 24, and false Contradicted 0 of the 16.
- *   - Rescued: at least 5 of the 8 true "appears once" sentences about names with a number
- *     Supported, by the Library's own fact (0 of 8 on main after the wording, and 4 of 8 on the
- *     branch before the engine stopped asking for the name's number).
+ *   - Rescued: at least 4 of the 8 true sentences about names with a number (4 "appears once", 4
+ *     "appears twice") Supported, by the Library's own fact. They were 0 of 8 on main after the
+ *     wording. (Restated before this arm ran: the first wording said 5 of 8 "appears once", and
+ *     this set has 4 of those.)
  */
 import { randomUUID } from "node:crypto";
 import { appendFile } from "node:fs/promises";

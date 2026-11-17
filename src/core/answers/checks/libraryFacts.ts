@@ -849,7 +849,7 @@ export function withLibraryFacts(
       ...deps,
       documents: run.documents,
       libraryFacts: run.search,
-    })(figures === request.figures ? request : { ...request, figures });
+    })({ ...request, figures, libraryNames: names });
     return run.settle(result);
   };
 }
