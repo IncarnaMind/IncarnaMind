@@ -79,6 +79,8 @@ interface Asking {
   unestimated: boolean;
   /** A run of the Figure schedule's chosen figures: the OK checks those figures, never the whole Note. */
   figureIds?: string[];
+  /** A run of one write's Blocks: the OK checks that write's sentences, never the whole Note. */
+  blockIds?: string[];
 }
 
 /** What a Check runs: what changed, and whether a Folder's other Documents are checked too. */
@@ -89,6 +91,8 @@ interface CheckToRun {
   watch: { claims: number } | null;
   /** The figures to check, for a run from the Figure schedule; none for a whole-Note Check. */
   figureIds?: string[];
+  /** The Blocks of a write to check, for a run from its line; none for a whole-Note Check. */
+  blockIds?: string[];
 }
 
 /** A problem with the model or a stop ends the Check: the contradiction watch needs the model too. */
@@ -206,8 +210,19 @@ export function useMindCheckRun(doc: Y.Doc): MindCheckRun | null {
  * offered for. A check of chosen figures checks those figures again, never the whole Note.
  */
 const again =
-  (mindId: string, mode: CheckMindMode, allDocuments: boolean, figureIds?: string[]) => () =>
-    void checkMind(mindId, mode, { allDocuments, ...(figureIds && { figureIds }) });
+  (
+    mindId: string,
+    mode: CheckMindMode,
+    allDocuments: boolean,
+    figureIds?: string[],
+    blockIds?: string[],
+  ) =>
+  () =>
+    void checkMind(mindId, mode, {
+      allDocuments,
+      ...(figureIds && { figureIds }),
+      ...(blockIds && { blockIds }),
+    });
 
 /**
  * Checks the Note's claims now, as `mode` says: what changed, every sentence,
@@ -218,7 +233,11 @@ const again =
 export async function checkMind(
   mindId: string,
   mode: CheckMindMode,
-  { allDocuments = false, figureIds }: { allDocuments?: boolean; figureIds?: string[] } = {},
+  {
+    allDocuments = false,
+    figureIds,
+    blockIds,
+  }: { allDocuments?: boolean; figureIds?: string[]; blockIds?: string[] } = {},
 ): Promise<void> {
   if (useChecks.getState().running[mindId]) return;
   await freeAskedNote(mindId);
@@ -229,7 +248,7 @@ export async function checkMind(
   const requestId = crypto.randomUUID();
   setCheckRunning(mindId, { requestId, action: "whole-mind" });
   try {
-    await checkMindNow(mindId, mode, allDocuments, requestId, figureIds);
+    await checkMindNow(mindId, mode, allDocuments, requestId, figureIds, blockIds);
   } finally {
     setCheckRunning(mindId, null);
   }
@@ -242,6 +261,7 @@ async function checkMindNow(
   allDocuments: boolean,
   requestId: string,
   figureIds?: string[],
+  blockIds?: string[],
 ): Promise<CheckEnd> {
   try {
     const result = await core.checkMind({
@@ -250,27 +270,33 @@ async function checkMindNow(
       mode,
       allDocuments,
       ...(figureIds && { figureIds }),
+      ...(blockIds && { blockIds }),
     });
     if (result.kind === "checked") setCheckSmallModel(mindId, result.smallModel);
     else if (result.kind === "failed") {
       setCheckProblem(mindId, {
         kind: "find-failed",
         error: result.error,
-        retry: again(mindId, mode, allDocuments, figureIds),
+        retry: again(mindId, mode, allDocuments, figureIds, blockIds),
       });
     } else if (result.kind === "nothing") setCheckProblem(mindId, { kind: "no-claims" });
     // Another window's Check of this Note is running: it says how it went.
     else if (result.kind !== "cancelled" && result.kind !== "running")
       setCheckProblem(
         mindId,
-        withCheckAll(result, () => checkAllDocuments(mindId, mode, figureIds)),
+        withCheckAll(result, () => checkAllDocuments(mindId, mode, figureIds, blockIds)),
       );
     return result;
   } catch (error) {
     setCheckProblem(mindId, {
       kind: "failed",
       error,
-      retry: () => void checkMind(mindId, mode, { allDocuments, ...(figureIds && { figureIds }) }),
+      retry: () =>
+        void checkMind(mindId, mode, {
+          allDocuments,
+          ...(figureIds && { figureIds }),
+          ...(blockIds && { blockIds }),
+        }),
     });
     return { kind: "threw", error };
   }
@@ -367,11 +393,17 @@ async function start(
       return { kind: "running" };
     }
     held = true;
-    const { mode, allDocuments, plan, watch, figureIds } = await planned();
+    const { mode, allDocuments, plan, watch, figureIds, blockIds } = await planned();
     const outcome = await askOrCheck(
       mindId,
       requestId,
-      { mode, allDocuments, watch, ...(figureIds && { figureIds }) },
+      {
+        mode,
+        allDocuments,
+        watch,
+        ...(figureIds && { figureIds }),
+        ...(blockIds && { blockIds }),
+      },
       plan,
       () => {
         ranCheck = true;
@@ -535,11 +567,38 @@ export const startFigureCheckAsking = (
   );
 
 /**
+ * The Check on the line of what the assistant wrote: that write's sentences, asked as every other
+ * way in asks, never the whole Note, which stays on the Note's badge. With `allDocuments`, Check
+ * all Documents widens the same write to every Document.
+ */
+export const startWriteCheckAsking = (
+  mindId: string,
+  blockIds: string[],
+  allDocuments = false,
+): Promise<CheckOutcome> =>
+  start(
+    mindId,
+    async (): Promise<Planned> => ({
+      mode: "changed",
+      allDocuments,
+      plan: await core.planMindCheck(mindId, "changed", allDocuments, undefined, blockIds),
+      watch: null,
+      blockIds,
+    }),
+  );
+
+/**
  * Check all Documents for a run that found none in its Folder: a run of chosen figures plans
  * and asks again for those figures, so widening never turns it into a whole-Note Check (#2313).
  */
-function checkAllDocuments(mindId: string, mode: CheckMindMode, figureIds?: string[]): void {
-  if (figureIds) void startFigureCheckAsking(mindId, figureIds, true);
+function checkAllDocuments(
+  mindId: string,
+  mode: CheckMindMode,
+  figureIds?: string[],
+  blockIds?: string[],
+): void {
+  if (blockIds) void startWriteCheckAsking(mindId, blockIds, true);
+  else if (figureIds) void startFigureCheckAsking(mindId, figureIds, true);
   else void startMindCheck(mindId, mode, { allDocuments: true });
 }
 
@@ -635,12 +694,13 @@ export async function confirmCheck(mindId: string): Promise<void> {
       allDocuments: asking.allDocuments,
       watch: asking.watch,
       ...(asking.figureIds && { figureIds: asking.figureIds }),
+      ...(asking.blockIds && { blockIds: asking.blockIds }),
     });
   } catch (error) {
     setCheckProblem(mindId, {
       kind: "failed",
       error,
-      retry: again(mindId, asking.mode, asking.allDocuments, asking.figureIds),
+      retry: again(mindId, asking.mode, asking.allDocuments, asking.figureIds, asking.blockIds),
     });
   }
 }
@@ -668,7 +728,14 @@ async function runCheck(mindId: string, requestId: string, run: CheckToRun): Pro
     const full = run.watch !== null && (await fullWatchNeeded(mindId, run.watch));
     // Read before the run: the marks it writes cover every sentence it checks.
     const toCheck = run.watch !== null && !full ? await readSentencesToCheck(mindId) : null;
-    const result = await checkMindNow(mindId, run.mode, run.allDocuments, requestId, run.figureIds);
+    const result = await checkMindNow(
+      mindId,
+      run.mode,
+      run.allDocuments,
+      requestId,
+      run.figureIds,
+      run.blockIds,
+    );
     const stopped = endsCheck(result);
     if (!stopped && run.watch !== null) {
       const watchRequest = crypto.randomUUID();
@@ -731,7 +798,9 @@ async function askOrCheck(
       mindId,
       plan.kind === "nothing"
         ? { kind: "no-claims" }
-        : withCheckAll(plan, () => checkAllDocuments(mindId, run.mode, run.figureIds)),
+        : withCheckAll(plan, () =>
+            checkAllDocuments(mindId, run.mode, run.figureIds, run.blockIds),
+          ),
     );
     return null;
   }
@@ -800,6 +869,7 @@ async function askOrCheck(
         estimate: estimated,
         unestimated: estimated === null,
         ...(run.figureIds && { figureIds: run.figureIds }),
+        ...(run.blockIds && { blockIds: run.blockIds }),
       },
     },
   }));

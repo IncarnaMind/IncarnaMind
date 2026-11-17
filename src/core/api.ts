@@ -1712,6 +1712,8 @@ export interface MindChange {
     leftOut?: number;
     running?: true;
     undone?: true;
+    /** The User stopped it from the line under the reply: what it hadn't checked waits. */
+    stopped?: true;
     stop?: RunStop;
     blocked?: { reason: "consent-revoked" | "local-mode" | "consent-widened"; count: number };
   };
@@ -8372,6 +8374,11 @@ export interface DocumentsAddedSince {
 export interface CheckMindInput {
   /** Only these current figures; sibling judgments and personal-view choices are kept. */
   figureIds?: string[];
+  /**
+   * Only the sentences in these top-level Blocks, a write's: the rest of the Note is left as it
+   * is, and the run is not recorded as a check of the whole Note.
+   */
+  blockIds?: string[];
   requestId: string;
   mindId: string;
   mode: CheckMindMode;
@@ -14008,12 +14015,14 @@ export interface CoreApi {
    * to check. Sends nothing. In "changed" mode the checks that couldn't be
    * made count as changed. With `figureIds`, what a run of those figures
    * would send: the sentences that hold them, counted for its estimate.
+   * With `blockIds`, what a run of those Blocks alone would send, a write's.
    */
   planMindCheck(
     mindId: string,
     mode: CheckMindMode,
     allDocuments?: boolean,
     figureIds?: string[],
+    blockIds?: string[],
   ): Promise<MindCheckPlan>;
   /**
    * Keeps a Note for one Check from its planning until it runs or `cancelCheck` drops it

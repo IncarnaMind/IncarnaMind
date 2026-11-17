@@ -290,7 +290,7 @@ for (const language of ["en", "zh-CN"] as const) {
   });
 }
 
-test("a sentence past the most one write checks says why, in English and Chinese, and Check now checks it alone", async () => {
+test("a sentence past the most one write checks says why, in English and Chinese, and Check checks it alone", async () => {
   test.setTimeout(120_000);
   await writeFile(join(sources, "Tutorial one.md"), `# One\n\n${QUOTE_ONE} in practice.\n`);
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
@@ -372,9 +372,9 @@ test("a sentence past the most one write checks says why, in English and Chinese
     [
       "en",
       "Not checked yet: only the first 12 cited sentences are checked as they’re written",
-      "Check now",
+      "Check",
     ],
-    ["zh-CN", "尚未核对：写入时只核对前 12 句带引用的话", "立即核对"],
+    ["zh-CN", "尚未核对：写入时只核对前 12 句带引用的话", "核对"],
   ] as const) {
     await setLanguage(window, language);
     await motionSettled(window);
