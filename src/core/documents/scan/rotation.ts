@@ -146,9 +146,10 @@ function clearlyBetter(candidate: Reading, first: Reading): boolean {
  * The turns worth reading after the first: lines that run level put the page upright or upside
  * down, lines that run up the page put it on one side or the other. Each turn is a whole read.
  */
-function otherTurns(horizontalShare: number): QuarterTurn[] {
-  if (horizontalShare >= MOSTLY_LEVEL) return [180];
-  if (horizontalShare <= 1 - MOSTLY_LEVEL) return [90, 270];
+function otherTurns({ characters, horizontalShare }: Reading["score"]): QuarterTurn[] {
+  // Nothing read says nothing of which way its lines run.
+  if (characters > 0 && horizontalShare >= MOSTLY_LEVEL) return [180];
+  if (characters > 0 && horizontalShare <= 1 - MOSTLY_LEVEL) return [90, 270];
   return horizontalShare < 0.5 ? [90, 270, 180] : [180, 90, 270];
 }
 
@@ -190,7 +191,7 @@ export async function readWithQuarterTurn(
   if (settled(first)) return result(first, passes);
 
   const suggested = TURN_BACK[quarterTurn(hint)];
-  const turns = otherTurns(first.score.horizontalShare).sort(
+  const turns = otherTurns(first.score).sort(
     (a, b) => Number(b === suggested) - Number(a === suggested),
   );
   let best: Reading | null = null;

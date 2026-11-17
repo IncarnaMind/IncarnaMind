@@ -163,6 +163,11 @@ describe("A scanned page's quarter-turn (#1819)", () => {
     expect(result).toMatchObject({ turn: 0, passes: 2, lines: page });
   });
 
+  test("a page nothing was read from is read at every turn (#3289)", async () => {
+    const result = await choose(0, [[], [], [], [line("Upright text", 0.98)]]);
+    expect(result).toMatchObject({ turn: 180, passes: 4 });
+  });
+
   test("an upside-down page with a few sure characters is still turned (#3289)", async () => {
     const result = await choose(0, [
       [line("69", 0.95), line("pasdn umop uaddn", 0.6), line("ʇxǝʇ ǝɯos", 0.62)],
