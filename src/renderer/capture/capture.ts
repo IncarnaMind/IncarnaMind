@@ -25,6 +25,13 @@ const bridge: CaptureBridge = found;
 
 const SAMPLE_RATE = 16_000;
 
+declare global {
+  // Web Audio's AudioSinkOptions, which TypeScript's DOM types don't have yet.
+  interface AudioContextOptions {
+    sinkId?: string | { type: "none" };
+  }
+}
+
 interface Open {
   stream: MediaStream;
   node: MediaStreamAudioSourceNode;
@@ -44,7 +51,9 @@ let running = false;
 
 function audioContext(): Promise<AudioContext> {
   context ??= (async () => {
-    const created = new AudioContext({ sampleRate: SAMPLE_RATE });
+    // No output device: one that is slow to open holds the microphone back, and one that fails
+    // stops every worklet, so nothing is captured (#3248).
+    const created = new AudioContext({ sampleRate: SAMPLE_RATE, sinkId: { type: "none" } });
     await created.audioWorklet.addModule(pcmFramesUrl);
     // Worklets are pulled only from the destination: a silent path to it keeps them running.
     sink = created.createGain();

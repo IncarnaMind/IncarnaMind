@@ -12,6 +12,7 @@ import {
   packagedExecutable,
   packagedLogLines,
 } from "./app";
+import { audioOutputsHeldBy } from "./macAudio";
 import { expectSpeechEngineOnTheAppsRuntime } from "./windowsRuntime";
 
 const root = resolve(__dirname, "../..");
@@ -94,6 +95,9 @@ test("the packaged app transcribes a meeting from the microphone on this compute
     .toBeGreaterThan(1);
   await expect(stopped).toHaveCount(0);
   if (process.platform === "win32") await expectSpeechEngineOnTheAppsRuntime(app);
+  // The capture opens no audio output: one that is slow to open held the microphone back, and
+  // one that failed left the whole Meeting with nothing captured (#3248).
+  if (process.platform === "darwin") expect(await audioOutputsHeldBy(app)).toEqual([]);
 
   await bar.getByTestId("meeting-stop").click();
   await transcriptSaved(window, 5 * 60_000);

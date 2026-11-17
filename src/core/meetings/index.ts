@@ -89,6 +89,13 @@ const DISCONTINUITY_MS = 1000;
 const SILENT_SAMPLES = MEETING_SAMPLE_RATE * 60;
 /** The microphone, all silence for this long, is said to be silent: a muted one, or the wrong one, gives none. */
 const MICROPHONE_SILENT_SAMPLES = MEETING_SAMPLE_RATE * 15;
+/** How often a recording looks for a source that is open and gives no audio at all. */
+const NOTHING_HEARD_EVERY_MS = 1000;
+
+const samplesIn = (ms: number) => Math.round((ms * MEETING_SAMPLE_RATE) / 1000);
+
+/** The states of a source whose audio is expected. */
+const OPEN: ReadonlySet<MeetingSourceState> = new Set(["starting", "recording", "silent"]);
 
 /** How often audio past its day is looked for. */
 const SWEEP_INTERVAL_MS = 60_000;
@@ -171,6 +178,12 @@ interface Live {
   runs: Map<AudioSource, Run>;
   /** Where each source's saved audio ends, so a new run never overlaps it. */
   ends: Map<AudioSource, number>;
+  /**
+   * Where each open source's next audio is due, in the Meeting's time: audio that comes later, or
+   * never, leaves a stretch nothing was captured in (#3248).
+   */
+  due: Map<AudioSource, number>;
+  watching: ReturnType<typeof setInterval> | null;
   /** All-silent samples in a row from the computer's sound. */
   silent: number;
   /** All-silent samples in a row from the microphone. */
@@ -511,6 +524,7 @@ export function createMeetings(options: MeetingsOptions) {
     if (samples.length === 0) return;
     let run = current.runs.get(source);
     let stalledFrom: number | null = null;
+    let unheard = 0;
     // Samples that come much later than the run could have produced them (a device changed,
     // the capture stalled) start a new run where they belong, so the parts keep the right times.
     if (run && at - (run.startMs + msOf(run.samples + samples.length)) > DISCONTINUITY_MS) {
@@ -528,29 +542,30 @@ export function createMeetings(options: MeetingsOptions) {
         waitingSamples: 0,
       };
       current.runs.set(source, run);
-      if (stalledFrom !== null && run.startMs > stalledFrom) {
-        health.add(current.meetingId, {
-          kind: "audioLost",
-          source,
-          cause: "stalled",
-          atMs: stalledFrom,
-          durationMs: run.startMs - stalledFrom,
-        });
+      unheard = nothingCaptured(
+        current,
+        source,
+        stalledFrom ?? overdueFrom(current, source, run.startMs),
+        run.startMs,
+      );
+      if (stalledFrom !== null && unheard > 0) {
         transcripts?.captureStalled(current.meetingId, stalledFrom, run.startMs);
       }
     }
     const quiet = samples.every((sample) => sample === 0);
+    const silentFor = samplesIn(unheard) + samples.length;
     if (source === "system") {
-      current.silent = quiet ? current.silent + samples.length : 0;
+      current.silent = quiet ? current.silent + silentFor : 0;
       if (!quiet) current.systemSignal = true;
     } else {
-      current.micSilent = quiet ? current.micSilent + samples.length : 0;
+      current.micSilent = quiet ? current.micSilent + silentFor : 0;
     }
     transcripts?.hear(current.meetingId, source, samples, run.startMs + msOf(run.samples));
     tellLevel(current, source, samples);
     run.waiting.push(samples);
     run.waitingSamples += samples.length;
     run.samples += samples.length;
+    current.due.set(source, run.startMs + msOf(run.samples));
     while (run.waitingSamples >= PART_SAMPLES) {
       savePart(current, source, run, take(run, PART_SAMPLES));
     }
@@ -562,6 +577,55 @@ export function createMeetings(options: MeetingsOptions) {
         ? "silent"
         : "recording",
     );
+  }
+
+  /** Where a source's audio has been due since, when what comes at `atMs` is late for it. */
+  function overdueFrom(current: Live, source: AudioSource, atMs: number): number | null {
+    const due = current.due.get(source);
+    return due !== undefined && atMs - due > DISCONTINUITY_MS ? due : null;
+  }
+
+  /** Counts a stretch a source gave nothing in, from `fromMs` to `toMs`, and returns its length. */
+  function nothingCaptured(
+    current: Live,
+    source: AudioSource,
+    fromMs: number | null,
+    toMs: number,
+  ): number {
+    if (fromMs === null || toMs <= fromMs) return 0;
+    health.add(current.meetingId, {
+      kind: "audioLost",
+      source,
+      cause: "stalled",
+      atMs: fromMs,
+      durationMs: toMs - fromMs,
+    });
+    return toMs - fromMs;
+  }
+
+  /** Ends a source's wait for audio at `atMs`, counting what was overdue by then. */
+  function stopWaiting(current: Live, source: AudioSource, atMs: number): void {
+    nothingCaptured(current, source, overdueFrom(current, source, atMs), atMs);
+    current.due.delete(source);
+  }
+
+  /**
+   * A source that is open and gives no audio at all is silent too: time with nothing counts as
+   * silence does, so the Meeting never says it is recording while nothing comes in (#3248).
+   */
+  function watchForNothing(current: Live): void {
+    if (live !== current) return;
+    const at = meetingTime(current);
+    for (const source of ["microphone", "system"] as const) {
+      if (!OPEN.has(current.sources[source])) continue;
+      const overdue = overdueFrom(current, source, at);
+      if (overdue === null) continue;
+      const [silent, limit] =
+        source === "system"
+          ? [current.silent, SILENT_SAMPLES]
+          : [current.micSilent, MICROPHONE_SILENT_SAMPLES];
+      if (silent + samplesIn(at - overdue) >= limit) setSource(current, source, "silent");
+    }
   }
 
   function capturedSinceResumed(current: Live, samples: Int16Array, endMs: number): Int16Array {
@@ -592,15 +656,25 @@ export function createMeetings(options: MeetingsOptions) {
     if (live !== current) return;
     // "Recording" again is a new track (the default microphone changed): its samples start a run
     // where they arrive, however short the gap, to stay in step with the computer's sound (#846).
+    // A source that had been giving audio starts its wait again with the new track; one that
+    // never gave any keeps the wait it has.
+    const at = meetingTime(current);
+    if (current.runs.has(source) || state !== "recording") stopWaiting(current, source, at);
     endRun(current, source);
+    const paused = source === "microphone" && microphonePausedAt.has(current.meetingId);
+    if (state === "recording" && !paused && !current.due.has(source)) {
+      current.due.set(source, at);
+    }
     if (state === "recording" && current.sources[source] === "silent") return;
     // The microphone's permission prompt holds up the capture of both sources, so its wait is the
     // Meeting's, and nothing is captured until it is answered.
     if (source === "microphone") {
       if (state === "waiting") {
-        transcripts?.waitingForPermission(current.meetingId, meetingTime(current));
+        transcripts?.waitingForPermission(current.meetingId, at);
+        stopWaiting(current, "system", at);
       } else if (current.sources.microphone === "waiting") {
-        transcripts?.permissionAnswered(current.meetingId, meetingTime(current));
+        transcripts?.permissionAnswered(current.meetingId, at);
+        if (OPEN.has(current.sources.system)) current.due.set("system", at);
       }
     }
     setSource(current, source, state);
@@ -621,6 +695,8 @@ export function createMeetings(options: MeetingsOptions) {
       },
       runs: new Map(),
       ends: new Map(),
+      due: new Map(),
+      watching: null,
       silent: 0,
       micSilent: 0,
       systemSignal: false,
@@ -637,6 +713,10 @@ export function createMeetings(options: MeetingsOptions) {
     transcripts?.begin(row.id, period.offsetMs, () => current.systemSignal);
     const silenced = microphonePausedAt.has(row.id);
     if (silenced) transcripts?.microphonePaused(row.id, period.offsetMs);
+    if (!silenced) current.due.set("microphone", period.offsetMs);
+    if (current.sources.system === "starting") current.due.set("system", period.offsetMs);
+    current.watching = setInterval(() => watchForNothing(current), NOTHING_HEARD_EVERY_MS);
+    current.watching.unref?.();
     current.session = capture.start(
       { systemAudio: systemAudio && capture.systemAudio },
       {
@@ -653,6 +733,7 @@ export function createMeetings(options: MeetingsOptions) {
    */
   function end(current: Live): number {
     live = null;
+    if (current.watching) clearInterval(current.watching);
     endRun(current, "microphone");
     endRun(current, "system");
     current.session?.stop().catch((error: unknown) => {
@@ -667,7 +748,11 @@ export function createMeetings(options: MeetingsOptions) {
       clock() - Date.parse(current.period.start),
       audioEnd - current.period.offsetMs,
     );
-    transcripts?.end(current.meetingId, current.period.offsetMs + length);
+    const endMs = current.period.offsetMs + length;
+    for (const source of current.due.keys()) {
+      nothingCaptured(current, source, overdueFrom(current, source, endMs), endMs);
+    }
+    transcripts?.end(current.meetingId, endMs);
     health.ended(current.meetingId);
     return length;
   }
@@ -1425,6 +1510,7 @@ export function createMeetings(options: MeetingsOptions) {
         microphonePausedAt.set(row.id, atMs);
         if (capturing) {
           endRun(capturing, "microphone");
+          stopWaiting(capturing, "microphone", atMs);
           capturing.session?.setMicrophone(false);
           transcripts?.microphonePaused(row.id, atMs);
         }
@@ -1434,6 +1520,7 @@ export function createMeetings(options: MeetingsOptions) {
         endMicrophonePause(row.id, atMs);
         if (capturing) {
           transcripts?.microphoneResumed(row.id, atMs);
+          if (OPEN.has(capturing.sources.microphone)) capturing.due.set("microphone", atMs);
           capturing.session?.setMicrophone(true);
         }
         log.info("meeting.microphoneResumed", { meetingId: row.id });

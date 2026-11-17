@@ -880,7 +880,9 @@ function audioCapture(log: Logger): AudioCapture | undefined {
             ? "waiting"
             : process.env.INCARNAMIND_TEST_AUDIO_MICROPHONE === "silent"
               ? "silent"
-              : "allowed",
+              : process.env.INCARNAMIND_TEST_AUDIO_MICROPHONE === "nothing"
+                ? "nothing"
+                : "allowed",
     });
     (globalThis as { incarnamindFakeAudio?: FakeCapture }).incarnamindFakeAudio = fake;
     return fake;
