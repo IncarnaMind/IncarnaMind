@@ -1587,6 +1587,10 @@ export const en = {
   "claim.reason.figures-not-read.unknown": "The figures in a Document couldn’t be read.",
   "claim.reason.sentence-figures-not-read": "The figures in this sentence couldn’t be read.",
   "claim.reason.two-readings": "“{shown}” could mean {first} or {second}, so it wasn’t checked.",
+  "claim.reason.sign-word":
+    "“{amount}” may be negative because of “{word}” nearby, so it wasn’t checked.",
+  "claim.reason.sign-word.unknown":
+    "A word nearby may make an amount here negative, so it wasn’t checked.",
   "claim.reason.two-readings.unknown":
     "A figure here could be read more than one way, so it wasn’t checked.",
   "claim.reason.readings-unsettled": "“{detail}” could be read several ways, so it wasn’t checked.",

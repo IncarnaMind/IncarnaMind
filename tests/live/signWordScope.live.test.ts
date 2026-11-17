@@ -98,6 +98,27 @@
  *   there: a loss clause about something else still keeps the minus (#3228).
  * - A round with a refused, failed or timed out request is void and run again by hand.
  *
+ * The run for #3228's second build, written on 2026-11-17 before any request of it. A loss or
+ * deduction noun in another sentence than the amount's, unless the amount's sentence starts with a
+ * pronoun for its subject, leaves the bracket's sign open, and the figure ends Not checked with a
+ * reason that names the word ("“$95,000.00” may be negative because of “loss” nearby, so it wasn’t
+ * checked."); the model is not asked and no reading it gives counts. The proof of the code is the
+ * scripted count over the probes; this run shows the card as a User gets it. The pairs other-rent,
+ * other-minus, tied-own and tied-minus in English and Chinese (8 pairs), 3 rounds each, DeepSeek V4.1
+ * Flash, stop US$0.15; `main`'s numbers are those above (same model, same day).
+ * - Bar 1: other-rent (the right rent sentence) ends Not checked in 6 of 6 rounds, its card reason
+ *   the new one, and in none Contradicted or Supported.
+ * - Bar 2: no pair reads Supported in more rounds than on `main`: other-minus and tied-own 0 of 6,
+ *   tied-minus at most 4 of 6, other-rent 0 of 6.
+ * - A round with a refused, failed or timed out request is void and run again by hand.
+ * - The "before" pairs, which the issue names too, run the code they ran on `main` (a state word keeps
+ *   its minus), so they are run as a confirm, written before it ran: before-own Supported in 0 of 6
+ *   rounds, before-minus in at most 3 of 6 (`main`: 0 and 3).
+ * The result, 2026-11-17: other-rent ended Not checked with the new reason in 6 of 6 clean rounds
+ * (one Chinese round's check run failed and was run again), none Supported or Contradicted;
+ * other-minus Supported 0 of 6, tied-own 0 of 6, tied-minus 1 of 6; before-own 0 of 6, before-minus
+ * 3 of 6. US$0.0844 for the first run (with the rerun) and US$0.0406 for the before pairs.
+ *
  * INCARNAMIND_LIVE_PAIRS limits the run to those pairs, by key; INCARNAMIND_LIVE_ROUNDS sets the rounds.
  * Runs only with INCARNAMIND_LIVE_DEEPSEEK_KEY (DeepSeek V4.1 Flash, `deepseek-flash`, or
  * INCARNAMIND_LIVE_DEEPSEEK_MODEL when set); INCARNAMIND_LIVE_REPORT keeps one JSON line per pair.

@@ -2022,6 +2022,106 @@ describe("a statement line's bracket that repeats its amount (#2576)", () => {
     expect(readFigures(far, EN).map((each) => each.value)).toEqual([3600000, -3600000]);
   });
 
+  // A word for a loss in another sentence than the amount's may be about something else ("The
+  // Landlord is not liable for any loss of business. The annual rent is …"): the sign is left open,
+  // with the word that leaves it so (#3228). In the amount's own sentence it is the amount's, and
+  // so it is where the next sentence starts with a pronoun for the amount's subject.
+  const open: [text: string, context: FigureContext, shown: string, word: string][] = [
+    [
+      "The Landlord is not liable for any loss of business. The annual rent is ninety-five thousand dollars ($95,000.00).",
+      EN,
+      "($95,000.00)",
+      "loss",
+    ],
+    [
+      "Fees are payable without deduction. The service fee is ninety-five thousand dollars ($95,000.00).",
+      EN,
+      "($95,000.00)",
+      "deduction",
+    ],
+    [
+      "出租方对营业损失不承担责任。月租金为人民币九万五千元（¥95,000）。",
+      ZH,
+      "（¥95,000）",
+      "损失",
+    ],
+    [
+      "承租方自行承担经营亏损。租赁保证金为人民币九万五千元（¥95,000）。",
+      ZH,
+      "（¥95,000）",
+      "亏损",
+    ],
+    [
+      "The company reported an operating loss. Operating income was sixty-two thousand dollars ($62,000.00).",
+      EN,
+      "($62,000.00)",
+      "loss",
+    ],
+    [
+      "The annual rent is ninety-five thousand dollars ($95,000.00). The Landlord is not liable for any loss of business.",
+      EN,
+      "($95,000.00)",
+      "loss",
+    ],
+    [
+      "月租金为人民币九万五千元（¥95,000）。出租方对营业损失不承担责任。",
+      ZH,
+      "（¥95,000）",
+      "损失",
+    ],
+  ];
+  // protects=a loss or deduction word in another sentence than the amount's leaves a bracket's sign open and names the word, in English and Chinese, before and after the amount (#3228); fails_when=such a word gives the bracket its minus again, or its sign is left open with no word to name
+  test.each(open)("%s leaves its sign open", (text, context, shown, word) => {
+    const figure = readFigures(text, context).find((each) => each.chars === shown);
+    expect(figure && [Math.abs(figure.value) > 0, figure.value > 0]).toEqual([true, true]);
+    expect(figure?.ambiguous.map((each) => [each.kind, each.word])).toEqual([["sign", word]]);
+  });
+
+  // protects=a loss word in the amount's own sentence, or in the sentence beside it that starts with a pronoun for the amount's subject, keeps the bracket's minus where another sentence's loss word leaves it open (#3228)
+  test.each([
+    ["The loss for the year was sixty-two thousand dollars ($62,000.00).", 62000],
+    [
+      "The Landlord is not liable for any loss of business, and the annual rent is ninety-five thousand dollars ($95,000.00).",
+      95000,
+    ],
+    [
+      "The Landlord is not liable for any loss of business; the annual rent is ninety-five thousand dollars ($95,000.00).",
+      95000,
+    ],
+    [
+      "The balance was negative. The Landlord is not liable for any loss of business. It was ninety-five thousand dollars ($95,000.00).",
+      95000,
+    ],
+    [
+      "The Landlord is not liable for any loss of business. The annual rent is ninety-five thousand dollars ($95,000.00), less deposit.",
+      95000,
+    ],
+    [
+      "Party A made a loss. Its result for the year was sixty-two thousand dollars ($62,000.00).",
+      62000,
+    ],
+    [
+      "The group recorded a small net loss. Their earnings were sixty-two thousand dollars ($62,000.00).",
+      62000,
+    ],
+    [
+      "Party A made a loss. It reported a result of sixty-two thousand dollars ($62,000.00).",
+      62000,
+    ],
+    ["The result for the year was sixty-two thousand dollars ($62,000.00). It was a loss.", 62000],
+  ] as const)("%s keeps its minus", (text, amount) => {
+    const bracket = readFigures(text, EN).find((figure) => figure.chars.startsWith("("));
+    expect(bracket && [bracket.value, bracket.ambiguous.length]).toEqual([-amount, 0]);
+  });
+
+  test("a pronoun beside a loss in Chinese keeps the minus too", () => {
+    const bracket = readFigures(
+      "甲方本年发生亏损。其本年经营成果为人民币260万元（¥2,600,000）。",
+      ZH,
+    ).find((figure) => figure.chars.startsWith("（"));
+    expect(bracket && [bracket.value, bracket.ambiguous.length]).toEqual([-2600000, 0]);
+  });
+
   // protects=an amount sentence that starts with a pronoun for its subject keeps the bracket's minus when a loss is stated anywhere in the 2,000 characters above the quote, and one that starts with a noun does not (#3252); fails_when=a loss out of the 400 characters leaves the bracket plus for a tied sentence, or gives every far loss clause a minus
   describe.each([
     {
@@ -3215,11 +3315,6 @@ describe("a bracket right after an amount (#2341)", () => {
     ],
     [
       "The subsidiary posted a net loss for the year. Its result was sixty-two thousand dollars ($62,000.00).",
-      EN,
-      [f("($62,000.00)", -62000, { unit: "USD" })],
-    ],
-    [
-      "The company reported an operating loss. Operating income was sixty-two thousand dollars ($62,000.00).",
       EN,
       [f("($62,000.00)", -62000, { unit: "USD" })],
     ],
