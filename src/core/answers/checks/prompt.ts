@@ -87,10 +87,12 @@ const STATED_UNIT =
 /**
  * Told only to the check of one part of a longer sentence: without it, Claude Haiku 5.5's first
  * reply called the credit example's "against £118 million a year earlier" Contradicted in 7 of 7
- * checks, though its Passage says it word for word (#3088).
+ * checks, though its Passage says it word for word (#3088). Its last sentence: a right split from
+ * the requirement that trails it was read as having none, and so Unsupported against a Passage
+ * that states the very requirement the User wrote (#3257).
  */
 const PART_OF =
-  'The sentence to check is one part of a longer sentence of the User\'s, given before it: it says what its own words say, comparison words included, of the subject that longer sentence names, and in the period, place or other detail its own words give. "down from 7.1% in 2024", in "Vacancy was 5.8% at the year end, down from 7.1% in 2024", says vacancy fell from 7.1% in 2024; "去年同期为 3,400 万元", in "本季度营业收入为 4,100 万元，去年同期为 3,400 万元", says 营业收入去年同期为 3,400 万元. A Passage that states that supports it, whatever it gives for the rest of the longer sentence, which is checked apart; one that gives that subject another value in that very period contradicts it.';
+  'The sentence to check is one part of a longer sentence of the User\'s, given before it: it says what its own words say, comparison words included, of the subject that longer sentence names, and in the period, place or other detail its own words give. "down from 7.1% in 2024", in "Vacancy was 5.8% at the year end, down from 7.1% in 2024", says vacancy fell from 7.1% in 2024; "去年同期为 3,400 万元", in "本季度营业收入为 4,100 万元，去年同期为 3,400 万元", says 营业收入去年同期为 3,400 万元. A Passage that states that supports it, whatever it gives for the rest of the longer sentence, which is checked apart; one that gives that subject another value in that very period contradicts it. A condition or exception the longer sentence states for this part is the sentence\'s side of the Condition line, though the part\'s own words leave it out: for "Guests may park overnight", in "Guests may park overnight, provided the owner consents", it is "provided the owner consents"; for "访客可留宿", in "访客可留宿，须经业主同意", it is "须经业主同意".';
 
 /** What the marks of a call's Transcript mean, for a check of an Answer asked in a call (#3005). */
 const CALL_MARKS =
