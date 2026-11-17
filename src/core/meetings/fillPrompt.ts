@@ -153,6 +153,11 @@ export function notesContext(
       : "The User took no notes. Write the meeting's notes from the transcript.",
     "Return a ledger of facts, not separate prose accounts under each line and section. Code, not your reply, writes the full fact once and topic-only references with its original Citation in its other places. Do not write references or section drafts yourself.",
     `- Read through to the final agreement before allocating facts. Include all related final choices and work assignments under the User's ordinary lines, not just background or an earlier proposal.${lines.length > 0 ? " Never repeat or reword a line the User typed." : ""} A line asking about several things needs every relevant answer, with one identity per fact.`,
+    ...(lines.length > 0
+      ? [
+          "- The User's lines are not the whole of the notes. The notes cover the whole call, as they would had the User typed nothing. A typed line collects only the facts that answer it; a fact that merely touches its subject, and every other decision, commitment, open question, figure and point of the call, is still written as a fact, with lines [] and its heading.",
+        ]
+      : []),
     "- Each fact has one stable id, a short topic label, its complete wording once, its Citation marker inventory, and its related lines and sections. A fact is one short point, a single sentence: what a speaker said about several things is several facts. Keep an action, all its actual owners and its spoken deadline together, without restating the same owner or deadline within that fact. Write a decision once, as finally agreed, as one fact with every line and section it belongs to: never a second fact for the proposal that became it or for the same decision under another heading, and never its figures twice. A proposal that differs from what was agreed is a fact of its own. A first-person commitment belongs to that Transcript speaker, not automatically Me; a reported third-party assignment belongs to that third party.",
     userRule(named),
     "- The topic is a label only: no full assertion, figures, dates, owner, deadline or machine address. The complete wording belongs only in the paragraph after the metadata, not in the label or a second frame. Different facts may share a Citation, name or date; those are not reasons to merge their identities.",
