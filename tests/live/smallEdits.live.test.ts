@@ -9,6 +9,30 @@
  * own timing records. Runs only with INCARNAMIND_LIVE_DEEPSEEK_KEY (DeepSeek V4.1 Flash) or
  * INCARNAMIND_LIVE_ANTHROPIC_KEY (Claude Haiku 5.5); INCARNAMIND_LIVE_LANGUAGE, _KINDS (fix,
  * control), _ONLY (case numbers) and _LIMIT narrow it.
+ *
+ * Baseline on `main` (2026-11-17, DeepSeek V4.1 Flash; Claude Haiku 5.5 meant; 26 requests twice):
+ * the exact swap and nothing else changed in 17 of 20 and 17 of 20 fixes, the right place where the
+ * words are in the Note more than once in 6 of 9 and 7 of 9, every fix landed in 19 of 20 and 19 of
+ * 20; the median small fix took 8.6 s and 898 output tokens, the rewrite itself about 14% of the time
+ * and 10% to 14% of the output tokens; 11 of the first run's 26 requests were refused first for naming
+ * a paragraph, and the second run's 19 refused calls were a label of one or two words (10), words
+ * that don't start the paragraph or are not the Note's (6) and the model's own reasoning (3). Bars for the branch, written 2026-11-17 before its paired run against
+ * `main`, the arms alternated in one session, two rounds:
+ * - exactness decides: on the 20 small fixes the asked words change and nothing else in the Note,
+ *   counted by code, 20 of 20; every fix lands, 20 of 20; at the right place on the 9 where the
+ *   words are there more than once, 9 of 9, read by hand;
+ * - the model chooses from the descriptions: old_text and new_text on at least 18 of the 20 fixes,
+ *   and instruction on all 6 controls (a rewrite still reads as a rewrite);
+ * - a refusal (not found, more than once) is recovered within two tries in at least 80% of the
+ *   requests that met one, and its cause is counted: if curly against straight quotes, kinds of
+ *   space or full-width against half-width punctuation account for a third of them, they are
+ *   matched across in code and nothing looser;
+ * - no reply claims a change that didn't land: 0;
+ * - speed is reported and aimed at, not a gate: median seconds at least 15% under `main`'s, median
+ *   output tokens at least 10% under, tokens in and out together at least 20% under; no slower than
+ *   `main` at the median;
+ * - the controls meet fewer "no such heading" refusals than `main`'s, counted beside it;
+ * - #3283's third-round rows that were met stay met against `main`.
  */
 import { appendFile } from "node:fs/promises";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";

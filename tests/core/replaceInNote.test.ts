@@ -122,7 +122,7 @@ async function askToSwap(model: MockLanguageModelV4, request: string) {
   doc.forEach((node) => {
     paragraphs.push(node.textContent);
   });
-  return { answer, client, paragraphs, doc };
+  return { answer, client, paragraphs, doc, core, mindId: mind.id };
 }
 
 const toldToTheModel = (model: MockLanguageModelV4) =>
@@ -150,6 +150,23 @@ describe("A small change as an exact replacement", { timeout: 30_000 }, () => {
     expect(lastResult(model)).toContain(
       "Changed “£41,500 a year” to “£43,000 a year” in “Flat notes”",
     );
+  });
+
+  // protects=a swap is one change with one Checkpoint, and restoring it puts the Note back as it was; fails_when=a swap leaves none to go back to, or more than one
+  test("lands as one change with one Undo", async () => {
+    const model = swapModel([{ old: "£41,500 a year", now: "£43,000 a year" }]);
+
+    const { core, mindId, client } = await askToSwap(model, "The salary is now £43,000.");
+
+    const { checkpoints } = await core.listCheckpoints(mindId);
+    expect(checkpoints).toHaveLength(1);
+    await core.restoreCheckpoint(mindId, checkpoints[0]?.id ?? "");
+    await client.settled();
+    const back: string[] = [];
+    readMind(client).forEach((node) => {
+      back.push(node.textContent);
+    });
+    expect(back[0]).toBe(SALARY);
   });
 
   // protects=words that aren't in the Note as written are refused with the reason, nothing changes, and the model's second try lands; fails_when=a near match is swapped, or the refusal gives no way forward
