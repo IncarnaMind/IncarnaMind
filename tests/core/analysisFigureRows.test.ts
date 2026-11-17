@@ -13,7 +13,7 @@ const SALES: AnalysisInput = {
     ["North", 120],
     ["North", 150.5],
     ["South", 80],
-    ["South", "n/a"],
+    ["South", "pending"],
     ["East", null],
     ["West", 40],
   ],
@@ -76,7 +76,7 @@ describe("a figure() figure worked out again from the cells", () => {
         ),
       ).toEqual({
         kind: "unchecked",
-        reason: '1 cell of Revenue in the rows it names isn\'t a number: row 5 "n/a"',
+        reason: '1 cell of Revenue in the rows it names isn\'t a number: row 5 "pending"',
       });
     },
   );

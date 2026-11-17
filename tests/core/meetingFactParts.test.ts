@@ -22,6 +22,9 @@ const FINAL = "The review is on Thursday";
 const PURPOSE = "The workshop settles the review schedule";
 const UNFINISHED = "Dana will distribute the review checklist";
 const OVERVIEW = "The workshop covered the review schedule";
+/** A fact's frame as a model leaves it when it ends its turn after the record: no sentence, no end line. */
+const STOPPED =
+  '### FACT P1_F9\n```json\n{"topic":"lunch","citations":[1],"lines":["L1"],"sections":[],"claim":false,"supersedes":[]}\n```';
 const LONG_CUES = 60;
 
 function fact(
@@ -453,6 +456,82 @@ describe("Meeting fact frames across provider failures and Transcript parts", ()
       core.close();
     }
   });
+
+  // protects=a short call's reply that stops inside a frame with room left (the model ended its turn two facts in) is asked once more, whole, and the note holds the second reply's notes: every fact and the overview once, nothing of the first reply, nothing counted as left out, with exact Undo (#3145)
+  test("a short call's reply that stops inside a frame is asked once more, and the second reply is the notes", async () => {
+    const model = modelFor(
+      (part) => ({
+        text:
+          part === 1
+            ? [fact("P1_F1", EARLIER), STOPPED].join("\n\n")
+            : [
+                fact("P2_F1", FINAL),
+                fact("P2_F2", UNFINISHED, { topic: "review checklist" }),
+                overview(),
+              ].join("\n\n"),
+      }),
+      { earlier: EARLIER, final: EARLIER },
+    );
+    const captured = await capture(model);
+    const { core, meeting, client } = captured;
+    try {
+      expect(await settledFill(core, meeting)).toMatchObject({
+        state: "filled",
+        omitted: 0,
+        unfinishedParts: 0,
+        problem: null,
+      });
+      expectRequests(model, [2, 2]);
+      const shown = readMind(client).textContent;
+      for (const text of [FINAL, UNFINISHED, OVERVIEW]) expect(shown.split(text)).toHaveLength(2);
+      expect(shown).not.toContain(EARLIER);
+      await undo(captured);
+    } finally {
+      core.close();
+    }
+  });
+
+  // protects=a part asked once more is never asked a third time, and one reply's notes are kept: the first when the second stops inside a frame with fewer facts closed, or fails; its open fact is counted as left out, as before (#3145)
+  test.each([
+    ["stops inside a frame with fewer facts", { text: STOPPED }],
+    ["fails", { text: "", error: true }],
+  ] as const)(
+    "a reply that stopped inside a frame is kept when the second %s",
+    async (_, second) => {
+      const model = modelFor(
+        (part) =>
+          part === 1
+            ? {
+                text: [
+                  overview(),
+                  fact("P1_F1", EARLIER),
+                  fact("P1_F2", UNFINISHED, { topic: "review checklist" }),
+                  STOPPED,
+                ].join("\n\n"),
+              }
+            : second,
+        { earlier: EARLIER, final: EARLIER },
+      );
+      const captured = await capture(model);
+      const { core, meeting, client } = captured;
+      try {
+        expect(await settledFill(core, meeting)).toMatchObject({
+          state: "filled",
+          omitted: 1,
+          unfinishedParts: 0,
+          problem: null,
+        });
+        expect(new Set(model.calls.map(({ part }) => part))).toEqual(new Set([1, 2]));
+        const shown = readMind(client).textContent;
+        for (const text of [EARLIER, UNFINISHED, OVERVIEW]) {
+          expect(shown.split(text)).toHaveLength(2);
+        }
+        await undo(captured);
+      } finally {
+        core.close();
+      }
+    },
+  );
 
   // protects=a later part that numbers its facts the way an earlier part did has them kept (on a 45-minute call Claude Haiku 5.5 reused 18 ids, and each fact was taken for a change to the kept one and left out): a fact with another topic that cites another line is another fact, each is written once, none is counted as left out, and the next request lists them under ids of their own (#3145); fails_when=a later part's fact is missing or written twice, the fill counts one left out, or two listed facts share an id; no_claim=which ids a real model writes.
   test("a later part that reuses an earlier part's id for another fact has both facts kept", async () => {

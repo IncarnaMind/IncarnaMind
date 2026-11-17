@@ -218,11 +218,11 @@ describe("a figure over cells written as text", () => {
 
   test.each([
     ["a percent among plain numbers", ["8%", "5", "10%", "1"], ['row 2 "8%"', 'row 4 "10%"']],
-    ["a unit and an error", ["1.2万", "50", "#N/A", "10"], ['row 2 "1.2万"', 'row 4 "#N/A"']],
+    ["a unit and an error", ["1.2万", "50", "#DIV/0!", "10"], ['row 2 "1.2万"', 'row 4 "#DIV/0!"']],
     [
       "a word, a dash and a mark",
-      ["n/a", "-", "'100", "10", "20", "30"],
-      ['row 2 "n/a"', 'row 3 "-"', `row 4 "'100"`],
+      ["pending", "-", "'100", "10", "20", "30"],
+      ['row 2 "pending"', 'row 3 "-"', `row 4 "'100"`],
     ],
     [
       "two notations of a negative",
@@ -295,7 +295,7 @@ describe("a figure over cells written as text", () => {
       `<xf numFmtId="14" fontId="0" fillId="0" borderId="0" applyNumberFormat="1"/>`,
       `</cellXfs>`,
     ].join("");
-    const shared = ["Item", "Amount", "Notes", "Rate", "Day", "10", "n/a", "5%", "Euro"];
+    const shared = ["Item", "Amount", "Notes", "Rate", "Day", "10", "tbc", "5%", "Euro"];
     const euro = ["1.234,50", "2,5", "1.234"];
     const s = (ref: string, text: string) =>
       `<c r="${ref}" t="s"><v>${[...shared, ...euro].indexOf(text)}</v></c>`;
@@ -314,7 +314,7 @@ describe("a figure over cells written as text", () => {
       [
         s("A2", "Item"),
         n("B2", -100, 1),
-        s("C2", "n/a"),
+        s("C2", "tbc"),
         n("D2", 0.08, 2),
         n("E2", 46114, 3),
         s("F2", "1.234,50"),
@@ -339,10 +339,10 @@ describe("a figure over cells written as text", () => {
     // −100 shows "(100)" by its format; "10" is text the column's numbers read.
     expect(column("Amount")).toEqual([-100, 50, 10, 5]);
     expect(checks.get("Amount")).toEqual({ kind: "same", value: -35 });
-    expect(column("Notes")).toEqual(["n/a", 50, "TRUE", 10]);
+    expect(column("Notes")).toEqual(["tbc", 50, "TRUE", 10]);
     expect(checks.get("Notes")).toEqual({
       kind: "unchecked",
-      reason: `2 cells of Notes in the rows it names aren't numbers: row 2 "n/a", row 4 "TRUE"`,
+      reason: `2 cells of Notes in the rows it names aren't numbers: row 2 "tbc", row 4 "TRUE"`,
     });
     // A percent typed as text beside percent-formatted numbers: the text says nothing of the
     // numbers' scale, so it stays text.
