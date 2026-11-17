@@ -1002,14 +1002,24 @@ export function figureSchedule(input: FigureScheduleInput): FigureSchedule {
     let shown: FigureScheduleRow["shown"] = { state: "not-checked", reason: "unread" };
     // A figure with a result of its own, from a check made before sentences were judged whole,
     // shows that; any other shows its sentence's check, which read the figure in the sentence.
+    // Beside figures that have results of their own, the sentence's verdict isn't this figure's:
+    // only its re-check, Keep or run is.
     if (now && state?.owner?.check.kept) {
       shown = claimCheckShown(state.owner.check, now);
     } else if (now && state?.child) {
       shown = !sameIdentity(occurrence, state.child)
         ? { state: "needs-recheck", why: "edited" }
         : figureCheckShown({ ...state.child, ...finding, context: state.child.context }, now);
-    } else if (now && state?.owner && !state.owner.check.figures?.length) {
-      shown = claimCheckShown(state.owner.check, now);
+    } else if (now && state?.owner) {
+      const parent = state.owner.check;
+      const whole = claimCheckShown({ ...parent, figures: undefined }, now);
+      if (
+        !parent.figures?.length ||
+        whole.state === "needs-recheck" ||
+        whole.state === "kept" ||
+        whole.state === "checking"
+      )
+        shown = whole;
     }
     shown = analysisFigureShown(shown, {
       run:
