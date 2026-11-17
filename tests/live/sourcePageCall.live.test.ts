@@ -19,7 +19,7 @@ import type { Core, WindowCommandRequest } from "../../src/core";
 import { catalogProvider } from "../../src/core/providers/catalog/providers";
 import { createAiSdkChatModel } from "../../src/core/providers/models";
 import type { OfferedCommand } from "../../src/shared/commands";
-import { askAssistant } from "../helpers/assistant";
+import { answerEnded } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { connectToMind } from "../helpers/mindClient";
@@ -151,12 +151,18 @@ describe("the source's page in the assistant's call, live", () => {
           ]);
           const mind = await core.createMind({ title: "Notes" });
           writeMind(await connectToMind(core, mind.id), [note("The rent is 900 euros a month.")]);
-          const answer = await askAssistant(core, {
+          const asked = await core.askInConversation({
             text: request.text,
             mindId: mind.id,
             commands: await windowCommandsFor(core, mind.id),
             clientId: WINDOW,
           });
+          if (!asked.asked) throw new Error(`Not asked: ${JSON.stringify(asked)}`);
+          // The command has run by the time the Answer ends; the judging of its sentences is not waited for.
+          await answerEnded(core, asked.answerId);
+          const { messages } = await core.getConversation(asked.conversation.id);
+          const answer = messages.find((message) => message.id === asked.answerId);
+          if (answer?.kind !== "answer") throw new Error("No Answer.");
           const ran = windowRequests.filter((each) => each.command === "check.chooseCitation");
           const onLease = ran.length === 1 && ran[0]?.targets.length === 1;
           if (!onLease) {
