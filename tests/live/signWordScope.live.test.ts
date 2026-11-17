@@ -16,6 +16,8 @@
  *   ninety-five thousand dollars ($95,000.00)." The positive claim is right, the minus claim wrong.
  * - "tied" (#3228): "Party A made a loss. Its result for the year was $2.6 million ($2,600,000)."
  *   The loss is the amount's: the positive claim is wrong, the minus claim right.
+ * - "tiedFar" (#3228): the same, with more than 470 characters of other terms between the loss and
+ *   the amount's sentence (the probes' D02 and D04).
  * Each runs a claim that is wrong ("decoy") and one that is right ("twin"), 3 rounds each. The "far"
  * layout also runs a decoy that names its subject ("The reserve is $95,000.").
  *
@@ -63,14 +65,22 @@
  * word: the reader leaves the sign open (the amount "may be negative"), and the figure check asks
  * the model for the reading, as it does for "(250)". A reply that gives none ends Not checked, never
  * Supported or Contradicted by the code. Two arms, the same pairs, the same session: `main`, and the
- * branch. The pairs: other-rent, other-minus, before-own, before-minus, tied-own and tied-minus, in
- * English and Chinese (12 pairs), 3 rounds each. DeepSeek V4.1 Flash, as the issue's own run.
+ * branch. The pairs: other-rent, other-minus, before-own, before-minus, tied-own, tied-minus,
+ * tiedfar-own and tiedfar-minus, in English and Chinese (16 pairs), 3 rounds each. DeepSeek V4.1
+ * Flash, as the issue's own run. Every wrong sentence ("decoy") is run on `main` first and must be
+ * seen there to be wrong: not Supported by the Note's check for the right reason (its figure
+ * Contradicted by the code's minus), or its Supported counted against the bar as the model's own.
  * - Bar 1: the right rent sentence (other-rent, English and Chinese) reads Supported by the Note's
  *   check in at least 5 of 6 rounds on the branch. On `main` it is 0 of 6.
  * - Bar 2: the wrong minus sentence (other-minus) reads Supported in 0 of 6 rounds on the branch.
- * - Bar 3: the wrong sentence about a loss that is the amount's (tied-own) reads Supported in 0 of
- *   6 rounds on the branch, and the right one (tied-minus) in at least 5 of 6 (on `main` the code
- *   gives it its minus). Fewer than 5 means the question gives up a right ✓ the code gave.
+ * - Bar 3: the wrong sentence about a loss that is the amount's (tied-own, English and Chinese)
+ *   reads Supported in 0 of 6 rounds on the branch, and the right one (tied-minus) in at least 5
+ *   of 6 (on `main` the code gives it its minus). Fewer than 5 means the question gives up a
+ *   right ✓ the code gave. One wrong ✓ means the change keeps the minus for a loss tied to the
+ *   amount ("Its", the same subject), or it does not ship.
+ * - Bar 3b: the far tied pairs (tiedfar-own, tiedfar-minus) run the code `main` runs (the loss
+ *   is further than the reader's reach): Supported in no more rounds on the branch than on `main`
+ *   for the decoy, and in no fewer for the twin.
  * - Bar 4: "before" runs the code it ran on `main` (a state word keeps its minus), so its decoy
  *   (before-own) reads Supported in no more rounds on the branch than on `main` in the same
  *   session, and its twin (before-minus) in no fewer.
@@ -102,7 +112,7 @@ const ROUNDS = Number(process.env.INCARNAMIND_LIVE_ROUNDS ?? 3) || 3;
 const REPORT = process.env.INCARNAMIND_LIVE_REPORT;
 const ONLY = process.env.INCARNAMIND_LIVE_PAIRS?.split(",") ?? null;
 
-type Layout = "far" | "before" | "other" | "tied";
+type Layout = "far" | "before" | "other" | "tied" | "tiedFar";
 type Language = "en" | "zh-CN";
 
 interface Pair {
@@ -179,6 +189,20 @@ const PAIRS: readonly Pair[] = (["en", "zh-CN"] as const).flatMap((language) => 
       decoy: false,
       claim: claimOf(language, "tied", true),
     },
+    {
+      key: `tiedfar-own-${tag}`,
+      language,
+      layout: "tiedFar",
+      decoy: true,
+      claim: claimOf(language, "tiedFar", false),
+    },
+    {
+      key: `tiedfar-minus-${tag}`,
+      language,
+      layout: "tiedFar",
+      decoy: false,
+      claim: claimOf(language, "tiedFar", true),
+    },
     // A loss clause about something else: the rent is positive.
     {
       key: `other-rent-${tag}`,
@@ -199,7 +223,8 @@ const PAIRS: readonly Pair[] = (["en", "zh-CN"] as const).flatMap((language) => 
 
 const documentOf = (pair: Pair) => {
   const { sign, amount } = SIGN_SCOPE[pair.language][pair.layout];
-  if (pair.layout === "far") return [sign, ...OTHER_TERMS[pair.language], amount].join("\n\n");
+  if (pair.layout === "far" || pair.layout === "tiedFar")
+    return [sign, ...OTHER_TERMS[pair.language], amount].join("\n\n");
   return [sign, amount].join(pair.language === "en" ? " " : "");
 };
 
