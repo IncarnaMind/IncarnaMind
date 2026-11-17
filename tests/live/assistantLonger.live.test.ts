@@ -14,6 +14,21 @@
  *
  * INCARNAMIND_LIVE_LIMIT runs only the first so many requests of each kind and language. Set
  * INCARNAMIND_LIVE_REPORT to a file to keep what each run gave back.
+ *
+ * Second round (#1385), bars written 2026-11-17 before any request of it, the paired draw one
+ * session with `main` and the branch alternated request by request, stop US$0.70 for every request
+ * of it, Claude Haiku 5.5. A run counts only with nothing refused, failed or timed out. At the
+ * branch's head:
+ * - a bit longer (the ten "a bit" requests): within bound in at least 9 of 10, and no fewer than
+ *   `main` in the same session;
+ * - the sizes a reply states are the measured ones in at least 15 of the 16 requests of the first
+ *   round; every added sentence cited or marked 16 of 16; one summary in place 16 of 16;
+ * - no amount asked ("shorter", "longer", 8 requests, "none"): the call declares no length and the
+ *   reply states no length the User didn't give, 8 of 8;
+ * - the User's own Note made a little longer (4 requests, "own"): within bound in at least 3 of 4,
+ *   one copy of the text in place 4 of 4, and a reply that says no change was made when one was,
+ *   0 of 4.
+ * A missed bar is one line to the lead, and a wrong figure the reply states goes to the owner.
  */
 import { appendFile } from "node:fs/promises";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
@@ -34,7 +49,7 @@ import { shownPassages } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { createSourceFolder, waitForProcessing, writeSourceFile } from "../helpers/documents";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
-import { readMind, resolveChanges } from "../helpers/minds";
+import { note, readMind, resolveChanges, writeMind } from "../helpers/minds";
 import { type ModelCall, type ScriptedReply, scriptedModel } from "../helpers/models";
 
 const LIVE: { name: string; kind: ChatProviderKind; apiKey: string | undefined; model: string }[] =
@@ -49,7 +64,7 @@ const LIVE: { name: string; kind: ChatProviderKind; apiKey: string | undefined; 
     },
   ];
 
-type Kind = "a bit" | "twice";
+type Kind = "a bit" | "twice" | "shorter" | "longer" | "own";
 
 const LANGUAGES = [
   {
@@ -90,7 +105,17 @@ const LANGUAGES = [
         "Expand the summary to about two times its length.",
         "Grow the summary so it's roughly double.",
       ],
+      shorter: ["Make the summary shorter.", "Shorten the summary.", "Cut the summary down."],
+      longer: ["Make the summary longer."],
+      own: [
+        "Make my note a little longer, using what the Documents say.",
+        "Could you add a bit more detail to my note from the Documents?",
+      ],
     } satisfies Record<Kind, string[]>,
+    ownNote: [
+      "Summary",
+      "Dana Whitfield joins Larkspur Analytics as a Data Analyst in the Reporting team from 3 March 2025. The salary is £41,500 a year, paid monthly. The first six months are probation, and after it the notice is one month.",
+    ],
   },
   {
     language: "Chinese",
@@ -126,14 +151,32 @@ const LANGUAGES = [
         "把摘要略微展开一些。",
       ],
       twice: ["把摘要扩写到现在的两倍长。", "摘要篇幅加倍。", "摘要扩充一倍。"],
+      shorter: ["把摘要写短。", "缩短摘要。", "摘要精简一下。"],
+      longer: ["把摘要写长。"],
+      own: ["把我的笔记稍微写长一点，用文档里的内容。", "能根据文档给我的笔记多补充一些细节吗？"],
     } satisfies Record<Kind, string[]>,
+    ownNote: [
+      "摘要",
+      "林晓雯自2025年3月3日起受聘为蓝橡数据分析有限公司报表部数据分析师。年薪为人民币415,000元，按月发放。试用期为六个月，期满后解除合同须提前一个月书面通知。",
+    ],
   },
 ] as const;
 
 const WITHIN: Record<Kind, (times: number) => boolean> = {
   "a bit": (times) => times > 1 && times <= 1.65,
   twice: (times) => times >= 1.6 && times <= 2.4,
+  shorter: (times) => times > 0 && times < 1,
+  longer: (times) => times > 1,
+  own: (times) => times > 1 && times <= 1.65,
 };
+
+/** A length the reply says the User asked for, which no request of the "shorter" and "longer" kinds gives. */
+const ASKED_LENGTH =
+  /(?:asked for|you asked|requested|wanted)\b[^.]{0,25}\d|\d(?:\.\d+)?\b[^.]{0,25}(?:you asked|asked for)|(?:你|您)(?:要求|想要)[^。]{0,12}\d|\d[^。]{0,12}(?:你的要求|你要求)/i;
+
+/** A reply that says nothing was changed. */
+const SAYS_UNCHANGED =
+  /\b(?:didn't|did not|couldn't|could not|wasn't|was not|hasn't|has not)\b[^.]{0,40}\b(?:happen|apply|applied|change|changed|rewrite|rewritten|make)\b|没有(?:改|修改|写|成功|应用)|未(?:能)?(?:修改|应用|成功)/i;
 
 const ASK_LIMIT_MS = 240_000;
 
@@ -305,15 +348,17 @@ describe.each(LIVE)("Longer, at the length asked, live: $name", (live) => {
       let spent = 0;
       const missed = { within: 0, covered: 0, truthful: 0, inPlace: 0, ran: 0 };
       for (const each of LANGUAGES) {
-        for (const kind of ["a bit", "twice"] as const) {
+        for (const kind of ["a bit", "twice", "shorter", "longer", "own"] as const) {
           const requests = each.requests[kind].slice(0, limit);
           let within = 0;
           let covered = 0;
           let truthful = 0;
           let inPlace = 0;
           let ran = 0;
+          let targetless = 0;
+          let denied = 0;
           for (const request of requests) {
-            let seeding = true;
+            let seeding = kind !== "own";
             const seeded = seedModel(each.seed);
             const core = startCore(await createTempDataFolder(), {
               createChatModel: (spec) => (seeding ? seeded : createAiSdkChatModel(spec)),
@@ -350,7 +395,13 @@ describe.each(LIVE)("Longer, at the length asked, live: $name", (live) => {
               const mind = await core.createMind({ title: each.language, folderId: folder.id });
               const client = await connectToMind(core, mind.id);
               await client.settled();
-              const first = await ask(core, each.first, mind.id, folder.id);
+              // The User's own Note: typed by them, not written by the assistant.
+              if (kind === "own")
+                writeMind(
+                  client,
+                  each.ownNote.map((line) => note(line)),
+                );
+              const first = kind === "own" ? null : await ask(core, each.first, mind.id, folder.id);
               seeding = false;
               const before = await noteNow(client);
               const second = await ask(core, request, mind.id, folder.id);
@@ -383,10 +434,19 @@ describe.each(LIVE)("Longer, at the length asked, live: $name", (live) => {
               const isCovered = bare.length === 0 && addedSentences.length > 0;
               const isTruthful = falseMultiples.length === 0 && falseCounts.length === 0;
               const isInPlace = salaries <= 1 && now > 0;
+              const declared = second.toolCalls.some(
+                (call) =>
+                  call.input.times_as_long !== undefined && Number(call.input.times_as_long) !== 1,
+              );
+              const statesTarget = ASKED_LENGTH.test(second.text);
+              const isTargetless = !declared && !statesTarget;
+              const deniesChange = times !== 1 && SAYS_UNCHANGED.test(second.text);
               if (isWithin) within++;
               if (isCovered) covered++;
               if (isTruthful) truthful++;
               if (isInPlace) inPlace++;
+              if (isTargetless) targetless++;
+              if (deniesChange) denied++;
               const tools = second.toolCalls
                 .map((call) => {
                   const how = [
@@ -400,7 +460,7 @@ describe.each(LIVE)("Longer, at the length asked, live: $name", (live) => {
                 })
                 .join(", ");
               const lines = [
-                `- ${each.language} · ${kind} · “${request}”: first ${first.status}, then ${second.status} (${tools || "no tools"}); ${was} → ${now} ${cjk ? "characters" : "words"} = ${times.toFixed(2)}×${isWithin ? "" : " OUT OF BOUND"}; added ${addedSentences.length} sentences, ${bare.length} with no Citation and no mark${isCovered ? "" : " UNCOVERED"}; reply states ${JSON.stringify(stated)}${isTruthful ? "" : " FALSE"}; salary ${salaries}×${isInPlace ? "" : " TWO SUMMARIES"}`,
+                `- ${each.language} · ${kind} · “${request}”: first ${first?.status ?? "typed"}, then ${second.status} (${tools || "no tools"}); ${was} → ${now} ${cjk ? "characters" : "words"} = ${times.toFixed(2)}×${isWithin ? "" : " OUT OF BOUND"}; added ${addedSentences.length} sentences, ${bare.length} with no Citation and no mark${isCovered ? "" : " UNCOVERED"}; reply states ${JSON.stringify(stated)}${isTruthful ? "" : " FALSE"}; salary ${salaries}×${isInPlace ? "" : " TWO SUMMARIES"}`,
                 `  reply: ${second.text.replace(/\n/g, " ⏎ ").slice(0, 600)}`,
                 ...bare.map((sentence) => `  bare: ${sentence.text.slice(0, 200)}`),
                 ...questions.map((question) => `  asked the User: ${question}`),
@@ -427,7 +487,7 @@ describe.each(LIVE)("Longer, at the length asked, live: $name", (live) => {
             }
           }
           totals.push(
-            `  ${each.language} · ${kind}: within ${within}/${ran}, every added sentence cited or marked ${covered}/${ran}, sizes stated truly ${truthful}/${ran}, one summary ${inPlace}/${ran}`,
+            `  ${each.language} · ${kind}: within ${within}/${ran}, every added sentence cited or marked ${covered}/${ran}, sizes stated truly ${truthful}/${ran}, one summary ${inPlace}/${ran}, no length declared or stated ${targetless}/${ran}, says nothing changed when it did ${denied}/${ran}`,
           );
         }
       }
