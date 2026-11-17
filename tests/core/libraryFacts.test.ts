@@ -849,6 +849,24 @@ describe.each(["en", "zh-CN"] as const)("a Library line with a gloss (%s)", (lan
     expect((await checkInNote(setup.core, twice)).check.state).toBe("supported");
   });
 
+  // protects=facts named after a gloss that holds a bracket or a quote stay named: a line whose glosses nest ("Report (draft)", "Text (.txt)") and that names documents and kind beside name, citing only name, is held (#2525); fails_when=a bracket inside a gloss ends it early and the facts after it are read away with the quotes between them
+  test("facts named after a nested gloss are still named", async () => {
+    const setup = await setUp(
+      files2,
+      {
+        [twice]: {
+          verdict: "supported",
+          quote,
+          line: `name (Documents named “${name} (draft)”), documents, kind (Documents of kind “Text (.txt)”)`,
+        },
+      },
+      language,
+    );
+    const { check } = await checkInNote(setup.core, twice);
+    expect(check.state).toBe("not-checked");
+    expect(check.reason).toBe("malformed");
+  });
+
   // protects=a glossed word still names its fact: a line that names a second fact, in a gloss's brackets or not, and cites only the first, is held (#2525); fails_when=a second fact the sentence was said to state is read away with its gloss
   test("a second fact that is named and not cited is still held", async () => {
     const setup = await setUp(
@@ -1849,6 +1867,25 @@ describe("the facts' text", () => {
     // Lines that read before read as they did.
     expect(declaredLibrary("Library: facts: name, documents")).toEqual(facts("name", "documents"));
     expect(declaredLibrary("Library: (Documents named …)")).toBeNull();
+    // A bracket or a quote inside a gloss doesn't end it early, and the facts named after it stay named.
+    expect(
+      declaredLibrary(
+        "Library: name (Documents named “Report (draft)”), documents, kind (Documents of kind “Text (.txt)”)",
+      ),
+    ).toEqual(facts("name", "documents", "format"));
+    expect(declaredLibrary('Library: name (Documents named "Report (2)"), shared')).toEqual(
+      facts("name", "shared"),
+    );
+    expect(declaredLibrary("Library: documents (the total (all of the Documents)), name")).toEqual(
+      facts("documents", "name"),
+    );
+    // A line whose brackets or quotes don't close can't be told from one that hides its facts.
+    for (const line of [
+      "name (Documents named “Report",
+      "name “open, documents",
+      "name (open, kind",
+    ])
+      expect(declaredLibrary(`Library: ${line}`)).toBeNull();
     // A line that is gloss from end to end is no line: never none, never facts it doesn't name.
     for (const line of ["(name, documents)", "“name”", "— name", '"name"', "（name）"])
       expect(declaredLibrary(`Library: ${line}`)).toBeNull();

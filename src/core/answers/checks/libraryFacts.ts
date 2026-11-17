@@ -166,15 +166,34 @@ export type DeclaredLibrary =
  * The words of a Library line that name facts, never the words that gloss them: a model that is
  * told which line each word names writes "name (Documents named “Report 12”), documents (Documents
  * in all)" or "name — the Library holds one Document with that name", and "documents" in a
- * gloss is no fact it states (#2525). What is in brackets or quotes, and what follows a dash, is
- * left out.
+ * gloss is no fact it states (#2525). What is in brackets or quotes, to any depth, and what follows
+ * a dash, is left out. It is scanned by its delimiters, never by patterns that pair them: a bracket
+ * or a quote inside a gloss ("Report (draft)") must not end it early and take the facts after it
+ * with it. A line whose brackets or quotes don't close can't be told from one that hides its facts,
+ * so it reads as none: null.
  */
-function factWords(line: string): string[] {
-  const named = line
-    .replace(/[(（][^)）]*[)）]/gu, " ")
-    .replace(/["“”][^"“”]*["“”]/gu, " ")
-    .split(/\s-\s|[–—]/u)[0];
-  return (named ?? "")
+function factWords(line: string): string[] | null {
+  let named = "";
+  let depth = 0;
+  let closing: string | null = null;
+  for (let at = 0; at < line.length; at++) {
+    const character = line.charAt(at);
+    if (closing !== null) {
+      if (character === closing) closing = null;
+      continue;
+    }
+    if (character === "“") closing = "”";
+    else if (character === '"') closing = '"';
+    else if (character === "(" || character === "（") depth++;
+    else if (depth > 0 && (character === ")" || character === "）")) depth--;
+    else if (depth === 0) {
+      if (character === "–" || character === "—") break;
+      if (character === "-" && line.charAt(at - 1) === " " && line.charAt(at + 1) === " ") break;
+      named += character;
+    }
+  }
+  if (closing !== null || depth > 0) return null;
+  return named
     .toLowerCase()
     .split(/[^a-z]+/)
     .filter((word) => word !== "");
@@ -187,6 +206,7 @@ export function declaredLibrary(reply: string): DeclaredLibrary | null {
   );
   if (line === undefined || line === null) return null;
   const words = factWords(line);
+  if (words === null) return null;
   if (words.includes("description")) return { kind: "description" };
   const facts = new Set(
     words.flatMap((word) => {
