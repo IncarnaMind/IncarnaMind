@@ -1331,6 +1331,8 @@ export const zhCN = {
   "claim.checkAgainstDocument": "对照指定文档核对…",
   "claim.checkAgainstDocument.keywords": "对照 指定 文档 核对 通读 选择",
   "claim.chooseCitation": "选择引用…",
+  "claim.chooseCitation.purpose":
+    "在笔记旁打开文档，让你选中能作为某句话引用的文字。说出某句话的出处时用它，说了页码就带上页码。",
   "claim.chooseCitation.keywords": "指定出处 引用 选择 文字",
   "claim.chooseCitation.hint": "选中能支持这句话的文字",
   "claim.chooseCitation.hintCells": "选中能支持这句话的单元格",

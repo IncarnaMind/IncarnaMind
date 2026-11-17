@@ -1,7 +1,8 @@
 /**
  * The assistant's call for "the source is the lease, p. 4" on a real model (#1554): whether it
  * sends the page (`page` of `run_command`) for a page the User names and none for one they don't.
- * The window is this test, which answers that the command ran and keeps its request. Runs only with
+ * The window's command list is the renderer's own, as a window with the Note in front offers it;
+ * the window is this test, which answers that the command ran and keeps its request. Runs only with
  * INCARNAMIND_LIVE_ANTHROPIC_KEY (the model is INCARNAMIND_LIVE_ANTHROPIC_MODEL, Claude Haiku 5.5
  * by default), INCARNAMIND_LIVE_RUNS asks of each request (5); INCARNAMIND_LIVE_REPORT keeps one
  * line a ask. Written before it was run, the bars (written 2026-11-17, stop US$0.15):
@@ -13,13 +14,15 @@
  */
 import { appendFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
-import type { WindowCommandRequest } from "../../src/core";
+import type { Core, WindowCommandRequest } from "../../src/core";
 import { catalogProvider } from "../../src/core/providers/catalog/providers";
 import { createAiSdkChatModel } from "../../src/core/providers/models";
 import type { OfferedCommand } from "../../src/shared/commands";
 import { askAssistant } from "../helpers/assistant";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
+import { connectToMind } from "../helpers/mindClient";
+import { note, writeMind } from "../helpers/minds";
 
 const KEY = process.env.INCARNAMIND_LIVE_ANTHROPIC_KEY;
 const MODEL =
@@ -29,24 +32,34 @@ const RUNS = Number(process.env.INCARNAMIND_LIVE_RUNS ?? "5") || 5;
 const REPORT = process.env.INCARNAMIND_LIVE_REPORT;
 const WINDOW = "live-window";
 
-const entry = (id: OfferedCommand["id"], label: string, more: Partial<OfferedCommand> = {}) => ({
-  id,
-  label,
-  purpose: null,
-  on: null,
-  deletes: false,
-  final: false,
-  recording: null,
-  yours: null,
-  ...more,
-});
-
-const COMMANDS: OfferedCommand[] = [
-  entry("check.chooseCitation", "Choose the Citation…", { on: ["document"] }),
-  entry("check.againstDocument", "Check against a Document…", { on: ["document", "folder"] }),
-  entry("document.openBeside", "Open in a split on the right", { on: ["document"] }),
-  entry("mind.check", "Check"),
-];
+/** The renderer's command list, as a window with this note in front offers it. */
+async function windowCommandsFor(core: Core, mindId: string): Promise<OfferedCommand[]> {
+  const bridge = new Proxy({}, { get: () => () => () => undefined });
+  (globalThis as unknown as { window: unknown }).window = {
+    incarnamind: bridge,
+    incarnamindFiles: bridge,
+  };
+  await import("../../src/renderer/src/commands/app");
+  const { useAppStore } = await import("../../src/renderer/src/store");
+  const { offeredCommands } = await import("../../src/renderer/src/assistantWindow");
+  useAppStore.setState({
+    minds: await core.listMinds(),
+    documents: await core.listDocuments(),
+    layout: {
+      groups: [
+        {
+          id: "group",
+          tabs: [{ id: "tab", item: { kind: "mind", mindId } }],
+          activeTabId: "tab",
+          width: 1,
+        },
+      ],
+      focusedGroupId: "group",
+      reopenable: 0,
+    } as never,
+  });
+  return offeredCommands(mindId);
+}
 
 const REQUESTS = [
   { text: "The source is the Lease, p. 4", page: 4 },
@@ -91,15 +104,25 @@ describe("the source's page in the assistant's call, live", () => {
             await writeSourceFile(sources, "Q3 commentary.md", "# Q3\n\nRevenue grew 4%.\n"),
           ]);
           const mind = await core.createMind({ title: "Notes" });
-          await askAssistant(core, {
+          writeMind(await connectToMind(core, mind.id), [note("Whales sing in the deep bay.")]);
+          const answer = await askAssistant(core, {
             text: request.text,
             mindId: mind.id,
-            commands: COMMANDS,
+            commands: await windowCommandsFor(core, mind.id),
             clientId: WINDOW,
           });
           const ran = windowRequests.filter((each) => each.command === "check.chooseCitation");
           const onLease = ran.length === 1 && ran[0]?.targets.length === 1;
-          if (!onLease) misses++;
+          if (!onLease) {
+            misses++;
+            lines.push(
+              `  miss: ${JSON.stringify(
+                answer.toolCalls
+                  .filter((call) => call.source === "commands")
+                  .map((call) => call.command?.command ?? call.source),
+              )} ${JSON.stringify(windowRequests.map((each) => each.command))} “${answer.text.slice(0, 160).replace(/\s+/g, " ")}”`,
+            );
+          }
           sent.push(ran[0]?.page);
           const { spent: cost } = await core.getCostSummary();
           spent += cost[0]?.amount ?? 0;

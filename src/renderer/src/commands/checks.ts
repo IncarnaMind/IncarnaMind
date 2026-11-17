@@ -244,6 +244,7 @@ export const checkCommands: readonly Command[] = [
     // the User to select the words; else as the card's action. The Citation is one step of Undo.
     id: "check.chooseCitation",
     label: "claim.chooseCitation",
+    purpose: "claim.chooseCitation.purpose",
     keywords: ["claim.chooseCitation.keywords"],
     group: "main",
     appliesTo: ["mind", "document"],
