@@ -1,0 +1,185 @@
+# How the checks work
+
+Reference for the machinery behind [`testing.md`](testing.md): what each CI and nightly job runs, how to run specs on a clean machine, the packaged app's checks, the feel check, and the checks done by hand before a release. Read the section you need when a check fails in a way you don't understand, or before you change a workflow.
+
+## What CI runs on a pull request
+
+CI (`.github/workflows/ci.yml`) runs on every pull request that changes more than documents (the root's `*.md` files and `docs/`, except `docs/privacy.md`, which a unit test reads). There is no merge queue, and the sign-off check is the only one that has to pass before a pull request merges; the others report what the pull request did. A draft runs nothing until it is marked ready for review, and a push to `main` runs nothing:
+
+| Check | Where | What it runs |
+|---|---|---|
+| Typecheck and lint | Ubuntu | `npm ci`, then `npm run typecheck` and `npm run lint` |
+| Unit tests (N/4) | Ubuntu | `npm ci`, then `npm test -- --shard=N/4` in four shards that run at once, balanced by how long each file takes (`tests/setup/shards.ts`, `tests/durations.json`; refresh it from a green run's log when files are added or slow down). On a pull request, with `--changed=HEAD^1`, only the tests that import, directly or through other modules, a file the pull request changes: a change to the renderer alone runs few or none, one to `src/core` or `src/shared` about half. A change to `package.json`, the lockfile, `vitest.config.ts`, `tests/setup/` or `ci.yml` runs them all. `tests/scripts/auditTestIds.test.ts` reads the renderer and the UI audit's scripts as text, so a change under `src/renderer/` or `e2e/audit/` runs it by name (it fails when an audit script names a test id the app no longer has, #2680). `tests/shared/keyedMarkReaders.test.ts` reads `src` and `eval` as text, so a change under either runs it by name (it fails when a file reads a check, a comment or an assistant's change from a run's formats by the mark's bare name, #3024). bubblewrap, socat and ripgrep are installed and Ubuntu's AppArmor limit on user namespaces is lifted, so `tests/main/sandbox.test.ts` runs the OS sandbox |
+| Smoke specs to run, then Smoke tests (N/M, Linux) | Ubuntu | Which specs: only the ones the pull request adds or changes. A change to app code, to the helpers and settings every spec runs on (`e2e/app.ts`, `playwright.config.ts`) or to the dependencies runs no other spec here; every spec runs nightly. To check the specs such a change reaches before it merges, name them with Run named specs (below). Then `npm ci`, the Noto CJK fonts (the runner has no Chinese face), then `npm run test:smoke -- --workers=2` on two virtual displays (`Xvfb`), one for each worker (`INCARNAMIND_DISPLAYS`, read in `e2e/app.ts`; windows on one display take the keyboard focus from each other and share a clipboard): builds the app and runs those specs, the feel check's among them, in up to ten shards that run at once (about ten minutes of specs each), balanced by how long each spec takes (`scripts/smoke-shard.mjs`, `e2e/durations.json`; refresh it from a green run's log when specs are added or slow down). Locally and on macOS a run has one worker (`playwright.config.ts`); keep `--workers=1` when you run a spec by hand. A failed shard uploads its traces as `smoke-results-N` |
+| Every commit is signed off (DCO) | Ubuntu | a `Signed-off-by:` line on each commit (`git commit -s`), and no commit with an author, committer or sign-off at anthropic.com or a `Co-Authored-By:` trailer naming Claude or with an anthropic.com address (a commit carries its contributor's own name) |
+
+`main` should stay green. A pull request merges once its sign-off check passes and its CI checks are green, or each red one is a known flaky spec named with its issue.
+
+## Nightly
+
+**Nightly** (`.github/workflows/nightly.yml`) runs every night at 02:23 UTC on `main`, and by hand from the Actions tab: CI's checks above with every smoke spec, on whatever merged that day, and the checks that need the app packaged as the User installs it, which no pull request runs. A red night is fixed before new work, like a red `main`, and shows itself in an issue (A red night shows itself, below).
+
+| Check | Where | What it runs |
+|---|---|---|
+| Packaged app (macOS) | macOS | the app packaged and ad-hoc signed, then `e2e/packaged`: every engine module loads the way the app runs it (#1239), the real OCR reads upright and rotated scans (#1819), and the real speech engine and model transcribe a meeting |
+| Packaged app (Windows) | Windows | `npm run check:package`; the engines load, the speech engine transcribes a meeting on the app's own ONNX Runtime library (#2152), an outside agent connects, and secrets are kept |
+| Packaged app (Linux) | Ubuntu | the engines load and an outside agent connects |
+| Packaged startup, quit and updates (Windows) | Windows | one instance, startup, quitting and the update between two packaged versions, below |
+| run_code with its real Python (Linux) | Ubuntu 24.04 | `npm run python:native` builds the runtime as the release does, from downloads cached by the lock and the pins, and `tests/main/runCode*` run on it in the OS sandbox (`INCARNAMIND_TEST_PYTHON_RUNTIME` names its folder); then `tests/main/sandbox.test.ts` with the sandbox required to start, since the unit shards' newer image can't start it and skip those tests (a tmpfs mounted under `/mnt`, named by `INCARNAMIND_TEST_VOLUME`, is the volume a script mustn't read); then the Python and pandas the app bundles, built with `scripts/pythonRuntime.ts`, run `tests/main/analysisPandasMissing.test.ts` (`INCARNAMIND_TEST_PYTHON_ENGINE=required` fails a missing build instead of skipping) |
+| The sweep and the OS sandbox (macOS) | macOS | `tests/main/runLeftovers.test.ts`, `runCodeLeftBehind.test.ts`, `sandbox.test.ts` and `runCode.test.ts`, whose sweep and Seatbelt profile run only on macOS; the blocks that need the real Python skip. `INCARNAMIND_TEST_ATTACH_VOLUME=1` lets the sandbox test attach a disk image under `/Volumes` as the volume a script mustn't read; it is off by default so a local run never mounts anything |
+| A red night shows itself | Ubuntu | the last job, after all the others whatever they ended as, on the scheduled run on `main` only: opens or updates the issue "Nightly is red" and closes it when the nights are green again (below, and Nightly real models' own last job) |
+
+No check runs the smoke specs on macOS or Windows: run the ones a change needs there with Run named specs (below).
+
+**Packaged startup, quit and updates (Windows)** builds the main once, then packages it twice in `dist/lifecycle-old` and `dist/lifecycle-updated` with the real old and target versions in `tests/fixtures/lifecycle-versions.json`. It verifies both `app.asar` files contain the identical built main before driving the executables, SQLite ownership and quit guard through `singleInstance.spec.ts`, `startupProgress.spec.ts` and the lifecycle specs. These test artifacts alone use `e2e/lifecycleMain.cjs` to load the requested fixtures before the unchanged built main, without depending on packaged Electron’s command-line preload support. The job selects that entry with `extraMetadata.main`; release builds keep `out/main/index.js`. Local update tests use two temporary app directories with those real package versions and the same built main. Temporary HOME, USERPROFILE, application-data and XDG folders isolate every launch. Process inventory and cleanup require the run's exact tag and cover both owned executable folders. The packaged identity, underlying main path and saved data are checked; installers and native dialogs remain controlled fixtures.
+
+The deterministic Windows mapped-SHM probe is an expected failure for [#2067](https://github.com/IncarnaMind/IncarnaMind/issues/2067). Check it on each Electron update: an unexpected pass signals that the released runtime may contain the upstream SQLite fix and the marker can be removed after verification. Ordinary crash handover stays a normal test; a recurrence without the mapping helper must capture extended code `1546` before it is classified as that bug.
+
+## The real-model night
+
+Every night too, `.github/workflows/nightly-real-model.yml` asks real models, since the scripted one can't tell whether an AI feature works: the live tests (`tests/live`) and the everyday requests (`eval/everyday`) on Claude Haiku 5.5, a live test of Kimi International, and the everyday requests in Chinese on Kimi K2.6 (Kimi sees only the evaluation's own public and made-up Documents). It runs once a night on one runner, after `npm run build` has put the Python the app ships in `resources/python` for the Analysis live tests (`tests/helpers/pyodideAnalysis.ts`), and writes `summary.md` to the `nightly-real-model` artifact: a result for every case, which key it used, and what it spent, counted from every request's tokens at the catalog's prices. The artifact is public to anyone who can see the run, so it holds only `summary.md`, `status.json` and each step's `usage.jsonl` (token counts); a step's own reports (`vitest.json`, the everyday reports) hold what the providers answered, account and key ids included, and stay on the runner. To read an everyday reply, run that request by hand (below). The job's log is public too, so a line of a step's output that quotes a provider's answer (a status of 400 or more, an out-of-credit phrase, one of the core's failure kinds with the message that follows it, or an AI SDK error) is printed as its status or kind and words of ours, as in the summary; any other text is printed as it is, so a provider's words in a shape none of those names would still show. A failing night is fixed like a red `main`.
+
+- **Secrets (the owner sets them; use capped API keys):** `NIGHTLY_ANTHROPIC_KEY_1`, `NIGHTLY_ANTHROPIC_KEY_2` and `NIGHTLY_KIMI_KEY`. The run moves to key 2 for good when key 1 is out of credit, and says so in the summary. A missing secret fails the job at once, with one line naming it. A step that takes longer than its time is stopped, a night that has spent over `NIGHTLY_MAX_USD` (10 by default) starts no further step, a step that ran no case counts as failed, and `summary.md` is written after every step. A night that is cancelled stops the step it was running and leaves a report headed "Unfinished", with the steps that never ran listed.
+- **A night with no credit is not measured.** Before the first step that uses a key, the run asks that key's provider one request of a single token and reads only the status (`probeKey`; the answer's body is never read or kept, and the token costs less than a cent, not counted in the spend). A key refused is left out as if it had no credit, and a step with no key left is **not measured**, not failed. So is a step whose last key ran out of credit part way, and one a cancelled night or the spend limit stopped. `summary.md` says so in its own column. It is an artifact anyone can download from a public run, so it names a failed request by its status and words of ours (`refused: status 429`, `refused: out of credit`, `failed: timed out`), never by what the provider answered, which can hold an account or key id. `status.json` (also the job's `status` output) hands the report job the failing cases, by step and name, and the steps not measured.
+- **By hand:** Actions › Nightly real models › Run workflow, or `NIGHTLY_ANTHROPIC_KEY_1=… NIGHTLY_ANTHROPIC_KEY_2=… NIGHTLY_KIMI_KEY=… npm run nightly:real-model`. `NIGHTLY_STEPS` (`live`, `everyday`, `claim-probes`, `kimi-live`, `kimi-everyday`, separated by commas) runs only those, and `INCARNAMIND_EVAL_EVERYDAY` only some everyday requests (`eval/everyday/README.md`). Keep to a few requests when you run it for a check: the whole night costs a few dollars.
+
+**A red night shows itself.** The last job of Nightly and of Nightly real models (`red-night`, `scripts/nightlyIssue.ts`) waits for every other job and runs whatever they ended as, but only for the scheduled run on `main`: a run by hand, from another branch or on a pull request reports nothing. It opens one issue titled "Nightly is red" (`priority:P1`, `ready-to-build`) or updates the open one, and the first night after which both workflows are green comments "green again" and closes it, so there is never one issue per night. A night is one of three things: **green** (everything ran and passed), **red** (a test failed) or **not measured** (a check could not run: a cancelled job, or a provider's key refused or out of credit). A night that was not measured is never green, and the issue says since which date nothing was measured. For each failing test it lists the date it first failed, read back from the issue's own body, so a test that fails every night keeps its date and one that passes for a night starts again. A test is a Playwright or Vitest test named in the failed job's log; a job whose log names none is listed by its own name and its failed step. The issue holds only the job's own words (test, job and step names, dates, the commit, run links and a provider's name), never a log line, a request or what a provider answered. The job has `issues: write` and `actions: read` (to read the run's jobs and logs) and no other write access, on no other job, and is given no secret. To see what it would write for a saved run: `gh run view <id> --json createdAt,headSha,url,jobs > run.json`, then `node scripts/nightlyIssue.ts nightly --dry-run --run run.json`, with `--logs <folder of <job id>.log>` for the failed jobs' logs and `--previous <body>` for the night before.
+
+The apt packages CI installs (the Noto CJK fonts; bubblewrap, socat and ripgrep) come from a cache of their downloaded files. On some runners the package mirror serves them at about 50 kB/s, and one install held a runner for up to 30 minutes (#1731). The `apt-install` action (`.github/actions/apt-install`) restores the files and apt downloads only what the cache lacks. A run with no matching cache downloads from archive.ubuntu.com, drops a download still going after 5 minutes to try the Azure mirror, and waits as long as it takes on the last try. Only a run on `main` saves a cache that every pull request reads, so the action saves one only there, and the nightly run keeps it current.
+
+## Run named specs
+
+Playwright on your own computer loads it, and several runs at once overload the owner's. Some failures also show only on macOS or Windows (the traffic lights, full screen, a shortcut). `.github/workflows/specs.yml` runs the specs you name on a clean GitHub-hosted machine, Linux, macOS or Windows, set up as the smoke test is. It is apart from `ci.yml`, so it never runs or blocks a required check.
+
+```sh
+git push
+node scripts/run-specs.mjs --os macos --repeat 3 e2e/undoPill.spec.ts e2e/scans.spec.ts:144
+```
+
+- **On a test build only.** A spec runs on a build made with `npx electron-vite build --mode test`, in your own worktree, right before the run; never on an `out/` you didn't just build. Any other build ignores the fakes, so a Meeting would record with the real microphone and download the real speech model. The launchers (`e2e/app.ts`, `e2e/lifecycle.ts`, `e2e/audit/harness.ts`) refuse to start one (#2941).
+- **When.** By default for UI specs, instead of running them yourself. Always, on that system, for a behaviour only macOS or only Windows has (a spec that skips elsewhere with `test.skip(process.platform ...)`). Run locally only to look at the UI by hand or to record a flow.
+- **Inputs.** `specs`: the paths of specs under `e2e/`, each `path` or `path:line`. `os`: `linux` (the default), `macos` or `windows`. `repeat`: 1 to 10, passed as `--repeat-each`; use it to tell a flaky spec from a broken one. `grep`: passed as `--grep`. The helper takes them as flags; by hand they are Actions › Run named specs › Run workflow. Anything else, such as a path outside `e2e/`, is refused with a message, by the helper before it dispatches and by the workflow before it installs anything, and no input reaches a shell as code.
+- **What you get.** The helper runs the pushed commit of your branch (it stops if the branch isn't pushed), asks GitHub once a minute at most, and prints pass, fail or skip for each spec. A spec that skips on that system (a macOS-only one on Linux) shows as skip, not pass. On a failure it downloads the results to `test-results/specs-<os>-<run>/`; a later Playwright run on your computer clears `test-results/`, so read them first. Every test's trace, video and window picture is kept, passed or not (`INCARNAMIND_KEEP_ARTIFACTS`, read in `e2e/app.ts`), in the `specs-<os>-<run id>` artifact for 7 days: `npx playwright show-trace <trace-….zip>`. The recording slows the app a little, so a feel check's time that fails only here is worth one run in CI before you chase it.
+- **Limits.** One run for each branch and system at a time: a new dispatch cancels the one still going. macOS runners are few and the Nightly shares them, so ask for macOS only for what needs it. A run stops after 45 minutes. A green run here doesn't replace the pull request's checks.
+
+## What a launched app's environment holds
+
+A trace of the app keeps the environment it was launched with (`trace.trace`, `context-options`) and the arguments of every call. So no key may reach a launch.
+
+- **Every launch builds its environment with `launchEnvironment` (`e2e/launchEnvironment.ts`):** `launchApp`, the lifecycle copies, the packaged specs, the UI audit and the packaged classification check. From your shell it takes only what an app needs to run: `PATH`, `HOME`, the temporary folders, `LANG`, `LANGUAGE`, `LC_*` and `TZ`, the display and session bus on Linux, and on Windows `SystemRoot`, `windir`, `ComSpec`, `PATHEXT`, `APPDATA`, `LOCALAPPDATA` and `USERPROFILE`. Everything else stays out, whatever its name: API keys, tokens, proxy URLs, `CI`, `NODE_OPTIONS`, and any `INCARNAMIND_*` flag the launch doesn't set itself. `e2e/launchEnvironment.spec.ts` plants keys under several names, then reads a real trace and the app's log for them.
+- **A test that needs a credential passes a made-up one by name:** `launchApp(dataDir, { extraEnv: { OPENAI_API_KEY: "sk-proj-a-made-up-key" } })`. The trace keeps it, so never pass a real one. Electron's own debug variables (`ELECTRON_ENABLE_LOGGING`, `ELECTRON_ENABLE_STACK_DUMPING` and the like) go the same way, by name through `extraEnv`, and `ELECTRON_DISABLE_SANDBOX` and `ELECTRON_RENDERER_URL` reach the app only when a launch sets them (`sandboxNotice` sets the first). The real-model checks (`tests/live`, the evaluation, the nightly run) run in plain Node and record no trace; the README recorder, the one recording with a real key, stops if its app keeps a trace.
+
+## The packaged app's engine check
+
+- **The engine check** (`e2e/packaged/engines.packaged.ts`, #1239) starts the packaged app with `--check-engines=<report file>`. With no window and a data folder of its own, the app starts each engine process as it does for the User and has it load its modules through those loaders: onnxruntime-node and the tokenizers for embeddings and the reranker, onnxruntime-node and `@napi-rs/canvas` for OCR, sherpa-onnx-node for transcription and the speaker pass. It loads the OS sandbox's module on macOS and Linux, and runs a regression, a forecast, a clustering and a plot in the Analyses window, with numpy, pandas, scipy, statsmodels, scikit-learn and matplotlib. The spec fails naming each module that didn't load, and when the app checked other modules than the spec expects. No model is downloaded. The release runs it on the macOS (Apple silicon), Windows and Linux apps before it uploads; CI runs it on a pull request that changes what the packaged checks cover, in "Packaged app's real engines (macOS)", "Packaged app's speech engine (Windows)" and "Packaged app (ubuntu-latest)"; and it runs every night.
+- To run the engine check against a packaged build: `npm run dist:dir`, then `npm run test:packaged -- engines.packaged.ts`. It finds the app `dist:dir` made on this computer; `INCARNAMIND_PACKAGED_APP` names another executable. The app runs with a temporary home and data folder. On Linux it needs a display (`xvfb-run -a`) and Chromium's sandbox helper set up as root's and setuid (`sudo chown root:root dist/linux-unpacked/chrome-sandbox && sudo chmod 4755 dist/linux-unpacked/chrome-sandbox`), without which Analyses don't run.
+- The packaged app also reads upright and rotated scans with its real OCR (`e2e/packaged/`, #1819), and transcribes a meeting with its real speech engine and model through Chromium's fake microphone (#1239). The release runs these on macOS before it uploads, the nightly run every night, and CI on a pull request that changes what they cover. To run them yourself: `npm run dist:dir`, then `npm run test:packaged`. Set `INCARNAMIND_MODEL_CACHE` to a folder to keep the models between runs.
+
+## One real engine in a test build
+
+A test build runs three engines as stand-ins, so a spec needs no download: the search model (with the reranking model beside it), text recognition (OCR) and speech-to-text. The launcher sets one flag for each: `INCARNAMIND_TEST_EMBEDDER=fake`, `INCARNAMIND_TEST_OCR=fake` and `INCARNAMIND_TEST_TRANSCRIBER=fake`. An engine whose flag is left out runs as the User's copy does. Only a test build reads the flags; a release build holds no trace of them.
+
+To try one real engine by hand, or in a nightly run, name it and leave the rest: `launchApp(dataDir, { real: ["ocr"] })`, or `"embedder"` or `"transcriber"` (several may be named together). The engine's model then downloads into the test's data folder, from its own host, the first time something needs it: about 21 MB for OCR, 135 MB for the search model and 990 MB for speech. Without `real`, a test build reaches no host outside this computer; with it, only the model hosts (Hugging Face, its CDN and its mirror).
+
+- **Smoke specs never use `real`.** They keep every stand-in and download nothing; `e2e/standInEngines.spec.ts` shows that each engine's flag works on its own, without a download. The real engines are loaded the way the built app does by the packaged app's checks (above).
+- **Check the disk first** (`df -h /System/Volumes/Data`): the speech model alone is about 1 GB. A fresh data folder downloads the model again; copy the models in first, as `seedModels` in `e2e/demo/workspace.ts` does, to skip that.
+- **The launcher starts only on temporary folders.** `launchApp` refuses, naming the folder, a data folder or a `home` outside the system's temporary folder (`os.tmpdir()`), so a check by hand never touches the User's own data or home. Make the data folder with `createDataFolder()`; the home is a temporary folder of its own unless given one.
+- **How to run one by hand.** Put a throwaway spec in `e2e/` that launches with `real`, add a Document and read what the engine made; build with `npx electron-vite build --mode test`; run it with `npx playwright test e2e/<spec> --workers=1`; delete it afterwards. For OCR, `(await coreOf(window)).evaluate((core, id) => core.readScannedText(id), documentId)` gives each page's text and `label.scan.reader`, which is "PP-OCRv5 mobile/2" for the real model; the stand-in reads only what a script (`scans`) gives it. `getTextRecognitionModel()`, `getEmbeddingModel()` and `getTranscriptionModel()` say which models downloaded.
+
+## The feel check
+
+The feel check (`e2e/feel.ts`, and the specs `e2e/feel*.spec.ts`) holds the main flows to DESIGN.md › Feel. It runs each flow step by step in the built app and measures, in the window, what the User would feel. It fails a step:
+
+- **Shift:** the layout shifts that no recent input caused sum to more than 0.001, and the table names what moved.
+- **Focus:** after a close, a create or a delete, focus isn't on the target the step names (the opener, the new thing's name, the next item).
+- **Input to next paint** over 500 ms, or a **long task** over 1 s. The target is 100 ms on a laptop. CI's runners are two to five times slower, so these ceilings fail only a real freeze. Every run reports both times for every step. Only CI fails them: a busy laptop varies too much, so a local table marks a slow step "fails on CI".
+
+It can't see everything (#1331 adds what it can):
+
+- **The 500 ms after an input.** Chromium marks every shift in the 500 ms after a click or a key as the User's own, and the check doesn't count those. So a shift the User's action set off somewhere else, or a jump while typing, goes unseen. A green feel check doesn't mean nothing moved: look at the video too.
+- **A flash or a lost scroll position**, since nothing moves. The videos show both.
+- **Slightly high times.** The check films every frame while it measures, so times on CI read a little high.
+
+To run it on what you touch, build once, then run each matching spec on its own:
+
+```sh
+npx electron-vite build --mode test
+npx playwright test e2e/feelSidebar.spec.ts --workers=1
+```
+
+Each flow's table goes to `test-results/feel/<flow>.md`, and its video to `<flow>.mp4`. Without ffmpeg, the frames are kept in `<flow>-frames/` instead. Each Playwright run clears `test-results/`, so read a spec's tables before you run the next. On CI, the tables are also in the job summary.
+
+When it fails:
+
+1. Read the flow's table and watch its video at that step.
+2. Fix it if your change caused it.
+3. If `main` does it too, file it as its own issue. Then add an entry for it to `KNOWN` in `e2e/feel.ts`, bounded by what was measured. Anything worse, or in another step, still fails.
+   - Focus: where it landed.
+   - Shift: what moved, and the largest score. The bound holds under 0.001 too, so a listed shift that grows fails even while it is small.
+   - Time: twice the slowest measured on CI, since runners vary two to five times.
+   - Mark it `sometimes` when it depends on timing and doesn't happen on every run.
+4. The pull request that fixes a known problem removes its entry. A shift or focus entry whose problem no longer happens fails the check, so the list stays true. A known time, or a problem marked `sometimes`, may not happen on every run. The non-required job "Feel check, known problems that didn't happen" lists those on each run, so their entries go once their issues close.
+
+## The interaction rules are checked for you
+
+Three checks hold every object and command to `docs/agents/interaction.md`, reading the registries, so a new command is checked with no edit to them:
+
+- `tests/renderer/conformance.test.ts`: every kind in `OBJECT_KINDS` has a registered menu, in the order of rule 5; every command has English and Chinese labels, a group, `reversible` set, and a shortcut or a ⌘K entry.
+- `tests/renderer/conformanceStatic.test.ts`: no "Back to…" label, no confirmation of a delete that no irreversible command stands behind, no right-click listener outside `useObjectMenu`, no `draggable` outside the drag layer.
+- `e2e/conformance.spec.ts`: for each kind, on the built app with a slid mouse: right-click and ⋯ open one menu, rename in place, and every reversible command from the menu followed by ⌘Z puts the core back, read through the bridge. A command that only makes a Note is the exception: it says nothing and leaves nothing for ⌘Z, and the check takes the Note back by deleting it.
+
+A new kind of object needs a menu (`registerMenu`) and a stage in the e2e (how to make one and show it); the type-check fails until it has one. A reversible command that changes the core returns an `Undoable`. What `main` doesn't do yet is listed with its issue (`NO_MENU_YET`, `NO_UNDO_YET`, the known lists in the static test), never skipped: a fix takes its line out, and a stale line fails.
+
+## Before a release, by hand
+
+**Before a release,** the first-class providers (ADR-0019) are each tried by hand once, with the cheapest model that answers: the ChatGPT plan (through the ChatGPT test profile below), Anthropic, OpenAI, Google, OpenRouter, Ollama (a local model and a cloud model), and, for mainland China, DeepSeek, Qwen (Alibaba Cloud Model Studio) and SiliconFlow. Their `support` field in `src/core/providers/catalog/providers.ts` says which they are. Best-effort providers (Mistral, xAI, Kimi, GLM and an OpenAI-compatible server) have no release check. Models differ in how they follow instructions, cite and format, so this pass is where a problem with one provider shows up; file each one as an issue.
+
+The Copilot plan's sign-in through IncarnaMind's own GitHub app (#876) is also tried by hand before each release tag, with a real GitHub account that has a Copilot plan, in a temporary home and data folder: sign in with the device code, see the models the plan lists, ask a Question and check the Answer cites, and watch the sign-in renew. A plan holder who is told "no Copilot plan" (GitHub answering `no_copilot_access`) means the check failed. Until that check has run once, #876 stays open.
+
+### Outside agents before a release
+
+Settings → Agents sets IncarnaMind up in a few first-class agents (`src/core/agents/clients.ts`). Before a release, try each by hand with a temporary HOME and a test Folder: connect it, ask it something the Folder answers, and check the answer carries Citations that IncarnaMind finds. Disconnect afterwards.
+
+- the Claude desktop app (one click, a Free plan is enough), and Claude Code;
+- the ChatGPT desktop app (in its Work or Codex mode) and Codex, which share one configuration;
+- Cursor;
+- Antigravity, and in China WorkBuddy.
+
+"Other agent" is tried with any one agent that takes pasted settings. The agents' own configuration formats change under us: when one stops working, fix it here or move it to "Other agent" (ADR-0019).
+
+### The ChatGPT test profile
+
+The owner signs in with ChatGPT once, in a test profile; agents then use that sign-in for checks by hand on the owner's ChatGPT plan, without signing in themselves and without ever seeing a token.
+
+- **What it is.** A folder outside every checkout and data folder, `~/.incarnamind-chatgpt-profile`. A development build (`npm run dev`) or a test build started with `INCARNAMIND_CHATGPT_PROFILE` set to it keeps the ChatGPT sign-in there instead of in its data folder: encrypted by the system's keychain (`safeStorage`) like every secret, in a file only the owner's account can read. Everything else (Notes, Documents, settings) stays in the run's own temporary data folder. Release builds ignore the variable, and the smoke tests clear it.
+- **Several agents at once.** The tokens rotate when they are refreshed; a lock file in the folder makes processes take turns, so one refreshes and the others use its result.
+
+**The owner's one-time sign-in** (and again if it ever ends, e.g. after 30 days without use):
+
+```sh
+export INCARNAMIND_CHATGPT_PROFILE="$HOME/.incarnamind-chatgpt-profile"
+export INCARNAMIND_DATA_DIR="$(mktemp -d)"
+npm run dev
+```
+
+No temporary HOME here: on macOS the app finds the login keychain, which encrypts the sign-in, through HOME (`~/Library/Keychains`). With an empty one there is no keychain, and the app says it can't store the sign-in before it opens OpenAI's page. `INCARNAMIND_DATA_DIR` already keeps this run out of the owner's data folder.
+
+In the app, choose **ChatGPT plan** in the first window (or Settings → Models), then **Continue with ChatGPT**. Sign in with the ChatGPT Plus account in the browser, approve IncarnaMind and allow it to use the plan, then quit. In ChatGPT → Settings → Usage, the owner can cap IncarnaMind's weekly share of the plan.
+
+**Using it as an agent** (on macOS):
+
+```sh
+export INCARNAMIND_CHATGPT_PROFILE="$HOME/.incarnamind-chatgpt-profile"
+export INCARNAMIND_DATA_DIR="$(mktemp -d)"
+TEMP_HOME="$(mktemp -d)"
+mkdir -p "$TEMP_HOME/Library" && ln -s "$HOME/Library/Keychains" "$TEMP_HOME/Library/Keychains"
+HOME="$TEMP_HOME" npm run dev
+```
+
+- **Why the link.** HOME stays temporary, so nothing the app writes there (Documents, dotfiles, other apps' settings) is the owner's. Only the keychains folder is linked, so the app reaches the login keychain, where macOS still decides what it may read. Don't link anything else.
+- **No keychain prompt per worktree.** macOS knows the development app by its code signature, and every worktree on the same Electron version has the same Electron binary. After an Electron upgrade, macOS asks once to allow the new one; the owner answers that, not you.
+- It starts signed in. GPT-6 Luna is the plan model to try first: choose it in the composer's model chip, or under Settings → Models (**Use for Questions** in the ChatGPT plan card, then the model under **Defaults › Answers**).
+- Never read, copy, print or log anything in the profile folder, and never read another app's credentials (`~/.codex/auth.json` and the like). The app reads the profile; you don't.
+- Never sign out in the profile: signing out ends the owner's session at OpenAI. Sign-out is covered by the unit tests' fake OpenAI.
+- Keep checks small: they use the owner's plan, whose limits are shared with the owner's own ChatGPT.
+- If the app says you're signed out of ChatGPT or can't store the sign-in, or macOS asks to allow access to the keychain, stop and ask the owner. Don't sign in or answer the prompt yourself.

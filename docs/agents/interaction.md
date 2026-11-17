@@ -87,4 +87,4 @@ Name the prototype flow the change implements, step by step (rule 12), the desig
 - Add before and after screenshots, at a narrow and a wide window, in English and Chinese where text changed.
 - When behaviour changed, record the built flow (a short GIF), with the mouse and the keyboard.
 - Test it like a person: with the mouse and the keyboard, in the built app, not only in unit tests.
-- If it changes a flow the feel check covers (`e2e/feel*.spec.ts`), run that spec (testing.md, The feel check).
+- If it changes a flow the feel check covers (`e2e/feel*.spec.ts`), run that spec (checks.md, The feel check).

@@ -9,9 +9,7 @@ Rules for everyone who changes this repository, people and coding agents alike. 
 
 ## Agent skills
 
-- **Issue tracker:** GitHub Issues on `IncarnaMind/IncarnaMind`, through the `gh` CLI. Read [`docs/agents/issue-tracker.md`](docs/agents/issue-tracker.md) before you file or take an issue.
-- **Triage labels:** [`docs/agents/triage-labels.md`](docs/agents/triage-labels.md).
-- **Domain docs:** `CONTEXT.md` and `docs/adr/` at the repo root; [`docs/agents/domain.md`](docs/agents/domain.md).
+Issues are GitHub Issues on `IncarnaMind/IncarnaMind`, through the `gh` CLI ([`docs/agents/issue-tracker.md`](docs/agents/issue-tracker.md)). Their labels are in [`docs/agents/triage-labels.md`](docs/agents/triage-labels.md), and the domain docs are `CONTEXT.md` and `docs/adr/` ([`docs/agents/domain.md`](docs/agents/domain.md)).
 
 ## Writing code
 
@@ -45,7 +43,7 @@ Rules for everyone who changes this repository, people and coding agents alike. 
 
 ## Tests and CI
 
-Work is done when its pull request's CI is green, not when one test passes on your computer. Read [`docs/agents/testing.md`](docs/agents/testing.md) before you write or change a test: what CI runs, tests that pass on any machine, the edge cases to try, real engines, and trying an AI feature by hand.
+Work is done when its pull request's CI is green, not when one test passes on your computer. Read [`docs/agents/testing.md`](docs/agents/testing.md) before you write or change a test: what runs where, tests that pass on any machine, AI features and the edge cases to try. [`docs/agents/checks.md`](docs/agents/checks.md) says how each check works, for when one fails or a workflow changes.
 
 - On your computer, run `npm run typecheck`, `npm run lint` and the unit tests of the files you changed; CI runs the rest.
 - Test through the core's public interface, as the UI uses it, and assert what a User would see. Tests need no API keys and no network.
@@ -58,9 +56,8 @@ Work is done when its pull request's CI is green, not when one test passes on yo
 
 ## Commits and pull requests
 
-- Sign off every commit (`git commit -s`); see [`CONTRIBUTING.md`](CONTRIBUTING.md).
+- Only the owner pushes to `main` directly. Everyone else, coding agents included, lands work through a pull request.
+- Sign off every commit in a pull request (`git commit -s`); see [`CONTRIBUTING.md`](CONTRIBUTING.md).
 - One pull request per feature, built whole: push when it is finished and fully tested, and open it ready, so CI starts at once. A part that is decided and finished ships at once as its own pull request, and so does a fix for a broken `main`.
-- Say what the User gets and why, in about ten lines. List each issue's acceptance criteria with ticks: "Closes #123" only when all are met, otherwise "Part of #123" with a line "What is left".
-- A bug you find in the screen or flow you are building is fixed in that pull request and named in its description. File an issue only when it belongs to another screen or flow, or needs something the pull request doesn't have: a paid model run, a migration, a decision or a second reader.
-- Merge your own pull request when its sign-off check and CI are green (`gh pr checks <number> --watch --interval 300`), or each red check is a known flaky spec named with its issue, and you have read your own diff (rule 13).
-- One other person reads a change to the User's data, privacy or consent, a check's verdict or a Citation, AI behaviour, the sandbox, CI's checks, a migration or a dependency, once and in one round. Only a wrong mark, lost data or something sent without consent blocks it. Nothing else waits for a reader, and of the automated reviewer's comments only Major and Critical ones need a reply.
+- A bug you find in the screen or flow you are building is fixed in that pull request and named in its description. File an issue only when it belongs to another screen or flow, or needs something the pull request doesn't have: a paid model run, a migration or a decision.
+- Merge your own pull request when its sign-off check and CI are green (`gh pr checks <number> --watch --interval 300`), or each red check is a known flaky spec named with its issue, and you have read your own diff (rule 13). Nothing waits for a reader, and of the automated reviewer's comments only Major and Critical ones need a reply.
