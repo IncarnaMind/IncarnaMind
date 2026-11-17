@@ -1,5 +1,5 @@
 /**
- * The brief a Mind made to verify a document keeps (#3277): up to five lines on what the document
+ * The brief a Mind made to verify a document keeps (#3277): up to three lines on what the document
  * concludes and the claims its figures rest on, each pointing at a sentence of the document the way
  * a claim does, by its Block and words. It lives in the Mind's Yjs settings under a key of its own,
  * not in the verification record and never in the Blocks, so a Word file that goes back to its
@@ -10,10 +10,10 @@ import { MIND_SETTINGS_FIELD } from "../core/api";
 
 const KEY = "verificationBrief";
 
-/** The most conclusions a brief shows: a brief that needs scrolling has failed. */
-export const MOST_CONCLUSIONS = 5;
-/** The most figures a brief names: "a handful". */
-export const MOST_BRIEF_FIGURES = 8;
+/** The most conclusions a brief shows, each a short sentence: a brief that needs scrolling has failed. */
+export const MOST_CONCLUSIONS = 3;
+/** The most figures a brief names. */
+export const MOST_BRIEF_FIGURES = 5;
 
 /** A sentence of the verified document, as its claim is named: its Block and its words. */
 export interface BriefSentence {

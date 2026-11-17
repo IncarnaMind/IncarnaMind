@@ -117,8 +117,8 @@ describe("What a reply may give the brief", () => {
     sentence: { blockId: `b${index + 1}`, text: `Claim ${index + 1}.` },
   }));
 
-  // protects=at most five conclusions and eight figures, each once, each a claim the model was shown: a count and a lookup, never a reading of the words
-  test("is held to five conclusions, eight figures, each claim once", () => {
+  // protects=at most three conclusions and five figures, each once, each a claim the model was shown: a count and a lookup, never a reading of the words
+  test("is held to three conclusions, five figures, each claim once", () => {
     const brief = briefFrom(
       {
         conclusions: [1, 2, 3, 4, 5, 6, 7].map((claim) => ({ line: `Line ${claim}`, claim })),
@@ -128,15 +128,9 @@ describe("What a reply may give the brief", () => {
       "sorted",
     );
 
-    expect(brief?.conclusions.map((each) => each.line)).toEqual([
-      "Line 1",
-      "Line 2",
-      "Line 3",
-      "Line 4",
-      "Line 5",
-    ]);
+    expect(brief?.conclusions.map((each) => each.line)).toEqual(["Line 1", "Line 2", "Line 3"]);
     expect(brief?.figures.map((each) => each.blockId)).toEqual(
-      [1, 2, 3, 4, 5, 6, 7, 8].map((number) => `b${number}`),
+      [1, 2, 3, 4, 5].map((number) => `b${number}`),
     );
   });
 
