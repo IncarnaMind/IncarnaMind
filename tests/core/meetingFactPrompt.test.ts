@@ -5,6 +5,7 @@ import {
   sectionsContext,
   summaryContext,
 } from "../../src/core/meetings/fillPrompt";
+import { translate } from "../../src/shared/i18n";
 
 test.each(["price and next steps", "价格与后续分工"])(
   "meeting facts keep the User's line and request one identity per fact: %s",
@@ -101,6 +102,26 @@ test.each([
   expect(prompt).not.toContain("without a speaker");
   expect(prompt).toContain(
     "A name the User typed is written as they typed it: the transcript can mishear a name, so a heard name close to one the User typed is that person, in the User's spelling. Never invent a name.",
+  );
+});
+
+// protects=with lines typed during the call the notes still cover the whole call: a typed line collects only what answers it, and the question asks for the rest of the call's notes too (#2306)
+test("typed lines are not the scope of the notes: the rest of the call is still asked for", () => {
+  const whole = "The User's lines are not the whole of the notes.";
+  const typed = JSON.stringify(
+    notesContext([{ marker: "L1", text: "Check the licence cost", heading: false }], "q").messages,
+  );
+  expect(typed).toContain("Fill them in from the transcript");
+  expect(typed).toContain(whole);
+  expect(typed).toContain("A typed line collects only the facts that answer it");
+  expect(typed).toContain("is still written as a fact, with lines [] and its heading");
+  expect(JSON.stringify(sectionsContext("q").messages)).not.toContain(whole);
+
+  expect(translate("en", "meetings.fill.question.notes")).toBe(
+    "Fill in my notes from the call, and write the rest of the call's notes.",
+  );
+  expect(translate("zh-CN", "meetings.fill.question.notes")).toBe(
+    "根据这次通话补全我的笔记，并写出通话其余内容的笔记。",
   );
 });
 

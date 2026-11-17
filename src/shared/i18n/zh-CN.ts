@@ -6624,7 +6624,7 @@ export const zhCN = {
   "meetings.fill.section.actions": "待办事项",
   "meetings.fill.section.questions": "待定问题",
   "meetings.fill.section.claims": "会上说了、你的文档里没有的",
-  "meetings.fill.question.notes": "根据这次通话补全我的笔记。",
+  "meetings.fill.question.notes": "根据这次通话补全我的笔记，并写出通话其余内容的笔记。",
   "meetings.fill.question.sections": "写出这次通话的笔记。",
   "meetings.fill.question.summary": "写出这次通话的摘要。",
   "meetings.fill.waiting": "转写稿保存后补全笔记…",
