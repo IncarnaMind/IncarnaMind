@@ -895,7 +895,7 @@ function audioCapture(log: Logger): AudioCapture | undefined {
  * profile, the folder in INCARNAMIND_CHATGPT_PROFILE, instead of the data
  * folder: the owner signs in there once, and coding agents running with
  * temporary data folders use the same sign-in for checks by hand
- * (docs/agents/testing.md). Its tokens stay encrypted by safeStorage, in that
+ * (docs/agents/checks.md). Its tokens stay encrypted by safeStorage, in that
  * folder only, and a lock file keeps the processes' refreshes apart. A
  * release build never reads the variable.
  */

@@ -50,7 +50,7 @@ if (displays.length > 0 && Number.isInteger(workerIndex)) {
   process.env.DISPLAY = displays[workerIndex % displays.length];
 }
 
-// Set by the named-specs workflow (docs/agents/testing.md): every test keeps its app's trace,
+// Set by the named-specs workflow (docs/agents/checks.md): every test keeps its app's trace,
 // video and window picture, not only a failed one. Playwright's own settings leave an Electron
 // app out, so the launch opts in.
 const KEEP_ARTIFACTS = process.env.INCARNAMIND_KEEP_ARTIFACTS === "1";

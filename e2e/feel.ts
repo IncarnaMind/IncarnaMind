@@ -1,5 +1,5 @@
 /**
- * How to run the feel check and what to do when it fails: docs/agents/testing.md › The feel check.
+ * How to run the feel check and what to do when it fails: docs/agents/checks.md › The feel check.
  */
 import { spawn } from "node:child_process";
 import { appendFile, mkdir, rm, writeFile } from "node:fs/promises";

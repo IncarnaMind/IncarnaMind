@@ -2,7 +2,7 @@ name: Run named specs
 
 # The smoke specs a change touched, on a clean GitHub-hosted machine, so they need not run on your
 # computer: Actions › Run named specs › Run workflow, or `node scripts/run-specs.mjs`
-# (docs/agents/testing.md). By hand only and apart from ci.yml, so a run never blocks or replaces a
+# (docs/agents/checks.md). By hand only and apart from ci.yml, so a run never blocks or replaces a
 # required check.
 on:
   workflow_dispatch:
