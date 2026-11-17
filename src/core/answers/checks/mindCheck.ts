@@ -94,6 +94,7 @@ import {
   recordCiteParagraphs,
   type SelectedSentence,
   sourceNamesIn,
+  topLevelBlockId,
   unmarkSourceNames,
 } from "./sentences";
 import type { MindCheckScope, VerifyOptions } from "./verify";
@@ -165,6 +166,19 @@ function parseFigureIds(value: unknown): string[] | null {
   return value;
 }
 
+/** The Blocks a run checks the sentences of, a write's: a non-empty list of distinct ids, or null for the whole Note. */
+function parseBlockIds(value: unknown): string[] | null {
+  if (value === undefined) return null;
+  if (
+    !Array.isArray(value) ||
+    value.length === 0 ||
+    !value.every((id): id is string => typeof id === "string" && id !== "") ||
+    new Set(value).size !== value.length
+  )
+    throw new InvalidInputError({ key: "error.mindCheck.request" });
+  return value;
+}
+
 function parseCheckMind(input: unknown) {
   if (!isRecord(input)) throw new InvalidInputError({ key: "error.mindCheck.request" });
   const { requestId } = input;
@@ -174,6 +188,7 @@ function parseCheckMind(input: unknown) {
   return {
     requestId,
     figureIds: parseFigureIds(input.figureIds),
+    blockIds: parseBlockIds(input.blockIds),
     mindId: parseMindId(input.mindId),
     mode: parseMode(input.mode),
     allDocuments: input.allDocuments === true,
@@ -462,6 +477,7 @@ export function createMindCheck(options: MindCheckOptions) {
     mindId: string,
     mode: CheckMindMode,
     figureIds: readonly string[] | null = null,
+    blockIds: readonly string[] | null = null,
   ): Sending {
     const skipped = new Set(content.readSettings(mindId, readMindCheck)?.skipped ?? []);
     const versions = options.documentVersions();
@@ -472,10 +488,13 @@ export function createMindCheck(options: MindCheckOptions) {
       const { figureContexts } = figuresNow(blocks);
       const note = recordCiteNote(blocks);
       // Every sentence is read; the one count decides which have a check to make, whatever makes a claim (#1909).
-      const sentences = everySentence(blocks);
-      const opinions = blocks.doc
-        ? resolveOpinions(sentences, readOpinionSentences(blocks.doc))
-        : [];
+      const every = everySentence(blocks);
+      // A write's Check reads only that write's Blocks; the rest of the Note is the Note's own Check's.
+      const inWrite = blockIds === null ? null : new Set(blockIds);
+      const sentences = inWrite
+        ? every.filter((sentence) => inWrite.has(topLevelBlockId(sentence)))
+        : every;
+      const opinions = blocks.doc ? resolveOpinions(every, readOpinionSentences(blocks.doc)) : [];
       // A run keeps what makes no claim by its words, which a value cell can share with another
       // sentence or hold from a run before #2447: its figure is checked all the same.
       const leftOut = (sentence: SelectedSentence) =>
@@ -487,7 +506,7 @@ export function createMindCheck(options: MindCheckOptions) {
             each.occurrence === sentence.occurrence,
         );
       const keys = new Set(
-        sentences
+        every
           .filter((sentence) => sentence.figures?.length || isClaim(sentence.text))
           .map((sentence) => sentenceKey(sentence.text)),
       );
@@ -621,8 +640,9 @@ export function createMindCheck(options: MindCheckOptions) {
     mode: CheckMindMode,
     allDocuments: boolean,
     figureIds: readonly string[] | null = null,
+    blockIds: readonly string[] | null = null,
   ): MindCheckPlan {
-    const sent = sending(mindId, mode, figureIds);
+    const sent = sending(mindId, mode, figureIds, blockIds);
     if (sent.fresh.length + sent.again.length === 0 && sent.held.length > 0) {
       return { kind: "unchanged", since: unchangedSince(mindId, sent.held) };
     }
@@ -644,7 +664,7 @@ export function createMindCheck(options: MindCheckOptions) {
     signal: AbortSignal,
   ): Promise<FindMindClaimsResult> {
     const { mindId, mode } = input;
-    const sent = sending(mindId, mode, input.figureIds);
+    const sent = sending(mindId, mode, input.figureIds, input.blockIds);
     const { fresh, again } = sent;
     if (fresh.length + again.length === 0) return { kind: "nothing" };
     const { empty } = options.scopeOf(mindId, everywhere(input.allDocuments, sent));
@@ -667,7 +687,7 @@ export function createMindCheck(options: MindCheckOptions) {
     // An earlier check's mark on a sentence that only names its source goes: none reads it now (#3093).
     if (content.read(mindId, (blocks) => marksASourceName(blocks, sourceNamesIn(blocks))))
       content.edit(mindId, (blocks) => unmarkSourceNames(blocks, sourceNamesIn(blocks)));
-    const sent = sending(mindId, mode, input.figureIds);
+    const sent = sending(mindId, mode, input.figureIds, input.blockIds);
     const { fresh, again, keys, skipped, widened } = sent;
     if (fresh.length + again.length === 0) return { kind: "nothing" };
     await options.evidenceReady(signal, mindId);
@@ -705,7 +725,11 @@ export function createMindCheck(options: MindCheckOptions) {
       checkRunOf(options, ready.prepared, signal, mindId).record,
     );
     const nowOf = (blocks: Y.XmlFragment) => {
-      const current = everySentence(blocks);
+      const every = everySentence(blocks);
+      const inWrite = input.blockIds === null ? null : new Set(input.blockIds);
+      const current = inWrite
+        ? every.filter((sentence) => inWrite.has(topLevelBlockId(sentence)))
+        : every;
       return input.figureIds === null
         ? current
         : sentencesForFigures(current, markedSentences(blocks), input.figureIds);
@@ -928,7 +952,7 @@ export function createMindCheck(options: MindCheckOptions) {
       return { kind: "cancelled" };
     }
     const sentences = content.read(mindId, (blocks) => markedSentences(blocks).length);
-    if (input.figureIds === null)
+    if (input.figureIds === null && input.blockIds === null)
       content.editSettings(mindId, (settings) =>
         writeMindCheck(settings, {
           at: options.now().toISOString(),
@@ -954,10 +978,17 @@ export function createMindCheck(options: MindCheckOptions) {
       mode: unknown,
       allDocuments: boolean,
       figureIds?: unknown,
+      blockIds?: unknown,
     ): MindCheckPlan {
       const id = parseMindId(mindId);
       options.requireMind(id);
-      return plan(id, parseMode(mode), allDocuments, parseFigureIds(figureIds));
+      return plan(
+        id,
+        parseMode(mode),
+        allDocuments,
+        parseFigureIds(figureIds),
+        parseBlockIds(blockIds),
+      );
     },
 
     /** See `CoreApi.findMindClaims`. */

@@ -285,7 +285,7 @@ import {
   otherCallTranscripts,
 } from "./meetings";
 import { listParts, meetingFolder } from "./meetings/audioFiles";
-import { createMeetingFill, reasonAlone } from "./meetings/fill";
+import { createMeetingFill, FILL_PARTS_AT_ONCE, reasonAlone } from "./meetings/fill";
 import { createCaptureHealth } from "./meetings/health";
 import { type MemoCue, memoTitle } from "./meetings/memo";
 import { createMeetingOffers, offerAllowed } from "./meetings/offers";
@@ -2159,6 +2159,12 @@ export function createCore(adapters: CoreAdapters): Core {
   };
   // An Answer marks its provider while it is written, and a write's check waits behind it (#2830).
   const repliesOut = createRepliesOut();
+  const capLeft = () => {
+    const { cap, spentTowardCap, setAsideTowardCap } = meter.summary();
+    if (!cap) return null;
+    const used = (spentTowardCap?.amount ?? 0) + (setAsideTowardCap?.amount ?? 0);
+    return { currency: cap.currency, amount: cap.amount - used };
+  };
   const answers = createAnswers({
     content,
     changes,
@@ -2198,6 +2204,21 @@ export function createCore(adapters: CoreAdapters): Core {
     readsImages: (choice) => chat.readsImages(choice),
     readiness: async (choice) => chat.readiness(await chat.answeringModel(choice)),
     prepareModel: (choice, thinking) => chat.prepareModel(choice, "chat", thinking),
+    // A Meeting's notes read up to FILL_PARTS_AT_ONCE parts at once and each sets its whole reply
+    // aside: under a cap that can't hold them the notes keep the room every call has, where a
+    // wider one would be refused. The prompt is counted as long as the reply, far above a part's.
+    capHolds(choice, outputTokens) {
+      const left = capLeft();
+      const metered = left && chat.metered(choice);
+      if (!left || !metered) return true;
+      const reply = { inputTokens: outputTokens, outputTokens };
+      const estimate = meter.estimateRead(metered, {
+        likely: [reply],
+        most: Array.from({ length: FILL_PARTS_AT_ONCE }, () => reply),
+      });
+      const most = estimate.billing === "per-token" ? (estimate.upTo?.cost ?? null) : null;
+      return !most || inCurrency(most.amount, most.currency, left.currency) <= left.amount;
+    },
     helpModel(answers) {
       if (settings.get().user.callHelpModel !== "fastest") return null;
       return offeredHelp(answers);
@@ -3148,12 +3169,7 @@ export function createCore(adapters: CoreAdapters): Core {
       return metered && meter.estimateRead(metered, read);
     },
     readSpent: (requestId, currency) => meter.runSpent(requestId, currency),
-    capLeft() {
-      const { cap, spentTowardCap, setAsideTowardCap } = meter.summary();
-      if (!cap) return null;
-      const used = (spentTowardCap?.amount ?? 0) + (setAsideTowardCap?.amount ?? 0);
-      return { currency: cap.currency, amount: cap.amount - used };
-    },
+    capLeft,
     documentCheckProgress: (event) => events.emit("documentCheck.progress", event),
     checkingEarly: (event) => events.emit("mindCheck.early", event),
     decision: (service) => decisionChoice.reader(service),
@@ -6750,8 +6766,8 @@ export function createCore(adapters: CoreAdapters): Core {
     planContradictionCheck: (mindId) => checks.planContradictionCheck(mindId),
     checkContradictions: (input) =>
       inFlow("contradictions", () => checks.checkContradictions(input)),
-    planMindCheck: (mindId, mode, allDocuments, figureIds) =>
-      checks.planMindCheck(mindId, mode, allDocuments, figureIds),
+    planMindCheck: (mindId, mode, allDocuments, figureIds, blockIds) =>
+      checks.planMindCheck(mindId, mode, allDocuments, figureIds, blockIds),
     holdMindCheck: async (input) => checks.holdMindCheck(input),
     findMindClaims: (input) => inFlow("check-mind", () => checks.findMindClaims(input)),
     checkMind: (input) => inFlow("check-mind", () => checks.checkMind(input)),

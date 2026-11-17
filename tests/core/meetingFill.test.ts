@@ -20,7 +20,13 @@ import type {
 import { CITE_RETRY_INSTRUCTIONS, QUOTE_RETRY_INSTRUCTIONS } from "../../src/core/answers/prompt";
 import type { WindowedPassage } from "../../src/core/documents/search";
 import type { FakeCaptureOptions } from "../../src/core/meetings/fakeCapture";
-import { FILL_PART_TOKENS, halved, orStopped, transcriptParts } from "../../src/core/meetings/fill";
+import {
+  evenParts,
+  FILL_PART_TOKENS,
+  halved,
+  orStopped,
+  transcriptParts,
+} from "../../src/core/meetings/fill";
 import type { FillSection } from "../../src/core/meetings/fillPrompt";
 import { createFakeChatModel } from "../../src/main/fakeChat";
 import { citationAttributesOf } from "../../src/shared/citations";
@@ -212,8 +218,12 @@ async function recorded(
     folder?: () => string | undefined;
     /** How Stop is pressed. */
     stop?: (core: Core, meetingId: string) => Promise<unknown>;
-    /** Claude Haiku 5.5 on its service, allowed, as the Answers model: a model off this computer. */
-    cloud?: boolean;
+    /**
+     * Claude Haiku 5.5 on its service, allowed, as the Answers model: a model off this computer.
+     * "openai": GPT-5.4 mini, whose input limit leaves its window more room for a reply than any
+     * call asks.
+     */
+    cloud?: boolean | "openai";
     /** The keychain its key is kept with, for a start after this one that reads it. */
     keychain?: ReturnType<typeof createMemoryKeychain>;
     /** What the fake capture does: the computer's sound silent, for a recording of a room. */
@@ -238,17 +248,13 @@ async function recorded(
   });
   await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
   if (cloud) {
-    const saved = await core.saveChatProvider({
-      kind: "anthropic",
-      apiKey: "sk-test",
-      modelId: "claude-haiku-5-5",
-    });
+    const kind = cloud === "openai" ? "openai" : "anthropic";
+    const modelId = cloud === "openai" ? "gpt-5.4-mini" : "claude-haiku-5-5";
+    const saved = await core.saveChatProvider({ kind, apiKey: "sk-test", modelId });
     for (const flow of ["chat", "checks"] as const) {
       if (saved.service) await core.allowDataFlow(flow, saved.service.id);
     }
-    await core.updateSettings({
-      user: { chatModel: { providerId: saved.id, modelId: "claude-haiku-5-5" } },
-    });
+    await core.updateSettings({ user: { chatModel: { providerId: saved.id, modelId } } });
   }
   await before?.(core);
   const folderId = folder?.();
@@ -1274,6 +1280,51 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
     await vi.waitFor(() => expect(outline(client)).toContain("## «Pricing»"));
     core.close();
   });
+
+  // protects=on a cloud model whose own output limit is known, the notes' request has room for 64,000 tokens, so a long call's thinking and its facts fit one request (#3251); under a monthly cap that can't set three such replies aside it keeps the 32,000 every call has, and the fill still runs, also on a model whose window already keeps more than 64,000 for a reply; fails_when=the wider room is asked under the small cap, where the meter refuses the request, or isn't asked with no cap
+  test.each([
+    [true, null, 64_000],
+    [true, 0.02, 32_000],
+    ["openai", null, 64_000],
+    // GPT-5.4 mini's reply costs nine times Haiku's: 0.2 holds one of 32,000, not one of 64,000.
+    ["openai", 0.2, 32_000],
+  ] as const)(
+    "on a cloud model (%j) with a monthly cap of %j, the notes' request has room for %i tokens",
+    async (cloud, cap, room) => {
+      const limits: (number | undefined)[] = [];
+      const model = fillingModel(
+        [
+          overview("The call settled the price [^1]."),
+          fact("P1_price", "price", "We agreed the enterprise price is 45 dollars a seat [^1].", {
+            heading: "Pricing",
+          }),
+        ].join("\n\n"),
+        { 1: MY_LINES[0] as string },
+        {},
+        {
+          seen: (call) => {
+            if (isFill(call)) limits.push(call.options.maxOutputTokens);
+          },
+        },
+      );
+      const { core, meeting } = await recorded(
+        model,
+        null,
+        async (core) => {
+          if (cap !== null) {
+            await core.updateSettings({ user: { monthlyCap: { amount: cap, currency: "USD" } } });
+          }
+        },
+        undefined,
+        { cloud },
+      );
+
+      expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", problem: null });
+      expect(limits.length).toBeGreaterThan(0);
+      expect(new Set(limits)).toEqual(new Set([room]));
+      core.close();
+    },
+  );
 
   // protects=a topic heading drops only this fill's own addresses: "H1" when the User typed a first heading, while "H2" as a half-year stays, in English and Chinese (#2306); fails_when=a finance "H2" is dropped, or an address the prompt listed shows as a heading; no_claim=which headings a model writes.
   test.each([
@@ -3516,6 +3567,26 @@ describe("A long Transcript is read in parts", () => {
     ]) {
       expect(parts.length).toBeGreaterThan(1);
       expect(parts.flat().map((each) => each.seq)).toEqual(twoHours.map((each) => each.seq));
+    }
+  });
+
+  // protects=a Transcript read side by side is cut into the fewest parts of about the asked size, all of about the same size, every Passage kept once in order, and one that fits the size is one part (#3251); fails_when=a part is left much shorter than the others, so the longest sets the wait and the short one adds a request for little, a Passage is dropped or repeated, or a Transcript under the size is split; no_claim=the token estimate's accuracy.
+  test("even parts are the fewest of about the size, alike in size, with every Passage once", () => {
+    const sized = (parts: WindowedPassage[][]) => parts.map((part) => part.length);
+    expect(evenParts([], 2_500)).toEqual([]);
+    const short = Array.from({ length: 16 }, (_, index) => passage(index, 120));
+    expect(sized(evenParts(short, 2_500))).toEqual([16]);
+    const twentyMinutes = Array.from({ length: 26 }, (_, index) => passage(index, 120));
+    expect(sized(transcriptParts(twentyMinutes, 2_500))).toEqual([16, 10]);
+    expect(sized(evenParts(twentyMinutes, 2_500))).toEqual([13, 13]);
+    const uneven = [
+      passage(0, 2_000),
+      ...Array.from({ length: 20 }, (_, i) => passage(i + 1, 120)),
+    ];
+    for (const passages of [twentyMinutes, uneven, [passage(0, 9_000), passage(1, 10)]]) {
+      const parts = evenParts(passages, 2_500);
+      expect(parts.every((part) => part.length > 0)).toBe(true);
+      expect(parts.flat().map((each) => each.seq)).toEqual(passages.map((each) => each.seq));
     }
   });
 

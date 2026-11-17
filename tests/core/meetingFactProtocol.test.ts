@@ -333,6 +333,22 @@ describe("Meeting fact protocol (#2306)", () => {
     expect(parseFactReply(answer("No frames at all.")).cut).toBe(false);
   });
 
+  // protects=a reply that closes its facts "END FACT <id>", as their opening line is written, is read as the same reply closed "END <id>": 2 of 118 real replies closed every fact that way and kept none, so that part of the call was asked and paid for twice (#3274); a closing line that names another fact, or none, still closes nothing; fails_when=such a reply keeps no fact and reads as cut, or a wrong closing line closes a frame
+  test("a fact closed with END FACT and its id is read as one closed with END and its id", () => {
+    const mirrored = (id: string) => fact(id).replace(`### END ${id}`, `### END FACT ${id}`);
+    const written = parseFactReply(answer(`${overview}\n${mirrored("One")}\n${mirrored("Two")}`));
+    expect(written).toEqual(parseFactReply(answer(`${overview}\n${fact("One")}\n${fact("Two")}`)));
+    expect(written.facts.map((each) => each.id)).toEqual(["One", "Two"]);
+    expect(written.cut).toBe(false);
+
+    const another = fact("One").replace("### END One", "### END FACT Two");
+    expect(parseFactReply(answer(another)).facts).toEqual([]);
+    const unnamed = fact("One").replace("### END One", "### END FACT");
+    expect(parseFactReply(answer(unnamed)).facts).toEqual([]);
+    const overviewAsFact = overview.replace("### END OVERVIEW", "### END FACT OVERVIEW");
+    expect(parseFactReply(answer(overviewAsFact)).overview).toBeNull();
+  });
+
   test("an unclosed fence cannot be salvaged by finding FACT or END text inside its code", () => {
     const broken = [
       "### FACT Broken",

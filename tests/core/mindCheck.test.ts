@@ -2168,3 +2168,68 @@ test("Check this note checks every sentence and says once when a mark can't be w
     errors.mockRestore();
   }
 });
+
+describe("A run of one write's Blocks (#3270)", { timeout: 30_000 }, () => {
+  // protects=the Check on a write's line checks that write's sentences only: the plan counts them, the run marks them, and a Block the write doesn't name is left unchecked; fails_when=the run reads the whole Note
+  test("checks only the sentences in the Blocks named, and leaves the rest of the Note", async () => {
+    const { core, client, mindId, folderId } = await setUp();
+    expect(await core.planMindCheck(mindId, "changed", false, undefined, ["two"])).toMatchObject({
+      kind: "ready",
+      sentences: 2,
+    });
+    expect(
+      await core.checkMind({ ...request(mindId, "changed"), blockIds: ["two"] }),
+    ).toMatchObject({ kind: "checked" });
+    expect(
+      (await shownChecks(core, client, mindId, folderId)).map(({ sentence }) => sentence),
+    ).toEqual([PENGUINS]);
+  });
+
+  // protects=a run of a write is not a check of the whole Note: the Note's own check record, which says when the Note was last checked and how, is left as it was
+  test("is not recorded as a check of the whole Note", async () => {
+    const { core, client, mindId } = await setUp();
+    await core.checkMind({ ...request(mindId, "changed"), blockIds: ["two"] });
+    expect(mindCheckOf(client.doc)).toBeNull();
+    await core.checkMind(request(mindId, "all", "whole"));
+    expect(mindCheckOf(client.doc)).toMatchObject({ sentences: 3 });
+  });
+
+  // protects=a write that is a table is named by the table's Block, and its cells' sentences are the write's, though each cell's paragraph has an id of its own
+  test("a table's cells are in the write that names the table", async () => {
+    const { core, client, mindId } = await setUp();
+    writeMind(client, [
+      {
+        type: "table",
+        attrs: { id: "table" },
+        content: [
+          {
+            type: "tableRow",
+            content: [
+              {
+                type: "tableCell",
+                content: [{ type: "paragraph", attrs: { id: "cell" }, content: [text(MOON)] }],
+              },
+            ],
+          },
+        ],
+      },
+    ]);
+    await client.settled();
+    expect(await core.planMindCheck(mindId, "changed", false, undefined, ["table"])).toMatchObject({
+      kind: "ready",
+      sentences: 1,
+    });
+    expect(await core.planMindCheck(mindId, "changed", false, undefined, ["cell"])).toEqual({
+      kind: "nothing",
+    });
+  });
+
+  // protects=a list of Blocks that names none, or is not a list of ids, is refused rather than read as the whole Note
+  test("refuses a list that is empty or holds no ids", async () => {
+    const { core, mindId } = await setUp();
+    await expect(core.planMindCheck(mindId, "changed", false, undefined, [])).rejects.toThrow();
+    await expect(
+      core.checkMind({ ...request(mindId, "changed"), blockIds: [""] }),
+    ).rejects.toThrow();
+  });
+});

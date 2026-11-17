@@ -6,6 +6,7 @@ import { citationState } from "../../../../shared/citations";
 import { mindCheckOf } from "../../../../shared/mindCheck";
 import { setCheckCardOpen, setOpenClaim } from "../../checks";
 import { useChecksWaitForConsent } from "../../checksConsent";
+import { core } from "../../core";
 import { citationsOf } from "../../editor/alreadyCited";
 import { originOf } from "../../editor/blockOrigins";
 import { markOf, type ShownClaim, shownClaims } from "../../editor/claimChecks";
@@ -15,7 +16,7 @@ import { opinionSentenceRanges } from "../../editor/opinionLocations";
 import { editorDoc } from "../../editor/proposalReview";
 import { useLanguage, useT } from "../../i18n";
 import { frontTabOfMind, groupsMerged } from "../../layoutSlice";
-import { startCheckAsking } from "../../mindCheck";
+import { startWriteCheckAsking } from "../../mindCheck";
 import { useRateLimitResumes } from "../../rateLimitWaits";
 import { type SelfCheck, selfCheckLines, selfChecksOf } from "../../selfChecks";
 import { useAppStore } from "../../store";
@@ -185,12 +186,13 @@ function SelfCheckGroup({ check }: { check: SelfCheck }) {
     blocksKey === ""
       ? null
       : () => {
-          void startCheckAsking(check.mindId).catch(report);
+          void startWriteCheckAsking(check.mindId, blocksKey.split(" ")).catch(report);
         };
   const does = {
     show: () => void showLook(check.mindId, check.request).catch(report),
     check: checkNow,
     "change-cap": () => useAppStore.getState().openSettings("ai", "spending-cap"),
+    stop: () => void core.cancelCheck(check.request).catch(report),
   };
   return (
     <div>

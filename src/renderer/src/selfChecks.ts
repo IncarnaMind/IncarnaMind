@@ -71,10 +71,11 @@ export interface SelfCheckLine {
     | "consent-revoked"
     | "local-mode"
     | "consent-widened"
+    | "stopped"
     | "left";
   text: string;
   details: string[];
-  action: { label: string; does: "show" | "check" | "change-cap" } | null;
+  action: { label: string; does: "show" | "check" | "change-cap" | "stop" } | null;
 }
 
 /** How far a check that is still running is, as its marks land (#2830). */
@@ -105,7 +106,7 @@ function checkingLine(
           ? t("selfCheck.checking.one", { count: done })
           : t("selfCheck.checking", { count: done, total }),
     details: [],
-    action: null,
+    action: { label: t("checks.stop"), does: "stop" },
   };
 }
 
@@ -158,7 +159,18 @@ export function selfCheckLines(
     });
   }
   const one = failed === 1;
-  if (failed > 0 && stop?.reason === "cost-cap") {
+  if (failed > 0 && check.stopped) {
+    // What the stop left waits for the User's Check, as a sentence no check has read does.
+    const waiting = left ?? failed;
+    if (waiting > 0) {
+      lines.push({
+        kind: "stopped",
+        text: t(waiting === 1 ? "selfCheck.stopped.one" : "selfCheck.stopped", { count: waiting }),
+        details: [],
+        action: { label: t("mindCheck.command"), does: "check" },
+      });
+    }
+  } else if (failed > 0 && stop?.reason === "cost-cap") {
     lines.push({
       kind: "cost-cap",
       text: one ? t("selfCheck.costCap.one") : t("selfCheck.costCap", { count: failed }),
