@@ -367,11 +367,8 @@ export async function lateQuotesJudged(
     ...(result.evidence ? [result.evidence] : []),
     ...(result.checkedEvidence ?? []),
   ]);
-  // The line asked for afterwards for a figure worked out from quotes recorded in the Documents is
-  // often one of those inputs ("Adjusted EBITDA 187.3 (FY2025), …" for a cover): it is the quote of
-  // the figure's own input, which the calculation backs, and no one line states a derived ratio, so
-  // the judgement of it said "neither" of a cover its inputs gave (#3258). A quote that is none of
-  // the inputs is judged as before.
+  // A late quote that is one of a calculation's own input lines is no line to state the derived
+  // ratio: the judge said "neither" of a cover its inputs gave (#3258).
   const inputs =
     result.calculation?.agrees === true
       ? result.calculation.figure.inputs.map((input) => input.citation.quote)
