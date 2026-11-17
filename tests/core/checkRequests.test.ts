@@ -18,7 +18,6 @@ import {
   isCheckRun,
   listedSentences,
   type Plan,
-  SAME_DETAIL,
   sentenceOf,
 } from "../helpers/checks";
 import { shownPassages } from "../helpers/citations";
@@ -196,7 +195,7 @@ function quoting(
       calls: [{ tool: "cite", input: { citations: [{ marker: 1, passage: passage?.id, quote }] } }],
     };
   }
-  return { text: `Verdict: supported\nAbsence: no\n${SAME_DETAIL}\nThe Document says so. [^1]` };
+  return { text: "Verdict: supported\nExplanation: The Document says so. [^1]\nEvidence: [1]" };
 }
 
 /** A check Run whose first turn names `parts` of its sentence, then checks as `plans` say. */
@@ -612,44 +611,6 @@ describe.each(LANGUAGES)("check requests ($language)", (example) => {
     ]);
     // The sentence is a fact, so no opinion is left out of its check.
     expect(opinionsIn(readMind(own), own.doc)).toEqual([]);
-  });
-
-  // protects=what a figure's number measures is named in the check's own reply, so a typed sentence with a figure costs its three steps and no ask, whether its quote measures the same thing or something else (#2255); fails_when=naming the measure, or finding it differs, sends a request more; no_claim=how a real model words the measure.
-  test("a figure's measure costs no request, the same measure or another", async () => {
-    const { measure } = example;
-    const fact = (sentence: string) => sentence.replace(/[.。]$/u, "");
-    const whole = (sentence: string): Part[] => [{ kind: "fact", text: fact(sentence) }];
-    const plans: Record<string, Plan> = {
-      [fact(measure.right)]: { verdict: "supported", quote: measure.source },
-      [fact(measure.other)]: {
-        verdict: "supported",
-        quote: measure.source,
-        measure: { sentence: measure.claimed, quote: measure.measured, match: "differs" },
-      },
-    };
-    const model = scriptedModel((call) => naming(call, plans, whole), {
-      generate: (call) =>
-        call.system.startsWith(SORTS) ? sortingInto(whole)(call) : checkGenerate(plans)(call),
-    });
-    const core = await coreWith(model);
-    const folderId = await inFolder(core, "Results.md", `# Results\n\n${measure.source}\n`);
-    const typed = await core.createMind({ title: "Typed", folderId });
-    const own = await connectToMind(core, typed.id);
-    writeMind(
-      own,
-      [measure.right, measure.other].map((text, index) => ({
-        type: "paragraph",
-        attrs: { id: `own-${index}` },
-        content: [{ type: "text", text }],
-      })),
-    );
-    await own.settled();
-    expect(
-      await core.checkMind({ requestId: "typed", mindId: typed.id, mode: "all" }),
-    ).toMatchObject({ kind: "checked" });
-
-    expect(checkRequests(model)).toEqual({ sorting: 1, steps: 6, asked: 0 });
-    expect((await marksOf(own)).map((mark) => mark.state)).toEqual(["supported", "unsupported"]);
   });
 
   // protects=a sentence's factual parts are checked at once on a cloud model, within the run's limit, and one at a time on a model on this computer, after one first turn that names them and no sorting request (#2002); fails_when=parts wait for each other on a cloud model, a local model gets several at once, or a sorting request is sent; no_claim=how long a real provider takes.

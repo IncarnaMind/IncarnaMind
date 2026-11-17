@@ -73,7 +73,6 @@ test("the Privacy page lists the data flows and the update check, and offers no 
   const decision = service.getByTestId("data-service-decision");
   await expect(decision).toContainText("Some uses aren’t allowed yet");
   await decision.getByTestId("data-service-decision-details").click();
-  await expect(service.locator('[data-flow-id="document-check"]')).toContainText("Not asked yet");
   const chat = service.locator('[data-testid="data-flow"][data-flow-id="chat"]');
   await expect(chat).toContainText("Chat");
   await expect(chat).toContainText(

@@ -19,7 +19,6 @@ import {
   isCheckRun,
   listedSentences,
   type Plan,
-  requestedFigures,
   sentenceOf,
 } from "../helpers/checks";
 import {
@@ -564,32 +563,6 @@ describe.each(LANGUAGES)("a sentence that only names its source ($language)", (e
     setup.core.close();
   });
 
-  // protects=a whole read of a Document, Check against a Document, takes an earlier check's mark off a name-only sentence it touches, as Check against Documents does (#3093); fails_when=the old mark stays after the read; no_claim=what the read finds for the other sentence.
-  test("a whole read of a Document takes the earlier mark off it too", async () => {
-    const setup = await setUp(example);
-    const [named] = example.cells;
-    await staleNote(setup, example);
-    const place = {
-      from: { blockId: "named", offset: 0 },
-      to: { blockId: "right", offset: example.right.text.length + 1 },
-    };
-    const within = { folderIds: [], tagIds: [], documentIds: [setup.byName(named.cites).id] };
-    const plan = await setup.core.planDocumentCheck({ mindId: setup.mind.id, ...place, within });
-    if (plan.kind !== "ready") throw new Error(`The pick can't be read: ${plan.kind}.`);
-    await setup.core.checkSentences({
-      requestId: randomUUID(),
-      mindId: setup.mind.id,
-      action: "check-against-document",
-      ...place,
-      within,
-      plan: plan.id,
-    });
-    await setup.client.settled();
-
-    expect(marksIn(setup).map(([text]) => text)).not.toContain(named.text);
-    setup.core.close();
-  });
-
   // protects=an Answer's judgement reads no sentence that only names the Document its Citation is of, and that Citation keeps its own quote check, while the right and the wrong sentence of the same Answer are judged (#3093); fails_when=the name-only sentence is judged, or its Citation's check changes; no_claim=how the Answer's steps word it.
   test("an Answer's judgement leaves it out and judges the rest", async () => {
     const text = `${example.right.text} [^1]\n\n${example.wrong.text} [^2]\n\n- ${example.answerOnly.text} [^3]\n\n${example.label.text} [^4]\n`;
@@ -648,8 +621,8 @@ describe.each(LANGUAGES)("a sentence that only names its source ($language)", (e
     setup.core.close();
   });
 
-  // protects=a cell that names two Documents it cites is read, as the rule leaves it, and is sent with neither name's number as a figure (#3093); fails_when=it is left out, or a name's number is asked for; no_claim=what a real model judges it.
-  test("a cell that names two Documents it cites is still read, with neither name's number", async () => {
+  // protects=a cell that names two Documents it cites is read, as the rule leaves it (#3093); fails_when=it is left out; no_claim=what a real model judges it.
+  test("a cell that names two Documents it cites is still read", async () => {
     const setup = await setUp(example);
     const [first, second] = example.cells;
     const text = example.language === "en" ? "Lease 1, Lease 2" : "附件3、合同2";
@@ -669,10 +642,7 @@ describe.each(LANGUAGES)("a sentence that only names its source ($language)", (e
     await setup.core.checkMind({ requestId: randomUUID(), mindId: setup.mind.id, mode: "all" });
     await setup.client.settled();
 
-    const run = setup.calls.find(
-      (call) => isCheckRun(call) && call.results.length === 0 && sentenceOf(call) === text,
-    );
-    expect(run && requestedFigures(run)).toEqual([]);
+    expect(sentTo(setup.calls)).toContain(text);
     expect(marksIn(setup)).toEqual([
       [text, "unsupported"],
       [example.right.text, "supported"],

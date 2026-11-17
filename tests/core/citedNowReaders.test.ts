@@ -6,7 +6,7 @@ import { checkCitedSentences } from "../../eval/everyday/support";
 import { CITATION_NODE, type Core, type Document } from "../../src/core";
 import { claimsOf } from "../../src/renderer/src/editor/claimChecks";
 import type { ClaimCheckShown } from "../../src/shared/claimChecks";
-import { checkGenerate, checkReply, type Plan, SAME_DETAIL, sentenceOf } from "../helpers/checks";
+import { checkGenerate, checkReply, type Plan, sentenceOf } from "../helpers/checks";
 import { setUpWithDocuments } from "../helpers/citations";
 import { createTempDataFolder } from "../helpers/core";
 import { recordRows } from "../helpers/csv";
@@ -252,8 +252,6 @@ const writing = (records: readonly string[], document: string): Plan => ({
   reply: {
     text: [
       "Verdict: supported",
-      "Absence: no",
-      SAME_DETAIL,
       "Explanation: The Document says so.",
       `Evidence: [${records.map((_, index) => index + 1).join(", ")}]`,
       ...records.map((quote, index) => `[^${index + 1}]: ${document}, “${quote}”`),
@@ -277,7 +275,7 @@ function recordingModel(all: readonly Shape[]) {
       const parts = shape.parts.map((part) => ({ kind: "fact", text: part.text }));
       return { ...reply, text: `Parts: ${JSON.stringify(parts)}` };
     },
-    { generate: checkGenerate(plans, '{"passage": null}') },
+    { generate: checkGenerate(plans) },
   );
 }
 

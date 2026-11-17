@@ -61,12 +61,9 @@ function setUp(
   const finish: (() => void)[] = [];
   const claimCheck = (request: ClaimCheckRequest) => {
     sent.push(request);
-    return limit.run(
-      () =>
-        new Promise<ClaimCheckResult>((resolve) => {
-          finish.push(() => resolve(RESULT));
-        }),
-    );
+    return new Promise<ClaimCheckResult>((resolve) => {
+      finish.push(() => resolve(RESULT));
+    });
   };
   return { run, limit, sent, finish, early: earlyChecks(claimCheck, run, limit) };
 }
@@ -96,7 +93,7 @@ test("starts a check early only while the run has a free place", () => {
 
 // protects=the run takes an early check only when it would send the same request, and stops the others as soon as its queue is made (#2532); fails_when=a check sent with other words is taken, or one the run won't take goes on; no_claim=what the checks find.
 test("the run takes an early check that sends the same, and the others stop at once", async () => {
-  const { early, sent, finish, run, limit } = setUp(3);
+  const { early, sent, finish, run } = setUp(3);
   const same = claim("Spring tides come at new moon.");
   const changed = claim("Neap tides come at the quarter moons.");
   early.start(same, unchanged);
@@ -108,8 +105,8 @@ test("the run takes an early check that sends the same, and the others stop at o
 
   expect(kept?.signal.aborted).toBe(false);
   expect(stopped?.signal.aborted).toBe(true);
-  const taken = early.claimCheck(checkRequestOf(same, run, limit, run.signal));
-  const fresh = early.claimCheck(checkRequestOf(now, run, limit, run.signal));
+  const taken = early.claimCheck(checkRequestOf(same, run, run.signal));
+  const fresh = early.claimCheck(checkRequestOf(now, run, run.signal));
   expect(sent).toHaveLength(3);
   expect(sent[2]?.context).toBe(now.context);
   for (const done of finish) done();
@@ -119,7 +116,7 @@ test("the run takes an early check that sends the same, and the others stop at o
 
 // protects=an early check whose request is the same but whose sources changed meanwhile (a Document renamed so a record cite's source is no longer one, a source chosen in the Note) is stopped and checked again, not taken (#2532); fails_when=only the request decides what is taken; no_claim=which changes count, which the core's Library state and the Note's record-cite inputs say.
 test("an early check is stopped, not taken, when what it reads besides its request changed", async () => {
-  const { early, sent, finish, run, limit } = setUp(3);
+  const { early, sent, finish, run } = setUp(3);
   let library = 1;
   const reads = () => `library ${library}`;
   const tides = claim("Spring tides come at new moon. Ex. 7 at 2.");
@@ -130,7 +127,7 @@ test("an early check is stopped, not taken, when what it reads besides its reque
   early.keep([tides]);
 
   expect(first?.signal.aborted).toBe(true);
-  const again = early.claimCheck(checkRequestOf(tides, run, limit, run.signal));
+  const again = early.claimCheck(checkRequestOf(tides, run, run.signal));
   expect(sent).toHaveLength(2);
   for (const done of finish) done();
   expect(await again).toBe(RESULT);
@@ -145,7 +142,7 @@ test("an early check waits for its sentence's reading, made once, and a marked s
   const read: string[] = [];
   const ends: (() => void)[] = [];
   const reader: DecisionReader = { model: supported, lines: LINES, ask: async () => null };
-  const { early, sent, finish, run, limit } = setUp(
+  const { early, sent, finish, run } = setUp(
     2,
     (request) => {
       read.push(request.claim);
@@ -161,7 +158,7 @@ test("an early check waits for its sentence's reading, made once, and a marked s
   expect(read).toEqual([marked.claim, leaning.claim]);
   expect(sent).toHaveLength(0);
   early.keep([marked, leaning]);
-  const again = run.readFirst?.(checkRequestOf(leaning, run, limit, run.signal));
+  const again = run.readFirst?.(checkRequestOf(leaning, run, run.signal));
   for (const end of ends) end();
 
   expect(await again?.read).toBe(leans);

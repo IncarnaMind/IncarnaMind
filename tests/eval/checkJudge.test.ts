@@ -21,21 +21,8 @@ const TIDES: SourceFile = {
   name: "Tides.md",
   contents: "# Tides\n\nSpring tides happen at new moon and at full moon.\n",
 };
-const BOARD: SourceFile = {
-  name: "Board update.md",
-  contents:
-    "# Board update\n\nNet debt was £1,234m at the end of 2025.\n\nEBITDA was £942m in 2025.\n",
-};
 
 const SPRING = "Spring tides come at new moon.";
-const RATIO = "Net debt to EBITDA fell to 1.3x.";
-const NET_DEBT = {
-  name: "nd",
-  label: "Net debt 2025",
-  quote: "Net debt was £1,234m",
-  number: "£1,234m",
-};
-const EBITDA = { name: "e", label: "EBITDA 2025", quote: "EBITDA was £942m", number: "£942m" };
 
 /** The check the evaluation runs for a sentence, as the evaluation runs it, over the Documents given. */
 async function checked(
@@ -99,63 +86,8 @@ describe("A check's outcome keeps what the judge said", () => {
     expect(cite?.input).toContain("Spring tides happen twice a year");
     expect(cite?.result).toContain("the quote isn't word for word");
     expect(repliesOf(outcome, "check")).toEqual([
-      "Verdict: supported\nAbsence: no\nDuty: none / none, same\nCondition: none / none, same\nIt says so. [^1]",
+      "Verdict: supported\nExplanation: It says so. [^1]\nEvidence: [1]",
     ]);
-  });
-
-  test("a calculation the app turned away: the calculate call and what the app answered", async () => {
-    const outcome = await checked(
-      "Net debt to EBITDA was 1.31x.",
-      {
-        verdict: "unsupported",
-        calculation: {
-          inputs: [{ ...NET_DEBT, quote: "Net debt was £1,235m" }, EBITDA],
-          formula: "nd / e",
-          as: "times",
-          stated: "1.31x",
-        },
-      },
-      [BOARD],
-    );
-
-    expect(outcome).toMatchObject({ verdict: "not-checked", code: "no-evidence" });
-    expect(causeOf(outcome.code, outcome.judge)).toBe("calculation-not-made");
-    const calculate = callsOf(outcome).find((call) => call.tool === "calculate");
-    expect(JSON.parse(calculate?.input ?? "{}")).toMatchObject({
-      figures: [{ formula: "nd / e", stated: "1.31x" }],
-    });
-    expect(calculate?.result).toContain("Nothing was recorded");
-    expect(calculate?.result).toContain("Fix these with another calculate call");
-  });
-
-  test("a calculation made that settles nothing: its figure was recorded, and the sentence's bare number isn't compared with it", async () => {
-    const outcome = await checked(
-      "Net debt to EBITDA was 1.31.",
-      {
-        verdict: "unsupported",
-        calculation: { inputs: [NET_DEBT, EBITDA], formula: "nd / e", as: "times", stated: "1.31" },
-      },
-      [BOARD],
-    );
-
-    expect(outcome).toMatchObject({ verdict: "not-checked", code: "number-not-worked-out" });
-    expect(causeOf(outcome.code, outcome.judge)).toBe("calculation-not-made");
-    const calculate = callsOf(outcome).find((call) => call.tool === "calculate");
-    expect(calculate?.result).toMatch(/^Recorded \[=1\] = 1\.31x/);
-  });
-
-  test("a calculation the judge was sent back to make and never made", async () => {
-    const outcome = await checked(
-      RATIO,
-      { verdict: "supported", quote: "Net debt was £1,234m", says: "The update gives net debt." },
-      [BOARD],
-    );
-
-    expect(outcome).toMatchObject({ verdict: "not-checked", code: "number-not-worked-out" });
-    expect(causeOf(outcome.code, outcome.judge)).toBe("calculation-not-made");
-    expect(callsOf(outcome).map((call) => call.tool)).toEqual(["search_documents", "cite"]);
-    expect(outcome.judge?.filter((request) => request.calculateAsked)).toHaveLength(1);
-    expect(repliesOf(outcome, "check")).toHaveLength(2);
   });
 
   test("a reply with no verdict is malformed, and is kept as it was given", async () => {

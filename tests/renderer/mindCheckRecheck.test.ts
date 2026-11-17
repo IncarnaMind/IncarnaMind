@@ -33,7 +33,7 @@ vi.mock("../../src/renderer/src/store", () => ({
 }));
 vi.mock("../../src/renderer/src/editWithAi", () => ({ noteBusy: vi.fn() }));
 vi.mock("../../src/renderer/src/checks", () => ({
-  useChecks: { getState: () => ({ running: {}, rewriting: {} }) },
+  useChecks: { getState: () => ({ running: {} }) },
   dismissCheckProblem: vi.fn(),
   setCheckCardOpen: vi.fn(),
   setCheckProblem: vi.fn(),

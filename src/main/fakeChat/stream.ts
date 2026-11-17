@@ -112,7 +112,7 @@ function scriptNamed(
  */
 function nextReply(prompt: Prompt, tools: readonly OfferedTool[]): Reply {
   const names = tools.map((tool) => tool.name);
-  if (CHECK_RUN.test(systemOf(prompt))) return checkReply(prompt, names);
+  if (CHECK_RUN.test(systemOf(prompt))) return checkReply(prompt);
   const help = helpReply(prompt, names);
   if (help) return help;
   const fill = fillReply(prompt, names);

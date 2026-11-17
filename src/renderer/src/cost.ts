@@ -69,9 +69,9 @@ export const atLineStart = (text: string): string =>
 
 /**
  * What a check's reason says (`claim.reason.*`): a whole read stopped at its budget says what it
- * spent, kept in `detail`, or that it stopped there when the detail can't be read; the most it
- * may spend goes on the action that reads the rest (`readRestText`). Figures that couldn't be read
- * name the Document and the place kept in `detail`; any other reason says its `detail` as it is.
+ * spent, kept in `detail`, or that it stopped there when the detail can't be read. Figures that
+ * couldn't be read name the Document and the place kept in `detail`; any other reason says its
+ * `detail` as it is.
  */
 export function reasonText(
   t: Translate,
@@ -102,14 +102,6 @@ export function sentenceReasonText(
   return absenceBesideFact(check, shown)
     ? t("claim.absenceBesideFact")
     : reasonText(t, language, shown.reason, check.detail, params);
-}
-
-/** The action that reads the rest of a read stopped at its budget, with the most it may spend. */
-export function readRestText(t: Translate, language: Language, detail: string | null): string {
-  const stop = budgetStopOf(detail);
-  return stop
-    ? t("claim.readBudget.readRest", { most: formatMoney(stop.most, language) })
-    : t("claim.readBudget.continue");
 }
 
 /**

@@ -7,19 +7,10 @@
 import { APICallError } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test } from "vitest";
-import { ABSENCE_REPLY } from "../../src/core/answers/checks/absence";
 import { claimPartsOf } from "../../src/core/answers/checks/claims";
 import { readRestated } from "../../src/core/answers/checks/explanations";
 import { QUICK_REPLY } from "../../src/core/answers/checks/fastPaths";
-import {
-  readEvidence,
-  readJudgement,
-  readPart,
-  readPresence,
-  readRecheck,
-  readRecordJudgement,
-} from "../../src/core/answers/checks/prompt";
-import { readRewrite } from "../../src/core/answers/checks/rewrite";
+import { readRecordJudgement } from "../../src/core/answers/checks/recordCites";
 import { readBatchText } from "../../src/core/answers/checks/sentenceBatch";
 import { briefFrom } from "../../src/core/answers/checks/verifyBrief";
 import { claimsReply, requestReply } from "../../src/core/answers/claimedChanges";
@@ -46,7 +37,6 @@ import {
 import { CORRECTIONS_REPLY } from "../../src/core/answers/quoteRetry";
 import { CITED_REPLY } from "../../src/core/answers/unmarkedQuotes";
 import { workingReply } from "../../src/core/answers/workingText";
-import type { Citation } from "../../src/core/api";
 import { removalAskedReply } from "../../src/core/edits/removalAsked";
 import { endsAtLimit, outputTokens } from "../../src/core/providers/outputLimits";
 import type { TokenUsage } from "../../src/core/runs/engine";
@@ -58,28 +48,21 @@ type StreamPart =
 
 const CLAIM = "The rent is £5,000 a month.";
 const QUOTE = "The rent is £5,000 per month, paid in advance.";
-const LEASE: Citation = {
-  passageId: "passage-lease",
-  documentId: "lease",
-  documentName: "Lease",
-  contentHash: "hash-lease",
-  pageFrom: null,
-  pageTo: null,
-  location: null,
-  quote: "The Tenant shall pay a monthly rent of $14,250, due on the first day of each month.",
-  check: "found",
-  checkReason: null,
-};
 const REPLIED = "The rent is £5,000 a month, as the lease says.";
+
+interface Question {
+  reply: JudgeReply<unknown>;
+  right: string;
+  read: unknown;
+  unreadable: string;
+  stream?: true;
+}
 
 /**
  * Each question, read as its caller reads it: a reply it reads, what it reads it as, and a reply
  * that leaves out, misspells or contradicts a field, which it can't read.
  */
-const QUESTIONS: Record<
-  JudgeQuestion,
-  { reply: JudgeReply<unknown>; right: string; read: unknown; unreadable: string; stream?: true }
-> = {
+const QUESTIONS: Partial<Record<JudgeQuestion, Question>> = {
   "sentence-batch": {
     reply: lines((text) => readBatchText(text, 1)),
     right:
@@ -100,72 +83,6 @@ const QUESTIONS: Record<
     unreadable: '{"verdicts":[{"number":1,"verdict":"supported"}]}',
   },
   "quick-check": { reply: QUICK_REPLY, right: "Yes.", read: "yes", unreadable: "Yes, mostly." },
-  "absence-read": {
-    reply: ABSENCE_REPLY,
-    right: '{"absent":"a break clause","absence":"holds"}',
-    read: { absent: "a break clause", absence: "holds", citations: undefined },
-    unreadable: '{"absence":"holds"}',
-  },
-  evidence: {
-    reply: json(readEvidence),
-    right: `{"passage":"P1","location":null,"quote":"${QUOTE}"}`,
-    read: { passage: "P1", location: null, quote: QUOTE },
-    unreadable: `{"passage":"P1","quote":"${QUOTE}"}`,
-  },
-  "covered-evidence": {
-    reply: json(readEvidence),
-    right: `{"passage":"P2","location":"p. 4","quote":"${QUOTE}"}`,
-    read: { passage: "P2", location: "p. 4", quote: QUOTE },
-    unreadable: `{"passage":"P2","location":"p. 4","quote":""}`,
-  },
-  confirm: {
-    reply: lines(readJudgement),
-    right: "same",
-    read: "same",
-    unreadable: "Same subject, but 61,500 is before tax.",
-  },
-  strict: {
-    reply: lines(readJudgement),
-    right: "Sentence: £5,000 a month\nQuote: £5,000 per month\nJudgement: same",
-    read: "same",
-    unreadable: "Judgement: neither\nJudgement: same",
-  },
-  "strict-figure": {
-    reply: lines(readJudgement),
-    right: "Sentence: £5,000\nQuote: £6,000\nJudgement: conflict",
-    read: "conflict",
-    unreadable: "Judgement - neither",
-  },
-  recheck: {
-    reply: lines(readRecheck),
-    right:
-      "Verdict: unsupported\nScope: none, same\nTopic: found\nRoles: the Tenant / the Landlord, differs\nTime: none / none, same\nDuty: pays / pays, same\nCondition: none / none, same\nThe lease has the Landlord pay. Evidence: [1]",
-    read: expect.objectContaining({ verdict: "unsupported", roles: "differs", time: "same" }),
-    unreadable:
-      "Verdict: unsupported\nScope: none, same\nTopic: found\nRoles: the Tenant / the Landlord, differs\nThe lease has the Landlord pay. Evidence: [1]",
-  },
-  nearest: { reply: lines(readJudgement), right: "conflict", read: "conflict", unreadable: "" },
-  parts: {
-    reply: lines(readPart),
-    right: "Covered: the rent\nNot covered: paid in advance",
-    read: { covered: "the rent", uncovered: "paid in advance" },
-    unreadable: "Covered: the rent",
-  },
-  presence: { reply: lines(readPresence), right: "not", read: "not", unreadable: "Not really." },
-  "strict-presence": {
-    reply: lines(readPresence),
-    right: "Absent: a break clause\nQuote: not stated\nJudgement: not",
-    read: "not",
-    unreadable: "Judgement: there\nJudgement: not",
-  },
-  rewrite: {
-    reply: lines((reply) =>
-      readRewrite("The Tenant pays a monthly rent of $12,500.", reply, LEASE, () => null),
-    ),
-    right: "Change 1: $12,500\nTo 1: $14,250",
-    read: expect.objectContaining({ kind: "rewritten" }),
-    unreadable: "Change 1: $12,500",
-  },
   "record-cite": {
     reply: lines(readRecordJudgement),
     right: "The Passage states the rent.\nJudgement: supported",
@@ -248,6 +165,15 @@ const QUESTIONS: Record<
   },
 };
 
+/** The questions the table reads replies for: the first test holds them to JUDGE_QUESTIONS. */
+const ASKED = Object.keys(QUESTIONS) as JudgeQuestion[];
+
+function questionNamed(id: JudgeQuestion): Question {
+  const each = QUESTIONS[id];
+  if (!each) throw new Error(`No reply is read for the judge's question ${id}.`);
+  return each;
+}
+
 const REPORTED = {
   inputTokens: { total: 120, noCache: 100, cacheRead: 20, cacheWrite: undefined },
   outputTokens: { total: 7, text: 7, reasoning: undefined },
@@ -328,7 +254,7 @@ function judgeModel(outcome: Outcome) {
 
 async function ask(question: JudgeQuestion, outcome: Outcome, signal?: AbortSignal) {
   const { model, asked, requested } = judgeModel(outcome);
-  const each = QUESTIONS[question];
+  const each = questionNamed(question);
   const judged = judge({
     model,
     question: { id: question, instructions: `Judge it (${question}).` },
@@ -348,23 +274,27 @@ describe("each question", () => {
     for (const question of JUDGE_QUESTIONS) expect(outputTokens(question)).toBeGreaterThan(0);
   });
 
-  test.each(JUDGE_QUESTIONS)(
+  test.each(ASKED)(
     "%s: a right reply is read, and names its question and limit",
     async (question) => {
-      const { judged, asked } = await ask(question, { text: QUESTIONS[question].right });
-      expect(await judged).toEqual({ ok: true, value: QUESTIONS[question].read, usage: COUNTED });
+      const { judged, asked } = await ask(question, { text: questionNamed(question).right });
+      expect(await judged).toEqual({
+        ok: true,
+        value: questionNamed(question).read,
+        usage: COUNTED,
+      });
       expect(asked).toEqual([{ question, limit: outputTokens(question) }]);
     },
   );
 
-  test.each(JUDGE_QUESTIONS)(
+  test.each(ASKED)(
     "%s: a reply in thinking and a code fence is read; one with a field missing, misspelt or given two values can't be",
     async (question) => {
-      const { right, unreadable } = QUESTIONS[question];
+      const { right, unreadable } = questionNamed(question);
       const fenced = `<think>Is it ${JSON.stringify(unreadable)}? No.</think>\n\`\`\`\n${right}\n\`\`\``;
       expect(await (await ask(question, { text: fenced })).judged).toMatchObject({
         ok: true,
-        value: QUESTIONS[question].read,
+        value: questionNamed(question).read,
       });
       expect(await (await ask(question, { text: unreadable })).judged).toEqual({
         ok: false,
@@ -374,8 +304,10 @@ describe("each question", () => {
     },
   );
 
-  test.each(JUDGE_QUESTIONS)("%s: a reply that declines is refused", async (question) => {
-    expect(await (await ask(question, { text: QUESTIONS[question].right })).judged).toMatchObject({
+  test.each(ASKED)("%s: a reply that declines is refused", async (question) => {
+    expect(
+      await (await ask(question, { text: questionNamed(question).right })).judged,
+    ).toMatchObject({
       ok: true,
     });
     for (const declined of [
@@ -389,10 +321,10 @@ describe("each question", () => {
     }
   });
 
-  test.each(JUDGE_QUESTIONS)(
+  test.each(ASKED)(
     "%s: a reply cut short at its limit is cut-short, its tokens counted",
     async (question) => {
-      const { right } = QUESTIONS[question];
+      const { right } = questionNamed(question);
       expect(await (await ask(question, { text: right })).judged).toMatchObject({ ok: true });
       expect(await (await ask(question, { text: right, finish: "length" })).judged).toEqual({
         ok: false,
@@ -403,12 +335,12 @@ describe("each question", () => {
     },
   );
 
-  test.each(JUDGE_QUESTIONS)(
+  test.each(ASKED)(
     "%s: a request that is stopped is stopped, never a network failure",
     async (question) => {
-      expect(await (await ask(question, { text: QUESTIONS[question].right })).judged).toMatchObject(
-        { ok: true },
-      );
+      expect(
+        await (await ask(question, { text: questionNamed(question).right })).judged,
+      ).toMatchObject({ ok: true });
       const stop = new AbortController();
       const { judged, requested } = await ask(question, { held: true }, stop.signal);
       await requested;
@@ -417,14 +349,14 @@ describe("each question", () => {
     },
   );
 
-  test.each(JUDGE_QUESTIONS)(
+  test.each(ASKED)(
     "%s: a request the provider fails is failed, with its error",
     async (question) => {
-      expect(await (await ask(question, { text: QUESTIONS[question].right })).judged).toMatchObject(
-        {
-          ok: true,
-        },
-      );
+      expect(
+        await (await ask(question, { text: questionNamed(question).right })).judged,
+      ).toMatchObject({
+        ok: true,
+      });
       expect(await (await ask(question, { status: 500 })).judged).toEqual({
         ok: false,
         reason: "failed",
@@ -437,15 +369,17 @@ describe("each question", () => {
 
 describe("the module", () => {
   test("a provider's own refusal is refused, and a right reply from the same provider is read", async () => {
-    expect(await (await ask("confirm", { text: "same" })).judged).toMatchObject({
+    expect(await (await ask("quick-check", { text: "Yes." })).judged).toMatchObject({
       ok: true,
-      value: "same",
+      value: "yes",
     });
-    expect(await (await ask("confirm", { text: "", finish: "content-filter" })).judged).toEqual({
-      ok: false,
-      reason: "refused",
-      usage: COUNTED,
-    });
+    expect(await (await ask("quick-check", { text: "", finish: "content-filter" })).judged).toEqual(
+      {
+        ok: false,
+        reason: "refused",
+        usage: COUNTED,
+      },
+    );
   });
 
   test("a time limit that passes is a failure, not a stop", async () => {
@@ -455,7 +389,7 @@ describe("the module", () => {
       question: { id: "sentence-batch", instructions: "Judge it." },
       parts: [],
       data: [],
-      reply: QUESTIONS["sentence-batch"].reply,
+      reply: questionNamed("sentence-batch").reply,
       retries: 0,
       signal: new AbortController().signal,
       timeoutMs: 10,
@@ -559,7 +493,7 @@ describe("the module", () => {
   ] as const)(
     "%s: a structured reply the provider parses itself is read once, as a reply read from text is",
     async (question, other) => {
-      const { right, read } = QUESTIONS[question];
+      const { right, read } = questionNamed(question);
       const [key, value] = Object.entries(JSON.parse(right) as Record<string, unknown>)[0] ?? [];
       const twice = (second: unknown) =>
         `${right.slice(0, -1)},${JSON.stringify(key)}:${JSON.stringify(second)}}`;
@@ -594,17 +528,17 @@ describe("the module", () => {
     const counted: TokenUsage[] = [];
     async function* events() {
       yield "started";
-      await (await ask("confirm", { text: "same" })).judged;
+      await (await ask("quick-check", { text: "Yes." })).judged;
       yield "judged";
-      await (await ask("presence", { status: 500 })).judged;
-      await (await ask("parts", { text: "Covered: rent", finish: "length" })).judged;
+      await (await ask("restate", { status: 500 })).judged;
+      await (await ask("record-cite", { text: "Judgement: partly", finish: "length" })).judged;
       yield "ended";
     }
     const seen: string[] = [];
     for await (const event of countingJudges(events(), (usage) => counted.push(usage))) {
       seen.push(event);
     }
-    await (await ask("nearest", { text: "conflict" })).judged;
+    await (await ask("record-cite", { text: "Judgement: supported" })).judged;
     expect(seen).toEqual(["started", "judged", "ended"]);
     // The failed call reported nothing; the cut-short one was paid for all the same.
     expect(counted).toEqual([COUNTED, COUNTED]);

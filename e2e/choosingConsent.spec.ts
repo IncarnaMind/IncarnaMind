@@ -174,7 +174,7 @@ test("first run: choosing a provider with a key is the consent for what runs by 
     "Some uses aren’t allowed yet",
   );
   await service.getByTestId("data-service-decision-details").click();
-  for (const flow of ["chat", "edits", "checks", "document-check", "suggestions", "tagging"]) {
+  for (const flow of ["chat", "edits", "checks", "suggestions", "tagging"]) {
     await expect(service.locator(`[data-testid="data-flow"][data-flow-id="${flow}"]`)).toHaveCount(
       1,
     );

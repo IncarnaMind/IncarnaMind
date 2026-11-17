@@ -52,9 +52,7 @@ export function citationWordingFix(editor: Editor, citation: number): CitationWo
   const claim = shownClaims(editor.state).find(
     (each) => each.sentence.from <= citation && citation < each.sentence.to,
   );
-  // A whole read asks its card to size it and its cost first, so no verdict would follow here.
-  if (!claim || (claim.check.action === "check-against-document" && claim.check.scope.chosen))
-    return null;
+  if (!claim) return null;
   const found = findQuote(claim.sentence.text, words, { unique: true });
   const range = found?.length === 1 ? found[0] : undefined;
   if (!range || claim.sentence.text.slice(range.start, range.end) !== words) return null;

@@ -29,7 +29,6 @@ describe("a check card's two buttons and its ⋯", () => {
     expect(
       split([
         action("claim-search-all", { primary: true }),
-        action("claim-check-document"),
         action("claim-choose-citation"),
         action("claim-cut-sentence"),
         action("claim-keep", { keep: true }),
@@ -38,13 +37,7 @@ describe("a check card's two buttons and its ⋯", () => {
       ]),
     ).toEqual({
       buttons: ["claim-search-all", "claim-keep"],
-      menu: [
-        "claim-check-document",
-        "claim-choose-citation",
-        "claim-cut-sentence",
-        "claim-search-web",
-        "claim-remove",
-      ],
+      menu: ["claim-choose-citation", "claim-cut-sentence", "claim-search-web", "claim-remove"],
     });
   });
 
@@ -83,18 +76,18 @@ describe("a check card's two buttons and its ⋯", () => {
     ).toEqual({ buttons: [], menu: ["claim-open", "claim-parts-add-all"] });
   });
 
-  // protects=the first button is the action the card styles as its main one even when it isn't first in order (a rewrite after Search all Documents); fails_when=the earlier, plain action takes the first button; no_claim=which actions a verdict has.
+  // protects=the first button is the action the card styles as its main one even when it isn't first in order (Check again after Search all Documents); fails_when=the earlier, plain action takes the first button; no_claim=which actions a verdict has.
   test("the main action is first, wherever it is in order", () => {
     expect(
       split([
         action("claim-search-all"),
-        action("claim-check-document"),
-        action("claim-rewrite", { primary: true }),
         action("claim-keep", { keep: true }),
+        action("claim-remove"),
+        action("claim-check-again", { primary: true }),
       ]),
     ).toEqual({
-      buttons: ["claim-rewrite", "claim-keep"],
-      menu: ["claim-search-all", "claim-check-document"],
+      buttons: ["claim-check-again", "claim-keep"],
+      menu: ["claim-search-all", "claim-remove"],
     });
   });
 });

@@ -59,6 +59,7 @@ import type { NoteParagraph, RecordCiteNote, RecordCitePlace } from "../../recor
 import {
   type FigureOccurrence,
   figuresInMind,
+  headingAbove,
   inTableCell,
   withAboveNow,
 } from "./figureOccurrences";
@@ -215,17 +216,24 @@ export function wordsReader(element: Y.XmlElement): (from: number, to: number) =
   return (from, to) => projectedRange(projection, pieces, from, to)?.text ?? "";
 }
 
+/**
+ * A sentence as its check reads it: its words, the paragraph it is in under the heading above it,
+ * and those of its figures that IncarnaMind worked out itself, which no Passage states.
+ */
 export function checkText(sentence: SelectedSentence) {
+  const worked = (sentence.figures ?? []).filter(
+    (figure) => figure.calculated !== null || figure.analysisRecord?.label !== undefined,
+  );
+  // A table cell's words alone don't say what its figure is; its row and column headings do.
+  const around =
+    (sentence.figures?.[0]?.label !== undefined ? sentence.figures[0]?.context : undefined) ??
+    wordsOf(sentence.element);
+  const { heading } = headingAbove(sentence.element);
   return {
     claim: sentence.projection?.text ?? wordsOf(sentence.element, sentence.from, sentence.to),
     ...(sentence.projection && { projection: sentence.projection }),
-    // A table cell's words alone don't say what its figure is; its row and column headings do.
-    context:
-      (sentence.figures?.[0]?.label !== undefined ? sentence.figures[0]?.context : undefined) ??
-      wordsOf(sentence.element),
-    ...(sentence.figures?.length && {
-      figures: withAboveNow(sentence.figures, sentence.element),
-    }),
+    context: heading ? `${heading}\n\n${around}` : around,
+    ...(worked.length > 0 && { figures: withAboveNow(worked, sentence.element) }),
   };
 }
 

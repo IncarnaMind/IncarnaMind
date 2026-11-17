@@ -15,7 +15,9 @@ import type { ChatLanguageModel, ContextWindow } from "./models";
 export const OUTPUT_LIMITS = {
   answer: { most: 8_000 },
   "answer-step": { most: 32_000 },
-  "check-step": { most: 8_000 },
+  // The step that judges a sentence thinks first (#3257), and its thinking is counted in this room:
+  // Claude Haiku 5.5 thought up to about 1,100 tokens a reply, and no reply was cut.
+  "check-step": { most: 16_000 },
   // A Meeting's notes: the User's lines filled out and the sections after them, with the thinking
   // before them, can pass an Answer's room (#2306). On a four-minute call Claude Haiku 5.5 thought
   // and wrote 16,850 tokens: a reply cut off while it thinks has nothing to keep, so the room is

@@ -4,20 +4,14 @@
  * look goes through, and the court decisions the sentence cites.
  */
 import { type CaseCitation, caseCitations, isOpinionOf } from "../../../shared/caseCitations";
-import { aggregateFigureResults } from "../../../shared/figureChecks";
-import type { Citation, ClaimCheckResult, ClaimJudgment } from "../../api";
+import type { Citation, ClaimCheckResult } from "../../api";
 import type { CitationSource } from "../../documents";
 import type { EvidenceScope } from "../../documents/evidence";
 import type { WindowedPassage } from "../../documents/search";
 import { type AnswerDocuments, createCitationSession, documentNamedAmong } from "../citations";
-import type { AnswerTools, SearchResultForModel } from "../engine";
+import type { AnswerTools } from "../engine";
 import type { CheckResults } from "./checkResults";
-import type {
-  AtomicClaimCheckResult,
-  CheckedCitation,
-  ClaimCheckDependencies,
-  ClaimCheckRequest,
-} from "./claimCheck";
+import type { CheckedCitation, ClaimCheckDependencies, ClaimCheckRequest } from "./claimCheck";
 import { CHECK_TAGS } from "./prompt";
 
 /**
@@ -68,12 +62,6 @@ export const asPassage = (source: CitationSource): WindowedPassage => ({
   windowTo: 0,
 });
 
-/** A whole read's window, searched again: every search of it finds the same Passages. */
-const WINDOW_SHOWN: SearchResultForModel = {
-  text: "Every search in this check finds the same Passages, and an earlier search returned them all: answer with them.",
-  passageCount: 0,
-};
-
 /** A check of a sentence whose every Citation is of a Document a wall keeps from it: not checked. */
 export function keptInside(
   deps: Pick<ClaimCheckDependencies, "documents" | "walledDocument" | "walledFolderName">,
@@ -106,16 +94,15 @@ export function keptInside(
 /**
  * The Document a sentence cites that its check's Search scope leaves out, the first of its
  * Citations' (#3083), and whether every Citation is outside the scope; null when none is. A
- * Document behind another wall keeps that wall's reason (`keptInside`), and a whole read's window
- * is the pick the User asked to read, not a Search scope.
+ * Document behind another wall keeps that wall's reason (`keptInside`).
  */
 export function citedOutsideScope(
   deps: Pick<ClaimCheckDependencies, "walledDocument">,
-  request: Pick<ClaimCheckRequest, "cited" | "scope" | "window">,
+  request: Pick<ClaimCheckRequest, "cited" | "scope">,
 ): { name: string; every: boolean } | null {
   const { scope, cited = [] } = request;
   const { documentIds } = scope;
-  if (request.window || documentIds === null) return null;
+  if (documentIds === null) return null;
   const outside = ({ documentId }: CheckedCitation): string | null =>
     documentId !== undefined && !documentIds.includes(documentId) && !scope.excluded.has(documentId)
       ? documentId
@@ -134,52 +121,27 @@ export function citedOutsideScope(
  * Supported and Contradicted stand on what it read, and Unsupported, which says the Documents
  * don't state it, is Not checked for want of that Document, named by `name`.
  */
-export function withoutDocumentLeftOut(
-  result: AtomicClaimCheckResult,
-  name: string,
-): AtomicClaimCheckResult {
-  const unjudged = (judgment: ClaimJudgment): ClaimJudgment =>
-    judgment.verdict !== "unsupported" || judgment.kept
-      ? judgment
-      : {
-          verdict: "not-checked",
-          reason: "outside-scope",
-          detail: name,
-          versions: judgment.versions,
-          excluded: judgment.excluded,
-          ...(judgment.recordCites && { recordCites: judgment.recordCites }),
-          ...(judgment.readDocuments && { readDocuments: judgment.readDocuments }),
-        };
-  if (!result.figures) return unjudged(result);
-  const figures = result.figures.map((figure) => ({ ...figure, result: unjudged(figure.result) }));
-  const remainder = result.remainder && unjudged(result.remainder);
-  if (
-    remainder === result.remainder &&
-    figures.every((each, at) => each.result === result.figures?.[at]?.result)
-  )
-    return result;
-  return {
-    ...result,
-    ...aggregateFigureResults(figures, remainder),
-    figures,
-    ...(remainder !== undefined && { remainder }),
-  };
+export function withoutDocumentLeftOut(result: ClaimCheckResult, name: string): ClaimCheckResult {
+  return result.verdict !== "unsupported" || result.kept
+    ? result
+    : {
+        verdict: "not-checked",
+        reason: "outside-scope",
+        detail: name,
+        versions: result.versions,
+        excluded: result.excluded,
+        ...(result.recordCites && { recordCites: result.recordCites }),
+      };
 }
 
 export function setUpRun(
-  deps: Pick<
-    ClaimCheckDependencies,
-    "documents" | "evidence" | "fileProperties" | "libraryFacts" | "callMark"
-  >,
-  request: Pick<
-    ClaimCheckRequest,
-    "claim" | "originalClaim" | "cited" | "scope" | "window" | "about" | "callIn"
-  >,
+  deps: Pick<ClaimCheckDependencies, "documents" | "evidence" | "callMark">,
+  request: Pick<ClaimCheckRequest, "claim" | "cited" | "scope" | "about" | "callIn">,
   results: Pick<CheckResults, "readVersion" | "leftOut">,
 ) {
   const { scope } = request;
   let searches = 0;
-  const decisions = caseCitations(request.originalClaim ?? request.claim);
+  const decisions = caseCitations(request.claim);
   const scoped: AnswerDocuments = {
     searchableCount: () => deps.documents.searchableCount(scope.documentIds),
     // A search may name one Document, as an Answer's may: the one a Citation quotes, often.
@@ -190,31 +152,19 @@ export function setUpRun(
           .filter((each) => !scope.excluded.has(each.id)),
         name,
       ),
-    async search(query, searchSignal, within, options) {
-      const found = request.window
-        ? null
-        : await deps.evidence.search(
-            query,
-            within ? { ...scope, documentIds: [...within] } : scope,
-            searchSignal,
-            request.about,
-          );
+    async search(query, searchSignal, within) {
+      const found = await deps.evidence.search(
+        query,
+        within ? { ...scope, documentIds: [...within] } : scope,
+        searchSignal,
+        request.about,
+      );
       // A web search's result never settles a citation of a court decision.
-      const matched = (request.window ?? found?.passages ?? []).filter(
+      const passages = found.passages.filter(
         (passage) => decisions.length === 0 || !deps.documents.savedBySearch(passage.documentId),
       );
-      const passages = [
-        ...matched,
-        ...(options?.properties && deps.fileProperties
-          ? deps.fileProperties.add(matched, within, options)
-          : []),
-        ...(options?.library && deps.libraryFacts ? deps.libraryFacts.add() : []),
-      ];
-      if (!request.window) {
-        for (const passage of passages)
-          results.readVersion(passage.documentId, passage.contentHash);
-      }
-      for (const each of found?.excluded ?? []) results.leftOut(each);
+      for (const passage of passages) results.readVersion(passage.documentId, passage.contentHash);
+      for (const each of found.excluded) results.leftOut(each);
       return passages;
     },
     citationSource: (passageId) => deps.documents.citationSource(passageId),
@@ -238,58 +188,30 @@ export function setUpRun(
   const citedPassages = citedSources(request.cited ?? [], scope, deps.documents);
   for (const passage of citedPassages) results.readVersion(passage.documentId, passage.contentHash);
   const citedShown = citedPassages.length > 0 ? session.show(citedPassages.map(asPassage)) : null;
-  /** In a whole read's window: whether a search has returned the window, the searches in turn. */
-  let windowShown: Promise<boolean> = Promise.resolve(false);
+  const tools: AnswerTools = {
+    get documentCount() {
+      return session.tools.documentCount;
+    },
+    documentLanguages: deps.documents.searchableLanguages(scope.documentIds),
+    // Only the model's searches count: looking up a cited court decision shows it nothing.
+    searchDocuments: (query, searchSignal, options) => {
+      searches++;
+      return session.tools.searchDocuments(query, searchSignal, options);
+    },
+    cite: (records, options) => session.tools.cite(records, options),
+    hasRecord: (marker) => session.tools.hasRecord?.(marker) ?? false,
+    unfoundQuotes: () => session.tools.unfoundQuotes?.() ?? [],
+    correctQuote: (marker, quote) => session.tools.correctQuote?.(marker, quote) ?? false,
+  };
   return {
     scoped,
     session,
     decisions,
     citedShown,
-    shownPassageIds: (): readonly string[] => [
-      ...citedPassages.map((passage) => passage.passageId),
-      ...session.shownPassages().map((passage) => passage.passageId),
-    ],
     searches: () => searches,
     // The Passages a Citation quotes are shown from the scope, so a verdict on them has looked.
     looked: () => searches > 0 || citedShown !== null,
-    tools: (
-      calculation: Pick<AnswerTools, "calculate" | "calculationFailed"> | null,
-    ): AnswerTools => ({
-      get documentCount() {
-        return session.tools.documentCount;
-      },
-      documentLanguages: deps.documents.searchableLanguages(scope.documentIds),
-      ...(deps.fileProperties && { fileProperties: true }),
-      ...(deps.libraryFacts && { libraryFacts: true }),
-      // Only the model's searches count: looking up a cited court decision shows it nothing.
-      searchDocuments: (query, searchSignal, options) => {
-        searches++;
-        if (!request.window) {
-          const { fileProperties, libraryFacts } = deps;
-          return session.tools.searchDocuments(query, searchSignal, options).then((found) => {
-            const told =
-              options?.properties && fileProperties ? fileProperties.told(found, options) : found;
-            return options?.library && libraryFacts ? libraryFacts.told(told) : told;
-          });
-        }
-        // Claude Haiku 5.5 searched a window two or three times, at once or in turn, and each
-        // search returned the whole window again: its verdict request carried it two or three
-        // times (#1554).
-        const found = windowShown.then((shown) =>
-          shown ? WINDOW_SHOWN : session.tools.searchDocuments(query, searchSignal, options),
-        );
-        windowShown = found.then(
-          (result) => result === WINDOW_SHOWN || result.passageCount > 0,
-          () => false,
-        );
-        return found;
-      },
-      cite: (records, options) => session.tools.cite(records, options),
-      hasRecord: (marker) => session.tools.hasRecord?.(marker) ?? false,
-      unfoundQuotes: () => session.tools.unfoundQuotes?.() ?? [],
-      correctQuote: (marker, quote) => session.tools.correctQuote?.(marker, quote) ?? false,
-      ...calculation,
-    }),
+    tools,
   };
 }
 

@@ -11,9 +11,8 @@
  * adds a folder's PDFs. From the window's list (#1421): "Make a Folder called Leases and move the
  * leases into it" (新建一个叫“租约”的文件夹，把租约移进去) moves what it found into the Folder it
  * names, made for it; "Open the X beside this one" (在旁边打开“X”) opens the Document it found to
- * the side; "Check this sentence against the X" (对照“X”核对这句话) and "The source is the X"
- * (出处是“X”) run Check against a Document and Choose the Citation on the sentence at the Note's
- * caret with the Document it found (#1554); "Check this Note" (核对这篇笔记) checks the Note in
+ * the side; "The source is the X" (出处是“X”) runs Choose the Citation on the sentence at the
+ * Note's caret with the Document it found (#1554); "Check this Note" (核对这篇笔记) checks the Note in
  * front; "Bring back the X I deleted"
  * (把删掉的“X”恢复) restores what it found in Recently deleted; "Put the documents about
  * rent together" (把关于租金的文档放在一起) has Organize sort every Document in no Folder toward
@@ -78,7 +77,6 @@ const FOLDER_AND_MOVE =
   /\bmake a folder called (.+?) and move the (.+?)s? into it\b|新建一个叫“(.+?)”的文件夹，把(.+?)移进去/i;
 const BESIDE = /\bopen the (.+?) beside this one\b|在旁边打开“(.+?)”/i;
 const CHECK = /\bcheck this (?:mind|note)\b|核对这篇笔记/i;
-const AGAINST = /\bcheck this sentence against the (.+?)[.?!]*$|对照“(.+?)”核对这句话/i;
 const SOURCE =
   /\bthe source is the (.+?)(?:,? (?:p\.|page) ?(\d+))?[.?!]*$|出处是“(.+?)”(?:，?第(\d+)页)?/i;
 const ORGANIZE_FILES = /\bre[ -]?organi[sz]e the files\b|重新整理(?:一下)?(?:这些)?文件/i;
@@ -200,22 +198,20 @@ export function commandsReply(
       found[0] ? { command: "document.openBeside", ids: [found[0].id], done: true } : null,
     );
   }
-  for (const [asked, command] of [
-    [AGAINST, "check.againstDocument"],
-    [SOURCE, "check.chooseCitation"],
-  ] as const) {
-    const named = asked.exec(question);
-    if (named) {
-      // The source's pattern also says a page: "the source is the lease, p. 4", 第4页.
-      const source = command === "check.chooseCitation";
-      const name = (source ? (named[1] ?? named[3]) : (named[1] ?? named[2])) ?? "";
-      const page = source ? (named[2] ?? named[4]) : undefined;
-      return findThen(prompt, { kind: "document", name }, (found) =>
-        found[0]
-          ? { command, ids: [found[0].id], ...(page && { page: Number(page) }), done: true }
-          : null,
-      );
-    }
+  const named = SOURCE.exec(question);
+  if (named) {
+    // The pattern also says a page: "the source is the lease, p. 4", 第4页.
+    const page = named[2] ?? named[4];
+    return findThen(prompt, { kind: "document", name: named[1] ?? named[3] ?? "" }, (found) =>
+      found[0]
+        ? {
+            command: "check.chooseCitation",
+            ids: [found[0].id],
+            ...(page && { page: Number(page) }),
+            done: true,
+          }
+        : null,
+    );
   }
   if (CHECK.test(question)) return runOnce(prompt, { command: "mind.check", done: true });
   if (ORGANIZE_FILES.test(asked)) {

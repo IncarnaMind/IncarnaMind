@@ -2,19 +2,11 @@ import { randomUUID } from "node:crypto";
 import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
-import { CLAIM_CHECK_MARK, type FigureSchedule } from "../../src/core/api";
-import { claimSpans, claimsOf } from "../../src/renderer/src/editor/claimChecks";
+import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { pendingProposals } from "../../src/shared/proposals";
 import { INLINE_NODE } from "../../src/shared/sentences";
 import { askAssistant, changesIn } from "../helpers/assistant";
-import {
-  checkGenerate,
-  checkReply,
-  isCheckRun,
-  type Plan,
-  requestedFigures,
-  sentenceOf,
-} from "../helpers/checks";
+import { checkGenerate, checkReply, isCheckRun, type Plan, sentenceOf } from "../helpers/checks";
 import { shownPassages } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
@@ -27,14 +19,12 @@ import {
   scriptedModels,
 } from "../helpers/models";
 import { xlsxOf } from "../helpers/office";
-import { buildPdf } from "../helpers/pdf";
 
 /**
  * A table's cell is checked as a User reads it (#1459): the check after the assistant writes a
  * table reads each cell as Check this Mind does, with its column's heading, its row and the line
- * before the table, and gives each figure its own result; a sentence's check reads the Passage
- * its Citation quotes, headings and all; a stored verdict from before figures were checked one
- * by one is checked again. The model is scripted by the sentence each check is sent;
+ * before the table, and gives each cell its own result; a sentence's check reads the Passage
+ * its Citation quotes, headings and all. The model is scripted by the sentence each check is sent;
  * tests/live/tableCellChecks.live.test.ts and tests/live/summaryRowCheck.live.test.ts ask real
  * models.
  */
@@ -49,16 +39,9 @@ interface Budget {
   plans: Record<string, Plan>;
 }
 
-const plan = (
-  verdict: "supported" | "contradicted",
-  quote: string,
-  number: string,
-  unitQuote?: string,
-): Plan => ({
+const plan = (verdict: "supported" | "contradicted", quote: string): Plan => ({
   verdict,
   quote,
-  number,
-  ...(unitQuote && { unitQuote }),
   says: verdict === "supported" ? "It says so." : "It gives another figure.",
   judgement: "conflict",
 });
@@ -82,10 +65,10 @@ const BUDGETS: Budget[] = [
       { label: "Profit", quote: EN_PROFIT, values: ["30", "42"] },
     ],
     plans: {
-      "100": plan("supported", EN_REVENUE, "100"),
-      "210": plan("contradicted", EN_REVENUE, "120"),
-      "30": plan("supported", EN_PROFIT, "30"),
-      "42": plan("supported", EN_PROFIT, "42"),
+      "100": plan("supported", EN_REVENUE),
+      "210": plan("contradicted", EN_REVENUE),
+      "30": plan("supported", EN_PROFIT),
+      "42": plan("supported", EN_PROFIT),
     },
   },
   {
@@ -101,11 +84,10 @@ const BUDGETS: Budget[] = [
       { label: "利润", quote: ZH_PROFIT, values: ["30", "42"] },
     ],
     plans: {
-      // The row's unit cell states its numbers' unit, which the model gives as unitQuote.
-      "100": plan("supported", ZH_REVENUE, "100", "万元"),
-      "210": plan("contradicted", ZH_REVENUE, "120", "万元"),
-      "30": plan("supported", ZH_PROFIT, "30", "万元"),
-      "42": plan("supported", ZH_PROFIT, "42", "万元"),
+      "100": plan("supported", ZH_REVENUE),
+      "210": plan("contradicted", ZH_REVENUE),
+      "30": plan("supported", ZH_PROFIT),
+      "42": plan("supported", ZH_PROFIT),
     },
   },
 ];
@@ -215,84 +197,8 @@ const marksIn = (client: MindClient) =>
     span.check.state,
   ]);
 
-test.each(BUDGETS)(
-  "$language: a selected Verify row figure reuses its first-cell owner",
-  async (budget) => {
-    const revenue = budget.rows[0];
-    if (!revenue) throw new Error("Missing Revenue fixture row");
-    const whole = `${revenue.label} — ${budget.headings[1]}: 100; ${budget.headings[2]}: 210`;
-    const plans: Record<string, Plan> = { [whole]: { verdict: "unsupported" } };
-    const calls: ModelCall[] = [];
-    const model = scriptedModel(
-      (call) => {
-        calls.push(call);
-        return checkReply(call, plans);
-      },
-      { generate: checkGenerate(plans) },
-    );
-    const { core, folderId } = await budgetMind(budget, model);
-    const sources = await createTempDataFolder();
-    const row = (y: number, cells: readonly string[]) =>
-      cells.map((text, column) => ({ text, x: [72, 260, 340][column] ?? 72, y }));
-    const path = await writeSourceFile(
-      sources,
-      "Accounts.pdf",
-      buildPdf([
-        {
-          placed: [
-            ...row(720, budget.headings),
-            ...row(706, [revenue.label, ...revenue.values]),
-            ...row(692, [budget.rows[1]?.label ?? "Profit", "30", "42"]),
-          ],
-        },
-      ]),
-    );
-    const verified = await core.verifyDocument({ path, folderId });
-    if (!verified.ok) throw new Error(`Report could not be verified: ${verified.reason}`);
-    const mindId = verified.mind.id;
-    const client = await connectToMind(core, mindId);
-    const input = () => ({ requestId: randomUUID(), mindId });
-    expect(await core.findClaims(input())).toMatchObject({ kind: "found", claims: 1 });
-    expect(await core.verifyClaims(input())).toMatchObject({
-      kind: "checked",
-      claims: 1,
-      checked: 1,
-    });
-    await client.settled();
-    const before = claimSpans(readMind(client));
-    expect(before.map((owner) => owner.sentence.text)).toEqual([revenue.label]);
-    const owner = before[0];
-    const figures = await core.getFigureSchedule(mindId);
-    const selected = figures.rows.find((figure) => figure.reading.chars === "210");
-    const sibling = figures.rows.find((figure) => figure.reading.chars === "100");
-    if (!owner || !selected || !sibling) throw new Error("Missing verified row figure owner");
-    expect(owner.check.figures?.map((figure) => figure.id)).toEqual([sibling.id, selected.id]);
-    const originalSibling = structuredClone(
-      owner.check.figures?.find((figure) => figure.id === sibling.id),
-    );
-    const count = calls.filter((call) => isCheckRun(call) && call.results.length === 0).length;
-    const request = { ...input(), mode: "all" as const, figureIds: [selected.id] };
-    expect(await core.checkMind(request)).toMatchObject({ kind: "checked", sentences: 1 });
-    await client.settled();
-    const after = claimSpans(readMind(client));
-    expect(after.map((each) => each.sentence.text)).toEqual([revenue.label]);
-    expect(after[0]?.from).toBe(owner.from);
-    expect(after[0]?.check.request).toBe(request.requestId);
-    expect(after[0]?.check.figures?.map((figure) => figure.id)).toEqual([sibling.id, selected.id]);
-    expect(after[0]?.check.figures?.find((figure) => figure.id === sibling.id)).toEqual(
-      originalSibling,
-    );
-    expect(
-      calls
-        .filter((call) => isCheckRun(call) && call.results.length === 0)
-        .slice(count)
-        .map((call) => requestedFigures(call).map((figure) => figure.shown)),
-    ).toEqual([["210"]]);
-  },
-);
-
 describe("A table the assistant writes is checked cell by cell, each with its row and column", () => {
-  // protects=the check after a write reads each cited cell as Check this Mind does: its column's heading, its row and the line before the table go to the check with the cell's figure, and each figure lands with its own result, through accepting, Undo, Redo and reopening (#1459); fails_when=a cell is sent alone, as "100" with "100" for its paragraph, or a mark goes; no_claim=how well a real model judges it (tests/live/tableCellChecks.live.test.ts).
+  // protects=the check after a write reads each cited cell as Check this Mind does: its column's heading, its row and the line before the table go to the check with the cell, and each cell lands with its own result, through accepting, Undo, Redo and reopening (#1459); fails_when=a cell is sent alone, as "100" with "100" for its paragraph, or a mark goes; no_claim=how well a real model judges it (tests/live/tableCellChecks.live.test.ts).
   test.each(BUDGETS)(
     "$language: right cells land Supported and the wrong one Contradicted",
     async (budget) => {
@@ -324,7 +230,6 @@ describe("A table the assistant writes is checked cell by cell, each with its ro
       expect(prompt).toContain(budget.headings[1]);
       expect(prompt).toContain(`${first?.label} | 100 | 210`);
       expect(prompt).toContain(budget.caption);
-      expect(prompt).toContain(`"label":"${first?.label} · ${budget.headings[1]}"`);
       expect(marksIn(client)).toEqual(LANDED);
       // The caption, with no Citation, makes no claim the sort names: it is left out.
       expect(changesIn(answer)[0]?.selfCheck).toMatchObject({ cited: 4, checked: 4, leftOut: 1 });
@@ -353,9 +258,8 @@ describe("A table the assistant writes is checked cell by cell, each with its ro
         reply: {
           text: [
             "Verdict: unsupported",
-            "The budget gives 42 for profit in 2025 without saying it was audited.",
-            "Covered: profit in 2025",
-            "Not covered: the audit",
+            "Explanation: The budget gives 42 for profit in 2025 without saying it was audited.",
+            "Evidence: []",
           ].join("\n"),
         },
       },
@@ -470,7 +374,9 @@ describe("A sentence's check reads the Passage its Citation quotes", () => {
       expect(prompt).toContain(words.head.join("\t"));
       expect(prompt).toContain("6496265");
       // The quoted Passage is shown from the scope, so a verdict on it isn't sent back to search.
-      expect(checks.some((call) => promptOf(call).includes("without searching"))).toBe(false);
+      expect(checks.some((call) => promptOf(call).includes("without reading any Passage"))).toBe(
+        false,
+      );
     },
   );
 
@@ -505,181 +411,6 @@ describe("A sentence's check reads the Passage its Citation quotes", () => {
   });
 });
 
-describe("A verdict stored before figures were checked one by one", () => {
-  // protects=a table cell's verdict stored without its figure's own result, as checks made it before (#1459), is checked again rather than kept: the margin, the badge's count and the schedule show it needs a re-check, and Check this Mind checks it; fails_when=a right cell keeps the "Unsupported" the cell-only check gave it; no_claim=none beyond protects.
-  test("shows it needs a re-check, and Check this Mind checks it again", async () => {
-    const budget = BUDGETS[1] as Budget;
-    const checks: ModelCall[] = [];
-    const model = scriptedModel(
-      (call) => {
-        checks.push(call);
-        return checkReply(call, budget.plans);
-      },
-      { generate: checkGenerate(budget.plans) },
-    );
-    const { core, client, mindId } = await budgetMind(budget, model);
-    const stored = (text: string) => ({
-      id: randomUUID(),
-      request: "old",
-      action: "check-against-documents",
-      state: "unsupported",
-      reason: null,
-      detail: null,
-      providerId: "provider",
-      modelId: "model",
-      text,
-      evidence: null,
-      says: "The sentence names no item, year or unit.",
-      unsupported: null,
-      calculation: null,
-      citedCaseUnchecked: false,
-      citedCaseFound: false,
-      scope: { folderId: null, widened: true },
-      versions: [],
-      excluded: [],
-      checkedAt: "2026-10-20T12:46:23.507Z",
-    });
-    const cell = (type: "tableHeader" | "tableCell", text: string, old = false): JSONContent => ({
-      type,
-      attrs: { colspan: 1, rowspan: 1 },
-      content: [
-        {
-          type: "paragraph",
-          attrs: { id: randomUUID() },
-          content: [
-            {
-              type: "text",
-              text,
-              ...(old && { marks: [{ type: CLAIM_CHECK_MARK, attrs: stored(text) }] }),
-            },
-          ],
-        },
-      ],
-    });
-    writeMind(client, [
-      {
-        type: "paragraph",
-        attrs: { id: randomUUID() },
-        content: [{ type: "text", text: budget.caption }],
-      },
-      {
-        type: "table",
-        attrs: { id: randomUUID() },
-        content: [
-          { type: "tableRow", content: budget.headings.map((each) => cell("tableHeader", each)) },
-          {
-            type: "tableRow",
-            content: [
-              cell("tableCell", "收入"),
-              cell("tableCell", "100", true),
-              cell("tableCell", "120"),
-            ],
-          },
-        ],
-      },
-    ]);
-    await client.settled();
-    expect(marksIn(client)).toEqual([["100", "unsupported"]]);
-
-    const schedule = await core.getFigureSchedule(mindId);
-    const row = schedule.rows.find((each) => each.reading.chars === "100");
-    expect(row?.shown).toEqual({ state: "needs-recheck", why: "figures" });
-    const { claims } = claimsOf(readMind(client), {
-      footing: "not-yet-known",
-      versions: null,
-      folderId: null,
-      scope: null,
-      figurePlaces: tablePlaces(schedule),
-    });
-    expect(claims.map(({ shown }) => shown)).toEqual([{ state: "needs-recheck", why: "figures" }]);
-
-    // Check this Mind's run of what changed checks it again; the old verdict doesn't stand.
-    await core.checkMind({ requestId: randomUUID(), mindId, mode: "changed" });
-    expect(checks.some((call) => sentenceOf(call) === "100")).toBe(true);
-    const again = claimSpans(readMind(client)).find((span) => span.sentence.text === "100");
-    expect(again?.check.request).not.toBe("old");
-    expect(again?.check.figures?.map((figure) => figure.reading.chars)).toEqual(["100"]);
-  });
-
-  // protects=an older verdict on a sentence of prose with a figure stands, as Verify and the examples still make them: the sentence was read whole, so only a table cell's is checked again (#1459); fails_when=every such verdict on a Note turns Needs re-check; no_claim=none beyond protects.
-  test("a sentence of prose keeps it: only a table cell was read without its row and column", async () => {
-    const budget = BUDGETS[0] as Budget;
-    const checks: ModelCall[] = [];
-    const model = scriptedModel(
-      (call) => {
-        checks.push(call);
-        return checkReply(call, budget.plans);
-      },
-      { generate: checkGenerate(budget.plans) },
-    );
-    const { core, client, mindId } = await budgetMind(budget, model);
-    const text = "Revenue was 210 in 2025.";
-    writeMind(client, [
-      {
-        type: "paragraph",
-        attrs: { id: randomUUID() },
-        content: [
-          {
-            type: "text",
-            text,
-            marks: [
-              {
-                type: CLAIM_CHECK_MARK,
-                attrs: {
-                  id: randomUUID(),
-                  request: "old",
-                  action: "check-against-documents",
-                  state: "contradicted",
-                  reason: null,
-                  detail: null,
-                  providerId: "provider",
-                  modelId: "model",
-                  text,
-                  evidence: null,
-                  says: "The budget gives 120 for 2025.",
-                  unsupported: null,
-                  calculation: null,
-                  citedCaseUnchecked: false,
-                  citedCaseFound: false,
-                  scope: { folderId: null, widened: true },
-                  versions: [],
-                  excluded: [],
-                  checkedAt: "2026-10-20T12:46:23.507Z",
-                },
-              },
-            ],
-          },
-        ],
-      },
-    ]);
-    await client.settled();
-
-    const schedule = await core.getFigureSchedule(mindId);
-    const { claims } = claimsOf(readMind(client), {
-      footing: "not-yet-known",
-      versions: null,
-      folderId: null,
-      scope: null,
-      figurePlaces: tablePlaces(schedule),
-    });
-    expect(claims.map(({ shown }) => shown.state)).toEqual(["contradicted"]);
-    await core.checkMind({ requestId: randomUUID(), mindId, mode: "changed" });
-    expect(checks.some((call) => sentenceOf(call) === text)).toBe(false);
-  });
-});
-
-/** Where a table's figures are, as the editor gives them to the margin. */
-function tablePlaces(schedule: FigureSchedule): Map<string, [number, number][]> {
-  const places = new Map<string, [number, number][]>();
-  for (const { locator, place } of schedule.rows)
-    if (locator.kind === "text" && place.table)
-      places.set(locator.from.blockId, [
-        ...(places.get(locator.from.blockId) ?? []),
-        [locator.from.offset, locator.to.offset],
-      ]);
-  return places;
-}
-
 describe("Check this Mind on the User's own numeric table", () => {
   // protects=a whole-Note check reads an ordinary table the User wrote cell by cell, with its headings: a quantity (3 where the Document gives 2) is checked with its row and column and gets its own result, not left out while the prose is checked (#1459); fails_when=the table's cells get no check, or are counted and left unchecked; no_claim=how well a real model judges it.
   test("checks each numeric cell with its row and column", async () => {
@@ -689,10 +420,10 @@ describe("Check this Mind on the User's own numeric table", () => {
       ["Control weights", 0.05, 2],
     ];
     const plans: Record<string, Plan> = {
-      "0.075": plan("supported", "Glass beads\t0.075\t2", "0.075"),
-      "3": plan("contradicted", "Glass beads\t0.075\t2", "2"),
-      "0.050": plan("supported", "Control weights\t0.05\t2", "0.05"),
-      "2": plan("supported", "Control weights\t0.05\t2", "2"),
+      "0.075": plan("supported", "Glass beads\t0.075\t2"),
+      "3": plan("contradicted", "Glass beads\t0.075\t2"),
+      "0.050": plan("supported", "Control weights\t0.05\t2"),
+      "2": plan("supported", "Control weights\t0.05\t2"),
     };
     const checks: ModelCall[] = [];
     const model = scriptedModel(
@@ -740,8 +471,8 @@ describe("Check this Mind on the User's own numeric table", () => {
     const wrong = checks.find((call) => call.results.length === 0 && sentenceOf(call) === "3");
     expect(promptOf(wrong)).toContain("Quantity");
     expect(promptOf(wrong)).toContain("Glass beads | 0.075 | 3");
-    // Its result lands on the cell as the figure's own, whatever the model made of it.
+    // Its result lands on the cell as its own.
     const landed = claimSpans(readMind(client)).find((span) => span.sentence.text === "3");
-    expect(landed?.check.figures?.map((figure) => figure.reading.chars)).toEqual(["3"]);
+    expect(landed?.check.state).toBe("contradicted");
   });
 });

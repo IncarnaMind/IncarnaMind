@@ -690,12 +690,9 @@ function staleVersions(
   if (!now.versions) return null;
   const restsOnIds = new Set(relied().map((each) => each.documentId));
   for (const version of versions) {
+    // A check no longer reads the Library's facts, so one resting on them can't be compared now.
+    if (readLibraryVersion(version.documentId)) return "library";
     const current = now.versions.get(version.documentId);
-    // A fact of the Library not known yet is taken as it was: the window asks for them apart.
-    if (readLibraryVersion(version.documentId)) {
-      if (current !== undefined && current !== version.contentHash) return "library";
-      continue;
-    }
     // A Document only read, gone, takes nothing from the result: an example's, swapped for the interface language, among them (#962).
     // A carried check relied on every Citation its Answer judged, not only the one that decided.
     if (current === undefined && (restsOnIds.has(version.documentId) || fromAnswer))
@@ -818,16 +815,7 @@ export function absenceBesideFact(
 
 export function claimCheckShown(check: ClaimCheckAttributes, now: ClaimCheckNow): ClaimCheckShown {
   if (!check.figures?.length || check.kept) {
-    const shown = basisShown(asCitedNow(check, now.citations ?? [], now.text), now);
-    // A verdict stored before each figure got its own never read a table cell's row and column,
-    // so a right cell could stand as Unsupported (#1459): it is checked again, not kept.
-    return now.figured === true &&
-      check.action === "check-against-documents" &&
-      (shown.state === "supported" ||
-        shown.state === "unsupported" ||
-        shown.state === "contradicted")
-      ? { state: "needs-recheck", why: "figures" }
-      : shown;
+    return basisShown(asCitedNow(check, now.citations ?? [], now.text), now);
   }
   if (
     comparableCheckSentence(now.text) === comparableCheckSentence(check.text) &&

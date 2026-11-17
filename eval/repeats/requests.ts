@@ -9,7 +9,7 @@ import type { LanguageModelV4Prompt, LanguageModelV4StreamPart } from "@ai-sdk/p
 import { type LanguageModelMiddleware, wrapLanguageModel } from "ai";
 import type { ChatModelFactory } from "../../src/core";
 import { checkNow } from "../../src/core/answers/checks/checkedText";
-import { SEARCH_AGAIN } from "../../src/core/answers/checks/searchAgain";
+import { SEARCH_AGAIN } from "../../src/core/answers/checks/claimCheck";
 import { DOCUMENT_TOOLS } from "../../src/core/tools";
 import { type HandedPassage, passagesIn } from "./passagesHanded";
 

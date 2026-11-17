@@ -1,11 +1,3 @@
-/**
- * What the judge said about each sentence the checks evaluation checked (#2910): every reply the
- * model gave, with the Tool calls it made, kept beside the outcome so a control that fails can be
- * read; and, from them, why a sentence came back "no evidence". The core says only that it did.
- * A calculation that wasn't made is told from a quote that wasn't found by what the replies and
- * the app's answers to the model's records show.
- */
-import { readVerdict } from "../../../src/core/answers/checks/prompt";
 import { asksForFixes } from "../../../src/core/answers/citations";
 import { DOCUMENT_TOOLS } from "../../../src/core/tools";
 import type { WatchedRequest } from "../../repeats/requests";
@@ -63,11 +55,7 @@ function quoteTurnedAway(judge: readonly JudgeRequest[]): boolean {
 
 function calculationOwed(judge: readonly JudgeRequest[]): boolean {
   if (callsOf(judge, DOCUMENT_TOOLS.calculate).length > 0) return true;
-  if (judge.some((request) => request.calculateAsked)) return true;
-  const verdict = judge.findLast(
-    (request) => request.kind === "check" && request.reply.trim() !== "",
-  );
-  return (readVerdict(verdict?.reply ?? "")?.calculations?.length ?? 0) > 0;
+  return judge.some((request) => request.calculateAsked);
 }
 
 /**
