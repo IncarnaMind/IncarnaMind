@@ -826,6 +826,93 @@ describe.each(["en", "zh-CN"] as const)("a name with digits in it (%s)", (langua
   });
 });
 
+describe.each(["en", "zh-CN"] as const)("a Library line with a gloss (%s)", (language) => {
+  const zh = language === "zh-CN";
+  const name = zh ? "档案 A7" : "Ledger A7";
+  const twice = zh
+    ? `${name} 在你的资料库中出现了两次。`
+    : `${name} appears twice in your Library.`;
+  const once = zh ? `${name} 在你的资料库中出现了一次。` : `${name} appears once in your Library.`;
+  const quote = `Documents named “${name}”: 2`;
+  const files2 = [
+    { name: `${name}.txt`, contents: "First copy of the ledger." },
+    { name: `${name}.md`, contents: "# Ledger\n\nSecond copy of the ledger." },
+  ];
+
+  // protects=a Supported verdict whose Library line glosses the one fact it names, and cites that fact's line, stands: the gloss's words ("Documents named") name no other fact (#2525); fails_when=the gloss reads as the documents fact, uncited, and a true sentence ends Not checked
+  test("a glossed fact that is cited holds", async () => {
+    const setup = await setUp(
+      files2,
+      { [twice]: { verdict: "supported", quote, line: `name (Documents named “${name}”)` } },
+      language,
+    );
+    expect((await checkInNote(setup.core, twice)).check.state).toBe("supported");
+  });
+
+  // protects=facts named after a gloss that holds a bracket or a quote stay named: a line whose glosses nest ("Report (draft)", "Text (.txt)") and that names documents and kind beside name, citing only name, is held (#2525); fails_when=a bracket inside a gloss ends it early and the facts after it are read away with the quotes between them
+  test("facts named after a nested gloss are still named", async () => {
+    const setup = await setUp(
+      files2,
+      {
+        [twice]: {
+          verdict: "supported",
+          quote,
+          line: `name (Documents named “${name} (draft)”), documents, kind (Documents of kind “Text (.txt)”)`,
+        },
+      },
+      language,
+    );
+    const { check } = await checkInNote(setup.core, twice);
+    expect(check.state).toBe("not-checked");
+    expect(check.reason).toBe("malformed");
+  });
+
+  // protects=a glossed word still names its fact: a line that names a second fact, in a gloss's brackets or not, and cites only the first, is held (#2525); fails_when=a second fact the sentence was said to state is read away with its gloss
+  test("a second fact that is named and not cited is still held", async () => {
+    const setup = await setUp(
+      files2,
+      {
+        [twice]: {
+          verdict: "supported",
+          quote,
+          line: `name (Documents named “${name}”), documents (Documents in all)`,
+        },
+      },
+      language,
+    );
+    const { check } = await checkInNote(setup.core, twice);
+    expect(check.state).toBe("not-checked");
+    expect(check.reason).toBe("malformed");
+  });
+
+  // protects=a Library line that is gloss from end to end ("(name, documents)", "“name”", "— name") is no Library line, so a Supported verdict resting on the fact's line stands on no declared fact and is held, true sentence or wrong one (#2525); fails_when=a line the reading strips to nothing reads as naming no fact, or as none, and a Supported stands without a declared fact
+  test.each(["(name, documents)", "“name”", "— name"])(
+    "a Library line that is all gloss (%s) holds nothing: true or wrong, never Supported",
+    async (line) => {
+      for (const sentence of [twice, once]) {
+        const setup = await setUp(
+          files2,
+          { [sentence]: { verdict: "supported", quote, line } },
+          language,
+        );
+        const { check } = await checkInNote(setup.core, sentence);
+        expect(check.state).toBe("not-checked");
+        expect(check.reason).toBe("malformed");
+      }
+    },
+  );
+
+  // protects=a wrong sentence about a name stays held with a glossed Library line: its count in words is held to the fact's, Supported or not (#2525); fails_when=a gloss lets "appears once" stand over a fact that gives two
+  test("a wrong twin stays held", async () => {
+    const setup = await setUp(
+      files2,
+      { [once]: { verdict: "supported", quote, line: `name (Documents named “${name}”)` } },
+      language,
+    );
+    expect((await checkInNote(setup.core, once)).check.state).not.toBe("supported");
+  });
+});
+
 describe("a count wrong by its scale or unit", () => {
   // protects=a Library count is decided by its own figure, scale and unit: "22 thousand" or "22 GB" never reads Supported by "Documents in all: 22"; fails_when=the judge's Supported stands on the bare number.
   test.each([
@@ -1751,6 +1838,57 @@ describe("the facts' text", () => {
     expect(declaredLibrary("Library: none")).toEqual({ kind: "none" });
     expect(declaredLibrary("Library: none, documents")).toBeNull();
     expect(declaredLibrary("Verdict: supported")).toBeNull();
+  });
+
+  // protects=the Library line names the facts and never the words that gloss them: a fact word followed by a bracket, a quote, or a dash and what it says reads as that fact alone, a fact word in a gloss's place is still a fact, and a line that read before still reads the same (#2525); fails_when="Documents named" in a gloss reads as the documents fact, a fact after a dash is read as stated, or a colon in the line makes it read as no fact
+  test("the Library line's glosses name no fact", () => {
+    const facts = (...kinds: string[]) => ({ kind: "facts", facts: new Set(kinds) });
+    expect(declaredLibrary("Library: name (Documents named “Report 12”)")).toEqual(facts("name"));
+    expect(declaredLibrary('Library: name — Documents named "Report 12": 1 (Plain text)')).toEqual(
+      facts("name"),
+    );
+    // A word the model chose to name, glossed or not, is still the fact it names.
+    expect(
+      declaredLibrary("Library: name (Documents named “Report 12”), documents (Documents in all)"),
+    ).toEqual(facts("name", "documents"));
+    expect(declaredLibrary("Library: documents (the count of all Documents)")).toEqual(
+      facts("documents"),
+    );
+    // What follows a dash says why, and names nothing.
+    expect(
+      declaredLibrary(
+        "Library: name, shared — the Library holds one Document with that name, in all Documents",
+      ),
+    ).toEqual(facts("name", "shared"));
+    expect(declaredLibrary("Library: description — the facts can't settle it")).toEqual({
+      kind: "description",
+    });
+    expect(declaredLibrary("Library: none (about what a Document says)")).toEqual({ kind: "none" });
+    // Lines that read before read as they did.
+    expect(declaredLibrary("Library: facts: name, documents")).toEqual(facts("name", "documents"));
+    expect(declaredLibrary("Library: (Documents named …)")).toBeNull();
+    // A bracket or a quote inside a gloss doesn't end it early, and the facts named after it stay named.
+    expect(
+      declaredLibrary(
+        "Library: name (Documents named “Report (draft)”), documents, kind (Documents of kind “Text (.txt)”)",
+      ),
+    ).toEqual(facts("name", "documents", "format"));
+    expect(declaredLibrary('Library: name (Documents named "Report (2)"), shared')).toEqual(
+      facts("name", "shared"),
+    );
+    expect(declaredLibrary("Library: documents (the total (all of the Documents)), name")).toEqual(
+      facts("documents", "name"),
+    );
+    // A line whose brackets or quotes don't close can't be told from one that hides its facts.
+    for (const line of [
+      "name (Documents named “Report",
+      "name “open, documents",
+      "name (open, kind",
+    ])
+      expect(declaredLibrary(`Library: ${line}`)).toBeNull();
+    // A line that is gloss from end to end is no line: never none, never facts it doesn't name.
+    for (const line of ["(name, documents)", "“name”", "— name", '"name"', "（name）"])
+      expect(declaredLibrary(`Library: ${line}`)).toBeNull();
   });
 });
 

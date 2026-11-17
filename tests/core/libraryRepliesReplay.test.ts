@@ -140,7 +140,13 @@ describe.each(FIXTURES)(
     test.each(kept(file).map((each) => [each.sentence, each] as const))(
       "%s ends as it ended",
       async (_sentence, each) => {
-        expect(await replay(each)).toEqual({ state: each.state, reason: each.reason });
+        const ended = await replay(each);
+        expect(ended).toEqual({ state: each.state, reason: each.reason });
+        // Whatever else the reading learns, a wrong sentence is never Supported, nor a true one Contradicted.
+        // In these kept runs the second copy is named "<name> (2)": the name still appears once, so
+        // only a sentence that says twice is wrong.
+        const holds = each.says === "once";
+        expect(ended.state).not.toBe(holds ? "contradicted" : "supported");
       },
       60_000,
     );
