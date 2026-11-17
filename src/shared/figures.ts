@@ -92,6 +92,8 @@ export type AmbiguityKind = "separator" | "currency" | "scale" | "sign" | "range
 export interface Ambiguity {
   kind: AmbiguityKind;
   readings: Reading[];
+  /** A "sign" the text leaves open for a word about a loss or a deduction in another sentence: that word (#3228). */
+  word?: string;
 }
 
 /** A number read from a text. */
@@ -2877,6 +2879,8 @@ interface Draft extends Span {
   negative: boolean;
   /** "△1,250", or a whole number in brackets: the sign is a question. */
   signUnsure: boolean;
+  /** The word for a loss or a deduction that leaves the sign open (#3228), when it is that. */
+  signWord?: string;
   /** A count of people in brackets: no sign, and no unit a header states, applies to it. */
   count: boolean;
   exponent: number;
@@ -3065,9 +3069,6 @@ const STATE_WORD =
 const SUM_WORD =
   /(?<![A-Za-z])(?:loss(?:es)?|deficits?|less(?! than)|deduct(?:s|ed|ing|ions?)?)(?![A-Za-z])|(?<![幸多])亏|损失|赤字|逆差|缺口/i;
 
-/** A word that says or may say an amount is below zero, or is taken off, in the text around it. */
-const NEGATIVE_WORD = new RegExp(`${STATE_WORD.source}|${SUM_WORD.source}`, "i");
-
 /** The end of a sentence: a full stop, "?" or "!" before a space or the end, or "。", "！", "？". A line break is none. */
 const SENTENCE_END = /[.!?](?=\s|$)|[。！？]/gu;
 
@@ -3076,6 +3077,32 @@ function sentenceHead(text: string): string {
   let from = 0;
   for (const end of text.matchAll(SENTENCE_END)) from = end.index + end[0].length;
   return text.slice(from);
+}
+
+/** What comes before the first sentence end in `text`: the rest of the sentence that `text` starts in. */
+function sentenceTail(text: string): string {
+  const end = new RegExp(SENTENCE_END.source, "u").exec(text);
+  return end ? text.slice(0, end.index) : text;
+}
+
+/** The sentence just before the one that `text`, ending where that one starts, comes to: "A made a loss. " gives "A made a loss". */
+function sentenceBefore(text: string): string {
+  return sentenceHead(text.replace(/[.!?。！？\s]+$/u, ""));
+}
+
+/** The sentence after the one that `text` starts in. */
+function sentenceAfter(text: string): string {
+  const end = new RegExp(SENTENCE_END.source, "u").exec(text);
+  return end ? sentenceTail(text.slice(end.index + end[0].length)) : "";
+}
+
+/** The word for a loss or a deduction in `text` nearest the amount: the last before it, else the first after it. */
+function lossWordIn(text: string, before: boolean): string | undefined {
+  const found = [...text.matchAll(new RegExp(SUM_WORD.source, "gi"))];
+  const match = before ? found.at(-1) : found[0];
+  if (!match) return undefined;
+  // 亏 alone is the pattern's; the Document writes 亏损.
+  return match[0] === "亏" && text[match.index + 1] === "损" ? "亏损" : match[0];
 }
 
 /**
@@ -3099,7 +3126,9 @@ const SAYS_BRACKETS_NEGATIVE =
  * bracket. Null when it doesn't. Only an amount in words or with a scale word is given again so:
  * two cells of a statement line write one form twice, as an elimination's "3,600 (3,600)" does,
  * and a tab or a line between them parts two cells. Where the words may give the amount a sign, or
- * the Document says brackets are negative, the bracket is read as before.
+ * the Document says brackets are negative, the bracket is read as before. `unsure`: the only such
+ * word is one for a loss or a deduction in another sentence than the amount's, which may be about
+ * something else; it is that word, and the bracket's sign is left open (#3228).
  */
 function restates(
   prepared: Prepared,
@@ -3109,7 +3138,7 @@ function restates(
   row: "table" | "statement" | null,
   inner: Draft,
   settled: Settled,
-): { currency?: string | null; repeated?: boolean } | null {
+): { currency?: string | null; repeated?: boolean; unsure?: string } | null {
   const { s } = prepared;
   const value = readingOf({ ...inner, negative: false }).value;
   // No further back than one amount's words reach, so a long line costs no more.
@@ -3122,7 +3151,7 @@ function restates(
   const end = bracket - gap;
   for (let at = end; at <= bracket; at++)
     if (prepared.tabbed.has(at) || prepared.lineStarts.has(at)) return null;
-  const signed = (from: number) => {
+  const signFrom = (from: number): "minus" | { word: string } | null => {
     // A sign word can be lines or sentences before or after the amount it gives a sign to ("The
     // balance was negative. It was …", "… ($62,000.00), turned negative"), and a stop can't tell a
     // sentence's end from an abbreviation's ("St. Louis", "acct. A12"), so all the text within 400
@@ -3130,30 +3159,44 @@ function restates(
     // counts as far back as 2,000 characters: the model reads a sign stated in another sentence
     // wrong, and the reader can't see where the amount's section starts (#2578). A word for a loss or
     // a deduction counts only within the 400, being as often about something else.
-    if (STATE_WORD.test(`${settled.wide}${s.slice(0, from)}`)) return true;
+    if (STATE_WORD.test(`${settled.wide}${s.slice(0, from)}`)) return "minus";
     // Words that start further into the text read, or a quote whose page runs further back with no
     // blank line or heading in sight, keep the bracket's minus: the reader can't see where the
     // amount's part of the page starts.
-    if (from > 400 || settled.pageCut) return true;
+    if (from > 400 || settled.pageCut) return "minus";
     const after = s.slice(inner.to, inner.to + 400) + settled.after;
     const window = settled.before + s.slice(0, from);
-    if (NEGATIVE_WORD.test(window) || NEGATIVE_WORD.test(after) || DEDUCTION_LINE.test(window))
-      return true;
+    if (STATE_WORD.test(window) || STATE_WORD.test(after) || DEDUCTION_LINE.test(window))
+      return "minus";
+    const opening = sentenceHead(window);
     // "Party A made a loss this year. … Its result for the year was …": a sentence that starts with a
     // pronoun for its subject is the subject's, so a loss stated anywhere above, as far back as a
     // state word counts, is its loss (#3252).
-    if (
-      TIED_START.test(sentenceHead(window)) &&
-      SUM_WORD.test(`${settled.wide}${s.slice(0, from)}`)
-    )
-      return true;
+    if (TIED_START.test(opening) && SUM_WORD.test(`${settled.wide}${s.slice(0, from)}`))
+      return "minus";
     const start = s.lastIndexOf("\n", from - 1) + 1;
     // "减", a tab, "已付定金": the tab beside a Chinese character is gone from the text read.
     const label = /^[\s|]*减/.exec(s.slice(start, from))?.[0].length;
-    return (
+    if (
       SIGN_BEFORE.test(window.slice(-24)) ||
       (label !== undefined && prepared.tabbed.has(start + label))
-    );
+    )
+      return "minus";
+    // A loss in the amount's own sentence ("The loss for the year was …", "亏损…为…") is the
+    // amount's; so is one in the sentence beside it when that starts with a pronoun for the
+    // amount's subject ("Party A made a loss. Its result …"). In another sentence it may be about
+    // something else ("The Landlord is not liable for any loss of business. The annual rent is …"),
+    // and nothing in the words says which: the amount's sign is left open (#3228).
+    if (SUM_WORD.test(`${opening}${sentenceTail(after)}`)) return "minus";
+    const next = sentenceAfter(after);
+    if (
+      (TIED_START.test(opening) &&
+        SUM_WORD.test(sentenceBefore(window.slice(0, window.length - opening.length)))) ||
+      (TIED_START.test(next) && SUM_WORD.test(next))
+    )
+      return "minus";
+    const word = lossWordIn(window, true) ?? lossWordIn(after, false);
+    return word === undefined ? null : { word };
   };
   // A bare "$" is whichever dollar the words name: "Australian Dollars ($98,000)".
   const sign = inner.currencyAt ? s.slice(inner.currencyAt.from, inner.currencyAt.to) : "";
@@ -3186,22 +3229,27 @@ function restates(
     ) {
       return { repeated: true };
     }
-    if (settled.negativeBrackets || signed(before.from)) return null;
-    return agreed(before.currencies);
+    if (settled.negativeBrackets) return null;
+    const signOfBefore = signFrom(before.from);
+    if (signOfBefore === "minus") return null;
+    return { ...agreed(before.currencies), ...(signOfBefore && { unsure: signOfBefore.word }) };
   }
   if (settled.negativeBrackets) return null;
   // Back to the line's or the cell's start, not to the last figure: "and 50/100" may have been
   // read as a date.
   const from = line + s.slice(line, end).lastIndexOf("\t") + 1;
   const words = amountInWords(s.slice(from, end), settled);
-  return words !== null &&
-    words.value === value &&
-    (words.codes.length === 0 ||
-      inner.currencies.length === 0 ||
-      words.codes.some((code) => codes.includes(code))) &&
-    !signed(from + words.start)
-    ? agreed(words.codes)
-    : null;
+  if (
+    words === null ||
+    words.value !== value ||
+    (words.codes.length > 0 &&
+      inner.currencies.length > 0 &&
+      !words.codes.some((code) => codes.includes(code)))
+  )
+    return null;
+  const signOfWords = signFrom(from + words.start);
+  if (signOfWords === "minus") return null;
+  return { ...agreed(words.codes), ...(signOfWords && { unsure: signOfWords.word }) };
 }
 
 /**
@@ -3561,7 +3609,9 @@ function readAround(
     const row = glued || reference ? null : rowOf(prepared, outer?.from ?? bracket, close + 1);
     // Brackets that give the amount before them again are neither a minus nor a question, and
     // make no figure of a "thirty (30) days" that has none.
-    const aside = restates(prepared, before, floor, bracket, row, draft, settled);
+    const restated = restates(prepared, before, floor, bracket, row, draft, settled);
+    // A count of people in brackets is never a minus, so a sign left open is no matter to it.
+    const aside = restated?.unsure !== undefined && count ? null : restated;
     // "Australian Dollars ($98,000)": the bracket's "$" is the dollar its words name.
     const restate = () => {
       if (!aside?.currency) return;
@@ -3598,7 +3648,12 @@ function readAround(
     };
     draft.count = count;
     const currencySigned = outer !== null || currency !== null;
-    if (aside?.repeated) {
+    if (aside?.unsure !== undefined) {
+      restate();
+      draft.signUnsure = true;
+      draft.signWord = aside.unsure;
+      enclose();
+    } else if (aside?.repeated) {
       // A count of people in brackets is never a minus (#1023), repeated or not.
       if (count) enclose();
       else negate();
@@ -3860,6 +3915,7 @@ function finish(
     ambiguous.push({
       kind: "sign",
       readings: [positive, readingOf({ ...draft, negative: true }, written)],
+      ...(draft.signWord !== undefined && { word: draft.signWord }),
     });
   }
   if (draft.loosePoints !== null || draft.percentOrPoints) {

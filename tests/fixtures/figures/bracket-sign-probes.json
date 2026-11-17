@@ -490,9 +490,10 @@
       "minus": "supported"
     },
     "expected": {
-      "amount": "contradicted",
-      "minus": "supported"
-    }
+      "amount": "not-checked",
+      "minus": "not-checked"
+    },
+    "word": "loss"
   },
   {
     "id": "F02",
@@ -508,9 +509,10 @@
       "minus": "supported"
     },
     "expected": {
-      "amount": "contradicted",
-      "minus": "supported"
-    }
+      "amount": "not-checked",
+      "minus": "not-checked"
+    },
+    "word": "deduction"
   },
   {
     "id": "F03",
@@ -525,9 +527,10 @@
       "minus": "supported"
     },
     "expected": {
-      "amount": "contradicted",
-      "minus": "supported"
-    }
+      "amount": "not-checked",
+      "minus": "not-checked"
+    },
+    "word": "损失"
   },
   {
     "id": "F04",
@@ -543,9 +546,10 @@
       "minus": "supported"
     },
     "expected": {
-      "amount": "contradicted",
-      "minus": "supported"
-    }
+      "amount": "not-checked",
+      "minus": "not-checked"
+    },
+    "word": "亏损"
   },
   {
     "id": "G01",

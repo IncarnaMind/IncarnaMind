@@ -12,6 +12,7 @@ import {
   separatorReadingFor,
 } from "../../../shared/figures";
 import { evaluateFormula, sameNumber, showResult } from "../../../shared/formula";
+import { type SignWord, shownAmount, signWordDetail } from "../../../shared/signWord";
 import { twoReadingsDetail } from "../../../shared/twoReadings";
 import type { UnitText } from "../../../shared/units";
 import type {
@@ -868,19 +869,24 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
     ...finding(figure),
     source,
     result:
-      ambiguity?.readings.length === 2
+      ambiguity?.kind === "sign" && ambiguity.word !== undefined
         ? unavailable(
-            "two-readings",
-            twoReadingsDetail({
-              shown: figure.reading.chars,
-              readings: ambiguity.readings.map((each) => ({
-                words: readingWords(each, figure.reading.chars),
-                value: each.value,
-                unit: each.unit,
-              })),
-            }),
+            "sign-word",
+            signWordDetail({ shown: shownAmount(figure.reading.chars), word: ambiguity.word }),
           )
-        : unavailable("readings-unsettled", figure.reading.chars),
+        : ambiguity?.readings.length === 2
+          ? unavailable(
+              "two-readings",
+              twoReadingsDetail({
+                shown: figure.reading.chars,
+                readings: ambiguity.readings.map((each) => ({
+                  words: readingWords(each, figure.reading.chars),
+                  value: each.value,
+                  unit: each.unit,
+                })),
+              }),
+            )
+          : unavailable("readings-unsettled", figure.reading.chars),
   });
   const parsed = readFigureReply(options.reply, requested, options.claim);
   if (!parsed) return uncheckedFigureResults(requested, unavailable("malformed"));
@@ -953,6 +959,7 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
       };
     let sourceInput: FigureInput | null = null;
     let pageUnread = false;
+    let signOpen: SignWord | null = null;
     let calculation: CalculatedFigure | null = null;
     // A saved calculation is checked by working it out again from its own inputs: a source or a
     // calculation the model names beside it would give the verdict one number and the card another.
@@ -973,8 +980,10 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
       }
     } else if (item.source) {
       const input = readFigureSource(calculations, target, item.source);
-      if ("problem" in input) pageUnread = input.pageUnread === true;
-      else if (
+      if ("problem" in input) {
+        pageUnread = input.pageUnread === true;
+        signOpen = input.signWord ?? null;
+      } else if (
         input.input.citation.check === "found" &&
         (!input.input.unitStatement || input.input.unitStatement.citation.check === "found")
       )
@@ -1112,6 +1121,12 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
             : judged,
       };
     };
+    if (!sourceInput && !calculation && signOpen) {
+      // A word for a loss in another sentence may be about something else: neither a mark nor a
+      // red one comes from it, whatever the reply says (#3228).
+      rows.push({ ...base, result: unavailable("sign-word", signWordDetail(signOpen)) });
+      continue;
+    }
     if (!sourceInput && !calculation) {
       // A figure the model doesn't call Supported, with no source that can be read, is one its
       // quotes don't hold: Unsupported in its own right, and not asked about again (#2184). A

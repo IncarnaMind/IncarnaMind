@@ -11,6 +11,7 @@ import { formatDateTime } from "../../shared/dates";
 import { type MessageKey, type MessageParams, translate } from "../../shared/i18n";
 import { citationLocation, formatLocation } from "../../shared/locations";
 import { budgetStopOf } from "../../shared/readBudget";
+import { signWordOf } from "../../shared/signWord";
 import { readingText, twoReadingsOf } from "../../shared/twoReadings";
 import { unreadFiguresOf } from "../../shared/unreadFigures";
 
@@ -81,6 +82,7 @@ export function reasonText(
 ): string {
   if (reason === "figures-not-read") return figuresNotReadText(t, detail);
   if (reason === "two-readings") return twoReadingsText(t, language, detail);
+  if (reason === "sign-word") return signWordText(t, detail);
   if (reason !== "read-budget")
     return t(`claim.reason.${reason}`, { detail: detail ?? "", ...params });
   const stop = budgetStopOf(detail);
@@ -120,6 +122,13 @@ export const perHundredAnswers = (
   language: Language,
 ): string | null =>
   estimateText({ ...perAnswer, amount: perAnswer.amount * 100 }, null, t, language);
+
+function signWordText(t: Translate, detail: string | null): string {
+  const found = signWordOf(detail);
+  return found
+    ? t("claim.reason.sign-word", { amount: found.shown, word: found.word })
+    : t("claim.reason.sign-word.unknown");
+}
 
 function twoReadingsText(t: Translate, language: Language, detail: string | null): string {
   const figure = twoReadingsOf(detail);

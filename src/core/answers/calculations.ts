@@ -83,6 +83,7 @@ import {
 import { memoized } from "../../shared/memo";
 import { misreadDigits, numberDigits } from "../../shared/misreadWords";
 import { findQuote, type TextRange } from "../../shared/quoteMatch";
+import { type SignWord, shownAmount } from "../../shared/signWord";
 import { anchorsOf, cellNumber } from "../../shared/units";
 import type {
   CalculatedFigure,
@@ -1042,6 +1043,12 @@ interface Recorded {
   quotes: { input: Quoted; unit: Quoted | null; source: number | QuoteInput }[];
   /** Quotes a figure recorded whole is cited to: a workbook figure's cell (#2347). */
   cited?: readonly QuoteInput[];
+}
+
+/** A quoted number whose sign a word for a loss in another sentence leaves open (#3228). */
+interface SignOpen {
+  problem: string;
+  signWord: SignWord;
 }
 
 /** A figure given in structured output that couldn't be worked out: what its one request to fix it shows. */
@@ -2049,7 +2056,7 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     given: GivenInput,
     options: CiteOptions = {},
     original?: Pick<InputNumber, "at" | "chars">,
-  ): ReadInput | string {
+  ): ReadInput | string | SignOpen {
     if (!given.name) return "give the input a name the formula uses, such as rev2024.";
     const source = quoteOf(given, options);
     if (typeof source === "string") return source;
@@ -2200,6 +2207,14 @@ export function createCalculationSession(options: CalculationSessionOptions) {
         );
         reading = nearest;
         chosen = choice.readings.indexOf(nearest) + 1;
+      } else if (choice.kind === "sign" && choice.word !== undefined) {
+        // A word for a loss in another sentence may be about something else, and no reading the
+        // model gives is taken for it: the figure is left unchecked (#3228).
+        const shown = shownAmount(figure.chars);
+        return {
+          problem: `"${shown}" may be negative because of "${choice.word}" nearby, which no reading settles; quote a place that writes it plainly.`,
+          signWord: { shown, word: choice.word },
+        };
       } else if (
         given.reading !== null &&
         given.reading >= 1 &&
@@ -2802,6 +2817,8 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     for (const input of given.inputs) {
       const read = readInput(input, options);
       if (typeof read === "string") problems.push(`${lead} ${input.name || "input"}: ${read}`);
+      else if ("signWord" in read)
+        problems.push(`${lead} ${input.name || "input"}: ${read.problem}`);
       else reads.push(read);
     }
     if (problems.length > 0) return { problems };
@@ -3027,11 +3044,14 @@ export function createCalculationSession(options: CalculationSessionOptions) {
      * with no unit of its own where its page states one needs that line as
      * `unitQuote`: alone, its scale always matters.
      */
-    number(raw: unknown): { input: FigureInput } | { problem: string; pageUnread?: true } {
+    number(
+      raw: unknown,
+    ): { input: FigureInput } | { problem: string; pageUnread?: true; signWord?: SignWord } {
       const given = givenInput(raw);
       const read = readInput(given);
       if (typeof read === "string")
         return { problem: read, ...(onUnreadPage(given) && { pageUnread: true as const }) };
+      if ("signWord" in read) return read;
       if (read.candidate && !read.unit) {
         return { problem: candidateProblem(read.figure.chars, read.where, read.candidate) };
       }
@@ -3058,6 +3078,7 @@ export function createCalculationSession(options: CalculationSessionOptions) {
         input.number,
       );
       if (typeof read === "string") return { problem: read };
+      if ("signWord" in read) return { problem: read.problem };
       const current = checkedNumber(read);
       if (
         current.citation.documentId !== input.citation.documentId ||
