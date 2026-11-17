@@ -571,6 +571,16 @@ describe.each(["en", "zh-CN"] as const)(
 );
 
 describe("the ask for a fill's records (#3099)", () => {
+  // protects=a fill's request for records names no sentence to leave out: a Summary sentence left without its item took the whole Summary out of the notes (#3013); fails_when=the fill's request again tells the model to leave out sentences no Passage supports, as an Answer's request rightly does; no_claim=that a model gives every sentence an item, which the pull request measures
+  test("asks for every sentence's record, where an Answer's request leaves out what no Passage supports", () => {
+    const leavesOut = "Leave out sentences that no Passage supports";
+    expect(CITE_RETRY_INSTRUCTIONS).toContain(leavesOut);
+    expect(FILL_CITE_RETRY_INSTRUCTIONS).not.toContain(leavesOut);
+    expect(FILL_CITE_RETRY_INSTRUCTIONS).not.toContain('{"citations": []}');
+    expect(FILL_CITE_RETRY_INSTRUCTIONS).toContain("For every sentence of the Answer");
+    expect(FILL_CITE_RETRY_INSTRUCTIONS).toContain("Leave no sentence out");
+  });
+
   // protects=the ask goes to the model and service the fill used, with no thinking, where the User's quick-tasks model is another one (#3099); fails_when=it goes to the quick-tasks model, or thinks; no_claim=a real provider's request.
   test("goes to the model the fill used, without thinking, never the quick-tasks model", async () => {
     const words = WORDS.en;

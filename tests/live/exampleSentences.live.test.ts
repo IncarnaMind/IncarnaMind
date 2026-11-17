@@ -442,6 +442,166 @@ const HELD_OUT: readonly HeldOut[] = [
     right: "一厂产量为2,800吨。",
     wrong: "一厂产量为2,800千克。",
   }),
+  // Tables whose one unit statement doesn't cover every number, as a count of 40 published tables
+  // found them (#2997): a money line over a % column, a "%" line over changes in points, per-share
+  // rows under a money line, a units column, column headings at two scales, a unit stated once for
+  // the Document. Invented; each wrong twin has a wrong scale, a wrong unit or another row's figure.
+  ...pair("en-h1", "table", "en", {
+    document:
+      "Segment performance\n(dollars in millions)\n| Segment | 2025 | 2024 | Change |\n|---|---|---|---|\n| Devices | 4,210 | 3,905 | 8% |\n| Services | 1,130 | 1,020 | 11% |",
+    right: "Devices revenue was $4,210 million in 2025.",
+    wrong: "Devices revenue was $4,210 thousand in 2025.",
+  }),
+  ...pair("en-h2", "table", "en", {
+    document:
+      "Segment performance\n(dollars in millions)\n| Segment | 2025 | 2024 | Change |\n|---|---|---|---|\n| Devices | 4,210 | 3,905 | 8% |\n| Services | 1,130 | 1,020 | 11% |",
+    right: "Devices revenue rose 8% from 2024 to 2025.",
+    wrong: "Devices revenue rose 8 percentage points from 2024 to 2025.",
+  }),
+  ...pair("en-h3", "table", "en", {
+    document:
+      "Unemployment by region\n| Region | Rate (%) | Persons (in thousands) |\n|---|---|---|\n| North | 6.1 | 412 |\n| South | 5.4 | 388 |",
+    right: "The unemployment rate in the North was 6.1%.",
+    wrong: "The unemployment rate in the North was 61%.",
+  }),
+  ...pair("en-h4", "table", "en", {
+    document:
+      "Unemployment by region\n| Region | Rate (%) | Persons (in thousands) |\n|---|---|---|\n| North | 6.1 | 412 |\n| South | 5.4 | 388 |",
+    right: "The North had 412 thousand unemployed persons.",
+    wrong: "The North had 412 million unemployed persons.",
+  }),
+  ...pair("en-h5", "table", "en", {
+    document:
+      "Group income statement\n|  | 2025 £m | 2024 £m |\n|---|---|---|\n| Revenue | 1,840 | 1,715 |\n| Operating profit | 212 | 198 |\n| Basic earnings per share (pence) | 14.2 | 13.1 |",
+    right: "Revenue was £1,840 million in 2025.",
+    wrong: "Revenue was £1,840 thousand in 2025.",
+  }),
+  ...pair("en-h6", "table", "en", {
+    document:
+      "Group income statement\n|  | 2025 £m | 2024 £m |\n|---|---|---|\n| Revenue | 1,840 | 1,715 |\n| Operating profit | 212 | 198 |\n| Basic earnings per share (pence) | 14.2 | 13.1 |",
+    right: "Basic earnings per share were 14.2 pence in 2025.",
+    wrong: "Basic earnings per share were £14.2 in 2025.",
+  }),
+  ...pair("en-h7", "table", "en", {
+    document:
+      "Consolidated statements of operations\n(In millions, except number of shares, which are reflected in thousands, and per-share amounts)\n|  | 2025 | 2024 |\n|---|---|---|\n| Net sales | 8,420 | 7,910 |\n| Earnings per share, basic | 2.14 | 1.98 |\n| Shares used, basic | 1,520,300 | 1,548,900 |",
+    right: "Net sales were $8,420 million in 2025.",
+    wrong: "Net sales were $8,420 thousand in 2025.",
+  }),
+  ...pair("en-h8", "table", "en", {
+    document:
+      "Consolidated statements of operations\n(In millions, except number of shares, which are reflected in thousands, and per-share amounts)\n|  | 2025 | 2024 |\n|---|---|---|\n| Net sales | 8,420 | 7,910 |\n| Earnings per share, basic | 2.14 | 1.98 |\n| Shares used, basic | 1,520,300 | 1,548,900 |",
+    right: "Basic earnings per share were $2.14 in 2025.",
+    wrong: "Basic earnings per share were $2.14 million in 2025.",
+  }),
+  ...pair("en-h9", "table", "en", {
+    document:
+      "Consolidated statements of operations\n(In millions, except number of shares, which are reflected in thousands, and per-share amounts)\n|  | 2025 | 2024 |\n|---|---|---|\n| Net sales | 8,420 | 7,910 |\n| Earnings per share, basic | 2.14 | 1.98 |\n| Shares used, basic | 1,520,300 | 1,548,900 |",
+    right: "Basic shares used were 1,520,300 thousand in 2025.",
+    wrong: "Basic shares used were 1,520,300 in 2025.",
+  }),
+  ...pair("en-h10", "table", "en", {
+    document:
+      "Table 1: Supply and demand by sector, tonnes\n|  | 2024 | 2025 | Change |\n|---|---|---|---|\n| Jewellery | 2,010 | 1,880 | 6% |\n| Price (US$/oz) | 2,386 | 3,120 | 31% |",
+    right: "Jewellery demand was 1,880 tonnes in 2025.",
+    wrong: "Jewellery demand was 1,880 kilotonnes in 2025.",
+  }),
+  ...pair("en-h11", "table", "en", {
+    document:
+      "Table 1: Supply and demand by sector, tonnes\n|  | 2024 | 2025 | Change |\n|---|---|---|---|\n| Jewellery | 2,010 | 1,880 | 6% |\n| Price (US$/oz) | 2,386 | 3,120 | 31% |",
+    right: "The price was US$3,120 an ounce in 2025.",
+    wrong: "The price was US$3,120 a tonne in 2025.",
+  }),
+  ...pair("zh-h1", "table", "zh-CN", {
+    document:
+      "附件1 一般公共预算收入决算表\n单位：万元\n| 项目 | 预算数 | 决算数 | 决算数为预算数的% |\n|---|---|---|---|\n| 税收收入 | 5200 | 5460 | 105 |\n| 非税收入 | 1800 | 1710 | 95 |",
+    right: "税收收入决算数为5460万元。",
+    wrong: "税收收入决算数为5460元。",
+  }),
+  ...pair("zh-h2", "table", "zh-CN", {
+    document:
+      "附件1 一般公共预算收入决算表\n单位：万元\n| 项目 | 预算数 | 决算数 | 决算数为预算数的% |\n|---|---|---|---|\n| 税收收入 | 5200 | 5460 | 105 |\n| 非税收入 | 1800 | 1710 | 95 |",
+    right: "税收收入决算数为预算数的105%。",
+    wrong: "税收收入决算数为预算数的95%。",
+  }),
+  ...pair("zh-h3", "table", "zh-CN", {
+    document:
+      "表3 新发放贷款加权平均利率情况\n单位：%\n| 项目 | 12月 | 比9月变化 | 同比变化 |\n|---|---|---|---|\n| 企业贷款 | 3.40 | 0.12 | 0.35 |\n| 个人住房贷款 | 3.10 | 0.21 | 0.88 |",
+    right: "12月企业贷款利率为3.40%。",
+    wrong: "12月企业贷款利率为3.10%。",
+  }),
+  ...pair("zh-h4", "table", "zh-CN", {
+    document:
+      "表3 新发放贷款加权平均利率情况\n单位：%\n| 项目 | 12月 | 比9月变化 | 同比变化 |\n|---|---|---|---|\n| 企业贷款 | 3.40 | 0.12 | 0.35 |\n| 个人住房贷款 | 3.10 | 0.21 | 0.88 |",
+    right: "企业贷款利率比9月上升0.12个百分点。",
+    wrong: "企业贷款利率比9月上升0.12%。",
+  }),
+  ...pair("zh-h5", "table", "zh-CN", {
+    document:
+      "主营业务分产品情况\n单位：元 币种：人民币\n| 分产品 | 营业收入 | 营业成本 | 毛利率（%） | 毛利率比上年增减（%） |\n|---|---|---|---|---|\n| 甲类产品 | 8200000 | 3100000 | 62.2 | 增加1.2个百分点 |\n| 乙类产品 | 4100000 | 2300000 | 43.9 | 减少0.8个百分点 |",
+    right: "甲类产品毛利率比上年增加1.2个百分点。",
+    wrong: "甲类产品毛利率比上年增加1.2%。",
+  }),
+  ...pair("zh-h6", "table", "zh-CN", {
+    document:
+      "主营业务分产品情况\n单位：元 币种：人民币\n| 分产品 | 营业收入 | 营业成本 | 毛利率（%） | 毛利率比上年增减（%） |\n|---|---|---|---|---|\n| 甲类产品 | 8200000 | 3100000 | 62.2 | 增加1.2个百分点 |\n| 乙类产品 | 4100000 | 2300000 | 43.9 | 减少0.8个百分点 |",
+    right: "甲类产品营业收入为820万元。",
+    wrong: "甲类产品营业收入为8200万元。",
+  }),
+  ...pair("zh-h7", "table", "zh-CN", {
+    document:
+      "主要财务指标\n单位：元\n| 主要财务指标 | 2024年 | 2023年 |\n|---|---|---|\n| 营业收入 | 52000000 | 48000000 |\n| 基本每股收益（元/股） | 0.52 | 0.48 |\n| 加权平均净资产收益率（%） | 12.4 | 11.9 |",
+    right: "2024年基本每股收益为0.52元。",
+    wrong: "2024年基本每股收益为0.52万元。",
+  }),
+  ...pair("zh-h8", "table", "zh-CN", {
+    document:
+      "主要财务指标\n单位：元\n| 主要财务指标 | 2024年 | 2023年 |\n|---|---|---|\n| 营业收入 | 52000000 | 48000000 |\n| 基本每股收益（元/股） | 0.52 | 0.48 |\n| 加权平均净资产收益率（%） | 12.4 | 11.9 |",
+    right: "2024年加权平均净资产收益率为12.4%。",
+    wrong: "2024年加权平均净资产收益率为11.9%。",
+  }),
+  ...pair("zh-h9", "table", "zh-CN", {
+    document:
+      "除特别注明外，金额单位均为人民币百万元\n\n四、财务报表主要项目附注\n\n1. 现金及存放中央银行款项\n| 项目 | 2024年末 | 2023年末 |\n|---|---|---|\n| 库存现金 | 1520 | 1480 |\n| 存放中央银行款项 | 9300 | 8800 |",
+    right: "2024年末库存现金为15.2亿元。",
+    wrong: "2024年末库存现金为1520万元。",
+  }),
+  ...pair("zh-h10", "table", "zh-CN", {
+    document:
+      "表4 财政拨款支出决算表\n单位：青禾大学　　单位：万元\n| 科目 | 合计 | 基本支出 | 项目支出 |\n|---|---|---|---|\n| 教育支出 | 8400 | 6100 | 2300 |\n| 科学技术支出 | 1200 | 300 | 900 |",
+    right: "教育支出合计8400万元。",
+    wrong: "教育支出合计8400元。",
+  }),
+  ...pair("zh-h11", "table", "zh-CN", {
+    document:
+      "表3 主要产品产量及其增长速度\n| 产品名称 | 单位 | 产量 | 比上年增长（%） |\n|---|---|---|---|\n| 原煤 | 万吨 | 540 | 3.2 |\n| 汽车 | 万辆 | 31 | 1.5 |",
+    right: "原煤产量为540万吨。",
+    wrong: "原煤产量为540吨。",
+  }),
+  ...pair("zh-h12", "table", "zh-CN", {
+    document:
+      "表3 主要产品产量及其增长速度\n| 产品名称 | 单位 | 产量 | 比上年增长（%） |\n|---|---|---|---|\n| 原煤 | 万吨 | 540 | 3.2 |\n| 汽车 | 万辆 | 31 | 1.5 |",
+    right: "原煤产量比上年增长3.2%。",
+    wrong: "原煤产量比上年增长3.2个百分点。",
+  }),
+  ...pair("zh-h13", "table", "zh-CN", {
+    document:
+      "表1 主要财务数据\n| 项目 | 2023年 | 2024年 |\n|---|---|---|\n| 资产总额（万亿元） | 3.1 | 3.4 |\n| 不良贷款率（%） | 1.62 | 1.50 |",
+    right: "2024年资产总额为3.4万亿元。",
+    wrong: "2024年资产总额为3.4亿元。",
+  }),
+  ...pair("zh-h14", "table", "zh-CN", {
+    document:
+      "表7 社会融资规模\n| 项目 | 年末存量（万亿元） | 同比增速（%） | 全年增量（亿元） |\n|---|---|---|---|\n| 人民币贷款 | 252.5 | 7.2 | 170500 |\n| 企业债券 | 32.3 | 3.8 | 19000 |",
+    right: "人民币贷款年末存量为252.5万亿元。",
+    wrong: "人民币贷款年末存量为252.5亿元。",
+  }),
+  ...pair("zh-h15", "table", "zh-CN", {
+    document:
+      "表7 社会融资规模\n| 项目 | 年末存量（万亿元） | 同比增速（%） | 全年增量（亿元） |\n|---|---|---|---|\n| 人民币贷款 | 252.5 | 7.2 | 170500 |\n| 企业债券 | 32.3 | 3.8 | 19000 |",
+    right: "人民币贷款全年增量为17.05万亿元。",
+    wrong: "人民币贷款全年增量为1.705万亿元。",
+  }),
 ];
 
 function pair(

@@ -1758,12 +1758,12 @@ describe("A table's row and units column label its values (#2997)", { timeout: 1
     ]);
   });
 
-  // protects=a column headed 单位 or Unit none of whose cells is a unit alone, as 单位 heads a column of organisations, names the rows and gives no unit, so a name that begins with a scale word or a unit's symbol (百色市, 亿利集团, Mt Isa) states none and the right sentence under the caption keeps its ✓ and Supported, as on main, while another scale is caught, after a column of row numbers or as the first column, English and Chinese; fails_when="百色市粮食产量为37万吨。" reads Unsupported, or "Mt Isa's output was 31 kt." reads "The Document gives 31 Mt Isa, not 31 kt."; no_claim=a column of names one of which is a unit alone.
+  // protects=a column headed 单位 or Unit none of whose cells is a unit alone, as 单位 heads a column of organisations, names the rows and gives no unit, so a name that begins with a scale word or a unit's symbol (百色市, 亿栎集团, Mt Isa) states none and the right sentence under the caption keeps its ✓ and Supported, as on main, while another scale is caught, after a column of row numbers or as the first column, English and Chinese; fails_when="百色市粮食产量为37万吨。" reads Unsupported, or "Mt Isa's output was 31 kt." reads "The Document gives 31 Mt Isa, not 31 kt."; no_claim=a column of names one of which is a unit alone.
   test("a column headed 单位 or Unit that names its rows gives them no unit", async () => {
     const grain =
       "表1 各单位粮食产量（万吨）\n序号\t单位\t产量\n1\t南宁市\t54\n2\t百色市\t37\n3\t百货公司\t23\n4\t百川集团\t12";
     const water =
-      "表2 各单位用水量（万立方米）\n序号\t单位\t2023年\t2024年\n1\t万宁市水务局\t54\t31\n2\t千阳县自来水厂\t77\t80\n3\t亿利集团\t12\t14\n4\t办公室\t3\t4";
+      "表2 各单位用水量（万立方米）\n序号\t单位\t2023年\t2024年\n1\t万宁市水务局\t54\t31\n2\t千阳县自来水厂\t77\t80\n3\t亿栎集团\t12\t14\n4\t办公室\t3\t4";
     await readsAsWanted([
       [grain, "1\t南宁市\t54", "南宁市粮食产量为54万吨。", TICK],
       [grain, "2\t百色市\t37", "百色市粮食产量为37万吨。", TICK],
@@ -1785,7 +1785,7 @@ describe("A table's row and units column label its values (#2997)", { timeout: 1
         caught("12（万吨）", "12吨"),
       ],
       [water, "2\t千阳县自来水厂\t77\t80", "千阳县自来水厂2024年用水量为80万立方米。", TICK],
-      [water, "3\t亿利集团\t12\t14", "亿利集团2024年用水量为14万立方米。", TICK],
+      [water, "3\t亿栎集团\t12\t14", "亿栎集团2024年用水量为14万立方米。", TICK],
       [
         water,
         "1\t万宁市水务局\t54\t31",
@@ -1825,12 +1825,12 @@ describe("A table's row and units column label its values (#2997)", { timeout: 1
     ]);
   });
 
-  // protects=a column headed 单位 or Unit beside another column of names, none of whose cells is a unit alone, names organisations, whatever unit a name begins with: a scale word (万宁市水务局, 亿利集团), a unit of two characters or more (美元基金公司, 千瓦科技, 人民币结算中心, 欧元区贸易公司) or a unit written with a capital ("Mt Isa", "Mt Keith"), so the right sentence under the caption keeps its ✓ and Supported while another scale is caught, with or without row numbers, or reads as on main under a caption with no unit, English and Chinese; fails_when="美元基金公司2024年用水量为5万立方米。" or "Mt Isa's output was 31 kt." reads Unsupported, or "亿利集团2024年用水量为14亿立方米。" reads ✓ or Supported; no_claim=a column of names one of which is a unit alone.
+  // protects=a column headed 单位 or Unit beside another column of names, none of whose cells is a unit alone, names organisations, whatever unit a name begins with: a scale word (万宁市水务局, 亿栎集团), a unit of two characters or more (美元基金公司, 千瓦科技, 人民币结算中心, 欧元区贸易公司) or a unit written with a capital ("Mt Isa", "Mt Keith"), so the right sentence under the caption keeps its ✓ and Supported while another scale is caught, with or without row numbers, or reads as on main under a caption with no unit, English and Chinese; fails_when="美元基金公司2024年用水量为5万立方米。" or "Mt Isa's output was 31 kt." reads Unsupported, or "亿栎集团2024年用水量为14亿立方米。" reads ✓ or Supported; no_claim=a column of names one of which is a unit alone.
   test("a column headed 单位 or Unit with no unit alone among its cells names organisations", async () => {
     const rows = [
       ["海南", "万宁市水务局", "31"],
       ["陕西", "千阳县自来水厂", "80"],
-      ["内蒙古", "亿利集团", "14"],
+      ["内蒙古", "亿栎集团", "14"],
       ["广西", "南宁市水务局", "54"],
     ];
     const table = (caption: string, numbered: boolean) =>
@@ -1844,7 +1844,7 @@ describe("A table's row and units column label its values (#2997)", { timeout: 1
     const copper = (second: string) =>
       `Table 4. Copper output by unit (kt)\nRegion\tUnit\tOutput\nQueensland\tMt Isa\t31\n${second}\t54`;
     const names = [
-      ["海南", "元气森林公司", "31"],
+      ["海南", "元气谷地公司", "31"],
       ["陕西", "米其林轮胎厂", "80"],
       ["湖南", "克明食品", "14"],
       ["北京", "度小满科技", "4"],
@@ -1881,11 +1881,11 @@ describe("A table's row and units column label its values (#2997)", { timeout: 1
         const water = table("表3 各地区各单位用水量（万立方米）", numbered);
         const unsaid = table("表3 各地区各单位用水量", numbered);
         return [
-          [water, quote(2, numbered), "亿利集团2024年用水量为14万立方米。", TICK],
+          [water, quote(2, numbered), "亿栎集团2024年用水量为14万立方米。", TICK],
           [
             water,
             quote(2, numbered),
-            "亿利集团2024年用水量为14亿立方米。",
+            "亿栎集团2024年用水量为14亿立方米。",
             caught("14", "14亿立方米"),
           ],
           [water, quote(1, numbered), "千阳县自来水厂2024年用水量为80万立方米。", TICK],
@@ -1898,21 +1898,21 @@ describe("A table's row and units column label its values (#2997)", { timeout: 1
           [
             unsaid,
             quote(2, numbered),
-            "亿利集团2024年用水量为14万立方米。",
+            "亿栎集团2024年用水量为14万立方米。",
             leftToTheModel("14", "14万立方米"),
           ],
           [
             unsaid,
             quote(2, numbered),
-            "亿利集团2024年用水量为14亿立方米。",
+            "亿栎集团2024年用水量为14亿立方米。",
             leftToTheModel("14", "14亿立方米"),
           ],
         ];
       }),
       [
-        "表3 各地区各单位用水量（万立方米）\n地区\t单位\t2024年\n海南\t万宁市水务局\t31\n陕西\t千阳县自来水厂\t80\n内蒙古\t亿利集团\t14",
-        "内蒙古\t亿利集团\t14",
-        "亿利集团2024年用水量为14亿立方米。",
+        "表3 各地区各单位用水量（万立方米）\n地区\t单位\t2024年\n海南\t万宁市水务局\t31\n陕西\t千阳县自来水厂\t80\n内蒙古\t亿栎集团\t14",
+        "内蒙古\t亿栎集团\t14",
+        "亿栎集团2024年用水量为14亿立方米。",
         caught("14", "14亿立方米"),
       ],
       ...["S. Australia\tOlympic Dam", "W. Australia\tMt Keith"].flatMap(
@@ -2723,13 +2723,13 @@ describe("An organisation named after a colon states no unit (#2997)", {
     );
   });
 
-  // protects=an organisation whose name begins with or holds a scale, a currency or a unit, after 编制单位, states none of them: 亿利集团, 百色市水泥厂, 美元基金公司, 千瓦科技有限公司, 千瓦科技, 千禾味业 and 万川集团 over 单位：元 ("净利润为310元。" ✓, 310万元 and 310亿元 caught), 元气森林食品有限公司, 元宝山电厂 and 人民币结算中心 over 单位：万元 (310万元 ✓, 310亿元 caught), 吨位检测中心 over 单位：万吨 (31万吨 ✓, 31吨 caught) and 千瓦科技有限公司 over 单位：吨 (31吨 ✓, 31千吨 caught), on two lines and on one; fails_when="净利润为310亿元。" reads ✓ or Supported under 编制单位：亿利集团 over 单位：元, or a right sentence there reads Not checked; no_claim=a sentence in the currency an organisation's name holds (310美元 under 美元基金公司), a known cost below.
+  // protects=an organisation whose name begins with or holds a scale, a currency or a unit, after 编制单位, states none of them: 亿栎集团, 百色市水泥厂, 美元基金公司, 千瓦科技有限公司, 千瓦科技, 千禾味业 and 万川集团 over 单位：元 ("净利润为310元。" ✓, 310万元 and 310亿元 caught), 元气谷地食品有限公司, 元宝山电厂 and 人民币结算中心 over 单位：万元 (310万元 ✓, 310亿元 caught), 吨位检测中心 over 单位：万吨 (31万吨 ✓, 31吨 caught) and 千瓦科技有限公司 over 单位：吨 (31吨 ✓, 31千吨 caught), on two lines and on one; fails_when="净利润为310亿元。" reads ✓ or Supported under 编制单位：亿栎集团 over 单位：元, or a right sentence there reads Not checked; no_claim=a sentence in the currency an organisation's name holds (310美元 under 美元基金公司), a known cost below.
   test("a name that begins with or holds a unit or a scale states none", async () => {
     const named = (name: string, unit: string, rows = STATEMENT) =>
       `编制单位：${name}\n${unit}\n${rows}`;
     await readsAsWanted([
       ...[
-        "亿利集团",
+        "亿栎集团",
         "百色市水泥厂",
         "美元基金公司",
         "千瓦科技有限公司",
@@ -2737,8 +2737,8 @@ describe("An organisation named after a colon states no unit (#2997)", {
         "千禾味业",
         "万川集团",
       ].flatMap((name) => inYuan(named(name, "单位：元"))),
-      [named("亿利集团", "单位：元"), PROFIT, "净利润为310亿元。", caught("310", "310亿元")],
-      ...["元气森林食品有限公司", "元宝山电厂", "人民币结算中心"].flatMap((name) =>
+      [named("亿栎集团", "单位：元"), PROFIT, "净利润为310亿元。", caught("310", "310亿元")],
+      ...["元气谷地食品有限公司", "元宝山电厂", "人民币结算中心"].flatMap((name) =>
         inWan(named(name, "单位：万元")),
       ),
       [named("吨位检测中心", "单位：万吨", PLANTS), "二厂\t31", "二厂产量为31万吨。", TICK],
@@ -2755,14 +2755,14 @@ describe("An organisation named after a colon states no unit (#2997)", {
         "二厂产量为31千吨。",
         caught("31", "31千吨"),
       ],
-      [`编制单位：亿利集团 单位：元\n${STATEMENT}`, PROFIT, "净利润为310元。", TICK],
+      [`编制单位：亿栎集团 单位：元\n${STATEMENT}`, PROFIT, "净利润为310元。", TICK],
       [
-        `编制单位：亿利集团 单位：元\n${STATEMENT}`,
+        `编制单位：亿栎集团 单位：元\n${STATEMENT}`,
         PROFIT,
         "净利润为310亿元。",
         caught("310", "310亿元"),
       ],
-      ...inWan(`编制单位：元气森林食品有限公司 单位：万元\n${STATEMENT}`),
+      ...inWan(`编制单位：元气谷地食品有限公司 单位：万元\n${STATEMENT}`),
     ]);
   });
 
@@ -2886,7 +2886,7 @@ describe("An organisation named after a colon states no unit (#2997)", {
     ]);
   });
 
-  // protects=known costs, pinned at what they read: an organisation named after 单位 alone ("单位：万禾股份有限公司" over 单位：元) reads as on main, its 万 the Document's (310万元 ✓ and Supported, 310元 Not checked), since a bare unit label's unit may have the next line joined to it in a PDF's text ("单位：万元项目…"); a sentence in the currency an organisation's name holds ("净利润为310美元。" under 编制单位：美元基金公司 over 单位：元) reads Not checked and Supported, as on main, the name's 美元 being a currency the Document's words name; a name that begins with a scale and its unit ("编制单位：万元集团" over 单位：元) reads 万元 as main does, since a scale with its unit stands whatever follows it (310元 and 310万元 Not checked and Supported); and where the organisation's line is the only line that seemed to state a scale, the Document now states none, so in an Answer the model's ✓ stands, right sentence or wrong ("净利润为310万元。" under 编制单位：亿利集团, 310亿元 and 310万元 under 编制单位：元气森林食品有限公司, 31千吨 under 编制单位：千瓦科技有限公司), and Check against Documents reads Unsupported, where main caught the wrong ones in both checks by reading the name's first character; fails_when=any reads otherwise without this list changing; no_claim=that they are right.
+  // protects=known costs, pinned at what they read: an organisation named after 单位 alone ("单位：万禾股份有限公司" over 单位：元) reads as on main, its 万 the Document's (310万元 ✓ and Supported, 310元 Not checked), since a bare unit label's unit may have the next line joined to it in a PDF's text ("单位：万元项目…"); a sentence in the currency an organisation's name holds ("净利润为310美元。" under 编制单位：美元基金公司 over 单位：元) reads Not checked and Supported, as on main, the name's 美元 being a currency the Document's words name; a name that begins with a scale and its unit ("编制单位：万元集团" over 单位：元) reads 万元 as main does, since a scale with its unit stands whatever follows it (310元 and 310万元 Not checked and Supported); and where the organisation's line is the only line that seemed to state a scale, the Document now states none, so in an Answer the model's ✓ stands, right sentence or wrong ("净利润为310万元。" under 编制单位：亿栎集团, 310亿元 and 310万元 under 编制单位：元气谷地食品有限公司, 31千吨 under 编制单位：千瓦科技有限公司), and Check against Documents reads Unsupported, where main caught the wrong ones in both checks by reading the name's first character; fails_when=any reads otherwise without this list changing; no_claim=that they are right.
   test("known costs of an organisation named after a colon", async () => {
     await readsAsWanted([
       [`利润表\n单位：万禾股份有限公司\n单位：元\n${STATEMENT}`, PROFIT, "净利润为310万元。", TICK],
@@ -2899,20 +2899,27 @@ describe("An organisation named after a colon states no unit (#2997)", {
       [`编制单位：美元基金公司\n单位：元\n${STATEMENT}`, PROFIT, "净利润为310美元。", UNJUDGED],
       [`编制单位：万元集团\n单位：元\n${STATEMENT}`, PROFIT, "净利润为310元。", UNJUDGED],
       [`编制单位：万元集团\n单位：元\n${STATEMENT}`, PROFIT, "净利润为310万元。", UNJUDGED],
+      [`编制单位：千台精工有限公司\n单位：元\n${STATEMENT}`, PROFIT, "净利润为310元。", UNJUDGED],
       [
-        `编制单位：亿利集团\n${STATEMENT}`,
+        `编制单位：千台精工有限公司\n单位：元\n${STATEMENT}`,
+        PROFIT,
+        "净利润为310万元。",
+        caught("310", "310万元"),
+      ],
+      [
+        `编制单位：亿栎集团\n${STATEMENT}`,
         PROFIT,
         "净利润为310万元。",
         leftToTheModel("310", "310万元"),
       ],
       [
-        `编制单位：元气森林食品有限公司\n${STATEMENT}`,
+        `编制单位：元气谷地食品有限公司\n${STATEMENT}`,
         PROFIT,
         "净利润为310万元。",
         leftToTheModel("310", "310万元"),
       ],
       [
-        `编制单位：元气森林食品有限公司\n${STATEMENT}`,
+        `编制单位：元气谷地食品有限公司\n${STATEMENT}`,
         PROFIT,
         "净利润为310亿元。",
         leftToTheModel("310", "310亿元"),
