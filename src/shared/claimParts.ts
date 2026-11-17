@@ -81,6 +81,7 @@ const FAILURES: Record<ClaimCheckFailure, true> = {
   "figures-not-read": true,
   "sentence-figures-not-read": true,
   "two-readings": true,
+  "sign-word": true,
   "readings-unsettled": true,
   "library-unsettled": true,
   "analysis-unnamed": true,
@@ -98,6 +99,7 @@ const SAYS_WHAT_TO_DO: ReadonlySet<ClaimCheckFailure> = new Set([
   "number-not-worked-out",
   "found-elsewhere",
   "two-readings",
+  "sign-word",
   "readings-unsettled",
 ]);
 const ANSWERED: ReadonlySet<ClaimCheckFailure> = new Set([

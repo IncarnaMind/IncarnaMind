@@ -22,6 +22,7 @@ import { reasonText } from "../../src/renderer/src/cost";
 import { MAX_CHART_VALUES } from "../../src/shared/charts";
 import { readFigures } from "../../src/shared/figures";
 import { translate } from "../../src/shared/i18n";
+import { signWordOf } from "../../src/shared/signWord";
 import type { UnitText } from "../../src/shared/units";
 import { SAME_DETAIL } from "../helpers/checks";
 import { unsupportedWorkbook, WorkbookBuilder } from "../helpers/financeWorkbooks";
@@ -3554,6 +3555,8 @@ interface SignProbe {
   amount: string;
   number: string;
   truth: "pos" | "neg";
+  /** The word for a loss in another sentence that leaves the amount's sign open, where it does (#3228). */
+  word?: string;
   main: Verdicts;
   expected: Verdicts;
 }
@@ -3596,6 +3599,52 @@ test.each(signProbes.flatMap((probe) => signs.map((sign) => ({ ...probe, sign })
       ]),
     });
     expect(result.verdict).toBe(probe.expected[probe.sign]);
+  },
+);
+
+// protects=a loss or deduction word in another sentence than the bracketed amount's ends the check Not checked for the amount and for its minus, with a reason that names the word, whatever reading the model gives and without asking it for one (#3228); fails_when=the check gives a verdict of its own on a sign it left open, takes the model's reading for it, or asks for one
+test.each(
+  signProbes
+    .filter((probe) => probe.word !== undefined)
+    .flatMap((probe) => signs.map((sign) => ({ ...probe, sign }))),
+)(
+  "$id ($shape), $sign: Not checked, naming its word, with no reading asked (#3228)",
+  async (probe) => {
+    const shown = `${probe.sign === "minus" ? "-" : ""}${probe.amount}`;
+    const claim = probe.lang === "zh-CN" ? `金额为${shown}。` : `The amount is ${shown}.`;
+    const { result, calls } = await checkWith({
+      claim,
+      figures: [target("f1", shown, claim, probe.lang)],
+      body: probe.body,
+      quotes: probe.quote ? [probe.quote] : undefined,
+      text: reply([
+        {
+          ...item(),
+          source: { citation: 1, number: probe.number, reading: 1, unitQuote: null },
+        },
+      ]),
+    });
+    expect(result.verdict).toBe("not-checked");
+    const figure = result.figures?.[0]?.result;
+    expect(figure && "reason" in figure && figure.reason).toBe("sign-word");
+    expect(figure && "detail" in figure && signWordOf(figure.detail ?? null)?.word).toBe(
+      probe.word,
+    );
+    expect(calls.some((call) => call.prompt.includes("may be negative"))).toBe(false);
+    const line = (language: "en" | "zh-CN") =>
+      figure?.verdict === "not-checked"
+        ? reasonText(
+            (key, params) => translate(language, key, params),
+            language,
+            figure.reason,
+            figure.detail,
+          )
+        : null;
+    const amount = probe.number.startsWith("$") ? probe.number : probe.number.replace(/^¥?/, "¥");
+    expect(line("en")).toBe(
+      `“${amount}” may be negative because of “${probe.word}” nearby, so it wasn’t checked.`,
+    );
+    expect(line("zh-CN")).toBe(`附近的“${probe.word}”可能表示“${amount}”是负数，所以未核对。`);
   },
 );
 
@@ -3645,6 +3694,25 @@ describe.each(["en", "zh-CN"] as const)(
     ])("a sign word far back in the section keeps the minus, $where", async ({ layout }) => {
       expect(await verdictOf("far", "amount", layout)).toBe("contradicted");
       expect(await verdictOf("far", "minus", layout)).toBe("supported");
+    });
+
+    // protects=a loss stated far back in the section, with an amount sentence that starts with a pronoun for its subject ("Party A made a loss this year. … Its result for the year was …"), keeps the bracket's minus: the plus sentence is Contradicted and its minus Supported (#3252); fails_when=the loss is out of the reader's sight and the plus reads Supported, as a real model's check did in 5 of 6 rounds
+    test.each([
+      { layout: { between: true, cited: true }, where: "on the page around a cited quote" },
+      { layout: { between: true, cited: false }, where: "in a Passage read whole" },
+    ])(
+      "a loss far back that the amount's sentence is tied to by 'Its' keeps the minus, $where",
+      async ({ layout }) => {
+        expect(await verdictOf("tiedFar", "amount", layout)).toBe("contradicted");
+        expect(await verdictOf("tiedFar", "minus", layout)).toBe("supported");
+      },
+    );
+
+    // protects=a loss clause far back that the amount's sentence has no pronoun for keeps today's reading: the right plus sentence is Supported, not red (#3252, #3228); fails_when=any far loss word gives the bracket its minus
+    test("a loss clause far back about something else leaves the plus", async () => {
+      const layout = { between: true, cited: true };
+      expect(await verdictOf("other", "amount", layout)).toBe("supported");
+      expect(await verdictOf("other", "minus", layout)).toBe("contradicted");
     });
 
     // protects=a sign word in the sentence before the amount's that the amount still has keeps the minus (#2578 box 3); fails_when=the next sentence loses the sign

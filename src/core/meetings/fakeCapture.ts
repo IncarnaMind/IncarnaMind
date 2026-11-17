@@ -18,8 +18,8 @@ export interface FakeCaptureOptions {
   systemAudio?: boolean;
   /** What the computer's sound does when asked for: plays, is denied, or gives only silence. */
   system?: "allowed" | "denied" | "silent";
-  /** What the microphone does when asked for: records (by default), is denied, gives silence, or waits for the system's permission prompt. */
-  microphone?: "allowed" | "denied" | "silent" | "waiting";
+  /** What the microphone does when asked for: records (by default), is denied, gives silence, opens and gives no audio at all, or waits for the system's permission prompt. */
+  microphone?: "allowed" | "denied" | "silent" | "nothing" | "waiting";
   /** Makes audio by itself, as captured, every `realTime` ms. */
   realTime?: number;
   /** The computer's sound plays these samples once, then silence; the microphone is quiet meanwhile, or plays `microphoneRecording`. */
@@ -103,7 +103,9 @@ export function createFakeCapture(options: FakeCaptureOptions = {}): FakeCapture
 
   const now = options.now ?? Date.now;
   const push = (source: AudioSource, ms: number, quiet = false) => {
-    const muted = !wanted[source] || (source === "microphone" && Date.now() < micQuietUntil);
+    const muted =
+      !wanted[source] ||
+      (source === "microphone" && (microphone === "nothing" || Date.now() < micQuietUntil));
     if (!sink || muted) {
       // A recording plays on while a side is muted, as a call does: the two stay in step.
       if (sink && options.recording) made[source] += Math.round((ms * MEETING_SAMPLE_RATE) / 1000);

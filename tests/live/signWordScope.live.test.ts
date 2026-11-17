@@ -14,6 +14,12 @@
  *   The positive claim is wrong, the minus claim is right.
  * - "other" (box 2): "The Landlord is not liable for any loss of business. The annual rent is
  *   ninety-five thousand dollars ($95,000.00)." The positive claim is right, the minus claim wrong.
+ * - "tied" (#3228): "Party A made a loss. Its result for the year was $2.6 million ($2,600,000)."
+ *   The loss is the amount's: the positive claim is wrong, the minus claim right.
+ * - "tiedFar" (#3228): the same, with more than 470 characters of other terms between the loss and
+ *   the amount's sentence (the probes' D02 and D04).
+ * - "tiedPlain" (#3228): the loss is the amount's, with no pronoun to say so: "Party A made a
+ *   loss. The result for the year was $2.6 million ($2,600,000)."
  * Each runs a claim that is wrong ("decoy") and one that is right ("twin"), 3 rounds each. The "far"
  * layout also runs a decoy that names its subject ("The reserve is $95,000.").
  *
@@ -56,6 +62,63 @@
  * nothing on that Document, above 2 means it costs a right ✓ there. A run with any request that did
  * not settle is void and run again.
  *
+ * A variant measured for #3228 on 2026-11-17, not merged: the reader keeps its rule. In it a loss or
+ * deduction noun in a sentence other than the amount's own left a bracketed amount's sign open (the
+ * amount "may be negative"), and the figure check asked the model once for the reading, as it does
+ * for "(250)"; a reply that gave none ended Not checked. Bars were written before any request.
+ * English and Chinese, 3 rounds a pair, DeepSeek V4.1 Flash, `main` run in the same session; the
+ * pairs are the ones below. Supported rounds of 6 (English and Chinese together), `main` first:
+ * - First run, any loss word in another sentence leaves the sign open: other-rent (right) 0 then 6,
+ *   other-minus (wrong) 0 then 0, before-own (wrong) 0 then 0, before-minus (right) 3 then 3,
+ *   tied-own (wrong) 0 then 4, tied-minus (right) 4 then 2, tiedfar-own (wrong) 5 then 5,
+ *   tiedfar-minus (right) 0 then 0. Spend US$0.2611 on `main`, US$0.2704 on the variant.
+ * - Second run, the same with the minus kept by the code when the amount's sentence starts with a
+ *   pronoun for the subject (Its, Their, His, Her, It; 其, 它, 她, 他): tied-own 0 then 0, tied-minus
+ *   4 then 3, other-rent 0 then 6, other-minus 0 then 0, and tiedplain-own (wrong, the loss is the
+ *   amount's with no pronoun) 0 then 4, tiedplain-minus (right) 2 then 1. Spend US$0.0471 on
+ *   `main`, US$0.1340 on the variant.
+ * Result: the rent sentences are right in 6 of 6 rounds, but the model takes a tied minus for a plus
+ * when the tie is a pronoun (4 of 6) and, with the pronoun kept by the code, when the tie is only
+ * the next sentence's subject (4 of 6), so the second box of #3228 stays as `main` has it. The far
+ * tied decoy (tiedfar-own) is wrong in 5 of 6 rounds on `main` itself: #3252.
+ *
+ * The run for #3252, written on 2026-11-17 before any request of it. On `main` the wrong plus sentence
+ * about a loss stated far above its amount (tiedfar-own) read Supported in 5 of 6 rounds and its
+ * right minus twin (tiedfar-minus) in 0 of 6: the reader sees a loss noun in the 400 characters above
+ * the quote only, and the amount's paragraph is in sight. The change: an amount's sentence that
+ * starts with a pronoun for a subject (Its, Their, His, Her, It; 其 它 她 他) keeps the bracket's
+ * minus when a loss or deduction noun is anywhere in the 2,000 characters above, as a state word is.
+ * The branch only, `main`'s numbers being those above (same model, same day): the pairs tiedfar-own,
+ * tiedfar-minus, tied-own, tied-minus, other-rent and other-minus in English and Chinese (12 pairs),
+ * 3 rounds each, DeepSeek V4.1 Flash, stop US$0.25.
+ * - Bar 1: tiedfar-own reads Supported in 0 of 6 rounds (`main`: 5 of 6).
+ * - Bar 2: tiedfar-minus reads Supported in at least 3 of 6 (`main`: 0 of 6).
+ * - Bar 3: the pairs this does not touch read as on `main`: tied-own in 0 of 6 rounds, tied-minus in
+ *   at least 3 of 6 (`main`: 4 of 6), other-minus in 0 of 6. other-rent is `main`'s 0 of 6 and stays
+ *   there: a loss clause about something else still keeps the minus (#3228).
+ * - A round with a refused, failed or timed out request is void and run again by hand.
+ *
+ * The run for #3228's second build, written on 2026-11-17 before any request of it. A loss or
+ * deduction noun in another sentence than the amount's, unless the amount's sentence starts with a
+ * pronoun for its subject, leaves the bracket's sign open, and the figure ends Not checked with a
+ * reason that names the word ("“$95,000.00” may be negative because of “loss” nearby, so it wasn’t
+ * checked."); the model is not asked and no reading it gives counts. The proof of the code is the
+ * scripted count over the probes; this run shows the card as a User gets it. The pairs other-rent,
+ * other-minus, tied-own and tied-minus in English and Chinese (8 pairs), 3 rounds each, DeepSeek V4.1
+ * Flash, stop US$0.15; `main`'s numbers are those above (same model, same day).
+ * - Bar 1: other-rent (the right rent sentence) ends Not checked in 6 of 6 rounds, its card reason
+ *   the new one, and in none Contradicted or Supported.
+ * - Bar 2: no pair reads Supported in more rounds than on `main`: other-minus and tied-own 0 of 6,
+ *   tied-minus at most 4 of 6, other-rent 0 of 6.
+ * - A round with a refused, failed or timed out request is void and run again by hand.
+ * - The "before" pairs, which the issue names too, run the code they ran on `main` (a state word keeps
+ *   its minus), so they are run as a confirm, written before it ran: before-own Supported in 0 of 6
+ *   rounds, before-minus in at most 3 of 6 (`main`: 0 and 3).
+ * The result, 2026-11-17: other-rent ended Not checked with the new reason in 6 of 6 clean rounds
+ * (one Chinese round's check run failed and was run again), none Supported or Contradicted;
+ * other-minus Supported 0 of 6, tied-own 0 of 6, tied-minus 1 of 6; before-own 0 of 6, before-minus
+ * 3 of 6. US$0.0844 for the first run (with the rerun) and US$0.0406 for the before pairs.
+ *
  * INCARNAMIND_LIVE_PAIRS limits the run to those pairs, by key; INCARNAMIND_LIVE_ROUNDS sets the rounds.
  * Runs only with INCARNAMIND_LIVE_DEEPSEEK_KEY (DeepSeek V4.1 Flash, `deepseek-flash`, or
  * INCARNAMIND_LIVE_DEEPSEEK_MODEL when set); INCARNAMIND_LIVE_REPORT keeps one JSON line per pair.
@@ -78,7 +141,7 @@ const ROUNDS = Number(process.env.INCARNAMIND_LIVE_ROUNDS ?? 3) || 3;
 const REPORT = process.env.INCARNAMIND_LIVE_REPORT;
 const ONLY = process.env.INCARNAMIND_LIVE_PAIRS?.split(",") ?? null;
 
-type Layout = "far" | "before" | "other";
+type Layout = "far" | "before" | "other" | "tied" | "tiedFar" | "tiedPlain";
 type Language = "en" | "zh-CN";
 
 interface Pair {
@@ -140,6 +203,49 @@ const PAIRS: readonly Pair[] = (["en", "zh-CN"] as const).flatMap((language) => 
       decoy: false,
       claim: claimOf(language, "before", true),
     },
+    // The loss is the amount's ("Its result"): the positive claim is wrong, the minus claim right.
+    {
+      key: `tied-own-${tag}`,
+      language,
+      layout: "tied",
+      decoy: true,
+      claim: claimOf(language, "tied", false),
+    },
+    {
+      key: `tied-minus-${tag}`,
+      language,
+      layout: "tied",
+      decoy: false,
+      claim: claimOf(language, "tied", true),
+    },
+    {
+      key: `tiedfar-own-${tag}`,
+      language,
+      layout: "tiedFar",
+      decoy: true,
+      claim: claimOf(language, "tiedFar", false),
+    },
+    {
+      key: `tiedfar-minus-${tag}`,
+      language,
+      layout: "tiedFar",
+      decoy: false,
+      claim: claimOf(language, "tiedFar", true),
+    },
+    {
+      key: `tiedplain-own-${tag}`,
+      language,
+      layout: "tiedPlain",
+      decoy: true,
+      claim: claimOf(language, "tiedPlain", false),
+    },
+    {
+      key: `tiedplain-minus-${tag}`,
+      language,
+      layout: "tiedPlain",
+      decoy: false,
+      claim: claimOf(language, "tiedPlain", true),
+    },
     // A loss clause about something else: the rent is positive.
     {
       key: `other-rent-${tag}`,
@@ -160,7 +266,8 @@ const PAIRS: readonly Pair[] = (["en", "zh-CN"] as const).flatMap((language) => 
 
 const documentOf = (pair: Pair) => {
   const { sign, amount } = SIGN_SCOPE[pair.language][pair.layout];
-  if (pair.layout === "far") return [sign, ...OTHER_TERMS[pair.language], amount].join("\n\n");
+  if (pair.layout === "far" || pair.layout === "tiedFar")
+    return [sign, ...OTHER_TERMS[pair.language], amount].join("\n\n");
   return [sign, amount].join(pair.language === "en" ? " " : "");
 };
 

@@ -28,8 +28,10 @@ import {
   sourceValue,
 } from "../../../shared/libraryFacts";
 import type { ScopeKind } from "../../../shared/searchScope";
+import { citedNameStretches, isNameNumber } from "../../../shared/sourceNames";
 import type {
   CheckedVersion,
+  CheckFigure,
   ClaimJudgment,
   DocumentKind,
   FigureCheckResult,
@@ -162,16 +164,51 @@ export type DeclaredLibrary =
   | { kind: "description" }
   | { kind: "facts"; facts: ReadonlySet<LibraryFact["kind"]> };
 
+/**
+ * The words of a Library line that name facts, never the words that gloss them: a model that is
+ * told which line each word names writes "name (Documents named “Report 12”), documents (Documents
+ * in all)" or "name — the Library holds one Document with that name", and "documents" in a
+ * gloss is no fact it states (#2525). What is in brackets or quotes, to any depth, and what follows
+ * a dash, is left out. It is scanned by its delimiters, never by patterns that pair them: a bracket
+ * or a quote inside a gloss ("Report (draft)") must not end it early and take the facts after it
+ * with it. A line whose brackets or quotes don't close can't be told from one that hides its facts,
+ * so it reads as none: null.
+ */
+function factWords(line: string): string[] | null {
+  let named = "";
+  let depth = 0;
+  let closing: string | null = null;
+  for (let at = 0; at < line.length; at++) {
+    const character = line.charAt(at);
+    if (closing !== null) {
+      if (character === closing) closing = null;
+      continue;
+    }
+    if (character === "“") closing = "”";
+    else if (character === '"') closing = '"';
+    else if (character === "(" || character === "（") depth++;
+    else if (depth > 0 && (character === ")" || character === "）")) depth--;
+    else if (depth === 0) {
+      if (character === "–" || character === "—") break;
+      if (character === "-" && line.charAt(at - 1) === " " && line.charAt(at + 1) === " ") break;
+      named += character;
+    }
+  }
+  if (closing !== null || depth > 0) return null;
+  return named
+    .toLowerCase()
+    .split(/[^a-z]+/)
+    .filter((word) => word !== "");
+}
+
 export function declaredLibrary(reply: string): DeclaredLibrary | null {
   const line = labelled(
     reply.split("\n").map((each) => each.trim()),
     LIBRARY_LINE_FIELD,
   );
   if (line === undefined || line === null) return null;
-  const words = line
-    .toLowerCase()
-    .split(/[^a-z]+/)
-    .filter((word) => word !== "");
+  const words = factWords(line);
+  if (words === null) return null;
   if (words.includes("description")) return { kind: "description" };
   const facts = new Set(
     words.flatMap((word) => {
@@ -667,6 +704,27 @@ const COUNT_NOUN =
   /^(?:[\p{L}-]+\s+){0,2}(?:documents?|files?|notes?|folders?|tags?|items?|cop(?:y|ies)|records?|entr(?:y|ies)|names?|times|workbooks?|spreadsheets?)(?![\p{L}])|^(?:个|份|篇|项|条|次|本|件)/iu;
 
 /**
+ * Whether a figure is the number of a Document's name the sentence writes: inside the name, with no
+ * unit, currency, percent or scale of its own. Its reading counts from its paragraph's start, so it
+ * is found in its sentence by its characters, and only when they are there once.
+ */
+function isNameOfDocument(figure: CheckFigure, names: readonly string[], claim: string): boolean {
+  const { chars, unit, currency, scale } = figure.reading;
+  const text = figure.context ?? claim;
+  const escaped = chars.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const found = [...text.matchAll(new RegExp(`(?<![\\d.,])${escaped}(?!\\d)`, "gu"))];
+  const [one] = found;
+  return (
+    found.length === 1 &&
+    one !== undefined &&
+    isNameNumber(
+      { start: one.index, end: one.index + chars.length, unit, currency, scale },
+      citedNameStretches(text, names),
+    )
+  );
+}
+
+/**
  * Whether a figure reads as a count of things, which a Library count may decide: no scale word,
  * and after it nothing or a count noun, never a unit ("11 TB", "22 GB", "5 km").
  */
@@ -815,12 +873,18 @@ export function withLibraryFacts(
       known ??= libraryListing(request.mindId ?? null, searched);
       return known;
     };
+    // A number in the name of a Document the sentence writes is no figure of it, as in a cited
+    // Document's name (#3093): asked about as a figure, it is held to a count it isn't (#2525).
+    const names = request.figures?.length ? listing().documents.map((each) => each.name) : [];
+    const figures = request.figures?.filter(
+      (figure) => !isNameOfDocument(figure, names, request.claim),
+    );
     const run = libraryRun(listing, searched, request.claim, deps);
     const result = await create({
       ...deps,
       documents: run.documents,
       libraryFacts: run.search,
-    })(request);
+    })({ ...request, figures, libraryNames: names });
     return run.settle(result);
   };
 }

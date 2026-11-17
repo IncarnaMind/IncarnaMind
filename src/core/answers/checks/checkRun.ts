@@ -176,7 +176,10 @@ function figuresReplied(
             ];
           }
           const source = readFigureSource(calculations, target, item.source);
-          return "problem" in source ? [`${target.reading.chars}: ${source.problem}`] : [];
+          // A sign a loss word leaves open is no reading to ask the model for: it is not checked (#3228).
+          return "problem" in source && !source.signWord
+            ? [`${target.reading.chars}: ${source.problem}`]
+            : [];
         });
         const remainder = read.remainder?.citation;
         if (remainder && !recorded(remainder))

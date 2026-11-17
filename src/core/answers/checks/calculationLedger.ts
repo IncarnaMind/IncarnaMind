@@ -59,7 +59,7 @@ export const figureContextIn =
     );
 
 export function createCalculationLedger(
-  request: Pick<ClaimCheckRequest, "claim" | "cited" | "model" | "signal">,
+  request: Pick<ClaimCheckRequest, "claim" | "cited" | "model" | "signal" | "libraryNames">,
   documents: AnswerDocuments,
   session: ReturnType<typeof createCitationSession>,
   calculating: boolean,
@@ -87,7 +87,8 @@ export function createCalculationLedger(
    * "门店数量比上年有所增加" and names the verb as the stated value (#3190).
    */
   const statesQuantity =
-    figuresInClaim(request.claim, ownContext).length > 0 || WRITTEN_NUMBER.test(request.claim);
+    figuresInClaim(request.claim, ownContext, request.libraryNames).length > 0 ||
+    WRITTEN_NUMBER.test(request.claim);
   const tools: Required<Pick<AnswerTools, "calculate" | "calculationFailed">> = {
     calculationFailed() {
       if (!statesQuantity) return;
@@ -240,6 +241,7 @@ export function createCalculationLedger(
     )
       return false;
     return needsCalculation({
+      libraryNames: request.libraryNames ?? [],
       claim: request.claim,
       verdict,
       attempted: attempts > 0,
@@ -293,6 +295,7 @@ export function createCalculationLedger(
         citation,
         units: documents.pageTexts(citation.documentId, citation.contentHash, null, null),
       })),
+      request.libraryNames ?? [],
     );
   };
 

@@ -804,6 +804,37 @@ test("a microphone that gives nothing but silence says so after 15 seconds, with
   await bar.getByTestId("meeting-stop").click();
 });
 
+// protects=a microphone that is open while no audio comes in at all is said within 15 seconds, in both languages, instead of a bar that reads Recording while the Meeting captures nothing (#3248)
+test("a microphone that opens and gives no audio at all says so after 15 seconds", async () => {
+  const { app, window } = await launchApp(dataDir, { microphone: "nothing" });
+  await dismissChatSetup(window);
+  const bar = await startRecording(window, await recordMeeting(window), { notice: true });
+
+  const line = window.getByTestId("meeting-line-microphone");
+  await expect(line).toContainText(
+    "No sound from the microphone for 15 seconds: it may be muted, or the wrong one chosen.",
+    { timeout: 20_000 },
+  );
+  await expect(bar).toHaveAttribute("data-status", "recording");
+  await setWindowSize(app, window, 1100, 700);
+  await shot(window, "meeting-microphone-nothing");
+  await window.evaluate(async () =>
+    (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.updateSettings({
+      user: { language: "zh-CN" },
+    }),
+  );
+  await expect(line).toContainText("15 秒没有麦克风声音：可能已静音，或选错了麦克风。");
+  await shot(window, "meeting-microphone-nothing-zh");
+  await bar.getByTestId("meeting-stop").click();
+  // The recording details count the whole stretch as lost, not "No audio was lost".
+  const meeting = await window.evaluate(async () =>
+    (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.listMeetings(),
+  );
+  expect(meeting[0]?.health.events).toMatchObject([
+    { kind: "audioLost", source: "microphone", cause: "stalled", atMs: 0 },
+  ]);
+});
+
 test("a device change keeps recording, the new microphone's audio at the right time", async () => {
   const { app, window } = await launchApp(dataDir);
   await dismissChatSetup(window);
