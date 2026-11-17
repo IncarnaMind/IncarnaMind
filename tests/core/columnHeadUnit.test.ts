@@ -227,3 +227,12 @@ test("beside a units column each number keeps to its own unit", async () => {
       await inBothForms("原煤产量比上年增长3.2%。", PRODUCTS, cited("3.2", unitQuote)),
     ).toEqual(["supported", "supported"]);
 });
+
+// protects=a "¥" in a units cell that the Document doesn't say is yuan or yen states no currency, so a sentence that writes yuan is never a ✓ in a Note though the model calls it supported; fails_when=the open "¥" is recorded as the first currency it could be (#2997); no_claim=what the sentence ends as
+test("an open ¥ in a units cell states no currency", async () => {
+  const row = "| Fees | ¥ | 540 |";
+  const contents = `| Item | Unit | Amount |\n|---|---|---|\n${row}`;
+  const cited = { quote: row, number: "540" };
+  for (const state of await inBothForms("Fees were CN¥540.", contents, cited))
+    expect(state).not.toBe("supported");
+});

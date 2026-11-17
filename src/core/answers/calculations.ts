@@ -2229,9 +2229,10 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     // A number that writes its own scale or unit ("4,979.6百万元") needs no unit line, so one
     // taken from another Passage doesn't stop it being read.
     // So does its row's cell of the table's units column ("万吨" under 单位), where no heading of
-    // the number's own column states a unit, whatever line is given as its unit (#2997).
+    // the number's own column states a unit, whatever line is given as its unit (#2997). A row
+    // with a word the scan may have misread states none, as an unsure unit line states none.
     const ofUnits =
-      ownUnit || ofRow || base.unit.kind !== "plain"
+      ownUnit || ofRow || base.unit.kind !== "plain" || quoted.check().checkReason === "unsure-word"
         ? null
         : unitsCellUnit(
             page.text,

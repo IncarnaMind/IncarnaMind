@@ -18,8 +18,12 @@ export interface ColumnHeadUnit {
   share: number | null;
 }
 
-/** `words` read as one unit alone ("万吨", "kt", "‰"), as the figure "1 <words>" reads. */
+/**
+ * `words` read as one unit alone ("万吨", "kt", "‰"), as the figure "1 <words>" reads. Null where
+ * they begin with a number of their own ("1000 t"), which a 1 before it would change.
+ */
 function unitAlone(words: string, context: FigureContext): Figure | null {
+  if (/^\p{Nd}/u.test(words)) return null;
   const written = `1${/^[A-Za-z]/u.test(words) ? " " : ""}${words}`;
   const [said, ...more] = readFigures(written, { ...context, header: null, headerRead: null });
   return said && more.length === 0 && said.start === 0 && said.end === written.length ? said : null;
@@ -89,9 +93,10 @@ export function ownHeadingRow(
 /**
  * The unit the row of the number at `at` gives it in its table's units column ("万吨" under 单位),
  * read as one unit alone (#2997). Null where a heading of its own column states a unit, as
- * "比上年增长（%）" does beside such a column, where its row's cell there is no one unit, or where
- * `quoted`, the number's row as it is quoted, leaves the cell out: a number quoted alone is asked
- * for its row, so its Citation shows its unit (#1798).
+ * "比上年增长（%）" does beside such a column, where its row's cell there is no one unit for
+ * certain (a "¥" the Document leaves open), or where `quoted`, the number's row as it is quoted,
+ * leaves the cell out: a number quoted alone is asked for its row, so its Citation shows its unit
+ * (#1798).
  */
 export function unitsCellUnit(
   text: string,
@@ -110,5 +115,6 @@ export function unitsCellUnit(
   );
   if (headed) return null;
   const said = unitAlone(cell, context);
-  return said && (said.scaleWord !== null || said.unit.kind !== "plain") ? said : null;
+  if (!said || said.ambiguous.length > 0) return null;
+  return said.scaleWord !== null || said.unit.kind !== "plain" ? said : null;
 }
