@@ -80,6 +80,8 @@ interface Case {
   figuresWhenAsked?: true;
   /** Its Covered and Not covered lines, as written, in place of the form's: none when not an own line. */
   parts?: readonly [covered: string, uncovered: string];
+  /** Asked what its Not covered line names, its reply: a condition when absent; a failed request for "fails". */
+  noted?: string;
 }
 
 /** What every ask for the Duty and Condition lines says. */
@@ -201,8 +203,16 @@ function replying(each: Case, calls: ModelCall[], looks: string[]) {
               "Verdict: unsupported\nScope: none, same\nTopic: found\nRoles: none / none, same\nTime: none / none, same\nThe rules say more.\nEvidence: [1]",
           };
         }
+        if (call.question === "not-covered") {
+          looks.push(call.prompt);
+          if (each.noted === "fails") throw new Error("The model is busy.");
+        }
         return checkGenerate({
-          [each.sentence]: { judgement: "conflict", strict: { text: "Judgement: conflict" } },
+          [each.sentence]: {
+            judgement: "conflict",
+            strict: { text: "Judgement: conflict" },
+            noted: each.noted,
+          },
         })(call);
       },
     },
@@ -1523,5 +1533,95 @@ describe("a Supported reply that names a part its Passage doesn't state is not S
   ])("%s", async (_, each, document, state) => {
     const checked = await check(each, document);
     expect(checked?.state).toBe(state);
+  });
+});
+
+describe("what a Supported reply noted as not covered is asked about, and only a detail keeps the ✓ (#3197)", () => {
+  const SURVEY = {
+    name: "Tenant survey.md",
+    contents: [
+      "# Tenant survey",
+      "",
+      "The survey, carried out by post in May, found that most tenants were satisfied with repairs.",
+      "",
+      "Report 14, March 2025: the Harbour depot handled 4,200 containers in the month.",
+    ].join("\n"),
+  };
+  const SURVEY_ZH = {
+    name: "租户问卷.md",
+    contents: ["# 租户问卷", "", "本次问卷于5月以邮寄方式发放，多数租户对维修服务表示满意。"].join(
+      "\n",
+    ),
+  };
+  const survey = (noted?: string): Case => ({
+    sentence: "Most tenants were satisfied with repairs.",
+    quote:
+      "The survey, carried out by post in May, found that most tenants were satisfied with repairs.",
+    verdict: "supported",
+    duty: SAME,
+    condition: SAME,
+    parts: ["tenants' satisfaction with repairs", "that the survey went out by post in May"],
+    noted,
+  });
+
+  // protects=a right sentence that says less than its Passage keeps its ✓ when the model, asked about the note alone, calls it a detail, in English, in Chinese and for a sentence with a figure, while a note called a condition or the sentence's own claim, a reply that can't be read and a failed request all end Unsupported as before; fails_when=the note is never asked about, or any answer but "detail" leaves the ✓; no_claim=that a model answers "detail" for the right notes, which the live pairs measure
+  test.each<[string, Case, typeof SURVEY, "unsupported" | "supported"]>([
+    ["en, a detail", survey("detail"), SURVEY, "supported"],
+    ["en, a detail under a Judgement label", survey("Judgement: detail"), SURVEY, "supported"],
+    [
+      "zh, a detail",
+      {
+        sentence: "多数租户对维修服务表示满意。",
+        quote: "本次问卷于5月以邮寄方式发放，多数租户对维修服务表示满意。",
+        verdict: "supported",
+        duty: SAME,
+        condition: SAME,
+        parts: ["租户对维修服务的满意情况", "问卷于5月以邮寄方式发放"],
+        noted: "detail",
+      },
+      SURVEY_ZH,
+      "supported",
+    ],
+    [
+      "en, a figure sentence's detail",
+      {
+        sentence: "The Harbour depot handled 4,200 containers.",
+        quote: "Report 14, March 2025: the Harbour depot handled 4,200 containers in the month.",
+        verdict: "supported",
+        duty: SAME,
+        condition: SAME,
+        number: "4,200",
+        parts: ["4,200 containers at the Harbour depot", "the March 2025 report's month"],
+        noted: "detail",
+      },
+      SURVEY,
+      "supported",
+    ],
+    ["en, a condition", survey("condition"), SURVEY, "unsupported"],
+    ["en, the sentence's own claim", survey("claim"), SURVEY, "unsupported"],
+    ["en, a reply that is no one word", survey("Mostly a detail."), SURVEY, "unsupported"],
+    ["en, a failed request", survey("fails"), SURVEY, "unsupported"],
+  ])("%s", async (_, each, document, state) => {
+    const checked = await check(each, document);
+    expect(checked?.state).toBe(state);
+  });
+
+  // protects=the question is sent once, with the reply's own note as data beside the sentence and its quote, and never for a reply that noted nothing; fails_when=the note is left out of the request, the question is asked twice, or it is asked of a reply whose Not covered line is "none"; no_claim=what the model answers
+  test("is asked once with the note, and not when nothing was noted", async () => {
+    const asked: string[] = [];
+    await check(survey("detail"), SURVEY, [], asked);
+    expect(asked).toHaveLength(1);
+    expect(asked[0]).toContain("<reply>\nthat the survey went out by post in May\n</reply>");
+    expect(asked[0]).toContain(
+      "<sentence>\nMost tenants were satisfied with repairs.\n</sentence>",
+    );
+    const unasked: string[] = [];
+    await check(
+      { ...survey(), parts: ["tenants' satisfaction with repairs", "none"] },
+      SURVEY,
+      [],
+      unasked,
+    );
+    expect(unasked).toHaveLength(0);
   });
 });

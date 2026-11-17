@@ -37,6 +37,7 @@ import {
   isFailed,
   lateQuotesJudged,
   nearestDifferent,
+  notesOnlyDetail,
   notFailed,
   partOf,
   recheck,
@@ -249,10 +250,7 @@ async function verdictOf(
   // duty or a dropped condition, or gives neither line (#1766, #1708).
   const partOfLonger = sentenceItIsPartOf(request.claim, request.originalClaim) !== null;
   const byCalculation: ClaimCheckResult | null =
-    worked &&
-    !ownDetailDiffers(verdict) &&
-    !ownDetailUnread(verdict) &&
-    !namesUncovered(verdict, partOfLonger)
+    worked && !ownDetailDiffers(verdict) && !ownDetailUnread(verdict)
       ? (await ledger.requiresCalculation({ ...verdict, verdict: "supported" }))
         ? notChecked("number-not-worked-out")
         : {
@@ -466,10 +464,13 @@ async function verdictOf(
   // has happened or is still to happen (#2311), and a duty or a condition put otherwise (#1766,
   // #1708).
   const differs = ownDetailDiffers(verdict);
-  if (
-    verdict.verdict === "supported" &&
-    (verdict.scope === "wider" || differs || namesUncovered(verdict, partOfLonger))
-  ) {
+  // What the reply noted as not covered takes the ✓ away, and a worked figure's with it, unless
+  // the model, asked about the note alone, calls it only more that the Passage says (#3197).
+  const noted = namesUncovered(verdict, partOfLonger) ? verdict.uncovered : null;
+  const beyond =
+    noted !== null && !(await notesOnlyDetail(request, deciding, session, signal, noted));
+  if (signal.aborted) return notChecked("stopped");
+  if (verdict.verdict === "supported" && (verdict.scope === "wider" || differs || beyond)) {
     const part = await parts(deciding);
     if (signal.aborted) return notChecked("stopped");
     if (isFailed(part)) return failedCheck(part.failed);

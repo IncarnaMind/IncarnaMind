@@ -23,12 +23,14 @@ import {
   evidenceParts,
   givesNoEvidence,
   NEAREST_INSTRUCTIONS,
+  NOT_COVERED_INSTRUCTIONS,
   PRESENCE_INSTRUCTIONS,
   partInstructions,
   presenceParts,
   type ReadVerdict,
   readEvidence,
   readJudgement,
+  readNotCovered,
   readPart,
   readPresence,
   recheckInstructions,
@@ -48,7 +50,15 @@ export const isFailed = (value: unknown): value is Failed =>
 export const notFailed = <T>(value: T | Failed): T | null => (isFailed(value) ? null : value);
 
 /** The questions a judge is asked about a sentence and one quote, read in its Passage. */
-const COMPARISONS = ["confirm", "strict", "strict-figure", "recheck", "nearest", "parts"] as const;
+const COMPARISONS = [
+  "confirm",
+  "strict",
+  "strict-figure",
+  "recheck",
+  "nearest",
+  "parts",
+  "not-covered",
+] as const;
 
 interface Comparison {
   id: (typeof COMPARISONS)[number];
@@ -89,6 +99,7 @@ export async function compare<T>(
   question: Comparison,
   read: (reply: string) => T | null,
   quantity?: Figure,
+  noted?: string,
 ): Promise<Judged<T>> {
   const citations: readonly Citation[] = "quote" in quoted ? [quoted] : quoted;
   const passages = citations.map(
@@ -105,8 +116,9 @@ export async function compare<T>(
       quote: citations.map((citation) => citation.quote).join("\n"),
       passage: passages.join("\n"),
       quantity,
+      noted,
     }),
-    data: CHECK_TAGS,
+    data: noted === undefined ? CHECK_TAGS : [...CHECK_TAGS, "reply"],
     reply: lines(read),
     retries: 1,
     signal,
@@ -303,6 +315,36 @@ export async function partOf(
   if (!asked.error) return { covered: null, uncovered: null };
   console.error(`A sentence's parts couldn't be asked for: ${asked.error.message}`);
   return { failed: asked.error };
+}
+
+/**
+ * Whether what a Supported reply noted as not covered is only more that its Passage says, which
+ * the sentence is true without. A condition the sentence left out, something the sentence says
+ * that the quote doesn't, a reply that can't be read and a failed request are all not that, so
+ * the check takes the ✓ away as it did before it asked (#3197).
+ */
+export async function notesOnlyDetail(
+  request: LookRequest,
+  quoted: Citation | readonly Citation[],
+  session: ReturnType<typeof createCitationSession>,
+  signal: AbortSignal,
+  noted: string,
+): Promise<boolean> {
+  const asked = await compare(
+    request,
+    quoted,
+    session,
+    signal,
+    { id: "not-covered", instructions: NOT_COVERED_INSTRUCTIONS },
+    readNotCovered,
+    undefined,
+    noted,
+  );
+  if (!asked.ok && asked.error)
+    console.error(
+      `What a check noted as not covered couldn't be asked about: ${asked.error.message}`,
+    );
+  return asked.ok && asked.value === "detail";
 }
 
 /**

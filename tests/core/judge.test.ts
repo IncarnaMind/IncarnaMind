@@ -14,6 +14,7 @@ import { QUICK_REPLY } from "../../src/core/answers/checks/fastPaths";
 import {
   readEvidence,
   readJudgement,
+  readNotCovered,
   readPart,
   readPresence,
   readRecheck,
@@ -149,6 +150,12 @@ const QUESTIONS: Record<
     right: "Covered: the rent\nNot covered: paid in advance",
     read: { covered: "the rent", uncovered: "paid in advance" },
     unreadable: "Covered: the rent",
+  },
+  "not-covered": {
+    reply: lines(readNotCovered),
+    right: "detail",
+    read: "detail",
+    unreadable: "Mostly a detail.",
   },
   presence: { reply: lines(readPresence), right: "not", read: "not", unreadable: "Not really." },
   "strict-presence": {

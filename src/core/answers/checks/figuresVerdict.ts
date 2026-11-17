@@ -37,9 +37,10 @@ import {
   verdictMarkers,
   withSentenceVerdict,
 } from "./figureChecks";
-import { askForEvidence, confirmContradiction, isFailed } from "./looks";
+import { askForEvidence, confirmContradiction, isFailed, notesOnlyDetail } from "./looks";
 import {
   changesItsMind,
+  namesUncovered,
   ownDetailDiffers,
   ownDetailUnread,
   type ReadCorrection,
@@ -150,8 +151,23 @@ export async function figuresVerdict(
     words: string,
     evidence: Citation | null,
   ): Promise<ClaimJudgment> => {
+    // A part's note names the rest of its sentence, which is checked apart; a whole sentence's
+    // is asked about, and counts unless it is only more that the Passage says (#3197).
     const partOfLonger = sentenceItIsPartOf(request.claim, request.originalClaim) !== null;
-    const result = figureJudgment(said, evidence, facts(), citedCase(evidence), partOfLonger);
+    const notedIsDetail =
+      partOfLonger ||
+      (evidence !== null &&
+        namesUncovered(said) &&
+        said.uncovered !== null &&
+        (await notesOnlyDetail(
+          { claim: words, model: request.model },
+          evidence,
+          session,
+          signal,
+          said.uncovered,
+        )));
+    if (signal.aborted) return unchecked("stopped");
+    const result = figureJudgment(said, evidence, facts(), citedCase(evidence), notedIsDetail);
     if (result.verdict !== "contradicted" || !evidence) return result;
     const confirmation = await confirmContradiction(
       { claim: words, model: request.model },
@@ -171,7 +187,7 @@ export async function figuresVerdict(
       evidence,
       facts(),
       citedCase(evidence),
-      partOfLonger,
+      notedIsDetail,
     );
     // Not upheld, it is Unsupported as a sentence without figures is: its card shows the part
     // the quote states when the reply names that part, else that the check couldn't confirm what

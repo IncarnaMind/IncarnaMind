@@ -49,6 +49,7 @@ export const JUDGE_QUESTIONS = [
   "recheck",
   "nearest",
   "parts",
+  "not-covered",
   "presence",
   "strict-presence",
   "rewrite",

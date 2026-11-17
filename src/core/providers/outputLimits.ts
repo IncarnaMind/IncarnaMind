@@ -50,6 +50,7 @@ export const OUTPUT_LIMITS = {
   nearest: { most: 300 },
   // Two phrases, which a record cite asks for too, as much room as its own judgement has.
   parts: { most: 400 },
+  "not-covered": { most: 300 },
   presence: { most: 300 },
   "strict-presence": { most: 300 },
   rewrite: { most: 300 },

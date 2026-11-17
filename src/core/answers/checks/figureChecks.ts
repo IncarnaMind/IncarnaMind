@@ -303,7 +303,7 @@ export function figureJudgment(
   evidence: Citation | null,
   facts: Facts,
   flags: CaseFlags,
-  partOfLonger = false,
+  notedIsDetail = false,
 ): ClaimJudgment {
   if (
     reply.verdict === "unsupported" ||
@@ -311,7 +311,7 @@ export function figureJudgment(
     (reply.verdict === "supported" &&
       (reply.scope === "wider" ||
         ownDetailDiffers(reply) ||
-        namesUncovered(reply, partOfLonger) ||
+        (namesUncovered(reply) && !notedIsDetail) ||
         reply.topic === "not found"))
   )
     return {
