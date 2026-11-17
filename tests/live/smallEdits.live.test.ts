@@ -451,7 +451,7 @@ describe.each(LIVE)("Small fixes in a long Note, live: $name", (live) => {
             }
             const diff = changeBetween(target, here);
             runs.push(
-              `- ${each.language} · ${one.kind}${one.kind === "fix" && one.twice ? " (twice)" : ""} #${index} · “${one.request.slice(0, 90)}”: ${edits.map((call) => `${call.tool}[${Object.keys(call.input).join(" ")}]${call.mindProblem ? `!${call.mindProblem.kind}` : ""}`).join(", ") || "no edit"}; ${landed ? "landed" : "NOT LANDED"}${exact ? ", exact" : ""}${
+              `- ${each.language} · ${one.kind}${one.kind === "fix" && one.twice ? " (twice)" : ""} #${index} · “${one.request.slice(0, 90)}”: ${edits.map((call) => `${call.tool}[${Object.keys(call.input).join(" ")}]${call.mindProblem ? `!${call.mindProblem.kind}` : ""}${typeof call.input.part === "string" ? ` part=“${call.input.part.slice(0, 50)}”` : ""}${typeof call.input.old_text === "string" ? ` old=“${call.input.old_text.slice(0, 60)}”` : ""}`).join(", ") || "no edit"}; ${landed ? "landed" : "NOT LANDED"}${exact ? ", exact" : ""}${
                 elsewhere > 0
                   ? `, ELSEWHERE ${elsewhere} (${changed
                       .filter((row) => row.at !== one.at)

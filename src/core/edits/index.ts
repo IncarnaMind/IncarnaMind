@@ -105,6 +105,7 @@ import {
   type RewriteStream,
   readSelection,
   type Selection,
+  type Swap,
   selectionParts,
   someNotes,
   takeBackForRegenerate,
@@ -416,6 +417,11 @@ export interface ProposeInput {
   ownRequests?: ReadonlySet<string>;
   /** The User asked only for text to go, as the assistant says: a change that does more waits for them (#2356). */
   removesOnly?: boolean;
+  /**
+   * An exact replacement of words in the one paragraph from `from` to `to` (#3284): no model
+   * writes it, and the Proposals are the words that differ, written as a rewrite's are.
+   */
+  replace?: Swap;
 }
 
 export interface Proposed {
@@ -428,7 +434,9 @@ export interface Proposed {
 const askOf = (input: ProposeInput): Ask => ({
   mindId: input.mindId,
   action: "instruction",
-  instruction: input.instruction,
+  instruction: input.replace
+    ? `Replace “${input.replace.old}” with “${input.replace.now}”`
+    : input.instruction,
   model: { providerId: input.prepared.provider.id, modelId: input.prepared.modelId },
   ...(input.requested && { requested: input.requested }),
   ...(input.removesOnly && { removesOnly: true }),
@@ -857,12 +865,17 @@ export function createEdits(options: EditsOptions) {
     hooks: Hooks,
     /** The request all the Proposals are written under: one per edit, or for all its parts (#2348). */
     request: string = randomUUID(),
+    /** The passage as it should read, given where the model would have written it (#3284). */
+    given?: string,
   ): Promise<{ result: EditWithAiResult; reply: string; reason: string | null }> {
     const { mindId, copy, selection } = draft;
     const explain = ask.action === "explain";
     const ended = (result: EditWithAiResult) => ({ result, reply: "", reason: null });
-    const call = editCall(prepared, ask, { ...selection, quotes: quotesOf(selection) });
-    if (!call) return ended({ kind: "too-long" });
+    const call =
+      given === undefined
+        ? editCall(prepared, ask, { ...selection, quotes: quotesOf(selection) })
+        : null;
+    if (given === undefined && !call) return ended({ kind: "too-long" });
     // The reply is read against the passage as the model saw it.
     const passage = passageFor(ask.action, selection);
     const named = NAMES_SHOWN.has(ask.action);
@@ -1033,25 +1046,28 @@ export function createEdits(options: EditsOptions) {
     let afterBreak = false;
     let streamed: { raw: string; failure: unknown };
     try {
-      streamed = await streamEdit(prepared, call, signal, (raw, piece) => {
-        if (!stream) return false;
-        // A paragraph is finished once the next one starts after a line break: the reply is read
-        // again only at a break and just after one, not at every word.
-        const reread = piece.includes("\n") || afterBreak;
-        afterBreak = piece.includes("\n");
-        if (shown && !reread) return false;
-        const sofar = passageSoFar(raw, passage);
-        if (sofar === null) return false;
-        if (!shown) {
-          shown = true;
-          showWriting();
-        }
-        if (!reread) return false;
-        step(() => stream.write(sofar));
-        if (changedUnder() || untrusted()) return true;
-        showWriting();
-        return false;
-      });
+      streamed =
+        given !== undefined || !call
+          ? { raw: given ?? "", failure: null }
+          : await streamEdit(prepared, call, signal, (raw, piece) => {
+              if (!stream) return false;
+              // A paragraph is finished once the next one starts after a line break: the reply is read
+              // again only at a break and just after one, not at every word.
+              const reread = piece.includes("\n") || afterBreak;
+              afterBreak = piece.includes("\n");
+              if (shown && !reread) return false;
+              const sofar = passageSoFar(raw, passage);
+              if (sofar === null) return false;
+              if (!shown) {
+                shown = true;
+                showWriting();
+              }
+              if (!reread) return false;
+              step(() => stream.write(sofar));
+              if (changedUnder() || untrusted()) return true;
+              showWriting();
+              return false;
+            });
     } finally {
       if (stream) noteWriting(mindId, null);
     }
@@ -1154,9 +1170,10 @@ export function createEdits(options: EditsOptions) {
     mindId: string,
     from: TextPlace,
     to: TextPlace,
+    swap?: Swap,
   ): { ok: true; draft: Draft } | Extract<ReadResult, { ok: false }> {
     const copy = copyOf(content.state(mindId));
-    const read = readSelection(copy.blocks, from, to, options.missingNumber());
+    const read = readSelection(copy.blocks, from, to, options.missingNumber(), swap);
     if (!read.ok) {
       copy.doc.destroy();
       return read;
@@ -1416,7 +1433,7 @@ export function createEdits(options: EditsOptions) {
         reason: null,
         revised: null,
       });
-      const read = readForEdit(input.mindId, input.from, input.to);
+      const read = readForEdit(input.mindId, input.from, input.to, input.replace);
       if (!read.ok) {
         if (read.reason !== "has-proposals") return nothing({ kind: "changed" });
         const waiting = content.read(input.mindId, (mind) =>
@@ -1432,12 +1449,22 @@ export function createEdits(options: EditsOptions) {
         const { selection } = draft;
         if (selection.text === "") return nothing({ kind: "unchanged" });
         if (selection.characters > MAX_SELECTION_CHARACTERS) return nothing({ kind: "too-long" });
+        // A replacement is the paragraph as it reads with the swap made, given in place of a
+        // model's reply: it is there once and holds no Citation, or the text changed since it was found.
+        const swapped = selection.swapped;
+        if (input.replace && (!swapped || swapped.count !== 1 || swapped.crosses)) {
+          return nothing({ kind: "changed" });
+        }
         const { result, reply, reason } = await rewrite(
           input.prepared,
           askOf(input),
           draft,
           input.signal,
           { checkpoint: input.checkpoint, written: input.written },
+          undefined,
+          input.replace && swapped
+            ? passageFor("instruction", { text: swapped.text, named: swapped.named })
+            : undefined,
         );
         return {
           result,

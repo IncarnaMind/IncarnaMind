@@ -1489,6 +1489,9 @@ export type MindProblem =
   | { kind: "no-heading"; mindId: string; heading: string }
   | { kind: "no-place"; mindId: string; place: string }
   | { kind: "several-places"; mindId: string; name: string; adding: boolean }
+  /** An exact replacement (#3284): the words aren't in the Note as given, or are in it `count` times. */
+  | { kind: "no-words"; mindId: string; words: string }
+  | { kind: "several-words"; mindId: string; words: string; count: number }
   | {
       kind:
         | "no-text"
@@ -1638,6 +1641,8 @@ export interface MindChange {
   sentences?: SentenceChanges;
   /** It only removes whole paragraphs, none of the User's other text changed (`onlyRemoves`). */
   removed?: RemovedParagraphs;
+  /** It was an exact replacement of these words, each cut to its first and last words if long (#3284). */
+  swapped?: { old: string; now: string };
   /** What it came to for each paragraph and heading of the Mind (`touchedBy`). Absent: the call wrote no edit, or revised its own text. */
   touched?: TouchedParagraphs;
   /** Where the stretch it edited sits in the Mind (`placeOf`). Absent: with `touched`. */

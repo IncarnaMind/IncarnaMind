@@ -2024,6 +2024,8 @@ export const en = {
   "proposal.why": "Why: {reason}",
   "edit.applied": "Changed {count} paragraphs",
   "edit.applied.one": "Changed 1 paragraph",
+  "edit.swapped": "Changed “{old}” to “{now}”",
+  "edit.swapped.out": "Took “{old}” out",
   "edit.wrote": "Wrote {count} paragraphs",
   "edit.wrote.one": "Wrote 1 paragraph",
   "edit.tables": "Added {tables}",
@@ -7796,6 +7798,8 @@ export const en = {
   "mindChanges.minds": "{count} notes changed",
   "mindChanges.changed": "Changed {count} paragraphs in “{mind}”",
   "mindChanges.changed.one": "Changed 1 paragraph in “{mind}”",
+  "mindChanges.swapped": "Changed “{old}” to “{now}” in “{mind}”",
+  "mindChanges.swapped.out": "Took “{old}” out of “{mind}”",
   "mindChanges.applied.created": "Wrote “{mind}”",
   "mindChanges.applied.filled": "Wrote it into “{mind}”",
   "mindChanges.applied.changed": "Changed {count} paragraphs in “{mind}”",
@@ -7918,6 +7922,8 @@ export const en = {
   "mindCall.failed.notPicked": "Didn’t change “{name}”: no note was picked",
   "mindCall.failed.noHeading": "Couldn’t change “{mind}”: it has no heading “{heading}”",
   "mindCall.failed.noPlace": "Couldn’t add to “{mind}”: it has no heading or paragraph “{place}”",
+  "mindCall.failed.noWords": "Couldn’t change “{mind}”: no paragraph holds “{words}” as written",
+  "mindCall.failed.severalWords": "Couldn’t change “{mind}”: “{words}” is there more than once",
   "mindCall.failed.severalPlaces":
     "Couldn’t change “{mind}”: more than one place is called “{name}”",
   "mindCall.failed.severalPlaces.add":

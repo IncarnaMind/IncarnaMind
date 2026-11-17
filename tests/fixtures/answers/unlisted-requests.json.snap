@@ -1179,6 +1179,14 @@
         "type": "string",
         "description": "What to change, in the User's language, with anything from the conversation it needs, e.g. \"Shorten to about 150 words, keeping every figure\"."
        },
+       "old_text": {
+        "type": "string",
+        "description": "The words to replace, as the Note reads them, from one paragraph, with enough around them to be found once."
+       },
+       "new_text": {
+        "type": "string",
+        "description": "What replaces old_text; empty takes it out."
+       },
        "content": {
         "type": "string",
         "description": "Only for your own text, still waiting or in the Note as you wrote it: its whole new text, in Markdown, from the section's heading on (it replaces the heading too), with markers like [^1] for Citations recorded with cite. Give it instead of instruction."
@@ -1194,7 +1202,7 @@
       },
       "additionalProperties": false
      },
-     "description": "Change text that is already in a Note, as the User asks: shorten, lengthen, rewrite, restructure, correct, translate or reword it, or remove part of it. Say what to change in instruction, and the text is rewritten for you, its Citations kept. To change one paragraph and leave the others as they are, name its first words in part. The rewrite reads only that text: it can't search the Documents or cite anything new, so new facts from the Documents, a table of them too, go in with add_to_mind, cited. Text you proposed that still waits ([waiting change, adds: …]) is revised in place. For your own text, still waiting or in the Note as you wrote it (an Answer added with Add to note), you may give its whole new text as content instead, cited as add_to_mind's, e.g. to make it longer with more from the Documents: it replaces that text, never adding a second copy, and each sentence it adds must cite a Passage. Say in times_as_long how long the User asked for it to be: off that length it is refused twice at most. It applies in the Note at once, with Undo, unless it would take out most of the User's own text, or, with removes_only, do more than take text out, which then waits for them: the result says which."
+     "description": "Change text that is already in a Note, as the User asks: shorten, lengthen, rewrite, restructure, correct, translate or reword it, or remove part of it. For a small fix, give old_text and new_text, and only those words change; otherwise say what to change in instruction, and the text is rewritten for you, its Citations kept. To change one paragraph and leave the others as they are, name its first words in part. The rewrite reads only that text: it can't search the Documents or cite anything new, so new facts from the Documents, a table of them too, go in with add_to_mind, cited. Text you proposed that still waits ([waiting change, adds: …]) is revised in place. For your own text, still waiting or as you wrote it, give its whole new text as content instead, cited as add_to_mind's. Say in times_as_long how long the User asked for it to be: off that length it is refused twice at most. It applies at once, with Undo, unless it takes out most of the User's own text, or with removes_only does more than that, which then waits for them: the result says which."
     },
     {
      "type": "function",
@@ -1735,6 +1743,14 @@
         "type": "string",
         "description": "What to change, in the User's language, with anything from the conversation it needs, e.g. \"Shorten to about 150 words, keeping every figure\"."
        },
+       "old_text": {
+        "type": "string",
+        "description": "The words to replace, as the Note reads them, from one paragraph, with enough around them to be found once."
+       },
+       "new_text": {
+        "type": "string",
+        "description": "What replaces old_text; empty takes it out."
+       },
        "content": {
         "type": "string",
         "description": "Only for your own text, still waiting or in the Note as you wrote it: its whole new text, in Markdown, from the section's heading on (it replaces the heading too), with markers like [^1] for Citations recorded with cite. Give it instead of instruction."
@@ -1750,7 +1766,7 @@
       },
       "additionalProperties": false
      },
-     "description": "Change text that is already in a Note, as the User asks: shorten, lengthen, rewrite, restructure, correct, translate or reword it, or remove part of it. Say what to change in instruction, and the text is rewritten for you, its Citations kept. To change one paragraph and leave the others as they are, name its first words in part. The rewrite reads only that text: it can't search the Documents or cite anything new, so new facts from the Documents, a table of them too, go in with add_to_mind, cited. Text you proposed that still waits ([waiting change, adds: …]) is revised in place. For your own text, still waiting or in the Note as you wrote it (an Answer added with Add to note), you may give its whole new text as content instead, cited as add_to_mind's, e.g. to make it longer with more from the Documents: it replaces that text, never adding a second copy, and each sentence it adds must cite a Passage. Say in times_as_long how long the User asked for it to be: off that length it is refused twice at most. It applies in the Note at once, with Undo, unless it would take out most of the User's own text, or, with removes_only, do more than take text out, which then waits for them: the result says which."
+     "description": "Change text that is already in a Note, as the User asks: shorten, lengthen, rewrite, restructure, correct, translate or reword it, or remove part of it. For a small fix, give old_text and new_text, and only those words change; otherwise say what to change in instruction, and the text is rewritten for you, its Citations kept. To change one paragraph and leave the others as they are, name its first words in part. The rewrite reads only that text: it can't search the Documents or cite anything new, so new facts from the Documents, a table of them too, go in with add_to_mind, cited. Text you proposed that still waits ([waiting change, adds: …]) is revised in place. For your own text, still waiting or as you wrote it, give its whole new text as content instead, cited as add_to_mind's. Say in times_as_long how long the User asked for it to be: off that length it is refused twice at most. It applies at once, with Undo, unless it takes out most of the User's own text, or with removes_only does more than that, which then waits for them: the result says which."
     },
     {
      "type": "function",
@@ -2324,6 +2340,14 @@
         "type": "string",
         "description": "What to change, in the User's language, with anything from the conversation it needs, e.g. \"Shorten to about 150 words, keeping every figure\"."
        },
+       "old_text": {
+        "type": "string",
+        "description": "The words to replace, as the Note reads them, from one paragraph, with enough around them to be found once."
+       },
+       "new_text": {
+        "type": "string",
+        "description": "What replaces old_text; empty takes it out."
+       },
        "content": {
         "type": "string",
         "description": "Only for your own text, still waiting or in the Note as you wrote it: its whole new text, in Markdown, from the section's heading on (it replaces the heading too), with markers like [^1] for Citations recorded with cite. Give it instead of instruction."
@@ -2339,7 +2363,7 @@
       },
       "additionalProperties": false
      },
-     "description": "Change text that is already in a Note, as the User asks: shorten, lengthen, rewrite, restructure, correct, translate or reword it, or remove part of it. Say what to change in instruction, and the text is rewritten for you, its Citations kept. To change one paragraph and leave the others as they are, name its first words in part. The rewrite reads only that text: it can't search the Documents or cite anything new, so new facts from the Documents, a table of them too, go in with add_to_mind, cited. Text you proposed that still waits ([waiting change, adds: …]) is revised in place. For your own text, still waiting or in the Note as you wrote it (an Answer added with Add to note), you may give its whole new text as content instead, cited as add_to_mind's, e.g. to make it longer with more from the Documents: it replaces that text, never adding a second copy, and each sentence it adds must cite a Passage. Say in times_as_long how long the User asked for it to be: off that length it is refused twice at most. It applies in the Note at once, with Undo, unless it would take out most of the User's own text, or, with removes_only, do more than take text out, which then waits for them: the result says which."
+     "description": "Change text that is already in a Note, as the User asks: shorten, lengthen, rewrite, restructure, correct, translate or reword it, or remove part of it. For a small fix, give old_text and new_text, and only those words change; otherwise say what to change in instruction, and the text is rewritten for you, its Citations kept. To change one paragraph and leave the others as they are, name its first words in part. The rewrite reads only that text: it can't search the Documents or cite anything new, so new facts from the Documents, a table of them too, go in with add_to_mind, cited. Text you proposed that still waits ([waiting change, adds: …]) is revised in place. For your own text, still waiting or as you wrote it, give its whole new text as content instead, cited as add_to_mind's. Say in times_as_long how long the User asked for it to be: off that length it is refused twice at most. It applies at once, with Undo, unless it takes out most of the User's own text, or with removes_only does more than that, which then waits for them: the result says which."
     },
     {
      "type": "function",
@@ -2873,6 +2897,14 @@
         "type": "string",
         "description": "What to change, in the User's language, with anything from the conversation it needs, e.g. \"Shorten to about 150 words, keeping every figure\"."
        },
+       "old_text": {
+        "type": "string",
+        "description": "The words to replace, as the Note reads them, from one paragraph, with enough around them to be found once."
+       },
+       "new_text": {
+        "type": "string",
+        "description": "What replaces old_text; empty takes it out."
+       },
        "content": {
         "type": "string",
         "description": "Only for your own text, still waiting or in the Note as you wrote it: its whole new text, in Markdown, from the section's heading on (it replaces the heading too), with markers like [^1] for Citations recorded with cite. Give it instead of instruction."
@@ -2888,7 +2920,7 @@
       },
       "additionalProperties": false
      },
-     "description": "Change text that is already in a Note, as the User asks: shorten, lengthen, rewrite, restructure, correct, translate or reword it, or remove part of it. Say what to change in instruction, and the text is rewritten for you, its Citations kept. To change one paragraph and leave the others as they are, name its first words in part. The rewrite reads only that text: it can't search the Documents or cite anything new, so new facts from the Documents, a table of them too, go in with add_to_mind, cited. Text you proposed that still waits ([waiting change, adds: …]) is revised in place. For your own text, still waiting or in the Note as you wrote it (an Answer added with Add to note), you may give its whole new text as content instead, cited as add_to_mind's, e.g. to make it longer with more from the Documents: it replaces that text, never adding a second copy, and each sentence it adds must cite a Passage. Say in times_as_long how long the User asked for it to be: off that length it is refused twice at most. It applies in the Note at once, with Undo, unless it would take out most of the User's own text, or, with removes_only, do more than take text out, which then waits for them: the result says which."
+     "description": "Change text that is already in a Note, as the User asks: shorten, lengthen, rewrite, restructure, correct, translate or reword it, or remove part of it. For a small fix, give old_text and new_text, and only those words change; otherwise say what to change in instruction, and the text is rewritten for you, its Citations kept. To change one paragraph and leave the others as they are, name its first words in part. The rewrite reads only that text: it can't search the Documents or cite anything new, so new facts from the Documents, a table of them too, go in with add_to_mind, cited. Text you proposed that still waits ([waiting change, adds: …]) is revised in place. For your own text, still waiting or as you wrote it, give its whole new text as content instead, cited as add_to_mind's. Say in times_as_long how long the User asked for it to be: off that length it is refused twice at most. It applies at once, with Undo, unless it takes out most of the User's own text, or with removes_only does more than that, which then waits for them: the result says which."
     },
     {
      "type": "function",
@@ -3453,6 +3485,14 @@
         "type": "string",
         "description": "What to change, in the User's language, with anything from the conversation it needs, e.g. \"Shorten to about 150 words, keeping every figure\"."
        },
+       "old_text": {
+        "type": "string",
+        "description": "The words to replace, as the Note reads them, from one paragraph, with enough around them to be found once."
+       },
+       "new_text": {
+        "type": "string",
+        "description": "What replaces old_text; empty takes it out."
+       },
        "content": {
         "type": "string",
         "description": "Only for your own text, still waiting or in the Note as you wrote it: its whole new text, in Markdown, from the section's heading on (it replaces the heading too), with markers like [^1] for Citations recorded with cite. Give it instead of instruction."
@@ -3468,7 +3508,7 @@
       },
       "additionalProperties": false
      },
-     "description": "Change text that is already in a Note, as the User asks: shorten, lengthen, rewrite, restructure, correct, translate or reword it, or remove part of it. Say what to change in instruction, and the text is rewritten for you, its Citations kept. To change one paragraph and leave the others as they are, name its first words in part. The rewrite reads only that text: it can't search the Documents or cite anything new, so new facts from the Documents, a table of them too, go in with add_to_mind, cited. Text you proposed that still waits ([waiting change, adds: …]) is revised in place. For your own text, still waiting or in the Note as you wrote it (an Answer added with Add to note), you may give its whole new text as content instead, cited as add_to_mind's, e.g. to make it longer with more from the Documents: it replaces that text, never adding a second copy, and each sentence it adds must cite a Passage. Say in times_as_long how long the User asked for it to be: off that length it is refused twice at most. It applies in the Note at once, with Undo, unless it would take out most of the User's own text, or, with removes_only, do more than take text out, which then waits for them: the result says which."
+     "description": "Change text that is already in a Note, as the User asks: shorten, lengthen, rewrite, restructure, correct, translate or reword it, or remove part of it. For a small fix, give old_text and new_text, and only those words change; otherwise say what to change in instruction, and the text is rewritten for you, its Citations kept. To change one paragraph and leave the others as they are, name its first words in part. The rewrite reads only that text: it can't search the Documents or cite anything new, so new facts from the Documents, a table of them too, go in with add_to_mind, cited. Text you proposed that still waits ([waiting change, adds: …]) is revised in place. For your own text, still waiting or as you wrote it, give its whole new text as content instead, cited as add_to_mind's. Say in times_as_long how long the User asked for it to be: off that length it is refused twice at most. It applies at once, with Undo, unless it takes out most of the User's own text, or with removes_only does more than that, which then waits for them: the result says which."
     },
     {
      "type": "function",
@@ -4066,6 +4106,14 @@
         "type": "string",
         "description": "What to change, in the User's language, with anything from the conversation it needs, e.g. \"Shorten to about 150 words, keeping every figure\"."
        },
+       "old_text": {
+        "type": "string",
+        "description": "The words to replace, as the Note reads them, from one paragraph, with enough around them to be found once."
+       },
+       "new_text": {
+        "type": "string",
+        "description": "What replaces old_text; empty takes it out."
+       },
        "content": {
         "type": "string",
         "description": "Only for your own text, still waiting or in the Note as you wrote it: its whole new text, in Markdown, from the section's heading on (it replaces the heading too), with markers like [^1] for Citations recorded with cite. Give it instead of instruction."
@@ -4081,7 +4129,7 @@
       },
       "additionalProperties": false
      },
-     "description": "Change text that is already in a Note, as the User asks: shorten, lengthen, rewrite, restructure, correct, translate or reword it, or remove part of it. Say what to change in instruction, and the text is rewritten for you, its Citations kept. To change one paragraph and leave the others as they are, name its first words in part. The rewrite reads only that text: it can't search the Documents or cite anything new, so new facts from the Documents, a table of them too, go in with add_to_mind, cited. Text you proposed that still waits ([waiting change, adds: …]) is revised in place. For your own text, still waiting or in the Note as you wrote it (an Answer added with Add to note), you may give its whole new text as content instead, cited as add_to_mind's, e.g. to make it longer with more from the Documents: it replaces that text, never adding a second copy, and each sentence it adds must cite a Passage. Say in times_as_long how long the User asked for it to be: off that length it is refused twice at most. It applies in the Note at once, with Undo, unless it would take out most of the User's own text, or, with removes_only, do more than take text out, which then waits for them: the result says which."
+     "description": "Change text that is already in a Note, as the User asks: shorten, lengthen, rewrite, restructure, correct, translate or reword it, or remove part of it. For a small fix, give old_text and new_text, and only those words change; otherwise say what to change in instruction, and the text is rewritten for you, its Citations kept. To change one paragraph and leave the others as they are, name its first words in part. The rewrite reads only that text: it can't search the Documents or cite anything new, so new facts from the Documents, a table of them too, go in with add_to_mind, cited. Text you proposed that still waits ([waiting change, adds: …]) is revised in place. For your own text, still waiting or as you wrote it, give its whole new text as content instead, cited as add_to_mind's. Say in times_as_long how long the User asked for it to be: off that length it is refused twice at most. It applies at once, with Undo, unless it takes out most of the User's own text, or with removes_only does more than that, which then waits for them: the result says which."
     },
     {
      "type": "function",
