@@ -110,7 +110,7 @@ describe("Choosing a service is the consent (ADR-0022)", () => {
         flow: {
           id: "document-check",
           service: OPENAI_SERVICE,
-          sends: ["selection", "whole-document"],
+          sends: ["selection", "whole-document", "worked-figures"],
         },
         consent: "not-asked",
         decidedAt: null,
@@ -483,7 +483,7 @@ describe("Data-flow consent", () => {
         "watched-sentences",
         "worked-figures",
       ]),
-      notAsked("document-check", ["selection", "whole-document"]),
+      notAsked("document-check", ["selection", "whole-document", "worked-figures"]),
       notAsked("tagging", ["tags", "document-excerpts"]),
     ]);
   });
