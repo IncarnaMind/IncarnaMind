@@ -151,7 +151,7 @@ export function VerifyBrief({
   // The card opens on its top, where the conclusions are, and is put back there as the run ends.
   const root = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
-    root.current?.closest(".check-card-body")?.scrollTo({ top: 0 });
+    if (!running) root.current?.closest(".check-card-body")?.scrollTo({ top: 0 });
   }, [running]);
   return (
     <div className="verify-brief" data-testid="verify-brief" ref={root}>
