@@ -31,6 +31,21 @@
  *   one copy of the text in place 4 of 4, and a reply that says no change was made when one was,
  *   0 of 4.
  * A missed bar is one line to the lead, and a wrong figure the reply states goes to the owner.
+ *
+ * Results, DeepSeek V4.1 Flash, `main` (c253f2a4b) and the branch alternated in one session each:
+ * - Round 1, with the description "only from an amount in the User's words … 1 when they name no
+ *   amount": no amount 8 of 8 against 0 of 8 on `main`, but the "a bit" requests fell to 2 of 10
+ *   within bound against 6 of 10: "a little" was read as no amount, and a text with no length
+ *   asked grows unchecked (4 times). Not shipped.
+ * - Round 2, "a little", "a bit" or "slightly" are amounts, only a bare "shorter" or "longer"
+ *   gives 1: a bit longer within bound 7 of 10 on both (the bar was 9; the model declares 1.5 in
+ *   all five English requests, and the text lands at 1.57 to 1.76 times after one refusal); stated
+ *   sizes the measured ones 16 of 16 (`main` 15 of 16); every added sentence cited 16 of 16; one
+ *   summary 16 of 16; no amount 7 of 8 (`main` 0 of 8; the miss is "把摘要写长。"); the User's own
+ *   Note within bound 0 of 4 on both: the model adds a new cited section 3 to 5 times the Note,
+ *   as add_to_mind has no length to hold it to, and the reply says so truly (a reply that says no
+ *   change was made when one was: 0 of 4 on both). "One copy in place" reads the salary figure
+ *   twice in a section the model adds about the pay, which is not a copy of the text.
  */
 import { appendFile } from "node:fs/promises";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
