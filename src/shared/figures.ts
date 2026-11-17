@@ -3158,7 +3158,8 @@ function restates(
     // characters counts, the Document's around a quote too. A word that says a thing is below zero
     // counts as far back as 2,000 characters: the model reads a sign stated in another sentence
     // wrong, and the reader can't see where the amount's section starts (#2578). A word for a loss or
-    // a deduction counts only within the 400, being as often about something else.
+    // a deduction counts within the 400 only, being as often about something else: it gives the
+    // minus in the amount's own sentence and leaves the sign open in another.
     if (STATE_WORD.test(`${settled.wide}${s.slice(0, from)}`)) return "minus";
     // Words that start further into the text read, or a quote whose page runs further back with no
     // blank line or heading in sight, keep the bracket's minus: the reader can't see where the
