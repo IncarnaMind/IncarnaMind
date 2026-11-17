@@ -7456,6 +7456,9 @@ export type ClaimVerdict = "supported" | "unsupported" | "contradicted";
  *   (#3088): "¥" as yuan or yen, or a separator the interface language alone reads where the other
  *   reading would agree with the source; its detail is the figure and its readings, as
  *   `src/shared/twoReadings.ts` writes them.
+ * - "sign-word": an amount that a word for a loss or a deduction in another sentence nearby may
+ *   give a minus, which the text doesn't settle (#3228); its detail is the amount and the word, as
+ *   `src/shared/signWord.ts` writes them. A reading the model gives doesn't settle it.
  * - "readings-unsettled": a figure of the sentence reads more ways than one choice names, such as
  *   a sign and a scale both unsettled (#3088); its detail is the figure as the sentence writes it.
  * - "library-unsettled": a sentence about the Library that its facts can't settle, such as a
@@ -7506,6 +7509,7 @@ export type ClaimCheckFailure =
   | "figures-not-read"
   | "sentence-figures-not-read"
   | "two-readings"
+  | "sign-word"
   | "readings-unsettled"
   /** A figure's equal number that the quoted table gives in another row's or column's cell. */
   | "other-cell"

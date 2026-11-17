@@ -22,6 +22,7 @@ import { reasonText } from "../../src/renderer/src/cost";
 import { MAX_CHART_VALUES } from "../../src/shared/charts";
 import { readFigures } from "../../src/shared/figures";
 import { translate } from "../../src/shared/i18n";
+import { signWordOf } from "../../src/shared/signWord";
 import type { UnitText } from "../../src/shared/units";
 import { SAME_DETAIL } from "../helpers/checks";
 import { unsupportedWorkbook, WorkbookBuilder } from "../helpers/financeWorkbooks";
@@ -3554,6 +3555,8 @@ interface SignProbe {
   amount: string;
   number: string;
   truth: "pos" | "neg";
+  /** The word for a loss in another sentence that leaves the amount's sign open, where it does (#3228). */
+  word?: string;
   main: Verdicts;
   expected: Verdicts;
 }
@@ -3596,6 +3599,52 @@ test.each(signProbes.flatMap((probe) => signs.map((sign) => ({ ...probe, sign })
       ]),
     });
     expect(result.verdict).toBe(probe.expected[probe.sign]);
+  },
+);
+
+// protects=a loss or deduction word in another sentence than the bracketed amount's ends the check Not checked for the amount and for its minus, with a reason that names the word, whatever reading the model gives and without asking it for one (#3228); fails_when=the check gives a verdict of its own on a sign it left open, takes the model's reading for it, or asks for one
+test.each(
+  signProbes
+    .filter((probe) => probe.word !== undefined)
+    .flatMap((probe) => signs.map((sign) => ({ ...probe, sign }))),
+)(
+  "$id ($shape), $sign: Not checked, naming its word, with no reading asked (#3228)",
+  async (probe) => {
+    const shown = `${probe.sign === "minus" ? "-" : ""}${probe.amount}`;
+    const claim = probe.lang === "zh-CN" ? `金额为${shown}。` : `The amount is ${shown}.`;
+    const { result, calls } = await checkWith({
+      claim,
+      figures: [target("f1", shown, claim, probe.lang)],
+      body: probe.body,
+      quotes: probe.quote ? [probe.quote] : undefined,
+      text: reply([
+        {
+          ...item(),
+          source: { citation: 1, number: probe.number, reading: 1, unitQuote: null },
+        },
+      ]),
+    });
+    expect(result.verdict).toBe("not-checked");
+    const figure = result.figures?.[0]?.result;
+    expect(figure && "reason" in figure && figure.reason).toBe("sign-word");
+    expect(figure && "detail" in figure && signWordOf(figure.detail ?? null)?.word).toBe(
+      probe.word,
+    );
+    expect(calls.some((call) => call.prompt.includes("may be negative"))).toBe(false);
+    const line = (language: "en" | "zh-CN") =>
+      figure?.verdict === "not-checked"
+        ? reasonText(
+            (key, params) => translate(language, key, params),
+            language,
+            figure.reason,
+            figure.detail,
+          )
+        : null;
+    const amount = probe.number.startsWith("$") ? probe.number : probe.number.replace(/^¥?/, "¥");
+    expect(line("en")).toBe(
+      `“${amount}” may be negative because of “${probe.word}” nearby, so it wasn’t checked.`,
+    );
+    expect(line("zh-CN")).toBe(`附近的“${probe.word}”可能表示“${amount}”是负数，所以未核对。`);
   },
 );
 
