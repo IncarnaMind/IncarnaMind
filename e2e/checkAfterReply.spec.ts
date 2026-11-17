@@ -61,20 +61,26 @@ const WORDS = {
   en: {
     ask: "Add a revenue table for checking, citing after",
     next: "What was revenue in Q1?",
-    checking: /^Checking: 0 of 2 sentences done$/,
+    checking: /^Checking: 0 of 2 sentences done · Stop$/,
     badge: /^Checking 0 of 2/,
     checked: /^Checked 2 sentences/,
     waiting: /^2 sentences not checked yet/,
+    stop: "Stop",
+    stopped: /^Stopped, 2 not checked yet · Check$/,
+    userLeft: "1 sentence not checked yet",
     check: "Check",
     setting: "Check what the assistant writes",
   },
   "zh-CN": {
     ask: "添加核对用的收入表格，写完再引用",
     next: "第一季度的收入是多少？",
-    checking: /^正在核对：已完成 0\/2 句$/,
+    checking: /^正在核对：已完成 0\/2 句 · 停止$/,
     badge: /^正在核对 0\/2/,
     checked: /^已核对 2 句/,
     waiting: /^2 句待核对/,
+    stop: "停止",
+    stopped: /^已停止，2 句待核对 · 核对$/,
+    userLeft: "1 句待核对",
     check: "核对",
     setting: "自动核对助手写入的内容",
   },
@@ -219,7 +225,45 @@ for (const language of ["en", "zh-CN"] as const) {
     await app.close();
   });
 
-  test(`on a fresh profile no check follows the write: the line says how many sentences wait, and Check checks the Note, in ${language}`, async () => {
+  test(`Stop under the reply stops the check of what it wrote, and the line says how many sentences are not checked yet, in ${language}`, async () => {
+    test.setTimeout(120_000);
+    await writeFile(join(sources, "Annual report.md"), REVENUE);
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    await setWindowSize(app, window, 1440, 900);
+    await dismissChatSetup(window);
+    await useLocalChatModel(window);
+    await setLanguage(window, language);
+    await checkAssistantWrites(window);
+    await addDocuments(window, [join(sources, "Annual report.md")]);
+    await newMind(window);
+    await nameMind(window, "Harbour notes");
+    await enterContent(window);
+    await window.keyboard.type(NOTES[0] ?? "");
+
+    await holdChecks(app);
+    const answer = await ask(window, words.ask);
+    await expect(answer).toHaveAttribute("data-status", "done", { timeout: 60_000 });
+    await expect(answer.getByTestId("self-check-checking")).toHaveText(words.checking);
+    const stop = answer.getByTestId("self-check-checking-action");
+    await expect(stop).toHaveText(words.stop);
+    if (SCREENSHOTS) {
+      await window.screenshot({ path: join(SCREENSHOTS, `stop-under-reply-${language}.png`) });
+    }
+    await stop.click();
+    await releaseChecks(app);
+    // Not "couldn't be checked": the sentences wait for the User's Check, as unread ones do.
+    const stopped = answer.getByTestId("self-check-stopped");
+    await expect(stopped).toHaveText(words.stopped, { timeout: 30_000 });
+    await expect(answer.getByTestId("self-check-stopped-action")).toHaveText(words.check);
+    await expect(answer.getByTestId("self-check-failed")).toHaveCount(0);
+    await expect(answer.getByTestId("self-check-checking")).toHaveCount(0);
+    if (SCREENSHOTS) {
+      await window.screenshot({ path: join(SCREENSHOTS, `stopped-under-reply-${language}.png`) });
+    }
+    await app.close();
+  });
+
+  test(`on a fresh profile no check follows the write: the line says how many sentences wait, and Check checks that write alone, in ${language}`, async () => {
     test.setTimeout(120_000);
     await writeFile(join(sources, "Annual report.md"), REVENUE);
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
@@ -259,8 +303,14 @@ for (const language of ["en", "zh-CN"] as const) {
 
     await releaseChecks(app);
     await answer.getByTestId("self-check-left-action").click();
-    // The Note's own check covers them: the line goes once none is left.
+    // The write's own sentences are checked and the line goes once none is left; the sentence the
+    // User typed in the Note is the Note's Check, on the badge, so it is still not checked yet.
     await expect(waiting).toHaveCount(0, { timeout: 60_000 });
+    const badge = window.getByTestId("check-badge");
+    await expect(badge.locator(".check-badge-words")).toHaveText(words.userLeft);
+    if (SCREENSHOTS) {
+      await window.screenshot({ path: join(SCREENSHOTS, `write-checked-${language}.png`) });
+    }
     await app.close();
   });
 }

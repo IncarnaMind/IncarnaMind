@@ -6750,8 +6750,8 @@ export function createCore(adapters: CoreAdapters): Core {
     planContradictionCheck: (mindId) => checks.planContradictionCheck(mindId),
     checkContradictions: (input) =>
       inFlow("contradictions", () => checks.checkContradictions(input)),
-    planMindCheck: (mindId, mode, allDocuments, figureIds) =>
-      checks.planMindCheck(mindId, mode, allDocuments, figureIds),
+    planMindCheck: (mindId, mode, allDocuments, figureIds, blockIds) =>
+      checks.planMindCheck(mindId, mode, allDocuments, figureIds, blockIds),
     holdMindCheck: async (input) => checks.holdMindCheck(input),
     findMindClaims: (input) => inFlow("check-mind", () => checks.findMindClaims(input)),
     checkMind: (input) => inFlow("check-mind", () => checks.checkMind(input)),

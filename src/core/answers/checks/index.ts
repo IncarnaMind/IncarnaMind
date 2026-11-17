@@ -2013,7 +2013,8 @@ export function createChecks(options: ChecksOptions) {
       mode: unknown,
       allDocuments?: unknown,
       figureIds?: unknown,
-    ) => mindCheck.planMindCheck(mindId, mode, allDocuments === true, figureIds),
+      blockIds?: unknown,
+    ) => mindCheck.planMindCheck(mindId, mode, allDocuments === true, figureIds, blockIds),
 
     holdMindCheck: (input: unknown) => mindCheck.holdMindCheck(input),
     forgetCheckWindow: (clientId: string) => mindCheck.forgetCheckWindow(clientId),

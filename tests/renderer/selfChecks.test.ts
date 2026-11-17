@@ -80,10 +80,18 @@ describe("How a write's check goes, and what it left to do", () => {
       );
 
     expect(line("en", 5)).toEqual([
-      { kind: "checking", text: "Checking: 5 of 40 sentences done", action: null },
+      {
+        kind: "checking",
+        text: "Checking: 5 of 40 sentences done",
+        action: { label: "Stop", does: "stop" },
+      },
     ]);
     expect(line("zh-CN", 5)).toEqual([
-      { kind: "checking", text: "正在核对：已完成 5/40 句", action: null },
+      {
+        kind: "checking",
+        text: "正在核对：已完成 5/40 句",
+        action: { label: "停止", does: "stop" },
+      },
     ]);
     // It counts finished sentences, as the badge does: none yet at the start.
     expect(line("en", 0)[0]?.text).toBe("Checking: 0 of 40 sentences done");
@@ -113,9 +121,11 @@ describe("How a write's check goes, and what it left to do", () => {
       }).map(({ kind, text, action }) => ({ kind, text, action }));
 
     expect(line("en", true)).toEqual([
-      { kind: "checking", text: "Waiting to check", action: null },
+      { kind: "checking", text: "Waiting to check", action: { label: "Stop", does: "stop" } },
     ]);
-    expect(line("zh-CN", true)).toEqual([{ kind: "checking", text: "等待核对", action: null }]);
+    expect(line("zh-CN", true)).toEqual([
+      { kind: "checking", text: "等待核对", action: { label: "停止", does: "stop" } },
+    ]);
     expect(line("en", false)[0]?.text).toBe("Checking: 0 of 40 sentences done");
     expect(line("zh-CN", false)[0]?.text).toBe("正在核对：已完成 0/40 句");
   });
@@ -545,5 +555,51 @@ describe("A write no check followed (#3154)", () => {
       },
     ]);
     expect(lines("en", 0)).toEqual([]);
+  });
+});
+
+describe("A check the User stopped under the reply", () => {
+  const stopped = {
+    mindId: "mind-1",
+    request: "w",
+    blocks: ["block-1"],
+    checkable: 6,
+    cited: 4,
+    sent: 6,
+    checked: 2,
+    failed: 4,
+    stopped: true as const,
+  };
+  // The last line: after "Checked 2 sentences", what the stop left.
+  const lines = (language: "en" | "zh-CN", check: typeof stopped, left?: number) =>
+    selfCheckLines(check, say(language), language, new Date("2026-11-17T09:00:00.000Z"), left)
+      .map(({ kind, text, action }) => ({ kind, text, action }))
+      .filter(({ kind }) => kind !== "checked");
+
+  // protects=a check the User stopped reads "Stopped, 4 not checked yet" with the write's Check, not "4 sentences couldn't be checked", in English and Chinese, and the count follows the Note once the User settles some; fails_when=a stop reads as a failure to check
+  test("reads Stopped, with the sentences not checked yet and the Check, not as a failure", () => {
+    expect(lines("en", stopped)).toEqual([
+      {
+        kind: "stopped",
+        text: "Stopped, 4 not checked yet",
+        action: { label: "Check", does: "check" },
+      },
+    ]);
+    expect(lines("zh-CN", stopped)).toEqual([
+      { kind: "stopped", text: "已停止，4 句待核对", action: { label: "核对", does: "check" } },
+    ]);
+    expect(lines("en", { ...stopped, failed: 1 })[0]?.text).toBe("Stopped, 1 not checked yet");
+    expect(lines("zh-CN", { ...stopped, failed: 1 })[0]?.text).toBe("已停止，1 句待核对");
+    expect(lines("en", stopped, 2)[0]?.text).toBe("Stopped, 2 not checked yet");
+    expect(lines("en", stopped, 0)).toEqual([]);
+  });
+
+  // protects=a failure that is not a stop keeps its own words, so a refused or rate-limited sentence is never reworded as waiting
+  test("a failure the User did not cause keeps reading as one", () => {
+    const { stopped: _stopped, ...failed } = stopped;
+    expect(lines("en", failed as typeof stopped)[0]).toMatchObject({
+      kind: "failed",
+      text: "4 sentences couldn’t be checked",
+    });
   });
 });

@@ -288,7 +288,7 @@ test("The card's one Check: the price line first on a cloud model under a cap, t
   const health = await checkCard(window);
   await expect(health.getByTestId("badge-check-mind")).toHaveAttribute(
     "title",
-    "20 sentences to check",
+    "20 sentences not checked yet",
   );
   await expect(health.getByTestId("check-estimate")).toContainText("About $");
   // The price line landing does not clip the card: its press stays inside at both widths.
@@ -339,7 +339,7 @@ test("The card's one Check: the price line first on a cloud model under a cap, t
   // tooltip says how many that is.
   const again = (await checkCard(window)).getByTestId("badge-check-mind");
   await expect(again).toHaveText("Check");
-  await expect(again).toHaveAttribute("title", "1 sentence to check");
+  await expect(again).toHaveAttribute("title", "1 sentence not checked yet");
   await pointAndClick(window, again);
   await expect(marks(window).and(window.locator('[data-check="needs-recheck"]'))).toHaveCount(0);
   await expect(marks(window).and(window.locator('[data-check="unsupported"]'))).toHaveCount(11);
@@ -412,7 +412,7 @@ test("A price line that lands after the card opened makes room for itself and th
   await window.keyboard.type(
     " Four claims here. Five claims here. Six claims here. Seven claims here. Eight claims here. Nine claims here. Ten claims here.",
   );
-  await expect(press).toHaveAttribute("title", "10 sentences to check", { timeout: 15_000 });
+  await expect(press).toHaveAttribute("title", "10 sentences not checked yet", { timeout: 15_000 });
   await expect(health.getByTestId("check-estimate")).toContainText("About $");
   // The price line and the Check sit inside the card: neither is clipped by the height held from before it.
   expect(await inside(health.getByTestId("check-estimate"), health)).toBe(true);
@@ -699,7 +699,7 @@ for (const language of ["en", "zh-CN"] as const) {
     const plainFoot = plain.getByTestId("check-card-foot");
     await expect(plainPress).toHaveAttribute(
       "title",
-      language === "en" ? "1 sentence to check" : "1 句待核对",
+      language === "en" ? "1 sentence not checked yet" : "1 句待核对",
     );
     await expect(plainPrice).toHaveCount(0);
     // Its content has settled: the estimate is none, not still on its way, so the press runs.
@@ -953,7 +953,7 @@ test("Check with nothing changed sends nothing: the marks stay and the card says
   const editedCard = await checkCard(window);
   await expect(editedCard.getByTestId("badge-check-mind")).toHaveAttribute(
     "title",
-    "1 sentence to check",
+    "1 sentence not checked yet",
   );
   await slideSelect(window, first, "Puffins");
   await window.keyboard.type("Penguins");
