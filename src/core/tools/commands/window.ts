@@ -99,6 +99,7 @@ export function windowChecked(
   findable: Findable,
   context: WindowRun,
   window: CommandsHost["window"],
+  page: number | null = null,
 ): CheckedCommand {
   if (entry.yours) return yoursChecked(entry.id, entry.yours);
   const items = targetsOf(entry, ids, findable);
@@ -127,6 +128,7 @@ export function windowChecked(
           run: context.runId,
           command: entry.id,
           targets: items.map(({ kind, id }) => ({ kind, id })),
+          ...(page !== null && { page }),
           mindId: context.mindId,
           clientId,
         },

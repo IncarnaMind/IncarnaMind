@@ -161,6 +161,8 @@ async function askBoth(model: MockLanguageModelV4, language: Language, second: s
 
 const TOO_LONG =
   "## Summary\n\nRent is due on the first of each month [^1]. The deposit is two months of rent [^2]. The tenant pays for water and power [^3]. Pets need the landlord's written consent [^4].";
+const SHORTER_BUT_NOT_0_6 =
+  "## Summary\n\nRent is due on the first of each month [^1]. The deposit is two months [^2].";
 const A_BIT_LONGER =
   "## Summary\n\nRent is due on the first of each month [^1]. The deposit is two months of rent [^2]. The tenant pays for water and power [^3].";
 
@@ -205,8 +207,21 @@ describe("“Longer” at the length the User asked for", { timeout: 30_000 }, (
 
     expect(mindCalls(answer).map((call) => call.status)).toEqual(["failed", "done"]);
     expect(lastResult(model)).toContain(
-      "(from 17 to 30 words, not shorter: 1.8 times as long, where the User asked for about 1.5 times)",
+      "(from 17 to 30 words, not shorter: 1.8 times as long, where times_as_long was 1.5)",
     );
+  });
+
+  // protects=the result never says the User asked for a length: the multiple is the model's own reading of their words, and a request that names no amount ("make it shorter") got 0.6 from Haiku 5.5, which the reply then called "the 0.6 you asked for" (#1385, the 2026-11-07 walk); fails_when=the result words a declared multiple as the User's
+  test("a length the model declared is never worded as one the User asked for", async () => {
+    const model = summaryModel("English", [
+      { content: SHORTER_BUT_NOT_0_6, times: 0.6 },
+      { content: SHORTER_BUT_NOT_0_6, times: 0.6 },
+    ]);
+
+    await askBoth(model, "English", "Make the summary shorter.");
+
+    expect(lastResult(model)).toContain("from 17 to 15 words: 0.9 times as long");
+    expect(lastResult(model)).not.toContain("the User asked");
   });
 
   // protects=with no length asked for (none given, or 1), new text is never refused for its length, and the result still gives the measured multiple; fails_when=it is refused, or its multiple is left out; no_claim=which length a real model picks.

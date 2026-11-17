@@ -79,7 +79,8 @@ const FOLDER_AND_MOVE =
 const BESIDE = /\bopen the (.+?) beside this one\b|在旁边打开“(.+?)”/i;
 const CHECK = /\bcheck this (?:mind|note)\b|核对这篇笔记/i;
 const AGAINST = /\bcheck this sentence against the (.+?)[.?!]*$|对照“(.+?)”核对这句话/i;
-const SOURCE = /\bthe source is the (.+?)[.?!]*$|出处是“(.+?)”/i;
+const SOURCE =
+  /\bthe source is the (.+?)(?:,? (?:p\.|page) ?(\d+))?[.?!]*$|出处是“(.+?)”(?:，?第(\d+)页)?/i;
 const ORGANIZE_FILES = /\bre[ -]?organi[sz]e the files\b|重新整理(?:一下)?(?:这些)?文件/i;
 const ORGANIZE_ABOUT = /\bput the documents about (.+?) together\b|把关于(.+?)的文档放在一起/i;
 const REDUCE_TAGS = /\breduce the number of tags\b|减少标签(?:数量)?/i;
@@ -205,8 +206,14 @@ export function commandsReply(
   ] as const) {
     const named = asked.exec(question);
     if (named) {
-      return findThen(prompt, { kind: "document", name: named[1] ?? named[2] ?? "" }, (found) =>
-        found[0] ? { command, ids: [found[0].id], done: true } : null,
+      // The source's pattern also says a page: "the source is the lease, p. 4", 第4页.
+      const source = command === "check.chooseCitation";
+      const name = (source ? (named[1] ?? named[3]) : (named[1] ?? named[2])) ?? "";
+      const page = source ? (named[2] ?? named[4]) : undefined;
+      return findThen(prompt, { kind: "document", name }, (found) =>
+        found[0]
+          ? { command, ids: [found[0].id], ...(page && { page: Number(page) }), done: true }
+          : null,
       );
     }
   }

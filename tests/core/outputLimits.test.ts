@@ -11,9 +11,12 @@ import { describe, expect, test } from "vitest";
 import type { Core, SaveChatProviderInput } from "../../src/core";
 import { type AnswerTools, createAiSdkAnswerEngine } from "../../src/core/answers/engine";
 import {
+  LONGEST_OUTPUT,
   type ModelCallKind,
   OUTPUT_LIMITS,
   outputTokens,
+  ownRoom,
+  withRoom,
 } from "../../src/core/providers/outputLimits";
 import { ANSWER_PROBLEMS } from "../../src/renderer/src/problems";
 import { type MessageKey, translate } from "../../src/shared/i18n";
@@ -376,6 +379,55 @@ describe("Every model call's output limit", () => {
     expect(tagging.model.doGenerateCalls.map((call) => call.maxOutputTokens)).toEqual([
       outputTokens("tags"),
     ]);
+  });
+});
+
+describe("A kind with its own room", () => {
+  const window = { tokens: 1_000_000, outputTokens: 32_000 };
+
+  // protects=a Meeting's notes ask for more room than any other call without taking it from them: the room every window keeps for a reply stays the longest of the other kinds, so an Answer on a 128,000-token model can still send 96,000 (#3251); fails_when=the notes' 64,000 becomes every window's reply room
+  test("the room every window keeps for a reply doesn't grow with it", () => {
+    expect(OUTPUT_LIMITS["meeting-fill"].most).toBe(64_000);
+    expect(LONGEST_OUTPUT).toBe(32_000);
+  });
+
+  // protects=the notes' Run gives its reply more room only as far as the model's own most and half its window, and none where the model's most isn't known, so no provider refuses the request for asking more than the model can write; the window then keeps that room; fails_when=a model of unknown or smaller output is asked for 64,000
+  test("its Run gives the room where the model can write it", () => {
+    expect(ownRoom("meeting-fill", window, 128_000)).toBe(64_000);
+    expect(ownRoom("meeting-fill", window, 48_000)).toBe(48_000);
+    expect(ownRoom("meeting-fill", window, 32_000)).toBeUndefined();
+    expect(ownRoom("meeting-fill", window, undefined)).toBeUndefined();
+    expect(
+      ownRoom("meeting-fill", { tokens: 16_000, outputTokens: 8_000 }, 128_000),
+    ).toBeUndefined();
+    expect(ownRoom("meeting-fill", { tokens: 100_000, outputTokens: 32_000 }, 128_000)).toBe(
+      50_000,
+    );
+    expect(ownRoom("answer-step", window, 128_000)).toBeUndefined();
+    expect(ownRoom("meeting-fill", undefined, 128_000)).toBeUndefined();
+    // An input limit under the context: the window keeps 128,000 for a reply before any Run asks.
+    const wide = { tokens: 400_000, outputTokens: 128_000, maxInput: 272_000 };
+    expect(ownRoom("meeting-fill", wide, 128_000)).toBe(64_000);
+    expect(ownRoom("meeting-fill", wide, undefined)).toBeUndefined();
+    expect(withRoom(window, 64_000)).toEqual({ ...window, outputTokens: 64_000 });
+    expect(withRoom(wide, 64_000)).toBe(wide);
+  });
+
+  // protects=a request of the kind gets the wider room only where its Run gave it, whatever room its window keeps for a reply: a monthly cap that can't hold it, or a model of unknown limits, keeps the shared room; fails_when=a notes request asks for 64,000 because its window is that wide
+  test("a request has it only where its Run gave it", () => {
+    expect(outputTokens("meeting-fill")).toBe(32_000);
+    expect(outputTokens("meeting-fill", 1, { most: 128_000, window: 32_000 })).toBe(32_000);
+    expect(outputTokens("meeting-fill", 1, { most: 128_000, window: 128_000 })).toBe(32_000);
+    expect(outputTokens("meeting-fill", 1, { window: 128_000 })).toBe(32_000);
+    expect(outputTokens("meeting-fill", 1, { most: 128_000, window: 64_000, own: 64_000 })).toBe(
+      64_000,
+    );
+    expect(outputTokens("meeting-fill", 1, { most: 128_000, window: 8_000, own: 64_000 })).toBe(
+      8_000,
+    );
+    expect(outputTokens("meeting-fill", 1, { most: 20_000, window: 64_000, own: 64_000 })).toBe(
+      20_000,
+    );
   });
 });
 

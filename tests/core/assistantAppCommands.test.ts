@@ -217,6 +217,41 @@ describe("The window's commands run in the window, as ⌘K runs them (#1421)", {
     expect(answer.text).toBe("");
   });
 
+  // protects=the page the User names for a source reaches the window with the Document the command acts on, a call that names none sends none, and a page that is no whole number of 1 or more is refused before the window is asked (#1554); fails_when=a page is dropped, or a page that is no page number reaches the window
+  test.each([
+    { given: 4, sent: [4] },
+    { given: 1, sent: [1] },
+    { given: undefined, sent: [undefined] },
+    { given: 0, sent: [] },
+    { given: 2.5, sent: [] },
+  ])("the source command's page $given reaches the window as $sent", async ({ given, sent }) => {
+    const model = calling(
+      find("Q3 commentary"),
+      run("check.chooseCitation", { ...(given !== undefined && { page: given }), done: true }),
+    );
+    const { core, mind, documents } = await setUpWithDocuments(model, DOCUMENTS);
+    const asked = windowOf(core, () => ({ ran: true, changed: false }));
+    const q3 = documents.find((each) => each.name.startsWith("Q3"));
+
+    await askAssistant(core, {
+      text: "The source is the Q3 commentary, p. 4",
+      mindId: mind.id,
+      commands: [
+        ...OFFERED,
+        entry("check.chooseCitation", "Choose the Citation…", { on: ["document"] }),
+      ],
+      clientId: WINDOW,
+    });
+
+    expect(asked.map(({ command, targets, page }) => ({ command, targets, page }))).toEqual(
+      sent.map((page) => ({
+        command: "check.chooseCitation",
+        targets: [{ kind: "document", id: q3?.id }],
+        page,
+      })),
+    );
+  });
+
   // protects="Run the checks on this note" and "帮我把这篇笔记核对一遍" find the window's Check in its list, which runs it on the note in front, and its card is the whole reply (#2252); fails_when=the list leaves Check out, it runs other than on the Note in front, or a reply follows the card; no_claim=what the check finds.
   test.each(["Run the checks on this note", "帮我把这篇笔记核对一遍"])(
     "“%s”: the window's Check runs on the Note in front, and its card is the reply",

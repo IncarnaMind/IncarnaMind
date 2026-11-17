@@ -232,6 +232,8 @@ export interface CommandInput {
   kinds: string[];
   /** What belongs in a Folder, in the User's words: what Organize reads of it (#1421). */
   about: string | null;
+  /** The page of the Document a source is on, when the User names one (#1554). */
+  page: number | null;
   style: string | null;
   font: string | null;
   size: string | null;
@@ -324,6 +326,10 @@ export function parseCommandInput(input: Record<string, unknown>): CommandInput 
     marks: input.marks === "mark" || input.marks === "leave" ? input.marks : null,
     kinds: texts(input.kinds).map((kind) => kind.replace(/^\./, "").toLowerCase()),
     about: text(input.about),
+    page:
+      typeof input.page === "number" && Number.isInteger(input.page) && input.page >= 1
+        ? input.page
+        : null,
     style: text(input.style),
     font: text(input.font),
     size: text(input.size),
