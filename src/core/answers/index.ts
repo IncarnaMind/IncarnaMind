@@ -205,7 +205,7 @@ import type { AnswerFlow } from "../providers/catalog/answerPaths";
 import type { ThinkingKind } from "../providers/catalog/types";
 import type { PreparedChatModel } from "../providers/chat";
 import { type GaveWay, refusedGoesTo } from "../providers/modelRefusal";
-import type { ModelCallKind } from "../providers/outputLimits";
+import { type ModelCallKind, roomFor } from "../providers/outputLimits";
 import { classifyProviderError } from "../providers/providerErrors";
 import type { WebResult } from "../providers/webSearch";
 import { messageReference } from "../references";
@@ -721,6 +721,11 @@ export interface AnswersOptions {
     choice: ChatModelChoice,
     thinking: "off" | "summary" | ThinkingKind,
   ): Promise<PreparedChatModel>;
+  /**
+   * Whether the monthly cap can set aside replies of `outputTokens` on this model, for a Run whose
+   * kind asks for more room than every call has; true with no cap or no price.
+   */
+  capHolds?(choice: ChatModelChoice, outputTokens: number): boolean;
   /** Where an Answer marks its provider while it is written (../runs/replies). */
   repliesOut?: RepliesOut;
   /** The clock a rate limit's wait is kept by; the real one when left out (#2944). */
@@ -3850,6 +3855,15 @@ export function createAnswers(options: AnswersOptions) {
       const writeFirst = options.writesThenCites?.(prepared, flow) ?? false;
       const asksAnew =
         help === "question" ? anewInItsLanguage(context.question, callLanguage) : null;
+      const widened =
+        input.outputKind &&
+        roomFor(input.outputKind, prepared.window, prepared.capabilities.facts.maxOutput);
+      const ownRoom =
+        widened &&
+        widened !== prepared.window &&
+        (options.capHolds?.(model, widened.outputTokens) ?? true)
+          ? widened
+          : null;
       const events = engine.generate({
         instructions: (
           mode,
@@ -3965,7 +3979,7 @@ export function createAnswers(options: AnswersOptions) {
         retrieveFirst,
         structuredOutput: givesStructuredOutput(prepared.capabilities),
         takesTemperature: prepared.capabilities.facts.temperature,
-        window: prepared.window,
+        window: ownRoom ?? prepared.window,
         ...(prepared.capabilities.facts.maxOutput !== undefined && {
           maxOutput: prepared.capabilities.facts.maxOutput,
         }),

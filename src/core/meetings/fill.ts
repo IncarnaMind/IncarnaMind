@@ -72,6 +72,15 @@ import { withUserName } from "./userName";
 export const FILL_PART_TOKENS = 9_000;
 
 /**
+ * The most of a Transcript one request reads on a model off this computer, where parts go side
+ * by side. A request thinks its notes out before it writes them, some 420 tokens a fact, and a
+ * call dense with decisions has a fact every 40 tokens. A 19-minute call read whole wrote 49 to
+ * 78 facts; read as two halves it wrote 92 to 104 in less time (#3251). A fifteen-minute call of
+ * loose talk is still one request.
+ */
+const FILL_SIDE_PART_TOKENS = 2_500;
+
+/**
  * Where a cut reply stops making the parts smaller: a part under twice this isn't asked again as
  * two, and the rest of the call isn't asked in parts under it. About two and a half minutes of
  * dense talk: a call of four minutes dense with decisions took well under half a reply, so a
@@ -90,7 +99,7 @@ const CLAIMS_AT_ONCE = 4;
  * Asked one after another, the dense 45-minute call took Claude Haiku 5.5 from 1,013 to 1,476 s
  * (#2839): most of a part's wait is the model thinking, which parts side by side spend together.
  */
-const FILL_PARTS_AT_ONCE = 3;
+export const FILL_PARTS_AT_ONCE = 3;
 
 export type FillRoute =
   | { model: ChatModelChoice; local: boolean; windowTokens: number | null }
@@ -459,6 +468,29 @@ export function transcriptParts(
   return parts;
 }
 
+/**
+ * The Transcript as the fewest parts of about `tokens` each, all of about the same size, in
+ * reading order: parts read side by side wait for the longest.
+ */
+export function evenParts(
+  passages: readonly WindowedPassage[],
+  tokens: number,
+): WindowedPassage[][] {
+  const costs = passages.map((passage) => estimateTokens(passage.text));
+  const total = costs.reduce((sum, cost) => sum + cost, 0);
+  const count = Math.ceil(total / tokens);
+  if (count < 2) return passages.length > 0 ? [[...passages]] : [];
+  const parts: WindowedPassage[][] = Array.from({ length: count }, () => []);
+  let before = 0;
+  passages.forEach((passage, index) => {
+    const cost = costs[index] ?? 0;
+    const at = Math.min(count - 1, Math.floor(((before + cost / 2) * count) / total));
+    parts[at]?.push(passage);
+    before += cost;
+  });
+  return parts.filter((part) => part.length > 0);
+}
+
 /** `part` as two of about the same size, in reading order; null for one Passage, or under twice the floor. */
 export function halved(
   part: readonly WindowedPassage[],
@@ -719,12 +751,13 @@ export function createMeetingFill(options: MeetingFillOptions) {
     };
     set(meeting.id, filling);
     const passages = await passagesOf(transcriptId);
-    let partSize = partTokens(route);
+    let partSize = route.local
+      ? partTokens(route)
+      : Math.min(partTokens(route), FILL_SIDE_PART_TOKENS);
     /** The parts of the call whose notes aren't kept yet, in the call's order. */
-    let queue: CallPart[] = transcriptParts(passages, partSize).map((each) => ({
-      passages: each,
-      size: partSize,
-    }));
+    let queue: CallPart[] = (
+      route.local ? transcriptParts(passages, partSize) : evenParts(passages, partSize)
+    ).map((each) => ({ passages: each, size: partSize }));
     // The notes, their section titles and the question that steers an Answer's language are in
     // the call's language, whatever the interface's (#2770).
     const spoken = callLanguage(passages);

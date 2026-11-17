@@ -10,7 +10,7 @@
  */
 import { type LanguageModelMiddleware, wrapLanguageModel } from "ai";
 import type { TokenUsage } from "../runs/engine";
-import type { ChatLanguageModel } from "./models";
+import type { ChatLanguageModel, ContextWindow } from "./models";
 
 export const OUTPUT_LIMITS = {
   answer: { most: 8_000 },
@@ -19,8 +19,11 @@ export const OUTPUT_LIMITS = {
   // A Meeting's notes: the User's lines filled out and the sections after them, with the thinking
   // before them, can pass an Answer's room (#2306). On a four-minute call Claude Haiku 5.5 thought
   // and wrote 16,850 tokens: a reply cut off while it thinks has nothing to keep, so the room is
-  // one that reply fits in, not a smaller one with a second ask (#2839).
-  "meeting-fill": { most: 32_000 },
+  // one that reply fits in, not a smaller one with a second ask (#2839). A 19-minute call's notes
+  // are 60 to 180 facts, thought out at some 420 tokens each before the first is written: 32,000
+  // was reached in a third to a half of such fills, each two minutes paid for nothing (#3251).
+  // `own`: more than a window keeps for every call's reply, so the notes' Run makes the room.
+  "meeting-fill": { most: 64_000, own: true },
   "search-query": { most: 256 },
   tags: { most: 512 },
   // Several Documents tagged in one request, as Organize's run and Re-tag send them (#2339).
@@ -80,13 +83,18 @@ export const OUTPUT_LIMITS = {
   "removal-asked": { most: 256 },
   // One sentence of a check's card written again in the interface's language (#2081).
   restate: { most: 400 },
-} as const satisfies Record<string, { most: number; each?: number; base?: number }>;
+} as const satisfies Record<string, { most: number; each?: number; base?: number; own?: true }>;
 
 export type ModelCallKind = keyof typeof OUTPUT_LIMITS;
 
-/** The most any call may write: no request needs more room for its reply. */
+/**
+ * The most a call may write in the room a window keeps for every call's reply. A kind with `own`
+ * asks for more, and only its Run gives up that much of what it could send (`roomFor`).
+ */
 export const LONGEST_OUTPUT = Math.max(
-  ...Object.values(OUTPUT_LIMITS).map((limit: { most: number }) => limit.most),
+  ...Object.values(OUTPUT_LIMITS).map((limit: { most: number; own?: true }) =>
+    limit.own ? 0 : limit.most,
+  ),
 );
 
 /** What a model can write in one reply: its own most, and the room its window keeps for a reply. */
@@ -100,16 +108,33 @@ export interface OwnRoom {
  * the model's own room, so its provider never refuses the request for asking more.
  */
 export function outputTokens(kind: ModelCallKind, count = 1, within?: OwnRoom): number {
-  const limit: { most: number; each?: number; base?: number } = OUTPUT_LIMITS[kind];
-  const room =
+  const limit: { most: number; each?: number; base?: number; own?: true } = OUTPUT_LIMITS[kind];
+  const asked =
     limit.each === undefined
       ? limit.most
       : Math.min(limit.most, (limit.base ?? 0) + limit.each * Math.max(1, count));
+  // A kind with its own room has it only where its Run's window made it (`roomFor`).
+  const room = limit.own ? Math.min(asked, Math.max(LONGEST_OUTPUT, within?.window ?? 0)) : asked;
   return Math.min(
     room,
     within?.most ?? Number.POSITIVE_INFINITY,
     within?.window ?? Number.POSITIVE_INFINITY,
   );
+}
+
+/**
+ * The window of a Run of `kind`, with room for its reply where that is more than the window keeps
+ * for every call: at most half of the window and the model's own `most`. Unchanged where the
+ * model's most isn't known, so its provider never refuses the request for asking more.
+ */
+export function roomFor(
+  kind: ModelCallKind,
+  window: ContextWindow | undefined,
+  most: number | undefined,
+): ContextWindow | undefined {
+  if (!window || most === undefined) return window;
+  const room = Math.min(OUTPUT_LIMITS[kind].most, most, Math.floor(window.tokens / 2));
+  return room > window.outputTokens ? { ...window, outputTokens: room } : window;
 }
 
 /**

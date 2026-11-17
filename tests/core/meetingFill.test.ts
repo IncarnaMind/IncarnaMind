@@ -20,7 +20,13 @@ import type {
 import { CITE_RETRY_INSTRUCTIONS, QUOTE_RETRY_INSTRUCTIONS } from "../../src/core/answers/prompt";
 import type { WindowedPassage } from "../../src/core/documents/search";
 import type { FakeCaptureOptions } from "../../src/core/meetings/fakeCapture";
-import { FILL_PART_TOKENS, halved, orStopped, transcriptParts } from "../../src/core/meetings/fill";
+import {
+  evenParts,
+  FILL_PART_TOKENS,
+  halved,
+  orStopped,
+  transcriptParts,
+} from "../../src/core/meetings/fill";
 import type { FillSection } from "../../src/core/meetings/fillPrompt";
 import { createFakeChatModel } from "../../src/main/fakeChat";
 import { citationAttributesOf } from "../../src/shared/citations";
@@ -1274,6 +1280,48 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
     await vi.waitFor(() => expect(outline(client)).toContain("## «Pricing»"));
     core.close();
   });
+
+  // protects=on a cloud model whose own output limit is known, the notes' request has room for 64,000 tokens, so a long call's thinking and its facts fit one request (#3251); under a monthly cap that can't set three such replies aside it keeps the 32,000 every call has, and the fill still runs; fails_when=the wider room is asked under the small cap, where the meter refuses the request, or isn't asked with no cap
+  test.each([
+    [null, 64_000],
+    [0.02, 32_000],
+  ])(
+    "on a cloud model with a monthly cap of %j, the notes' request has room for %i tokens",
+    async (cap, room) => {
+      const limits: (number | undefined)[] = [];
+      const model = fillingModel(
+        [
+          overview("The call settled the price [^1]."),
+          fact("P1_price", "price", "We agreed the enterprise price is 45 dollars a seat [^1].", {
+            heading: "Pricing",
+          }),
+        ].join("\n\n"),
+        { 1: MY_LINES[0] as string },
+        {},
+        {
+          seen: (call) => {
+            if (isFill(call)) limits.push(call.options.maxOutputTokens);
+          },
+        },
+      );
+      const { core, meeting } = await recorded(
+        model,
+        null,
+        async (core) => {
+          if (cap !== null) {
+            await core.updateSettings({ user: { monthlyCap: { amount: cap, currency: "USD" } } });
+          }
+        },
+        undefined,
+        { cloud: true },
+      );
+
+      expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", problem: null });
+      expect(limits.length).toBeGreaterThan(0);
+      expect(new Set(limits)).toEqual(new Set([room]));
+      core.close();
+    },
+  );
 
   // protects=a topic heading drops only this fill's own addresses: "H1" when the User typed a first heading, while "H2" as a half-year stays, in English and Chinese (#2306); fails_when=a finance "H2" is dropped, or an address the prompt listed shows as a heading; no_claim=which headings a model writes.
   test.each([
@@ -3516,6 +3564,26 @@ describe("A long Transcript is read in parts", () => {
     ]) {
       expect(parts.length).toBeGreaterThan(1);
       expect(parts.flat().map((each) => each.seq)).toEqual(twoHours.map((each) => each.seq));
+    }
+  });
+
+  // protects=a Transcript read side by side is cut into the fewest parts of about the asked size, all of about the same size, every Passage kept once in order, and one that fits the size is one part (#3251); fails_when=a part is left much shorter than the others, so the longest sets the wait and the short one adds a request for little, a Passage is dropped or repeated, or a Transcript under the size is split; no_claim=the token estimate's accuracy.
+  test("even parts are the fewest of about the size, alike in size, with every Passage once", () => {
+    const sized = (parts: WindowedPassage[][]) => parts.map((part) => part.length);
+    expect(evenParts([], 2_500)).toEqual([]);
+    const short = Array.from({ length: 16 }, (_, index) => passage(index, 120));
+    expect(sized(evenParts(short, 2_500))).toEqual([16]);
+    const twentyMinutes = Array.from({ length: 26 }, (_, index) => passage(index, 120));
+    expect(sized(transcriptParts(twentyMinutes, 2_500))).toEqual([16, 10]);
+    expect(sized(evenParts(twentyMinutes, 2_500))).toEqual([13, 13]);
+    const uneven = [
+      passage(0, 2_000),
+      ...Array.from({ length: 20 }, (_, i) => passage(i + 1, 120)),
+    ];
+    for (const passages of [twentyMinutes, uneven, [passage(0, 9_000), passage(1, 10)]]) {
+      const parts = evenParts(passages, 2_500);
+      expect(parts.every((part) => part.length > 0)).toBe(true);
+      expect(parts.flat().map((each) => each.seq)).toEqual(passages.map((each) => each.seq));
     }
   });
 
