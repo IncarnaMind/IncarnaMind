@@ -50,11 +50,34 @@ const RUNS = Number(process.env.INCARNAMIND_LIVE_RUNS ?? "1") || 1;
 const DIR = process.env.INCARNAMIND_LIVE_DIR;
 const ONLY = process.env.INCARNAMIND_LIVE_ONLY?.split(",");
 
-const pdfOf = (each: BriefCase) =>
-  buildPdf([
-    { lines: [each.title, ...each.sections.slice(0, 2).flatMap((s) => [s.heading, ...s.lines])] },
-    { lines: each.sections.slice(2).flatMap((s) => [s.heading, ...s.lines]) },
-  ]);
+/** A paragraph's lines as a PDF breaks them: a page holds about 85 Latin or 36 Chinese characters across. */
+const wrap = (text: string, chinese: boolean): string[] => {
+  if (chinese) return text.match(/[\s\S]{1,36}/g) ?? [];
+  const lines: string[] = [];
+  let line = "";
+  for (const word of text.split(" ")) {
+    if (line !== "" && line.length + 1 + word.length > 85) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = line === "" ? word : `${line} ${word}`;
+    }
+  }
+  return line === "" ? lines : [...lines, line];
+};
+
+const pdfOf = (each: BriefCase) => {
+  const chinese = each.language === "Chinese";
+  const lines = (sections: BriefCase["sections"]) =>
+    sections.flatMap((s) => [s.heading, ...s.lines].flatMap((line) => wrap(line, chinese)));
+  const first = [...wrap(each.title, chinese), ...lines(each.sections.slice(0, 2))];
+  const second = lines(each.sections.slice(2));
+  return buildPdf(
+    chinese
+      ? [{ chineseLines: first }, { chineseLines: second }]
+      : [{ lines: first }, { lines: second }],
+  );
+};
 
 const wordOf = (each: BriefCase) =>
   wordFile({
