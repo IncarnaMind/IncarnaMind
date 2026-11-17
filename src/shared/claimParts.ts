@@ -85,6 +85,7 @@ const FAILURES: Record<ClaimCheckFailure, true> = {
   "readings-unsettled": true,
   "library-unsettled": true,
   "analysis-unnamed": true,
+  "working-not-sent": true,
   "assistant-conclusion": true,
 };
 export const CLAIM_CHECK_FAILURES: readonly ClaimCheckFailure[] = Object.keys(FAILURES).filter(

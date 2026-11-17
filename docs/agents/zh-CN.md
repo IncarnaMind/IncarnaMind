@@ -1,8 +1,8 @@
 # Writing Chinese strings
 
-Read this before adding or changing a string in `src/shared/i18n/zh-CN.ts`, whether you are a person or a coding agent. It sits beside the words in [`CONTEXT.md`](../../CONTEXT.md) and the interaction rules in [`interaction.md`](interaction.md).
+Read this before adding or changing a string in `src/shared/i18n/zh-CN.ts`. It sits beside the words in [`CONTEXT.md`](../../CONTEXT.md) and the [interaction rules](interaction.md).
 
-**The bar:** the Chinese interface reads like mainstream Chinese software, in the words Chinese Users already know from Feishu, Yuque, Tencent Docs, WPS, Kimi, Doubao, Yuanbao, ChatGPT, Notion, Obsidian, Zotero, macOS and Windows. Write it as a Chinese product would say it, not as a translation of the English. When a term isn't in the glossary below, use the word those apps show for the same thing, and add it here.
+**The bar:** the Chinese interface reads like mainstream Chinese software, in the words Chinese Users know from Feishu, Yuque, Tencent Docs, WPS, Kimi, Doubao, Yuanbao, ChatGPT, Notion, Obsidian, Zotero, macOS and Windows: as a Chinese product would say it, not as a translation. When a term isn't in the glossary below, use the word those apps show for the same thing, and add it here.
 
 ## The rules
 
@@ -27,22 +27,20 @@ Read this before adding or changing a string in `src/shared/i18n/zh-CN.ts`, whet
 14. **Platform words go in their own keys.** Where macOS and Windows name a thing differently, add a key per platform and choose it in code, as `linkedFolders.reveal.mac` / `.windows` / `.other` and `menu.copy` / `menu.copy.other` do. Don't put one platform's word on the other.
 15. **Names stay as they are:** IncarnaMind, ChatGPT, Ollama, OpenAI, PDF, Word, Markdown. Write file types in capitals (ZIP, CSV), and keys as they are printed (Enter, Esc, Backspace, ⌘J).
 
-Before you open the pull request, read every new Chinese string aloud. If it sounds translated, rewrite it. Check it on screen at the narrowest window, too (interaction rule 11).
+Before you open the pull request, read every new Chinese string aloud and rewrite any that sounds translated. Check it on screen at the narrowest window too (interaction rule 11).
 
 ## Glossary
 
-The words from `CONTEXT.md`, then the ones the interaction rules bring in. Where Chinese apps disagree, the choice follows the one most of them show.
-
-A Note is what the User writes in; your text is a Block the User writes. The code and the data keep `mind`. 笔记 means the Note, and 你写的内容 means your text.
+The words from `CONTEXT.md`, then the ones the interaction rules bring in. Where Chinese apps disagree, follow the one most of them show.
 
 ### IncarnaMind's own words
 
 | English | Chinese | Notes |
 |---|---|---|
-| Note | 笔记 | The place the User writes in. 篇 counts it in prose ("3 篇笔记"); a label takes no measure word: "笔记（3）", "收起笔记". Where the User first meets it (the example's banner, the first empty Note, New Note's tooltip) one sentence says what it is: "笔记：在这里写作、向文档提问，每条引文都会核对。" |
+| Note | 笔记 | The place the User writes in, counted as rule 9 says. Where the User first meets it (the example's banner, the first empty Note, New Note's tooltip), one sentence says what it is: "笔记：在这里写作、向文档提问，每条引文都会核对。" |
 | Assistant | 助手 | The one per window. "展开助手", "收起助手". As Kimi, Doubao and Yuanbao call themselves (智能助手, AI 助手). |
 | Conversation | 对话 | New chat is "新对话", History "历史对话", counted with 个: "3 个对话". As Doubao, Yuanbao, DeepSeek, Qwen, Feishu, Cherry Studio and Open WebUI show it. |
-| Your text | 你写的内容 | A Block the User writes, as opposed to one the assistant wrote. The strings say 你写的内容 for it ("你写的内容", "正在搜索你写的内容和文档…"); 笔记 means the Note. |
+| Your text | 你写的内容 | A Block the User writes, not one the assistant wrote: "你写的内容", "正在搜索你写的内容和文档…". 笔记 is the Note. |
 | Block | 块 | "块选项". As Feishu does. |
 | Highlight | 高亮 | Words in a Document the User marked, kept with their Citation. Counted with 条: "3 条高亮". The feature is 高亮和批注 ("Highlights and comments"); never 标注. |
 | Comment | 批注 | The User's own words on a Highlight (⌥⌘M). Counted with 条: "1 条批注". Never 笔记, which is the Note, and never 评论. |
@@ -186,8 +184,7 @@ A figure in an Answer is written as reports write it, with no space between the 
 
 ### Finance and law
 
-The words the finance and law Skills (#1938) use, as Chinese research, banking and legal products
-write them.
+The words of the finance and law Skills (#1938), as Chinese research, banking and legal products write them.
 
 | English | Chinese | Notes |
 |---|---|---|
@@ -203,7 +200,7 @@ write them.
 
 ### Dates and times
 
-A date in a string is a `{date}` or `{time}` parameter, written by `src/shared/dates.ts`, never by a string or by code of its own: "会议，{date}", "{time} 后可重试". The module gives each language one style, and a test fails on a date built by hand elsewhere.
+A date in a string is a `{date}` or `{time}` parameter, written by `src/shared/dates.ts`, never by the string or by code of its own: "会议，{date}", "{time} 后可重试". A test fails on a date built by hand elsewhere.
 
 | Kind | English | Chinese |
 |---|---|---|

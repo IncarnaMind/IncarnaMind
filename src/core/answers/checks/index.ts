@@ -198,7 +198,8 @@ import { createWrittenCheck, type WrittenCheckOptions } from "./written";
 /**
  * What the "checks" flow sends: the sentences checked, with their paragraphs,
  * the Passages found, a verified document's sentences, to find its claims
- * (#97), and a Mind's sentences when the whole Mind is checked (#737).
+ * (#97), a Mind's sentences when the whole Mind is checked (#737), and how a
+ * figure an Answer worked out was worked out (./workedFigures).
  */
 export const CHECKS_FLOW_SENDS = [
   "selection",
@@ -210,12 +211,13 @@ export const CHECKS_FLOW_SENDS = [
   "file-properties",
   "absence-documents",
   "watched-sentences",
+  "worked-figures",
 ] as const;
 
 /**
  * What the contradiction watch may send of the checks flow: its sentences checked as any claim is,
- * file properties and whole Documents too, never the Library's facts. Its consent is to these
- * alone, so it never waits on the rest (#2525).
+ * file properties and whole Documents too, never the Library's facts nor how a figure was worked
+ * out. Its consent is to these alone, so it never waits on the rest (#2525).
  */
 const WATCH_SENDS: readonly DataKind[] = [
   "selection",
@@ -1709,6 +1711,7 @@ export function createChecks(options: ChecksOptions) {
     prepare,
     waitsForRemovedModel: (own) => options.chat.waitsForRemovedModel(own),
     prepareQuietly: (choice) => prepareQuietly(choice, WATCH_SENDS),
+    sendsInBackground: WATCH_SENDS,
     waitsForConsent: async (choice) => {
       const readiness = await chat.readiness(choice ?? undefined, "checks");
       return readiness.ready && waitsFor(readiness.provider.service, WATCH_SENDS);

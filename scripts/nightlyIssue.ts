@@ -1,5 +1,5 @@
 /**
- * The last job of both nightly workflows (docs/agents/testing.md): keeps one issue, "Nightly is
+ * The last job of both nightly workflows (docs/agents/checks.md): keeps one issue, "Nightly is
  * red", true to the last night of each. A night is green, red (a test failed) or not measured (a
  * check could not run, as when a provider's key has no credit), and only green closes the issue.
  *
