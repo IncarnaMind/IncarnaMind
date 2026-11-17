@@ -1049,7 +1049,7 @@ test("the line that says nothing changed goes when a Document is edited or delet
     ]),
   );
   await expect(unchanged).toHaveCount(0, { timeout: 30_000 });
-  await expect(check).toHaveAttribute("title", /sentences? to check$/);
+  await expect(check).toHaveAttribute("title", /sentences? not checked yet$/);
   await checkedAgain();
 
   // A cited Document leaves the Folder: a result its quote backs holds wherever the Note is
@@ -1064,7 +1064,7 @@ test("the line that says nothing changed goes when a Document is edited or delet
   // they were read in, so they are checked in the new one (#2313).
   await inFolder([], true, null);
   await expect(unchanged).toHaveCount(0);
-  await expect(check).toHaveAttribute("title", /sentences? to check$/);
+  await expect(check).toHaveAttribute("title", /sentences? not checked yet$/);
   await checkedAgain();
 
   await window.evaluate(async () => {
