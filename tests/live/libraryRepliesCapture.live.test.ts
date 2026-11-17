@@ -8,21 +8,25 @@
  * default), makes no request without one, and stops at INCARNAMIND_LIVE_CAP US dollars (0.10).
  * The recorder wraps the model here only: the app's own request path is as it is.
  *
- * Bars for a run after a change to what the model is told of the Library line, written before it
- * and read against the run kept in tests/fixtures/libraryReplies.jsonl (main, same cases), whose
- * true sentences were Supported 1 of 16 times:
- *   - Wrong Supported: 0 of the 16 wrong twins. Any Supported on a wrong twin fails the run.
- *   - False Contradicted: 0 of the 16 true sentences.
- *   - Rescued: at least 6 of the 16 true sentences Supported, by the Library's own fact.
- *
- * Bars for a run of the names with a number (INCARNAMIND_CAPTURE_SET=digits: four names, each true
- * twice and each wrong twin twice, 24 checks) after a number in the name of a Document the sentence
- * writes stopped being sent to the model as a figure, so that its first ask is a plain one. The
- * same names, in tests/fixtures/libraryRepliesAfter.jsonl, ended 0 of 8 true sentences Supported,
- * and 2 of 8 with a second ask in place of this change; names with no number ended 7 of 8:
- *   - Wrong Supported: 0 of the 16 wrong twins. Any Supported on a wrong twin fails the run.
- *   - False Contradicted: 0 of the 8 true sentences.
- *   - Rescued: at least 4 of the 8 true sentences Supported, by the Library's own fact.
+ * Bars for a run with twins that are wrong, written before it (eight names, four with a number and
+ * four without, five checks each: the true sentence "appears once" about a name held once, the true
+ * sentence "appears twice" about a name held twice, the wrong sentence "appears once" about a name
+ * held twice, twice over, and the wrong sentence "appears twice" about a name held once; a name held
+ * twice is two Documents of one name, a .txt and a .md file, so the Library's fact says two; 40
+ * checks an arm). Run at the same time on main just before the Library-line wording (#3245) and
+ * just after it, which differ by that change alone, so a wrong Supported can be told from one main
+ * already had:
+ *   - Wrong Supported: 0 of the 24 wrong sentences on either arm. A wrong Supported just after the
+ *     wording that isn't there just before it means the wording is reverted.
+ *   - False Contradicted: 0 of the 16 true sentences on either arm.
+ * A wrong sentence is seen to be wrong first: on the arm before the wording, in the replies kept,
+ * its fact line says what makes it wrong (two Documents of the name, or one).
+ * And for the branch in which a number in a Document's name is no figure it is asked about (the
+ * name's number is also left out of the engine's own reading of the claim):
+ *   - Wrong Supported: 0 of the 24, and false Contradicted 0 of the 16.
+ *   - Rescued: at least 5 of the 8 true "appears once" sentences about names with a number
+ *     Supported, by the Library's own fact (0 of 8 on main after the wording, and 4 of 8 on the
+ *     branch before the engine stopped asking for the name's number).
  */
 import { randomUUID } from "node:crypto";
 import { appendFile } from "node:fs/promises";
@@ -124,48 +128,26 @@ const sentenceOf = ({ language, name, says }: Case): string =>
     ? `${name} 在你的资料库中出现了${says === "once" ? "一" : "两"}次。`
     : `${name} appears ${says} in your Library.`;
 
-const DIGITS = process.env.INCARNAMIND_CAPTURE_SET === "digits";
+/** Four names with a number in them and four without, in English and Chinese. */
+const NAMES: { language: Language; name: string }[] = [
+  ...["Report 12", "Invoice 10432", "Minutes 3.2", "Harbour survey", "Crew roster", "Tide log"].map(
+    (name) => ({ language: "en" as const, name }),
+  ),
+  ...["报告 12", "港口勘测"].map((name) => ({ language: "zh-CN" as const, name })),
+];
 
-const NAMES: { language: Language; name: string }[] = DIGITS
-  ? [
-      ...["Report 12", "Invoice 10432", "Minutes 3.2"].map((name) => ({
-        language: "en" as const,
-        name,
-      })),
-      { language: "zh-CN" as const, name: "报告 12" },
-    ]
-  : [
-      ...[
-        "Report 12",
-        "Invoice 10432",
-        "Minutes 3.2",
-        "Harbour survey",
-        "Crew roster",
-        "Tide log",
-      ].map((name) => ({ language: "en" as const, name })),
-      ...["报告 12", "港口勘测"].map((name) => ({ language: "zh-CN" as const, name })),
-    ];
-
-/** Each name: the true sentence twice, and its two wrong twins once (twice for the names with a number). */
-const CASES: Case[] = NAMES.flatMap(({ language, name }) => {
-  const wrong = DIGITS ? 2 : 1;
-  return [
-    { language, name, copies: 1 as const, says: "once" as const },
-    { language, name, copies: 1 as const, says: "once" as const },
-    ...Array.from({ length: wrong }, () => ({
-      language,
-      name,
-      copies: 2 as const,
-      says: "once" as const,
-    })),
-    ...Array.from({ length: wrong }, () => ({
-      language,
-      name,
-      copies: 1 as const,
-      says: "twice" as const,
-    })),
-  ];
-});
+/**
+ * Each name, five checks: it held once and said once (true), held twice and said twice (true), held
+ * twice and said once (wrong, twice over), held once and said twice (wrong). A name held twice is two
+ * Documents of one name, a .txt and a .md file: the Library's fact says two.
+ */
+const CASES: Case[] = NAMES.flatMap(({ language, name }) => [
+  { language, name, copies: 1 as const, says: "once" as const },
+  { language, name, copies: 2 as const, says: "twice" as const },
+  { language, name, copies: 2 as const, says: "once" as const },
+  { language, name, copies: 2 as const, says: "once" as const },
+  { language, name, copies: 1 as const, says: "twice" as const },
+]);
 
 const spentOf = async (core: Core): Promise<number> =>
   (await core.getCostSummary()).spent
@@ -192,7 +174,7 @@ describe("replies to a sentence about a name, kept for replay", () => {
         await core.updateSettings({ user: { language: each.language } });
         const sources = await createTempDataFolder();
         const copies = Array.from({ length: each.copies }, (_, at) => ({
-          name: `${each.name}${at === 0 ? "" : " (2)"}.txt`,
+          name: `${each.name}.${at === 0 ? "txt" : "md"}`,
           contents: `${each.name}: the figures for the quarter.`,
         }));
         const files = [...FILLER.filter((file) => !file.name.startsWith(each.name)), ...copies];
