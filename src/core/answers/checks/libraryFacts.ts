@@ -137,7 +137,7 @@ const grouped = (count: number) => groupedNumbers.format(count);
 
 export const LIBRARY_NOTE = [
   "The Library facts above are what IncarnaMind's Library lists for this check's scope, not what any Document says. They decide only a sentence about the Library itself: how many Documents it holds, in all or in a Folder, their names and kinds, which share a name, and its Folders, Tags and notes. A count they give that differs from the sentence's contradicts it. They never decide what a Document's text says. A description of the Library they can't settle, such as what its Documents are about or a reading of their names, can't be checked. Nor can which Folder a Document is in or which Tags it has, unless these facts are of that Folder or Tag, named on their first line: such a sentence is a description they can't settle.",
-  'Cite the one line that decides it. After your Verdict line, add a line "Library: " and the facts the sentence states, from documents, folder, unfiled, kind, name, shared, folders, tags, tag, notes and note, separated by commas; "Library: description" for a description of the Library they can\'t settle; or "Library: none" when it is about what a Document says.',
+  'Cite the one line that decides it. After your Verdict line, add a line "Library: " and the facts the sentence states, separated by commas, each by its word: documents (Documents in all), folder (Documents in a Folder), unfiled (Documents not in a Folder), kind (Documents of one kind), name (Documents named …), shared (names more than one Document shares), folders, tags, tag (Documents tagged …), notes and note. Name only a fact the sentence states, and cite its line. Write "Library: description" for a description of the Library they can\'t settle, or "Library: none" when it is about what a Document says.',
 ].join("\n");
 
 const LIBRARY_ASK =
@@ -148,7 +148,7 @@ const WORD_OF = Object.fromEntries(
 ) as Readonly<Record<LibraryFact["kind"], string>>;
 
 const unstated = (words: readonly string[]) =>
-  `Your Library line names ${words.join(", ")}, but no line of the Library facts you recorded with cite states ${words.length === 1 ? "it" : "them"}. Record with cite the one line of the Library facts that decides each, or give the Library line and Verdict the facts bear out; then write your whole reply again.`;
+  `Your Library line names ${words.join(", ")}, but no line of the Library facts you recorded with cite states ${words.length === 1 ? "it" : "them"}. Record with cite the one line of the Library facts that decides each, or, if the sentence does not state ${words.length === 1 ? "it" : "one of them"}, write the Library line again without ${words.length === 1 ? "it" : "that one"}, or give the Library line and Verdict the facts bear out; then write your whole reply again.`;
 
 const DOCUMENT_ONLY =
   "Your search asked for the Library facts, yet your Verdict rests on a Document's text alone. If the sentence is about the Library, record with cite the line of the Library facts that decides it, or give the Verdict and Library line the facts bear out; then write your whole reply again.";
