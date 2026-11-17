@@ -2,7 +2,8 @@
  * A claim check that finds a sentence unsupported judges the nearest line it read: another
  * number in it than the sentence's means it says something different (#770). Rewrite with what
  * the Documents say (#1554) changes the sentence's first number the line doesn't write to the
- * line's first.
+ * line's first. A sentence with "not confirmed" in it is judged neither the same as the quote nor
+ * different, as a contradiction the check can't confirm is (#2184).
  */
 
 import { type GenerateOptions, lastUserText, systemOf } from "./prompt";
@@ -45,6 +46,7 @@ export function fakeConfirm(options: GenerateOptions): string | null {
   const sentence = /<sentence>\n([\s\S]*?)\n<\/sentence>/.exec(text)?.[1] ?? "";
   const quote = /<quote>\n([\s\S]*?)\n<\/quote>/.exec(text)?.[1] ?? "";
   const quoted = numbers(quote);
+  if (!record && /\bnot confirmed\b/i.test(sentence)) return "neither";
   const differs = quoted.length > 0 && numbers(sentence).some((each) => !quoted.includes(each));
   if (record) return `Judgement: ${differs ? "unsupported" : "supported"}`;
   return differs ? "conflict" : "same";
