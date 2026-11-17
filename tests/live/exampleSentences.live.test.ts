@@ -676,6 +676,41 @@ const HELD_OUT: readonly HeldOut[] = [
     right: "吨级为54,000。",
     wrong: "产量为54,000吨。",
   }),
+  // A sentence that says less than its Passage, leaving out its year, number or how it was found,
+  // is right (#3197); one that adds a wider group or a part, or drops its condition, is not.
+  ...pair("en-n1", "short-note", "en", {
+    document:
+      "Report 14, March 2025: the Harbour depot handled 4,200 containers in the month, up from 3,900.",
+    right: "The Harbour depot handled 4,200 containers in the month.",
+    wrong: "The Harbour depot and the Quay depot each handled 4,200 containers in the month.",
+  }),
+  ...pair("en-n2", "short-note", "en", {
+    document:
+      "Under clause 9 of the 2024 handbook, staff may work remotely two days a week, provided the team lead agrees in advance.",
+    right: "Staff may work remotely two days a week, provided the team lead agrees in advance.",
+    wrong: "Staff may work remotely two days a week.",
+  }),
+  ...pair("en-n3", "short-note", "en", {
+    document:
+      "The survey of 1,180 tenants, carried out by post in May, found that 62% were satisfied with repairs.",
+    right: "62% of the tenants surveyed were satisfied with repairs.",
+    wrong: "62% of the tenants surveyed were satisfied with repairs and with rents.",
+  }),
+  ...pair("zh-n1", "short-note", "zh-CN", {
+    document: "2025年第三季度，南湖仓库（编号07）出库量为1.8万件，同比增长6%。",
+    right: "南湖仓库出库量为1.8万件。",
+    wrong: "南湖仓库和北岸仓库出库量均为1.8万件。",
+  }),
+  ...pair("zh-n2", "short-note", "zh-CN", {
+    document: "根据2024年版员工手册第9条，员工可每周远程办公两天，须事先与主管商定。",
+    right: "员工可每周远程办公两天，须事先与主管商定。",
+    wrong: "员工可每周远程办公两天。",
+  }),
+  ...pair("zh-n3", "short-note", "zh-CN", {
+    document: "本次问卷于5月以邮寄方式发放，共回收1,180份，其中62%的租户对维修服务表示满意。",
+    right: "62%的受访租户对维修服务表示满意。",
+    wrong: "62%的受访租户对维修服务和租金水平均表示满意。",
+  }),
 ];
 
 function pair(
