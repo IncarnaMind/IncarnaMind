@@ -19,7 +19,6 @@ import type { Core, WindowCommandRequest } from "../../src/core";
 import { catalogProvider } from "../../src/core/providers/catalog/providers";
 import { createAiSdkChatModel } from "../../src/core/providers/models";
 import type { OfferedCommand } from "../../src/shared/commands";
-import { answerEnded } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { connectToMind } from "../helpers/mindClient";
@@ -159,7 +158,16 @@ describe("the source's page in the assistant's call, live", () => {
           });
           if (!asked.asked) throw new Error(`Not asked: ${JSON.stringify(asked)}`);
           // The command has run by the time the Answer ends; the judging of its sentences is not waited for.
-          await answerEnded(core, asked.answerId);
+          await new Promise<void>((resolve) => {
+            const stops = [
+              core.on("answer.finished", ({ answerId }) => answerId === asked.answerId && done()),
+              core.on("answer.failed", ({ answerId }) => answerId === asked.answerId && done()),
+            ];
+            function done() {
+              for (const stop of stops) stop();
+              resolve();
+            }
+          });
           const { messages } = await core.getConversation(asked.conversation.id);
           const answer = messages.find((message) => message.id === asked.answerId);
           if (answer?.kind !== "answer") throw new Error("No Answer.");
