@@ -86,8 +86,16 @@ const SETS = {
     { text: "Point this sentence to the Lease.", page: undefined },
     { text: "把这句话的出处指向 Lease。", page: undefined },
   ],
+  // The third, written 2026-11-17 before it was run, after the second showed the "Point this
+  // sentence to" requests are answered by the assistant citing the sentence itself (10 of 10 asks,
+  // no command) while the "Open … so I can pick" ones run it: the no-page twins of the latter.
+  third: [
+    { text: "Open the Lease so I can pick the source for this sentence.", page: undefined },
+    { text: "请打开 Lease，我来选这句话的出处。", page: undefined },
+  ],
 } as const;
-const REQUESTS = SETS[process.env.INCARNAMIND_LIVE_SET === "second" ? "second" : "first"];
+const REQUESTS =
+  SETS[(process.env.INCARNAMIND_LIVE_SET as keyof typeof SETS | undefined) ?? "first"];
 
 describe("the source's page in the assistant's call, live", () => {
   test.skipIf(KEY === undefined)(
