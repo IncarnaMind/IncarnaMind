@@ -132,7 +132,6 @@ async function start(language: "en" | "zh-CN", file: string, text: string) {
   return { app, window };
 }
 
-/** A new Note, named, and its paragraphs typed as a person types them. */
 async function writeNote(window: Page, title: string, lines: readonly string[]): Promise<void> {
   await newMind(window);
   await nameMind(window, title);
@@ -146,7 +145,6 @@ async function writeNote(window: Page, title: string, lines: readonly string[]):
   ).toHaveText([...lines]);
 }
 
-/** The text of the Block the cursor is in. */
 const caretBlock = (window: Page) =>
   window.evaluate(() => {
     const node = document.getSelection()?.anchorNode;
