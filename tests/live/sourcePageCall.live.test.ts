@@ -61,13 +61,29 @@ async function windowCommandsFor(core: Core, mindId: string): Promise<OfferedCom
   return offeredCommands(mindId);
 }
 
-const REQUESTS = [
-  { text: "The source is the Lease, p. 4", page: 4 },
-  { text: "The source is the Lease, page 4", page: 4 },
-  { text: "出处是“Lease”，第4页", page: 4 },
-  { text: "出处是Lease文档的第 4 页", page: 4 },
-  { text: "The source is the Lease", page: undefined },
-] as const;
+const SETS = {
+  // The first phrasing, a statement about the source. Haiku 5.5 never ran the command in 25 asks:
+  // 0 of 20 asks before the command had a purpose line, 0 of 5 after it (US$0.04 in all). It read
+  // the Lease for the page instead.
+  first: [
+    { text: "The source is the Lease, p. 4", page: 4 },
+    { text: "The source is the Lease, page 4", page: 4 },
+    { text: "出处是“Lease”，第4页", page: 4 },
+    { text: "出处是Lease文档的第 4 页", page: 4 },
+    { text: "The source is the Lease", page: undefined },
+  ],
+  // The second, written 2026-11-17 before it was run: what a User says of the sentence in front of
+  // them, as a request.
+  second: [
+    { text: "Open page 4 of the Lease so I can pick the source for this sentence.", page: 4 },
+    { text: "Point this sentence to the Lease, p. 4.", page: 4 },
+    { text: "把这句话的出处指向 Lease 的第4页。", page: 4 },
+    { text: "请打开 Lease 的第 4 页，我来选这句话的出处。", page: 4 },
+    { text: "Point this sentence to the Lease.", page: undefined },
+    { text: "把这句话的出处指向 Lease。", page: undefined },
+  ],
+} as const;
+const REQUESTS = SETS[process.env.INCARNAMIND_LIVE_SET === "second" ? "second" : "first"];
 
 describe("the source's page in the assistant's call, live", () => {
   test.skipIf(KEY === undefined)(
