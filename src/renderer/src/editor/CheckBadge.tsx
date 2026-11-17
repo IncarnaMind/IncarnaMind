@@ -62,7 +62,7 @@ import { MindCheckAsk, MindUnchanged, RunningText } from "./MindCheckLine";
 import { HealthCard, PartMark, partLabel, useHealth } from "./NoteHealth";
 import { Popover } from "./Popover";
 import { useVerificationBrief } from "./VerifyBrief";
-import { useVerifyState, VerifyCard, verifyDone } from "./VerifyLine";
+import { useVerifyState, VerifyAsk, VerifyCard, verifyDone } from "./VerifyLine";
 import { shownPhase } from "./verifyPhase";
 
 /**
@@ -392,6 +392,20 @@ function VerifyBadge({
         ) : null
       }
       onStop={() => stopVerify(mindId)}
+      actions={
+        state.asking &&
+        holdKey === "brief" &&
+        state.outcome?.kind !== "no-documents" &&
+        state.outcome?.kind !== "nothing" && (
+          <VerifyAsk
+            mindId={mindId}
+            doc={doc}
+            total={state.total}
+            estimate={state.estimate}
+            onNotNow={() => setCheckCardOpen(place, false)}
+          />
+        )
+      }
       foot={
         verifyDone(state) && (
           <button

@@ -201,6 +201,52 @@ const VERIFY_MARKS: Record<Exclude<VerifyRow, "notYetCited">, ClaimMarkState> = 
   supported: "supported",
 };
 
+/** The question "Check these against your Documents?" with its estimate and its press. */
+export function VerifyAsk({
+  mindId,
+  doc,
+  total,
+  estimate,
+  onNotNow,
+}: {
+  mindId: string;
+  doc: Y.Doc;
+  total: number;
+  estimate: EstimateLine | null;
+  onNotNow(): void;
+}) {
+  const t = useT();
+  const language = useLanguage();
+  const inFolder = useAppStore(
+    (app) => (app.minds.find((each) => each.id === mindId)?.folderId ?? null) !== null,
+  );
+  const format = (value: number) => new Intl.NumberFormat(language).format(value);
+  return (
+    <div className="check-card-ask" data-testid="verify-ask">
+      <p className="check-card-ask-title">{t(inFolder ? "verify.ask.folder" : "verify.ask.all")}</p>
+      {estimate && <EstimateMeta testId="verify-estimate" line={estimate} />}
+      <div className="check-card-ask-actions">
+        <button
+          type="button"
+          data-testid="verify-check"
+          className={buttonStyle("primary", "sm")}
+          onClick={() => void checkClaims(mindId, doc)}
+        >
+          {t(total === 1 ? "verify.check.one" : "verify.check", { count: format(total) })}
+        </button>
+        <button
+          type="button"
+          data-testid="verify-not-now"
+          className={buttonStyle("ghost", "sm")}
+          onClick={onNotNow}
+        >
+          {t("mindCheck.cancel")}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /**
  * The check badge's card for a Mind made by "Verify a document…" (#97,
  * #909; the boards Verify-Badge-*): "Check it against this Folder's
@@ -353,31 +399,9 @@ export function VerifyCard({
   } else if ((total === 0 || outcome?.kind === "nothing") && opinions.length === 0) {
     body = <p data-testid="verify-empty">{t("verify.none")}</p>;
   } else if (marks.marked === 0 && (opinions.length === 0 || total > 0)) {
-    body = (
-      <div className="check-card-ask" data-testid="verify-ask">
-        <p className="check-card-ask-title">
-          {t(inFolder ? "verify.ask.folder" : "verify.ask.all")}
-        </p>
-        {estimate && <EstimateMeta testId="verify-estimate" line={estimate} />}
-        <div className="check-card-ask-actions">
-          <button
-            type="button"
-            data-testid="verify-check"
-            className={buttonStyle("primary", "sm")}
-            onClick={() => void checkClaims(mindId, doc)}
-          >
-            {t(total === 1 ? "verify.check.one" : "verify.check", { count: format(total) })}
-          </button>
-          <button
-            type="button"
-            data-testid="verify-not-now"
-            className={buttonStyle("ghost", "sm")}
-            onClick={onNotNow}
-          >
-            {t("mindCheck.cancel")}
-          </button>
-        </div>
-      </div>
+    // Under a brief the question sits in the card's fixed foot, where the press is never scrolled away.
+    body = brief ? null : (
+      <VerifyAsk mindId={mindId} doc={doc} total={total} estimate={estimate} onNotNow={onNotNow} />
     );
   } else {
     const look = marks.rows.contradicted.length + marks.rows.unsupported.length;
