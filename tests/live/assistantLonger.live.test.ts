@@ -32,6 +32,23 @@
  *   0 of 4.
  * A missed bar is one line to the lead, and a wrong figure the reply states goes to the owner.
  *
+ * Third round (#1385, adding to the User's own Note takes the amount, and a length is refused up to
+ * twice), bars written 2026-11-17 before any request of it, DeepSeek V4.1 Flash both arms
+ * (Claude Haiku 5.5 meant), `main` and the branch alternated in one session, stop CNY 1.5 (about
+ * US$0.20; the core counts DeepSeek in CNY, so the balance is read before and after). At the head:
+ * - the User's own Note a little longer (the 8 "own" requests): within 1.0 < x <= 1.65 in at least
+ *   6 of 8, and at least 3 more than `main`;
+ * - no amount on the own Note (the 2 "ownNone"): none declared or stated, 2 of 2;
+ * - a bit longer on the assistant's summary (the 10 "a bit"): at least 9 of 10, and not below `main`;
+ * - no amount on the summary (the 8 "shorter" and "longer"): 8 of 8;
+ * - the sizes a reply states are the measured ones: all 16 of the summary's and at least 7 of the
+ *   own 8; every added sentence cited or marked: 16 of 16 and at least 7 of 8 own;
+ * - the User's own text kept in the Note: 8 of 8 (and the 2 "ownNone"); a reply that says no change
+ *   was made when one was: 0.
+ * Reported on both arms, and in the PR as a cost if the second refusal adds more than one request in
+ * five edits on average: seconds and edit calls per request, and how often a refusal fired once and
+ * twice.
+ *
  * Results, DeepSeek V4.1 Flash, `main` (c253f2a4b) and the branch alternated in one session each:
  * - Round 1, with the description "only from an amount in the User's words … 1 when they name no
  *   amount": no amount 8 of 8 against 0 of 8 on `main`, but the "a bit" requests fell to 2 of 10
@@ -89,7 +106,7 @@ const LIVE: { name: string; kind: ChatProviderKind; apiKey: string | undefined; 
     },
   ];
 
-type Kind = "a bit" | "twice" | "shorter" | "longer" | "own";
+type Kind = "a bit" | "twice" | "shorter" | "longer" | "own" | "ownNone";
 
 const LANGUAGES = [
   {
@@ -135,7 +152,10 @@ const LANGUAGES = [
       own: [
         "Make my note a little longer, using what the Documents say.",
         "Could you add a bit more detail to my note from the Documents?",
+        "Please expand my note slightly with details from the Documents.",
+        "My note is a bit short: add a little more from the Documents.",
       ],
+      ownNone: ["Add more from the Documents to my note."],
     } satisfies Record<Kind, string[]>,
     ownNote: [
       "Summary",
@@ -178,7 +198,13 @@ const LANGUAGES = [
       twice: ["把摘要扩写到现在的两倍长。", "摘要篇幅加倍。", "摘要扩充一倍。"],
       shorter: ["把摘要写短。", "缩短摘要。", "摘要精简一下。"],
       longer: ["把摘要写长。"],
-      own: ["把我的笔记稍微写长一点，用文档里的内容。", "能根据文档给我的笔记多补充一些细节吗？"],
+      own: [
+        "把我的笔记稍微写长一点，用文档里的内容。",
+        "能根据文档给我的笔记多补充一些细节吗？",
+        "请用文档里的内容把我的笔记稍微扩充一点。",
+        "我的笔记有点短，根据文档再补充一小点。",
+      ],
+      ownNone: ["根据文档给我的笔记多加一些内容。"],
     } satisfies Record<Kind, string[]>,
     ownNote: [
       "摘要",
@@ -193,6 +219,7 @@ const WITHIN: Record<Kind, (times: number) => boolean> = {
   shorter: (times) => times > 0 && times < 1,
   longer: (times) => times > 1,
   own: (times) => times > 1 && times <= 1.65,
+  ownNone: (times) => times > 1,
 };
 
 /** A length the reply says the User asked for, which no request of the "shorter" and "longer" kinds gives. */
@@ -377,9 +404,9 @@ describe.each(LIVE)("Longer, at the length asked, live: $name", (live) => {
       for (const each of LANGUAGES.filter(
         (one) => !onlyLanguage || one.language === onlyLanguage,
       )) {
-        for (const kind of (["a bit", "twice", "shorter", "longer", "own"] as const).filter(
-          (one) => !onlyKinds || onlyKinds.includes(one),
-        )) {
+        for (const kind of (
+          ["a bit", "twice", "shorter", "longer", "own", "ownNone"] as const
+        ).filter((one) => !onlyKinds || onlyKinds.includes(one))) {
           const requests = each.requests[kind].slice(0, limit);
           let within = 0;
           let covered = 0;
@@ -389,6 +416,11 @@ describe.each(LIVE)("Longer, at the length asked, live: $name", (live) => {
           let targetless = 0;
           let denied = 0;
           let claimLines = 0;
+          let kept = 0;
+          let sumSeconds = 0;
+          let sumEdits = 0;
+          let refusedOnce = 0;
+          let refusedTwice = 0;
           for (const request of requests) {
             let seeding = kind !== "own";
             const seeded = seedModel(each.seed);
@@ -436,7 +468,9 @@ describe.each(LIVE)("Longer, at the length asked, live: $name", (live) => {
               const first = kind === "own" ? null : await ask(core, each.first, mind.id, folder.id);
               seeding = false;
               const before = await noteNow(client);
+              const startedAt = Date.now();
               const second = await ask(core, request, mind.id, folder.id);
+              const seconds = (Date.now() - startedAt) / 1000;
               const after = await noteNow(client);
               ran++;
               const cjk = mostlyCjk(countText(before.text));
@@ -466,6 +500,19 @@ describe.each(LIVE)("Longer, at the length asked, live: $name", (live) => {
               const isCovered = bare.length === 0 && addedSentences.length > 0;
               const isTruthful = falseMultiples.length === 0 && falseCounts.length === 0;
               const isInPlace = salaries <= 1 && now > 0;
+              const edits = second.toolCalls.filter(
+                (call) => call.tool === "edit_mind" || call.tool === "add_to_mind",
+              );
+              const refusals = edits.filter((call) => call.mindProblem?.kind === "length").length;
+              sumSeconds += seconds;
+              sumEdits += edits.length;
+              if (refusals >= 1) refusedOnce++;
+              if (refusals >= 2) refusedTwice++;
+              if (
+                !kind.startsWith("own") ||
+                each.ownNote.every((line) => after.text.includes(line))
+              )
+                kept++;
               const declared = second.toolCalls.some(
                 (call) =>
                   call.input.times_as_long !== undefined && Number(call.input.times_as_long) !== 1,
@@ -522,7 +569,7 @@ describe.each(LIVE)("Longer, at the length asked, live: $name", (live) => {
             }
           }
           totals.push(
-            `  ${each.language} · ${kind}: within ${within}/${ran}, every added sentence cited or marked ${covered}/${ran}, sizes stated truly ${truthful}/${ran}, one summary ${inPlace}/${ran}, no length declared or stated ${targetless}/${ran}, says nothing changed when it did ${denied}/${ran}, a claim line under the reply ${claimLines}/${ran}`,
+            `  ${each.language} · ${kind}: within ${within}/${ran}, every added sentence cited or marked ${covered}/${ran}, sizes stated truly ${truthful}/${ran}, one summary ${inPlace}/${ran}, no length declared or stated ${targetless}/${ran}, says nothing changed when it did ${denied}/${ran}, a claim line under the reply ${claimLines}/${ran}, the User's own text kept ${kept}/${ran}, ${(sumSeconds / Math.max(ran, 1)).toFixed(0)} s and ${(sumEdits / Math.max(ran, 1)).toFixed(1)} edit calls on average, refused once ${refusedOnce} twice ${refusedTwice}`,
           );
         }
       }
