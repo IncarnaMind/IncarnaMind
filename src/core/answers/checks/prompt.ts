@@ -185,9 +185,10 @@ const reply = (language: Language, calculate: boolean, partOf: boolean) =>
     "For a forecast asserted as certain, add Reason kind: forecast-certainty. For two established events without the asserted causal link, add Reason kind: unbacked-cause. Otherwise omit Reason kind. These fields are your semantic judgment, not words to match in the sentence.",
     `Add two last lines, "Covered: " and "Not covered: ", only when a Passage states part of what this sentence itself says: the same subject and the same detail, the sentence saying more than the Passage (a wider group, an added condition, more days). "Covered: " is a short phrase in ${LANGUAGE_NAMES[language]} for that part ("the speed comparison"), "Not covered: " for the rest, as a phrase of the same kind ("memory and robustness"). A Passage about a neighbouring thing (the rent for a service charge, another period, site or person) states no part of the sentence: then write neither line.`,
     // Claude Haiku 5.5 wrote a Passage's year, unit or survey size as "Not covered" under a Supported
-    // verdict, where a dropped condition is written too, and told not to write it, wrote it as often:
-    // a detail the sentence is true without has a line of its own, which nothing reads (#3197).
-    'What a Passage adds that the sentence leaves out: a condition, limit or exception on what the sentence says (only if, unless, subject to) goes on "Not covered: "; a detail the sentence is true without (the Passage\'s year or period, its unit, its source, how many were asked) goes on a line of its own, "Passage adds: ", and is never "Not covered".',
+    // verdict, where a dropped condition is written too. Told not to, it wrote it as often; given a
+    // line nothing reads, it moved it, but then wrote a condition the sentence keeps as "Not covered"
+    // (5 of 44 checks), so a kept condition is given its place too (#3197).
+    'What a Passage adds that the sentence leaves out: a condition, limit or exception on what the sentence says (only if, unless, subject to) goes on "Not covered: "; a detail the sentence is true without (the Passage\'s year or period, its unit, its source, how many were asked) goes on a line of its own, "Passage adds: ", and is never "Not covered". A condition the sentence states as its Passage does is on the "Condition: " line as same, and on neither of these.',
     `For supported with a wider scope, the same two last lines: "Covered: " and what the Passage states for its own party, then "Not covered: " and the wider group. For supported with roles, a duty or a condition that differ, "Covered: " and what the Passage states, then "Not covered: " and what the sentence says otherwise.`,
     ...(calculate
       ? [
