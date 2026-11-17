@@ -84,6 +84,12 @@ export function createCheckResults() {
       });
     },
     facts,
+    /**
+     * The User's own workings a search matched and left out: an Unsupported sentence names them,
+     * since what the User wrote themselves never backs their sentence.
+     */
+    ownWorkings: (): LeftOutDocument[] =>
+      [...excluded.values()].filter((each) => each.reason === "own-workings"),
     notChecked,
     failedCheck(error: ProviderError): ClaimCheckResult {
       const { reason, detail } = failureOf(error);

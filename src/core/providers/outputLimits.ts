@@ -49,20 +49,9 @@ export const OUTPUT_LIMITS = {
   "unmarked-quotes": { most: 8_000, each: 150 },
   "quote-retry": { most: 600, each: 100 },
   "figure-retry": { most: 1_800, each: 300 },
-  evidence: { most: 4_000, each: 600 },
-  "covered-evidence": { most: 600 },
-  confirm: { most: 300 },
-  strict: { most: 300 },
-  "strict-figure": { most: 300 },
-  recheck: { most: 300 },
-  nearest: { most: 300 },
-  // Two phrases, which a record cite asks for too, as much room as its own judgement has.
+  // Two phrases a record cite asks for, as much room as its own judgement has.
   parts: { most: 400 },
-  presence: { most: 300 },
-  "strict-presence": { most: 300 },
-  rewrite: { most: 300 },
   "record-cite": { most: 400 },
-  "absence-read": { most: 400 },
   // A batch's records, up to about 120 tokens a sentence, after the thinking of a model that
   // thinks first, which comes once a request whatever its size: DeepSeek V4.1 Flash thought up to
   // 6,234 tokens before the records of 6 sentences, Claude Haiku 5.5 up to 1,579 (#2951).

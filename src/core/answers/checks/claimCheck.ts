@@ -27,7 +27,7 @@ import type {
 } from "../../api";
 import type { Evidence, EvidenceScope } from "../../documents/evidence";
 import type { Language } from "../../language";
-import { givesStructuredOutput } from "../../providers/capabilities";
+import { checkCalculates, givesStructuredOutput } from "../../providers/capabilities";
 import type { PreparedChatModel } from "../../providers/chat";
 import type { RecordCitePlace } from "../../recordCites/referents";
 import type { AnswerDocuments, matchingOf } from "../citations";
@@ -162,12 +162,15 @@ const CITE_FIRST =
 const MARKERS_READ = 8;
 
 /** The sentence as the one part of its result: what a sentence's mark and its card are made from. */
-const asWhole = (claim: string, result: ClaimCheckResult): ClaimCheckResult =>
+const asWhole = (claim: string, { more, ...result }: Judged): ClaimCheckResult =>
   claim.length === 0
     ? { ...result, parts: [] }
     : resultFromParts([
-        partWithResult({ kind: "fact", span: { start: 0, end: claim.length } }, result),
+        partWithResult({ kind: "fact", span: { start: 0, end: claim.length } }, result, more),
       ]);
+
+/** A sentence's result, with the quotes that decide it beside the first, which its card shows too. */
+type Judged = ClaimCheckResult & { more?: readonly Citation[] };
 
 export function createClaimCheck(deps: ClaimCheckDependencies) {
   return async (request: ClaimCheckRequest): Promise<ClaimCheckResult> => {
@@ -181,10 +184,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
   };
 }
 
-async function judged(
-  deps: ClaimCheckDependencies,
-  request: ClaimCheckRequest,
-): Promise<ClaimCheckResult> {
+async function judged(deps: ClaimCheckDependencies, request: ClaimCheckRequest): Promise<Judged> {
   const { signal, model } = request;
   const results = createCheckResults();
   const { facts, notChecked, failedCheck } = results;
@@ -201,10 +201,12 @@ async function judged(
       versions: [],
       excluded: [],
     };
+  const calculates = model.support === "tools" && checkCalculates(model.capabilities);
   const { scoped, session, decisions, citedShown, looked, searches, tools } = setUpRun(
     deps,
     request,
     results,
+    calculates,
   );
   let court: Awaited<ReturnType<typeof courtDecisions>>;
   try {
@@ -238,7 +240,7 @@ async function judged(
     {
       name: "search-again",
       check: (text) =>
-        searches() <= 1 && readVerdict(text)?.verdict === "unsupported"
+        looked() && searches() <= 1 && readVerdict(text)?.verdict === "unsupported"
           ? { claims: [], note: SEARCH_AGAIN }
           : null,
     },
@@ -246,7 +248,11 @@ async function judged(
       name: "cite-first",
       check(text) {
         const read = readVerdict(text);
-        return read && read.verdict !== "unsupported" && !recorded(read) && !restsOnOwnFigure(read)
+        return read &&
+          looked() &&
+          read.verdict !== "unsupported" &&
+          !recorded(read) &&
+          !restsOnOwnFigure(read)
           ? { claims: [], note: CITE_FIRST, requires: "cite" }
           : null;
       },
@@ -259,7 +265,13 @@ async function judged(
   let finished = false;
   for await (const event of deps.engine.generate({
     instructions: (mode, options) =>
-      checkInstructions(mode, language, options?.passages, request.callIn !== undefined),
+      checkInstructions(
+        mode,
+        language,
+        options?.passages,
+        request.callIn !== undefined,
+        calculates,
+      ),
     messages: [
       { role: "user", content: claimPrompt({ ...request, figures, citedShown, language }) },
     ],
@@ -294,12 +306,15 @@ async function judged(
   if (signal.aborted) return notChecked("stopped");
   if (failed) return failedCheck(failed);
   if (!finished || reply.trim() === "") return notChecked("empty");
-  // A model may write its verdict beside `cite` and only its sentence after: the turns are read as one.
-  // A last turn that declines takes back whatever a turn before it said.
+  // A model may write its verdict beside `cite` and only its sentence after: the turns from that
+  // verdict on are read as one. A turn after it that declines takes the verdict back.
+  const turns = [...setAside, reply];
+  const from = turns.findLastIndex((turn) => readVerdict(turn) !== null);
   const read =
-    readVerdict(reply) ??
-    (readsAsRefusal(reply) ? null : readVerdict([...setAside, reply].join("\n")));
-  if (!read) return notChecked(readsAsRefusal(reply) ? "refused" : "malformed");
+    from < 0 || turns.slice(from + 1).some(readsAsRefusal)
+      ? null
+      : readVerdict(turns.slice(from).join("\n"));
+  if (!read) return notChecked(turns.some(readsAsRefusal) ? "refused" : "malformed");
   if (!looked() && !restsOnOwnFigure(read)) return notChecked("unread");
 
   session.check();
@@ -314,7 +329,7 @@ async function judged(
   const quotes =
     named.length > 0 ? named : found(Array.from({ length: MARKERS_READ }, (_, at) => at + 1));
   const [evidence, ...more] = quotes;
-  const result = ((): ClaimCheckResult => {
+  const result = ((): Judged => {
     if (read.verdict === "unsupported")
       return {
         verdict: "unsupported",
@@ -329,6 +344,7 @@ async function judged(
         calculation: null,
         ...court.citedCase(null),
         ...facts(),
+        excluded: [...facts().excluded, ...results.ownWorkings()],
       };
     // The one thing IncarnaMind confirms: the verdict's quote is in its Document.
     if (!evidence && !restsOnOwnFigure(read)) return notChecked("no-evidence");
@@ -342,7 +358,7 @@ async function judged(
       calculation: null,
       ...court.citedCase(evidence ?? null),
       ...facts(),
-      ...(more.length > 0 && { checkedEvidence: more }),
+      ...(more.length > 0 && { more }),
     };
   })();
   return leftOut ? withoutDocumentLeftOut(result, leftOut.name) : result;

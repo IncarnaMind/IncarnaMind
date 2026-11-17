@@ -955,12 +955,13 @@ describe("Check this Note with a decision model chosen (#3118)", { timeout: 30_0
     expect(readByAiModel()).toEqual([PENGUINS]);
   });
 
-  // protects=a number the Passage writes another way is the sentence's amount only on the decision model's own answer to that question: without it the sentence gets a first reading and its check; a number written as the sentence writes it costs no such question; fails_when=a sentence is marked Supported on a Passage that doesn't hold its number as written, with the amounts question unasked or answered no; no_claim=that a real model tells the same amount from another, which the gate's real-model run measures.
+  // protects=a number a sentence writes is the Passage's amount only on the decision model's own answer to that question, whether the Passage writes it the same way or another (a table's unit line can make the same digits another amount): without that answer the sentence gets a first reading and its check; fails_when=a sentence with a number is marked Supported with the amounts question unasked or answered no; no_claim=that a real model tells the same amount from another, which the gate's real-model run measures.
   test.each([
-    ["written another way, the same amount", "54 thousand", 0.95, "decision model", true],
-    ["written another way, not surely the same", "54 thousand", 0.6, "AI model", true],
-    ["written as the sentence writes it", "54,000", 0.01, "decision model", false],
-  ])("a sentence's number %s", async (_, written, sameAmount, by, asksAmount) => {
+    ["written another way, the same amount", "54 thousand", 0.95, "decision model"],
+    ["written another way, not surely the same", "54 thousand", 0.6, "AI model"],
+    ["written as the sentence writes it, the same amount", "54,000", 0.95, "decision model"],
+    ["written as the sentence writes it, not surely the same", "54,000", 0.6, "AI model"],
+  ])("a sentence's number %s", async (_, written, sameAmount, by) => {
     const { core, client, host, run, readByAiModel, aiModelId } = await setUp([TONNES]);
     const line = `The harbour office handled ${written} tonnes of cargo.`;
     await addAndProcess(core, [
@@ -975,7 +976,7 @@ describe("Check this Note with a decision model chosen (#3118)", { timeout: 30_0
 
     await core.checkMind(run());
 
-    expect(host.asked.some((each) => each.questions.join() === "N")).toBe(asksAmount);
+    expect(host.asked.some((each) => each.questions.join() === "N")).toBe(true);
     const mark = (await marks(client))[TONNES];
     if (by === "decision model") {
       expect(mark).toEqual({ state: "supported", quote: line, by: DECIDER.modelId });

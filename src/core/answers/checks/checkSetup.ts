@@ -8,6 +8,7 @@ import type { Citation, ClaimCheckResult } from "../../api";
 import type { CitationSource } from "../../documents";
 import type { EvidenceScope } from "../../documents/evidence";
 import type { WindowedPassage } from "../../documents/search";
+import { answerLanguage, createCalculationSession, givenList } from "../calculations";
 import { type AnswerDocuments, createCitationSession, documentNamedAmong } from "../citations";
 import type { AnswerTools } from "../engine";
 import type { CheckResults } from "./checkResults";
@@ -138,6 +139,8 @@ export function setUpRun(
   deps: Pick<ClaimCheckDependencies, "documents" | "evidence" | "callMark">,
   request: Pick<ClaimCheckRequest, "claim" | "cited" | "scope" | "about" | "callIn">,
   results: Pick<CheckResults, "readVersion" | "leftOut">,
+  /** The model is offered `calculate`, the calculator Answers use (ADR-0021). */
+  calculates = false,
 ) {
   const { scope } = request;
   let searches = 0;
@@ -188,6 +191,15 @@ export function setUpRun(
   const citedPassages = citedSources(request.cited ?? [], scope, deps.documents);
   for (const passage of citedPassages) results.readVersion(passage.documentId, passage.contentHash);
   const citedShown = citedPassages.length > 0 ? session.show(citedPassages.map(asPassage)) : null;
+  // A tool in the model's hands: it works a figure out from numbers quoted from the Passages and
+  // tells the model the result. What that means for the sentence is the model's to say.
+  const calculator = calculates
+    ? createCalculationSession({
+        documents: scoped,
+        quotes: session.quotes,
+        language: answerLanguage(request.claim),
+      })
+    : null;
   const tools: AnswerTools = {
     get documentCount() {
       return session.tools.documentCount;
@@ -202,6 +214,9 @@ export function setUpRun(
     hasRecord: (marker) => session.tools.hasRecord?.(marker) ?? false,
     unfoundQuotes: () => session.tools.unfoundQuotes?.() ?? [],
     correctQuote: (marker, quote) => session.tools.correctQuote?.(marker, quote) ?? false,
+    ...(calculator && {
+      calculate: (given, options) => calculator.calculate(givenList(given), options),
+    }),
   };
   return {
     scoped,

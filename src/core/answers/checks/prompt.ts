@@ -60,15 +60,20 @@ const reply = (language: Language) =>
     "Write nothing else.",
   ].join("\n");
 
+const CALCULATE =
+  "A figure the sentence gives that no Passage states but their numbers give (a sum, a difference, a change, a ratio, a share): a simple one you may work out in your head. For one with several steps, many inputs or large numbers, call calculate with its inputs, each a number quoted from a Passage, and a formula: IncarnaMind works it out and tells you the result. An input keeps its sign as the Passage writes it, and comes in base units with its unit line's scale applied, so never convert a scale in the formula. What the result means for the sentence is yours to say; record the quotes its inputs come from with cite as well.";
+
 /**
  * The instructions of a check's Run, for a way of citing; `passages`: what the one search found,
- * for a model without Tools; `calls`: the sentence is from an Answer asked in a call.
+ * for a model without Tools; `calls`: the sentence is from an Answer asked in a call; `calculate`:
+ * the model is offered the calculator.
  */
 export function checkInstructions(
   mode: CitationSupport | "no-documents",
   language: Language,
   passages = "",
   calls = false,
+  calculate = false,
 ): string {
   const REPLY = reply(language);
   switch (mode) {
@@ -78,6 +83,7 @@ export function checkInstructions(
         "",
         "The Passages the sentence's own Citations quote are given with it: read them first. Search the Documents with search_documents when they don't decide it, or when the sentence has none, in the Documents' language; search again with other words if the Passages don't decide it, three searches at most.",
         `Before you reply, call cite with every quote that decides the sentence, each under its own marker: ${RECORD}. A supported or contradicted verdict needs one.`,
+        ...(calculate ? [CALCULATE] : []),
         "",
         REPLY,
       ].join("\n");

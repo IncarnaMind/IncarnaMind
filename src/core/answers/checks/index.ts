@@ -754,6 +754,7 @@ export function createChecks(options: ChecksOptions) {
       if (!read) return check(request);
       return "result" in read ? read.result : check({ ...request, about: read.about });
     };
+  const checkByAiModel = asCheck(withCites(createClaimCheck(options)));
   const claimCheck = asCheck(readFirst(withCites(createClaimCheck(options))));
 
   const services = async () => {
@@ -1291,7 +1292,8 @@ export function createChecks(options: ChecksOptions) {
     citedNow,
     recordUnread,
     isRunning: (requestId) => running.has(requestId),
-    claimCheck,
+    // The run reads its sentences itself, to show what a reading leans to as it comes.
+    claimCheck: checkByAiModel,
     firstReading,
     withResult: noteResult,
     retainEvidence,
