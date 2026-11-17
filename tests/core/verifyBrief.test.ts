@@ -36,9 +36,9 @@ const TIDES = {
 };
 
 /** A verified report, found its claims with the model's brief reply `brief`; null: it asks for none. */
-async function foundWith(brief: (() => string) | null) {
+async function foundWith(brief: (() => string) | null, hold?: Promise<void>) {
   const asked: string[] = [];
-  const model = scriptedModel((call) => checkReply(call, PLANS), {
+  const scripted = scriptedModel((call) => checkReply(call, PLANS), {
     generate: (call) => {
       if (call.question === "verify-brief") {
         asked.push(call.prompt);
@@ -47,6 +47,20 @@ async function foundWith(brief: (() => string) | null) {
       return checkGenerate(PLANS)(call);
     },
   });
+  // With `hold`, the brief's reply waits for it, as a slow model's would.
+  const model = hold
+    ? new Proxy(scripted, {
+        get(target, key) {
+          if (key !== "doGenerate") return Reflect.get(target, key);
+          return async (options: Parameters<typeof target.doGenerate>[0]) => {
+            const before = asked.length;
+            const reply = await target.doGenerate(options);
+            if (asked.length > before) await hold;
+            return reply;
+          };
+        },
+      })
+    : scripted;
   const core = startCore(await createTempDataFolder(), {
     createChatModel: scriptedModels(model).createChatModel,
   });
@@ -59,6 +73,11 @@ async function foundWith(brief: (() => string) | null) {
   const client = await connectToMind(core, result.mind.id);
   await client.settled();
   const found = await core.findClaims({ requestId: crypto.randomUUID(), mindId: result.mind.id });
+  if (hold) return { found, client, asked };
+  // The brief is asked for alongside and kept when it lands: the claims never wait for it.
+  await vi.waitFor(() => expect(asked).toHaveLength(1));
+  await client.settled();
+  await new Promise((resolve) => setTimeout(resolve, 100));
   await client.settled();
   return { found, client, asked };
 }
@@ -91,6 +110,27 @@ describe("The brief of a verified document", { timeout: 30_000 }, () => {
       ["Penguins nest above the harbour.", UNSUPPORTED],
     ]);
     expect(brief?.figures.map((each) => each.text)).toEqual([CONTRADICTED]);
+  });
+
+  // protects=the claims are found and the User can check them while the brief is still being written; the brief is kept when its reply lands; fails_when=find-claims waits for the brief's reply before it returns
+  test("never holds the claims back: it is kept when its reply lands", async () => {
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const { found, client } = await foundWith(
+      () =>
+        JSON.stringify({
+          conclusions: [{ line: "Spring tides come at new and full moon.", claim: 1 }],
+          figures: [],
+        }),
+      held,
+    );
+
+    expect(found).toEqual({ kind: "found", claims: 3 });
+    expect(briefOf(client.doc)).toBeNull();
+    release();
+    await vi.waitFor(() => expect(briefOf(client.doc)?.conclusions).toHaveLength(1));
   });
 
   // protects=a brief that can't be written, or is read as nothing, never stops the claims being found, and leaves none behind

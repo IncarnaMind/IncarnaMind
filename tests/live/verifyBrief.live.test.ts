@@ -115,6 +115,10 @@ describe("the brief of a verified document, live", () => {
             mindId: verified.mind.id,
           });
           await verified.client.settled();
+          // The brief is asked for alongside the claims and lands when its reply does.
+          for (let wait = 0; wait < 90 && !briefOf(verified.client.doc); wait++) {
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+          }
           const brief = briefOf(verified.client.doc);
           const long = (line: string) =>
             each.language === "English" ? words(line) : [...line].length;

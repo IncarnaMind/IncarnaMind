@@ -330,31 +330,37 @@ export function createVerify(options: VerifyOptions) {
         }),
       );
     });
-    // The brief rides the same request's consent and model; it is never needed for the check.
-    const brief = await askBrief(
-      ready.prepared.model,
-      claims.map((claim, index) => ({
-        number: index + 1,
-        ...(verification.pages[claim.blockId] !== undefined && {
-          page: verification.pages[claim.blockId],
-        }),
+    // The brief rides the same request's consent and model, and never holds the check up: the card
+    // fills it in when it lands, and a brief that can't be written only logs.
+    const briefClaims = claims.map((claim, index) => ({
+      number: index + 1,
+      ...(verification.pages[claim.blockId] !== undefined && {
+        page: verification.pages[claim.blockId],
+      }),
+      text: claim.text,
+      sentence: {
+        blockId: claim.blockId,
         text: claim.text,
-        sentence: {
-          blockId: claim.blockId,
-          text: claim.text,
-          ...(claim.occurrence !== undefined && { occurrence: claim.occurrence }),
-        },
-      })),
+        ...(claim.occurrence !== undefined && { occurrence: claim.occurrence }),
+      },
+    }));
+    void askBrief(
+      ready.prepared.model,
+      briefClaims,
       snapshot,
       signal,
       answerTemperature(ready.prepared.capabilities.facts.temperature),
-    );
-    if (brief) {
-      content.edit(mindId, (blocks) => {
-        const settings = blocks.doc?.getMap<unknown>(MIND_SETTINGS_FIELD);
-        if (settings) writeBrief(settings, brief);
+    )
+      .then((brief) => {
+        if (!brief) return;
+        content.edit(mindId, (blocks) => {
+          const settings = blocks.doc?.getMap<unknown>(MIND_SETTINGS_FIELD);
+          if (settings) writeBrief(settings, brief);
+        });
+      })
+      .catch((error: unknown) => {
+        console.error("The brief of a verified document couldn't be kept.", error);
       });
-    }
     options.retainEvidence(mindId);
     return { kind: "found", claims: verificationOf(mindId).claims?.length ?? 0 };
   }
