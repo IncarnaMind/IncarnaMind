@@ -14,6 +14,8 @@
  *   The positive claim is wrong, the minus claim is right.
  * - "other" (box 2): "The Landlord is not liable for any loss of business. The annual rent is
  *   ninety-five thousand dollars ($95,000.00)." The positive claim is right, the minus claim wrong.
+ * - "tied" (#3228): "Party A made a loss. Its result for the year was $2.6 million ($2,600,000)."
+ *   The loss is the amount's: the positive claim is wrong, the minus claim right.
  * Each runs a claim that is wrong ("decoy") and one that is right ("twin"), 3 rounds each. The "far"
  * layout also runs a decoy that names its subject ("The reserve is $95,000.").
  *
@@ -56,6 +58,28 @@
  * nothing on that Document, above 2 means it costs a right ✓ there. A run with any request that did
  * not settle is void and run again.
  *
+ * The run for #3228, written on 2026-11-17 before any request of it. A loss or deduction noun in a
+ * sentence other than the amount's own no longer gives a bracketed amount its minus by the code's
+ * word: the reader leaves the sign open (the amount "may be negative"), and the figure check asks
+ * the model for the reading, as it does for "(250)". A reply that gives none ends Not checked, never
+ * Supported or Contradicted by the code. Two arms, the same pairs, the same session: `main`, and the
+ * branch. The pairs: other-rent, other-minus, before-own, before-minus, tied-own and tied-minus, in
+ * English and Chinese (12 pairs), 3 rounds each. DeepSeek V4.1 Flash, as the issue's own run.
+ * - Bar 1: the right rent sentence (other-rent, English and Chinese) reads Supported by the Note's
+ *   check in at least 5 of 6 rounds on the branch. On `main` it is 0 of 6.
+ * - Bar 2: the wrong minus sentence (other-minus) reads Supported in 0 of 6 rounds on the branch.
+ * - Bar 3: the wrong sentence about a loss that is the amount's (tied-own) reads Supported in 0 of
+ *   6 rounds on the branch, and the right one (tied-minus) in at least 5 of 6 (on `main` the code
+ *   gives it its minus). Fewer than 5 means the question gives up a right ✓ the code gave.
+ * - Bar 4: "before" runs the code it ran on `main` (a state word keeps its minus), so its decoy
+ *   (before-own) reads Supported in no more rounds on the branch than on `main` in the same
+ *   session, and its twin (before-minus) in no fewer.
+ * - A round whose Note check ends Not checked because the model gave no reading is a round and
+ *   counts against its bar (it is not Supported); a round with a refused, failed or timed out
+ *   request is void and run again by hand. Spend: stop US$0.40 for the branch's 36 rounds, US$0.25
+ *   for `main`'s; each run's requests and cost come from the app's own record. A missed bar goes
+ *   to the lead before the merge.
+ *
  * INCARNAMIND_LIVE_PAIRS limits the run to those pairs, by key; INCARNAMIND_LIVE_ROUNDS sets the rounds.
  * Runs only with INCARNAMIND_LIVE_DEEPSEEK_KEY (DeepSeek V4.1 Flash, `deepseek-flash`, or
  * INCARNAMIND_LIVE_DEEPSEEK_MODEL when set); INCARNAMIND_LIVE_REPORT keeps one JSON line per pair.
@@ -78,7 +102,7 @@ const ROUNDS = Number(process.env.INCARNAMIND_LIVE_ROUNDS ?? 3) || 3;
 const REPORT = process.env.INCARNAMIND_LIVE_REPORT;
 const ONLY = process.env.INCARNAMIND_LIVE_PAIRS?.split(",") ?? null;
 
-type Layout = "far" | "before" | "other";
+type Layout = "far" | "before" | "other" | "tied";
 type Language = "en" | "zh-CN";
 
 interface Pair {
@@ -139,6 +163,21 @@ const PAIRS: readonly Pair[] = (["en", "zh-CN"] as const).flatMap((language) => 
       layout: "before",
       decoy: false,
       claim: claimOf(language, "before", true),
+    },
+    // The loss is the amount's ("Its result"): the positive claim is wrong, the minus claim right.
+    {
+      key: `tied-own-${tag}`,
+      language,
+      layout: "tied",
+      decoy: true,
+      claim: claimOf(language, "tied", false),
+    },
+    {
+      key: `tied-minus-${tag}`,
+      language,
+      layout: "tied",
+      decoy: false,
+      claim: claimOf(language, "tied", true),
     },
     // A loss clause about something else: the rent is positive.
     {
