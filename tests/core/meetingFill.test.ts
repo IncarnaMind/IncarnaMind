@@ -218,8 +218,12 @@ async function recorded(
     folder?: () => string | undefined;
     /** How Stop is pressed. */
     stop?: (core: Core, meetingId: string) => Promise<unknown>;
-    /** Claude Haiku 5.5 on its service, allowed, as the Answers model: a model off this computer. */
-    cloud?: boolean;
+    /**
+     * Claude Haiku 5.5 on its service, allowed, as the Answers model: a model off this computer.
+     * "openai": GPT-5.4 mini, whose input limit leaves its window more room for a reply than any
+     * call asks.
+     */
+    cloud?: boolean | "openai";
     /** The keychain its key is kept with, for a start after this one that reads it. */
     keychain?: ReturnType<typeof createMemoryKeychain>;
     /** What the fake capture does: the computer's sound silent, for a recording of a room. */
@@ -244,17 +248,13 @@ async function recorded(
   });
   await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
   if (cloud) {
-    const saved = await core.saveChatProvider({
-      kind: "anthropic",
-      apiKey: "sk-test",
-      modelId: "claude-haiku-5-5",
-    });
+    const kind = cloud === "openai" ? "openai" : "anthropic";
+    const modelId = cloud === "openai" ? "gpt-5.4-mini" : "claude-haiku-5-5";
+    const saved = await core.saveChatProvider({ kind, apiKey: "sk-test", modelId });
     for (const flow of ["chat", "checks"] as const) {
       if (saved.service) await core.allowDataFlow(flow, saved.service.id);
     }
-    await core.updateSettings({
-      user: { chatModel: { providerId: saved.id, modelId: "claude-haiku-5-5" } },
-    });
+    await core.updateSettings({ user: { chatModel: { providerId: saved.id, modelId } } });
   }
   await before?.(core);
   const folderId = folder?.();
@@ -1281,13 +1281,16 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
     core.close();
   });
 
-  // protects=on a cloud model whose own output limit is known, the notes' request has room for 64,000 tokens, so a long call's thinking and its facts fit one request (#3251); under a monthly cap that can't set three such replies aside it keeps the 32,000 every call has, and the fill still runs; fails_when=the wider room is asked under the small cap, where the meter refuses the request, or isn't asked with no cap
+  // protects=on a cloud model whose own output limit is known, the notes' request has room for 64,000 tokens, so a long call's thinking and its facts fit one request (#3251); under a monthly cap that can't set three such replies aside it keeps the 32,000 every call has, and the fill still runs, also on a model whose window already keeps more than 64,000 for a reply; fails_when=the wider room is asked under the small cap, where the meter refuses the request, or isn't asked with no cap
   test.each([
-    [null, 64_000],
-    [0.02, 32_000],
-  ])(
-    "on a cloud model with a monthly cap of %j, the notes' request has room for %i tokens",
-    async (cap, room) => {
+    [true, null, 64_000],
+    [true, 0.02, 32_000],
+    ["openai", null, 64_000],
+    // GPT-5.4 mini's reply costs nine times Haiku's: 0.2 holds one of 32,000, not one of 64,000.
+    ["openai", 0.2, 32_000],
+  ] as const)(
+    "on a cloud model (%j) with a monthly cap of %j, the notes' request has room for %i tokens",
+    async (cloud, cap, room) => {
       const limits: (number | undefined)[] = [];
       const model = fillingModel(
         [
@@ -1313,7 +1316,7 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
           }
         },
         undefined,
-        { cloud: true },
+        { cloud },
       );
 
       expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", problem: null });

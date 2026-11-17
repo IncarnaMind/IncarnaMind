@@ -90,7 +90,7 @@ export type ModelCallKind = keyof typeof OUTPUT_LIMITS;
 
 /**
  * The most a call may write in the room a window keeps for every call's reply. A kind with `own`
- * asks for more, and only its Run gives up that much of what it could send (`roomFor`).
+ * asks for more, and has it only where its Run gave it (`ownRoom`).
  */
 export const LONGEST_OUTPUT = Math.max(
   ...Object.values(OUTPUT_LIMITS).map((limit: { most: number; own?: true }) =>
@@ -102,6 +102,8 @@ export const LONGEST_OUTPUT = Math.max(
 export interface OwnRoom {
   most?: number | undefined;
   window?: number | undefined;
+  /** What its Run gave a kind with its own room (`ownRoom`): none, the room every call has. */
+  own?: number | undefined;
 }
 
 /**
@@ -114,8 +116,9 @@ export function outputTokens(kind: ModelCallKind, count = 1, within?: OwnRoom): 
     limit.each === undefined
       ? limit.most
       : Math.min(limit.most, (limit.base ?? 0) + limit.each * Math.max(1, count));
-  // A kind with its own room has it only where its Run's window made it (`roomFor`).
-  const room = limit.own ? Math.min(asked, Math.max(LONGEST_OUTPUT, within?.window ?? 0)) : asked;
+  // Never read off the window's size: a model whose input limit is under its context keeps more
+  // than this for a reply already, and a monthly cap may not hold it (#3251).
+  const room = limit.own ? Math.min(asked, Math.max(LONGEST_OUTPUT, within?.own ?? 0)) : asked;
   return Math.min(
     room,
     within?.most ?? Number.POSITIVE_INFINITY,
@@ -124,19 +127,23 @@ export function outputTokens(kind: ModelCallKind, count = 1, within?: OwnRoom): 
 }
 
 /**
- * The window of a Run of `kind`, with room for its reply where that is more than the window keeps
- * for every call: at most half of the window and the model's own `most`. Unchanged where the
- * model's most isn't known, so its provider never refuses the request for asking more.
+ * The room a Run of `kind` may give its reply where that is more than every call has: at most
+ * half of the window and the model's own `most`. None where the model's most isn't known, so its
+ * provider never refuses the request for asking more.
  */
-export function roomFor(
+export function ownRoom(
   kind: ModelCallKind,
   window: ContextWindow | undefined,
   most: number | undefined,
-): ContextWindow | undefined {
-  if (!window || most === undefined) return window;
+): number | undefined {
+  if (!window || most === undefined) return undefined;
   const room = Math.min(OUTPUT_LIMITS[kind].most, most, Math.floor(window.tokens / 2));
-  return room > window.outputTokens ? { ...window, outputTokens: room } : window;
+  return room > LONGEST_OUTPUT ? room : undefined;
 }
+
+/** `window`, keeping at least `room` for a reply. */
+export const withRoom = (window: ContextWindow, room: number): ContextWindow =>
+  room > window.outputTokens ? { ...window, outputTokens: room } : window;
 
 /**
  * The most items one request of `kind` has room to answer whole. A request that asks about more

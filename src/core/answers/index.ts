@@ -205,7 +205,7 @@ import type { AnswerFlow } from "../providers/catalog/answerPaths";
 import type { ThinkingKind } from "../providers/catalog/types";
 import type { PreparedChatModel } from "../providers/chat";
 import { type GaveWay, refusedGoesTo } from "../providers/modelRefusal";
-import { type ModelCallKind, roomFor } from "../providers/outputLimits";
+import { type ModelCallKind, ownRoom, withRoom } from "../providers/outputLimits";
 import { classifyProviderError } from "../providers/providerErrors";
 import type { WebResult } from "../providers/webSearch";
 import { messageReference } from "../references";
@@ -3855,15 +3855,10 @@ export function createAnswers(options: AnswersOptions) {
       const writeFirst = options.writesThenCites?.(prepared, flow) ?? false;
       const asksAnew =
         help === "question" ? anewInItsLanguage(context.question, callLanguage) : null;
-      const widened =
+      const wider =
         input.outputKind &&
-        roomFor(input.outputKind, prepared.window, prepared.capabilities.facts.maxOutput);
-      const ownRoom =
-        widened &&
-        widened !== prepared.window &&
-        (options.capHolds?.(model, widened.outputTokens) ?? true)
-          ? widened
-          : null;
+        ownRoom(input.outputKind, prepared.window, prepared.capabilities.facts.maxOutput);
+      const room = wider && (options.capHolds?.(model, wider) ?? true) ? wider : undefined;
       const events = engine.generate({
         instructions: (
           mode,
@@ -3979,7 +3974,8 @@ export function createAnswers(options: AnswersOptions) {
         retrieveFirst,
         structuredOutput: givesStructuredOutput(prepared.capabilities),
         takesTemperature: prepared.capabilities.facts.temperature,
-        window: ownRoom ?? prepared.window,
+        window: room && prepared.window ? withRoom(prepared.window, room) : prepared.window,
+        ...(room && { ownRoom: room }),
         ...(prepared.capabilities.facts.maxOutput !== undefined && {
           maxOutput: prepared.capabilities.facts.maxOutput,
         }),
