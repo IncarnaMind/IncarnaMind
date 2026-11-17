@@ -100,7 +100,23 @@ for (const language of ["en", "zh-CN"] as const) {
       versions,
       excluded: [],
       checkedAt: "2026-11-17T09:00:00.000Z",
-      parts: [],
+      parts: [
+        {
+          says: null,
+          unsupported: null,
+          calculation: null,
+          detail,
+          versions,
+          excluded: [],
+          citedCaseUnchecked: false,
+          citedCaseFound: false,
+          span: { start: 0, end: words.sentence.length },
+          kind: "fact",
+          verdict: "not-checked",
+          reason: "sign-word",
+          evidence: [],
+        },
+      ],
     };
     const marks = [{ type: "claimCheck", attrs: check }];
     await newMind(window);

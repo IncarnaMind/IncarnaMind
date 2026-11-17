@@ -111,6 +111,9 @@
  * - Bar 2: no pair reads Supported in more rounds than on `main`: other-minus and tied-own 0 of 6,
  *   tied-minus at most 4 of 6, other-rent 0 of 6.
  * - A round with a refused, failed or timed out request is void and run again by hand.
+ * - The "before" pairs, which the issue names too, run the code they ran on `main` (a state word keeps
+ *   its minus), so they are run as a confirm, written before it ran: before-own Supported in 0 of 6
+ *   rounds, before-minus in at most 3 of 6 (`main`: 0 and 3).
  *
  * INCARNAMIND_LIVE_PAIRS limits the run to those pairs, by key; INCARNAMIND_LIVE_ROUNDS sets the rounds.
  * Runs only with INCARNAMIND_LIVE_DEEPSEEK_KEY (DeepSeek V4.1 Flash, `deepseek-flash`, or
