@@ -465,8 +465,12 @@ async function verdictOf(
   // #1708).
   const differs = ownDetailDiffers(verdict);
   // What the reply noted as not covered takes the ✓ away, and a worked figure's with it, unless
-  // the model, asked about the note alone, calls it only more that the Passage says (#3197).
-  const noted = namesUncovered(verdict, partOfLonger) ? verdict.uncovered : null;
+  // the model, asked about the note alone, calls it only more that the Passage says (#3197). Not
+  // asked where another line has already taken the ✓.
+  const noted =
+    !differs && verdict.scope !== "wider" && namesUncovered(verdict, partOfLonger)
+      ? verdict.uncovered
+      : null;
   const beyond =
     noted !== null && !(await notesOnlyDetail(request, deciding, session, signal, noted));
   if (signal.aborted) return notChecked("stopped");

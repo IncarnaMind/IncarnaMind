@@ -159,6 +159,9 @@ export async function figuresVerdict(
       (evidence !== null &&
         namesUncovered(said) &&
         said.uncovered !== null &&
+        said.scope !== "wider" &&
+        said.topic !== "not found" &&
+        !ownDetailDiffers(said) &&
         (await notesOnlyDetail(
           { claim: words, model: request.model },
           evidence,

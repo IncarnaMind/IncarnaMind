@@ -1624,4 +1624,17 @@ describe("what a Supported reply noted as not covered is asked about, and only a
     );
     expect(unasked).toHaveLength(0);
   });
+
+  // protects=a reply whose own Condition line already says differs is Unsupported without the extra request, so the question costs a request only where it decides; fails_when=the question is sent for a reply another line has already lowered; no_claim=how often a model writes differs
+  test("is not asked when the reply's Condition line already differs", async () => {
+    const asked: string[] = [];
+    const checked = await check(
+      { ...survey("detail"), condition: "none / carried out by post in May, differs" },
+      SURVEY,
+      [],
+      asked,
+    );
+    expect(checked?.state).toBe("unsupported");
+    expect(asked).toHaveLength(0);
+  });
 });
