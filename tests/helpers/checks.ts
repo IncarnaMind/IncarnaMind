@@ -355,6 +355,8 @@ export const checkGenerate =
     switch (call.question) {
       case "find-claims":
         return { text: JSON.stringify({ sentences: plannedParts(call.prompt, plans) }) };
+      case "verify-brief":
+        return { text: JSON.stringify({ conclusions: [], figures: [] }) };
       case "parts":
         return { text: plan?.part ?? "" };
       case "record-cite":
