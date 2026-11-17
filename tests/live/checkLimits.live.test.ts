@@ -48,6 +48,32 @@
  * shipped. The first run's 4 of 5 on both was luck, which drawing `main` 10 times each, in turn with
  * the branch, showed. Spend US$0.55.
  *
+ * The run for #3258's calculation, written on 2026-11-17 before any request of it. A Supported reply
+ * that names an Evidence marker it never recorded with cite, over a calculation recorded from quotes
+ * found in the Document and agreeing, ended Not checked (no evidence) because the quote asked for
+ * afterwards for that marker was judged "neither" of a derived ratio. The change (looks.ts) leaves that
+ * one late quote unjudged and off the card when the result rests on such a calculation; the card
+ * shows the calculation and its input quotes. `main` and the branch in one session, Claude Haiku 5.5,
+ * the DF key, nothing refused, failed or timed out (a run with any is void), counts only:
+ * - Bar 1 (INCARNAMIND_LIVE_EXPECT=supported, the two cover sentences, English and Chinese, 10 checks
+ *   each): Not checked on the branch in fewer checks than on `main`, each language, and Supported in
+ *   more; `main`'s spread goes beside it (the draws of this day: English 3, 3 and 2 of 10 Supported,
+ *   Not checked 7 of 10; Chinese Not checked 6 of 10).
+ * - Bar 2 (INCARNAMIND_LIVE_EXPECT=contradicted, the wrong calculated sentences of the set above: a
+ *   wrong figure, a wrong period, a wrong ratio and a floor the figure misses, English and Chinese, 5
+ *   checks each, 40 checks an arm): Supported in no more checks on the branch than on `main`, and
+ *   Contradicted in no fewer; a wrong Supported above `main`'s goes to the owner.
+ * - The formula twin, added before the run: "cover would be 2.22x" (English and Chinese) is wrong, and
+ *   2.22 is what a wrong formula reaches, the H1 2026 EBITDA 91.5 over the year's finance costs 41.2.
+ *   It is among bar 2's sentences, 4 checks each, so 10 wrong sentences and 40 checks an arm.
+ * - Bar 2b: the true cover sentences read Contradicted in no more checks on the branch than on `main`
+ *   (a wrong red; `main`'s draw of 8 had one in Chinese).
+ * - Bar 3: the everyday set's pair (`npm run check:everyday`, 60 checks a run, Haiku 5.5): the share
+ *   of right sentences that read ✓ no lower on the branch than on `main`, and the wrong twins' ✓ no
+ *   higher; one run an arm in the same session.
+ * - Spend inside US$0.45 (covers 20 checks, wrong set 40, the everyday run 60: about US$0.44 for
+ *   two arms); a run with a refused, failed or timed out request gives no numbers.
+ *
  * - INCARNAMIND_LIVE_RUNS: how many times each sentence is checked (1 when unset).
  * - INCARNAMIND_LIVE_DECOY_RUNS: how many times each decoy is (INCARNAMIND_LIVE_RUNS when unset).
  * - INCARNAMIND_LIVE_LANGUAGES: "en", "zh" or both ("en,zh" when unset).
@@ -170,6 +196,7 @@ const CASES = [
       ],
       ["Adjusted EBITDA covers finance costs at least 5 times.", "contradicted"],
       ["Using finance costs of (41.2) as a stand-in, cover would be 5.55x.", "contradicted"],
+      ["Using finance costs of (41.2) as a stand-in, cover would be 2.22x.", "contradicted"],
       [
         "Net debt at 30 June 2026 was £528.9m, which is 3.1x last-twelve-months Adjusted EBITDA.",
         "contradicted",
@@ -227,6 +254,7 @@ const CASES = [
       ["2026年12月31日净负债预测为668.0，杠杆率仍应在3.25倍的契约上限之内。", "contradicted"],
       ["调整后EBITDA至少是财务费用的5倍。", "contradicted"],
       ["以 (41.2) 的财务费用估算，利息覆盖倍数为5.55倍。", "contradicted"],
+      ["以 (41.2) 的财务费用估算，利息覆盖倍数为2.22倍。", "contradicted"],
       ["2026年6月30日净负债为528.9，是近十二个月调整后EBITDA的3.1倍。", "contradicted"],
     ],
   },

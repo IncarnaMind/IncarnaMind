@@ -65,7 +65,7 @@ export function lengthSaid(before: string, after: string, times: number | null =
   const { least, most } = sizesAsked(was.count, times);
   return now.count >= least && now.count <= most
     ? said
-    : `${said}, where the User asked for about ${times} times`;
+    : `${said}, where times_as_long was ${times}`;
 }
 
 /**

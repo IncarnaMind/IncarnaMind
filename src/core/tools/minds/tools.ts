@@ -2743,7 +2743,7 @@ export function mindTools(options: MindToolsOptions): {
         times_as_long: {
           type: "number",
           description:
-            'Give it on every call: how long the new text should be, as a multiple of the text now, read from the User\'s words: 1.5 for "a bit longer", 2 for "twice as long", 0.5 for "half as long", and 1 when they ask for no length.',
+            'Give it on every call: how long the new text should be, as a multiple of the text now, from the User\'s words: 1.5 for "a bit" or "a little" longer, 2 for "twice as long", 0.5 for "half as long"; 1 when they give no amount, "shorter" or "longer" alone.',
         },
         removes_only: {
           type: "boolean",

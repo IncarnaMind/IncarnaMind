@@ -2301,6 +2301,148 @@ describe("A limit the figure stays within, and a cost printed in brackets (#1908
     expect(result.verdict).toBe(verdict);
   });
 
+  // The reply a Haiku 5.5 check gave: calculate with the inputs' quotes inline, recorded and agreeing,
+  // then a Supported reply that names an Evidence marker it never recorded with cite, so the
+  // quote for that marker is asked for afterwards (#3258).
+  const noCite = async (options: {
+    claim: string;
+    stated: string;
+    evidenceMarkers: string;
+    notCovered?: string;
+    strict: string;
+    asked: { quote: string };
+    calculation?: typeof COVER;
+  }) => {
+    const calls: ModelCall[] = [];
+    const calculation = options.calculation ?? COVER;
+    const reply = (call: ModelCall) => {
+      if (!call.results.some((result) => result.tool === "calculate"))
+        return {
+          calls: [
+            {
+              tool: "calculate",
+              input: {
+                figures: [
+                  {
+                    marker: 1,
+                    label: "Cover",
+                    relation: "equals",
+                    stated: options.stated,
+                    formula: calculation.formula,
+                    as: "times",
+                    inputs: calculation.inputs.map((input) => ({ ...input, passage: "P1" })),
+                  },
+                ],
+              },
+            },
+          ],
+        };
+      return {
+        text: [
+          "Found: Adjusted EBITDA 187.3 and Finance costs (41.2).",
+          "Direction: none / none, same",
+          "Verdict: supported",
+          "Absence: no",
+          "Scope: none, same",
+          "Topic: found",
+          "Roles: none / none, same",
+          "Time: none / none, same",
+          "Duty: none / none, same",
+          "Condition: none / none, same",
+          "Explanation: 187.3 divided by 41.2 gives 4.55x. [^1]",
+          "Covered: the cover",
+          `Not covered: ${options.notCovered ?? "none"}`,
+          `Evidence: ${options.evidenceMarkers}`,
+          `Calculation: ${options.stated}`,
+        ].join("\n"),
+      };
+    };
+    const plans = {
+      [options.claim]: { verdict: "supported", reply, strict: { text: options.strict } },
+    } as never;
+    const evidence = JSON.stringify({ passage: "P1", location: "Cedar results", ...options.asked });
+    const setup = await setUpWithDocuments(checkingModel(plans, calls, evidence), [RESULTS]);
+    const saved = await setup.core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-test",
+      modelId: "claude-haiku-5-5",
+    });
+    if (saved.service) await setup.core.allowDataFlow("checks", saved.service.id);
+    return setup.core.checkClaim({ claim: options.claim });
+  };
+  const COVER_CLAIM = "Adjusted EBITDA covers finance costs 4.55x.";
+  const UNRELATED = { quote: "Net debt to Adjusted EBITDA must not exceed 3.25 to 1" };
+
+  // protects=the line asked for afterwards for a figure worked out from quotes recorded in the Documents, when it is one of the calculation's own input lines, is not judged against the derived ratio, which no one line states (#3258); fails_when=the check ends Not checked (no evidence) over an agreeing calculation because the judgement of that input line says "neither"
+  test.each([["neither"], ["same"]])(
+    "a cover from recorded inputs is Supported, the strict judgement of its input line being %s",
+    async (word) => {
+      const result = await noCite({
+        claim: COVER_CLAIM,
+        stated: "4.55x",
+        evidenceMarkers: "[1]",
+        strict: `Judgement: ${word}`,
+        asked: { quote: EBITDA_LINE },
+      });
+      expect(result).toMatchObject({ verdict: "supported", calculation: { agrees: true } });
+    },
+  );
+
+  // protects=a quote asked for afterwards that is none of the calculation's inputs is judged as before, so a calculation does not vouch for an unrelated line (#2816, #3258)
+  test("a quote asked for afterwards that is no input of the calculation is judged as before", async () => {
+    const result = await noCite({
+      claim: COVER_CLAIM,
+      stated: "4.55x",
+      evidenceMarkers: "[1]",
+      strict: "Judgement: neither",
+      asked: UNRELATED,
+    });
+    expect(result).toMatchObject({ verdict: "not-checked", reason: "no-evidence" });
+  });
+
+  // protects=a figure that is not the sentence's only claim keeps the reply's own Not covered, so the sentence is never Supported on its calculation alone (#3258)
+  test("a second assertion the reply says is not covered is not Supported by the calculation", async () => {
+    const result = await noCite({
+      claim: "Adjusted EBITDA covers finance costs 4.55x, and the lease ends in 2030.",
+      stated: "4.55x",
+      evidenceMarkers: "[1]",
+      notCovered: "the lease ending in 2030",
+      strict: "Judgement: neither",
+      asked: { quote: EBITDA_LINE },
+    });
+    expect(result.verdict).not.toBe("supported");
+  });
+
+  // protects=a calculation that disagrees with the sentence's figure still contradicts it, whatever quote was asked for afterwards
+  test("a cover that disagrees is Contradicted", async () => {
+    const result = await noCite({
+      claim: "Adjusted EBITDA covers finance costs 5.55x.",
+      stated: "5.55x",
+      evidenceMarkers: "[1]",
+      strict: "Judgement: neither",
+      asked: { quote: EBITDA_LINE },
+    });
+    expect(result.verdict).toBe("contradicted");
+  });
+
+  // protects=inputs that are no quote of the Document back nothing: the check is not Supported on a calculation of a figure nobody recorded
+  test("a cover whose input is no quote of the Document is not Supported", async () => {
+    const [fy, fc] = COVER.inputs;
+    if (!fy || !fc) throw new Error("No cover inputs.");
+    const result = await noCite({
+      claim: COVER_CLAIM,
+      stated: "4.55x",
+      evidenceMarkers: "[1]",
+      strict: "Judgement: neither",
+      asked: { quote: EBITDA_LINE },
+      calculation: {
+        ...COVER,
+        inputs: [fy, { ...fc, quote: "Finance costs (99.9)", number: "(99.9)" }],
+      },
+    });
+    expect(result.verdict).not.toBe("supported");
+  });
+
   // protects=a cost in brackets is read by its size only when the model marks it so; fails_when=187.3 ÷ (41.2) agrees with "4.55x" though no input was marked; no_claim=none beyond protects.
   test("a cost in brackets keeps its sign unless the model marks it a cost", async () => {
     const [fy, fc] = COVER.inputs;

@@ -244,6 +244,7 @@ export const checkCommands: readonly Command[] = [
     // the User to select the words; else as the card's action. The Citation is one step of Undo.
     id: "check.chooseCitation",
     label: "claim.chooseCitation",
+    purpose: "claim.chooseCitation.purpose",
     keywords: ["claim.chooseCitation.keywords"],
     group: "main",
     appliesTo: ["mind", "document"],
@@ -258,12 +259,15 @@ export const checkCommands: readonly Command[] = [
         requestCitationPicker(at.claim.check.id);
         return;
       }
-      chooseCitationIn({
-        mindId: at.mindId,
-        checkId: at.claim.check.id,
-        documentId: target.id,
-        sentence: at.claim.sentence.text,
-      });
+      chooseCitationIn(
+        {
+          mindId: at.mindId,
+          checkId: at.claim.check.id,
+          documentId: target.id,
+          sentence: at.claim.sentence.text,
+        },
+        ctx.page === undefined ? undefined : { pageFrom: ctx.page, pageTo: ctx.page },
+      );
     },
   },
   {

@@ -367,7 +367,15 @@ export async function lateQuotesJudged(
     ...(result.evidence ? [result.evidence] : []),
     ...(result.checkedEvidence ?? []),
   ]);
-  for (const citation of cited.filter((each) => late.has(citationKey(each)))) {
+  // A late quote that is one of a calculation's own input lines is no line to state the derived
+  // ratio: the judge said "neither" of a cover its inputs gave (#3258).
+  const inputs =
+    result.calculation?.agrees === true
+      ? result.calculation.figure.inputs.map((input) => input.citation.quote)
+      : [];
+  const isInput = (citation: Citation) =>
+    inputs.some((quote) => citation.quote.includes(quote) || quote.includes(citation.quote));
+  for (const citation of cited.filter((each) => late.has(citationKey(each)) && !isInput(each))) {
     const judged = await compare(
       request,
       citation,
