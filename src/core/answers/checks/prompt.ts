@@ -184,6 +184,10 @@ const reply = (language: Language, calculate: boolean, partOf: boolean) =>
     'For a sentence that quantifies over a domain (all/every/always/most or a comparison across a stated set), always add Coverage: followed by one JSON object, whatever the verdict: {"unit":"stores","quantifier":"all","complete":true,"members":[{"label":"North","verdict":"supported","evidence":[1]},{"label":"South","verdict":"unsupported","evidence":[]}],"domainEvidence":[2]}. Use quantifier all or most. List every domain member, including missing outcomes. complete means the Documents establish the full membership, not that every outcome is supported: a known member with no outcome still keeps complete:true and its unsupported row. Use complete:false only when membership itself is not established; never invent members. Domain evidence establishes membership only, never an outcome. Record its quote and each supported/contradicted member\'s own outcome quote, including when the whole sentence is unsupported. Counts come from these members, not a supplied total. Ordinary independent clauses and summaries have no Coverage line.',
     "For a forecast asserted as certain, add Reason kind: forecast-certainty. For two established events without the asserted causal link, add Reason kind: unbacked-cause. Otherwise omit Reason kind. These fields are your semantic judgment, not words to match in the sentence.",
     `Add two last lines, "Covered: " and "Not covered: ", only when a Passage states part of what this sentence itself says: the same subject and the same detail, the sentence saying more than the Passage (a wider group, an added condition, more days). "Covered: " is a short phrase in ${LANGUAGE_NAMES[language]} for that part ("the speed comparison"), "Not covered: " for the rest, as a phrase of the same kind ("memory and robustness"). A Passage about a neighbouring thing (the rent for a service charge, another period, site or person) states no part of the sentence: then write neither line.`,
+    // Claude Haiku 5.5 wrote a Passage's year, unit or survey size as "Not covered" under a Supported
+    // verdict, where a dropped condition is written too, and told not to write it, wrote it as often:
+    // a detail the sentence is true without has a line of its own, which nothing reads (#3197).
+    'What a Passage adds that the sentence leaves out: a condition, limit or exception on what the sentence says (only if, unless, subject to) goes on "Not covered: "; a detail the sentence is true without (the Passage\'s year or period, its unit, its source, how many were asked) goes on a line of its own, "Passage adds: ", and is never "Not covered".',
     `For supported with a wider scope, the same two last lines: "Covered: " and what the Passage states for its own party, then "Not covered: " and the wider group. For supported with roles, a duty or a condition that differ, "Covered: " and what the Passage states, then "Not covered: " and what the sentence says otherwise.`,
     ...(calculate
       ? [
@@ -875,10 +879,13 @@ const EXPLANATION = /^[\s>*_#`'"“”-]*(?:explanation|说明|解释)[\s*_]*[:�
 export const PROPERTY = /^[\s>*_#`'"“”-]*(?:property|属性)[\s*_]*[:：][\s*_]*(.*)$/i;
 /** "Library: documents", the Library's facts a sentence states (./libraryFacts), on a line of its own. */
 export const LIBRARY_LINE_FIELD = /^[\s>*_#`'"“”-]*(?:library|资料库)[\s*_]*[:：][\s*_]*(.*)$/i;
+/** "Passage adds: …", a detail the sentence leaves out and is true without: read by nothing, and never a card's sentence. */
+const PASSAGE_ADDS = /^[\s>*_#`"'“”-]*passage adds[\s*_]*[:：]/i;
 const FIELDS = [
   PARTS_LINE,
   COVERED,
   NOT_COVERED,
+  PASSAGE_ADDS,
   SCOPE,
   TOPIC,
   ROLES,

@@ -32,6 +32,23 @@ const saysOf = (result: ClaimCheckResult) =>
   result.verdict === "not-checked" ? undefined : result.says;
 
 describe("A check reply's explanation (#2081)", () => {
+  // protects=a Supported reply's "Passage adds: " line, the outlet for a detail the sentence leaves out (#3197), is read by nothing: the reply stays Supported with no part not covered, and the line is never the sentence a card shows; fails_when=the line is taken for the reply's sentence, or for a part not covered
+  test("is never its Passage adds line", () => {
+    const read = readVerdict(
+      [
+        "Verdict: supported",
+        "Passage adds: the third quarter of 2025",
+        "The Document gives the warehouse's outbound volume as 18,000 items.",
+      ].join("\n"),
+    );
+
+    expect(read).toMatchObject({
+      verdict: "supported",
+      says: "The Document gives the warehouse's outbound volume as 18,000 items.",
+      uncovered: null,
+    });
+  });
+
   test("is its Explanation line, whatever line comes before it", () => {
     const read = readVerdict(
       [
