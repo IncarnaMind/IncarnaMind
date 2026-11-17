@@ -7017,7 +7017,7 @@ export const en = {
   "meetings.fill.section.questions": "Open questions",
   "meetings.fill.section.claims": "Said in the call, not in your Documents",
   "meetings.fill.question.notes":
-    "Fill in my notes from the call, and write the rest of the call's notes.",
+    "Fill in my notes from the call, and write the rest of the call’s notes.",
   "meetings.fill.question.sections": "Write the notes of this call.",
   "meetings.fill.question.summary": "Write the summary of this call.",
   "meetings.fill.waiting": "The note is filled in once the transcript is saved…",

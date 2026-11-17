@@ -118,7 +118,7 @@ test("typed lines are not the scope of the notes: the rest of the call is still 
   expect(JSON.stringify(sectionsContext("q").messages)).not.toContain(whole);
 
   expect(translate("en", "meetings.fill.question.notes")).toBe(
-    "Fill in my notes from the call, and write the rest of the call's notes.",
+    "Fill in my notes from the call, and write the rest of the call’s notes.",
   );
   expect(translate("zh-CN", "meetings.fill.question.notes")).toBe(
     "根据这次通话补全我的笔记，并写出通话其余内容的笔记。",
