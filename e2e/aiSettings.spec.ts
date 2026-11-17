@@ -439,15 +439,14 @@ for (const language of ["en", "zh-CN"] as const) {
   });
 }
 
-// protects=a new User with nothing set up meets every section with plain empty states and no dead end: no model, only the built-in models, and the limits; fails_when=a picker offers a choice that does nothing, or a section is missing; no_claim=first run.
+// protects=a new User with nothing set up meets every section with plain empty states and no dead end: no model, said as text, only the built-in models, and the limits; fails_when=a picker offers a choice that does nothing, or a section is missing; no_claim=first run.
 test("with no model at all, each job says so and Accounts holds only the built-in models", async () => {
-  const window = await launch();
+  // No Ollama answers, whatever runs on this computer: nothing local can sort either.
+  const window = await launch({ ollama: "http://127.0.0.1:9" });
   const settings = await openSettings(window, "ai");
   const jobs = settings.getByTestId("ai-jobs");
-  await expect(jobs.getByTestId("model-default-chatModel")).toBeDisabled();
-  await expect(jobs.getByTestId("model-default-chatModel").locator("option:checked")).toHaveText(
-    "No model yet",
-  );
+  await expect(jobs.getByTestId("model-default-chatModel")).toHaveText("No model yet");
+  await expect(jobs.getByTestId("model-default-chatModel").locator("option")).toHaveCount(0);
   await expect(jobs.getByTestId("models-sorting").locator("option:checked")).toHaveText(
     "No model yet",
   );

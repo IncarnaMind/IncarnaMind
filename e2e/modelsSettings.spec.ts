@@ -106,7 +106,7 @@ test("adds a provider from the directory with a fake endpoint, tests it, and pic
     await expect(directory.getByTestId("provider-directory-search")).toBeFocused();
     await expect
       .poll(() => groupsShown(directory))
-      .toEqual(["plans", "popular", "local", "meetings", "organize", "more"]);
+      .toEqual(["plans", "popular", "meetings", "organize", "more", "local"]);
     await expect(
       directory.locator('[data-group="popular"] [data-testid="provider-directory-entry"]'),
     ).toHaveText([/^Anthropic/, /^OpenAI/, /^Google/, /^OpenRouter/, /^DeepSeek/, /^Qwen/]);
@@ -194,14 +194,14 @@ test("by keyboard alone, in Chinese: ⌘K opens Add an account or key, its group
     await expect(directory.getByTestId("provider-directory-search")).toBeFocused();
     await expect
       .poll(() => groupsShown(directory))
-      .toEqual(["plans", "popular", "local", "meetings", "organize", "more"]);
+      .toEqual(["plans", "popular", "meetings", "organize", "more", "local"]);
     await expect(directory.locator("h3")).toHaveText([
       "登录你已付费的订阅",
       "常用密钥",
-      "在这台电脑上 · 免费，数据不会离开",
       "仅用于会议",
       "仅用于整理",
       "更多服务和你自己的服务器",
+      "在这台电脑上 · 免费，数据不会离开",
     ]);
     await expect(
       directory.locator('[data-group="popular"] [data-testid="provider-directory-entry"]'),
@@ -220,7 +220,7 @@ test("by keyboard alone, in Chinese: ⌘K opens Add an account or key, its group
     await window.keyboard.press("Enter");
     await expect(settings.getByTestId("provider-row")).toHaveCount(0);
     await expect(settings.getByTestId("built-in-row")).toContainText("IncarnaMind 内置");
-    await expect(settings.getByTestId("model-default-chatModel")).toBeDisabled();
+    await expect(settings.getByTestId("model-default-chatModel")).toHaveText("还没有模型");
   } finally {
     await app.close();
   }

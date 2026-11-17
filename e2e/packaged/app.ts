@@ -3,6 +3,7 @@ import { cp, mkdir, readdir, readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { type ElectronApplication, _electron as electron } from "@playwright/test";
 import { homeEnv } from "../../tests/helpers/home";
+import { skipFirstRunSetup } from "../firstRunSetup";
 import { launchEnvironment } from "../launchEnvironment";
 
 const root = resolve(__dirname, "../..");
@@ -29,7 +30,7 @@ export async function launchPackaged(
   const temp = join(home, "Temp");
   await mkdir(temp, { recursive: true });
   if (documents) await mkdir(join(home, "Documents"), { recursive: true });
-  return electron.launch({
+  const app = await electron.launch({
     executablePath: packagedExecutable,
     args: [
       "--use-mock-keychain",
@@ -52,6 +53,9 @@ export async function launchPackaged(
       INCARNAMIND_TEST_HOOKS: testHooks ? "1" : undefined,
     }),
   });
+  // A release build opens a fresh profile on the first run's setup: these specs start past it.
+  await skipFirstRunSetup(await app.firstWindow());
+  return app;
 }
 
 export async function copyModelsIn(dataDir: string): Promise<void> {

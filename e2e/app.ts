@@ -5,6 +5,7 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
+import { gunzipSync } from "node:zlib";
 import {
   type BrowserContext,
   type ElectronApplication,
@@ -177,6 +178,12 @@ export interface LaunchOptions {
    * on the example Mind with "Get started". Without, a test build ships none.
    */
   examples?: boolean;
+  /**
+   * A fresh profile opens on the first run's setup (#3296), as every other build does: a test
+   * build otherwise opens straight on the example. Implies `examples`; the launch then waits for
+   * the setup page or the sidebar, whichever the profile opens on.
+   */
+  firstRunSetup?: boolean;
   /**
    * The app's home folder, for a test that looks at what the app writes there. Without one,
    * each launch gets its own temporary home, so nothing the app writes there is the User's.
@@ -367,6 +374,7 @@ export async function launchApp(
     sentryDsn,
     usageData,
     examples = false,
+    firstRunSetup = false,
     home,
     referenceLookup,
     sources,
@@ -423,7 +431,8 @@ export async function launchApp(
     INCARNAMIND_TEST_AUDIO_SYSTEM: computerSound,
     INCARNAMIND_TEST_AUDIO_MICROPHONE: microphone,
     INCARNAMIND_TEST_GUIDE: permissionGuide,
-    INCARNAMIND_TEST_EXAMPLES: examples ? "1" : undefined,
+    INCARNAMIND_TEST_EXAMPLES: examples || firstRunSetup ? "1" : undefined,
+    INCARNAMIND_TEST_FIRST_RUN_SETUP: firstRunSetup ? "1" : undefined,
     INCARNAMIND_TEST_SENTRY_DSN: sentryDsn,
     INCARNAMIND_TEST_POSTHOG_KEY: usageData && "test-project-key",
     INCARNAMIND_TEST_POSTHOG_HOST: usageData?.host,
@@ -485,7 +494,15 @@ export async function launchApp(
   mainProcessIds.set(app, await app.evaluate(() => process.pid));
   await assertPackagedMain(app);
   const window = await app.firstWindow();
-  await window.getByTestId("plus-menu").waitFor();
+  // With the setup offered, a fresh profile opens on it and any other on the app.
+  await window
+    .locator(
+      firstRunSetup
+        ? '[data-testid="first-run-setup"], [data-testid="plus-menu"]'
+        : '[data-testid="plus-menu"]',
+    )
+    .first()
+    .waitFor();
   await waitUntilLive(app, window);
   if (!keepWindow) {
     await resizeContent(app, window, WINDOW_SIZE.width, WINDOW_SIZE.height, {
@@ -567,6 +584,45 @@ export const startScriptedTask = (
       ).incarnamindScriptedTask.start(mind, given),
     [mindId, input] as const,
   );
+
+export interface SentEvent {
+  event: string;
+  distinct_id: string;
+  properties: Record<string, unknown>;
+}
+
+/** A stand-in for PostHog on this computer: it keeps every request it is sent. */
+export async function startFakePostHog() {
+  const requests: { path: string; events: SentEvent[] }[] = [];
+  const server: Server = createServer(async (request, response) => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of request) chunks.push(chunk as Buffer);
+    const body = Buffer.concat(chunks);
+    const text = (
+      request.headers["content-encoding"] === "gzip" ? gunzipSync(body) : body
+    ).toString();
+    let events: SentEvent[] = [];
+    try {
+      events = (JSON.parse(text) as { batch?: SentEvent[] }).batch ?? [];
+    } catch {
+      // Not a batch: recorded with no events, and the test fails on its path.
+    }
+    requests.push({ path: request.url ?? "", events });
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end("{}");
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address() as AddressInfo;
+  return {
+    host: `http://127.0.0.1:${port}`,
+    requests,
+    events: () => requests.flatMap((each) => each.events),
+    close: async () => {
+      server.closeAllConnections();
+      await new Promise((resolve) => server.close(resolve));
+    },
+  };
+}
 
 /**
  * Returns once everything the app captured for usage data so far has reached
