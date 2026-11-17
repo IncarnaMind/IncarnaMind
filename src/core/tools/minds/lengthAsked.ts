@@ -28,6 +28,9 @@ function sizeOf(text: string): Size {
 /** The most a model may ask for: past it, a multiple is taken for a count of words. */
 const MOST_TIMES = 10;
 
+/** How many times in an Answer text off the length asked is refused before the next one lands. */
+export const MOST_LENGTH_REFUSALS = 2;
+
 /** The multiple of the text's length `times_as_long` asks for; null when it asks for none, as 1 does. */
 export function timesAsked(value: unknown): number | null {
   const times =
@@ -80,6 +83,28 @@ export function offLength(before: string, markdown: string, times: number): stri
   if (now.count >= least && now.count <= most) return null;
   // Sizes alone, no multiple: a reply repeated the multiple of the text refused.
   return `the new text is ${now.count} ${now.unit}, where the text there now is ${was.count}, and times_as_long asks for ${times} times. Write it again at ${least} to ${most} ${now.unit}, keeping each Citation it needs, then call edit_mind again with it.`;
+}
+
+/**
+ * Why `added` would make the Note off the length asked, as the model is told it, with the sizes to
+ * add; null when it is the length, or nothing can be measured. The text the Note holds is never
+ * rewritten: only what is added is held to the multiple.
+ */
+export function offLengthAdded(before: string, added: string, times: number): string | null {
+  const was = sizeOf(before);
+  const adds = sizeOf(added);
+  if (was.count === 0 || was.unit !== adds.unit) return null;
+  const { least, most } = sizesAsked(was.count, times);
+  const now = was.count + adds.count;
+  if (now >= least && now <= most) return null;
+  const from = Math.max(least - was.count, 1);
+  const to = Math.max(most - was.count, from);
+  return `the Note holds ${was.count} ${was.unit} and this adds ${adds.count}, and times_as_long asks for ${times} times. Add ${from} to ${to} ${adds.unit}, keeping each source's marker, and call add_to_mind again.`;
+}
+
+/** How long the Note came out with `added`, as `lengthSaid` says a rewrite's: the sizes and the multiple measured here. */
+export function lengthSaidAdded(before: string, added: string, times: number | null): string {
+  return lengthSaid(before, `${before}\n\n${added}`, times);
 }
 
 /** The length a rewrite is asked to write `before` at, for `times` its size, said to it after its instruction. */

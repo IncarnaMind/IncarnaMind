@@ -150,7 +150,16 @@ import {
   chartOfTable,
   chartProperty,
 } from "./charts";
-import { addedUncited, lengthSaid, lengthToWrite, offLength, timesAsked } from "./lengthAsked";
+import {
+  addedUncited,
+  lengthSaid,
+  lengthSaidAdded,
+  lengthToWrite,
+  MOST_LENGTH_REFUSALS,
+  offLength,
+  offLengthAdded,
+  timesAsked,
+} from "./lengthAsked";
 import { moreThanTakenOut, quoted, sentencesSaid } from "./sentencesSaid";
 import { textKey, tokensOf } from "./words";
 
@@ -1943,8 +1952,9 @@ export function mindTools(options: MindToolsOptions): {
   // searched and found Passages, is refused too (#1415): the reply's own Citations are checked
   // (../../answers/unmarkedQuotes), and nothing else would tell the model what it wrote into a Mind.
   let uncitedRefused = false;
-  // Each is asked for once in an Answer: new text written again as asked may still miss.
-  let lengthRefused = false;
+  // New text written again as asked may still miss: a length is refused twice at most in an
+  // Answer, the third try landing with how far it is (#1385); the others once.
+  let lengthRefusals = 0;
   let addedRefused = false;
 
   // A Calculated figure's Citations are its Inputs': its own checks hold a figure nothing recorded.
@@ -2454,12 +2464,13 @@ export function mindTools(options: MindToolsOptions): {
     written: NonNullable<ReturnType<typeof finishContent>>,
     where: (name: string) => string,
     checked: WrittenCheck | null,
+    went = "",
   ): string => {
     const { mind, outcome } = namedAfter(target, written.change.request);
     const blocks =
       written.change.proposals === 1 ? "1 new Block" : `${written.change.proposals} new Blocks`;
     return [
-      `${outcome === APPLIES ? "Wrote" : "Proposed"} ${blocks} ${where(mind.name)}.`,
+      `${outcome === APPLIES ? "Wrote" : "Proposed"} ${blocks} ${where(mind.name)}${went}.`,
       ...tableNotes(written.change),
       outcome,
       ...writtenNotes(written),
@@ -2720,7 +2731,7 @@ export function mindTools(options: MindToolsOptions): {
   const edit: Tool = {
     name: MIND_TOOLS.edit,
     description:
-      "Change text that is already in a Note, as the User asks: shorten, lengthen, rewrite, restructure, correct, translate or reword it, or remove part of it. Say what to change in instruction, and the text is rewritten for you, its Citations kept. To change one paragraph and leave the others as they are, name its first words in part. The rewrite reads only that text: it can't search the Documents or cite anything new, so new facts from the Documents, a table of them too, go in with add_to_mind, cited. Text you proposed that still waits ([waiting change, adds: …]) is revised in place. For your own text, still waiting or in the Note as you wrote it (an Answer added with Add to note), you may give its whole new text as content instead, cited as add_to_mind's, e.g. to make it longer with more from the Documents: it replaces that text, never adding a second copy, and each sentence it adds must cite a Passage. Say in times_as_long how long the User asked for it to be, when their words give an amount: new text off that length is refused once, and the result says how long it came out, to say as it says. It applies in the Note at once, with Undo, unless it would take out most of the User's own text, or, with removes_only, do more than take text out, which then waits for them: the result says which.",
+      "Change text that is already in a Note, as the User asks: shorten, lengthen, rewrite, restructure, correct, translate or reword it, or remove part of it. Say what to change in instruction, and the text is rewritten for you, its Citations kept. To change one paragraph and leave the others as they are, name its first words in part. The rewrite reads only that text: it can't search the Documents or cite anything new, so new facts from the Documents, a table of them too, go in with add_to_mind, cited. Text you proposed that still waits ([waiting change, adds: …]) is revised in place. For your own text, still waiting or in the Note as you wrote it (an Answer added with Add to note), you may give its whole new text as content instead, cited as add_to_mind's, e.g. to make it longer with more from the Documents: it replaces that text, never adding a second copy, and each sentence it adds must cite a Passage. Say in times_as_long how long the User asked for it to be: new text off that length is refused twice at most, and the result says how long it came out, to say as it says. It applies in the Note at once, with Undo, unless it would take out most of the User's own text, or, with removes_only, do more than take text out, which then waits for them: the result says which.",
     inputSchema: {
       type: "object",
       properties: {
@@ -2743,7 +2754,7 @@ export function mindTools(options: MindToolsOptions): {
         times_as_long: {
           type: "number",
           description:
-            'Give it on every call: how long the new text should be, as a multiple of the text now, from how much the User\'s words ask for: 1.5 for "a little", "a bit" or "slightly" longer or more detailed, 2 for "twice as long", 0.5 for "half as long". When their words give no amount at all, only "shorter" or "longer", give 1: never a multiple you chose yourself.',
+            'Give it on every call: how long the new text should be, as a multiple of the text now, from the User\'s words: 1.5 for "a little", "a bit" or "slightly" longer or more detailed, 2 for "twice as long", 0.5 for "half as long"; 1 when they give no amount ("shorter", "longer"), never one you chose.',
         },
         removes_only: {
           type: "boolean",
@@ -2827,9 +2838,11 @@ export function mindTools(options: MindToolsOptions): {
             : undefined;
         const retry = canCallAgain?.() ?? true;
         const off =
-          times !== null && retry && !lengthRefused ? offLength(before, newText, times) : null;
+          times !== null && retry && lengthRefusals < MOST_LENGTH_REFUSALS
+            ? offLength(before, newText, times)
+            : null;
         if (off !== null) {
-          lengthRefused = true;
+          lengthRefusals++;
           throw new Refusal(
             { kind: "length", mindId: mind.id },
             `Nothing was changed in “${mind.name}”: ${off}`,
@@ -3003,6 +3016,10 @@ export function mindTools(options: MindToolsOptions): {
         },
         ...chartProperty,
         content: contentProperty,
+        times_as_long: {
+          type: "number",
+          description: "As in edit_mind, for the whole Note.",
+        },
         ...answerProperty,
       },
       required: options.lastAnswer ? [] : ["content"],
@@ -3050,6 +3067,29 @@ export function mindTools(options: MindToolsOptions): {
         if (said !== null) return said;
       }
       const after = optional(input.after);
+      // The text the Note holds is never rewritten here: what is added is held to the length the
+      // User's words gave, measured from the Note as it is.
+      const times = timesAsked(input.times_as_long);
+      const noteBefore =
+        times !== null && typeof given === "string"
+          ? minds.read(mind.id, (blocks) => {
+              const whole = stretchOf(blocks, null, options.language, [], options.paragraph);
+              return "why" in whole ? null : stretchText(blocks, whole);
+            })
+          : null;
+      if (noteBefore !== null && typeof given === "string" && times !== null) {
+        const off =
+          (canCallAgain?.() ?? true) && lengthRefusals < MOST_LENGTH_REFUSALS
+            ? offLengthAdded(noteBefore, given, times)
+            : null;
+        if (off !== null) {
+          lengthRefusals++;
+          throw new Refusal(
+            { kind: "length", mindId: mind.id },
+            `Nothing was added to “${mind.name}”: ${off}`,
+          );
+        }
+      }
       const written = finishContent(
         toolCallId,
         mind,
@@ -3061,6 +3101,10 @@ export function mindTools(options: MindToolsOptions): {
       );
       if (!written) throw noTable(mind);
       const checked = await checkWritten(toolCallId, written, signal);
+      const went =
+        noteBefore !== null && typeof given === "string"
+          ? ` (${lengthSaidAdded(noteBefore, given, times)})`
+          : "";
       return added(
         mind,
         written,
@@ -3071,6 +3115,7 @@ export function mindTools(options: MindToolsOptions): {
             ? `in the Note the User is in, which held nothing before and which its first line now names “${name}”`
             : `in “${name}”, ${after ? `after “${after}”` : "at its end"}`,
         checked,
+        went,
       );
     },
   };
