@@ -258,12 +258,15 @@ export const checkCommands: readonly Command[] = [
         requestCitationPicker(at.claim.check.id);
         return;
       }
-      chooseCitationIn({
-        mindId: at.mindId,
-        checkId: at.claim.check.id,
-        documentId: target.id,
-        sentence: at.claim.sentence.text,
-      });
+      chooseCitationIn(
+        {
+          mindId: at.mindId,
+          checkId: at.claim.check.id,
+          documentId: target.id,
+          sentence: at.claim.sentence.text,
+        },
+        ctx.page === undefined ? undefined : { pageFrom: ctx.page, pageTo: ctx.page },
+      );
     },
   },
   {

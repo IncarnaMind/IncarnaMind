@@ -331,6 +331,12 @@ export function commandTools(options: CommandToolsOptions): {
         style: { type: "string" },
         font: { type: "string" },
         size: { type: "string" },
+        page: {
+          type: "integer",
+          minimum: 1,
+          description:
+            'check.chooseCitation only: the page of the Document the User names as the source ("p. 4", "第4页"); left out when they name none.',
+        },
         setting: { type: "string", enum: SETTING_NAMES },
         value: { type: "string" },
         merges: {

@@ -85,12 +85,21 @@ export function offeredCommands(mindId: string | null): OfferedCommand[] {
 }
 
 /** Where a command the assistant runs acts: what it found, else as `inFront`. */
-function contextFor(command: Command, { targets, mindId }: WindowCommandRequest): CommandContext {
+function contextFor(
+  command: Command,
+  { targets, mindId, page }: WindowCommandRequest,
+): CommandContext {
   if (!command.appliesTo) return { ...inFront(mindId), assistant: true };
   const [one] = targets;
   if (!one) return { ...inFront(mindId), assistant: true };
   return targets.length === 1
-    ? { selection: [], focus: one, surface: "palette", assistant: true }
+    ? {
+        selection: [],
+        focus: one,
+        surface: "palette",
+        assistant: true,
+        ...(page !== undefined && { page }),
+      }
     : { selection: targets, focus: null, surface: "palette", assistant: true };
 }
 
