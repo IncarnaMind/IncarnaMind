@@ -7470,6 +7470,9 @@ export type ClaimVerdict = "supported" | "unsupported" | "contradicted";
  *   a sign and a scale both unsettled (#3088); its detail is the figure as the sentence writes it.
  * - "library-unsettled": a sentence about the Library that its facts can't settle, such as a
  *   reading of its Documents' names (#2525). No check can change that.
+ * - "working-not-sent": a figure an Answer worked out, in a check whose consent doesn't cover how
+ *   it was worked out (the contradiction watch's), so the model wasn't sent that; a Check the User
+ *   runs checks it.
  * - "assistant-conclusion": every part the check judged is supported, but the assistant wrote the
  *   sentence and it holds a part left out as an opinion: the assistant's own conclusion, which no
  *   Document states (#3019). Only the sentence reads so; its parts keep their own results.
@@ -7530,6 +7533,7 @@ export type ClaimCheckFailure =
    * also names another group, a negation or a comparison; its detail is the figure's label (#2378).
    */
   | "analysis-unnamed"
+  | "working-not-sent"
   | "assistant-conclusion";
 
 /** What a check in an Answer's scope found the Documents don't state of a sentence (#2809). */
@@ -9871,6 +9875,7 @@ export const dataKinds = [
   "watched-sentences",
   "calendar-request",
   "checked-sentences",
+  "worked-figures",
 ] as const;
 
 export type DataKind = (typeof dataKinds)[number];
@@ -9910,7 +9915,8 @@ export type DataKind = (typeof dataKinds)[number];
  *   they selected, with its paragraph and what it cites, and the Passages the
  *   check's searches find, to the chat model's provider;
  *   when they verify a document (#97), its sentences, to find its claims, then
- *   each claim with its paragraph and the Passages found. None in local mode.
+ *   each claim with its paragraph and the Passages found, and once more the
+ *   claims alone, numbered with their pages, for its brief (#3277). None in local mode.
  * - "agents": what an outside agent reads (#351), to that agent, which sends
  *   it on to the AI model it uses, out of IncarnaMind's sight: one service
  *   per pairing ("agent:<id>"), named as the User named the agent. Passages

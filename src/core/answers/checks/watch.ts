@@ -33,6 +33,7 @@ import type {
   ClaimCheckResult,
   ContradictionCheckOutcome,
   ContradictionCheckPlan,
+  DataKind,
   Document,
   DocumentStatus,
   Money,
@@ -118,6 +119,8 @@ export interface WatchOptions extends CheckRuns {
   prepare(choice: ChatModelChoice | null): Promise<Prepared>;
   /** The model, when it can be used now without asking the User anything; null otherwise. */
   prepareQuietly(choice: ChatModelChoice | null): Promise<PreparedChatModel | null>;
+  /** What a watch in the background sends of the checks flow: the consent `prepareQuietly` needs. */
+  sendsInBackground: readonly DataKind[];
   /** Whether the watch waits for the User to allow what checks send now, which they allowed before it sent more. */
   waitsForConsent(choice: ChatModelChoice | null): Promise<boolean>;
   claimCheck(request: ClaimCheckRequest): Promise<ClaimCheckResult>;
@@ -165,6 +168,7 @@ const requestOf = (
   mindId: string,
   model: PreparedChatModel,
   signal: AbortSignal,
+  sends?: readonly DataKind[],
 ): ClaimCheckRequest => ({
   claim: claim.projection?.text ?? comparableSentence(claim.text),
   ...(claim.projection && { projection: claim.projection }),
@@ -173,6 +177,7 @@ const requestOf = (
   context: claim.context,
   scope: claim.scope,
   model,
+  ...(sends && { sends }),
   mindId,
   place: claim.place,
   cacheKey: mindId,
@@ -547,7 +552,7 @@ export function createContradictionWatch(options: WatchOptions) {
               (await currentTask.run({ id: runId }, () =>
                 runCheck(
                   checkOf(claim),
-                  requestOf(claim, mindId, prepared, call.signal),
+                  requestOf(claim, mindId, prepared, call.signal, options.sendsInBackground),
                   checkRunOf(options, prepared, call.signal, mindId, { behindReplies: true }),
                 ),
               ));

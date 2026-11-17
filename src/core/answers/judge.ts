@@ -54,6 +54,7 @@ export const JUDGE_QUESTIONS = [
   "rewrite",
   "record-cite",
   "find-claims",
+  "verify-brief",
   "claimed-changes",
   "request-done",
   "unmarked-quotes",

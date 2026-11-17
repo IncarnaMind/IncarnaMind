@@ -42,7 +42,7 @@ import {
   STRICT_PRESENCE_INSTRUCTIONS,
 } from "./prompt";
 
-export const DOCUMENT_CHECK_FLOW_SENDS = ["selection", "whole-document"] as const;
+export const DOCUMENT_CHECK_FLOW_SENDS = ["selection", "whole-document", "worked-figures"] as const;
 
 const WINDOW_TOKENS = 48_000;
 const CARRIED_TOKENS = 1_000;

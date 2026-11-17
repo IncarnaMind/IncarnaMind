@@ -1275,10 +1275,10 @@ describe("the words for what a check sends", () => {
   // protects=the consent line and the re-ask name every row of what a check sends, in the words given for them; fails_when=the line says less than the request carries.
   test("the consent line and the data kinds, in English and Chinese", () => {
     expect(translate("en", "providers.sends.checks")).toBe(
-      "each sentence you check, with its paragraph and figures, and the passages it’s checked against with their Document names, pages or locations and which of a workbook’s rows hold values its formulas worked out; every sentence of a note or file you check whole, to find its claims; whole Documents in the scope, up to 40 pages, for a sentence that says something is absent; a file’s name, dates, author, page count and size, for a sentence about the file; the heading above a sentence the assistant wrote; after a new version of a Document, the cited sentences of the notes in its Folder; and for a sentence about your Library, its counts, the name of the Folder, Tag or Document the note searches with how many more items its search has, and the names, kinds and counts of the Documents, Folders and Tags, and the names of notes, that match the sentence’s words, with how many more matched",
+      "each sentence you check, with its paragraph and figures, and for a figure an Answer worked out, how it was worked out: its label, formula and inputs with their quotes and Document names (for a workbook’s figure, the cells and formulas it was worked out through), or an Analysis’s label, unit and code (up to 3,000 characters), the columns and rows it read and the heading above it; the passages it’s checked against with their Document names, pages or locations and which of a workbook’s rows hold values its formulas worked out; every sentence of a note or file you check whole, to find its claims; the claims of a document you verify, once more with their numbers and pages, to write what it concludes; whole Documents in the scope, up to 40 pages, for a sentence that says something is absent; a file’s name, dates, author, page count and size, for a sentence about the file; the heading above a sentence the assistant wrote; after a new version of a Document, the cited sentences of the notes in its Folder, without how their figures were worked out; and for a sentence about your Library, its counts, the name of the Folder, Tag or Document the note searches with how many more items its search has, and the names, kinds and counts of the Documents, Folders and Tags, and the names of notes, that match the sentence’s words, with how many more matched",
     );
     expect(translate("zh-CN", "providers.sends.checks")).toBe(
-      "你核对的每一句话及其所在段落和数字，以及用于核对的段落、其文档名称、页码或位置和工作簿中哪些行的数值由公式算出；整篇核对笔记或文件时，其中每一句话（用于找出说法）；句子说某处没有某内容时，范围内的整份文档（最多 40 页）；句子说的是文件本身时，文件的名称、日期、作者、页数和大小；助手所写句子上方的标题；文档有新版本后，所在文件夹中笔记里带引用的句子；句子说的是你的资料库时，资料库的数量、笔记搜索的文件夹、标签或文档名称及其搜索范围中其余项目的数量，以及与句中词语相符的文档、文件夹和标签的名称、类型和数量、笔记的名称，和其余相符名称的数量",
+      "你核对的每一句话及其所在段落和数字；句中由回答算出的数字的算法：标签、公式及其输入的引文和文档名称（工作簿中的数字为其经过的单元格和公式），或数据分析的标签、单位和代码（最多 3,000 个字符）、读取的列和行以及上方的标题；以及用于核对的段落、其文档名称、页码或位置和工作簿中哪些行的数值由公式算出；整篇核对笔记或文件时，其中每一句话（用于找出说法）；核对别人的文件时，找出的说法再带着编号和页码发送一次（用于写出文件的结论）；句子说某处没有某内容时，范围内的整份文档（最多 40 页）；句子说的是文件本身时，文件的名称、日期、作者、页数和大小；助手所写句子上方的标题；文档有新版本后，所在文件夹中笔记里带引用的句子（不含其中数字的算法）；句子说的是你的资料库时，资料库的数量、笔记搜索的文件夹、标签或文档名称及其搜索范围中其余项目的数量，以及与句中词语相符的文档、文件夹和标签的名称、类型和数量、笔记的名称，和其余相符名称的数量",
     );
     const kinds = {
       "library-counts": [
@@ -1319,7 +1319,13 @@ describe("the words for what a check sends", () => {
       "A sentence about a file itself sends the file's name, its own created and modified dates (or this computer's when it records none), author, page, slide or sheet count and size. A sentence about your Library sends the Library's counts (Documents in all, not in a Folder and per kind, the numbers of Folders, Tags and other notes, and how many names are shared by several Documents), the name of the Folder, Tag or Document the note searches and how many more items its search has, and the names of Documents, Folders and Tags with their kinds and counts, and the names of other notes, that share a word with the sentence, with how many more matched past 200. A Folder that keeps its work inside it is sent only as a number to a note outside it. Never sent in a check: ids, file paths, Folder or Tag descriptions, the rest of your notes' text, or which Document is in which Folder or has which Tag beyond the Folder or Tag the note searches.",
     );
     expect(privacy).toContain(
-      "then each claim with its paragraph and the Passages found or read for it. The passages come from the Folder or Tag the note searches, so their Document names show which Documents are in it.",
+      "then each claim with its paragraph and the Passages found or read for it. Once the claims of a document you verify are found, they go once more in one request, each with its number and page and nothing else of the file, so the model can write what the document concludes and which claims its figures rest on. The passages come from the Folder or Tag the note searches, so their Document names show which Documents are in it.",
+    );
+    expect(privacy).toContain(
+      "A figure in a checked sentence that an Answer worked out also sends how it was worked out: its label, formula, inputs and result, each input with its quote, Document name and location (for a figure worked out from a workbook's formulas, the cells and formulas it was worked out through), or, for a figure an Analysis gave, its label and unit, the heading above it, the columns and rows it was worked out from (up to 20 runs of rows) and up to 3,000 characters of its code.",
+    );
+    expect(privacy).toContain(
+      "the cited sentences of the Notes in its Folder, to check them for contradictions, without how their figures were worked out",
     );
     expect(privacy).not.toContain("any note's text");
     expect(privacy).toContain(
@@ -1327,10 +1333,10 @@ describe("the words for what a check sends", () => {
     );
     expect(privacy).not.toContain("Never sent: ids, paths, sizes, dates, page counts");
     expect(read("docs/where-your-data-goes.md")).toContain(
-      "; its paragraph and figures, and which of a workbook's rows hold values its formulas worked out; for a sentence about a file, its name, dates, author, page count and size; the heading above a sentence the assistant wrote; for a sentence about your Library, its counts, how many names are shared by several Documents, the name of the Folder, Tag or Document the note searches, and the matching names of Documents, Folders, Tags and notes with their kinds and counts (a Folder that keeps its work inside it only as a number), never their text, paths or descriptions",
+      "; its paragraph and figures, and which of a workbook's rows hold values its formulas worked out; for a figure an Answer worked out, how: its label, formula and inputs with their quotes (for a workbook's figure, the cells and formulas it was worked out through), or an Analysis's label, unit and code, the columns and rows it read and the heading above it; for a sentence about a file, its name, dates, author, page count and size; the heading above a sentence the assistant wrote; for a sentence about your Library, its counts, how many names are shared by several Documents, the name of the Folder, Tag or Document the note searches, and the matching names of Documents, Folders, Tags and notes with their kinds and counts (a Folder that keeps its work inside it only as a number), never their text, paths or descriptions",
     );
     expect(read("docs/where-your-data-goes.zh-CN.md")).toContain(
-      "；句子所在段落和数字，以及工作簿中哪些行的数值由公式算出；句子说的是文件本身时，文件的名称、日期、作者、页数和大小；助手所写句子上方的标题；句子说的是你的资料库时，资料库的数量、由多个文档共用的名称数量、笔记搜索的文件夹、标签或文档名称，以及相符的文档、文件夹、标签和笔记的名称及其类型和数量（只在本文件夹内工作的文件夹只计数量），不含其内容、路径或描述",
+      "；句子所在段落和数字，以及工作簿中哪些行的数值由公式算出；句中由回答算出的数字的算法：标签、公式及其输入的引文（工作簿中的数字为其经过的单元格和公式），或数据分析的标签、单位和代码、读取的列和行以及上方的标题；句子说的是文件本身时，文件的名称、日期、作者、页数和大小；助手所写句子上方的标题；句子说的是你的资料库时，资料库的数量、由多个文档共用的名称数量、笔记搜索的文件夹、标签或文档名称，以及相符的文档、文件夹、标签和笔记的名称及其类型和数量（只在本文件夹内工作的文件夹只计数量），不含其内容、路径或描述",
     );
   });
 });

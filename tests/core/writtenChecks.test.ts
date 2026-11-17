@@ -927,6 +927,37 @@ describe("What the assistant writes is checked once it lands, the reply not wait
     ]);
   });
 
+  // protects=a User who allowed checks before checks sent how a worked-out figure was worked out isn't asked as the assistant writes, nor is anything sent: the write waits for their OK, as for any kind checks added; fails_when=the write is checked on the earlier consent, or asks in the background.
+  test("allowed before checks sent figures' working, the write waits for the User's OK", async () => {
+    const asked: string[][] = [];
+    const { core, calls, change, client } = await write(
+      {
+        content: `## Tides\n\nSpring tides come at new and full moon [^1]. ${UNBACKED} [^1].`,
+        cloud: { kind: "anthropic", modelId: "claude-haiku-5-5" },
+      },
+      async ({ core: started, service }) => {
+        const checks = started.dataFlows.get("checks");
+        if (!service || !checks) throw new Error("The checks flow to the model isn't set up.");
+        await started.revokeConsent("checks", service);
+        started.dataFlows.register({
+          ...checks,
+          sends: checks.sends.filter((kind) => kind !== "worked-figures"),
+        });
+        await started.allowDataFlow("checks", service);
+        started.dataFlows.register(checks);
+        started.on("consent.requested", (request) => asked.push([...request.newKinds]));
+      },
+    );
+
+    expect(asked).toEqual([]);
+    expect(calls.some(isCheckRun)).toBe(false);
+    expect((await marksIn(core, client)).map(({ check }) => [check.state, check.reason])).toEqual([
+      ["not-checked", "consent-widened"],
+      ["not-checked", "consent-widened"],
+    ]);
+    expect(change?.selfCheck).toMatchObject({ blocked: { reason: "consent-widened", count: 2 } });
+  });
+
   // protects=every sentence a write holds is checked and gets its mark, past the twelve one check used to send (#2830's acceptance: 40 sentences); fails_when=a long write checks only its first sentences, or the rest land unmarked or not checked for being too many; no_claim=how long each check takes.
   test("every sentence of a long write is checked and gets its mark, past twelve", async () => {
     const sentences = Array.from(

@@ -50,7 +50,7 @@ import {
   summaryContext,
   textOf,
 } from "./fillPrompt";
-import { headingRoutes } from "./headingRoutes";
+import { headingRoutes, unansweredLines } from "./headingRoutes";
 import {
   asItIs,
   type MemoCue,
@@ -779,6 +779,8 @@ export function createMeetingFill(options: MeetingFillOptions) {
     let problem: MeetingFillProblem | null = null;
     let thrown: unknown;
     const destinations = new Map<FillSection, string>();
+    /** What each kept reply said of the lines its part of the call doesn't answer. */
+    const unanswered: (ReadonlySet<string> | null)[] = [];
     let asked = 0;
     let read = 0;
     /** A part failed: no new part is sent, and the replies still out are kept as they come in. */
@@ -935,6 +937,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
       ];
       // A section that no heading of the User's can take goes under its own title with every fact:
       // nothing is missing, so it isn't a problem (#3099).
+      unanswered.push(unansweredLines(answer.markdown, lines));
       const routed = headingRoutes(answer.markdown, markers, lines);
       if (routed === null) log.warn("meeting.fillRoutingFailed", { meetingId: meeting.id });
       for (const [section, heading] of routed ?? []) {
@@ -1026,6 +1029,13 @@ export function createMeetingFill(options: MeetingFillOptions) {
           })
         : overviews;
     const retained = ledger.facts;
+    // "Not mentioned" never rests on a part nobody read: a line is unanswered only when every
+    // part's reply says so, and no part's reply was lost.
+    const [first, ...others] = unanswered;
+    const nowhere =
+      unfinishedParts === 0 && first && others.every((each) => each !== null)
+        ? new Set([...first].filter((marker) => others.every((each) => each?.has(marker))))
+        : new Set<string>();
     const claims = await unsupportedFacts(retained, meeting, transcriptId, route, signal);
     if (signal.aborted) throw new FillProblemError({ kind: "stopped", message: "" });
     return {
@@ -1065,6 +1075,8 @@ export function createMeetingFill(options: MeetingFillOptions) {
           claims,
           reference: (topic, direction) =>
             translate(language, `meetings.fill.reference.${direction}`, { topic }),
+          unanswered: nowhere,
+          notMentioned: translate(language, "meetings.fill.notMentioned"),
         });
         if (planned.unplaced > 0) {
           log.warn("meeting.fillLineMoved", { meetingId: meeting.id, facts: planned.unplaced });

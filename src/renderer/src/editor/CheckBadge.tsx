@@ -61,7 +61,8 @@ import { CheckMarkIcon, ClaimMarkIcon, NotYetCitedIcon } from "./icons";
 import { MindCheckAsk, MindUnchanged, RunningText } from "./MindCheckLine";
 import { HealthCard, PartMark, partLabel, useHealth } from "./NoteHealth";
 import { Popover } from "./Popover";
-import { useVerifyState, VerifyCard, verifyDone } from "./VerifyLine";
+import { useVerificationBrief } from "./VerifyBrief";
+import { useVerifyState, VerifyAsk, VerifyCard, verifyDone } from "./VerifyLine";
 import { shownPhase } from "./verifyPhase";
 
 /**
@@ -348,6 +349,9 @@ function VerifyBadge({
   const language = useLanguage();
   const place = useCardPlace(mindId);
   const state = useVerifyState(editor, doc, mindId, verification);
+  const kept = useVerificationBrief(doc);
+  // The brief lands once the claims are found, in a card that opened with less: it takes its height again then.
+  const holdKey = kept && kept.sortedText === verification.sortedText ? "brief" : "plain";
   const { rows, marked, checking } = state.marks;
   const phase = shownPhase(state.running, marked);
   const checked = useJustChecked(editor, state.running, () => (state.problem ? 0 : marked));
@@ -376,7 +380,8 @@ function VerifyBadge({
       mindId={mindId}
       badge={badgeOf(input)}
       state={null}
-      ask={input.asking || input.problem}
+      ask={input.asking || state.finding || input.problem}
+      holdKey={holdKey}
       running={
         phase === "finding" ? (
           t("verify.finding")
@@ -387,6 +392,20 @@ function VerifyBadge({
         ) : null
       }
       onStop={() => stopVerify(mindId)}
+      actions={
+        state.asking &&
+        holdKey === "brief" &&
+        state.outcome?.kind !== "no-documents" &&
+        state.outcome?.kind !== "nothing" && (
+          <VerifyAsk
+            mindId={mindId}
+            doc={doc}
+            total={state.total}
+            estimate={state.estimate}
+            onNotNow={() => setCheckCardOpen(place, false)}
+          />
+        )
+      }
       foot={
         verifyDone(state) && (
           <button
@@ -433,6 +452,7 @@ function BadgeFrame({
   badge,
   state,
   ask,
+  holdKey,
   running,
   onStop,
   foot,
@@ -444,6 +464,8 @@ function BadgeFrame({
   /** A Mind's resting state (D266); null for a Verify run, which shows its own marks. */
   state: NoteState | null;
   ask: boolean;
+  /** When it changes, the card takes the height of what is in it now, as at its first paint. */
+  holdKey?: string;
   running: ReactNode;
   onStop(): void;
   foot?: ReactNode;
@@ -465,6 +487,12 @@ function BadgeFrame({
   // content beyond that room scrolls, and the next open fits the result (#2313).
   const [heldHeight, setHeldHeight] = useState<number | null>(null);
   const body = useRef<HTMLDivElement>(null);
+  const heldFor = useRef(holdKey);
+  useLayoutEffect(() => {
+    if (heldFor.current === holdKey) return;
+    heldFor.current = holdKey;
+    setHeldHeight(null);
+  }, [holdKey]);
   useLayoutEffect(() => {
     if (!open) {
       setHeldHeight(null);

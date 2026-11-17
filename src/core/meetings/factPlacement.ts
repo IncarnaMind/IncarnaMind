@@ -19,6 +19,9 @@ export interface FactPlacementInput {
   topicHeadings: readonly { marker: string; text: string }[];
   claims: ReadonlySet<string>;
   reference: (topic: string, direction: "above" | "below") => string;
+  /** The ordinary lines the model said the call doesn't answer, and the sentence written under one. */
+  unanswered: ReadonlySet<string>;
+  notMentioned: string;
 }
 
 /** A topic of the call and its facts, in the order the call took it up. */
@@ -185,6 +188,14 @@ export function placeFacts(input: FactPlacementInput): FactPlacement {
         factReference(fact, input, canonical.position < destination.position ? "above" : "below"),
       );
     }
+  }
+  // A fact under the line outweighs the model's word that the call doesn't answer it.
+  for (const marker of ordinary.keys()) {
+    if (!input.unanswered.has(marker) || placed.lines.has(marker)) continue;
+    placed.lines.set(
+      marker,
+      asGenerated([{ type: "paragraph", content: [{ type: "text", text: input.notMentioned }] }]),
+    );
   }
   placed.topics = [...topics.values()];
   return placed;

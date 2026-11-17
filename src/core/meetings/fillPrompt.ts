@@ -178,6 +178,11 @@ export function notesContext(
     history?.facts.length
       ? "- supersedes names only ids of the retained facts below, never a fact of this reply, and only a retained fact that no longer stands at all: a fact named there is removed whole from the notes. When one detail of a retained fact changed and the rest of it still holds, leave supersedes [] and write a new fact for what changed, with the earlier value in the same sentence (the shape: The Leeds headcount, earlier 40, is now 45)."
       : "- supersedes is always [] in this reply: it is only for replacing a fact kept from an earlier reply, which this fact corrects.",
+    ...(lines.some((line) => !line.heading)
+      ? [
+          "- Before the first frame, write one control line naming every ordinary L line that nothing in the transcript above answers: UNANSWERED: L2 L5 is an example of the format, not a list to copy, and UNANSWERED: NONE when each line has something said to it. List a line only when it asks for something and nobody in the transcript speaks to it at all. A line answered in part, or answered by someone saying it is not known or not yet decided, is answered: write that as its fact. Never list a heading, or a line that names the call as a whole. Write no fact saying that something was not said or not given: the app writes that under a listed line.",
+        ]
+      : []),
     "- Only a structural heading, never an ordinary paragraph, can host a section. A heading hosts the section its words ask for, in any wording or language, whether or not the User typed lines under it: SUMMARY for what the call was about overall, DECISIONS for final choices, ACTIONS for commitments and their owners, QUESTIONS for questions left open, CLAIMS for what was said that the User's Documents should be checked against. NONE is only for the Note's title or a heading that names a subject of the meeting (a topic, a person, an agenda item) rather than one of those kinds of content.",
     ...(lines.some((line) => line.heading)
       ? [

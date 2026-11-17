@@ -52,6 +52,7 @@ import { OpinionsLine } from "./OpinionsLine";
 import { useOpinionChecks } from "./opinionChecks";
 import { ReferencesLine } from "./ReferencesLine";
 import { UncoveredLine } from "./UncoveredLine";
+import { useVerificationBrief, VerifyBrief } from "./VerifyBrief";
 import { shownPhase } from "./verifyPhase";
 import { wordPlaceAt } from "./WordOrigin";
 
@@ -177,7 +178,9 @@ export function useVerifyState(
       outcome?.kind === "local-mode" ||
       outcome?.kind === "failed" ||
       outcome?.kind === "error");
-  return { running, outcome, marks, claims, total, asking, estimate, problem, opinions };
+  // Asked for, the brief's card opens at once, as the claims are being found.
+  const finding = running === "finding";
+  return { running, outcome, marks, claims, total, asking, finding, estimate, problem, opinions };
 }
 
 export type VerifyState = ReturnType<typeof useVerifyState>;
@@ -197,6 +200,52 @@ const VERIFY_MARKS: Record<Exclude<VerifyRow, "notYetCited">, ClaimMarkState> = 
   recheck: "needs-recheck",
   supported: "supported",
 };
+
+/** The question "Check these against your Documents?" with its estimate and its press. */
+export function VerifyAsk({
+  mindId,
+  doc,
+  total,
+  estimate,
+  onNotNow,
+}: {
+  mindId: string;
+  doc: Y.Doc;
+  total: number;
+  estimate: EstimateLine | null;
+  onNotNow(): void;
+}) {
+  const t = useT();
+  const language = useLanguage();
+  const inFolder = useAppStore(
+    (app) => (app.minds.find((each) => each.id === mindId)?.folderId ?? null) !== null,
+  );
+  const format = (value: number) => new Intl.NumberFormat(language).format(value);
+  return (
+    <div className="check-card-ask" data-testid="verify-ask">
+      <p className="check-card-ask-title">{t(inFolder ? "verify.ask.folder" : "verify.ask.all")}</p>
+      {estimate && <EstimateMeta testId="verify-estimate" line={estimate} />}
+      <div className="check-card-ask-actions">
+        <button
+          type="button"
+          data-testid="verify-check"
+          className={buttonStyle("primary", "sm")}
+          onClick={() => void checkClaims(mindId, doc)}
+        >
+          {t(total === 1 ? "verify.check.one" : "verify.check", { count: format(total) })}
+        </button>
+        <button
+          type="button"
+          data-testid="verify-not-now"
+          className={buttonStyle("ghost", "sm")}
+          onClick={onNotNow}
+        >
+          {t("mindCheck.cancel")}
+        </button>
+      </div>
+    </div>
+  );
+}
 
 /**
  * The check badge's card for a Mind made by "Verify a document…" (#97,
@@ -245,12 +294,12 @@ export function VerifyCard({
   }, [running]);
 
   const format = (value: number) => new Intl.NumberFormat(language).format(value);
-  const goToNext = (row: VerifyRow) => {
+  const kept = useVerificationBrief(doc);
+  // A brief of the text before an edit is not shown.
+  const brief = kept && kept.sortedText === verification.sortedText ? kept : null;
+  const [rowsOpen, setRowsOpen] = useState(false);
+  const goTo = (next: number) => {
     if (editor.isDestroyed) return;
-    const places = marks.rows[row];
-    const head = editor.state.selection.head;
-    const next = places.find((at) => at > head) ?? places[0];
-    if (next === undefined) return;
     const place = editor.state.doc.resolve(next);
     editor.view.dispatch(editor.state.tr.setSelection(TextSelection.near(place)).scrollIntoView());
     editor.view.focus();
@@ -263,6 +312,12 @@ export function VerifyCard({
     } else if (wordPlace) {
       openDocumentBeside(verification.documentId, { wordPlace });
     }
+  };
+  const goToNext = (row: VerifyRow) => {
+    const places = marks.rows[row];
+    const head = editor.state.selection.head;
+    const next = places.find((at) => at > head) ?? places[0];
+    if (next !== undefined) goTo(next);
   };
 
   const phase = shownPhase(running, marks.marked);
@@ -344,31 +399,9 @@ export function VerifyCard({
   } else if ((total === 0 || outcome?.kind === "nothing") && opinions.length === 0) {
     body = <p data-testid="verify-empty">{t("verify.none")}</p>;
   } else if (marks.marked === 0 && (opinions.length === 0 || total > 0)) {
-    body = (
-      <div className="check-card-ask" data-testid="verify-ask">
-        <p className="check-card-ask-title">
-          {t(inFolder ? "verify.ask.folder" : "verify.ask.all")}
-        </p>
-        {estimate && <EstimateMeta testId="verify-estimate" line={estimate} />}
-        <div className="check-card-ask-actions">
-          <button
-            type="button"
-            data-testid="verify-check"
-            className={buttonStyle("primary", "sm")}
-            onClick={() => void checkClaims(mindId, doc)}
-          >
-            {t(total === 1 ? "verify.check.one" : "verify.check", { count: format(total) })}
-          </button>
-          <button
-            type="button"
-            data-testid="verify-not-now"
-            className={buttonStyle("ghost", "sm")}
-            onClick={onNotNow}
-          >
-            {t("mindCheck.cancel")}
-          </button>
-        </div>
-      </div>
+    // Under a brief the question sits in the card's fixed foot, where the press is never scrolled away.
+    body = brief ? null : (
+      <VerifyAsk mindId={mindId} doc={doc} total={total} estimate={estimate} onNotNow={onNotNow} />
     );
   } else {
     const look = marks.rows.contradicted.length + marks.rows.unsupported.length;
@@ -391,68 +424,86 @@ export function VerifyCard({
               : []),
             ...(stopped ? runStopParts(stopped, t, language) : []),
           ];
+    const summaryLine = (
+      <MetaLine
+        parts={[
+          ...summary,
+          opinions.length > 0 && (
+            <OpinionsLine key="opinions" editor={editor} doc={doc} mindId={mindId} className="" />
+          ),
+        ]}
+        className="check-card-summary"
+      />
+    );
+    // Under a brief the summary is the card's one line, and pressing it shows the rows.
+    const rowsShown = brief === null || rowsOpen;
     body = (
       <div ref={doneRef} data-testid="verify-done" className="check-rows">
-        <MetaLine
-          parts={[
-            ...summary,
-            opinions.length > 0 && (
-              <OpinionsLine key="opinions" editor={editor} doc={doc} mindId={mindId} className="" />
-            ),
-          ]}
-          className="check-card-summary"
-        />
-        {VERIFY_ROWS.filter((row) => marks.rows[row].length > 0).map((row) => {
-          const count = marks.rows[row].length;
-          const shown = { count: format(count) };
-          if (row === "notYetCited") {
-            const text = t(
-              count === 1 ? "checks.row.notYetCited.one" : "checks.row.notYetCited",
-              shown,
-            );
+        {brief === null ? (
+          summaryLine
+        ) : (
+          <button
+            type="button"
+            data-testid="verify-summary"
+            className="verify-summary-press"
+            aria-expanded={rowsOpen}
+            onClick={() => setRowsOpen((open) => !open)}
+          >
+            {summaryLine}
+          </button>
+        )}
+        {rowsShown &&
+          VERIFY_ROWS.filter((row) => marks.rows[row].length > 0).map((row) => {
+            const count = marks.rows[row].length;
+            const shown = { count: format(count) };
+            if (row === "notYetCited") {
+              const text = t(
+                count === 1 ? "checks.row.notYetCited.one" : "checks.row.notYetCited",
+                shown,
+              );
+              return (
+                <NotYetCitedRow
+                  key={row}
+                  editor={editor}
+                  count={count}
+                  label={t("verify.next", { part: text })}
+                  testId={`verify-${row}`}
+                  onNext={() => goToNext(row)}
+                >
+                  <Counted text={text} count={format(count)} />
+                </NotYetCitedRow>
+              );
+            }
+            const text =
+              row === "notChecked"
+                ? t("verify.notChecked", shown)
+                : row === "recheck"
+                  ? t(count === 1 ? "verify.recheck.one" : "verify.recheck", shown)
+                  : t(`verify.row.${row}`, shown);
             return (
-              <NotYetCitedRow
+              <button
                 key={row}
-                editor={editor}
-                count={count}
-                label={t("verify.next", { part: text })}
-                testId={`verify-${row}`}
-                onNext={() => goToNext(row)}
+                type="button"
+                data-testid={`verify-${row}`}
+                data-count={count}
+                data-part={row === "supported" ? "found" : row}
+                className="check-row"
+                aria-label={t("verify.next", { part: text })}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => goToNext(row)}
               >
-                <Counted text={text} count={format(count)} />
-              </NotYetCitedRow>
+                <span className="check-row-mark">
+                  <ClaimMarkIcon state={VERIFY_MARKS[row]} className="mind-health-icon" />
+                </span>
+                <span className="check-row-text">
+                  <Counted text={text} count={format(count)} />
+                </span>
+                <span className="check-row-next" aria-hidden="true">
+                  {t("badge.next")}
+                </span>
+              </button>
             );
-          }
-          const text =
-            row === "notChecked"
-              ? t("verify.notChecked", shown)
-              : row === "recheck"
-                ? t(count === 1 ? "verify.recheck.one" : "verify.recheck", shown)
-                : t(`verify.row.${row}`, shown);
-          return (
-            <button
-              key={row}
-              type="button"
-              data-testid={`verify-${row}`}
-              data-count={count}
-              data-part={row === "supported" ? "found" : row}
-              className="check-row"
-              aria-label={t("verify.next", { part: text })}
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => goToNext(row)}
-            >
-              <span className="check-row-mark">
-                <ClaimMarkIcon state={VERIFY_MARKS[row]} className="mind-health-icon" />
-              </span>
-              <span className="check-row-text">
-                <Counted text={text} count={format(count)} />
-              </span>
-              <span className="check-row-next" aria-hidden="true">
-                {t("badge.next")}
-              </span>
-            </button>
-          );
-        })}
+          })}
       </div>
     );
   }
@@ -460,6 +511,16 @@ export function VerifyCard({
   return (
     <>
       <p className="check-card-title">{t("verify.card.title")}</p>
+      {brief && (
+        <VerifyBrief
+          editor={editor}
+          doc={doc}
+          verification={verification}
+          brief={brief}
+          running={running !== null}
+          goTo={goTo}
+        />
+      )}
       {body}
       <UnreadFilesLine files={unread} testId="verify-unread" className="mind-unread" />
       {running === null && marks.marked > 0 && marks.coverage.mostlyUncovered && (

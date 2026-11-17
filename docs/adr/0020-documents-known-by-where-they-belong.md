@@ -9,10 +9,28 @@ Since Documents were indexed in place (ADR-0010), a Document's unique key was it
   - **In a Linked folder:** the Linked folder's id and the file's path inside it (`relative_path`), with "/" between names on every system. At most one live Document has a Linked folder and relative path (`documents_by_place`). A Linked folder's id is random, made when it is linked, and its Folders' ids are made from that id and their relative paths, so they too are the same wherever the folder is.
   - **In the data folder:** a file IncarnaMind keeps, a web page's snapshot, saved text, or a copy the old layout made: its path inside the data folder.
   - **A file added on its own:** nothing but its id. Where it is is this computer's alone, as a picked file is.
-- **Its version is its content hash.** The SHA-256 of the file's bytes identifies a version, as before. A Citation names its Document and the version it quotes, and the first 16 digits of that hash are the version's fingerprint an outside agent's Citation carries (#406). The same content in two places is still two Documents, and the same file is still found again by its content when it moves inside or between the folders IncarnaMind watches.
-- **What belongs to this computer.** A Linked folder's `path`, a Document's `path`, `file_mtime_ms`, `file_status`, and its file's identity on this computer's disk (`file_device`, `file_number` and `file_created_ns`, see the amendment below) are what this computer has seen and where it keeps things: derived from the identity (a Linked folder's path and the relative path, or the data folder and the relative path), or seen here (a file added on its own). A later sync never carries them: a missing file on one computer can be there on another.
+- **Its version is its content hash.** The SHA-256 of the file's bytes identifies a version. A Citation names its Document and the version it quotes, and the first 16 digits of that hash are the version's fingerprint an outside agent's Citation carries (#406). The same content in two places is still two Documents, and the same file is still found again by its content when it moves inside or between the folders IncarnaMind watches.
+- **What belongs to this computer.** A Linked folder's `path`, a Document's `path`, `file_mtime_ms`, `file_status`, and its file's identity on this computer's disk (`file_device`, `file_number` and `file_created_ns`, below) are what this computer has seen and where it keeps things: derived from the identity (a Linked folder's path and the relative path, or the data folder and the relative path), or seen here (a file added on its own). A later sync never carries them: a missing file on one computer can be there on another.
 - **The workspace.** The data folder is one workspace, known by a random id made at its first start (the `workspace` table, one live row), with no account behind it and nothing sent. A copy of the data folder is the same workspace. A User's computers that sync will share one workspace id.
 - **Minds' content structure.** Each Mind records the content schema version it was last written with (ADR-0003's amendment), so a later sync can tell old content from new.
+
+## A file moved or edited where IncarnaMind didn't see it (#389, #604)
+
+A file moved and edited while IncarnaMind was closed, or moved into a folder before it looked, has a new path and new content, so neither finds its Document. When its content matches no Document whose file went, clues are tried, wherever a moved file is looked for (the watchers, reconciling at a start, a file added by hand):
+
+- **On the same disk,** a file keeps its identity while it is moved or edited in place: its device, file number and creation time, read with Node's `stat` on macOS, Windows and Linux. The creation time tells a file from a later one given the same number after a delete. A Document whose file went with that identity is the file's.
+- **An editor's save by replacing the file** (#604) gives it a new file number. Word and Pages save a .docx this way. On macOS, Word keeps the old file's creation time and Pages keeps nothing, and both can make the file several times larger. Such a file is taken for the one Document whose file went in this pass, or was found missing in the last, with the file's name and extension, on the same disk:
+  - If the creation time was kept (Word): the Document whose file had the same device and creation time, even when another new file has the name.
+  - If nothing was kept (Pages and others): the Document with an older modified time, if no other new file in the pass has the name. There is no size bound on the same disk: a bound tight enough to tell two files apart turns away real saves, and a loose one adds nothing to the name, the disk and the old file being gone.
+  - **Exactly one candidate,** never a live file: two Documents that fit leave the file a new Document, as does a Document whose file is still there.
+- **From another disk,** which gives the file a new number, it is the one Document whose file went in this pass or was found missing in the last, on another disk, with the file's name, a size within 10% (16 KB for small files) and an older modified time, provided no other new file in the pass has that name.
+- **A file system without file numbers or creation times** is matched by the name too, the same way.
+
+**Never a guess.** Two Documents that fit, or none, leave the file a new Document. A Save As copy, a Duplicate ("name copy"), a Save As under a new name, a second link to the same file, a file given a deleted file's number, a file whose name changed as it was edited, a file while its original is still there, any file when two Documents or two new files share its name and no creation time decides, and a Document found missing before the last pass stay separate Documents. What these clues can't tell apart, and so count as the same Document: a Save As under the same name into another folder with the original deleted before IncarnaMind looks, and a different file given a deleted file's name elsewhere on the disk.
+
+The file found is a new version of its Document (ADR-0010): it is processed again, keeps its id, Tags and Folder, and the Citations of the old version keep its text and say the Document changed after they were cited. Its path and content hash change.
+
+**Migration 68** stores the identity beside `path`, in `documents.file_device`, `file_number` and `file_created_ns` (decimal text, since Windows' file numbers don't fit a JavaScript number). They match a file to its Document and never become part of what the Document is. Like `path`, they are this computer's: filled in the next time each file is seen, forgotten when a Document's path is pointed somewhere else (Locate folder…, a moved data folder), and never carried by a sync.
 
 ## When a Linked folder is somewhere else
 
@@ -28,8 +46,7 @@ Files stay where the User keeps them, and IncarnaMind still only reads them (ADR
 
 ## Later kinds
 
-- **A file imported on a phone** is a copy in the app's own container, as a web page's snapshot is in the data folder, with the picker's bookmark kept as a hint to the original, never as its identity. It will be one more `source_kind`. A kind this version doesn't know is left as it is.
-- **A file moved and edited while IncarnaMind didn't see it** (#389) is recognised by a second clue: the file's identity on its disk (device, file number and creation time from `stat`), or one clear candidate. Like `path`, that clue belongs to this computer and is stored beside it; it matches a file to its Document, and never becomes part of what the Document is.
+**A file imported on a phone** is a copy in the app's own container, as a web page's snapshot is in the data folder, with the picker's bookmark kept as a hint to the original, never as its identity. It will be one more `source_kind`. A kind this version doesn't know is left as it is.
 
 ## Consequences
 
@@ -45,28 +62,3 @@ Files stay where the User keeps them, and IncarnaMind still only reads them (ADR
 - **This computer's paths in a table of their own now:** the purest split, but every query that reads a Document's path would join it, for no gain until sync is built; the columns are named in this ADR as this computer's, and a sync can carry the others.
 - **Finding a moved Linked folder by itself,** by searching the disk for its files: slow, often wrong, and it reads folders the User never chose.
 - **A file added on its own known by its path inside the User's home folder:** it breaks as soon as the file moves, and home folders differ between systems.
-
-## Amendment: a file moved and edited is still its Document (2026-10-12, #389)
-
-A file moved and edited where IncarnaMind didn't see it (while it was closed, or into a folder before it looked) has a new path and new content, so neither finds its Document. When its content matches no Document whose file went, a second clue is tried, wherever a moved file is looked for (the watchers, reconciling at a start, a file added by hand):
-
-- **On the same disk** a file keeps its identity there while it is moved or edited in place: its device, file number and creation time, read with Node's `stat` on macOS, Windows and Linux. The creation time tells a file from a later one given the same number after a delete. A Document whose file went with that identity is the file's.
-- **From another disk**, which gives the file a new number, it is the one Document whose file went in this pass or was found missing in the last, on another disk, with the file's name, a size within 10% (16 KB for small files) and an older modified time, provided no other new file in the pass has that name.
-- **Never a guess.** Two Documents that fit, or none, leave the file a new Document, as before. A Save As copy, a Duplicate, a second link to the same file and a file given a deleted file's number stay separate Documents. A file system without file numbers or creation times, and a file an editor saved by replacing it with a new one while IncarnaMind didn't see it, which gives it a new number, were left to the content alone; the next amendment finds them by their name.
-- The file found is a new version of its Document (ADR-0010): it is processed again, keeps its id, Tags, Folder and Citations, and the Citations of the old version keep its text and say the Document changed after they were cited.
-
-**Migration 68** stores the identity beside `path`, in `documents.file_device`, `file_number` and `file_created_ns` (decimal text, since Windows' file numbers don't fit a JavaScript number). Like `path`, they are this computer's: filled in the next time each file is seen, forgotten when a Document's path is pointed somewhere else (Locate folder…, a moved data folder), and never carried by a sync.
-
-## Amendment: a file an editor saved by replacing it (2026-10-13, #604)
-
-Word and Pages save a .docx by writing a new file and putting it in place of the old one, so a file moved and then saved has a new file number, and the rule above missed it: it came back as a new Document without its Tags. Measured on macOS: Word keeps the old file's creation time, to the nanosecond; Pages keeps nothing. Both made the file much larger (3,559 to 12,855 bytes, 3,552 to 7,723).
-
-When a file's content and its identity on its disk match no Document, it is now taken for the one Document whose file went in this pass, or was found missing in the last, with the file's name and extension, on the same disk:
-
-- **The creation time kept** (Word): the Document whose file had the same device and creation time. It holds even when another new file has the name.
-- **Nothing kept** (Pages and others): the Document with an older modified time, if no other new file in the pass has the name. **No size bound** on the same disk: a bound tight enough to tell two files apart turns away real saves, which can make a file four times larger, and a loose one adds nothing to the name, the disk and the old file being gone. From another disk, the size bound above still holds.
-- **Exactly one candidate**, never a live file: two Documents that fit leave the file a new Document, as does a Document whose file is still there.
-
-The Document keeps its id, Tags, Citations and Folder membership; its path, Folder and content hash change, and the new version is processed.
-
-**What these clues can't tell apart, and so now count as the same Document:** a Save As under the same name into another folder, with the original deleted before IncarnaMind looks; a different file given a deleted file's name elsewhere on the disk. **Still new Documents:** a Finder Duplicate ("name copy") and a Save As under a new name, a file whose name changed as it was edited, a file while its original is still there, any file when two Documents or two new files share its name and no creation time decides, and a Document found missing before the last pass. A file system without file numbers or creation times is matched by the name too, the same way.

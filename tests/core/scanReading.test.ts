@@ -13,7 +13,7 @@ import {
   unsureWords,
 } from "../../src/core/documents/scan/layout";
 import { onnxMetadata } from "../../src/core/documents/scan/onnxMetadata";
-import { pictureShare } from "../../src/core/documents/scan/pages";
+import { isScanned, pictureShare } from "../../src/core/documents/scan/pages";
 import { decodeLine, lineFrame } from "../../src/core/documents/scan/recognize";
 import type { TextUnit } from "../../src/shared/units";
 
@@ -498,5 +498,31 @@ describe("Which pages are scans (#397)", () => {
       [OPS.paintImageXObjectRepeat, ["img_p0_1", 595, 84.2, positions]],
     ]);
     expect(await pictureShare(shrunk, OPS)).toBeCloseTo(0.25);
+  });
+
+  // protects=a slide-size page with real text is read as text, while a scan with a stamp stays a scan, at any size; fails_when=the too-little-text bar grows with a page larger than A4 (#3289).
+  test("a slide-size page with a few hundred characters over a large picture is text, not a scan", async () => {
+    /** A page of this size with a picture drawn over its whole area. */
+    const pictured = (width: number, height: number) =>
+      ({
+        view: [0, 0, width, height],
+        getOperatorList: async () => ({
+          fnArray: [OPS.transform, OPS.paintImageXObject],
+          argsArray: [
+            [width, 0, 0, height, 0, 0],
+            ["img_p0_1", 3840, 2160],
+          ],
+        }),
+      }) as unknown as Parameters<typeof isScanned>[0];
+    const slideText = "Quarterly review: harbour traffic, berth use and the dredging plan. ".repeat(
+      4,
+    );
+    expect(slideText.replace(/\s+/g, "").length).toBeGreaterThan(100);
+    expect(slideText.replace(/\s+/g, "").length).toBeLessThan(414);
+    expect(await isScanned(pictured(1920, 1080), slideText, OPS)).toBe(false);
+    expect(await isScanned(pictured(1920, 1080), "Page 12", OPS)).toBe(true);
+    expect(await isScanned(pictured(1191, 1684), "Approved 3 March", OPS)).toBe(true);
+    expect(await isScanned(pictured(595, 842), "Page 3", OPS)).toBe(true);
+    expect(await isScanned(pictured(595, 842), slideText, OPS)).toBe(false);
   });
 });
